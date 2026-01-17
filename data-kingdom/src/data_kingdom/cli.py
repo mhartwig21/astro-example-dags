@@ -32,6 +32,7 @@ from data_kingdom.ledger import (
     PetitionRecord,
     RecordStatus,
     TrialRecord,
+    TrialVerdict,
     generate_child_id,
     generate_id,
 )
@@ -559,6 +560,253 @@ def holding_create(
             border_style="yellow",
         )
     )
+
+
+# =============================================================================
+# COURT COMMANDS
+# =============================================================================
+
+
+@main.group()
+def court():
+    """The Court - evaluates holdings and issues verdicts."""
+    pass
+
+
+@court.command("try")
+@click.argument("holding_id")
+@click.option(
+    "--trials", "-t",
+    multiple=True,
+    help="Specific trials to run (default: all standard trials)",
+)
+@click.option(
+    "--context", "-c",
+    type=(str, str),
+    multiple=True,
+    help="Context key-value pairs for trials (e.g., -c min_rows 1000)",
+)
+def court_try(holding_id: str, trials: tuple, context: tuple):
+    """Hold a trial for a holding. The Court will judge."""
+    from data_kingdom.court import Court
+
+    storage = get_storage()
+
+    try:
+        holding = storage.read(holding_id)
+    except RecordNotFound:
+        console.print(f"[red]Holding not found: {holding_id}[/red]")
+        return
+
+    if not isinstance(holding, HoldingRecord):
+        console.print(f"[red]{holding_id} is not a holding[/red]")
+        return
+
+    # Build context dict from key-value pairs
+    ctx = {}
+    for key, value in context:
+        # Try to parse as number
+        try:
+            ctx[key] = int(value)
+        except ValueError:
+            try:
+                ctx[key] = float(value)
+            except ValueError:
+                ctx[key] = value
+
+    # Initialize court and run trials
+    the_court = Court(storage)
+
+    trials_list = list(trials) if trials else None
+
+    console.print(f"\n[bold]The Court is now in session for:[/bold] {holding.name} v{holding.version}")
+    console.print("[dim]Running trials...[/dim]\n")
+
+    trial_record = the_court.hold_trial(holding, trials=trials_list, context=ctx)
+
+    # Display results
+    verdict_colors = {
+        "approved": "green",
+        "approved_with_conditions": "yellow",
+        "rejected": "red",
+        "pending": "dim",
+    }
+    verdict_color = verdict_colors.get(trial_record.verdict, "white")
+
+    # Results table
+    table = Table(title="Trial Results", show_header=True)
+    table.add_column("Trial", style="cyan")
+    table.add_column("Verdict")
+    table.add_column("Details")
+
+    for evidence in trial_record.trials_run:
+        if evidence.passed:
+            verdict_str = "[green]PASSED[/green]"
+        else:
+            verdict_str = "[red]FAILED[/red]"
+
+        details = evidence.error or "OK"
+        if len(details) > 50:
+            details = details[:47] + "..."
+
+        table.add_row(evidence.name, verdict_str, details)
+
+    console.print(table)
+
+    # Summary
+    passed = sum(1 for e in trial_record.trials_run if e.passed)
+    total = len(trial_record.trials_run)
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Verdict:[/bold] [{verdict_color}]{trial_record.verdict.upper()}[/{verdict_color}]\n"
+            f"[bold]Trials Passed:[/bold] {passed}/{total}\n"
+            f"[bold]Trial ID:[/bold] {trial_record.id}",
+            title="Court Ruling",
+            border_style=verdict_color,
+        )
+    )
+
+    if trial_record.rejection_reasons:
+        console.print("\n[bold red]Rejection Reasons:[/bold red]")
+        for reason in trial_record.rejection_reasons:
+            console.print(f"  - {reason}")
+
+
+@court.command("verdict")
+@click.argument("holding_id")
+def court_verdict(holding_id: str):
+    """Show the latest verdict for a holding."""
+    storage = get_storage()
+
+    try:
+        holding = storage.read(holding_id)
+    except RecordNotFound:
+        console.print(f"[red]Holding not found: {holding_id}[/red]")
+        return
+
+    if not isinstance(holding, HoldingRecord):
+        console.print(f"[red]{holding_id} is not a holding[/red]")
+        return
+
+    trial = storage.get_trial_for_holding(holding_id)
+
+    if not trial:
+        console.print(f"[yellow]No trial on record for {holding_id}[/yellow]")
+        console.print("[dim]Run 'dk court try' to hold a trial.[/dim]")
+        return
+
+    verdict_colors = {
+        "approved": "green",
+        "approved_with_conditions": "yellow",
+        "rejected": "red",
+        "pending": "dim",
+    }
+    verdict_color = verdict_colors.get(trial.verdict, "white")
+
+    console.print(
+        Panel(
+            f"[bold]Holding:[/bold] {holding.name} v{holding.version}\n"
+            f"[bold]Verdict:[/bold] [{verdict_color}]{trial.verdict.upper()}[/{verdict_color}]\n"
+            f"[bold]Trial ID:[/bold] {trial.id}\n"
+            f"[bold]Date:[/bold] {trial.created_at.strftime('%Y-%m-%d %H:%M')}",
+            title="Court Verdict",
+            border_style=verdict_color,
+        )
+    )
+
+
+# =============================================================================
+# CROWN COMMAND
+# =============================================================================
+
+
+@main.command()
+@click.argument("holding_id")
+@click.option(
+    "--to", "-t",
+    "to_station",
+    required=True,
+    type=click.Choice(["staging", "canary", "production"]),
+    help="Station to promote to",
+)
+@click.option(
+    "--witness", "-w",
+    multiple=True,
+    help="Witnesses to the coronation",
+)
+def crown(holding_id: str, to_station: str, witness: tuple):
+    """Crown a holding - promote it to a new station."""
+    from data_kingdom.court import Court
+    from data_kingdom.court.judge import CoronationDenied
+    from data_kingdom.ledger import Station
+
+    storage = get_storage()
+
+    try:
+        holding = storage.read(holding_id)
+    except RecordNotFound:
+        console.print(f"[red]Holding not found: {holding_id}[/red]")
+        return
+
+    if not isinstance(holding, HoldingRecord):
+        console.print(f"[red]{holding_id} is not a holding[/red]")
+        return
+
+    # Map string to Station enum
+    station_map = {
+        "staging": Station.STAGING,
+        "canary": Station.CANARY,
+        "production": Station.PRODUCTION,
+    }
+    target_station = station_map[to_station]
+
+    the_court = Court(storage)
+
+    # Check if allowed
+    allowed, reason = the_court.may_crown(holding, target_station)
+
+    if not allowed:
+        console.print(
+            Panel(
+                f"[bold]Holding:[/bold] {holding.name} v{holding.version}\n"
+                f"[bold]Current Station:[/bold] {holding.current_station.value}\n"
+                f"[bold]Target Station:[/bold] {to_station}\n\n"
+                f"[red]Denied:[/red] {reason}",
+                title="Coronation Denied",
+                border_style="red",
+            )
+        )
+        return
+
+    # Get the current station as string
+    current_station_str = (
+        holding.current_station.value
+        if hasattr(holding.current_station, "value")
+        else holding.current_station
+    )
+
+    try:
+        coronation = the_court.crown(
+            holding,
+            target_station,
+            witnesses=list(witness),
+        )
+
+        console.print(
+            Panel(
+                f"[bold]Holding:[/bold] {holding.name} v{holding.version}\n"
+                f"[bold]Promoted:[/bold] {current_station_str} → {to_station}\n"
+                f"[bold]Coronation ID:[/bold] {coronation.id}\n"
+                f"[bold]Witnesses:[/bold] {', '.join(witness) if witness else 'none'}",
+                title="Coronation Complete",
+                border_style="cyan",
+            )
+        )
+
+    except CoronationDenied as e:
+        console.print(f"[red]Coronation denied: {e}[/red]")
 
 
 if __name__ == "__main__":
