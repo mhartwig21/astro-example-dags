@@ -41,6 +41,12 @@ class Workshop(BaseModel):
     type: WorkshopType = Field(..., description="Type of workshop")
     description: Optional[str] = Field(default=None, description="What this workshop does")
 
+    # Guild assignment - which craft handles this workshop
+    craft: Optional[str] = Field(
+        default=None,
+        description="Craft that handles this workshop (e.g., 'engineer', 'scholar')",
+    )
+
     # Execution configuration
     command: Optional[str] = Field(
         default=None, description="Command to run (for custom workshops)"

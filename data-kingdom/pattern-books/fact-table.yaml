@@ -24,10 +24,12 @@ optional_inputs:
 workshops:
   - name: validate_dimensions
     type: validate
+    craft: scholar  # Scholars verify data model integrity
     description: "Verify all dimension keys are valid"
 
   - name: construct
     type: build
+    craft: engineer  # Engineers build the physical table
     description: "Build the fact table"
     depends_on:
       - validate_dimensions
@@ -37,12 +39,14 @@ workshops:
 
   - name: validate_referential_integrity
     type: validate
+    craft: scholar  # Scholars check referential integrity
     description: "Verify foreign keys reference valid dimensions"
     depends_on:
       - construct
 
   - name: validate_grain
     type: validate
+    craft: scholar  # Scholars verify the grain
     description: "Verify uniqueness at declared grain"
     depends_on:
       - construct
@@ -51,6 +55,7 @@ workshops:
 
   - name: validate_semantics
     type: validate
+    craft: scholar  # Scholars run golden questions
     description: "Run golden questions"
     depends_on:
       - construct

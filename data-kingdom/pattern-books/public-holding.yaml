@@ -25,9 +25,11 @@ optional_inputs:
   - freshness_slo
 
 # Workshops (execution steps)
+# Each workshop is assigned to a craft (guild specialty)
 workshops:
   - name: construct
     type: build
+    craft: engineer  # Engineers build data infrastructure
     description: "Build the dataset from source"
     config:
       output_format: parquet
@@ -35,6 +37,7 @@ workshops:
 
   - name: validate_schema
     type: validate
+    craft: scholar  # Scholars validate semantics and meaning
     description: "Validate schema matches treaty definition"
     depends_on:
       - construct
@@ -43,6 +46,7 @@ workshops:
 
   - name: validate_semantics
     type: validate
+    craft: scholar  # Scholars run golden questions
     description: "Run golden questions to verify meaning"
     depends_on:
       - construct
@@ -51,6 +55,7 @@ workshops:
 
   - name: validate_quality
     type: validate
+    craft: warden  # Wardens check compliance and quality
     description: "Check data quality metrics"
     depends_on:
       - construct

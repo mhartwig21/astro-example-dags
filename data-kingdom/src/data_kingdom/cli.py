@@ -332,6 +332,221 @@ def campaign_list(status: Optional[str], limit: int):
     console.print(table)
 
 
+@campaign.command("execute")
+@click.argument("petition_id")
+@click.option("--pattern", "-p", required=True, help="Pattern book to follow")
+@click.option("--holding", "-h", required=True, help="Name for the holding to produce")
+@click.option("--description", "-d", default="", help="Campaign description")
+@click.option("--auto-summon", "-a", is_flag=True, help="Auto-summon guild members for workshops")
+@click.option("--input", "-i", "inputs", multiple=True, type=(str, str), help="Pattern inputs (key value)")
+def campaign_execute(
+    petition_id: str,
+    pattern: str,
+    holding: str,
+    description: str,
+    auto_summon: bool,
+    inputs: tuple,
+):
+    """Execute a campaign from a pattern book with guild orchestration."""
+    from data_kingdom.campaign import CampaignCoordinator
+
+    storage = get_storage()
+
+    # Verify petition exists
+    try:
+        petition = storage.read(petition_id)
+    except RecordNotFound:
+        console.print(f"[red]Petition not found: {petition_id}[/red]")
+        return
+
+    if not isinstance(petition, PetitionRecord):
+        console.print(f"[red]{petition_id} is not a petition[/red]")
+        return
+
+    # Convert inputs to dict
+    input_dict = {k: v for k, v in inputs}
+
+    # Launch the campaign
+    coordinator = CampaignCoordinator(get_kingdom_root())
+
+    try:
+        campaign = coordinator.launch_from_pattern(
+            petition_id=petition_id,
+            pattern_name=pattern,
+            holding_name=holding,
+            description=description,
+            auto_summon=auto_summon,
+            inputs=input_dict,
+        )
+
+        console.print(Panel(
+            f"[bold]Campaign ID:[/bold] {campaign.id}\n"
+            f"[bold]Pattern:[/bold] {pattern}\n"
+            f"[bold]Holding:[/bold] {holding}\n"
+            f"[bold]Auto-summon:[/bold] {'Yes' if auto_summon else 'No'}\n"
+            f"[bold]Status:[/bold] [green]{campaign.status.value if hasattr(campaign.status, 'value') else campaign.status}[/green]",
+            title="Campaign Executing",
+            border_style="green",
+        ))
+
+        if auto_summon:
+            console.print("\n[bold]Guild members summoned for workshops.[/bold]")
+            console.print("Use 'dk campaign status' to monitor progress.")
+
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Failed to launch campaign: {e}[/red]")
+
+
+@campaign.command("status")
+@click.argument("campaign_id")
+def campaign_status(campaign_id: str):
+    """Show detailed campaign status with guild and workshop info."""
+    from data_kingdom.campaign import CampaignCoordinator
+
+    storage = get_storage()
+
+    try:
+        storage.read(campaign_id)
+    except RecordNotFound:
+        console.print(f"[red]Campaign not found: {campaign_id}[/red]")
+        return
+
+    coordinator = CampaignCoordinator(get_kingdom_root())
+
+    try:
+        status = coordinator.get_campaign_status(campaign_id)
+    except Exception as e:
+        console.print(f"[red]Error getting status: {e}[/red]")
+        return
+
+    campaign = status["campaign"]
+
+    # Campaign overview
+    status_colors = {
+        "active": "green",
+        "succeeded": "blue",
+        "failed": "red",
+        "abandoned": "yellow",
+        "blocked": "red",
+        "planned": "dim",
+    }
+    # Handle both enum and string status
+    status_val = campaign.status.value if hasattr(campaign.status, 'value') else campaign.status
+    status_color = status_colors.get(status_val, "white")
+
+    # Get pattern from pattern_book field or metadata
+    pattern_name = getattr(campaign, 'pattern_book', None)
+    if not pattern_name and campaign.metadata:
+        pattern_name = campaign.metadata.get('pattern')
+
+    console.print(Panel(
+        f"[bold]ID:[/bold] {campaign.id}\n"
+        f"[bold]Objective:[/bold] {campaign.objective}\n"
+        f"[bold]Status:[/bold] [{status_color}]{status_val.upper()}[/{status_color}]\n"
+        f"[bold]Pattern:[/bold] {pattern_name or 'none'}",
+        title="Campaign Status",
+        border_style=status_color,
+    ))
+
+    # Holdings table
+    holdings = status.get("holdings", [])
+    if holdings:
+        table = Table(title="Holdings", show_header=True)
+        table.add_column("ID", style="cyan")
+        table.add_column("Name")
+        table.add_column("Type")
+        table.add_column("Station")
+
+        for h in holdings:
+            station = h.current_station.value if hasattr(h.current_station, 'value') else h.current_station
+            table.add_row(h.id, h.name, h.holding_type, station)
+
+        console.print(table)
+
+    # Workshop status
+    workshop_status = status.get("workshop_status")
+    if workshop_status:
+        console.print()
+        table = Table(title="Workshop Progress", show_header=True)
+        table.add_column("Workshop", style="cyan")
+        table.add_column("Type")
+        table.add_column("Craft")
+        table.add_column("State")
+
+        state_colors = {
+            "completed": "green",
+            "in_progress": "yellow",
+            "pending": "dim",
+        }
+
+        for ws in workshop_status:
+            color = state_colors.get(ws["state"], "white")
+            table.add_row(
+                ws["workshop"],
+                ws["type"],
+                ws["craft"],
+                f"[{color}]{ws['state']}[/{color}]",
+            )
+
+        console.print(table)
+
+    # Active guild members
+    members = status.get("active_members", [])
+    if members:
+        console.print()
+        table = Table(title="Active Guild Members", show_header=True)
+        table.add_column("ID", style="magenta")
+        table.add_column("Craft")
+        table.add_column("Task")
+        table.add_column("Status")
+
+        for m in members:
+            status_val = m.status.value if hasattr(m.status, 'value') else m.status
+            table.add_row(
+                m.id,
+                m.craft.value if hasattr(m.craft, 'value') else m.craft,
+                m.task[:40] + "..." if len(m.task) > 40 else m.task,
+                f"[green]{status_val}[/green]",
+            )
+
+        console.print(table)
+
+    # Posts
+    posts = status.get("posts", [])
+    if posts:
+        console.print()
+        console.print(f"[dim]Posts: {len(posts)} workspace(s) established[/dim]")
+
+
+@campaign.command("summon-workshop")
+@click.argument("campaign_id")
+@click.argument("workshop_name")
+def campaign_summon_workshop(campaign_id: str, workshop_name: str):
+    """Summon a guild member for a specific workshop in a pattern-based campaign."""
+    from data_kingdom.campaign import CampaignCoordinator
+
+    coordinator = CampaignCoordinator(get_kingdom_root())
+
+    try:
+        member = coordinator.summon_for_workshop(campaign_id, workshop_name)
+
+        console.print(Panel(
+            f"[bold]Member ID:[/bold] {member.id}\n"
+            f"[bold]Craft:[/bold] {member.craft.value}\n"
+            f"[bold]Workshop:[/bold] {workshop_name}\n"
+            f"[bold]Post:[/bold] {member.post_id}",
+            title="Guild Member Summoned for Workshop",
+            border_style="magenta",
+        ))
+
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+    except Exception as e:
+        console.print(f"[red]Failed to summon: {e}[/red]")
+
+
 # =============================================================================
 # LEDGER COMMANDS
 # =============================================================================
@@ -899,6 +1114,7 @@ def pattern_show(pattern_name: str):
         table = Table(show_header=True, box=None)
         table.add_column("Step", style="cyan")
         table.add_column("Type")
+        table.add_column("Craft", style="magenta")
         table.add_column("Description")
         table.add_column("Trials After")
 
@@ -906,6 +1122,7 @@ def pattern_show(pattern_name: str):
             table.add_row(
                 w.name,
                 w.type.value,
+                w.craft or "auto",
                 w.description or "",
                 ", ".join(w.trials_after) if w.trials_after else "-",
             )
