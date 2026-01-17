@@ -1,0 +1,90 @@
+# Pattern Book: Fact Table
+#
+# Pattern for creating dimensional fact tables.
+# Fact tables are the core of analytical data models.
+
+name: fact-table
+version: "1.0.0"
+description: "Pattern for dimensional fact tables with strict SLOs"
+
+holding_type: dataset
+
+required_inputs:
+  - holding_name
+  - realm
+  - treaty
+  - grain          # What does one row represent?
+  - dimensions     # List of dimension foreign keys
+
+optional_inputs:
+  - partition_key
+  - retention_days
+  - update_strategy  # append, overwrite, merge
+
+workshops:
+  - name: validate_dimensions
+    type: validate
+    description: "Verify all dimension keys are valid"
+
+  - name: construct
+    type: build
+    description: "Build the fact table"
+    depends_on:
+      - validate_dimensions
+    config:
+      output_format: parquet
+      partition_by: ds
+
+  - name: validate_referential_integrity
+    type: validate
+    description: "Verify foreign keys reference valid dimensions"
+    depends_on:
+      - construct
+
+  - name: validate_grain
+    type: validate
+    description: "Verify uniqueness at declared grain"
+    depends_on:
+      - construct
+    trials_after:
+      - row_count_bounds
+
+  - name: validate_semantics
+    type: validate
+    description: "Run golden questions"
+    depends_on:
+      - construct
+    trials_after:
+      - golden_questions
+
+mandatory_trials:
+  - schema_integrity
+  - null_rate
+  - row_count_bounds
+  - golden_questions
+  - freshness
+
+promotion:
+  stations:
+    - development
+    - staging
+    - canary
+    - production
+  canary_duration: "48h"
+  canary_percentage: 10
+
+rollback:
+  triggers:
+    - trial_failure_in_production
+    - chronicle_declared
+  strategy: restore_previous
+  require_approval: true
+
+requires_treaty: true
+requires_golden_questions: true
+
+tags:
+  - fact-table
+  - dimensional
+  - analytics
+owner: data-platform

@@ -809,5 +809,149 @@ def crown(holding_id: str, to_station: str, witness: tuple):
         console.print(f"[red]Coronation denied: {e}[/red]")
 
 
+# =============================================================================
+# PATTERN COMMANDS
+# =============================================================================
+
+
+@main.group()
+def pattern():
+    """Manage Pattern Books (blessed templates for work)."""
+    pass
+
+
+@pattern.command("list")
+@click.option("--tag", "-t", default=None, help="Filter by tag")
+@click.option("--type", "-T", "holding_type", default=None, help="Filter by holding type")
+def pattern_list(tag: Optional[str], holding_type: Optional[str]):
+    """List available Pattern Books."""
+    from data_kingdom.pattern import PatternRegistry
+
+    registry = PatternRegistry(get_kingdom_root())
+
+    if tag:
+        patterns = registry.list_by_tag(tag)
+    elif holding_type:
+        patterns = registry.list_by_holding_type(holding_type)
+    else:
+        patterns = registry.list_all()
+
+    if not patterns:
+        console.print("[dim]No patterns found[/dim]")
+        return
+
+    table = Table(title="Pattern Books", show_header=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Version")
+    table.add_column("Description")
+    table.add_column("Type")
+    table.add_column("Trials")
+    table.add_column("Tags")
+
+    for p in patterns:
+        table.add_row(
+            p.name,
+            p.version,
+            p.description[:40] + "..." if len(p.description) > 40 else p.description,
+            p.holding_type,
+            str(len(p.mandatory_trials)),
+            ", ".join(p.tags[:3]),
+        )
+
+    console.print(table)
+
+
+@pattern.command("show")
+@click.argument("pattern_name")
+def pattern_show(pattern_name: str):
+    """Show details of a Pattern Book."""
+    from data_kingdom.pattern import PatternRegistry
+    from data_kingdom.pattern.registry import PatternNotFound
+
+    registry = PatternRegistry(get_kingdom_root())
+
+    try:
+        p = registry.get(pattern_name)
+    except PatternNotFound as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    # Header
+    console.print()
+    console.print(Panel(
+        f"[bold]Description:[/bold] {p.description}\n"
+        f"[bold]Version:[/bold] {p.version}\n"
+        f"[bold]Holding Type:[/bold] {p.holding_type}\n"
+        f"[bold]Owner:[/bold] {p.owner or 'unspecified'}",
+        title=f"Pattern Book: {p.name}",
+        border_style="blue",
+    ))
+
+    # Required inputs
+    if p.required_inputs:
+        console.print("\n[bold]Required Inputs:[/bold]")
+        for inp in p.required_inputs:
+            console.print(f"  - {inp}")
+
+    # Workshops
+    if p.workshops:
+        console.print("\n[bold]Workshops:[/bold]")
+        table = Table(show_header=True, box=None)
+        table.add_column("Step", style="cyan")
+        table.add_column("Type")
+        table.add_column("Description")
+        table.add_column("Trials After")
+
+        for w in p.workshops:
+            table.add_row(
+                w.name,
+                w.type.value,
+                w.description or "",
+                ", ".join(w.trials_after) if w.trials_after else "-",
+            )
+
+        console.print(table)
+
+    # Trials
+    console.print("\n[bold]Mandatory Trials:[/bold]")
+    for trial in p.mandatory_trials:
+        console.print(f"  - {trial}")
+
+    # Promotion path
+    console.print("\n[bold]Promotion Path:[/bold]")
+    path = " → ".join(p.promotion.stations)
+    console.print(f"  {path}")
+
+    if p.promotion.canary_duration:
+        console.print(f"  [dim]Canary: {p.promotion.canary_duration} at {p.promotion.canary_percentage}%[/dim]")
+
+    # Rollback
+    console.print("\n[bold]Rollback:[/bold]")
+    console.print(f"  Strategy: {p.rollback.strategy.value}")
+    console.print(f"  Triggers: {', '.join(t.value for t in p.rollback.triggers)}")
+
+    # Requirements
+    console.print("\n[bold]Requirements:[/bold]")
+    console.print(f"  Treaty required: {'yes' if p.requires_treaty else 'no'}")
+    console.print(f"  Golden questions required: {'yes' if p.requires_golden_questions else 'no'}")
+
+
+@pattern.command("validate")
+@click.argument("pattern_name")
+@click.option("--realm", "-r", required=True, help="Realm to validate against")
+def pattern_validate(pattern_name: str, realm: str):
+    """Validate if a pattern can be used in a realm."""
+    from data_kingdom.pattern import PatternRegistry
+
+    registry = PatternRegistry(get_kingdom_root())
+
+    allowed, reason = registry.validate_for_realm(pattern_name, realm)
+
+    if allowed:
+        console.print(f"[green]Pattern '{pattern_name}' is allowed in realm '{realm}'[/green]")
+    else:
+        console.print(f"[red]{reason}[/red]")
+
+
 if __name__ == "__main__":
     main()

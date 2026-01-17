@@ -1,0 +1,118 @@
+# Pattern Book: Public Holding
+#
+# The standard pattern for producing a public dataset with a treaty.
+# This is the most common pattern for data that crosses realm boundaries.
+#
+# Usage:
+#   dk campaign launch <petition_id> --pattern public-holding
+
+name: public-holding
+version: "1.0.0"
+description: "Standard pattern for producing a public dataset with treaty"
+
+# What this pattern produces
+holding_type: dataset
+
+# Required inputs when using this pattern
+required_inputs:
+  - holding_name
+  - realm
+  - treaty    # Path to treaty YAML file
+
+optional_inputs:
+  - source_query
+  - partition_key
+  - freshness_slo
+
+# Workshops (execution steps)
+workshops:
+  - name: construct
+    type: build
+    description: "Build the dataset from source"
+    config:
+      output_format: parquet
+      compression: snappy
+
+  - name: validate_schema
+    type: validate
+    description: "Validate schema matches treaty definition"
+    depends_on:
+      - construct
+    trials_after:
+      - schema_integrity
+
+  - name: validate_semantics
+    type: validate
+    description: "Run golden questions to verify meaning"
+    depends_on:
+      - construct
+    trials_after:
+      - golden_questions
+
+  - name: validate_quality
+    type: validate
+    description: "Check data quality metrics"
+    depends_on:
+      - construct
+    trials_after:
+      - null_rate
+      - row_count_bounds
+
+# Trials that must pass before any promotion
+mandatory_trials:
+  - schema_integrity
+  - null_rate
+  - row_count_bounds
+  - golden_questions
+  - freshness
+
+# Optional but recommended trials
+optional_trials:
+  - cost_check
+  - privacy_scan
+
+# Promotion path configuration
+promotion:
+  stations:
+    - development
+    - staging
+    - canary
+    - production
+
+  # Extra trials required at each stage
+  staging_requires:
+    - schema_integrity
+    - null_rate
+
+  canary_requires:
+    - golden_questions
+
+  production_requires:
+    - freshness
+
+  # Canary configuration
+  canary_duration: "24h"
+  canary_percentage: 5
+
+# Rollback configuration
+rollback:
+  triggers:
+    - trial_failure_in_production
+    - chronicle_declared
+  strategy: restore_previous
+  notify:
+    - data-platform-oncall
+  require_approval: false
+
+# Governance
+requires_treaty: true
+requires_golden_questions: true
+allowed_realms: []  # Empty means all realms can use this
+
+# Metadata
+tags:
+  - dataset
+  - public
+  - treaty
+  - standard
+owner: data-platform
