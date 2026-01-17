@@ -1267,5 +1267,226 @@ def treaty_dependents(realm_name: str, treaty_name: str):
         console.print(f"  - {dep}")
 
 
+# =============================================================================
+# GUILD COMMANDS
+# =============================================================================
+
+
+@main.group()
+def guild():
+    """Manage Guilds (specialized workers for campaigns)."""
+    pass
+
+
+@guild.command("crafts")
+def guild_crafts():
+    """List available crafts (specializations)."""
+    from data_kingdom.guild.models import Craft, CRAFT_DESCRIPTIONS
+
+    table = Table(title="Guild Crafts", show_header=True)
+    table.add_column("Craft", style="cyan")
+    table.add_column("Description")
+
+    for craft in Craft:
+        desc = CRAFT_DESCRIPTIONS.get(craft, "")
+        # Truncate description
+        short_desc = desc.split(".")[0] if desc else craft.value
+        table.add_row(craft.value, short_desc)
+
+    console.print(table)
+
+
+@guild.command("summon")
+@click.argument("campaign_id")
+@click.option(
+    "--craft", "-c",
+    type=click.Choice([c.value for c in __import__("data_kingdom.guild.models", fromlist=["Craft"]).Craft]),
+    default=None,
+    help="Craft to summon (auto-detected if not specified)",
+)
+@click.option("--task", "-t", required=True, help="Task for the guild member")
+@click.option("--background", "-b", is_flag=True, help="Run in background")
+def guild_summon(campaign_id: str, craft: Optional[str], task: str, background: bool):
+    """Summon a guild member to work on a campaign task."""
+    from data_kingdom.guild import GuildSpawner, Craft
+    from data_kingdom.guild.spawner import SpawnError
+
+    storage = get_storage()
+
+    # Verify campaign exists
+    try:
+        campaign = storage.read(campaign_id)
+    except RecordNotFound:
+        console.print(f"[red]Campaign not found: {campaign_id}[/red]")
+        return
+
+    spawner = GuildSpawner(get_kingdom_root())
+
+    # Determine craft
+    if craft:
+        craft_enum = Craft(craft)
+    else:
+        craft_enum = spawner.get_craft_for_task(task)
+        console.print(f"[dim]Auto-selected craft: {craft_enum.value}[/dim]")
+
+    try:
+        member = spawner.summon(
+            campaign_id=campaign_id,
+            craft=craft_enum,
+            task=task,
+            background=background,
+        )
+
+        console.print(Panel(
+            f"[bold]Member ID:[/bold] {member.id}\n"
+            f"[bold]Craft:[/bold] {member.craft.value}\n"
+            f"[bold]Campaign:[/bold] {campaign_id}\n"
+            f"[bold]Task:[/bold] {task}\n"
+            f"[bold]Post:[/bold] {member.post_id}\n"
+            f"[bold]Status:[/bold] [green]{member.status.value}[/green]",
+            title="Guild Member Summoned",
+            border_style="magenta",
+        ))
+
+        if not background and member.metadata and "command" in member.metadata:
+            console.print("\n[bold]To start the agent, run:[/bold]")
+            console.print(f"  {' '.join(member.metadata['command'])}")
+
+    except SpawnError as e:
+        console.print(f"[red]Failed to summon: {e}[/red]")
+
+
+@guild.command("list")
+@click.option("--campaign", "-c", default=None, help="Filter by campaign")
+@click.option("--all", "-a", "show_all", is_flag=True, help="Show all members (including dismissed)")
+def guild_list(campaign: Optional[str], show_all: bool):
+    """List guild members."""
+    from data_kingdom.guild import GuildSpawner
+
+    spawner = GuildSpawner(get_kingdom_root())
+
+    if show_all:
+        members = spawner.list_all()
+    else:
+        members = spawner.list_active(campaign)
+
+    if not members:
+        console.print("[dim]No guild members found[/dim]")
+        return
+
+    table = Table(title="Guild Members", show_header=True)
+    table.add_column("ID", style="cyan")
+    table.add_column("Craft")
+    table.add_column("Campaign")
+    table.add_column("Task")
+    table.add_column("Status")
+
+    status_colors = {
+        "active": "green",
+        "idle": "yellow",
+        "blocked": "red",
+        "dismissed": "dim",
+        "summoning": "blue",
+    }
+
+    for m in members:
+        color = status_colors.get(m.status.value, "white")
+        table.add_row(
+            m.id,
+            m.craft.value,
+            m.campaign_id[:20],
+            m.task[:30] + "..." if len(m.task) > 30 else m.task,
+            f"[{color}]{m.status.value}[/{color}]",
+        )
+
+    console.print(table)
+
+
+@guild.command("posts")
+@click.argument("campaign_id")
+def guild_posts(campaign_id: str):
+    """List posts (workspaces) for a campaign."""
+    from data_kingdom.guild import PostMaster
+
+    post_master = PostMaster(get_kingdom_root())
+
+    posts = post_master.list_for_campaign(campaign_id)
+
+    if not posts:
+        console.print(f"[dim]No posts found for campaign {campaign_id}[/dim]")
+        return
+
+    table = Table(title=f"Posts for {campaign_id}", show_header=True)
+    table.add_column("ID", style="cyan")
+    table.add_column("Craft")
+    table.add_column("Current Task")
+    table.add_column("Completed")
+    table.add_column("Path")
+
+    for p in posts:
+        table.add_row(
+            p.id,
+            p.craft.value,
+            p.current_task[:25] + "..." if p.current_task and len(p.current_task) > 25 else (p.current_task or "-"),
+            str(len(p.completed_tasks)),
+            p.path[-40:] if len(p.path) > 40 else p.path,
+        )
+
+    console.print(table)
+
+
+@guild.command("notes")
+@click.argument("post_id")
+def guild_notes(post_id: str):
+    """Show notes from a post."""
+    from data_kingdom.guild import PostMaster
+    from data_kingdom.guild.post_master import PostNotFound
+
+    post_master = PostMaster(get_kingdom_root())
+
+    try:
+        notes = post_master.get_notes(post_id)
+    except PostNotFound:
+        console.print(f"[red]Post not found: {post_id}[/red]")
+        return
+
+    if not notes:
+        console.print("[dim]No notes at this post[/dim]")
+        return
+
+    console.print(Panel(notes, title=f"Notes: {post_id}", border_style="dim"))
+
+
+@guild.command("dismiss")
+@click.argument("member_id")
+@click.option("--reason", "-r", default="manual dismissal", help="Reason for dismissal")
+@click.option(
+    "--outcome", "-o",
+    type=click.Choice(["completed", "failed", "manual"]),
+    default="manual",
+    help="Outcome of the work",
+)
+def guild_dismiss(member_id: str, reason: str, outcome: str):
+    """Dismiss a guild member."""
+    from data_kingdom.guild import GuildSpawner
+
+    spawner = GuildSpawner(get_kingdom_root())
+
+    try:
+        dismissal = spawner.dismiss(member_id, reason, outcome)
+
+        console.print(Panel(
+            f"[bold]Member:[/bold] {member_id}\n"
+            f"[bold]Reason:[/bold] {reason}\n"
+            f"[bold]Outcome:[/bold] {outcome}\n"
+            f"[bold]Tasks Completed:[/bold] {len(dismissal.tasks_completed)}",
+            title="Guild Member Dismissed",
+            border_style="yellow",
+        ))
+
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+
+
 if __name__ == "__main__":
     main()
