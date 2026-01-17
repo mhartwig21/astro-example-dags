@@ -953,5 +953,319 @@ def pattern_validate(pattern_name: str, realm: str):
         console.print(f"[red]{reason}[/red]")
 
 
+# =============================================================================
+# REALM COMMANDS
+# =============================================================================
+
+
+@main.group()
+def realm():
+    """Manage Realms (feudal territories)."""
+    pass
+
+
+@realm.command("list")
+def realm_list():
+    """List all realms in the Kingdom."""
+    from data_kingdom.realm import RealmRegistry
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    realms = registry.list_realms()
+
+    if not realms:
+        console.print("[dim]No realms found. Create one with 'dk realm init'[/dim]")
+        return
+
+    table = Table(title="Realms", show_header=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Ruler")
+    table.add_column("Fiefs")
+    table.add_column("Treaties")
+    table.add_column("Status")
+
+    for r in realms:
+        treaty_count = len(registry.list_treaties(r.name))
+        status_str = r.status.value if hasattr(r.status, "value") else str(r.status)
+        status_color = "green" if status_str == "active" else "yellow"
+
+        table.add_row(
+            r.name,
+            r.ruler,
+            str(len(r.fiefs)),
+            str(treaty_count),
+            f"[{status_color}]{status_str}[/{status_color}]",
+        )
+
+    console.print(table)
+
+
+@realm.command("show")
+@click.argument("realm_name")
+def realm_show(realm_name: str):
+    """Show details of a realm."""
+    from data_kingdom.realm import RealmRegistry
+    from data_kingdom.realm.registry import RealmNotFound
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    try:
+        r = registry.get_realm(realm_name)
+    except RealmNotFound as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    # Header
+    console.print()
+    status_color = "green" if r.status == "active" else "yellow"
+    console.print(Panel(
+        f"[bold]Description:[/bold] {r.description or 'No description'}\n"
+        f"[bold]Ruler:[/bold] {r.ruler}\n"
+        f"[bold]Stewards:[/bold] {', '.join(r.stewards) if r.stewards else 'none'}\n"
+        f"[bold]Status:[/bold] [{status_color}]{r.status}[/{status_color}]",
+        title=f"Realm: {r.name}",
+        border_style="blue",
+    ))
+
+    # Fiefs
+    if r.fiefs:
+        console.print("\n[bold]Fiefs:[/bold]")
+        for fief in r.fiefs:
+            owner = f" ({fief.owner})" if fief.owner else ""
+            console.print(f"  - {fief.name}{owner}")
+
+    # Laws
+    if r.laws:
+        console.print("\n[bold]Laws:[/bold]")
+        for law in r.laws:
+            console.print(f"  - {law}")
+
+    # Treaties
+    treaties = registry.list_treaties(realm_name)
+    if treaties:
+        console.print("\n[bold]Treaties:[/bold]")
+        for t in treaties:
+            public = " [public]" if t.public else ""
+            console.print(f"  - {t.name} v{t.version}{public}")
+
+    # Dependencies
+    deps = registry.get_realm_dependencies(realm_name)
+    if deps:
+        console.print("\n[bold]Dependencies:[/bold]")
+        for dep in deps:
+            status = "[green]granted[/green]" if dep["granted"] else "[red]denied[/red]"
+            console.print(f"  - {dep['realm']}.{dep['treaty']} ({status})")
+
+
+@realm.command("init")
+@click.argument("realm_name")
+@click.option("--ruler", "-r", required=True, help="Who rules this realm")
+@click.option("--description", "-d", default="", help="Realm description")
+def realm_init(realm_name: str, ruler: str, description: str):
+    """Initialize a new realm."""
+    from data_kingdom.realm import RealmRegistry
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    if registry.realm_exists(realm_name):
+        console.print(f"[yellow]Realm '{realm_name}' already exists[/yellow]")
+        return
+
+    path = registry.initialize_realm(realm_name, ruler, description)
+
+    console.print(Panel(
+        f"[bold]Realm:[/bold] {realm_name}\n"
+        f"[bold]Ruler:[/bold] {ruler}\n"
+        f"[bold]Path:[/bold] {path}",
+        title="Realm Initialized",
+        border_style="green",
+    ))
+
+
+# =============================================================================
+# TREATY COMMANDS
+# =============================================================================
+
+
+@main.group()
+def treaty():
+    """Manage Treaties (public interfaces between realms)."""
+    pass
+
+
+@treaty.command("list")
+@click.option("--realm", "-r", "realm_name", default=None, help="Filter by realm")
+@click.option("--public", "-p", is_flag=True, help="Show only public treaties")
+def treaty_list(realm_name: Optional[str], public: bool):
+    """List treaties."""
+    from data_kingdom.realm import RealmRegistry
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    if realm_name:
+        treaties = registry.list_treaties(realm_name)
+    else:
+        treaties = registry.list_all_treaties()
+
+    if public:
+        treaties = [t for t in treaties if t.public]
+
+    if not treaties:
+        console.print("[dim]No treaties found[/dim]")
+        return
+
+    table = Table(title="Treaties", show_header=True)
+    table.add_column("Name", style="cyan")
+    table.add_column("Version")
+    table.add_column("Realm")
+    table.add_column("Public")
+    table.add_column("Grants")
+    table.add_column("Freshness")
+
+    for t in treaties:
+        public_str = "[green]yes[/green]" if t.public else "no"
+        grants = len(t.granted_to) if not t.public else "all"
+
+        table.add_row(
+            t.name,
+            t.version,
+            t.realm,
+            public_str,
+            str(grants),
+            t.guarantees.freshness,
+        )
+
+    console.print(table)
+
+
+@treaty.command("show")
+@click.argument("realm_name")
+@click.argument("treaty_name")
+def treaty_show(realm_name: str, treaty_name: str):
+    """Show details of a treaty."""
+    from data_kingdom.realm import RealmRegistry
+    from data_kingdom.realm.registry import RealmNotFound, TreatyNotFound
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    try:
+        t = registry.get_treaty(realm_name, treaty_name)
+    except (RealmNotFound, TreatyNotFound) as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    # Header
+    console.print()
+    public_str = "[green]PUBLIC[/green]" if t.public else "[yellow]RESTRICTED[/yellow]"
+    console.print(Panel(
+        f"[bold]Version:[/bold] {t.version}\n"
+        f"[bold]Realm:[/bold] {t.realm}\n"
+        f"[bold]Fief:[/bold] {t.fief or 'none'}\n"
+        f"[bold]Access:[/bold] {public_str}\n"
+        f"[bold]Owner:[/bold] {t.owner or 'unspecified'}",
+        title=f"Treaty: {t.name}",
+        border_style="cyan",
+    ))
+
+    # Semantic definition
+    if t.definition:
+        console.print("\n[bold]Definition:[/bold]")
+        console.print(Panel(t.definition.strip(), border_style="dim"))
+
+    # Schema
+    if t.schema_columns:
+        console.print("\n[bold]Schema:[/bold]")
+        table = Table(show_header=True, box=None)
+        table.add_column("Column", style="cyan")
+        table.add_column("Type")
+        table.add_column("Nullable")
+        table.add_column("Description")
+
+        for col in t.schema_columns:
+            nullable = "yes" if col.nullable else "no"
+            table.add_row(
+                col.name,
+                col.type,
+                nullable,
+                (col.description or "")[:40],
+            )
+
+        console.print(table)
+
+    # Golden questions
+    if t.golden_questions:
+        console.print("\n[bold]Golden Questions:[/bold]")
+        for gq in t.golden_questions:
+            console.print(f"  - {gq.question}")
+            console.print(f"    Expected: {gq.expected} (±{gq.tolerance:.0%})")
+
+    # Guarantees
+    console.print("\n[bold]Guarantees:[/bold]")
+    console.print(f"  Freshness: {t.guarantees.freshness}")
+    console.print(f"  Availability: {t.guarantees.availability}")
+    if t.guarantees.backfill_policy:
+        console.print(f"  Backfill: {t.guarantees.backfill_policy}")
+
+    # Grants
+    if not t.public and t.granted_to:
+        console.print("\n[bold]Granted To:[/bold]")
+        for grant in t.granted_to:
+            fief_str = f".{grant.fief}" if grant.fief else ""
+            console.print(f"  - {grant.realm}{fief_str}")
+
+
+@treaty.command("check")
+@click.argument("requesting_realm")
+@click.argument("target_realm")
+@click.argument("treaty_name")
+def treaty_check(requesting_realm: str, target_realm: str, treaty_name: str):
+    """Check if a realm can access a treaty (border control)."""
+    from data_kingdom.realm import RealmRegistry
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    allowed, reason = registry.check_access(
+        requesting_realm, target_realm, treaty_name
+    )
+
+    if allowed:
+        console.print(
+            f"[green]Access GRANTED: '{requesting_realm}' can depend on "
+            f"'{target_realm}.{treaty_name}'[/green]"
+        )
+        console.print(f"[dim]Reason: {reason}[/dim]")
+    else:
+        console.print(
+            f"[red]Access DENIED: '{requesting_realm}' cannot depend on "
+            f"'{target_realm}.{treaty_name}'[/red]"
+        )
+        console.print(f"[dim]Reason: {reason}[/dim]")
+
+
+@treaty.command("dependents")
+@click.argument("realm_name")
+@click.argument("treaty_name")
+def treaty_dependents(realm_name: str, treaty_name: str):
+    """Show realms that depend on a treaty."""
+    from data_kingdom.realm import RealmRegistry
+    from data_kingdom.realm.registry import TreatyNotFound
+
+    registry = RealmRegistry(get_kingdom_root())
+
+    try:
+        dependents = registry.get_treaty_dependents(realm_name, treaty_name)
+    except TreatyNotFound as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    if not dependents:
+        console.print(f"[dim]No realms depend on {realm_name}.{treaty_name}[/dim]")
+        return
+
+    console.print(f"[bold]Realms that can depend on {realm_name}.{treaty_name}:[/bold]")
+    for dep in dependents:
+        console.print(f"  - {dep}")
+
+
 if __name__ == "__main__":
     main()

@@ -1,0 +1,43 @@
+# Realm: Analytics
+#
+# The Analytics realm governs all analytical data products,
+# including metrics, experiments, and reporting.
+
+name: analytics
+description: "Analytical data products, metrics, and reporting"
+status: active
+
+ruler: analytics-platform-team
+stewards:
+  - data-engineering-lead
+  - analytics-lead
+
+fiefs:
+  - name: metrics
+    description: "Core metrics and KPIs"
+    owner: metrics-team
+  - name: experiments
+    description: "A/B testing and experimentation"
+    owner: experimentation-team
+  - name: reporting
+    description: "Executive and business reporting"
+    owner: bi-team
+
+# Realm-specific laws (beyond Crown law)
+laws:
+  - "All public holdings must have golden questions"
+  - "All treaties must declare freshness SLO"
+  - "No PII in treaty schemas without warden approval"
+  - "Metrics must have documented methodology"
+
+# Dependencies on other realms (via treaties)
+dependencies:
+  - realm: core
+    treaty: user_dimension
+  - realm: core
+    treaty: date_dimension
+
+tags:
+  - analytics
+  - metrics
+  - reporting

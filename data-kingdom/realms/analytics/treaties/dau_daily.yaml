@@ -1,0 +1,93 @@
+# Treaty: dau_daily
+#
+# Daily Active Users - the canonical definition of user activity.
+# This is the standard DAU metric used across the organization.
+
+name: dau_daily
+version: "3.0.0"
+realm: analytics
+fief: metrics
+
+description: "Daily Active Users - canonical user activity metric"
+
+# Who can depend on this treaty
+granted_to:
+  - realm: ads
+  - realm: integrity
+  - realm: executive
+  - realm: ml
+
+# Not public - requires explicit grant
+public: false
+
+# Schema definition
+schema:
+  - name: ds
+    type: date
+    description: "The calendar date of activity"
+    nullable: false
+  - name: user_id
+    type: bigint
+    description: "Canonical user identifier from core.user_dimension"
+    nullable: false
+  - name: platform
+    type: string
+    description: "Primary platform of activity"
+    nullable: false
+    enum:
+      - ios
+      - android
+      - web
+      - other
+  - name: country_code
+    type: string
+    description: "ISO 3166-1 alpha-2 country code"
+    nullable: true
+  - name: is_new_user
+    type: boolean
+    description: "Whether this was the user's first active day"
+    nullable: false
+
+# The semantic contract (this is law, not documentation)
+definition: |
+  A user is considered "active" on date D if they performed at least one
+  qualifying action (view, click, post, react) on that date.
+
+  Qualifying actions are defined in core.activity_taxonomy v2.1.
+
+  Important exclusions:
+  - Bot traffic is excluded via core.bot_detection
+  - Test accounts (user_id < 1000) are excluded
+  - Actions during maintenance windows are excluded
+
+# Golden questions - semantic tests
+golden_questions:
+  - question: "Total DAU on 2026-01-15"
+    expected: 1234567
+    tolerance: 0.01
+  - question: "iOS share of DAU on 2026-01-15"
+    expected: 0.42
+    tolerance: 0.05
+  - question: "New user percentage on 2026-01-15"
+    expected: 0.08
+    tolerance: 0.1
+
+# SLOs and guarantees
+guarantees:
+  freshness: "24h"
+  availability: "99.9%"
+  backfill_policy: "90 days on request, requires approval"
+
+# Versioning policy
+breaking_change_policy: "Require new major version and 30-day deprecation"
+
+deprecated_versions:
+  - version: "2.0.0"
+    sunset_date: "2026-03-01"
+    migration_guide: "docs/migrations/dau_v2_to_v3.md"
+
+owner: metrics-team
+tags:
+  - metrics
+  - dau
+  - core-kpi

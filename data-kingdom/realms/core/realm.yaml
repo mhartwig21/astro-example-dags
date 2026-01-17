@@ -1,0 +1,39 @@
+# Realm: Core
+#
+# The Core realm provides foundational data that other realms depend on.
+# This includes user dimensions, date dimensions, and other reference data.
+
+name: core
+description: "Foundational data - dimensions, reference data, taxonomy"
+status: active
+
+ruler: data-platform-team
+stewards:
+  - core-data-lead
+  - identity-team-lead
+
+fiefs:
+  - name: users
+    description: "User identity and dimensions"
+    owner: identity-team
+  - name: reference
+    description: "Reference data and taxonomies"
+    owner: data-platform-team
+  - name: geography
+    description: "Geographic hierarchies and mappings"
+    owner: data-platform-team
+
+# Core realm laws
+laws:
+  - "All dimension tables must be SCD Type 2"
+  - "User PII requires explicit purpose declaration"
+  - "Reference data changes require 7-day notice"
+  - "All core tables must have 99.99% availability"
+
+# Core realm has no external dependencies
+dependencies: []
+
+tags:
+  - core
+  - dimensions
+  - reference

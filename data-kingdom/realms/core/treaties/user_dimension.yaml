@@ -1,0 +1,78 @@
+# Treaty: user_dimension
+#
+# The canonical user dimension table.
+# This is the single source of truth for user identity.
+
+name: user_dimension
+version: "2.1.0"
+realm: core
+fief: users
+
+description: "Canonical user dimension - single source of truth for user identity"
+
+# This is a public treaty - any realm can depend on it
+public: true
+
+# Schema definition
+schema:
+  - name: user_id
+    type: bigint
+    description: "Primary key - canonical user identifier"
+    nullable: false
+  - name: created_at
+    type: timestamp
+    description: "When the user account was created"
+    nullable: false
+  - name: country_code
+    type: string
+    description: "ISO 3166-1 alpha-2 country code"
+    nullable: true
+  - name: signup_platform
+    type: string
+    description: "Platform where user signed up"
+    enum:
+      - ios
+      - android
+      - web
+    nullable: true
+  - name: is_active
+    type: boolean
+    description: "Whether the account is currently active"
+    nullable: false
+  - name: is_test_account
+    type: boolean
+    description: "Whether this is a test/internal account"
+    nullable: false
+
+# Semantic definition
+definition: |
+  The user_dimension table contains one row per registered user.
+  It is the canonical source for user identity across the organization.
+
+  User IDs are stable and never reused. Deleted accounts are marked
+  with is_active = false but the row is retained.
+
+  This table is SCD Type 2 - historical changes are tracked via
+  the user_dimension_history table.
+
+# Golden questions
+golden_questions:
+  - question: "Total registered users as of 2026-01-15"
+    expected: 50000000
+    tolerance: 0.001
+  - question: "Percentage of test accounts"
+    expected: 0.0001
+    tolerance: 0.5
+
+# Guarantees
+guarantees:
+  freshness: "1h"
+  availability: "99.99%"
+  backfill_policy: "Historical data is immutable"
+
+owner: identity-team
+tags:
+  - dimension
+  - users
+  - identity
+  - core
