@@ -10,6 +10,7 @@ const COLORS = {
   floor: "#22222f",
   floorAlt: "#26263a",
   stairs: "#c9a24b",
+  door: "#d4af37",
   player: "#4fd1ff",
   playerSwing: "#eaf6ff",
   monster: "#e2574c",
@@ -98,6 +99,15 @@ export function render(
         ctx.fillRect(px + 3, py + 3, T - 6, T - 6);
         ctx.fillStyle = "#0a0a0f";
         for (let i = 0; i < 3; i++) ctx.fillRect(px + 6, py + 8 + i * 6, T - 12, 3);
+      } else if (t === Tile.DoorLocked) {
+        // Locked door: gold slab with a dark keyhole.
+        ctx.fillStyle = COLORS.wall;
+        ctx.fillRect(px, py, T, T);
+        ctx.fillStyle = COLORS.door;
+        ctx.fillRect(px + 2, py + 1, T - 4, T - 2);
+        ctx.fillStyle = "#0a0a0f";
+        ctx.fillRect(px + T / 2 - 2, py + T / 2 - 4, 4, 4);
+        ctx.fillRect(px + T / 2 - 1, py + T / 2, 2, 5);
       } else {
         ctx.fillStyle = (x + y) % 2 === 0 ? COLORS.floor : COLORS.floorAlt;
         ctx.fillRect(px, py, T, T);
@@ -121,6 +131,7 @@ export function render(
     const py = offY + l.pos.y * T;
     ctx.fillStyle =
       l.kind === "tome" ? "#66f0c8" :
+      l.kind === "key" ? "#ffd23e" :
       l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
     ctx.beginPath();
     ctx.arc(px, py, 5, 0, Math.PI * 2);

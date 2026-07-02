@@ -14,7 +14,7 @@ import type {
   GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, PartyIntents, Player,
   Reward, SafeRoom, ShopItem, Vec2,
 } from "./types";
-import { NO_INTENT } from "./types";
+import { NO_INTENT, Tile } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
@@ -200,6 +200,42 @@ function spawnMonsters(state: GameState): void {
   }
 }
 
+/** Remove every locked door on the floor. Returns how many were opened. */
+function unlockDoors(state: GameState): number {
+  const { map } = state;
+  let opened = 0;
+  for (let i = 0; i < map.tiles.length; i++) {
+    if (map.tiles[i] === Tile.DoorLocked) {
+      map.tiles[i] = Tile.Floor;
+      opened++;
+    }
+  }
+  map.locked = false;
+  map.lockedRoomIdx = -1;
+  if (opened > 0) state.mapVersion++; // cached floor geometry must rebuild
+  return opened;
+}
+
+/**
+ * On a locked floor, hand the stairs-district key to one random monster that the
+ * party can actually reach (not the boss, and not one sealed inside the stairs
+ * room). Softlock guard: no eligible carrier -> the doors simply open.
+ */
+function assignKeyCarrier(state: GameState): void {
+  const { map, rng } = state;
+  if (!map.locked) return;
+  const room = map.rooms[map.lockedRoomIdx];
+  const inLockedRoom = (pos: Vec2) =>
+    pos.x >= room.x && pos.x < room.x + room.w && pos.y >= room.y && pos.y < room.y + room.h;
+  const candidates = state.monsters.filter((m) => m.kind !== "boss" && !inLockedRoom(m.pos));
+  if (candidates.length === 0) {
+    unlockDoors(state);
+    return;
+  }
+  candidates[nextInt(rng, 0, candidates.length - 1)].hasKey = true;
+  announce(state, "The stairs district is LOCKED. One of the residents has the key. Ask nicely.");
+}
+
 function makePlayer(id: number, name: string): Player {
   const p: Player = {
     id,
@@ -318,7 +354,9 @@ function buildFloor(state: GameState, floor: number): void {
   state.timeRemaining = state.timeBudget;
   state.phase = "safe";
   state.collapseElapsed = 0;
+  state.mapVersion++;
   spawnMonsters(state);
+  assignKeyCarrier(state);
 }
 
 export interface SavedProgress {
@@ -402,6 +440,7 @@ export function createGame(seed: number): GameState {
     map: undefined as unknown as GameState["map"],
     explored: new Uint8Array(0),
     exploredVersion: 0,
+    mapVersion: 0,
     players: [makePlayer(0, "Carl")],
     monsters: [],
     loot: [],
@@ -658,6 +697,11 @@ function reapDead(state: GameState): void {
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
     grantPartyXp(state, m.xp);
+    if (m.hasKey) {
+      // The key carrier ALWAYS drops the stairs-district key.
+      state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "key", amount: 0 });
+      announce(state, "The KEYHOLDER is down! That shiny thing it dropped? Take it.");
+    }
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
     // Named menaces shower guaranteed rewards.
@@ -707,6 +751,13 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, l.amount, "heal");
         state.events.push(`Picked up a health kit (+${l.amount}).`);
         break;
+      case "key": {
+        unlockDoors(state);
+        announce(state, `${p.name} has the key! The stairs district is OPEN.`);
+        addHype(state, p, 12);
+        hit(state, p.pos, 0, "weapon");
+        break;
+      }
       case "tome": {
         if (l.ability && !knows(p, l.ability)) {
           learnAbility(state, p, l.ability);
