@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
@@ -340,6 +340,13 @@ function floorSeed(seed: number, floor: number): number {
 }
 
 function buildFloor(state: GameState, floor: number): void {
+  // Announce a tonal shift when the party crosses into a new 4-floor band.
+  const prevBand = floorBand(state.floor);
+  const newBand = floorBand(floor);
+  if (floor === 1 || newBand !== prevBand) {
+    const band = FLOOR_BANDS[newBand];
+    announce(state, `Now entering ${band.name}. ${band.line}`);
+  }
   const rng: Rng = createRng(floorSeed(state.seed, floor));
   state.rng = rng;
   state.floor = floor;

@@ -214,6 +214,16 @@ export class GameServer {
           equipFromInventory(inst.state, playerId, Number(msg.idx));
           break;
       }
+      // Actions above can announce (purchases, unlocks, band transitions on
+      // descend). The next tick clears those channels before broadcasting, so
+      // flush them to the party now.
+      const s = inst.state;
+      if (s.events.length || s.announcements.length || s.hits.length) {
+        this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
+        s.events = [];
+        s.announcements = [];
+        s.hits = [];
+      }
     });
 
     ws.on("close", () => {

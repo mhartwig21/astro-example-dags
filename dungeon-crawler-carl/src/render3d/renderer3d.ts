@@ -5,6 +5,7 @@ import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
+import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -44,7 +45,8 @@ export class Renderer3D {
 
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
   // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
-  private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[] }[] = [];
+  private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
+  private propEntries: { obj: THREE.Object3D; tile: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   private lastExploredVersion = -1;
@@ -291,13 +293,24 @@ export class Renderer3D {
       if (map.tiles[i] === Tile.DoorLocked) doorCount++; // floor carved under, door box on top
     }
 
+    // Theme band for this depth (art set + palette), plus a cosmetic per-floor
+    // rng so floors within a band differ (mix ratio, props, tint jitter).
+    const theme: FloorTheme = themeForFloor(state.floor);
+    const frng = cosmeticRng((state.seed ^ Math.imul(state.floor, 0x9e3779b1)) >>> 0);
+    const altPct = Math.round(theme.altRatio * (0.6 + frng() * 0.9) * 1000); // vs tileHash % 1000
+    const tintJitter = 0.93 + frng() * 0.12;
+    this.scene.background = new THREE.Color(theme.background);
+
     // Real glTF tiles when present (instanced for perf), procedural boxes otherwise.
-    const floorSrc = this.tileSource("floor");
-    const wallSrc = this.tileSource("wall");
+    const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
+    const altSrc = this.tileSource(theme.floorAltKey);
+    const wallSrc = this.tileSource(theme.wallKey) ?? this.tileSource("wall");
     const floorMesh = floorSrc
       ? new THREE.InstancedMesh(floorSrc.geo, floorSrc.mat, floorCount)
       : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floor), floorCount);
-    const floorAltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
+    const floorAltMesh = altSrc
+      ? new THREE.InstancedMesh(altSrc.geo, altSrc.mat, floorCount)
+      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
     // The fill box is slightly shorter than the panels so their top/side surfaces
@@ -336,12 +349,12 @@ export class Renderer3D {
     }
 
     const m = new THREE.Matrix4();
-    const placeFloor = (x: number, y: number) => {
-      if (!floorSrc) { m.makeTranslation(x + 0.5, -0.1, y + 0.5); return; }
-      const s = floorSrc.scale;
-      const cx = (floorSrc.box.min.x + floorSrc.box.max.x) / 2;
-      const cz = (floorSrc.box.min.z + floorSrc.box.max.z) / 2;
-      m.makeScale(s, s, s).setPosition(x + 0.5 - cx * s, -floorSrc.box.max.y * s, y + 0.5 - cz * s);
+    const placeFloor = (src: typeof floorSrc, x: number, y: number) => {
+      if (!src) { m.makeTranslation(x + 0.5, -0.1, y + 0.5); return; }
+      const s = src.scale;
+      const cx = (src.box.min.x + src.box.max.x) / 2;
+      const cz = (src.box.min.z + src.box.max.z) / 2;
+      m.makeScale(s, s, s).setPosition(x + 0.5 - cx * s, -src.box.max.y * s, y + 0.5 - cz * s);
     };
     // Panel placement: length spans the tile edge, height stretched to the fill
     // boxes, face flush with the wall/floor boundary, rotated toward the floor.
@@ -394,14 +407,20 @@ export class Renderer3D {
               panelMesh.setMatrixAt(pi++, m);
             }
           }
-        } else if (floorSrc || (x + y) % 2 === 0) {
-          placeFloor(x, y);
-          floorTiles.push(idx);
-          floorMesh.setMatrixAt(fi++, m);
         } else {
-          m.makeTranslation(x + 0.5, -0.1, y + 0.5);
-          floorAltTiles.push(idx);
-          floorAltMesh.setMatrixAt(fai++, m);
+          // Mix primary/alt ground per tile (stable hash: same tile, same look).
+          const useAlt = altSrc
+            ? tileHash(x, y, state.floor) < altPct
+            : !floorSrc && (x + y) % 2 !== 0;
+          if (useAlt) {
+            placeFloor(altSrc, x, y);
+            floorAltTiles.push(idx);
+            floorAltMesh.setMatrixAt(fai++, m);
+          } else {
+            placeFloor(floorSrc, x, y);
+            floorTiles.push(idx);
+            floorMesh.setMatrixAt(fi++, m);
+          }
         }
       }
     }
@@ -417,17 +436,20 @@ export class Renderer3D {
       panelMesh.instanceMatrix.needsUpdate = true;
       this.floorGroup.add(panelMesh);
     }
+    const floorLit = new THREE.Color(theme.floorTint).multiplyScalar(tintJitter);
+    const wallLitColor = new THREE.Color(theme.wallTint).multiplyScalar(tintJitter);
+    const wallFillLit = wallLitColor.clone().multiplyScalar(0.55); // dark rock tops
     this.fogTargets = [
-      { mesh: floorMesh, tiles: floorTiles },
-      { mesh: floorAltMesh, tiles: floorAltTiles },
-      { mesh: wallMesh, tiles: wallTiles },
+      { mesh: floorMesh, tiles: floorTiles, lit: floorLit },
+      { mesh: floorAltMesh, tiles: floorAltTiles, lit: floorLit },
+      { mesh: wallMesh, tiles: wallTiles, lit: wallFillLit },
     ];
-    if (di > 0) this.fogTargets.push({ mesh: doorMesh, tiles: doorTiles });
-    if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles });
+    if (di > 0) this.fogTargets.push({ mesh: doorMesh, tiles: doorTiles, lit: new THREE.Color(1, 1, 1) });
+    if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles, lit: wallLitColor });
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
 
-    // Stairs: the glTF model when present, else a glowing stepped block.
-    const stairsModel = this.modelInstance("stairs");
+    // Stairs: the theme's glTF model when present, else a glowing stepped block.
+    const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
     if (stairsModel) {
       const box = new THREE.Box3().setFromObject(stairsModel);
       const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
@@ -448,13 +470,45 @@ export class Renderer3D {
     }
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
 
+    // Prop scatter: the band furniture, seeded per floor so each floor of a
+    // district has its own character. Cosmetic only: the sim never sees props.
+    this.propEntries = [];
+    const density = theme.propDensity * (0.6 + frng() * 0.9);
+    const maxProps = 110;
+    for (let y = 1; y < map.h - 1 && this.propEntries.length < maxProps; y++) {
+      for (let x = 1; x < map.w - 1 && this.propEntries.length < maxProps; x++) {
+        const idx = y * map.w + x;
+        if (map.tiles[idx] !== Tile.Floor) continue;
+        if (frng() > density) continue;
+        // Keep spawn, stairs, and door mouths clear.
+        if (Math.hypot(x + 0.5 - map.spawn.x, y + 0.5 - map.spawn.y) < 3) continue;
+        if (Math.hypot(x + 0.5 - map.stairs.x, y + 0.5 - map.stairs.y) < 2.5) continue;
+        if ([idx - 1, idx + 1, idx - map.w, idx + map.w].some((n) => map.tiles[n] === Tile.DoorLocked)) continue;
+        const key = theme.props[Math.floor(frng() * theme.props.length)];
+        const obj = this.modelInstance(key);
+        if (!obj) continue;
+        const box = new THREE.Box3().setFromObject(obj);
+        const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+        obj.scale.multiplyScalar((0.5 + frng() * 0.3) / fp);
+        const scaled = new THREE.Box3().setFromObject(obj);
+        obj.position.set(
+          x + 0.5 + (frng() - 0.5) * 0.4 - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
+          -scaled.min.y + 0.004,
+          y + 0.5 + (frng() - 0.5) * 0.4 - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
+        );
+        obj.rotation.y = frng() * Math.PI * 2;
+        this.floorGroup.add(obj);
+        this.propEntries.push({ obj, tile: idx });
+      }
+    }
+
     // Torches: place a handful along walls near the spawn and stairs for mood.
-    this.addTorches(state);
+    this.addTorches(state, theme, 0.85 + frng() * 0.3);
     this.builtFloor = state.floor;
     this.builtMapVersion = state.mapVersion;
   }
 
-  private addTorches(state: GameState): void {
+  private addTorches(state: GameState, theme: FloorTheme, intensityJitter: number): void {
     const map = state.map;
     const spots: Vec2[] = [];
     // Sample some walkable tiles adjacent to walls; deterministic scan (no RNG needed for cosmetics).
@@ -468,17 +522,17 @@ export class Renderer3D {
         if (nearWall) spots.push({ x: x + 0.5, y: y + 0.5 });
       }
     }
+    const intensity = theme.torchIntensity * intensityJitter;
     spots.forEach((s, i) => {
-      const light = new THREE.PointLight(THEME.torchColor, THEME.torchIntensity, THEME.torchDistance, 2);
+      const light = new THREE.PointLight(theme.torchColor, intensity, THEME.torchDistance, 2);
       light.position.set(s.x, 1.6, s.y);
       this.scene.add(light);
-      this.torchLights.push({ light, base: THEME.torchIntensity, seed: i * 1.7 });
+      this.torchLights.push({ light, base: intensity, seed: i * 1.7 });
     });
   }
 
   // ---- Fog of war ----
 
-  private static FOG_LIT = new THREE.Color(1, 1, 1);
   private static FOG_DARK = new THREE.Color(0.015, 0.015, 0.025);
 
   /** Re-tint instanced tiles for the current explored set (multiplicative color). */
@@ -492,14 +546,15 @@ export class Renderer3D {
         (y > 0 && !!explored[idx - map.w]) || (y < map.h - 1 && !!explored[idx + map.w])
       );
     };
-    for (const { mesh, tiles } of this.fogTargets) {
+    for (const { mesh, tiles, lit } of this.fogTargets) {
       for (let i = 0; i < tiles.length; i++) {
         const idx = tiles[i];
-        const lit = map.tiles[idx] === Tile.Wall ? wallLit(idx) : !!explored[idx];
-        mesh.setColorAt(i, lit ? Renderer3D.FOG_LIT : Renderer3D.FOG_DARK);
+        const isLit = map.tiles[idx] === Tile.Wall ? wallLit(idx) : !!explored[idx];
+        mesh.setColorAt(i, isLit ? lit : Renderer3D.FOG_DARK);
       }
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
+    for (const { obj, tile } of this.propEntries) obj.visible = !!explored[tile];
     if (this.stairsObj) this.stairsObj.visible = !!explored[this.stairsTile];
   }
 

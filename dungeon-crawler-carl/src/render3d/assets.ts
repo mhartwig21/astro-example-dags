@@ -28,6 +28,25 @@ export const MODEL_MANIFEST: Record<string, string> = {
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",
+  // Theme-band tiles + props (see render3d/floorThemes.ts). Keys match filenames.
+  ...Object.fromEntries(
+    [
+      // floors
+      "floor_tile_small_decorated", "floor_dirt_small_A", "floor_dirt_small_weeds",
+      "floor_tile_small_broken_A", "floor_tile_small_broken_B", "floor_tile_grate",
+      "floor_tile_large", "floor_tile_big_spikes",
+      // walls
+      "wall_cracked", "wall_broken", "wall_scaffold", "wall_arched",
+      // stairs
+      "stairs_narrow", "stairs_walled", "stairs_wide", "stairs_wood_decorated",
+      // props
+      "barrel_small", "box_small", "crates_stacked", "candle_lit",
+      "barrel_large", "bottle_A_green", "rubble_half", "trunk_small_A",
+      "rubble_large", "column", "sword_shield_broken",
+      "keg", "box_large", "shelf_small", "table_medium_broken",
+      "banner_red", "banner_shield_red", "candle_triple", "pillar_decorated", "chest_gold",
+    ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
+  ),
 };
 
 export async function loadModels(): Promise<Record<string, LoadedModel>> {

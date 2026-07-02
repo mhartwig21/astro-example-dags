@@ -7,7 +7,7 @@ import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { boltParams, knows, rank } from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type Intent, type Vec2 } from "../src/sim/types";
-import { CONFIG, floorTimeBudget } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
 function idle(): Intent {
@@ -972,6 +972,38 @@ describe("new archetypes", () => {
     const d1 = Math.hypot(ph.pos.x - p.pos.x, ph.pos.y - p.pos.y);
     expect(6 - d1).toBeGreaterThan(2); // a blink (~3 tiles), not a walk step
     expect(ph.blinkCd).toBeGreaterThan(0);
+  });
+});
+
+describe("theme bands", () => {
+  it("maps floors to 4-floor bands", () => {
+    expect([1, 4, 5, 8, 9, 12, 13, 16, 17, 18].map((f) => floorBand(f)))
+      .toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  });
+
+  it("announces the district when crossing a band boundary (4 -> 5)", () => {
+    const g = restoreGame({
+      seed: 71, floor: 4,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
+    expect(g.floor).toBe(5);
+    expect(g.announcements.some((a) => a.includes("THE SEWERS"))).toBe(true);
+  });
+
+  it("does not re-announce within a band (5 -> 6)", () => {
+    const g = restoreGame({
+      seed: 72, floor: 5,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    // Floor 5 may be locked (3+); teleporting to stairs is host-level, doors ignored.
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
+    expect(g.floor).toBe(6);
+    expect(g.announcements.some((a) => a.includes("Now entering"))).toBe(false);
   });
 });
 

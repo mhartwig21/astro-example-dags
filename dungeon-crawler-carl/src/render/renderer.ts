@@ -1,8 +1,17 @@
-import { CONFIG } from "../sim/config";
+import { CONFIG, floorBand } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
 import { knows, novaParams, orbitParams } from "../sim/abilities";
 
 const T = CONFIG.tile;
+
+// Per-band palettes (bands shift every 4 floors; see FLOOR_BANDS in config).
+const BAND_PALETTES = [
+  { floor: "#22222f", floorAlt: "#26263a", wall: "#12121c", wallEdge: "#1e1e2e" }, // undercroft
+  { floor: "#1e2a1c", floorAlt: "#243524", wall: "#101a10", wallEdge: "#1c2c1c" }, // sewers
+  { floor: "#2e2218", floorAlt: "#382a1c", wall: "#1a120c", wallEdge: "#2c1e14" }, // ruins
+  { floor: "#1c2432", floorAlt: "#202c3e", wall: "#10141e", wallEdge: "#1c2432" }, // ironworks
+  { floor: "#2e1a1c", floorAlt: "#382024", wall: "#1a0e10", wallEdge: "#2c181c" }, // approach
+];
 
 const COLORS = {
   wall: "#12121c",
@@ -83,6 +92,7 @@ export function render(
     return false;
   };
 
+  const pal = BAND_PALETTES[floorBand(state.floor)];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (!state.explored[y * map.w + x]) continue; // fog of war
@@ -90,9 +100,9 @@ export function render(
       const px = Math.round(offX + x * T);
       const py = Math.round(offY + y * T);
       if (t === Tile.Wall) {
-        ctx.fillStyle = COLORS.wall;
+        ctx.fillStyle = pal.wall;
         ctx.fillRect(px, py, T, T);
-        ctx.fillStyle = COLORS.wallEdge;
+        ctx.fillStyle = pal.wallEdge;
         ctx.fillRect(px, py, T, 3);
       } else if (t === Tile.StairsDown) {
         ctx.fillStyle = COLORS.stairs;
@@ -109,7 +119,7 @@ export function render(
         ctx.fillRect(px + T / 2 - 2, py + T / 2 - 4, 4, 4);
         ctx.fillRect(px + T / 2 - 1, py + T / 2, 2, 5);
       } else {
-        ctx.fillStyle = (x + y) % 2 === 0 ? COLORS.floor : COLORS.floorAlt;
+        ctx.fillStyle = (x + y) % 2 === 0 ? pal.floor : pal.floorAlt;
         ctx.fillRect(px, py, T, T);
       }
     }
