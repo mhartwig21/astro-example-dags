@@ -1,0 +1,28 @@
+# Fly.io config for Dungeon Crawler Claude.
+# Deploy: `fly launch --copy-config --no-deploy` once, then `fly deploy`.
+# The app name below must be globally unique — change it if taken.
+
+app = "dungeon-crawler-claude"
+primary_region = "ord"  # pick the region closest to your party
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # A live game server should not scale to zero mid-run; keep exactly one
+  # machine (in-memory party instances live in this process).
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "3s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

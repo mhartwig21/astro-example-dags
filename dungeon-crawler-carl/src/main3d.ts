@@ -34,7 +34,14 @@ const joinCode = params.get("join");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
-const serverUrl = params.get("server") ?? `ws://${location.hostname}:5281`;
+// Server URL: explicit ?server= wins. In dev (vite on :5280) the game server is
+// the sibling process on :5281; in production the SAME origin serves both the
+// site and the WebSocket, and wss follows https automatically.
+const serverUrl =
+  params.get("server") ??
+  (import.meta.env.DEV
+    ? `ws://${location.hostname}:5281`
+    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`);
 let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
