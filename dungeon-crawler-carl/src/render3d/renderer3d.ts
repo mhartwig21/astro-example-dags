@@ -264,39 +264,79 @@ export class Renderer3D {
       ? new THREE.InstancedMesh(floorSrc.geo, floorSrc.mat, floorCount)
       : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floor), floorCount);
     const floorAltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
-    const wallMesh = wallSrc
-      ? new THREE.InstancedMesh(wallSrc.geo, wallSrc.mat, wallCount)
-      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1.4, 1), flat(THEME.wall), wallCount);
+    // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
+    // dress a wall face, so it only goes on faces that border walkable floor.
+    const wallHeight = 1.0;
+    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, wallHeight, 1), flat(THEME.wall), wallCount);
     floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
     wallMesh.castShadow = true; wallMesh.receiveShadow = true;
 
-    // Instance matrix for a normalized tile model: scale about origin, then place so
-    // the model's center lands on the tile center with its base (walls) or top
-    // (floors) at y=0.
+    const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < map.w && y < map.h;
+    const isFloorAt = (x: number, y: number) => inBounds(x, y) && map.tiles[y * map.w + x] !== Tile.Wall;
+    const DIRS = [
+      { dx: 0, dz: 1 }, { dx: 0, dz: -1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 },
+    ];
+
+    let panelMesh: THREE.InstancedMesh | null = null;
+    if (wallSrc) {
+      let panelCount = 0;
+      for (let y = 0; y < map.h; y++) {
+        for (let x = 0; x < map.w; x++) {
+          if (map.tiles[y * map.w + x] !== Tile.Wall) continue;
+          for (const d of DIRS) if (isFloorAt(x + d.dx, y + d.dz)) panelCount++;
+        }
+      }
+      panelMesh = new THREE.InstancedMesh(wallSrc.geo, wallSrc.mat, panelCount);
+      panelMesh.castShadow = true; panelMesh.receiveShadow = true;
+    }
+
     const m = new THREE.Matrix4();
-    const place = (
-      src: { scale: number; box: THREE.Box3 } | null,
-      x: number, y: number, topAtZero: boolean, fallbackY: number,
-    ) => {
-      if (!src) { m.makeTranslation(x + 0.5, fallbackY, y + 0.5); return; }
+    const placeFloor = (x: number, y: number) => {
+      if (!floorSrc) { m.makeTranslation(x + 0.5, -0.1, y + 0.5); return; }
+      const s = floorSrc.scale;
+      const cx = (floorSrc.box.min.x + floorSrc.box.max.x) / 2;
+      const cz = (floorSrc.box.min.z + floorSrc.box.max.z) / 2;
+      m.makeScale(s, s, s).setPosition(x + 0.5 - cx * s, -floorSrc.box.max.y * s, y + 0.5 - cz * s);
+    };
+    // Panel placement: length spans the tile edge, height stretched to the fill
+    // boxes, face flush with the wall/floor boundary, rotated toward the floor.
+    const quat = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const scl = new THREE.Vector3();
+    const placePanel = (x: number, y: number, dx: number, dz: number) => {
+      const src = wallSrc!;
       const s = src.scale;
+      const sy = wallHeight / Math.max(1e-4, src.box.max.y - src.box.min.y);
+      const halfThick = ((src.box.max.z - src.box.min.z) / 2) * s;
+      const off = 0.5 - halfThick;
+      quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(dx, dz));
       const cx = (src.box.min.x + src.box.max.x) / 2;
       const cz = (src.box.min.z + src.box.max.z) / 2;
-      const py = topAtZero ? -src.box.max.y * s : -src.box.min.y * s;
-      m.makeScale(s, s, s).setPosition(x + 0.5 - cx * s, py, y + 0.5 - cz * s);
+      const centerOff = new THREE.Vector3(cx * s, 0, cz * s).applyQuaternion(quat);
+      pos.set(x + 0.5 + dx * off - centerOff.x, -src.box.min.y * sy, y + 0.5 + dz * off - centerOff.z);
+      scl.set(s, sy, s);
+      m.compose(pos, quat, scl);
     };
-    let fi = 0, fai = 0, wi = 0;
+
+    let fi = 0, fai = 0, wi = 0, pi = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const t = map.tiles[y * map.w + x];
         if (t === Tile.Wall) {
-          place(wallSrc, x, y, false, 0.7);
+          m.makeTranslation(x + 0.5, wallHeight / 2, y + 0.5);
           wallMesh.setMatrixAt(wi++, m);
+          if (panelMesh) {
+            for (const d of DIRS) {
+              if (!isFloorAt(x + d.dx, y + d.dz)) continue;
+              placePanel(x, y, d.dx, d.dz);
+              panelMesh.setMatrixAt(pi++, m);
+            }
+          }
         } else if (floorSrc || (x + y) % 2 === 0) {
-          place(floorSrc, x, y, true, -0.1);
+          placeFloor(x, y);
           floorMesh.setMatrixAt(fi++, m);
         } else {
-          place(null, x, y, true, -0.1);
+          m.makeTranslation(x + 0.5, -0.1, y + 0.5);
           floorAltMesh.setMatrixAt(fai++, m);
         }
       }
@@ -306,6 +346,11 @@ export class Renderer3D {
     floorAltMesh.instanceMatrix.needsUpdate = true;
     wallMesh.instanceMatrix.needsUpdate = true;
     this.floorGroup.add(floorMesh, floorAltMesh, wallMesh);
+    if (panelMesh) {
+      panelMesh.count = pi;
+      panelMesh.instanceMatrix.needsUpdate = true;
+      this.floorGroup.add(panelMesh);
+    }
 
     // Stairs: the glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance("stairs");
