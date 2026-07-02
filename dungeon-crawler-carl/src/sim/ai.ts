@@ -1,9 +1,9 @@
 import { CONFIG } from "./config";
 import { dist, normalize, rollDamage } from "./combat";
 import { isWalkable } from "./floor";
-import type { GameState, Monster, Vec2 } from "./types";
+import type { GameState, Monster, Player, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { addHype } from "./game";
+import { addHype, handlePlayerDeath, nearestPlayer } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -22,9 +22,8 @@ function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number)
   });
 }
 
-function meleeSwing(state: GameState, m: Monster): void {
+function meleeSwing(state: GameState, m: Monster, player: Player): void {
   if (m.attackCooldown > 0) return;
-  const player = state.player;
   m.attackCooldown = CONFIG.monsterAttackCooldown;
   // Dashing grants brief i-frames.
   if (player.dashTime > 0) return;
@@ -32,10 +31,7 @@ function meleeSwing(state: GameState, m: Monster): void {
   player.hp -= dmg;
   state.hits.push({ pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player" });
   if (player.hp <= 0) {
-    player.hp = 0;
-    player.alive = false;
-    state.status = "dead";
-    state.events.push("You died in the dungeon.");
+    handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
   } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, CONFIG.show.hypeLowHpHit); // living dangerously = great television
   }
@@ -46,14 +42,15 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt);
   if (m.shootCd > 0) m.shootCd = Math.max(0, m.shootCd - dt);
 
-  const player = state.player;
-  if (!player.alive) return;
+  // Each monster hunts the nearest living party member.
+  const player = nearestPlayer(state, m.pos);
+  if (!player) return;
   const d = dist(m.pos, player.pos);
   const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
 
   if (m.kind === "boss") {
     // Boss: relentless melee chase + periodic radial volley.
-    if (d <= m.attackRange) meleeSwing(state, m);
+    if (d <= m.attackRange) meleeSwing(state, m, player);
     else moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
     if (m.shootCd === 0 && d < CONFIG.monsterAggroRange * 2.5) {
       m.shootCd = CONFIG.bossVolleyCooldown;
@@ -83,6 +80,6 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   // Melee archetypes (grunt / swarmer / brute).
   if (d > CONFIG.monsterAggroRange) return;
-  if (d <= m.attackRange) meleeSwing(state, m);
+  if (d <= m.attackRange) meleeSwing(state, m, player);
   else moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
 }

@@ -11,9 +11,10 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
-  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Reward,
-  SafeRoom, ShopItem, Vec2,
+  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, PartyIntents, Player,
+  Reward, SafeRoom, ShopItem, Vec2,
 } from "./types";
+import { NO_INTENT } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
@@ -47,10 +48,10 @@ export function equipItem(p: Player, item: Item): void {
   recomputeStats(p);
 }
 
-/** Equip the inventory item at `idx` (removing it from the bag). No-op if out of range. */
-export function equipFromInventory(state: GameState, idx: number): void {
-  const p = state.player;
-  if (idx < 0 || idx >= p.inventory.length) return;
+/** Equip a player's inventory item at `idx` (removing it from the bag). */
+export function equipFromInventory(state: GameState, playerId: number, idx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || idx < 0 || idx >= p.inventory.length) return;
   const item = p.inventory.splice(idx, 1)[0];
   equipItem(p, item);
 }
@@ -130,56 +131,95 @@ function spawnMonsters(state: GameState): void {
   }
 }
 
-function makePlayer(seedFrom?: Player): Player {
-  const p: Player = seedFrom
-    ? {
-        // Carry character progression (level, gold, equipment, inventory, bonuses)
-        // across floors; reset transient combat state.
-        ...seedFrom,
-        pos: { x: 0, y: 0 },
-        facing: { x: 0, y: 1 },
-        attackCooldown: 0,
-        dashCd: 0,
-        dashTime: 0,
-        boltCd: 0,
-        novaCd: 0,
-        novaFlash: 0,
-        orbitAngle: 0,
-        orbitTick: 0,
-        attackSwing: 0,
-        alive: true,
-      }
-    : {
-        pos: { x: 0, y: 0 },
-        facing: { x: 0, y: 1 },
-        hp: CONFIG.playerMaxHp,
-        maxHp: CONFIG.playerMaxHp,
-        speed: CONFIG.playerSpeed,
-        baseDamage: CONFIG.playerBaseDamage,
-        critChance: CONFIG.playerCritChance,
-        attackCooldown: 0,
-        dashCd: 0,
-        dashTime: 0,
-        boltCd: 0,
-        novaCd: 0,
-        novaFlash: 0,
-        orbitAngle: 0,
-        orbitTick: 0,
-        abilities: { known: [...STARTING_ABILITIES], ranks: {} },
-        level: 1,
-        xp: 0,
-        xpToNext: xpForLevel(1),
-        gold: 0,
-        weaponRarity: "common",
-        equipment: { weapon: null, armor: null, trinket: null },
-        inventory: [],
-        bonusDamage: 0,
-        bonusMaxHp: 0,
-        bonusCrit: 0,
-        alive: true,
-        attackSwing: 0,
-      };
+function makePlayer(id: number, name: string): Player {
+  const p: Player = {
+    id,
+    name,
+    pos: { x: 0, y: 0 },
+    facing: { x: 0, y: 1 },
+    hp: CONFIG.playerMaxHp,
+    maxHp: CONFIG.playerMaxHp,
+    speed: CONFIG.playerSpeed,
+    baseDamage: CONFIG.playerBaseDamage,
+    critChance: CONFIG.playerCritChance,
+    attackCooldown: 0,
+    dashCd: 0,
+    dashTime: 0,
+    boltCd: 0,
+    novaCd: 0,
+    novaFlash: 0,
+    orbitAngle: 0,
+    orbitTick: 0,
+    abilities: { known: [...STARTING_ABILITIES], ranks: {} },
+    level: 1,
+    xp: 0,
+    xpToNext: xpForLevel(1),
+    gold: 0,
+    weaponRarity: "common",
+    equipment: { weapon: null, armor: null, trinket: null },
+    inventory: [],
+    bonusDamage: 0,
+    bonusMaxHp: 0,
+    bonusCrit: 0,
+    alive: true,
+    attackSwing: 0,
+    pendingUpgrades: [],
+    upgradeDraftsOwed: 0,
+    pendingRewards: [],
+    achievements: [],
+    goldSpent: 0,
+    kills: 0,
+    killsThisStep: 0,
+    lowHpKill: false,
+  };
   recomputeStats(p);
+  return p;
+}
+
+/** Reset a player's transient combat state for a fresh floor (progression carries). */
+function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
+  // Fan the party out around the spawn tile so nobody stacks.
+  const a = offset * (Math.PI * 2 / 6);
+  p.pos = { x: spawn.x + (offset === 0 ? 0 : Math.cos(a) * 0.6), y: spawn.y + (offset === 0 ? 0 : Math.sin(a) * 0.6) };
+  p.facing = { x: 0, y: 1 };
+  p.attackCooldown = 0;
+  p.dashCd = 0;
+  p.dashTime = 0;
+  p.boltCd = 0;
+  p.novaCd = 0;
+  p.novaFlash = 0;
+  p.attackSwing = 0;
+  // Fallen crawlers rejoin the show at half strength when the party descends.
+  if (!p.alive) {
+    p.alive = true;
+    p.hp = Math.round(p.maxHp * 0.5);
+  }
+}
+
+/** Living party members (most systems only care about these). */
+export function alivePlayers(state: GameState): Player[] {
+  return state.players.filter((p) => p.alive);
+}
+
+/** Nearest living player to a position, or null if the party is wiped. */
+export function nearestPlayer(state: GameState, pos: Vec2): Player | null {
+  let best: Player | null = null;
+  let bestD = Infinity;
+  for (const p of state.players) {
+    if (!p.alive) continue;
+    const d = dist(pos, p.pos);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+/** Add a player to the party (drop-in). Spawns near the others on the current floor. */
+export function addPlayer(state: GameState, name: string): Player {
+  const id = state.players.length === 0 ? 0 : Math.max(...state.players.map((p) => p.id)) + 1;
+  const p = makePlayer(id, name);
+  resetForFloor(p, state.map.spawn, state.players.length);
+  state.players.push(p);
+  announce(state, `${name} drops into the dungeon. The audience loves fresh meat.`);
   return p;
 }
 
@@ -198,7 +238,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.monsters = [];
   state.loot = [];
   state.projectiles = [];
-  state.player.pos = { x: state.map.spawn.x, y: state.map.spawn.y };
+  state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
   state.timeRemaining = state.timeBudget;
   state.phase = "safe";
@@ -223,6 +263,8 @@ export interface SavedProgress {
     abilities?: Player["abilities"];
     achievements?: string[];
     goldSpent?: number;
+    kills?: number;
+    name?: string;
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -238,7 +280,7 @@ export interface SavedProgress {
  */
 export function restoreGame(save: SavedProgress): GameState {
   const state = createGame(save.seed);
-  const p = state.player;
+  const p = state.players[0];
   const s = save.player;
   p.level = s.level;
   p.xp = s.xp;
@@ -250,8 +292,9 @@ export function restoreGame(save: SavedProgress): GameState {
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
   if (s.abilities) p.abilities = s.abilities;
-  if (s.achievements) state.achievements = s.achievements;
-  state.goldSpent = s.goldSpent ?? 0;
+  if (s.achievements) p.achievements = s.achievements;
+  p.goldSpent = s.goldSpent ?? 0;
+  p.kills = s.kills ?? 0;
   if (save.show) {
     state.hype = save.show.hype ?? 0;
     state.viewers = save.show.viewers ?? state.viewers;
@@ -280,7 +323,7 @@ export function createGame(seed: number): GameState {
     map: undefined as unknown as GameState["map"],
     explored: new Uint8Array(0),
     exploredVersion: 0,
-    player: makePlayer(),
+    players: [makePlayer(0, "Carl")],
     monsters: [],
     loot: [],
     projectiles: [],
@@ -299,15 +342,9 @@ export function createGame(seed: number): GameState {
     viewers: CONFIG.show.baseViewers,
     favorites: 0,
     sponsors: 0,
-    pendingRewards: [],
-    pendingUpgrades: [],
-    upgradeDraftsOwed: 0,
     safeRoom: null,
-    achievements: [],
-    goldSpent: 0,
     killsThisStep: 0,
     escapedCollapse: false,
-    lowHpKill: false,
     elapsed: 0,
   };
   buildFloor(state, 1);
@@ -348,8 +385,8 @@ function hit(state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"]
   state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind });
 }
 
-function grantXp(state: GameState, amount: number): void {
-  const p = state.player;
+/** Grant XP to one player (kill XP is split before calling this). */
+function grantXp(state: GameState, p: Player, amount: number): void {
   p.xp += amount;
   while (p.xp >= p.xpToNext) {
     p.xp -= p.xpToNext;
@@ -357,42 +394,48 @@ function grantXp(state: GameState, amount: number): void {
     p.xpToNext = xpForLevel(p.level);
     recomputeStats(p); // intrinsic stats scale with level
     p.hp = p.maxHp; // level-up fully heals
-    state.upgradeDraftsOwed++; // each level opens an ability draft (queued if several)
-    announce(state, `LEVEL ${p.level}! The System upgrades you. Choose your evolution.`);
+    p.upgradeDraftsOwed++; // each level opens an ability draft (queued if several)
+    announce(state, `${p.name} hits LEVEL ${p.level}! The System offers an evolution.`);
   }
 }
 
-/** Choose a level-up ability upgrade by index; applies the rank and unpauses. */
-export function chooseUpgrade(state: GameState, idx: number): void {
-  if (idx < 0 || idx >= state.pendingUpgrades.length) return;
-  const offer = state.pendingUpgrades[idx];
-  const p = state.player;
-  p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
-  state.pendingUpgrades = [];
-  const def = upgradeDef(offer.id);
-  announce(state, `${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+/** Split kill XP across living party members (no kill-stealing). */
+function grantPartyXp(state: GameState, amount: number): void {
+  const alive = alivePlayers(state);
+  if (alive.length === 0) return;
+  const share = Math.max(1, Math.round(amount / alive.length));
+  for (const p of alive) grantXp(state, p, share);
 }
 
-/** Teach an ability (tome pickup / debug). No-op if already known. */
-export function learnAbility(state: GameState, ability: Loot["ability"]): void {
-  const p = state.player;
+/** Choose a level-up ability upgrade for one player. The world does not pause. */
+export function chooseUpgrade(state: GameState, playerId: number, idx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || idx < 0 || idx >= p.pendingUpgrades.length) return;
+  const offer = p.pendingUpgrades[idx];
+  p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
+  p.pendingUpgrades = [];
+  const def = upgradeDef(offer.id);
+  announce(state, `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+}
+
+/** Teach an ability (tome pickup / shop / debug). No-op if already known. */
+export function learnAbility(state: GameState, p: Player, ability: Loot["ability"]): void {
   if (!ability || knows(p, ability)) return;
   p.abilities.known.push(ability);
   const info = ABILITY_INFO[ability];
-  announce(state, `NEW ABILITY: ${info.name.toUpperCase()} — ${info.blurb}${info.key === "auto" ? " (automatic)" : ` (${info.key})`}. The crowd demands a demo.`);
+  announce(state, `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}${info.key === "auto" ? " (automatic)" : ` (${info.key})`}. The crowd demands a demo.`);
   addHype(state, CONFIG.show.hypeEpicDrop);
 }
 
-/** Award a loot box: an immediate randomized buff, DCC-style. */
-function awardLootBox(state: GameState): void {
-  const p = state.player;
+/** Award a loot box to one player: an immediate randomized buff, DCC-style. */
+function awardLootBox(state: GameState, p: Player): void {
   state.lootBoxes++;
   const undiscovered = unknownAbilities(p);
   const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
   if (roll === 3) {
     const ability = undiscovered[nextInt(state.rng, 0, undiscovered.length - 1)];
     announce(state, `LOOT BOX #${state.lootBoxes}: a forbidden skill chip!`);
-    learnAbility(state, ability);
+    learnAbility(state, p, ability);
   } else if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
     p.bonusDamage += amt;
@@ -413,8 +456,8 @@ function awardLootBox(state: GameState): void {
 
 function dropLoot(state: GameState, pos: Vec2): void {
   const { rng, floor } = state;
-  // Ability tomes: rare, and only while abilities remain undiscovered.
-  const undiscovered = unknownAbilities(state.player);
+  // Ability tomes: rare, and only while someone in the party has left to learn.
+  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p)))];
   if (undiscovered.length > 0 && chance(rng, CONFIG.tomeDropChance)) {
     const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "tome", amount: 0, ability });
@@ -436,8 +479,19 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
 }
 
-function doPlayerAttack(state: GameState, aim: Vec2): void {
-  const p = state.player;
+/** Damage a monster with a player's roll (shared crit/credit path). */
+function damageMonster(state: GameState, p: Player, m: Monster, base: number, allowCrit = true): void {
+  const isCrit = allowCrit && chance(state.rng, p.critChance);
+  let dmg = rollDamage(state.rng, base);
+  if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
+  m.hp -= dmg;
+  m.hitFlash = 0.12;
+  m.lastHitBy = p.id;
+  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+  if (isCrit) addHype(state, CONFIG.show.hypeCrit);
+}
+
+function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   const mp = meleeParams(p);
   const facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
@@ -449,13 +503,7 @@ function doPlayerAttack(state: GameState, aim: Vec2): void {
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > mp.arc / 2) continue;
-    const isCrit = chance(state.rng, p.critChance);
-    let dmg = rollDamage(state.rng, p.baseDamage * mp.damageMult);
-    if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
-    m.hp -= dmg;
-    m.hitFlash = 0.12;
-    hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
-    if (isCrit) addHype(state, CONFIG.show.hypeCrit);
+    damageMonster(state, p, m, p.baseDamage * mp.damageMult);
   }
 }
 
@@ -469,7 +517,6 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
 
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
-  const p = state.player;
   let killsThisStep = 0;
   for (const m of state.monsters) {
     if (m.hp > 0) {
@@ -478,14 +525,18 @@ function reapDead(state: GameState): void {
     }
     state.killCount++;
     killsThisStep++;
-    if (p.alive && p.hp > 0 && p.hp < p.maxHp * 0.1) state.lowHpKill = true;
+    // Kill credit to the last hitter (loot box milestones + per-player achievements).
+    const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
+    killer.kills++;
+    killer.killsThisStep++;
+    if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, KILL_HYPE[m.kind]);
-    grantXp(state, m.xp);
+    grantPartyXp(state, m.xp);
     dropLoot(state, m.pos);
-    if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state);
+    if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
     if (m.kind === "boss") {
       state.status = "won";
-      announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawler.");
+      announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.");
     }
   }
   // Multi-kill combos are a crowd-pleaser.
@@ -498,10 +549,11 @@ function reapDead(state: GameState): void {
 }
 
 function collectLoot(state: GameState): void {
-  const p = state.player;
   const remaining: Loot[] = [];
   for (const l of state.loot) {
-    if (dist(l.pos, p.pos) > CONFIG.pickupRadius) {
+    // First living player (in party order) within radius picks it up.
+    const p = state.players.find((pl) => pl.alive && dist(l.pos, pl.pos) <= CONFIG.pickupRadius);
+    if (!p) {
       remaining.push(l);
       continue;
     }
@@ -517,7 +569,7 @@ function collectLoot(state: GameState): void {
         break;
       case "tome": {
         if (l.ability && !knows(p, l.ability)) {
-          learnAbility(state, l.ability);
+          learnAbility(state, p, l.ability);
           hit(state, p.pos, 0, "weapon");
         } else {
           // Learned it since the drop (e.g. another tome): sells to the crowd.
@@ -564,17 +616,14 @@ function updateTimer(state: GameState, dt: number): void {
     }
     state.collapseElapsed += dt;
     const dps = CONFIG.collapseDpsBase + state.collapseElapsed * CONFIG.collapseDpsRamp;
-    const p = state.player;
-    if (p.alive) {
+    addHype(state, CONFIG.show.hypeCollapsePerSec * dt); // clutch escape = ratings gold
+    for (const p of state.players) {
+      if (!p.alive) continue;
       const dmg = dps * dt;
       p.hp -= dmg;
       hit(state, p.pos, Math.max(1, Math.round(dmg)), "player");
-      addHype(state, CONFIG.show.hypeCollapsePerSec * dt); // clutch escape = ratings gold
       if (p.hp <= 0) {
-        p.hp = 0;
-        p.alive = false;
-        state.status = "dead";
-        announce(state, "The collapsing floor claimed another Crawler. The crowd goes wild.");
+        handlePlayerDeath(state, p, `The collapsing floor claimed ${p.name}. The crowd goes wild.`);
       }
     }
   } else if (state.timeRemaining <= warnAt) {
@@ -585,8 +634,8 @@ function updateTimer(state: GameState, dt: number): void {
   }
 }
 
-function tryDescend(state: GameState): void {
-  const p = state.player;
+/** Any living player on the stairs can pull the party down (DCC: descend together). */
+function tryDescend(state: GameState, p: Player): void {
   if (dist(p.pos, state.map.stairs) > 1.0) {
     state.events.push("No stairs here. Find the stairs down.");
     return;
@@ -653,7 +702,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
     desc: `+${12 + floor * 2} max HP (permanent)`, price: 45 + floor * 9,
   });
   // A tome, if anything is left to discover — expensive, but guaranteed learning.
-  const undiscovered = unknownAbilities(state.player);
+  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p)))];
   if (undiscovered.length > 0) {
     const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
     stock.push({
@@ -667,18 +716,18 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
       desc: "A loot-box roll. The System giggles.", price: 60 + floor * 8,
     });
   }
-  return { nextFloor, stock, tip: safeRoomTip(rng, floor) };
+  return { nextFloor, stock, tip: safeRoomTip(rng, floor), ready: [] };
 }
 
-/** Buy the safe-room shop item at `idx`. No-op if sold, absent, or unaffordable. */
-export function buyShopItem(state: GameState, idx: number): void {
+/** Buy the safe-room shop item at `idx` for one player. No-op if sold/unaffordable. */
+export function buyShopItem(state: GameState, playerId: number, idx: number): void {
   const room = state.safeRoom;
   if (!room || idx < 0 || idx >= room.stock.length) return;
   const s = room.stock[idx];
-  const p = state.player;
-  if (s.sold || p.gold < s.price) return;
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || s.sold || p.gold < s.price) return;
   p.gold -= s.price;
-  state.goldSpent += s.price;
+  p.goldSpent += s.price;
   s.sold = true;
   switch (s.kind) {
     case "heal":
@@ -703,33 +752,45 @@ export function buyShopItem(state: GameState, idx: number): void {
       }
       break;
     case "tome":
-      learnAbility(state, s.ability);
+      learnAbility(state, p, s.ability);
       break;
     case "mystery":
-      awardLootBox(state);
+      awardLootBox(state, p);
       break;
   }
-  state.events.push(`Bought ${s.title} (-${s.price} gold).`);
-  // The sim is paused in the safe room, so purchase-driven unlocks fire here.
+  state.events.push(`${p.name} bought ${s.title} (-${s.price} gold).`);
+  // The sim idles in the safe room, so purchase-driven unlocks fire here.
   checkAchievements(state);
 }
 
-/** Leave the safe room: build the next floor and open the sponsor draft. */
+/** Mark a player ready to descend; the party leaves when everyone is ready. */
+export function setReady(state: GameState, playerId: number): void {
+  const room = state.safeRoom;
+  if (!room) return;
+  if (!room.ready.includes(playerId)) room.ready.push(playerId);
+  const allReady = state.players.every((p) => room.ready.includes(p.id));
+  if (allReady) leaveSafeRoom(state);
+  else state.events.push(`${state.players.find((p) => p.id === playerId)?.name ?? "?"} is ready to descend (${room.ready.length}/${state.players.length}).`);
+}
+
+/** Leave the safe room: build the next floor and open per-player sponsor drafts. */
 export function leaveSafeRoom(state: GameState): void {
   const room = state.safeRoom;
   if (!room) return;
   state.safeRoom = null;
-  announce(state, `Descending to floor ${room.nextFloor}. The cameras are rolling, Crawler.`);
+  announce(state, `Descending to floor ${room.nextFloor}. The cameras are rolling, Crawlers.`);
   buildFloor(state, room.nextFloor);
   if (room.bonusTime) {
     state.timeBudget += room.bonusTime;
     state.timeRemaining += room.bonusTime;
   }
-  // Between floors, sponsors present a draft of rewards (host pauses to let you pick).
-  state.pendingRewards = generateRewards(state);
-  if (state.pendingRewards.length > 0) {
-    announce(state, "Your sponsors have gifts. Choose one, Crawler.");
+  // Between floors, sponsors gift each crawler individually (non-blocking).
+  let any = false;
+  for (const p of state.players) {
+    p.pendingRewards = generateRewards(state, p.id);
+    if (p.pendingRewards.length > 0) any = true;
   }
+  if (any) announce(state, "Your sponsors have gifts. Choose, Crawlers.");
 }
 
 function shuffle<T>(rng: Rng, arr: T[]): T[] {
@@ -741,9 +802,9 @@ function shuffle<T>(rng: Rng, arr: T[]): T[] {
   return a;
 }
 
-/** Build the between-floor sponsor draft. Quality + count scale with sponsors/favorites. */
-function generateRewards(state: GameState): Reward[] {
-  const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234) >>> 0);
+/** Build a between-floor sponsor draft for one player. Quality scales with the show. */
+function generateRewards(state: GameState, playerId: number): Reward[] {
+  const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234 ^ Math.imul(playerId + 1, 0x85ebca6b)) >>> 0);
   const q = 1 + state.sponsors * 0.4 + Math.min(1, state.favorites / 1000);
   const count = Math.min(CONFIG.rewardMaxCount, CONFIG.rewardBaseCount + (state.sponsors >= 2 ? 1 : 0));
   const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
@@ -781,8 +842,7 @@ function generateRewards(state: GameState): Reward[] {
   });
 }
 
-function applyReward(state: GameState, r: Reward): void {
-  const p = state.player;
+function applyReward(state: GameState, p: Player, r: Reward): void {
   switch (r.kind) {
     case "healFull":
       p.hp = p.maxHp;
@@ -817,18 +877,18 @@ function applyReward(state: GameState, r: Reward): void {
   }
 }
 
-/** Choose a sponsor reward by index; applies it and clears the draft. */
-export function chooseReward(state: GameState, idx: number): void {
-  if (idx < 0 || idx >= state.pendingRewards.length) return;
-  const r = state.pendingRewards[idx];
-  applyReward(state, r);
-  state.pendingRewards = [];
-  announce(state, `Sponsor gift accepted: ${r.title}.`);
+/** Choose a sponsor reward for one player; applies it and clears their draft. */
+export function chooseReward(state: GameState, playerId: number, idx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || idx < 0 || idx >= p.pendingRewards.length) return;
+  const r = p.pendingRewards[idx];
+  applyReward(state, p, r);
+  p.pendingRewards = [];
+  announce(state, `${p.name} accepts a sponsor gift: ${r.title}.`);
 }
 
 /** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
-function doDash(state: GameState): void {
-  const p = state.player;
+function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
   p.dashCd = dp.cooldown;
   p.dashTime = CONFIG.dashDuration;
@@ -836,13 +896,12 @@ function doDash(state: GameState): void {
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
   // Shockstep: a damage burst around the arrival point.
   if (dp.shockMult > 0) {
-    radialDamage(state, p.pos, 1.6, p.baseDamage * dp.shockMult);
+    radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult);
   }
 }
 
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
-function doBolt(state: GameState, aim: Vec2): void {
-  const p = state.player;
+function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
@@ -859,39 +918,31 @@ function doBolt(state: GameState, aim: Vec2): void {
       damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
       ttl: CONFIG.boltTtl,
       from: "player",
+      ownerId: p.id,
       pierce: bp.pierce,
     });
   }
 }
 
 /** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep. */
-function radialDamage(state: GameState, center: Vec2, radius: number, damage: number): void {
-  const p = state.player;
+function radialDamage(state: GameState, p: Player, center: Vec2, radius: number, damage: number): void {
   for (const m of state.monsters) {
     if (dist(center, m.pos) > radius) continue;
-    const isCrit = chance(state.rng, p.critChance);
-    let dmg = rollDamage(state.rng, damage);
-    if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
-    m.hp -= dmg;
-    m.hitFlash = 0.12;
-    hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
-    if (isCrit) addHype(state, CONFIG.show.hypeCrit);
+    damageMonster(state, p, m, damage);
   }
 }
 
 /** Nova skill: a radial shockwave around the player (must be learned). */
-function doNova(state: GameState): void {
-  const p = state.player;
+function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
   p.novaCd = np.cooldown;
   p.novaFlash = 0.3;
-  radialDamage(state, p.pos, np.radius, p.baseDamage * np.damageMult);
+  radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult);
 }
 
 /** Orbit blades: automatic contact damage on a fixed tick while learned. */
-function updateOrbit(state: GameState, dt: number): void {
-  const p = state.player;
-  if (!knows(p, "orbit")) return;
+function updateOrbit(state: GameState, p: Player, dt: number): void {
+  if (!knows(p, "orbit") || !p.alive) return;
   const op = orbitParams(p);
   p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
@@ -905,16 +956,23 @@ function updateOrbit(state: GameState, dt: number): void {
       if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius) { touching = true; break; }
     }
     if (!touching) continue;
-    const dmg = rollDamage(state.rng, p.baseDamage * op.damageMult);
-    m.hp -= dmg;
-    m.hitFlash = 0.12;
-    hit(state, m.pos, dmg, "enemy");
+    damageMonster(state, p, m, p.baseDamage * op.damageMult, false);
+  }
+}
+
+/** A player died; the run only ends when the whole party is down. */
+export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
+  p.hp = 0;
+  p.alive = false;
+  announce(state, line);
+  if (alivePlayers(state).length === 0) {
+    state.status = "dead";
+    announce(state, "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.");
   }
 }
 
 /** Advance every projectile: move, expire, hit walls/entities. */
 function updateProjectiles(state: GameState, dt: number): void {
-  const p = state.player;
   const survivors: GameState["projectiles"] = [];
   for (const pr of state.projectiles) {
     pr.ttl -= dt;
@@ -923,17 +981,12 @@ function updateProjectiles(state: GameState, dt: number): void {
     if (pr.ttl <= 0 || !isWalkable(state.map, pr.pos.x, pr.pos.y)) continue;
 
     if (pr.from === "player") {
+      const owner = state.players.find((pl) => pl.id === pr.ownerId) ?? state.players[0];
       let consumed = false;
       for (const m of state.monsters) {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
-          const isCrit = chance(state.rng, p.critChance);
-          let dmg = rollDamage(state.rng, pr.damage);
-          if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
-          m.hp -= dmg;
-          m.hitFlash = 0.12;
-          hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
-          if (isCrit) addHype(state, CONFIG.show.hypeCrit);
+          damageMonster(state, owner, m, pr.damage);
           if (pr.pierce && pr.pierce > 0) {
             pr.pierce--;
             (pr.hitIds ??= []).push(m.id); // keep flying through
@@ -945,17 +998,21 @@ function updateProjectiles(state: GameState, dt: number): void {
       }
       if (consumed) continue;
     } else {
-      // Enemy projectile: hits the player unless dashing (i-frames).
-      if (p.alive && p.dashTime <= 0 && dist(pr.pos, p.pos) <= CONFIG.projectileRadius + 0.3) {
+      // Enemy projectile: hits the first living player in its radius (dash = i-frames).
+      let absorbed = false;
+      for (const p of state.players) {
+        if (!p.alive || p.dashTime > 0) continue;
+        if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
         p.hp -= pr.damage;
         hit(state, p.pos, Math.round(pr.damage), "player");
         if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) addHype(state, CONFIG.show.hypeLowHpHit);
         if (p.hp <= 0) {
-          p.hp = 0; p.alive = false; state.status = "dead";
-          announce(state, "Shot down in the arena. The audience is on its feet.");
+          handlePlayerDeath(state, p, `${p.name} was shot down in the arena. The audience is on its feet.`);
         }
-        continue;
+        absorbed = true;
+        break;
       }
+      if (absorbed) continue;
     }
     survivors.push(pr);
   }
@@ -965,49 +1022,61 @@ function updateProjectiles(state: GameState, dt: number): void {
 /**
  * Advance the simulation by one fixed step. Pure with respect to wall-clock time:
  * all time flows through `dt`. Mutates and returns `state` (host owns the instance).
+ *
+ * Accepts either a single Intent (applied to the first player — the solo/local
+ * convenience used by tests and the offline host) or a PartyIntents map keyed by
+ * player id (the multiplayer form). Missing players get NO_INTENT.
  */
-export function step(state: GameState, intent: Intent, dt: number): GameState {
+export function step(state: GameState, intent: Intent | PartyIntents, dt: number): GameState {
   state.events = [];
   state.announcements = [];
   state.hits = [];
   state.killsThisStep = 0;
   state.escapedCollapse = false;
-  state.lowHpKill = false;
+  for (const p of state.players) {
+    p.killsThisStep = 0;
+    p.lowHpKill = false;
+  }
   if (state.status !== "playing") return state;
-  // A pending sponsor draft, level-up draft, or safe room pauses the world until
-  // the player acts (chooseReward / chooseUpgrade / leaveSafeRoom).
-  if (state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0) return state;
+  // The safe room is the one world-level pause: the whole party is between floors.
+  // Personal drafts do NOT pause the world (multiplayer-safe); hosts may pause
+  // locally in solo as a UX choice.
   if (state.safeRoom) return state;
 
+  const intents: PartyIntents =
+    "move" in intent ? { [state.players[0]?.id ?? 0]: intent as Intent } : (intent as PartyIntents);
+
   state.elapsed += dt;
-  const p = state.player;
 
-  // Cooldowns / transient timers.
-  if (p.attackCooldown > 0) p.attackCooldown = Math.max(0, p.attackCooldown - dt);
-  if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
-  if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
-  if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
-  if (p.boltCd > 0) p.boltCd = Math.max(0, p.boltCd - dt);
-  if (p.novaCd > 0) p.novaCd = Math.max(0, p.novaCd - dt);
-  if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
+  // Per-player: timers, movement, skills, attack — in stable id order so the
+  // seeded RNG stream is reproducible regardless of intent-map key order.
+  const ordered = [...state.players].sort((a, b) => a.id - b.id);
+  for (const p of ordered) {
+    const pi = intents[p.id] ?? NO_INTENT;
 
-  // Movement.
-  const move = intent.move;
-  if ((move.x !== 0 || move.y !== 0) && p.alive) {
-    const dir = normalize(move);
-    p.facing = dir;
-    moveWithCollision(state.map, p.pos, dir, p.speed * dt, isWalkable);
-  }
+    if (p.attackCooldown > 0) p.attackCooldown = Math.max(0, p.attackCooldown - dt);
+    if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
+    if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
+    if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
+    if (p.boltCd > 0) p.boltCd = Math.max(0, p.boltCd - dt);
+    if (p.novaCd > 0) p.novaCd = Math.max(0, p.novaCd - dt);
+    if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
 
-  // Skills.
-  if (intent.dash && p.alive && p.dashCd === 0) doDash(state);
-  if (intent.bolt && p.alive && p.boltCd === 0) doBolt(state, intent.aim ?? p.facing);
-  if (intent.nova && p.alive && p.novaCd === 0 && knows(p, "nova")) doNova(state);
-  updateOrbit(state, dt);
+    const move = pi.move;
+    if ((move.x !== 0 || move.y !== 0) && p.alive) {
+      const dir = normalize(move);
+      p.facing = dir;
+      moveWithCollision(state.map, p.pos, dir, p.speed * dt, isWalkable);
+    }
 
-  // Attack.
-  if (intent.attack && p.alive && p.attackCooldown === 0) {
-    doPlayerAttack(state, intent.aim ?? p.facing);
+    if (pi.dash && p.alive && p.dashCd === 0) doDash(state, p);
+    if (pi.bolt && p.alive && p.boltCd === 0) doBolt(state, p, pi.aim ?? p.facing);
+    if (pi.nova && p.alive && p.novaCd === 0 && knows(p, "nova")) doNova(state, p);
+    updateOrbit(state, p, dt);
+
+    if (pi.attack && p.alive && p.attackCooldown === 0) {
+      doPlayerAttack(state, p, pi.aim ?? p.facing);
+    }
   }
 
   // Monsters + projectiles.
@@ -1018,27 +1087,39 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   collectLoot(state);
 
   // Collapse timer (applied after combat so its DoT can be the killing blow).
-  if (p.alive) updateTimer(state, dt);
+  if (state.status === "playing" && alivePlayers(state).length > 0) updateTimer(state, dt);
 
   // The Show: convert this step's hype into viewers / favorites / sponsors.
   updateShow(state, dt);
 
-  // Fog of war: reveal tiles around the player.
+  // Fog of war: reveal tiles around every living player.
   revealAround(state);
 
-  // Level-ups earned this step open an ability draft (queued if several).
-  if (state.upgradeDraftsOwed > 0 && state.pendingUpgrades.length === 0 && state.status === "playing") {
-    const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize);
-    if (offers.length > 0) {
-      state.upgradeDraftsOwed--;
-      state.pendingUpgrades = offers;
-    } else {
-      state.upgradeDraftsOwed = 0; // every node maxed — nothing to offer
+  // Level-ups earned this step open personal ability drafts (queued if several).
+  if (state.status === "playing") {
+    for (const p of ordered) {
+      if (p.upgradeDraftsOwed > 0 && p.pendingUpgrades.length === 0) {
+        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize);
+        if (offers.length > 0) {
+          p.upgradeDraftsOwed--;
+          p.pendingUpgrades = offers;
+        } else {
+          p.upgradeDraftsOwed = 0; // every node maxed — nothing to offer
+        }
+      }
     }
   }
 
-  // Descent request (may open a safe room, which pauses subsequent steps).
-  if (intent.useStairs && p.alive && state.status === "playing") tryDescend(state);
+  // Descent request from anyone on the stairs (opens the safe room).
+  if (state.status === "playing" && !state.safeRoom) {
+    for (const p of ordered) {
+      const pi = intents[p.id] ?? NO_INTENT;
+      if (pi.useStairs && p.alive) {
+        tryDescend(state, p);
+        break;
+      }
+    }
+  }
 
   // Achievements last, so they see everything this step did (kills, descent, buys).
   checkAchievements(state);
@@ -1046,36 +1127,41 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   return state;
 }
 
-/** Unlock any achievement whose condition now holds; announce + pay out. */
+/** Unlock any achievement whose condition now holds for a player; announce + pay out. */
 function checkAchievements(state: GameState): void {
-  for (const a of ACHIEVEMENTS) {
-    if (state.achievements.includes(a.id)) continue;
-    if (!a.test(state)) continue;
-    state.achievements.push(a.id);
-    state.player.gold += a.gold;
-    if (a.hype > 0) addHype(state, a.hype);
-    const payout = a.gold > 0 ? ` Reward: ${a.gold} gold.` : "";
-    announce(state, `ACHIEVEMENT: ${a.title} — ${a.desc}${payout}`);
+  for (const p of state.players) {
+    for (const a of ACHIEVEMENTS) {
+      if (p.achievements.includes(a.id)) continue;
+      if (!a.test(state, p)) continue;
+      p.achievements.push(a.id);
+      p.gold += a.gold;
+      if (a.hype > 0) addHype(state, a.hype);
+      const payout = a.gold > 0 ? ` Reward: ${a.gold} gold.` : "";
+      announce(state, `ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}${payout}`);
+    }
   }
 }
 
-/** Mark tiles within the vision radius as explored (fog of war). */
+/** Mark tiles within any living player's vision radius as explored (shared fog). */
 function revealAround(state: GameState): void {
-  const { map, explored, player } = state;
+  const { map, explored } = state;
   const r = CONFIG.fogVisionRadius;
   const r2 = r * r;
-  const px = player.pos.x, py = player.pos.y;
-  const x0 = Math.max(0, Math.floor(px - r)), x1 = Math.min(map.w - 1, Math.ceil(px + r));
-  const y0 = Math.max(0, Math.floor(py - r)), y1 = Math.min(map.h - 1, Math.ceil(py + r));
   let changed = false;
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const i = y * map.w + x;
-      if (explored[i]) continue;
-      const dx = x + 0.5 - px, dy = y + 0.5 - py;
-      if (dx * dx + dy * dy > r2) continue;
-      explored[i] = 1;
-      changed = true;
+  for (const player of state.players) {
+    if (!player.alive) continue;
+    const px = player.pos.x, py = player.pos.y;
+    const x0 = Math.max(0, Math.floor(px - r)), x1 = Math.min(map.w - 1, Math.ceil(px + r));
+    const y0 = Math.max(0, Math.floor(py - r)), y1 = Math.min(map.h - 1, Math.ceil(py + r));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * map.w + x;
+        if (explored[i]) continue;
+        const dx = x + 0.5 - px, dy = y + 0.5 - py;
+        if (dx * dx + dy * dy > r2) continue;
+        explored[i] = 1;
+        changed = true;
+      }
     }
   }
   if (changed) state.exploredVersion++;

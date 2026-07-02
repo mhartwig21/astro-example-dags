@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
-  chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom,
+  chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
 } from "../src/sim/game";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
@@ -78,12 +78,12 @@ describe("collapse timer", () => {
     // Fast-forward to collapse.
     for (let i = 0; i < 2000 && g.phase !== "collapse"; i++) step(g, idle(), 0.1);
     expect(g.phase).toBe("collapse");
-    const hpAtCollapse = g.player.hp;
+    const hpAtCollapse = g.players[0].hp;
     step(g, idle(), 0.1);
-    expect(g.player.hp).toBeLessThan(hpAtCollapse);
+    expect(g.players[0].hp).toBeLessThan(hpAtCollapse);
     // Keep collapsing; player must eventually die.
-    for (let i = 0; i < 2000 && g.player.alive; i++) step(g, idle(), 0.1);
-    expect(g.player.alive).toBe(false);
+    for (let i = 0; i < 2000 && g.players[0].alive; i++) step(g, idle(), 0.1);
+    expect(g.players[0].alive).toBe(false);
     expect(g.status).toBe("dead");
   });
 });
@@ -102,10 +102,10 @@ describe("determinism of the full step", () => {
       step(g1, intent, 1 / 60);
       step(g2, intent, 1 / 60);
     }
-    expect(g1.player.pos).toEqual(g2.player.pos);
-    expect(g1.player.hp).toEqual(g2.player.hp);
+    expect(g1.players[0].pos).toEqual(g2.players[0].pos);
+    expect(g1.players[0].hp).toEqual(g2.players[0].hp);
     expect(g1.monsters.map((m) => m.hp)).toEqual(g2.monsters.map((m) => m.hp));
-    expect(g1.player.gold).toEqual(g2.player.gold);
+    expect(g1.players[0].gold).toEqual(g2.players[0].gold);
   });
 });
 
@@ -113,14 +113,14 @@ describe("descent", () => {
   it("using the stairs opens a safe room; leaving it advances the floor", () => {
     const g = createGame(5);
     // Move the player onto the stairs directly (sim allows host-set positions).
-    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     expect(g.safeRoom).not.toBeNull();
     expect(g.floor).toBe(1); // still "between" floors
     // Paused while in the safe room.
-    const x0 = g.player.pos.x;
+    const x0 = g.players[0].pos.x;
     step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
-    expect(g.player.pos.x).toBe(x0);
+    expect(g.players[0].pos.x).toBe(x0);
     leaveSafeRoom(g);
     expect(g.safeRoom).toBeNull();
     expect(g.floor).toBe(2);
@@ -130,9 +130,9 @@ describe("descent", () => {
 
   it("does not descend when not on the stairs", () => {
     const g = createGame(5);
-    g.player.pos = { x: g.map.spawn.x, y: g.map.spawn.y };
+    g.players[0].pos = { x: g.map.spawn.x, y: g.map.spawn.y };
     // Ensure spawn isn't coincidentally on the stairs.
-    if (Math.hypot(g.player.pos.x - g.map.stairs.x, g.player.pos.y - g.map.stairs.y) > 1) {
+    if (Math.hypot(g.players[0].pos.x - g.map.stairs.x, g.players[0].pos.y - g.map.stairs.y) > 1) {
       step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
       expect(g.floor).toBe(1);
     }
@@ -147,10 +147,10 @@ describe("restore (log on/off)", () => {
       player: { hp: 55, maxHp: 180, baseDamage: 27, level: 5, xp: 3, xpToNext: 90, gold: 140 },
     });
     expect(restored.floor).toBe(4);
-    expect(restored.player.level).toBe(5);
-    expect(restored.player.gold).toBe(140);
-    expect(restored.player.maxHp).toBe(180);
-    expect(restored.player.hp).toBe(55);
+    expect(restored.players[0].level).toBe(5);
+    expect(restored.players[0].gold).toBe(140);
+    expect(restored.players[0].maxHp).toBe(180);
+    expect(restored.players[0].hp).toBe(55);
     // Floor 4 regenerated deterministically matches a fresh game advanced to floor 4.
     const fresh = createGame(123);
     expect(restored.map.stairs).toBeDefined();
@@ -162,9 +162,9 @@ describe("combat feedback + loot boxes", () => {
   it("emits hit events when the player strikes an adjacent monster", () => {
     const g = createGame(2024);
     // Place a monster right next to the player, in front of its facing.
-    g.player.facing = { x: 1, y: 0 };
+    g.players[0].facing = { x: 1, y: 0 };
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 999, pos: { x: g.player.pos.x + 1, y: g.player.pos.y }, hp: 999, maxHp: 999, xp: 10 }));
+    g.monsters.push(mkMon({ id: 999, pos: { x: g.players[0].pos.x + 1, y: g.players[0].pos.y }, hp: 999, maxHp: 999, xp: 10 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const combat = g.hits.filter((h) => h.kind === "enemy" || h.kind === "crit");
     expect(combat.length).toBe(1);
@@ -174,11 +174,11 @@ describe("combat feedback + loot boxes", () => {
   it("awards a loot box every N kills and records it", () => {
     const g = createGame(7);
     // Kill lootBoxEveryKills monsters in one swing by stacking them in-arc at point blank.
-    g.player.facing = { x: 1, y: 0 };
-    g.player.baseDamage = 100000;
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 100000;
     g.monsters.length = 0;
     for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
-      g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.player.pos.x + 0.6, y: g.player.pos.y } }));
+      g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.players[0].pos.x + 0.6, y: g.players[0].pos.y } }));
     }
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
@@ -203,20 +203,20 @@ describe("combat feedback + loot boxes", () => {
 describe("skills + projectiles", () => {
   it("dash triggers a blink (cooldown + i-frames), never moving backward", () => {
     const g = createGame(3);
-    g.player.facing = { x: 1, y: 0 };
-    const x0 = g.player.pos.x;
+    g.players[0].facing = { x: 1, y: 0 };
+    const x0 = g.players[0].pos.x;
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, dash: true }, 1 / 60);
     // Cooldown + i-frames are set regardless of geometry; position never regresses.
-    expect(g.player.dashCd).toBeGreaterThan(0);
-    expect(g.player.dashTime).toBeGreaterThan(0);
-    expect(g.player.pos.x).toBeGreaterThanOrEqual(x0);
+    expect(g.players[0].dashCd).toBeGreaterThan(0);
+    expect(g.players[0].dashTime).toBeGreaterThan(0);
+    expect(g.players[0].pos.x).toBeGreaterThanOrEqual(x0);
   });
 
   it("bolt spawns a player projectile that damages a monster it reaches", () => {
     const g = createGame(11);
-    g.player.facing = { x: 1, y: 0 };
+    g.players[0].facing = { x: 1, y: 0 };
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 2, y: g.player.pos.y }, hp: 999, maxHp: 999 }));
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 2, y: g.players[0].pos.y }, hp: 999, maxHp: 999 }));
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
     expect(g.projectiles.length).toBe(1);
     expect(g.projectiles[0].from).toBe("player");
@@ -234,7 +234,7 @@ describe("skills + projectiles", () => {
     g.projectiles.length = 0;
     // Place next to the player (guaranteed walkable — the player stands there) so the
     // fired bolt isn't culled against a wall on spawn.
-    g.monsters.push(mkMon({ id: 1, kind: "ranged", pos: { x: g.player.pos.x + 1.5, y: g.player.pos.y }, hp: 50, maxHp: 50, damage: 5, attackRange: 6.5 }));
+    g.monsters.push(mkMon({ id: 1, kind: "ranged", pos: { x: g.players[0].pos.x + 1.5, y: g.players[0].pos.y }, hp: 50, maxHp: 50, damage: 5, attackRange: 6.5 }));
     let fired = false;
     for (let i = 0; i < 120 && !fired; i++) {
       step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false }, 1 / 60);
@@ -258,7 +258,7 @@ describe("itemization", () => {
 
   it("equipping an item recomputes effective stats", () => {
     const g = createGame(1);
-    const p = g.player;
+    const p = g.players[0];
     const baseDmg = p.baseDamage;
     equipItem(p, { id: 1, slot: "weapon", rarity: "rare", name: "Test Blade", affixes: { damage: 15, crit: 0.1 } });
     expect(p.baseDamage).toBe(baseDmg + 15);
@@ -268,7 +268,7 @@ describe("itemization", () => {
 
   it("auto-equips a better item on pickup and stashes a worse one", () => {
     const g = createGame(2);
-    const p = g.player;
+    const p = g.players[0];
     p.pos = { x: 5.5, y: 5.5 };
     const strong = { id: 1, slot: "weapon" as const, rarity: "epic" as const, name: "Big", affixes: { damage: 30 } };
     const weak = { id: 2, slot: "weapon" as const, rarity: "common" as const, name: "Small", affixes: { damage: 2 } };
@@ -286,10 +286,10 @@ describe("itemization", () => {
 
   it("equipFromInventory swaps the equipped item back to the bag", () => {
     const g = createGame(3);
-    const p = g.player;
+    const p = g.players[0];
     equipItem(p, { id: 1, slot: "weapon", rarity: "common", name: "A", affixes: { damage: 5 } });
     p.inventory.push({ id: 2, slot: "weapon", rarity: "rare", name: "B", affixes: { damage: 20 } });
-    equipFromInventory(g, 0);
+    equipFromInventory(g, 0, 0);
     expect(p.equipment.weapon?.id).toBe(2);
     expect(p.inventory.some((i) => i.id === 1)).toBe(true); // old weapon returned to bag
     expect(p.baseDamage).toBe(CONFIG.playerBaseDamage + 20);
@@ -311,10 +311,10 @@ describe("the show (viewers / favorites / sponsors)", () => {
 
   it("killing a monster adds hype", () => {
     const g = createGame(2);
-    g.player.facing = { x: 1, y: 0 };
-    g.player.baseDamage = 9999;
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 9999;
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y }, hp: 1, maxHp: 1 }));
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y }, hp: 1, maxHp: 1 }));
     const before = g.hype;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.hype).toBeGreaterThan(before);
@@ -322,39 +322,39 @@ describe("the show (viewers / favorites / sponsors)", () => {
 });
 
 describe("sponsor draft", () => {
-  it("leaving the safe room opens a reward draft that pauses the sim until chosen", () => {
+  it("leaving the safe room opens a personal reward draft (world keeps running)", () => {
     const g = createGame(5);
-    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
     expect(g.floor).toBe(2);
-    expect(g.pendingRewards.length).toBeGreaterThan(0);
-    // While a draft is pending, the world is frozen: movement intent is ignored.
-    const x0 = g.player.pos.x;
+    expect(g.players[0].pendingRewards.length).toBeGreaterThan(0);
+    // Multiplayer-safe: movement still works while the draft pends.
+    const x0 = g.players[0].pos.x;
     step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
-    expect(g.player.pos.x).toBe(x0);
-    // Choosing clears the draft and resumes play.
-    chooseReward(g, 0);
-    expect(g.pendingRewards.length).toBe(0);
+    expect(g.players[0].pos.x).toBeGreaterThan(x0);
+    // Choosing clears the draft.
+    chooseReward(g, 0, 0);
+    expect(g.players[0].pendingRewards.length).toBe(0);
   });
 
   it("applies the chosen reward's effect", () => {
     const g = createGame(6);
-    const p = g.player;
+    const p = g.players[0];
     const dmg0 = p.baseDamage;
-    g.pendingRewards = [{ id: 1, kind: "damage", title: "Weapon Mod", desc: "+10 damage", amount: 10 }];
-    chooseReward(g, 0);
+    g.players[0].pendingRewards = [{ id: 1, kind: "damage", title: "Weapon Mod", desc: "+10 damage", amount: 10 }];
+    chooseReward(g, 0, 0);
     expect(p.baseDamage).toBe(dmg0 + 10);
-    expect(g.pendingRewards.length).toBe(0);
+    expect(g.players[0].pendingRewards.length).toBe(0);
   });
 
   it("generates a deterministic draft for the same seed/floor", () => {
     function draftTitles(seed: number) {
       const g = createGame(seed);
-      g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+      g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
       step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
       leaveSafeRoom(g);
-      return g.pendingRewards.map((r) => r.kind);
+      return g.players[0].pendingRewards.map((r) => r.kind);
     }
     expect(draftTitles(77)).toEqual(draftTitles(77));
   });
@@ -363,7 +363,7 @@ describe("sponsor draft", () => {
 describe("safe room + shop", () => {
   function reachSafeRoom(seed: number) {
     const g = createGame(seed);
-    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     return g;
   }
@@ -379,33 +379,33 @@ describe("safe room + shop", () => {
     const g = reachSafeRoom(301);
     const room = g.safeRoom!;
     const healIdx = room.stock.findIndex((s) => s.kind === "heal");
-    g.player.hp = 10;
-    g.player.gold = 10_000;
-    const gold0 = g.player.gold;
-    buyShopItem(g, healIdx);
-    expect(g.player.hp).toBeGreaterThan(10);
-    expect(g.player.gold).toBe(gold0 - room.stock[healIdx].price);
+    g.players[0].hp = 10;
+    g.players[0].gold = 10_000;
+    const gold0 = g.players[0].gold;
+    buyShopItem(g, 0, healIdx);
+    expect(g.players[0].hp).toBeGreaterThan(10);
+    expect(g.players[0].gold).toBe(gold0 - room.stock[healIdx].price);
     expect(room.stock[healIdx].sold).toBe(true);
-    expect(g.goldSpent).toBe(room.stock[healIdx].price);
+    expect(g.players[0].goldSpent).toBe(room.stock[healIdx].price);
     // Re-buying a sold item is a no-op.
-    buyShopItem(g, healIdx);
-    expect(g.player.gold).toBe(gold0 - room.stock[healIdx].price);
+    buyShopItem(g, 0, healIdx);
+    expect(g.players[0].gold).toBe(gold0 - room.stock[healIdx].price);
   });
 
   it("cannot buy what you cannot afford", () => {
     const g = reachSafeRoom(302);
-    g.player.gold = 0;
-    buyShopItem(g, 0);
+    g.players[0].gold = 0;
+    buyShopItem(g, 0, 0);
     expect(g.safeRoom!.stock[0].sold).toBe(false);
-    expect(g.goldSpent).toBe(0);
+    expect(g.players[0].goldSpent).toBe(0);
   });
 
   it("a purchased stabilizer extends the next floor's timer", () => {
     const g = reachSafeRoom(303);
     const room = g.safeRoom!;
     const timeIdx = room.stock.findIndex((s) => s.kind === "time");
-    g.player.gold = 10_000;
-    buyShopItem(g, timeIdx);
+    g.players[0].gold = 10_000;
+    buyShopItem(g, 0, timeIdx);
     leaveSafeRoom(g);
     expect(g.timeBudget).toBeCloseTo(floorTimeBudget(2) + 15);
   });
@@ -415,9 +415,9 @@ describe("safe room + shop", () => {
     const room = g.safeRoom!;
     const tomeIdx = room.stock.findIndex((s) => s.kind === "tome");
     expect(tomeIdx).toBeGreaterThanOrEqual(0); // both abilities undiscovered at floor 1
-    g.player.gold = 10_000;
-    buyShopItem(g, tomeIdx);
-    expect(knows(g.player, room.stock[tomeIdx].ability!)).toBe(true);
+    g.players[0].gold = 10_000;
+    buyShopItem(g, 0, tomeIdx);
+    expect(knows(g.players[0], room.stock[tomeIdx].ability!)).toBe(true);
   });
 
   it("floor 18 still wins immediately without a safe room", () => {
@@ -427,7 +427,7 @@ describe("safe room + shop", () => {
     });
     for (const m of g.monsters) m.hp = 0;
     step(g, idle(), 1 / 60);
-    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     expect(g.status).toBe("won");
     expect(g.safeRoom).toBeNull();
@@ -437,39 +437,39 @@ describe("safe room + shop", () => {
 describe("achievements", () => {
   it("FIRST BLOOD unlocks on the first kill with a payout", () => {
     const g = createGame(400);
-    g.player.facing = { x: 1, y: 0 };
-    g.player.baseDamage = 9999;
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 9999;
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y } }));
-    const gold0 = g.player.gold;
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
+    const gold0 = g.players[0].gold;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.achievements).toContain("first_blood");
-    expect(g.player.gold).toBeGreaterThan(gold0);
-    expect(g.announcements.some((a) => a.includes("ACHIEVEMENT: FIRST BLOOD"))).toBe(true);
+    expect(g.players[0].achievements).toContain("first_blood");
+    expect(g.players[0].gold).toBeGreaterThan(gold0);
+    expect(g.announcements.some((a) => a.includes("FIRST BLOOD"))).toBe(true);
     // Never unlocks twice.
-    g.monsters.push(mkMon({ id: 2, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y } }));
+    g.monsters.push(mkMon({ id: 2, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.achievements.filter((a) => a === "first_blood").length).toBe(1);
+    expect(g.players[0].achievements.filter((a) => a === "first_blood").length).toBe(1);
   });
 
   it("DIRTY FIGHTER unlocks on a 3-kill instant", () => {
     const g = createGame(401);
-    g.player.facing = { x: 1, y: 0 };
-    g.player.baseDamage = 9999;
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 9999;
     g.monsters.length = 0;
     for (let i = 0; i < 3; i++) {
-      g.monsters.push(mkMon({ id: 10 + i, pos: { x: g.player.pos.x + 0.7, y: g.player.pos.y } }));
+      g.monsters.push(mkMon({ id: 10 + i, pos: { x: g.players[0].pos.x + 0.7, y: g.players[0].pos.y } }));
     }
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.achievements).toContain("dirty_fighter");
+    expect(g.players[0].achievements).toContain("dirty_fighter");
   });
 
   it("COLLECTOR'S EDITION unlocks once both abilities are learned", () => {
     const g = createGame(402);
-    learnAbility(g, "nova");
-    learnAbility(g, "orbit");
+    learnAbility(g, g.players[0], "nova");
+    learnAbility(g, g.players[0], "orbit");
     step(g, idle(), 1 / 60);
-    expect(g.achievements).toContain("collector");
+    expect(g.players[0].achievements).toContain("collector");
   });
 
   it("achievements persist through save/restore", () => {
@@ -480,8 +480,8 @@ describe("achievements", () => {
         achievements: ["first_blood", "crumbs"], goldSpent: 120,
       },
     });
-    expect(restored.achievements).toEqual(["first_blood", "crumbs"]);
-    expect(restored.goldSpent).toBe(120);
+    expect(restored.players[0].achievements).toEqual(["first_blood", "crumbs"]);
+    expect(restored.players[0].goldSpent).toBe(120);
   });
 
   it("every achievement id is unique", () => {
@@ -506,56 +506,54 @@ describe("boss floor", () => {
 });
 
 describe("ability tree + upgrade drafts", () => {
-  it("leveling up opens an upgrade draft that pauses the sim; choosing applies a rank", () => {
+  it("leveling up opens a personal upgrade draft without pausing the world", () => {
     const g = createGame(31);
-    g.player.xp = g.player.xpToNext; // one level-up on the next XP grant
-    g.player.facing = { x: 1, y: 0 };
-    g.player.baseDamage = 9999;
+    g.players[0].xp = g.players[0].xpToNext; // one level-up on the next XP grant
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 9999;
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y }, xp: 1 }));
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y }, xp: 1 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.player.level).toBe(2);
-    expect(g.pendingUpgrades.length).toBeGreaterThan(0);
-    // Paused while the draft is up.
-    const x0 = g.player.pos.x;
+    expect(g.players[0].level).toBe(2);
+    expect(g.players[0].pendingUpgrades.length).toBeGreaterThan(0);
+    // Multiplayer-safe: the world KEEPS RUNNING while the draft pends.
+    const x0 = g.players[0].pos.x;
     step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
-    expect(g.player.pos.x).toBe(x0);
-    // Choosing applies the node rank and resumes.
-    const offer = g.pendingUpgrades[0];
-    chooseUpgrade(g, 0);
-    expect(rank(g.player, offer.id)).toBe(offer.nextRank);
-    expect(g.pendingUpgrades.length).toBe(0);
-    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
-    expect(g.player.pos.x).toBeGreaterThan(x0);
+    expect(g.players[0].pos.x).toBeGreaterThan(x0);
+    // Choosing applies the node rank.
+    const offer = g.players[0].pendingUpgrades[0];
+    chooseUpgrade(g, 0, 0);
+    expect(rank(g.players[0], offer.id)).toBe(offer.nextRank);
+    expect(g.players[0].pendingUpgrades.length).toBe(0);
   });
 
   it("offers only upgrades for known abilities, deterministically per seed", () => {
     function offers(seed: number) {
       const g = createGame(seed);
-      g.upgradeDraftsOwed = 1;
+      g.players[0].upgradeDraftsOwed = 1;
       step(g, idle(), 1 / 60);
-      return g.pendingUpgrades.map((u) => u.id);
+      return g.players[0].pendingUpgrades.map((u) => u.id);
     }
     const a = offers(88);
     expect(a.length).toBe(CONFIG.upgradeDraftSize);
     expect(a).toEqual(offers(88));
     const g = createGame(88);
-    g.upgradeDraftsOwed = 1;
+    g.players[0].upgradeDraftsOwed = 1;
     step(g, idle(), 1 / 60);
-    for (const u of g.pendingUpgrades) expect(knows(g.player, u.ability)).toBe(true);
+    for (const u of g.players[0].pendingUpgrades) expect(knows(g.players[0], u.ability)).toBe(true);
   });
 
   it("Split Shot fires a fan of bolts", () => {
     const g = createGame(12);
-    g.player.abilities.ranks["bolt.split"] = 2;
-    expect(boltParams(g.player).count).toBe(3);
+    g.players[0].abilities.ranks["bolt.split"] = 2;
+    expect(boltParams(g.players[0]).count).toBe(3);
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
     expect(g.projectiles.filter((p) => p.from === "player").length).toBe(3);
   });
 
   it("a tome pickup teaches the ability; nova then works", () => {
     const g = createGame(13);
-    const p = g.player;
+    const p = g.players[0];
     expect(knows(p, "nova")).toBe(false);
     g.loot = [{ id: 900, pos: { x: p.pos.x, y: p.pos.y }, kind: "tome", amount: 0, ability: "nova" }];
     step(g, idle(), 1 / 60);
@@ -572,17 +570,17 @@ describe("ability tree + upgrade drafts", () => {
   it("nova does nothing before it is learned", () => {
     const g = createGame(14);
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 1, y: g.player.pos.y }, hp: 500, maxHp: 500 }));
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 1, y: g.players[0].pos.y }, hp: 500, maxHp: 500 }));
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, nova: true }, 1 / 60);
     expect(g.monsters[0].hp).toBe(500);
   });
 
   it("orbit blades tick damage automatically once learned", () => {
     const g = createGame(15);
-    learnAbility(g, "orbit");
+    learnAbility(g, g.players[0], "orbit");
     g.monsters.length = 0;
     // Park a monster on the orbit circle; some tick within a full revolution must hit.
-    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + CONFIG.orbitRadius, y: g.player.pos.y }, hp: 500, maxHp: 500 }));
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + CONFIG.orbitRadius, y: g.players[0].pos.y }, hp: 500, maxHp: 500 }));
     for (let i = 0; i < 120 && g.monsters[0]?.hp === 500; i++) step(g, idle(), 1 / 60);
     expect(g.monsters[0].hp).toBeLessThan(500);
   });
@@ -595,8 +593,8 @@ describe("ability tree + upgrade drafts", () => {
         abilities: { known: ["melee", "dash", "bolt", "nova"], ranks: { "nova.bang": 1 } },
       },
     });
-    expect(knows(restored.player, "nova")).toBe(true);
-    expect(rank(restored.player, "nova.bang")).toBe(1);
+    expect(knows(restored.players[0], "nova")).toBe(true);
+    expect(rank(restored.players[0], "nova.bang")).toBe(1);
   });
 });
 
@@ -604,7 +602,8 @@ describe("fog of war", () => {
   it("reveals tiles around the player and leaves distant tiles hidden", () => {
     const g = createGame(60);
     step(g, idle(), 1 / 60);
-    const { map, explored, player } = g;
+    const { map, explored } = g;
+    const player = g.players[0];
     const at = (x: number, y: number) => explored[Math.floor(y) * map.w + Math.floor(x)];
     expect(at(player.pos.x, player.pos.y)).toBe(1);
     // A tile far outside the vision radius stays dark (corners are far from any spawn
@@ -619,11 +618,121 @@ describe("fog of war", () => {
     const g = createGame(61);
     step(g, idle(), 1 / 60);
     const { map } = g;
-    const startIdx = Math.floor(g.player.pos.y) * map.w + Math.floor(g.player.pos.x);
+    const startIdx = Math.floor(g.players[0].pos.y) * map.w + Math.floor(g.players[0].pos.x);
     // Teleport far away and step; the start tile must remain explored.
-    g.player.pos = { x: map.stairs.x, y: map.stairs.y };
+    g.players[0].pos = { x: map.stairs.x, y: map.stairs.y };
     step(g, idle(), 1 / 60);
     expect(g.explored[startIdx]).toBe(1);
+  });
+});
+
+describe("multiplayer party sim", () => {
+  it("addPlayer drops a second crawler in with a fresh kit", () => {
+    const g = createGame(700);
+    const donut = addPlayer(g, "Donut");
+    expect(g.players.length).toBe(2);
+    expect(donut.id).toBe(1);
+    expect(donut.alive).toBe(true);
+    expect(g.announcements.some((a) => a.includes("Donut"))).toBe(true);
+  });
+
+  it("per-player intents move players independently", () => {
+    const g = createGame(701);
+    addPlayer(g, "Donut");
+    const [a, b] = g.players;
+    const ax0 = a.pos.x, bx0 = b.pos.x;
+    for (let i = 0; i < 30; i++) {
+      step(g, { [a.id]: { ...idle(), move: { x: 1, y: 0 } }, [b.id]: { ...idle(), move: { x: -1, y: 0 } } }, 1 / 60);
+    }
+    expect(a.pos.x).toBeGreaterThan(ax0);
+    expect(b.pos.x).toBeLessThan(bx0);
+  });
+
+  it("kill XP splits across living party members", () => {
+    const g = createGame(702);
+    addPlayer(g, "Donut");
+    const [a, b] = g.players;
+    a.facing = { x: 1, y: 0 };
+    a.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: a.pos.x + 0.8, y: a.pos.y }, xp: 10 }));
+    step(g, { [a.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
+    expect(a.xp).toBe(5);
+    expect(b.xp).toBe(5);
+    // Kill credit goes to the killer only.
+    expect(a.kills).toBe(1);
+    expect(b.kills).toBe(0);
+  });
+
+  it("monsters hunt the nearest living player", () => {
+    const g = createGame(703);
+    addPlayer(g, "Donut");
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    // Park B far away; put a grunt right next to A with real damage.
+    b.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.monsters.push(mkMon({ id: 1, pos: { x: a.pos.x + 0.5, y: a.pos.y }, hp: 999, maxHp: 999, damage: 5, speed: 0 }));
+    const aHp = a.hp, bHp = b.hp;
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60);
+    expect(a.hp).toBeLessThan(aHp); // A (nearest) got hit
+    expect(b.hp).toBe(bHp); // B untouched
+  });
+
+  it("one death is not a wipe; a full wipe ends the run", () => {
+    const g = createGame(704);
+    addPlayer(g, "Donut");
+    const [a, b] = g.players;
+    a.hp = 1;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: a.pos.x + 0.5, y: a.pos.y }, hp: 999, maxHp: 999, damage: 50, speed: 0 }));
+    b.pos = { x: g.map.stairs.x, y: g.map.stairs.y }; // B far away and safe
+    for (let i = 0; i < 120 && a.alive; i++) step(g, idle(), 1 / 60);
+    expect(a.alive).toBe(false);
+    expect(g.status).toBe("playing"); // show goes on
+    // Now B goes down too.
+    b.hp = 1;
+    g.monsters[0].pos = { x: b.pos.x + 0.5, y: b.pos.y };
+    for (let i = 0; i < 120 && b.alive; i++) step(g, idle(), 1 / 60);
+    expect(g.status).toBe("dead");
+  });
+
+  it("safe room requires everyone ready; dead players respawn at half HP on descent", () => {
+    const g = createGame(705);
+    addPlayer(g, "Donut");
+    const [a, b] = g.players;
+    b.alive = false;
+    b.hp = 0;
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { [a.id]: { ...idle(), useStairs: true } }, 1 / 60);
+    expect(g.safeRoom).not.toBeNull();
+    setReady(g, a.id);
+    expect(g.safeRoom).not.toBeNull(); // B hasn't readied
+    setReady(g, b.id);
+    expect(g.safeRoom).toBeNull();
+    expect(g.floor).toBe(2);
+    expect(b.alive).toBe(true);
+    expect(b.hp).toBe(Math.round(b.maxHp * 0.5));
+  });
+
+  it("party runs stay deterministic with PartyIntents", () => {
+    function play(seed: number) {
+      const g = createGame(seed);
+      addPlayer(g, "Donut");
+      for (let i = 0; i < 240; i++) {
+        step(g, {
+          0: { ...idle(), move: { x: 1, y: 0 }, attack: true, aim: { x: 1, y: 0 } },
+          1: { ...idle(), move: { x: 0, y: 1 }, bolt: i % 30 === 0 },
+        }, 1 / 60);
+      }
+      return {
+        pos: g.players.map((p) => ({ ...p.pos })),
+        hp: g.players.map((p) => p.hp),
+        kills: g.players.map((p) => p.kills),
+        monsters: g.monsters.map((m) => m.hp),
+      };
+    }
+    expect(play(808)).toEqual(play(808));
   });
 });
 
@@ -631,8 +740,8 @@ describe("no-op safety", () => {
   it("stepping a finished game is a no-op", () => {
     const g = createGame(1);
     g.status = "won";
-    const before = JSON.stringify(g.player.pos);
+    const before = JSON.stringify(g.players[0].pos);
     step(g, NO_INTENT, 1 / 60);
-    expect(JSON.stringify(g.player.pos)).toBe(before);
+    expect(JSON.stringify(g.players[0].pos)).toBe(before);
   });
 });

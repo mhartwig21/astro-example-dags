@@ -15,6 +15,8 @@ export enum Tile {
 export type TimerPhase = "safe" | "warning" | "collapse";
 
 export interface Player {
+  id: number; // stable per party member; 0 is the solo/first player
+  name: string; // shown in announcer lines and (later) over the head
   pos: Vec2;
   facing: Vec2; // unit vector of last movement/attack direction
   hp: number;
@@ -47,6 +49,18 @@ export interface Player {
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
+
+  // Personal, non-blocking offers: the world keeps running while these pend.
+  pendingUpgrades: UpgradeOffer[]; // level-up ability draft awaiting this player's pick
+  upgradeDraftsOwed: number; // queued drafts from multiple level-ups
+  pendingRewards: Reward[]; // sponsor draft awaiting this player's pick
+
+  // Per-player achievement progress + flags its checks read.
+  achievements: string[];
+  goldSpent: number; // cumulative shop spending this run
+  kills: number; // cumulative kill credit (killing blows) this run
+  killsThisStep: number; // transient: kills credited to this player this step
+  lowHpKill: boolean; // transient: killed something while below 10% HP
 }
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
@@ -66,6 +80,7 @@ export interface Monster {
   xp: number;
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
+  lastHitBy?: number; // player id credited with the killing blow (loot boxes)
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome";
@@ -119,6 +134,7 @@ export interface SafeRoom {
   stock: ShopItem[];
   tip: string; // Mordecai-style manager advice about the next floor
   bonusTime?: number; // purchased stabilizer seconds, applied when the floor builds
+  ready: number[]; // player ids who hit DESCEND; the party leaves when all are ready
 }
 
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
@@ -142,6 +158,7 @@ export interface Projectile {
   damage: number;
   ttl: number; // seconds before it despawns
   from: "player" | "enemy";
+  ownerId?: number; // firing player's id (crit rolls + kill credit)
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
 }
@@ -174,9 +191,13 @@ export interface GameState {
   floor: number; // 1-indexed current floor
   map: FloorMap;
   // Fog of war: 1 = explored, row-major like map.tiles. Reset per floor.
+  // Shared by the party; revealed around every living player.
   explored: Uint8Array;
   exploredVersion: number; // bumped whenever new tiles are revealed (render diffing)
-  player: Player;
+  // The party (1-6). Solo play is a party of one; players[0] is the local player
+  // in the browser hosts. Order is stable and intents are applied in id order so
+  // the RNG stream stays reproducible.
+  players: Player[];
   monsters: Monster[];
   loot: Loot[];
   projectiles: Projectile[];
@@ -203,20 +224,13 @@ export interface GameState {
   viewers: number; // live audience count
   favorites: number; // sticky fans (a slice of viewers convert on hype)
   sponsors: number; // backers earned at favorite thresholds
-  pendingRewards: Reward[]; // sponsor draft awaiting a choice (host pauses while non-empty)
-  // Level-up ability draft (VS-style). Pauses the sim like the sponsor draft;
-  // multiple level-ups queue via upgradeDraftsOwed.
-  pendingUpgrades: UpgradeOffer[];
-  upgradeDraftsOwed: number;
-  // Safe room between floors (null while crawling). Pauses the sim like a draft.
+  // Safe room between floors (null while crawling). The whole instance is "between
+  // floors" while non-null: the sim idles until every player readies up.
   safeRoom: SafeRoom | null;
 
-  // Achievements: unlocked ids (persisted) + cheap per-step flags the checks read.
-  achievements: string[];
-  goldSpent: number; // cumulative shop spending this run
-  killsThisStep: number; // transient: kills reaped in the current step
+  // Party-level per-step flags (per-player progress lives on Player).
+  killsThisStep: number; // transient: party kills reaped this step (combo hype)
   escapedCollapse: boolean; // transient: descended while the floor was collapsing
-  lowHpKill: boolean; // transient: killed something while below 10% HP
 
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }
@@ -240,3 +254,6 @@ export const NO_INTENT: Intent = {
   bolt: false,
   nova: false,
 };
+
+/** Per-player intents for one step, keyed by player id. Missing ids = NO_INTENT. */
+export type PartyIntents = Record<number, Intent>;

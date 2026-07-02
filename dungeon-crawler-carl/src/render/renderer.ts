@@ -26,7 +26,7 @@ export interface Camera {
 
 /** Center the camera on the player, clamped to the map bounds. */
 export function updateCamera(cam: Camera, state: GameState, viewW: number, viewH: number): void {
-  const p = state.player.pos;
+  const p = state.players[0].pos;
   const halfW = viewW / 2 / T;
   const halfH = viewH / 2 / T;
   cam.x = Math.max(halfW, Math.min(state.map.w - halfW, p.x));
@@ -74,8 +74,12 @@ export function render(
 
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
   const inVision = (wx: number, wy: number): boolean => {
-    const dx = wx - state.player.pos.x, dy = wy - state.player.pos.y;
-    return dx * dx + dy * dy <= vis2;
+    for (const pl of state.players) {
+      if (!pl.alive) continue;
+      const dx = wx - pl.pos.x, dy = wy - pl.pos.y;
+      if (dx * dx + dy * dy <= vis2) return true;
+    }
+    return false;
   };
 
   for (let y = minY; y <= maxY; y++) {
@@ -140,8 +144,8 @@ export function render(
     ctx.fillRect(px - 12, py - T * 0.5, 24 * frac, 4);
   }
 
-  // Player.
-  const p = state.player;
+  // Players (whole party; players[0] is the local one).
+  for (const p of state.players) {
   const ppx = offX + p.pos.x * T;
   const ppy = offY + p.pos.y * T;
   // Attack swing indicator (arc in facing direction).
@@ -187,6 +191,7 @@ export function render(
   ctx.moveTo(ppx, ppy);
   ctx.lineTo(ppx + p.facing.x * T * 0.5, ppy + p.facing.y * T * 0.5);
   ctx.stroke();
+  }
 
   drawHud(ctx, state, viewW, viewH, log);
 }
@@ -198,7 +203,7 @@ function drawHud(
   viewH: number,
   log: string[],
 ): void {
-  const p = state.player;
+  const p = state.players[0];
   ctx.textBaseline = "top";
   ctx.font = "14px ui-monospace, monospace";
 

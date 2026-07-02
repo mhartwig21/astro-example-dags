@@ -27,6 +27,7 @@ export interface SaveData {
     abilities?: Player["abilities"];
     achievements?: string[];
     goldSpent?: number;
+    kills?: number;
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -34,7 +35,8 @@ export interface SaveData {
 
 export function saveRun(state: GameState): void {
   try {
-    const p = state.player;
+    // Single-player persistence: the local player's progression (players[0]).
+    const p = state.players[0];
     const data: SaveData = {
       seed: state.seed,
       floor: state.floor,
@@ -50,8 +52,9 @@ export function saveRun(state: GameState): void {
         equipment: p.equipment,
         inventory: p.inventory,
         abilities: p.abilities,
-        achievements: state.achievements,
-        goldSpent: state.goldSpent,
+        achievements: p.achievements,
+        goldSpent: p.goldSpent,
+        kills: p.kills,
       },
       show: {
         hype: state.hype,

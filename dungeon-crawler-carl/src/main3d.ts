@@ -1,6 +1,6 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyShopItem, leaveSafeRoom,
+  buyShopItem, setReady, addPlayer,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore } from "./sim/items";
@@ -114,11 +114,12 @@ const draftHint = document.getElementById("draft-hint")!;
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
 function renderDraft(s: GameState): void {
-  if (s.pendingRewards.length > 0) {
+  const lp = s.players[0];
+  if (lp.pendingRewards.length > 0) {
     draftEl.classList.remove("levelup");
     draftTitle.textContent = "◆ SPONSOR DRAFT";
     draftHint.textContent = "Your sponsors reward a good show. Choose one gift to carry down.";
-    draftCards.innerHTML = s.pendingRewards
+    draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
         const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
         return (
@@ -133,7 +134,7 @@ function renderDraft(s: GameState): void {
     draftEl.classList.add("levelup");
     draftTitle.textContent = "◆ LEVEL UP";
     draftHint.textContent = "The System offers an evolution. Choose one upgrade.";
-    draftCards.innerHTML = s.pendingUpgrades
+    draftCards.innerHTML = lp.pendingUpgrades
       .map((u, i) =>
         `<div class="reward" data-idx="${i}">` +
         `<div class="rability">${ABILITY_INFO[u.ability].name}</div>` +
@@ -148,8 +149,9 @@ function renderDraft(s: GameState): void {
 draftCards.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  if (state.pendingRewards.length > 0) chooseReward(state, Number(card.dataset.idx));
-  else chooseUpgrade(state, Number(card.dataset.idx));
+  const me = state.players[0];
+  if (me.pendingRewards.length > 0) chooseReward(state, me.id, Number(card.dataset.idx));
+  else chooseUpgrade(state, me.id, Number(card.dataset.idx));
   flushFeedback(state);
   saveRun(state);
   draftEl.style.display = "none";
@@ -174,7 +176,7 @@ function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): strin
 }
 
 function renderInventory(s: GameState): void {
-  const p = s.player;
+  const p = s.players[0];
   invEquipped.innerHTML = (["weapon", "armor", "trinket"] as const)
     .map((slot) => {
       const it = p.equipment[slot];
@@ -202,7 +204,7 @@ function toggleInventory(): void {
 invBag.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".item.bag") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  equipFromInventory(state, Number(card.dataset.idx));
+  equipFromInventory(state, state.players[0].id, Number(card.dataset.idx));
   saveRun(state);
   renderInventory(state);
 });
@@ -213,7 +215,7 @@ const abilGrid = document.getElementById("abil-grid")!;
 let abilOpen = false;
 
 function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): string {
-  const p = s.player;
+  const p = s.players[0];
   const info = ABILITY_INFO[id];
   if (!knows(p, id)) {
     return (
@@ -250,9 +252,9 @@ const achCount = document.getElementById("ach-count")!;
 function renderAbilities(s: GameState): void {
   const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
   abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
-  achCount.textContent = `${s.achievements.length} / ${ACHIEVEMENTS.length}`;
+  achCount.textContent = `${s.players[0].achievements.length} / ${ACHIEVEMENTS.length}`;
   achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = s.achievements.includes(a.id);
+    const got = s.players[0].achievements.includes(a.id);
     return (
       `<div class="ach${got ? "" : " locked"}">` +
       `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
@@ -287,10 +289,10 @@ function renderSafeRoom(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
   srTip.textContent = room.tip;
-  srGold.textContent = `Your gold: ${s.player.gold}`;
+  srGold.textContent = `Your gold: ${s.players[0].gold}`;
   srStock.innerHTML = room.stock
     .map((it, i) => {
-      const cls = it.sold ? " sold" : s.player.gold < it.price ? " broke" : "";
+      const cls = it.sold ? " sold" : s.players[0].gold < it.price ? " broke" : "";
       return (
         `<div class="shop-item${cls}" data-idx="${i}">` +
         `<div class="stitle">${it.title}</div>` +
@@ -315,14 +317,14 @@ function flushFeedback(s: GameState): void {
 srStock.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".shop-item") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  buyShopItem(state, Number(card.dataset.idx));
+  buyShopItem(state, state.players[0].id, Number(card.dataset.idx));
   flushFeedback(state);
   saveRun(state);
   renderSafeRoom(state); // refresh sold/affordability states
 });
 
 srDescend.addEventListener("click", () => {
-  leaveSafeRoom(state);
+  setReady(state, state.players[0].id);
   flushFeedback(state);
   saveRun(state);
   srEl.style.display = "none";
@@ -333,7 +335,7 @@ const novaCdEl = document.querySelector("#skill-nova .cd > i") as HTMLElement;
 const novaSkill = document.getElementById("skill-nova")!;
 
 function updateSkills(s: GameState): void {
-  const p = s.player;
+  const p = s.players[0];
   const dFrac = Math.max(0, Math.min(1, p.dashCd / dashParams(p).cooldown));
   const bFrac = Math.max(0, Math.min(1, p.boltCd / boltParams(p).cooldown));
   dashCd.style.width = `${dFrac * 100}%`;
@@ -369,7 +371,7 @@ function drawMinimap(s: GameState): void {
   }
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
   for (const m of s.monsters) {
-    const dx = m.pos.x - s.player.pos.x, dy = m.pos.y - s.player.pos.y;
+    const dx = m.pos.x - s.players[0].pos.x, dy = m.pos.y - s.players[0].pos.y;
     if (dx * dx + dy * dy > vis2) continue;
     mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
     const r = m.kind === "boss" ? 3.5 : 2;
@@ -377,10 +379,12 @@ function drawMinimap(s: GameState): void {
     mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
     mmCtx.fill();
   }
-  mmCtx.fillStyle = "#4fd1ff";
-  mmCtx.beginPath();
-  mmCtx.arc(pad + s.player.pos.x * sx, pad + s.player.pos.y * sy, 3, 0, Math.PI * 2);
-  mmCtx.fill();
+  for (const pl of s.players) {
+    mmCtx.fillStyle = pl.id === s.players[0].id ? "#4fd1ff" : "#7be89b";
+    mmCtx.beginPath();
+    mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
+    mmCtx.fill();
+  }
 }
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
@@ -427,7 +431,7 @@ function fmt(t: number): string {
   return `${Math.floor(c / 60)}:${Math.floor(c % 60).toString().padStart(2, "0")}`;
 }
 function updateHud(s: GameState): void {
-  const p = s.player;
+  const p = s.players[0];
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
   hudTL.innerHTML =
     `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
@@ -456,6 +460,8 @@ if (new URLSearchParams(location.search).has("debug")) {
   (window as unknown as { __dcc: unknown }).__dcc = {
     get state() { return state; },
     renderer,
+    addPlayer: (name: string) => addPlayer(state, name),
+    step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
   };
 }
 
@@ -482,7 +488,7 @@ async function main(): Promise<void> {
     const frameAnns: string[] = [];
     // The inventory/ability panels, pending drafts, and the safe room all pause
     // the sim; drop accumulated time so it doesn't fast-forward on resume.
-    const draftPending = state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0;
+    const draftPending = state.players[0].pendingRewards.length > 0 || state.players[0].pendingUpgrades.length > 0;
     if (draftEl.style.display !== "flex" && draftPending) {
       renderDraft(state);
       draftEl.style.display = "flex";

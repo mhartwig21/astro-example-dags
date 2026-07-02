@@ -1,4 +1,4 @@
-import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyShopItem, leaveSafeRoom } from "./sim/game";
+import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyShopItem, setReady } from "./sim/game";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
@@ -46,7 +46,7 @@ function boot(): GameState {
 }
 
 let state = boot();
-const cam: Camera = { x: state.player.pos.x, y: state.player.pos.y };
+const cam: Camera = { x: state.players[0].pos.x, y: state.players[0].pos.y };
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 const input = new InputController(canvas);
@@ -61,14 +61,15 @@ input.onReset = () => {
 let pausePrompted = false;
 window.addEventListener("keydown", (e) => {
   const n = Number(e.key);
+  const me = state.players[0];
   if (n >= 1 && n <= 9) {
-    if (state.pendingRewards.length > 0) chooseReward(state, n - 1);
-    else if (state.pendingUpgrades.length > 0) chooseUpgrade(state, n - 1);
-    else if (state.safeRoom) buyShopItem(state, n - 1);
+    if (me.pendingRewards.length > 0) chooseReward(state, me.id, n - 1);
+    else if (me.pendingUpgrades.length > 0) chooseUpgrade(state, me.id, n - 1);
+    else if (state.safeRoom) buyShopItem(state, me.id, n - 1);
     for (const ev of state.events) log.push(ev);
     state.events = [];
   } else if (e.key === "Enter" && state.safeRoom) {
-    leaveSafeRoom(state);
+    setReady(state, me.id);
     for (const ev of state.events) log.push(ev);
     state.events = [];
   }
@@ -88,12 +89,13 @@ function frame(now: number): void {
   acc += dt;
 
   const playerScreen = {
-    x: viewW / 2 + (state.player.pos.x - cam.x) * CONFIG.tile,
-    y: viewH / 2 + (state.player.pos.y - cam.y) * CONFIG.tile,
+    x: viewW / 2 + (state.players[0].pos.x - cam.x) * CONFIG.tile,
+    y: viewH / 2 + (state.players[0].pos.y - cam.y) * CONFIG.tile,
   };
 
   // Log a one-time hint whenever a pause (draft / safe room) begins.
-  const paused = state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0 || !!state.safeRoom;
+  const lp = state.players[0];
+  const paused = lp.pendingRewards.length > 0 || lp.pendingUpgrades.length > 0 || !!state.safeRoom;
   if (paused && !pausePrompted) {
     pausePrompted = true;
     if (state.safeRoom) {
@@ -101,7 +103,7 @@ function frame(now: number): void {
       state.safeRoom.stock.forEach((s, i) => log.push(`  [${i + 1}] ${s.title} — ${s.desc} (${s.price}g)`));
       log.push("  Press 1-9 to buy, Enter to descend.");
     } else {
-      const offers = state.pendingRewards.length > 0 ? state.pendingRewards : state.pendingUpgrades;
+      const offers: { title: string; desc: string }[] = lp.pendingRewards.length > 0 ? lp.pendingRewards : lp.pendingUpgrades;
       offers.forEach((o, i) => log.push(`  [${i + 1}] ${o.title} — ${o.desc}`));
       log.push("  Press 1-9 to choose.");
     }

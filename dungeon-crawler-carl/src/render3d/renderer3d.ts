@@ -29,7 +29,9 @@ export class Renderer3D {
   private floorGroup = new THREE.Group();
   private torchLights: { light: THREE.PointLight; base: number; seed: number }[] = [];
 
-  private player: THREE.Group;
+  // Party rendering: one mesh per player id. The camera follows localPlayerId.
+  private playerMeshes = new Map<number, THREE.Group>();
+  localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private loot = new Map<number, THREE.Mesh>();
   private projectiles = new Map<number, THREE.Mesh>();
@@ -45,13 +47,13 @@ export class Renderer3D {
   private stairsTile = -1;
   private lastExploredVersion = -1;
 
-  // Ability visuals.
-  private orbitBlades: THREE.Mesh[] = [];
-  private novaRing: THREE.Mesh | null = null;
+  // Ability visuals, per player id.
+  private orbitBlades = new Map<number, THREE.Mesh[]>();
+  private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
-  private prevPlayer: Vec2 = { x: 0, y: 0 };
-  private prevSwing = 0;
+  private prevPlayers = new Map<number, Vec2>();
+  private prevSwings = new Map<number, number>();
   private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
   private shake = 0;
@@ -85,17 +87,14 @@ export class Renderer3D {
     this.scene.add(this.key.target);
 
     this.scene.add(this.floorGroup);
-    this.player = this.buildPlayerMesh();
-    this.scene.add(this.player);
   }
 
   async init(): Promise<void> {
     this.models = await loadModels();
-    // If a real player model was provided, swap the procedural stand-in for it.
-    const rebuilt = this.buildPlayerMesh();
-    this.scene.remove(this.player);
-    this.player = rebuilt;
-    this.scene.add(this.player);
+    // Drop any procedural stand-ins built before the models arrived; the pool
+    // rebuilds with real models on the next update.
+    for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
+    this.playerMeshes.clear();
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
@@ -466,49 +465,50 @@ export class Renderer3D {
   // ---- Ability visuals (orbit blades + nova ring) ----
 
   private updateAbilityFx(state: GameState, dt: number): void {
-    const p = state.player;
-    // Orbit blades: reconcile the pool with the learned blade count.
-    const op = knows(p, "orbit") ? orbitParams(p) : null;
-    const want = op ? op.blades : 0;
-    while (this.orbitBlades.length < want) {
-      const blade = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.16, 0),
-        flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
-      );
-      blade.castShadow = true;
-      this.scene.add(blade);
-      this.orbitBlades.push(blade);
-    }
-    while (this.orbitBlades.length > want) {
-      const blade = this.orbitBlades.pop()!;
-      this.scene.remove(blade);
-    }
-    if (op) {
-      for (let i = 0; i < this.orbitBlades.length; i++) {
-        const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
-        const blade = this.orbitBlades[i];
-        blade.position.set(p.pos.x + Math.cos(a) * op.radius, 0.75, p.pos.y + Math.sin(a) * op.radius);
-        blade.rotation.y += dt * 10;
-      }
-    }
-    // Nova ring: expands over the flash window, fading out.
-    if (p.novaFlash > 0) {
-      if (!this.novaRing) {
-        this.novaRing = new THREE.Mesh(
-          new THREE.TorusGeometry(1, 0.07, 8, 40),
-          new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true }),
+    for (const p of state.players) {
+      // Orbit blades: reconcile each player's pool with their learned blade count.
+      const op = knows(p, "orbit") && p.alive ? orbitParams(p) : null;
+      const want = op ? op.blades : 0;
+      let blades = this.orbitBlades.get(p.id);
+      if (!blades) { blades = []; this.orbitBlades.set(p.id, blades); }
+      while (blades.length < want) {
+        const blade = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.16, 0),
+          flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
         );
-        this.novaRing.rotation.x = -Math.PI / 2;
-        this.scene.add(this.novaRing);
+        blade.castShadow = true;
+        this.scene.add(blade);
+        blades.push(blade);
       }
-      const np = novaParams(p);
-      const prog = 1 - p.novaFlash / 0.3;
-      this.novaRing.visible = true;
-      this.novaRing.position.set(p.pos.x, 0.15, p.pos.y);
-      this.novaRing.scale.setScalar(Math.max(0.05, np.radius * prog));
-      (this.novaRing.material as THREE.MeshBasicMaterial).opacity = 1 - prog;
-    } else if (this.novaRing) {
-      this.novaRing.visible = false;
+      while (blades.length > want) this.scene.remove(blades.pop()!);
+      if (op) {
+        for (let i = 0; i < blades.length; i++) {
+          const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+          blades[i].position.set(p.pos.x + Math.cos(a) * op.radius, 0.75, p.pos.y + Math.sin(a) * op.radius);
+          blades[i].rotation.y += dt * 10;
+        }
+      }
+      // Nova ring: expands over the flash window, fading out.
+      let ring = this.novaRings.get(p.id) ?? null;
+      if (p.novaFlash > 0) {
+        if (!ring) {
+          ring = new THREE.Mesh(
+            new THREE.TorusGeometry(1, 0.07, 8, 40),
+            new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true }),
+          );
+          ring.rotation.x = -Math.PI / 2;
+          this.scene.add(ring);
+          this.novaRings.set(p.id, ring);
+        }
+        const np = novaParams(p);
+        const prog = 1 - p.novaFlash / 0.3;
+        ring.visible = true;
+        ring.position.set(p.pos.x, 0.15, p.pos.y);
+        ring.scale.setScalar(Math.max(0.05, np.radius * prog));
+        (ring.material as THREE.MeshBasicMaterial).opacity = 1 - prog;
+      } else if (ring) {
+        ring.visible = false;
+      }
     }
   }
 
@@ -523,30 +523,53 @@ export class Renderer3D {
     const dt = this.prevTime ? Math.min(0.1, time - this.prevTime) : 1 / 60;
     this.prevTime = time;
 
-    // Player + procedural animation.
-    const p = state.player;
-    const pSpeed = Math.hypot(p.pos.x - this.prevPlayer.x, p.pos.y - this.prevPlayer.y) / dt;
-    this.prevPlayer = { x: p.pos.x, y: p.pos.y };
-    this.player.position.set(p.pos.x, 0, p.pos.y);
-    this.player.rotation.set(0, Math.atan2(p.facing.x, p.facing.y), 0);
-    this.player.visible = true;
-    if (this.player.userData.mixer) {
-      // Real rigged model: drive clips; procedural bob/tip-over would fight them.
-      const play = this.player.userData.play as (n: string, force?: boolean) => void;
-      if (!p.alive) play("death");
-      else if (p.attackSwing > this.prevSwing + 1e-6) play("attack", true);
-      else if (p.attackSwing <= 0) play(pSpeed > 0.4 ? "walk" : "idle");
-      this.prevSwing = p.attackSwing;
-      (this.player.userData.mixer as THREE.AnimationMixer).update(dt);
-    } else {
-      this.animatePlayer(p.alive, pSpeed, p.attackSwing, time);
+    // The camera/light anchor: the local player (fall back to the first).
+    const p = state.players.find((pl) => pl.id === this.localPlayerId) ?? state.players[0];
+    if (!p) return;
+
+    // Players: reconcile mesh pool + animate each.
+    const pSeen = new Set<number>();
+    for (const pl of state.players) {
+      pSeen.add(pl.id);
+      let mesh = this.playerMeshes.get(pl.id);
+      if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
+      const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
+      const plSpeed = Math.hypot(pl.pos.x - prev.x, pl.pos.y - prev.y) / dt;
+      this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
+      mesh.position.set(pl.pos.x, 0, pl.pos.y);
+      mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
+      mesh.visible = true;
+      const prevSwing = this.prevSwings.get(pl.id) ?? 0;
+      if (mesh.userData.mixer) {
+        // Real rigged model: drive clips; procedural bob/tip-over would fight them.
+        const play = mesh.userData.play as (n: string, force?: boolean) => void;
+        if (!pl.alive) play("death");
+        else if (pl.attackSwing > prevSwing + 1e-6) play("attack", true);
+        else if (pl.attackSwing <= 0) play(plSpeed > 0.4 ? "walk" : "idle");
+        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+      } else {
+        this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
+      }
+      this.prevSwings.set(pl.id, pl.attackSwing);
+    }
+    for (const [id, mesh] of this.playerMeshes) {
+      if (!pSeen.has(id)) {
+        this.scene.remove(mesh);
+        this.playerMeshes.delete(id);
+        this.prevPlayers.delete(id);
+        this.prevSwings.delete(id);
+      }
     }
 
-    // Fog of war: entities render only inside the player's vision radius.
+    // Fog of war: entities render inside ANY living player's vision (shared show).
     const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
     const inVision = (pos: Vec2): boolean => {
-      const dx = pos.x - p.pos.x, dy = pos.y - p.pos.y;
-      return dx * dx + dy * dy <= vis2;
+      for (const pl of state.players) {
+        if (!pl.alive) continue;
+        const dx = pos.x - pl.pos.x, dy = pos.y - pl.pos.y;
+        if (dx * dx + dy * dy <= vis2) return true;
+      }
+      return false;
     };
 
     // Monsters: reconcile mesh pool with live monster set + animate.
@@ -649,36 +672,36 @@ export class Renderer3D {
     this.key.target.position.set(p.pos.x, 0, p.pos.y);
   }
 
-  /** Procedural animation for the placeholder player (walk bob, attack lunge, death). */
-  private animatePlayer(alive: boolean, speed: number, attackSwing: number, time: number): void {
-    const body = this.player.userData.body as THREE.Mesh | undefined;
-    const weapon = this.player.userData.weapon as THREE.Mesh | undefined;
-    const restX = (this.player.userData.weaponRestX as number) ?? 0;
+  /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
+  private animatePlayer(mesh: THREE.Group, alive: boolean, speed: number, attackSwing: number, time: number): void {
+    const body = mesh.userData.body as THREE.Mesh | undefined;
+    const weapon = mesh.userData.weapon as THREE.Mesh | undefined;
+    const restX = (mesh.userData.weaponRestX as number) ?? 0;
 
     if (!alive) {
       // Tip over and sink.
-      this.player.rotation.x = -Math.PI / 2.2;
-      this.player.position.y = 0.1;
+      mesh.rotation.x = -Math.PI / 2.2;
+      mesh.position.y = 0.1;
       return;
     }
-    this.player.rotation.x = 0;
+    mesh.rotation.x = 0;
 
     if (attackSwing > 0) {
       // Lunge forward along facing during the swing, and swing the weapon.
       const prog = 1 - attackSwing / 0.15; // 0 -> 1 across the swing
       const lunge = Math.sin(prog * Math.PI) * 0.18;
-      this.player.position.x += Math.sin(this.player.rotation.y) * lunge;
-      this.player.position.z += Math.cos(this.player.rotation.y) * lunge;
+      mesh.position.x += Math.sin(mesh.rotation.y) * lunge;
+      mesh.position.z += Math.cos(mesh.rotation.y) * lunge;
       if (weapon) weapon.rotation.x = restX - Math.sin(prog * Math.PI) * 1.4;
-      this.player.position.y = 0;
+      mesh.position.y = 0;
     } else if (speed > 0.4) {
       // Walk: bob + subtle roll.
-      this.player.position.y = Math.abs(Math.sin(time * 12)) * 0.1;
+      mesh.position.y = Math.abs(Math.sin(time * 12)) * 0.1;
       if (body) body.rotation.z = Math.sin(time * 12) * 0.08;
       if (weapon) weapon.rotation.x = restX;
     } else {
       // Idle breathing.
-      this.player.position.y = Math.sin(time * 2.5) * 0.03;
+      mesh.position.y = Math.sin(time * 2.5) * 0.03;
       if (body) body.rotation.z = 0;
       if (weapon) weapon.rotation.x = restX;
     }
