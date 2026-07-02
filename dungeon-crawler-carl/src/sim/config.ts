@@ -4,17 +4,19 @@
 export const CONFIG = {
   finalFloor: 18,
 
-  // Grid / world
+  // Grid / world. Floors are roomy: a 64x64 grid with more/larger rooms and
+  // two-tile-wide corridors, sized for parties fighting side by side.
   tile: 32, // pixels per tile (render); sim positions are in tile units (floats)
-  floorMinRooms: 5,
-  floorMaxRooms: 9,
-  floorGridW: 48,
-  floorGridH: 48,
+  floorMinRooms: 10,
+  floorMaxRooms: 16,
+  floorGridW: 72,
+  floorGridH: 72,
 
   // Collapse timer (seconds). Floor 1 is generous; deeper floors tighten.
-  timerBaseSeconds: 90,
+  // Budgets account for the larger floors (longer traversal to the stairs).
+  timerBaseSeconds: 120,
   timerPerFloorFalloff: 2.5, // seconds shaved per floor descended
-  timerMinSeconds: 45,
+  timerMinSeconds: 60,
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
@@ -38,10 +40,18 @@ export const CONFIG = {
   hpPerLevel: 18,
   damagePerLevel: 3,
 
-  // Monsters
-  monsterBaseCountFloor1: 4,
-  monsterCountPerFloor: 1.5,
-  monsterMaxCount: 22,
+  // Multiplayer difficulty: per EXTRA party member (beyond the first), floors
+  // spawn more monsters and each monster gets tougher. Applied at floor build
+  // from the party size at that moment (drop-ins mid-floor don't retro-scale).
+  mpCountPerExtraPlayer: 0.6, // +60% monster count per extra crawler
+  mpHpPerExtraPlayer: 0.35, // +35% monster HP per extra crawler
+  mpDamagePerExtraPlayer: 0.15, // +15% monster damage per extra crawler
+  mpBossHpPerExtraPlayer: 0.75, // the boss scales harder (it is shared)
+
+  // Monsters (density tuned for the 64x64 floors)
+  monsterBaseCountFloor1: 6,
+  monsterCountPerFloor: 2,
+  monsterMaxCount: 30,
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
   monsterBaseDamage: 6,

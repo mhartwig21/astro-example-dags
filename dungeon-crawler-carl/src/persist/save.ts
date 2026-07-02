@@ -28,6 +28,8 @@ export interface SaveData {
     achievements?: string[];
     goldSpent?: number;
     kills?: number;
+    damageDealt?: number;
+    damageTaken?: number;
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -55,12 +57,14 @@ export function saveRun(state: GameState): void {
         achievements: p.achievements,
         goldSpent: p.goldSpent,
         kills: p.kills,
+        damageDealt: p.damageDealt,
+        damageTaken: p.damageTaken,
       },
       show: {
-        hype: state.hype,
-        viewers: state.viewers,
-        favorites: state.favorites,
-        sponsors: state.sponsors,
+        hype: p.hype,
+        viewers: p.viewers,
+        favorites: p.favorites,
+        sponsors: p.sponsors,
       },
       status: state.status,
     };

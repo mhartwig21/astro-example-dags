@@ -122,11 +122,12 @@ function bump(el: HTMLElement): void {
 }
 
 function updateShowHud(s: GameState): void {
-  const v = Math.round(s.viewers);
+  const p = me(s);
+  const v = Math.round(p.viewers);
   statViewers.textContent = v.toLocaleString();
-  statFavorites.textContent = Math.floor(s.favorites).toLocaleString();
-  statSponsors.textContent = String(s.sponsors);
-  if (s.sponsors !== shownSponsors) { shownSponsors = s.sponsors; bump(statSponsors); }
+  statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
+  statSponsors.textContent = String(p.sponsors);
+  if (p.sponsors !== shownSponsors) { shownSponsors = p.sponsors; bump(statSponsors); }
   // Pop the viewer chip on a big surge (exciting moment).
   if (v > shownViewers * 1.25 && v > 500) bump(statViewers);
   shownViewers = v;
@@ -284,6 +285,7 @@ function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): str
 
 const achGrid = document.getElementById("ach-grid")!;
 const achCount = document.getElementById("ach-count")!;
+const statsRows = document.getElementById("stats-rows")!;
 
 function renderAbilities(s: GameState): void {
   const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
@@ -296,6 +298,22 @@ function renderAbilities(s: GameState): void {
       `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
       `</div>`
+    );
+  }).join("");
+  // Run stats: one row per party member (solo runs show just the local player).
+  const localId = me(s).id;
+  statsRows.innerHTML = s.players.map((p) => {
+    const you = p.id === localId;
+    return (
+      `<tr class="${[you ? "you" : "", p.alive ? "" : "dead"].filter(Boolean).join(" ")}">` +
+      `<td>${p.name}${you ? " (you)" : ""}</td>` +
+      `<td>${p.level}</td>` +
+      `<td>${p.kills}</td>` +
+      `<td>${Math.round(p.damageDealt).toLocaleString()}</td>` +
+      `<td>${Math.round(p.damageTaken).toLocaleString()}</td>` +
+      `<td>${Math.round(p.viewers).toLocaleString()}</td>` +
+      `<td>${p.sponsors}</td>` +
+      `</tr>`
     );
   }).join("");
 }
@@ -583,8 +601,8 @@ function updateHud(s: GameState): void {
     hudLog.innerHTML +=
       `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
       `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>` +
-      `<br>Final show: ${Math.round(s.viewers).toLocaleString()} viewers · ` +
-      `${Math.floor(s.favorites).toLocaleString()} favorites · ${s.sponsors} sponsors`;
+      `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
+      `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
   }
 }
 

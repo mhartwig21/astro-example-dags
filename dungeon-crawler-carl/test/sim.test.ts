@@ -299,14 +299,15 @@ describe("itemization", () => {
 describe("the show (viewers / favorites / sponsors)", () => {
   it("sustained hype grows favorites and earns sponsors", () => {
     const g = createGame(1);
-    expect(g.sponsors).toBe(0);
+    const p = g.players[0];
+    expect(p.sponsors).toBe(0);
     for (let i = 0; i < 200; i++) {
-      addHype(g, 60); // exciting play every step
+      addHype(g, p, 60); // exciting play every step
       step(g, idle(), 1 / 60);
     }
-    expect(g.favorites).toBeGreaterThan(CONFIG.show.sponsorThresholds[0]);
-    expect(g.sponsors).toBeGreaterThanOrEqual(1);
-    expect(g.viewers).toBeGreaterThan(CONFIG.show.baseViewers);
+    expect(p.favorites).toBeGreaterThan(CONFIG.show.sponsorThresholds[0]);
+    expect(p.sponsors).toBeGreaterThanOrEqual(1);
+    expect(p.viewers).toBeGreaterThan(CONFIG.show.baseViewers);
   });
 
   it("killing a monster adds hype", () => {
@@ -315,9 +316,9 @@ describe("the show (viewers / favorites / sponsors)", () => {
     g.players[0].baseDamage = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y }, hp: 1, maxHp: 1 }));
-    const before = g.hype;
+    const before = g.players[0].hype;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.hype).toBeGreaterThan(before);
+    expect(g.players[0].hype).toBeGreaterThan(before);
   });
 });
 
@@ -733,6 +734,114 @@ describe("multiplayer party sim", () => {
       };
     }
     expect(play(808)).toEqual(play(808));
+  });
+});
+
+describe("wide hallways + bigger floors", () => {
+  it("every walkable tile belongs to a 2x2 walkable block (no 1-wide chokepoints)", () => {
+    for (const seed of [11, 222, 3333]) {
+      const g = createGame(seed);
+      const { w, h, tiles } = g.map;
+      const walk = (x: number, y: number) =>
+        x >= 0 && y >= 0 && x < w && y < h && tiles[y * w + x] !== 0; // 0 = Wall
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (!walk(x, y)) continue;
+          // Part of at least one fully-walkable 2x2 block.
+          let ok = false;
+          for (const [ox, oy] of [[0, 0], [-1, 0], [0, -1], [-1, -1]] as const) {
+            if (walk(x + ox, y + oy) && walk(x + ox + 1, y + oy) &&
+                walk(x + ox, y + oy + 1) && walk(x + ox + 1, y + oy + 1)) { ok = true; break; }
+          }
+          expect(ok, `1-wide tile at ${x},${y} (seed ${seed})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("floors are 72x72 with a longer base timer", () => {
+    const g = createGame(1);
+    expect(g.map.w).toBe(72);
+    expect(g.map.h).toBe(72);
+    expect(floorTimeBudget(1)).toBe(120);
+  });
+});
+
+describe("multiplayer difficulty scaling", () => {
+  function floor2MonsterStats(partySize: number) {
+    const g = createGame(4242);
+    for (let i = 1; i < partySize; i++) addPlayer(g, `P${i}`);
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g); // floor 2 built with the current party size
+    return {
+      count: g.monsters.length,
+      avgHp: g.monsters.reduce((s, m) => s + m.maxHp, 0) / g.monsters.length,
+      avgDmg: g.monsters.reduce((s, m) => s + m.damage, 0) / g.monsters.length,
+    };
+  }
+
+  it("party floors spawn more and tougher monsters than solo (same seed)", () => {
+    const solo = floor2MonsterStats(1);
+    const trio = floor2MonsterStats(3);
+    expect(trio.count).toBeGreaterThan(solo.count);
+    expect(trio.avgHp).toBeGreaterThan(solo.avgHp * 1.5);
+    expect(trio.avgDmg).toBeGreaterThan(solo.avgDmg * 1.2);
+  });
+});
+
+describe("per-player show economy", () => {
+  it("the killer's audience grows; the bystander's does not", () => {
+    const g = createGame(505);
+    addPlayer(g, "Donut");
+    const [carl, donut] = g.players;
+    carl.facing = { x: 1, y: 0 };
+    carl.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: carl.pos.x + 0.8, y: carl.pos.y } }));
+    step(g, { [carl.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
+    expect(carl.hype).toBeGreaterThan(0);
+    expect(donut.hype).toBe(0);
+  });
+
+  it("sponsors are earned per player and drive that player's reward quality", () => {
+    const g = createGame(506);
+    addPlayer(g, "Donut");
+    const [carl, donut] = g.players;
+    // Carl sustains a hyped broadcast; Donut idles.
+    for (let i = 0; i < 200; i++) {
+      addHype(g, carl, 60);
+      step(g, idle(), 1 / 60);
+    }
+    expect(carl.sponsors).toBeGreaterThanOrEqual(1);
+    expect(donut.sponsors).toBe(0);
+  });
+});
+
+describe("cumulative damage stats", () => {
+  it("tracks damage dealt by the attacker and damage taken by the victim", () => {
+    const g = createGame(606);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 9999, maxHp: 9999, damage: 5, speed: 0, attackCooldown: 0 }));
+    // One swing lands; the monster also swings back over time.
+    for (let i = 0; i < 90; i++) {
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    }
+    expect(p.damageDealt).toBeGreaterThan(0);
+    expect(p.damageTaken).toBeGreaterThan(0);
+    // Dealt matches what the monster lost.
+    expect(Math.round(p.damageDealt)).toBe(9999 - g.monsters[0].hp);
+  });
+
+  it("persists damage stats through save/restore", () => {
+    const restored = restoreGame({
+      seed: 607, floor: 2,
+      player: { hp: 90, level: 2, xp: 0, xpToNext: 27, gold: 0, damageDealt: 321, damageTaken: 123 },
+    });
+    expect(restored.players[0].damageDealt).toBe(321);
+    expect(restored.players[0].damageTaken).toBe(123);
   });
 });
 

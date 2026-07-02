@@ -25,15 +25,21 @@ function carveRoom(tiles: Uint8Array, w: number, r: Room): void {
   }
 }
 
-function carveHCorridor(tiles: Uint8Array, w: number, x1: number, x2: number, y: number): void {
-  for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+// Corridors are TWO tiles wide so parties can fight side by side (and monsters
+// can't be trivially bottlenecked in a 1-wide chokepoint).
+function carveHCorridor(tiles: Uint8Array, w: number, h: number, x1: number, x2: number, y: number): void {
+  const y2 = Math.min(h - 2, y + 1);
+  for (let x = Math.min(x1, x2); x <= Math.max(x1, x2) + 1 && x < w - 1; x++) {
     tiles[idx(w, x, y)] = Tile.Floor;
+    tiles[idx(w, x, y2)] = Tile.Floor;
   }
 }
 
-function carveVCorridor(tiles: Uint8Array, w: number, y1: number, y2: number, x: number): void {
-  for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+function carveVCorridor(tiles: Uint8Array, w: number, h: number, y1: number, y2: number, x: number): void {
+  const x2 = Math.min(w - 2, x + 1);
+  for (let y = Math.min(y1, y2); y <= Math.max(y1, y2) + 1 && y < h - 1; y++) {
     tiles[idx(w, x, y)] = Tile.Floor;
+    tiles[idx(w, x2, y)] = Tile.Floor;
   }
 }
 
@@ -60,10 +66,10 @@ export function generateFloor(rng: Rng, _floor: number): FloorMap {
   const rooms: Room[] = [];
   let attempts = 0;
 
-  while (rooms.length < targetRooms && attempts < 200) {
+  while (rooms.length < targetRooms && attempts < 300) {
     attempts++;
-    const rw = nextInt(rng, 5, 9);
-    const rh = nextInt(rng, 5, 9);
+    const rw = nextInt(rng, 6, 12);
+    const rh = nextInt(rng, 6, 12);
     const rx = nextInt(rng, 1, w - rw - 2);
     const ry = nextInt(rng, 1, h - rh - 2);
     const room: Room = { x: rx, y: ry, w: rw, h: rh };
@@ -85,11 +91,11 @@ export function generateFloor(rng: Rng, _floor: number): FloorMap {
     const a = center(rooms[i - 1]);
     const b = center(rooms[i]);
     if (nextInt(rng, 0, 1) === 0) {
-      carveHCorridor(tiles, w, a.x, b.x, a.y);
-      carveVCorridor(tiles, w, a.y, b.y, b.x);
+      carveHCorridor(tiles, w, h, a.x, b.x, a.y);
+      carveVCorridor(tiles, w, h, a.y, b.y, b.x);
     } else {
-      carveVCorridor(tiles, w, a.y, b.y, a.x);
-      carveHCorridor(tiles, w, a.x, b.x, b.y);
+      carveVCorridor(tiles, w, h, a.y, b.y, a.x);
+      carveHCorridor(tiles, w, h, a.x, b.x, b.y);
     }
   }
 

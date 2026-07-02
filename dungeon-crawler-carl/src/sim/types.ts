@@ -61,6 +61,17 @@ export interface Player {
   kills: number; // cumulative kill credit (killing blows) this run
   killsThisStep: number; // transient: kills credited to this player this step
   lowHpKill: boolean; // transient: killed something while below 10% HP
+
+  // Cumulative combat stats for this run.
+  damageDealt: number;
+  damageTaken: number;
+
+  // The Show, PER CRAWLER: everyone runs their own broadcast. Your crits and
+  // kills grow YOUR audience; your near-death moments are your ratings gold.
+  hype: number; // excitement meter (decays)
+  viewers: number; // live audience count
+  favorites: number; // sticky fans
+  sponsors: number; // backers earned at favorite thresholds
 }
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
@@ -219,11 +230,6 @@ export interface GameState {
   killCount: number; // monsters killed this run (drives loot-box milestones)
   lootBoxes: number; // loot boxes awarded this run
 
-  // The Show — audience economy.
-  hype: number; // excitement meter (decays); drives viewers
-  viewers: number; // live audience count
-  favorites: number; // sticky fans (a slice of viewers convert on hype)
-  sponsors: number; // backers earned at favorite thresholds
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
   safeRoom: SafeRoom | null;

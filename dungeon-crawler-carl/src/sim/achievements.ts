@@ -53,7 +53,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: "funded", title: "SELLOUT", desc: "Hold 3 sponsors at once.",
-    gold: 100, hype: 0, test: (s) => s.sponsors >= 3,
+    gold: 100, hype: 0, test: (_s, p) => p.sponsors >= 3,
   },
   {
     id: "deep_dive", title: "BASEMENT DWELLER", desc: `Reach floor ${Math.floor(CONFIG.finalFloor / 2)}.`,

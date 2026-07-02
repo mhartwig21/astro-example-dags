@@ -29,11 +29,12 @@ function meleeSwing(state: GameState, m: Monster, player: Player): void {
   if (player.dashTime > 0) return;
   const dmg = rollDamage(state.rng, m.damage);
   player.hp -= dmg;
+  player.damageTaken += dmg;
   state.hits.push({ pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player" });
   if (player.hp <= 0) {
     handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
   } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
-    addHype(state, CONFIG.show.hypeLowHpHit); // living dangerously = great television
+    addHype(state, player, CONFIG.show.hypeLowHpHit); // living dangerously = great television
   }
 }
 

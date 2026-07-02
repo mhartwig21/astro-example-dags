@@ -164,6 +164,18 @@
       .ach.locked .atitle { color: #6a6a7a; }
       .ach .adesc { color: #8a8a9a; margin-top: 2px; }
 
+      /* Run stats (inside the abilities panel) */
+      #abil .stats-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 12px; }
+      #abil .stats-table th { color: #8a8a9a; text-transform: uppercase; font-size: 10px;
+        letter-spacing: 1px; font-weight: 700; text-align: right; padding: 3px 8px;
+        border-bottom: 1px dashed #2a2a38; }
+      #abil .stats-table td { color: #c9c9d4; text-align: right; padding: 3px 8px;
+        border-bottom: 1px dashed #1e1e2a; }
+      #abil .stats-table th:first-child, #abil .stats-table td:first-child { text-align: left; }
+      #abil .stats-table td:first-child { color: #e6e6ec; font-weight: 700; }
+      #abil .stats-table tr.you td:first-child { color: #4fd1ff; }
+      #abil .stats-table tr.dead td { color: #6a6a7a; }
+
       /* Safe room */
       #saferoom { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.78); z-index: 24; }
@@ -229,6 +241,13 @@
         <div class="grid" id="abil-grid"></div>
         <h2 style="margin-top:16px">ACHIEVEMENTS <span id="ach-count" style="color:#8a8a9a;font-size:12px"></span></h2>
         <div class="ach-grid" id="ach-grid"></div>
+        <h2 style="margin-top:16px">RUN STATS</h2>
+        <table class="stats-table">
+          <thead>
+            <tr><th>crawler</th><th>lvl</th><th>kills</th><th>dmg dealt</th><th>dmg taken</th><th>viewers</th><th>sponsors</th></tr>
+          </thead>
+          <tbody id="stats-rows"></tbody>
+        </table>
       </div>
     </div>
     <div id="saferoom">
