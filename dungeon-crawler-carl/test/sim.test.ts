@@ -845,6 +845,61 @@ describe("cumulative damage stats", () => {
   });
 });
 
+describe("boss hierarchy", () => {
+  function onFloor(floor: number, seed = 909) {
+    return restoreGame({
+      seed, floor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+  }
+
+  it("ordinary floors (2+) spawn one named neighborhood boss with boosted stats", () => {
+    const g = onFloor(3);
+    const elites = g.monsters.filter((m) => m.elite);
+    expect(elites.length).toBe(1);
+    expect(elites[0].eliteName).toBeTruthy();
+    expect(elites[0].kind).not.toBe("boss");
+  });
+
+  it("floor 1 has no elite; city-boss floors (6, 12) spawn a sealed city boss", () => {
+    expect(onFloor(1).monsters.some((m) => m.elite)).toBe(false);
+    for (const f of [6, 12]) {
+      const g = onFloor(f);
+      const boss = g.monsters.find((m) => m.kind === "boss");
+      expect(boss).toBeDefined();
+      expect(boss!.eliteName).toBeTruthy();
+      expect(boss!.maxHp).toBeLessThan(CONFIG.bossHp); // scaled below the final boss
+      // Exit sealed while the boss lives.
+      g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+      expect(g.safeRoom).toBeNull();
+      expect(g.floor).toBe(f);
+    }
+  });
+
+  it("killing a city boss unseals the floor (and does not win the run)", () => {
+    const g = onFloor(6);
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    boss.hp = 0;
+    step(g, idle(), 1 / 60);
+    expect(g.status).toBe("playing");
+    expect(g.loot.some((l) => l.kind === "item")).toBe(true); // guaranteed bonus drops
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).not.toBeNull(); // unsealed
+  });
+
+  it("killing the neighborhood boss drops bonus loot and announces by name", () => {
+    const g = onFloor(4);
+    const elite = g.monsters.find((m) => m.elite)!;
+    const name = elite.eliteName!;
+    elite.hp = 0;
+    step(g, idle(), 1 / 60);
+    expect(g.announcements.some((a) => a.includes(name) && a.includes("DOWN"))).toBe(true);
+    expect(g.loot.some((l) => l.kind === "item")).toBe(true);
+  });
+});
+
 describe("no-op safety", () => {
   it("stepping a finished game is a no-op", () => {
     const g = createGame(1);

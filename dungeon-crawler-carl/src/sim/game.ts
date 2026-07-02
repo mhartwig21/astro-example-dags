@@ -1,6 +1,6 @@
 import { ARCHETYPES, CONFIG, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
-import { createRng, nextFloat, nextInt, chance, type Rng } from "./rng";
+import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
@@ -110,13 +110,28 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   return "brute";
 }
 
+// Seeded flavor names for neighborhood/city bosses (DCC loves a named menace).
+const ELITE_NAMES = [
+  "The Gutter King", "Foreman Grizz", "Mama Fangs", "The Rent Collector",
+  "Skitters Prime", "Old Chompy", "The Block Captain", "Sewer Baron Vex",
+  "Knuckles the Landlord", "The HOA President",
+];
+const CITY_BOSS_NAMES = [
+  "The Borough Butcher", "Magistrate Maw", "The Transit Authority", "Commissioner Dread",
+];
+
+/** A city-boss arena floor (6, 12, ... but never the final floor). */
+export function isCityBossFloor(floor: number): boolean {
+  return floor < CONFIG.finalFloor && floor >= CONFIG.cityBossEvery && floor % CONFIG.cityBossEvery === 0;
+}
+
 function spawnMonsters(state: GameState): void {
   const { map, rng, floor } = state;
   const tiles = walkableTiles(map).filter(
     (t) => dist(t, map.spawn) > 6 && dist(t, map.stairs) > 2,
   );
 
-  // Floor 18 is a boss arena: one boss + a few ranged adds.
+  // Floor 18 is the FINAL boss arena: one boss + a few ranged adds.
   if (floor >= CONFIG.finalFloor) {
     const bossPos = { x: map.stairs.x, y: map.stairs.y };
     const boss = makeMonster(state, "boss", bossPos);
@@ -132,10 +147,47 @@ function spawnMonsters(state: GameState): void {
     return;
   }
 
+  // CITY BOSS floors: a sealed mid-run arena — smaller boss + escorts + a
+  // thinner regular crowd. The stairs stay sealed until the boss falls.
+  if (isCityBossFloor(floor)) {
+    const boss = makeMonster(state, "boss", { x: map.stairs.x, y: map.stairs.y });
+    const hp = (CONFIG.cityBossHpBase + floor * CONFIG.cityBossHpPerFloor) *
+      (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer);
+    boss.hp = boss.maxHp = Math.round(hp);
+    boss.damage = CONFIG.bossDamage * 0.7 * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
+    boss.speed = CONFIG.bossSpeed;
+    boss.xp = Math.round(CONFIG.bossXp * 0.4);
+    boss.eliteName = pick(rng, CITY_BOSS_NAMES);
+    state.monsters.push(boss);
+    for (let i = 0; i < CONFIG.cityBossAdds && tiles.length > 0; i++) {
+      const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
+      state.monsters.push(makeMonster(state, "ranged", pos));
+    }
+    const count = Math.floor(monsterCount(state, floor) / 2);
+    for (let i = 0; i < count && tiles.length > 0; i++) {
+      const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
+      state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
+    }
+    announce(state, `CITY BOSS: ${boss.eliteName} holds floor ${floor}. The exit is SEALED. Ratings, Crawlers.`);
+    return;
+  }
+
   const count = monsterCount(state, floor);
   for (let i = 0; i < count && tiles.length > 0; i++) {
     const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
     state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
+  }
+
+  // NEIGHBORHOOD BOSS: one named elite per ordinary floor (2+). Tougher, meaner,
+  // guaranteed loot (see reapDead).
+  if (floor >= CONFIG.eliteFromFloor && state.monsters.length > 0) {
+    const m = state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+    m.elite = true;
+    m.eliteName = pick(rng, ELITE_NAMES);
+    m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.eliteHpMult);
+    m.damage *= CONFIG.eliteDmgMult;
+    m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
+    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName} runs this block. Introduce yourselves.`);
   }
 }
 
@@ -470,6 +522,18 @@ function awardLootBox(state: GameState, p: Player): void {
   }
 }
 
+/** Guaranteed boss/elite reward: item(s) + a fat gold pile at the corpse. */
+function dropBossBonus(state: GameState, pos: Vec2, items: number): void {
+  const { rng, floor } = state;
+  for (let i = 0; i < items; i++) {
+    const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 1.2, y: pos.y + (nextFloat(rng) - 0.5) * 1.2 };
+    const item = generateItem(rng, floor + 2, () => state.nextEntityId++);
+    state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
+  }
+  const gold = nextInt(rng, 25, 45) + floor * 6;
+  state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount: gold });
+}
+
 function dropLoot(state: GameState, pos: Vec2): void {
   const { rng, floor } = state;
   // Ability tomes: rare, and only while someone in the party has left to learn.
@@ -551,9 +615,21 @@ function reapDead(state: GameState): void {
     grantPartyXp(state, m.xp);
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
+    // Named menaces shower guaranteed rewards.
+    if (m.elite) {
+      dropBossBonus(state, m.pos, 1);
+      addHype(state, killer, CONFIG.show.hypeBrute);
+      announce(state, `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
+    }
     if (m.kind === "boss") {
-      state.status = "won";
-      announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.");
+      if (state.floor >= CONFIG.finalFloor) {
+        state.status = "won";
+        announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.");
+      } else {
+        dropBossBonus(state, m.pos, 2);
+        addHype(state, killer, CONFIG.show.hypeBoss);
+        announce(state, `CITY BOSS ${m.eliteName ?? ""} DEFEATED! The exit is OPEN. Sponsors are weeping with joy.`);
+      }
     }
   }
   // Multi-kill combos are a crowd-pleaser (credited to whoever comboed).
@@ -660,12 +736,12 @@ function tryDescend(state: GameState, p: Player): void {
     state.events.push("No stairs here. Find the stairs down.");
     return;
   }
+  // Boss floors (city arenas + the final floor) seal the exit until the boss falls.
+  if (state.monsters.some((m) => m.kind === "boss")) {
+    state.events.push("The boss seals the only way out. Put it down.");
+    return;
+  }
   if (state.floor >= CONFIG.finalFloor) {
-    // Floor 18 is a boss arena — the exit is sealed until the boss falls.
-    if (state.monsters.some((m) => m.kind === "boss")) {
-      state.events.push("The boss guards the only way out. Put it down.");
-      return;
-    }
     state.status = "won";
     announce(state, `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`);
     return;

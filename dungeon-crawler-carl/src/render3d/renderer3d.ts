@@ -594,7 +594,17 @@ export class Renderer3D {
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
-      if (!mesh) { mesh = this.buildMonsterMesh(mon.kind); this.scene.add(mesh); this.monsters.set(mon.id, mesh); }
+      if (!mesh) {
+        mesh = this.buildMonsterMesh(mon.kind);
+        if (mon.elite) {
+          // Neighborhood boss: visibly bigger than its archetype.
+          const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
+          mesh.userData.baseScale = bs;
+          mesh.scale.setScalar(bs);
+        }
+        this.scene.add(mesh);
+        this.monsters.set(mon.id, mesh);
+      }
       mesh.visible = inVision(mon.pos);
       const bs = (mesh.userData.baseScale as number) ?? 1;
       const prev = this.prevMon.get(mon.id) ?? mon.pos;

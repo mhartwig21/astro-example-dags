@@ -92,6 +92,8 @@ export interface Monster {
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
+  elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
+  eliteName?: string; // announcer name for elites and city bosses
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome";

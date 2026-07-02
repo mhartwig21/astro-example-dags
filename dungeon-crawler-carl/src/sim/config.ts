@@ -134,6 +134,21 @@ export const CONFIG = {
   rewardBaseCount: 3,
   rewardMaxCount: 4,
 
+  // Boss hierarchy (DCC-style):
+  // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
+  //   archetype with a name, guaranteed loot, and an announcer moment.
+  // - CITY BOSS: every 6th floor (6, 12) is a sealed arena with a real boss.
+  // - Floor 18 remains the final boss.
+  eliteFromFloor: 2,
+  eliteHpMult: 3.0,
+  eliteDmgMult: 1.5,
+  eliteXpMult: 3.0,
+  eliteScale: 1.45, // render scale bump
+  cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
+  cityBossHpBase: 320,
+  cityBossHpPerFloor: 25,
+  cityBossAdds: 2, // ranged escorts
+
   // Boss (floor 18)
   bossHp: 900,
   bossHpPerFloorOver: 0, // (kept for future scaling)
