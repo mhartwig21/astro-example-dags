@@ -77,6 +77,13 @@ appear under `public/assets/`, with no gameplay changes (the sim is render-agnos
 - **Floor-18 boss** — a boss arena that seals the exit until the boss (melee chase + radial
   volleys) is dead; killing it wins the run.
 - **Minimap** — live top-down map with walls, stairs, enemies, and the player.
+- **Ability tree** (`T`) — Vampire Survivors-style: every **level-up opens a 3-card draft**
+  of upgrade ranks for abilities you own (e.g. Split Shot, Piercing Bolts, Shockstep,
+  Wide Arc; see `src/sim/abilities.ts`). Discoverable abilities — **Nova** (`F`, radial
+  shockwave) and **Orbit** (auto-blades) — are learned from **ability tomes** (rare kill
+  drops, or a lucky loot box) and then join the draft pool.
+- **Fog of war** — floors start unexplored; tiles are revealed around you and remembered,
+  and enemies/loot render only inside your vision radius (3D dimming + minimap masking).
 
 ## Game feel + DCC personality
 

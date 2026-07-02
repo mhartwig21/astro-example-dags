@@ -1,5 +1,6 @@
 import { CONFIG } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
+import { knows, novaParams, orbitParams } from "../sim/abilities";
 
 const T = CONFIG.tile;
 
@@ -71,8 +72,15 @@ export function render(
   const minY = Math.max(0, Math.floor(cam.y - viewH / 2 / T) - 1);
   const maxY = Math.min(map.h - 1, Math.ceil(cam.y + viewH / 2 / T) + 1);
 
+  const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
+  const inVision = (wx: number, wy: number): boolean => {
+    const dx = wx - state.player.pos.x, dy = wy - state.player.pos.y;
+    return dx * dx + dy * dy <= vis2;
+  };
+
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
+      if (!state.explored[y * map.w + x]) continue; // fog of war
       const t = map.tiles[y * map.w + x] as Tile;
       const px = Math.round(offX + x * T);
       const py = Math.round(offY + y * T);
@@ -95,6 +103,7 @@ export function render(
 
   // Projectiles.
   for (const pr of state.projectiles) {
+    if (!inVision(pr.pos.x, pr.pos.y)) continue;
     ctx.fillStyle = pr.from === "player" ? "#6fe3ff" : "#ff8a3c";
     ctx.beginPath();
     ctx.arc(offX + pr.pos.x * T, offY + pr.pos.y * T, 5, 0, Math.PI * 2);
@@ -103,9 +112,12 @@ export function render(
 
   // Loot.
   for (const l of state.loot) {
+    if (!inVision(l.pos.x, l.pos.y)) continue;
     const px = offX + l.pos.x * T;
     const py = offY + l.pos.y * T;
-    ctx.fillStyle = l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
+    ctx.fillStyle =
+      l.kind === "tome" ? "#66f0c8" :
+      l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
     ctx.beginPath();
     ctx.arc(px, py, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -113,6 +125,7 @@ export function render(
 
   // Monsters.
   for (const m of state.monsters) {
+    if (!inVision(m.pos.x, m.pos.y)) continue;
     const px = offX + m.pos.x * T;
     const py = offY + m.pos.y * T;
     ctx.fillStyle = m.hitFlash > 0 ? COLORS.monsterFlash : COLORS.monster;
@@ -141,6 +154,27 @@ export function render(
     ctx.arc(ppx, ppy, CONFIG.playerAttackRange * T, ang - arc / 2, ang + arc / 2);
     ctx.closePath();
     ctx.fill();
+  }
+  // Orbit blades (auto ability).
+  if (knows(p, "orbit")) {
+    const op = orbitParams(p);
+    ctx.fillStyle = "#9fe8ff";
+    for (let i = 0; i < op.blades; i++) {
+      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+      ctx.beginPath();
+      ctx.arc(ppx + Math.cos(a) * op.radius * T, ppy + Math.sin(a) * op.radius * T, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Nova ring.
+  if (p.novaFlash > 0) {
+    const np = novaParams(p);
+    const prog = 1 - p.novaFlash / 0.3;
+    ctx.strokeStyle = `rgba(143,216,255,${1 - prog})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(ppx, ppy, np.radius * prog * T, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.fillStyle = p.alive ? COLORS.player : "#555";
   ctx.beginPath();

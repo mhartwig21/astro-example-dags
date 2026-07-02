@@ -1,4 +1,5 @@
 import type { Rng } from "./rng";
+import type { AbilityId, UpgradeOffer } from "./abilities";
 
 export interface Vec2 {
   x: number;
@@ -24,6 +25,12 @@ export interface Player {
   dashCd: number; // dash skill cooldown remaining
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
   boltCd: number; // ranged-bolt skill cooldown remaining
+  novaCd: number; // nova skill cooldown remaining (only used once learned)
+  novaFlash: number; // transient render flag: seconds remaining of nova ring effect
+  orbitAngle: number; // current rotation of the orbit blades (radians)
+  orbitTick: number; // seconds until the orbit blades' next damage tick
+  // Ability tree: which abilities are learned + rank taken per upgrade node.
+  abilities: { known: AbilityId[]; ranks: Record<string, number> };
   critChance: number; // effective crit chance (base + equipment)
   level: number;
   xp: number;
@@ -61,7 +68,7 @@ export interface Monster {
   hitFlash: number;
 }
 
-export type LootKind = "gold" | "heal" | "item";
+export type LootKind = "gold" | "heal" | "item" | "tome";
 export type Rarity = "common" | "magic" | "rare" | "epic";
 export type ItemSlot = "weapon" | "armor" | "trinket";
 
@@ -88,6 +95,7 @@ export interface Loot {
   amount: number; // gold value or heal amount
   item?: Item; // present when kind === "item"
   rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
+  ability?: AbilityId; // present when kind === "tome": the ability it teaches
 }
 
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
@@ -111,6 +119,8 @@ export interface Projectile {
   damage: number;
   ttl: number; // seconds before it despawns
   from: "player" | "enemy";
+  pierce?: number; // remaining enemies this projectile can pass through (player bolts)
+  hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
 }
 
 export interface FloorMap {
@@ -140,6 +150,9 @@ export interface GameState {
   seed: number;
   floor: number; // 1-indexed current floor
   map: FloorMap;
+  // Fog of war: 1 = explored, row-major like map.tiles. Reset per floor.
+  explored: Uint8Array;
+  exploredVersion: number; // bumped whenever new tiles are revealed (render diffing)
   player: Player;
   monsters: Monster[];
   loot: Loot[];
@@ -168,6 +181,10 @@ export interface GameState {
   favorites: number; // sticky fans (a slice of viewers convert on hype)
   sponsors: number; // backers earned at favorite thresholds
   pendingRewards: Reward[]; // sponsor draft awaiting a choice (host pauses while non-empty)
+  // Level-up ability draft (VS-style). Pauses the sim like the sponsor draft;
+  // multiple level-ups queue via upgradeDraftsOwed.
+  pendingUpgrades: UpgradeOffer[];
+  upgradeDraftsOwed: number;
 
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }
@@ -180,6 +197,7 @@ export interface Intent {
   useStairs: boolean; // attempt to descend if standing on stairs
   dash?: boolean; // dash skill (blink in facing direction, brief i-frames)
   bolt?: boolean; // ranged-bolt skill (fire a projectile in facing/aim direction)
+  nova?: boolean; // nova skill (radial shockwave; requires the ability to be learned)
 }
 
 export const NO_INTENT: Intent = {
@@ -188,4 +206,5 @@ export const NO_INTENT: Intent = {
   useStairs: false,
   dash: false,
   bolt: false,
+  nova: false,
 };

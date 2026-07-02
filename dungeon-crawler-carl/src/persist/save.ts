@@ -24,6 +24,7 @@ export interface SaveData {
     bonusCrit: number;
     equipment: Player["equipment"];
     inventory: Item[];
+    abilities?: Player["abilities"];
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -46,6 +47,7 @@ export function saveRun(state: GameState): void {
         bonusCrit: p.bonusCrit,
         equipment: p.equipment,
         inventory: p.inventory,
+        abilities: p.abilities,
       },
       show: {
         hype: state.hype,

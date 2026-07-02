@@ -5,6 +5,10 @@ import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
+import {
+  ABILITY_INFO, STARTING_ABILITIES, boltParams, dashParams, knows, meleeParams,
+  novaParams, orbitParams, rollUpgradeDraft, unknownAbilities, upgradeDef,
+} from "./abilities";
 import type {
   GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Reward, Vec2,
 } from "./types";
@@ -136,6 +140,10 @@ function makePlayer(seedFrom?: Player): Player {
         dashCd: 0,
         dashTime: 0,
         boltCd: 0,
+        novaCd: 0,
+        novaFlash: 0,
+        orbitAngle: 0,
+        orbitTick: 0,
         attackSwing: 0,
         alive: true,
       }
@@ -151,6 +159,11 @@ function makePlayer(seedFrom?: Player): Player {
         dashCd: 0,
         dashTime: 0,
         boltCd: 0,
+        novaCd: 0,
+        novaFlash: 0,
+        orbitAngle: 0,
+        orbitTick: 0,
+        abilities: { known: [...STARTING_ABILITIES], ranks: {} },
         level: 1,
         xp: 0,
         xpToNext: xpForLevel(1),
@@ -178,6 +191,8 @@ function buildFloor(state: GameState, floor: number): void {
   state.rng = rng;
   state.floor = floor;
   state.map = generateFloor(rng, floor);
+  state.explored = new Uint8Array(state.map.w * state.map.h);
+  state.exploredVersion++;
   state.monsters = [];
   state.loot = [];
   state.projectiles = [];
@@ -203,6 +218,7 @@ export interface SavedProgress {
     bonusCrit?: number;
     equipment?: Player["equipment"];
     inventory?: Item[];
+    abilities?: Player["abilities"];
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -229,6 +245,7 @@ export function restoreGame(save: SavedProgress): GameState {
   p.bonusCrit = s.bonusCrit ?? 0;
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
+  if (s.abilities) p.abilities = s.abilities;
   if (save.show) {
     state.hype = save.show.hype ?? 0;
     state.viewers = save.show.viewers ?? state.viewers;
@@ -255,6 +272,8 @@ export function createGame(seed: number): GameState {
     seed: seed >>> 0,
     floor: 1,
     map: undefined as unknown as GameState["map"],
+    explored: new Uint8Array(0),
+    exploredVersion: 0,
     player: makePlayer(),
     monsters: [],
     loot: [],
@@ -275,6 +294,8 @@ export function createGame(seed: number): GameState {
     favorites: 0,
     sponsors: 0,
     pendingRewards: [],
+    pendingUpgrades: [],
+    upgradeDraftsOwed: 0,
     elapsed: 0,
   };
   buildFloor(state, 1);
@@ -324,16 +345,43 @@ function grantXp(state: GameState, amount: number): void {
     p.xpToNext = xpForLevel(p.level);
     recomputeStats(p); // intrinsic stats scale with level
     p.hp = p.maxHp; // level-up fully heals
-    announce(state, `LEVEL ${p.level}! The System upgrades you. Sponsors are thrilled.`);
+    state.upgradeDraftsOwed++; // each level opens an ability draft (queued if several)
+    announce(state, `LEVEL ${p.level}! The System upgrades you. Choose your evolution.`);
   }
+}
+
+/** Choose a level-up ability upgrade by index; applies the rank and unpauses. */
+export function chooseUpgrade(state: GameState, idx: number): void {
+  if (idx < 0 || idx >= state.pendingUpgrades.length) return;
+  const offer = state.pendingUpgrades[idx];
+  const p = state.player;
+  p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
+  state.pendingUpgrades = [];
+  const def = upgradeDef(offer.id);
+  announce(state, `${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+}
+
+/** Teach an ability (tome pickup / debug). No-op if already known. */
+export function learnAbility(state: GameState, ability: Loot["ability"]): void {
+  const p = state.player;
+  if (!ability || knows(p, ability)) return;
+  p.abilities.known.push(ability);
+  const info = ABILITY_INFO[ability];
+  announce(state, `NEW ABILITY: ${info.name.toUpperCase()} — ${info.blurb}${info.key === "auto" ? " (automatic)" : ` (${info.key})`}. The crowd demands a demo.`);
+  addHype(state, CONFIG.show.hypeEpicDrop);
 }
 
 /** Award a loot box: an immediate randomized buff, DCC-style. */
 function awardLootBox(state: GameState): void {
   const p = state.player;
   state.lootBoxes++;
-  const roll = nextInt(state.rng, 0, 2);
-  if (roll === 0) {
+  const undiscovered = unknownAbilities(p);
+  const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
+  if (roll === 3) {
+    const ability = undiscovered[nextInt(state.rng, 0, undiscovered.length - 1)];
+    announce(state, `LOOT BOX #${state.lootBoxes}: a forbidden skill chip!`);
+    learnAbility(state, ability);
+  } else if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
     p.bonusDamage += amt;
     recomputeStats(p);
@@ -353,6 +401,13 @@ function awardLootBox(state: GameState): void {
 
 function dropLoot(state: GameState, pos: Vec2): void {
   const { rng, floor } = state;
+  // Ability tomes: rare, and only while abilities remain undiscovered.
+  const undiscovered = unknownAbilities(state.player);
+  if (undiscovered.length > 0 && chance(rng, CONFIG.tomeDropChance)) {
+    const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
+    state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "tome", amount: 0, ability });
+    announce(state, `An ABILITY TOME dropped! The System loves an upset.`);
+  }
   if (chance(rng, CONFIG.goldDropChance)) {
     const amount = nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor);
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
@@ -371,18 +426,19 @@ function dropLoot(state: GameState, pos: Vec2): void {
 
 function doPlayerAttack(state: GameState, aim: Vec2): void {
   const p = state.player;
+  const mp = meleeParams(p);
   const facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
-  p.attackCooldown = CONFIG.playerAttackCooldown;
+  p.attackCooldown = mp.cooldown;
   p.attackSwing = 0.15;
 
   for (const m of state.monsters) {
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
-    if (angleBetween(facing, toMon) > CONFIG.playerAttackArc / 2) continue;
+    if (angleBetween(facing, toMon) > mp.arc / 2) continue;
     const isCrit = chance(state.rng, p.critChance);
-    let dmg = rollDamage(state.rng, p.baseDamage);
+    let dmg = rollDamage(state.rng, p.baseDamage * mp.damageMult);
     if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
     m.hp -= dmg;
     m.hitFlash = 0.12;
@@ -444,6 +500,18 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, l.amount, "heal");
         state.events.push(`Picked up a health kit (+${l.amount}).`);
         break;
+      case "tome": {
+        if (l.ability && !knows(p, l.ability)) {
+          learnAbility(state, l.ability);
+          hit(state, p.pos, 0, "weapon");
+        } else {
+          // Learned it since the drop (e.g. another tome): sells to the crowd.
+          p.gold += 50;
+          hit(state, p.pos, 50, "gold");
+          state.events.push("Duplicate tome sold to a collector (+50 gold).");
+        }
+        break;
+      }
       case "item": {
         if (!l.item) break;
         const item = l.item;
@@ -625,26 +693,87 @@ export function chooseReward(state: GameState, idx: number): void {
 /** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
 function doDash(state: GameState): void {
   const p = state.player;
-  p.dashCd = CONFIG.dashCooldown;
+  const dp = dashParams(p);
+  p.dashCd = dp.cooldown;
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
-  moveWithCollision(state.map, p.pos, dir, CONFIG.dashDistance, isWalkable);
+  moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
+  // Shockstep: a damage burst around the arrival point.
+  if (dp.shockMult > 0) {
+    radialDamage(state, p.pos, 1.6, p.baseDamage * dp.shockMult);
+  }
 }
 
-/** Ranged bolt skill: fire a player projectile along facing/aim. */
+/** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
 function doBolt(state: GameState, aim: Vec2): void {
   const p = state.player;
+  const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
-  p.boltCd = CONFIG.boltCooldown;
-  state.projectiles.push({
-    id: state.nextEntityId++,
-    pos: { x: p.pos.x + dir.x * 0.6, y: p.pos.y + dir.y * 0.6 },
-    vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
-    damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
-    ttl: CONFIG.boltTtl,
-    from: "player",
-  });
+  p.boltCd = bp.cooldown;
+  const base = Math.atan2(dir.y, dir.x);
+  const spread = 0.22; // radians between fan bolts
+  for (let i = 0; i < bp.count; i++) {
+    const a = base + (i - (bp.count - 1) / 2) * spread;
+    const d = { x: Math.cos(a), y: Math.sin(a) };
+    state.projectiles.push({
+      id: state.nextEntityId++,
+      pos: { x: p.pos.x + d.x * 0.6, y: p.pos.y + d.y * 0.6 },
+      vel: { x: d.x * CONFIG.boltSpeed, y: d.y * CONFIG.boltSpeed },
+      damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
+      ttl: CONFIG.boltTtl,
+      from: "player",
+      pierce: bp.pierce,
+    });
+  }
+}
+
+/** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep. */
+function radialDamage(state: GameState, center: Vec2, radius: number, damage: number): void {
+  const p = state.player;
+  for (const m of state.monsters) {
+    if (dist(center, m.pos) > radius) continue;
+    const isCrit = chance(state.rng, p.critChance);
+    let dmg = rollDamage(state.rng, damage);
+    if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
+    m.hp -= dmg;
+    m.hitFlash = 0.12;
+    hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+    if (isCrit) addHype(state, CONFIG.show.hypeCrit);
+  }
+}
+
+/** Nova skill: a radial shockwave around the player (must be learned). */
+function doNova(state: GameState): void {
+  const p = state.player;
+  const np = novaParams(p);
+  p.novaCd = np.cooldown;
+  p.novaFlash = 0.3;
+  radialDamage(state, p.pos, np.radius, p.baseDamage * np.damageMult);
+}
+
+/** Orbit blades: automatic contact damage on a fixed tick while learned. */
+function updateOrbit(state: GameState, dt: number): void {
+  const p = state.player;
+  if (!knows(p, "orbit")) return;
+  const op = orbitParams(p);
+  p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
+  p.orbitTick -= dt;
+  if (p.orbitTick > 0) return;
+  p.orbitTick = CONFIG.orbitTickSeconds;
+  for (const m of state.monsters) {
+    let touching = false;
+    for (let i = 0; i < op.blades; i++) {
+      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+      const blade = { x: p.pos.x + Math.cos(a) * op.radius, y: p.pos.y + Math.sin(a) * op.radius };
+      if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius) { touching = true; break; }
+    }
+    if (!touching) continue;
+    const dmg = rollDamage(state.rng, p.baseDamage * op.damageMult);
+    m.hp -= dmg;
+    m.hitFlash = 0.12;
+    hit(state, m.pos, dmg, "enemy");
+  }
 }
 
 /** Advance every projectile: move, expire, hit walls/entities. */
@@ -660,6 +789,7 @@ function updateProjectiles(state: GameState, dt: number): void {
     if (pr.from === "player") {
       let consumed = false;
       for (const m of state.monsters) {
+        if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
           const isCrit = chance(state.rng, p.critChance);
           let dmg = rollDamage(state.rng, pr.damage);
@@ -668,7 +798,12 @@ function updateProjectiles(state: GameState, dt: number): void {
           m.hitFlash = 0.12;
           hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
           if (isCrit) addHype(state, CONFIG.show.hypeCrit);
-          consumed = true;
+          if (pr.pierce && pr.pierce > 0) {
+            pr.pierce--;
+            (pr.hitIds ??= []).push(m.id); // keep flying through
+          } else {
+            consumed = true;
+          }
           break;
         }
       }
@@ -700,8 +835,9 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   state.announcements = [];
   state.hits = [];
   if (state.status !== "playing") return state;
-  // A pending sponsor draft pauses the world until the player chooses (chooseReward).
-  if (state.pendingRewards.length > 0) return state;
+  // A pending sponsor draft or level-up draft pauses the world until the player
+  // chooses (chooseReward / chooseUpgrade).
+  if (state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0) return state;
 
   state.elapsed += dt;
   const p = state.player;
@@ -712,6 +848,8 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
   if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
   if (p.boltCd > 0) p.boltCd = Math.max(0, p.boltCd - dt);
+  if (p.novaCd > 0) p.novaCd = Math.max(0, p.novaCd - dt);
+  if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
 
   // Movement.
   const move = intent.move;
@@ -724,6 +862,8 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   // Skills.
   if (intent.dash && p.alive && p.dashCd === 0) doDash(state);
   if (intent.bolt && p.alive && p.boltCd === 0) doBolt(state, intent.aim ?? p.facing);
+  if (intent.nova && p.alive && p.novaCd === 0 && knows(p, "nova")) doNova(state);
+  updateOrbit(state, dt);
 
   // Attack.
   if (intent.attack && p.alive && p.attackCooldown === 0) {
@@ -743,8 +883,44 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   // The Show: convert this step's hype into viewers / favorites / sponsors.
   updateShow(state, dt);
 
+  // Fog of war: reveal tiles around the player.
+  revealAround(state);
+
+  // Level-ups earned this step open an ability draft (queued if several).
+  if (state.upgradeDraftsOwed > 0 && state.pendingUpgrades.length === 0 && state.status === "playing") {
+    const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize);
+    if (offers.length > 0) {
+      state.upgradeDraftsOwed--;
+      state.pendingUpgrades = offers;
+    } else {
+      state.upgradeDraftsOwed = 0; // every node maxed — nothing to offer
+    }
+  }
+
   // Descent request (may open a sponsor draft, which pauses subsequent steps).
   if (intent.useStairs && p.alive && state.status === "playing") tryDescend(state);
 
   return state;
+}
+
+/** Mark tiles within the vision radius as explored (fog of war). */
+function revealAround(state: GameState): void {
+  const { map, explored, player } = state;
+  const r = CONFIG.fogVisionRadius;
+  const r2 = r * r;
+  const px = player.pos.x, py = player.pos.y;
+  const x0 = Math.max(0, Math.floor(px - r)), x1 = Math.min(map.w - 1, Math.ceil(px + r));
+  const y0 = Math.max(0, Math.floor(py - r)), y1 = Math.min(map.h - 1, Math.ceil(py + r));
+  let changed = false;
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = y * map.w + x;
+      if (explored[i]) continue;
+      const dx = x + 0.5 - px, dy = y + 0.5 - py;
+      if (dx * dx + dy * dy > r2) continue;
+      explored[i] = 1;
+      changed = true;
+    }
+  }
+  if (changed) state.exploredVersion++;
 }

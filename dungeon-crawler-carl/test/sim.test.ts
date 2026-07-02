@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype } from "../src/sim/game";
+import {
+  createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
+  chooseUpgrade, learnAbility,
+} from "../src/sim/game";
 import { generateItem } from "../src/sim/items";
+import { boltParams, knows, rank } from "../src/sim/abilities";
 import { NO_INTENT, type Intent } from "../src/sim/types";
 import { CONFIG, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -357,6 +361,128 @@ describe("boss floor", () => {
     boss!.hp = 0;
     step(g, idle(), 1 / 60);
     expect(g.status).toBe("won");
+  });
+});
+
+describe("ability tree + upgrade drafts", () => {
+  it("leveling up opens an upgrade draft that pauses the sim; choosing applies a rank", () => {
+    const g = createGame(31);
+    g.player.xp = g.player.xpToNext; // one level-up on the next XP grant
+    g.player.facing = { x: 1, y: 0 };
+    g.player.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y }, xp: 1 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.player.level).toBe(2);
+    expect(g.pendingUpgrades.length).toBeGreaterThan(0);
+    // Paused while the draft is up.
+    const x0 = g.player.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(g.player.pos.x).toBe(x0);
+    // Choosing applies the node rank and resumes.
+    const offer = g.pendingUpgrades[0];
+    chooseUpgrade(g, 0);
+    expect(rank(g.player, offer.id)).toBe(offer.nextRank);
+    expect(g.pendingUpgrades.length).toBe(0);
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(g.player.pos.x).toBeGreaterThan(x0);
+  });
+
+  it("offers only upgrades for known abilities, deterministically per seed", () => {
+    function offers(seed: number) {
+      const g = createGame(seed);
+      g.upgradeDraftsOwed = 1;
+      step(g, idle(), 1 / 60);
+      return g.pendingUpgrades.map((u) => u.id);
+    }
+    const a = offers(88);
+    expect(a.length).toBe(CONFIG.upgradeDraftSize);
+    expect(a).toEqual(offers(88));
+    const g = createGame(88);
+    g.upgradeDraftsOwed = 1;
+    step(g, idle(), 1 / 60);
+    for (const u of g.pendingUpgrades) expect(knows(g.player, u.ability)).toBe(true);
+  });
+
+  it("Split Shot fires a fan of bolts", () => {
+    const g = createGame(12);
+    g.player.abilities.ranks["bolt.split"] = 2;
+    expect(boltParams(g.player).count).toBe(3);
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.projectiles.filter((p) => p.from === "player").length).toBe(3);
+  });
+
+  it("a tome pickup teaches the ability; nova then works", () => {
+    const g = createGame(13);
+    const p = g.player;
+    expect(knows(p, "nova")).toBe(false);
+    g.loot = [{ id: 900, pos: { x: p.pos.x, y: p.pos.y }, kind: "tome", amount: 0, ability: "nova" }];
+    step(g, idle(), 1 / 60);
+    expect(knows(p, "nova")).toBe(true);
+    expect(g.loot.length).toBe(0);
+    // Nova now damages nearby monsters.
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 1, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, nova: true }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+    expect(p.novaCd).toBeGreaterThan(0);
+  });
+
+  it("nova does nothing before it is learned", () => {
+    const g = createGame(14);
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 1, y: g.player.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, nova: true }, 1 / 60);
+    expect(g.monsters[0].hp).toBe(500);
+  });
+
+  it("orbit blades tick damage automatically once learned", () => {
+    const g = createGame(15);
+    learnAbility(g, "orbit");
+    g.monsters.length = 0;
+    // Park a monster on the orbit circle; some tick within a full revolution must hit.
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + CONFIG.orbitRadius, y: g.player.pos.y }, hp: 500, maxHp: 500 }));
+    for (let i = 0; i < 120 && g.monsters[0]?.hp === 500; i++) step(g, idle(), 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+  });
+
+  it("abilities persist through save shape (restore)", () => {
+    const restored = restoreGame({
+      seed: 50, floor: 2,
+      player: {
+        hp: 90, level: 4, xp: 0, xpToNext: 50, gold: 10,
+        abilities: { known: ["melee", "dash", "bolt", "nova"], ranks: { "nova.bang": 1 } },
+      },
+    });
+    expect(knows(restored.player, "nova")).toBe(true);
+    expect(rank(restored.player, "nova.bang")).toBe(1);
+  });
+});
+
+describe("fog of war", () => {
+  it("reveals tiles around the player and leaves distant tiles hidden", () => {
+    const g = createGame(60);
+    step(g, idle(), 1 / 60);
+    const { map, explored, player } = g;
+    const at = (x: number, y: number) => explored[Math.floor(y) * map.w + Math.floor(x)];
+    expect(at(player.pos.x, player.pos.y)).toBe(1);
+    // A tile far outside the vision radius stays dark (corners are far from any spawn
+    // within a 48x48 grid given fogVisionRadius).
+    const far = [{ x: 0, y: 0 }, { x: map.w - 1, y: 0 }, { x: 0, y: map.h - 1 }, { x: map.w - 1, y: map.h - 1 }]
+      .find((c) => Math.hypot(c.x - player.pos.x, c.y - player.pos.y) > CONFIG.fogVisionRadius + 2)!;
+    expect(explored[far.y * map.w + far.x]).toBe(0);
+    expect(g.exploredVersion).toBeGreaterThan(0);
+  });
+
+  it("explored tiles persist as the player moves away (fog is memory, not light)", () => {
+    const g = createGame(61);
+    step(g, idle(), 1 / 60);
+    const { map } = g;
+    const startIdx = Math.floor(g.player.pos.y) * map.w + Math.floor(g.player.pos.x);
+    // Teleport far away and step; the start tile must remain explored.
+    g.player.pos = { x: map.stairs.x, y: map.stairs.y };
+    step(g, idle(), 1 / 60);
+    expect(g.explored[startIdx]).toBe(1);
   });
 });
 

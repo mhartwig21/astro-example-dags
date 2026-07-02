@@ -11,6 +11,7 @@ export class InputController {
   private useStairsEdge = false;
   private dashEdge = false;
   private boltHeld = false;
+  private novaEdge = false;
   private aimScreen: Vec2 | null = null;
   onReset: (() => void) | null = null;
 
@@ -23,6 +24,7 @@ export class InputController {
       if (k === "e") this.useStairsEdge = true;
       if ((k === "shift" || k === "control") && !wasDown) this.dashEdge = true; // edge-trigger dash
       if (k === "q") this.boltHeld = true;
+      if (k === "f" && !wasDown) this.novaEdge = true; // edge-trigger nova
       if (k === "r") this.onReset?.();
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
     });
@@ -69,7 +71,9 @@ export class InputController {
     this.useStairsEdge = false;
     const dash = this.dashEdge;
     this.dashEdge = false;
+    const nova = this.novaEdge;
+    this.novaEdge = false;
 
-    return { move, attack: this.attackHeld, aim, useStairs, dash, bolt: this.boltHeld };
+    return { move, attack: this.attackHeld, aim, useStairs, dash, bolt: this.boltHeld, nova };
   }
 }

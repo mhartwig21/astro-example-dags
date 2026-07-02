@@ -75,6 +75,23 @@ export const CONFIG = {
   monsterProjectileSpeed: 7,
   monsterProjectileTtl: 2.5,
 
+  // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
+  novaCooldown: 5.0,
+  novaRadius: 2.6,
+  novaDamageMult: 1.2, // relative to melee base damage
+  orbitBladesBase: 2,
+  orbitRadius: 1.6,
+  orbitRevPerSec: 1.1, // revolutions per second
+  orbitDamageMult: 0.5, // per tick, relative to melee base damage
+  orbitTickSeconds: 0.4,
+  orbitBladeHitRadius: 0.5,
+  // Ability tomes: dungeon-found unlocks for undiscovered abilities.
+  tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
+  upgradeDraftSize: 3, // cards offered per level-up
+
+  // Fog of war
+  fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player
+
   // The Show: viewers / favorites / sponsors economy. Exciting + challenging play
   // generates "hype" (which decays); hype drives viewers, a slice of whom convert to
   // sticky favorites, and favorite thresholds earn sponsors.

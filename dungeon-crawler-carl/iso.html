@@ -102,6 +102,32 @@
       .reward:hover { transform: translateY(-3px); border-color: #4fd1ff; background: #191826; }
       .reward .rtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
       .reward .rdesc { color: #b9d0c0; font-size: 13px; }
+      .reward .rability { color: #7a7a8a; font-size: 11px; text-transform: uppercase;
+        letter-spacing: 1px; margin-bottom: 4px; }
+      #draft.levelup .panel { border-color: #4fd1ff; }
+      #draft.levelup h2 { color: #4fd1ff; }
+      #draft.levelup .reward { border-top-color: #4fd1ff; }
+
+      /* Ability tree panel */
+      #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 20; }
+      #abil .panel { width: 720px; max-width: 94vw; max-height: 84vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 18px 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+      #abil h2 { margin: 0 0 4px; font-size: 15px; color: #4fd1ff; letter-spacing: 1px; }
+      #abil .hint { color: #7a7a8a; font-size: 12px; margin-bottom: 14px; }
+      #abil .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .abil-card { border: 1px solid #2a2a38; border-radius: 8px; padding: 10px 12px; background: #14131f; }
+      .abil-card.unknown { border-style: dashed; color: #6a6a7a; }
+      .abil-card .aname { font-weight: 700; font-size: 14px; color: #e6e6ec; }
+      .abil-card.unknown .aname { color: #6a6a7a; }
+      .abil-card .akey { color: #c9a24b; font-size: 11px; margin-left: 6px; }
+      .abil-card .ablurb { color: #8a8a9a; font-size: 12px; margin: 2px 0 8px; }
+      .abil-node { display: flex; justify-content: space-between; align-items: baseline;
+        font-size: 12px; padding: 3px 0; border-top: 1px dashed #22222e; }
+      .abil-node .ranks { color: #4fd1ff; letter-spacing: 2px; }
+      .abil-node .ranks .empty { color: #33334a; }
+      .abil-node.maxed .ranks { color: #f2c14e; }
     </style>
   </head>
   <body>
@@ -109,7 +135,8 @@
     <div id="banner" class="hud">
       <b>DUNGEON CRAWLER CARL</b> · 3D isometric ·
       <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>Q</kbd>/RMB bolt ·
-      <kbd>Shift</kbd> dash · <kbd>I</kbd> inventory · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
+      <kbd>Shift</kbd> dash · <kbd>F</kbd> nova · <kbd>I</kbd> inventory · <kbd>T</kbd> abilities ·
+      <kbd>E</kbd> stairs · <kbd>R</kbd> new run
     </div>
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
@@ -121,9 +148,16 @@
     </div>
     <div id="draft">
       <div class="panel">
-        <h2>◆ SPONSOR DRAFT</h2>
-        <div class="hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
+        <h2 id="draft-title">◆ SPONSOR DRAFT</h2>
+        <div class="hint" id="draft-hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
         <div class="cards" id="draft-cards"></div>
+      </div>
+    </div>
+    <div id="abil">
+      <div class="panel">
+        <h2>ABILITIES</h2>
+        <div class="hint">Level up to rank abilities · find tomes to learn new ones · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <div class="grid" id="abil-grid"></div>
       </div>
     </div>
     <div id="fx"></div>
@@ -142,6 +176,7 @@
     <div id="skills">
       <div class="skill" id="skill-dash"><span class="key">Shift</span> Dash<div class="cd"><i></i></div></div>
       <div class="skill" id="skill-bolt"><span class="key">Q / RMB</span> Bolt<div class="cd"><i></i></div></div>
+      <div class="skill" id="skill-nova" style="display:none"><span class="key">F</span> Nova<div class="cd"><i></i></div></div>
     </div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>

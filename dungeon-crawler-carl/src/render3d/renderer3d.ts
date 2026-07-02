@@ -3,6 +3,8 @@ import { Tile, type GameState, type HitEvent, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { knows, novaParams, orbitParams } from "../sim/abilities";
+import { CONFIG } from "../sim/config";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -35,6 +37,17 @@ export class Renderer3D {
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
   private aspect = 1;
+
+  // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
+  // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
+  private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[] }[] = [];
+  private stairsObj: THREE.Object3D | null = null;
+  private stairsTile = -1;
+  private lastExploredVersion = -1;
+
+  // Ability visuals.
+  private orbitBlades: THREE.Mesh[] = [];
+  private novaRing: THREE.Mesh | null = null;
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   private prevPlayer: Vec2 = { x: 0, y: 0 };
@@ -214,6 +227,7 @@ export class Renderer3D {
   }
 
   private lootColor(kind: string): number {
+    if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
   }
 
@@ -322,25 +336,35 @@ export class Renderer3D {
       m.compose(pos, quat, scl);
     };
 
+    // Track which map tile sits behind each instance so fog of war can tint it.
+    // Wall instances key off the tile itself; panels key off the floor tile they
+    // face (a wall face lights up when the room it borders is explored).
+    const floorTiles: number[] = [], floorAltTiles: number[] = [];
+    const wallTiles: number[] = [], panelTiles: number[] = [];
     let fi = 0, fai = 0, wi = 0, pi = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
-        const t = map.tiles[y * map.w + x];
+        const idx = y * map.w + x;
+        const t = map.tiles[idx];
         if (t === Tile.Wall) {
           m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
+          wallTiles.push(idx);
           wallMesh.setMatrixAt(wi++, m);
           if (panelMesh) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
               placePanel(x, y, d.dx, d.dz);
+              panelTiles.push((y + d.dz) * map.w + (x + d.dx));
               panelMesh.setMatrixAt(pi++, m);
             }
           }
         } else if (floorSrc || (x + y) % 2 === 0) {
           placeFloor(x, y);
+          floorTiles.push(idx);
           floorMesh.setMatrixAt(fi++, m);
         } else {
           m.makeTranslation(x + 0.5, -0.1, y + 0.5);
+          floorAltTiles.push(idx);
           floorAltMesh.setMatrixAt(fai++, m);
         }
       }
@@ -355,6 +379,13 @@ export class Renderer3D {
       panelMesh.instanceMatrix.needsUpdate = true;
       this.floorGroup.add(panelMesh);
     }
+    this.fogTargets = [
+      { mesh: floorMesh, tiles: floorTiles },
+      { mesh: floorAltMesh, tiles: floorAltTiles },
+      { mesh: wallMesh, tiles: wallTiles },
+    ];
+    if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles });
+    this.lastExploredVersion = -1; // force a fog re-tint on the new floor
 
     // Stairs: the glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance("stairs");
@@ -369,11 +400,14 @@ export class Renderer3D {
         map.stairs.y - (scaled.min.z + scaled.max.z) / 2 + stairsModel.position.z,
       );
       this.floorGroup.add(stairsModel);
+      this.stairsObj = stairsModel;
     } else {
       const stairs = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), flat(THEME.stairs, { emissive: 0x3a2c00, emissiveIntensity: 0.6 }));
       stairs.position.set(map.stairs.x, 0.05, map.stairs.y); stairs.receiveShadow = true;
       this.floorGroup.add(stairs);
+      this.stairsObj = stairs;
     }
+    this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
 
     // Torches: place a handful along walls near the spawn and stairs for mood.
     this.addTorches(state);
@@ -402,10 +436,90 @@ export class Renderer3D {
     });
   }
 
+  // ---- Fog of war ----
+
+  private static FOG_LIT = new THREE.Color(1, 1, 1);
+  private static FOG_DARK = new THREE.Color(0.015, 0.015, 0.025);
+
+  /** Re-tint instanced tiles for the current explored set (multiplicative color). */
+  private applyFog(state: GameState): void {
+    const { explored, map } = state;
+    const wallLit = (idx: number): boolean => {
+      // A wall tile lights up when any adjacent floor tile has been explored.
+      const x = idx % map.w, y = Math.floor(idx / map.w);
+      return (
+        (x > 0 && !!explored[idx - 1]) || (x < map.w - 1 && !!explored[idx + 1]) ||
+        (y > 0 && !!explored[idx - map.w]) || (y < map.h - 1 && !!explored[idx + map.w])
+      );
+    };
+    for (const { mesh, tiles } of this.fogTargets) {
+      for (let i = 0; i < tiles.length; i++) {
+        const idx = tiles[i];
+        const lit = map.tiles[idx] === Tile.Wall ? wallLit(idx) : !!explored[idx];
+        mesh.setColorAt(i, lit ? Renderer3D.FOG_LIT : Renderer3D.FOG_DARK);
+      }
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+    if (this.stairsObj) this.stairsObj.visible = !!explored[this.stairsTile];
+  }
+
+  // ---- Ability visuals (orbit blades + nova ring) ----
+
+  private updateAbilityFx(state: GameState, dt: number): void {
+    const p = state.player;
+    // Orbit blades: reconcile the pool with the learned blade count.
+    const op = knows(p, "orbit") ? orbitParams(p) : null;
+    const want = op ? op.blades : 0;
+    while (this.orbitBlades.length < want) {
+      const blade = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.16, 0),
+        flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
+      );
+      blade.castShadow = true;
+      this.scene.add(blade);
+      this.orbitBlades.push(blade);
+    }
+    while (this.orbitBlades.length > want) {
+      const blade = this.orbitBlades.pop()!;
+      this.scene.remove(blade);
+    }
+    if (op) {
+      for (let i = 0; i < this.orbitBlades.length; i++) {
+        const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+        const blade = this.orbitBlades[i];
+        blade.position.set(p.pos.x + Math.cos(a) * op.radius, 0.75, p.pos.y + Math.sin(a) * op.radius);
+        blade.rotation.y += dt * 10;
+      }
+    }
+    // Nova ring: expands over the flash window, fading out.
+    if (p.novaFlash > 0) {
+      if (!this.novaRing) {
+        this.novaRing = new THREE.Mesh(
+          new THREE.TorusGeometry(1, 0.07, 8, 40),
+          new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true }),
+        );
+        this.novaRing.rotation.x = -Math.PI / 2;
+        this.scene.add(this.novaRing);
+      }
+      const np = novaParams(p);
+      const prog = 1 - p.novaFlash / 0.3;
+      this.novaRing.visible = true;
+      this.novaRing.position.set(p.pos.x, 0.15, p.pos.y);
+      this.novaRing.scale.setScalar(Math.max(0.05, np.radius * prog));
+      (this.novaRing.material as THREE.MeshBasicMaterial).opacity = 1 - prog;
+    } else if (this.novaRing) {
+      this.novaRing.visible = false;
+    }
+  }
+
   // ---- Per-frame sync ----
 
   update(state: GameState, time: number): void {
     if (state.floor !== this.builtFloor) this.buildFloor(state);
+    if (state.exploredVersion !== this.lastExploredVersion) {
+      this.lastExploredVersion = state.exploredVersion;
+      this.applyFog(state);
+    }
     const dt = this.prevTime ? Math.min(0.1, time - this.prevTime) : 1 / 60;
     this.prevTime = time;
 
@@ -428,12 +542,20 @@ export class Renderer3D {
       this.animatePlayer(p.alive, pSpeed, p.attackSwing, time);
     }
 
+    // Fog of war: entities render only inside the player's vision radius.
+    const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
+    const inVision = (pos: Vec2): boolean => {
+      const dx = pos.x - p.pos.x, dy = pos.y - p.pos.y;
+      return dx * dx + dy * dy <= vis2;
+    };
+
     // Monsters: reconcile mesh pool with live monster set + animate.
     const seen = new Set<number>();
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
       if (!mesh) { mesh = this.buildMonsterMesh(mon.kind); this.scene.add(mesh); this.monsters.set(mon.id, mesh); }
+      mesh.visible = inVision(mon.pos);
       const bs = (mesh.userData.baseScale as number) ?? 1;
       const prev = this.prevMon.get(mon.id) ?? mon.pos;
       const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
@@ -473,6 +595,7 @@ export class Renderer3D {
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
       mesh.position.set(pr.pos.x, 0.6, pr.pos.y);
+      mesh.visible = inVision(pr.pos);
     }
     for (const [id, mesh] of this.projectiles) {
       if (!projSeen.has(id)) { this.scene.remove(mesh); this.projectiles.delete(id); }
@@ -492,9 +615,10 @@ export class Renderer3D {
         this.scene.add(mesh); this.loot.set(l.id, mesh);
       }
       // Equipment bobs a touch higher and spins faster so drops read as "loot".
-      const lift = l.kind === "item" ? 0.55 : 0.4;
+      const lift = l.kind === "item" || l.kind === "tome" ? 0.55 : 0.4;
       mesh.position.set(l.pos.x, lift + Math.sin(time * 3 + l.id) * 0.08, l.pos.y);
       mesh.rotation.y = time * 2.4;
+      mesh.visible = inVision(l.pos);
     }
     for (const [id, mesh] of this.loot) {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }
@@ -506,6 +630,7 @@ export class Renderer3D {
     }
 
     this.updateParticles(dt);
+    this.updateAbilityFx(state, dt);
 
     // Camera follows the player from the fixed iso direction, plus decaying shake.
     this.shake = Math.max(0, this.shake - dt * 2.5);

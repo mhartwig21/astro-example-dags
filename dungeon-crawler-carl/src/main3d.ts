@@ -1,7 +1,11 @@
-import { createGame, restoreGame, step, equipFromInventory, chooseReward } from "./sim/game";
+import { createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade } from "./sim/game";
 import { affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
+import {
+  ABILITY_INFO, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
+  boltParams, dashParams, knows, novaParams, rank,
+} from "./sim/abilities";
 import { InputController } from "./input/input";
 import { Renderer3D } from "./render3d/renderer3d";
 import { clearRun, loadRun, saveRun } from "./persist/save";
@@ -47,6 +51,7 @@ input.onReset = () => {
   log.length = 0;
   log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
   if (invOpen) toggleInventory(); // close a stale panel from the old run
+  if (abilOpen) toggleAbilities();
 };
 
 // HUD elements.
@@ -98,24 +103,47 @@ const RARITY_TEXT: Record<string, string> = {
   common: "#c9c9d4", magic: "#7fb0ff", rare: "#f2c14e", epic: "#c9a6ff",
 };
 
+const draftTitle = document.getElementById("draft-title")!;
+const draftHint = document.getElementById("draft-hint")!;
+
+// One modal serves both drafts; sponsor gifts take priority if ever both pend.
 function renderDraft(s: GameState): void {
-  draftCards.innerHTML = s.pendingRewards
-    .map((r, i) => {
-      const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
-      return (
+  if (s.pendingRewards.length > 0) {
+    draftEl.classList.remove("levelup");
+    draftTitle.textContent = "◆ SPONSOR DRAFT";
+    draftHint.textContent = "Your sponsors reward a good show. Choose one gift to carry down.";
+    draftCards.innerHTML = s.pendingRewards
+      .map((r, i) => {
+        const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
+        return (
+          `<div class="reward" data-idx="${i}">` +
+          `<div class="rtitle" style="color:${color}">${r.title}</div>` +
+          `<div class="rdesc">${r.desc}</div>` +
+          `</div>`
+        );
+      })
+      .join("");
+  } else {
+    draftEl.classList.add("levelup");
+    draftTitle.textContent = "◆ LEVEL UP";
+    draftHint.textContent = "The System offers an evolution. Choose one upgrade.";
+    draftCards.innerHTML = s.pendingUpgrades
+      .map((u, i) =>
         `<div class="reward" data-idx="${i}">` +
-        `<div class="rtitle" style="color:${color}">${r.title}</div>` +
-        `<div class="rdesc">${r.desc}</div>` +
-        `</div>`
-      );
-    })
-    .join("");
+        `<div class="rability">${ABILITY_INFO[u.ability].name}</div>` +
+        `<div class="rtitle">${u.title}</div>` +
+        `<div class="rdesc">${u.desc}</div>` +
+        `</div>`,
+      )
+      .join("");
+  }
 }
 
 draftCards.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  chooseReward(state, Number(card.dataset.idx));
+  if (state.pendingRewards.length > 0) chooseReward(state, Number(card.dataset.idx));
+  else chooseUpgrade(state, Number(card.dataset.idx));
   saveRun(state);
   draftEl.style.display = "none";
 });
@@ -172,24 +200,86 @@ invBag.addEventListener("click", (e) => {
   renderInventory(state);
 });
 
+// ---- Ability tree panel (pauses the game while open) ----
+const abilEl = document.getElementById("abil")!;
+const abilGrid = document.getElementById("abil-grid")!;
+let abilOpen = false;
+
+function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): string {
+  const p = s.player;
+  const info = ABILITY_INFO[id];
+  if (!knows(p, id)) {
+    return (
+      `<div class="abil-card unknown">` +
+      `<div class="aname">??? <span class="akey">undiscovered</span></div>` +
+      `<div class="ablurb">Find an ability tome in the dungeon to learn this.</div>` +
+      `</div>`
+    );
+  }
+  const nodes = UPGRADES.filter((u) => u.ability === id)
+    .map((u) => {
+      const r = rank(p, u.id);
+      const dots =
+        "●".repeat(r) + `<span class="empty">${"●".repeat(u.maxRank - r)}</span>`;
+      return (
+        `<div class="abil-node${r >= u.maxRank ? " maxed" : ""}">` +
+        `<span>${u.title}</span><span class="ranks">${dots}</span>` +
+        `</div>`
+      );
+    })
+    .join("");
+  return (
+    `<div class="abil-card">` +
+    `<div class="aname">${info.name} <span class="akey">${info.key}</span></div>` +
+    `<div class="ablurb">${info.blurb}</div>` +
+    nodes +
+    `</div>`
+  );
+}
+
+function renderAbilities(s: GameState): void {
+  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
+  abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+}
+
+function toggleAbilities(): void {
+  abilOpen = !abilOpen;
+  abilEl.style.display = abilOpen ? "flex" : "none";
+  if (abilOpen) renderAbilities(state);
+}
+
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (k === "i") toggleInventory();
+  else if (k === "t") toggleAbilities();
   else if (k === "escape" && invOpen) toggleInventory();
+  else if (k === "escape" && abilOpen) toggleAbilities();
 });
 
 // Cooldown UI shows "fraction remaining"; empties as the skill recharges.
+const novaCdEl = document.querySelector("#skill-nova .cd > i") as HTMLElement;
+const novaSkill = document.getElementById("skill-nova")!;
+
 function updateSkills(s: GameState): void {
   const p = s.player;
-  const dFrac = Math.max(0, Math.min(1, p.dashCd / CONFIG.dashCooldown));
-  const bFrac = Math.max(0, Math.min(1, p.boltCd / CONFIG.boltCooldown));
+  const dFrac = Math.max(0, Math.min(1, p.dashCd / dashParams(p).cooldown));
+  const bFrac = Math.max(0, Math.min(1, p.boltCd / boltParams(p).cooldown));
   dashCd.style.width = `${dFrac * 100}%`;
   boltCd.style.width = `${bFrac * 100}%`;
   dashSkill.classList.toggle("ready", p.dashCd === 0);
   boltSkill.classList.toggle("ready", p.boltCd === 0);
+  // Nova chip appears once the ability is discovered.
+  const hasNova = knows(p, "nova");
+  novaSkill.style.display = hasNova ? "" : "none";
+  if (hasNova) {
+    const nFrac = Math.max(0, Math.min(1, p.novaCd / novaParams(p).cooldown));
+    novaCdEl.style.width = `${nFrac * 100}%`;
+    novaSkill.classList.toggle("ready", p.novaCd === 0);
+  }
 }
 
-// Top-down minimap: walls, stairs, monsters (red), and the player (cyan).
+// Top-down minimap: explored floor only (fog of war), stairs once seen,
+// monsters only while inside the vision radius, and the player (cyan).
 function drawMinimap(s: GameState): void {
   const map = s.map;
   const W = minimap.width, H = minimap.height, pad = 6;
@@ -197,13 +287,18 @@ function drawMinimap(s: GameState): void {
   mmCtx.clearRect(0, 0, W, H);
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
-      const t = map.tiles[y * map.w + x];
+      const i = y * map.w + x;
+      if (!s.explored[i]) continue;
+      const t = map.tiles[i];
       if (t === Tile.Wall) continue;
       mmCtx.fillStyle = t === Tile.StairsDown ? "#c9a24b" : "#2c2c40";
       mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
     }
   }
+  const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
   for (const m of s.monsters) {
+    const dx = m.pos.x - s.player.pos.x, dy = m.pos.y - s.player.pos.y;
+    if (dx * dx + dy * dy > vis2) continue;
     mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
     const r = m.kind === "boss" ? 3.5 : 2;
     mmCtx.beginPath();
@@ -313,14 +408,14 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
-    // The inventory panel and a pending sponsor draft both pause the sim; drop
+    // The inventory/ability panels and pending drafts all pause the sim; drop
     // accumulated time so it doesn't fast-forward on resume.
-    const draftPending = state.pendingRewards.length > 0;
+    const draftPending = state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0;
     if (draftEl.style.display !== "flex" && draftPending) {
       renderDraft(state);
       draftEl.style.display = "flex";
     }
-    if (invOpen || draftPending) acc = 0;
+    if (invOpen || abilOpen || draftPending) acc = 0;
     while (acc >= SIM_DT) {
       step(state, input.sample(center, false), SIM_DT);
       for (const e of state.events) log.push(e);
