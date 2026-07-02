@@ -11,7 +11,8 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/public/assets"
-mkdir -p "$DEST/dungeon" "$DEST/characters"
+AUDIO="$ROOT/public/audio"
+mkdir -p "$DEST/dungeon" "$DEST/characters" "$AUDIO/sfx" "$AUDIO/music"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 if ! have curl; then echo "curl not found — install curl and re-run."; exit 1; fi
@@ -55,5 +56,25 @@ versions and unzip into public/assets/ as noted:
 After placing files, enable the matching lines in src/render3d/assets.ts
 (MODEL_MANIFEST) and reload — the renderer will use the models automatically.
 EOF
+
 echo
-echo "Done. Placeholder low-poly meshes render until real models are present."
+echo "== Audio (see ASSETS.md — Audio for the license-tagged source list) =="
+# FreePD serves direct CC0 MP3s — pick tracks at https://freepd.com and fetch:
+# fetch "https://freepd.com/music/<Track%20Name>.mp3" "$AUDIO/music/dungeon.mp3"
+# (then point src/audio/manifest.ts music entries at the .mp3, or convert to .ogg)
+cat <<'EOF'
+SFX are best grabbed manually (zips / per-file pages):
+
+  Kenney — Impact Sounds, Interface Sounds, RPG Audio, Music Jingles (all CC0)
+    https://kenney.nl/assets?q=audio          -> public/audio/sfx/
+  Freesound — filter license to "Creative Commons 0" before downloading
+    https://freesound.org                     -> public/audio/sfx/
+  FreePD — CC0 music beds (dungeon / safe room / collapse loops)
+    https://freepd.com                        -> public/audio/music/
+
+Name files to match src/audio/manifest.ts (hit.ogg, crit.ogg, level_up.ogg, ...).
+Missing files are fine — the game simply stays silent for those sounds.
+CC-BY sources (soundimage.org etc.) require an attribution entry in ASSETS.md.
+EOF
+echo
+echo "Done. Placeholder low-poly meshes render (and the game stays silent) until real assets are present."

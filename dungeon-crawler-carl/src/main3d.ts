@@ -16,6 +16,8 @@ import {
   saveBindings, saveMouseAim, type BindableAction, type Bindings,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
+import { AudioEngine } from "./audio/engine";
+import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun } from "./persist/save";
 import { NetClient } from "./net/netClient";
 
@@ -29,6 +31,13 @@ const MAX_FRAME = 0.1;
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const renderer = new Renderer3D(canvas);
+
+// Audio seam: same consumer pattern as particles/damage numbers, fed from the
+// per-frame feedback buffers. Silent until clips exist under public/audio/
+// (see ASSETS.md — Audio); missing files simply never play.
+const audio = new AudioEngine();
+void audio.load();
+const audioDirector = new AudioDirector(audio);
 
 // ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----
 // Local mode runs the sim in-page; network mode renders authoritative snapshots
@@ -180,6 +189,7 @@ draftCards.addEventListener("click", (e) => {
   if (!card || card.dataset.idx === undefined) return;
   const idx = Number(card.dataset.idx);
   const p = me(state);
+  audio.play("buy");
   if (net) {
     net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
   } else {
@@ -239,6 +249,7 @@ invBag.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".item.bag") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
   const idx = Number(card.dataset.idx);
+  audio.play("equip");
   if (net) net.equip(idx);
   else {
     equipFromInventory(state, me(state).id, idx);
@@ -347,7 +358,8 @@ function applyBindings(): void {
     `<kbd>${first("abilities")}</kbd> abilities · ` +
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
-    `<kbd>${first("newRun")}</kbd> new run` + (mouseAim ? " · aim with mouse" : "");
+    `<kbd>${first("newRun")}</kbd> new run · ` +
+    `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "");
   (document.querySelector("#skill-dash .key") as HTMLElement).textContent = first("dash");
   (document.querySelector("#skill-bolt .key") as HTMLElement).textContent = `${first("bolt")} / RMB`;
   (document.querySelector("#skill-nova .key") as HTMLElement).textContent = first("nova");
@@ -430,6 +442,7 @@ input.onAction = (a) => {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
   else if (a === "keybinds") toggleKeybinds();
+  else if (a === "mute") log.push(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
 };
 applyBindings();
 
@@ -476,6 +489,8 @@ srStock.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".shop-item") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
   const idx = Number(card.dataset.idx);
+  const stock = state.safeRoom?.stock[idx];
+  if (stock && !stock.sold && me(state).gold >= stock.price) audio.play("buy");
   if (net) net.buy(idx);
   else {
     buyShopItem(state, me(state).id, idx);
@@ -752,6 +767,7 @@ async function main(): Promise<void> {
 
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);
+    audioDirector.frame(state, frameHits, frameAnns, localId);
     renderer.update(state, now / 1000);
     renderer.render();
     // Damage numbers need the camera positioned (done in update) to project.
