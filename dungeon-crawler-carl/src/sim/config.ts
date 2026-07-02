@@ -26,6 +26,11 @@ export const CONFIG = {
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,
   playerAttackArc: Math.PI / 2, // 90° swing in facing direction
+  playerCritChance: 0.18,
+  playerCritMult: 2.0,
+
+  // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
+  lootBoxEveryKills: 8,
 
   // Leveling
   xpBase: 20, // xp to reach level 2

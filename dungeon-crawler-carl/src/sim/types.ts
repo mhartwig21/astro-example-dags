@@ -62,6 +62,18 @@ export interface FloorMap {
 
 export type RunStatus = "playing" | "dead" | "won";
 
+// Transient combat/feedback events emitted during a single step. Hosts turn these
+// into floating damage numbers, particles, camera shake, and announcer lines. They
+// are derived deterministically from the sim (the RNG that rolls a crit is the same
+// seeded stream), so replays reproduce them exactly.
+export type HitKind = "enemy" | "crit" | "player" | "heal" | "gold" | "weapon";
+
+export interface HitEvent {
+  pos: Vec2;
+  amount: number;
+  kind: HitKind;
+}
+
 export interface GameState {
   rng: Rng;
   seed: number;
@@ -81,6 +93,12 @@ export interface GameState {
   status: RunStatus;
   // Event messages produced during the last step (consumed by host for the log/HUD).
   events: string[];
+  // Announcer lines in the DCC "System" game-show voice (a curated subset of drama).
+  announcements: string[];
+  // Combat/feedback events for this step (floating numbers, particles, shake).
+  hits: HitEvent[];
+  killCount: number; // monsters killed this run (drives loot-box milestones)
+  lootBoxes: number; // loot boxes awarded this run
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }
 

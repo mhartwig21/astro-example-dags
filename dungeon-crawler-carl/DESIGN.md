@@ -113,15 +113,24 @@ This document describes the full target architecture, then defines the scope of 
   damage, and simple chase AI.
 - Damage formula reimplemented in the spirit of Diablo: `damage = base + weapon − armor
   mitigation`, with hit variance from the seeded RNG. Kept simple in the slice, expandable.
+- **Crits** (seeded roll) and a **structured hit-event channel** (`GameState.hits`): the
+  sim emits typed feedback events (enemy/crit/player/heal/gold/weapon) that hosts turn into
+  floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
+  same seeded RNG stream, these effects are deterministic and replay identically.
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.
 - Loot: monsters/chests drop items (weapon/armor/consumable) with rarity tiers. Slice ships
   a minimal version (pickups that modify stats) with room for full itemization later.
 
-### 5.5 DCC flavor layer (later)
+### 5.5 DCC flavor layer (started)
 - AI "System" announcer emitting event messages, loot boxes, achievements, absurd upgrades.
-  Implemented as an event bus reacting to sim events — no coupling into core rules.
+  Implemented via `GameState.announcements` — a curated, DCC-voiced subset of events the
+  host surfaces as game-show toasts — with no coupling into core rules.
+- **Loot boxes** (in the slice): every N kills the System awards a randomized buff
+  (weapon mod / max-HP / heal) with an announcer line, tracked in `GameState.lootBoxes`.
+- Still to come: achievements, the recurring announcer personality/banter, cosmetic
+  absurdity, and the meta "show" framing (sponsors, audience, leaderboards).
 
 ---
 

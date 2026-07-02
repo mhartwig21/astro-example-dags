@@ -60,6 +60,19 @@ appear under `public/assets/`, with no gameplay changes (the sim is render-agnos
   `src/render3d/assets.ts` (`MODEL_MANIFEST`), reload. The renderer swaps the
   primitive for the model automatically and falls back if the file is absent.
 
+## Game feel + DCC personality
+
+The 3D view has combat juice, all driven off the sim's deterministic event channels:
+- **Procedural animation** on the placeholder meshes (walk bob, attack lunge, hit
+  recoil/squash, death), with a glTF **AnimationMixer** seam for real clips.
+- **Floating damage numbers**, **crits**, **hit particles**, and **camera shake** from the
+  sim's typed `hits` events.
+- The **DCC "System" announcer**: game-show-voiced toasts for level-ups, floor collapse,
+  descent, and **loot boxes** (a randomized buff every few kills).
+
+Add `?debug=1` to the `iso.html` URL to expose `window.__dcc` (live state + renderer) for
+staging scenarios — off by default.
+
 ## Layout
 
 ```

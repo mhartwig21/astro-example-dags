@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Tile, type GameState, type Vec2 } from "../sim/types";
+import { Tile, type GameState, type HitEvent, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 
@@ -33,6 +33,17 @@ export class Renderer3D {
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
   private aspect = 1;
+
+  // Animation / juice state (all host-side cosmetics; sim stays pure).
+  private prevPlayer: Vec2 = { x: 0, y: 0 };
+  private prevMon = new Map<number, Vec2>();
+  private prevTime = 0;
+  private shake = 0;
+  private particles: {
+    mesh: THREE.Mesh;
+    vx: number; vy: number; vz: number; life: number; max: number;
+  }[] = [];
+  private sharedParticleGeo = new THREE.TetrahedronGeometry(0.09, 0);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -109,6 +120,10 @@ export class Renderer3D {
     const weapon = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.7), flat(THEME.weapon, { metalness: 0.4, roughness: 0.3 }));
     weapon.position.set(0.28, 0.6, 0.25); weapon.rotation.x = Math.PI / 2.6; weapon.castShadow = true;
     g.add(body, head, weapon);
+    // Refs + rest pose used by the procedural animator (see animatePlayer).
+    g.userData.body = body;
+    g.userData.weapon = weapon;
+    g.userData.weaponRestX = weapon.rotation.x;
     return g;
   }
 
@@ -206,26 +221,37 @@ export class Renderer3D {
 
   update(state: GameState, time: number): void {
     if (state.floor !== this.builtFloor) this.buildFloor(state);
+    const dt = this.prevTime ? Math.min(0.1, time - this.prevTime) : 1 / 60;
+    this.prevTime = time;
 
-    // Player.
+    // Player + procedural animation.
     const p = state.player;
+    const pSpeed = Math.hypot(p.pos.x - this.prevPlayer.x, p.pos.y - this.prevPlayer.y) / dt;
+    this.prevPlayer = { x: p.pos.x, y: p.pos.y };
     this.player.position.set(p.pos.x, 0, p.pos.y);
-    this.player.rotation.y = Math.atan2(p.facing.x, p.facing.y);
-    this.player.visible = p.alive;
+    this.player.rotation.set(0, Math.atan2(p.facing.x, p.facing.y), 0);
+    this.player.visible = true;
+    this.animatePlayer(p.alive, pSpeed, p.attackSwing, time);
 
-    // Monsters: reconcile mesh pool with live monster set.
+    // Monsters: reconcile mesh pool with live monster set + animate.
     const seen = new Set<number>();
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
       if (!mesh) { mesh = this.buildMonsterMesh(); this.scene.add(mesh); this.monsters.set(mon.id, mesh); }
+      const prev = this.prevMon.get(mon.id) ?? mon.pos;
+      const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
+      this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
       mesh.position.set(mon.pos.x, 0, mon.pos.y);
-      // Face the player; small hop when recently hit.
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
-      mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
+      // Bob while chasing; recoil pop + squash when just hit.
+      const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 : 0;
+      mesh.position.y = (mon.hitFlash > 0 ? 0.18 : 0) + bob;
+      const squash = mon.hitFlash > 0 ? 1.25 : 1;
+      mesh.scale.set(squash, 2 - squash, squash);
     }
     for (const [id, mesh] of this.monsters) {
-      if (!seen.has(id)) { this.scene.remove(mesh); this.monsters.delete(id); }
+      if (!seen.has(id)) { this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id); }
     }
 
     // Loot: reconcile + bob/spin.
@@ -252,18 +278,122 @@ export class Renderer3D {
       t.light.intensity = t.base * (0.75 + 0.25 * Math.sin(time * 9 + t.seed) * Math.sin(time * 3.3 + t.seed));
     }
 
-    // Camera follows the player from the fixed iso direction.
+    this.updateParticles(dt);
+
+    // Camera follows the player from the fixed iso direction, plus decaying shake.
+    this.shake = Math.max(0, this.shake - dt * 2.5);
+    const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    const sz = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
     const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
     this.camera.position.set(
-      p.pos.x + (d.x / len) * dist,
+      p.pos.x + (d.x / len) * dist + sx,
       (d.y / len) * dist,
-      p.pos.y + (d.z / len) * dist,
+      p.pos.y + (d.z / len) * dist + sz,
     );
     this.camera.lookAt(p.pos.x, 0, p.pos.y);
     this.key.position.set(p.pos.x + 8, 20, p.pos.y + 6);
     this.key.target.position.set(p.pos.x, 0, p.pos.y);
+  }
+
+  /** Procedural animation for the placeholder player (walk bob, attack lunge, death). */
+  private animatePlayer(alive: boolean, speed: number, attackSwing: number, time: number): void {
+    const body = this.player.userData.body as THREE.Mesh | undefined;
+    const weapon = this.player.userData.weapon as THREE.Mesh | undefined;
+    const restX = (this.player.userData.weaponRestX as number) ?? 0;
+
+    if (!alive) {
+      // Tip over and sink.
+      this.player.rotation.x = -Math.PI / 2.2;
+      this.player.position.y = 0.1;
+      return;
+    }
+    this.player.rotation.x = 0;
+
+    if (attackSwing > 0) {
+      // Lunge forward along facing during the swing, and swing the weapon.
+      const prog = 1 - attackSwing / 0.15; // 0 -> 1 across the swing
+      const lunge = Math.sin(prog * Math.PI) * 0.18;
+      this.player.position.x += Math.sin(this.player.rotation.y) * lunge;
+      this.player.position.z += Math.cos(this.player.rotation.y) * lunge;
+      if (weapon) weapon.rotation.x = restX - Math.sin(prog * Math.PI) * 1.4;
+      this.player.position.y = 0;
+    } else if (speed > 0.4) {
+      // Walk: bob + subtle roll.
+      this.player.position.y = Math.abs(Math.sin(time * 12)) * 0.1;
+      if (body) body.rotation.z = Math.sin(time * 12) * 0.08;
+      if (weapon) weapon.rotation.x = restX;
+    } else {
+      // Idle breathing.
+      this.player.position.y = Math.sin(time * 2.5) * 0.03;
+      if (body) body.rotation.z = 0;
+      if (weapon) weapon.rotation.x = restX;
+    }
+  }
+
+  /** Spawn particle bursts + camera shake for a batch of combat events (host-buffered). */
+  emitHits(hits: HitEvent[]): void {
+    for (const h of hits) {
+      const color =
+        h.kind === "crit" ? 0xffe066 :
+        h.kind === "enemy" ? 0xffb347 :
+        h.kind === "player" ? 0xe2574c :
+        h.kind === "heal" ? 0x5fd08a :
+        h.kind === "gold" ? 0xf2c14e : 0xb98bff;
+      const n = h.kind === "crit" ? 14 : 8;
+      this.spawnBurst(h.pos.x, h.pos.y, color, n);
+      if (h.kind === "player") this.shake = Math.min(0.6, this.shake + 0.35);
+      if (h.kind === "crit") this.shake = Math.min(0.4, this.shake + 0.15);
+    }
+  }
+
+  private spawnBurst(x: number, y: number, color: number, count: number): void {
+    if (this.particles.length > 260) return; // hard cap
+    const mat = new THREE.MeshBasicMaterial({ color });
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(this.sharedParticleGeo, mat);
+      mesh.position.set(x, 0.6, y);
+      this.scene.add(mesh);
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 1.5 + Math.random() * 2.5;
+      this.particles.push({
+        mesh, vx: Math.cos(ang) * sp, vy: 2 + Math.random() * 2.5, vz: Math.sin(ang) * sp,
+        life: 0, max: 0.5 + Math.random() * 0.3,
+      });
+    }
+  }
+
+  private updateParticles(dt: number): void {
+    const alive: typeof this.particles = [];
+    for (const pt of this.particles) {
+      pt.life += dt;
+      if (pt.life >= pt.max) { this.scene.remove(pt.mesh); continue; }
+      pt.vy -= 9 * dt; // gravity
+      pt.mesh.position.x += pt.vx * dt;
+      pt.mesh.position.y += pt.vy * dt;
+      pt.mesh.position.z += pt.vz * dt;
+      const s = 1 - pt.life / pt.max;
+      pt.mesh.scale.setScalar(0.4 + s * 0.6);
+      if (pt.mesh.position.y < 0.05) { pt.vy = Math.abs(pt.vy) * 0.4; pt.mesh.position.y = 0.05; }
+      alive.push(pt);
+    }
+    this.particles = alive;
+  }
+
+  /** Project a world point to screen pixels (for DOM overlays like damage numbers). */
+  worldToScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    // Ensure the camera's world/inverse matrices reflect this frame's lookAt.
+    this.camera.updateMatrixWorld();
+    this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const size = new THREE.Vector2();
+    this.renderer.getSize(size);
+    return {
+      x: (v.x * 0.5 + 0.5) * size.x,
+      y: (-v.y * 0.5 + 0.5) * size.y,
+      visible: v.z < 1,
+    };
   }
 
   render(): void {

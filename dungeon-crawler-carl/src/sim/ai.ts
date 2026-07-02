@@ -25,6 +25,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const dmg = rollDamage(state.rng, m.damage);
       player.hp -= dmg;
       m.attackCooldown = CONFIG.monsterAttackCooldown;
+      state.hits.push({ pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player" });
       if (player.hp <= 0) {
         player.hp = 0;
         player.alive = false;

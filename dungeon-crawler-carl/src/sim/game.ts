@@ -4,7 +4,7 @@ import { createRng, nextFloat, nextInt, pick, chance, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
-import type { GameState, Intent, Loot, Monster, Player, Vec2 } from "./types";
+import type { GameState, HitEvent, Intent, Loot, Monster, Player, Vec2 } from "./types";
 
 function monsterCount(floor: number): number {
   return Math.min(
@@ -136,10 +136,24 @@ export function createGame(seed: number): GameState {
     collapseElapsed: 0,
     status: "playing",
     events: [],
+    announcements: [],
+    hits: [],
+    killCount: 0,
+    lootBoxes: 0,
     elapsed: 0,
   };
   buildFloor(state, 1);
   return state;
+}
+
+/** Push a dramatic line in the DCC "System" game-show voice (also logged). */
+function announce(state: GameState, line: string): void {
+  state.announcements.push(line);
+  state.events.push(line);
+}
+
+function hit(state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"]): void {
+  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind });
 }
 
 function grantXp(state: GameState, amount: number): void {
@@ -152,7 +166,28 @@ function grantXp(state: GameState, amount: number): void {
     p.hp = p.maxHp; // level-up fully heals
     p.baseDamage += CONFIG.damagePerLevel;
     p.xpToNext = xpForLevel(p.level);
-    state.events.push(`Level up! You are now level ${p.level}.`);
+    announce(state, `LEVEL ${p.level}! The System upgrades you. Sponsors are thrilled.`);
+  }
+}
+
+/** Award a loot box: an immediate randomized buff, DCC-style. */
+function awardLootBox(state: GameState): void {
+  const p = state.player;
+  state.lootBoxes++;
+  const roll = nextInt(state.rng, 0, 2);
+  if (roll === 0) {
+    const amt = nextInt(state.rng, 3, 6);
+    p.baseDamage += amt;
+    announce(state, `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
+  } else if (roll === 1) {
+    const amt = nextInt(state.rng, 15, 30);
+    p.maxHp += amt;
+    p.hp = Math.min(p.maxHp, p.hp + amt);
+    announce(state, `LOOT BOX #${state.lootBoxes}: reinforced plating! (+${amt} max HP)`);
+  } else {
+    const amt = nextInt(state.rng, 25, 50);
+    p.hp = Math.min(p.maxHp, p.hp + amt);
+    announce(state, `LOOT BOX #${state.lootBoxes}: a health surge! (+${amt} HP)`);
   }
 }
 
@@ -187,9 +222,12 @@ function doPlayerAttack(state: GameState, aim: Vec2): void {
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > CONFIG.playerAttackArc / 2) continue;
-    const dmg = rollDamage(state.rng, p.baseDamage);
+    const isCrit = chance(state.rng, CONFIG.playerCritChance);
+    let dmg = rollDamage(state.rng, p.baseDamage);
+    if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
     m.hp -= dmg;
     m.hitFlash = 0.12;
+    hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
   }
 }
 
@@ -200,8 +238,10 @@ function reapDead(state: GameState): void {
       survivors.push(m);
       continue;
     }
+    state.killCount++;
     grantXp(state, m.xp);
     dropLoot(state, m.pos);
+    if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state);
   }
   state.monsters = survivors;
 }
@@ -217,13 +257,16 @@ function collectLoot(state: GameState): void {
     switch (l.kind) {
       case "gold":
         p.gold += l.amount;
+        hit(state, p.pos, l.amount, "gold");
         break;
       case "heal":
         p.hp = Math.min(p.maxHp, p.hp + l.amount);
+        hit(state, p.pos, l.amount, "heal");
         state.events.push(`Picked up a health kit (+${l.amount}).`);
         break;
       case "weapon":
         p.baseDamage += l.amount;
+        hit(state, p.pos, l.amount, "weapon");
         state.events.push(`Found a better weapon (+${l.amount} damage).`);
         break;
     }
@@ -238,24 +281,26 @@ function updateTimer(state: GameState, dt: number): void {
   if (state.timeRemaining <= 0) {
     if (state.phase !== "collapse") {
       state.phase = "collapse";
-      state.events.push("The floor is COLLAPSING. Get to the stairs!");
+      announce(state, "The floor is COLLAPSING, Crawler. Descend, or become a statistic.");
     }
     state.collapseElapsed += dt;
     const dps = CONFIG.collapseDpsBase + state.collapseElapsed * CONFIG.collapseDpsRamp;
     const p = state.player;
     if (p.alive) {
-      p.hp -= dps * dt;
+      const dmg = dps * dt;
+      p.hp -= dmg;
+      hit(state, p.pos, Math.max(1, Math.round(dmg)), "player");
       if (p.hp <= 0) {
         p.hp = 0;
         p.alive = false;
         state.status = "dead";
-        state.events.push("The collapsing floor crushed you.");
+        announce(state, "The collapsing floor claimed another Crawler. The crowd goes wild.");
       }
     }
   } else if (state.timeRemaining <= warnAt) {
     if (state.phase === "safe") {
       state.phase = "warning";
-      state.events.push("Warning: the floor is destabilizing.");
+      announce(state, "The floor is destabilizing. The clock is your enemy now.");
     }
   }
 }
@@ -268,11 +313,11 @@ function tryDescend(state: GameState): void {
   }
   if (state.floor >= CONFIG.finalFloor) {
     state.status = "won";
-    state.events.push(`You reached floor ${CONFIG.finalFloor} and escaped. You win!`);
+    announce(state, `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`);
     return;
   }
   const next = state.floor + 1;
-  state.events.push(`Descending to floor ${next}...`);
+  announce(state, `Descending to floor ${next}. The cameras are rolling, Crawler.`);
   buildFloor(state, next);
 }
 
@@ -282,6 +327,8 @@ function tryDescend(state: GameState): void {
  */
 export function step(state: GameState, intent: Intent, dt: number): GameState {
   state.events = [];
+  state.announcements = [];
+  state.hits = [];
   if (state.status !== "playing") return state;
 
   state.elapsed += dt;

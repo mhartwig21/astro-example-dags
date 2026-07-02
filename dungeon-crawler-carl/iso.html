@@ -20,6 +20,23 @@
       .bar { height: 8px; border-radius: 3px; background: #000; margin-top: 4px; overflow: hidden; }
       .bar > i { display: block; height: 100%; }
       kbd { background:#1a1a24; border:1px solid #2a2a38; border-radius:3px; padding:1px 5px; }
+
+      /* Floating combat numbers */
+      #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      .dmg { position: absolute; font-weight: 700; font-size: 15px; transform: translate(-50%, -50%);
+        text-shadow: 0 1px 3px #000; will-change: transform, opacity;
+        transition: transform 0.8s ease-out, opacity 0.8s ease-out; }
+      .dmg.crit { font-size: 22px; }
+
+      /* DCC "System" announcer */
+      #toast { position: fixed; top: 16%; left: 50%; transform: translateX(-50%);
+        pointer-events: none; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+      .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
+        padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
+        transition: opacity 0.35s ease, transform 0.35s ease; max-width: 70ch; text-align: center; }
+      .ann.show { opacity: 1; transform: translateY(0); }
+      .ann::before { content: "◆ SYSTEM "; color: #c9a24b; font-weight: 700; }
     </style>
   </head>
   <body>
@@ -31,6 +48,8 @@
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
     <div id="hud-log" class="hud"></div>
+    <div id="fx"></div>
+    <div id="toast"></div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>
 </html>

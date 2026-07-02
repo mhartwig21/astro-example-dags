@@ -1,5 +1,5 @@
 import { createGame, restoreGame, step } from "./sim/game";
-import type { GameState } from "./sim/types";
+import type { GameState, HitEvent } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
 import { Renderer3D } from "./render3d/renderer3d";
@@ -51,6 +51,44 @@ input.onReset = () => {
 const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
+const fxLayer = document.getElementById("fx")!;
+const toastLayer = document.getElementById("toast")!;
+
+const HIT_COLORS: Record<HitEvent["kind"], string> = {
+  enemy: "#ffb347", crit: "#ffe066", player: "#ff5a4d",
+  heal: "#5fd08a", gold: "#f2c14e", weapon: "#b98bff",
+};
+
+// Floating combat numbers: project a world hit to screen and float it upward.
+function spawnDamageNumber(h: HitEvent): void {
+  const s = renderer.worldToScreen(h.pos.x, 0.7, h.pos.y);
+  if (!s.visible) return;
+  const el = document.createElement("div");
+  el.className = h.kind === "crit" ? "dmg crit" : "dmg";
+  el.style.color = HIT_COLORS[h.kind];
+  el.style.left = `${s.x}px`;
+  el.style.top = `${s.y}px`;
+  const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
+  el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  fxLayer.appendChild(el);
+  // Kick off the float+fade on the next frame so the transition applies.
+  requestAnimationFrame(() => {
+    const drift = (Math.random() - 0.5) * 40;
+    el.style.transform = `translate(calc(-50% + ${drift}px), calc(-50% - 46px))`;
+    el.style.opacity = "0";
+  });
+  setTimeout(() => el.remove(), 850);
+}
+
+// DCC "System" announcer toast.
+function showAnnouncement(text: string): void {
+  const el = document.createElement("div");
+  el.className = "ann";
+  el.textContent = text;
+  toastLayer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 400); }, 2600);
+}
 
 function phaseColor(s: GameState): string {
   return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
@@ -79,6 +117,15 @@ function updateHud(s: GameState): void {
   }
 }
 
+// Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
+// and manual debugging can stage scenarios; off by default, no effect in normal play.
+if (new URLSearchParams(location.search).has("debug")) {
+  (window as unknown as { __dcc: unknown }).__dcc = {
+    get state() { return state; },
+    renderer,
+  };
+}
+
 let lastFloor = state.floor;
 let lastStatus = state.status;
 let saveAcc = 0;
@@ -97,9 +144,14 @@ async function main(): Promise<void> {
     // Player is centered by the follow-camera; attacks use movement facing (no
     // screen->iso aim mapping for the slice), so skip mouse aim here.
     const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    // Buffer feedback across every sub-step (step() clears these each call).
+    const frameHits: typeof state.hits = [];
+    const frameAnns: string[] = [];
     while (acc >= SIM_DT) {
       step(state, input.sample(center, false), SIM_DT);
       for (const e of state.events) log.push(e);
+      frameHits.push(...state.hits);
+      frameAnns.push(...state.announcements);
       acc -= SIM_DT;
       if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
       if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
@@ -108,8 +160,13 @@ async function main(): Promise<void> {
     saveAcc += dt;
     if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; saveRun(state); }
 
+    // Particles + shake use world space, so they can fire before the camera moves.
+    renderer.emitHits(frameHits);
     renderer.update(state, now / 1000);
     renderer.render();
+    // Damage numbers need the camera positioned (done in update) to project.
+    for (const h of frameHits) spawnDamageNumber(h);
+    for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
     requestAnimationFrame(frame);
   }

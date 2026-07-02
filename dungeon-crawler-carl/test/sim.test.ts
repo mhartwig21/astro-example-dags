@@ -136,6 +136,54 @@ describe("restore (log on/off)", () => {
   });
 });
 
+describe("combat feedback + loot boxes", () => {
+  it("emits hit events when the player strikes an adjacent monster", () => {
+    const g = createGame(2024);
+    // Place a monster right next to the player, in front of its facing.
+    g.player.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push({
+      id: 999, pos: { x: g.player.pos.x + 1, y: g.player.pos.y },
+      hp: 999, maxHp: 999, damage: 0, speed: 0, attackCooldown: 0, xp: 10, hitFlash: 0,
+    });
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const combat = g.hits.filter((h) => h.kind === "enemy" || h.kind === "crit");
+    expect(combat.length).toBe(1);
+    expect(combat[0].amount).toBeGreaterThan(0);
+  });
+
+  it("awards a loot box every N kills and records it", () => {
+    const g = createGame(7);
+    // Kill lootBoxEveryKills monsters in one swing by stacking them in-arc at point blank.
+    g.player.facing = { x: 1, y: 0 };
+    g.player.baseDamage = 100000;
+    g.monsters.length = 0;
+    for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
+      g.monsters.push({
+        id: 1000 + i, pos: { x: g.player.pos.x + 0.6, y: g.player.pos.y },
+        hp: 1, maxHp: 1, damage: 0, speed: 0, attackCooldown: 0, xp: 5, hitFlash: 0,
+      });
+    }
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
+    expect(g.lootBoxes).toBe(1);
+    expect(g.announcements.some((a) => a.includes("LOOT BOX"))).toBe(true);
+  });
+
+  it("keeps hits/announcements deterministic across identical runs", () => {
+    function play(seed: number) {
+      const g = createGame(seed);
+      const hits: number[] = [];
+      for (let i = 0; i < 240; i++) {
+        step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+        for (const h of g.hits) hits.push(h.amount);
+      }
+      return { hits, kills: g.killCount };
+    }
+    expect(play(555)).toEqual(play(555));
+  });
+});
+
 describe("no-op safety", () => {
   it("stepping a finished game is a no-op", () => {
     const g = createGame(1);
