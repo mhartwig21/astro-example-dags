@@ -64,7 +64,9 @@ export interface Player {
 }
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
-export type MonsterKind = "grunt" | "swarmer" | "brute" | "ranged" | "boss";
+export type MonsterKind =
+  | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
+  | "bomber" | "shaman" | "phantom";
 
 export interface Monster {
   id: number;
@@ -77,10 +79,13 @@ export interface Monster {
   attackRange: number; // contact range (melee) or preferred standoff (ranged)
   attackCooldown: number; // melee swing / ranged shot cooldown remaining
   shootCd: number; // secondary timer: boss radial volley
+  healCd: number; // shaman: seconds until it can heal a wounded ally again
+  blinkCd: number; // phantom: seconds until its next blink toward a player
   xp: number;
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
+  exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome";

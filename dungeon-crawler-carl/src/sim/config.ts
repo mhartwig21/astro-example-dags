@@ -75,6 +75,20 @@ export const CONFIG = {
   monsterProjectileSpeed: 7,
   monsterProjectileTtl: 2.5,
 
+  // Bomber: waddles at the nearest player and detonates on contact (then dies).
+  bomberExplodeRadius: 1.6, // tiles: blast radius of a contact detonation
+  bomberExplodeDmgMult: 1.8, // blast damage relative to the bomber's damage stat
+  bomberDeathRadiusMult: 0.5, // shot down before reaching anyone: half-radius danger zone
+
+  // Shaman: keeps a standoff like ranged, but heals wounded allies instead of shooting.
+  shamanHeal: 16, // hp restored to the lowest-HP wounded monster per cast
+  shamanHealCooldown: 2.5, // seconds between casts
+  shamanHealRange: 6, // tiles: allies it can reach
+
+  // Phantom: fast, fragile skirmisher that blinks toward its prey.
+  phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
+  phantomBlinkCooldown: 2.8, // seconds between blinks
+
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   novaCooldown: 5.0,
   novaRadius: 2.6,
@@ -111,6 +125,9 @@ export const CONFIG = {
     hypeSwarmer: 1,
     hypeBrute: 7,
     hypeRanged: 2,
+    hypeBomber: 4, // explosive deaths play great on camera
+    hypeShaman: 6, // priority target down = crowd relief
+    hypePhantom: 5, // catching the fast one is a highlight reel
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -149,6 +166,12 @@ export const ARCHETYPES = {
   swarmer: { hpMult: 0.5, dmgMult: 0.7, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false },
   brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false },
   ranged: { hpMult: 0.8, dmgMult: 1.0, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true },
+  // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
+  bomber: { hpMult: 0.55, dmgMult: 1.0, speedMult: 1.15, attackRange: 0.9, xpMult: 1.2, ranged: false },
+  // Shaman: never attacks (dmgMult unused); attackRange is its preferred standoff.
+  shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true },
+  // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
+  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false },
 } as const satisfies Record<string, MonsterArchetype>;
 

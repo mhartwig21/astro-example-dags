@@ -44,6 +44,9 @@ export const THEME = {
     swarmer: { color: 0x8bd450, scale: 0.7 },
     brute: { color: 0x9a6bff, scale: 1.45 },
     ranged: { color: 0xe8a13c, scale: 0.95 },
+    bomber: { color: 0xff5a2e, scale: 0.9 }, // orange-red: reads as "about to explode"
+    shaman: { color: 0x3fbf6f, scale: 1.0 }, // green: the healer, shoot it first
+    phantom: { color: 0xbfe4ff, scale: 0.85 }, // pale blue: ghostly blink-striker
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,
