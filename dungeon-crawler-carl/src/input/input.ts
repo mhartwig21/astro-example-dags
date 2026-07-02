@@ -35,7 +35,7 @@ export class InputController {
       if (this.is("dash", k) && !wasDown) this.dashEdge = true; // edge-trigger
       if (this.is("nova", k) && !wasDown) this.novaEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
-      for (const a of ["inventory", "abilities", "keybinds"] as const) {
+      for (const a of ["inventory", "abilities", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
       }
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();

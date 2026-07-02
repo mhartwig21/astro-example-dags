@@ -1,4 +1,4 @@
-# Art assets — open-source (CC0) sourcing
+# Art & audio assets — open-source sourcing
 
 The 3D isometric renderer (`src/render3d/`) currently draws **procedural low-poly
 placeholder meshes** so we can confirm art direction without any downloads. It's
@@ -62,9 +62,61 @@ manual-download instructions for the rest. Downloaded binaries are git-ignored
 (`public/assets/` is not committed) — each contributor fetches their own copy, so
 the repo stays lightweight and license-clean.
 
+## Audio — SFX & music
+
+The game has a silent-by-default audio seam mirroring the model loader: the 3D
+host plays clips from `public/audio/` when they exist and plays nothing when they
+don't (`src/audio/manifest.ts` is the id → file map, `src/audio/engine.ts` the
+loader/player, `src/audio/director.ts` the sim-event → sound mapping). Drop a
+clip at the manifest path, reload, and it sounds — no code changes. Formats:
+anything the browser decodes (`.ogg` recommended; if a source ships `.mp3`,
+either convert or point the manifest entry at the `.mp3`).
+
+**Unlike the 3D packs above, the good audio sources are mixed-license.** Keep the
+split explicit: CC0 needs nothing; CC-BY is free but **requires attribution** —
+if you use any CC-BY clip, list it in the attribution table below AND surface it
+in an in-game credits screen (not yet built; build it before shipping CC-BY audio).
+
+### Sources — license-tagged
+| Source | What | License | Link |
+|---|---|---|---|
+| Kenney audio packs (Impact / Interface / RPG / Music Jingles) | SFX + stings | **CC0** | https://kenney.nl/assets?q=audio |
+| FreePD | music beds | **CC0 / public domain** | https://freepd.com |
+| Freesound (filter: license = CC0) | SFX | **CC0 when filtered** | https://freesound.org/search/?f=license:%22Creative+Commons+0%22 |
+| MuseOpen | classical recordings | mostly PD — check per file | https://musopen.org |
+| Sound Image (Eric Matyas) | music + SFX | **CC-BY 4.0** (attribution) | https://soundimage.org |
+| Freesound (unfiltered) | SFX | mixed CC0/CC-BY/CC-BY-NC — check per file | https://freesound.org |
+| White Bat Audio / TeknoAxe | music | royalty-free w/ attribution | https://whitebataudio.com · https://teknoaxe.com |
+| Free Music Archive | music | mixed — check per track | https://freemusicarchive.org |
+
+Prefer the CC0 rows (Kenney + FreePD + filtered Freesound cover everything this
+game needs) so the repo stays attribution-free like the 3D assets. Avoid any
+**NC** (non-commercial) licensed file entirely.
+
+### Where to put files
+
+```
+public/audio/
+  sfx/    hit.ogg, crit.ogg, player_hurt.ogg, heal.ogg, gold.ogg, item.ogg,
+          dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
+          achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
+          announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
+  music/  dungeon.ogg, safe_room.ogg, collapse.ogg   (loops)
+```
+
+The full list with per-sound volume/bus/throttle lives in `src/audio/manifest.ts`
+— that file is the source of truth. `scripts/fetch-assets.sh` prints download
+pointers for the audio sources too.
+
+### Attribution (CC-BY assets in use)
+
+_None yet — everything currently referenced is CC0. Add a row here (author,
+work, license, link) for every CC-BY file you commit, and mirror it in the
+in-game credits screen._
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.
 - CC0 needs no attribution, but record it anyway so provenance is never lost.
-- If you ever add a non-CC0 asset (e.g. CC-BY), add an attribution section here and
-  in an in-game credits screen.
+- If you ever add a non-CC0 asset (e.g. CC-BY), add it to the attribution section
+  above and to an in-game credits screen.

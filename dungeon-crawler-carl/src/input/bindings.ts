@@ -5,7 +5,7 @@
 export type BindableAction =
   | "moveUp" | "moveDown" | "moveLeft" | "moveRight"
   | "attack" | "bolt" | "dash" | "nova"
-  | "stairs" | "inventory" | "abilities" | "keybinds" | "newRun";
+  | "stairs" | "inventory" | "abilities" | "keybinds" | "newRun" | "mute";
 
 export type Bindings = Record<BindableAction, string[]>;
 
@@ -23,6 +23,7 @@ export const ACTION_INFO: Record<BindableAction, { name: string; hint?: string }
   abilities: { name: "Abilities & achievements" },
   keybinds: { name: "Key bindings" },
   newRun: { name: "New run (solo)" },
+  mute: { name: "Mute sound" },
 };
 
 export const DEFAULT_BINDINGS: Bindings = {
@@ -39,6 +40,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   abilities: ["t"],
   keybinds: ["k"],
   newRun: ["r"],
+  mute: ["m"],
 };
 
 const STORE_KEY = "dcc:keys:v1";
