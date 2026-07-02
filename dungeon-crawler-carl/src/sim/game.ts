@@ -90,6 +90,8 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
     attackRange: a.attackRange,
     attackCooldown: 0,
     shootCd: 0,
+    healCd: 0,
+    blinkCd: 0,
     xp: Math.round(baseXp * a.xpMult),
     hitFlash: 0,
   };
@@ -97,16 +99,23 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
 
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
-  // Deeper floors shift the mix toward brutes/ranged/swarms.
+  // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
+  // specialists: bombers (floor 2+), shamans (floor 4+), phantoms (floor 6+).
   const rangedW = 1 + floor * 0.5;
   const bruteW = floor >= 3 ? floor * 0.4 : 0;
   const swarmW = 2 + floor * 0.3;
   const gruntW = 5;
-  const total = gruntW + swarmW + rangedW + bruteW;
+  const bomberW = floor >= 2 ? floor * 0.3 : 0;
+  const shamanW = floor >= 4 ? floor * 0.25 : 0;
+  const phantomW = floor >= 6 ? floor * 0.3 : 0;
+  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
   if ((r -= rangedW) < 0) return "ranged";
+  if ((r -= bomberW) < 0) return "bomber";
+  if ((r -= shamanW) < 0) return "shaman";
+  if ((r -= phantomW) < 0) return "phantom";
   return "brute";
 }
 
@@ -593,8 +602,42 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   swarmer: CONFIG.show.hypeSwarmer,
   ranged: CONFIG.show.hypeRanged,
   brute: CONFIG.show.hypeBrute,
+  bomber: CONFIG.show.hypeBomber,
+  shaman: CONFIG.show.hypeShaman,
+  phantom: CONFIG.show.hypePhantom,
   boss: CONFIG.show.hypeBoss,
 };
+
+/**
+ * Bomber detonation: radial damage to every living player in range, then the
+ * bomber dies (reapDead handles credit/XP/loot as with any other death). Called
+ * from ai.ts on contact (full radius) and from reapDead when a bomber is shot
+ * down before reaching anyone (radiusMult < 1: a smaller danger zone).
+ */
+export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): void {
+  if (m.exploded) return; // a bomber only gets one blast
+  m.exploded = true;
+  m.hp = 0; // the explosion is always fatal to the bomber itself
+  const radius = CONFIG.bomberExplodeRadius * radiusMult;
+  const base = m.damage * CONFIG.bomberExplodeDmgMult;
+  let caught = 0;
+  for (const p of state.players) {
+    if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
+    if (dist(m.pos, p.pos) > radius) continue;
+    const dmg = rollDamage(state.rng, base);
+    p.hp -= dmg;
+    p.damageTaken += dmg;
+    caught++;
+    hit(state, p.pos, dmg, "player");
+    if (p.hp <= 0) {
+      handlePlayerDeath(state, p, `${p.name} was BLOWN APART by a bomber. Sponsors, roll the replay.`);
+    } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+      addHype(state, p, CONFIG.show.hypeLowHpHit);
+    }
+  }
+  if (caught > 0) announce(state, "KABOOM! A bomber detonates point-blank. The crowd feels that one.");
+  else announce(state, "A bomber pops early — all bark, no bite. The System is disappointed.");
+}
 
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
@@ -604,6 +647,8 @@ function reapDead(state: GameState): void {
       survivors.push(m);
       continue;
     }
+    // A bomber shot down before reaching anyone still cooks off — half radius.
+    if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
     state.killCount++;
     killsThisStep++;
     // Kill credit to the last hitter (loot box milestones + per-player achievements).

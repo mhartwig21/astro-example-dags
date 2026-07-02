@@ -18,7 +18,7 @@ function mkMon(over: Partial<import("../src/sim/types").Monster> = {}) {
   return {
     id: 1, kind: "grunt" as const, pos: { x: 0, y: 0 },
     hp: 1, maxHp: 1, damage: 0, speed: 0, attackRange: 1, attackCooldown: 0,
-    shootCd: 0, xp: 5, hitFlash: 0, ...over,
+    shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0, ...over,
   };
 }
 
@@ -897,6 +897,81 @@ describe("boss hierarchy", () => {
     step(g, idle(), 1 / 60);
     expect(g.announcements.some((a) => a.includes(name) && a.includes("DOWN"))).toBe(true);
     expect(g.loot.some((l) => l.kind === "item")).toBe(true);
+  });
+});
+
+describe("new archetypes", () => {
+  it("bomber explodes on contact, damaging the player, and dies in its own blast", () => {
+    const g = createGame(900);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    g.monsters.push(mkMon({
+      id: 1, kind: "bomber", pos: { x: p.pos.x + 0.5, y: p.pos.y },
+      hp: 30, maxHp: 30, damage: 10, attackRange: 0.9,
+    }));
+    const hp0 = p.hp;
+    step(g, idle(), 1 / 60);
+    expect(p.hp).toBeLessThan(hp0); // caught in the blast
+    expect(g.monsters.length).toBe(0); // the bomber died and was reaped normally
+    expect(g.killCount).toBe(1);
+    expect(g.hits.some((h) => h.kind === "player")).toBe(true);
+    expect(g.announcements.some((a) => a.includes("bomber"))).toBe(true);
+  });
+
+  it("a bomber shot down at range cooks off at half radius (near miss = no damage)", () => {
+    const g = createGame(903);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    // Inside the full 1.6-tile radius but outside the half (0.8-tile) death blast.
+    const bomber = mkMon({
+      id: 1, kind: "bomber", pos: { x: p.pos.x + 1.2, y: p.pos.y },
+      hp: 30, maxHp: 30, damage: 10, speed: 0, attackRange: 0.9, lastHitBy: 0,
+    });
+    g.monsters.push(bomber);
+    bomber.hp = 0; // "shot down" before reaching anyone
+    const hp0 = p.hp;
+    step(g, idle(), 1 / 60);
+    expect(g.monsters.length).toBe(0); // reaped, with kill credit
+    expect(g.players[0].kills).toBe(1);
+    expect(p.hp).toBe(hp0); // half-radius danger zone fell short
+  });
+
+  it("shaman heals the lowest-HP wounded monster nearby and emits a heal hit", () => {
+    const g = createGame(901);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const wounded = mkMon({ id: 2, pos: { x: p.pos.x + 5, y: p.pos.y + 1 }, hp: 10, maxHp: 50 });
+    const healthier = mkMon({ id: 3, pos: { x: p.pos.x + 5, y: p.pos.y - 1 }, hp: 30, maxHp: 50 });
+    const shaman = mkMon({
+      id: 1, kind: "shaman", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 40, attackRange: 5.5,
+    });
+    g.monsters.push(shaman, wounded, healthier);
+    step(g, idle(), 1 / 60);
+    expect(wounded.hp).toBe(10 + CONFIG.shamanHeal); // picked the most wounded ally
+    expect(healthier.hp).toBe(30);
+    expect(shaman.healCd).toBeGreaterThan(0);
+    expect(g.hits.some((h) => h.kind === "heal" && h.amount === CONFIG.shamanHeal)).toBe(true);
+  });
+
+  it("phantom blinks toward the player, closing far more than a walk step", () => {
+    const g = createGame(902);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    g.map.tiles.fill(1); // open floor everywhere so walls can't clip the blink
+    const ph = mkMon({
+      id: 1, kind: "phantom", pos: { x: p.pos.x + 6, y: p.pos.y },
+      hp: 20, maxHp: 20, speed: 0, attackRange: 1.0,
+    });
+    g.monsters.push(ph);
+    step(g, idle(), 1 / 60);
+    const d1 = Math.hypot(ph.pos.x - p.pos.x, ph.pos.y - p.pos.y);
+    expect(6 - d1).toBeGreaterThan(2); // a blink (~3 tiles), not a walk step
+    expect(ph.blinkCd).toBeGreaterThan(0);
   });
 });
 

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 export default defineConfig({
   root: ".",
-  server: { port: 5173, open: false },
+  server: { port: 5280, strictPort: true, open: false },
   build: {
     outDir: "dist",
     rollupOptions: {
