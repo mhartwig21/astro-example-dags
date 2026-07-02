@@ -266,8 +266,11 @@ export class Renderer3D {
     const floorAltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
+    // The fill box is slightly shorter than the panels so their top/side surfaces
+    // are never coplanar (coplanar faces z-fight and flicker as the camera moves).
     const wallHeight = 1.0;
-    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, wallHeight, 1), flat(THEME.wall), wallCount);
+    const fillHeight = wallHeight - 0.04;
+    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, fillHeight, 1), flat(THEME.wall), wallCount);
     floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
     wallMesh.castShadow = true; wallMesh.receiveShadow = true;
 
@@ -308,7 +311,8 @@ export class Renderer3D {
       const s = src.scale;
       const sy = wallHeight / Math.max(1e-4, src.box.max.y - src.box.min.y);
       const halfThick = ((src.box.max.z - src.box.min.z) / 2) * s;
-      const off = 0.5 - halfThick;
+      // Nudge the panel a hair out of the fill box so their faces never share a plane.
+      const off = 0.5 - halfThick + 0.01;
       quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(dx, dz));
       const cx = (src.box.min.x + src.box.max.x) / 2;
       const cz = (src.box.min.z + src.box.max.z) / 2;
@@ -323,7 +327,7 @@ export class Renderer3D {
       for (let x = 0; x < map.w; x++) {
         const t = map.tiles[y * map.w + x];
         if (t === Tile.Wall) {
-          m.makeTranslation(x + 0.5, wallHeight / 2, y + 0.5);
+          m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
           wallMesh.setMatrixAt(wi++, m);
           if (panelMesh) {
             for (const d of DIRS) {
@@ -361,7 +365,7 @@ export class Renderer3D {
       const scaled = new THREE.Box3().setFromObject(stairsModel);
       stairsModel.position.set(
         map.stairs.x - (scaled.min.x + scaled.max.x) / 2 + stairsModel.position.x,
-        -scaled.min.y,
+        -scaled.min.y + 0.005, // proud of the floor plane so the surfaces don't z-fight
         map.stairs.y - (scaled.min.z + scaled.max.z) / 2 + stairsModel.position.z,
       );
       this.floorGroup.add(stairsModel);
