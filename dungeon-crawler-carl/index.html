@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dungeon Crawler Carl — vertical slice</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0; height: 100%; background: #0a0a0f; color: #e6e6ec;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        overflow: hidden;
+      }
+      #app { display: flex; flex-direction: column; align-items: center; height: 100%; }
+      #game { display: block; background: #05050a; image-rendering: pixelated;
+        box-shadow: 0 0 40px rgba(0,0,0,0.6); }
+      #banner {
+        position: fixed; top: 0; left: 0; right: 0; text-align: center;
+        padding: 6px; font-size: 12px; letter-spacing: 0.5px; color: #8a8a9a;
+        background: linear-gradient(#0a0a0f, rgba(10,10,15,0)); pointer-events: none;
+      }
+      #banner b { color: #c9a24b; }
+      kbd { background:#1a1a24; border:1px solid #2a2a38; border-radius:3px;
+        padding:1px 5px; color:#cfcfe0; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="banner">
+        <b>DUNGEON CRAWLER CARL</b> — <kbd>WASD</kbd>/arrows move ·
+        <kbd>Space</kbd>/click attack · <kbd>E</kbd> use stairs · <kbd>R</kbd> new run · descend to floor 18
+      </div>
+      <canvas id="game"></canvas>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
