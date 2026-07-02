@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dungeon Crawler Carl — 3D isometric</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #0a0a12; color: #e6e6ec;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow: hidden; }
+      #game { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+      .hud { position: fixed; pointer-events: none; background: rgba(0,0,0,0.5);
+        padding: 8px 12px; border-radius: 6px; font-size: 13px; line-height: 1.5; }
+      #hud-tl { top: 12px; left: 12px; }
+      #hud-tr { top: 12px; right: 12px; text-align: right; }
+      #hud-log { bottom: 12px; left: 12px; font-size: 12px; color: #b9b9c8; max-width: 60ch; }
+      #banner { top: 12px; left: 50%; transform: translateX(-50%); font-size: 12px;
+        color: #8a8a9a; text-align: center; }
+      #banner b { color: #c9a24b; }
+      .bar { height: 8px; border-radius: 3px; background: #000; margin-top: 4px; overflow: hidden; }
+      .bar > i { display: block; height: 100%; }
+      kbd { background:#1a1a24; border:1px solid #2a2a38; border-radius:3px; padding:1px 5px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="banner" class="hud">
+      <b>DUNGEON CRAWLER CARL</b> · 3D isometric ·
+      <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
+    </div>
+    <div id="hud-tl" class="hud"></div>
+    <div id="hud-tr" class="hud"></div>
+    <div id="hud-log" class="hud"></div>
+    <script type="module" src="/src/main3d.ts"></script>
+  </body>
+</html>

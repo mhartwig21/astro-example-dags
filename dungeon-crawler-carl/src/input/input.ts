@@ -38,7 +38,7 @@ export class InputController {
    * Sample the current input as an Intent. `aim` is derived from the mouse
    * position relative to the player's screen position (passed in by the host).
    */
-  sample(playerScreen: Vec2): Intent {
+  sample(playerScreen: Vec2, includeAim = true): Intent {
     const move: Vec2 = { x: 0, y: 0 };
     if (this.keys.has("w") || this.keys.has("arrowup")) move.y -= 1;
     if (this.keys.has("s") || this.keys.has("arrowdown")) move.y += 1;
@@ -46,7 +46,7 @@ export class InputController {
     if (this.keys.has("d") || this.keys.has("arrowright")) move.x += 1;
 
     let aim: Vec2 | undefined;
-    if (this.aimScreen) {
+    if (includeAim && this.aimScreen) {
       const dx = this.aimScreen.x - playerScreen.x;
       const dy = this.aimScreen.y - playerScreen.y;
       if (dx !== 0 || dy !== 0) aim = { x: dx, y: dy };

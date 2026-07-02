@@ -11,8 +11,13 @@ authoritative server, drop-in/drop-out) that the slice is built to grow into.
 ```bash
 cd dungeon-crawler-carl
 npm install
-npm run dev        # open the printed http://localhost:5173 URL
+npm run dev        # then open one of:
+                   #   http://localhost:5173/           -> 2D top-down slice
+                   #   http://localhost:5173/iso.html   -> 3D isometric ARPG view
 ```
+
+Both views run the **same deterministic sim** — only the renderer differs, which is
+the whole point of keeping game rules in a pure core.
 
 Other scripts:
 
@@ -41,13 +46,28 @@ npm run build      # type-check + production build
 - **Deterministic sim core** — all rules live in `src/sim/` (pure, DOM-free), so the same
   code ports to an authoritative server and a headless test/RL harness.
 
+## Art direction (3D isometric)
+
+The `iso.html` view is the target **isometric ARPG** look (Diablo/PoE-style): a
+fixed pitched **orthographic camera** over a Three.js scene — real-time lighting,
+shadows, torch glow, and iso-depth walls. It currently draws **procedural low-poly
+placeholder meshes**; it's wired to load real **CC0 glTF** models the instant they
+appear under `public/assets/`, with no gameplay changes (the sim is render-agnostic).
+
+- **Sourcing open-source art:** see [`ASSETS.md`](./ASSETS.md) for vetted CC0 packs
+  (Kenney / Quaternius / KayKit) and [`scripts/fetch-assets.sh`](./scripts/fetch-assets.sh).
+- **Wiring a model:** drop a `.glb` in `public/assets/…`, enable its entry in
+  `src/render3d/assets.ts` (`MODEL_MANIFEST`), reload. The renderer swaps the
+  primitive for the model automatically and falls back if the file is absent.
+
 ## Layout
 
 ```
-src/sim/     deterministic core: rng, floor gen, combat, ai, collapse timer, step()
-src/render/  Canvas2D top-down renderer + HUD
-src/input/   keyboard/mouse → intents
-src/persist/ localStorage save/load (log on/off seam)
-src/main.ts  fixed-timestep host loop
-test/        deterministic sim tests
+src/sim/       deterministic core: rng, floor gen, combat, ai, collapse timer, step()
+src/render/    Canvas2D top-down renderer + HUD (index.html)
+src/render3d/  Three.js isometric renderer + glTF asset seam (iso.html)
+src/input/     keyboard/mouse → intents
+src/persist/   localStorage save/load (log on/off seam)
+src/main.ts    2D host loop      src/main3d.ts  3D host loop
+test/          deterministic sim tests
 ```

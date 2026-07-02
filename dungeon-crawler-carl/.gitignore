@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Downloaded 3D assets (fetched per-contributor via scripts/fetch-assets.sh; see ASSETS.md)
+public/assets/**
+!public/assets/.gitkeep
