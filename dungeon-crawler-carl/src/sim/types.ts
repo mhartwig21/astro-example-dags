@@ -10,6 +10,7 @@ export enum Tile {
   Wall = 0,
   Floor = 1,
   StairsDown = 2,
+  DoorLocked = 3, // sealed door; not walkable until the floor key is picked up
 }
 
 export type TimerPhase = "safe" | "warning" | "collapse";
@@ -81,9 +82,10 @@ export interface Monster {
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
+  hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key";
 export type Rarity = "common" | "magic" | "rare" | "epic";
 export type ItemSlot = "weapon" | "armor" | "trinket";
 
@@ -163,12 +165,23 @@ export interface Projectile {
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
 }
 
+/** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
+export interface RoomRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface FloorMap {
   w: number;
   h: number;
   tiles: Uint8Array; // row-major, length w*h, values from Tile
   spawn: Vec2; // player entry point
   stairs: Vec2; // stairs-down location
+  rooms: RoomRect[]; // generated room rectangles (rooms[0] contains the spawn)
+  locked: boolean; // the stairs room is sealed behind DoorLocked tiles
+  lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
 }
 
 export type RunStatus = "playing" | "dead" | "won";
@@ -194,6 +207,9 @@ export interface GameState {
   // Shared by the party; revealed around every living player.
   explored: Uint8Array;
   exploredVersion: number; // bumped whenever new tiles are revealed (render diffing)
+  // Bumped whenever the tile grid itself changes (floor build, doors unlocking) so
+  // renderers that cache floor geometry know to rebuild.
+  mapVersion: number;
   // The party (1-6). Solo play is a party of one; players[0] is the local player
   // in the browser hosts. Order is stable and intents are applied in id order so
   // the RNG stream stays reproducible.

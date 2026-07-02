@@ -33,11 +33,13 @@ export class Renderer3D {
   private playerMeshes = new Map<number, THREE.Group>();
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
+  private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private loot = new Map<number, THREE.Mesh>();
   private projectiles = new Map<number, THREE.Mesh>();
 
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
+  private builtMapVersion = -1;
   private aspect = 1;
 
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
@@ -244,6 +246,7 @@ export class Renderer3D {
 
   private lootColor(kind: string): number {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
+    if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
   }
 
@@ -282,9 +285,10 @@ export class Renderer3D {
     this.torchLights = [];
 
     const map = state.map;
-    let floorCount = 0, wallCount = 0;
+    let floorCount = 0, wallCount = 0, doorCount = 0;
     for (let i = 0; i < map.tiles.length; i++) {
       if (map.tiles[i] === Tile.Wall) wallCount++; else floorCount++;
+      if (map.tiles[i] === Tile.DoorLocked) doorCount++; // floor carved under, door box on top
     }
 
     // Real glTF tiles when present (instanced for perf), procedural boxes otherwise.
@@ -303,6 +307,14 @@ export class Renderer3D {
     const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, fillHeight, 1), flat(THEME.wall), wallCount);
     floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
     wallMesh.castShadow = true; wallMesh.receiveShadow = true;
+    // Locked doors: gold/bronze blocks slightly taller than the walls, sitting on
+    // top of floor-carved tiles (the sim keeps them non-walkable until the key).
+    const doorMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.96, 1.1, 0.96),
+      flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 }),
+      doorCount,
+    );
+    doorMesh.castShadow = true; doorMesh.receiveShadow = true;
 
     const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < map.w && y < map.h;
     const isFloorAt = (x: number, y: number) => inBounds(x, y) && map.tiles[y * map.w + x] !== Tile.Wall;
@@ -356,12 +368,20 @@ export class Renderer3D {
     // Wall instances key off the tile itself; panels key off the floor tile they
     // face (a wall face lights up when the room it borders is explored).
     const floorTiles: number[] = [], floorAltTiles: number[] = [];
-    const wallTiles: number[] = [], panelTiles: number[] = [];
-    let fi = 0, fai = 0, wi = 0, pi = 0;
+    const wallTiles: number[] = [], panelTiles: number[] = [], doorTiles: number[] = [];
+    let fi = 0, fai = 0, wi = 0, pi = 0, di = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const idx = y * map.w + x;
         const t = map.tiles[idx];
+        if (t === Tile.DoorLocked) {
+          // The door block sits over its tile; the floor branches below still run
+          // so the tile has ground under the door when it opens... which happens
+          // via a full rebuild (mapVersion bump), so just draw floor + door now.
+          m.makeTranslation(x + 0.5, 1.1 / 2 - 0.02, y + 0.5);
+          doorTiles.push(idx);
+          doorMesh.setMatrixAt(di++, m);
+        }
         if (t === Tile.Wall) {
           m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
           wallTiles.push(idx);
@@ -385,11 +405,13 @@ export class Renderer3D {
         }
       }
     }
-    floorMesh.count = fi; floorAltMesh.count = fai; wallMesh.count = wi;
+    floorMesh.count = fi; floorAltMesh.count = fai; wallMesh.count = wi; doorMesh.count = di;
     floorMesh.instanceMatrix.needsUpdate = true;
     floorAltMesh.instanceMatrix.needsUpdate = true;
     wallMesh.instanceMatrix.needsUpdate = true;
+    doorMesh.instanceMatrix.needsUpdate = true;
     this.floorGroup.add(floorMesh, floorAltMesh, wallMesh);
+    if (di > 0) this.floorGroup.add(doorMesh);
     if (panelMesh) {
       panelMesh.count = pi;
       panelMesh.instanceMatrix.needsUpdate = true;
@@ -400,6 +422,7 @@ export class Renderer3D {
       { mesh: floorAltMesh, tiles: floorAltTiles },
       { mesh: wallMesh, tiles: wallTiles },
     ];
+    if (di > 0) this.fogTargets.push({ mesh: doorMesh, tiles: doorTiles });
     if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles });
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
 
@@ -428,6 +451,7 @@ export class Renderer3D {
     // Torches: place a handful along walls near the spawn and stairs for mood.
     this.addTorches(state);
     this.builtFloor = state.floor;
+    this.builtMapVersion = state.mapVersion;
   }
 
   private addTorches(state: GameState): void {
@@ -532,7 +556,11 @@ export class Renderer3D {
   // ---- Per-frame sync ----
 
   update(state: GameState, time: number): void {
-    if (state.floor !== this.builtFloor) this.buildFloor(state);
+    // Rebuild cached floor geometry on descent AND on in-place tile mutations
+    // (e.g. locked doors opening when the key is picked up).
+    if (state.floor !== this.builtFloor || state.mapVersion !== this.builtMapVersion) {
+      this.buildFloor(state);
+    }
     if (state.exploredVersion !== this.lastExploredVersion) {
       this.lastExploredVersion = state.exploredVersion;
       this.applyFog(state);
@@ -616,9 +644,32 @@ export class Renderer3D {
         const squash = mon.hitFlash > 0 ? 1.25 : 1;
         mesh.scale.set(bs * squash, bs * (2 - squash), bs * squash);
       }
+      // Key carrier: a floating gold octahedron over the head marks the keyholder.
+      let marker = this.keyMarkers.get(mon.id);
+      if (mon.hasKey && !marker) {
+        marker = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.16, 0),
+          flat(0xffd23e, { emissive: 0xaa7700, emissiveIntensity: 0.9, metalness: 0.6, roughness: 0.3 }),
+        );
+        this.scene.add(marker);
+        this.keyMarkers.set(mon.id, marker);
+      } else if (!mon.hasKey && marker) {
+        this.scene.remove(marker);
+        this.keyMarkers.delete(mon.id);
+        marker = undefined;
+      }
+      if (marker) {
+        marker.position.set(mon.pos.x, 1.55 + Math.sin(time * 3 + mon.id) * 0.09, mon.pos.y);
+        marker.rotation.y = time * 2.2;
+        marker.visible = mesh.visible;
+      }
     }
     for (const [id, mesh] of this.monsters) {
-      if (!seen.has(id)) { this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id); }
+      if (!seen.has(id)) {
+        this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id);
+        const marker = this.keyMarkers.get(id);
+        if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
+      }
     }
 
     // Projectiles: reconcile a mesh pool by id.

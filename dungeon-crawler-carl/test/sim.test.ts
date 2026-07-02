@@ -6,7 +6,7 @@ import {
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { boltParams, knows, rank } from "../src/sim/abilities";
-import { NO_INTENT, type Intent } from "../src/sim/types";
+import { NO_INTENT, Tile, type FloorMap, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
@@ -743,5 +743,120 @@ describe("no-op safety", () => {
     const before = JSON.stringify(g.players[0].pos);
     step(g, NO_INTENT, 1 / 60);
     expect(JSON.stringify(g.players[0].pos)).toBe(before);
+  });
+});
+
+describe("locked floors", () => {
+  /** BFS over walkable tiles (4-connectivity); DoorLocked blocks like Wall. */
+  function reachable(map: FloorMap, from: Vec2): Uint8Array {
+    const seen = new Uint8Array(map.w * map.h);
+    const queue = [Math.floor(from.y) * map.w + Math.floor(from.x)];
+    seen[queue[0]] = 1;
+    while (queue.length > 0) {
+      const i = queue.shift()!;
+      const x = i % map.w, y = Math.floor(i / map.w);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+        const ni = ny * map.w + nx;
+        const t = map.tiles[ni];
+        if (seen[ni] || t === Tile.Wall || t === Tile.DoorLocked) continue;
+        seen[ni] = 1;
+        queue.push(ni);
+      }
+    }
+    return seen;
+  }
+  const canReach = (map: FloorMap, from: Vec2, to: Vec2) =>
+    !!reachable(map, from)[Math.floor(to.y) * map.w + Math.floor(to.x)];
+  const doorCount = (map: FloorMap) =>
+    Array.from(map.tiles).filter((t) => t === Tile.DoorLocked).length;
+  const atFloor = (seed: number, floor: number) =>
+    restoreGame({ seed, floor, player: { hp: 100, level: 1, xp: 0, xpToNext: 20, gold: 0 } });
+
+  // Seeds whose floor-3 layouts lock (the generator's softlock guard may decline
+  // a layout where sealing the stairs room would cut off a grazing corridor).
+  const LOCKED_SEEDS = [1, 2, 9, 28];
+
+  it("floors >= 3 seal the stairs room: stairs unreachable, every other room reachable", () => {
+    for (const seed of LOCKED_SEEDS) {
+      const g = atFloor(seed, 3);
+      const map = g.map;
+      expect(map.locked).toBe(true);
+      expect(doorCount(map)).toBeGreaterThan(0);
+      expect(g.announcements.some((a) => a.includes("LOCKED"))).toBe(true);
+      // Spawn -> stairs is blocked by the locked doors...
+      expect(canReach(map, map.spawn, map.stairs)).toBe(false);
+      // ...but every room other than the stairs room stays reachable.
+      const seen = reachable(map, map.spawn);
+      map.rooms.forEach((r, i) => {
+        if (i === map.lockedRoomIdx) return;
+        const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+        expect(seen[cy * map.w + cx]).toBe(1);
+      });
+    }
+  });
+
+  it("exactly one non-boss monster carries the key, and it is reachable", () => {
+    for (const seed of LOCKED_SEEDS) {
+      const g = atFloor(seed, 3);
+      const carriers = g.monsters.filter((m) => m.hasKey);
+      expect(carriers.length).toBe(1);
+      expect(carriers[0].kind).not.toBe("boss");
+      // The carrier is never sealed inside the stairs district (softlock guard).
+      expect(canReach(g.map, g.map.spawn, carriers[0].pos)).toBe(true);
+    }
+  });
+
+  it("killing the carrier drops a key; picking it up opens every door", () => {
+    const g = atFloor(2, 3);
+    expect(g.map.locked).toBe(true);
+    const doorsBefore = doorCount(g.map);
+    expect(doorsBefore).toBeGreaterThan(0);
+    const carrier = g.monsters.find((m) => m.hasKey)!;
+    // Kill the carrier: the key ALWAYS drops.
+    carrier.hp = 0;
+    step(g, idle(), 1 / 60);
+    const key = g.loot.find((l) => l.kind === "key");
+    expect(key).toBeDefined();
+    expect(g.announcements.some((a) => a.includes("KEYHOLDER"))).toBe(true);
+    // Walk onto the key: all doors open, geometry version bumps, stairs open up.
+    const versionBefore = g.mapVersion;
+    g.players[0].pos = { x: key!.pos.x, y: key!.pos.y };
+    step(g, idle(), 1 / 60);
+    expect(g.loot.some((l) => l.kind === "key")).toBe(false);
+    expect(doorCount(g.map)).toBe(0);
+    expect(g.map.locked).toBe(false);
+    expect(g.mapVersion).toBe(versionBefore + 1);
+    expect(g.announcements.some((a) => a.includes("OPEN"))).toBe(true);
+    expect(canReach(g.map, g.map.spawn, g.map.stairs)).toBe(true);
+  });
+
+  it("picking up the key pays out hype", () => {
+    const g = atFloor(9, 3);
+    g.loot = [{ id: 9001, pos: { x: g.players[0].pos.x, y: g.players[0].pos.y }, kind: "key", amount: 0 }];
+    const hype0 = g.hype;
+    step(g, idle(), 1 / 60);
+    expect(g.hype).toBeGreaterThan(hype0);
+  });
+
+  it("floors 1-2 have no locked doors and no key carrier", () => {
+    for (const seed of [1, 2, 3, 9]) {
+      for (const floor of [1, 2]) {
+        const g = floor === 1 ? createGame(seed) : atFloor(seed, 2);
+        expect(g.map.locked).toBe(false);
+        expect(g.map.lockedRoomIdx).toBe(-1);
+        expect(doorCount(g.map)).toBe(0);
+        expect(g.monsters.some((m) => m.hasKey)).toBe(false);
+        expect(canReach(g.map, g.map.spawn, g.map.stairs)).toBe(true);
+      }
+    }
+  });
+
+  it("locked floors stay deterministic (same doors, same carrier)", () => {
+    const a = atFloor(2, 3);
+    const b = atFloor(2, 3);
+    expect(Array.from(a.map.tiles)).toEqual(Array.from(b.map.tiles));
+    expect(a.monsters.find((m) => m.hasKey)?.id).toBe(b.monsters.find((m) => m.hasKey)?.id);
   });
 });

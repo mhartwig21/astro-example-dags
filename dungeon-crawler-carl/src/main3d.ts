@@ -499,7 +499,9 @@ function drawMinimap(s: GameState): void {
       if (!s.explored[i]) continue;
       const t = map.tiles[i];
       if (t === Tile.Wall) continue;
-      mmCtx.fillStyle = t === Tile.StairsDown ? "#c9a24b" : "#2c2c40";
+      mmCtx.fillStyle =
+        t === Tile.StairsDown ? "#c9a24b" :
+        t === Tile.DoorLocked ? "#ffd23e" : "#2c2c40";
       mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
     }
   }
