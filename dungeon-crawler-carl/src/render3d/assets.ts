@@ -15,11 +15,16 @@ export interface LoadedModel {
 // Optional model manifest. Paths are relative to the site root (Vite `public/`).
 // Missing files are handled gracefully — the renderer uses procedural stand-ins.
 export const MODEL_MANIFEST: Record<string, string> = {
-  // player: "/assets/characters/adventurer.glb",
-  // skeleton: "/assets/characters/skeleton.glb",
-  // wall: "/assets/dungeon/wall.glb",
-  // floor: "/assets/dungeon/floor.glb",
-  // stairs: "/assets/dungeon/stairs.glb",
+  player: "/assets/characters/adventurer.glb",
+  skeleton: "/assets/characters/skeleton.glb",
+  // Per-archetype monster skins (fall back to `skeleton` when absent).
+  monster_swarmer: "/assets/characters/skeleton_rogue.glb",
+  monster_brute: "/assets/characters/skeleton_warrior.glb",
+  monster_ranged: "/assets/characters/skeleton_mage.glb",
+  monster_boss: "/assets/characters/skeleton_warrior.glb",
+  wall: "/assets/dungeon/wall.glb",
+  floor: "/assets/dungeon/floor.glb",
+  stairs: "/assets/dungeon/stairs.glb",
 };
 
 export async function loadModels(): Promise<Record<string, LoadedModel>> {

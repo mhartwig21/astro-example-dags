@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Tile, type GameState, type HitEvent, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -37,6 +38,7 @@ export class Renderer3D {
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   private prevPlayer: Vec2 = { x: 0, y: 0 };
+  private prevSwing = 0;
   private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
   private shake = 0;
@@ -87,14 +89,67 @@ export class Renderer3D {
   private modelInstance(key: string): THREE.Group | null {
     const m = this.models[key];
     if (!m) return null;
-    const g = m.scene.clone(true);
+    // SkeletonUtils.clone: a plain .clone() leaves skinned meshes bound to the
+    // source skeleton, which renders as a mangled/collapsed pose.
+    const g = cloneSkinned(m.scene) as THREE.Group;
     g.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
       }
     });
+    if (m.animations.length) this.attachClipAnimator(g, m.animations);
     return g;
+  }
+
+  /** Scale a model so its bounding-box height matches the given world height. */
+  private normalizeHeight(g: THREE.Group, target: number): void {
+    const box = new THREE.Box3().setFromObject(g);
+    const h = box.max.y - box.min.y;
+    if (h > 1e-4) g.scale.multiplyScalar(target / h);
+  }
+
+  /**
+   * Wire an AnimationMixer with idle/walk/attack/death actions (clip names matched
+   * fuzzily so any humanoid pack works). Exposes userData.mixer and
+   * userData.play(name, force?) with crossfading; one-shot actions clamp.
+   */
+  private attachClipAnimator(g: THREE.Group, clips: THREE.AnimationClip[]): void {
+    const pick = (...res: RegExp[]) => {
+      for (const re of res) {
+        const c = clips.find((c) => re.test(c.name));
+        if (c) return c;
+      }
+      return null;
+    };
+    const found: Record<string, THREE.AnimationClip | null> = {
+      idle: pick(/^idle$/i, /idle/i),
+      walk: pick(/^walk/i, /walk/i, /^run/i, /run/i),
+      attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab/i),
+      death: pick(/^death/i, /death|die/i),
+    };
+    const mixer = new THREE.AnimationMixer(g);
+    const actions: Record<string, THREE.AnimationAction> = {};
+    for (const [name, clip] of Object.entries(found)) {
+      if (!clip) continue;
+      const a = mixer.clipAction(clip);
+      if (name === "attack" || name === "death") {
+        a.setLoop(THREE.LoopOnce, 1);
+        a.clampWhenFinished = true;
+        if (name === "attack") a.timeScale = Math.max(1, clip.duration / 0.3);
+      }
+      actions[name] = a;
+    }
+    let current = "";
+    g.userData.mixer = mixer;
+    g.userData.play = (name: string, force = false) => {
+      const next = actions[name];
+      if (!next || (current === name && !force)) return;
+      const prev = actions[current];
+      next.reset().play();
+      if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
+      current = name;
+    };
   }
 
   resize(w: number, h: number): void {
@@ -111,7 +166,10 @@ export class Renderer3D {
 
   private buildPlayerMesh(): THREE.Group {
     const model = this.modelInstance("player");
-    if (model) return model;
+    if (model) {
+      this.normalizeHeight(model, 1.35);
+      return model;
+    }
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), flat(THEME.player));
     body.position.y = 0.55; body.castShadow = true;
@@ -130,8 +188,13 @@ export class Renderer3D {
 
   private buildMonsterMesh(kind: keyof typeof THEME.archetype): THREE.Group {
     const spec = THEME.archetype[kind];
-    const model = this.modelInstance("skeleton") ?? this.modelInstance("monster");
+    // Prefer an archetype-specific model, then the generic skeleton/monster.
+    const model =
+      this.modelInstance(`monster_${kind}`) ??
+      this.modelInstance("skeleton") ??
+      this.modelInstance("monster");
     const g = model ?? new THREE.Group();
+    if (model) this.normalizeHeight(model, 1.1);
     if (!model) {
       const isBoss = kind === "boss";
       const body = new THREE.Mesh(
@@ -143,8 +206,10 @@ export class Renderer3D {
       eye.position.set(0, 0.5, 0.32);
       g.add(body, eye);
     }
-    g.scale.setScalar(spec.scale);
-    g.userData.baseScale = spec.scale;
+    // Fold the archetype size onto whatever scale the model normalization set.
+    const base = (model ? g.scale.x : 1) * spec.scale;
+    g.scale.setScalar(base);
+    g.userData.baseScale = base;
     return g;
   }
 
@@ -153,6 +218,33 @@ export class Renderer3D {
   }
 
   // ---- Floor geometry (rebuilt on descent) ----
+
+  /**
+   * Pull the largest mesh out of a manifest model as an instancing source, with a
+   * scale that normalizes its footprint to one tile. Null when the model is absent.
+   */
+  private tileSource(key: string): { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; scale: number; box: THREE.Box3 } | null {
+    const m = this.models[key];
+    if (!m) return null;
+    m.scene.updateMatrixWorld(true);
+    let best: THREE.Mesh | null = null;
+    let bestVol = -1;
+    m.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const b = new THREE.Box3().setFromObject(mesh);
+      const s = b.getSize(new THREE.Vector3());
+      const vol = s.x * s.y * s.z;
+      if (vol > bestVol) { bestVol = vol; best = mesh; }
+    });
+    if (!best) return null;
+    const picked = best as THREE.Mesh;
+    const geo = (picked.geometry as THREE.BufferGeometry).clone().applyMatrix4(picked.matrixWorld);
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!.clone();
+    const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
+    return { geo, mat: picked.material, scale: fp > 1e-4 ? 1 / fp : 1, box };
+  }
 
   private buildFloor(state: GameState): void {
     this.floorGroup.clear();
@@ -165,26 +257,47 @@ export class Renderer3D {
       if (map.tiles[i] === Tile.Wall) wallCount++; else floorCount++;
     }
 
-    const tileGeo = new THREE.BoxGeometry(1, 0.2, 1);
-    const wallGeo = new THREE.BoxGeometry(1, 1.4, 1);
-    const floorMesh = new THREE.InstancedMesh(tileGeo, flat(THEME.floor), floorCount);
-    const floorAltMesh = new THREE.InstancedMesh(tileGeo, flat(THEME.floorAlt), floorCount);
-    const wallMesh = new THREE.InstancedMesh(wallGeo, flat(THEME.wall), wallCount);
+    // Real glTF tiles when present (instanced for perf), procedural boxes otherwise.
+    const floorSrc = this.tileSource("floor");
+    const wallSrc = this.tileSource("wall");
+    const floorMesh = floorSrc
+      ? new THREE.InstancedMesh(floorSrc.geo, floorSrc.mat, floorCount)
+      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floor), floorCount);
+    const floorAltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
+    const wallMesh = wallSrc
+      ? new THREE.InstancedMesh(wallSrc.geo, wallSrc.mat, wallCount)
+      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1.4, 1), flat(THEME.wall), wallCount);
     floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
     wallMesh.castShadow = true; wallMesh.receiveShadow = true;
 
+    // Instance matrix for a normalized tile model: scale about origin, then place so
+    // the model's center lands on the tile center with its base (walls) or top
+    // (floors) at y=0.
     const m = new THREE.Matrix4();
+    const place = (
+      src: { scale: number; box: THREE.Box3 } | null,
+      x: number, y: number, topAtZero: boolean, fallbackY: number,
+    ) => {
+      if (!src) { m.makeTranslation(x + 0.5, fallbackY, y + 0.5); return; }
+      const s = src.scale;
+      const cx = (src.box.min.x + src.box.max.x) / 2;
+      const cz = (src.box.min.z + src.box.max.z) / 2;
+      const py = topAtZero ? -src.box.max.y * s : -src.box.min.y * s;
+      m.makeScale(s, s, s).setPosition(x + 0.5 - cx * s, py, y + 0.5 - cz * s);
+    };
     let fi = 0, fai = 0, wi = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const t = map.tiles[y * map.w + x];
         if (t === Tile.Wall) {
-          m.makeTranslation(x + 0.5, 0.7, y + 0.5);
+          place(wallSrc, x, y, false, 0.7);
           wallMesh.setMatrixAt(wi++, m);
+        } else if (floorSrc || (x + y) % 2 === 0) {
+          place(floorSrc, x, y, true, -0.1);
+          floorMesh.setMatrixAt(fi++, m);
         } else {
-          m.makeTranslation(x + 0.5, -0.1, y + 0.5);
-          if ((x + y) % 2 === 0) floorMesh.setMatrixAt(fi++, m);
-          else floorAltMesh.setMatrixAt(fai++, m);
+          place(null, x, y, true, -0.1);
+          floorAltMesh.setMatrixAt(fai++, m);
         }
       }
     }
@@ -194,10 +307,24 @@ export class Renderer3D {
     wallMesh.instanceMatrix.needsUpdate = true;
     this.floorGroup.add(floorMesh, floorAltMesh, wallMesh);
 
-    // Stairs: a glowing stepped block at the stairs tile.
-    const stairs = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), flat(THEME.stairs, { emissive: 0x3a2c00, emissiveIntensity: 0.6 }));
-    stairs.position.set(map.stairs.x, 0.05, map.stairs.y); stairs.receiveShadow = true;
-    this.floorGroup.add(stairs);
+    // Stairs: the glTF model when present, else a glowing stepped block.
+    const stairsModel = this.modelInstance("stairs");
+    if (stairsModel) {
+      const box = new THREE.Box3().setFromObject(stairsModel);
+      const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
+      if (fp > 1e-4) stairsModel.scale.multiplyScalar(1 / fp);
+      const scaled = new THREE.Box3().setFromObject(stairsModel);
+      stairsModel.position.set(
+        map.stairs.x - (scaled.min.x + scaled.max.x) / 2 + stairsModel.position.x,
+        -scaled.min.y,
+        map.stairs.y - (scaled.min.z + scaled.max.z) / 2 + stairsModel.position.z,
+      );
+      this.floorGroup.add(stairsModel);
+    } else {
+      const stairs = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), flat(THEME.stairs, { emissive: 0x3a2c00, emissiveIntensity: 0.6 }));
+      stairs.position.set(map.stairs.x, 0.05, map.stairs.y); stairs.receiveShadow = true;
+      this.floorGroup.add(stairs);
+    }
 
     // Torches: place a handful along walls near the spawn and stairs for mood.
     this.addTorches(state);
@@ -240,7 +367,17 @@ export class Renderer3D {
     this.player.position.set(p.pos.x, 0, p.pos.y);
     this.player.rotation.set(0, Math.atan2(p.facing.x, p.facing.y), 0);
     this.player.visible = true;
-    this.animatePlayer(p.alive, pSpeed, p.attackSwing, time);
+    if (this.player.userData.mixer) {
+      // Real rigged model: drive clips; procedural bob/tip-over would fight them.
+      const play = this.player.userData.play as (n: string, force?: boolean) => void;
+      if (!p.alive) play("death");
+      else if (p.attackSwing > this.prevSwing + 1e-6) play("attack", true);
+      else if (p.attackSwing <= 0) play(pSpeed > 0.4 ? "walk" : "idle");
+      this.prevSwing = p.attackSwing;
+      (this.player.userData.mixer as THREE.AnimationMixer).update(dt);
+    } else {
+      this.animatePlayer(p.alive, pSpeed, p.attackSwing, time);
+    }
 
     // Monsters: reconcile mesh pool with live monster set + animate.
     const seen = new Set<number>();
@@ -254,11 +391,20 @@ export class Renderer3D {
       this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
       mesh.position.set(mon.pos.x, 0, mon.pos.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
-      // Bob while chasing; recoil pop + squash when just hit (scaled by archetype size).
-      const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
-      mesh.position.y = (mon.hitFlash > 0 ? 0.18 : 0) + bob;
-      const squash = mon.hitFlash > 0 ? 1.25 : 1;
-      mesh.scale.set(bs * squash, bs * (2 - squash), bs * squash);
+      if (mesh.userData.mixer) {
+        // Rigged model: walk/idle clips + a small recoil pop; no squash (it would
+        // deform the skinned mesh instead of reading as a hit).
+        (mesh.userData.play as (n: string) => void)(mSpeed > 0.2 ? "walk" : "idle");
+        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+        mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
+        mesh.scale.setScalar(bs);
+      } else {
+        // Bob while chasing; recoil pop + squash when just hit (scaled by archetype size).
+        const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
+        mesh.position.y = (mon.hitFlash > 0 ? 0.18 : 0) + bob;
+        const squash = mon.hitFlash > 0 ? 1.25 : 1;
+        mesh.scale.set(bs * squash, bs * (2 - squash), bs * squash);
+      }
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) { this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id); }
