@@ -1,9 +1,9 @@
 {
-  "name": "dungeon-crawler-carl",
+  "name": "dungeon-crawler-claude",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Diablo-like dungeon crawler inspired by Dungeon Crawler Carl \u00e2\u20ac\u201d vertical slice (single-player, local).",
+  "description": "Dungeon Crawler Claude \u2014 Diablo-like multiplayer dungeon crawler inspired by Dungeon Crawler Carl (deterministic sim, authoritative server).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

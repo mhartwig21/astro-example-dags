@@ -13,6 +13,7 @@ import {
 import { InputController } from "./input/input";
 import { Renderer3D } from "./render3d/renderer3d";
 import { clearRun, loadRun, saveRun } from "./persist/save";
+import { NetClient } from "./net/netClient";
 
 // 3D isometric host: runs the exact same deterministic sim as the 2D slice, but
 // renders it through the Three.js isometric renderer. Proves the art direction and
@@ -24,6 +25,18 @@ const MAX_FRAME = 0.1;
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const renderer = new Renderer3D(canvas);
+
+// ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----
+// Local mode runs the sim in-page; network mode renders authoritative snapshots
+// from the server and forwards intents/actions. Same renderer, same UI.
+const params = new URLSearchParams(location.search);
+const joinCode = params.get("join");
+const net = joinCode ? new NetClient() : null;
+const playerName =
+  params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
+const serverUrl = params.get("server") ?? `ws://${location.hostname}:5281`;
+let localId = 0;
+const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight);
@@ -46,11 +59,12 @@ function boot(): GameState {
   return startFresh();
 }
 
-let state = boot();
+let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 const input = new InputController(canvas);
 input.onReset = () => {
+  if (net) return; // the server owns the run in network mode
   state = startFresh();
   log.length = 0;
   log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
@@ -114,7 +128,7 @@ const draftHint = document.getElementById("draft-hint")!;
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
 function renderDraft(s: GameState): void {
-  const lp = s.players[0];
+  const lp = me(s);
   if (lp.pendingRewards.length > 0) {
     draftEl.classList.remove("levelup");
     draftTitle.textContent = "◆ SPONSOR DRAFT";
@@ -149,11 +163,16 @@ function renderDraft(s: GameState): void {
 draftCards.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  const me = state.players[0];
-  if (me.pendingRewards.length > 0) chooseReward(state, me.id, Number(card.dataset.idx));
-  else chooseUpgrade(state, me.id, Number(card.dataset.idx));
-  flushFeedback(state);
-  saveRun(state);
+  const idx = Number(card.dataset.idx);
+  const p = me(state);
+  if (net) {
+    net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
+  } else {
+    if (p.pendingRewards.length > 0) chooseReward(state, p.id, idx);
+    else chooseUpgrade(state, p.id, idx);
+    flushFeedback(state);
+    saveRun(state);
+  }
   draftEl.style.display = "none";
 });
 
@@ -176,7 +195,7 @@ function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): strin
 }
 
 function renderInventory(s: GameState): void {
-  const p = s.players[0];
+  const p = me(s);
   invEquipped.innerHTML = (["weapon", "armor", "trinket"] as const)
     .map((slot) => {
       const it = p.equipment[slot];
@@ -204,8 +223,12 @@ function toggleInventory(): void {
 invBag.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".item.bag") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  equipFromInventory(state, state.players[0].id, Number(card.dataset.idx));
-  saveRun(state);
+  const idx = Number(card.dataset.idx);
+  if (net) net.equip(idx);
+  else {
+    equipFromInventory(state, me(state).id, idx);
+    saveRun(state);
+  }
   renderInventory(state);
 });
 
@@ -215,7 +238,7 @@ const abilGrid = document.getElementById("abil-grid")!;
 let abilOpen = false;
 
 function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): string {
-  const p = s.players[0];
+  const p = me(s);
   const info = ABILITY_INFO[id];
   if (!knows(p, id)) {
     return (
@@ -252,9 +275,9 @@ const achCount = document.getElementById("ach-count")!;
 function renderAbilities(s: GameState): void {
   const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
   abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
-  achCount.textContent = `${s.players[0].achievements.length} / ${ACHIEVEMENTS.length}`;
+  achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
   achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = s.players[0].achievements.includes(a.id);
+    const got = me(s).achievements.includes(a.id);
     return (
       `<div class="ach${got ? "" : " locked"}">` +
       `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
@@ -289,10 +312,13 @@ function renderSafeRoom(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
   srTip.textContent = room.tip;
-  srGold.textContent = `Your gold: ${s.players[0].gold}`;
+  srGold.textContent = `Your gold: ${me(s).gold}`;
+  if (s.safeRoom && s.players.length > 1) {
+    srGold.textContent += ` · ready ${s.safeRoom.ready.length}/${s.players.length}`;
+  }
   srStock.innerHTML = room.stock
     .map((it, i) => {
-      const cls = it.sold ? " sold" : s.players[0].gold < it.price ? " broke" : "";
+      const cls = it.sold ? " sold" : me(s).gold < it.price ? " broke" : "";
       return (
         `<div class="shop-item${cls}" data-idx="${i}">` +
         `<div class="stitle">${it.title}</div>` +
@@ -317,14 +343,22 @@ function flushFeedback(s: GameState): void {
 srStock.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".shop-item") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
-  buyShopItem(state, state.players[0].id, Number(card.dataset.idx));
-  flushFeedback(state);
-  saveRun(state);
-  renderSafeRoom(state); // refresh sold/affordability states
+  const idx = Number(card.dataset.idx);
+  if (net) net.buy(idx);
+  else {
+    buyShopItem(state, me(state).id, idx);
+    flushFeedback(state);
+    saveRun(state);
+    renderSafeRoom(state); // refresh sold/affordability states
+  }
 });
 
 srDescend.addEventListener("click", () => {
-  setReady(state, state.players[0].id);
+  if (net) {
+    net.ready(); // modal stays until the whole party is ready (snapshot clears it)
+    return;
+  }
+  setReady(state, me(state).id);
   flushFeedback(state);
   saveRun(state);
   srEl.style.display = "none";
@@ -335,7 +369,7 @@ const novaCdEl = document.querySelector("#skill-nova .cd > i") as HTMLElement;
 const novaSkill = document.getElementById("skill-nova")!;
 
 function updateSkills(s: GameState): void {
-  const p = s.players[0];
+  const p = me(s);
   const dFrac = Math.max(0, Math.min(1, p.dashCd / dashParams(p).cooldown));
   const bFrac = Math.max(0, Math.min(1, p.boltCd / boltParams(p).cooldown));
   dashCd.style.width = `${dFrac * 100}%`;
@@ -371,7 +405,7 @@ function drawMinimap(s: GameState): void {
   }
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
   for (const m of s.monsters) {
-    const dx = m.pos.x - s.players[0].pos.x, dy = m.pos.y - s.players[0].pos.y;
+    const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
     if (dx * dx + dy * dy > vis2) continue;
     mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
     const r = m.kind === "boss" ? 3.5 : 2;
@@ -380,7 +414,7 @@ function drawMinimap(s: GameState): void {
     mmCtx.fill();
   }
   for (const pl of s.players) {
-    mmCtx.fillStyle = pl.id === s.players[0].id ? "#4fd1ff" : "#7be89b";
+    mmCtx.fillStyle = pl.id === me(s).id ? "#4fd1ff" : "#7be89b";
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
@@ -431,7 +465,7 @@ function fmt(t: number): string {
   return `${Math.floor(c / 60)}:${Math.floor(c % 60).toString().padStart(2, "0")}`;
 }
 function updateHud(s: GameState): void {
-  const p = s.players[0];
+  const p = me(s);
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
   hudTL.innerHTML =
     `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
@@ -471,8 +505,39 @@ let saveAcc = 0;
 let prev = performance.now();
 let acc = 0;
 
+// Network mode: transient feedback arrives as an event stream, buffered here
+// until the frame loop consumes it.
+const netHits: HitEvent[] = [];
+const netAnns: string[] = [];
+let netIntentAcc = 0;
+let srRefreshAcc = 0;
+const partyChip = document.getElementById("party")!;
+
 async function main(): Promise<void> {
   await renderer.init();
+
+  if (net) {
+    try {
+      state = await net.connect(serverUrl, joinCode!, playerName);
+    } catch (err) {
+      hudLog.innerHTML = `<b style="color:#e2574c">${(err as Error).message}</b><br>` +
+        `Start it with <b>npm run server</b>, or check ?server=.`;
+      return;
+    }
+    localId = net.playerId;
+    renderer.localPlayerId = localId;
+    log.push(`Joined party ${joinCode} as ${playerName}.`);
+    net.onEvents = (batch) => {
+      netHits.push(...batch.hits);
+      netAnns.push(...batch.announcements);
+      for (const e of batch.events) log.push(e);
+    };
+    net.onDisconnect = () => {
+      log.push("Disconnected from the server.");
+      showAnnouncement("CONNECTION LOST. The System apologizes for the technical difficulties.");
+    };
+    partyChip.style.display = "";
+  }
 
   function frame(now: number): void {
     let dt = (now - prev) / 1000;
@@ -486,31 +551,58 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
-    // The inventory/ability panels, pending drafts, and the safe room all pause
-    // the sim; drop accumulated time so it doesn't fast-forward on resume.
-    const draftPending = state.players[0].pendingRewards.length > 0 || state.players[0].pendingUpgrades.length > 0;
+
+    if (net) {
+      // Authoritative snapshots drive the world; we pump intent + drain events.
+      netIntentAcc += dt;
+      if (netIntentAcc >= 0.05) {
+        netIntentAcc = 0;
+        net.sendIntent(input.sample(center, false));
+      }
+      const disp = net.display(now);
+      if (disp) state = disp;
+      frameHits.push(...netHits.splice(0));
+      frameAnns.push(...netAnns.splice(0));
+      // Party chip: code + roster.
+      partyChip.textContent = `⚔ ${joinCode} · ${state.players.map((p) => p.name).join(", ")}`;
+      // Safe-room stock/ready counts change server-side; refresh while open.
+      srRefreshAcc += dt;
+      if (state.safeRoom && srEl.style.display === "flex" && srRefreshAcc > 0.3) {
+        srRefreshAcc = 0;
+        renderSafeRoom(state);
+      }
+    }
+
+    const draftPending = me(state).pendingRewards.length > 0 || me(state).pendingUpgrades.length > 0;
     if (draftEl.style.display !== "flex" && draftPending) {
       renderDraft(state);
       draftEl.style.display = "flex";
     }
+    if (draftEl.style.display === "flex" && !draftPending) draftEl.style.display = "none";
     const inSafeRoom = state.safeRoom !== null;
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
       renderSafeRoom(state);
       srEl.style.display = "flex";
     }
-    if (invOpen || abilOpen || draftPending || inSafeRoom) acc = 0;
-    while (acc >= SIM_DT) {
-      step(state, input.sample(center, false), SIM_DT);
-      for (const e of state.events) log.push(e);
-      frameHits.push(...state.hits);
-      frameAnns.push(...state.announcements);
-      acc -= SIM_DT;
-      if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
-      if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
-    }
+    if (srEl.style.display === "flex" && !inSafeRoom) srEl.style.display = "none";
 
-    saveAcc += dt;
-    if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; saveRun(state); }
+    if (!net) {
+      // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
+      // networked world never pauses for drafts); drop accumulated time.
+      if (invOpen || abilOpen || draftPending || inSafeRoom) acc = 0;
+      while (acc >= SIM_DT) {
+        step(state, input.sample(center, false), SIM_DT);
+        for (const e of state.events) log.push(e);
+        frameHits.push(...state.hits);
+        frameAnns.push(...state.announcements);
+        acc -= SIM_DT;
+        if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
+        if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
+      }
+
+      saveAcc += dt;
+      if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; saveRun(state); }
+    }
 
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);

@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyShopItem, setReady } from "../sim/game";
+import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyShopItem, setReady, equipFromInventory } from "../sim/game";
 import { serialize } from "../sim/snapshot";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents } from "../sim/types";
 
@@ -108,6 +108,9 @@ export class GameServer {
           break;
         case "ready":
           setReady(inst.state, playerId);
+          break;
+        case "equip":
+          equipFromInventory(inst.state, playerId, Number(msg.idx));
           break;
       }
     });

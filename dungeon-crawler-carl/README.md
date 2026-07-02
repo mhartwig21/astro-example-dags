@@ -1,23 +1,40 @@
-# Dungeon Crawler Carl — vertical slice
+# Dungeon Crawler Claude
 
-A Diablo-like dungeon crawler inspired by *Dungeon Crawler Carl*: drop into a procedurally
+A Diablo-like multiplayer dungeon crawler inspired by *Dungeon Crawler Carl*: drop into a procedurally
 generated dungeon and descend to floor 18 before each floor's **collapse timer** turns it
 lethal. This directory is the **single-player, local vertical slice** — see
 [`DESIGN.md`](./DESIGN.md) for the full architecture (party-private multiplayer,
 authoritative server, drop-in/drop-out) that the slice is built to grow into.
 
-## Run it
+## Run it (solo)
 
 ```bash
 cd dungeon-crawler-carl
 npm install
 npm run dev        # then open one of:
-                   #   http://localhost:5173/           -> 2D top-down slice
-                   #   http://localhost:5173/iso.html   -> 3D isometric ARPG view
+                   #   http://localhost:5280/           -> 2D top-down slice
+                   #   http://localhost:5280/iso.html   -> 3D isometric ARPG view
 ```
 
 Both views run the **same deterministic sim** — only the renderer differs, which is
 the whole point of keeping game rules in a pure core.
+
+## Run it (multiplayer)
+
+```bash
+npm run server     # authoritative WebSocket server on :5281
+npm run dev        # the web client on :5280
+# each player opens (any code works; the party code seeds the dungeon):
+#   http://localhost:5280/iso.html?join=CRAWL&name=Carl
+#   http://localhost:5280/iso.html?join=CRAWL&name=Donut
+```
+
+Same party code = same instance: you'll see each other, share fog of war and The
+Show, split XP, and ready-up together in safe rooms. Drafts are personal and don't
+pause the world — choose fast. To play across two machines on a LAN, run
+`npm run dev -- --host` and have the second player use
+`http://<your-ip>:5280/iso.html?join=CRAWL&name=Donut&server=ws://<your-ip>:5281`
+(allow Node through the Windows firewall when prompted).
 
 Other scripts:
 

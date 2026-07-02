@@ -1,4 +1,4 @@
-# Dungeon Crawler Carl — Design Document
+# Dungeon Crawler Claude — Design Document
 
 A Diablo-like action-RPG dungeon crawler inspired by *Dungeon Crawler Carl*. Players
 drop into a deadly, procedurally generated dungeon and must descend to the **18th
