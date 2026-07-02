@@ -52,6 +52,7 @@ export const THEME = {
   gold: 0xf2c14e,
   heal: 0x5fd08a,
   weaponLoot: 0xb98bff,
+  rarity: { common: 0xc9c9d4, magic: 0x5a9bff, rare: 0xf2c14e, epic: 0xb98bff } as Record<string, number>,
 
   // Camera: fixed pitched orthographic view = the ARPG "isometric" look.
   // Direction the camera sits, relative to its target (normalized internally).

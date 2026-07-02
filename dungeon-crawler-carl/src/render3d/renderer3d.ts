@@ -289,14 +289,17 @@ export class Renderer3D {
       lootSeen.add(l.id);
       let mesh = this.loot.get(l.id);
       if (!mesh) {
+        const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
         mesh = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.2, 0),
-          flat(this.lootColor(l.kind), { emissive: this.lootColor(l.kind), emissiveIntensity: 0.5 }),
+          flat(col, { emissive: col, emissiveIntensity: 0.6 }),
         );
         this.scene.add(mesh); this.loot.set(l.id, mesh);
       }
-      mesh.position.set(l.pos.x, 0.4 + Math.sin(time * 3 + l.id) * 0.08, l.pos.y);
-      mesh.rotation.y = time * 2;
+      // Equipment bobs a touch higher and spins faster so drops read as "loot".
+      const lift = l.kind === "item" ? 0.55 : 0.4;
+      mesh.position.set(l.pos.x, lift + Math.sin(time * 3 + l.id) * 0.08, l.pos.y);
+      mesh.rotation.y = time * 2.4;
     }
     for (const [id, mesh] of this.loot) {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }

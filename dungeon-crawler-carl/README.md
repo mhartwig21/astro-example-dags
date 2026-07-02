@@ -35,6 +35,7 @@ npm run build      # type-check + production build
 | `Space` / left-click | Melee attack (arc in facing/aim direction) |
 | `Q` / right-click | Ranged bolt (projectile) |
 | `Shift` | Dash (blink + brief i-frames) |
+| `I` | Toggle inventory (pauses the game) |
 | `E` | Descend when standing on the stairs |
 | `R` | Abandon the run and start a fresh one |
 
@@ -69,8 +70,10 @@ appear under `public/assets/`, with no gameplay changes (the sim is render-agnos
 - **Active skills** — **dash** (blink + i-frames) and a **ranged bolt**, each on a cooldown
   shown in the skill bar.
 - **Projectiles** — a shared system for player bolts and enemy shots.
-- **Weapon rarity** — drops roll common / magic / rare / epic (colored, weighted); rare+ get
-  an announcer callout.
+- **Itemization** — equipment drops as **items** (weapon / armor / trinket) with a rarity
+  tier (common / magic / rare / epic) and rolled **affixes** (damage, HP, speed, crit). An
+  **inventory panel** (`I`) shows equipped vs bag; click to equip. Better drops auto-equip;
+  effective stats = intrinsic(level) + loot-box bonuses + equipped affixes.
 - **Floor-18 boss** — a boss arena that seals the exit until the boss (melee chase + radial
   volleys) is dead; killing it wins the run.
 - **Minimap** — live top-down map with walls, stairs, enemies, and the player.

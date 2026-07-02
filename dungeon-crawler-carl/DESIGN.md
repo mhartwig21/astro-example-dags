@@ -131,10 +131,13 @@ This document describes the full target architecture, then defines the scope of 
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.
-- Loot: monsters drop gold, health, and **weapons with rarity tiers** (common / magic /
-  rare / epic — weighted rolls; higher tiers give a bigger damage bonus and a louder
-  announcer callout). A full inventory/equip UI is still a later step; weapons currently
-  auto-apply their bonus.
+- Loot: monsters drop gold, health, and **equipment items** (weapon / armor / trinket) with
+  a rarity tier (common / magic / rare / epic — weighted) and rolled **affixes** (damage,
+  maxHp, speed, crit). Items go to an inventory; a better item auto-equips, and an
+  **inventory panel** lets the player equip from the bag (game pauses).
+- **Stat model:** effective stats are recomputed as `intrinsic(level) + permanent bonuses
+  (loot boxes) + equipped affixes` (`recomputeStats`), so equipping/unequipping is clean and
+  order-independent. Equipment + inventory are persisted for log on/off.
 
 ### 5.5 DCC flavor layer (started)
 - AI "System" announcer emitting event messages, loot boxes, achievements, absurd upgrades.

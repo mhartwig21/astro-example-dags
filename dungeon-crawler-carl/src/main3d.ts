@@ -1,5 +1,6 @@
-import { createGame, restoreGame, step } from "./sim/game";
-import { Tile, type GameState, type HitEvent } from "./sim/types";
+import { createGame, restoreGame, step, equipFromInventory } from "./sim/game";
+import { affixLines, itemScore } from "./sim/items";
+import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
 import { Renderer3D } from "./render3d/renderer3d";
@@ -45,6 +46,7 @@ input.onReset = () => {
   state = startFresh();
   log.length = 0;
   log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
+  if (invOpen) toggleInventory(); // close a stale panel from the old run
 };
 
 // HUD elements.
@@ -63,6 +65,64 @@ const mmCtx = minimap.getContext("2d")!;
 const RARITY_COLORS: Record<string, string> = {
   common: "#c9c9d4", magic: "#5a9bff", rare: "#f2c14e", epic: "#b98bff",
 };
+
+// ---- Inventory panel (pauses the game while open) ----
+const invEl = document.getElementById("inv")!;
+const invEquipped = document.getElementById("inv-equipped")!;
+const invBag = document.getElementById("inv-bag")!;
+let invOpen = false;
+
+function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): string {
+  const cls = `item rar-${item.rarity}${opts.bag ? " bag" : ""}`;
+  const idx = opts.bag ? ` data-idx="${opts.idx}"` : "";
+  return (
+    `<div class="${cls}"${idx}>` +
+    `<div class="name">${item.name}</div>` +
+    `<div class="slot">${item.slot} · ${item.rarity}</div>` +
+    `<div class="affixes">${affixLines(item).join(" · ") || "—"}</div>` +
+    `</div>`
+  );
+}
+
+function renderInventory(s: GameState): void {
+  const p = s.player;
+  invEquipped.innerHTML = (["weapon", "armor", "trinket"] as const)
+    .map((slot) => {
+      const it = p.equipment[slot];
+      return it
+        ? itemCard(it)
+        : `<div class="item empty rar-common">${slot}: empty</div>`;
+    })
+    .join("");
+  // Bag sorted best-first so upgrades are easy to spot.
+  const bag = p.inventory
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => itemScore(b.item) - itemScore(a.item));
+  invBag.innerHTML = bag.length
+    ? bag.map(({ item, idx }) => itemCard(item, { bag: true, idx })).join("")
+    : `<div class="item empty rar-common">Bag is empty</div>`;
+}
+
+function toggleInventory(): void {
+  invOpen = !invOpen;
+  invEl.style.display = invOpen ? "flex" : "none";
+  if (invOpen) renderInventory(state);
+}
+
+// Delegated click: equip the clicked bag item, persist, and refresh the panel.
+invBag.addEventListener("click", (e) => {
+  const card = (e.target as HTMLElement).closest(".item.bag") as HTMLElement | null;
+  if (!card || card.dataset.idx === undefined) return;
+  equipFromInventory(state, Number(card.dataset.idx));
+  saveRun(state);
+  renderInventory(state);
+});
+
+window.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (k === "i") toggleInventory();
+  else if (k === "escape" && invOpen) toggleInventory();
+});
 
 // Cooldown UI shows "fraction remaining"; empties as the skill recharges.
 function updateSkills(s: GameState): void {
@@ -197,6 +257,9 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
+    // The inventory panel pauses the sim; drop accumulated time so it doesn't
+    // fast-forward on close.
+    if (invOpen) acc = 0;
     while (acc >= SIM_DT) {
       step(state, input.sample(center, false), SIM_DT);
       for (const e of state.events) log.push(e);

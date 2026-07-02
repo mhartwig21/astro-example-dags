@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createGame, restoreGame, step } from "../src/sim/game";
+import { createGame, restoreGame, step, equipItem, equipFromInventory } from "../src/sim/game";
+import { generateItem } from "../src/sim/items";
 import { NO_INTENT, type Intent } from "../src/sim/types";
 import { CONFIG, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -227,6 +228,58 @@ describe("skills + projectiles", () => {
       fired = g.projectiles.some((pr) => pr.from === "enemy");
     }
     expect(fired).toBe(true);
+  });
+});
+
+describe("itemization", () => {
+  it("generates deterministic items with a slot-appropriate primary affix", () => {
+    const rng1 = createRng(4242);
+    const rng2 = createRng(4242);
+    let id1 = 0, id2 = 0;
+    const a = generateItem(rng1, 5, () => ++id1);
+    const b = generateItem(rng2, 5, () => ++id2);
+    expect(a).toEqual(b);
+    const primaryBySlot = { weapon: "damage", armor: "maxHp", trinket: "crit" } as const;
+    expect(a.affixes[primaryBySlot[a.slot]]).toBeGreaterThan(0);
+  });
+
+  it("equipping an item recomputes effective stats", () => {
+    const g = createGame(1);
+    const p = g.player;
+    const baseDmg = p.baseDamage;
+    equipItem(p, { id: 1, slot: "weapon", rarity: "rare", name: "Test Blade", affixes: { damage: 15, crit: 0.1 } });
+    expect(p.baseDamage).toBe(baseDmg + 15);
+    expect(p.critChance).toBeCloseTo(CONFIG.playerCritChance + 0.1);
+    expect(p.weaponRarity).toBe("rare");
+  });
+
+  it("auto-equips a better item on pickup and stashes a worse one", () => {
+    const g = createGame(2);
+    const p = g.player;
+    p.pos = { x: 5.5, y: 5.5 };
+    const strong = { id: 1, slot: "weapon" as const, rarity: "epic" as const, name: "Big", affixes: { damage: 30 } };
+    const weak = { id: 2, slot: "weapon" as const, rarity: "common" as const, name: "Small", affixes: { damage: 2 } };
+    g.loot = [
+      { id: 101, pos: { x: 5.5, y: 5.5 }, kind: "item", amount: 0, item: strong, rarity: "epic" },
+    ];
+    step(g, idle(), 1 / 60);
+    expect(p.equipment.weapon?.id).toBe(1); // auto-equipped the strong one
+    // A weaker weapon should go to the bag, not replace the equipped one.
+    g.loot = [{ id: 102, pos: { x: p.pos.x, y: p.pos.y }, kind: "item", amount: 0, item: weak, rarity: "common" }];
+    step(g, idle(), 1 / 60);
+    expect(p.equipment.weapon?.id).toBe(1);
+    expect(p.inventory.some((i) => i.id === 2)).toBe(true);
+  });
+
+  it("equipFromInventory swaps the equipped item back to the bag", () => {
+    const g = createGame(3);
+    const p = g.player;
+    equipItem(p, { id: 1, slot: "weapon", rarity: "common", name: "A", affixes: { damage: 5 } });
+    p.inventory.push({ id: 2, slot: "weapon", rarity: "rare", name: "B", affixes: { damage: 20 } });
+    equipFromInventory(g, 0);
+    expect(p.equipment.weapon?.id).toBe(2);
+    expect(p.inventory.some((i) => i.id === 1)).toBe(true); // old weapon returned to bag
+    expect(p.baseDamage).toBe(CONFIG.playerBaseDamage + 20);
   });
 });
 

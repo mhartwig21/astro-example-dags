@@ -51,6 +51,30 @@
       .skill .cd { height: 5px; margin-top: 4px; background: #000; border-radius: 3px; overflow: hidden; }
       .skill .cd > i { display: block; height: 100%; background: #4fd1ff; width: 0%; }
       .skill.ready { border-color: #3f5f6f; }
+
+      /* Inventory panel */
+      #inv { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 20; }
+      #inv .panel { width: 620px; max-width: 92vw; max-height: 82vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 18px 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+      #inv h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; }
+      #inv .hint { color: #7a7a8a; font-size: 12px; margin-bottom: 14px; }
+      #inv .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      #inv .sec-title { font-size: 12px; color: #8a8a9a; text-transform: uppercase;
+        letter-spacing: 1px; margin: 0 0 8px; }
+      .item { border: 1px solid #2a2a38; border-left-width: 3px; border-radius: 6px;
+        padding: 7px 10px; margin-bottom: 8px; background: #14131f; }
+      .item .name { font-weight: 700; font-size: 13px; }
+      .item .slot { color: #7a7a8a; font-size: 11px; text-transform: uppercase; }
+      .item .affixes { color: #b9d0c0; font-size: 12px; margin-top: 3px; }
+      .item.bag { cursor: pointer; }
+      .item.bag:hover { border-color: #4fd1ff; background: #191826; }
+      .item.empty { color: #6a6a7a; font-style: italic; border-style: dashed; cursor: default; }
+      .rar-common { border-left-color: #c9c9d4; } .rar-common .name { color: #d8d8e2; }
+      .rar-magic  { border-left-color: #5a9bff; } .rar-magic .name  { color: #7fb0ff; }
+      .rar-rare   { border-left-color: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
+      .rar-epic   { border-left-color: #b98bff; } .rar-epic .name   { color: #c9a6ff; }
     </style>
   </head>
   <body>
@@ -58,7 +82,7 @@
     <div id="banner" class="hud">
       <b>DUNGEON CRAWLER CARL</b> · 3D isometric ·
       <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>Q</kbd>/RMB bolt ·
-      <kbd>Shift</kbd> dash · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
+      <kbd>Shift</kbd> dash · <kbd>I</kbd> inventory · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
     </div>
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
@@ -66,6 +90,16 @@
     <div id="fx"></div>
     <div id="toast"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
+    <div id="inv">
+      <div class="panel">
+        <h2>INVENTORY</h2>
+        <div class="hint">Click a bag item to equip it · <kbd>I</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <div class="cols">
+          <div><div class="sec-title">Equipped</div><div id="inv-equipped"></div></div>
+          <div><div class="sec-title">Bag</div><div id="inv-bag"></div></div>
+        </div>
+      </div>
+    </div>
     <div id="skills">
       <div class="skill" id="skill-dash"><span class="key">Shift</span> Dash<div class="cd"><i></i></div></div>
       <div class="skill" id="skill-bolt"><span class="key">Q / RMB</span> Bolt<div class="cd"><i></i></div></div>

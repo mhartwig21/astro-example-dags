@@ -1,12 +1,53 @@
-import { ARCHETYPES, CONFIG, RARITIES, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
-import { createRng, nextFloat, nextInt, pick, chance, type Rng } from "./rng";
+import { createRng, nextFloat, nextInt, chance, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
+import { generateItem, itemScore } from "./items";
 import type {
-  GameState, HitEvent, Intent, Loot, Monster, MonsterKind, Player, Rarity, Vec2,
+  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Vec2,
 } from "./types";
+
+/** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
+export function recomputeStats(p: Player): void {
+  const intrinsicDmg = CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel;
+  const intrinsicHp = CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel;
+  let dmg = intrinsicDmg + p.bonusDamage;
+  let hp = intrinsicHp + p.bonusMaxHp;
+  let spd = CONFIG.playerSpeed;
+  let crit = CONFIG.playerCritChance;
+  for (const slot of ["weapon", "armor", "trinket"] as const) {
+    const it = p.equipment[slot];
+    if (!it) continue;
+    dmg += it.affixes.damage ?? 0;
+    hp += it.affixes.maxHp ?? 0;
+    spd += it.affixes.speed ?? 0;
+    crit += it.affixes.crit ?? 0;
+  }
+  p.baseDamage = dmg;
+  p.maxHp = hp;
+  p.speed = spd;
+  p.critChance = crit;
+  p.weaponRarity = p.equipment.weapon?.rarity ?? "common";
+  if (p.hp > p.maxHp) p.hp = p.maxHp;
+}
+
+/** Equip an item (from anywhere); the currently-equipped item in that slot goes to the bag. */
+export function equipItem(p: Player, item: Item): void {
+  const prev = p.equipment[item.slot];
+  p.equipment[item.slot] = item;
+  if (prev) p.inventory.push(prev);
+  recomputeStats(p);
+}
+
+/** Equip the inventory item at `idx` (removing it from the bag). No-op if out of range. */
+export function equipFromInventory(state: GameState, idx: number): void {
+  const p = state.player;
+  if (idx < 0 || idx >= p.inventory.length) return;
+  const item = p.inventory.splice(idx, 1)[0];
+  equipItem(p, item);
+}
 
 function monsterCount(floor: number): number {
   return Math.min(
@@ -84,39 +125,46 @@ function spawnMonsters(state: GameState): void {
 }
 
 function makePlayer(seedFrom?: Player): Player {
-  if (seedFrom) {
-    // Carry character progression across floors; reset transient combat state.
-    return {
-      ...seedFrom,
-      pos: { x: 0, y: 0 },
-      facing: { x: 0, y: 1 },
-      attackCooldown: 0,
-      dashCd: 0,
-      dashTime: 0,
-      boltCd: 0,
-      attackSwing: 0,
-      alive: true,
-    };
-  }
-  return {
-    pos: { x: 0, y: 0 },
-    facing: { x: 0, y: 1 },
-    hp: CONFIG.playerMaxHp,
-    maxHp: CONFIG.playerMaxHp,
-    speed: CONFIG.playerSpeed,
-    baseDamage: CONFIG.playerBaseDamage,
-    attackCooldown: 0,
-    dashCd: 0,
-    dashTime: 0,
-    boltCd: 0,
-    level: 1,
-    xp: 0,
-    xpToNext: xpForLevel(1),
-    gold: 0,
-    weaponRarity: "common",
-    alive: true,
-    attackSwing: 0,
-  };
+  const p: Player = seedFrom
+    ? {
+        // Carry character progression (level, gold, equipment, inventory, bonuses)
+        // across floors; reset transient combat state.
+        ...seedFrom,
+        pos: { x: 0, y: 0 },
+        facing: { x: 0, y: 1 },
+        attackCooldown: 0,
+        dashCd: 0,
+        dashTime: 0,
+        boltCd: 0,
+        attackSwing: 0,
+        alive: true,
+      }
+    : {
+        pos: { x: 0, y: 0 },
+        facing: { x: 0, y: 1 },
+        hp: CONFIG.playerMaxHp,
+        maxHp: CONFIG.playerMaxHp,
+        speed: CONFIG.playerSpeed,
+        baseDamage: CONFIG.playerBaseDamage,
+        critChance: CONFIG.playerCritChance,
+        attackCooldown: 0,
+        dashCd: 0,
+        dashTime: 0,
+        boltCd: 0,
+        level: 1,
+        xp: 0,
+        xpToNext: xpForLevel(1),
+        gold: 0,
+        weaponRarity: "common",
+        equipment: { weapon: null, armor: null, trinket: null },
+        inventory: [],
+        bonusDamage: 0,
+        bonusMaxHp: 0,
+        alive: true,
+        attackSwing: 0,
+      };
+  recomputeStats(p);
+  return p;
 }
 
 /** Derive a per-floor sub-seed so each floor is reproducible from the run seed. */
@@ -145,30 +193,48 @@ export interface SavedProgress {
   floor: number;
   player: {
     hp: number;
-    maxHp: number;
-    baseDamage: number;
     level: number;
     xp: number;
     xpToNext: number;
     gold: number;
+    bonusDamage?: number;
+    bonusMaxHp?: number;
+    equipment?: Player["equipment"];
+    inventory?: Item[];
+    // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
+    maxHp?: number;
+    baseDamage?: number;
   };
 }
 
 /**
  * Rebuild a game from saved character progression. The floor is regenerated
- * deterministically from (seed, floor), then the persisted player stats are
- * applied. This is the single-player stand-in for "log back in and resume."
+ * deterministically from (seed, floor), then the persisted player stats +
+ * equipment are applied and effective stats recomputed. This is the
+ * single-player stand-in for "log back in and resume."
  */
 export function restoreGame(save: SavedProgress): GameState {
   const state = createGame(save.seed);
   const p = state.player;
-  p.maxHp = save.player.maxHp;
-  p.hp = Math.min(save.player.hp, save.player.maxHp);
-  p.baseDamage = save.player.baseDamage;
-  p.level = save.player.level;
-  p.xp = save.player.xp;
-  p.xpToNext = save.player.xpToNext;
-  p.gold = save.player.gold;
+  const s = save.player;
+  p.level = s.level;
+  p.xp = s.xp;
+  p.xpToNext = s.xpToNext;
+  p.gold = s.gold;
+  p.bonusDamage = s.bonusDamage ?? 0;
+  p.bonusMaxHp = s.bonusMaxHp ?? 0;
+  if (s.equipment) p.equipment = s.equipment;
+  if (s.inventory) p.inventory = s.inventory;
+  // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
+  // fold the surplus over intrinsic into permanent bonuses so old runs resume intact.
+  if (s.bonusDamage === undefined && s.baseDamage !== undefined) {
+    p.bonusDamage = Math.max(0, s.baseDamage - (CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel));
+  }
+  if (s.bonusMaxHp === undefined && s.maxHp !== undefined) {
+    p.bonusMaxHp = Math.max(0, s.maxHp - (CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel));
+  }
+  recomputeStats(p);
+  p.hp = Math.min(s.hp, p.maxHp);
   buildFloor(state, save.floor);
   return state;
 }
@@ -216,10 +282,9 @@ function grantXp(state: GameState, amount: number): void {
   while (p.xp >= p.xpToNext) {
     p.xp -= p.xpToNext;
     p.level++;
-    p.maxHp += CONFIG.hpPerLevel;
-    p.hp = p.maxHp; // level-up fully heals
-    p.baseDamage += CONFIG.damagePerLevel;
     p.xpToNext = xpForLevel(p.level);
+    recomputeStats(p); // intrinsic stats scale with level
+    p.hp = p.maxHp; // level-up fully heals
     announce(state, `LEVEL ${p.level}! The System upgrades you. Sponsors are thrilled.`);
   }
 }
@@ -231,11 +296,13 @@ function awardLootBox(state: GameState): void {
   const roll = nextInt(state.rng, 0, 2);
   if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
-    p.baseDamage += amt;
+    p.bonusDamage += amt;
+    recomputeStats(p);
     announce(state, `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
   } else if (roll === 1) {
     const amt = nextInt(state.rng, 15, 30);
-    p.maxHp += amt;
+    p.bonusMaxHp += amt;
+    recomputeStats(p);
     p.hp = Math.min(p.maxHp, p.hp + amt);
     announce(state, `LOOT BOX #${state.lootBoxes}: reinforced plating! (+${amt} max HP)`);
   } else {
@@ -252,28 +319,15 @@ function dropLoot(state: GameState, pos: Vec2): void {
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
   }
   if (chance(rng, CONFIG.lootDropChance)) {
-    const kind = pick(rng, ["heal", "weapon"] as const);
     const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
-    if (kind === "heal") {
+    if (chance(rng, 0.4)) {
       state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "heal", amount: nextInt(rng, 15, 30) });
     } else {
-      // Weapon: roll a rarity tier; higher tiers give a bigger damage bonus.
-      const rarity = rollRarity(rng);
-      const tier = RARITIES.find((r) => r.name === rarity)!;
-      const amount = Math.max(1, Math.round((nextInt(rng, 2, 4) + floor) * tier.mult));
-      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "weapon", amount, rarity });
+      // Equipment drop: a rolled item with a rarity + affixes.
+      const item = generateItem(rng, floor, () => state.nextEntityId++);
+      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
     }
   }
-}
-
-/** Weighted weapon-rarity roll. */
-function rollRarity(rng: Rng): Rarity {
-  const total = RARITIES.reduce((s, r) => s + r.weight, 0);
-  let r = nextFloat(rng) * total;
-  for (const tier of RARITIES) {
-    if ((r -= tier.weight) < 0) return tier.name;
-  }
-  return "common";
 }
 
 function doPlayerAttack(state: GameState, aim: Vec2): void {
@@ -288,7 +342,7 @@ function doPlayerAttack(state: GameState, aim: Vec2): void {
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > CONFIG.playerAttackArc / 2) continue;
-    const isCrit = chance(state.rng, CONFIG.playerCritChance);
+    const isCrit = chance(state.rng, p.critChance);
     let dmg = rollDamage(state.rng, p.baseDamage);
     if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
     m.hp -= dmg;
@@ -334,17 +388,22 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, l.amount, "heal");
         state.events.push(`Picked up a health kit (+${l.amount}).`);
         break;
-      case "weapon": {
-        const rarity = l.rarity ?? "common";
-        p.baseDamage += l.amount;
-        p.weaponRarity = rarity;
-        hit(state, p.pos, l.amount, "weapon");
-        const label = rarity.toUpperCase();
-        // Rare/epic drops are a big deal — the System makes a show of it.
-        if (rarity === "rare" || rarity === "epic") {
-          announce(state, `${label} WEAPON! (+${l.amount} damage) The crowd loses it.`);
+      case "item": {
+        if (!l.item) break;
+        const item = l.item;
+        hit(state, p.pos, 0, "weapon");
+        // Auto-equip if strictly better than what's in that slot, else stash in the bag.
+        const equipped = p.equipment[item.slot];
+        if (!equipped || itemScore(item) > itemScore(equipped)) {
+          equipItem(p, item);
+          if (item.rarity === "rare" || item.rarity === "epic") {
+            announce(state, `${item.rarity.toUpperCase()} DROP: ${item.name}! Equipped. The crowd loses it.`);
+          } else {
+            state.events.push(`Equipped ${item.name}.`);
+          }
         } else {
-          state.events.push(`Found a ${rarity} weapon (+${l.amount} damage).`);
+          p.inventory.push(item);
+          state.events.push(`Picked up ${item.name} (${item.rarity}).`);
         }
         break;
       }
@@ -444,7 +503,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       let consumed = false;
       for (const m of state.monsters) {
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
-          const isCrit = chance(state.rng, CONFIG.playerCritChance);
+          const isCrit = chance(state.rng, p.critChance);
           let dmg = rollDamage(state.rng, pr.damage);
           if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
           m.hp -= dmg;

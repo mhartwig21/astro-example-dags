@@ -24,11 +24,18 @@ export interface Player {
   dashCd: number; // dash skill cooldown remaining
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
   boltCd: number; // ranged-bolt skill cooldown remaining
+  critChance: number; // effective crit chance (base + equipment)
   level: number;
   xp: number;
   xpToNext: number;
   gold: number;
   weaponRarity: Rarity; // rarity of the currently-equipped weapon (for HUD/flavor)
+  // Itemization. Effective baseDamage/maxHp/speed/critChance are recomputed as
+  // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
+  equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
+  inventory: Item[];
+  bonusDamage: number; // permanent buffs (e.g. loot boxes), outside equipment
+  bonusMaxHp: number;
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
@@ -53,15 +60,33 @@ export interface Monster {
   hitFlash: number;
 }
 
-export type LootKind = "gold" | "heal" | "weapon";
+export type LootKind = "gold" | "heal" | "item";
 export type Rarity = "common" | "magic" | "rare" | "epic";
+export type ItemSlot = "weapon" | "armor" | "trinket";
+
+// Stat modifiers granted by an equipped item. All optional; summed across equipment.
+export interface Affixes {
+  damage?: number;
+  maxHp?: number;
+  speed?: number; // tiles/sec
+  crit?: number; // added crit chance (0..1)
+}
+
+export interface Item {
+  id: number;
+  slot: ItemSlot;
+  rarity: Rarity;
+  name: string;
+  affixes: Affixes;
+}
 
 export interface Loot {
   id: number;
   pos: Vec2;
   kind: LootKind;
-  amount: number; // gold value, heal amount, or bonus damage
-  rarity?: Rarity; // weapons only
+  amount: number; // gold value or heal amount
+  item?: Item; // present when kind === "item"
+  rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
 }
 
 // Projectiles: player bolts and enemy shots share one system.
