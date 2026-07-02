@@ -98,6 +98,29 @@ export interface Loot {
   ability?: AbilityId; // present when kind === "tome": the ability it teaches
 }
 
+// Safe-room shop: gold sinks offered between floors (see generateSafeRoom in game.ts).
+export type ShopKind = "heal" | "item" | "maxHp" | "time" | "tome" | "mystery";
+
+export interface ShopItem {
+  id: number;
+  kind: ShopKind;
+  title: string;
+  desc: string;
+  price: number;
+  item?: Item; // present when kind === "item"
+  ability?: AbilityId; // present when kind === "tome"
+  sold: boolean;
+}
+
+// The between-floors safe room. While non-null, the sim is paused: shop, then
+// leaveSafeRoom() drops the crawler onto `nextFloor`.
+export interface SafeRoom {
+  nextFloor: number;
+  stock: ShopItem[];
+  tip: string; // Mordecai-style manager advice about the next floor
+  bonusTime?: number; // purchased stabilizer seconds, applied when the floor builds
+}
+
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
 export type RewardKind =
   | "healFull" | "maxHp" | "damage" | "crit" | "item" | "gold" | "bonusTime";
@@ -185,6 +208,15 @@ export interface GameState {
   // multiple level-ups queue via upgradeDraftsOwed.
   pendingUpgrades: UpgradeOffer[];
   upgradeDraftsOwed: number;
+  // Safe room between floors (null while crawling). Pauses the sim like a draft.
+  safeRoom: SafeRoom | null;
+
+  // Achievements: unlocked ids (persisted) + cheap per-step flags the checks read.
+  achievements: string[];
+  goldSpent: number; // cumulative shop spending this run
+  killsThisStep: number; // transient: kills reaped in the current step
+  escapedCollapse: boolean; // transient: descended while the floor was collapsing
+  lowHpKill: boolean; // transient: killed something while below 10% HP
 
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }

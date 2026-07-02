@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
-  chooseUpgrade, learnAbility,
+  chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom,
 } from "../src/sim/game";
+import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { boltParams, knows, rank } from "../src/sim/abilities";
 import { NO_INTENT, type Intent } from "../src/sim/types";
@@ -109,11 +110,19 @@ describe("determinism of the full step", () => {
 });
 
 describe("descent", () => {
-  it("teleporting to the stairs and using them advances the floor", () => {
+  it("using the stairs opens a safe room; leaving it advances the floor", () => {
     const g = createGame(5);
     // Move the player onto the stairs directly (sim allows host-set positions).
     g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).not.toBeNull();
+    expect(g.floor).toBe(1); // still "between" floors
+    // Paused while in the safe room.
+    const x0 = g.player.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(g.player.pos.x).toBe(x0);
+    leaveSafeRoom(g);
+    expect(g.safeRoom).toBeNull();
     expect(g.floor).toBe(2);
     expect(g.phase).toBe("safe");
     expect(g.timeBudget).toBeCloseTo(floorTimeBudget(2));
@@ -313,10 +322,11 @@ describe("the show (viewers / favorites / sponsors)", () => {
 });
 
 describe("sponsor draft", () => {
-  it("descending opens a reward draft that pauses the sim until chosen", () => {
+  it("leaving the safe room opens a reward draft that pauses the sim until chosen", () => {
     const g = createGame(5);
     g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
     expect(g.floor).toBe(2);
     expect(g.pendingRewards.length).toBeGreaterThan(0);
     // While a draft is pending, the world is frozen: movement intent is ignored.
@@ -343,9 +353,140 @@ describe("sponsor draft", () => {
       const g = createGame(seed);
       g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
       step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+      leaveSafeRoom(g);
       return g.pendingRewards.map((r) => r.kind);
     }
     expect(draftTitles(77)).toEqual(draftTitles(77));
+  });
+});
+
+describe("safe room + shop", () => {
+  function reachSafeRoom(seed: number) {
+    const g = createGame(seed);
+    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    return g;
+  }
+
+  it("stocks a deterministic shop for the same seed", () => {
+    const stock = (seed: number) =>
+      reachSafeRoom(seed).safeRoom!.stock.map((s) => `${s.kind}:${s.title}:${s.price}`);
+    expect(stock(300)).toEqual(stock(300));
+    expect(reachSafeRoom(300).safeRoom!.stock.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("buying deducts gold, applies the effect, and marks the item sold", () => {
+    const g = reachSafeRoom(301);
+    const room = g.safeRoom!;
+    const healIdx = room.stock.findIndex((s) => s.kind === "heal");
+    g.player.hp = 10;
+    g.player.gold = 10_000;
+    const gold0 = g.player.gold;
+    buyShopItem(g, healIdx);
+    expect(g.player.hp).toBeGreaterThan(10);
+    expect(g.player.gold).toBe(gold0 - room.stock[healIdx].price);
+    expect(room.stock[healIdx].sold).toBe(true);
+    expect(g.goldSpent).toBe(room.stock[healIdx].price);
+    // Re-buying a sold item is a no-op.
+    buyShopItem(g, healIdx);
+    expect(g.player.gold).toBe(gold0 - room.stock[healIdx].price);
+  });
+
+  it("cannot buy what you cannot afford", () => {
+    const g = reachSafeRoom(302);
+    g.player.gold = 0;
+    buyShopItem(g, 0);
+    expect(g.safeRoom!.stock[0].sold).toBe(false);
+    expect(g.goldSpent).toBe(0);
+  });
+
+  it("a purchased stabilizer extends the next floor's timer", () => {
+    const g = reachSafeRoom(303);
+    const room = g.safeRoom!;
+    const timeIdx = room.stock.findIndex((s) => s.kind === "time");
+    g.player.gold = 10_000;
+    buyShopItem(g, timeIdx);
+    leaveSafeRoom(g);
+    expect(g.timeBudget).toBeCloseTo(floorTimeBudget(2) + 15);
+  });
+
+  it("sells a tome that teaches the ability on the spot", () => {
+    const g = reachSafeRoom(304);
+    const room = g.safeRoom!;
+    const tomeIdx = room.stock.findIndex((s) => s.kind === "tome");
+    expect(tomeIdx).toBeGreaterThanOrEqual(0); // both abilities undiscovered at floor 1
+    g.player.gold = 10_000;
+    buyShopItem(g, tomeIdx);
+    expect(knows(g.player, room.stock[tomeIdx].ability!)).toBe(true);
+  });
+
+  it("floor 18 still wins immediately without a safe room", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, maxHp: 100, baseDamage: 10, level: 1, xp: 0, xpToNext: 20, gold: 0 },
+    });
+    for (const m of g.monsters) m.hp = 0;
+    step(g, idle(), 1 / 60);
+    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    expect(g.status).toBe("won");
+    expect(g.safeRoom).toBeNull();
+  });
+});
+
+describe("achievements", () => {
+  it("FIRST BLOOD unlocks on the first kill with a payout", () => {
+    const g = createGame(400);
+    g.player.facing = { x: 1, y: 0 };
+    g.player.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y } }));
+    const gold0 = g.player.gold;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.achievements).toContain("first_blood");
+    expect(g.player.gold).toBeGreaterThan(gold0);
+    expect(g.announcements.some((a) => a.includes("ACHIEVEMENT: FIRST BLOOD"))).toBe(true);
+    // Never unlocks twice.
+    g.monsters.push(mkMon({ id: 2, pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y } }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.achievements.filter((a) => a === "first_blood").length).toBe(1);
+  });
+
+  it("DIRTY FIGHTER unlocks on a 3-kill instant", () => {
+    const g = createGame(401);
+    g.player.facing = { x: 1, y: 0 };
+    g.player.baseDamage = 9999;
+    g.monsters.length = 0;
+    for (let i = 0; i < 3; i++) {
+      g.monsters.push(mkMon({ id: 10 + i, pos: { x: g.player.pos.x + 0.7, y: g.player.pos.y } }));
+    }
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.achievements).toContain("dirty_fighter");
+  });
+
+  it("COLLECTOR'S EDITION unlocks once both abilities are learned", () => {
+    const g = createGame(402);
+    learnAbility(g, "nova");
+    learnAbility(g, "orbit");
+    step(g, idle(), 1 / 60);
+    expect(g.achievements).toContain("collector");
+  });
+
+  it("achievements persist through save/restore", () => {
+    const restored = restoreGame({
+      seed: 403, floor: 2,
+      player: {
+        hp: 90, level: 2, xp: 0, xpToNext: 27, gold: 5,
+        achievements: ["first_blood", "crumbs"], goldSpent: 120,
+      },
+    });
+    expect(restored.achievements).toEqual(["first_blood", "crumbs"]);
+    expect(restored.goldSpent).toBe(120);
+  });
+
+  it("every achievement id is unique", () => {
+    const ids = ACHIEVEMENTS.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

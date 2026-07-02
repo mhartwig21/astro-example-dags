@@ -1,4 +1,4 @@
-import { createGame, restoreGame, step } from "./sim/game";
+import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyShopItem, leaveSafeRoom } from "./sim/game";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
@@ -56,6 +56,24 @@ input.onReset = () => {
   log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
 };
 
+// The 2D slice has no modal UI, so pauses (drafts / safe room) are keyboard-driven:
+// 1-9 picks a draft card or buys a shop item; Enter leaves the safe room.
+let pausePrompted = false;
+window.addEventListener("keydown", (e) => {
+  const n = Number(e.key);
+  if (n >= 1 && n <= 9) {
+    if (state.pendingRewards.length > 0) chooseReward(state, n - 1);
+    else if (state.pendingUpgrades.length > 0) chooseUpgrade(state, n - 1);
+    else if (state.safeRoom) buyShopItem(state, n - 1);
+    for (const ev of state.events) log.push(ev);
+    state.events = [];
+  } else if (e.key === "Enter" && state.safeRoom) {
+    leaveSafeRoom(state);
+    for (const ev of state.events) log.push(ev);
+    state.events = [];
+  }
+});
+
 let lastFloor = state.floor;
 let lastStatus = state.status;
 let saveAccumulator = 0;
@@ -73,6 +91,22 @@ function frame(now: number): void {
     x: viewW / 2 + (state.player.pos.x - cam.x) * CONFIG.tile,
     y: viewH / 2 + (state.player.pos.y - cam.y) * CONFIG.tile,
   };
+
+  // Log a one-time hint whenever a pause (draft / safe room) begins.
+  const paused = state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0 || !!state.safeRoom;
+  if (paused && !pausePrompted) {
+    pausePrompted = true;
+    if (state.safeRoom) {
+      log.push(`SAFE ROOM — ${state.safeRoom.tip}`);
+      state.safeRoom.stock.forEach((s, i) => log.push(`  [${i + 1}] ${s.title} — ${s.desc} (${s.price}g)`));
+      log.push("  Press 1-9 to buy, Enter to descend.");
+    } else {
+      const offers = state.pendingRewards.length > 0 ? state.pendingRewards : state.pendingUpgrades;
+      offers.forEach((o, i) => log.push(`  [${i + 1}] ${o.title} — ${o.desc}`));
+      log.push("  Press 1-9 to choose.");
+    }
+  }
+  if (!paused) pausePrompted = false;
 
   // Fixed-timestep sim updates; render interpolation is not needed at 60 Hz here.
   while (acc >= SIM_DT) {

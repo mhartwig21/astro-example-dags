@@ -1,4 +1,8 @@
-import { createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade } from "./sim/game";
+import {
+  createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
+  buyShopItem, leaveSafeRoom,
+} from "./sim/game";
+import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
@@ -50,8 +54,10 @@ input.onReset = () => {
   state = startFresh();
   log.length = 0;
   log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
-  if (invOpen) toggleInventory(); // close a stale panel from the old run
+  if (invOpen) toggleInventory(); // close stale panels from the old run
   if (abilOpen) toggleAbilities();
+  document.getElementById("saferoom")!.style.display = "none";
+  document.getElementById("draft")!.style.display = "none";
 };
 
 // HUD elements.
@@ -144,6 +150,7 @@ draftCards.addEventListener("click", (e) => {
   if (!card || card.dataset.idx === undefined) return;
   if (state.pendingRewards.length > 0) chooseReward(state, Number(card.dataset.idx));
   else chooseUpgrade(state, Number(card.dataset.idx));
+  flushFeedback(state);
   saveRun(state);
   draftEl.style.display = "none";
 });
@@ -237,9 +244,22 @@ function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): str
   );
 }
 
+const achGrid = document.getElementById("ach-grid")!;
+const achCount = document.getElementById("ach-count")!;
+
 function renderAbilities(s: GameState): void {
   const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
   abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  achCount.textContent = `${s.achievements.length} / ${ACHIEVEMENTS.length}`;
+  achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
+    const got = s.achievements.includes(a.id);
+    return (
+      `<div class="ach${got ? "" : " locked"}">` +
+      `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
+      `<div class="adesc">${a.desc}</div>` +
+      `</div>`
+    );
+  }).join("");
 }
 
 function toggleAbilities(): void {
@@ -254,6 +274,58 @@ window.addEventListener("keydown", (e) => {
   else if (k === "t") toggleAbilities();
   else if (k === "escape" && invOpen) toggleInventory();
   else if (k === "escape" && abilOpen) toggleAbilities();
+});
+
+// ---- Safe room (between floors; pauses the sim until DESCEND) ----
+const srEl = document.getElementById("saferoom")!;
+const srTip = document.getElementById("sr-tip")!;
+const srGold = document.getElementById("sr-gold")!;
+const srStock = document.getElementById("sr-stock")!;
+const srDescend = document.getElementById("sr-descend")!;
+
+function renderSafeRoom(s: GameState): void {
+  const room = s.safeRoom;
+  if (!room) return;
+  srTip.textContent = room.tip;
+  srGold.textContent = `Your gold: ${s.player.gold}`;
+  srStock.innerHTML = room.stock
+    .map((it, i) => {
+      const cls = it.sold ? " sold" : s.player.gold < it.price ? " broke" : "";
+      return (
+        `<div class="shop-item${cls}" data-idx="${i}">` +
+        `<div class="stitle">${it.title}</div>` +
+        `<div class="sdesc">${it.desc}</div>` +
+        `<div class="sprice">${it.price} gold</div>` +
+        `</div>`
+      );
+    })
+    .join("");
+}
+
+// Clicks happen while the sim is paused, so announcements produced by the action
+// (achievement unlocks, NEW ABILITY) would be cleared unseen by the next step —
+// surface them immediately.
+function flushFeedback(s: GameState): void {
+  for (const a of s.announcements) showAnnouncement(a);
+  for (const e of s.events) log.push(e);
+  s.announcements = [];
+  s.events = [];
+}
+
+srStock.addEventListener("click", (e) => {
+  const card = (e.target as HTMLElement).closest(".shop-item") as HTMLElement | null;
+  if (!card || card.dataset.idx === undefined) return;
+  buyShopItem(state, Number(card.dataset.idx));
+  flushFeedback(state);
+  saveRun(state);
+  renderSafeRoom(state); // refresh sold/affordability states
+});
+
+srDescend.addEventListener("click", () => {
+  leaveSafeRoom(state);
+  flushFeedback(state);
+  saveRun(state);
+  srEl.style.display = "none";
 });
 
 // Cooldown UI shows "fraction remaining"; empties as the skill recharges.
@@ -408,14 +480,19 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
-    // The inventory/ability panels and pending drafts all pause the sim; drop
-    // accumulated time so it doesn't fast-forward on resume.
+    // The inventory/ability panels, pending drafts, and the safe room all pause
+    // the sim; drop accumulated time so it doesn't fast-forward on resume.
     const draftPending = state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0;
     if (draftEl.style.display !== "flex" && draftPending) {
       renderDraft(state);
       draftEl.style.display = "flex";
     }
-    if (invOpen || abilOpen || draftPending) acc = 0;
+    const inSafeRoom = state.safeRoom !== null;
+    if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
+      renderSafeRoom(state);
+      srEl.style.display = "flex";
+    }
+    if (invOpen || abilOpen || draftPending || inSafeRoom) acc = 0;
     while (acc >= SIM_DT) {
       step(state, input.sample(center, false), SIM_DT);
       for (const e of state.events) log.push(e);

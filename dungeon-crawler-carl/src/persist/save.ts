@@ -25,6 +25,8 @@ export interface SaveData {
     equipment: Player["equipment"];
     inventory: Item[];
     abilities?: Player["abilities"];
+    achievements?: string[];
+    goldSpent?: number;
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -48,6 +50,8 @@ export function saveRun(state: GameState): void {
         equipment: p.equipment,
         inventory: p.inventory,
         abilities: p.abilities,
+        achievements: state.achievements,
+        goldSpent: state.goldSpent,
       },
       show: {
         hype: state.hype,

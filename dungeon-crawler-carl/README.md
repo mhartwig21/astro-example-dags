@@ -84,6 +84,13 @@ appear under `public/assets/`, with no gameplay changes (the sim is render-agnos
   drops, or a lucky loot box) and then join the draft pool.
 - **Fog of war** — floors start unexplored; tiles are revealed around you and remembered,
   and enemies/loot render only inside your vision radius (3D dimming + minimap masking).
+- **Safe rooms + shop** — descending routes through a safe room: a Mordecai-style manager
+  tip about the floor ahead, and a seeded shop (heals, gear, permanent HP, timer
+  stabilizers, ability tomes, mystery boxes) that finally gives gold a job. Prices scale
+  with depth; the sponsor draft follows when you leave.
+- **Achievements** — 12 System achievements with absurd names ("CRUMBS", "RETAIL THERAPY",
+  "CONSCIENTIOUS OBJECTOR"), checked deterministically each step; unlocks announce in the
+  System voice and pay out gold + hype. Progress shows in the `T` panel.
 
 ## Game feel + DCC personality
 

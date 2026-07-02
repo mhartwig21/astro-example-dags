@@ -9,8 +9,10 @@ import {
   ABILITY_INFO, STARTING_ABILITIES, boltParams, dashParams, knows, meleeParams,
   novaParams, orbitParams, rollUpgradeDraft, unknownAbilities, upgradeDef,
 } from "./abilities";
+import { ACHIEVEMENTS } from "./achievements";
 import type {
-  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Reward, Vec2,
+  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Reward,
+  SafeRoom, ShopItem, Vec2,
 } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
@@ -219,6 +221,8 @@ export interface SavedProgress {
     equipment?: Player["equipment"];
     inventory?: Item[];
     abilities?: Player["abilities"];
+    achievements?: string[];
+    goldSpent?: number;
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -246,6 +250,8 @@ export function restoreGame(save: SavedProgress): GameState {
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
   if (s.abilities) p.abilities = s.abilities;
+  if (s.achievements) state.achievements = s.achievements;
+  state.goldSpent = s.goldSpent ?? 0;
   if (save.show) {
     state.hype = save.show.hype ?? 0;
     state.viewers = save.show.viewers ?? state.viewers;
@@ -296,6 +302,12 @@ export function createGame(seed: number): GameState {
     pendingRewards: [],
     pendingUpgrades: [],
     upgradeDraftsOwed: 0,
+    safeRoom: null,
+    achievements: [],
+    goldSpent: 0,
+    killsThisStep: 0,
+    escapedCollapse: false,
+    lowHpKill: false,
     elapsed: 0,
   };
   buildFloor(state, 1);
@@ -457,6 +469,7 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
 
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
+  const p = state.player;
   let killsThisStep = 0;
   for (const m of state.monsters) {
     if (m.hp > 0) {
@@ -465,6 +478,7 @@ function reapDead(state: GameState): void {
     }
     state.killCount++;
     killsThisStep++;
+    if (p.alive && p.hp > 0 && p.hp < p.maxHp * 0.1) state.lowHpKill = true;
     addHype(state, KILL_HYPE[m.kind]);
     grantXp(state, m.xp);
     dropLoot(state, m.pos);
@@ -479,6 +493,7 @@ function reapDead(state: GameState): void {
     addHype(state, (killsThisStep - 1) * CONFIG.show.hypeMultiKillPerExtra);
     if (killsThisStep >= 3) announce(state, `${killsThisStep}-KILL COMBO! The crowd is on its feet.`);
   }
+  state.killsThisStep = killsThisStep;
   state.monsters = survivors;
 }
 
@@ -586,9 +601,130 @@ function tryDescend(state: GameState): void {
     announce(state, `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`);
     return;
   }
+  if (state.phase === "collapse") state.escapedCollapse = true;
   const next = state.floor + 1;
-  announce(state, `Descending to floor ${next}. The cameras are rolling, Crawler.`);
-  buildFloor(state, next);
+  // Descent routes through a safe room: the sim pauses while the crawler shops;
+  // leaveSafeRoom() performs the actual floor change (and opens the sponsor draft).
+  state.safeRoom = generateSafeRoom(state, next);
+  announce(state, `Safe room reached. Breathe, spend, gear up — floor ${next} is waiting.`);
+}
+
+/** Mordecai-style manager advice for the floor ahead (deterministic flavor). */
+function safeRoomTip(rng: Rng, floor: number): string {
+  const tips = [
+    `Floor ${floor}: more of everything that just tried to kill you. Hydrate.`,
+    `Brutes get bolder down on ${floor}. Keep the dash charged and your knees bent.`,
+    `The collapse timer runs tighter on ${floor}. Loot fast, cry later.`,
+    `Ranged mobs love the long halls on ${floor}. Make friends with corners.`,
+    `Word is the sponsors are watching floor ${floor} closely. Give them a show.`,
+    `Floor ${floor}? I've seen crawlers do it on half your gear. They're dead now, but still.`,
+  ];
+  return tips[nextInt(rng, 0, tips.length - 1)];
+}
+
+/** Roll the safe-room shop for the floor ahead. Seeded per (run, floor): reproducible. */
+function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
+  const rng = createRng((floorSeed(state.seed, nextFloor) ^ 0x5a4e0000) >>> 0);
+  const floor = nextFloor;
+  const stock: ShopItem[] = [];
+  const id = () => state.nextEntityId++;
+
+  // Staples: a heal and a stabilizer are always on the shelf.
+  stock.push({
+    id: id(), kind: "heal", title: "Field Ration", sold: false,
+    desc: "Restore 50% HP", price: 25 + floor * 5,
+  });
+  stock.push({
+    id: id(), kind: "time", title: "Stabilizer Rod", sold: false,
+    desc: "+15s on the next floor", price: 30 + floor * 6,
+  });
+  // Two rolled gear pieces, priced by rarity.
+  for (let i = 0; i < 2; i++) {
+    const item = generateItem(rng, floor + 1, id);
+    const mult = { common: 1, magic: 2, rare: 3.5, epic: 6 }[item.rarity];
+    stock.push({
+      id: id(), kind: "item", title: item.name, sold: false,
+      desc: `${item.rarity} ${item.slot}`, price: Math.round((20 + floor * 8) * mult), item,
+    });
+  }
+  // A permanent max-HP shot.
+  stock.push({
+    id: id(), kind: "maxHp", title: "Plating Kit", sold: false,
+    desc: `+${12 + floor * 2} max HP (permanent)`, price: 45 + floor * 9,
+  });
+  // A tome, if anything is left to discover — expensive, but guaranteed learning.
+  const undiscovered = unknownAbilities(state.player);
+  if (undiscovered.length > 0) {
+    const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
+    stock.push({
+      id: id(), kind: "tome", title: `Tome of ${ABILITY_INFO[ability].name}`, sold: false,
+      desc: `Learn ${ABILITY_INFO[ability].name} (${ABILITY_INFO[ability].blurb})`, price: 120 + floor * 10, ability,
+    });
+  } else {
+    // Otherwise a mystery box: a loot-box roll, paid for.
+    stock.push({
+      id: id(), kind: "mystery", title: "Mystery Box", sold: false,
+      desc: "A loot-box roll. The System giggles.", price: 60 + floor * 8,
+    });
+  }
+  return { nextFloor, stock, tip: safeRoomTip(rng, floor) };
+}
+
+/** Buy the safe-room shop item at `idx`. No-op if sold, absent, or unaffordable. */
+export function buyShopItem(state: GameState, idx: number): void {
+  const room = state.safeRoom;
+  if (!room || idx < 0 || idx >= room.stock.length) return;
+  const s = room.stock[idx];
+  const p = state.player;
+  if (s.sold || p.gold < s.price) return;
+  p.gold -= s.price;
+  state.goldSpent += s.price;
+  s.sold = true;
+  switch (s.kind) {
+    case "heal":
+      p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
+      break;
+    case "time":
+      // Applied to the NEXT floor when it is built (leaveSafeRoom).
+      room.bonusTime = (room.bonusTime ?? 0) + 15;
+      break;
+    case "maxHp": {
+      const amt = 12 + room.nextFloor * 2;
+      p.bonusMaxHp += amt;
+      recomputeStats(p);
+      p.hp = Math.min(p.maxHp, p.hp + amt);
+      break;
+    }
+    case "item":
+      if (s.item) {
+        const cur = p.equipment[s.item.slot];
+        if (!cur || itemScore(s.item) > itemScore(cur)) equipItem(p, s.item);
+        else p.inventory.push(s.item);
+      }
+      break;
+    case "tome":
+      learnAbility(state, s.ability);
+      break;
+    case "mystery":
+      awardLootBox(state);
+      break;
+  }
+  state.events.push(`Bought ${s.title} (-${s.price} gold).`);
+  // The sim is paused in the safe room, so purchase-driven unlocks fire here.
+  checkAchievements(state);
+}
+
+/** Leave the safe room: build the next floor and open the sponsor draft. */
+export function leaveSafeRoom(state: GameState): void {
+  const room = state.safeRoom;
+  if (!room) return;
+  state.safeRoom = null;
+  announce(state, `Descending to floor ${room.nextFloor}. The cameras are rolling, Crawler.`);
+  buildFloor(state, room.nextFloor);
+  if (room.bonusTime) {
+    state.timeBudget += room.bonusTime;
+    state.timeRemaining += room.bonusTime;
+  }
   // Between floors, sponsors present a draft of rewards (host pauses to let you pick).
   state.pendingRewards = generateRewards(state);
   if (state.pendingRewards.length > 0) {
@@ -834,10 +970,14 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   state.events = [];
   state.announcements = [];
   state.hits = [];
+  state.killsThisStep = 0;
+  state.escapedCollapse = false;
+  state.lowHpKill = false;
   if (state.status !== "playing") return state;
-  // A pending sponsor draft or level-up draft pauses the world until the player
-  // chooses (chooseReward / chooseUpgrade).
+  // A pending sponsor draft, level-up draft, or safe room pauses the world until
+  // the player acts (chooseReward / chooseUpgrade / leaveSafeRoom).
   if (state.pendingRewards.length > 0 || state.pendingUpgrades.length > 0) return state;
+  if (state.safeRoom) return state;
 
   state.elapsed += dt;
   const p = state.player;
@@ -897,10 +1037,26 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
     }
   }
 
-  // Descent request (may open a sponsor draft, which pauses subsequent steps).
+  // Descent request (may open a safe room, which pauses subsequent steps).
   if (intent.useStairs && p.alive && state.status === "playing") tryDescend(state);
 
+  // Achievements last, so they see everything this step did (kills, descent, buys).
+  checkAchievements(state);
+
   return state;
+}
+
+/** Unlock any achievement whose condition now holds; announce + pay out. */
+function checkAchievements(state: GameState): void {
+  for (const a of ACHIEVEMENTS) {
+    if (state.achievements.includes(a.id)) continue;
+    if (!a.test(state)) continue;
+    state.achievements.push(a.id);
+    state.player.gold += a.gold;
+    if (a.hype > 0) addHype(state, a.hype);
+    const payout = a.gold > 0 ? ` Reward: ${a.gold} gold.` : "";
+    announce(state, `ACHIEVEMENT: ${a.title} — ${a.desc}${payout}`);
+  }
 }
 
 /** Mark tiles within the vision radius as explored (fog of war). */
