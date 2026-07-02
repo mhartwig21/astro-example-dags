@@ -42,6 +42,28 @@
       #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
         border: 1px solid #2a2a38; border-radius: 6px; }
 
+      /* Keybinds panel */
+      #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 26; }
+      #keys .panel { width: 460px; max-width: 92vw; max-height: 84vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 18px 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+      #keys h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; }
+      #keys .hint { color: #7a7a8a; font-size: 12px; margin-bottom: 12px; }
+      .kb-row { display: flex; justify-content: space-between; align-items: center;
+        padding: 6px 4px; border-top: 1px dashed #22222e; font-size: 13px; }
+      .kb-row .kb-name { color: #cfcfe0; }
+      .kb-row .kb-name small { color: #6a6a7a; margin-left: 6px; }
+      .kb-key { cursor: pointer; background: #1a1a24; border: 1px solid #2a2a38; border-radius: 4px;
+        padding: 2px 10px; min-width: 64px; text-align: center; color: #c9a24b; font-weight: 700; }
+      .kb-key:hover { border-color: #4fd1ff; }
+      .kb-key.listening { border-color: #4fd1ff; color: #4fd1ff; animation: blink 0.8s infinite; }
+      @keyframes blink { 50% { opacity: 0.4; } }
+      #keys .kb-reset { margin-top: 12px; text-align: right; }
+      #keys .kb-reset button { cursor: pointer; background: #14131f; color: #8a8a9a;
+        border: 1px solid #2a2a38; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 12px; }
+      #keys .kb-reset button:hover { color: #e6e6ec; border-color: #4fd1ff; }
+
       /* Party chip (network mode) */
       #party { position: fixed; top: 118px; left: 50%; transform: translateX(-50%);
         background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
@@ -173,10 +195,16 @@
   <body>
     <canvas id="game"></canvas>
     <div id="banner" class="hud">
-      <b>DUNGEON CRAWLER CLAUDE</b> · 3D isometric ·
-      <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>Q</kbd>/RMB bolt ·
-      <kbd>Shift</kbd> dash · <kbd>F</kbd> nova · <kbd>I</kbd> inventory · <kbd>T</kbd> abilities ·
-      <kbd>E</kbd> stairs · <kbd>R</kbd> new run
+      <b>DUNGEON CRAWLER CLAUDE</b> · 3D isometric · <span id="banner-keys"></span>
+    </div>
+    <div id="keys">
+      <div class="panel">
+        <h2>KEY BINDINGS</h2>
+        <div class="hint">Click a key to rebind, then press the new key · aim with the mouse ·
+          <kbd id="kb-close-key">K</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <div id="kb-rows"></div>
+        <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
+      </div>
     </div>
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>

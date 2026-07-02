@@ -11,6 +11,10 @@ import {
   boltParams, dashParams, knows, novaParams, rank,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
+import {
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, rebind, saveBindings,
+  type BindableAction, type Bindings,
+} from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { clearRun, loadRun, saveRun } from "./persist/save";
 import { NetClient } from "./net/netClient";
@@ -44,6 +48,8 @@ const serverUrl =
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`);
 let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
+
+canvas.style.cursor = "crosshair"; // attacks/bolts aim at the mouse
 
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight);
@@ -300,13 +306,100 @@ function toggleAbilities(): void {
   if (abilOpen) renderAbilities(state);
 }
 
+// ---- Key bindings (rebindable; persisted per browser) ----
+let bindings: Bindings = loadBindings();
+const keysEl = document.getElementById("keys")!;
+const kbRows = document.getElementById("kb-rows")!;
+let kbOpen = false;
+let listening: BindableAction | null = null;
+
+function applyBindings(): void {
+  input.setBindings(bindings);
+  const first = (a: BindableAction) => bindingLabel(bindings, a).split(" / ")[0];
+  // Banner + skill chips + panel hints render from the live bindings.
+  const wasd = [first("moveUp"), first("moveLeft"), first("moveDown"), first("moveRight")].join("");
+  document.getElementById("banner-keys")!.innerHTML =
+    `<kbd>${wasd === "WASD" ? "WASD" : wasd}</kbd> move · ` +
+    `<kbd>${first("attack")}</kbd>/LMB attack · ` +
+    `<kbd>${first("bolt")}</kbd>/RMB bolt · ` +
+    `<kbd>${first("dash")}</kbd> dash · ` +
+    `<kbd>${first("nova")}</kbd> nova · ` +
+    `<kbd>${first("inventory")}</kbd> inv · ` +
+    `<kbd>${first("abilities")}</kbd> abilities · ` +
+    `<kbd>${first("keybinds")}</kbd> keys · ` +
+    `<kbd>${first("stairs")}</kbd> stairs · ` +
+    `<kbd>${first("newRun")}</kbd> new run · aim with mouse`;
+  (document.querySelector("#skill-dash .key") as HTMLElement).textContent = first("dash");
+  (document.querySelector("#skill-bolt .key") as HTMLElement).textContent = `${first("bolt")} / RMB`;
+  (document.querySelector("#skill-nova .key") as HTMLElement).textContent = first("nova");
+  document.getElementById("kb-close-key")!.textContent = first("keybinds");
+}
+
+function renderKeybinds(): void {
+  kbRows.innerHTML = (Object.keys(ACTION_INFO) as BindableAction[])
+    .map((a) => {
+      const info = ACTION_INFO[a];
+      const cls = listening === a ? "kb-key listening" : "kb-key";
+      const label = listening === a ? "press a key…" : bindingLabel(bindings, a);
+      return (
+        `<div class="kb-row"><span class="kb-name">${info.name}` +
+        (info.hint ? `<small>${info.hint}</small>` : "") +
+        `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
+      );
+    })
+    .join("");
+}
+
+function toggleKeybinds(): void {
+  kbOpen = !kbOpen;
+  keysEl.style.display = kbOpen ? "flex" : "none";
+  listening = null;
+  input.captureMode = false;
+  if (kbOpen) renderKeybinds();
+}
+
+kbRows.addEventListener("click", (e) => {
+  const el = (e.target as HTMLElement).closest(".kb-key") as HTMLElement | null;
+  if (!el || !el.dataset.action) return;
+  listening = el.dataset.action as BindableAction;
+  input.captureMode = true; // gameplay keys off while we capture
+  renderKeybinds();
+});
+
+document.getElementById("kb-reset")!.addEventListener("click", () => {
+  bindings = { ...DEFAULT_BINDINGS };
+  saveBindings(bindings);
+  applyBindings();
+  renderKeybinds();
+});
+
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
-  if (k === "i") toggleInventory();
-  else if (k === "t") toggleAbilities();
-  else if (k === "escape" && invOpen) toggleInventory();
-  else if (k === "escape" && abilOpen) toggleAbilities();
+  if (listening) {
+    e.preventDefault();
+    if (k !== "escape") {
+      bindings = rebind(bindings, listening, k);
+      saveBindings(bindings);
+      applyBindings();
+    }
+    listening = null;
+    input.captureMode = false;
+    renderKeybinds();
+    return;
+  }
+  if (k === "escape") {
+    if (invOpen) toggleInventory();
+    else if (abilOpen) toggleAbilities();
+    else if (kbOpen) toggleKeybinds();
+  }
 });
+
+input.onAction = (a) => {
+  if (a === "inventory") toggleInventory();
+  else if (a === "abilities") toggleAbilities();
+  else if (a === "keybinds") toggleKeybinds();
+};
+applyBindings();
 
 // ---- Safe room (between floors; pauses the sim until DESCEND) ----
 const srEl = document.getElementById("saferoom")!;
@@ -520,6 +613,21 @@ let netIntentAcc = 0;
 let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
+/** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
+function sampleIntent(): ReturnType<InputController["sample"]> {
+  const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  const intent = input.sample(center, false);
+  if (input.mouse) {
+    const g = renderer.screenToGround(input.mouse.x, input.mouse.y);
+    if (g) {
+      const p = me(state);
+      const dx = g.x - p.pos.x, dy = g.y - p.pos.y;
+      if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
+    }
+  }
+  return intent;
+}
+
 async function main(): Promise<void> {
   await renderer.init();
 
@@ -552,9 +660,6 @@ async function main(): Promise<void> {
     if (dt > MAX_FRAME) dt = MAX_FRAME;
     acc += dt;
 
-    // Player is centered by the follow-camera; attacks use movement facing (no
-    // screen->iso aim mapping for the slice), so skip mouse aim here.
-    const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
@@ -564,7 +669,7 @@ async function main(): Promise<void> {
       netIntentAcc += dt;
       if (netIntentAcc >= 0.05) {
         netIntentAcc = 0;
-        net.sendIntent(input.sample(center, false));
+        net.sendIntent(sampleIntent());
       }
       const disp = net.display(now);
       if (disp) state = disp;
@@ -596,9 +701,9 @@ async function main(): Promise<void> {
     if (!net) {
       // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
       // networked world never pauses for drafts); drop accumulated time.
-      if (invOpen || abilOpen || draftPending || inSafeRoom) acc = 0;
+      if (invOpen || abilOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
       while (acc >= SIM_DT) {
-        step(state, input.sample(center, false), SIM_DT);
+        step(state, sampleIntent(), SIM_DT);
         for (const e of state.events) log.push(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);

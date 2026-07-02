@@ -164,6 +164,23 @@ export class Renderer3D {
     };
   }
 
+  private raycaster = new THREE.Raycaster();
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  /**
+   * Map a canvas-space mouse position to sim coordinates by casting through the
+   * iso camera onto the ground plane. Powers mouse-targeted attacks/bolts.
+   */
+  screenToGround(x: number, y: number): Vec2 | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const ndc = new THREE.Vector2((x / rect.width) * 2 - 1, -(y / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.groundPlane, hit)) return null;
+    return { x: hit.x, y: hit.z };
+  }
+
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
     this.aspect = w / h;
