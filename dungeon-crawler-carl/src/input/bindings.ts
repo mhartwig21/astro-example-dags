@@ -98,3 +98,23 @@ export function saveBindings(b: Bindings): void {
     /* best-effort */
   }
 }
+
+// Mouse-aim preference: when on, attacks/bolts target the cursor; when off,
+// they fire along movement facing (classic keyboard-only feel). Default on.
+const AIM_KEY = "dcc:mouseaim:v1";
+
+export function loadMouseAim(): boolean {
+  try {
+    return localStorage.getItem(AIM_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveMouseAim(on: boolean): void {
+  try {
+    localStorage.setItem(AIM_KEY, on ? "on" : "off");
+  } catch {
+    /* best-effort */
+  }
+}

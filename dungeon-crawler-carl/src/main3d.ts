@@ -12,8 +12,8 @@ import {
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, rebind, saveBindings,
-  type BindableAction, type Bindings,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, rebind,
+  saveBindings, saveMouseAim, type BindableAction, type Bindings,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { clearRun, loadRun, saveRun } from "./persist/save";
@@ -49,7 +49,8 @@ const serverUrl =
 let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
-canvas.style.cursor = "crosshair"; // attacks/bolts aim at the mouse
+let mouseAim = loadMouseAim();
+canvas.style.cursor = mouseAim ? "crosshair" : "default"; // crosshair only when aiming
 
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight);
@@ -346,7 +347,7 @@ function applyBindings(): void {
     `<kbd>${first("abilities")}</kbd> abilities · ` +
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
-    `<kbd>${first("newRun")}</kbd> new run · aim with mouse`;
+    `<kbd>${first("newRun")}</kbd> new run` + (mouseAim ? " · aim with mouse" : "");
   (document.querySelector("#skill-dash .key") as HTMLElement).textContent = first("dash");
   (document.querySelector("#skill-bolt .key") as HTMLElement).textContent = `${first("bolt")} / RMB`;
   (document.querySelector("#skill-nova .key") as HTMLElement).textContent = first("nova");
@@ -383,6 +384,19 @@ kbRows.addEventListener("click", (e) => {
   input.captureMode = true; // gameplay keys off while we capture
   renderKeybinds();
 });
+
+const kbMouseAim = document.getElementById("kb-mouseaim")!;
+function renderMouseAim(): void {
+  kbMouseAim.textContent = mouseAim ? "ON" : "OFF";
+}
+kbMouseAim.addEventListener("click", () => {
+  mouseAim = !mouseAim;
+  saveMouseAim(mouseAim);
+  canvas.style.cursor = mouseAim ? "crosshair" : "default";
+  renderMouseAim();
+  applyBindings(); // refresh the banner hint
+});
+renderMouseAim();
 
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
@@ -637,7 +651,7 @@ const partyChip = document.getElementById("party")!;
 function sampleIntent(): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
-  if (input.mouse) {
+  if (mouseAim && input.mouse) {
     const g = renderer.screenToGround(input.mouse.x, input.mouse.y);
     if (g) {
       const p = me(state);
