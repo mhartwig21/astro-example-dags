@@ -3,21 +3,25 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Diablo-like dungeon crawler inspired by Dungeon Crawler Carl — vertical slice (single-player, local).",
+  "description": "Diablo-like dungeon crawler inspired by Dungeon Crawler Carl \u00e2\u20ac\u201d vertical slice (single-player, local).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "server": "tsx src/server/gameServer.ts"
   },
   "devDependencies": {
     "@types/three": "^0.169.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.22.5",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",
     "vitest": "^2.0.5"
   },
   "dependencies": {
-    "three": "^0.169.0"
+    "three": "^0.169.0",
+    "ws": "^8.21.0"
   }
 }

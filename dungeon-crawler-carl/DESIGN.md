@@ -241,11 +241,16 @@ dungeon-crawler-carl/
 
 ## 9. Roadmap beyond the slice
 
-1. **Extract the server.** Move the sim behind a Node authoritative loop; client sends
-   intents over WebSocket, receives snapshots. Single-player client keeps running the sim
-   locally as the "offline host."
-2. **Party instancing + real persistence.** Invite codes, shared floor instances, Postgres
-   character store, drop-in/drop-out rejoin.
+1. ~~**Extract the server.**~~ **DONE.** The sim is multiplayer-native (party of N,
+   per-player intents, non-blocking drafts, ready-up safe rooms; solo = party of one).
+   `src/server/gameServer.ts` runs authoritative instances behind `ws`: clients send
+   intents/choices, the server ticks at 30Hz and broadcasts snapshots
+   (`src/sim/snapshot.ts`, golden-tested for determinism) + event streams. One instance
+   per invite code; the code seeds the dungeon. `npm run server`; verified headless with
+   two WebSocket clients sharing an instance (`test/server.test.ts`).
+2. **Network client + party persistence.** Browser client that joins over WebSocket
+   (lobby UI, `?join=CODE`), interpolated snapshots; then Postgres character store and
+   drop-in/drop-out rejoin (seats already survive disconnects in-memory).
 3. **Depth on the game.** Full itemization, classes/skills, boss on floor 18.
 4. **DCC layer.** The System announcer, loot boxes, achievements, humor.
 5. **Isometric/3D render.** Upgrade the view for the Diablo feel.
