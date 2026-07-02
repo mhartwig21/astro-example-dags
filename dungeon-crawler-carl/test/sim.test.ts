@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createGame, restoreGame, step, equipItem, equipFromInventory } from "../src/sim/game";
+import { createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype } from "../src/sim/game";
 import { generateItem } from "../src/sim/items";
 import { NO_INTENT, type Intent } from "../src/sim/types";
 import { CONFIG, floorTimeBudget } from "../src/sim/config";
@@ -280,6 +280,68 @@ describe("itemization", () => {
     expect(p.equipment.weapon?.id).toBe(2);
     expect(p.inventory.some((i) => i.id === 1)).toBe(true); // old weapon returned to bag
     expect(p.baseDamage).toBe(CONFIG.playerBaseDamage + 20);
+  });
+});
+
+describe("the show (viewers / favorites / sponsors)", () => {
+  it("sustained hype grows favorites and earns sponsors", () => {
+    const g = createGame(1);
+    expect(g.sponsors).toBe(0);
+    for (let i = 0; i < 200; i++) {
+      addHype(g, 60); // exciting play every step
+      step(g, idle(), 1 / 60);
+    }
+    expect(g.favorites).toBeGreaterThan(CONFIG.show.sponsorThresholds[0]);
+    expect(g.sponsors).toBeGreaterThanOrEqual(1);
+    expect(g.viewers).toBeGreaterThan(CONFIG.show.baseViewers);
+  });
+
+  it("killing a monster adds hype", () => {
+    const g = createGame(2);
+    g.player.facing = { x: 1, y: 0 };
+    g.player.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: g.player.pos.x + 0.8, y: g.player.pos.y }, hp: 1, maxHp: 1 }));
+    const before = g.hype;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.hype).toBeGreaterThan(before);
+  });
+});
+
+describe("sponsor draft", () => {
+  it("descending opens a reward draft that pauses the sim until chosen", () => {
+    const g = createGame(5);
+    g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    expect(g.floor).toBe(2);
+    expect(g.pendingRewards.length).toBeGreaterThan(0);
+    // While a draft is pending, the world is frozen: movement intent is ignored.
+    const x0 = g.player.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(g.player.pos.x).toBe(x0);
+    // Choosing clears the draft and resumes play.
+    chooseReward(g, 0);
+    expect(g.pendingRewards.length).toBe(0);
+  });
+
+  it("applies the chosen reward's effect", () => {
+    const g = createGame(6);
+    const p = g.player;
+    const dmg0 = p.baseDamage;
+    g.pendingRewards = [{ id: 1, kind: "damage", title: "Weapon Mod", desc: "+10 damage", amount: 10 }];
+    chooseReward(g, 0);
+    expect(p.baseDamage).toBe(dmg0 + 10);
+    expect(g.pendingRewards.length).toBe(0);
+  });
+
+  it("generates a deterministic draft for the same seed/floor", () => {
+    function draftTitles(seed: number) {
+      const g = createGame(seed);
+      g.player.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+      return g.pendingRewards.map((r) => r.kind);
+    }
+    expect(draftTitles(77)).toEqual(draftTitles(77));
   });
 });
 

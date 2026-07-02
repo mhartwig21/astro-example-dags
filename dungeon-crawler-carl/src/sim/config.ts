@@ -75,6 +75,38 @@ export const CONFIG = {
   monsterProjectileSpeed: 7,
   monsterProjectileTtl: 2.5,
 
+  // The Show: viewers / favorites / sponsors economy. Exciting + challenging play
+  // generates "hype" (which decays); hype drives viewers, a slice of whom convert to
+  // sticky favorites, and favorite thresholds earn sponsors.
+  show: {
+    baseViewers: 180,
+    viewersPerFloor: 90,
+    viewersPerHype: 55,
+    viewerEase: 0.9, // how fast the live count chases its target (per sec)
+    hypeDecay: 4, // hype lost per second
+    hypeMax: 140,
+    favConvertThreshold: 14, // favorites only accrue while hype is above this
+    favPerHypePerSec: 0.7, // favorite gain = (hype-threshold)*this*dt
+    sponsorThresholds: [40, 120, 260, 480, 800, 1300, 2000], // favorites needed per sponsor
+    // Hype awarded per exciting event:
+    hypeCrit: 2.5,
+    hypeKill: 3,
+    hypeSwarmer: 1,
+    hypeBrute: 7,
+    hypeRanged: 2,
+    hypeBoss: 50,
+    hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
+    hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
+    hypeCollapsePerSec: 6, // staying on a collapsing floor
+    hypeRareDrop: 12,
+    hypeEpicDrop: 26,
+    lowHpFraction: 0.3,
+  },
+
+  // Sponsor rewards (end-of-floor draft)
+  rewardBaseCount: 3,
+  rewardMaxCount: 4,
+
   // Boss (floor 18)
   bossHp: 900,
   bossHpPerFloorOver: 0, // (kept for future scaling)

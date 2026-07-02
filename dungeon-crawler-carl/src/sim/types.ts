@@ -34,8 +34,9 @@ export interface Player {
   // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
   equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
   inventory: Item[];
-  bonusDamage: number; // permanent buffs (e.g. loot boxes), outside equipment
+  bonusDamage: number; // permanent buffs (loot boxes / sponsor rewards), outside equipment
   bonusMaxHp: number;
+  bonusCrit: number; // permanent crit-chance buff
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
@@ -87,6 +88,19 @@ export interface Loot {
   amount: number; // gold value or heal amount
   item?: Item; // present when kind === "item"
   rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
+}
+
+// Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
+export type RewardKind =
+  | "healFull" | "maxHp" | "damage" | "crit" | "item" | "gold" | "bonusTime";
+
+export interface Reward {
+  id: number;
+  kind: RewardKind;
+  title: string;
+  desc: string;
+  amount: number;
+  item?: Item; // present when kind === "item"
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -147,6 +161,14 @@ export interface GameState {
   hits: HitEvent[];
   killCount: number; // monsters killed this run (drives loot-box milestones)
   lootBoxes: number; // loot boxes awarded this run
+
+  // The Show — audience economy.
+  hype: number; // excitement meter (decays); drives viewers
+  viewers: number; // live audience count
+  favorites: number; // sticky fans (a slice of viewers convert on hype)
+  sponsors: number; // backers earned at favorite thresholds
+  pendingRewards: Reward[]; // sponsor draft awaiting a choice (host pauses while non-empty)
+
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }
 

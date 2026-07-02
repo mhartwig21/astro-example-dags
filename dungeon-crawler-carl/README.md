@@ -87,6 +87,12 @@ The 3D view has combat juice, all driven off the sim's deterministic event chann
   sim's typed `hits` events.
 - The **DCC "System" announcer**: game-show-voiced toasts for level-ups, floor collapse,
   descent, and **loot boxes** (a randomized buff every few kills).
+- **The Show** — a live **viewers / favorites / sponsors** economy. Exciting + challenging
+  play (crits, multi-kill combos, tough-enemy kills, fighting at low HP or on a collapsing
+  floor, epic drops) generates **hype**, which drives viewers; a slice convert to sticky
+  **favorites**, and favorite thresholds earn **sponsors**. Between floors, sponsors offer a
+  **draft** — pick one gift (gear, +max HP, bonus time, crit, gold…), with more/better
+  options the more sponsors you have.
 
 Add `?debug=1` to the `iso.html` URL to expose `window.__dcc` (live state + renderer) for
 staging scenarios — off by default.

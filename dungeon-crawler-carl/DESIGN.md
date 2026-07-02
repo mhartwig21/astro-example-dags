@@ -145,8 +145,22 @@ This document describes the full target architecture, then defines the scope of 
   host surfaces as game-show toasts — with no coupling into core rules.
 - **Loot boxes** (in the slice): every N kills the System awards a randomized buff
   (weapon mod / max-HP / heal) with an announcer line, tracked in `GameState.lootBoxes`.
-- Still to come: achievements, the recurring announcer personality/banter, cosmetic
-  absurdity, and the meta "show" framing (sponsors, audience, leaderboards).
+
+### 5.6 The Show — audience economy (in the slice)
+- **Hype** (`GameState.hype`): a decaying excitement meter. Exciting + challenging play adds
+  hype — crits, multi-kill combos, tough-enemy kills (brute/boss weighted), taking hits at
+  low HP, surviving a collapsing floor, and rare/epic drops.
+- **Viewers / favorites / sponsors** (`updateShow`, deterministic): viewers ease toward a
+  target set by floor depth + hype + fan loyalty; a slice of the crowd converts to sticky
+  **favorites** while hyped; crossing favorite thresholds earns **sponsors**. So "exciting →
+  sponsors" is emergent, not scripted.
+- **Sponsor draft** (`generateRewards` / `chooseReward`): on descending, sponsors present a
+  pick-1 reward draft (heal / +max HP / +damage / +crit / gear / gold / bonus floor time).
+  Option count and quality scale with sponsors + favorites; the draft pauses the sim
+  (enforced in `step`) until the player chooses. Rewards roll off a dedicated per-floor RNG
+  so the offer is reproducible. Metrics persist for log on/off.
+- Still to come: achievements, recurring announcer personality/banter, cosmetic absurdity,
+  and leaderboards.
 
 ---
 

@@ -21,9 +21,11 @@ export interface SaveData {
     gold: number;
     bonusDamage: number;
     bonusMaxHp: number;
+    bonusCrit: number;
     equipment: Player["equipment"];
     inventory: Item[];
   };
+  show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
 }
 
@@ -41,8 +43,15 @@ export function saveRun(state: GameState): void {
         gold: p.gold,
         bonusDamage: p.bonusDamage,
         bonusMaxHp: p.bonusMaxHp,
+        bonusCrit: p.bonusCrit,
         equipment: p.equipment,
         inventory: p.inventory,
+      },
+      show: {
+        hype: state.hype,
+        viewers: state.viewers,
+        favorites: state.favorites,
+        sponsors: state.sponsors,
       },
       status: state.status,
     };

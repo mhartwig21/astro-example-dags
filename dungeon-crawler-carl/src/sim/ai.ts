@@ -3,6 +3,7 @@ import { dist, normalize, rollDamage } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
+import { addHype } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -35,6 +36,8 @@ function meleeSwing(state: GameState, m: Monster): void {
     player.alive = false;
     state.status = "dead";
     state.events.push("You died in the dungeon.");
+  } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
+    addHype(state, CONFIG.show.hypeLowHpHit); // living dangerously = great television
   }
 }
 

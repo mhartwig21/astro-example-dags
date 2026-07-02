@@ -1,4 +1,4 @@
-import { createGame, restoreGame, step, equipFromInventory } from "./sim/game";
+import { createGame, restoreGame, step, equipFromInventory, chooseReward } from "./sim/game";
 import { affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
@@ -65,6 +65,60 @@ const mmCtx = minimap.getContext("2d")!;
 const RARITY_COLORS: Record<string, string> = {
   common: "#c9c9d4", magic: "#5a9bff", rare: "#f2c14e", epic: "#b98bff",
 };
+
+// ---- The Show: audience bar + sponsor draft ----
+const statViewers = document.getElementById("stat-viewers")!;
+const statFavorites = document.getElementById("stat-favorites")!;
+const statSponsors = document.getElementById("stat-sponsors")!;
+const draftEl = document.getElementById("draft")!;
+const draftCards = document.getElementById("draft-cards")!;
+let shownSponsors = 0;
+let shownViewers = 0;
+
+function bump(el: HTMLElement): void {
+  const chip = el.closest(".stat") as HTMLElement | null;
+  if (!chip) return;
+  chip.classList.remove("bump");
+  void chip.offsetWidth; // restart animation
+  chip.classList.add("bump");
+}
+
+function updateShowHud(s: GameState): void {
+  const v = Math.round(s.viewers);
+  statViewers.textContent = v.toLocaleString();
+  statFavorites.textContent = Math.floor(s.favorites).toLocaleString();
+  statSponsors.textContent = String(s.sponsors);
+  if (s.sponsors !== shownSponsors) { shownSponsors = s.sponsors; bump(statSponsors); }
+  // Pop the viewer chip on a big surge (exciting moment).
+  if (v > shownViewers * 1.25 && v > 500) bump(statViewers);
+  shownViewers = v;
+}
+
+const RARITY_TEXT: Record<string, string> = {
+  common: "#c9c9d4", magic: "#7fb0ff", rare: "#f2c14e", epic: "#c9a6ff",
+};
+
+function renderDraft(s: GameState): void {
+  draftCards.innerHTML = s.pendingRewards
+    .map((r, i) => {
+      const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
+      return (
+        `<div class="reward" data-idx="${i}">` +
+        `<div class="rtitle" style="color:${color}">${r.title}</div>` +
+        `<div class="rdesc">${r.desc}</div>` +
+        `</div>`
+      );
+    })
+    .join("");
+}
+
+draftCards.addEventListener("click", (e) => {
+  const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
+  if (!card || card.dataset.idx === undefined) return;
+  chooseReward(state, Number(card.dataset.idx));
+  saveRun(state);
+  draftEl.style.display = "none";
+});
 
 // ---- Inventory panel (pauses the game while open) ----
 const invEl = document.getElementById("inv")!;
@@ -223,7 +277,9 @@ function updateHud(s: GameState): void {
   if (s.status !== "playing") {
     hudLog.innerHTML +=
       `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
-      `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>`;
+      `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>` +
+      `<br>Final show: ${Math.round(s.viewers).toLocaleString()} viewers · ` +
+      `${Math.floor(s.favorites).toLocaleString()} favorites · ${s.sponsors} sponsors`;
   }
 }
 
@@ -257,9 +313,14 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
     const frameAnns: string[] = [];
-    // The inventory panel pauses the sim; drop accumulated time so it doesn't
-    // fast-forward on close.
-    if (invOpen) acc = 0;
+    // The inventory panel and a pending sponsor draft both pause the sim; drop
+    // accumulated time so it doesn't fast-forward on resume.
+    const draftPending = state.pendingRewards.length > 0;
+    if (draftEl.style.display !== "flex" && draftPending) {
+      renderDraft(state);
+      draftEl.style.display = "flex";
+    }
+    if (invOpen || draftPending) acc = 0;
     while (acc >= SIM_DT) {
       step(state, input.sample(center, false), SIM_DT);
       for (const e of state.events) log.push(e);
@@ -282,6 +343,7 @@ async function main(): Promise<void> {
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
     updateSkills(state);
+    updateShowHud(state);
     drawMinimap(state);
     requestAnimationFrame(frame);
   }

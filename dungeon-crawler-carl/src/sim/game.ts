@@ -6,7 +6,7 @@ import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
 import type {
-  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Vec2,
+  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, Player, Reward, Vec2,
 } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
@@ -16,7 +16,7 @@ export function recomputeStats(p: Player): void {
   let dmg = intrinsicDmg + p.bonusDamage;
   let hp = intrinsicHp + p.bonusMaxHp;
   let spd = CONFIG.playerSpeed;
-  let crit = CONFIG.playerCritChance;
+  let crit = CONFIG.playerCritChance + p.bonusCrit;
   for (const slot of ["weapon", "armor", "trinket"] as const) {
     const it = p.equipment[slot];
     if (!it) continue;
@@ -160,6 +160,7 @@ function makePlayer(seedFrom?: Player): Player {
         inventory: [],
         bonusDamage: 0,
         bonusMaxHp: 0,
+        bonusCrit: 0,
         alive: true,
         attackSwing: 0,
       };
@@ -199,12 +200,14 @@ export interface SavedProgress {
     gold: number;
     bonusDamage?: number;
     bonusMaxHp?: number;
+    bonusCrit?: number;
     equipment?: Player["equipment"];
     inventory?: Item[];
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
   };
+  show?: { hype?: number; viewers?: number; favorites?: number; sponsors?: number };
 }
 
 /**
@@ -223,8 +226,15 @@ export function restoreGame(save: SavedProgress): GameState {
   p.gold = s.gold;
   p.bonusDamage = s.bonusDamage ?? 0;
   p.bonusMaxHp = s.bonusMaxHp ?? 0;
+  p.bonusCrit = s.bonusCrit ?? 0;
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
+  if (save.show) {
+    state.hype = save.show.hype ?? 0;
+    state.viewers = save.show.viewers ?? state.viewers;
+    state.favorites = save.show.favorites ?? 0;
+    state.sponsors = save.show.sponsors ?? 0;
+  }
   // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
   // fold the surplus over intrinsic into permanent bonuses so old runs resume intact.
   if (s.bonusDamage === undefined && s.baseDamage !== undefined) {
@@ -260,10 +270,39 @@ export function createGame(seed: number): GameState {
     hits: [],
     killCount: 0,
     lootBoxes: 0,
+    hype: 0,
+    viewers: CONFIG.show.baseViewers,
+    favorites: 0,
+    sponsors: 0,
+    pendingRewards: [],
     elapsed: 0,
   };
   buildFloor(state, 1);
   return state;
+}
+
+/** Add excitement. Exciting + challenging play → hype → viewers → favorites → sponsors. */
+export function addHype(state: GameState, amount: number): void {
+  state.hype = Math.min(CONFIG.show.hypeMax, state.hype + amount);
+}
+
+/** Per-step update of the audience economy (deterministic; time flows via dt). */
+function updateShow(state: GameState, dt: number): void {
+  const s = CONFIG.show;
+  // Hype decays toward zero.
+  state.hype = Math.max(0, state.hype - s.hypeDecay * dt);
+  // Viewers ease toward a target set by floor depth + current hype + fan loyalty.
+  const target = s.baseViewers + state.floor * s.viewersPerFloor + state.hype * s.viewersPerHype + state.favorites * 0.5;
+  state.viewers += (target - state.viewers) * Math.min(1, s.viewerEase * dt);
+  // A slice of the audience converts to sticky favorites while the crowd is hyped.
+  if (state.hype > s.favConvertThreshold) {
+    state.favorites += (state.hype - s.favConvertThreshold) * s.favPerHypePerSec * dt;
+  }
+  // Crossing a favorite threshold earns a sponsor.
+  while (state.sponsors < s.sponsorThresholds.length && state.favorites >= s.sponsorThresholds[state.sponsors]) {
+    state.sponsors++;
+    announce(state, `NEW SPONSOR secured! ${state.sponsors} now bankroll your run. They expect a show.`);
+  }
 }
 
 /** Push a dramatic line in the DCC "System" game-show voice (also logged). */
@@ -348,17 +387,29 @@ function doPlayerAttack(state: GameState, aim: Vec2): void {
     m.hp -= dmg;
     m.hitFlash = 0.12;
     hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+    if (isCrit) addHype(state, CONFIG.show.hypeCrit);
   }
 }
 
+const KILL_HYPE: Record<Monster["kind"], number> = {
+  grunt: CONFIG.show.hypeKill,
+  swarmer: CONFIG.show.hypeSwarmer,
+  ranged: CONFIG.show.hypeRanged,
+  brute: CONFIG.show.hypeBrute,
+  boss: CONFIG.show.hypeBoss,
+};
+
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
+  let killsThisStep = 0;
   for (const m of state.monsters) {
     if (m.hp > 0) {
       survivors.push(m);
       continue;
     }
     state.killCount++;
+    killsThisStep++;
+    addHype(state, KILL_HYPE[m.kind]);
     grantXp(state, m.xp);
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state);
@@ -366,6 +417,11 @@ function reapDead(state: GameState): void {
       state.status = "won";
       announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawler.");
     }
+  }
+  // Multi-kill combos are a crowd-pleaser.
+  if (killsThisStep > 1) {
+    addHype(state, (killsThisStep - 1) * CONFIG.show.hypeMultiKillPerExtra);
+    if (killsThisStep >= 3) announce(state, `${killsThisStep}-KILL COMBO! The crowd is on its feet.`);
   }
   state.monsters = survivors;
 }
@@ -392,6 +448,8 @@ function collectLoot(state: GameState): void {
         if (!l.item) break;
         const item = l.item;
         hit(state, p.pos, 0, "weapon");
+        if (item.rarity === "epic") addHype(state, CONFIG.show.hypeEpicDrop);
+        else if (item.rarity === "rare") addHype(state, CONFIG.show.hypeRareDrop);
         // Auto-equip if strictly better than what's in that slot, else stash in the bag.
         const equipped = p.equipment[item.slot];
         if (!equipped || itemScore(item) > itemScore(equipped)) {
@@ -428,6 +486,7 @@ function updateTimer(state: GameState, dt: number): void {
       const dmg = dps * dt;
       p.hp -= dmg;
       hit(state, p.pos, Math.max(1, Math.round(dmg)), "player");
+      addHype(state, CONFIG.show.hypeCollapsePerSec * dt); // clutch escape = ratings gold
       if (p.hp <= 0) {
         p.hp = 0;
         p.alive = false;
@@ -462,6 +521,105 @@ function tryDescend(state: GameState): void {
   const next = state.floor + 1;
   announce(state, `Descending to floor ${next}. The cameras are rolling, Crawler.`);
   buildFloor(state, next);
+  // Between floors, sponsors present a draft of rewards (host pauses to let you pick).
+  state.pendingRewards = generateRewards(state);
+  if (state.pendingRewards.length > 0) {
+    announce(state, "Your sponsors have gifts. Choose one, Crawler.");
+  }
+}
+
+function shuffle<T>(rng: Rng, arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = nextInt(rng, 0, i);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Build the between-floor sponsor draft. Quality + count scale with sponsors/favorites. */
+function generateRewards(state: GameState): Reward[] {
+  const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234) >>> 0);
+  const q = 1 + state.sponsors * 0.4 + Math.min(1, state.favorites / 1000);
+  const count = Math.min(CONFIG.rewardMaxCount, CONFIG.rewardBaseCount + (state.sponsors >= 2 ? 1 : 0));
+  const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
+  const floor = state.floor;
+  return shuffle(rng, pool).slice(0, count).map((kind): Reward => {
+    const id = state.nextEntityId++;
+    switch (kind) {
+      case "healFull":
+        return { id, kind, title: "Field Medic", desc: "Restore all HP", amount: 0 };
+      case "maxHp": {
+        const amt = Math.round((18 + floor * 2) * q);
+        return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
+      }
+      case "damage": {
+        const amt = Math.round((5 + floor) * q);
+        return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
+      }
+      case "crit": {
+        const pct = Math.round(4 + q * 2);
+        return { id, kind, title: "Targeting Chip", desc: `+${pct}% crit`, amount: pct / 100 };
+      }
+      case "gold": {
+        const amt = Math.round((40 + floor * 12) * q);
+        return { id, kind, title: "Cash Injection", desc: `+${amt} gold`, amount: amt };
+      }
+      case "bonusTime": {
+        const amt = Math.round(10 + q * 5);
+        return { id, kind, title: "Stabilizer", desc: `+${amt}s on this floor`, amount: amt };
+      }
+      case "item": {
+        const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
+        return { id, kind, title: item.name, desc: `${item.rarity} ${item.slot}`, amount: 0, item };
+      }
+    }
+  });
+}
+
+function applyReward(state: GameState, r: Reward): void {
+  const p = state.player;
+  switch (r.kind) {
+    case "healFull":
+      p.hp = p.maxHp;
+      break;
+    case "maxHp":
+      p.bonusMaxHp += r.amount;
+      recomputeStats(p);
+      p.hp = Math.min(p.maxHp, p.hp + r.amount);
+      break;
+    case "damage":
+      p.bonusDamage += r.amount;
+      recomputeStats(p);
+      break;
+    case "crit":
+      p.bonusCrit += r.amount;
+      recomputeStats(p);
+      break;
+    case "gold":
+      p.gold += r.amount;
+      break;
+    case "bonusTime":
+      state.timeBudget += r.amount;
+      state.timeRemaining += r.amount;
+      break;
+    case "item":
+      if (r.item) {
+        const cur = p.equipment[r.item.slot];
+        if (!cur || itemScore(r.item) > itemScore(cur)) equipItem(p, r.item);
+        else p.inventory.push(r.item);
+      }
+      break;
+  }
+}
+
+/** Choose a sponsor reward by index; applies it and clears the draft. */
+export function chooseReward(state: GameState, idx: number): void {
+  if (idx < 0 || idx >= state.pendingRewards.length) return;
+  const r = state.pendingRewards[idx];
+  applyReward(state, r);
+  state.pendingRewards = [];
+  announce(state, `Sponsor gift accepted: ${r.title}.`);
 }
 
 /** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
@@ -509,6 +667,7 @@ function updateProjectiles(state: GameState, dt: number): void {
           m.hp -= dmg;
           m.hitFlash = 0.12;
           hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+          if (isCrit) addHype(state, CONFIG.show.hypeCrit);
           consumed = true;
           break;
         }
@@ -519,6 +678,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       if (p.alive && p.dashTime <= 0 && dist(pr.pos, p.pos) <= CONFIG.projectileRadius + 0.3) {
         p.hp -= pr.damage;
         hit(state, p.pos, Math.round(pr.damage), "player");
+        if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) addHype(state, CONFIG.show.hypeLowHpHit);
         if (p.hp <= 0) {
           p.hp = 0; p.alive = false; state.status = "dead";
           announce(state, "Shot down in the arena. The audience is on its feet.");
@@ -540,6 +700,8 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   state.announcements = [];
   state.hits = [];
   if (state.status !== "playing") return state;
+  // A pending sponsor draft pauses the world until the player chooses (chooseReward).
+  if (state.pendingRewards.length > 0) return state;
 
   state.elapsed += dt;
   const p = state.player;
@@ -578,7 +740,10 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   // Collapse timer (applied after combat so its DoT can be the killing blow).
   if (p.alive) updateTimer(state, dt);
 
-  // Descent request.
+  // The Show: convert this step's hype into viewers / favorites / sponsors.
+  updateShow(state, dt);
+
+  // Descent request (may open a sponsor draft, which pauses subsequent steps).
   if (intent.useStairs && p.alive && state.status === "playing") tryDescend(state);
 
   return state;

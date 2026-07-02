@@ -75,6 +75,33 @@
       .rar-magic  { border-left-color: #5a9bff; } .rar-magic .name  { color: #7fb0ff; }
       .rar-rare   { border-left-color: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
       .rar-epic   { border-left-color: #b98bff; } .rar-epic .name   { color: #c9a6ff; }
+
+      /* The Show — audience bar */
+      #show { position: fixed; top: 84px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 10px; pointer-events: none; font-size: 13px; }
+      #show .stat { background: rgba(12,10,20,0.72); border: 1px solid #2a2a38;
+        border-radius: 999px; padding: 4px 12px; display: flex; gap: 6px; align-items: baseline; }
+      #show .stat b { font-variant-numeric: tabular-nums; }
+      #show .viewers b { color: #6fe3ff; }
+      #show .favorites b { color: #ff8ac2; }
+      #show .sponsors b { color: #c9a24b; }
+      #show .stat.bump { animation: bump 0.4s ease; }
+      @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.18)} 100%{transform:scale(1)} }
+
+      /* Sponsor draft modal */
+      #draft { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.72); z-index: 25; }
+      #draft .panel { width: 680px; max-width: 94vw; background: #0f0e18; border: 1px solid #c9a24b;
+        border-radius: 12px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.7); }
+      #draft h2 { margin: 0 0 2px; color: #c9a24b; letter-spacing: 1px; font-size: 16px; }
+      #draft .hint { color: #8a8a9a; font-size: 12px; margin-bottom: 16px; }
+      #draft .cards { display: flex; gap: 12px; }
+      .reward { flex: 1; cursor: pointer; background: #14131f; border: 1px solid #2a2a38;
+        border-top: 3px solid #c9a24b; border-radius: 8px; padding: 14px 12px; text-align: center;
+        transition: transform 0.1s ease, border-color 0.1s ease; }
+      .reward:hover { transform: translateY(-3px); border-color: #4fd1ff; background: #191826; }
+      .reward .rtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+      .reward .rdesc { color: #b9d0c0; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -87,6 +114,18 @@
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
     <div id="hud-log" class="hud"></div>
+    <div id="show">
+      <div class="stat viewers">👁 <b id="stat-viewers">0</b> viewers</div>
+      <div class="stat favorites">⭐ <b id="stat-favorites">0</b> favorites</div>
+      <div class="stat sponsors">🤝 <b id="stat-sponsors">0</b> sponsors</div>
+    </div>
+    <div id="draft">
+      <div class="panel">
+        <h2>◆ SPONSOR DRAFT</h2>
+        <div class="hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
+        <div class="cards" id="draft-cards"></div>
+      </div>
+    </div>
     <div id="fx"></div>
     <div id="toast"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
