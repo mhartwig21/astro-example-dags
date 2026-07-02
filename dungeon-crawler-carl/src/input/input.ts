@@ -9,15 +9,20 @@ export class InputController {
   private keys = new Set<string>();
   private attackHeld = false;
   private useStairsEdge = false;
+  private dashEdge = false;
+  private boltHeld = false;
   private aimScreen: Vec2 | null = null;
   onReset: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
+      const wasDown = this.keys.has(k);
       this.keys.add(k);
       if (k === " ") this.attackHeld = true;
       if (k === "e") this.useStairsEdge = true;
+      if ((k === "shift" || k === "control") && !wasDown) this.dashEdge = true; // edge-trigger dash
+      if (k === "q") this.boltHeld = true;
       if (k === "r") this.onReset?.();
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
     });
@@ -25,9 +30,17 @@ export class InputController {
       const k = e.key.toLowerCase();
       this.keys.delete(k);
       if (k === " ") this.attackHeld = false;
+      if (k === "q") this.boltHeld = false;
     });
-    canvas.addEventListener("mousedown", () => (this.attackHeld = true));
-    window.addEventListener("mouseup", () => (this.attackHeld = false));
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button === 2) this.boltHeld = true; // right-click = ranged bolt
+      else this.attackHeld = true;
+    });
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 2) this.boltHeld = false;
+      else this.attackHeld = false;
+    });
     canvas.addEventListener("mousemove", (e) => {
       const rect = canvas.getBoundingClientRect();
       this.aimScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -54,7 +67,9 @@ export class InputController {
 
     const useStairs = this.useStairsEdge;
     this.useStairsEdge = false;
+    const dash = this.dashEdge;
+    this.dashEdge = false;
 
-    return { move, attack: this.attackHeld, aim, useStairs };
+    return { move, attack: this.attackHeld, aim, useStairs, dash, bolt: this.boltHeld };
   }
 }

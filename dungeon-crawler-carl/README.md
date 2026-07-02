@@ -32,7 +32,9 @@ npm run build      # type-check + production build
 | Key | Action |
 |---|---|
 | `WASD` / arrows | Move |
-| `Space` / click | Melee attack (arc in facing/aim direction) |
+| `Space` / left-click | Melee attack (arc in facing/aim direction) |
+| `Q` / right-click | Ranged bolt (projectile) |
+| `Shift` | Dash (blink + brief i-frames) |
 | `E` | Descend when standing on the stairs |
 | `R` | Abandon the run and start a fresh one |
 
@@ -59,6 +61,19 @@ appear under `public/assets/`, with no gameplay changes (the sim is render-agnos
 - **Wiring a model:** drop a `.glb` in `public/assets/…`, enable its entry in
   `src/render3d/assets.ts` (`MODEL_MANIFEST`), reload. The renderer swaps the
   primitive for the model automatically and falls back if the file is absent.
+
+## Gameplay depth
+
+- **Enemy archetypes** — grunt, fast **swarmer**, tanky **brute**, and **ranged** shooters
+  (kite + fire projectiles). The mix gets nastier with depth.
+- **Active skills** — **dash** (blink + i-frames) and a **ranged bolt**, each on a cooldown
+  shown in the skill bar.
+- **Projectiles** — a shared system for player bolts and enemy shots.
+- **Weapon rarity** — drops roll common / magic / rare / epic (colored, weighted); rare+ get
+  an announcer callout.
+- **Floor-18 boss** — a boss arena that seals the exit until the boss (melee chase + radial
+  volleys) is dead; killing it wins the run.
+- **Minimap** — live top-down map with walls, stairs, enemies, and the player.
 
 ## Game feel + DCC personality
 

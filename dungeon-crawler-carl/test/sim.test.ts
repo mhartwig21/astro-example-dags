@@ -8,6 +8,14 @@ function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
 }
 
+function mkMon(over: Partial<import("../src/sim/types").Monster> = {}) {
+  return {
+    id: 1, kind: "grunt" as const, pos: { x: 0, y: 0 },
+    hp: 1, maxHp: 1, damage: 0, speed: 0, attackRange: 1, attackCooldown: 0,
+    shootCd: 0, xp: 5, hitFlash: 0, ...over,
+  };
+}
+
 describe("rng", () => {
   it("is deterministic for a given seed", () => {
     const a = createRng(12345);
@@ -142,10 +150,7 @@ describe("combat feedback + loot boxes", () => {
     // Place a monster right next to the player, in front of its facing.
     g.player.facing = { x: 1, y: 0 };
     g.monsters.length = 0;
-    g.monsters.push({
-      id: 999, pos: { x: g.player.pos.x + 1, y: g.player.pos.y },
-      hp: 999, maxHp: 999, damage: 0, speed: 0, attackCooldown: 0, xp: 10, hitFlash: 0,
-    });
+    g.monsters.push(mkMon({ id: 999, pos: { x: g.player.pos.x + 1, y: g.player.pos.y }, hp: 999, maxHp: 999, xp: 10 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const combat = g.hits.filter((h) => h.kind === "enemy" || h.kind === "crit");
     expect(combat.length).toBe(1);
@@ -159,10 +164,7 @@ describe("combat feedback + loot boxes", () => {
     g.player.baseDamage = 100000;
     g.monsters.length = 0;
     for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
-      g.monsters.push({
-        id: 1000 + i, pos: { x: g.player.pos.x + 0.6, y: g.player.pos.y },
-        hp: 1, maxHp: 1, damage: 0, speed: 0, attackCooldown: 0, xp: 5, hitFlash: 0,
-      });
+      g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.player.pos.x + 0.6, y: g.player.pos.y } }));
     }
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
@@ -181,6 +183,65 @@ describe("combat feedback + loot boxes", () => {
       return { hits, kills: g.killCount };
     }
     expect(play(555)).toEqual(play(555));
+  });
+});
+
+describe("skills + projectiles", () => {
+  it("dash triggers a blink (cooldown + i-frames), never moving backward", () => {
+    const g = createGame(3);
+    g.player.facing = { x: 1, y: 0 };
+    const x0 = g.player.pos.x;
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, dash: true }, 1 / 60);
+    // Cooldown + i-frames are set regardless of geometry; position never regresses.
+    expect(g.player.dashCd).toBeGreaterThan(0);
+    expect(g.player.dashTime).toBeGreaterThan(0);
+    expect(g.player.pos.x).toBeGreaterThanOrEqual(x0);
+  });
+
+  it("bolt spawns a player projectile that damages a monster it reaches", () => {
+    const g = createGame(11);
+    g.player.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: g.player.pos.x + 2, y: g.player.pos.y }, hp: 999, maxHp: 999 }));
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.projectiles.length).toBe(1);
+    expect(g.projectiles[0].from).toBe("player");
+    const before = g.monsters[0].hp;
+    // Advance until the bolt reaches the monster.
+    for (let i = 0; i < 60 && g.monsters[0].hp === before; i++) {
+      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    }
+    expect(g.monsters[0].hp).toBeLessThan(before);
+  });
+
+  it("a ranged monster fires an enemy projectile at the player", () => {
+    const g = createGame(21);
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    // Place next to the player (guaranteed walkable — the player stands there) so the
+    // fired bolt isn't culled against a wall on spawn.
+    g.monsters.push(mkMon({ id: 1, kind: "ranged", pos: { x: g.player.pos.x + 1.5, y: g.player.pos.y }, hp: 50, maxHp: 50, damage: 5, attackRange: 6.5 }));
+    let fired = false;
+    for (let i = 0; i < 120 && !fired; i++) {
+      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+      fired = g.projectiles.some((pr) => pr.from === "enemy");
+    }
+    expect(fired).toBe(true);
+  });
+});
+
+describe("boss floor", () => {
+  it("floor 18 spawns a boss and killing it wins the run", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, maxHp: 100, baseDamage: 10, level: 1, xp: 0, xpToNext: 20, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss");
+    expect(boss).toBeDefined();
+    // Kill the boss directly and step so reapDead processes the win.
+    boss!.hp = 0;
+    step(g, idle(), 1 / 60);
+    expect(g.status).toBe("won");
   });
 });
 

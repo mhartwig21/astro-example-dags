@@ -37,19 +37,39 @@
         transition: opacity 0.35s ease, transform 0.35s ease; max-width: 70ch; text-align: center; }
       .ann.show { opacity: 1; transform: translateY(0); }
       .ann::before { content: "◆ SYSTEM "; color: #c9a24b; font-weight: 700; }
+
+      /* Minimap */
+      #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
+        border: 1px solid #2a2a38; border-radius: 6px; }
+
+      /* Skill bar */
+      #skills { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 10px; pointer-events: none; }
+      .skill { width: 64px; text-align: center; background: rgba(12,10,20,0.8);
+        border: 1px solid #2a2a38; border-radius: 6px; padding: 5px 4px 4px; font-size: 11px; color: #cfcfe0; }
+      .skill .key { color: #c9a24b; font-weight: 700; }
+      .skill .cd { height: 5px; margin-top: 4px; background: #000; border-radius: 3px; overflow: hidden; }
+      .skill .cd > i { display: block; height: 100%; background: #4fd1ff; width: 0%; }
+      .skill.ready { border-color: #3f5f6f; }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
     <div id="banner" class="hud">
       <b>DUNGEON CRAWLER CARL</b> · 3D isometric ·
-      <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
+      <kbd>WASD</kbd> move · <kbd>Space</kbd> attack · <kbd>Q</kbd>/RMB bolt ·
+      <kbd>Shift</kbd> dash · <kbd>E</kbd> stairs · <kbd>R</kbd> new run
     </div>
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
     <div id="hud-log" class="hud"></div>
     <div id="fx"></div>
     <div id="toast"></div>
+    <canvas id="minimap" width="168" height="168"></canvas>
+    <div id="skills">
+      <div class="skill" id="skill-dash"><span class="key">Shift</span> Dash<div class="cd"><i></i></div></div>
+      <div class="skill" id="skill-bolt"><span class="key">Q / RMB</span> Bolt<div class="cd"><i></i></div></div>
+    </div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>
 </html>

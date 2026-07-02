@@ -38,6 +38,17 @@ export const THEME = {
   monster: 0xe2574c,
   monsterTrim: 0x2a0f0d,
 
+  // Enemy archetype colors + relative body scale.
+  archetype: {
+    grunt: { color: 0xe2574c, scale: 1.0 },
+    swarmer: { color: 0x8bd450, scale: 0.7 },
+    brute: { color: 0x9a6bff, scale: 1.45 },
+    ranged: { color: 0xe8a13c, scale: 0.95 },
+    boss: { color: 0xff3b3b, scale: 2.7 },
+  },
+  projectilePlayer: 0x6fe3ff,
+  projectileEnemy: 0xff8a3c,
+
   gold: 0xf2c14e,
   heal: 0x5fd08a,
   weaponLoot: 0xb98bff,

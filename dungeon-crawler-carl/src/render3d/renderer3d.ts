@@ -29,6 +29,7 @@ export class Renderer3D {
   private player: THREE.Group;
   private monsters = new Map<number, THREE.Group>();
   private loot = new Map<number, THREE.Mesh>();
+  private projectiles = new Map<number, THREE.Mesh>();
 
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
@@ -127,15 +128,23 @@ export class Renderer3D {
     return g;
   }
 
-  private buildMonsterMesh(): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype): THREE.Group {
+    const spec = THEME.archetype[kind];
     const model = this.modelInstance("skeleton") ?? this.modelInstance("monster");
-    if (model) return model;
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 0), flat(THEME.monster));
-    body.position.y = 0.42; body.castShadow = true;
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), flat(THEME.monsterTrim, { emissive: 0x330000 }));
-    eye.position.set(0, 0.5, 0.32);
-    g.add(body, eye);
+    const g = model ?? new THREE.Group();
+    if (!model) {
+      const isBoss = kind === "boss";
+      const body = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.4, isBoss ? 1 : 0),
+        flat(spec.color, isBoss ? { emissive: 0x400000, emissiveIntensity: 0.5 } : {}),
+      );
+      body.position.y = 0.42; body.castShadow = true;
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), flat(0x120000, { emissive: 0x330000 }));
+      eye.position.set(0, 0.5, 0.32);
+      g.add(body, eye);
+    }
+    g.scale.setScalar(spec.scale);
+    g.userData.baseScale = spec.scale;
     return g;
   }
 
@@ -238,20 +247,40 @@ export class Renderer3D {
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
-      if (!mesh) { mesh = this.buildMonsterMesh(); this.scene.add(mesh); this.monsters.set(mon.id, mesh); }
+      if (!mesh) { mesh = this.buildMonsterMesh(mon.kind); this.scene.add(mesh); this.monsters.set(mon.id, mesh); }
+      const bs = (mesh.userData.baseScale as number) ?? 1;
       const prev = this.prevMon.get(mon.id) ?? mon.pos;
       const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
       this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
       mesh.position.set(mon.pos.x, 0, mon.pos.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
-      // Bob while chasing; recoil pop + squash when just hit.
-      const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 : 0;
+      // Bob while chasing; recoil pop + squash when just hit (scaled by archetype size).
+      const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
       mesh.position.y = (mon.hitFlash > 0 ? 0.18 : 0) + bob;
       const squash = mon.hitFlash > 0 ? 1.25 : 1;
-      mesh.scale.set(squash, 2 - squash, squash);
+      mesh.scale.set(bs * squash, bs * (2 - squash), bs * squash);
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) { this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id); }
+    }
+
+    // Projectiles: reconcile a mesh pool by id.
+    const projSeen = new Set<number>();
+    for (const pr of state.projectiles) {
+      projSeen.add(pr.id);
+      let mesh = this.projectiles.get(pr.id);
+      if (!mesh) {
+        const color = pr.from === "player" ? THEME.projectilePlayer : THEME.projectileEnemy;
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 8, 8),
+          flat(color, { emissive: color, emissiveIntensity: 0.9 }),
+        );
+        this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
+      }
+      mesh.position.set(pr.pos.x, 0.6, pr.pos.y);
+    }
+    for (const [id, mesh] of this.projectiles) {
+      if (!projSeen.has(id)) { this.scene.remove(mesh); this.projectiles.delete(id); }
     }
 
     // Loot: reconcile + bob/spin.

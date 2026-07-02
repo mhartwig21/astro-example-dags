@@ -93,6 +93,14 @@ export function render(
     }
   }
 
+  // Projectiles.
+  for (const pr of state.projectiles) {
+    ctx.fillStyle = pr.from === "player" ? "#6fe3ff" : "#ff8a3c";
+    ctx.beginPath();
+    ctx.arc(offX + pr.pos.x * T, offY + pr.pos.y * T, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Loot.
   for (const l of state.loot) {
     const px = offX + l.pos.x * T;

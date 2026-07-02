@@ -21,35 +21,57 @@ export interface Player {
   speed: number;
   baseDamage: number;
   attackCooldown: number; // seconds remaining until next attack allowed
+  dashCd: number; // dash skill cooldown remaining
+  dashTime: number; // seconds of active dash remaining (i-frames + speed)
+  boltCd: number; // ranged-bolt skill cooldown remaining
   level: number;
   xp: number;
   xpToNext: number;
   gold: number;
+  weaponRarity: Rarity; // rarity of the currently-equipped weapon (for HUD/flavor)
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
 }
 
+// Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
+export type MonsterKind = "grunt" | "swarmer" | "brute" | "ranged" | "boss";
+
 export interface Monster {
   id: number;
+  kind: MonsterKind;
   pos: Vec2;
   hp: number;
   maxHp: number;
   damage: number;
   speed: number;
-  attackCooldown: number;
+  attackRange: number; // contact range (melee) or preferred standoff (ranged)
+  attackCooldown: number; // melee swing / ranged shot cooldown remaining
+  shootCd: number; // secondary timer: boss radial volley
   xp: number;
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
 }
 
 export type LootKind = "gold" | "heal" | "weapon";
+export type Rarity = "common" | "magic" | "rare" | "epic";
 
 export interface Loot {
   id: number;
   pos: Vec2;
   kind: LootKind;
   amount: number; // gold value, heal amount, or bonus damage
+  rarity?: Rarity; // weapons only
+}
+
+// Projectiles: player bolts and enemy shots share one system.
+export interface Projectile {
+  id: number;
+  pos: Vec2;
+  vel: Vec2; // tiles/sec
+  damage: number;
+  ttl: number; // seconds before it despawns
+  from: "player" | "enemy";
 }
 
 export interface FloorMap {
@@ -82,6 +104,7 @@ export interface GameState {
   player: Player;
   monsters: Monster[];
   loot: Loot[];
+  projectiles: Projectile[];
   nextEntityId: number;
 
   // Collapse timer
@@ -108,10 +131,14 @@ export interface Intent {
   attack: boolean; // attempt a melee attack this step
   aim?: Vec2; // optional aim direction for the attack (falls back to facing)
   useStairs: boolean; // attempt to descend if standing on stairs
+  dash?: boolean; // dash skill (blink in facing direction, brief i-frames)
+  bolt?: boolean; // ranged-bolt skill (fire a projectile in facing/aim direction)
 }
 
 export const NO_INTENT: Intent = {
   move: { x: 0, y: 0 },
   attack: false,
   useStairs: false,
+  dash: false,
+  bolt: false,
 };

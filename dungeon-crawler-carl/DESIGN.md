@@ -97,8 +97,11 @@ This document describes the full target architecture, then defines the scope of 
 ### 5.1 Floors & descent
 - 18 floors. Each is a procedurally generated grid of rooms joined by corridors, with a
   **stairs-down** tile. Reaching it descends the party to the next floor.
-- Difficulty scales with depth: monster count, monster stats, and loot quality all rise.
-- Floor 18 is the goal (boss / extraction — stubbed in the slice).
+- Difficulty scales with depth: monster count, monster stats, archetype mix, and loot
+  quality all rise.
+- **Floor 18 is a boss arena**: the exit is sealed until the boss (melee chase + radial
+  projectile volleys, plus ranged adds) is defeated; killing it wins the run. A live
+  **minimap** helps navigate each floor to the stairs.
 
 ### 5.2 Collapse timer (the central mechanic)
 - Each floor starts with a countdown (scaled per floor). It is **authoritative** and lives
@@ -117,11 +120,21 @@ This document describes the full target architecture, then defines the scope of 
   sim emits typed feedback events (enemy/crit/player/heal/gold/weapon) that hosts turn into
   floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
   same seeded RNG stream, these effects are deterministic and replay identically.
+- **Enemy archetypes** (grunt / swarmer / brute / ranged / boss): stats scale per floor and
+  are modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts`
+  (melee chase, ranged kite-and-shoot, boss chase + radial volley). The spawn mix shifts
+  toward tougher enemies with depth.
+- **Active skills** — **dash** (blink in facing with brief i-frames) and a **ranged bolt**,
+  each on a cooldown. Skills produce intents like everything else, so they port to the server.
+- **Projectiles** (`GameState.projectiles`): one system for player bolts and enemy shots —
+  moved and collision-resolved deterministically each step.
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.
-- Loot: monsters/chests drop items (weapon/armor/consumable) with rarity tiers. Slice ships
-  a minimal version (pickups that modify stats) with room for full itemization later.
+- Loot: monsters drop gold, health, and **weapons with rarity tiers** (common / magic /
+  rare / epic — weighted rolls; higher tiers give a bigger damage bonus and a louder
+  announcer callout). A full inventory/equip UI is still a later step; weapons currently
+  auto-apply their bonus.
 
 ### 5.5 DCC flavor layer (started)
 - AI "System" announcer emitting event messages, loot boxes, achievements, absurd upgrades.

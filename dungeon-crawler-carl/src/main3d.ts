@@ -1,5 +1,5 @@
 import { createGame, restoreGame, step } from "./sim/game";
-import type { GameState, HitEvent } from "./sim/types";
+import { Tile, type GameState, type HitEvent } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
 import { Renderer3D } from "./render3d/renderer3d";
@@ -53,6 +53,54 @@ const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
 const fxLayer = document.getElementById("fx")!;
 const toastLayer = document.getElementById("toast")!;
+const dashCd = document.querySelector("#skill-dash .cd > i") as HTMLElement;
+const boltCd = document.querySelector("#skill-bolt .cd > i") as HTMLElement;
+const dashSkill = document.getElementById("skill-dash")!;
+const boltSkill = document.getElementById("skill-bolt")!;
+const minimap = document.getElementById("minimap") as HTMLCanvasElement;
+const mmCtx = minimap.getContext("2d")!;
+
+const RARITY_COLORS: Record<string, string> = {
+  common: "#c9c9d4", magic: "#5a9bff", rare: "#f2c14e", epic: "#b98bff",
+};
+
+// Cooldown UI shows "fraction remaining"; empties as the skill recharges.
+function updateSkills(s: GameState): void {
+  const p = s.player;
+  const dFrac = Math.max(0, Math.min(1, p.dashCd / CONFIG.dashCooldown));
+  const bFrac = Math.max(0, Math.min(1, p.boltCd / CONFIG.boltCooldown));
+  dashCd.style.width = `${dFrac * 100}%`;
+  boltCd.style.width = `${bFrac * 100}%`;
+  dashSkill.classList.toggle("ready", p.dashCd === 0);
+  boltSkill.classList.toggle("ready", p.boltCd === 0);
+}
+
+// Top-down minimap: walls, stairs, monsters (red), and the player (cyan).
+function drawMinimap(s: GameState): void {
+  const map = s.map;
+  const W = minimap.width, H = minimap.height, pad = 6;
+  const sx = (W - pad * 2) / map.w, sy = (H - pad * 2) / map.h;
+  mmCtx.clearRect(0, 0, W, H);
+  for (let y = 0; y < map.h; y++) {
+    for (let x = 0; x < map.w; x++) {
+      const t = map.tiles[y * map.w + x];
+      if (t === Tile.Wall) continue;
+      mmCtx.fillStyle = t === Tile.StairsDown ? "#c9a24b" : "#2c2c40";
+      mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
+    }
+  }
+  for (const m of s.monsters) {
+    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
+    const r = m.kind === "boss" ? 3.5 : 2;
+    mmCtx.beginPath();
+    mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
+    mmCtx.fill();
+  }
+  mmCtx.fillStyle = "#4fd1ff";
+  mmCtx.beginPath();
+  mmCtx.arc(pad + s.player.pos.x * sx, pad + s.player.pos.y * sy, 3, 0, Math.PI * 2);
+  mmCtx.fill();
+}
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
   enemy: "#ffb347", crit: "#ffe066", player: "#ff5a4d",
@@ -104,8 +152,10 @@ function updateHud(s: GameState): void {
     `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
     `<span style="color:${phaseColor(s)}">Collapse ${fmt(s.timeRemaining)} · ${s.phase.toUpperCase()}</span>` +
     `<div class="bar"><i style="width:${tf * 100}%;background:${phaseColor(s)}"></i></div>`;
+  const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
   hudTR.innerHTML =
-    `Level ${p.level} · ${p.gold} gold · DMG ${p.baseDamage}<br>` +
+    `Level ${p.level} · ${p.gold} gold · ` +
+    `<span style="color:${rc}">DMG ${p.baseDamage} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;
@@ -168,6 +218,8 @@ async function main(): Promise<void> {
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
+    updateSkills(state);
+    drawMinimap(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

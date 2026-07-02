@@ -1,10 +1,12 @@
-import { CONFIG, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, RARITIES, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, pick, chance, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
-import type { GameState, HitEvent, Intent, Loot, Monster, Player, Vec2 } from "./types";
+import type {
+  GameState, HitEvent, Intent, Loot, Monster, MonsterKind, Player, Rarity, Vec2,
+} from "./types";
 
 function monsterCount(floor: number): number {
   return Math.min(
@@ -13,28 +15,71 @@ function monsterCount(floor: number): number {
   );
 }
 
+/** Build a monster of a given archetype with per-floor-scaled, archetype-modified stats. */
+function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
+  const { floor } = state;
+  const a = ARCHETYPES[kind];
+  const baseHp = CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor;
+  const baseDmg = CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor;
+  const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
+  const hp = Math.round(baseHp * a.hpMult);
+  return {
+    id: state.nextEntityId++,
+    kind,
+    pos: { x: pos.x, y: pos.y },
+    hp,
+    maxHp: hp,
+    damage: baseDmg * a.dmgMult,
+    speed: CONFIG.monsterSpeed * a.speedMult,
+    attackRange: a.attackRange,
+    attackCooldown: 0,
+    shootCd: 0,
+    xp: Math.round(baseXp * a.xpMult),
+    hitFlash: 0,
+  };
+}
+
+/** Pick an archetype mix that gets nastier with depth. */
+function rollArchetype(rng: Rng, floor: number): MonsterKind {
+  // Deeper floors shift the mix toward brutes/ranged/swarms.
+  const rangedW = 1 + floor * 0.5;
+  const bruteW = floor >= 3 ? floor * 0.4 : 0;
+  const swarmW = 2 + floor * 0.3;
+  const gruntW = 5;
+  const total = gruntW + swarmW + rangedW + bruteW;
+  let r = nextFloat(rng) * total;
+  if ((r -= gruntW) < 0) return "grunt";
+  if ((r -= swarmW) < 0) return "swarmer";
+  if ((r -= rangedW) < 0) return "ranged";
+  return "brute";
+}
+
 function spawnMonsters(state: GameState): void {
   const { map, rng, floor } = state;
-  // Candidate tiles far enough from the player spawn that the first seconds are safe.
   const tiles = walkableTiles(map).filter(
     (t) => dist(t, map.spawn) > 6 && dist(t, map.stairs) > 2,
   );
+
+  // Floor 18 is a boss arena: one boss + a few ranged adds.
+  if (floor >= CONFIG.finalFloor) {
+    const bossPos = { x: map.stairs.x, y: map.stairs.y };
+    const boss = makeMonster(state, "boss", bossPos);
+    boss.hp = boss.maxHp = CONFIG.bossHp;
+    boss.damage = CONFIG.bossDamage;
+    boss.speed = CONFIG.bossSpeed;
+    boss.xp = CONFIG.bossXp;
+    state.monsters.push(boss);
+    for (let i = 0; i < 3 && tiles.length > 0; i++) {
+      const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
+      state.monsters.push(makeMonster(state, "ranged", pos));
+    }
+    return;
+  }
+
   const count = monsterCount(floor);
   for (let i = 0; i < count && tiles.length > 0; i++) {
-    const ti = nextInt(rng, 0, tiles.length - 1);
-    const pos = tiles.splice(ti, 1)[0];
-    const hp = CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor;
-    state.monsters.push({
-      id: state.nextEntityId++,
-      pos: { x: pos.x, y: pos.y },
-      hp,
-      maxHp: hp,
-      damage: CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor,
-      speed: CONFIG.monsterSpeed,
-      attackCooldown: 0,
-      xp: CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor,
-      hitFlash: 0,
-    });
+    const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
+    state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
   }
 }
 
@@ -46,6 +91,9 @@ function makePlayer(seedFrom?: Player): Player {
       pos: { x: 0, y: 0 },
       facing: { x: 0, y: 1 },
       attackCooldown: 0,
+      dashCd: 0,
+      dashTime: 0,
+      boltCd: 0,
       attackSwing: 0,
       alive: true,
     };
@@ -58,10 +106,14 @@ function makePlayer(seedFrom?: Player): Player {
     speed: CONFIG.playerSpeed,
     baseDamage: CONFIG.playerBaseDamage,
     attackCooldown: 0,
+    dashCd: 0,
+    dashTime: 0,
+    boltCd: 0,
     level: 1,
     xp: 0,
     xpToNext: xpForLevel(1),
     gold: 0,
+    weaponRarity: "common",
     alive: true,
     attackSwing: 0,
   };
@@ -79,6 +131,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.map = generateFloor(rng, floor);
   state.monsters = [];
   state.loot = [];
+  state.projectiles = [];
   state.player.pos = { x: state.map.spawn.x, y: state.map.spawn.y };
   state.timeBudget = floorTimeBudget(floor);
   state.timeRemaining = state.timeBudget;
@@ -129,6 +182,7 @@ export function createGame(seed: number): GameState {
     player: makePlayer(),
     monsters: [],
     loot: [],
+    projectiles: [],
     nextEntityId: 1,
     timeBudget: 0,
     timeRemaining: 0,
@@ -199,15 +253,27 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
   if (chance(rng, CONFIG.lootDropChance)) {
     const kind = pick(rng, ["heal", "weapon"] as const);
-    const amount = kind === "heal" ? nextInt(rng, 15, 30) : nextInt(rng, 2, 4) + floor;
-    // Nudge the second drop so stacked pickups don't perfectly overlap.
-    state.loot.push({
-      id: state.nextEntityId++,
-      pos: { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 },
-      kind,
-      amount,
-    });
+    const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
+    if (kind === "heal") {
+      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "heal", amount: nextInt(rng, 15, 30) });
+    } else {
+      // Weapon: roll a rarity tier; higher tiers give a bigger damage bonus.
+      const rarity = rollRarity(rng);
+      const tier = RARITIES.find((r) => r.name === rarity)!;
+      const amount = Math.max(1, Math.round((nextInt(rng, 2, 4) + floor) * tier.mult));
+      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "weapon", amount, rarity });
+    }
   }
+}
+
+/** Weighted weapon-rarity roll. */
+function rollRarity(rng: Rng): Rarity {
+  const total = RARITIES.reduce((s, r) => s + r.weight, 0);
+  let r = nextFloat(rng) * total;
+  for (const tier of RARITIES) {
+    if ((r -= tier.weight) < 0) return tier.name;
+  }
+  return "common";
 }
 
 function doPlayerAttack(state: GameState, aim: Vec2): void {
@@ -242,6 +308,10 @@ function reapDead(state: GameState): void {
     grantXp(state, m.xp);
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state);
+    if (m.kind === "boss") {
+      state.status = "won";
+      announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawler.");
+    }
   }
   state.monsters = survivors;
 }
@@ -264,11 +334,20 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, l.amount, "heal");
         state.events.push(`Picked up a health kit (+${l.amount}).`);
         break;
-      case "weapon":
+      case "weapon": {
+        const rarity = l.rarity ?? "common";
         p.baseDamage += l.amount;
+        p.weaponRarity = rarity;
         hit(state, p.pos, l.amount, "weapon");
-        state.events.push(`Found a better weapon (+${l.amount} damage).`);
+        const label = rarity.toUpperCase();
+        // Rare/epic drops are a big deal — the System makes a show of it.
+        if (rarity === "rare" || rarity === "epic") {
+          announce(state, `${label} WEAPON! (+${l.amount} damage) The crowd loses it.`);
+        } else {
+          state.events.push(`Found a ${rarity} weapon (+${l.amount} damage).`);
+        }
         break;
+      }
     }
   }
   state.loot = remaining;
@@ -312,6 +391,11 @@ function tryDescend(state: GameState): void {
     return;
   }
   if (state.floor >= CONFIG.finalFloor) {
+    // Floor 18 is a boss arena — the exit is sealed until the boss falls.
+    if (state.monsters.some((m) => m.kind === "boss")) {
+      state.events.push("The boss guards the only way out. Put it down.");
+      return;
+    }
     state.status = "won";
     announce(state, `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`);
     return;
@@ -319,6 +403,73 @@ function tryDescend(state: GameState): void {
   const next = state.floor + 1;
   announce(state, `Descending to floor ${next}. The cameras are rolling, Crawler.`);
   buildFloor(state, next);
+}
+
+/** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
+function doDash(state: GameState): void {
+  const p = state.player;
+  p.dashCd = CONFIG.dashCooldown;
+  p.dashTime = CONFIG.dashDuration;
+  const dir = normalize(p.facing);
+  moveWithCollision(state.map, p.pos, dir, CONFIG.dashDistance, isWalkable);
+}
+
+/** Ranged bolt skill: fire a player projectile along facing/aim. */
+function doBolt(state: GameState, aim: Vec2): void {
+  const p = state.player;
+  const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
+  p.facing = dir;
+  p.boltCd = CONFIG.boltCooldown;
+  state.projectiles.push({
+    id: state.nextEntityId++,
+    pos: { x: p.pos.x + dir.x * 0.6, y: p.pos.y + dir.y * 0.6 },
+    vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
+    damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
+    ttl: CONFIG.boltTtl,
+    from: "player",
+  });
+}
+
+/** Advance every projectile: move, expire, hit walls/entities. */
+function updateProjectiles(state: GameState, dt: number): void {
+  const p = state.player;
+  const survivors: GameState["projectiles"] = [];
+  for (const pr of state.projectiles) {
+    pr.ttl -= dt;
+    pr.pos.x += pr.vel.x * dt;
+    pr.pos.y += pr.vel.y * dt;
+    if (pr.ttl <= 0 || !isWalkable(state.map, pr.pos.x, pr.pos.y)) continue;
+
+    if (pr.from === "player") {
+      let consumed = false;
+      for (const m of state.monsters) {
+        if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
+          const isCrit = chance(state.rng, CONFIG.playerCritChance);
+          let dmg = rollDamage(state.rng, pr.damage);
+          if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
+          m.hp -= dmg;
+          m.hitFlash = 0.12;
+          hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+          consumed = true;
+          break;
+        }
+      }
+      if (consumed) continue;
+    } else {
+      // Enemy projectile: hits the player unless dashing (i-frames).
+      if (p.alive && p.dashTime <= 0 && dist(pr.pos, p.pos) <= CONFIG.projectileRadius + 0.3) {
+        p.hp -= pr.damage;
+        hit(state, p.pos, Math.round(pr.damage), "player");
+        if (p.hp <= 0) {
+          p.hp = 0; p.alive = false; state.status = "dead";
+          announce(state, "Shot down in the arena. The audience is on its feet.");
+        }
+        continue;
+      }
+    }
+    survivors.push(pr);
+  }
+  state.projectiles = survivors;
 }
 
 /**
@@ -337,6 +488,9 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
   // Cooldowns / transient timers.
   if (p.attackCooldown > 0) p.attackCooldown = Math.max(0, p.attackCooldown - dt);
   if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
+  if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
+  if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
+  if (p.boltCd > 0) p.boltCd = Math.max(0, p.boltCd - dt);
 
   // Movement.
   const move = intent.move;
@@ -346,13 +500,18 @@ export function step(state: GameState, intent: Intent, dt: number): GameState {
     moveWithCollision(state.map, p.pos, dir, p.speed * dt, isWalkable);
   }
 
+  // Skills.
+  if (intent.dash && p.alive && p.dashCd === 0) doDash(state);
+  if (intent.bolt && p.alive && p.boltCd === 0) doBolt(state, intent.aim ?? p.facing);
+
   // Attack.
   if (intent.attack && p.alive && p.attackCooldown === 0) {
     doPlayerAttack(state, intent.aim ?? p.facing);
   }
 
-  // Monsters.
+  // Monsters + projectiles.
   for (const m of state.monsters) stepMonster(state, m, dt);
+  updateProjectiles(state, dt);
 
   reapDead(state);
   collectLoot(state);
