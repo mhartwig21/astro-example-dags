@@ -14,7 +14,7 @@ import type { Player } from "./types";
 // protocol all pick it up from this registry.
 
 export type AbilityId =
-  | "melee" | "dash" | "bolt" | "nova" | "orbit" | "stance"
+  | "melee" | "dash" | "bolt" | "nova" | "orbit" | "stance" | "overcharge"
   | "airstrike" | "cataclysm" | "bullettime";
 
 // Battle Stance: which attack TYPE the crawler currently favors. Melee swings
@@ -30,7 +30,7 @@ export const ABILITY_SLOTS = 4; // active slots (the ultimate has its own slot)
 export const STARTING_ABILITIES: AbilityId[] = ["melee", "dash", "bolt"];
 /** Abilities that must be discovered (tomes/boxes/shop) before they can slot. */
 export const DISCOVERABLE_ABILITIES: AbilityId[] = [
-  "nova", "orbit", "stance", "airstrike", "cataclysm", "bullettime",
+  "nova", "orbit", "stance", "overcharge", "airstrike", "cataclysm", "bullettime",
 ];
 
 export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier: AbilityTier; passive?: boolean }> = {
@@ -40,6 +40,7 @@ export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier
   nova: { name: "Nova", blurb: "Radial shockwave", tier: "active" },
   orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
   stance: { name: "Battle Stance", blurb: "Toggle Brawler/Deadeye: matching attacks hit harder, mismatched softer", tier: "active" },
+  overcharge: { name: "Overcharge", blurb: "Bank power: your next attack hits much harder", tier: "active" },
   airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
   cataclysm: { name: "Cataclysm", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
   bullettime: { name: "Bullet Time", blurb: "The world slows; you do not", tier: "ultimate" },
@@ -94,6 +95,12 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "stance.flow", ability: "stance", title: "Flow", maxRank: 3, desc: (r) => `For ${CONFIG.stanceSurgeSeconds}s after a swap: matching damage +${r * 15}%`, requires: ["stance.edge"], excludes: ["stance.discipline"], pos: { x: 78, y: 48 } },
   { id: "stance.perfect", ability: "stance", title: "PERFECT FORM", maxRank: 1, desc: () => "While settled, BOTH attack types count as matching", requires: ["stance.discipline"], capstone: true, pos: { x: 22, y: 86 } },
   { id: "stance.moment", ability: "stance", title: "MOMENTUM", maxRank: 1, desc: () => "Swapping stances primes a guaranteed crit on your next matching attack", requires: ["stance.flow"], capstone: true, pos: { x: 78, y: 86 } },
+  // Overcharge: surge -> (volley XOR echo) -> System Shock. The fork picks
+  // WHICH attack the banked power is built around: bolt volleys or swings.
+  { id: "overcharge.surge", ability: "overcharge", title: "Surge", maxRank: 3, desc: (r) => `Overcharged damage bonus +${r * 25}%`, pos: { x: 50, y: 12 } },
+  { id: "overcharge.volley", ability: "overcharge", title: "Overcharged Volley", maxRank: 2, desc: (r) => `Overcharged bolt casts fire ${r} extra bolt${r === 1 ? "" : "s"}`, requires: ["overcharge.surge"], excludes: ["overcharge.echo"], pos: { x: 22, y: 48 } },
+  { id: "overcharge.echo", ability: "overcharge", title: "Echo Strike", maxRank: 2, desc: (r) => `Overcharged swings strike twice (echo at ${r * 40}% damage)`, requires: ["overcharge.surge"], excludes: ["overcharge.volley"], pos: { x: 78, y: 48 } },
+  { id: "overcharge.shock", ability: "overcharge", title: "SYSTEM SHOCK", maxRank: 1, desc: () => "Overcharged hits shatter poise — non-boss enemies stagger instantly", requires: ["overcharge.surge"], capstone: true, pos: { x: 50, y: 86 } },
   // Orbit: blade -> razor + corkscrew (no fork; the passive stays simple)
   { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
   { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
@@ -193,6 +200,16 @@ export function stanceMult(p: Player, kind: StanceId): number {
   if (settled) mult *= 1 + rank(p, "stance.discipline") * 0.1;
   if (p.stanceSwapWindow > 0) mult *= 1 + rank(p, "stance.flow") * 0.15;
   return mult;
+}
+
+/** What the banked Overcharge does when the next attack spends it. */
+export function overchargeParams(p: Player) {
+  return {
+    mult: CONFIG.overchargeDamageMult + rank(p, "overcharge.surge") * 0.25,
+    extraBolts: rank(p, "overcharge.volley"),
+    echoFrac: rank(p, "overcharge.echo") * 0.4,
+    shatter: rank(p, "overcharge.shock") > 0,
+  };
 }
 
 export function orbitParams(p: Player) {

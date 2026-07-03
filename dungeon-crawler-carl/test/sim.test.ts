@@ -2225,6 +2225,83 @@ describe("battle stance", () => {
   });
 });
 
+describe("overcharge", () => {
+  const chargeCast: Intent = { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] };
+
+  it("banks on cast (cooldown starts immediately) and empowers the next bolt volley", () => {
+    const g = createGame(990);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    learnAbility(g, p, "overcharge");
+    step(g, chargeCast, 1 / 60);
+    expect(p.overcharged).toBe(true);
+    expect(p.cd.overcharge).toBeGreaterThan(0); // charge -> pick the moment -> spend
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.overcharged).toBe(false); // spent on fire
+    const dmg = g.projectiles[g.projectiles.length - 1].damage;
+    expect(dmg).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.overchargeDamageMult)));
+  });
+
+  it("a whiffed swing does not waste the charge; a connecting one spends it", () => {
+    const g = createGame(991);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    learnAbility(g, p, "overcharge");
+    step(g, chargeCast, 1 / 60);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.overcharged).toBe(true); // nothing in reach: still banked
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // melee cooldown
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.overcharged).toBe(false);
+    expect(g.monsters[0].hp).toBeLessThan(99999);
+  });
+
+  it("Overcharged Volley: the empowered cast fires extra bolts", () => {
+    const g = createGame(992);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    learnAbility(g, p, "overcharge");
+    p.abilities.ranks = { "overcharge.surge": 1, "overcharge.volley": 2 };
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const plain = g.projectiles.length;
+    step(g, chargeCast, 1 / 60);
+    for (let i = 0; i < 60; i++) step(g, idle(), 1 / 60); // bolt cooldown (bolts expire too)
+    const before = g.projectiles.length;
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.projectiles.length - before).toBe(plain + 2);
+  });
+
+  it("Echo Strike: an overcharged swing hits the target twice", () => {
+    const g = createGame(993);
+    const p = g.players[0];
+    p.critChance = 0;
+    g.monsters.length = 0;
+    learnAbility(g, p, "overcharge");
+    p.abilities.ranks = { "overcharge.surge": 1, "overcharge.echo": 2 };
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    step(g, chargeCast, 1 / 60);
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const hitsOnMonster = g.hits.filter((h) => h.kind === "enemy" && h.amount > 0);
+    expect(hitsOnMonster.length).toBe(2); // the swing and its echo
+  });
+
+  it("SYSTEM SHOCK: an overcharged hit staggers a healthy non-boss instantly", () => {
+    const g = createGame(994);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    learnAbility(g, p, "overcharge");
+    p.abilities.ranks = { "overcharge.surge": 1, "overcharge.shock": 1 };
+    // A tanky brute: one hit is nowhere near its poise threshold on its own.
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    step(g, chargeCast, 1 / 60);
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.monsters[0].stagger).toBeGreaterThan(0);
+  });
+});
+
 describe("no-op safety", () => {
   it("stepping a finished game is a no-op", () => {
     const g = createGame(1);

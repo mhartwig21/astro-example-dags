@@ -187,6 +187,9 @@ export const CONFIG = {
   stanceWrongMult: 0.8, // mismatched attack-type damage
   stanceSettleSeconds: 6, // time-in-stance before Discipline/PERFECT FORM apply
   stanceSurgeSeconds: 3, // Flow's post-swap surge window
+  // Overcharge: bank power; the NEXT attack (melee swing or bolt volley) spends it.
+  overchargeCooldown: 8, // starts on cast, not on spend
+  overchargeDamageMult: 1.5, // the banked attack's base multiplier
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up

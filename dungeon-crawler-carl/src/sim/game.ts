@@ -11,7 +11,7 @@ import {
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitBladePos, orbitParams, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
+  novaParams, orbitBladePos, orbitParams, overchargeParams, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
@@ -365,6 +365,7 @@ function makePlayer(id: number, name: string): Player {
     stanceTime: 0,
     stanceSwapWindow: 0,
     stanceCritReady: false,
+    overcharged: false,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -414,6 +415,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.stanceTime = 0; // the stance itself carries — it's part of the build
   p.stanceSwapWindow = 0;
   p.stanceCritReady = false;
+  p.overcharged = false;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -912,7 +914,7 @@ function dropLoot(state: GameState, pos: Vec2): void {
  */
 function damageMonster(
   state: GameState, p: Player, m: Monster, base: number,
-  opts: { allowCrit?: boolean; forceCrit?: boolean; dir?: Vec2; knockback?: number } = {},
+  opts: { allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean; dir?: Vec2; knockback?: number } = {},
 ): void {
   const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
   let dmg = rollDamage(state.rng, base);
@@ -929,7 +931,8 @@ function damageMonster(
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
     m.poiseDmg += dmg;
-    if (m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
+    // SYSTEM SHOCK (overcharge capstone): the hit itself is a poise break.
+    if ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
       m.poiseDmg = 0;
       m.stagger = CONFIG.staggerDuration;
       m.windup = 0; // interrupted — the committed attack never lands
@@ -1003,9 +1006,10 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     }
   }
 
-  // MOMENTUM (stance capstone): the primed crit spends only on a swing that
-  // actually connects — whiffing into empty air doesn't waste the swap.
+  // MOMENTUM (stance capstone) and Overcharge both spend only on a swing that
+  // actually connects — whiffing into empty air doesn't waste the setup.
   const momentum = p.stanceCritReady && p.stance === "melee";
+  const oc = p.overcharged ? overchargeParams(p) : null;
   let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
@@ -1013,12 +1017,21 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute * stanceMult(p, "melee"), {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, forceCrit: momentum,
+    const dmg = p.baseDamage * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1);
+    damageMonster(state, p, m, dmg, {
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
+      forceCrit: momentum, shatterPoise: oc?.shatter,
     });
+    // Echo Strike: the overcharged swing lands a second, softer hit.
+    if (oc && oc.echoFrac > 0 && m.hp > 0) {
+      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon) });
+    }
     connected = true;
   }
-  if (momentum && connected) p.stanceCritReady = false;
+  if (connected) {
+    if (momentum) p.stanceCritReady = false;
+    if (oc) p.overcharged = false;
+  }
 }
 
 const KILL_HYPE: Record<Monster["kind"], number> = {
@@ -1707,6 +1720,18 @@ function doStance(state: GameState, p: Player): void {
   hit(state, p.pos, 0, "weapon"); // a flourish poof for the juice layer
 }
 
+/**
+ * Overcharge: bank power now; the NEXT attack (melee swing or bolt volley)
+ * spends it — harder-hitting, plus whatever the tree adds (extra bolts, an
+ * echo strike, poise-shattering hits). The cooldown starts on cast, so the
+ * rhythm is charge -> pick the moment -> spend.
+ */
+function doOvercharge(state: GameState, p: Player): void {
+  p.overcharged = true;
+  p.cd.overcharge = CONFIG.overchargeCooldown * cdMult(p);
+  hit(state, p.pos, 0, "weapon"); // a crackle poof for the juice layer
+}
+
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
 function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const bp = boltParams(p);
@@ -1714,15 +1739,18 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   p.facing = dir;
   p.cd.bolt = bp.cooldown * cdMult(p);
   // Stance judges the CAST (a volley loosed in Deadeye stays hot even if you
-  // swap mid-flight). MOMENTUM spends on fire — the shot taken is the shot
-  // primed; whether it lands is the archer's problem.
+  // swap mid-flight). MOMENTUM and Overcharge spend on fire — the shot taken
+  // is the shot primed; whether it lands is the archer's problem.
   const momentum = p.stanceCritReady && p.stance === "ranged";
   if (momentum) p.stanceCritReady = false;
-  const damage = Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * stanceMult(p, "ranged")));
+  const oc = p.overcharged ? overchargeParams(p) : null;
+  if (oc) p.overcharged = false;
+  const damage = Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
+  const count = bp.count + (oc?.extraBolts ?? 0); // Overcharged Volley widens the fan
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
-  for (let i = 0; i < bp.count; i++) {
-    const a = base + (i - (bp.count - 1) / 2) * spread;
+  for (let i = 0; i < count; i++) {
+    const a = base + (i - (count - 1) / 2) * spread;
     const d = { x: Math.cos(a), y: Math.sin(a) };
     state.projectiles.push({
       id: state.nextEntityId++,
@@ -1734,6 +1762,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       ownerId: p.id,
       pierce: bp.pierce,
       crit: momentum || undefined,
+      shatter: oc?.shatter || undefined,
     });
   }
 }
@@ -1922,6 +1951,7 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
     case "stance": doStance(state, p); break;
+    case "overcharge": doOvercharge(state, p); break;
     case "orbit": break; // passive: runs via updateOrbit while slotted
     case "airstrike": doAirstrike(state, p, aim); break;
     case "cataclysm": doCataclysm(state, p); break;
@@ -1967,7 +1997,8 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
           damageMonster(state, owner, m, pr.damage, {
-            dir: normalize(pr.vel), knockback: CONFIG.boltKnockback, forceCrit: pr.crit,
+            dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
+            forceCrit: pr.crit, shatterPoise: pr.shatter,
           });
           // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
           if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {

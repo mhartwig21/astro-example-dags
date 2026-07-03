@@ -47,6 +47,7 @@ export interface Player {
   stanceTime: number; // seconds since the last swap (drives Discipline's "settled")
   stanceSwapWindow: number; // seconds left of Flow's post-swap surge
   stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
+  overcharged: boolean; // Overcharge banked: the next attack spends it
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -232,6 +233,7 @@ export interface Projectile {
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
+  shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */

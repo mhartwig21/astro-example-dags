@@ -1038,6 +1038,7 @@ let skillBarKey = "";
 const CD_BASE: Partial<Record<AbilityId, number>> = {
   melee: CONFIG.playerAttackCooldown, dash: CONFIG.dashCooldown, bolt: CONFIG.boltCooldown,
   nova: CONFIG.novaCooldown, stance: CONFIG.stanceSwapCooldown,
+  overcharge: CONFIG.overchargeCooldown,
   airstrike: CONFIG.ultAirstrikeCooldown,
   cataclysm: CONFIG.ultCataclysmCooldown, bullettime: CONFIG.ultBulletTimeCooldown,
 };
@@ -1050,7 +1051,7 @@ function updateSkills(s: GameState): void {
     { ability: p.abilities.ultimate, ult: true },
   ];
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}`;
+    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     skillsEl.innerHTML = entries
@@ -1061,7 +1062,9 @@ function updateSkills(s: GameState): void {
             ? `Dash ×${p.dashCharges}` // charge count in the chip
             : e.ability === "stance"
               ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
-              : ABILITY_INFO[e.ability].name.split(" ").pop())
+              : e.ability === "overcharge" && p.overcharged
+                ? "CHARGED" // banked and waiting for the next attack
+                : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
