@@ -1221,7 +1221,8 @@ function pumpToasts(): void {
 }
 
 // Headline moments (boss down, new band, wipe): one at a time, front and center.
-const bannerLayer = document.getElementById("banner")!;
+// #headline, NOT #banner — that id belongs to the keybinds strip at the top.
+const bannerLayer = document.getElementById("headline")!;
 const bannerQueue: Announcement[] = [];
 let bannerActive = false;
 
