@@ -134,6 +134,28 @@ _None — everything committed is CC0. Add a row here (author, work, license,
 link) for every CC-BY file you commit, and mirror it in the in-game credits
 screen._
 
+## Ability icons — game-icons.net (CC BY 3.0, attribution REQUIRED)
+
+`public/icons/*.svg` come from https://game-icons.net (GitHub: game-icons/icons),
+license **CC BY 3.0** — unlike everything else in this repo, these REQUIRE
+attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
+
+| Icon | Ability | Author |
+|---|---|---|
+| sword-slice | melee | Lorc |
+| sprint | dash | Lorc |
+| energy-arrow | bolt | Lorc |
+| explosion-rays | nova | Lorc |
+| orbital | orbit | Lorc |
+| carpet-bombing | airstrike | Skoll |
+| quake-stomp | cataclysm | Lorc |
+| stopwatch | bullettime | Lorc |
+
+Convention: `/icons/<abilityId>.svg`, background rect stripped so the white
+glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
+New abilities: pick an icon at game-icons.net, fetch the raw SVG from the
+GitHub mirror, strip `<path d="M0 0h512v512H0z"/>`, and add a row here.
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.

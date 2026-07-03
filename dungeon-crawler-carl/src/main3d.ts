@@ -306,9 +306,10 @@ function abilityCard(s: GameState, id: AbilityId): string {
       controls = `<div class="slot-controls">${ultBtn}</div>`;
     }
   }
+  const icon = `<i class="icon" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>`;
   return (
     `<div class="abil-card">` +
-    `<div class="aname">${info.name} <span class="akey">${whereIs(p, id)}</span></div>` +
+    `<div class="aname">${icon}${info.name} <span class="akey">${whereIs(p, id)}</span></div>` +
     `<div class="ablurb">${info.blurb} <em>(${info.tier})</em></div>` +
     nodes + controls +
     `</div>`
@@ -577,7 +578,11 @@ function updateSkills(s: GameState): void {
           ? ABILITY_INFO[e.ability].name.split(" ").pop()
           : "&nbsp;—&nbsp;";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span> ${label}<div class="cd"><i></i></div></div>`;
+        // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
+        const icon = e.ability
+          ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
+          : `<i class="icon"></i>`;
+        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}${label}<div class="cd"><i></i></div></div>`;
       })
       .join("") +
       (p.abilities.bench.length > 0

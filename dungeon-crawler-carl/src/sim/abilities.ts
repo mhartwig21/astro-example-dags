@@ -35,7 +35,7 @@ export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier
   nova: { name: "Nova", blurb: "Radial shockwave", tier: "active" },
   orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
   airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
-  cataclysm: { name: "Cataclysm Nova", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
+  cataclysm: { name: "Cataclysm", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
   bullettime: { name: "Bullet Time", blurb: "The world slows; you do not", tier: "ultimate" },
 };
 
