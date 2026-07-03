@@ -1,11 +1,12 @@
 import * as THREE from "three";
-import { Tile, type GameState, type HitEvent, type Vec2 } from "../sim/types";
+import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { ATTACHMENT_NODES, CANONICAL_LOADOUT, loadoutFor, rarityGlow } from "./weaponry";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -58,6 +59,7 @@ export class Renderer3D {
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   private prevPlayers = new Map<number, Vec2>();
   private prevSwings = new Map<number, number>();
+  private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
   private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
   private shake = 0;
@@ -108,6 +110,16 @@ export class Renderer3D {
     // SkeletonUtils.clone: a plain .clone() leaves skinned meshes bound to the
     // source skeleton, which renders as a mangled/collapsed pose.
     const g = cloneSkinned(m.scene) as THREE.Group;
+    // KayKit characters ship their whole class arsenal visible at once; show one
+    // clean canonical loadout instead (players get theirs from equipment).
+    const attachments = ATTACHMENT_NODES[key];
+    if (attachments) {
+      const canonical = CANONICAL_LOADOUT[key] ?? [];
+      for (const name of attachments) {
+        const node = g.getObjectByName(name);
+        if (node) node.visible = canonical.includes(name);
+      }
+    }
     g.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         o.castShadow = true;
@@ -217,6 +229,77 @@ export class Renderer3D {
     g.userData.weapon = weapon;
     g.userData.weaponRestX = weapon.rotation.x;
     return g;
+  }
+
+  /**
+   * Show the weapon/shield meshes matching a player's equipment. Native nodes
+   * (the Knight's swords/shields) toggle visibility; foreign weapons (an axe
+   * from the barbarian GLB) are cloned once and grafted onto the handslot.r
+   * bone, where they ride the hand through every animation clip.
+   */
+  private applyLoadout(mesh: THREE.Group, pl: Player): void {
+    const { weapon, shield } = loadoutFor(pl);
+    const key = `${weapon.srcKey}/${weapon.node}/${shield ?? "-"}/${pl.equipment.weapon?.rarity ?? "-"}`;
+    if (this.loadoutKeys.get(pl.id) === key) return;
+    this.loadoutKeys.set(pl.id, key);
+
+    // Hide every known attachment (including previous grafts).
+    for (const name of ATTACHMENT_NODES.player) {
+      const node = mesh.getObjectByName(name);
+      if (node) node.visible = false;
+    }
+    const grafts: THREE.Object3D[] = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
+    for (const g of grafts) g.visible = false;
+
+    // Shield (armor slot), unless the weapon needs both hands.
+    if (shield) {
+      const node = mesh.getObjectByName(shield);
+      if (node) node.visible = true;
+    }
+
+    // Weapon: native node or a cached cross-model graft.
+    let weaponObj: THREE.Object3D | null = null;
+    if (weapon.srcKey === "player") {
+      weaponObj = mesh.getObjectByName(weapon.node) ?? null;
+      if (weaponObj) weaponObj.visible = true;
+    } else {
+      const graftName = `graft_${weapon.srcKey}_${weapon.node}`;
+      weaponObj = mesh.getObjectByName(graftName) ?? null;
+      if (!weaponObj) {
+        const srcModel = this.models[weapon.srcKey];
+        const srcNode = srcModel?.scene.getObjectByName(weapon.node);
+        // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
+        const hand = mesh.getObjectByName("handslotr") ?? mesh.getObjectByName("handslot.r");
+        if (srcNode && hand) {
+          weaponObj = srcNode.clone(true);
+          weaponObj.name = graftName;
+          // Same rig family: the node's local transform relative to its own
+          // handslot carries over 1:1.
+          hand.add(weaponObj);
+          grafts.push(weaponObj);
+          mesh.userData.grafts = grafts;
+        }
+      }
+      if (weaponObj) weaponObj.visible = true;
+    }
+
+    // Rarity flair: emissive tint on the weapon's materials.
+    if (weaponObj) {
+      const glow = rarityGlow(pl.equipment.weapon?.rarity);
+      weaponObj.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        if (glow) {
+          mat.emissive = new THREE.Color(glow.color);
+          mat.emissiveIntensity = glow.intensity;
+        } else {
+          mat.emissive = new THREE.Color(0x000000);
+          mat.emissiveIntensity = 0;
+        }
+        m.material = mat;
+      });
+    }
   }
 
   private buildMonsterMesh(kind: keyof typeof THEME.archetype): THREE.Group {
@@ -639,6 +722,7 @@ export class Renderer3D {
       mesh.position.set(pl.pos.x, 0, pl.pos.y);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
+      this.applyLoadout(mesh, pl);
       const prevSwing = this.prevSwings.get(pl.id) ?? 0;
       if (mesh.userData.mixer) {
         // Real rigged model: drive clips; procedural bob/tip-over would fight them.

@@ -14,8 +14,9 @@ const SLOT_WEIGHTS: { slot: ItemSlot; weight: number }[] = [
 
 const RARITY_AFFIX_COUNT: Record<Rarity, number> = { common: 1, magic: 2, rare: 3, epic: 4 };
 
+// Weapon nouns map to real 3D models on the character rig (render3d/weaponry.ts).
 const SLOT_NOUNS: Record<ItemSlot, string[]> = {
-  weapon: ["Blade", "Axe", "Maul", "Spear", "Cleaver"],
+  weapon: ["Blade", "Axe", "Maul", "Spear", "Cleaver", "Wand", "Staff", "Crossbow"],
   armor: ["Plate", "Hauberk", "Carapace", "Aegis", "Vest"],
   trinket: ["Charm", "Sigil", "Idol", "Band", "Totem"],
 };
@@ -83,7 +84,12 @@ export function generateItem(rng: Rng, floor: number, nextId: () => number): Ite
     affixes[key] = (affixes[key] ?? 0) + rollAffix(rng, key, floor, mult);
   }
 
-  const name = `${pick(rng, RARITY_PREFIX[rarity])} ${pick(rng, SLOT_NOUNS[slot])}`;
+  // The System's favorite joke: a sliver of epic weapons are just... a Mug.
+  const noun =
+    slot === "weapon" && rarity === "epic" && nextFloat(rng) < 0.07
+      ? "Mug"
+      : pick(rng, SLOT_NOUNS[slot]);
+  const name = `${pick(rng, RARITY_PREFIX[rarity])} ${noun}`;
   return { id: nextId(), slot, rarity, name, affixes };
 }
 
