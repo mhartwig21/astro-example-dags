@@ -223,6 +223,10 @@ export const CONFIG = {
   // swift (+speed), shielded (takes less damage), volatile (delayed death
   // blast — clear the corpse), summoner (calls swarmer adds).
   eliteAffixFromFloor: 3,
+  // Ringside introductions: closing within this range of an unmet boss/elite
+  // freezes the world for the reveal (nobody gets hit mid-banner).
+  encounterRevealRadius: 7, // tiles
+  encounterIntroSeconds: 2.2,
   swiftSpeedMult: 1.4,
   shieldedDamageTakenMult: 0.7,
   volatileDelay: 0.8, // seconds from death to blast (the dodge window)

@@ -36,6 +36,7 @@ interface Prev {
   boltCd: number;
   attackSwing: number;
   frenzy: boolean;
+  encounter: boolean;
 }
 
 export class AudioDirector {
@@ -105,6 +106,7 @@ export class AudioDirector {
       boltCd: p.cd.bolt ?? 0,
       attackSwing: p.attackSwing,
       frenzy: p.frenzy,
+      encounter: state.encounter !== null,
     };
 
     const prev = this.prev;
@@ -123,6 +125,8 @@ export class AudioDirector {
       if (!prev.pendingRewards && cur.pendingRewards) this.sink.play("sponsor");
       // Crowd Frenzy kicks in: the arena roars.
       if (cur.frenzy && !prev.frenzy) this.sink.play("crowd");
+      // Ringside introduction: the boss sting over the frozen reveal.
+      if (cur.encounter && !prev.encounter) this.sink.play("boss_intro");
       // Skills fire on rising edges of their transient state.
       // The melee whoosh triggers on the swing itself — a whiff still sounds.
       if (cur.attackSwing > prev.attackSwing + 1e-6) this.sink.play("swing");

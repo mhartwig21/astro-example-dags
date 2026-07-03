@@ -257,6 +257,51 @@ function drawHud(
   ctx.textBaseline = "top";
   ctx.font = "14px ui-monospace, monospace";
 
+  // Boss health bar (top center): the nearest introduced, living boss/elite.
+  let boss: GameState["monsters"][number] | null = null;
+  let bossD = 16;
+  for (const m of state.monsters) {
+    if ((m.kind !== "boss" && !m.elite) || !m.introduced || m.hp <= 0) continue;
+    const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
+    if (d < bossD) { bossD = d; boss = m; }
+  }
+  if (boss) {
+    const w = Math.min(420, viewW - 240);
+    const x = viewW / 2 - w / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(x - 8, 8, w + 16, 34);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffd9c9";
+    ctx.fillText(
+      `${boss.kind === "boss" ? "☠" : "◆"} ${boss.eliteName ?? "THE FLOOR BOSS"}` +
+        (boss.affix ? ` [${boss.affix.toUpperCase()}]` : ""),
+      viewW / 2, 12,
+    );
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(x, 30, w, 8);
+    ctx.fillStyle = COLORS.monster;
+    ctx.fillRect(x, 30, w * Math.max(0, boss.hp / boss.maxHp), 8);
+  }
+
+  // Ringside introduction splash (the sim is frozen while this shows).
+  if (state.encounter) {
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, viewH * 0.3, viewW, 90);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#c9a24b";
+    ctx.fillText("◆ RINGSIDE INTRODUCTION ◆", viewW / 2, viewH * 0.3 + 12);
+    ctx.font = "28px ui-monospace, monospace";
+    ctx.fillStyle = "#ffe9c4";
+    ctx.fillText(state.encounter.name, viewW / 2, viewH * 0.3 + 34);
+    ctx.font = "14px ui-monospace, monospace";
+    if (state.encounter.affix) {
+      ctx.fillStyle = "#e2574c";
+      ctx.fillText(state.encounter.affix.toUpperCase(), viewW / 2, viewH * 0.3 + 68);
+    }
+    ctx.textAlign = "left";
+  }
+
   // Top-left: floor + timer.
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   ctx.fillRect(10, 40, 220, 74);

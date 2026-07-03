@@ -28,6 +28,7 @@ export const AUDIO_MANIFEST = {
   swing: { url: "/audio/sfx/swing.ogg", bus: "sfx", volume: 0.5, throttleMs: 120 },
   tell: { url: "/audio/sfx/tell.ogg", bus: "sfx", volume: 0.55, throttleMs: 150 },
   kill: { url: "/audio/sfx/kill.ogg", bus: "sfx", volume: 0.9, throttleMs: 90 },
+  boss_intro: { url: "/audio/sfx/boss_intro.ogg", bus: "sfx", volume: 0.9, throttleMs: 1000 },
 
   // Skills (state-edge triggered).
   dash: { url: "/audio/sfx/dash.ogg", bus: "sfx" },

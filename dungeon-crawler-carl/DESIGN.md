@@ -152,6 +152,12 @@ This document describes the full target architecture, then defines the scope of 
   telegraphed by a ground ring — clear the corpse), or **summoner** (calls swarmer adds,
   lifetime-capped, worth ~no XP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
   (faster chase, +3 volley projectiles and a shorter volley cooldown per phase, announced).
+- **Ringside introductions:** the first time any player closes within 7 tiles of an unmet
+  boss/elite, the sim FREEZES the whole world (`GameState.encounter`, like the safe-room
+  pause — multiplayer-consistent) for ~2.2s while the System introduces the menace by name
+  and affix. Nobody can be hit mid-reveal. Hosts render an intro splash over the freeze
+  and, for the rest of the fight, a persistent top-center **boss health bar** (icon, name,
+  affix, HP) for the nearest introduced boss/elite. One introduction per menace, ever.
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.

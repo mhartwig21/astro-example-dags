@@ -127,6 +127,54 @@ function bump(el: HTMLElement): void {
   chip.classList.add("bump");
 }
 
+// Boss encounter UI: the ringside intro splash (mirrors the sim's world
+// freeze) and a persistent top-center health bar for the engaged menace.
+const bossbarEl = document.getElementById("bossbar")!;
+const bbIcon = document.getElementById("bb-icon")!;
+const bbName = document.getElementById("bb-name")!;
+const bbAffix = document.getElementById("bb-affix")!;
+const bbFill = document.getElementById("bb-fill") as HTMLElement;
+const bossintroEl = document.getElementById("bossintro")!;
+const biName = document.getElementById("bi-name")!;
+const biAffix = document.getElementById("bi-affix")!;
+let introShownFor = -1;
+
+function updateBossBar(s: GameState): void {
+  const p = me(s);
+  const enc = s.encounter;
+  if (enc) {
+    if (introShownFor !== enc.monsterId) {
+      introShownFor = enc.monsterId;
+      biName.textContent = enc.name;
+      biAffix.textContent = enc.affix
+        ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
+        : enc.kind === "boss" ? "BOSS" : "ELITE";
+      bossintroEl.classList.remove("show");
+      void (bossintroEl as HTMLElement).offsetWidth; // restart the scale-in
+      bossintroEl.classList.add("show");
+    }
+  } else {
+    bossintroEl.classList.remove("show");
+  }
+  // Engaged target: the nearest introduced, living boss/elite within range.
+  let target: GameState["monsters"][number] | null = null;
+  let best = 16;
+  for (const m of s.monsters) {
+    if ((m.kind !== "boss" && !m.elite) || !m.introduced || m.hp <= 0) continue;
+    const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
+    if (d < best) { best = d; target = m; }
+  }
+  if (!target) {
+    bossbarEl.style.display = "none";
+    return;
+  }
+  bossbarEl.style.display = "block";
+  bbIcon.textContent = target.kind === "boss" ? "☠" : "◆";
+  bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
+  bbAffix.textContent = target.affix ? target.affix.toUpperCase() : "";
+  bbFill.style.width = `${Math.max(0, Math.min(1, target.hp / target.maxHp)) * 100}%`;
+}
+
 function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
@@ -874,6 +922,7 @@ async function main(): Promise<void> {
     updateHud(state);
     updateSkills(state);
     updateShowHud(state);
+    updateBossBar(state);
     drawMinimap(state);
     requestAnimationFrame(frame);
   }

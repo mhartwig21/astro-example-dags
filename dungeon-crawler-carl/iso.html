@@ -69,6 +69,31 @@
         background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
         padding: 4px 14px; font-size: 12px; color: #9fd8e8; pointer-events: none; }
 
+      /* Boss encounter: ringside intro splash + persistent top health bar */
+      #bossintro { position: fixed; top: 26%; left: 50%; transform: translateX(-50%);
+        display: none; text-align: center; pointer-events: none; z-index: 20; }
+      #bossintro .bi-kicker { color: #c9a24b; font-size: 13px; letter-spacing: 4px; }
+      #bossintro .bi-name { font-size: 36px; font-weight: 800; color: #ffe9c4; letter-spacing: 2px;
+        margin-top: 6px; text-shadow: 0 2px 24px rgba(226,87,76,0.6), 0 1px 3px #000; }
+      #bossintro .bi-affix { color: #e2574c; font-size: 13px; letter-spacing: 3px; margin-top: 6px; }
+      #bossintro.show { display: block; animation: bi-in 0.45s ease-out; }
+      @keyframes bi-in {
+        from { opacity: 0; transform: translateX(-50%) scale(1.4); }
+        to { opacity: 1; transform: translateX(-50%) scale(1); }
+      }
+      #bossbar { position: fixed; top: 44px; left: 50%; transform: translateX(-50%);
+        width: min(520px, 60vw); display: none; pointer-events: none; z-index: 12;
+        background: rgba(10,8,16,0.72); border: 1px solid #4a2a30; border-radius: 8px;
+        padding: 6px 14px 9px; }
+      #bossbar .bb-row { display: flex; align-items: baseline; gap: 10px; justify-content: center;
+        font-size: 13px; letter-spacing: 1px; }
+      #bossbar .bb-icon { color: #e2574c; font-size: 15px; }
+      #bossbar .bb-name { color: #ffd9c9; font-weight: 700; }
+      #bossbar .bb-affix { color: #e2574c; font-size: 11px; letter-spacing: 2px; }
+      #bossbar .bar { height: 10px; margin-top: 6px; border: 1px solid #000; }
+      #bossbar .bar > i { background: linear-gradient(90deg, #e2574c, #a93226);
+        transition: width 0.15s ease; }
+
       /* Skill bar */
       #skills { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
         display: flex; gap: 10px; pointer-events: none; }
@@ -239,6 +264,19 @@
     <div id="hud-tr" class="hud"></div>
     <div id="hud-log" class="hud"></div>
     <div id="party" style="display:none"></div>
+    <div id="bossbar">
+      <div class="bb-row">
+        <span class="bb-icon" id="bb-icon">☠</span>
+        <span class="bb-name" id="bb-name"></span>
+        <span class="bb-affix" id="bb-affix"></span>
+      </div>
+      <div class="bar"><i id="bb-fill"></i></div>
+    </div>
+    <div id="bossintro">
+      <div class="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
+      <div class="bi-name" id="bi-name"></div>
+      <div class="bi-affix" id="bi-affix"></div>
+    </div>
     <div id="show">
       <div class="stat viewers">👁 <b id="stat-viewers">0</b> viewers</div>
       <div class="stat favorites">⭐ <b id="stat-favorites">0</b> favorites</div>

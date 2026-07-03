@@ -123,10 +123,11 @@ pointers for the audio sources too.
 | `music/safe_room.mp3` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) | The Cynic Project (cynicmusic.com) | CC0 |
 | `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
 
-Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), and the combat-feel trio
+Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), the combat-feel trio
 `sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and
-`sfx/kill.ogg` (killing-blow thump). Kenney Impact/RPG Audio (CC0) have good
-candidates for all three; the game stays silent for each until a clip is added.
+`sfx/kill.ogg` (killing-blow thump), plus `sfx/boss_intro.ogg` (ringside
+introduction sting). Kenney Impact/RPG Audio (CC0) have good candidates for
+all of them; the game stays silent for each until a clip is added.
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.

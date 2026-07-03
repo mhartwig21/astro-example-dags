@@ -455,6 +455,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.loot = [];
   state.projectiles = [];
   state.hazards = [];
+  state.encounter = null;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
   state.timeRemaining = state.timeBudget;
@@ -583,6 +584,7 @@ export function createGame(seed: number): GameState {
     strikes: [],
     bulletTimeLeft: 0,
     hazards: [],
+    encounter: null,
     killsThisStep: 0,
     escapedCollapse: false,
     elapsed: 0,
@@ -638,6 +640,42 @@ export function useFlask(state: GameState, p: Player): void {
   p.hp = Math.min(p.maxHp, p.hp + amt);
   hit(state, p.pos, amt, "heal");
   state.events.push(`${p.name} chugs a Sponsor Slurp™ (+${amt} HP, ${p.flaskCharges} left).`);
+}
+
+/**
+ * Ringside introductions: the first time any living player closes within
+ * encounterRevealRadius of an unmet boss/elite, freeze the world for the
+ * reveal. One introduction per step; each menace gets exactly one.
+ */
+function maybeStartEncounter(state: GameState): void {
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.introduced) continue;
+    if (m.kind !== "boss" && !m.elite) continue;
+    const near = state.players.some(
+      (p) => p.alive && dist(p.pos, m.pos) <= CONFIG.encounterRevealRadius,
+    );
+    if (!near) continue;
+    m.introduced = true;
+    const name = m.eliteName ?? (state.floor >= CONFIG.finalFloor ? "THE FLOOR BOSS" : "THE BOSS");
+    state.encounter = {
+      monsterId: m.id,
+      name,
+      kind: m.kind,
+      elite: !!m.elite,
+      affix: m.affix,
+      timeLeft: CONFIG.encounterIntroSeconds,
+      total: CONFIG.encounterIntroSeconds,
+    };
+    const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
+    announce(
+      state,
+      m.kind === "boss"
+        ? `RINGSIDE INTRODUCTION: ${name}. The exit stays sealed while it breathes. FIGHT.`
+        : `RINGSIDE INTRODUCTION: ${name}${tag}. The crowd wants a clean fight. They won't get one.`,
+    );
+    for (const p of alivePlayers(state)) addHype(state, p, 8); // entrances play great
+    return;
+  }
 }
 
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
@@ -1630,6 +1668,16 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   // Personal drafts do NOT pause the world (multiplayer-safe); hosts may pause
   // locally in solo as a UX choice.
   if (state.safeRoom) return state;
+
+  // Ringside introduction: the world holds its breath (players AND monsters)
+  // while the banner plays, so the reveal can never be the thing that kills you.
+  if (state.encounter) {
+    state.encounter.timeLeft -= dt;
+    if (state.encounter.timeLeft <= 0) state.encounter = null;
+    return state;
+  }
+  maybeStartEncounter(state);
+  if (state.encounter) return state;
 
   const intents: PartyIntents =
     "move" in intent ? { [state.players[0]?.id ?? 0]: intent as Intent } : (intent as PartyIntents);

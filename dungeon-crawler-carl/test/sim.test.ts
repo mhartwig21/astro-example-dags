@@ -1314,6 +1314,66 @@ describe("elite affixes", () => {
   });
 });
 
+describe("ringside introductions", () => {
+  function withElite(seed: number) {
+    const g = restoreGame({
+      seed, floor: 4,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    const elite = g.monsters.find((m) => m.elite)!;
+    expect(elite).toBeDefined();
+    return { g, elite };
+  }
+
+  it("closing with an elite freezes the world for the reveal, once", () => {
+    const { g, elite } = withElite(960);
+    const p = g.players[0];
+    p.pos = { x: elite.pos.x + 3, y: elite.pos.y }; // inside the reveal radius
+    elite.attackCooldown = 0;
+    const hp0 = p.hp;
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(g.encounter).not.toBeNull();
+    expect(g.encounter!.monsterId).toBe(elite.id);
+    expect(g.encounter!.name).toBe(elite.eliteName);
+    expect(elite.introduced).toBe(true);
+    expect(g.announcements.some((a) => a.includes("RINGSIDE") && a.includes(elite.eliteName!))).toBe(true);
+    // Frozen: nobody moves, nobody winds up, nobody gets hit.
+    const px = p.pos.x;
+    const introSteps = Math.ceil(CONFIG.encounterIntroSeconds * 60);
+    for (let i = 0; i < introSteps - 1; i++) {
+      step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    }
+    expect(p.pos.x).toBe(px);
+    expect(p.hp).toBe(hp0);
+    expect(elite.windup).toBe(0);
+    // The freeze ends; the fight is live and never re-introduces.
+    for (let i = 0; i < 5; i++) step(g, idle(), 1 / 60);
+    expect(g.encounter).toBeNull();
+    step(g, idle(), 1 / 60);
+    expect(g.encounter).toBeNull(); // introduced once, fight on
+  });
+
+  it("the final boss introduces as THE FLOOR BOSS", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.players[0].pos = { x: boss.pos.x + 4, y: boss.pos.y };
+    step(g, idle(), 1 / 60);
+    expect(g.encounter?.name).toBe("THE FLOOR BOSS");
+    expect(g.encounter?.kind).toBe("boss");
+  });
+
+  it("dead menaces are never introduced", () => {
+    const { g, elite } = withElite(961);
+    elite.hp = 0;
+    g.players[0].pos = { x: elite.pos.x + 2, y: elite.pos.y };
+    step(g, idle(), 1 / 60);
+    expect(g.encounter).toBeNull();
+  });
+});
+
 describe("boss phases", () => {
   it("crossing 2/3 HP enrages the boss: speed up, denser volleys, announced", () => {
     const g = restoreGame({
@@ -1324,6 +1384,7 @@ describe("boss phases", () => {
     // Park the player near the boss so it acts, but clear other monsters.
     g.monsters = [boss];
     g.projectiles.length = 0;
+    boss.introduced = true; // skip the ringside intro; this test is about phases
     g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
     const speed0 = boss.speed;
     boss.hp = Math.floor(boss.maxHp * 0.5); // between 2/3 and 1/3
@@ -1678,6 +1739,9 @@ describe("locked floors", () => {
 
   it("killing the carrier drops a key; picking it up opens every door", () => {
     const g = atFloor(2, 3);
+    // The key can drop near the floor's elite; skip its ringside intro so the
+    // pickup step isn't consumed by the encounter freeze (tested elsewhere).
+    for (const m of g.monsters) if (m.elite) m.introduced = true;
     expect(g.map.locked).toBe(true);
     const doorsBefore = doorCount(g.map);
     expect(doorsBefore).toBeGreaterThan(0);

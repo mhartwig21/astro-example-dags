@@ -131,6 +131,7 @@ export interface Monster {
   affixCd?: number; // summoner: seconds until the next summon
   summons?: number; // summoner: lifetime adds spawned (capped)
   phase?: number; // boss enrage tier already applied (0..2)
+  introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
 }
@@ -255,6 +256,19 @@ export interface Strike {
   ownerId: number; // caster (kill credit)
 }
 
+// A ringside introduction: set when the party first closes with a boss/elite.
+// While non-null the WORLD IS FROZEN (like the safe room) so the reveal can't
+// kill anyone; hosts render the intro splash + boss health bar from it.
+export interface Encounter {
+  monsterId: number;
+  name: string;
+  kind: MonsterKind;
+  elite: boolean;
+  affix?: EliteAffix;
+  timeLeft: number; // seconds of freeze remaining
+  total: number; // full intro length (render progress)
+}
+
 // A delayed enemy-side blast (volatile elite corpses): telegraphed on the
 // ground by hosts, damages players in radius when the timer expires.
 export interface Hazard {
@@ -323,6 +337,9 @@ export interface GameState {
 
   // Enemy-side delayed blasts (volatile elite corpses).
   hazards: Hazard[];
+
+  // Ringside introduction in progress (world frozen while non-null).
+  encounter: Encounter | null;
 
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
