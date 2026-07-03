@@ -210,9 +210,10 @@ export const CONFIG = {
     frenzyExit: 40,
   },
 
-  // Sponsor rewards (end-of-floor draft)
-  rewardBaseCount: 3,
-  rewardMaxCount: 4,
+  // Sponsor rewards (end-of-floor draft): one option per sponsor, capped here.
+  // Sponsors beyond the cap pitch extra candidates and the best-fitting ones
+  // are kept (see generateRewards). No sponsors, no gifts.
+  rewardMaxCount: 3,
 
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
