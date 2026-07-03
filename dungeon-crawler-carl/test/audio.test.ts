@@ -122,6 +122,48 @@ describe("audio director", () => {
     expect(sink.ids()).toEqual(expect.arrayContaining(["sponsor", "door_unlock"]));
   });
 
+  it("layers a kill thump on killing blows (but not on player deaths)", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [
+      { pos: { x: p.pos.x + 1, y: p.pos.y }, amount: 9, kind: "enemy", killed: true },
+      { pos: { x: p.pos.x, y: p.pos.y }, amount: 30, kind: "player", killed: true },
+    ], [], p.id);
+    expect(sink.ids().filter((i) => i === "kill")).toHaveLength(1);
+  });
+
+  it("whooshes on the melee swing edge — even a whiff sounds", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    p.attackSwing = 0.15; // swung at nothing
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("swing");
+    sink.played = [];
+    p.attackSwing = 0.1; // decaying — no retrigger
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).not.toContain("swing");
+  });
+
+  it("plays one tell per enemy windup", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    const m = {
+      id: 9, kind: "grunt" as const, pos: { x: p.pos.x + 2, y: p.pos.y },
+      hp: 10, maxHp: 10, damage: 5, speed: 0, attackRange: 1, attackCooldown: 0,
+      shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0,
+      windup: 0, windupTotal: 0, stagger: 0, poiseDmg: 0,
+    };
+    state.monsters.push(m);
+    director.frame(state, [], [], p.id);
+    m.windup = 0.4; // commits to an attack
+    m.windupTotal = 0.4;
+    director.frame(state, [], [], p.id);
+    director.frame(state, [], [], p.id); // still the same windup
+    expect(sink.ids().filter((i) => i === "tell")).toHaveLength(1);
+  });
+
   it("keeps every manifest url under public/audio/", () => {
     for (const def of Object.values(AUDIO_MANIFEST)) {
       expect(def.url).toMatch(/^\/audio\//);

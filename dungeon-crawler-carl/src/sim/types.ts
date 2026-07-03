@@ -28,6 +28,9 @@ export interface Player {
   // scales to any number of abilities without new fields.
   cd: Partial<Record<AbilityId, number>>;
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
+  // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
+  // (only ticking while below max), so dashes can be woven into offense.
+  dashCharges: number;
   novaFlash: number; // transient render flag: seconds remaining of nova ring effect
   orbitAngle: number; // current rotation of the orbit blades (radians)
   orbitTick: number; // seconds until the orbit blades' next damage tick
@@ -99,6 +102,16 @@ export interface Monster {
   healCd: number; // shaman: seconds until it can heal a wounded ally again
   blinkCd: number; // phantom: seconds until its next blink toward a player
   xp: number;
+  // Attack telegraph: while windup > 0 the monster is committed to an attack
+  // that lands when it expires (see ai.ts). Hosts render the tell; players
+  // dodge out of range or through it with dash i-frames.
+  windup: number; // seconds until the pending attack resolves (0 = none)
+  windupTotal: number; // full length of the pending windup (render progress)
+  windupKind?: "melee" | "shot" | "fuse"; // what resolves when windup expires
+  // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
+  // archetype's poise threshold interrupts the windup and freezes the monster.
+  stagger: number; // seconds of stagger remaining (helpless while > 0)
+  poiseDmg: number; // damage accumulated toward the next stagger
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
@@ -238,6 +251,8 @@ export interface HitEvent {
   pos: Vec2;
   amount: number;
   kind: HitKind;
+  dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
+  killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
 }
 
 export interface GameState {

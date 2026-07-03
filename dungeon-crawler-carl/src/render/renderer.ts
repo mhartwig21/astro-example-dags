@@ -24,6 +24,8 @@ const COLORS = {
   playerSwing: "#eaf6ff",
   monster: "#e2574c",
   monsterFlash: "#ffd2cd",
+  monsterWindup: "#ff9a3c", // committed to an attack (telegraph)
+  monsterStagger: "#8a8aa0", // interrupted and helpless
   gold: "#f2c14e",
   heal: "#5fd08a",
   weapon: "#b98bff",
@@ -153,7 +155,23 @@ export function render(
     if (!inVision(m.pos.x, m.pos.y)) continue;
     const px = offX + m.pos.x * T;
     const py = offY + m.pos.y * T;
-    ctx.fillStyle = m.hitFlash > 0 ? COLORS.monsterFlash : COLORS.monster;
+    // Attack telegraph: a committed monster shows its reach, brightening as the
+    // strike approaches (bomber fuse = blast radius; ranged aim = a small dot ring).
+    if (m.windup > 0) {
+      const prog = 1 - m.windup / Math.max(m.windupTotal, 1e-3);
+      const r =
+        m.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
+        m.windupKind === "shot" ? 0.5 : m.attackRange + CONFIG.monsterStrikeGrace;
+      ctx.strokeStyle = `rgba(255,110,60,${0.25 + prog * 0.6})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, r * T, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle =
+      m.hitFlash > 0 ? COLORS.monsterFlash :
+      m.stagger > 0 ? COLORS.monsterStagger :
+      m.windup > 0 ? COLORS.monsterWindup : COLORS.monster;
     ctx.beginPath();
     ctx.arc(px, py, T * 0.32, 0, Math.PI * 2);
     ctx.fill();

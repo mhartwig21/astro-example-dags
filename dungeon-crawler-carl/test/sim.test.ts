@@ -19,8 +19,14 @@ function mkMon(over: Partial<import("../src/sim/types").Monster> = {}) {
   return {
     id: 1, kind: "grunt" as const, pos: { x: 0, y: 0 },
     hp: 1, maxHp: 1, damage: 0, speed: 0, attackRange: 1, attackCooldown: 0,
-    shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0, ...over,
+    shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0,
+    windup: 0, windupTotal: 0, stagger: 0, poiseDmg: 0, ...over,
   };
+}
+
+/** Step with an idle intent until the monster's pending windup resolves. */
+function stepPastWindup(g: ReturnType<typeof createGame>, m: { windup: number }, dt = 1 / 60): void {
+  for (let i = 0; i < 600 && m.windup > 0; i++) step(g, idle(), dt);
 }
 
 describe("rng", () => {
@@ -907,22 +913,45 @@ describe("boss hierarchy", () => {
 });
 
 describe("new archetypes", () => {
-  it("bomber explodes on contact, damaging the player, and dies in its own blast", () => {
+  it("bomber lights a fuse on contact, then explodes, damaging the player", () => {
     const g = createGame(900);
     const p = g.players[0];
     g.monsters.length = 0;
     g.projectiles.length = 0;
-    g.monsters.push(mkMon({
+    const bomber = mkMon({
       id: 1, kind: "bomber", pos: { x: p.pos.x + 1.4, y: p.pos.y },
       hp: 30, maxHp: 30, damage: 10, attackRange: 1.5, // just outside pickup radius
-    }));
+    });
+    g.monsters.push(bomber);
     const hp0 = p.hp;
+    // Contact starts the FUSE — a dodge window, not an instant blast.
     step(g, idle(), 1 / 60);
-    expect(p.hp).toBeLessThan(hp0); // caught in the blast
+    expect(bomber.windup).toBeGreaterThan(0);
+    expect(p.hp).toBe(hp0); // nothing has landed yet
+    stepPastWindup(g, bomber);
+    expect(p.hp).toBeLessThan(hp0); // stood in it — caught in the blast
     expect(g.monsters.length).toBe(0); // the bomber died and was reaped normally
     expect(g.killCount).toBe(1);
-    expect(g.hits.some((h) => h.kind === "player")).toBe(true);
     expect(g.announcements.some((a) => a.includes("bomber"))).toBe(true);
+  });
+
+  it("walking out of the fuse radius dodges the detonation", () => {
+    const g = createGame(904);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const bomber = mkMon({
+      id: 1, kind: "bomber", pos: { x: p.pos.x + 1.4, y: p.pos.y },
+      hp: 30, maxHp: 30, damage: 10, attackRange: 1.5,
+    });
+    g.monsters.push(bomber);
+    step(g, idle(), 1 / 60); // fuse lit
+    expect(bomber.windup).toBeGreaterThan(0);
+    p.pos = { x: bomber.pos.x + CONFIG.bomberExplodeRadius + 1.5, y: bomber.pos.y }; // step clear
+    const hp0 = p.hp;
+    stepPastWindup(g, bomber);
+    expect(g.monsters.length).toBe(0); // still detonates where it stood
+    expect(p.hp).toBe(hp0); // but the blast found nobody
   });
 
   it("a bomber shot down at range cooks off at half radius (near miss = no damage)", () => {
@@ -978,6 +1007,147 @@ describe("new archetypes", () => {
     const d1 = Math.hypot(ph.pos.x - p.pos.x, ph.pos.y - p.pos.y);
     expect(6 - d1).toBeGreaterThan(2); // a blink (~3 tiles), not a walk step
     expect(ph.blinkCd).toBeGreaterThan(0);
+  });
+});
+
+describe("attack telegraphs + hit reactions", () => {
+  function adjacentGrunt(g: ReturnType<typeof createGame>, over: Partial<import("../src/sim/types").Monster> = {}) {
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const m = mkMon({
+      id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 50, speed: 0, ...over,
+    });
+    g.monsters.push(m);
+    return m;
+  }
+
+  it("monster melee winds up before landing — damage is never instant", () => {
+    const g = createGame(910);
+    const p = g.players[0];
+    const m = adjacentGrunt(g);
+    const hp0 = p.hp;
+    step(g, idle(), 1 / 60);
+    expect(m.windup).toBeGreaterThan(0); // committed, telegraphing
+    expect(p.hp).toBe(hp0); // nothing landed yet
+    stepPastWindup(g, m);
+    expect(p.hp).toBeLessThan(hp0); // stood in it — the strike connects
+    expect(m.attackCooldown).toBeGreaterThan(0);
+  });
+
+  it("stepping out of range during the windup makes the strike whiff", () => {
+    const g = createGame(911);
+    const p = g.players[0];
+    const m = adjacentGrunt(g);
+    step(g, idle(), 1 / 60); // windup starts
+    expect(m.windup).toBeGreaterThan(0);
+    p.pos = { x: m.pos.x + 5, y: m.pos.y }; // read the tell, leave
+    const hp0 = p.hp;
+    stepPastWindup(g, m);
+    expect(p.hp).toBe(hp0); // dodged clean
+    expect(m.attackCooldown).toBeGreaterThan(0); // it still swung (and recovers)
+  });
+
+  it("breaking poise staggers the monster and cancels its windup", () => {
+    const g = createGame(912);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 200; // over the grunt poise threshold (500 * 0.25) in one hit
+    const m = adjacentGrunt(g);
+    step(g, idle(), 1 / 60); // monster commits to a swing
+    expect(m.windup).toBeGreaterThan(0);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(m.stagger).toBeGreaterThan(0); // interrupted
+    expect(m.windup).toBe(0);
+    // The canceled swing never lands inside its original windup window.
+    const hp0 = p.hp;
+    for (let i = 0; i < 26; i++) step(g, idle(), 1 / 60);
+    expect(p.hp).toBe(hp0);
+  });
+
+  it("brutes shrug off small hits (high poise, no stagger)", () => {
+    const g = createGame(913);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    const m = adjacentGrunt(g, { kind: "brute" }); // poise 0.7 -> threshold 350
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(m.poiseDmg).toBeGreaterThan(0); // buildup counts...
+    expect(m.stagger).toBe(0); // ...but a base hit doesn't rock it
+  });
+
+  it("melee hits shove the target away from the attacker", () => {
+    const g = createGame(914);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    const m = adjacentGrunt(g, { attackCooldown: 99 }); // hold its own swing still
+    const x0 = m.pos.x;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(m.pos.x).toBeGreaterThan(x0); // knocked back along the hit direction
+  });
+
+  it("ranged monsters aim (windup) before firing", () => {
+    const g = createGame(915);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const m = mkMon({ id: 1, kind: "ranged", pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 50, maxHp: 50, damage: 5, attackRange: 6.5 });
+    g.monsters.push(m);
+    step(g, idle(), 1 / 60);
+    expect(m.windup).toBeGreaterThan(0); // lining up the shot
+    expect(g.projectiles.some((pr) => pr.from === "enemy")).toBe(false);
+    stepPastWindup(g, m);
+    expect(g.projectiles.some((pr) => pr.from === "enemy")).toBe(true);
+  });
+
+  it("the melee swing lunges toward the aim", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeGreaterThan(x0);
+  });
+
+  it("killing blows are flagged on the hit event (with a direction)", () => {
+    const g = createGame(917);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y } }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const killing = g.hits.find((h) => (h.kind === "enemy" || h.kind === "crit") && h.killed);
+    expect(killing).toBeDefined();
+    expect(killing!.dir).toBeDefined();
+  });
+
+  it("a swarmer dies to one clean on-level hit (config invariant)", () => {
+    const minRoll = Math.round(CONFIG.playerBaseDamage * 0.85);
+    const swarmerHp = Math.round(CONFIG.monsterBaseHp * 0.35);
+    expect(minRoll).toBeGreaterThanOrEqual(swarmerHp);
+  });
+});
+
+describe("dash charges", () => {
+  it("banks two dashes, blocks the third, and recharges one at a time", () => {
+    const g = createGame(920);
+    const p = g.players[0];
+    expect(p.dashCharges).toBe(CONFIG.dashCharges);
+    step(g, { ...idle(), dash: true }, 1 / 60);
+    expect(p.dashCharges).toBe(CONFIG.dashCharges - 1);
+    expect(p.cd.dash ?? 0).toBeGreaterThan(0); // recharge timer running
+    step(g, { ...idle(), dash: true }, 1 / 60);
+    expect(p.dashCharges).toBe(0); // both spent back-to-back — that's the point
+    const x0 = p.pos.x;
+    step(g, { ...idle(), dash: true, move: { x: 0, y: 0 } }, 1 / 60);
+    expect(p.dashCharges).toBe(0); // tank is empty
+    expect(p.pos.x).toBe(x0); // no blink happened
+    // One full recharge restores one charge; the next timer starts automatically.
+    for (let i = 0; i < Math.ceil(CONFIG.dashCooldown * 60) + 5; i++) step(g, idle(), 1 / 60);
+    expect(p.dashCharges).toBe(1);
+    for (let i = 0; i < Math.ceil(CONFIG.dashCooldown * 60) + 5; i++) step(g, idle(), 1 / 60);
+    expect(p.dashCharges).toBe(CONFIG.dashCharges);
   });
 });
 

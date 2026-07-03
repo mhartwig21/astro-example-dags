@@ -34,10 +34,13 @@ interface Prev {
   dashTime: number;
   novaFlash: number;
   boltCd: number;
+  attackSwing: number;
 }
 
 export class AudioDirector {
   private prev: Prev | null = null;
+  // Monsters currently winding up an attack — a new id is a fresh "tell".
+  private winding = new Set<number>();
 
   constructor(private sink: AudioSink) {}
 
@@ -54,11 +57,32 @@ export class AudioDirector {
       const dy = h.pos.y - p.pos.y;
       const d = Math.hypot(dx, dy);
       if (d > EARSHOT) continue;
-      this.sink.play(HIT_SOUNDS[h.kind], {
+      const opts = {
         gain: 1 / (1 + d / 6),
+        pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+      };
+      this.sink.play(HIT_SOUNDS[h.kind], opts);
+      // Killing blows on monsters get a meatier thump layered on top.
+      if (h.killed && h.kind !== "player") this.sink.play("kill", opts);
+    }
+
+    // Enemy windup tells: one cue per attack, positioned like the hits, so
+    // danger is audible even when the telegraph starts off-screen.
+    const winding = new Set<number>();
+    for (const m of state.monsters) {
+      if (m.windup <= 0) continue;
+      winding.add(m.id);
+      if (this.winding.has(m.id)) continue; // already announced this attack
+      const dx = m.pos.x - p.pos.x;
+      const dy = m.pos.y - p.pos.y;
+      const d = Math.hypot(dx, dy);
+      if (d > EARSHOT) continue;
+      this.sink.play("tell", {
+        gain: 0.9 / (1 + d / 6),
         pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       });
     }
+    this.winding = winding;
 
     // A multi-kill this step: the crowd loves it. (Throttled in the engine.)
     if (state.killsThisStep >= 3) this.sink.play("crowd");
@@ -78,6 +102,7 @@ export class AudioDirector {
       dashTime: p.dashTime,
       novaFlash: p.novaFlash,
       boltCd: p.cd.bolt ?? 0,
+      attackSwing: p.attackSwing,
     };
 
     const prev = this.prev;
@@ -95,6 +120,8 @@ export class AudioDirector {
       if (cur.achievements > prev.achievements) this.sink.play("achievement");
       if (!prev.pendingRewards && cur.pendingRewards) this.sink.play("sponsor");
       // Skills fire on rising edges of their transient state.
+      // The melee whoosh triggers on the swing itself — a whiff still sounds.
+      if (cur.attackSwing > prev.attackSwing + 1e-6) this.sink.play("swing");
       if (cur.dashTime > 0 && prev.dashTime <= 0) this.sink.play("dash");
       if (cur.novaFlash > 0 && prev.novaFlash <= 0) this.sink.play("nova");
       if (cur.boltCd > prev.boltCd) this.sink.play("bolt"); // cooldown jumps on cast

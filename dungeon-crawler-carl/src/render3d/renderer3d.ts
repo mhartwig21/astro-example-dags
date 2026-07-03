@@ -36,6 +36,9 @@ export class Renderer3D {
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
+  private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
+  // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
+  private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Mesh>();
   private projectiles = new Map<number, THREE.Mesh>();
 
@@ -154,6 +157,7 @@ export class Renderer3D {
       idle: pick(/^idle$/i, /idle/i),
       walk: pick(/^walk/i, /walk/i, /^run/i, /run/i),
       attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab/i),
+      hit: pick(/^hit/i, /hit|impact|react/i), // stagger reaction (KayKit ships these)
       death: pick(/^death/i, /death|die/i),
     };
     const mixer = new THREE.AnimationMixer(g);
@@ -771,7 +775,11 @@ export class Renderer3D {
   update(state: GameState, time: number): void {
     // Rebuild cached floor geometry on descent AND on in-place tile mutations
     // (e.g. locked doors opening when the key is picked up).
-    if (state.floor !== this.builtFloor || state.mapVersion !== this.builtMapVersion) {
+    const rebuilt = state.floor !== this.builtFloor || state.mapVersion !== this.builtMapVersion;
+    if (rebuilt) {
+      // Corpses belong to the old geometry — never carry them across a rebuild.
+      for (const d of this.dying) this.scene.remove(d.mesh);
+      this.dying = [];
       this.buildFloor(state);
     }
     if (state.exploredVersion !== this.lastExploredVersion) {
@@ -855,18 +863,54 @@ export class Renderer3D {
       mesh.position.set(mon.pos.x, 0, mon.pos.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
-        // Rigged model: walk/idle clips + a small recoil pop; no squash (it would
+        // Rigged model: clip by combat state — hit reaction while staggered,
+        // attack clip through the windup, else walk/idle. No squash (it would
         // deform the skinned mesh instead of reading as a hit).
-        (mesh.userData.play as (n: string) => void)(mSpeed > 0.2 ? "walk" : "idle");
+        const playM = mesh.userData.play as (n: string, force?: boolean) => void;
+        if (mon.stagger > 0) playM("hit");
+        else if (mon.windup > 0) playM("attack");
+        else playM(mSpeed > 0.2 ? "walk" : "idle");
         (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
         mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
         mesh.scale.setScalar(bs);
       } else {
-        // Bob while chasing; recoil pop + squash when just hit (scaled by archetype size).
+        // Bob while chasing; recoil pop + squash when just hit or staggered;
+        // rear up through a windup (scaled by archetype size).
         const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
         mesh.position.y = (mon.hitFlash > 0 ? 0.18 : 0) + bob;
-        const squash = mon.hitFlash > 0 ? 1.25 : 1;
-        mesh.scale.set(bs * squash, bs * (2 - squash), bs * squash);
+        const squash = mon.hitFlash > 0 || mon.stagger > 0 ? 1.25 : 1;
+        const rear = mon.windup > 0 ? 1 + 0.14 * (1 - mon.windup / Math.max(mon.windupTotal, 1e-3)) : 1;
+        mesh.scale.set(bs * squash, bs * (2 - squash) * rear, bs * squash);
+      }
+      // Attack telegraph: a ground ring that brightens as the strike approaches.
+      // Radius = what the attack will actually cover (fuse blast / melee reach).
+      let tel = this.telegraphs.get(mon.id);
+      if (mon.windup > 0) {
+        if (!tel) {
+          tel = new THREE.Mesh(
+            new THREE.RingGeometry(0.8, 1, 28),
+            new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          tel.rotation.x = -Math.PI / 2;
+          this.scene.add(tel);
+          this.telegraphs.set(mon.id, tel);
+        }
+        const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
+        const radius =
+          mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
+          mon.windupKind === "shot" ? 0.5 : mon.attackRange + CONFIG.monsterStrikeGrace;
+        tel.position.set(mon.pos.x, 0.06, mon.pos.y);
+        tel.scale.setScalar(radius);
+        const mat = tel.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(
+          mon.windupKind === "fuse" ? 0xff7733 :
+          mon.windupKind === "shot" ? 0xffcc44 : 0xff5030,
+        );
+        mat.opacity = 0.2 + prog * 0.65;
+        tel.visible = mesh.visible;
+      } else if (tel) {
+        this.scene.remove(tel);
+        this.telegraphs.delete(mon.id);
       }
       // Key carrier: a floating gold octahedron over the head marks the keyholder.
       let marker = this.keyMarkers.get(mon.id);
@@ -890,9 +934,20 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) {
-        this.scene.remove(mesh); this.monsters.delete(id); this.prevMon.delete(id);
+        this.monsters.delete(id); this.prevMon.delete(id);
         const marker = this.keyMarkers.get(id);
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
+        const tel = this.telegraphs.get(id);
+        if (tel) { this.scene.remove(tel); this.telegraphs.delete(id); }
+        if (rebuilt) {
+          // Floor change: the whole population turned over — no corpses.
+          this.scene.remove(mesh);
+        } else {
+          // Death: let the corpse play out (death clip / tumble) before removal.
+          const rigged = !!mesh.userData.mixer;
+          if (rigged) (mesh.userData.play as (n: string, force?: boolean) => void)("death", true);
+          this.dying.push({ mesh, t: 0.7, rigged });
+        }
       }
     }
 
@@ -945,6 +1000,7 @@ export class Renderer3D {
     }
 
     this.updateParticles(dt);
+    this.updateDying(dt);
     this.updateAbilityFx(state, dt);
 
     // Camera follows the player from the fixed iso direction, plus decaying shake.
@@ -1008,14 +1064,16 @@ export class Renderer3D {
         h.kind === "player" ? 0xe2574c :
         h.kind === "heal" ? 0x5fd08a :
         h.kind === "gold" ? 0xf2c14e : 0xb98bff;
-      const n = h.kind === "crit" ? 14 : 8;
-      this.spawnBurst(h.pos.x, h.pos.y, color, n);
+      // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
+      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0);
+      this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
       if (h.kind === "player") this.shake = Math.min(0.6, this.shake + 0.35);
       if (h.kind === "crit") this.shake = Math.min(0.4, this.shake + 0.15);
+      if (h.killed && h.kind !== "player") this.shake = Math.min(0.5, this.shake + 0.12);
     }
   }
 
-  private spawnBurst(x: number, y: number, color: number, count: number): void {
+  private spawnBurst(x: number, y: number, color: number, count: number, dir?: Vec2): void {
     if (this.particles.length > 260) return; // hard cap
     const mat = new THREE.MeshBasicMaterial({ color });
     for (let i = 0; i < count; i++) {
@@ -1025,10 +1083,31 @@ export class Renderer3D {
       const ang = Math.random() * Math.PI * 2;
       const sp = 1.5 + Math.random() * 2.5;
       this.particles.push({
-        mesh, vx: Math.cos(ang) * sp, vy: 2 + Math.random() * 2.5, vz: Math.sin(ang) * sp,
+        mesh,
+        // Bias the spray along the impact direction so hits read as directional.
+        vx: Math.cos(ang) * sp + (dir?.x ?? 0) * 2.2,
+        vy: 2 + Math.random() * 2.5,
+        vz: Math.sin(ang) * sp + (dir?.y ?? 0) * 2.2,
         life: 0, max: 0.5 + Math.random() * 0.3,
       });
     }
+  }
+
+  /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
+  private updateDying(dt: number): void {
+    const alive: typeof this.dying = [];
+    for (const d of this.dying) {
+      d.t -= dt;
+      if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
+      if (d.rigged) {
+        (d.mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+      } else {
+        d.mesh.rotation.z = Math.min(Math.PI / 2, d.mesh.rotation.z + dt * 4);
+        d.mesh.position.y -= dt * 0.6;
+      }
+      alive.push(d);
+    }
+    this.dying = alive;
   }
 
   private updateParticles(dt: number): void {

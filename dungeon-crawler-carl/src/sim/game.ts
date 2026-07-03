@@ -94,6 +94,10 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
     healCd: 0,
     blinkCd: 0,
     xp: Math.round(baseXp * a.xpMult),
+    windup: 0,
+    windupTotal: 0,
+    stagger: 0,
+    poiseDmg: 0,
     hitFlash: 0,
   };
 }
@@ -333,6 +337,7 @@ function makePlayer(id: number, name: string): Player {
     critChance: CONFIG.playerCritChance,
     cd: {},
     dashTime: 0,
+    dashCharges: CONFIG.dashCharges,
     novaFlash: 0,
     orbitAngle: 0,
     orbitTick: 0,
@@ -376,6 +381,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.facing = { x: 0, y: 1 };
   p.cd = {};
   p.dashTime = 0;
+  p.dashCharges = CONFIG.dashCharges;
   p.novaFlash = 0;
   p.attackSwing = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
@@ -601,8 +607,11 @@ function announce(state: GameState, line: string): void {
   state.events.push(line);
 }
 
-function hit(state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"]): void {
-  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind });
+function hit(
+  state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
+  extra?: { dir?: Vec2; killed?: boolean },
+): void {
+  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed });
 }
 
 /** Grant XP to one player (kill XP is split before calling this). */
@@ -767,15 +776,38 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
 }
 
-/** Damage a monster with a player's roll (shared crit/credit path). */
-function damageMonster(state: GameState, p: Player, m: Monster, base: number, allowCrit = true): void {
-  const isCrit = allowCrit && chance(state.rng, p.critChance);
+/**
+ * Damage a monster with a player's roll (shared crit/credit path). Beyond the
+ * HP: hits SHOVE the target (`knockback` tiles / archetype mass, along `dir`)
+ * and build poise damage — crossing maxHp * archetype poise staggers the
+ * monster, interrupting any windup in progress. That interrupt is the reward
+ * for answering a telegraph with damage instead of a dodge.
+ */
+function damageMonster(
+  state: GameState, p: Player, m: Monster, base: number,
+  opts: { allowCrit?: boolean; dir?: Vec2; knockback?: number } = {},
+): void {
+  const isCrit = (opts.allowCrit ?? true) && chance(state.rng, p.critChance);
   let dmg = rollDamage(state.rng, base);
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
-  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy");
+  const a = ARCHETYPES[m.kind];
+  const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
+  if (m.hp > 0) {
+    m.poiseDmg += dmg;
+    if (m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
+      m.poiseDmg = 0;
+      m.stagger = CONFIG.staggerDuration;
+      m.windup = 0; // interrupted — the committed attack never lands
+      m.windupKind = undefined;
+    }
+    if (opts.dir && opts.knockback) {
+      moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
+    }
+  }
+  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0 });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
 }
@@ -786,13 +818,18 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   p.facing = facing;
   p.cd.melee = mp.cooldown;
   p.attackSwing = 0.15;
+  // The swing lunges a short step toward the aim — attacks feel aggressive and
+  // close those just-out-of-reach misses (walls stop it like any movement).
+  moveWithCollision(state.map, p.pos, facing, CONFIG.meleeLungeDistance, isWalkable);
 
   for (const m of state.monsters) {
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > mp.arc / 2) continue;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult);
+    damageMonster(state, p, m, p.baseDamage * mp.damageMult, {
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
+    });
   }
 }
 
@@ -827,7 +864,10 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
     p.hp -= dmg;
     p.damageTaken += dmg;
     caught++;
-    hit(state, p.pos, dmg, "player");
+    const away = dist(m.pos, p.pos) > 1e-4
+      ? normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y })
+      : undefined;
+    hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
     if (p.hp <= 0) {
       handlePlayerDeath(state, p, `${p.name} was BLOWN APART by a bomber. Sponsors, roll the replay.`);
     } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
@@ -973,7 +1013,7 @@ function updateTimer(state: GameState, dt: number): void {
       const dmg = dps * dt;
       p.hp -= dmg;
       p.damageTaken += dmg;
-      hit(state, p.pos, Math.max(1, Math.round(dmg)), "player");
+      hit(state, p.pos, Math.max(1, Math.round(dmg)), "player", { killed: p.hp <= 0 });
       if (p.hp <= 0) {
         handlePlayerDeath(state, p, `The collapsing floor claimed ${p.name}. The crowd goes wild.`);
       }
@@ -1240,16 +1280,21 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
   announce(state, `${p.name} accepts a sponsor gift: ${r.title}.`);
 }
 
-/** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
+/**
+ * Dash skill: blink in the facing direction with brief i-frames (dashTime).
+ * Runs on charges — spending one starts the recharge timer (cd.dash) if it
+ * isn't already running; the step loop restores charges as it expires.
+ */
 function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
-  p.cd.dash = dp.cooldown;
+  p.dashCharges--;
+  if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown;
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
   // Shockstep: a damage burst around the arrival point.
   if (dp.shockMult > 0) {
-    radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult);
+    radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
   }
 }
 
@@ -1277,11 +1322,16 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   }
 }
 
-/** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep. */
-function radialDamage(state: GameState, p: Player, center: Vec2, radius: number, damage: number): void {
+/** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep.
+ * Blasts shove outward from the center when `knockback` > 0. */
+function radialDamage(
+  state: GameState, p: Player, center: Vec2, radius: number, damage: number, knockback = 0,
+): void {
   for (const m of state.monsters) {
-    if (dist(center, m.pos) > radius) continue;
-    damageMonster(state, p, m, damage);
+    const d = dist(center, m.pos);
+    if (d > radius) continue;
+    const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
+    damageMonster(state, p, m, damage, { dir, knockback });
   }
 }
 
@@ -1290,7 +1340,7 @@ function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
   p.cd.nova = np.cooldown;
   p.novaFlash = 0.3;
-  radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult);
+  radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
 }
 
 /** Orbit blades: automatic contact damage on a fixed tick while learned. */
@@ -1309,7 +1359,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius) { touching = true; break; }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, p.baseDamage * op.damageMult, false);
+    damageMonster(state, p, m, p.baseDamage * op.damageMult, { allowCrit: false });
   }
 }
 
@@ -1342,7 +1392,7 @@ function updateStrikes(state: GameState, dt: number): void {
     s.t -= dt;
     if (s.t > 0) { remaining.push(s); continue; }
     const owner = state.players.find((pl) => pl.id === s.ownerId) ?? state.players[0];
-    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, owner.baseDamage * CONFIG.ultAirstrikeDmgMult);
+    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, owner.baseDamage * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
     hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
   }
   state.strikes = remaining;
@@ -1374,10 +1424,15 @@ function doBulletTime(state: GameState, p: Player): void {
  * ability means one case here + a registry entry in abilities.ts.
  */
 function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2): void {
+  // Dash is charge-gated, not cooldown-gated: cd.dash is its recharge timer,
+  // which may be ticking while a banked charge is still ready to spend.
+  if (ability === "dash") {
+    if (p.dashCharges > 0) doDash(state, p);
+    return;
+  }
   if ((p.cd[ability] ?? 0) > 0) return;
   switch (ability) {
     case "melee": doPlayerAttack(state, p, aim); break;
-    case "dash": doDash(state, p); break;
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
     case "orbit": break; // passive: runs via updateOrbit while slotted
@@ -1415,7 +1470,9 @@ function updateProjectiles(state: GameState, dt: number): void {
       for (const m of state.monsters) {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
-          damageMonster(state, owner, m, pr.damage);
+          damageMonster(state, owner, m, pr.damage, {
+            dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
+          });
           if (pr.pierce && pr.pierce > 0) {
             pr.pierce--;
             (pr.hitIds ??= []).push(m.id); // keep flying through
@@ -1434,7 +1491,7 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
         p.hp -= pr.damage;
         p.damageTaken += pr.damage;
-        hit(state, p.pos, Math.round(pr.damage), "player");
+        hit(state, p.pos, Math.round(pr.damage), "player", { dir: normalize(pr.vel), killed: p.hp <= 0 });
         if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) addHype(state, p, CONFIG.show.hypeLowHpHit);
         if (p.hp <= 0) {
           handlePlayerDeath(state, p, `${p.name} was shot down in the arena. The audience is on its feet.`);
@@ -1486,6 +1543,12 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 
     for (const key of Object.keys(p.cd) as AbilityId[]) {
       if ((p.cd[key] ?? 0) > 0) p.cd[key] = Math.max(0, (p.cd[key] ?? 0) - dt);
+    }
+    // Dash recharge: an expired timer banks a charge and, while still below
+    // max, immediately starts refilling the next one.
+    if (p.dashCharges < CONFIG.dashCharges && (p.cd.dash ?? 0) <= 0) {
+      p.dashCharges++;
+      if (p.dashCharges < CONFIG.dashCharges) p.cd.dash = dashParams(p).cooldown;
     }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);

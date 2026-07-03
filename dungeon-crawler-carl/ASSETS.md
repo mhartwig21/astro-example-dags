@@ -99,6 +99,7 @@ game needs) so the repo stays attribution-free like the 3D assets. Avoid any
 ```
 public/audio/
   sfx/    hit.ogg, crit.ogg, player_hurt.ogg, heal.ogg, gold.ogg, item.ogg,
+          swing.ogg, tell.ogg, kill.ogg,
           dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
           announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
@@ -122,8 +123,10 @@ pointers for the audio sources too.
 | `music/safe_room.mp3` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) | The Cynic Project (cynicmusic.com) | CC0 |
 | `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
 
-Not yet sourced: `sfx/crowd.ogg` (multi-kill roar) — no CC0 match in the Kenney
-packs; the game stays silent for it until a clip is added.
+Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), and the combat-feel trio
+`sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and
+`sfx/kill.ogg` (killing-blow thump). Kenney Impact/RPG Audio (CC0) have good
+candidates for all three; the game stays silent for each until a clip is added.
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.

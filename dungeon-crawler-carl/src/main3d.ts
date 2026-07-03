@@ -568,14 +568,17 @@ function updateSkills(s: GameState): void {
     ...p.abilities.slots.map((a) => ({ ability: a, ult: false })),
     { ability: p.abilities.ultimate, ult: true },
   ];
-  const key = entries.map((e) => e.ability ?? "-").join("|") + `|${p.abilities.bench.length}`;
+  const key = entries.map((e) => e.ability ?? "-").join("|") +
+    `|${p.abilities.bench.length}|d${p.dashCharges}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     skillsEl.innerHTML = entries
       .map((e, i) => {
         const bind = bindingLabel(bindings, slotActions[i]).split(" / ")[0];
         const label = e.ability
-          ? ABILITY_INFO[e.ability].name.split(" ").pop()
+          ? (e.ability === "dash"
+            ? `Dash ×${p.dashCharges}` // charge count in the chip
+            : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "&nbsp;—&nbsp;";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
@@ -597,8 +600,14 @@ function updateSkills(s: GameState): void {
     if (!e.ability || !fill) return;
     const remaining = p.cd[e.ability] ?? 0;
     const base = CD_BASE[e.ability] ?? 1;
-    fill.style.width = `${Math.max(0, Math.min(1, remaining / base)) * 100}%`;
-    chip.classList.toggle("ready", remaining === 0);
+    // Dash runs on charges: cd.dash is only the NEXT charge's refill timer, so
+    // the chip reads ready whenever a charge is banked.
+    const ready = e.ability === "dash" ? p.dashCharges > 0 : remaining === 0;
+    const frac = e.ability === "dash" && p.dashCharges >= CONFIG.dashCharges
+      ? 0
+      : Math.max(0, Math.min(1, remaining / base));
+    fill.style.width = `${frac * 100}%`;
+    chip.classList.toggle("ready", ready);
   });
 }
 
@@ -722,6 +731,10 @@ let lastStatus = state.status;
 let saveAcc = 0;
 let prev = performance.now();
 let acc = 0;
+// Kill pop (solo only): a few frames of sim freeze on killing blows while the
+// renderer keeps running, so particles fly through the freeze. Purely cosmetic —
+// the deterministic sim just receives no steps for ~2-7 frames.
+let hitStop = 0;
 
 // Network mode: transient feedback arrives as an event stream, buffered here
 // until the frame loop consumes it.
@@ -820,6 +833,7 @@ async function main(): Promise<void> {
       // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
       // networked world never pauses for drafts); drop accumulated time.
       if (invOpen || abilOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
+      if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(), SIM_DT);
         for (const e of state.events) log.push(e);
@@ -828,6 +842,12 @@ async function main(): Promise<void> {
         acc -= SIM_DT;
         if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
         if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
+      }
+      // Killing blows schedule the next freeze: crits pop hardest, player deaths
+      // hang for drama, ordinary kills get a couple of frames.
+      for (const h of frameHits) {
+        if (!h.killed) continue;
+        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
       }
 
       saveAcc += dt;

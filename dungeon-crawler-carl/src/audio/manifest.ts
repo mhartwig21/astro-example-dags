@@ -23,6 +23,12 @@ export const AUDIO_MANIFEST = {
   gold: { url: "/audio/sfx/gold.ogg", bus: "sfx", volume: 0.7 },
   item: { url: "/audio/sfx/item.ogg", bus: "sfx" },
 
+  // Combat feel (edge-triggered): the melee whoosh (even on a whiff), the
+  // enemy windup tell, and the meatier killing-blow thump layered over `hit`.
+  swing: { url: "/audio/sfx/swing.ogg", bus: "sfx", volume: 0.5, throttleMs: 120 },
+  tell: { url: "/audio/sfx/tell.ogg", bus: "sfx", volume: 0.55, throttleMs: 150 },
+  kill: { url: "/audio/sfx/kill.ogg", bus: "sfx", volume: 0.9, throttleMs: 90 },
+
   // Skills (state-edge triggered).
   dash: { url: "/audio/sfx/dash.ogg", bus: "sfx" },
   bolt: { url: "/audio/sfx/bolt.ogg", bus: "sfx", volume: 0.7, throttleMs: 120 },

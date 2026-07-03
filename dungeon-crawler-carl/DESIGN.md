@@ -124,10 +124,24 @@ This document describes the full target architecture, then defines the scope of 
   are modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts`
   (melee chase, ranged kite-and-shoot, boss chase + radial volley). The spawn mix shifts
   toward tougher enemies with depth.
-- **Active skills** — **dash** (blink in facing with brief i-frames) and a **ranged bolt**,
-  each on a cooldown. Skills produce intents like everything else, so they port to the server.
+- **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
+  charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
+  on a cooldown. Skills produce intents like everything else, so they port to the server.
 - **Projectiles** (`GameState.projectiles`): one system for player bolts and enemy shots —
   moved and collision-resolved deterministically each step.
+- **Telegraphed enemy attacks (the "risky" pillar):** no monster damage is instant. Every
+  attack winds up (`Monster.windup`, per-archetype length — swarmer 0.25s … brute 0.75s;
+  ranged aim before firing; bombers light a **fuse** on contact and detonate where it runs
+  out), roots the attacker, and re-checks range + dash i-frames when it resolves. Because
+  hits are readable and dodgeable, monster damage runs HOT (a clean grunt hit ~15% of
+  starting HP, a brute slam ~27%) — danger comes in avoidable spikes, not chip.
+- **Hit reactions (the "impact" pillar):** player damage shoves monsters (knockback ÷
+  archetype `mass`) and builds **poise damage**; crossing `maxHp × poise` **staggers** the
+  target, canceling its windup. Chaff flinches off every hit; brutes/bosses shrug off small
+  hits, so interrupting a big slam takes a heavy answer. The melee swing also **lunges** a
+  short step toward the aim. Hosts layer the cosmetics: telegraph rings + windup/stagger
+  animation from the sim state, kill pops (hit-stop + directed bursts) from `HitEvent.dir`
+  / `HitEvent.killed`, and swing/tell/kill audio cues.
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.

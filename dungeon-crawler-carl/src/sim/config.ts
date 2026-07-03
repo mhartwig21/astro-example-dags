@@ -30,6 +30,25 @@ export const CONFIG = {
   playerAttackArc: Math.PI / 2, // 90° swing in facing direction
   playerCritChance: 0.18,
   playerCritMult: 2.0,
+  meleeLungeDistance: 0.45, // tiles the swing steps toward the aim (aggression + reach)
+
+  // Hit reactions: player damage shoves monsters (divided by archetype mass) and
+  // builds poise damage; crossing maxHp * poise staggers them (interrupting any
+  // windup and freezing them briefly). Chaff flinches constantly; brutes shrug.
+  meleeKnockback: 0.3, // tiles
+  boltKnockback: 0.15,
+  novaKnockback: 0.7,
+  airstrikeKnockback: 0.5,
+  shockstepKnockback: 0.4,
+  staggerDuration: 0.22, // seconds a staggered monster is helpless
+  elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
+
+  // Enemy attack telegraphs: every monster attack winds up (per-archetype, see
+  // ARCHETYPES.windup) before the strike resolves. The strike re-checks range
+  // (+grace) and dash i-frames, so danger is READABLE and DODGEABLE — which is
+  // why monster damage below runs much hotter than the old instant-hit numbers.
+  monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
+  bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
@@ -61,8 +80,10 @@ export const CONFIG = {
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
-  monsterBaseDamage: 6,
-  monsterDamagePerFloor: 1.4,
+  // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
+  // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
+  monsterBaseDamage: 15,
+  monsterDamagePerFloor: 2.8,
   monsterSpeed: 2.6, // tiles/sec
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
@@ -81,7 +102,8 @@ export const CONFIG = {
   // Skills
   dashDistance: 3.2, // tiles blinked
   dashDuration: 0.14, // seconds of active dash (i-frames)
-  dashCooldown: 1.4,
+  dashCharges: 2, // dashes in the tank; each recharges on its own timer
+  dashCooldown: 2.2, // seconds to restore ONE charge
   boltCooldown: 0.6,
   boltSpeed: 12, // tiles/sec
   boltTtl: 1.2, // seconds
@@ -191,7 +213,7 @@ export const CONFIG = {
   // Boss (floor 18)
   bossHp: 900,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 26,
+  bossDamage: 34,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,
@@ -206,20 +228,28 @@ export type MonsterArchetype = {
   attackRange: number;
   xpMult: number;
   ranged: boolean; // keeps a standoff distance and fires projectiles
+  windup: number; // seconds an attack telegraphs before the strike resolves
+  poise: number; // fraction of maxHp in accumulated damage that triggers a stagger
+  mass: number; // knockback divisor (heavier archetypes barely move)
 };
 
 export const ARCHETYPES = {
-  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false },
-  swarmer: { hpMult: 0.5, dmgMult: 0.7, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false },
-  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false },
-  ranged: { hpMult: 0.8, dmgMult: 1.0, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true },
+  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.25, mass: 1 },
+  // Swarmer: dies to one clean hit (that's the fantasy); threat comes from volume.
+  swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.1, mass: 0.8 },
+  // Brute: long, scary windup that lands a chunk of your HP; high poise (shrugs
+  // off small hits) — respect it or interrupt it with something heavy.
+  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.7, mass: 3 },
+  // Ranged: windup is its aim flash — it stands still to line up the shot.
+  ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1 },
   // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
-  bomber: { hpMult: 0.55, dmgMult: 1.0, speedMult: 1.15, attackRange: 0.9, xpMult: 1.2, ranged: false },
+  // Its "windup" is the fuse (bomberFuse) it lights on contact.
+  bomber: { hpMult: 0.55, dmgMult: 1.0, speedMult: 1.15, attackRange: 0.9, xpMult: 1.2, ranged: false, windup: 0.3, poise: 0.2, mass: 1 },
   // Shaman: never attacks (dmgMult unused); attackRange is its preferred standoff.
-  shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true },
+  shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
-  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false },
-  boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false },
+  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8 },
+  boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6 },
 } as const satisfies Record<string, MonsterArchetype>;
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier.
