@@ -128,8 +128,12 @@ export class FogOfWar {
         transparent: true,
         depthWrite: false,
         uniforms: {
-          uUvScale: { value: new THREE.Vector2((map.w + 2 * PAD) / map.w, (map.h + 2 * PAD) / map.h) },
-          uUvOff: { value: new THREE.Vector2(-PAD / map.w, -PAD / map.h) },
+          // Map plane uv -> mask uv (tile x/w, y/h). The v axis is NEGATED:
+          // PlaneGeometry's uv.y=1 edge lands at world z=-PAD after the
+          // rotateX(-PI/2), i.e. plane v runs OPPOSITE to mask row order —
+          // sampling it straight renders the explored set z-mirrored.
+          uUvScale: { value: new THREE.Vector2((map.w + 2 * PAD) / map.w, -(map.h + 2 * PAD) / map.h) },
+          uUvOff: { value: new THREE.Vector2(-PAD / map.w, (map.h + PAD) / map.h) },
           uMask: { value: this.mask },
           uNoise: { value: this.noise },
           uTime: { value: 0 },
