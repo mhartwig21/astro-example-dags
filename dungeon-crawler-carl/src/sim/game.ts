@@ -11,7 +11,7 @@ import {
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
+  novaParams, orbitBladePos, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
@@ -360,6 +360,7 @@ function makePlayer(id: number, name: string): Player {
     novaFlash: 0,
     orbitAngle: 0,
     orbitTick: 0,
+    orbitSpiral: 0,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -1647,11 +1648,13 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 }
 
 /**
- * Dash skill: blink in the facing direction with brief i-frames (dashTime).
- * Runs on charges — spending one starts the recharge timer (cd.dash) if it
- * isn't already running; the step loop restores charges as it expires.
+ * Dash skill: blink with brief i-frames (dashTime), along the CURRENT move
+ * input when there is one (falling back to facing) — firing a bolt sets
+ * facing to the aim direction, and a dash should follow your feet, not your
+ * last shot. Runs on charges — spending one starts the recharge timer
+ * (cd.dash) if it isn't already running.
  */
-function doDash(state: GameState, p: Player): void {
+function doDash(state: GameState, p: Player, move: Vec2): void {
   const dp = dashParams(p);
   p.dashCharges--;
   if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown * cdMult(p);
@@ -1660,13 +1663,17 @@ function doDash(state: GameState, p: Player): void {
     radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, p.baseDamage);
   }
   p.dashTime = CONFIG.dashDuration;
-  const dir = normalize(p.facing);
+  const dir = normalize(move.x !== 0 || move.y !== 0 ? move : p.facing);
+  p.facing = dir;
+  const start = { x: p.pos.x, y: p.pos.y };
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
-  // Shockstep: a damage burst around the arrival point.
+  // Shockstep: damage along the WHOLE dash path (launch -> arrival capsule),
+  // so dashing through a pack connects — and Long Blink extends the reach.
   if (dp.shockMult > 0) {
-    radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
+    segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
+      p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
   }
-  // AFTERSHOCK capstone: the arrival point detonates outright.
+  // AFTERSHOCK capstone: the arrival point additionally detonates outright.
   if (rank(p, "dash.after") > 0) {
     radialDamage(state, p, p.pos, 1.8, p.baseDamage);
     p.novaFlash = Math.max(p.novaFlash, 0.18);
@@ -1697,7 +1704,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   }
 }
 
-/** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep.
+/** Damage every monster within `radius` of `center` (crit-able); used by nova/aftershock.
  * Blasts shove outward from the center when `knockback` > 0. */
 function radialDamage(
   state: GameState, p: Player, center: Vec2, radius: number, damage: number, knockback = 0,
@@ -1706,6 +1713,25 @@ function radialDamage(
     const d = dist(center, m.pos);
     if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
+    damageMonster(state, p, m, damage, { dir, knockback });
+  }
+}
+
+/** Damage every monster whose body touches the capsule around segment a->b
+ * (Shockstep's dash path). Knockback shoves away from the path. */
+function segmentDamage(
+  state: GameState, p: Player, a: Vec2, b: Vec2, radius: number, damage: number, knockback = 0,
+): void {
+  const ab = { x: b.x - a.x, y: b.y - a.y };
+  const len2 = ab.x * ab.x + ab.y * ab.y;
+  for (const m of state.monsters) {
+    const t = len2 > 1e-6
+      ? Math.max(0, Math.min(1, ((m.pos.x - a.x) * ab.x + (m.pos.y - a.y) * ab.y) / len2))
+      : 0;
+    const closest = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+    const d = dist(closest, m.pos);
+    if (d - bodyRadius(m) > radius) continue;
+    const dir = d > 1e-4 ? { x: (m.pos.x - closest.x) / d, y: (m.pos.y - closest.y) / d } : undefined;
     damageMonster(state, p, m, damage, { dir, knockback });
   }
 }
@@ -1727,20 +1753,33 @@ function doNova(state: GameState, p: Player): void {
   radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
 }
 
-/** Orbit blades: automatic contact damage on a fixed tick while learned. */
+/**
+ * Orbit blades: automatic contact damage on a fixed tick while slotted. The
+ * tick tests the blade's SWEPT path since the last tick (sampled), not just
+ * its instantaneous position — blades hit what they visibly passed through.
+ * With Corkscrew the radius spirals between inner and outer reach (see
+ * orbitBladePos), so coverage spans every range instead of one ring.
+ */
 function updateOrbit(state: GameState, p: Player, dt: number): void {
   if (!slotted(p, "orbit") || !p.alive) return;
   const op = orbitParams(p);
   p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
+  p.orbitSpiral = (p.orbitSpiral + CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
   if (p.orbitTick > 0) return;
   p.orbitTick = CONFIG.orbitTickSeconds;
+  const angleSweep = CONFIG.orbitRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
+  const phaseSweep = CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
+  const samples = CONFIG.orbitHitSamples;
   for (const m of state.monsters) {
+    const reach = CONFIG.orbitBladeHitRadius + bodyRadius(m);
     let touching = false;
-    for (let i = 0; i < op.blades; i++) {
-      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
-      const blade = { x: p.pos.x + Math.cos(a) * op.radius, y: p.pos.y + Math.sin(a) * op.radius };
-      if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius + bodyRadius(m)) { touching = true; break; }
+    for (let i = 0; i < op.blades && !touching; i++) {
+      for (let k = 0; k < samples; k++) {
+        const back = k / samples; // 0 = now, ->1 = start of the tick window
+        const blade = orbitBladePos(p, i, angleSweep * back, phaseSweep * back);
+        if (dist(blade, m.pos) <= reach) { touching = true; break; }
+      }
     }
     if (!touching) continue;
     damageMonster(state, p, m, p.baseDamage * op.damageMult, { allowCrit: false });
@@ -1836,11 +1875,11 @@ function doBulletTime(state: GameState, p: Player): void {
  * Cast the ability in a slot. One switch = the whole cast surface; adding an
  * ability means one case here + a registry entry in abilities.ts.
  */
-function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2): void {
+function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2, move: Vec2): void {
   // Dash is charge-gated, not cooldown-gated: cd.dash is its recharge timer,
   // which may be ticking while a banked charge is still ready to spend.
   if (ability === "dash") {
-    if (p.dashCharges > 0) doDash(state, p);
+    if (p.dashCharges > 0) doDash(state, p, move);
     return;
   }
   if ((p.cd[ability] ?? 0) > 0) return;
@@ -2032,10 +2071,10 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       const aim = pi.aim ?? p.facing;
       for (let s = 0; s < ABILITY_SLOTS; s++) {
         const ability = p.abilities.slots[s];
-        if (cast[s] && ability) castAbility(state, p, ability, aim);
+        if (cast[s] && ability) castAbility(state, p, ability, aim, pi.move);
       }
       if (cast[ABILITY_SLOTS] && p.abilities.ultimate) {
-        castAbility(state, p, p.abilities.ultimate, aim);
+        castAbility(state, p, p.abilities.ultimate, aim, pi.move);
         // Overtime Clause: the network wants MORE ultimates.
         const ult = p.abilities.ultimate;
         if (hasPassive(p, "overtime") && (p.cd[ult] ?? 0) > 0) {

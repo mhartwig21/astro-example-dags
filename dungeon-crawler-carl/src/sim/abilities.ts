@@ -81,10 +81,14 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
   { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
   { id: "nova.implode", ability: "nova", title: "IMPLOSION", maxRank: 1, desc: () => "Nova first drags everything in range toward you", requires: ["nova.bang"], capstone: true, pos: { x: 50, y: 86 } },
-  // Orbit: blade -> razor + wide (no fork; the passive stays simple)
+  // Orbit: blade -> razor + corkscrew (no fork; the passive stays simple)
   { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
   { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
-  { id: "orbit.wide", ability: "orbit", title: "Wide Orbit", maxRank: 2, desc: (r) => `Orbit radius +${r * 20}%`, requires: ["orbit.blade"], pos: { x: 75, y: 62 } },
+  {
+    id: "orbit.wide", ability: "orbit", title: "Corkscrew", maxRank: 2,
+    desc: (r) => `Blades spiral ${CONFIG.orbitSpiralInner}–${(CONFIG.orbitRadius + CONFIG.orbitSpiralPerRank * r).toFixed(1)} tiles, sweeping every range`,
+    requires: ["orbit.blade"], pos: { x: 75, y: 62 },
+  },
 ];
 
 const BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -163,9 +167,31 @@ export function novaParams(p: Player) {
 export function orbitParams(p: Player) {
   return {
     blades: CONFIG.orbitBladesBase + rank(p, "orbit.blade"),
-    radius: CONFIG.orbitRadius * (1 + rank(p, "orbit.wide") * 0.2),
+    radius: CONFIG.orbitRadius,
     damageMult: CONFIG.orbitDamageMult * (1 + rank(p, "orbit.razor") * 0.35),
+    spiralRank: rank(p, "orbit.wide"),
   };
+}
+
+/**
+ * World position of orbit blade `i`. With Corkscrew (orbit.wide) taken, the
+ * blade radius oscillates between the inner spiral radius and a rank-scaled
+ * outer reach (blades phase-offset so they cover different ranges at once).
+ * `angleBack`/`phaseBack` rewind the rotation and spiral by that many radians —
+ * the sim's damage tick uses this to test the SWEPT path since the last tick,
+ * and renderers call it with no rewind so visuals match hits exactly.
+ */
+export function orbitBladePos(p: Player, i: number, angleBack = 0, phaseBack = 0): { x: number; y: number } {
+  const op = orbitParams(p);
+  const offset = (i * Math.PI * 2) / op.blades;
+  const a = p.orbitAngle - angleBack + offset;
+  let rad = op.radius;
+  if (op.spiralRank > 0) {
+    const outer = CONFIG.orbitRadius + CONFIG.orbitSpiralPerRank * op.spiralRank;
+    const ph = p.orbitSpiral - phaseBack + offset;
+    rad = CONFIG.orbitSpiralInner + (outer - CONFIG.orbitSpiralInner) * 0.5 * (1 - Math.cos(ph));
+  }
+  return { x: p.pos.x + Math.cos(a) * rad, y: p.pos.y + Math.sin(a) * rad };
 }
 
 // ---- Level-up draft ----

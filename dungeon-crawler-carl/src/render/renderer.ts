@@ -1,6 +1,6 @@
 import { CONFIG, floorBand } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
-import { knows, novaParams, orbitParams } from "../sim/abilities";
+import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
 
 const T = CONFIG.tile;
 
@@ -209,14 +209,14 @@ export function render(
     ctx.closePath();
     ctx.fill();
   }
-  // Orbit blades (auto ability).
+  // Orbit blades (auto ability). Positions shared with the sim's hit test.
   if (knows(p, "orbit")) {
     const op = orbitParams(p);
     ctx.fillStyle = "#9fe8ff";
     for (let i = 0; i < op.blades; i++) {
-      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+      const bp = orbitBladePos(p, i);
       ctx.beginPath();
-      ctx.arc(ppx + Math.cos(a) * op.radius * T, ppy + Math.sin(a) * op.radius * T, 4, 0, Math.PI * 2);
+      ctx.arc(ppx + (bp.x - p.pos.x) * T, ppy + (bp.y - p.pos.y) * T, 4, 0, Math.PI * 2);
       ctx.fill();
     }
   }

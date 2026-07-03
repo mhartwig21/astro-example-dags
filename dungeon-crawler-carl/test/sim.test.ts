@@ -795,6 +795,66 @@ describe("ability tree + upgrade drafts", () => {
     expect(g.monsters[0].hp).toBeLessThan(500);
   });
 
+  it("orbit's swept-path tick hits on-ring targets regardless of blade phase", () => {
+    // The blades sweep ~full circle between damage ticks, so a monster parked
+    // anywhere on the ring must be hit within a couple of ticks — no more
+    // snapshot roulette.
+    for (const angle of [0, Math.PI / 3, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+      const g = createGame(16);
+      const p = g.players[0];
+      p.maxHp = p.hp = 9999;
+      learnAbility(g, p, "orbit");
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({
+        id: 1, hp: 500, maxHp: 500,
+        pos: { x: p.pos.x + Math.cos(angle) * CONFIG.orbitRadius, y: p.pos.y + Math.sin(angle) * CONFIG.orbitRadius },
+      }));
+      for (let i = 0; i < 60 && g.monsters[0].hp === 500; i++) step(g, idle(), 1 / 60);
+      expect(g.monsters[0].hp).toBeLessThan(500);
+    }
+  });
+
+  it("CORKSCREW spirals inward to hit enemies base orbit can never touch", () => {
+    const inside = 0.55; // well inside the base ring's dead zone
+    const run = (corkscrew: boolean) => {
+      const g = createGame(17);
+      const p = g.players[0];
+      p.maxHp = p.hp = 9999;
+      learnAbility(g, p, "orbit");
+      p.abilities.ranks["orbit.blade"] = 1; // prerequisite
+      if (corkscrew) p.abilities.ranks["orbit.wide"] = 1;
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({ id: 1, hp: 500, maxHp: 500, pos: { x: p.pos.x + inside, y: p.pos.y } }));
+      for (let i = 0; i < 240 && g.monsters[0].hp === 500; i++) step(g, idle(), 1 / 60);
+      return g.monsters[0].hp;
+    };
+    expect(run(false)).toBe(500); // fixed ring: the interior is out of reach
+    expect(run(true)).toBeLessThan(500); // spiral dips to the inner radius
+  });
+
+  it("SHOCKSTEP damages along the whole dash path, not just the arrival point", () => {
+    const g = createGame(18);
+    const p = g.players[0];
+    p.maxHp = p.hp = 9999;
+    p.abilities.ranks["dash.shock"] = 1;
+    g.monsters.length = 0;
+    // Mid-path: far from the arrival point (old arrival-burst missed this).
+    g.monsters.push(mkMon({ id: 1, hp: 500, maxHp: 500, pos: { x: p.pos.x + 0.8, y: p.pos.y } }));
+    step(g, { move: { x: 1, y: 0 }, useStairs: false, cast: [false, true, false, false, false] }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+  });
+
+  it("dash follows the move input, not stale aim-facing", () => {
+    const g = createGame(18); // seed 18's spawn has open ground to the east
+    const p = g.players[0];
+    g.monsters.length = 0;
+    p.facing = { x: 0, y: -1 }; // e.g. just fired a bolt to the north
+    const start = { x: p.pos.x, y: p.pos.y };
+    step(g, { move: { x: 1, y: 0 }, useStairs: false, cast: [false, true, false, false, false] }, 1 / 60);
+    expect(p.pos.x - start.x).toBeGreaterThan(1); // dashed east with the feet
+    expect(Math.abs(p.pos.y - start.y)).toBeLessThan(0.2);
+  });
+
   it("abilities persist through save shape (restore)", () => {
     const restored = restoreGame({
       seed: 50, floor: 2,

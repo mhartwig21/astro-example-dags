@@ -40,6 +40,8 @@ export interface Player {
   novaFlash: number; // transient render flag: seconds remaining of nova ring effect
   orbitAngle: number; // current rotation of the orbit blades (radians)
   orbitTick: number; // seconds until the orbit blades' next damage tick
+  // Corkscrew (orbit.wide): phase of the in-out spiral oscillation (radians).
+  orbitSpiral: number;
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
