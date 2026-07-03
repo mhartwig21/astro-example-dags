@@ -162,6 +162,53 @@ This document describes the full target architecture, then defines the scope of 
 - Still to come: achievements, recurring announcer personality/banter, cosmetic absurdity,
   and leaderboards.
 
+### 5.7 Ability loadout (planned — supersedes the flat ability tree)
+
+Today (`abilities.ts`) every discovered ability just stacks — no scarcity, so there is no
+"what's my build?" decision. This spec adds a **fixed loadout** that forces build identity
+while keeping the existing tree, drafts, tomes, bindings, and safe rooms.
+
+**The Five — a player's build is exactly 5 slots:**
+- **4 ability slots** + **1 ultimate slot** (a distinct, longer-cooldown tier).
+- Abilities are tagged by `tier`: `active` (fill the 4 slots) or `ultimate` (fills the 1).
+- **Start:** slots begin as `[Melee, Dash, Bolt, empty]` for the four abilities, ultimate
+  slot **empty**. Melee, Dash, and the ranged Bolt are your opening kit; the 4th ability
+  and the ultimate are discovered.
+
+**Melee & Dash are normal slotted abilities that can be freed.**
+- They start *in* the five (not innate/off-loadout) and keep their upgrade node tracks, so
+  Dash can still be built into a centerpiece (Shockstep/Long Blink/Quickstep).
+- You may **free** a melee/dash slot to run a discovered ability in its place. Freeing them
+  removes them from your kit entirely — a real commitment (e.g. an all-cooldowns, no-basic-
+  attack build). Invested ranks persist if you re-slot later. *(Balance note: freed = truly
+  gone, no innate fallback; add a weak fallback only if playtesting says it feels bad.)*
+
+**Slotting rules (the core UX ruling):**
+- **Slot immediately when a slot is open** — discovering an ability while a matching slot is
+  empty installs it on the spot (field pickup keeps momentum; you can use a fresh find right
+  away). Same for the ultimate slot.
+- **Re-slot / swap / free only in safe rooms** — once slots are full, a new discovery goes to
+  the **bench**; rearranging the build (swapping, freeing melee/dash, changing the ultimate)
+  is a committed **safe-room** decision. No mid-fight reshuffling. (Gate on the existing
+  safe-room state.)
+
+**Consequences that make it a build:**
+- Once you know more than 4 actives + 1 ult, you must **choose** which to slot — that choice
+  *is* the build.
+- The **level-up upgrade draft offers ranks only for currently-slotted abilities**, so
+  investment follows the kit you're actually running (benched/freed abilities aren't offered).
+- **Ultimate** = long cooldown (~20–60s) + screen-scale impact (Meteor Storm, Bullet Time,
+  Cataclysm Nova, Summon Champion, on-brand "Sponsor Airstrike"). Exactly one slotted.
+
+**Keys:** 4 ability binds + 1 ultimate bind, all via the existing rebindable `Bindings` map
+(melee defaults LMB, dash Shift). Because melee/dash are slots now, they rebind/replace like
+any slot.
+
+**Data model impact (`Player`):** add `slots: (AbilityId|null)[4]`, `ultimate: AbilityId|null`,
+and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discovery adds to an
+open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
+deterministic, so multiplayer + tests hold.
+
 ---
 
 ## 6. Tech stack
