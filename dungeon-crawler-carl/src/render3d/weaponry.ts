@@ -69,6 +69,25 @@ export function loadoutFor(p: Player): { weapon: WeaponVisual; shield: string | 
 }
 
 /** Emissive flair per rarity (0 = none). */
+/**
+ * Model node for an item lying ON THE GROUND (loot drops): weapons show the
+ * actual mesh you'd equip; armor shows its shield. Null = no model (trinkets).
+ */
+export function groundVisualFor(item: Item): { srcKey: string; node: string } | null {
+  const n = noun(item);
+  if (item.slot === "weapon") {
+    const spec = WEAPON_VISUALS[n];
+    if (!spec) return null;
+    const v = (item.rarity === "rare" || item.rarity === "epic") && spec.heavy ? spec.heavy : spec.base;
+    return { srcKey: v.srcKey, node: v.node };
+  }
+  if (item.slot === "armor") {
+    const shield = SHIELD_BY_ARMOR[n];
+    return shield ? { srcKey: "player", node: shield } : null;
+  }
+  return null;
+}
+
 export function rarityGlow(rarity: Rarity | undefined): { color: number; intensity: number } | null {
   switch (rarity) {
     case "magic": return { color: 0x2255cc, intensity: 0.35 };

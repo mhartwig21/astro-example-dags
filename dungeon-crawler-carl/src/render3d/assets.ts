@@ -40,7 +40,7 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // stairs
       "stairs_narrow", "stairs_walled", "stairs_wide", "stairs_wood_decorated",
       // props
-      "barrel_small", "box_small", "crates_stacked",
+      "barrel_small", "box_small", "crates_stacked", "coin", "key",
       "barrel_large", "bottle_A_green", "rubble_half", "trunk_small_A",
       "rubble_large", "column", "sword_shield_broken",
       "keg", "box_large", "shelf_small", "table_medium_broken",

@@ -6,7 +6,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import { knows, novaParams, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
-import { ATTACHMENT_NODES, CANONICAL_LOADOUT, loadoutFor, rarityGlow } from "./weaponry";
+import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -67,8 +67,8 @@ export class Renderer3D {
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
-  private loot = new Map<number, THREE.Mesh>();
-  private projectiles = new Map<number, THREE.Mesh>();
+  private loot = new Map<number, THREE.Object3D>();
+  private projectiles = new Map<number, THREE.Object3D>();
 
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
@@ -99,6 +99,55 @@ export class Renderer3D {
     vx: number; vy: number; vz: number; life: number; max: number;
   }[] = [];
   private sharedParticleGeo = new THREE.TetrahedronGeometry(0.09, 0);
+  // Additive glow sprites (projectile trails, magic bursts). The texture is a
+  // canvas radial gradient — procedural, so the FX layer needs no image assets.
+  private fxSprites: { sprite: THREE.Sprite; life: number; max: number; grow: number }[] = [];
+  private glowTex: THREE.Texture | null = null;
+  private strikeMeshes: THREE.Object3D[] = []; // falling airstrike shells (pooled)
+  private prevStrikeCount = 0;
+  private prevStrikePos: { x: number; y: number }[] = [];
+
+  private glowTexture(): THREE.Texture {
+    if (this.glowTex) return this.glowTex;
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!;
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.4, "rgba(255,255,255,0.5)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    this.glowTex = new THREE.CanvasTexture(c);
+    return this.glowTex;
+  }
+
+  private makeGlow(color: number, size: number): THREE.Sprite {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this.glowTexture(), color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    s.scale.setScalar(size);
+    return s;
+  }
+
+  /** Fire-and-forget glow puff (trails, bursts). */
+  private spawnGlow(x: number, y: number, z: number, color: number, size: number, max = 0.35, grow = 0): void {
+    if (this.fxSprites.length > 240) return; // cap
+    const sprite = this.makeGlow(color, size);
+    sprite.position.set(x, y, z);
+    this.scene.add(sprite);
+    this.fxSprites.push({ sprite, life: 0, max, grow });
+  }
+
+  /** Radial burst of glow puffs (novas, impacts). */
+  private burst(x: number, z: number, color: number, count: number, size: number, radius: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      this.spawnGlow(x + Math.cos(a) * radius * 0.3, 0.5 + Math.random() * 0.4, z + Math.sin(a) * radius * 0.3,
+        color, size * (0.7 + Math.random() * 0.6), 0.4 + Math.random() * 0.25, radius * 2.2);
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -359,6 +408,65 @@ export class Renderer3D {
     g.scale.setScalar(base);
     g.userData.baseScale = base;
     return g;
+  }
+
+  /**
+   * Ground-drop visuals: REAL models per loot kind — a coin (or stack) for
+   * gold, a potion bottle for heals, the dungeon key, the mage's spellbook for
+   * tomes, and for equipment the ACTUAL weapon/shield mesh you'd equip, tinted
+   * by rarity. Anything without a model falls back to the classic octahedron.
+   */
+  private buildLootMesh(l: GameState["loot"][number]): THREE.Object3D {
+    const fallback = (): THREE.Mesh => {
+      const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
+      return new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.2, 0),
+        flat(col, { emissive: col, emissiveIntensity: 0.6 }),
+      );
+    };
+    let obj: THREE.Object3D | null = null;
+    let scale = 0.5;
+    if (l.kind === "gold") {
+      obj = this.modelInstance(l.amount > 10 ? "coin_stack_small" : "coin");
+      scale = l.amount > 10 ? 0.45 : 0.55;
+    } else if (l.kind === "heal") {
+      obj = this.modelInstance("bottle_A_green");
+      scale = 0.55;
+    } else if (l.kind === "key") {
+      obj = this.modelInstance("key");
+      scale = 0.6;
+    } else if (l.kind === "tome") {
+      const book = this.models["monster_shaman"]?.scene.getObjectByName("Spellbook");
+      if (book) { obj = book.clone(true); scale = 0.8; }
+    } else if (l.kind === "item" && l.item) {
+      const vis = groundVisualFor(l.item);
+      const node = vis ? this.models[vis.srcKey]?.scene.getObjectByName(vis.node) : null;
+      if (node) {
+        obj = node.clone(true);
+        scale = 0.8;
+        // Rarity tint on CLONED materials (the source scene keeps its own).
+        const glow = rarityGlow(l.item.rarity);
+        obj.traverse((c) => {
+          const mesh = c as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+          if (glow) { mat.emissive = new THREE.Color(glow.color); mat.emissiveIntensity = glow.intensity; }
+          mesh.material = mat;
+        });
+      }
+    }
+    if (!obj) return fallback();
+    obj.scale.setScalar(scale);
+    obj.rotation.z = l.kind === "item" ? Math.PI / 2.6 : 0; // weapons lie at an angle
+    const group = new THREE.Group();
+    group.add(obj);
+    // A soft ground glow so drops read at a glance (gold for currency,
+    // rarity-tinted for gear).
+    const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
+    const halo = this.makeGlow(col, 0.9);
+    halo.position.y = -0.2;
+    group.add(halo);
+    return group;
   }
 
   private lootColor(kind: string): number {
@@ -754,7 +862,38 @@ export class Renderer3D {
 
   // ---- Ability visuals (orbit blades + nova ring) ----
 
+  /** Sponsor Airstrike: shells render as falling KEGS (sponsor-branded
+   * ordnance); each impact pops an orange burst where it lands. */
+  private updateStrikeFx(state: GameState): void {
+    const strikes = state.strikes ?? [];
+    // Impacts: the count dropped — burst at the previous positions that landed.
+    if (strikes.length < this.prevStrikeCount) {
+      for (const pos of this.prevStrikePos.slice(strikes.length)) {
+        this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+      }
+    }
+    this.prevStrikeCount = strikes.length;
+    this.prevStrikePos = strikes.map((s) => ({ x: s.pos.x, y: s.pos.y }));
+    while (this.strikeMeshes.length < strikes.length) {
+      const keg = this.modelInstance("keg") ?? new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
+      keg.scale.multiplyScalar(0.5);
+      this.scene.add(keg);
+      this.strikeMeshes.push(keg);
+    }
+    for (let i = 0; i < this.strikeMeshes.length; i++) {
+      const mesh = this.strikeMeshes[i];
+      const s = strikes[i];
+      if (!s) { mesh.visible = false; continue; }
+      mesh.visible = true;
+      mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
+      mesh.rotation.x += 0.2;
+      mesh.rotation.z += 0.13;
+    }
+  }
+
   private updateAbilityFx(state: GameState, dt: number): void {
+    this.updateStrikeFx(state);
     for (const p of state.players) {
       // Orbit blades: reconcile each player's pool with their learned blade count.
       const op = knows(p, "orbit") && p.alive ? orbitParams(p) : null;
@@ -792,6 +931,7 @@ export class Renderer3D {
         }
         const np = novaParams(p);
         const prog = 1 - p.novaFlash / 0.3;
+        if (!ring.visible) this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
         ring.visible = true;
         ring.position.set(p.pos.x, 0.15, p.pos.y);
         ring.scale.setScalar(Math.max(0.05, np.radius * prog));
@@ -1014,14 +1154,25 @@ export class Renderer3D {
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
         const color = pr.from === "player" ? THEME.projectilePlayer : THEME.projectileEnemy;
-        mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 8, 8),
-          flat(color, { emissive: color, emissiveIntensity: 0.9 }),
+        const group = new THREE.Group();
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.11, 8, 8),
+          flat(color, { emissive: color, emissiveIntensity: 1.4 }),
         );
+        group.add(core, this.makeGlow(color, 0.85));
+        group.userData.color = color;
+        group.userData.lastTrail = 0;
+        mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
       mesh.visible = inVision(pr.pos);
+      // Comet trail: a fading glow puff every few ms of flight.
+      mesh.userData.lastTrail += dt;
+      if (mesh.visible && mesh.userData.lastTrail > 0.035) {
+        mesh.userData.lastTrail = 0;
+        this.spawnGlow(mesh.position.x, mesh.position.y, mesh.position.z, mesh.userData.color, 0.5, 0.22, -0.8);
+      }
     }
     for (const [id, mesh] of this.projectiles) {
       if (!projSeen.has(id)) { this.scene.remove(mesh); this.projectiles.delete(id); }
@@ -1033,11 +1184,7 @@ export class Renderer3D {
       lootSeen.add(l.id);
       let mesh = this.loot.get(l.id);
       if (!mesh) {
-        const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
-        mesh = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.2, 0),
-          flat(col, { emissive: col, emissiveIntensity: 0.6 }),
-        );
+        mesh = this.buildLootMesh(l);
         this.scene.add(mesh); this.loot.set(l.id, mesh);
       }
       // Equipment bobs a touch higher and spins faster so drops read as "loot".
@@ -1196,6 +1343,18 @@ export class Renderer3D {
       alive.push(pt);
     }
     this.particles = alive;
+
+    // Glow sprites: fade + optional grow/shrink, no gravity.
+    const fxAlive: typeof this.fxSprites = [];
+    for (const fx of this.fxSprites) {
+      fx.life += dt;
+      if (fx.life >= fx.max) { this.scene.remove(fx.sprite); continue; }
+      const t = fx.life / fx.max;
+      (fx.sprite.material as THREE.SpriteMaterial).opacity = 1 - t;
+      if (fx.grow !== 0) fx.sprite.scale.multiplyScalar(1 + fx.grow * dt);
+      fxAlive.push(fx);
+    }
+    this.fxSprites = fxAlive;
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */
