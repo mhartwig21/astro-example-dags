@@ -553,62 +553,137 @@ export class Renderer3D {
     }
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
 
-    // Prop scatter: the band furniture, seeded per floor so each floor of a
-    // district has its own character. Cosmetic only: the sim never sees props.
+    // RULE-BASED DRESSING (intent over noise): torches line room walls with the
+    // lights anchored to the visible meshes; banners flank locked doors; clutter
+    // clusters live in corners; the LANDMARK hall gets a pillar colonnade and an
+    // altar; the VAULT gets its treasure hoard. Cosmetic only; sim never sees it.
     this.propEntries = [];
-    const density = theme.propDensity * (0.6 + frng() * 0.9);
-    const maxProps = 110;
-    for (let y = 1; y < map.h - 1 && this.propEntries.length < maxProps; y++) {
-      for (let x = 1; x < map.w - 1 && this.propEntries.length < maxProps; x++) {
-        const idx = y * map.w + x;
-        if (map.tiles[idx] !== Tile.Floor) continue;
-        if (frng() > density) continue;
-        // Keep spawn, stairs, and door mouths clear.
-        if (Math.hypot(x + 0.5 - map.spawn.x, y + 0.5 - map.spawn.y) < 3) continue;
-        if (Math.hypot(x + 0.5 - map.stairs.x, y + 0.5 - map.stairs.y) < 2.5) continue;
-        if ([idx - 1, idx + 1, idx - map.w, idx + map.w].some((n) => map.tiles[n] === Tile.DoorLocked)) continue;
-        const key = theme.props[Math.floor(frng() * theme.props.length)];
-        const obj = this.modelInstance(key);
-        if (!obj) continue;
-        const box = new THREE.Box3().setFromObject(obj);
-        const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
-        obj.scale.multiplyScalar((0.5 + frng() * 0.3) / fp);
-        const scaled = new THREE.Box3().setFromObject(obj);
-        obj.position.set(
-          x + 0.5 + (frng() - 0.5) * 0.4 - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
-          -scaled.min.y + 0.004,
-          y + 0.5 + (frng() - 0.5) * 0.4 - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
-        );
-        obj.rotation.y = frng() * Math.PI * 2;
-        this.floorGroup.add(obj);
-        this.propEntries.push({ obj, tile: idx });
+    const clear = (x: number, y: number, spawnR = 2.5, stairsR = 2.5): boolean => {
+      const i = Math.floor(y) * map.w + Math.floor(x);
+      if (map.tiles[i] !== Tile.Floor) return false;
+      if (Math.hypot(x - map.spawn.x, y - map.spawn.y) < spawnR) return false;
+      if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
+      return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
+    };
+    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number } = {}): boolean => {
+      if (this.propEntries.length > 150 || !clear(x, y)) return false;
+      const obj = this.modelInstance(key);
+      if (!obj) return false;
+      const box = new THREE.Box3().setFromObject(obj);
+      const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+      obj.scale.multiplyScalar((opts.scale ?? 0.55 + frng() * 0.2) / fp);
+      const scaled = new THREE.Box3().setFromObject(obj);
+      const j = opts.jitter ?? 0.25;
+      obj.position.set(
+        x + (frng() - 0.5) * j - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
+        -scaled.min.y + 0.004,
+        y + (frng() - 0.5) * j - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
+      );
+      obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
+      this.floorGroup.add(obj);
+      this.propEntries.push({ obj, tile: Math.floor(y) * map.w + Math.floor(x) });
+      return true;
+    };
+
+    // 1) Torch anchors along room walls (every ~4 perimeter tiles), lights riding
+    //    the meshes. Replaces the old free-floating torch light sampling.
+    const torchAnchors: Vec2[] = [];
+    for (let ri = 0; ri < map.rooms.length && torchAnchors.length < 14; ri++) {
+      const r = map.rooms[ri];
+      let steps = 0;
+      const tryTorch = (x: number, y: number) => {
+        if (torchAnchors.length >= 14) return;
+        if (steps++ % 4 !== 0) return;
+        const i = Math.floor(y) * map.w + Math.floor(x);
+        if (map.tiles[i] !== Tile.Floor) return;
+        const nearWall = [i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.Wall);
+        if (!nearWall || !clear(x, y)) return;
+        if (place("torch_lit", x, y, { scale: 0.55, jitter: 0.05 })) torchAnchors.push({ x, y });
+      };
+      for (let x = r.x; x < r.x + r.w; x++) { tryTorch(x + 0.5, r.y + 0.5); tryTorch(x + 0.5, r.y + r.h - 0.5); }
+      for (let y = r.y + 1; y < r.y + r.h - 1; y++) { tryTorch(r.x + 0.5, y + 0.5); tryTorch(r.x + r.w - 0.5, y + 0.5); }
+    }
+    this.addTorches(theme, torchAnchors, 0.85 + frng() * 0.3);
+
+    // 2) Banners flanking locked doors (a gate should look like a gate).
+    let banners = 0;
+    for (let i = 0; i < map.tiles.length && banners < 6; i++) {
+      if (map.tiles[i] !== Tile.DoorLocked) continue;
+      const x = (i % map.w) + 0.5, y = Math.floor(i / map.w) + 0.5;
+      for (const [dx, dy] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]] as const) {
+        if (place("banner_red", x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
+          banners++;
+          break;
+        }
       }
     }
 
-    // Torches: place a handful along walls near the spawn and stairs for mood.
-    this.addTorches(state, theme, 0.85 + frng() * 0.3);
+    // 3) Corner clutter clusters (2 corners per room, 1-2 theme props each).
+    for (let ri = 0; ri < map.rooms.length; ri++) {
+      if (map.roles[ri] === "entrance") continue;
+      const r = map.rooms[ri];
+      const corners: Vec2[] = [
+        { x: r.x + 1.2, y: r.y + 1.2 }, { x: r.x + r.w - 1.2, y: r.y + 1.2 },
+        { x: r.x + 1.2, y: r.y + r.h - 1.2 }, { x: r.x + r.w - 1.2, y: r.y + r.h - 1.2 },
+      ];
+      const start = Math.floor(frng() * 4);
+      for (let c = 0; c < 2; c++) {
+        const corner = corners[(start + c * 2) % 4];
+        const n = 1 + Math.floor(frng() * 2);
+        for (let k = 0; k < n; k++) {
+          const key = theme.props[Math.floor(frng() * theme.props.length)];
+          place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
+        }
+      }
+    }
+
+    // 4) LANDMARK hall: a pillar colonnade + a centered altar.
+    const landmarkIdx = map.roles.indexOf("landmark");
+    if (landmarkIdx >= 0) {
+      const r = map.rooms[landmarkIdx];
+      for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
+        for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
+          // Colonnade along the room edges of the interior grid, not the middle.
+          if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
+          place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
+        }
+      }
+      place("table_small_decorated_A", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.7, rot: 0, jitter: 0 });
+    }
+
+    // 5) VAULT: the hoard around the guardian's treasure.
+    const vaultIdx = map.roles.indexOf("vault");
+    if (vaultIdx >= 0) {
+      const r = map.rooms[vaultIdx];
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      place("chest_gold", cx, cy + 1, { scale: 0.7, rot: Math.PI, jitter: 0 });
+      place("coin_stack_large", cx - 1, cy, { scale: 0.4 });
+      place("coin_stack_medium", cx + 1, cy - 0.5, { scale: 0.35 });
+      place("coin_stack_small", cx + 0.5, cy + 0.2, { scale: 0.3 });
+    }
+
+    // 6) A light sprinkle of theme props elsewhere for texture (much sparser
+    //    than before — the intentional placements carry the look now).
+    const density = theme.propDensity * 0.35 * (0.6 + frng() * 0.9);
+    for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
+      for (let x = 1; x < map.w - 1 && this.propEntries.length < 150; x++) {
+        if (map.tiles[y * map.w + x] !== Tile.Floor) continue;
+        if (frng() > density) continue;
+        const key = theme.props[Math.floor(frng() * theme.props.length)];
+        place(key, x + 0.5, y + 0.5, { jitter: 0.4 });
+      }
+    }
+
     this.builtFloor = state.floor;
     this.builtMapVersion = state.mapVersion;
   }
 
-  private addTorches(state: GameState, theme: FloorTheme, intensityJitter: number): void {
-    const map = state.map;
-    const spots: Vec2[] = [];
-    // Sample some walkable tiles adjacent to walls; deterministic scan (no RNG needed for cosmetics).
-    for (let y = 1; y < map.h - 1 && spots.length < 10; y += 3) {
-      for (let x = 1; x < map.w - 1 && spots.length < 10; x += 3) {
-        const here = map.tiles[y * map.w + x];
-        if (here === Tile.Wall) continue;
-        const nearWall =
-          map.tiles[y * map.w + (x - 1)] === Tile.Wall || map.tiles[y * map.w + (x + 1)] === Tile.Wall ||
-          map.tiles[(y - 1) * map.w + x] === Tile.Wall || map.tiles[(y + 1) * map.w + x] === Tile.Wall;
-        if (nearWall) spots.push({ x: x + 0.5, y: y + 0.5 });
-      }
-    }
+  /** Point lights anchored where torch meshes were placed (light = source). */
+  private addTorches(theme: FloorTheme, anchors: Vec2[], intensityJitter: number): void {
     const intensity = theme.torchIntensity * intensityJitter;
-    spots.forEach((s, i) => {
+    anchors.forEach((s, i) => {
       const light = new THREE.PointLight(theme.torchColor, intensity, THEME.torchDistance, 2);
-      light.position.set(s.x, 1.6, s.y);
+      light.position.set(s.x, 1.1, s.y);
       this.scene.add(light);
       this.torchLights.push({ light, base: intensity, seed: i * 1.7 });
     });

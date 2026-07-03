@@ -1,5 +1,5 @@
 import { CONFIG } from "./config";
-import { Tile, type FloorMap, type RoomRect, type Vec2 } from "./types";
+import { Tile, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
 import { nextInt, type Rng } from "./rng";
 
 type Room = RoomRect;
@@ -174,6 +174,27 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     }
   }
 
+  // CYCLES: the creation-order chain is a tree (mazes feel like mazes). Fold the
+  // space back on itself with loop corridors so floors read as architecture:
+  // connect the last room to a mid-chain room, plus one more distant pair.
+  let cycles = 0;
+  const connect = (a: Vec2, b: Vec2) => {
+    if (nextInt(rng, 0, 1) === 0) {
+      carveHCorridor(tiles, w, h, a.x, b.x, a.y);
+      carveVCorridor(tiles, w, h, a.y, b.y, b.x);
+    } else {
+      carveVCorridor(tiles, w, h, a.y, b.y, a.x);
+      carveHCorridor(tiles, w, h, a.x, b.x, b.y);
+    }
+  };
+  if (rooms.length >= 5) {
+    connect(center(rooms[rooms.length - 1]), center(rooms[Math.floor(rooms.length / 2) - 1]));
+    cycles++;
+    const from = nextInt(rng, 0, rooms.length - 5);
+    connect(center(rooms[from]), center(rooms[from + 3]));
+    cycles++;
+  }
+
   const spawn = center(rooms[0]);
 
   // Stairs: room whose center is farthest from spawn (never rooms[0], the spawn room).
@@ -190,6 +211,37 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   const stairs = center(rooms[farthestIdx]);
   tiles[idx(w, stairs.x, stairs.y)] = Tile.StairsDown;
 
+  // ROLES (mission-lite): entrance and stairs are fixed; the biggest remaining
+  // room becomes the LANDMARK set piece; the smallest room past the exit in
+  // chain order (an off-path branch) becomes the treasure VAULT.
+  const roles: RoomRole[] = rooms.map(() => "combat");
+  roles[0] = "entrance";
+  roles[farthestIdx] = "stairs";
+  let landmarkIdx = -1;
+  let bestArea = -1;
+  for (let i = 1; i < rooms.length; i++) {
+    if (i === farthestIdx) continue;
+    const area = rooms[i].w * rooms[i].h;
+    if (area > bestArea) { bestArea = area; landmarkIdx = i; }
+  }
+  if (landmarkIdx >= 0) roles[landmarkIdx] = "landmark";
+  let vaultIdx = -1;
+  let vaultArea = Infinity;
+  for (let i = 1; i < rooms.length; i++) {
+    if (i === farthestIdx || i === landmarkIdx) continue;
+    // Prefer branch rooms past the exit in chain order (off the critical path).
+    const offPath = i > farthestIdx ? 0 : 10000;
+    const area = rooms[i].w * rooms[i].h + offPath;
+    if (area < vaultArea) { vaultArea = area; vaultIdx = i; }
+  }
+  if (vaultIdx >= 0) roles[vaultIdx] = "vault";
+
+  // PACING: 0..1 progress along the critical chain toward the stairs. Branch
+  // rooms past the exit inherit near-full depth (they're deep detours).
+  const depths = rooms.map((_r, i) =>
+    farthestIdx === 0 ? 1 : Math.min(1, i / farthestIdx),
+  );
+
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
   const locked =
     floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
@@ -201,6 +253,9 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     spawn: { x: spawn.x + 0.5, y: spawn.y + 0.5 },
     stairs: { x: stairs.x + 0.5, y: stairs.y + 0.5 },
     rooms,
+    roles,
+    depths,
+    cycles,
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
   };

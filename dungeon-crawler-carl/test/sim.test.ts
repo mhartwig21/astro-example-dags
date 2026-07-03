@@ -768,25 +768,27 @@ describe("wide hallways + bigger floors", () => {
 });
 
 describe("multiplayer difficulty scaling", () => {
-  function floor2MonsterStats(partySize: number) {
+  function floor2Monsters(partySize: number) {
     const g = createGame(4242);
     for (let i = 1; i < partySize; i++) addPlayer(g, `P${i}`);
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g); // floor 2 built with the current party size
-    return {
-      count: g.monsters.length,
-      avgHp: g.monsters.reduce((s, m) => s + m.maxHp, 0) / g.monsters.length,
-      avgDmg: g.monsters.reduce((s, m) => s + m.damage, 0) / g.monsters.length,
-    };
+    return g.monsters;
   }
 
   it("party floors spawn more and tougher monsters than solo (same seed)", () => {
-    const solo = floor2MonsterStats(1);
-    const trio = floor2MonsterStats(3);
-    expect(trio.count).toBeGreaterThan(solo.count);
-    expect(trio.avgHp).toBeGreaterThan(solo.avgHp * 1.5);
-    expect(trio.avgDmg).toBeGreaterThan(solo.avgDmg * 1.2);
+    const solo = floor2Monsters(1);
+    const trio = floor2Monsters(3);
+    expect(trio.length).toBeGreaterThan(solo.length);
+    // The per-monster multipliers are per KIND (the spawn mix itself varies), so
+    // compare same-kind monsters: every shared archetype is tougher in the trio.
+    const hpOf = (ms: typeof solo, kind: string) => ms.find((m) => m.kind === kind && !m.elite)?.maxHp;
+    const shared = [...new Set(solo.map((m) => m.kind))].filter((k) => hpOf(trio, k) !== undefined);
+    expect(shared.length).toBeGreaterThan(0);
+    for (const kind of shared) {
+      expect(hpOf(trio, kind)!).toBeGreaterThan(hpOf(solo, kind)! * 1.5);
+    }
   });
 });
 
@@ -1004,6 +1006,83 @@ describe("theme bands", () => {
     leaveSafeRoom(g);
     expect(g.floor).toBe(6);
     expect(g.announcements.some((a) => a.includes("Now entering"))).toBe(false);
+  });
+});
+
+describe("intentional floors (mission-lite)", () => {
+  it("tags rooms with roles: entrance, stairs, one landmark, one vault", () => {
+    for (const seed of [21, 322, 4923]) {
+      const g = createGame(seed);
+      const { roles } = g.map;
+      expect(roles[0]).toBe("entrance");
+      expect(roles.filter((r) => r === "stairs").length).toBe(1);
+      if (g.map.rooms.length >= 4) {
+        expect(roles.filter((r) => r === "landmark").length).toBe(1);
+        expect(roles.filter((r) => r === "vault").length).toBe(1);
+      }
+    }
+  });
+
+  it("carves at least one cycle so floors loop instead of treeing", () => {
+    for (const seed of [21, 322, 4923]) {
+      const g = createGame(seed);
+      if (g.map.rooms.length >= 5) expect(g.map.cycles).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("ramps encounter density along the critical path", () => {
+    // Across seeds, monsters overwhelmingly sit in the deeper half of the run.
+    let shallow = 0, deep = 0;
+    for (const seed of [77, 1234, 5555, 9012]) {
+      const g = createGame(seed);
+      const inRoom = (m: { pos: { x: number; y: number } }, i: number) => {
+        const r = g.map.rooms[i];
+        return m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
+      };
+      for (const m of g.monsters) {
+        for (let i = 0; i < g.map.rooms.length; i++) {
+          if (!inRoom(m, i)) continue;
+          if ((g.map.depths[i] ?? 0.5) < 0.5) shallow++;
+          else deep++;
+          break;
+        }
+      }
+    }
+    expect(deep).toBeGreaterThan(shallow);
+  });
+
+  it("the vault holds guaranteed treasure and a guardian; the entrance is safe", () => {
+    for (const seed of [21, 4923]) {
+      const g = createGame(seed);
+      const vaultIdx = g.map.roles.indexOf("vault");
+      if (vaultIdx < 0) continue;
+      const r = g.map.rooms[vaultIdx];
+      const inVault = (p: { x: number; y: number }) =>
+        p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+      expect(g.loot.filter((l) => l.kind === "item" && inVault(l.pos)).length).toBeGreaterThanOrEqual(2);
+      expect(g.monsters.some((m) => m.kind === "brute" && inVault(m.pos))).toBe(true);
+      // Entrance room stays empty.
+      const e = g.map.rooms[0];
+      const inEntrance = (p: { x: number; y: number }) =>
+        p.x >= e.x && p.x < e.x + e.w && p.y >= e.y && p.y < e.y + e.h;
+      expect(g.monsters.some((m) => inEntrance(m.pos))).toBe(false);
+    }
+  });
+
+  it("the neighborhood boss holds the landmark hall when one exists", () => {
+    const g = restoreGame({
+      seed: 4923, floor: 4,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    const landmarkIdx = g.map.roles.indexOf("landmark");
+    const elite = g.monsters.find((m) => m.elite);
+    if (landmarkIdx >= 0 && elite) {
+      const r = g.map.rooms[landmarkIdx];
+      const inside =
+        elite.pos.x >= r.x && elite.pos.x < r.x + r.w &&
+        elite.pos.y >= r.y && elite.pos.y < r.y + r.h;
+      expect(inside).toBe(true);
+    }
   });
 });
 

@@ -181,22 +181,68 @@ function spawnMonsters(state: GameState): void {
     return;
   }
 
+  // Ordinary floors: INTENT-DRIVEN spawning (mission-lite). The entrance is
+  // safe, encounter density ramps along the critical path, the landmark hall is
+  // the hottest room and hosts the neighborhood boss, and the vault detour holds
+  // a lone guardian standing over guaranteed treasure.
   const count = monsterCount(state, floor);
-  for (let i = 0; i < count && tiles.length > 0; i++) {
-    const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
-    state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
+  const inRoom = (i: number): Vec2 | null => {
+    const r = map.rooms[i];
+    for (let tries = 0; tries < 12; tries++) {
+      const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
+      const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
+      if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== 1) continue; // Floor only
+      if (dist({ x, y }, map.spawn) <= 6 || dist({ x, y }, map.stairs) <= 2) continue;
+      return { x, y };
+    }
+    return null;
+  };
+  const weights = map.rooms.map((r, i) => {
+    const role = map.roles[i];
+    if (role === "entrance" || role === "vault") return 0;
+    const area = r.w * r.h;
+    const ramp = 0.35 + 0.65 * (map.depths[i] ?? 0.5);
+    return area * ramp * (role === "landmark" ? 1.4 : 1);
+  });
+  const totalW = weights.reduce((s, x) => s + x, 0);
+  for (let i = 0; i < count && totalW > 0; i++) {
+    let roll = nextFloat(rng) * totalW;
+    let roomIdx = 0;
+    for (let j = 0; j < weights.length; j++) {
+      if ((roll -= weights[j]) < 0) { roomIdx = j; break; }
+    }
+    const pos = inRoom(roomIdx);
+    if (pos) state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
   }
 
-  // NEIGHBORHOOD BOSS: one named elite per ordinary floor (2+). Tougher, meaner,
-  // guaranteed loot (see reapDead).
+  // VAULT: a lone brute guardian over guaranteed treasure (risk/reward detour).
+  const vaultIdx = map.roles.indexOf("vault");
+  if (vaultIdx >= 0) {
+    const r = map.rooms[vaultIdx];
+    const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    state.monsters.push(makeMonster(state, "brute", { x: c.x, y: c.y - 1 }));
+    dropBossBonus(state, c, 2);
+  }
+
+  // NEIGHBORHOOD BOSS: the named elite holds the LANDMARK hall (2+). Tougher,
+  // meaner, guaranteed loot (see reapDead).
   if (floor >= CONFIG.eliteFromFloor && state.monsters.length > 0) {
-    const m = state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+    const landmarkIdx = map.roles.indexOf("landmark");
+    const inLandmark = (m: Monster) => {
+      if (landmarkIdx < 0) return false;
+      const r = map.rooms[landmarkIdx];
+      return m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
+    };
+    const candidates = state.monsters.filter((m) => inLandmark(m) && m.kind !== "boss");
+    const m = candidates.length > 0
+      ? candidates[nextInt(rng, 0, candidates.length - 1)]
+      : state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
     m.elite = true;
     m.eliteName = pick(rng, ELITE_NAMES);
     m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.eliteHpMult);
     m.damage *= CONFIG.eliteDmgMult;
     m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
-    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName} runs this block. Introduce yourselves.`);
+    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName} holds the great hall. Introduce yourselves.`);
   }
 }
 

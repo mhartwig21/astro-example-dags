@@ -45,6 +45,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "rubble_large", "column", "sword_shield_broken",
       "keg", "box_large", "shelf_small", "table_medium_broken",
       "banner_red", "banner_shield_red", "candle_triple", "pillar_decorated", "chest_gold",
+      // rule-based dressing (torch anchors, vault treasure, landmark altar)
+      "torch_lit", "torch_mounted", "coin_stack_small", "coin_stack_medium",
+      "coin_stack_large", "table_small_decorated_A",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

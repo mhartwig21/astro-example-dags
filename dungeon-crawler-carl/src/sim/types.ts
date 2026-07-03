@@ -191,6 +191,15 @@ export interface RoomRect {
   h: number;
 }
 
+// Room intent tags (mission-lite): every room means something. The sim uses
+// them for spawn pacing and rewards; the renderer for rule-based dressing.
+export type RoomRole =
+  | "entrance" // spawn room: safe, no monsters
+  | "stairs" // exit room (sealed by doors on deep floors)
+  | "landmark" // the floor's big set-piece hall: pillars, the neighborhood boss
+  | "vault" // off-path treasure detour: guaranteed loot + a guardian
+  | "combat"; // everything else
+
 export interface FloorMap {
   w: number;
   h: number;
@@ -198,6 +207,9 @@ export interface FloorMap {
   spawn: Vec2; // player entry point
   stairs: Vec2; // stairs-down location
   rooms: RoomRect[]; // generated room rectangles (rooms[0] contains the spawn)
+  roles: RoomRole[]; // intent tag per room (parallel to rooms)
+  depths: number[]; // 0..1 progress along the critical path per room (pacing)
+  cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
 }
