@@ -7,7 +7,7 @@ import {
 import { CATALOG_BY_ID, consumablePrice, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
-import { availableUpgrades, boltParams, knows, rank } from "../src/sim/abilities";
+import { DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, knows, rank, stanceMult } from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -625,7 +625,7 @@ describe("achievements", () => {
 
   it("COLLECTOR'S EDITION unlocks once every discoverable is learned", () => {
     const g = createGame(402);
-    for (const a of ["nova", "orbit", "airstrike", "cataclysm", "bullettime"] as const) {
+    for (const a of DISCOVERABLE_ABILITIES) {
       learnAbility(g, g.players[0], a);
     }
     step(g, idle(), 1 / 60);
@@ -2127,6 +2127,101 @@ describe("ability constellation (prereqs, forks, capstones)", () => {
     step(g, { move: { x: 0, y: 0 }, useStairs: false, nova: true }, 1 / 60);
     const d1 = Math.hypot(g.monsters[0].pos.x - p.pos.x, g.monsters[0].pos.y - p.pos.y);
     expect(d1).toBeLessThan(d0 - 0.8);
+  });
+});
+
+describe("battle stance", () => {
+  const swapCast: Intent = { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] };
+
+  it("is neutral unless slotted; matching boosts, mismatched dampens", () => {
+    const g = createGame(980);
+    const p = g.players[0];
+    expect(stanceMult(p, "melee")).toBe(1);
+    expect(stanceMult(p, "ranged")).toBe(1);
+    learnAbility(g, p, "stance"); // auto-slots into the open slot; default Brawler
+    expect(stanceMult(p, "melee")).toBe(CONFIG.stanceRightMult);
+    expect(stanceMult(p, "ranged")).toBe(CONFIG.stanceWrongMult);
+  });
+
+  it("casting swaps the stance, resets time-in-stance, and is cooldown-gated", () => {
+    const g = createGame(981);
+    const p = g.players[0];
+    learnAbility(g, p, "stance");
+    g.monsters.length = 0;
+    step(g, swapCast, 1 / 60);
+    expect(p.stance).toBe("ranged");
+    expect(p.cd.stance).toBeGreaterThan(0);
+    expect(p.stanceTime).toBe(0);
+    step(g, swapCast, 1 / 60); // still on swap cooldown: no toggle
+    expect(p.stance).toBe("ranged");
+    for (let i = 0; i < 60 * CONFIG.stanceSwapCooldown; i++) step(g, idle(), 1 / 60);
+    step(g, swapCast, 1 / 60);
+    expect(p.stance).toBe("melee");
+  });
+
+  it("judges bolts at fire time: projectile damage scales with the stance", () => {
+    const g = createGame(982);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    learnAbility(g, p, "stance"); // Brawler: bolts are the WRONG type
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const wrong = g.projectiles[g.projectiles.length - 1].damage;
+    expect(wrong).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.stanceWrongMult)));
+    step(g, swapCast, 1 / 60); // Deadeye: bolts now match
+    for (let i = 0; i < 60; i++) step(g, idle(), 1 / 60); // wait out the bolt cooldown
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const right = g.projectiles[g.projectiles.length - 1].damage;
+    expect(right).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.stanceRightMult)));
+    expect(right).toBeGreaterThan(wrong);
+  });
+
+  it("Discipline pays out only once settled; Flow only inside the surge window", () => {
+    const g = createGame(983);
+    const p = g.players[0];
+    learnAbility(g, p, "stance");
+    p.abilities.ranks = { "stance.discipline": 2 };
+    p.stanceTime = 0;
+    const fresh = stanceMult(p, "melee");
+    p.stanceTime = CONFIG.stanceSettleSeconds + 1;
+    expect(stanceMult(p, "melee")).toBeCloseTo(fresh * 1.2);
+    p.abilities.ranks = { "stance.flow": 2 };
+    p.stanceTime = 0;
+    p.stanceSwapWindow = 0;
+    expect(stanceMult(p, "melee")).toBeCloseTo(fresh);
+    p.stanceSwapWindow = 1;
+    expect(stanceMult(p, "melee")).toBeCloseTo(fresh * 1.3);
+  });
+
+  it("PERFECT FORM: a settled crawler transcends the wrong-type penalty", () => {
+    const g = createGame(984);
+    const p = g.players[0];
+    learnAbility(g, p, "stance");
+    p.abilities.ranks = { "stance.discipline": 1, "stance.perfect": 1 };
+    p.stance = "melee";
+    p.stanceTime = 0; // not settled yet: bolts still pay the price
+    expect(stanceMult(p, "ranged")).toBe(CONFIG.stanceWrongMult);
+    p.stanceTime = CONFIG.stanceSettleSeconds + 1;
+    expect(stanceMult(p, "ranged")).toBeGreaterThan(1); // both types match now
+  });
+
+  it("MOMENTUM: a swap primes a guaranteed crit on the next matching attack", () => {
+    const g = createGame(985);
+    const p = g.players[0];
+    learnAbility(g, p, "stance");
+    p.abilities.ranks["stance.moment"] = 1;
+    p.critChance = 0; // any crit that lands must be the capstone's
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 1.2, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    step(g, swapCast, 1 / 60); // Brawler -> Deadeye: crit primed
+    expect(p.stanceCritReady).toBe(true);
+    step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.stanceCritReady).toBe(false); // spent on the shot, hit or miss
+    let crit = g.hits.some((h) => h.kind === "crit"); // impact can land in the cast step
+    for (let i = 0; i < 30 && !crit; i++) {
+      step(g, idle(), 1 / 60);
+      crit = g.hits.some((h) => h.kind === "crit");
+    }
+    expect(crit).toBe(true);
   });
 });
 

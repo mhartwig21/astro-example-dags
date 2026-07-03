@@ -167,6 +167,8 @@ attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
 | energy-arrow | bolt | Lorc |
 | explosion-rays | nova | Lorc |
 | orbital | orbit | Lorc |
+| switch-weapon | stance | Delapouite |
+| lightning-arc | overcharge | Lorc |
 | carpet-bombing | airstrike | Skoll |
 | quake-stomp | cataclysm | Lorc |
 | stopwatch | bullettime | Lorc |

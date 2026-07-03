@@ -11,7 +11,7 @@ import {
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitBladePos, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
+  novaParams, orbitBladePos, orbitParams, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
@@ -361,6 +361,10 @@ function makePlayer(id: number, name: string): Player {
     orbitAngle: 0,
     orbitTick: 0,
     orbitSpiral: 0,
+    stance: "melee",
+    stanceTime: 0,
+    stanceSwapWindow: 0,
+    stanceCritReady: false,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -407,6 +411,9 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.flaskKillProgress = 0;
   p.novaFlash = 0;
   p.attackSwing = 0;
+  p.stanceTime = 0; // the stance itself carries — it's part of the build
+  p.stanceSwapWindow = 0;
+  p.stanceCritReady = false;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -905,9 +912,9 @@ function dropLoot(state: GameState, pos: Vec2): void {
  */
 function damageMonster(
   state: GameState, p: Player, m: Monster, base: number,
-  opts: { allowCrit?: boolean; dir?: Vec2; knockback?: number } = {},
+  opts: { allowCrit?: boolean; forceCrit?: boolean; dir?: Vec2; knockback?: number } = {},
 ): void {
-  const isCrit = (opts.allowCrit ?? true) && chance(state.rng, p.critChance);
+  const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
   let dmg = rollDamage(state.rng, base);
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
@@ -996,16 +1003,22 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     }
   }
 
+  // MOMENTUM (stance capstone): the primed crit spends only on a swing that
+  // actually connects — whiffing into empty air doesn't waste the swap.
+  const momentum = p.stanceCritReady && p.stance === "melee";
+  let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
     if (!inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc)) continue;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute, {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
+    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute * stanceMult(p, "melee"), {
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, forceCrit: momentum,
     });
+    connected = true;
   }
+  if (momentum && connected) p.stanceCritReady = false;
 }
 
 const KILL_HYPE: Record<Monster["kind"], number> = {
@@ -1680,12 +1693,32 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   }
 }
 
+/**
+ * Battle Stance: toggle which attack type the crawler favors (see stanceMult).
+ * The swap itself is the cast — Flow builds ride the post-swap surge window,
+ * Discipline builds plant their feet and let the stance settle instead.
+ */
+function doStance(state: GameState, p: Player): void {
+  p.stance = p.stance === "melee" ? "ranged" : "melee";
+  p.cd.stance = CONFIG.stanceSwapCooldown * cdMult(p);
+  p.stanceTime = 0;
+  p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
+  if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
+  hit(state, p.pos, 0, "weapon"); // a flourish poof for the juice layer
+}
+
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
 function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
   p.cd.bolt = bp.cooldown * cdMult(p);
+  // Stance judges the CAST (a volley loosed in Deadeye stays hot even if you
+  // swap mid-flight). MOMENTUM spends on fire — the shot taken is the shot
+  // primed; whether it lands is the archer's problem.
+  const momentum = p.stanceCritReady && p.stance === "ranged";
+  if (momentum) p.stanceCritReady = false;
+  const damage = Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * stanceMult(p, "ranged")));
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
   for (let i = 0; i < bp.count; i++) {
@@ -1695,11 +1728,12 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       id: state.nextEntityId++,
       pos: { x: p.pos.x + d.x * 0.6, y: p.pos.y + d.y * 0.6 },
       vel: { x: d.x * CONFIG.boltSpeed, y: d.y * CONFIG.boltSpeed },
-      damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
+      damage,
       ttl: CONFIG.boltTtl,
       from: "player",
       ownerId: p.id,
       pierce: bp.pierce,
+      crit: momentum || undefined,
     });
   }
 }
@@ -1782,7 +1816,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, p.baseDamage * op.damageMult, { allowCrit: false });
+    damageMonster(state, p, m, p.baseDamage * op.damageMult * stanceMult(p, "melee"), { allowCrit: false });
   }
 }
 
@@ -1887,6 +1921,7 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
     case "melee": doPlayerAttack(state, p, aim); break;
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
+    case "stance": doStance(state, p); break;
     case "orbit": break; // passive: runs via updateOrbit while slotted
     case "airstrike": doAirstrike(state, p, aim); break;
     case "cataclysm": doCataclysm(state, p); break;
@@ -1932,7 +1967,7 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
           damageMonster(state, owner, m, pr.damage, {
-            dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
+            dir: normalize(pr.vel), knockback: CONFIG.boltKnockback, forceCrit: pr.crit,
           });
           // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
           if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
@@ -2044,6 +2079,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
+    p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
+    if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
 
     const move = pi.move;
     if ((move.x !== 0 || move.y !== 0) && p.alive) {

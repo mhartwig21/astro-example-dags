@@ -1,5 +1,5 @@
 import type { Rng } from "./rng";
-import type { AbilityId, UpgradeOffer } from "./abilities";
+import type { AbilityId, StanceId, UpgradeOffer } from "./abilities";
 
 export interface Vec2 {
   x: number;
@@ -42,6 +42,11 @@ export interface Player {
   orbitTick: number; // seconds until the orbit blades' next damage tick
   // Corkscrew (orbit.wide): phase of the in-out spiral oscillation (radians).
   orbitSpiral: number;
+  // Battle Stance (only meaningful while the stance ability is slotted).
+  stance: StanceId; // which attack type is currently favored
+  stanceTime: number; // seconds since the last swap (drives Discipline's "settled")
+  stanceSwapWindow: number; // seconds left of Flow's post-swap surge
+  stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -226,6 +231,7 @@ export interface Projectile {
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
+  crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */

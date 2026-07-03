@@ -181,6 +181,12 @@ export const CONFIG = {
   orbitSpiralInner: 0.7,
   orbitSpiralPerRank: 0.45,
   orbitSpiralRevPerSec: 0.6, // in-out cycles per second
+  // Battle Stance: melee-type = swings + orbit blades, ranged-type = bolts.
+  stanceSwapCooldown: 3, // seconds between swaps (the dance's tempo floor)
+  stanceRightMult: 1.25, // matching attack-type damage
+  stanceWrongMult: 0.8, // mismatched attack-type damage
+  stanceSettleSeconds: 6, // time-in-stance before Discipline/PERFECT FORM apply
+  stanceSurgeSeconds: 3, // Flow's post-swap surge window
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up

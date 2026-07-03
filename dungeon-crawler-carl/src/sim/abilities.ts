@@ -14,8 +14,13 @@ import type { Player } from "./types";
 // protocol all pick it up from this registry.
 
 export type AbilityId =
-  | "melee" | "dash" | "bolt" | "nova" | "orbit"
+  | "melee" | "dash" | "bolt" | "nova" | "orbit" | "stance"
   | "airstrike" | "cataclysm" | "bullettime";
+
+// Battle Stance: which attack TYPE the crawler currently favors. Melee swings
+// and orbit blades are melee-type; bolts are ranged-type; everything else is
+// stance-neutral. Extensible — a third stance is a union member away.
+export type StanceId = "melee" | "ranged";
 
 export type AbilityTier = "active" | "ultimate";
 
@@ -25,7 +30,7 @@ export const ABILITY_SLOTS = 4; // active slots (the ultimate has its own slot)
 export const STARTING_ABILITIES: AbilityId[] = ["melee", "dash", "bolt"];
 /** Abilities that must be discovered (tomes/boxes/shop) before they can slot. */
 export const DISCOVERABLE_ABILITIES: AbilityId[] = [
-  "nova", "orbit", "airstrike", "cataclysm", "bullettime",
+  "nova", "orbit", "stance", "airstrike", "cataclysm", "bullettime",
 ];
 
 export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier: AbilityTier; passive?: boolean }> = {
@@ -34,6 +39,7 @@ export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier
   bolt: { name: "Bolt", blurb: "Ranged projectile", tier: "active" },
   nova: { name: "Nova", blurb: "Radial shockwave", tier: "active" },
   orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
+  stance: { name: "Battle Stance", blurb: "Toggle Brawler/Deadeye: matching attacks hit harder, mismatched softer", tier: "active" },
   airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
   cataclysm: { name: "Cataclysm", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
   bullettime: { name: "Bullet Time", blurb: "The world slows; you do not", tier: "ultimate" },
@@ -81,6 +87,13 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
   { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
   { id: "nova.implode", ability: "nova", title: "IMPLOSION", maxRank: 1, desc: () => "Nova first drags everything in range toward you", requires: ["nova.bang"], capstone: true, pos: { x: 50, y: 86 } },
+  // Stance: edge -> (discipline XOR flow) -> a capstone per side. The fork IS
+  // the playstyle question: plant your feet in one stance, or dance between them.
+  { id: "stance.edge", ability: "stance", title: "Honed Edge", maxRank: 2, desc: (r) => `Matching-stance damage +${r * 8}%`, pos: { x: 50, y: 12 } },
+  { id: "stance.discipline", ability: "stance", title: "Discipline", maxRank: 3, desc: (r) => `Settled (${CONFIG.stanceSettleSeconds}s+ in one stance): matching damage +${r * 10}%`, requires: ["stance.edge"], excludes: ["stance.flow"], pos: { x: 22, y: 48 } },
+  { id: "stance.flow", ability: "stance", title: "Flow", maxRank: 3, desc: (r) => `For ${CONFIG.stanceSurgeSeconds}s after a swap: matching damage +${r * 15}%`, requires: ["stance.edge"], excludes: ["stance.discipline"], pos: { x: 78, y: 48 } },
+  { id: "stance.perfect", ability: "stance", title: "PERFECT FORM", maxRank: 1, desc: () => "While settled, BOTH attack types count as matching", requires: ["stance.discipline"], capstone: true, pos: { x: 22, y: 86 } },
+  { id: "stance.moment", ability: "stance", title: "MOMENTUM", maxRank: 1, desc: () => "Swapping stances primes a guaranteed crit on your next matching attack", requires: ["stance.flow"], capstone: true, pos: { x: 78, y: 86 } },
   // Orbit: blade -> razor + corkscrew (no fork; the passive stays simple)
   { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
   { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
@@ -162,6 +175,24 @@ export function novaParams(p: Player) {
     cooldown: CONFIG.novaCooldown * (1 - rank(p, "nova.after") * 0.15),
     damageMult: CONFIG.novaDamageMult * (1 + rank(p, "nova.conc") * 0.3),
   };
+}
+
+/**
+ * Battle Stance damage multiplier for an attack of the given type. Neutral (1)
+ * unless stance is slotted; then matching attacks are boosted and mismatched
+ * ones penalized. Discipline rewards settling in (stanceTime past the settle
+ * threshold); Flow rewards the beats right after a swap (stanceSwapWindow);
+ * PERFECT FORM makes a settled crawler transcend the tradeoff entirely.
+ */
+export function stanceMult(p: Player, kind: StanceId): number {
+  if (!slotted(p, "stance")) return 1;
+  const settled = p.stanceTime >= CONFIG.stanceSettleSeconds;
+  const match = p.stance === kind || (settled && rank(p, "stance.perfect") > 0);
+  if (!match) return CONFIG.stanceWrongMult;
+  let mult = CONFIG.stanceRightMult + rank(p, "stance.edge") * 0.08;
+  if (settled) mult *= 1 + rank(p, "stance.discipline") * 0.1;
+  if (p.stanceSwapWindow > 0) mult *= 1 + rank(p, "stance.flow") * 0.15;
+  return mult;
 }
 
 export function orbitParams(p: Player) {
