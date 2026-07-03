@@ -1,8 +1,70 @@
 import { CONFIG, floorBand } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
 import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { tileableFogNoise } from "./fogNoise";
 
 const T = CONFIG.tile;
+
+// ---- Fog of war: unknown space is a rolling fog bank, not raw void ----
+// A tileable noise pattern (band-tinted) drifts in two parallax layers under
+// the map; explored tiles paint over it, and frontier tiles get a translucent
+// wash so the boundary reads as haze instead of a hard tile edge.
+const FOG_PAT_SIZE = 192;
+const FOG_BASE = "#07080d";
+// Murk tint per floor band (matches BAND_PALETTES below).
+const FOG_TINTS: [number, number, number][] = [
+  [86, 93, 122], // undercroft
+  [76, 100, 80], // sewers
+  [108, 88, 70], // ruins
+  [76, 92, 118], // ironworks
+  [112, 74, 82], // approach
+];
+let fogNoise: Float32Array | null = null;
+const fogPatterns = new Map<number, CanvasPattern>();
+
+function fogPattern(ctx: CanvasRenderingContext2D, band: number): CanvasPattern | null {
+  const cached = fogPatterns.get(band);
+  if (cached) return cached;
+  fogNoise ??= tileableFogNoise(FOG_PAT_SIZE, 0xf09b17);
+  const c = document.createElement("canvas");
+  c.width = c.height = FOG_PAT_SIZE;
+  const g = c.getContext("2d");
+  if (!g) return null;
+  const img = g.createImageData(FOG_PAT_SIZE, FOG_PAT_SIZE);
+  const [r, gr, b] = FOG_TINTS[band];
+  for (let i = 0; i < fogNoise.length; i++) {
+    const n = fogNoise[i];
+    const depth = 0.5 + 0.5 * n; // darker in the troughs, brighter billow crests
+    img.data[i * 4] = Math.round(r * depth);
+    img.data[i * 4 + 1] = Math.round(gr * depth);
+    img.data[i * 4 + 2] = Math.round(b * depth);
+    img.data[i * 4 + 3] = Math.round(255 * (0.35 + 0.6 * n));
+  }
+  g.putImageData(img, 0, 0);
+  const pat = ctx.createPattern(c, "repeat");
+  if (pat) fogPatterns.set(band, pat);
+  return pat;
+}
+
+/** One drifting, world-anchored fog layer over the whole viewport. */
+function drawFogLayer(
+  ctx: CanvasRenderingContext2D,
+  pat: CanvasPattern,
+  tx: number,
+  ty: number,
+  scale: number,
+  alpha: number,
+  w: number,
+  h: number,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(tx, ty);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = pat;
+  ctx.fillRect(-tx / scale, -ty / scale, w / scale, h / scale);
+  ctx.restore();
+}
 
 // Per-band palettes (bands shift every 4 floors; see FLOOR_BANDS in config).
 const BAND_PALETTES = [
@@ -71,12 +133,22 @@ export function render(
   viewH: number,
   log: string[],
 ): void {
-  ctx.clearRect(0, 0, viewW, viewH);
-
   const offX = viewW / 2 - cam.x * T;
   const offY = viewH / 2 - cam.y * T;
 
   const { map } = state;
+
+  // Fog bank first; explored tiles paint over it below. Offsets include the
+  // camera so the fog is world-locked, plus a slow time drift so it rolls.
+  const band = floorBand(state.floor);
+  ctx.fillStyle = FOG_BASE;
+  ctx.fillRect(0, 0, viewW, viewH);
+  const fogPat = fogPattern(ctx, band);
+  if (fogPat) {
+    const ft = performance.now() / 1000;
+    drawFogLayer(ctx, fogPat, offX + ft * 4.5, offY + ft * 2.8, 1, 0.55, viewW, viewH);
+    drawFogLayer(ctx, fogPat, offX - ft * 6.5, offY + ft * 3.8, 1.9, 0.4, viewW, viewH);
+  }
 
   // Visible tile range.
   const minX = Math.max(0, Math.floor(cam.x - viewW / 2 / T) - 1);
@@ -94,7 +166,7 @@ export function render(
     return false;
   };
 
-  const pal = BAND_PALETTES[floorBand(state.floor)];
+  const pal = BAND_PALETTES[band];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (!state.explored[y * map.w + x]) continue; // fog of war
@@ -124,6 +196,21 @@ export function render(
         ctx.fillStyle = (x + y) % 2 === 0 ? pal.floor : pal.floorAlt;
         ctx.fillRect(px, py, T, T);
       }
+    }
+  }
+
+  // Frontier haze: explored tiles that border fog get a translucent wash so
+  // the reveal boundary bleeds instead of snapping at tile edges.
+  const [fr, fg, fb] = FOG_TINTS[band];
+  ctx.fillStyle = `rgba(${fr},${fg},${fb},0.28)`;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!state.explored[i]) continue;
+      const foggy =
+        (x > 0 && !state.explored[i - 1]) || (x < map.w - 1 && !state.explored[i + 1]) ||
+        (y > 0 && !state.explored[i - map.w]) || (y < map.h - 1 && !state.explored[i + map.w]);
+      if (foggy) ctx.fillRect(Math.round(offX + x * T), Math.round(offY + y * T), T, T);
     }
   }
 
