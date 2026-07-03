@@ -1,14 +1,14 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyShopItem, setReady, addPlayer,
+  buyShopItem, setReady, addPlayer, slotAbility, setUltimate,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
-  ABILITY_INFO, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  boltParams, dashParams, knows, novaParams, rank,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
+  knows, rank, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
@@ -103,10 +103,6 @@ const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
 const fxLayer = document.getElementById("fx")!;
 const toastLayer = document.getElementById("toast")!;
-const dashCd = document.querySelector("#skill-dash .cd > i") as HTMLElement;
-const boltCd = document.querySelector("#skill-bolt .cd > i") as HTMLElement;
-const dashSkill = document.getElementById("skill-dash")!;
-const boltSkill = document.getElementById("skill-bolt")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 
@@ -263,13 +259,20 @@ const abilEl = document.getElementById("abil")!;
 const abilGrid = document.getElementById("abil-grid")!;
 let abilOpen = false;
 
-function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): string {
+function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
+  const idx = p.abilities.slots.indexOf(id);
+  if (idx >= 0) return `SLOT ${idx + 1}`;
+  if (p.abilities.ultimate === id) return "ULTIMATE";
+  return "BENCH";
+}
+
+function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
   if (!knows(p, id)) {
     return (
       `<div class="abil-card unknown">` +
-      `<div class="aname">??? <span class="akey">undiscovered</span></div>` +
+      `<div class="aname">??? <span class="akey">undiscovered ${info.tier}</span></div>` +
       `<div class="ablurb">Find an ability tome in the dungeon to learn this.</div>` +
       `</div>`
     );
@@ -286,14 +289,53 @@ function abilityCard(s: GameState, id: (typeof STARTING_ABILITIES)[number]): str
       );
     })
     .join("");
+  // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
+  // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
+  let controls = "";
+  if (s.safeRoom) {
+    if (info.tier === "active") {
+      const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
+        `<button class="slot-btn" data-ability="${id}" data-slot="${i}">${i + 1}</button>`).join("");
+      const benchBtn = whereIs(p, id) !== "BENCH"
+        ? `<button class="slot-btn" data-ability="${id}" data-slot="bench">bench</button>` : "";
+      controls = `<div class="slot-controls">${btns}${benchBtn}</div>`;
+    } else {
+      const ultBtn = p.abilities.ultimate === id
+        ? `<button class="slot-btn" data-ability="${id}" data-slot="unult">bench</button>`
+        : `<button class="slot-btn" data-ability="${id}" data-slot="ult">slot as ULT</button>`;
+      controls = `<div class="slot-controls">${ultBtn}</div>`;
+    }
+  }
   return (
     `<div class="abil-card">` +
-    `<div class="aname">${info.name} <span class="akey">${info.key}</span></div>` +
-    `<div class="ablurb">${info.blurb}</div>` +
-    nodes +
+    `<div class="aname">${info.name} <span class="akey">${whereIs(p, id)}</span></div>` +
+    `<div class="ablurb">${info.blurb} <em>(${info.tier})</em></div>` +
+    nodes + controls +
     `</div>`
   );
 }
+
+// Safe-room slotting clicks (sim validates; net mode forwards to the server).
+document.getElementById("abil-grid")!.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest(".slot-btn") as HTMLElement | null;
+  if (!btn) return;
+  const ability = btn.dataset.ability as AbilityId;
+  const slot = btn.dataset.slot!;
+  const p = me(state);
+  if (net) {
+    net.slot(slot, ability);
+  } else {
+    if (slot === "ult") setUltimate(state, p.id, ability);
+    else if (slot === "unult") setUltimate(state, p.id, null);
+    else if (slot === "bench") {
+      const idx = p.abilities.slots.indexOf(ability);
+      if (idx >= 0) slotAbility(state, p.id, idx, null);
+    } else slotAbility(state, p.id, Number(slot), ability);
+    flushFeedback(state);
+    saveRun(state);
+  }
+  renderAbilities(state);
+});
 
 const achGrid = document.getElementById("ach-grid")!;
 const achCount = document.getElementById("ach-count")!;
@@ -346,23 +388,19 @@ let listening: BindableAction | null = null;
 function applyBindings(): void {
   input.setBindings(bindings);
   const first = (a: BindableAction) => bindingLabel(bindings, a).split(" / ")[0];
-  // Banner + skill chips + panel hints render from the live bindings.
+  // Banner + panel hints render from the live bindings (the skill bar renders
+  // per-frame from the loadout in updateSkills).
   const wasd = [first("moveUp"), first("moveLeft"), first("moveDown"), first("moveRight")].join("");
   document.getElementById("banner-keys")!.innerHTML =
     `<kbd>${wasd === "WASD" ? "WASD" : wasd}</kbd> move · ` +
-    `<kbd>${first("attack")}</kbd>/LMB attack · ` +
-    `<kbd>${first("bolt")}</kbd>/RMB bolt · ` +
-    `<kbd>${first("dash")}</kbd> dash · ` +
-    `<kbd>${first("nova")}</kbd> nova · ` +
+    `<kbd>${first("slot1")}</kbd>/LMB·<kbd>${first("slot2")}</kbd>·<kbd>${first("slot3")}</kbd>/RMB·<kbd>${first("slot4")}</kbd> abilities · ` +
+    `<kbd>${first("ultimate")}</kbd> ultimate · ` +
     `<kbd>${first("inventory")}</kbd> inv · ` +
-    `<kbd>${first("abilities")}</kbd> abilities · ` +
+    `<kbd>${first("abilities")}</kbd> loadout · ` +
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
     `<kbd>${first("newRun")}</kbd> new run · ` +
     `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "");
-  (document.querySelector("#skill-dash .key") as HTMLElement).textContent = first("dash");
-  (document.querySelector("#skill-bolt .key") as HTMLElement).textContent = `${first("bolt")} / RMB`;
-  (document.querySelector("#skill-nova .key") as HTMLElement).textContent = first("nova");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
 }
 
@@ -511,26 +549,52 @@ srDescend.addEventListener("click", () => {
   srEl.style.display = "none";
 });
 
-// Cooldown UI shows "fraction remaining"; empties as the skill recharges.
-const novaCdEl = document.querySelector("#skill-nova .cd > i") as HTMLElement;
-const novaSkill = document.getElementById("skill-nova")!;
+// The Five: skill bar rendered from the loadout (4 slots + ultimate + bench
+// count). Structure rebuilds only when the loadout changes; cooldown fills
+// update every frame.
+const skillsEl = document.getElementById("skills")!;
+let skillBarKey = "";
+const CD_BASE: Partial<Record<AbilityId, number>> = {
+  melee: CONFIG.playerAttackCooldown, dash: CONFIG.dashCooldown, bolt: CONFIG.boltCooldown,
+  nova: CONFIG.novaCooldown, airstrike: CONFIG.ultAirstrikeCooldown,
+  cataclysm: CONFIG.ultCataclysmCooldown, bullettime: CONFIG.ultBulletTimeCooldown,
+};
 
 function updateSkills(s: GameState): void {
   const p = me(s);
-  const dFrac = Math.max(0, Math.min(1, p.dashCd / dashParams(p).cooldown));
-  const bFrac = Math.max(0, Math.min(1, p.boltCd / boltParams(p).cooldown));
-  dashCd.style.width = `${dFrac * 100}%`;
-  boltCd.style.width = `${bFrac * 100}%`;
-  dashSkill.classList.toggle("ready", p.dashCd === 0);
-  boltSkill.classList.toggle("ready", p.boltCd === 0);
-  // Nova chip appears once the ability is discovered.
-  const hasNova = knows(p, "nova");
-  novaSkill.style.display = hasNova ? "" : "none";
-  if (hasNova) {
-    const nFrac = Math.max(0, Math.min(1, p.novaCd / novaParams(p).cooldown));
-    novaCdEl.style.width = `${nFrac * 100}%`;
-    novaSkill.classList.toggle("ready", p.novaCd === 0);
+  const slotActions = ["slot1", "slot2", "slot3", "slot4", "ultimate"] as const;
+  const entries: { ability: AbilityId | null; ult: boolean }[] = [
+    ...p.abilities.slots.map((a) => ({ ability: a, ult: false })),
+    { ability: p.abilities.ultimate, ult: true },
+  ];
+  const key = entries.map((e) => e.ability ?? "-").join("|") + `|${p.abilities.bench.length}`;
+  if (key !== skillBarKey) {
+    skillBarKey = key;
+    skillsEl.innerHTML = entries
+      .map((e, i) => {
+        const bind = bindingLabel(bindings, slotActions[i]).split(" / ")[0];
+        const label = e.ability
+          ? ABILITY_INFO[e.ability].name.split(" ").pop()
+          : "&nbsp;—&nbsp;";
+        const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
+        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span> ${label}<div class="cd"><i></i></div></div>`;
+      })
+      .join("") +
+      (p.abilities.bench.length > 0
+        ? `<div class="skill empty"><span class="bench-badge">bench ${p.abilities.bench.length}</span></div>`
+        : "");
   }
+  const chips = skillsEl.querySelectorAll(".skill[data-i]");
+  entries.forEach((e, i) => {
+    const chip = chips[i] as HTMLElement | undefined;
+    if (!chip) return;
+    const fill = chip.querySelector(".cd > i") as HTMLElement | null;
+    if (!e.ability || !fill) return;
+    const remaining = p.cd[e.ability] ?? 0;
+    const base = CD_BASE[e.ability] ?? 1;
+    fill.style.width = `${Math.max(0, Math.min(1, remaining / base)) * 100}%`;
+    chip.classList.toggle("ready", remaining === 0);
+  });
 }
 
 // Top-down minimap: explored floor only (fog of war), stairs once seen,

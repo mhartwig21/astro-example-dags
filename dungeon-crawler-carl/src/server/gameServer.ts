@@ -2,7 +2,8 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyShopItem, setReady, equipFromInventory } from "../sim/game";
+import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyShopItem, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
+import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import { serialize } from "../sim/snapshot";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
@@ -49,6 +50,7 @@ function vec(v: unknown): Vec2 {
 /** Never trust the wire: rebuild the intent from validated primitives. */
 export function sanitizeIntent(raw: unknown): Intent {
   const o = (raw ?? {}) as Record<string, unknown>;
+  const cast = Array.isArray(o.cast) ? o.cast.slice(0, 5).map((c) => c === true) : undefined;
   return {
     move: vec(o.move),
     attack: o.attack === true,
@@ -57,6 +59,7 @@ export function sanitizeIntent(raw: unknown): Intent {
     dash: o.dash === true,
     bolt: o.bolt === true,
     nova: o.nova === true,
+    cast,
   };
 }
 
@@ -216,6 +219,21 @@ export class GameServer {
         case "equip":
           equipFromInventory(inst.state, playerId, Number(msg.idx));
           break;
+        case "slot": {
+          // Safe-room loadout change (the sim re-validates the gate + tiers).
+          const ability = typeof msg.ability === "string" && msg.ability in ABILITY_INFO
+            ? (msg.ability as AbilityId) : null;
+          if (msg.slot === "ult" && ability) setUltimate(inst.state, playerId, ability);
+          else if (msg.slot === "unult") setUltimate(inst.state, playerId, null);
+          else if (msg.slot === "bench" && ability) {
+            const p = inst.state.players.find((pl) => pl.id === playerId);
+            const idx = p ? p.abilities.slots.indexOf(ability) : -1;
+            if (idx >= 0) slotAbility(inst.state, playerId, idx, null);
+          } else if (ability) {
+            slotAbility(inst.state, playerId, Number(msg.slot), ability);
+          }
+          break;
+        }
       }
       // Actions above can announce (purchases, unlocks, band transitions on
       // descend). The next tick clears those channels before broadcasting, so

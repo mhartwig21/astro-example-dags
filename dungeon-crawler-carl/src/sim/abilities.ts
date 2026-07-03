@@ -2,26 +2,41 @@ import { CONFIG } from "./config";
 import { nextInt, type Rng } from "./rng";
 import type { Player } from "./types";
 
-// Ability system: a Vampire Survivors-style upgrade tree over the active kit.
-// Each ability owns a small track of upgrade nodes; level-ups open a seeded
-// 3-card draft of node rank-ups for KNOWN abilities, and new abilities are
-// discovered in the dungeon as tomes (see dropLoot/collectLoot in game.ts).
-// Everything derives from Player.abilities (known + node ranks), so effective
-// numbers are pure functions and the sim stays deterministic and serializable.
+// Ability system (DESIGN.md 5.7 "The Five"): a build is exactly 4 active slots
+// + 1 ultimate slot. Abilities are tagged by tier; discovering one auto-slots it
+// if a matching slot is open, otherwise it goes to the BENCH; rearranging the
+// loadout is a safe-room decision (slotAbility/setUltimate in game.ts). Upgrade
+// drafts offer ranks only for SLOTTED abilities. Everything derives from
+// Player.abilities, so numbers stay pure/deterministic/serializable.
+//
+// Adding a new ability = one entry here (+ its cast/passive behavior in
+// game.ts's castAbility switch) — the loadout, drafts, tomes, HUD, and net
+// protocol all pick it up from this registry.
 
-export type AbilityId = "melee" | "dash" | "bolt" | "nova" | "orbit";
+export type AbilityId =
+  | "melee" | "dash" | "bolt" | "nova" | "orbit"
+  | "airstrike" | "cataclysm" | "bullettime";
 
-/** Abilities every crawler starts with. */
+export type AbilityTier = "active" | "ultimate";
+
+export const ABILITY_SLOTS = 4; // active slots (the ultimate has its own slot)
+
+/** Abilities every crawler starts with (slotted 0..2; slot 3 + ultimate empty). */
 export const STARTING_ABILITIES: AbilityId[] = ["melee", "dash", "bolt"];
-/** Abilities that must be discovered (tomes) before they appear in drafts. */
-export const DISCOVERABLE_ABILITIES: AbilityId[] = ["nova", "orbit"];
+/** Abilities that must be discovered (tomes/boxes/shop) before they can slot. */
+export const DISCOVERABLE_ABILITIES: AbilityId[] = [
+  "nova", "orbit", "airstrike", "cataclysm", "bullettime",
+];
 
-export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; key: string }> = {
-  melee: { name: "Melee", blurb: "Your trusty swing", key: "Space" },
-  dash: { name: "Dash", blurb: "Blink with i-frames", key: "Shift" },
-  bolt: { name: "Bolt", blurb: "Ranged projectile", key: "Q" },
-  nova: { name: "Nova", blurb: "Radial shockwave", key: "F" },
-  orbit: { name: "Orbit", blurb: "Auto blades circle you", key: "auto" },
+export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier: AbilityTier; passive?: boolean }> = {
+  melee: { name: "Melee", blurb: "Your trusty swing", tier: "active" },
+  dash: { name: "Dash", blurb: "Blink with i-frames", tier: "active" },
+  bolt: { name: "Bolt", blurb: "Ranged projectile", tier: "active" },
+  nova: { name: "Nova", blurb: "Radial shockwave", tier: "active" },
+  orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
+  airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
+  cataclysm: { name: "Cataclysm Nova", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
+  bullettime: { name: "Bullet Time", blurb: "The world slows; you do not", tier: "ultimate" },
 };
 
 export interface UpgradeDef {
@@ -66,13 +81,33 @@ export function rank(p: Player, id: string): number {
   return p.abilities.ranks[id] ?? 0;
 }
 
+/** Known = anywhere in the loadout: a slot, the ultimate slot, or the bench. */
 export function knows(p: Player, ability: AbilityId): boolean {
-  return p.abilities.known.includes(ability);
+  return (
+    p.abilities.slots.includes(ability) ||
+    p.abilities.ultimate === ability ||
+    p.abilities.bench.includes(ability)
+  );
+}
+
+/** Slotted = currently castable (drafts and the cast path read this). */
+export function slotted(p: Player, ability: AbilityId): boolean {
+  return p.abilities.slots.includes(ability) || p.abilities.ultimate === ability;
 }
 
 /** Abilities not yet discovered (tomes can drop for these). */
 export function unknownAbilities(p: Player): AbilityId[] {
   return DISCOVERABLE_ABILITIES.filter((a) => !knows(p, a));
+}
+
+/** Fresh loadout for a new crawler. */
+export function startingLoadout(): Player["abilities"] {
+  return {
+    slots: [...STARTING_ABILITIES, null] as (AbilityId | null)[],
+    ultimate: null,
+    bench: [],
+    ranks: {},
+  };
 }
 
 // ---- Effective ability parameters (pure; read CONFIG + node ranks) ----
@@ -127,9 +162,10 @@ export interface UpgradeOffer {
   nextRank: number;
 }
 
-/** Nodes still below max rank for abilities the player knows. */
+/** Nodes still below max rank for abilities the player has SLOTTED — investment
+ * follows the kit you actually run (benched/freed abilities are not offered). */
 export function availableUpgrades(p: Player): UpgradeDef[] {
-  return UPGRADES.filter((u) => knows(p, u.ability) && rank(p, u.id) < u.maxRank);
+  return UPGRADES.filter((u) => slotted(p, u.ability) && rank(p, u.id) < u.maxRank);
 }
 
 /**

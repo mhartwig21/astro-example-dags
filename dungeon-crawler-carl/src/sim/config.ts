@@ -106,6 +106,21 @@ export const CONFIG = {
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
   phantomBlinkCooldown: 2.8, // seconds between blinks
 
+  // Ultimates (the fifth slot): long cooldowns, screen-scale impact.
+  ultAirstrikeCooldown: 45,
+  ultAirstrikeShells: 6,
+  ultAirstrikeRadius: 1.6, // per-shell blast radius (tiles)
+  ultAirstrikeDmgMult: 2.5, // per shell, relative to baseDamage
+  ultAirstrikeSpread: 2.2, // shell scatter around the target point
+  ultAirstrikeRange: 8, // max targeting distance from the caster
+  ultCataclysmCooldown: 35,
+  ultCataclysmRadius: 6,
+  ultCataclysmDmgMult: 3,
+  ultCataclysmKnockback: 2.5, // tiles enemies are hurled
+  ultBulletTimeCooldown: 60,
+  ultBulletTimeDuration: 4, // seconds
+  ultBulletTimeFactor: 0.35, // monster/enemy-projectile time scale while active
+
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   novaCooldown: 5.0,
   novaRadius: 2.6,

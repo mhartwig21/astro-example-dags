@@ -78,6 +78,10 @@
       .skill .cd { height: 5px; margin-top: 4px; background: #000; border-radius: 3px; overflow: hidden; }
       .skill .cd > i { display: block; height: 100%; background: #4fd1ff; width: 0%; }
       .skill.ready { border-color: #3f5f6f; }
+      .skill.empty { opacity: 0.45; border-style: dashed; }
+      .skill.ult { border-color: #7a5cc9; }
+      .skill.ult .key { color: #b998ff; }
+      .skill .bench-badge { color: #8a8a9a; }
 
       /* Inventory panel */
       #inv { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -274,11 +278,7 @@
         </div>
       </div>
     </div>
-    <div id="skills">
-      <div class="skill" id="skill-dash"><span class="key">Shift</span> Dash<div class="cd"><i></i></div></div>
-      <div class="skill" id="skill-bolt"><span class="key">Q / RMB</span> Bolt<div class="cd"><i></i></div></div>
-      <div class="skill" id="skill-nova" style="display:none"><span class="key">F</span> Nova<div class="cd"><i></i></div></div>
-    </div>
+    <div id="skills"></div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>
 </html>

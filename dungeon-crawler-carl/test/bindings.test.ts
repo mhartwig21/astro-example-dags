@@ -3,17 +3,17 @@ import { DEFAULT_BINDINGS, bindingLabel, keyLabel, rebind } from "../src/input/b
 
 describe("key bindings", () => {
   it("rebinds an action's primary key", () => {
-    const b = rebind(DEFAULT_BINDINGS, "bolt", "g");
-    expect(b.bolt[0]).toBe("g");
+    const b = rebind(DEFAULT_BINDINGS, "slot3", "g");
+    expect(b.slot3[0]).toBe("g");
     // Other actions untouched.
-    expect(b.attack).toEqual(DEFAULT_BINDINGS.attack);
+    expect(b.slot1).toEqual(DEFAULT_BINDINGS.slot1);
   });
 
   it("steals a key that was bound elsewhere (no double-binds)", () => {
-    const b = rebind(DEFAULT_BINDINGS, "nova", "q"); // q was bolt's only key
-    expect(b.nova[0]).toBe("q");
-    expect(b.bolt).not.toContain("q");
-    expect(bindingLabel(b, "bolt")).toBe("—"); // shown unbound until reassigned
+    const b = rebind(DEFAULT_BINDINGS, "ultimate", "q"); // q was slot3's only key
+    expect(b.ultimate[0]).toBe("q");
+    expect(b.slot3).not.toContain("q");
+    expect(bindingLabel(b, "slot3")).toBe("—"); // shown unbound until reassigned
   });
 
   it("keeps secondary defaults when rebinding movement", () => {
@@ -27,6 +27,6 @@ describe("key bindings", () => {
     expect(keyLabel("arrowleft")).toBe("←");
     expect(keyLabel("shift")).toBe("Shift");
     expect(keyLabel("q")).toBe("Q");
-    expect(bindingLabel(DEFAULT_BINDINGS, "dash")).toBe("Shift / Ctrl");
+    expect(bindingLabel(DEFAULT_BINDINGS, "slot2")).toBe("Shift / Ctrl");
   });
 });

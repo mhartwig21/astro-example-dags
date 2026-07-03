@@ -116,4 +116,8 @@ export class NetClient {
   equip(idx: number): void {
     this.send({ t: "equip", idx });
   }
+  /** Safe-room loadout change: slot = "0".."3" | "bench" | "ult" | "unult". */
+  slot(slot: string, ability: string): void {
+    this.send({ t: "slot", slot, ability });
+  }
 }

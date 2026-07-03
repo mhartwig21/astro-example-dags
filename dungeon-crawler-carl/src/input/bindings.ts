@@ -4,7 +4,7 @@
 
 export type BindableAction =
   | "moveUp" | "moveDown" | "moveLeft" | "moveRight"
-  | "attack" | "bolt" | "dash" | "nova"
+  | "slot1" | "slot2" | "slot3" | "slot4" | "ultimate"
   | "stairs" | "inventory" | "abilities" | "keybinds" | "newRun" | "mute";
 
 export type Bindings = Record<BindableAction, string[]>;
@@ -14,10 +14,11 @@ export const ACTION_INFO: Record<BindableAction, { name: string; hint?: string }
   moveDown: { name: "Move down" },
   moveLeft: { name: "Move left" },
   moveRight: { name: "Move right" },
-  attack: { name: "Attack", hint: "also left-click" },
-  bolt: { name: "Bolt", hint: "also right-click" },
-  dash: { name: "Dash" },
-  nova: { name: "Nova", hint: "once learned" },
+  slot1: { name: "Ability slot 1", hint: "also left-click" },
+  slot2: { name: "Ability slot 2" },
+  slot3: { name: "Ability slot 3", hint: "also right-click" },
+  slot4: { name: "Ability slot 4" },
+  ultimate: { name: "Ultimate" },
   stairs: { name: "Use stairs / descend" },
   inventory: { name: "Inventory" },
   abilities: { name: "Abilities & achievements" },
@@ -31,10 +32,11 @@ export const DEFAULT_BINDINGS: Bindings = {
   moveDown: ["s", "arrowdown"],
   moveLeft: ["a", "arrowleft"],
   moveRight: ["d", "arrowright"],
-  attack: [" "],
-  bolt: ["q"],
-  dash: ["shift", "control"],
-  nova: ["f"],
+  slot1: [" "],
+  slot2: ["shift", "control"],
+  slot3: ["q"],
+  slot4: ["c"],
+  ultimate: ["f"],
   stairs: ["e"],
   inventory: ["i"],
   abilities: ["t"],
@@ -43,7 +45,9 @@ export const DEFAULT_BINDINGS: Bindings = {
   mute: ["m"],
 };
 
-const STORE_KEY = "dcc:keys:v1";
+// v2: per-SLOT binds replaced per-ability binds (The Five). Old v1 bindings are
+// intentionally not migrated — defaults land the starting kit on the old keys.
+const STORE_KEY = "dcc:keys:v2";
 
 /** Pretty label for a key value ("w" -> "W", " " -> "Space"). */
 export function keyLabel(key: string): string {

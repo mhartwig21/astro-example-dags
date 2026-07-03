@@ -6,8 +6,9 @@ import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
 import {
-  ABILITY_INFO, STARTING_ABILITIES, boltParams, dashParams, knows, meleeParams,
-  novaParams, orbitParams, rollUpgradeDraft, unknownAbilities, upgradeDef,
+  ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
+  novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
+  unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
@@ -330,15 +331,12 @@ function makePlayer(id: number, name: string): Player {
     speed: CONFIG.playerSpeed,
     baseDamage: CONFIG.playerBaseDamage,
     critChance: CONFIG.playerCritChance,
-    attackCooldown: 0,
-    dashCd: 0,
+    cd: {},
     dashTime: 0,
-    boltCd: 0,
-    novaCd: 0,
     novaFlash: 0,
     orbitAngle: 0,
     orbitTick: 0,
-    abilities: { known: [...STARTING_ABILITIES], ranks: {} },
+    abilities: startingLoadout(),
     level: 1,
     xp: 0,
     xpToNext: xpForLevel(1),
@@ -376,11 +374,8 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   const a = offset * (Math.PI * 2 / 6);
   p.pos = { x: spawn.x + (offset === 0 ? 0 : Math.cos(a) * 0.6), y: spawn.y + (offset === 0 ? 0 : Math.sin(a) * 0.6) };
   p.facing = { x: 0, y: 1 };
-  p.attackCooldown = 0;
-  p.dashCd = 0;
+  p.cd = {};
   p.dashTime = 0;
-  p.boltCd = 0;
-  p.novaCd = 0;
   p.novaFlash = 0;
   p.attackSwing = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
@@ -496,7 +491,24 @@ export function restoreGame(save: SavedProgress): GameState {
   p.bonusCrit = s.bonusCrit ?? 0;
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
-  if (s.abilities) p.abilities = s.abilities;
+  if (s.abilities) {
+    const legacy = s.abilities as unknown as { known?: AbilityId[]; ranks?: Record<string, number> };
+    if (Array.isArray(legacy.known)) {
+      // Pre-loadout save: fill slots from `known` in discovery order, bench the rest.
+      const fresh = startingLoadout();
+      fresh.ranks = legacy.ranks ?? {};
+      for (const a of legacy.known) {
+        if (fresh.slots.includes(a) || fresh.ultimate === a) continue;
+        const tier = ABILITY_INFO[a]?.tier;
+        if (tier === "ultimate" && fresh.ultimate === null) fresh.ultimate = a;
+        else if (tier === "active" && fresh.slots.includes(null)) fresh.slots[fresh.slots.indexOf(null)] = a;
+        else fresh.bench.push(a);
+      }
+      p.abilities = fresh;
+    } else {
+      p.abilities = s.abilities;
+    }
+  }
   if (s.achievements) p.achievements = s.achievements;
   p.goldSpent = s.goldSpent ?? 0;
   p.kills = s.kills ?? 0;
@@ -547,6 +559,8 @@ export function createGame(seed: number): GameState {
     killCount: 0,
     lootBoxes: 0,
     safeRoom: null,
+    strikes: [],
+    bulletTimeLeft: 0,
     killsThisStep: 0,
     escapedCollapse: false,
     elapsed: 0,
@@ -624,13 +638,69 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
   announce(state, `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
 
-/** Teach an ability (tome pickup / shop / debug). No-op if already known. */
+/**
+ * Teach an ability (tome pickup / shop / debug). Auto-slots into an open slot of
+ * its tier (field pickups keep momentum); otherwise it goes to the BENCH and
+ * re-slotting waits for a safe room. No-op if already known.
+ */
 export function learnAbility(state: GameState, p: Player, ability: Loot["ability"]): void {
   if (!ability || knows(p, ability)) return;
-  p.abilities.known.push(ability);
   const info = ABILITY_INFO[ability];
-  announce(state, `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}${info.key === "auto" ? " (automatic)" : ` (${info.key})`}. The crowd demands a demo.`);
+  const L = p.abilities;
+  let where: string;
+  if (info.tier === "ultimate") {
+    if (L.ultimate === null) { L.ultimate = ability; where = "SLOTTED as your ultimate"; }
+    else { L.bench.push(ability); where = "BENCHED (swap ultimates in a safe room)"; }
+  } else if (L.slots.includes(null)) {
+    L.slots[L.slots.indexOf(null)] = ability;
+    where = "SLOTTED";
+  } else {
+    L.bench.push(ability);
+    where = "BENCHED (re-slot in a safe room)";
+  }
+  announce(state, `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
   addHype(state, p, CONFIG.show.hypeEpicDrop);
+}
+
+/**
+ * Re-slot an ACTIVE ability (or free a slot with null). Safe-room only — the
+ * build is a committed decision, not a mid-fight reshuffle. Displaced abilities
+ * go to the bench; ranks always persist.
+ */
+export function slotAbility(state: GameState, playerId: number, slotIdx: number, ability: AbilityId | null): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  if (slotIdx < 0 || slotIdx >= ABILITY_SLOTS) return;
+  if (ability !== null && (!knows(p, ability) || ABILITY_INFO[ability].tier !== "active")) return;
+  const L = p.abilities;
+  // Pull the incoming ability out of wherever it lives.
+  if (ability !== null) {
+    L.bench = L.bench.filter((a) => a !== ability);
+    const from = L.slots.indexOf(ability);
+    if (from >= 0) L.slots[from] = null;
+  }
+  const displaced = L.slots[slotIdx];
+  if (displaced) L.bench.push(displaced);
+  L.slots[slotIdx] = ability;
+  state.events.push(
+    ability === null
+      ? `${p.name} freed slot ${slotIdx + 1}.`
+      : `${p.name} slotted ${ABILITY_INFO[ability].name} into slot ${slotIdx + 1}.`,
+  );
+}
+
+/** Set (or clear) the ultimate slot. Safe-room only; displaced ult is benched. */
+export function setUltimate(state: GameState, playerId: number, ability: AbilityId | null): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  if (ability !== null && (!knows(p, ability) || ABILITY_INFO[ability].tier !== "ultimate")) return;
+  const L = p.abilities;
+  if (ability !== null) L.bench = L.bench.filter((a) => a !== ability);
+  if (L.ultimate) L.bench.push(L.ultimate);
+  L.ultimate = ability;
+  state.events.push(
+    ability === null ? `${p.name} cleared the ultimate slot.` : `${p.name} slotted ${ABILITY_INFO[ability].name} as their ULTIMATE.`,
+  );
 }
 
 /** Award a loot box to one player: an immediate randomized buff, DCC-style. */
@@ -714,7 +784,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   const mp = meleeParams(p);
   const facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
-  p.attackCooldown = mp.cooldown;
+  p.cd.melee = mp.cooldown;
   p.attackSwing = 0.15;
 
   for (const m of state.monsters) {
@@ -1173,7 +1243,7 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 /** Dash skill: blink in the facing direction with brief i-frames (dashTime). */
 function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
-  p.dashCd = dp.cooldown;
+  p.cd.dash = dp.cooldown;
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
@@ -1188,7 +1258,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
-  p.boltCd = bp.cooldown;
+  p.cd.bolt = bp.cooldown;
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
   for (let i = 0; i < bp.count; i++) {
@@ -1218,14 +1288,14 @@ function radialDamage(state: GameState, p: Player, center: Vec2, radius: number,
 /** Nova skill: a radial shockwave around the player (must be learned). */
 function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
-  p.novaCd = np.cooldown;
+  p.cd.nova = np.cooldown;
   p.novaFlash = 0.3;
   radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult);
 }
 
 /** Orbit blades: automatic contact damage on a fixed tick while learned. */
 function updateOrbit(state: GameState, p: Player, dt: number): void {
-  if (!knows(p, "orbit") || !p.alive) return;
+  if (!slotted(p, "orbit") || !p.alive) return;
   const op = orbitParams(p);
   p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
@@ -1243,6 +1313,80 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
   }
 }
 
+// ---- Ultimates (the fifth slot) ----
+
+/** Sponsor Airstrike: schedule a shell bombardment around the aim point. */
+function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
+  p.cd.airstrike = CONFIG.ultAirstrikeCooldown;
+  const len = Math.hypot(aim.x, aim.y);
+  const range = Math.min(CONFIG.ultAirstrikeRange, len || 1);
+  const dir = len > 0 ? { x: aim.x / len, y: aim.y / len } : p.facing;
+  const target = { x: p.pos.x + dir.x * range, y: p.pos.y + dir.y * range };
+  for (let i = 0; i < CONFIG.ultAirstrikeShells; i++) {
+    const a = nextFloat(state.rng) * Math.PI * 2;
+    const d = nextFloat(state.rng) * CONFIG.ultAirstrikeSpread;
+    state.strikes.push({
+      pos: { x: target.x + Math.cos(a) * d, y: target.y + Math.sin(a) * d },
+      t: 0.45 + i * 0.22,
+      ownerId: p.id,
+    });
+  }
+  announce(state, `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
+}
+
+/** Tick scheduled airstrike shells; each impact is a radial blast. */
+function updateStrikes(state: GameState, dt: number): void {
+  if (state.strikes.length === 0) return;
+  const remaining: GameState["strikes"] = [];
+  for (const s of state.strikes) {
+    s.t -= dt;
+    if (s.t > 0) { remaining.push(s); continue; }
+    const owner = state.players.find((pl) => pl.id === s.ownerId) ?? state.players[0];
+    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, owner.baseDamage * CONFIG.ultAirstrikeDmgMult);
+    hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
+  }
+  state.strikes = remaining;
+}
+
+/** Cataclysm Nova: a floor-shaking blast that hurls enemies back. */
+function doCataclysm(state: GameState, p: Player): void {
+  p.cd.cataclysm = CONFIG.ultCataclysmCooldown;
+  p.novaFlash = 0.3; // reuse the ring effect
+  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, p.baseDamage * CONFIG.ultCataclysmDmgMult);
+  for (const m of state.monsters) {
+    const d = dist(p.pos, m.pos);
+    if (d > CONFIG.ultCataclysmRadius || d < 1e-4) continue;
+    const dir = { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d };
+    moveWithCollision(state.map, m.pos, dir, CONFIG.ultCataclysmKnockback, isWalkable);
+  }
+  announce(state, `${p.name} CRACKS THE FLOOR. Everything airborne is a highlight.`);
+}
+
+/** Bullet Time: the world slows; crawlers do not. */
+function doBulletTime(state: GameState, p: Player): void {
+  p.cd.bullettime = CONFIG.ultBulletTimeCooldown;
+  state.bulletTimeLeft = CONFIG.ultBulletTimeDuration;
+  announce(state, `${p.name} bends the broadcast frame rate. BULLET TIME.`);
+}
+
+/**
+ * Cast the ability in a slot. One switch = the whole cast surface; adding an
+ * ability means one case here + a registry entry in abilities.ts.
+ */
+function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2): void {
+  if ((p.cd[ability] ?? 0) > 0) return;
+  switch (ability) {
+    case "melee": doPlayerAttack(state, p, aim); break;
+    case "dash": doDash(state, p); break;
+    case "bolt": doBolt(state, p, aim); break;
+    case "nova": doNova(state, p); break;
+    case "orbit": break; // passive: runs via updateOrbit while slotted
+    case "airstrike": doAirstrike(state, p, aim); break;
+    case "cataclysm": doCataclysm(state, p); break;
+    case "bullettime": doBulletTime(state, p); break;
+  }
+}
+
 /** A player died; the run only ends when the whole party is down. */
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
@@ -1257,10 +1401,12 @@ export function handlePlayerDeath(state: GameState, p: Player, line: string): vo
 /** Advance every projectile: move, expire, hit walls/entities. */
 function updateProjectiles(state: GameState, dt: number): void {
   const survivors: GameState["projectiles"] = [];
+  const slow = state.bulletTimeLeft > 0 ? CONFIG.ultBulletTimeFactor : 1;
   for (const pr of state.projectiles) {
-    pr.ttl -= dt;
-    pr.pos.x += pr.vel.x * dt;
-    pr.pos.y += pr.vel.y * dt;
+    const pdt = pr.from === "enemy" ? dt * slow : dt;
+    pr.ttl -= pdt;
+    pr.pos.x += pr.vel.x * pdt;
+    pr.pos.y += pr.vel.y * pdt;
     if (pr.ttl <= 0 || !isWalkable(state.map, pr.pos.x, pr.pos.y)) continue;
 
     if (pr.from === "player") {
@@ -1338,12 +1484,11 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   for (const p of ordered) {
     const pi = intents[p.id] ?? NO_INTENT;
 
-    if (p.attackCooldown > 0) p.attackCooldown = Math.max(0, p.attackCooldown - dt);
+    for (const key of Object.keys(p.cd) as AbilityId[]) {
+      if ((p.cd[key] ?? 0) > 0) p.cd[key] = Math.max(0, (p.cd[key] ?? 0) - dt);
+    }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
-    if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
-    if (p.boltCd > 0) p.boltCd = Math.max(0, p.boltCd - dt);
-    if (p.novaCd > 0) p.novaCd = Math.max(0, p.novaCd - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
 
     const move = pi.move;
@@ -1353,18 +1498,36 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       moveWithCollision(state.map, p.pos, dir, p.speed * dt, isWalkable);
     }
 
-    if (pi.dash && p.alive && p.dashCd === 0) doDash(state, p);
-    if (pi.bolt && p.alive && p.boltCd === 0) doBolt(state, p, pi.aim ?? p.facing);
-    if (pi.nova && p.alive && p.novaCd === 0 && knows(p, "nova")) doNova(state, p);
-    updateOrbit(state, p, dt);
-
-    if (pi.attack && p.alive && p.attackCooldown === 0) {
-      doPlayerAttack(state, p, pi.aim ?? p.facing);
+    // Slot-cast dispatch: explicit cast[] flags (slots 0-3 + ultimate at 4)
+    // union'd with legacy per-ability flags mapped to wherever that ability is
+    // slotted (tests/bots keep working; unslotted = no-op).
+    if (p.alive) {
+      const cast = [...(pi.cast ?? [])];
+      while (cast.length < ABILITY_SLOTS + 1) cast.push(false);
+      const legacy: [boolean | undefined, AbilityId][] = [
+        [pi.attack, "melee"], [pi.dash, "dash"], [pi.bolt, "bolt"], [pi.nova, "nova"],
+      ];
+      for (const [flag, ability] of legacy) {
+        if (!flag) continue;
+        const idx = p.abilities.slots.indexOf(ability);
+        if (idx >= 0) cast[idx] = true;
+        else if (p.abilities.ultimate === ability) cast[ABILITY_SLOTS] = true;
+      }
+      const aim = pi.aim ?? p.facing;
+      for (let s = 0; s < ABILITY_SLOTS; s++) {
+        const ability = p.abilities.slots[s];
+        if (cast[s] && ability) castAbility(state, p, ability, aim);
+      }
+      if (cast[ABILITY_SLOTS] && p.abilities.ultimate) castAbility(state, p, p.abilities.ultimate, aim);
     }
+    updateOrbit(state, p, dt);
   }
 
-  // Monsters + projectiles.
-  for (const m of state.monsters) stepMonster(state, m, dt);
+  // Monsters + projectiles (bullet time slows the world, not the crawlers).
+  if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
+  const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
+  for (const m of state.monsters) stepMonster(state, m, mdt);
+  updateStrikes(state, dt);
   updateProjectiles(state, dt);
 
   reapDead(state);

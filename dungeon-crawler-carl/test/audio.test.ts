@@ -71,12 +71,12 @@ describe("audio director", () => {
     const p = state.players[0];
     director.frame(state, [], [], p.id);
     p.dashTime = 0.2;
-    p.boltCd = 2;
+    p.cd.bolt = 2;
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toEqual(expect.arrayContaining(["dash", "bolt"]));
     sink.played = [];
     p.dashTime = 0.1; // still active — no retrigger
-    p.boltCd = 1.5; // cooling down — no retrigger
+    p.cd.bolt = 1.5; // cooling down — no retrigger
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toHaveLength(0);
   });

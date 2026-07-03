@@ -24,16 +24,21 @@ export interface Player {
   maxHp: number;
   speed: number;
   baseDamage: number;
-  attackCooldown: number; // seconds remaining until next attack allowed
-  dashCd: number; // dash skill cooldown remaining
+  // Unified per-ability cooldowns (seconds remaining), keyed by AbilityId —
+  // scales to any number of abilities without new fields.
+  cd: Partial<Record<AbilityId, number>>;
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
-  boltCd: number; // ranged-bolt skill cooldown remaining
-  novaCd: number; // nova skill cooldown remaining (only used once learned)
   novaFlash: number; // transient render flag: seconds remaining of nova ring effect
   orbitAngle: number; // current rotation of the orbit blades (radians)
   orbitTick: number; // seconds until the orbit blades' next damage tick
-  // Ability tree: which abilities are learned + rank taken per upgrade node.
-  abilities: { known: AbilityId[]; ranks: Record<string, number> };
+  // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
+  // but-unslotted abilities, plus rank taken per upgrade node.
+  abilities: {
+    slots: (AbilityId | null)[]; // length 4
+    ultimate: AbilityId | null;
+    bench: AbilityId[];
+    ranks: Record<string, number>;
+  };
   critChance: number; // effective crit chance (base + equipment)
   level: number;
   xp: number;
@@ -216,6 +221,13 @@ export interface FloorMap {
 
 export type RunStatus = "playing" | "dead" | "won";
 
+// A scheduled ultimate impact (Sponsor Airstrike shells in flight).
+export interface Strike {
+  pos: Vec2;
+  t: number; // seconds until impact
+  ownerId: number; // caster (kill credit)
+}
+
 // Transient combat/feedback events emitted during a single step. Hosts turn these
 // into floating damage numbers, particles, camera shake, and announcer lines. They
 // are derived deterministically from the sim (the RNG that rolls a crit is the same
@@ -265,6 +277,10 @@ export interface GameState {
   killCount: number; // monsters killed this run (drives loot-box milestones)
   lootBoxes: number; // loot boxes awarded this run
 
+  // Ultimate side-state: scheduled airstrike impacts + bullet-time remaining.
+  strikes: Strike[];
+  bulletTimeLeft: number;
+
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
   safeRoom: SafeRoom | null;
@@ -279,21 +295,21 @@ export interface GameState {
 /** Intent produced by a host (client input, script, or agent) for one sim step. */
 export interface Intent {
   move: Vec2; // desired movement direction (need not be normalized); zero = stand still
-  attack: boolean; // attempt a melee attack this step
+  attack?: boolean; // legacy: cast the slot holding melee (see cast below)
   aim?: Vec2; // optional aim direction for the attack (falls back to facing)
   useStairs: boolean; // attempt to descend if standing on stairs
-  dash?: boolean; // dash skill (blink in facing direction, brief i-frames)
-  bolt?: boolean; // ranged-bolt skill (fire a projectile in facing/aim direction)
-  nova?: boolean; // nova skill (radial shockwave; requires the ability to be learned)
+  // Slot casts: indices 0-3 = the four ability slots, 4 = the ultimate slot.
+  cast?: boolean[];
+  // Legacy convenience flags (tests/bots): each maps to "cast the slot currently
+  // holding that ability" — a no-op if it isn't slotted.
+  dash?: boolean;
+  bolt?: boolean;
+  nova?: boolean;
 }
 
 export const NO_INTENT: Intent = {
   move: { x: 0, y: 0 },
-  attack: false,
   useStairs: false,
-  dash: false,
-  bolt: false,
-  nova: false,
 };
 
 /** Per-player intents for one step, keyed by player id. Missing ids = NO_INTENT. */

@@ -77,7 +77,7 @@ export class AudioDirector {
       pendingRewards: p.pendingRewards.length > 0,
       dashTime: p.dashTime,
       novaFlash: p.novaFlash,
-      boltCd: p.boltCd,
+      boltCd: p.cd.bolt ?? 0,
     };
 
     const prev = this.prev;

@@ -12,11 +12,9 @@ import { type BindableAction, type Bindings, DEFAULT_BINDINGS } from "./bindings
  */
 export class InputController {
   private keys = new Set<string>();
-  private mouseAttack = false;
-  private mouseBolt = false;
+  private mouseAttack = false; // LMB -> slot 1
+  private mouseBolt = false; // RMB -> slot 3
   private useStairsEdge = false;
-  private dashEdge = false;
-  private novaEdge = false;
   private bindings: Bindings = { ...DEFAULT_BINDINGS };
   /** Latest mouse position in canvas coordinates (for aim mapping by the host). */
   mouse: Vec2 | null = null;
@@ -32,8 +30,6 @@ export class InputController {
       const wasDown = this.keys.has(k);
       this.keys.add(k);
       if (this.is("stairs", k)) this.useStairsEdge = true;
-      if (this.is("dash", k) && !wasDown) this.dashEdge = true; // edge-trigger
-      if (this.is("nova", k) && !wasDown) this.novaEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
       for (const a of ["inventory", "abilities", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
@@ -91,19 +87,17 @@ export class InputController {
 
     const useStairs = this.useStairsEdge;
     this.useStairsEdge = false;
-    const dash = this.dashEdge;
-    this.dashEdge = false;
-    const nova = this.novaEdge;
-    this.novaEdge = false;
 
-    return {
-      move,
-      attack: this.held("attack") || this.mouseAttack,
-      aim,
-      useStairs,
-      dash,
-      bolt: this.held("bolt") || this.mouseBolt,
-      nova,
-    };
+    // Slot casts: indices 0-3 = ability slots, 4 = ultimate. Mouse buttons are
+    // fixed aliases (LMB = slot 1, RMB = slot 3) on top of the keyboard binds.
+    const cast = [
+      this.held("slot1") || this.mouseAttack,
+      this.held("slot2"),
+      this.held("slot3") || this.mouseBolt,
+      this.held("slot4"),
+      this.held("ultimate"),
+    ];
+
+    return { move, aim, useStairs, cast };
   }
 }

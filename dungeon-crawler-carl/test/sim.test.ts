@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
+  slotAbility,
 } from "../src/sim/game";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
@@ -208,7 +209,7 @@ describe("skills + projectiles", () => {
     const x0 = g.players[0].pos.x;
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, dash: true }, 1 / 60);
     // Cooldown + i-frames are set regardless of geometry; position never regresses.
-    expect(g.players[0].dashCd).toBeGreaterThan(0);
+    expect(g.players[0].cd.dash ?? 0).toBeGreaterThan(0);
     expect(g.players[0].dashTime).toBeGreaterThan(0);
     expect(g.players[0].pos.x).toBeGreaterThanOrEqual(x0);
   });
@@ -466,10 +467,11 @@ describe("achievements", () => {
     expect(g.players[0].achievements).toContain("dirty_fighter");
   });
 
-  it("COLLECTOR'S EDITION unlocks once both abilities are learned", () => {
+  it("COLLECTOR'S EDITION unlocks once every discoverable is learned", () => {
     const g = createGame(402);
-    learnAbility(g, g.players[0], "nova");
-    learnAbility(g, g.players[0], "orbit");
+    for (const a of ["nova", "orbit", "airstrike", "cataclysm", "bullettime"] as const) {
+      learnAbility(g, g.players[0], a);
+    }
     step(g, idle(), 1 / 60);
     expect(g.players[0].achievements).toContain("collector");
   });
@@ -566,7 +568,7 @@ describe("ability tree + upgrade drafts", () => {
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 1, y: p.pos.y }, hp: 500, maxHp: 500 }));
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, nova: true }, 1 / 60);
     expect(g.monsters[0].hp).toBeLessThan(500);
-    expect(p.novaCd).toBeGreaterThan(0);
+    expect(p.cd.nova ?? 0).toBeGreaterThan(0);
   });
 
   it("nova does nothing before it is learned", () => {
@@ -592,7 +594,8 @@ describe("ability tree + upgrade drafts", () => {
       seed: 50, floor: 2,
       player: {
         hp: 90, level: 4, xp: 0, xpToNext: 50, gold: 10,
-        abilities: { known: ["melee", "dash", "bolt", "nova"], ranks: { "nova.bang": 1 } },
+        // Legacy pre-loadout save shape: restore migrates known[] into slots.
+        abilities: { known: ["melee", "dash", "bolt", "nova"], ranks: { "nova.bang": 1 } } as never,
       },
     });
     expect(knows(restored.players[0], "nova")).toBe(true);
@@ -1103,6 +1106,143 @@ describe("intentional floors (mission-lite)", () => {
         elite.pos.y >= r.y && elite.pos.y < r.y + r.h;
       expect(inside).toBe(true);
     }
+  });
+});
+
+describe("the five (ability loadout)", () => {
+  function safeRoomGame(seed = 800) {
+    const g = createGame(seed);
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).not.toBeNull();
+    return g;
+  }
+
+  it("starts with [melee, dash, bolt, empty] and an empty ultimate", () => {
+    const g = createGame(801);
+    const L = g.players[0].abilities;
+    expect(L.slots).toEqual(["melee", "dash", "bolt", null]);
+    expect(L.ultimate).toBeNull();
+    expect(L.bench).toEqual([]);
+  });
+
+  it("auto-slots a discovered active into the open slot; extras go to the bench", () => {
+    const g = createGame(802);
+    const p = g.players[0];
+    learnAbility(g, p, "nova"); // slot 4 is open
+    expect(p.abilities.slots[3]).toBe("nova");
+    learnAbility(g, p, "orbit"); // slots full now
+    expect(p.abilities.bench).toContain("orbit");
+    // Ultimates fill the ultimate slot, not an active slot.
+    learnAbility(g, p, "airstrike");
+    expect(p.abilities.ultimate).toBe("airstrike");
+    learnAbility(g, p, "cataclysm"); // ult occupied -> bench
+    expect(p.abilities.bench).toContain("cataclysm");
+  });
+
+  it("re-slotting is safe-room only; ranks persist through the bench", () => {
+    const g = createGame(803);
+    const p = g.players[0];
+    learnAbility(g, p, "nova");
+    learnAbility(g, p, "orbit"); // benched
+    p.abilities.ranks["nova.bang"] = 2;
+    // In the field: rejected.
+    slotAbility(g, p.id, 3, "orbit");
+    expect(p.abilities.slots[3]).toBe("nova");
+    // In a safe room: allowed; nova is displaced to the bench, ranks intact.
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    slotAbility(g, p.id, 3, "orbit");
+    expect(p.abilities.slots[3]).toBe("orbit");
+    expect(p.abilities.bench).toContain("nova");
+    expect(p.abilities.ranks["nova.bang"]).toBe(2);
+  });
+
+  it("freeing melee removes the basic attack (a real commitment)", () => {
+    const g = safeRoomGame(804);
+    const p = g.players[0];
+    slotAbility(g, p.id, 0, null); // free melee
+    expect(p.abilities.slots[0]).toBeNull();
+    expect(p.abilities.bench).toContain("melee");
+    leaveSafeRoom(g);
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 50, maxHp: 50 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.monsters[0].hp).toBe(50); // swing... with what?
+  });
+
+  it("upgrade drafts offer ranks only for slotted abilities", () => {
+    const g = createGame(805);
+    const p = g.players[0];
+    learnAbility(g, p, "nova");
+    learnAbility(g, p, "orbit"); // benched
+    p.upgradeDraftsOwed = 3;
+    for (let i = 0; i < 3; i++) {
+      p.pendingUpgrades = [];
+      step(g, idle(), 1 / 60);
+      for (const u of p.pendingUpgrades) {
+        expect(["melee", "dash", "bolt", "nova"]).toContain(u.ability); // never orbit
+      }
+    }
+  });
+
+  it("cast[] slots fire the ability in that slot", () => {
+    const g = createGame(806);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Slot 3 holds bolt at start: cast[2] fires it.
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, true, false, false], aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.projectiles.filter((pr) => pr.from === "player").length).toBeGreaterThan(0);
+    expect(p.cd.bolt ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe("ultimates", () => {
+  function withUlt(seed: number, ult: "airstrike" | "cataclysm" | "bullettime") {
+    const g = createGame(seed);
+    const p = g.players[0];
+    learnAbility(g, p, ult); // ultimate slot is empty -> auto-slots
+    expect(p.abilities.ultimate).toBe(ult);
+    g.monsters.length = 0;
+    return g;
+  }
+
+  it("sponsor airstrike schedules shells that later detonate on monsters", () => {
+    const g = withUlt(810, "airstrike");
+    const p = g.players[0];
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true], aim: { x: 3, y: 0 } }, 1 / 60);
+    expect(g.strikes.length).toBe(CONFIG.ultAirstrikeShells);
+    expect(p.cd.airstrike ?? 0).toBeGreaterThan(0);
+    for (let i = 0; i < 180; i++) step(g, idle(), 1 / 60);
+    expect(g.strikes.length).toBe(0); // all shells landed
+    expect(g.monsters[0].hp).toBeLessThan(500); // scatter covers a 3-tile offset target
+  });
+
+  it("cataclysm damages and hurls everything nearby", () => {
+    const g = withUlt(811, "cataclysm");
+    const p = g.players[0];
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    const x0 = g.monsters[0].pos.x;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true] }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+    expect(g.monsters[0].pos.x).toBeGreaterThan(x0); // knocked away
+  });
+
+  it("bullet time slows monsters but not the caster", () => {
+    const g = withUlt(812, "bullettime");
+    const p = g.players[0];
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 6, y: p.pos.y }, hp: 500, maxHp: 500, speed: 2.6 }));
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true] }, 1 / 60);
+    expect(g.bulletTimeLeft).toBeGreaterThan(0);
+    const m0 = g.monsters[0].pos.x;
+    const p0 = p.pos.x;
+    for (let i = 0; i < 30; i++) step(g, { move: { x: -1, y: 0 }, useStairs: false }, 1 / 60);
+    const monsterMoved = m0 - g.monsters[0].pos.x;
+    const playerMoved = p0 - p.pos.x;
+    expect(playerMoved).toBeGreaterThan(monsterMoved * 2); // world slowed, crawler not
   });
 });
 
