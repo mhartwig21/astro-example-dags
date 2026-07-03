@@ -49,8 +49,8 @@ export const AUDIO_MANIFEST = {
 
   // Music beds — crossfaded by the director based on game state.
   music_dungeon: { url: "/audio/music/dungeon.ogg", bus: "music", volume: 0.5, loop: true },
-  music_safe: { url: "/audio/music/safe_room.ogg", bus: "music", volume: 0.5, loop: true },
-  music_collapse: { url: "/audio/music/collapse.ogg", bus: "music", volume: 0.65, loop: true },
+  music_safe: { url: "/audio/music/safe_room.mp3", bus: "music", volume: 0.5, loop: true },
+  music_collapse: { url: "/audio/music/collapse.wav", bus: "music", volume: 0.65, loop: true },
 } satisfies Record<string, SoundDef>;
 
 export type SoundId = keyof typeof AUDIO_MANIFEST;
