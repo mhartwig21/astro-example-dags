@@ -8,7 +8,7 @@ import { CATALOG_BY_ID, consumablePrice, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { availableUpgrades, boltParams, knows, rank } from "../src/sim/abilities";
-import { NO_INTENT, Tile, type FloorMap, type Intent, type Vec2 } from "../src/sim/types";
+import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
@@ -332,11 +332,19 @@ describe("the show (viewers / favorites / sponsors)", () => {
 });
 
 describe("sponsor draft", () => {
-  it("leaving the safe room opens a personal reward draft (world keeps running)", () => {
-    const g = createGame(5);
+  /** Warp onto the stairs, enter the safe room, then descend with `sponsors` backers. */
+  function descendWith(seed: number, sponsors: number, tweak?: (g: GameState) => void) {
+    const g = createGame(seed);
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    g.players[0].sponsors = sponsors;
+    tweak?.(g);
     leaveSafeRoom(g);
+    return g;
+  }
+
+  it("leaving the safe room opens a personal reward draft (world keeps running)", () => {
+    const g = descendWith(5, 2);
     expect(g.floor).toBe(2);
     expect(g.players[0].pendingRewards.length).toBeGreaterThan(0);
     // Multiplayer-safe: movement still works while the draft pends.
@@ -346,6 +354,31 @@ describe("sponsor draft", () => {
     // Choosing clears the draft.
     chooseReward(g, 0, 0);
     expect(g.players[0].pendingRewards.length).toBe(0);
+  });
+
+  it("offers one option per sponsor, capped at 3 — and none without sponsors", () => {
+    expect(descendWith(5, 0).players[0].pendingRewards.length).toBe(0);
+    expect(descendWith(5, 1).players[0].pendingRewards.length).toBe(1);
+    expect(descendWith(5, 2).players[0].pendingRewards.length).toBe(2);
+    expect(descendWith(5, 3).players[0].pendingRewards.length).toBe(3);
+    expect(descendWith(5, 7).players[0].pendingRewards.length).toBe(3);
+  });
+
+  it("surplus sponsors drop dead-weight options (full-HP crawler never drafts Field Medic)", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const g = descendWith(seed, 7, (gg) => { gg.players[0].hp = gg.players[0].maxHp; });
+      // 7 sponsors pitch all 7 kinds; the 3 kept are the best fits, and a full
+      // heal for a full-HP crawler scores zero.
+      expect(g.players[0].pendingRewards.map((r) => r.kind)).not.toContain("healFull");
+    }
+  });
+
+  it("surplus sponsors skew the draft toward the crawler's build", () => {
+    // Same seed, same candidates — only the build differs.
+    const critBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusCrit = 1; });
+    const hpBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusMaxHp = 500; });
+    expect(critBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("crit");
+    expect(hpBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("maxHp");
   });
 
   it("applies the chosen reward's effect", () => {
@@ -359,14 +392,10 @@ describe("sponsor draft", () => {
   });
 
   it("generates a deterministic draft for the same seed/floor", () => {
-    function draftTitles(seed: number) {
-      const g = createGame(seed);
-      g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
-      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
-      leaveSafeRoom(g);
-      return g.players[0].pendingRewards.map((r) => r.kind);
+    function draftKinds(seed: number) {
+      return descendWith(seed, 5).players[0].pendingRewards.map((r) => r.kind);
     }
-    expect(draftTitles(77)).toEqual(draftTitles(77));
+    expect(draftKinds(77)).toEqual(draftKinds(77));
   });
 });
 

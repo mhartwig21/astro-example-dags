@@ -186,7 +186,10 @@ This document describes the full target architecture, then defines the scope of 
   sponsors" is emergent, not scripted.
 - **Sponsor draft** (`generateRewards` / `chooseReward`): on descending, sponsors present a
   pick-1 reward draft (heal / +max HP / +damage / +crit / gear / gold / bonus floor time).
-  Option count and quality scale with sponsors + favorites; the draft pauses the sim
+  Each sponsor fields one option, capped at 3 — no sponsors, no gifts. Sponsors beyond the
+  cap each pitch an extra candidate and only the best fits for the crawler's build survive
+  (`rewardFitScore`), so heavy backing skews the draft toward stronger, on-build options.
+  Roll quality also scales with sponsors + favorites; the draft pauses the sim
   (enforced in `step`) until the player chooses. Rewards roll off a dedicated per-floor RNG
   so the offer is reproducible. Metrics persist for log on/off.
 - Still to come: achievements, recurring announcer personality/banter, cosmetic absurdity,
