@@ -90,6 +90,9 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
   ".svg": "image/svg+xml",
   ".glb": "model/gltf-binary",
+  ".ogg": "audio/ogg",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
 };
 

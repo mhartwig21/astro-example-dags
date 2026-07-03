@@ -81,7 +81,8 @@ in an in-game credits screen (not yet built; build it before shipping CC-BY audi
 | Source | What | License | Link |
 |---|---|---|---|
 | Kenney audio packs (Impact / Interface / RPG / Music Jingles) | SFX + stings | **CC0** | https://kenney.nl/assets?q=audio |
-| FreePD | music beds | **CC0 / public domain** | https://freepd.com |
+| ~~FreePD~~ (site closed 2026) | music beds | — | use OpenGameArt instead |
+| OpenGameArt (filter: license = CC0) | music + SFX | **CC0 when filtered** | https://opengameart.org |
 | Freesound (filter: license = CC0) | SFX | **CC0 when filtered** | https://freesound.org/search/?f=license:%22Creative+Commons+0%22 |
 | MuseOpen | classical recordings | mostly PD — check per file | https://musopen.org |
 | Sound Image (Eric Matyas) | music + SFX | **CC-BY 4.0** (attribution) | https://soundimage.org |
@@ -101,18 +102,37 @@ public/audio/
           dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
           announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
-  music/  dungeon.ogg, safe_room.ogg, collapse.ogg   (loops)
+  music/  dungeon.ogg, safe_room.mp3, collapse.wav   (loops)
 ```
 
 The full list with per-sound volume/bus/throttle lives in `src/audio/manifest.ts`
 — that file is the source of truth. `scripts/fetch-assets.sh` prints download
 pointers for the audio sources too.
 
+### Audio files in use (all CC0 — provenance record, attribution not required)
+
+| Our file(s) | Source | Author | License |
+|---|---|---|---|
+| `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds | Kenney | CC0 |
+| `sfx/announce,warning.ogg` | Kenney — Interface Sounds | Kenney | CC0 |
+| `sfx/gold,buy,item,equip,door_unlock,descend.ogg` | Kenney — RPG Audio | Kenney | CC0 |
+| `sfx/level_up,victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles | Kenney | CC0 |
+| `sfx/heal,dash,bolt,death.ogg` | Kenney — Digital Audio | Kenney | CC0 |
+| `music/dungeon.ogg` | [Loopable Dungeon Ambience](https://opengameart.org/content/loopable-dungeon-ambience) | JaggedStone | CC0 |
+| `music/safe_room.mp3` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) | The Cynic Project (cynicmusic.com) | CC0 |
+| `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
+
+Not yet sourced: `sfx/crowd.ogg` (multi-kill roar) — no CC0 match in the Kenney
+packs; the game stays silent for it until a clip is added.
+
+Note: **freepd.com has shut down** ("Site Closed") — removed from the source
+table guidance; OpenGameArt (license-filtered to CC0) is the better music source.
+
 ### Attribution (CC-BY assets in use)
 
-_None yet — everything currently referenced is CC0. Add a row here (author,
-work, license, link) for every CC-BY file you commit, and mirror it in the
-in-game credits screen._
+_None — everything committed is CC0. Add a row here (author, work, license,
+link) for every CC-BY file you commit, and mirror it in the in-game credits
+screen._
 
 ## Licensing hygiene
 
