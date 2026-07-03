@@ -147,20 +147,30 @@ const RARITY_TEXT: Record<string, string> = {
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
+// Sponsor gifts have no ability icon; a glyph in the plate carries the read.
+const REWARD_GLYPHS: Record<string, string> = {
+  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", item: "▣", gold: "◈", bonusTime: "⌛",
+};
+
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
 function renderDraft(s: GameState): void {
   const lp = me(s);
   if (lp.pendingRewards.length > 0) {
     draftEl.classList.remove("levelup");
     draftTitle.textContent = "◆ SPONSOR DRAFT";
-    draftHint.textContent = "Your sponsors reward a good show. Choose one gift to carry down.";
+    draftHint.textContent = "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
-        const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
+        const tint = r.item ? ` style="--oc:${RARITY_TEXT[r.item.rarity]}"` : "";
+        const ribbon = r.item ? `<span class="oribbon">${r.item.rarity}</span>` : "";
         return (
-          `<div class="reward" data-idx="${i}">` +
-          `<div class="rtitle" style="color:${color}">${r.title}</div>` +
+          `<div class="reward" data-idx="${i}"${tint}>` +
+          `<div class="oicon"><span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span></div>` +
+          `<div class="obody">` +
+          `<div class="rtitle"><span>${r.title}</span>${ribbon}</div>` +
           `<div class="rdesc">${r.desc}</div>` +
+          `</div>` +
+          `<kbd class="okey">${i + 1}</kbd>` +
           `</div>`
         );
       })
@@ -168,24 +178,32 @@ function renderDraft(s: GameState): void {
   } else {
     draftEl.classList.add("levelup");
     draftTitle.textContent = "◆ LEVEL UP";
-    draftHint.textContent = "The System offers an evolution. Choose one upgrade.";
+    draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
-      .map((u, i) =>
-        `<div class="reward" data-idx="${i}">` +
-        `<div class="rability">${ABILITY_INFO[u.ability].name}</div>` +
-        `<div class="rtitle">${u.title}</div>` +
-        `<div class="rdesc">${u.desc}</div>` +
-        `</div>`,
-      )
+      .map((u, i) => {
+        const info = ABILITY_INFO[u.ability];
+        const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
+        const pips = Array.from({ length: max }, (_, r) => (r < u.nextRank ? "●" : "○")).join("");
+        const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
+        return (
+          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}" data-idx="${i}">` +
+          `<div class="oicon">${icon}<span class="orank">${pips}</span></div>` +
+          `<div class="obody">` +
+          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${info.name}</span></div>` +
+          `<div class="rdesc">${u.desc}</div>` +
+          `</div>` +
+          `<kbd class="okey">${i + 1}</kbd>` +
+          `</div>`
+        );
+      })
       .join("");
   }
 }
 
-draftCards.addEventListener("click", (e) => {
-  const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
-  if (!card || card.dataset.idx === undefined) return;
-  const idx = Number(card.dataset.idx);
+function chooseDraft(idx: number): void {
   const p = me(state);
+  const count = p.pendingRewards.length > 0 ? p.pendingRewards.length : p.pendingUpgrades.length;
+  if (idx < 0 || idx >= count) return;
   audio.play("buy");
   if (net) {
     net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
@@ -196,7 +214,27 @@ draftCards.addEventListener("click", (e) => {
     saveRun(state);
   }
   draftEl.style.display = "none";
+}
+
+draftCards.addEventListener("click", (e) => {
+  const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
+  if (!card || card.dataset.idx === undefined) return;
+  chooseDraft(Number(card.dataset.idx));
 });
+
+// Number keys pick an offer while the draft is up. Capture phase + stop so the
+// same digit doesn't also cast the skill bound to it underneath the overlay.
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (draftEl.style.display !== "flex") return;
+    const d = Number(e.key);
+    if (!Number.isInteger(d) || d < 1 || d > 9) return;
+    e.stopPropagation();
+    chooseDraft(d - 1);
+  },
+  true,
+);
 
 // ---- Inventory panel (pauses the game while open) ----
 const invEl = document.getElementById("inv")!;

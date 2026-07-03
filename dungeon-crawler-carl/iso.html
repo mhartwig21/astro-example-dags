@@ -152,25 +152,56 @@
       #show .stat.bump { animation: bump 0.4s ease; }
       @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.18)} 100%{transform:scale(1)} }
 
-      /* Sponsor draft modal */
-      #draft { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.72); z-index: 25; }
-      #draft .panel { width: 680px; max-width: 94vw; background: #0f0e18; border: 1px solid #c9a24b;
-        border-radius: 12px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.7); }
-      #draft h2 { margin: 0 0 2px; color: #c9a24b; letter-spacing: 1px; font-size: 16px; }
-      #draft .hint { color: #8a8a9a; font-size: 12px; margin-bottom: 16px; }
-      #draft .cards { display: flex; gap: 12px; }
-      .reward { flex: 1; cursor: pointer; background: #14131f; border: 1px solid #2a2a38;
-        border-top: 3px solid #c9a24b; border-radius: 8px; padding: 14px 12px; text-align: center;
-        transition: transform 0.1s ease, border-color 0.1s ease; }
-      .reward:hover { transform: translateY(-3px); border-color: #4fd1ff; background: #191826; }
-      .reward .rtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
-      .reward .rdesc { color: #b9d0c0; font-size: 13px; }
-      .reward .rability { color: #7a7a8a; font-size: 11px; text-transform: uppercase;
-        letter-spacing: 1px; margin-bottom: 4px; }
-      #draft.levelup .panel { border-color: #4fd1ff; }
-      #draft.levelup h2 { color: #4fd1ff; }
-      #draft.levelup .reward { border-top-color: #4fd1ff; }
+      /* Draft overlay — the System's offer banners (level-up + sponsor).
+         Stacked skewed rows, left-anchored so the run stays visible behind. */
+      #draft { position: fixed; inset: 0; display: none; align-items: center; z-index: 25;
+        background: linear-gradient(100deg, rgba(4,4,8,0.92) 30%, rgba(4,4,8,0.55) 68%, rgba(4,4,8,0.25)); }
+      #draft .panel { width: 600px; max-width: 88vw; margin-left: 6vw; }
+      #draft h2 { margin: 0 0 3px; color: #c9a24b; letter-spacing: 4px; font-size: 21px;
+        text-shadow: 0 0 18px rgba(201,162,75,0.45); }
+      #draft .hint { color: #8a8a9a; font-size: 12px; margin-bottom: 18px; }
+      #draft .cards { display: flex; flex-direction: column; gap: 12px; }
+      .reward { --oc: #c9a24b; position: relative; cursor: pointer; display: flex; align-items: center;
+        gap: 14px; padding: 12px 16px; border: 1px solid #2a2a38; border-left: 3px solid var(--oc);
+        background: linear-gradient(100deg, rgba(20,19,31,0.95) 55%, rgba(20,19,31,0.65));
+        transform: skewX(-6deg); animation: offer-in 0.3s ease backwards;
+        transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; }
+      .reward::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: linear-gradient(100deg, var(--oc) 0%, transparent 55%); opacity: 0.16;
+        transition: opacity 0.12s ease; }
+      .reward > * { transform: skewX(6deg); }
+      .reward:nth-child(2) { animation-delay: 0.08s; }
+      .reward:nth-child(3) { animation-delay: 0.16s; }
+      .reward:nth-child(4) { animation-delay: 0.24s; }
+      @keyframes offer-in { from { opacity: 0; transform: skewX(-6deg) translateX(-48px); } }
+      #draft .cards:hover .reward:not(:hover) { opacity: 0.5; }
+      .reward:hover { transform: skewX(-6deg) translateX(10px); border-color: var(--oc);
+        box-shadow: 0 0 0 1px var(--oc), 0 8px 30px rgba(0,0,0,0.6), 0 0 26px -4px var(--oc); }
+      .reward:hover::before { opacity: 0.3; }
+      .reward:hover .okey { color: var(--oc); border-color: var(--oc); }
+      .oicon { flex: none; width: 54px; height: 54px; position: relative; border: 1px solid var(--oc);
+        background: rgba(8,8,14,0.85); display: flex; align-items: center; justify-content: center;
+        box-shadow: inset 0 0 14px rgba(0,0,0,0.8); }
+      .oicon i { display: block; width: 34px; height: 34px; background: var(--oc);
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .oicon .oglyph { font-size: 26px; color: var(--oc); line-height: 1; }
+      .orank { position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
+        background: #0a0a12; border: 1px solid var(--oc); color: var(--oc); font-size: 8px;
+        letter-spacing: 2px; padding: 1px 5px 0; white-space: nowrap; }
+      .obody { flex: 1; min-width: 0; }
+      .rtitle { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+        font-weight: 700; font-size: 14px; letter-spacing: 0.6px; text-transform: uppercase; color: #f0f0f6; }
+      .oribbon { flex: none; font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+        text-transform: uppercase; color: var(--oc); border: 1px solid var(--oc);
+        background: rgba(0,0,0,0.4); padding: 2px 9px; transform: skewX(-10deg); }
+      .rdesc { color: #b9d0c0; font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
+      .okey { flex: none; background: #1a1a24; border: 1px solid #2a2a38; border-radius: 3px;
+        padding: 3px 8px; font-size: 12px; font-weight: 700; color: #6a6a7a;
+        transform: skewX(6deg); transition: color 0.12s ease, border-color 0.12s ease; }
+      #draft.levelup h2 { color: #4fd1ff; text-shadow: 0 0 18px rgba(79,209,255,0.45); }
+      #draft.levelup .reward { --oc: #4fd1ff; }
+      #draft.levelup .reward.ult { --oc: #b998ff; }
 
       /* Ability tree panel */
       #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
