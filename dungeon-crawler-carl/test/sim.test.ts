@@ -483,10 +483,12 @@ describe("safe room + System Shop", () => {
     p.gold = 10_000;
     buyCatalogItem(g, 0, "honed_edge"); // equips (weapon slot empty-ish)
     buyCatalogItem(g, 0, "killer_instinct");
-    const goldBefore = p.gold;
+    // Measure via goldSpent: achievement payouts (RETAIL THERAPY) add gold
+    // mid-purchase, but goldSpent tracks the spend alone.
+    const spentBefore = p.goldSpent;
     buyCatalogItem(g, 0, "primetime_cleaver");
     // Both components credited at full price: pay only the combine cost.
-    expect(goldBefore - p.gold).toBe(CATALOG_BY_ID.primetime_cleaver.cost);
+    expect(p.goldSpent - spentBefore).toBe(CATALOG_BY_ID.primetime_cleaver.cost);
     expect(p.equipment.weapon?.catalogId).toBe("primetime_cleaver");
     // The consumed components are gone from bag and slots alike.
     expect(p.inventory.some((it) => it.catalogId === "honed_edge")).toBe(false);
