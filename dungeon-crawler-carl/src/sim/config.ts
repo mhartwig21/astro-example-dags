@@ -50,6 +50,17 @@ export const CONFIG = {
   monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
   bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
+  // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
+  // the sustain loop, so the way out of danger is through the pack.
+  flaskMaxCharges: 3,
+  flaskHealFraction: 0.35, // of max HP per chug
+  flaskKillsPerCharge: 8, // kill credit needed to refill one charge (only below max)
+
+  // Crowd Frenzy: sustained hype makes the crawler literally faster (the show
+  // economy feeding back into combat). Enter/exit thresholds live in show{}.
+  frenzyMoveMult: 1.12,
+  frenzyCooldownMult: 0.85, // melee/bolt/nova cooldowns + dash recharge
+
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
 
@@ -189,6 +200,9 @@ export const CONFIG = {
     hypeRareDrop: 12,
     hypeEpicDrop: 26,
     lowHpFraction: 0.3,
+    // Crowd Frenzy hysteresis: enter hot, drop out only when the hype fades.
+    frenzyEnter: 60,
+    frenzyExit: 40,
   },
 
   // Sponsor rewards (end-of-floor draft)
@@ -205,6 +219,17 @@ export const CONFIG = {
   eliteDmgMult: 1.5,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
+  // Elite AFFIXES (from this floor): each named elite rolls one mechanic —
+  // swift (+speed), shielded (takes less damage), volatile (delayed death
+  // blast — clear the corpse), summoner (calls swarmer adds).
+  eliteAffixFromFloor: 3,
+  swiftSpeedMult: 1.4,
+  shieldedDamageTakenMult: 0.7,
+  volatileDelay: 0.8, // seconds from death to blast (the dodge window)
+  volatileRadius: 1.5, // tiles
+  volatileDmgMult: 1.2, // relative to the elite's damage stat
+  summonCooldown: 4, // seconds between summons
+  summonMax: 6, // lifetime adds per summoner
   cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
   cityBossHpBase: 320,
   cityBossHpPerFloor: 25,
@@ -218,6 +243,10 @@ export const CONFIG = {
   bossXp: 500,
   bossVolleyCooldown: 2.4,
   bossVolleyCount: 8, // projectiles per radial volley
+  // Boss phases: crossing 2/3 and 1/3 HP enrages — faster chase, denser volleys.
+  bossPhaseSpeedMult: 1.15, // per phase
+  bossPhaseVolleyBonus: 3, // extra projectiles per phase
+  bossPhaseVolleyHaste: 0.5, // seconds shaved off the volley cooldown per phase
 } as const;
 
 // Enemy archetype stat multipliers (relative to the per-floor base) + behavior.

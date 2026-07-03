@@ -31,6 +31,12 @@ export interface Player {
   // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
   // (only ticking while below max), so dashes can be woven into offense.
   dashCharges: number;
+  // Sponsor Slurp™ flask: charges spent to heal, refilled by kill credit.
+  flaskCharges: number;
+  flaskKillProgress: number; // kills banked toward the next charge (below max only)
+  // Crowd Frenzy: true while sustained hype buffs move speed + cooldowns
+  // (hysteresis thresholds in CONFIG.show). Hosts read this for glow/audio.
+  frenzy: boolean;
   novaFlash: number; // transient render flag: seconds remaining of nova ring effect
   orbitAngle: number; // current rotation of the orbit blades (radians)
   orbitTick: number; // seconds until the orbit blades' next damage tick
@@ -83,6 +89,9 @@ export interface Player {
   sponsors: number; // backers earned at favorite thresholds
 }
 
+// Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
+export type EliteAffix = "swift" | "shielded" | "volatile" | "summoner";
+
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
@@ -117,6 +126,11 @@ export interface Monster {
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
   eliteName?: string; // announcer name for elites and city bosses
+  // Elite affix: one extra mechanic per named elite (rolled at spawn, floor 3+).
+  affix?: EliteAffix;
+  affixCd?: number; // summoner: seconds until the next summon
+  summons?: number; // summoner: lifetime adds spawned (capped)
+  phase?: number; // boss enrage tier already applied (0..2)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
 }
@@ -241,6 +255,17 @@ export interface Strike {
   ownerId: number; // caster (kill credit)
 }
 
+// A delayed enemy-side blast (volatile elite corpses): telegraphed on the
+// ground by hosts, damages players in radius when the timer expires.
+export interface Hazard {
+  id: number;
+  pos: Vec2;
+  t: number; // seconds until detonation
+  total: number; // full delay (render progress)
+  radius: number; // tiles
+  damage: number;
+}
+
 // Transient combat/feedback events emitted during a single step. Hosts turn these
 // into floating damage numbers, particles, camera shake, and announcer lines. They
 // are derived deterministically from the sim (the RNG that rolls a crit is the same
@@ -296,6 +321,9 @@ export interface GameState {
   strikes: Strike[];
   bulletTimeLeft: number;
 
+  // Enemy-side delayed blasts (volatile elite corpses).
+  hazards: Hazard[];
+
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
   safeRoom: SafeRoom | null;
@@ -315,6 +343,8 @@ export interface Intent {
   useStairs: boolean; // attempt to descend if standing on stairs
   // Slot casts: indices 0-3 = the four ability slots, 4 = the ultimate slot.
   cast?: boolean[];
+  // Drink the Sponsor Slurp™ flask (edge-triggered; charge-gated in the sim).
+  flask?: boolean;
   // Legacy convenience flags (tests/bots): each maps to "cast the slot currently
   // holding that ability" — a no-op if it isn't slotted.
   dash?: boolean;

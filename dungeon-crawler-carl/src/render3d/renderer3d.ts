@@ -37,6 +37,7 @@ export class Renderer3D {
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
+  private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Mesh>();
@@ -949,6 +950,30 @@ export class Renderer3D {
           this.dying.push({ mesh, t: 0.7, rigged });
         }
       }
+    }
+
+    // Volatile-corpse hazards: reconcile blast-telegraph rings by id.
+    const hazSeen = new Set<number>();
+    for (const hz of state.hazards) {
+      hazSeen.add(hz.id);
+      let ring = this.hazardRings.get(hz.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.8, 1, 28),
+          new THREE.MeshBasicMaterial({ color: 0xff4628, transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.hazardRings.set(hz.id, ring);
+      }
+      ring.position.set(hz.pos.x, 0.06, hz.pos.y);
+      ring.scale.setScalar(hz.radius);
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+      ring.visible = inVision(hz.pos);
+    }
+    for (const [id, ring] of this.hazardRings) {
+      if (!hazSeen.has(id)) { this.scene.remove(ring); this.hazardRings.delete(id); }
     }
 
     // Projectiles: reconcile a mesh pool by id.

@@ -12,8 +12,8 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
-  GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, PartyIntents, Player,
-  Reward, SafeRoom, ShopItem, Vec2,
+  EliteAffix, GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, PartyIntents,
+  Player, Reward, SafeRoom, ShopItem, Vec2,
 } from "./types";
 import { NO_INTENT, Tile } from "./types";
 
@@ -133,6 +133,9 @@ const ELITE_NAMES = [
 const CITY_BOSS_NAMES = [
   "The Borough Butcher", "Magistrate Maw", "The Transit Authority", "Commissioner Dread",
 ];
+
+// Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
+const ELITE_AFFIXES: EliteAffix[] = ["swift", "shielded", "volatile", "summoner"];
 
 /** A city-boss arena floor (6, 12, ... but never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
@@ -284,7 +287,13 @@ function spawnMonsters(state: GameState): void {
     m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.eliteHpMult);
     m.damage *= CONFIG.eliteDmgMult;
     m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
-    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName} holds the great hall. Introduce yourselves.`);
+    // From floor eliteAffixFromFloor, elites roll one affix mechanic.
+    if (floor >= CONFIG.eliteAffixFromFloor) {
+      m.affix = pick(rng, ELITE_AFFIXES);
+      if (m.affix === "swift") m.speed *= CONFIG.swiftSpeedMult;
+    }
+    const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
+    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
   }
 }
 
@@ -338,6 +347,9 @@ function makePlayer(id: number, name: string): Player {
     cd: {},
     dashTime: 0,
     dashCharges: CONFIG.dashCharges,
+    flaskCharges: CONFIG.flaskMaxCharges,
+    flaskKillProgress: 0,
+    frenzy: false,
     novaFlash: 0,
     orbitAngle: 0,
     orbitTick: 0,
@@ -382,6 +394,8 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.cd = {};
   p.dashTime = 0;
   p.dashCharges = CONFIG.dashCharges;
+  p.flaskCharges = CONFIG.flaskMaxCharges; // safe-room rest tops the Slurps back up
+  p.flaskKillProgress = 0;
   p.novaFlash = 0;
   p.attackSwing = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
@@ -440,6 +454,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.monsters = [];
   state.loot = [];
   state.projectiles = [];
+  state.hazards = [];
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
   state.timeRemaining = state.timeBudget;
@@ -567,6 +582,7 @@ export function createGame(seed: number): GameState {
     safeRoom: null,
     strikes: [],
     bulletTimeLeft: 0,
+    hazards: [],
     killsThisStep: 0,
     escapedCollapse: false,
     elapsed: 0,
@@ -598,7 +614,41 @@ function updateShow(state: GameState, dt: number): void {
       p.sponsors++;
       announce(state, `NEW SPONSOR for ${p.name}! ${p.sponsors} now bankroll the run. They expect a show.`);
     }
+    // Crowd Frenzy: sustained hype buffs the crawler (hysteresis so the state
+    // doesn't flap as hype oscillates around the threshold).
+    if (!p.frenzy && p.hype >= s.frenzyEnter) {
+      p.frenzy = true;
+      announce(state, `The crowd is CHANTING ${p.name.toUpperCase()}. Frenzy: faster feet, faster hands.`);
+    } else if (p.frenzy && p.hype < s.frenzyExit) {
+      p.frenzy = false;
+    }
   }
+}
+
+/** Frenzy shortens ability cooldowns (and the dash recharge). */
+function cdMult(p: Player): number {
+  return p.frenzy ? CONFIG.frenzyCooldownMult : 1;
+}
+
+/** Drink the flask: charge-gated heal; a full-HP chug is not consumed. */
+export function useFlask(state: GameState, p: Player): void {
+  if (!p.alive || p.flaskCharges <= 0 || p.hp >= p.maxHp) return;
+  p.flaskCharges--;
+  const amt = Math.round(p.maxHp * CONFIG.flaskHealFraction);
+  p.hp = Math.min(p.maxHp, p.hp + amt);
+  hit(state, p.pos, amt, "heal");
+  state.events.push(`${p.name} chugs a Sponsor Slurp™ (+${amt} HP, ${p.flaskCharges} left).`);
+}
+
+/** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
+export function summonMinion(state: GameState, m: Monster): void {
+  const a = nextFloat(state.rng) * Math.PI * 2;
+  const spawned = makeMonster(state, "swarmer", {
+    x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7,
+  });
+  spawned.xp = 1;
+  state.monsters.push(spawned);
+  hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
 }
 
 /** Push a dramatic line in the DCC "System" game-show voice (also logged). */
@@ -790,6 +840,7 @@ function damageMonster(
   const isCrit = (opts.allowCrit ?? true) && chance(state.rng, p.critChance);
   let dmg = rollDamage(state.rng, base);
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
+  if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
@@ -816,7 +867,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   const mp = meleeParams(p);
   const facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
-  p.cd.melee = mp.cooldown;
+  p.cd.melee = mp.cooldown * cdMult(p);
   p.attackSwing = 0.15;
   // The swing lunges a short step toward the aim — attacks feel aggressive and
   // close those just-out-of-reach misses (walls stop it like any movement).
@@ -896,6 +947,27 @@ function reapDead(state: GameState): void {
     killer.killsThisStep++;
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
+    // Kills refill the flask (only while a charge is missing): aggression = sustain.
+    if (killer.flaskCharges < CONFIG.flaskMaxCharges) {
+      killer.flaskKillProgress++;
+      if (killer.flaskKillProgress >= CONFIG.flaskKillsPerCharge) {
+        killer.flaskKillProgress = 0;
+        killer.flaskCharges++;
+        state.events.push(`${killer.name}'s sponsors send a fresh Slurp™ (${killer.flaskCharges}/${CONFIG.flaskMaxCharges}).`);
+      }
+    }
+    // Volatile elites cook off after death — a telegraphed corpse blast.
+    if (m.affix === "volatile") {
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        t: CONFIG.volatileDelay,
+        total: CONFIG.volatileDelay,
+        radius: CONFIG.volatileRadius,
+        damage: m.damage * CONFIG.volatileDmgMult,
+      });
+      announce(state, `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+    }
     grantPartyXp(state, m.xp);
     if (m.hasKey) {
       // The key carrier ALWAYS drops the stairs-district key.
@@ -1288,7 +1360,7 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
   p.dashCharges--;
-  if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown;
+  if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown * cdMult(p);
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
@@ -1303,7 +1375,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
-  p.cd.bolt = bp.cooldown;
+  p.cd.bolt = bp.cooldown * cdMult(p);
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
   for (let i = 0; i < bp.count; i++) {
@@ -1338,7 +1410,7 @@ function radialDamage(
 /** Nova skill: a radial shockwave around the player (must be learned). */
 function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
-  p.cd.nova = np.cooldown;
+  p.cd.nova = np.cooldown * cdMult(p);
   p.novaFlash = 0.3;
   radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
 }
@@ -1382,6 +1454,35 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
     });
   }
   announce(state, `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
+}
+
+/** Tick volatile-corpse blasts; expiry damages players still in the ring. */
+function updateHazards(state: GameState, dt: number): void {
+  if (state.hazards.length === 0) return;
+  const remaining: GameState["hazards"] = [];
+  for (const hz of state.hazards) {
+    hz.t -= dt;
+    if (hz.t > 0) { remaining.push(hz); continue; }
+    hit(state, hz.pos, 0, "crit"); // impact flash for the juice layer
+    for (const p of state.players) {
+      if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
+      if (dist(hz.pos, p.pos) > hz.radius) continue;
+      const dmg = rollDamage(state.rng, hz.damage);
+      p.hp -= dmg;
+      p.damageTaken += dmg;
+      const d = dist(hz.pos, p.pos);
+      const away = d > 1e-4
+        ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
+        : undefined;
+      hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
+      if (p.hp <= 0) {
+        handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
+      } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+        addHype(state, p, CONFIG.show.hypeLowHpHit);
+      }
+    }
+  }
+  state.hazards = remaining;
 }
 
 /** Tick scheduled airstrike shells; each impact is a radial blast. */
@@ -1548,7 +1649,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     // max, immediately starts refilling the next one.
     if (p.dashCharges < CONFIG.dashCharges && (p.cd.dash ?? 0) <= 0) {
       p.dashCharges++;
-      if (p.dashCharges < CONFIG.dashCharges) p.cd.dash = dashParams(p).cooldown;
+      if (p.dashCharges < CONFIG.dashCharges) p.cd.dash = dashParams(p).cooldown * cdMult(p);
     }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
@@ -1558,7 +1659,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     if ((move.x !== 0 || move.y !== 0) && p.alive) {
       const dir = normalize(move);
       p.facing = dir;
-      moveWithCollision(state.map, p.pos, dir, p.speed * dt, isWalkable);
+      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1);
+      moveWithCollision(state.map, p.pos, dir, speed * dt, isWalkable);
     }
 
     // Slot-cast dispatch: explicit cast[] flags (slots 0-3 + ultimate at 4)
@@ -1582,6 +1684,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
         if (cast[s] && ability) castAbility(state, p, ability, aim);
       }
       if (cast[ABILITY_SLOTS] && p.abilities.ultimate) castAbility(state, p, p.abilities.ultimate, aim);
+      if (pi.flask) useFlask(state, p);
     }
     updateOrbit(state, p, dt);
   }
@@ -1590,6 +1693,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt);
+  updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
   updateStrikes(state, dt);
   updateProjectiles(state, dt);
 

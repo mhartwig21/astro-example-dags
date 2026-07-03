@@ -56,6 +56,7 @@ export function sanitizeIntent(raw: unknown): Intent {
     attack: o.attack === true,
     aim: o.aim === undefined ? undefined : vec(o.aim),
     useStairs: o.useStairs === true,
+    flask: o.flask === true,
     dash: o.dash === true,
     bolt: o.bolt === true,
     nova: o.nova === true,

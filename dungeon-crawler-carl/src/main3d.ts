@@ -130,6 +130,8 @@ function bump(el: HTMLElement): void {
 function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
+  // Crowd Frenzy: the viewer count burns gold while the buff is live.
+  statViewers.style.color = p.frenzy ? "#ffd23e" : "";
   statViewers.textContent = v.toLocaleString();
   statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
   statSponsors.textContent = String(p.sponsors);
@@ -569,7 +571,7 @@ function updateSkills(s: GameState): void {
     { ability: p.abilities.ultimate, ult: true },
   ];
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|${p.abilities.bench.length}|d${p.dashCharges}`;
+    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     skillsEl.innerHTML = entries
@@ -588,6 +590,13 @@ function updateSkills(s: GameState): void {
         return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}${label}<div class="cd"><i></i></div></div>`;
       })
       .join("") +
+      // Flask chip: charge count up front, the dim overlay shows progress
+      // toward the next charge (kills refill it — see useFlask/reapDead).
+      `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip">` +
+      `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
+      `Slurp ×${p.flaskCharges}` +
+      `<div class="cd"><i style="width:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : Math.round((1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge) * 100)}%"></i></div>` +
+      `</div>` +
       (p.abilities.bench.length > 0
         ? `<div class="skill empty"><span class="bench-badge">bench ${p.abilities.bench.length}</span></div>`
         : "");

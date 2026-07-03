@@ -127,6 +127,17 @@ export function render(
     }
   }
 
+  // Volatile-corpse hazards: a blast ring that brightens as detonation nears.
+  for (const hz of state.hazards) {
+    if (!inVision(hz.pos.x, hz.pos.y)) continue;
+    const prog = 1 - hz.t / Math.max(hz.total, 1e-3);
+    ctx.strokeStyle = `rgba(255,70,40,${0.3 + prog * 0.6})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   // Projectiles.
   for (const pr of state.projectiles) {
     if (!inVision(pr.pos.x, pr.pos.y)) continue;

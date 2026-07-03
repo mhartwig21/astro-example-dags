@@ -142,6 +142,16 @@ This document describes the full target architecture, then defines the scope of 
   short step toward the aim. Hosts layer the cosmetics: telegraph rings + windup/stagger
   animation from the sim state, kill pops (hit-stop + directed bursts) from `HitEvent.dir`
   / `HitEvent.killed`, and swing/tell/kill audio cues.
+- **Aggression is sustain (the "frenetic" pillar):** the **Sponsor Slurp™ flask** heals
+  35% of max HP per charge and is refilled by **kill credit** (8 kills per charge, safe
+  rooms top it up) — the way out of danger is through the pack. **Crowd Frenzy** feeds the
+  show economy back into combat: sustained hype (enter 60 / exit 40, hysteresis) grants
+  +12% move speed and −15% cooldowns while the crowd chants.
+- **Elite affixes (floor 3+):** every named elite rolls one mechanic — **swift** (+40%
+  speed), **shielded** (takes 30% less damage), **volatile** (0.8s delayed corpse blast,
+  telegraphed by a ground ring — clear the corpse), or **summoner** (calls swarmer adds,
+  lifetime-capped, worth ~no XP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
+  (faster chase, +3 volley projectiles and a shorter volley cooldown per phase, announced).
 
 ### 5.4 Stats, leveling, loot
 - Character: HP, damage, speed, level, XP, gold. Kill XP → level up → stat increases.

@@ -15,6 +15,7 @@ export class InputController {
   private mouseAttack = false; // LMB -> slot 1
   private mouseBolt = false; // RMB -> slot 3
   private useStairsEdge = false;
+  private flaskEdge = false;
   private bindings: Bindings = { ...DEFAULT_BINDINGS };
   /** Latest mouse position in canvas coordinates (for aim mapping by the host). */
   mouse: Vec2 | null = null;
@@ -30,6 +31,7 @@ export class InputController {
       const wasDown = this.keys.has(k);
       this.keys.add(k);
       if (this.is("stairs", k)) this.useStairsEdge = true;
+      if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
       for (const a of ["inventory", "abilities", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
@@ -87,6 +89,8 @@ export class InputController {
 
     const useStairs = this.useStairsEdge;
     this.useStairsEdge = false;
+    const flask = this.flaskEdge;
+    this.flaskEdge = false;
 
     // Slot casts: indices 0-3 = ability slots, 4 = ultimate. Mouse buttons are
     // fixed aliases (LMB = slot 1, RMB = slot 3) on top of the keyboard binds.
@@ -98,6 +102,6 @@ export class InputController {
       this.held("ultimate"),
     ];
 
-    return { move, aim, useStairs, cast };
+    return { move, aim, useStairs, flask, cast };
   }
 }

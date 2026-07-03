@@ -3,7 +3,7 @@ import { dist, normalize, rollDamage } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { addHype, explodeBomber, handlePlayerDeath, nearestPlayer } from "./game";
+import { addHype, explodeBomber, handlePlayerDeath, nearestPlayer, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -82,6 +82,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.shootCd > 0) m.shootCd = Math.max(0, m.shootCd - dt);
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
+  if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
   // Staggered: helpless. The stagger that set this also canceled any windup.
@@ -106,14 +107,38 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
   const windup = ARCHETYPES[m.kind].windup;
 
+  // Summoner elites call swarmer adds while a player is near (lifetime-capped).
+  if (
+    m.affix === "summoner" && (m.affixCd ?? 0) === 0 &&
+    d <= CONFIG.monsterAggroRange && (m.summons ?? 0) < CONFIG.summonMax
+  ) {
+    m.affixCd = CONFIG.summonCooldown;
+    m.summons = (m.summons ?? 0) + 1;
+    summonMinion(state, m);
+  }
+
   if (m.kind === "boss") {
+    // Phase enrage: crossing 2/3 and 1/3 HP speeds the chase and thickens volleys.
+    const frac = m.hp / m.maxHp;
+    const wantPhase = frac <= 1 / 3 ? 2 : frac <= 2 / 3 ? 1 : 0;
+    while ((m.phase ?? 0) < wantPhase) {
+      m.phase = (m.phase ?? 0) + 1;
+      m.speed *= CONFIG.bossPhaseSpeedMult;
+      state.announcements.push(
+        m.phase === 1
+          ? "The boss is ANGRY now. Phase two — the sponsors love a comeback arc."
+          : "The boss is DESPERATE. Everything is a projectile. RATINGS.",
+      );
+      state.events.push(`Boss phase ${m.phase + 1}.`);
+    }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);
     else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
     if (m.shootCd === 0 && d < CONFIG.monsterAggroRange * 2.5) {
-      m.shootCd = CONFIG.bossVolleyCooldown;
-      for (let i = 0; i < CONFIG.bossVolleyCount; i++) {
-        const a = (i / CONFIG.bossVolleyCount) * Math.PI * 2;
+      m.shootCd = Math.max(1.2, CONFIG.bossVolleyCooldown - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
+      const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
         spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6);
       }
     }

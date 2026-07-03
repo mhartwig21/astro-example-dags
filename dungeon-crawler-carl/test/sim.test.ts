@@ -1151,6 +1151,194 @@ describe("dash charges", () => {
   });
 });
 
+describe("crowd frenzy", () => {
+  it("sustained hype enters frenzy (announced), buffing speed and cooldowns", () => {
+    const g = createGame(930);
+    const p = g.players[0];
+    addHype(g, p, CONFIG.show.frenzyEnter + 20);
+    step(g, idle(), 1 / 60);
+    expect(p.frenzy).toBe(true);
+    expect(g.announcements.some((a) => a.includes("CHANTING"))).toBe(true);
+    // Faster hands: the melee cooldown lands shorter than base.
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.cd.melee!).toBeLessThan(CONFIG.playerAttackCooldown * 0.99);
+    // Faster feet: one step covers more ground than base speed would.
+    const x0 = p.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: false, useStairs: false }, 1 / 60);
+    expect(p.pos.x - x0).toBeGreaterThan((p.speed / 60) * 1.05);
+  });
+
+  it("drops out of frenzy only below the exit threshold (hysteresis)", () => {
+    const g = createGame(931);
+    const p = g.players[0];
+    p.frenzy = true;
+    p.hype = (CONFIG.show.frenzyEnter + CONFIG.show.frenzyExit) / 2; // between thresholds
+    step(g, idle(), 1 / 60);
+    expect(p.frenzy).toBe(true); // still riding the wave
+    p.hype = CONFIG.show.frenzyExit - 10;
+    step(g, idle(), 1 / 60);
+    expect(p.frenzy).toBe(false);
+  });
+});
+
+describe("sponsor slurp flask", () => {
+  it("drinking heals a fraction of max HP and consumes a charge", () => {
+    const g = createGame(940);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    p.hp = 10;
+    step(g, { ...idle(), flask: true }, 1 / 60);
+    expect(p.hp).toBe(10 + Math.round(p.maxHp * CONFIG.flaskHealFraction));
+    expect(p.flaskCharges).toBe(CONFIG.flaskMaxCharges - 1);
+    expect(g.hits.some((h) => h.kind === "heal")).toBe(true);
+  });
+
+  it("a full-HP chug is not consumed; an empty flask does nothing", () => {
+    const g = createGame(941);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    step(g, { ...idle(), flask: true }, 1 / 60);
+    expect(p.flaskCharges).toBe(CONFIG.flaskMaxCharges); // full HP — saved the charge
+    p.flaskCharges = 0;
+    p.hp = 10;
+    step(g, { ...idle(), flask: true }, 1 / 60);
+    expect(p.hp).toBe(10);
+  });
+
+  it("kills refill a missing charge", () => {
+    const g = createGame(942);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 100000;
+    p.flaskCharges = 0;
+    g.monsters.length = 0;
+    for (let i = 0; i < CONFIG.flaskKillsPerCharge; i++) {
+      g.monsters.push(mkMon({ id: 2000 + i, pos: { x: p.pos.x + 0.6, y: p.pos.y } }));
+    }
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.flaskCharges).toBe(1);
+    expect(p.flaskKillProgress).toBe(0);
+  });
+
+  it("descending refills the flask", () => {
+    const g = createGame(943);
+    g.players[0].flaskCharges = 0;
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
+    expect(g.players[0].flaskCharges).toBe(CONFIG.flaskMaxCharges);
+  });
+});
+
+describe("elite affixes", () => {
+  it("elites on affix floors always roll one (deterministically)", () => {
+    for (const seed of [950, 951]) {
+      const mk = () => restoreGame({
+        seed, floor: CONFIG.eliteAffixFromFloor + 1,
+        player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+      });
+      const a = mk().monsters.find((m) => m.elite);
+      const b = mk().monsters.find((m) => m.elite);
+      expect(a?.affix).toBeDefined();
+      expect(a?.affix).toBe(b?.affix);
+    }
+  });
+
+  it("shielded elites take reduced damage (same seed, same rolls)", () => {
+    const dealt = (shielded: boolean) => {
+      const g = createGame(952);
+      const p = g.players[0];
+      p.facing = { x: 1, y: 0 };
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({
+        id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 5000, maxHp: 5000,
+        affix: shielded ? "shielded" : undefined,
+      }));
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+      return 5000 - g.monsters[0].hp;
+    };
+    expect(dealt(true)).toBeLessThan(dealt(false));
+  });
+
+  it("volatile elites leave a delayed corpse blast that can be dodged", () => {
+    const g = createGame(953);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const m = mkMon({
+      id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 0, maxHp: 30,
+      damage: 20, affix: "volatile", lastHitBy: 0,
+    });
+    g.monsters.push(m);
+    const hp0 = p.hp;
+    step(g, idle(), 1 / 60); // reaped -> hazard scheduled
+    expect(g.hazards.length).toBe(1);
+    expect(p.hp).toBe(hp0); // not instant
+    // Stand in it: the blast lands when the timer runs out.
+    for (let i = 0; i < 90 && g.hazards.length > 0; i++) step(g, idle(), 1 / 60);
+    expect(p.hp).toBeLessThan(hp0);
+
+    // Same setup, but walk clear before detonation.
+    const g2 = createGame(954);
+    const p2 = g2.players[0];
+    g2.monsters.length = 0;
+    g2.monsters.push(mkMon({
+      id: 1, pos: { x: p2.pos.x + 0.8, y: p2.pos.y }, hp: 0, maxHp: 30,
+      damage: 20, affix: "volatile", lastHitBy: 0,
+    }));
+    step(g2, idle(), 1 / 60);
+    p2.pos = { x: p2.pos.x + CONFIG.volatileRadius + 2, y: p2.pos.y };
+    const hp2 = p2.hp;
+    for (let i = 0; i < 90 && g2.hazards.length > 0; i++) step(g2, idle(), 1 / 60);
+    expect(p2.hp).toBe(hp2); // cleared the corpse
+  });
+
+  it("summoner elites call swarmer adds on a cooldown, lifetime-capped", () => {
+    const g = createGame(955);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const m = mkMon({
+      id: 1, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 9999, maxHp: 9999,
+      attackCooldown: 999, affix: "summoner",
+    });
+    g.monsters.push(m);
+    step(g, idle(), 1 / 60);
+    expect(g.monsters.filter((mm) => mm.kind === "swarmer").length).toBe(1);
+    expect(m.summons).toBe(1);
+    expect(m.affixCd).toBeGreaterThan(0);
+    expect(g.monsters.find((mm) => mm.kind === "swarmer")!.xp).toBe(1); // not an XP farm
+    m.summons = CONFIG.summonMax; // cap reached
+    m.affixCd = 0;
+    const count = g.monsters.length;
+    step(g, idle(), 1 / 60);
+    expect(g.monsters.length).toBeLessThanOrEqual(count); // no further summons
+  });
+});
+
+describe("boss phases", () => {
+  it("crossing 2/3 HP enrages the boss: speed up, denser volleys, announced", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    // Park the player near the boss so it acts, but clear other monsters.
+    g.monsters = [boss];
+    g.projectiles.length = 0;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    const speed0 = boss.speed;
+    boss.hp = Math.floor(boss.maxHp * 0.5); // between 2/3 and 1/3
+    step(g, idle(), 1 / 60);
+    expect(boss.phase).toBe(1);
+    expect(boss.speed).toBeGreaterThan(speed0);
+    expect(g.announcements.some((a) => a.includes("ANGRY"))).toBe(true);
+    // Phase 2 stacks on top.
+    boss.hp = Math.floor(boss.maxHp * 0.2);
+    step(g, idle(), 1 / 60);
+    expect(boss.phase).toBe(2);
+    expect(boss.speed).toBeGreaterThan(speed0 * CONFIG.bossPhaseSpeedMult);
+  });
+});
+
 describe("theme bands", () => {
   it("maps floors to 4-floor bands", () => {
     expect([1, 4, 5, 8, 9, 12, 13, 16, 17, 18].map((f) => floorBand(f)))

@@ -35,6 +35,7 @@ interface Prev {
   novaFlash: number;
   boltCd: number;
   attackSwing: number;
+  frenzy: boolean;
 }
 
 export class AudioDirector {
@@ -103,6 +104,7 @@ export class AudioDirector {
       novaFlash: p.novaFlash,
       boltCd: p.cd.bolt ?? 0,
       attackSwing: p.attackSwing,
+      frenzy: p.frenzy,
     };
 
     const prev = this.prev;
@@ -119,6 +121,8 @@ export class AudioDirector {
       if (cur.lootBoxes > prev.lootBoxes) this.sink.play("lootbox");
       if (cur.achievements > prev.achievements) this.sink.play("achievement");
       if (!prev.pendingRewards && cur.pendingRewards) this.sink.play("sponsor");
+      // Crowd Frenzy kicks in: the arena roars.
+      if (cur.frenzy && !prev.frenzy) this.sink.play("crowd");
       // Skills fire on rising edges of their transient state.
       // The melee whoosh triggers on the swing itself — a whiff still sounds.
       if (cur.attackSwing > prev.attackSwing + 1e-6) this.sink.play("swing");
