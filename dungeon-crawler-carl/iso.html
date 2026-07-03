@@ -215,6 +215,14 @@
         border: 1px solid #5fd08a; border-radius: 8px; padding: 10px 34px; font: inherit;
         font-weight: 700; letter-spacing: 1px; }
       #saferoom .descend button:hover { background: #1b3123; }
+      #saferoom .materials { color: #c9a24b; font-size: 12px; margin-bottom: 8px; }
+      .bench-row { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+        padding: 6px 4px; border-top: 1px dashed #22303a; font-size: 12px; }
+      .bench-row .bname { flex: 1; }
+      .bench-row button { cursor: pointer; background: #131a15; color: #9ab0a0; border: 1px solid #2a382e;
+        border-radius: 5px; padding: 3px 10px; font: inherit; font-size: 11px; }
+      .bench-row button:hover:not(:disabled) { border-color: #5fd08a; color: #cfe8d8; }
+      .bench-row button:disabled { opacity: 0.4; cursor: default; }
     </style>
   </head>
   <body>
@@ -273,6 +281,10 @@
         <div class="tip" id="sr-tip"></div>
         <div class="gold" id="sr-gold"></div>
         <div class="stock" id="sr-stock"></div>
+        <h2 style="margin-top:16px">◆ THE BENCH</h2>
+        <div class="tip" style="margin-bottom:8px">Dismantle spare gear for scrap. Upgrades keep the weapon — sponsors just make it meaner.</div>
+        <div class="materials" id="sr-materials"></div>
+        <div id="sr-bench"></div>
         <div class="descend"><button id="sr-descend">DESCEND ▼</button></div>
       </div>
     </div>

@@ -116,6 +116,10 @@ export class NetClient {
   equip(idx: number): void {
     this.send({ t: "equip", idx });
   }
+  /** Safe-room bench: dismantle a bag item or upgrade an item's rarity. */
+  craft(action: "dismantle" | "upgrade", where: string | number): void {
+    this.send({ t: "craft", action, idx: where, where });
+  }
   /** Safe-room loadout change: slot = "0".."3" | "bench" | "ult" | "unult". */
   slot(slot: string, ability: string): void {
     this.send({ t: "slot", slot, ability });
