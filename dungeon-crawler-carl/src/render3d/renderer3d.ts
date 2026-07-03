@@ -7,6 +7,7 @@ import { knows, novaParams, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
+import { FogOfWar } from "./fogOfWar";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -78,6 +79,8 @@ export class Renderer3D {
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
   // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
   private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
+  // The visible fog bank over unexplored space (drifting planes; see fogOfWar.ts).
+  private fogBank = new FogOfWar();
   private propEntries: { obj: THREE.Object3D; tile: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
@@ -173,6 +176,7 @@ export class Renderer3D {
     this.scene.add(this.key.target);
 
     this.scene.add(this.floorGroup);
+    this.scene.add(this.fogBank.group);
   }
 
   async init(): Promise<void> {
@@ -666,6 +670,7 @@ export class Renderer3D {
       }
     }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
+    this.fogBank.rebuild(map, theme);
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
@@ -957,9 +962,11 @@ export class Renderer3D {
     if (state.exploredVersion !== this.lastExploredVersion) {
       this.lastExploredVersion = state.exploredVersion;
       this.applyFog(state);
+      this.fogBank.setExplored(state);
     }
     const dt = this.prevTime ? Math.min(0.1, time - this.prevTime) : 1 / 60;
     this.prevTime = time;
+    this.fogBank.update(dt, time);
 
     // The camera/light anchor: the local player (fall back to the first).
     const p = state.players.find((pl) => pl.id === this.localPlayerId) ?? state.players[0];
