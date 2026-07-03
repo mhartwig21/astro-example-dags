@@ -1,6 +1,6 @@
 import { CONFIG } from "./config";
 import { dist, normalize } from "./combat";
-import { chooseReward, chooseUpgrade, setReady, step } from "./game";
+import { buyCatalogItem, chooseReward, chooseUpgrade, setReady, step } from "./game";
 import { Tile, type GameState, type Intent, type Monster, type Vec2 } from "./types";
 
 // Scripted balance bot: a deterministic policy over public sim state that plays
@@ -174,13 +174,33 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
   // Sponsor Slurp below the comfort line.
   if (p.hp < p.maxHp * COMPETENT.flaskAt && p.flaskCharges > 0) intent.flask = true;
 
-  // Respect HEAVY telegraphs (a hit worth >= ~12% of max HP, or a bomber fuse):
-  // back away, dashing through the strike frame if it's about to land. Chaff
-  // windups are traded through — retreating from everything lets a pack of
-  // swarmers perma-kite the bot off the floor.
+  // Dodge incoming enemy projectiles: if one's closest approach passes within
+  // grazing range in the next half second, sidestep perpendicular to it.
+  for (const pr of state.projectiles) {
+    if (pr.from !== "enemy") continue;
+    const speed = Math.hypot(pr.vel.x, pr.vel.y);
+    if (speed < 1e-3) continue;
+    const rel = { x: p.pos.x - pr.pos.x, y: p.pos.y - pr.pos.y };
+    const closing = (rel.x * pr.vel.x + rel.y * pr.vel.y) / speed;
+    if (closing < 0) continue; // already past us
+    const t = closing / speed;
+    if (t > 0.55) continue; // not imminent
+    const cx = pr.pos.x + pr.vel.x * t - p.pos.x;
+    const cy = pr.pos.y + pr.vel.y * t - p.pos.y;
+    if (Math.hypot(cx, cy) > 0.9) continue; // misses anyway
+    // Step to whichever side of the projectile's line we're already on.
+    const side = rel.x * pr.vel.y - rel.y * pr.vel.x >= 0 ? 1 : -1;
+    intent.move = normalize({ x: (pr.vel.y / speed) * side, y: (-pr.vel.x / speed) * side });
+    return intent;
+  }
+
+  // Respect HEAVY telegraphs (boss slams always; otherwise a hit worth >= ~12%
+  // of max HP, or a bomber fuse): back away, dashing through the strike frame
+  // if it's about to land. Chaff windups are traded through — retreating from
+  // everything lets a pack of swarmers perma-kite the bot off the floor.
   for (const m of state.monsters) {
     if (m.hp <= 0 || m.windup <= 0) continue;
-    const heavy = m.windupKind === "fuse" || m.damage >= p.maxHp * 0.12;
+    const heavy = m.kind === "boss" || m.windupKind === "fuse" || m.damage >= p.maxHp * 0.12;
     if (!heavy) continue;
     const reach =
       (m.windupKind === "fuse" ? CONFIG.bomberExplodeRadius : m.attackRange + CONFIG.monsterStrikeGrace) +
@@ -237,6 +257,38 @@ export interface FloorMetrics {
   kills: number;
 }
 
+/** One boss/elite fight, measured from ringside introduction to the kill. */
+export interface EncounterMetric {
+  floor: number;
+  kind: "boss" | "elite";
+  name: string;
+  maxHp: number;
+  ttk: number; // sim seconds from introduction to death (intro freeze excluded)
+  playerLevel: number;
+  playerDamage: number; // effective baseDamage when the fight started
+  hpLost: number; // player HP lost across the fight
+}
+
+/**
+ * Safe-room shopping policy: a straightforward damage-first build path through
+ * the System Shop (components combine upward; buyCatalogItem no-ops anything
+ * unaffordable/out-of-stock, so this just attempts the ladder in order).
+ * Modeling a shopping player matters: gear is where the power curve lives, and
+ * a frugal bot would understate player damage against bosses.
+ */
+const SHOP_LADDER = [
+  "honed_edge", "killer_instinct", "primetime_cleaver", "headliner_cleaver",
+  "iron_plating", "showstopper_plate", "blastplate_harness",
+  "glass_charm", "ratings_magnet",
+];
+
+function shop(state: GameState, playerId: number): void {
+  const p = state.players[0];
+  if (p.hp < p.maxHp * 0.6) buyCatalogItem(state, playerId, "field_ration");
+  for (const id of SHOP_LADDER) buyCatalogItem(state, playerId, id);
+  if (p.gold > 250) buyCatalogItem(state, playerId, "plating_kit"); // spare gold -> permanent HP
+}
+
 export interface BotRunResult {
   floorsCleared: number; // floors fully cleared (descended from)
   died: boolean;
@@ -244,6 +296,7 @@ export interface BotRunResult {
   totalDamageTaken: number;
   totalKills: number;
   floors: FloorMetrics[];
+  encounters: EncounterMetric[]; // every boss/elite fight finished (killed)
   steps: number;
 }
 
@@ -259,15 +312,17 @@ export function runBot(state: GameState, floors: number, maxSteps = 150_000): Bo
   const p = state.players[0];
   const result: BotRunResult = {
     floorsCleared: 0, died: false, won: false,
-    totalDamageTaken: 0, totalKills: 0, floors: [], steps: 0,
+    totalDamageTaken: 0, totalKills: 0, floors: [], encounters: [], steps: 0,
   };
   let floorStart = { elapsed: state.elapsed, damage: p.damageTaken, kills: p.kills };
   const startFloor = state.floor;
   const targetFloor = startFloor + floors;
+  // Boss/elite fights in progress: keyed by monster id, opened at introduction.
+  const fights = new Map<number, { start: number; hp0: number; m: Monster; level: number; dmg: number }>();
 
   while (result.steps < maxSteps && state.status === "playing" && state.floor < targetFloor) {
     if (state.safeRoom) {
-      // Descending: record the floor we just finished, then ready up.
+      // Descending: record the floor we just finished, shop, then ready up.
       result.floors.push({
         floor: state.floor,
         cleared: true,
@@ -277,6 +332,8 @@ export function runBot(state: GameState, floors: number, maxSteps = 150_000): Bo
         kills: p.kills - floorStart.kills,
       });
       result.floorsCleared++;
+      fights.clear(); // anything left alive was bypassed, not fought
+      shop(state, p.id);
       setReady(state, p.id);
       floorStart = { elapsed: state.elapsed, damage: p.damageTaken, kills: p.kills };
       continue;
@@ -285,6 +342,28 @@ export function runBot(state: GameState, floors: number, maxSteps = 150_000): Bo
     if (p.pendingUpgrades.length > 0) chooseUpgrade(state, p.id, 0);
     step(state, botIntent(state, mem), dt);
     result.steps++;
+
+    // Encounter tracking: open on introduction, close on the kill.
+    for (const m of state.monsters) {
+      if ((m.kind === "boss" || m.elite) && m.introduced && !fights.has(m.id)) {
+        fights.set(m.id, { start: state.elapsed, hp0: p.damageTaken, m, level: p.level, dmg: p.baseDamage });
+      }
+    }
+    for (const [id, f] of fights) {
+      if (state.monsters.includes(f.m) && f.m.hp > 0) continue;
+      fights.delete(id);
+      if (f.m.hp > 0) continue; // vanished without dying (floor edge) — skip
+      result.encounters.push({
+        floor: state.floor,
+        kind: f.m.kind === "boss" ? "boss" : "elite",
+        name: f.m.eliteName ?? "THE FLOOR BOSS",
+        maxHp: f.m.maxHp,
+        ttk: state.elapsed - f.start,
+        playerLevel: f.level,
+        playerDamage: f.dmg,
+        hpLost: p.damageTaken - f.hp0,
+      });
+    }
   }
 
   result.died = state.status === "dead";

@@ -172,7 +172,8 @@ function spawnMonsters(state: GameState): void {
   // thinner regular crowd. The stairs stay sealed until the boss falls.
   if (isCityBossFloor(floor)) {
     const boss = makeMonster(state, "boss", { x: map.stairs.x, y: map.stairs.y });
-    const hp = (CONFIG.cityBossHpBase + floor * CONFIG.cityBossHpPerFloor) *
+    const arena = Math.floor(floor / CONFIG.cityBossEvery);
+    const hp = CONFIG.cityBossHpBase * (1 + (arena - 1) * CONFIG.cityBossHpArenaGrowth) *
       (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer);
     boss.hp = boss.maxHp = Math.round(hp);
     boss.damage = CONFIG.bossDamage * 0.7 * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
@@ -288,7 +289,9 @@ function spawnMonsters(state: GameState): void {
     }
     m.elite = true;
     m.eliteName = pick(rng, ELITE_NAMES);
-    m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.eliteHpMult);
+    // HP multiplier grows with depth so elites track the player power curve
+    // (a flat 3x is a one-shot by midgame — see the balance bot survey).
+    m.hp = m.maxHp = Math.round(m.maxHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
     m.damage *= CONFIG.eliteDmgMult;
     m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
     // From floor eliteAffixFromFloor, elites roll one affix mechanic.
@@ -894,6 +897,10 @@ function damageMonster(
   let dmg = rollDamage(state.rng, base);
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
+  // One-shot insurance: named menaces never lose more than a capped fraction
+  // of their pool to a single hit — a boss fight is a FIGHT, not a screenshot.
+  if (m.kind === "boss") dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.bossHitCapFraction)));
+  else if (m.elite) dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.eliteHitCapFraction)));
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
@@ -1442,7 +1449,10 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
         return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
       }
       case "damage": {
-        const amt = Math.round((5 + floor) * q);
+        // Damage compounds with everything else the player stacks, so its
+        // quality scaling is capped — uncapped q hands out ~+80 damage per
+        // floor late-game and one-shots the boss ladder (balance bot survey).
+        const amt = Math.round((5 + floor) * Math.min(q, 2));
         return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
       }
       case "crit": {

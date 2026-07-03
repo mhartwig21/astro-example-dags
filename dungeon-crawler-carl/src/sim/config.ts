@@ -220,10 +220,19 @@ export const CONFIG = {
   // - CITY BOSS: every 6th floor (6, 12) is a sealed arena with a real boss.
   // - Floor 18 remains the final boss.
   eliteFromFloor: 2,
-  eliteHpMult: 3.0,
+  // Elite durability tracks the player power curve (measured by the balance
+  // bot: player damage/hit grows ~48 -> ~114 -> ~180 -> ~380 over floors
+  // 4/6/12/18). Flat multipliers collapse into one-shots by midgame, so the
+  // HP multiplier grows per floor; target: a focused 4-8s fight at level.
+  eliteHpMult: 3.0, // base multiplier over the archetype's floor-scaled HP...
+  eliteHpMultPerFloor: 2.8, // ...plus this much more per floor
   eliteDmgMult: 1.5,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
+  // One-shot insurance: a single player hit can never remove more than this
+  // fraction of a boss/elite health pool, whatever the build finds next.
+  bossHitCapFraction: 0.1,
+  eliteHitCapFraction: 0.12,
   // Elite AFFIXES (from this floor): each named elite rolls one mechanic —
   // swift (+speed), shielded (takes less damage), volatile (delayed death
   // blast — clear the corpse), summoner (calls swarmer adds).
@@ -240,12 +249,16 @@ export const CONFIG = {
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
   cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
-  cityBossHpBase: 320,
-  cityBossHpPerFloor: 25,
+  // City-boss pools sized against measured shopping-player DPS, which roughly
+  // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
+  // grow per ARENA, not per floor: hp = base * (1 + (arena-1) * growth).
+  // Target: a real 15-25s arena fight, not a speed bump.
+  cityBossHpBase: 4700,
+  cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
   cityBossAdds: 2, // ranged escorts
 
   // Boss (floor 18)
-  bossHp: 900,
+  bossHp: 30000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
   bossDamage: 34,
   bossSpeed: 2.2,
