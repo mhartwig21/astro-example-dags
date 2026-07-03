@@ -50,9 +50,15 @@ export const CONFIG = {
 
   // Monsters (density tuned for the 72x72 floors: it should feel like you
   // could actually die on floor 1, not like an empty museum)
-  monsterBaseCountFloor1: 11,
-  monsterCountPerFloor: 2.5,
-  monsterMaxCount: 38,
+  monsterBaseCountFloor1: 13,
+  monsterCountPerFloor: 3,
+  monsterMaxCount: 44,
+  // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
+  // on you together), with a few lone wanderers between them.
+  packSizeMin: 3,
+  packSizeMax: 6,
+  packLoneFraction: 0.2, // share of the budget spawned as singles
+  packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
   monsterBaseDamage: 6,

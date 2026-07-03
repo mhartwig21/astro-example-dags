@@ -75,6 +75,7 @@ describe("collapse timer", () => {
 
   it("deals escalating damage during collapse and can kill the player", () => {
     const g = createGame(1);
+    g.monsters.length = 0; // isolate the timer (packs now kill idlers first!)
     // Fast-forward to collapse.
     for (let i = 0; i < 2000 && g.phase !== "collapse"; i++) step(g, idle(), 0.1);
     expect(g.phase).toBe("collapse");
@@ -909,8 +910,8 @@ describe("new archetypes", () => {
     g.monsters.length = 0;
     g.projectiles.length = 0;
     g.monsters.push(mkMon({
-      id: 1, kind: "bomber", pos: { x: p.pos.x + 0.5, y: p.pos.y },
-      hp: 30, maxHp: 30, damage: 10, attackRange: 0.9,
+      id: 1, kind: "bomber", pos: { x: p.pos.x + 1.4, y: p.pos.y },
+      hp: 30, maxHp: 30, damage: 10, attackRange: 1.5, // just outside pickup radius
     }));
     const hp0 = p.hp;
     step(g, idle(), 1 / 60);
@@ -1049,6 +1050,25 @@ describe("intentional floors (mission-lite)", () => {
       }
     }
     expect(deep).toBeGreaterThan(shallow);
+  });
+
+  it("spawns monsters in Diablo-style packs (clustered encounters)", () => {
+    // Most monsters should have a packmate within 3 tiles; only the lone-wanderer
+    // share (~20%) roams solo.
+    let clustered = 0, total = 0;
+    for (const seed of [77, 1234, 5555]) {
+      const g = restoreGame({
+        seed, floor: 3,
+        player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+      });
+      for (const m of g.monsters) {
+        total++;
+        const near = g.monsters.some((o) =>
+          o !== m && Math.hypot(o.pos.x - m.pos.x, o.pos.y - m.pos.y) < 3);
+        if (near) clustered++;
+      }
+    }
+    expect(clustered / total).toBeGreaterThan(0.6);
   });
 
   it("the vault holds guaranteed treasure and a guardian; the entrance is safe", () => {

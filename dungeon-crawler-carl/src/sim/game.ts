@@ -207,14 +207,41 @@ function spawnMonsters(state: GameState): void {
     return area * ramp * (role === "landmark" ? 1.4 : 1);
   });
   const totalW = weights.reduce((s, x) => s + x, 0);
-  for (let i = 0; i < count && totalW > 0; i++) {
+  const pickRoom = (): number => {
     let roll = nextFloat(rng) * totalW;
-    let roomIdx = 0;
     for (let j = 0; j < weights.length; j++) {
-      if ((roll -= weights[j]) < 0) { roomIdx = j; break; }
+      if ((roll -= weights[j]) < 0) return j;
     }
-    const pos = inRoom(roomIdx);
-    if (pos) state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
+    return 0;
+  };
+
+  // Diablo-style encounters: most of the budget spawns as PACKS — a tight
+  // cluster sharing an anchor (they aggro together), usually one archetype,
+  // sometimes with a shaman healer escort on deeper floors. A small share
+  // spawns as lone wanderers so the space between packs isn't sterile.
+  let budget = count;
+  const singles = Math.round(count * CONFIG.packLoneFraction);
+  for (let i = 0; i < singles && totalW > 0; i++) {
+    const pos = inRoom(pickRoom());
+    if (pos) { state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos)); budget--; }
+  }
+  let guard = 0;
+  while (budget > 0 && totalW > 0 && guard++ < 60) {
+    const anchor = inRoom(pickRoom());
+    if (!anchor) continue;
+    const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
+    const kind = rollArchetype(rng, floor);
+    const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
+    for (let k = 0; k < size; k++) {
+      // Cluster around the anchor; members that land in a wall squeeze inward.
+      const a = nextFloat(rng) * Math.PI * 2;
+      const d = 0.4 + nextFloat(rng) * 1.4;
+      let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
+      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      const memberKind = escort && k === size - 1 ? "shaman" : kind;
+      state.monsters.push(makeMonster(state, memberKind, pos));
+      budget--;
+    }
   }
 
   // VAULT: a lone brute guardian over guaranteed treasure (risk/reward detour).
@@ -226,7 +253,8 @@ function spawnMonsters(state: GameState): void {
     dropBossBonus(state, c, 2);
   }
 
-  // NEIGHBORHOOD BOSS: the named elite holds the LANDMARK hall (2+). Tougher,
+  // NEIGHBORHOOD BOSS: the named elite ALWAYS holds the LANDMARK hall (2+) —
+  // if no pack happened to anchor there, one is summoned for the job. Tougher,
   // meaner, guaranteed loot (see reapDead).
   if (floor >= CONFIG.eliteFromFloor && state.monsters.length > 0) {
     const landmarkIdx = map.roles.indexOf("landmark");
@@ -236,9 +264,16 @@ function spawnMonsters(state: GameState): void {
       return m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
     };
     const candidates = state.monsters.filter((m) => inLandmark(m) && m.kind !== "boss");
-    const m = candidates.length > 0
-      ? candidates[nextInt(rng, 0, candidates.length - 1)]
-      : state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+    let m: Monster;
+    if (candidates.length > 0) {
+      m = candidates[nextInt(rng, 0, candidates.length - 1)];
+    } else if (landmarkIdx >= 0) {
+      const r = map.rooms[landmarkIdx];
+      m = makeMonster(state, rollArchetype(rng, floor), { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+      state.monsters.push(m);
+    } else {
+      m = state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+    }
     m.elite = true;
     m.eliteName = pick(rng, ELITE_NAMES);
     m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.eliteHpMult);
