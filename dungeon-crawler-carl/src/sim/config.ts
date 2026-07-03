@@ -53,7 +53,7 @@ export const CONFIG = {
   // Feature switches (disabled by request until the designs are reworked; the
   // code paths stay intact so flipping these back on re-enables everything).
   flaskEnabled: false, // Sponsor Slurp™ flask: drink no-ops, no refill events, chip hidden
-  achievementsEnabled: false, // no unlocks/announcements; panel section hidden
+  achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
   // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
   // the sustain loop, so the way out of danger is through the pack.

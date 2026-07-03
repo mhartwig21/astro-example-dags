@@ -12,7 +12,7 @@ import { Tile, type GameState, type HitEvent, type Item, type Player } from "./s
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  knows, nodeOpen, rank, type AbilityId,
+  knows, nodeOpen, rank, upgradeDef, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
@@ -359,47 +359,40 @@ function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
 }
 
 /**
- * The ability's upgrade constellation (D4/PoE-style map, Hades-style drafts):
- * edges from prerequisites, dashed red ties between exclusive forks, diamond
- * capstones. Fill shows invested ranks; a cyan ring marks draftable-next nodes.
+ * One upgrade node as a readable row: rank pips, the CURRENT magnitude when
+ * taken (next rank previewed in parens), and plain-language lock reasons —
+ * clarity over constellation art.
  */
-function constellation(p: ReturnType<typeof me>, id: AbilityId): string {
-  const nodes = UPGRADES.filter((u) => u.ability === id);
-  if (nodes.length === 0) return "";
-  const at = (nid: string) => nodes.find((n) => n.id === nid);
-  const parts: string[] = [];
-  // Prerequisite edges.
-  for (const u of nodes) {
-    for (const req of u.requires ?? []) {
-      const from = at(req);
-      if (!from) continue;
-      const lit = rank(p, req) > 0;
-      parts.push(`<line x1="${from.pos.x}" y1="${from.pos.y}" x2="${u.pos.x}" y2="${u.pos.y}" stroke="${lit ? "#c9a24b" : "#2a2a38"}" stroke-width="1.2"/>`);
-    }
+function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): string {
+  const r = rank(p, u.id);
+  const open = nodeOpen(p, u);
+  const locked = !open && r === 0;
+  const pips = u.capstone
+    ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
+    : `${"●".repeat(r)}<span class="off">${"○".repeat(u.maxRank - r)}</span>`;
+  let effect: string;
+  if (locked) {
+    const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
+    const unmet = (u.requires ?? []).filter((id) => rank(p, id) === 0).map((id) => upgradeDef(id)!.title);
+    effect = forked.length > 0
+      ? `fork closed — you took ${forked.join(", ")}`
+      : `needs ${unmet.join(", ")}`;
+  } else if (r > 0) {
+    effect = u.desc(r) +
+      (r < u.maxRank ? ` <span class="nnext">· next rank: ${u.desc(r + 1)}</span>` : "") +
+      (r >= u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "");
+  } else {
+    effect = `${u.desc(1)} <span class="nnext">· from level-up drafts</span>`;
   }
-  // Fork ties (draw once per pair).
-  for (const u of nodes) {
-    for (const ex of u.excludes ?? []) {
-      if (u.id > ex) continue;
-      const other = at(ex);
-      if (!other) continue;
-      parts.push(`<line x1="${u.pos.x}" y1="${u.pos.y}" x2="${other.pos.x}" y2="${other.pos.y}" stroke="#7a3040" stroke-width="1" stroke-dasharray="3 3"/>`);
-    }
-  }
-  for (const u of nodes) {
-    const r = rank(p, u.id);
-    const open = nodeOpen(p, u) && r < u.maxRank;
-    const locked = !nodeOpen(p, u) && r === 0;
-    const fill = r >= u.maxRank ? "#c9a24b" : r > 0 ? "#6f5a2c" : "#14131f";
-    const ring = open ? "#4fd1ff" : locked ? "#22222e" : "#3a3a4a";
-    const label = `${u.title} — ${u.desc(Math.min(r + 1, u.maxRank))} (${r}/${u.maxRank})${locked ? " [LOCKED: fork taken or prerequisite missing]" : ""}`;
-    const shape = u.capstone
-      ? `<rect x="${u.pos.x - 6}" y="${u.pos.y - 6}" width="12" height="12" transform="rotate(45 ${u.pos.x} ${u.pos.y})" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`
-      : `<circle cx="${u.pos.x}" cy="${u.pos.y}" r="6" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`;
-    parts.push(`<g opacity="${locked ? 0.45 : 1}">${shape}<title>${label}</title>` +
-      `<text x="${u.pos.x}" y="${u.pos.y + 13}" text-anchor="middle" font-size="6.5" fill="${locked ? "#55556a" : "#9a9ab0"}">${u.title}</text></g>`);
-  }
-  return `<svg class="constellation" viewBox="-4 0 108 100" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
+  const cls = ["nrow", r > 0 ? "taken" : locked ? "locked" : "untaken", u.capstone ? "capstone" : ""]
+    .filter(Boolean).join(" ");
+  return (
+    `<div class="${cls}">` +
+    `<span class="ntitle">${u.title}</span>` +
+    `<span class="npips">${pips}</span>` +
+    `<span class="neffect">${effect}</span>` +
+    `</div>`
+  );
 }
 
 function abilityCard(s: GameState, id: AbilityId): string {
@@ -407,42 +400,48 @@ function abilityCard(s: GameState, id: AbilityId): string {
   const info = ABILITY_INFO[id];
   if (!knows(p, id)) {
     return (
-      `<div class="abil-card unknown">` +
-      `<div class="aname">??? <span class="akey">undiscovered ${info.tier}</span></div>` +
-      `<div class="ablurb">Find an ability tome in the dungeon to learn this.</div>` +
+      `<div class="acard unknown">` +
+      `<div class="ahead"><div><div class="ahname">???</div>` +
+      `<div class="ahblurb">undiscovered ${info.tier} — find a tome (or buy one in the shop)</div></div></div>` +
       `</div>`
     );
   }
-  const nodes = constellation(p, id);
+  const where = whereIs(p, id);
+  const whereCls = where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : "";
+  const rows = UPGRADES.filter((u) => u.ability === id).map((u) => nodeRowHtml(p, u)).join("");
   // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
   // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
   let controls = "";
   if (s.safeRoom) {
     if (info.tier === "active") {
       const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
-        `<button class="slot-btn" data-ability="${id}" data-slot="${i}">${i + 1}</button>`).join("");
-      const benchBtn = whereIs(p, id) !== "BENCH"
-        ? `<button class="slot-btn" data-ability="${id}" data-slot="bench">bench</button>` : "";
+        `<button class="slot-btn" data-ability="${id}" data-slot="${i}">SLOT ${i + 1}</button>`).join("");
+      const benchBtn = where !== "BENCH"
+        ? `<button class="slot-btn" data-ability="${id}" data-slot="bench">BENCH</button>` : "";
       controls = `<div class="slot-controls">${btns}${benchBtn}</div>`;
     } else {
       const ultBtn = p.abilities.ultimate === id
-        ? `<button class="slot-btn" data-ability="${id}" data-slot="unult">bench</button>`
-        : `<button class="slot-btn" data-ability="${id}" data-slot="ult">slot as ULT</button>`;
+        ? `<button class="slot-btn" data-ability="${id}" data-slot="unult">BENCH</button>`
+        : `<button class="slot-btn" data-ability="${id}" data-slot="ult">SLOT AS ULT</button>`;
       controls = `<div class="slot-controls">${ultBtn}</div>`;
     }
   }
-  const icon = `<i class="icon" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>`;
   return (
-    `<div class="abil-card">` +
-    `<div class="aname">${icon}${info.name} <span class="akey">${whereIs(p, id)}</span></div>` +
-    `<div class="ablurb">${info.blurb} <em>(${info.tier})</em></div>` +
-    nodes + controls +
+    `<div class="acard${info.tier === "ultimate" ? " ult" : ""}">` +
+    `<div class="ahead">` +
+    `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+    `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
+    `<span class="awhere ${whereCls}">${where}</span>` +
+    `</div>` +
+    (rows ? `<div class="nrows">${rows}</div>` : "") +
+    controls +
     `</div>`
   );
 }
 
-// Safe-room slotting clicks (sim validates; net mode forwards to the server).
-document.getElementById("abil-grid")!.addEventListener("click", (e) => {
+// Slotting clicks (sim validates; net mode forwards to the server). Shared by
+// the T panel and the safe room's ABILITIES tab.
+function handleSlotClick(e: Event, rerender: (s: GameState) => void): void {
   const btn = (e.target as HTMLElement).closest(".slot-btn") as HTMLElement | null;
   if (!btn) return;
   const ability = btn.dataset.ability as AbilityId;
@@ -460,8 +459,10 @@ document.getElementById("abil-grid")!.addEventListener("click", (e) => {
     flushFeedback(state);
     saveRun(state);
   }
-  renderAbilities(state);
-});
+  rerender(state);
+}
+
+document.getElementById("abil-grid")!.addEventListener("click", (e) => handleSlotClick(e, renderAbilities));
 
 const achGrid = document.getElementById("ach-grid")!;
 const achCount = document.getElementById("ach-count")!;
@@ -629,6 +630,18 @@ const srReady = document.getElementById("sr-ready")!;
 const srDescend = document.getElementById("sr-descend")!;
 const srTabStock = document.getElementById("sr-tab-stock")!;
 const srTabAll = document.getElementById("sr-tab-all")!;
+// Top-level safe-room tabs: SYSTEM SHOP / ABILITIES / ACHIEVEMENTS.
+const srTabShop = document.getElementById("sr-tab-shop")!;
+const srTabAbil = document.getElementById("sr-tab-abil")!;
+const srTabAch = document.getElementById("sr-tab-ach")!;
+const srPageShop = document.getElementById("sr-page-shop")!;
+const srPageAbil = document.getElementById("sr-page-abil")!;
+const srPageAch = document.getElementById("sr-page-ach")!;
+const srLoadout = document.getElementById("sr-loadout")!;
+const srAbil = document.getElementById("sr-abil")!;
+const srAch = document.getElementById("sr-ach")!;
+const srAchCount = document.getElementById("sr-ach-count")!;
+let srTab: "shop" | "abil" | "ach" = "shop";
 
 const TIERS: CatalogTier[] = ["consumable", "starter", "basic", "advanced", "legendary"];
 const TIER_COLOR: Record<CatalogTier, string> = {
@@ -827,6 +840,61 @@ function renderSafeRoom(s: GameState): void {
     `<span class="chip">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>` +
     `<span class="chip">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>` +
     `<span class="chip" title="sponsors">🤝 <b>${p.sponsors}</b></span>`;
+  srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
+  // Top-level tab dispatch.
+  srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
+  if (srTab === "ach" && !CONFIG.achievementsEnabled) srTab = "shop";
+  srTabShop.classList.toggle("active", srTab === "shop");
+  srTabAbil.classList.toggle("active", srTab === "abil");
+  srTabAch.classList.toggle("active", srTab === "ach");
+  srPageShop.style.display = srTab === "shop" ? "grid" : "none";
+  srPageAbil.style.display = srTab === "abil" ? "" : "none";
+  srPageAch.style.display = srTab === "ach" ? "" : "none";
+  if (srTab === "shop") renderShopPage(s);
+  else if (srTab === "abil") renderAbilPage(s);
+  else renderAchPage(s);
+}
+
+/** The ABILITIES tab: loadout bar (The Five) + per-ability upgrade cards. */
+function renderAbilPage(s: GameState): void {
+  const p = me(s);
+  const slotTile = (id: AbilityId | null, key: string, ult = false): string => {
+    const cls = `lslot${ult ? " ult" : ""}${id ? "" : " empty"}`;
+    const icon = id
+      ? `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>`
+      : "";
+    const name = id ? ABILITY_INFO[id].name : "empty";
+    return `<div class="${cls}"><div class="ibox"><span class="lkey">${key}</span>${icon}</div><div class="lname">${name}</div></div>`;
+  };
+  srLoadout.innerHTML =
+    p.abilities.slots.map((id, i) => slotTile(id, String(i + 1))).join("") +
+    slotTile(p.abilities.ultimate, "U", true);
+  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
+  srAbil.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+}
+
+/** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
+function renderAchPage(s: GameState): void {
+  const p = me(s);
+  srAchCount.textContent =
+    `THE SYSTEM RECOGNIZES — ${p.achievements.length} / ${ACHIEVEMENTS.length} UNLOCKED`;
+  srAch.innerHTML = ACHIEVEMENTS.map((a) => {
+    const got = p.achievements.includes(a.id);
+    return (
+      `<div class="sr-ach${got ? "" : " locked"}">` +
+      `<div class="atitle">${got ? "★" : "☆"} ${a.title}</div>` +
+      `<div class="adesc">${a.desc}</div>` +
+      `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>` +
+      `</div>`
+    );
+  }).join("");
+}
+
+/** The SYSTEM SHOP tab: shelf + detail + bag. */
+function renderShopPage(s: GameState): void {
+  const room = s.safeRoom;
+  if (!room) return;
+  const p = me(s);
   srTabStock.classList.toggle("active", shopView === "stock");
   srTabAll.classList.toggle("active", shopView === "all");
   // The shelf, tier by tier.
@@ -858,7 +926,6 @@ function renderSafeRoom(s: GameState): void {
   srBag.innerHTML = p.inventory.length
     ? p.inventory.map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("")
     : `<span class="bempty">empty — buy components, they wait here</span>`;
-  srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
   renderShopDetail(s);
 }
 
@@ -946,6 +1013,10 @@ srBag.addEventListener("click", (e) => {
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
+srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
+srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
+srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
+srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
 
 srDescend.addEventListener("click", () => {
   if (net) {
@@ -1245,7 +1316,8 @@ async function main(): Promise<void> {
     if (draftEl.style.display === "flex" && !draftPending) draftEl.style.display = "none";
     const inSafeRoom = state.safeRoom !== null;
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
-      shopView = "stock"; // every shop opens on today's shelf
+      srTab = "shop"; // every safe room opens on today's shelf
+      shopView = "stock";
       shopSel = null;
       renderSafeRoom(state);
       srEl.style.display = "flex";
