@@ -29,6 +29,26 @@ export class Renderer3D {
   private key: THREE.DirectionalLight;
 
   private floorGroup = new THREE.Group();
+  // Render-side position smoothing: the sim ticks at a fixed 60Hz while the
+  // display can run faster — applying raw sim positions makes movement (and
+  // especially hand-grafted weapons) judder on high-refresh screens, and dash
+  // reads as a hard cut. Meshes chase sim positions with a stiff exponential
+  // lerp (~40ms of sub-frame lag), which hides tick quantization at any Hz and
+  // turns teleports into 2-frame glides. Big jumps (floor change) snap.
+  private static SMOOTH_RATE = 22;
+  private static SNAP_DIST = 8;
+  private smoothTo(mesh: THREE.Object3D, x: number, y: number, z: number, dt: number): void {
+    const dx = x - mesh.position.x, dz = z - mesh.position.z;
+    if (dx * dx + dz * dz > Renderer3D.SNAP_DIST * Renderer3D.SNAP_DIST || !mesh.visible) {
+      mesh.position.set(x, y, z);
+      return;
+    }
+    const a = 1 - Math.exp(-Renderer3D.SMOOTH_RATE * Math.min(dt, 0.1));
+    mesh.position.x += dx * a;
+    mesh.position.y = y;
+    mesh.position.z += dz * a;
+  }
+
   // Torch LIGHT POOL: torch meshes are everywhere, but only a handful of real
   // point lights exist — reassigned each frame to the anchors nearest the
   // player. Constant lighting cost regardless of floor size (forward-renderer
@@ -814,7 +834,7 @@ export class Renderer3D {
       const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
       const plSpeed = Math.hypot(pl.pos.x - prev.x, pl.pos.y - prev.y) / dt;
       this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
-      mesh.position.set(pl.pos.x, 0, pl.pos.y);
+      this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
@@ -872,7 +892,7 @@ export class Renderer3D {
       const prev = this.prevMon.get(mon.id) ?? mon.pos;
       const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
       this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
-      mesh.position.set(mon.pos.x, 0, mon.pos.y);
+      this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
         // Rigged model: clip by combat state — hit reaction while staggered,
@@ -1000,7 +1020,7 @@ export class Renderer3D {
         );
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
-      mesh.position.set(pr.pos.x, 0.6, pr.pos.y);
+      this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
       mesh.visible = inVision(pr.pos);
     }
     for (const [id, mesh] of this.projectiles) {
@@ -1058,14 +1078,17 @@ export class Renderer3D {
     const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
+    const anchor = this.playerMeshes.get(p.id)?.position;
+    const ax = anchor ? anchor.x : p.pos.x;
+    const az = anchor ? anchor.z : p.pos.y;
     this.camera.position.set(
-      p.pos.x + (d.x / len) * dist + sx,
+      ax + (d.x / len) * dist + sx,
       (d.y / len) * dist,
-      p.pos.y + (d.z / len) * dist + sz,
+      az + (d.z / len) * dist + sz,
     );
-    this.camera.lookAt(p.pos.x, 0, p.pos.y);
-    this.key.position.set(p.pos.x + 8, 20, p.pos.y + 6);
-    this.key.target.position.set(p.pos.x, 0, p.pos.y);
+    this.camera.lookAt(ax, 0, az);
+    this.key.position.set(ax + 8, 20, az + 6);
+    this.key.target.position.set(ax, 0, az);
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
