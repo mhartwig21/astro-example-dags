@@ -1,6 +1,6 @@
 import { RARITIES } from "./config";
 import { nextFloat, nextInt, pick, type Rng } from "./rng";
-import type { Affixes, Item, ItemSlot, Rarity } from "./types";
+import type { Affixes, Item, ItemSlot, PassiveId, Rarity } from "./types";
 
 // Deterministic item generation. Everything rolls off the seeded RNG so drops are
 // reproducible. Items carry affixes (stat modifiers) that the player sums across
@@ -67,6 +67,45 @@ const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
   armor: ["damage", "speed", "crit"],
   trinket: ["speed", "damage", "maxHp"],
 };
+
+// ---- Completed works (bench end-game): epic base + materials + SPONSORS ----
+// Sponsor gating makes The Show mechanically load-bearing: flashy play earns
+// the backers who authorize signature gear.
+
+export interface CompletedRecipe {
+  id: PassiveId;
+  slot: ItemSlot;
+  /** Display name; weapons keep their noun so the 3D model persists. */
+  name: (noun: string) => string;
+  blurb: string;
+  gold: number;
+  scrap: number;
+  elite_trophy: number;
+  sponsors: number; // minimum sponsor count to unlock the recipe
+}
+
+export const COMPLETED_RECIPES: CompletedRecipe[] = [
+  {
+    id: "showrunner", slot: "weapon", name: (noun) => `Headliner ${noun}`,
+    blurb: "Kills play in primetime: +4 hype per kill",
+    gold: 250, scrap: 12, elite_trophy: 2, sponsors: 1,
+  },
+  {
+    id: "blastplate", slot: "armor", name: () => "Blastplate Harness",
+    blurb: "Your dash detonates at the launch point",
+    gold: 250, scrap: 12, elite_trophy: 2, sponsors: 2,
+  },
+  {
+    id: "ledger", slot: "trinket", name: () => "Landlord's Ledger",
+    blurb: "Every kill credit pays +3 gold",
+    gold: 220, scrap: 10, elite_trophy: 2, sponsors: 1,
+  },
+  {
+    id: "overtime", slot: "trinket", name: () => "Overtime Clause",
+    blurb: "Ultimate cooldowns reduced by 25%",
+    gold: 300, scrap: 14, elite_trophy: 3, sponsors: 2,
+  },
+];
 
 export function generateItem(rng: Rng, floor: number, nextId: () => number): Item {
   const slot = rollSlot(rng);

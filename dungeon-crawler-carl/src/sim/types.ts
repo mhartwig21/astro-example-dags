@@ -127,12 +127,21 @@ export interface Affixes {
   crit?: number; // added crit chance (0..1)
 }
 
+// Unique behaviors carried by COMPLETED items (crafted at the bench from an
+// epic base). Implemented as hooks in game.ts; one id = one behavior.
+export type PassiveId =
+  | "showrunner" // kills feed the broadcast: bonus hype per kill
+  | "blastplate" // your dash detonates at the launch point
+  | "ledger" // every kill credit pays bonus gold
+  | "overtime"; // ultimate cooldowns reduced
+
 export interface Item {
   id: number;
   slot: ItemSlot;
   rarity: Rarity;
   name: string;
   affixes: Affixes;
+  passive?: PassiveId; // present on completed items only
 }
 
 export interface Loot {

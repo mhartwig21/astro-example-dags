@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
-  slotAbility, dismantleItem, upgradeItem,
+  slotAbility, dismantleItem, upgradeItem, craftCompleted,
 } from "../src/sim/game";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
@@ -1324,6 +1324,81 @@ describe("crafting bench", () => {
         materials: { scrap: 7, elite_trophy: 2, boss_sigil: 1 } },
     });
     expect(g.players[0].materials).toEqual({ scrap: 7, elite_trophy: 2, boss_sigil: 1 });
+  });
+});
+
+describe("completed works (signature gear)", () => {
+  function forgeGame(seed: number) {
+    const g = createGame(seed);
+    const p = g.players[0];
+    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    p.gold = 1000;
+    p.materials.scrap = 30;
+    p.materials.elite_trophy = 5;
+    p.sponsors = 3;
+    return g;
+  }
+
+  it("forges an equipped epic into a named item with the passive (noun kept)", () => {
+    const g = forgeGame(950);
+    const p = g.players[0];
+    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "epic", name: "Apocalyptic Cleaver", affixes: { damage: 20 } };
+    craftCompleted(g, p.id, "showrunner");
+    expect(p.equipment.weapon!.name).toBe("Headliner Cleaver");
+    expect(p.equipment.weapon!.passive).toBe("showrunner");
+    expect(p.equipment.weapon!.affixes.damage).toBe(20); // affixes untouched
+  });
+
+  it("refuses without sponsors, epic base, or in the field", () => {
+    const g = forgeGame(951);
+    const p = g.players[0];
+    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "rare", name: "Runed Axe", affixes: { damage: 12 } };
+    craftCompleted(g, p.id, "showrunner"); // not epic
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+    p.equipment.weapon.rarity = "epic";
+    p.sponsors = 0;
+    craftCompleted(g, p.id, "showrunner"); // no backing
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+    p.sponsors = 3;
+    leaveSafeRoom(g);
+    craftCompleted(g, p.id, "showrunner"); // no bench in the field
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+  });
+
+  it("Landlord's Ledger pays gold on kill credit", () => {
+    const g = createGame(952);
+    const p = g.players[0];
+    p.equipment.trinket = { id: 2, slot: "trinket", rarity: "epic", name: "Landlord's Ledger", affixes: {}, passive: "ledger" };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.6, y: p.pos.y }, xp: 5 }));
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 9999;
+    const gold0 = p.gold;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.gold).toBeGreaterThanOrEqual(gold0 + 3);
+  });
+
+  it("Blastplate detonates the dash launch point", () => {
+    const g = createGame(953);
+    const p = g.players[0];
+    p.equipment.armor = { id: 3, slot: "armor", rarity: "epic", name: "Blastplate Harness", affixes: {}, passive: "blastplate" };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x - 1, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 1, y: 0 }, useStairs: false, cast: [false, true, false, false, false] }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500); // caught in the launch blast
+  });
+
+  it("Overtime Clause trims ultimate cooldowns by 25%", () => {
+    const g = createGame(954);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.equipment.trinket = { id: 4, slot: "trinket", rarity: "epic", name: "Overtime Clause", affixes: {}, passive: "overtime" };
+    g.monsters.length = 0;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true] }, 1 / 60);
+    const cd = g.players[0].cd.cataclysm ?? 0;
+    expect(cd).toBeLessThan(CONFIG.ultCataclysmCooldown * 0.76);
+    expect(cd).toBeGreaterThan(CONFIG.ultCataclysmCooldown * 0.7);
   });
 });
 

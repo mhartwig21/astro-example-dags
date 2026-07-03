@@ -4,7 +4,7 @@ import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
-import { generateItem, itemScore } from "./items";
+import { COMPLETED_RECIPES, generateItem, itemScore } from "./items";
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
@@ -13,7 +13,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import type {
   GameState, HitEvent, Intent, Item, Loot, MaterialId, Monster, MonsterKind,
-  PartyIntents, Player, Reward, SafeRoom, ShopItem, Vec2,
+  PartyIntents, PassiveId, Player, Reward, SafeRoom, ShopItem, Vec2,
 } from "./types";
 import { NO_INTENT, Tile } from "./types";
 
@@ -863,6 +863,8 @@ function reapDead(state: GameState): void {
     const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
     killer.kills++;
     killer.killsThisStep++;
+    if (hasPassive(killer, "ledger")) killer.gold += 3; // Landlord's Ledger
+    if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
     grantPartyXp(state, m.xp);
@@ -1334,6 +1336,10 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
   p.cd.dash = dp.cooldown;
+  // Blastplate Harness: the launch point detonates behind you.
+  if (hasPassive(p, "blastplate")) {
+    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, p.baseDamage);
+  }
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
@@ -1477,6 +1483,41 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2)
   }
 }
 
+/** True if any equipped item carries the given completed-work passive. */
+export function hasPassive(p: Player, id: PassiveId): boolean {
+  return (
+    p.equipment.weapon?.passive === id ||
+    p.equipment.armor?.passive === id ||
+    p.equipment.trinket?.passive === id
+  );
+}
+
+/**
+ * Forge a COMPLETED WORK at the bench: consumes an equipped EPIC base of the
+ * recipe's slot + materials + gold, and requires the sponsor backing. The item
+ * keeps its affixes (and a weapon its noun/model) and gains the unique passive.
+ */
+export function craftCompleted(state: GameState, playerId: number, recipeId: PassiveId): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  const recipe = COMPLETED_RECIPES.find((r) => r.id === recipeId);
+  if (!recipe) return;
+  const item = p.equipment[recipe.slot];
+  if (!item || item.rarity !== "epic" || item.passive) return;
+  if (p.sponsors < recipe.sponsors) return;
+  if (p.gold < recipe.gold || p.materials.scrap < recipe.scrap || p.materials.elite_trophy < recipe.elite_trophy) return;
+  p.gold -= recipe.gold;
+  p.goldSpent += recipe.gold;
+  p.materials.scrap -= recipe.scrap;
+  p.materials.elite_trophy -= recipe.elite_trophy;
+  const noun = item.name.split(" ").pop()!;
+  item.name = recipe.name(noun);
+  item.passive = recipe.id;
+  recomputeStats(p);
+  announce(state, `COMPLETED WORK: ${p.name} forges ${item.name}. ${recipe.blurb}. The sponsors sign off — this one gets a product page.`);
+  addHype(state, p, CONFIG.show.hypeEpicDrop);
+}
+
 /** A player died; the run only ends when the whole party is down. */
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
@@ -1608,7 +1649,14 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
         const ability = p.abilities.slots[s];
         if (cast[s] && ability) castAbility(state, p, ability, aim);
       }
-      if (cast[ABILITY_SLOTS] && p.abilities.ultimate) castAbility(state, p, p.abilities.ultimate, aim);
+      if (cast[ABILITY_SLOTS] && p.abilities.ultimate) {
+        castAbility(state, p, p.abilities.ultimate, aim);
+        // Overtime Clause: the network wants MORE ultimates.
+        const ult = p.abilities.ultimate;
+        if (hasPassive(p, "overtime") && (p.cd[ult] ?? 0) > 0) {
+          p.cd[ult] = (p.cd[ult] ?? 0) * 0.75;
+        }
+      }
     }
     updateOrbit(state, p, dt);
   }

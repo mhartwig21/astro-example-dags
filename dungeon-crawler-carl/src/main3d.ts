@@ -1,9 +1,10 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
   buyShopItem, setReady, addPlayer, slotAbility, setUltimate, dismantleItem, upgradeItem,
+  craftCompleted,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { COMPLETED_RECIPES, affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -533,21 +534,40 @@ function renderBench(s: GameState): void {
       `${up}<button data-craft="dismantle" data-where="${i}">Dismantle · +${CONFIG.craft.dismantleScrap[it.rarity]} scrap</button></div>`,
     );
   });
+  // COMPLETED WORKS: signature gear forged from an equipped EPIC base.
+  for (const r of COMPLETED_RECIPES) {
+    const base = p.equipment[r.slot];
+    const eligible = base && base.rarity === "epic" && !base.passive;
+    const backed = p.sponsors >= r.sponsors;
+    const afford = p.gold >= r.gold && p.materials.scrap >= r.scrap && p.materials.elite_trophy >= r.elite_trophy;
+    const name = r.name(base ? base.name.split(" ").pop()! : "…");
+    const need = `${r.gold}g + ${r.scrap} scrap + ${r.elite_trophy} trophies · needs epic ${r.slot} + ${r.sponsors} sponsor${r.sponsors > 1 ? "s" : ""}`;
+    const btn = eligible && backed && afford
+      ? `<button data-craft="complete" data-where="${r.id}">FORGE</button>`
+      : `<button disabled>${!eligible ? `needs epic ${r.slot}` : !backed ? `${r.sponsors} sponsors required` : "can't afford"}</button>`;
+    rows.push(
+      `<div class="bench-row"><span class="bname" style="color:#c9a6ff">${name} <small>${r.blurb} · ${need}</small></span>${btn}</div>`,
+    );
+  }
   srBench.innerHTML = rows.length ? rows.join("") : `<div class="bench-row"><span class="bname" style="color:#6a6a7a">Nothing to work on. Go loot something.</span></div>`;
 }
 
 srBench.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest("button[data-craft]") as HTMLElement | null;
   if (!btn || (btn as HTMLButtonElement).disabled) return;
-  const action = btn.dataset.craft as "upgrade" | "dismantle";
+  const action = btn.dataset.craft as "upgrade" | "dismantle" | "complete";
   const whereRaw = btn.dataset.where!;
-  const where = ["weapon", "armor", "trinket"].includes(whereRaw) ? whereRaw as "weapon" | "armor" | "trinket" : Number(whereRaw);
   if (net) {
-    net.craft(action, where);
+    net.craft(action, whereRaw);
   } else {
     const p = me(state);
-    if (action === "dismantle" && typeof where === "number") dismantleItem(state, p.id, where);
-    else if (action === "upgrade") upgradeItem(state, p.id, where);
+    if (action === "dismantle") dismantleItem(state, p.id, Number(whereRaw));
+    else if (action === "complete") craftCompleted(state, p.id, whereRaw as never);
+    else if (action === "upgrade") {
+      const where = ["weapon", "armor", "trinket"].includes(whereRaw)
+        ? (whereRaw as "weapon" | "armor" | "trinket") : Number(whereRaw);
+      upgradeItem(state, p.id, where);
+    }
     flushFeedback(state);
     saveRun(state);
   }
