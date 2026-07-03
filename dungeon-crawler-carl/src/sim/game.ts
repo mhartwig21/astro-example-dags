@@ -201,7 +201,9 @@ function spawnMonsters(state: GameState): void {
     const role = map.roles[i];
     if (role === "entrance" || role === "vault") return 0;
     const area = r.w * r.h;
-    const ramp = 0.35 + 0.65 * (map.depths[i] ?? 0.5);
+    // Ramp toward the stairs, but early rooms stay genuinely dangerous — the
+    // pacing is a tilt, not a safety corridor.
+    const ramp = 0.55 + 0.45 * (map.depths[i] ?? 0.5);
     return area * ramp * (role === "landmark" ? 1.4 : 1);
   });
   const totalW = weights.reduce((s, x) => s + x, 0);

@@ -48,10 +48,11 @@ export const CONFIG = {
   mpDamagePerExtraPlayer: 0.15, // +15% monster damage per extra crawler
   mpBossHpPerExtraPlayer: 0.75, // the boss scales harder (it is shared)
 
-  // Monsters (density tuned for the 64x64 floors)
-  monsterBaseCountFloor1: 6,
-  monsterCountPerFloor: 2,
-  monsterMaxCount: 30,
+  // Monsters (density tuned for the 72x72 floors: it should feel like you
+  // could actually die on floor 1, not like an empty museum)
+  monsterBaseCountFloor1: 11,
+  monsterCountPerFloor: 2.5,
+  monsterMaxCount: 38,
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
   monsterBaseDamage: 6,
