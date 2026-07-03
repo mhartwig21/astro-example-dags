@@ -4,10 +4,11 @@ import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
-import { CONFIG } from "../sim/config";
+import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { FogOfWar } from "./fogOfWar";
+import { AmbientParticles } from "./ambient";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -81,6 +82,8 @@ export class Renderer3D {
   private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
   // The visible fog bank over unexplored space (drifting planes; see fogOfWar.ts).
   private fogBank = new FogOfWar();
+  // Band-themed atmosphere (dust/spores/embers/sparks/ash; see ambient.ts).
+  private ambientFx = new AmbientParticles();
   private propEntries: { obj: THREE.Object3D; tile: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
@@ -96,7 +99,14 @@ export class Renderer3D {
   private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
   private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
-  private shake = 0;
+  // Trauma-based screen shake: hits add trauma (clamped 0..1), the applied
+  // amplitude is trauma SQUARED — chip damage barely whispers, boss slams and
+  // airstrikes kick — and trauma decays linearly so shakes settle fast.
+  private trauma = 0;
+  private static SHAKE_MAX = 0.5; // world-unit amplitude at full trauma
+  private addTrauma(amount: number): void {
+    this.trauma = Math.min(1, this.trauma + amount);
+  }
   private particles: {
     mesh: THREE.Mesh;
     vx: number; vy: number; vz: number; life: number; max: number;
@@ -177,6 +187,7 @@ export class Renderer3D {
 
     this.scene.add(this.floorGroup);
     this.scene.add(this.fogBank.group);
+    this.scene.add(this.ambientFx.group);
   }
 
   async init(): Promise<void> {
@@ -671,6 +682,7 @@ export class Renderer3D {
     }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
     this.fogBank.rebuild(map, theme);
+    this.ambientFx.rebuild(floorBand(state.floor), state.players[0]?.pos.x ?? map.w / 2, state.players[0]?.pos.y ?? map.h / 2);
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
@@ -875,6 +887,7 @@ export class Renderer3D {
     if (strikes.length < this.prevStrikeCount) {
       for (const pos of this.prevStrikePos.slice(strikes.length)) {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+        this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
     this.prevStrikeCount = strikes.length;
@@ -937,7 +950,10 @@ export class Renderer3D {
         }
         const np = novaParams(p);
         const prog = 1 - p.novaFlash / 0.3;
-        if (!ring.visible) this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
+        if (!ring.visible) {
+          this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
+          this.addTrauma(0.3);
+        }
         ring.visible = true;
         ring.position.set(p.pos.x, 0.15, p.pos.y);
         ring.scale.setScalar(Math.max(0.05, np.radius * prog));
@@ -1226,10 +1242,11 @@ export class Renderer3D {
     this.updateDying(dt);
     this.updateAbilityFx(state, dt);
 
-    // Camera follows the player from the fixed iso direction, plus decaying shake.
-    this.shake = Math.max(0, this.shake - dt * 2.5);
-    const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
-    const sz = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    // Camera follows the player from the fixed iso direction, plus trauma shake.
+    this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
+    const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
+    const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
@@ -1244,6 +1261,9 @@ export class Renderer3D {
     this.camera.lookAt(ax, 0, az);
     this.key.position.set(ax + 8, 20, az + 6);
     this.key.target.position.set(ax, 0, az);
+
+    // Band atmosphere rides in a wrap-around box centered on the player.
+    this.ambientFx.update(ax, az, dt, time);
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
@@ -1293,9 +1313,9 @@ export class Renderer3D {
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
       const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
-      if (h.kind === "player") this.shake = Math.min(0.6, this.shake + 0.35);
-      if (h.kind === "crit") this.shake = Math.min(0.4, this.shake + 0.15);
-      if (h.killed && h.kind !== "player") this.shake = Math.min(0.5, this.shake + 0.12);
+      if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
+      if (h.kind === "crit") this.addTrauma(0.3);
+      if (h.killed && h.kind !== "player") this.addTrauma(0.25);
     }
   }
 
