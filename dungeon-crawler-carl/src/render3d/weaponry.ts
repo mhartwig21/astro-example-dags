@@ -56,6 +56,16 @@ function noun(item: Item): string {
 
 /** Resolve a player's equipped items to the meshes their model should show. */
 export function loadoutFor(p: Player): { weapon: WeaponVisual; shield: string | null } {
+  // Deadeye stance: the ranged specialist HOLDS a ranged weapon. The crossbow
+  // grafts over from rogue.glb and pairs with the aiming idle + shoot clips;
+  // rare+ weapons upgrade it to the two-handed arbalest.
+  if (p.abilities.slots.includes("stance") && p.stance === "ranged") {
+    const w = p.equipment.weapon;
+    const heavy = w && (w.rarity === "rare" || w.rarity === "epic");
+    return heavy
+      ? { weapon: { srcKey: "monster_phantom", node: "2H_Crossbow", twoHanded: true }, shield: null }
+      : { weapon: { srcKey: "monster_phantom", node: "1H_Crossbow" }, shield: null };
+  }
   const w = p.equipment.weapon;
   const spec = w ? WEAPON_VISUALS[noun(w)] : undefined;
   const heavy = w && (w.rarity === "rare" || w.rarity === "epic");

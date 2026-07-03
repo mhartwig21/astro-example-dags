@@ -95,7 +95,15 @@ export class Renderer3D {
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   private prevPlayers = new Map<number, Vec2>();
-  private prevSwings = new Map<number, number>();
+  // Last-frame combat state per player: the clip machine fires on EDGES
+  // (cooldowns jumping up = a cast; overcharge falling = the spend; etc.).
+  private animPrev = new Map<number, {
+    swing: number; dash: number; alive: boolean; overcharged: boolean;
+    cd: Partial<Record<string, number>>;
+  }>();
+  // Floor-clear celebration edge (monster count > 0 -> 0 while still playing).
+  private prevMonsterCount = -1;
+  private prevStatus = "playing";
   private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
   private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
@@ -233,9 +241,15 @@ export class Renderer3D {
   }
 
   /**
-   * Wire an AnimationMixer with idle/walk/attack/death actions (clip names matched
-   * fuzzily so any humanoid pack works). Exposes userData.mixer and
-   * userData.play(name, force?) with crossfading; one-shot actions clamp.
+   * Wire an AnimationMixer over the full KayKit moveset (clip names matched
+   * fuzzily so any humanoid pack works; missing clips simply aren't registered).
+   * Exposes on userData:
+   *   mixer               — for external ticking (corpses)
+   *   play(name, force?)  — crossfade to a clip; one-shots clamp and set `busy`
+   *   playFirst(...names) — play the first name that exists (fallback chains)
+   *   hasClip(name)       — availability probe
+   *   animTick(dt)        — advance mixer + drain the busy timer
+   *   animBusy()          — seconds left of the current one-shot (0 = interruptible)
    */
   private attachClipAnimator(g: THREE.Group, clips: THREE.AnimationClip[]): void {
     const pick = (...res: RegExp[]) => {
@@ -246,34 +260,158 @@ export class Renderer3D {
       return null;
     };
     const found: Record<string, THREE.AnimationClip | null> = {
+      // Locomotion + idles (looping)
       idle: pick(/^idle$/i, /idle/i),
-      walk: pick(/^walk/i, /walk/i, /^run/i, /run/i),
+      idle_brawler: pick(/2H_Melee_Idle/i, /Idle_Combat/i), // stance: weapon up
+      idle_deadeye: pick(/1H_Ranged_Aiming/i), // stance: sighting down the barrel
+      walk: pick(/^walking_a$/i, /^walk/i, /walk/i, /^run/i, /run/i),
+      run: pick(/^running_a$/i, /^run/i),
+      walk_back: pick(/Walking_Backwards/i),
+      strafe_left: pick(/Running_Strafe_Left/i),
+      strafe_right: pick(/Running_Strafe_Right/i),
+      // Attacks (one-shot). melee_a..d cycle as a swing combo.
       attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab/i),
-      hit: pick(/^hit/i, /hit|impact|react/i), // stagger reaction (KayKit ships these)
-      death: pick(/^death/i, /death|die/i),
+      melee_a: pick(/1H_Melee_Attack_Chop/i),
+      melee_b: pick(/1H_Melee_Attack_Slice_Diagonal/i),
+      melee_c: pick(/1H_Melee_Attack_Slice_Horizontal/i),
+      melee_d: pick(/1H_Melee_Attack_Stab/i),
+      spin: pick(/2H_Melee_Attack_Spin\b/i, /Spinning/i), // overcharged swings
+      shoot: pick(/1H_Ranged_Shoot$/i, /Spellcast_Shoot/i),
+      cast_raise: pick(/Spellcast_Raise/i), // nova: raise-and-burst
+      cast_long: pick(/Spellcast_Long/i, /Spellcasting/i), // overcharge: banking power
+      cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i), // ultimates: call it down
+      block: pick(/^Block$/i, /^Blocking$/i), // stance-swap flourish
+      block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield
+      dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
+      // Reactions + exits (one-shot)
+      hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
+      hit_b: pick(/^Hit_B$/i),
+      death: pick(/^death_a$/i, /^death/i, /death|die/i),
+      death_b: pick(/^Death_B$/i),
+      // Theater (one-shot)
+      awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i), // rise on first reveal
+      taunt: pick(/Taunt_Longer/i, /^Taunt$/i), // ringside introductions
+      cheer: pick(/^Cheer/i), // floor clear / victory lap
+    };
+    // Everything except locomotion/idles plays once then yields via the busy timer.
+    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right"]);
+    // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
+    const TARGET: Record<string, number> = {
+      attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
+      spin: 0.5, shoot: 0.3, cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
+      block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
     const mixer = new THREE.AnimationMixer(g);
     const actions: Record<string, THREE.AnimationAction> = {};
+    const durations: Record<string, number> = {};
     for (const [name, clip] of Object.entries(found)) {
       if (!clip) continue;
       const a = mixer.clipAction(clip);
-      if (name === "attack" || name === "death") {
+      if (!LOOPING.has(name)) {
         a.setLoop(THREE.LoopOnce, 1);
-        a.clampWhenFinished = true;
-        if (name === "attack") a.timeScale = Math.max(1, clip.duration / 0.3);
+        a.clampWhenFinished = true; // hold the last frame; the next play() resets pose
+        if (TARGET[name]) a.timeScale = Math.max(1, clip.duration / TARGET[name]);
       }
+      durations[name] = clip.duration / (a.timeScale || 1);
       actions[name] = a;
     }
     let current = "";
+    let busy = 0;
     g.userData.mixer = mixer;
-    g.userData.play = (name: string, force = false) => {
+    g.userData.hasClip = (name: string) => !!actions[name];
+    const play = (name: string, force = false) => {
       const next = actions[name];
       if (!next || (current === name && !force)) return;
       const prev = actions[current];
       next.reset().play();
       if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
       current = name;
+      if (!LOOPING.has(name)) busy = durations[name];
     };
+    g.userData.play = play;
+    g.userData.playFirst = (...names: string[]) => {
+      for (const n of names) if (actions[n]) { play(n, true); return; }
+    };
+    g.userData.animTick = (dt: number) => {
+      mixer.update(dt);
+      if (busy > 0) busy = Math.max(0, busy - dt);
+    };
+    g.userData.animBusy = () => busy;
+  }
+
+  /**
+   * Drive a rigged player's clips from sim-state EDGES: a dash starts a dodge,
+   * each swing advances the melee combo (an overcharged spend becomes the spin),
+   * casts map per ability, and locomotion picks run/backpedal/strafe from where
+   * the feet actually go vs where the body faces. One-shots own the rig until
+   * their busy timer drains, so nothing gets stomped mid-swing.
+   */
+  private animateRiggedPlayer(mesh: THREE.Group, pl: Player, plSpeed: number, move: Vec2, dt: number): void {
+    const ud = mesh.userData;
+    const play = ud.play as (n: string, force?: boolean) => void;
+    const playFirst = ud.playFirst as (...n: string[]) => void;
+    const hasClip = ud.hasClip as (n: string) => boolean;
+    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {} };
+    const cds = pl.cd as Partial<Record<string, number>>;
+    const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
+
+    if (!pl.alive) {
+      if (prev.alive) {
+        ud.deathClip = Math.random() < 0.5 && hasClip("death_b") ? "death_b" : "death";
+      }
+      play(ud.deathClip as string ?? "death");
+    } else {
+      if (!prev.alive) play("idle", true); // revived on descent: stand back up
+      const spentCharge = prev.overcharged && !pl.overcharged;
+      if (pl.dashTime > prev.dash + 1e-6) {
+        playFirst("dodge");
+      } else if (pl.attackSwing > prev.swing + 1e-6) {
+        if (spentCharge && hasClip("spin")) {
+          play("spin", true); // the banked swing is a different animal
+        } else {
+          const combo = ["melee_a", "melee_b", "melee_c", "melee_d"].filter(hasClip);
+          if (combo.length > 0) {
+            ud.combo = (((ud.combo as number | undefined) ?? -1) + 1) % combo.length;
+            play(combo[ud.combo as number], true);
+          } else {
+            play("attack", true);
+          }
+        }
+      } else if (cdRose("bolt")) playFirst("shoot", "attack");
+      else if (cdRose("nova")) playFirst("cast_raise", "attack");
+      else if (cdRose("overcharge")) playFirst("cast_long", "cast_raise");
+      else if (cdRose("stance")) playFirst("block");
+      else if (cdRose("airstrike") || cdRose("cataclysm") || cdRose("bullettime")) playFirst("cast_summon", "cast_raise");
+      else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
+    }
+    this.animPrev.set(pl.id, {
+      swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
+      overcharged: pl.overcharged, cd: { ...cds },
+    });
+    (ud.animTick as (dt: number) => void)(dt);
+  }
+
+  /** Feet vs facing: forward run/walk, backpedal when retreating under aim, strafes sideways. */
+  private playLocomotion(mesh: THREE.Group, pl: Player, speed: number, move: Vec2): void {
+    const ud = mesh.userData;
+    const play = ud.play as (n: string, force?: boolean) => void;
+    const playFirst = ud.playFirst as (...n: string[]) => void;
+    if (speed <= 0.4) {
+      // Idle broadcasts the stance: Brawler squares up, Deadeye sights the lane.
+      if (pl.abilities.slots.includes("stance")) {
+        playFirst(pl.stance === "melee" ? "idle_brawler" : "idle_deadeye", "idle");
+      } else {
+        play("idle");
+      }
+      return;
+    }
+    const len = Math.hypot(move.x, move.y);
+    const mx = move.x / len, my = move.y / len;
+    const forward = mx * pl.facing.x + my * pl.facing.y;
+    const side = pl.facing.x * my - pl.facing.y * mx; // >0: drifting left of facing
+    if (forward > 0.5) playFirst(speed > 3 ? "run" : "walk", "walk");
+    else if (forward < -0.5) playFirst("walk_back", "walk");
+    else playFirst(side > 0 ? "strafe_left" : "strafe_right", "walk");
   }
 
   private raycaster = new THREE.Raycaster();
@@ -996,31 +1134,26 @@ export class Renderer3D {
       let mesh = this.playerMeshes.get(pl.id);
       if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
       const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
-      const plSpeed = Math.hypot(pl.pos.x - prev.x, pl.pos.y - prev.y) / dt;
+      const move = { x: pl.pos.x - prev.x, y: pl.pos.y - prev.y };
+      const plSpeed = Math.hypot(move.x, move.y) / dt;
       this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
-      const prevSwing = this.prevSwings.get(pl.id) ?? 0;
       if (mesh.userData.mixer) {
         // Real rigged model: drive clips; procedural bob/tip-over would fight them.
-        const play = mesh.userData.play as (n: string, force?: boolean) => void;
-        if (!pl.alive) play("death");
-        else if (pl.attackSwing > prevSwing + 1e-6) play("attack", true);
-        else if (pl.attackSwing <= 0) play(plSpeed > 0.4 ? "walk" : "idle");
-        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+        this.animateRiggedPlayer(mesh, pl, plSpeed, move, dt);
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
-      this.prevSwings.set(pl.id, pl.attackSwing);
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
         this.scene.remove(mesh);
         this.playerMeshes.delete(id);
         this.prevPlayers.delete(id);
-        this.prevSwings.delete(id);
+        this.animPrev.delete(id);
       }
     }
 
@@ -1059,14 +1192,36 @@ export class Renderer3D {
       this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
-        // Rigged model: clip by combat state — hit reaction while staggered,
-        // attack clip through the windup, else walk/idle. No squash (it would
-        // deform the skinned mesh instead of reading as a hit).
-        const playM = mesh.userData.play as (n: string, force?: boolean) => void;
-        if (mon.stagger > 0) playM("hit");
-        else if (mon.windup > 0) playM("attack");
-        else playM(mSpeed > 0.2 ? "walk" : "idle");
-        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+        // Rigged model: clip by combat state. No squash (it would deform the
+        // skinned mesh instead of reading as a hit).
+        const ud = mesh.userData;
+        const playM = ud.play as (n: string, force?: boolean) => void;
+        const playFirstM = ud.playFirst as (...n: string[]) => void;
+        // Theater: skeletons RISE the first time the fog reveals them, and the
+        // introduced menace performs through its ringside freeze.
+        if (mesh.visible && !ud.revealed) {
+          ud.revealed = true;
+          playFirstM("awaken");
+        }
+        const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        if (state.encounter?.monsterId === mon.id) {
+          // One performance per introduction — playFirst force-restarts, so gate it.
+          if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
+        } else {
+          ud.taunting = false;
+          if (staggerRose) {
+            // Shielded elites soak it on the shield (explains the damage reduction);
+            // everyone else alternates the two hit reactions.
+            if (mon.affix === "shielded") playFirstM("block_hit", "hit");
+            else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
+          } else if (mon.windup > 0) {
+            playM(mon.windupKind === "shot" && (ud.hasClip as (n: string) => boolean)("shoot") ? "shoot" : "attack");
+          } else if ((ud.animBusy as () => number)() <= 0) {
+            playM(mSpeed > 0.2 ? "walk" : "idle");
+          }
+        }
+        ud.prevStagger = mon.stagger;
+        (ud.animTick as (dt: number) => void)(dt);
         mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
         mesh.scale.setScalar(bs);
       } else {
@@ -1140,12 +1295,29 @@ export class Renderer3D {
           this.scene.remove(mesh);
         } else {
           // Death: let the corpse play out (death clip / tumble) before removal.
+          // Two death clips keep a cleared pack from dying in unison.
           const rigged = !!mesh.userData.mixer;
-          if (rigged) (mesh.userData.play as (n: string, force?: boolean) => void)("death", true);
-          this.dying.push({ mesh, t: 0.7, rigged });
+          if (rigged) {
+            const variant = Math.random() < 0.5 && (mesh.userData.hasClip as (n: string) => boolean)("death_b") ? "death_b" : "death";
+            (mesh.userData.play as (n: string, force?: boolean) => void)(variant, true);
+          }
+          this.dying.push({ mesh, t: rigged ? 1.1 : 0.7, rigged });
         }
       }
     }
+
+    // Floor cleared (or run won): the crawlers play to the camera. A rebuild
+    // also empties the count, so gate the edge on NOT having changed floors.
+    const monsterCount = state.monsters.length;
+    const cleared = !rebuilt && this.prevMonsterCount > 0 && monsterCount === 0 && state.status === "playing";
+    const won = state.status === "won" && this.prevStatus !== "won";
+    if (cleared || won) {
+      for (const m of this.playerMeshes.values()) {
+        if (m.userData.playFirst) (m.userData.playFirst as (...n: string[]) => void)("cheer");
+      }
+    }
+    this.prevMonsterCount = monsterCount;
+    this.prevStatus = state.status;
 
     // Volatile-corpse hazards: reconcile blast-telegraph rings by id.
     const hazSeen = new Set<number>();
