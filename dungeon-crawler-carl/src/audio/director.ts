@@ -1,3 +1,4 @@
+import { CONFIG } from "../sim/config";
 import type { GameState, HitEvent, HitKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
@@ -21,6 +22,25 @@ const HIT_SOUNDS: Record<HitKind, SoundId> = {
 /** Hits farther than this (in tiles) from the local player are inaudible. */
 const EARSHOT = 24;
 
+// Soundtrack pools. Regular fights rotate the battle bed per floor so runs
+// don't wear one track out; boss arenas get dedicated themes that escalate
+// toward the final floor.
+const BATTLE_TRACKS: SoundId[] = ["music_battle_a", "music_battle_b", "music_battle_c"];
+const CITY_BOSS_TRACKS: SoundId[] = ["music_boss_epic", "music_boss_tides"];
+// A pack inside aggro range is actively hunting you (sim rule), so it reads
+// as a fight even before first blood.
+const PACK_RADIUS = CONFIG.monsterAggroRange;
+const PACK_SIZE = 3;
+const BATTLE_LINGER = 6; // seconds of quiet before battle music stands down
+const BOSS_EARSHOT = 26; // a living boss within this range owns the soundtrack
+
+/** The final floor gets the colossal theme; city-boss arenas rotate the rest. */
+function bossTrack(floor: number): SoundId {
+  if (floor >= CONFIG.finalFloor) return "music_boss_colossal";
+  const arena = Math.max(0, Math.floor(floor / CONFIG.cityBossEvery) - 1);
+  return CITY_BOSS_TRACKS[arena % CITY_BOSS_TRACKS.length];
+}
+
 interface Prev {
   phase: GameState["phase"];
   floor: number;
@@ -43,6 +63,7 @@ export class AudioDirector {
   private prev: Prev | null = null;
   // Monsters currently winding up an attack — a new id is a fresh "tell".
   private winding = new Set<number>();
+  private battleUntil = 0; // state.elapsed until which the battle bed persists
 
   constructor(private sink: AudioSink) {}
 
@@ -54,11 +75,13 @@ export class AudioDirector {
     // Combat feedback: attenuate + pan by position relative to the local player.
     // Screen-x under the fixed iso camera grows with (world x - world y), so a
     // simple (dx - dy) pan matches what the player sees.
+    let combat = false; // a real blow landed in earshot this frame
     for (const h of hits) {
       const dx = h.pos.x - p.pos.x;
       const dy = h.pos.y - p.pos.y;
       const d = Math.hypot(dx, dy);
       if (d > EARSHOT) continue;
+      if (h.kind === "enemy" || h.kind === "crit" || h.kind === "player") combat = true;
       const opts = {
         gain: 1 / (1 + d / 6),
         pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
@@ -135,12 +158,27 @@ export class AudioDirector {
       if (cur.boltCd > prev.boltCd) this.sink.play("bolt"); // cooldown jumps on cast
     }
 
+    // Battle/boss detection. Blows landing in earshot (or a pack closing in)
+    // raise the battle bed and keep it up; it stands down after a quiet spell.
+    // A living boss nearby owns the soundtrack outright.
+    let pack = 0;
+    let bossNear = false;
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
+      if (m.kind === "boss" && d <= BOSS_EARSHOT) bossNear = true;
+      if (d <= PACK_RADIUS) pack++;
+    }
+    if (combat || pack >= PACK_SIZE) this.battleUntil = state.elapsed + BATTLE_LINGER;
+
     // Music bed follows the run's mood; the engine crossfades on change and
     // no-ops when the requested track isn't present.
     this.sink.music(
       cur.status !== "playing" ? null
       : cur.inSafeRoom ? "music_safe"
+      : bossNear ? bossTrack(state.floor)
       : cur.phase === "collapse" ? "music_collapse"
+      : state.elapsed < this.battleUntil ? BATTLE_TRACKS[state.floor % BATTLE_TRACKS.length]
       : "music_dungeon",
     );
   }

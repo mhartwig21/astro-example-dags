@@ -1,19 +1,20 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, RARITIES, floorBand, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
-import { generateItem, itemScore } from "./items";
+import { COMPLETED_RECIPES, generateItem, itemScore } from "./items";
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
+  rank,
   novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
-  EliteAffix, GameState, HitEvent, Intent, Item, Loot, Monster, MonsterKind, PartyIntents,
-  Player, Reward, SafeRoom, ShopItem, Vec2,
+  EliteAffix, GameState, HitEvent, Intent, Item, Loot, MaterialId, Monster, MonsterKind,
+  PartyIntents, PassiveId, Player, Reward, SafeRoom, ShopItem, Vec2,
 } from "./types";
 import { NO_INTENT, Tile } from "./types";
 
@@ -374,6 +375,7 @@ function makePlayer(id: number, name: string): Player {
     kills: 0,
     killsThisStep: 0,
     lowHpKill: false,
+    materials: { scrap: 0, elite_trophy: 0, boss_sigil: 0 },
     damageDealt: 0,
     damageTaken: 0,
     hype: 0,
@@ -487,6 +489,7 @@ export interface SavedProgress {
     name?: string;
     damageDealt?: number;
     damageTaken?: number;
+    materials?: Record<MaterialId, number>;
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -542,6 +545,13 @@ export function restoreGame(save: SavedProgress): GameState {
   }
   p.damageDealt = s.damageDealt ?? 0;
   p.damageTaken = s.damageTaken ?? 0;
+  if (s.materials) {
+    p.materials = {
+      scrap: s.materials.scrap ?? 0,
+      elite_trophy: s.materials.elite_trophy ?? 0,
+      boss_sigil: s.materials.boss_sigil ?? 0,
+    };
+  }
   // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
   // fold the surplus over intrinsic into permanent bonuses so old runs resume intact.
   if (s.bonusDamage === undefined && s.baseDamage !== undefined) {
@@ -916,7 +926,9 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > mp.arc / 2) continue;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult, {
+    // EXECUTIONER capstone: finish the wounded.
+    const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
+    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute, {
       dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
     });
   }
@@ -983,6 +995,8 @@ function reapDead(state: GameState): void {
     const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
     killer.kills++;
     killer.killsThisStep++;
+    if (hasPassive(killer, "ledger")) killer.gold += 3; // Landlord's Ledger
+    if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
     // Kills refill the flask (only while a charge is missing): aggression = sustain.
@@ -1014,17 +1028,20 @@ function reapDead(state: GameState): void {
     }
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
-    // Named menaces shower guaranteed rewards.
+    // Named menaces shower guaranteed rewards (incl. crafting materials).
     if (m.elite) {
+      state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "elite_trophy" });
       dropBossBonus(state, m.pos, 1);
       addHype(state, killer, CONFIG.show.hypeBrute);
       announce(state, `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
     }
     if (m.kind === "boss") {
       if (state.floor >= CONFIG.finalFloor) {
+        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         state.status = "won";
         announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.");
       } else {
+        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         dropBossBonus(state, m.pos, 2);
         addHype(state, killer, CONFIG.show.hypeBoss);
         announce(state, `CITY BOSS ${m.eliteName ?? ""} DEFEATED! The exit is OPEN. Sponsors are weeping with joy.`);
@@ -1066,6 +1083,14 @@ function collectLoot(state: GameState): void {
         announce(state, `${p.name} has the key! The stairs district is OPEN.`);
         addHype(state, p, 12);
         hit(state, p.pos, 0, "weapon");
+        break;
+      }
+      case "material": {
+        if (l.material) {
+          p.materials[l.material] = (p.materials[l.material] ?? 0) + l.amount;
+          state.events.push(`${p.name} picked up ${l.amount}x ${l.material.replace("_", " ")}.`);
+          hit(state, p.pos, 0, "weapon");
+        }
         break;
       }
       case "tome": {
@@ -1275,6 +1300,76 @@ export function setReady(state: GameState, playerId: number): void {
   else state.events.push(`${state.players.find((p) => p.id === playerId)?.name ?? "?"} is ready to descend (${room.ready.length}/${state.players.length}).`);
 }
 
+// ---- Crafting bench (safe rooms only) ----
+
+const RARITY_ORDER = ["common", "magic", "rare", "epic"] as const;
+
+/** Dismantle a BAG item into scrap (safe-room bench). Equipped gear is safe. */
+export function dismantleItem(state: GameState, playerId: number, bagIdx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
+  const item = p.inventory.splice(bagIdx, 1)[0];
+  const scrap = CONFIG.craft.dismantleScrap[item.rarity];
+  p.materials.scrap += scrap;
+  state.events.push(`${p.name} dismantled ${item.name} into ${scrap} scrap.`);
+}
+
+/**
+ * Upgrade an item one rarity tier at the bench (deterministic recipe: scrap +
+ * gold, plus a trophy/sigil at higher tiers). The item keeps its NOUN — your
+ * axe stays an axe (and its 3D model) — affixes scale with the rarity multiplier
+ * and a new affix is rolled if the tier grants one.
+ */
+export function upgradeItem(state: GameState, playerId: number, where: "weapon" | "armor" | "trinket" | number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  const item = typeof where === "number" ? p.inventory[where] : p.equipment[where];
+  if (!item || item.rarity === "epic") return;
+  const cost = CONFIG.craft.upgrade[item.rarity as keyof typeof CONFIG.craft.upgrade];
+  const needTrophy = ("elite_trophy" in cost ? cost.elite_trophy : 0) as number;
+  const needSigil = ("boss_sigil" in cost ? cost.boss_sigil : 0) as number;
+  if (p.gold < cost.gold || p.materials.scrap < cost.scrap) return;
+  if (p.materials.elite_trophy < needTrophy || p.materials.boss_sigil < needSigil) return;
+  p.gold -= cost.gold;
+  p.goldSpent += cost.gold;
+  p.materials.scrap -= cost.scrap;
+  p.materials.elite_trophy -= needTrophy;
+  p.materials.boss_sigil -= needSigil;
+
+  const from = RARITIES.find((r) => r.name === item.rarity)!;
+  const nextRarity = RARITY_ORDER[RARITY_ORDER.indexOf(item.rarity) + 1];
+  const to = RARITIES.find((r) => r.name === nextRarity)!;
+  const ratio = to.mult / from.mult;
+  const a = item.affixes;
+  if (a.damage) a.damage = Math.max(a.damage + 1, Math.round(a.damage * ratio));
+  if (a.maxHp) a.maxHp = Math.max(a.maxHp + 2, Math.round(a.maxHp * ratio));
+  if (a.speed) a.speed = +(a.speed * Math.min(1.5, ratio)).toFixed(2);
+  if (a.crit) a.crit = +(a.crit * Math.min(1.5, ratio)).toFixed(3);
+  // A fresh affix if the new tier grants more than the item carries.
+  const pools: Record<Item["slot"], (keyof typeof a)[]> = {
+    weapon: ["crit", "speed", "maxHp"], armor: ["damage", "speed", "crit"], trinket: ["speed", "damage", "maxHp"],
+  };
+  const counts = { common: 1, magic: 2, rare: 3, epic: 4 } as const;
+  if (Object.keys(a).length < counts[nextRarity]) {
+    const open = pools[item.slot].filter((k) => !a[k]);
+    if (open.length > 0) {
+      const key = open[nextInt(state.rng, 0, open.length - 1)];
+      if (key === "damage") a.damage = Math.max(1, Math.round((nextInt(state.rng, 2, 4) + state.floor) * to.mult));
+      else if (key === "maxHp") a.maxHp = Math.max(2, Math.round((nextInt(state.rng, 6, 12) + state.floor * 2) * to.mult));
+      else if (key === "speed") a.speed = +((0.15 + nextFloat(state.rng) * 0.25) * Math.min(2, to.mult)).toFixed(2);
+      else a.crit = +((0.02 + nextFloat(state.rng) * 0.04) * Math.min(2.5, to.mult)).toFixed(3);
+    }
+  }
+  // New rarity prefix, same noun (the weapon model + your attachment persist).
+  const noun = item.name.split(" ").pop()!;
+  const prefixes = { magic: ["Keen", "Sturdy", "Humming"], rare: ["Vicious", "Gilded", "Runed"], epic: ["Apocalyptic", "Sovereign", "Cataclysmic"] } as const;
+  item.name = `${pick(state.rng, prefixes[nextRarity as keyof typeof prefixes])} ${noun}`;
+  item.rarity = nextRarity;
+  recomputeStats(p);
+  announce(state, `THE BENCH DELIVERS: ${p.name}'s ${noun} is now ${nextRarity.toUpperCase()}. Sponsors approve of the glow-up.`);
+}
+
 /** Leave the safe room: build the next floor and open per-player sponsor drafts. */
 export function leaveSafeRoom(state: GameState): void {
   const room = state.safeRoom;
@@ -1399,12 +1494,21 @@ function doDash(state: GameState, p: Player): void {
   const dp = dashParams(p);
   p.dashCharges--;
   if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown * cdMult(p);
+  // Blastplate Harness: the launch point detonates behind you.
+  if (hasPassive(p, "blastplate")) {
+    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, p.baseDamage);
+  }
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(p.facing);
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
   // Shockstep: a damage burst around the arrival point.
   if (dp.shockMult > 0) {
     radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
+  }
+  // AFTERSHOCK capstone: the arrival point detonates outright.
+  if (rank(p, "dash.after") > 0) {
+    radialDamage(state, p, p.pos, 1.8, p.baseDamage);
+    p.novaFlash = Math.max(p.novaFlash, 0.18);
   }
 }
 
@@ -1449,6 +1553,15 @@ function radialDamage(
 function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
   p.cd.nova = np.cooldown * cdMult(p);
+  // IMPLOSION capstone: drag everything in range toward you first.
+  if (rank(p, "nova.implode") > 0) {
+    for (const m of state.monsters) {
+      const d = dist(p.pos, m.pos);
+      if (d > np.radius * 1.6 || d < 1.2) continue;
+      const dir = { x: (p.pos.x - m.pos.x) / d, y: (p.pos.y - m.pos.y) / d };
+      moveWithCollision(state.map, m.pos, dir, Math.min(d - 1, 2.2), isWalkable);
+    }
+  }
   p.novaFlash = 0.3;
   radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
 }
@@ -1581,6 +1694,41 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2)
   }
 }
 
+/** True if any equipped item carries the given completed-work passive. */
+export function hasPassive(p: Player, id: PassiveId): boolean {
+  return (
+    p.equipment.weapon?.passive === id ||
+    p.equipment.armor?.passive === id ||
+    p.equipment.trinket?.passive === id
+  );
+}
+
+/**
+ * Forge a COMPLETED WORK at the bench: consumes an equipped EPIC base of the
+ * recipe's slot + materials + gold, and requires the sponsor backing. The item
+ * keeps its affixes (and a weapon its noun/model) and gains the unique passive.
+ */
+export function craftCompleted(state: GameState, playerId: number, recipeId: PassiveId): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  const recipe = COMPLETED_RECIPES.find((r) => r.id === recipeId);
+  if (!recipe) return;
+  const item = p.equipment[recipe.slot];
+  if (!item || item.rarity !== "epic" || item.passive) return;
+  if (p.sponsors < recipe.sponsors) return;
+  if (p.gold < recipe.gold || p.materials.scrap < recipe.scrap || p.materials.elite_trophy < recipe.elite_trophy) return;
+  p.gold -= recipe.gold;
+  p.goldSpent += recipe.gold;
+  p.materials.scrap -= recipe.scrap;
+  p.materials.elite_trophy -= recipe.elite_trophy;
+  const noun = item.name.split(" ").pop()!;
+  item.name = recipe.name(noun);
+  item.passive = recipe.id;
+  recomputeStats(p);
+  announce(state, `COMPLETED WORK: ${p.name} forges ${item.name}. ${recipe.blurb}. The sponsors sign off — this one gets a product page.`);
+  addHype(state, p, CONFIG.show.hypeEpicDrop);
+}
+
 /** A player died; the run only ends when the whole party is down. */
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
@@ -1612,6 +1760,26 @@ function updateProjectiles(state: GameState, dt: number): void {
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
           });
+          // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
+          if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
+            let best: Monster | null = null;
+            let bestD = 4.5;
+            for (const o of state.monsters) {
+              if (o === m || o.hp <= 0) continue;
+              const d = dist(pr.pos, o.pos);
+              if (d < bestD) { bestD = d; best = o; }
+            }
+            if (best) {
+              const dir = normalize({ x: best.pos.x - pr.pos.x, y: best.pos.y - pr.pos.y });
+              state.projectiles.push({
+                id: state.nextEntityId++,
+                pos: { x: pr.pos.x, y: pr.pos.y },
+                vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
+                damage: pr.damage * 0.6, ttl: 0.8, from: "player", ownerId: owner.id,
+                bounced: true, hitIds: [m.id],
+              });
+            }
+          }
           if (pr.pierce && pr.pierce > 0) {
             pr.pierce--;
             (pr.hitIds ??= []).push(m.id); // keep flying through
@@ -1731,7 +1899,14 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
         const ability = p.abilities.slots[s];
         if (cast[s] && ability) castAbility(state, p, ability, aim);
       }
-      if (cast[ABILITY_SLOTS] && p.abilities.ultimate) castAbility(state, p, p.abilities.ultimate, aim);
+      if (cast[ABILITY_SLOTS] && p.abilities.ultimate) {
+        castAbility(state, p, p.abilities.ultimate, aim);
+        // Overtime Clause: the network wants MORE ultimates.
+        const ult = p.abilities.ultimate;
+        if (hasPassive(p, "overtime") && (p.cd[ult] ?? 0) > 0) {
+          p.cd[ult] = (p.cd[ult] ?? 0) * 0.75;
+        }
+      }
       if (pi.flask) useFlask(state, p);
     }
     updateOrbit(state, p, dt);

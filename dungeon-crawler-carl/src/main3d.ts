@@ -1,14 +1,15 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyShopItem, setReady, addPlayer, slotAbility, setUltimate,
+  buyShopItem, setReady, addPlayer, slotAbility, setUltimate, dismantleItem, upgradeItem,
+  craftCompleted,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { COMPLETED_RECIPES, affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  knows, rank, type AbilityId,
+  knows, nodeOpen, rank, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
@@ -196,20 +197,30 @@ const RARITY_TEXT: Record<string, string> = {
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
+// Sponsor gifts have no ability icon; a glyph in the plate carries the read.
+const REWARD_GLYPHS: Record<string, string> = {
+  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", item: "▣", gold: "◈", bonusTime: "⌛",
+};
+
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
 function renderDraft(s: GameState): void {
   const lp = me(s);
   if (lp.pendingRewards.length > 0) {
     draftEl.classList.remove("levelup");
     draftTitle.textContent = "◆ SPONSOR DRAFT";
-    draftHint.textContent = "Your sponsors reward a good show. Choose one gift to carry down.";
+    draftHint.textContent = "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
-        const color = r.item ? RARITY_TEXT[r.item.rarity] : "#e6e6ec";
+        const tint = r.item ? ` style="--oc:${RARITY_TEXT[r.item.rarity]}"` : "";
+        const ribbon = r.item ? `<span class="oribbon">${r.item.rarity}</span>` : "";
         return (
-          `<div class="reward" data-idx="${i}">` +
-          `<div class="rtitle" style="color:${color}">${r.title}</div>` +
+          `<div class="reward" data-idx="${i}"${tint}>` +
+          `<div class="oicon"><span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span></div>` +
+          `<div class="obody">` +
+          `<div class="rtitle"><span>${r.title}</span>${ribbon}</div>` +
           `<div class="rdesc">${r.desc}</div>` +
+          `</div>` +
+          `<kbd class="okey">${i + 1}</kbd>` +
           `</div>`
         );
       })
@@ -217,24 +228,32 @@ function renderDraft(s: GameState): void {
   } else {
     draftEl.classList.add("levelup");
     draftTitle.textContent = "◆ LEVEL UP";
-    draftHint.textContent = "The System offers an evolution. Choose one upgrade.";
+    draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
-      .map((u, i) =>
-        `<div class="reward" data-idx="${i}">` +
-        `<div class="rability">${ABILITY_INFO[u.ability].name}</div>` +
-        `<div class="rtitle">${u.title}</div>` +
-        `<div class="rdesc">${u.desc}</div>` +
-        `</div>`,
-      )
+      .map((u, i) => {
+        const info = ABILITY_INFO[u.ability];
+        const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
+        const pips = Array.from({ length: max }, (_, r) => (r < u.nextRank ? "●" : "○")).join("");
+        const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
+        return (
+          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}" data-idx="${i}">` +
+          `<div class="oicon">${icon}<span class="orank">${pips}</span></div>` +
+          `<div class="obody">` +
+          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${info.name}</span></div>` +
+          `<div class="rdesc">${u.desc}</div>` +
+          `</div>` +
+          `<kbd class="okey">${i + 1}</kbd>` +
+          `</div>`
+        );
+      })
       .join("");
   }
 }
 
-draftCards.addEventListener("click", (e) => {
-  const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
-  if (!card || card.dataset.idx === undefined) return;
-  const idx = Number(card.dataset.idx);
+function chooseDraft(idx: number): void {
   const p = me(state);
+  const count = p.pendingRewards.length > 0 ? p.pendingRewards.length : p.pendingUpgrades.length;
+  if (idx < 0 || idx >= count) return;
   audio.play("buy");
   if (net) {
     net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
@@ -245,7 +264,27 @@ draftCards.addEventListener("click", (e) => {
     saveRun(state);
   }
   draftEl.style.display = "none";
+}
+
+draftCards.addEventListener("click", (e) => {
+  const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
+  if (!card || card.dataset.idx === undefined) return;
+  chooseDraft(Number(card.dataset.idx));
 });
+
+// Number keys pick an offer while the draft is up. Capture phase + stop so the
+// same digit doesn't also cast the skill bound to it underneath the overlay.
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (draftEl.style.display !== "flex") return;
+    const d = Number(e.key);
+    if (!Number.isInteger(d) || d < 1 || d > 9) return;
+    e.stopPropagation();
+    chooseDraft(d - 1);
+  },
+  true,
+);
 
 // ---- Inventory panel (pauses the game while open) ----
 const invEl = document.getElementById("inv")!;
@@ -316,6 +355,50 @@ function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
   return "BENCH";
 }
 
+/**
+ * The ability's upgrade constellation (D4/PoE-style map, Hades-style drafts):
+ * edges from prerequisites, dashed red ties between exclusive forks, diamond
+ * capstones. Fill shows invested ranks; a cyan ring marks draftable-next nodes.
+ */
+function constellation(p: ReturnType<typeof me>, id: AbilityId): string {
+  const nodes = UPGRADES.filter((u) => u.ability === id);
+  if (nodes.length === 0) return "";
+  const at = (nid: string) => nodes.find((n) => n.id === nid);
+  const parts: string[] = [];
+  // Prerequisite edges.
+  for (const u of nodes) {
+    for (const req of u.requires ?? []) {
+      const from = at(req);
+      if (!from) continue;
+      const lit = rank(p, req) > 0;
+      parts.push(`<line x1="${from.pos.x}" y1="${from.pos.y}" x2="${u.pos.x}" y2="${u.pos.y}" stroke="${lit ? "#c9a24b" : "#2a2a38"}" stroke-width="1.2"/>`);
+    }
+  }
+  // Fork ties (draw once per pair).
+  for (const u of nodes) {
+    for (const ex of u.excludes ?? []) {
+      if (u.id > ex) continue;
+      const other = at(ex);
+      if (!other) continue;
+      parts.push(`<line x1="${u.pos.x}" y1="${u.pos.y}" x2="${other.pos.x}" y2="${other.pos.y}" stroke="#7a3040" stroke-width="1" stroke-dasharray="3 3"/>`);
+    }
+  }
+  for (const u of nodes) {
+    const r = rank(p, u.id);
+    const open = nodeOpen(p, u) && r < u.maxRank;
+    const locked = !nodeOpen(p, u) && r === 0;
+    const fill = r >= u.maxRank ? "#c9a24b" : r > 0 ? "#6f5a2c" : "#14131f";
+    const ring = open ? "#4fd1ff" : locked ? "#22222e" : "#3a3a4a";
+    const label = `${u.title} — ${u.desc(Math.min(r + 1, u.maxRank))} (${r}/${u.maxRank})${locked ? " [LOCKED: fork taken or prerequisite missing]" : ""}`;
+    const shape = u.capstone
+      ? `<rect x="${u.pos.x - 6}" y="${u.pos.y - 6}" width="12" height="12" transform="rotate(45 ${u.pos.x} ${u.pos.y})" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`
+      : `<circle cx="${u.pos.x}" cy="${u.pos.y}" r="6" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`;
+    parts.push(`<g opacity="${locked ? 0.45 : 1}">${shape}<title>${label}</title>` +
+      `<text x="${u.pos.x}" y="${u.pos.y + 13}" text-anchor="middle" font-size="6.5" fill="${locked ? "#55556a" : "#9a9ab0"}">${u.title}</text></g>`);
+  }
+  return `<svg class="constellation" viewBox="-4 0 108 100" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -327,18 +410,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
       `</div>`
     );
   }
-  const nodes = UPGRADES.filter((u) => u.ability === id)
-    .map((u) => {
-      const r = rank(p, u.id);
-      const dots =
-        "●".repeat(r) + `<span class="empty">${"●".repeat(u.maxRank - r)}</span>`;
-      return (
-        `<div class="abil-node${r >= u.maxRank ? " maxed" : ""}">` +
-        `<span>${u.title}</span><span class="ranks">${dots}</span>` +
-        `</div>`
-      );
-    })
-    .join("");
+  const nodes = constellation(p, id);
   // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
   // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
   let controls = "";
@@ -542,9 +614,92 @@ const srGold = document.getElementById("sr-gold")!;
 const srStock = document.getElementById("sr-stock")!;
 const srDescend = document.getElementById("sr-descend")!;
 
+const srMaterials = document.getElementById("sr-materials")!;
+const srBench = document.getElementById("sr-bench")!;
+
+function upgradeCostLabel(rarity: string): string {
+  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
+  if (!cost) return "";
+  const parts = [`${cost.gold}g`, `${cost.scrap} scrap`];
+  if (cost.elite_trophy) parts.push(`${cost.elite_trophy} trophy`);
+  if (cost.boss_sigil) parts.push(`${cost.boss_sigil} sigil`);
+  return parts.join(" + ");
+}
+
+function canAfford(p: ReturnType<typeof me>, rarity: string): boolean {
+  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
+  if (!cost) return false;
+  return p.gold >= cost.gold && p.materials.scrap >= cost.scrap &&
+    p.materials.elite_trophy >= (cost.elite_trophy ?? 0) && p.materials.boss_sigil >= (cost.boss_sigil ?? 0);
+}
+
+function renderBench(s: GameState): void {
+  const p = me(s);
+  srMaterials.textContent =
+    `Materials: ${p.materials.scrap} scrap · ${p.materials.elite_trophy} elite trophies · ${p.materials.boss_sigil} boss sigils`;
+  const rows: string[] = [];
+  for (const slot of ["weapon", "armor", "trinket"] as const) {
+    const it = p.equipment[slot];
+    if (!it) continue;
+    const up = it.rarity !== "epic"
+      ? `<button data-craft="upgrade" data-where="${slot}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
+      : `<span style="color:#c9a6ff">MAX</span>`;
+    rows.push(`<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(${slot}, equipped)</small></span>${up}</div>`);
+  }
+  p.inventory.forEach((it, i) => {
+    const up = it.rarity !== "epic"
+      ? `<button data-craft="upgrade" data-where="${i}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
+      : "";
+    rows.push(
+      `<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(bag)</small></span>` +
+      `${up}<button data-craft="dismantle" data-where="${i}">Dismantle · +${CONFIG.craft.dismantleScrap[it.rarity]} scrap</button></div>`,
+    );
+  });
+  // COMPLETED WORKS: signature gear forged from an equipped EPIC base.
+  for (const r of COMPLETED_RECIPES) {
+    const base = p.equipment[r.slot];
+    const eligible = base && base.rarity === "epic" && !base.passive;
+    const backed = p.sponsors >= r.sponsors;
+    const afford = p.gold >= r.gold && p.materials.scrap >= r.scrap && p.materials.elite_trophy >= r.elite_trophy;
+    const name = r.name(base ? base.name.split(" ").pop()! : "…");
+    const need = `${r.gold}g + ${r.scrap} scrap + ${r.elite_trophy} trophies · needs epic ${r.slot} + ${r.sponsors} sponsor${r.sponsors > 1 ? "s" : ""}`;
+    const btn = eligible && backed && afford
+      ? `<button data-craft="complete" data-where="${r.id}">FORGE</button>`
+      : `<button disabled>${!eligible ? `needs epic ${r.slot}` : !backed ? `${r.sponsors} sponsors required` : "can't afford"}</button>`;
+    rows.push(
+      `<div class="bench-row"><span class="bname" style="color:#c9a6ff">${name} <small>${r.blurb} · ${need}</small></span>${btn}</div>`,
+    );
+  }
+  srBench.innerHTML = rows.length ? rows.join("") : `<div class="bench-row"><span class="bname" style="color:#6a6a7a">Nothing to work on. Go loot something.</span></div>`;
+}
+
+srBench.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("button[data-craft]") as HTMLElement | null;
+  if (!btn || (btn as HTMLButtonElement).disabled) return;
+  const action = btn.dataset.craft as "upgrade" | "dismantle" | "complete";
+  const whereRaw = btn.dataset.where!;
+  if (net) {
+    net.craft(action, whereRaw);
+  } else {
+    const p = me(state);
+    if (action === "dismantle") dismantleItem(state, p.id, Number(whereRaw));
+    else if (action === "complete") craftCompleted(state, p.id, whereRaw as never);
+    else if (action === "upgrade") {
+      const where = ["weapon", "armor", "trinket"].includes(whereRaw)
+        ? (whereRaw as "weapon" | "armor" | "trinket") : Number(whereRaw);
+      upgradeItem(state, p.id, where);
+    }
+    flushFeedback(state);
+    saveRun(state);
+  }
+  renderBench(state);
+  renderSafeRoom(state);
+});
+
 function renderSafeRoom(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
+  renderBench(s);
   srTip.textContent = room.tip;
   srGold.textContent = `Your gold: ${me(s).gold}`;
   if (s.safeRoom && s.players.length > 1) {
@@ -604,6 +759,9 @@ srDescend.addEventListener("click", () => {
 // count). Structure rebuilds only when the loadout changes; cooldown fills
 // update every frame.
 const skillsEl = document.getElementById("skills")!;
+const globeFill = document.querySelector("#globe .fill") as HTMLElement;
+const globeNum = document.querySelector("#globe .num") as HTMLElement;
+const xpFill = document.querySelector("#xpbar > i") as HTMLElement;
 let skillBarKey = "";
 const CD_BASE: Partial<Record<AbilityId, number>> = {
   melee: CONFIG.playerAttackCooldown, dash: CONFIG.dashCooldown, bolt: CONFIG.boltCooldown,
@@ -629,21 +787,23 @@ function updateSkills(s: GameState): void {
           ? (e.ability === "dash"
             ? `Dash ×${p.dashCharges}` // charge count in the chip
             : ABILITY_INFO[e.ability].name.split(" ").pop())
-          : "&nbsp;—&nbsp;";
+          : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}${label}<div class="cd"><i></i></div></div>`;
+        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
+          `<span class="label">${label}</span><span class="sweep"></span></div>`;
       })
       .join("") +
-      // Flask chip: charge count up front, the dim overlay shows progress
-      // toward the next charge (kills refill it — see useFlask/reapDead).
-      `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip">` +
+      // Flask chip (cockpit-style): charge count in the label; the radial
+      // sweep shows progress toward the next charge (kills refill it).
+      `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
+      `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
       `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
-      `Slurp ×${p.flaskCharges}` +
-      `<div class="cd"><i style="width:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : Math.round((1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge) * 100)}%"></i></div>` +
+      `<i class="icon"></i>` +
+      `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
       `</div>` +
       (p.abilities.bench.length > 0
         ? `<div class="skill empty"><span class="bench-badge">bench ${p.abilities.bench.length}</span></div>`
@@ -653,19 +813,22 @@ function updateSkills(s: GameState): void {
   entries.forEach((e, i) => {
     const chip = chips[i] as HTMLElement | undefined;
     if (!chip) return;
-    const fill = chip.querySelector(".cd > i") as HTMLElement | null;
-    if (!e.ability || !fill) return;
+    if (!e.ability) return;
     const remaining = p.cd[e.ability] ?? 0;
     const base = CD_BASE[e.ability] ?? 1;
     // Dash runs on charges: cd.dash is only the NEXT charge's refill timer, so
-    // the chip reads ready whenever a charge is banked.
+    // the chip reads ready whenever a charge is banked (sweep shows the refill).
     const ready = e.ability === "dash" ? p.dashCharges > 0 : remaining === 0;
     const frac = e.ability === "dash" && p.dashCharges >= CONFIG.dashCharges
       ? 0
       : Math.max(0, Math.min(1, remaining / base));
-    fill.style.width = `${frac * 100}%`;
+    chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
   });
+  // Health globe + XP strip.
+  globeFill.style.setProperty("--hp", String(Math.max(0, Math.min(1, p.hp / p.maxHp))));
+  globeNum.textContent = `${Math.max(0, Math.ceil(p.hp))}`;
+  xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
 }
 
 // Top-down minimap: explored floor only (fog of war), stairs once seen,

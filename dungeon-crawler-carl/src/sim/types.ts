@@ -77,6 +77,9 @@ export interface Player {
   killsThisStep: number; // transient: kills credited to this player this step
   lowHpKill: boolean; // transient: killed something while below 10% HP
 
+  // Crafting materials (spent at the safe-room bench).
+  materials: Record<MaterialId, number>;
+
   // Cumulative combat stats for this run.
   damageDealt: number;
   damageTaken: number;
@@ -136,7 +139,11 @@ export interface Monster {
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
+
+// Crafting materials. Scrap comes from dismantling; trophies/sigils from named
+// menaces. All spent at the safe-room bench (see CONFIG.craft).
+export type MaterialId = "scrap" | "elite_trophy" | "boss_sigil";
 export type Rarity = "common" | "magic" | "rare" | "epic";
 export type ItemSlot = "weapon" | "armor" | "trinket";
 
@@ -148,12 +155,21 @@ export interface Affixes {
   crit?: number; // added crit chance (0..1)
 }
 
+// Unique behaviors carried by COMPLETED items (crafted at the bench from an
+// epic base). Implemented as hooks in game.ts; one id = one behavior.
+export type PassiveId =
+  | "showrunner" // kills feed the broadcast: bonus hype per kill
+  | "blastplate" // your dash detonates at the launch point
+  | "ledger" // every kill credit pays bonus gold
+  | "overtime"; // ultimate cooldowns reduced
+
 export interface Item {
   id: number;
   slot: ItemSlot;
   rarity: Rarity;
   name: string;
   affixes: Affixes;
+  passive?: PassiveId; // present on completed items only
 }
 
 export interface Loot {
@@ -164,6 +180,7 @@ export interface Loot {
   item?: Item; // present when kind === "item"
   rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
   ability?: AbilityId; // present when kind === "tome": the ability it teaches
+  material?: MaterialId; // present when kind === "material"
 }
 
 // Safe-room shop: gold sinks offered between floors (see generateSafeRoom in game.ts).
@@ -214,6 +231,7 @@ export interface Projectile {
   ownerId?: number; // firing player's id (crit rolls + kill credit)
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
+  bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */

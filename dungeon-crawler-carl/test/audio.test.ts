@@ -164,6 +164,71 @@ describe("audio director", () => {
     expect(sink.ids().filter((i) => i === "tell")).toHaveLength(1);
   });
 
+  it("raises the battle bed on combat hits and stands down after the linger", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters = []; // no proximity trigger — isolate the hit trigger
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_dungeon");
+
+    director.frame(state, [{ pos: { ...p.pos }, amount: 5, kind: "enemy" }], [], p.id);
+    expect(sink.lastMusic()).toBe("music_battle_b"); // floor 1 → rotation slot 1
+
+    state.elapsed += 3; // quiet, but still inside the linger window
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_battle_b");
+
+    state.elapsed += 10; // linger expired — back to ambience
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_dungeon");
+
+    // Pickups are not combat: gold alone must not restart the battle bed.
+    director.frame(state, [{ pos: { ...p.pos }, amount: 5, kind: "gold" }], [], p.id);
+    expect(sink.lastMusic()).toBe("music_dungeon");
+  });
+
+  it("raises the battle bed when a pack closes in, before first blood", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    const near = (i: number) => ({ ...state.monsters[0], id: 9000 + i, kind: "grunt" as const, hp: 10, pos: { x: p.pos.x + 1 + i, y: p.pos.y } });
+    state.monsters = [near(0), near(1)];
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_dungeon"); // two nearby ≠ a pack
+
+    state.monsters = [near(0), near(1), near(2)];
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_battle_b");
+  });
+
+  it("gives boss floors their own themes while the boss lives and is near", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    const boss = { ...state.monsters[0], id: 9999, kind: "boss" as const, hp: 100, pos: { x: p.pos.x + 5, y: p.pos.y } };
+    state.monsters = [boss];
+
+    state.floor = 6;
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_boss_epic");
+
+    state.floor = 12;
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_boss_tides");
+
+    state.floor = 18;
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_boss_colossal");
+
+    // The boss theme even outranks the collapse bed while the fight is on...
+    state.phase = "collapse";
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_boss_colossal");
+
+    // ...but a dead boss hands the soundtrack back (battle lingers post-kill).
+    boss.hp = 0;
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_collapse");
+  });
+
   it("keeps every manifest url under public/audio/", () => {
     for (const def of Object.values(AUDIO_MANIFEST)) {
       expect(def.url).toMatch(/^\/audio\//);

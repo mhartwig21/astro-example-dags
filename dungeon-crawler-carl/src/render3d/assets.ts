@@ -40,11 +40,11 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // stairs
       "stairs_narrow", "stairs_walled", "stairs_wide", "stairs_wood_decorated",
       // props
-      "barrel_small", "box_small", "crates_stacked", "candle_lit",
+      "barrel_small", "box_small", "crates_stacked",
       "barrel_large", "bottle_A_green", "rubble_half", "trunk_small_A",
       "rubble_large", "column", "sword_shield_broken",
       "keg", "box_large", "shelf_small", "table_medium_broken",
-      "banner_red", "banner_shield_red", "candle_triple", "pillar_decorated", "chest_gold",
+      "banner_red", "banner_shield_red", "pillar_decorated", "chest_gold",
       // rule-based dressing (torch anchors, vault treasure, landmark altar)
       "torch_lit", "torch_mounted", "coin_stack_small", "coin_stack_medium",
       "coin_stack_large", "table_small_decorated_A",

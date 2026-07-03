@@ -46,29 +46,45 @@ export interface UpgradeDef {
   maxRank: number;
   /** Human description of what the NEXT rank grants. */
   desc: (nextRank: number) => string;
+  /** Node ids that must all hold rank > 0 before this node can be offered. */
+  requires?: string[];
+  /** Fork exclusivity: holding rank in any of these locks THIS node (and vice versa). */
+  excludes?: string[];
+  /** Hand-authored constellation position (0-100 space) for the T-panel graph. */
+  pos: { x: number; y: number };
+  /** Capstone: a build-defining behavior change, not a number (drawn as a diamond). */
+  capstone?: boolean;
 }
 
+// Each ability's nodes form a small constellation: an entry node, an exclusive
+// FORK (pick a side — that choice is the build), and a CAPSTONE that changes
+// behavior rather than numbers. Level-up drafts (Hades) roll from what the
+// graph says is reachable (PoE): requires gate, excludes lock the road not taken.
 export const UPGRADES: UpgradeDef[] = [
-  // Melee
-  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, desc: (r) => `Melee damage +${r * 20}%` },
-  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, desc: (r) => `Melee cooldown -${r * 12}%` },
-  { id: "melee.arc", ability: "melee", title: "Wide Arc", maxRank: 2, desc: (r) => `Swing arc +${r * 22}°` },
-  // Dash
-  { id: "dash.quick", ability: "dash", title: "Quickstep", maxRank: 3, desc: (r) => `Dash cooldown -${r * 18}%` },
-  { id: "dash.blink", ability: "dash", title: "Long Blink", maxRank: 2, desc: (r) => `Dash distance +${r * 30}%` },
-  { id: "dash.shock", ability: "dash", title: "Shockstep", maxRank: 3, desc: (r) => `Arrival burst: ${r * 50}% damage nearby` },
-  // Bolt
-  { id: "bolt.split", ability: "bolt", title: "Split Shot", maxRank: 2, desc: (r) => `Fire ${1 + r} bolts in a fan` },
-  { id: "bolt.pierce", ability: "bolt", title: "Piercing Bolts", maxRank: 2, desc: (r) => `Bolts pierce ${r} extra ${r === 1 ? "enemy" : "enemies"}` },
-  { id: "bolt.rapid", ability: "bolt", title: "Rapid Bolts", maxRank: 3, desc: (r) => `Bolt cooldown -${r * 15}%` },
-  // Nova
-  { id: "nova.bang", ability: "nova", title: "Bigger Bang", maxRank: 2, desc: (r) => `Nova radius +${r * 25}%` },
-  { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, desc: (r) => `Nova cooldown -${r * 15}%` },
-  { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, desc: (r) => `Nova damage +${r * 30}%` },
-  // Orbit
-  { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades` },
-  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%` },
-  { id: "orbit.wide", ability: "orbit", title: "Wide Orbit", maxRank: 2, desc: (r) => `Orbit radius +${r * 20}%` },
+  // Melee: arc -> (heavy XOR swift) -> Executioner
+  { id: "melee.arc", ability: "melee", title: "Wide Arc", maxRank: 2, desc: (r) => `Swing arc +${r * 22}°`, pos: { x: 50, y: 12 } },
+  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, desc: (r) => `Melee damage +${r * 20}%`, requires: ["melee.arc"], excludes: ["melee.swift"], pos: { x: 22, y: 48 } },
+  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, desc: (r) => `Melee cooldown -${r * 12}%`, requires: ["melee.arc"], excludes: ["melee.heavy"], pos: { x: 78, y: 48 } },
+  { id: "melee.execute", ability: "melee", title: "EXECUTIONER", maxRank: 1, desc: () => "Melee deals +60% to enemies below 30% HP", requires: ["melee.arc"], capstone: true, pos: { x: 50, y: 86 } },
+  // Dash: (quick XOR blink) -> shock -> Aftershock
+  { id: "dash.quick", ability: "dash", title: "Quickstep", maxRank: 3, desc: (r) => `Dash cooldown -${r * 18}%`, excludes: ["dash.blink"], pos: { x: 22, y: 14 } },
+  { id: "dash.blink", ability: "dash", title: "Long Blink", maxRank: 2, desc: (r) => `Dash distance +${r * 30}%`, excludes: ["dash.quick"], pos: { x: 78, y: 14 } },
+  { id: "dash.shock", ability: "dash", title: "Shockstep", maxRank: 3, desc: (r) => `Arrival burst: ${r * 50}% damage nearby`, pos: { x: 50, y: 50 } },
+  { id: "dash.after", ability: "dash", title: "AFTERSHOCK", maxRank: 1, desc: () => "Your dash also detonates at the arrival point", requires: ["dash.shock"], capstone: true, pos: { x: 50, y: 86 } },
+  // Bolt: rapid -> (split XOR pierce) -> Ricochet
+  { id: "bolt.rapid", ability: "bolt", title: "Rapid Bolts", maxRank: 3, desc: (r) => `Bolt cooldown -${r * 15}%`, pos: { x: 50, y: 12 } },
+  { id: "bolt.split", ability: "bolt", title: "Split Shot", maxRank: 2, desc: (r) => `Fire ${1 + r} bolts in a fan`, requires: ["bolt.rapid"], excludes: ["bolt.pierce"], pos: { x: 22, y: 48 } },
+  { id: "bolt.pierce", ability: "bolt", title: "Piercing Bolts", maxRank: 2, desc: (r) => `Bolts pierce ${r} extra ${r === 1 ? "enemy" : "enemies"}`, requires: ["bolt.rapid"], excludes: ["bolt.split"], pos: { x: 78, y: 48 } },
+  { id: "bolt.ricochet", ability: "bolt", title: "RICOCHET", maxRank: 1, desc: () => "Bolts bounce to a nearby enemy on hit (60% damage)", requires: ["bolt.rapid"], capstone: true, pos: { x: 50, y: 86 } },
+  // Nova: bang -> (after XOR conc) -> Implosion
+  { id: "nova.bang", ability: "nova", title: "Bigger Bang", maxRank: 2, desc: (r) => `Nova radius +${r * 25}%`, pos: { x: 50, y: 12 } },
+  { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
+  { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
+  { id: "nova.implode", ability: "nova", title: "IMPLOSION", maxRank: 1, desc: () => "Nova first drags everything in range toward you", requires: ["nova.bang"], capstone: true, pos: { x: 50, y: 86 } },
+  // Orbit: blade -> razor + wide (no fork; the passive stays simple)
+  { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
+  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
+  { id: "orbit.wide", ability: "orbit", title: "Wide Orbit", maxRank: 2, desc: (r) => `Orbit radius +${r * 20}%`, requires: ["orbit.blade"], pos: { x: 75, y: 62 } },
 ];
 
 const BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -162,10 +178,18 @@ export interface UpgradeOffer {
   nextRank: number;
 }
 
-/** Nodes still below max rank for abilities the player has SLOTTED — investment
- * follows the kit you actually run (benched/freed abilities are not offered). */
+/** True when the node's graph position allows investment: prerequisites taken,
+ * and no rank held in a node it forks against (the road not taken is CLOSED). */
+export function nodeOpen(p: Player, u: UpgradeDef): boolean {
+  if (u.requires && !u.requires.every((id) => rank(p, id) > 0)) return false;
+  if (u.excludes && u.excludes.some((id) => rank(p, id) > 0)) return false;
+  return true;
+}
+
+/** Nodes still below max rank for abilities the player has SLOTTED, respecting
+ * the graph: prerequisites gate, exclusive forks lock. Drafts roll from this. */
 export function availableUpgrades(p: Player): UpgradeDef[] {
-  return UPGRADES.filter((u) => slotted(p, u.ability) && rank(p, u.id) < u.maxRank);
+  return UPGRADES.filter((u) => slotted(p, u.ability) && rank(p, u.id) < u.maxRank && nodeOpen(p, u));
 }
 
 /**
