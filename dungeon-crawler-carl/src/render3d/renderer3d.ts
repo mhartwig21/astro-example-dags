@@ -29,7 +29,14 @@ export class Renderer3D {
   private key: THREE.DirectionalLight;
 
   private floorGroup = new THREE.Group();
-  private torchLights: { light: THREE.PointLight; base: number; seed: number }[] = [];
+  // Torch LIGHT POOL: torch meshes are everywhere, but only a handful of real
+  // point lights exist — reassigned each frame to the anchors nearest the
+  // player. Constant lighting cost regardless of floor size (forward-renderer
+  // fragment cost scales with light count).
+  private torchAnchors: { x: number; y: number; seed: number }[] = [];
+  private torchPool: THREE.PointLight[] = [];
+  private torchBase = 2.2;
+  private static TORCH_POOL_SIZE = 6;
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
@@ -370,16 +377,17 @@ export class Renderer3D {
   }
 
   private buildFloor(state: GameState): void {
+    // Release the previous floor's GPU buffers. Tile geometries are per-build
+    // clones (tileSource) or per-build boxes, so disposing them is safe; prop
+    // meshes share the loader cache and are skipped.
+    this.floorGroup.traverse((o) => {
+      const im = o as THREE.InstancedMesh;
+      if (im.isInstancedMesh) { im.dispose(); im.geometry.dispose(); }
+    });
     this.floorGroup.clear();
-    for (const t of this.torchLights) this.scene.remove(t.light);
-    this.torchLights = [];
+    this.torchAnchors = [];
 
     const map = state.map;
-    let floorCount = 0, wallCount = 0, doorCount = 0;
-    for (let i = 0; i < map.tiles.length; i++) {
-      if (map.tiles[i] === Tile.Wall) wallCount++; else floorCount++;
-      if (map.tiles[i] === Tile.DoorLocked) doorCount++; // floor carved under, door box on top
-    }
 
     // Theme band for this depth (art set + palette), plus a cosmetic per-floor
     // rng so floors within a band differ (mix ratio, props, tint jitter).
@@ -393,29 +401,12 @@ export class Renderer3D {
     const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
     const altSrc = this.tileSource(theme.floorAltKey);
     const wallSrc = this.tileSource(theme.wallKey) ?? this.tileSource("wall");
-    const floorMesh = floorSrc
-      ? new THREE.InstancedMesh(floorSrc.geo, floorSrc.mat, floorCount)
-      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floor), floorCount);
-    const floorAltMesh = altSrc
-      ? new THREE.InstancedMesh(altSrc.geo, altSrc.mat, floorCount)
-      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
     // The fill box is slightly shorter than the panels so their top/side surfaces
     // are never coplanar (coplanar faces z-fight and flicker as the camera moves).
     const wallHeight = 1.0;
     const fillHeight = wallHeight - 0.04;
-    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, fillHeight, 1), flat(THEME.wall), wallCount);
-    floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
-    wallMesh.castShadow = true; wallMesh.receiveShadow = true;
-    // Locked doors: gold/bronze blocks slightly taller than the walls, sitting on
-    // top of floor-carved tiles (the sim keeps them non-walkable until the key).
-    const doorMesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.96, 1.1, 0.96),
-      flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 }),
-      doorCount,
-    );
-    doorMesh.castShadow = true; doorMesh.receiveShadow = true;
 
     const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < map.w && y < map.h;
     const isFloorAt = (x: number, y: number) => inBounds(x, y) && map.tiles[y * map.w + x] !== Tile.Wall;
@@ -423,18 +414,26 @@ export class Renderer3D {
       { dx: 0, dz: 1 }, { dx: 0, dz: -1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 },
     ];
 
-    let panelMesh: THREE.InstancedMesh | null = null;
-    if (wallSrc) {
-      let panelCount = 0;
-      for (let y = 0; y < map.h; y++) {
-        for (let x = 0; x < map.w; x++) {
-          if (map.tiles[y * map.w + x] !== Tile.Wall) continue;
-          for (const d of DIRS) if (isFloorAt(x + d.dx, y + d.dz)) panelCount++;
-        }
+    // Tiles are bucketed into CHUNK x CHUNK regions, one InstancedMesh per
+    // (chunk, tile kind). A single map-wide instanced mesh defeats frustum
+    // culling — the camera sees ~1/6 of a 72x72 floor, and per-chunk meshes let
+    // three.js skip the rest (the dominant cost: 1M+ shaded triangles under
+    // many lights). Draw calls rise slightly; shaded fragments drop ~5x.
+    const CHUNK = 12;
+    const chunkCols = Math.ceil(map.w / CHUNK);
+    type Kind = "floor" | "alt" | "fill" | "panel" | "door";
+    const KINDS: Kind[] = ["floor", "alt", "fill", "panel", "door"];
+    type Bucket = Record<Kind, { m: THREE.Matrix4; tile: number }[]>;
+    const buckets = new Map<number, Bucket>();
+    const push = (kind: Kind, x: number, y: number, tile: number, mat: THREE.Matrix4) => {
+      const key = Math.floor(y / CHUNK) * chunkCols + Math.floor(x / CHUNK);
+      let b = buckets.get(key);
+      if (!b) {
+        b = { floor: [], alt: [], fill: [], panel: [], door: [] };
+        buckets.set(key, b);
       }
-      panelMesh = new THREE.InstancedMesh(wallSrc.geo, wallSrc.mat, panelCount);
-      panelMesh.castShadow = true; panelMesh.receiveShadow = true;
-    }
+      b[kind].push({ m: mat.clone(), tile });
+    };
 
     const m = new THREE.Matrix4();
     const placeFloor = (src: typeof floorSrc, x: number, y: number) => {
@@ -468,31 +467,25 @@ export class Renderer3D {
     // Track which map tile sits behind each instance so fog of war can tint it.
     // Wall instances key off the tile itself; panels key off the floor tile they
     // face (a wall face lights up when the room it borders is explored).
-    const floorTiles: number[] = [], floorAltTiles: number[] = [];
-    const wallTiles: number[] = [], panelTiles: number[] = [], doorTiles: number[] = [];
-    let fi = 0, fai = 0, wi = 0, pi = 0, di = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const idx = y * map.w + x;
         const t = map.tiles[idx];
         if (t === Tile.DoorLocked) {
-          // The door block sits over its tile; the floor branches below still run
-          // so the tile has ground under the door when it opens... which happens
-          // via a full rebuild (mapVersion bump), so just draw floor + door now.
+          // The door block sits over its tile; opening triggers a full rebuild
+          // (mapVersion bump), so just draw floor + door now.
           m.makeTranslation(x + 0.5, 1.1 / 2 - 0.02, y + 0.5);
-          doorTiles.push(idx);
-          doorMesh.setMatrixAt(di++, m);
+          push("door", x, y, idx, m);
         }
         if (t === Tile.Wall) {
           m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
-          wallTiles.push(idx);
-          wallMesh.setMatrixAt(wi++, m);
-          if (panelMesh) {
+          push("fill", x, y, idx, m);
+          if (wallSrc) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
               placePanel(x, y, d.dx, d.dz);
-              panelTiles.push((y + d.dz) * map.w + (x + d.dx));
-              panelMesh.setMatrixAt(pi++, m);
+              // Fog keys panels off the floor tile they FACE.
+              push("panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
             }
           }
         } else {
@@ -502,38 +495,48 @@ export class Renderer3D {
             : !floorSrc && (x + y) % 2 !== 0;
           if (useAlt) {
             placeFloor(altSrc, x, y);
-            floorAltTiles.push(idx);
-            floorAltMesh.setMatrixAt(fai++, m);
+            push("alt", x, y, idx, m);
           } else {
             placeFloor(floorSrc, x, y);
-            floorTiles.push(idx);
-            floorMesh.setMatrixAt(fi++, m);
+            push("floor", x, y, idx, m);
           }
         }
       }
     }
-    floorMesh.count = fi; floorAltMesh.count = fai; wallMesh.count = wi; doorMesh.count = di;
-    floorMesh.instanceMatrix.needsUpdate = true;
-    floorAltMesh.instanceMatrix.needsUpdate = true;
-    wallMesh.instanceMatrix.needsUpdate = true;
-    doorMesh.instanceMatrix.needsUpdate = true;
-    this.floorGroup.add(floorMesh, floorAltMesh, wallMesh);
-    if (di > 0) this.floorGroup.add(doorMesh);
-    if (panelMesh) {
-      panelMesh.count = pi;
-      panelMesh.instanceMatrix.needsUpdate = true;
-      this.floorGroup.add(panelMesh);
-    }
+
+    // Shared per-build geometry/material per kind (chunk meshes reuse them).
     const floorLit = new THREE.Color(theme.floorTint).multiplyScalar(tintJitter);
     const wallLitColor = new THREE.Color(theme.wallTint).multiplyScalar(tintJitter);
     const wallFillLit = wallLitColor.clone().multiplyScalar(0.55); // dark rock tops
-    this.fogTargets = [
-      { mesh: floorMesh, tiles: floorTiles, lit: floorLit },
-      { mesh: floorAltMesh, tiles: floorAltTiles, lit: floorLit },
-      { mesh: wallMesh, tiles: wallTiles, lit: wallFillLit },
-    ];
-    if (di > 0) this.fogTargets.push({ mesh: doorMesh, tiles: doorTiles, lit: new THREE.Color(1, 1, 1) });
-    if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles, lit: wallLitColor });
+    const fillGeo = new THREE.BoxGeometry(1, fillHeight, 1);
+    const fillMat = flat(THEME.wall);
+    const fallbackFloorGeo = floorSrc && altSrc ? null : new THREE.BoxGeometry(1, 0.2, 1);
+    const doorGeo = new THREE.BoxGeometry(0.96, 1.1, 0.96);
+    const doorMat = flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 });
+    const kindSpec: Record<Kind, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; lit: THREE.Color; cast: boolean } | null> = {
+      floor: { geo: floorSrc?.geo ?? fallbackFloorGeo!, mat: floorSrc?.mat ?? flat(THEME.floor), lit: floorLit, cast: false },
+      alt: { geo: altSrc?.geo ?? fallbackFloorGeo!, mat: altSrc?.mat ?? flat(THEME.floorAlt), lit: floorLit, cast: false },
+      fill: { geo: fillGeo, mat: fillMat, lit: wallFillLit, cast: true },
+      panel: wallSrc ? { geo: wallSrc.geo, mat: wallSrc.mat, lit: wallLitColor, cast: true } : null,
+      door: { geo: doorGeo, mat: doorMat, lit: new THREE.Color(1, 1, 1), cast: true },
+    };
+
+    this.fogTargets = [];
+    for (const bucket of buckets.values()) {
+      for (const kind of KINDS) {
+        const list = bucket[kind];
+        const spec = kindSpec[kind];
+        if (list.length === 0 || !spec) continue;
+        const mesh = new THREE.InstancedMesh(spec.geo, spec.mat, list.length);
+        for (let i = 0; i < list.length; i++) mesh.setMatrixAt(i, list[i].m);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.castShadow = spec.cast;
+        mesh.receiveShadow = true;
+        mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
+        this.floorGroup.add(mesh);
+        this.fogTargets.push({ mesh, tiles: list.map((e) => e.tile), lit: spec.lit });
+      }
+    }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
@@ -687,13 +690,19 @@ export class Renderer3D {
 
   /** Point lights anchored where torch meshes were placed (light = source). */
   private addTorches(theme: FloorTheme, anchors: Vec2[], intensityJitter: number): void {
-    const intensity = theme.torchIntensity * intensityJitter;
-    anchors.forEach((s, i) => {
-      const light = new THREE.PointLight(theme.torchColor, intensity, THEME.torchDistance, 2);
-      light.position.set(s.x, 1.1, s.y);
-      this.scene.add(light);
-      this.torchLights.push({ light, base: intensity, seed: i * 1.7 });
-    });
+    this.torchBase = theme.torchIntensity * intensityJitter;
+    this.torchAnchors = anchors.map((s, i) => ({ x: s.x, y: s.y, seed: i * 1.7 }));
+    if (this.torchPool.length === 0) {
+      for (let i = 0; i < Renderer3D.TORCH_POOL_SIZE; i++) {
+        const light = new THREE.PointLight(0xffffff, 0, THEME.torchDistance, 2);
+        this.scene.add(light);
+        this.torchPool.push(light);
+      }
+    }
+    for (const light of this.torchPool) {
+      light.color.set(theme.torchColor);
+      light.intensity = 0;
+    }
   }
 
   // ---- Fog of war ----
@@ -1021,9 +1030,21 @@ export class Renderer3D {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }
     }
 
-    // Torch flicker (cosmetic; uses render time, not sim time).
-    for (const t of this.torchLights) {
-      t.light.intensity = t.base * (0.75 + 0.25 * Math.sin(time * 9 + t.seed) * Math.sin(time * 3.3 + t.seed));
+    // Torch light pool: park the few real lights at the anchors nearest the
+    // player (off-screen torches don't need light), then flicker.
+    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
+    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
+      const nearest = [...this.torchAnchors]
+        .sort((a, b) =>
+          (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2 -
+          ((b.x - lp.pos.x) ** 2 + (b.y - lp.pos.y) ** 2))
+        .slice(0, this.torchPool.length);
+      this.torchPool.forEach((light, i) => {
+        const t = nearest[i];
+        if (!t) { light.intensity = 0; return; }
+        light.position.set(t.x, 1.1, t.y);
+        light.intensity = this.torchBase * (0.75 + 0.25 * Math.sin(time * 9 + t.seed) * Math.sin(time * 3.3 + t.seed));
+      });
     }
 
     this.updateParticles(dt);
