@@ -60,6 +60,45 @@ Notes:
 - Deploys restart the process → live runs drop. Deploy when nobody's crawling.
 - Custom domain later: `fly certs add game.yourdomain.com` + a CNAME.
 
+## Capacity & sizing (measured 2026-07-03)
+
+Evidence from a bot load test against production (`shared-cpu-1x`, 512MB,
+1 machine, ord). `/health` exposes live telemetry: `instances`, `players`,
+`tickMsEma`/`tickMsMax` (per-instance sim tick cost; the whole Node thread
+has a 33ms budget per 30Hz tick across ALL instances), `rssMb`, `uptimeMin`.
+
+| Load | Tick cost (per instance) | RSS | Client snapshot delivery |
+|---|---|---|---|
+| idle | -- | 84 MB | -- |
+| 16 players / 4 parties | 0.65ms avg, 12ms max | 100 MB | p50 63ms (67 ideal), p95 115ms |
+| 48 players / 12 parties | 0.5ms avg, 22ms max | 101 MB | p50 108ms, p95 500ms — degraded |
+
+Findings:
+- **CPU and memory are nowhere near the limit.** At 48 players the sim uses
+  ~18% of the tick budget; RSS is ~100MB of 512.
+- **The ceiling is BANDWIDTH, not the machine.** Snapshots are ~28KB of JSON
+  at 15/s per client (~0.4 MB/s each; ~10 MB/s at 24 players). Degraded
+  delivery at 48 players comes from the wire, and no machine size fixes it.
+- Single-player never touches this server (the sim runs in the browser).
+
+Recommendations:
+1. **Stay on `shared-cpu-1x` / 512MB.** Comfortable to ~6-8 simultaneous
+   parties (~25-30 players). Upgrading buys nothing measurable today.
+2. **Exactly 1 machine is load-bearing, not budgetary.** Party state lives
+   in process memory; a second machine splits same-code joins into separate
+   universes. Scaling out needs Postgres persistence + session affinity
+   (see GCP plan below). Never let auto-HA add a machine.
+3. Optional cheap insurance once strangers play: bump memory to 1GB so an
+   OOM restart (which wipes live parties) stays impossible.
+4. When sustained 30+ concurrent players arrive, the FIRST fix is snapshot
+   deltas + WebSocket compression (~5-10x bandwidth cut), THEN
+   `performance-1x` if tick cost ever climbs — Node is single-threaded, so
+   one fast core beats many shared ones.
+
+Re-run the measurement anytime with `scripts/loadtest.mjs <parties>
+<perParty> <seconds>` (spawns bot parties that move/cast and reports
+/health telemetry + client snapshot-gap percentiles).
+
 ## GCP migration plan (when the time comes)
 
 The container contract (PORT env, `/health`, single stateful process) maps

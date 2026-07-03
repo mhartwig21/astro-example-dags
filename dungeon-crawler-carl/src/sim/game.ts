@@ -923,21 +923,69 @@ function damageMonster(
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
 }
 
+/** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
+ * counts. Elites are rendered bigger, so their hitbox grows to match. */
+export function bodyRadius(m: Monster): number {
+  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : 1);
+}
+
+/** True when `m` is inside a swing from `pos` along `facing`: reach extends by
+ * the target's body radius, and the arc widens by its angular size — the
+ * question is "does the sweep touch the BODY", not "is the center on the line". */
+function inSwing(pos: Vec2, facing: Vec2, m: Monster, range: number, arc: number): boolean {
+  const toMon = { x: m.pos.x - pos.x, y: m.pos.y - pos.y };
+  const d = Math.hypot(toMon.x, toMon.y);
+  const r = bodyRadius(m);
+  if (d - r > range) return false;
+  const halfArc = arc / 2 + Math.asin(Math.min(1, r / Math.max(d, r)));
+  return angleBetween(facing, toMon) <= halfArc;
+}
+
 function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   const mp = meleeParams(p);
-  const facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
+  let facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
   p.cd.melee = mp.cooldown * cdMult(p);
   p.attackSwing = 0.15;
-  // The swing lunges a short step toward the aim — attacks feel aggressive and
-  // close those just-out-of-reach misses (walls stop it like any movement).
-  moveWithCollision(state.map, p.pos, facing, CONFIG.meleeLungeDistance, isWalkable);
+
+  // The swing lunges a short step toward the aim — but never THROUGH a target
+  // already in reach. Overshooting point-blank enemies (which puts them BEHIND
+  // the swing arc) was the classic "that should have hit" melee whiff.
+  let nearestAhead = Infinity;
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
+    if (angleBetween(facing, toMon) > Math.PI / 2) continue; // behind the swing
+    const edge = Math.hypot(toMon.x, toMon.y) - bodyRadius(m);
+    if (edge < nearestAhead) nearestAhead = edge;
+  }
+  const lunge = Math.min(CONFIG.meleeLungeDistance, Math.max(0, nearestAhead - 0.55));
+  if (lunge > 0) moveWithCollision(state.map, p.pos, facing, lunge, isWalkable);
+
+  // Aim assist: if the swing as aimed would hit nothing but SOMETHING is in
+  // arm's reach, snap the swing to the nearest such target — at melee range
+  // the player's intent is "hit the thing next to me", not the exact cursor.
+  const wouldHit = state.monsters.some(
+    (m) => m.hp > 0 && inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc),
+  );
+  if (!wouldHit) {
+    let snap: Monster | null = null;
+    let snapD = Infinity;
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      const edge = dist(p.pos, m.pos) - bodyRadius(m);
+      if (edge <= CONFIG.playerAttackRange && edge < snapD) { snapD = edge; snap = m; }
+    }
+    if (snap) {
+      facing = normalize({ x: snap.pos.x - p.pos.x, y: snap.pos.y - p.pos.y });
+      p.facing = facing;
+    }
+  }
 
   for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    if (!inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc)) continue;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
-    if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
-    // Must be within the swing arc of the facing direction.
-    if (angleBetween(facing, toMon) > mp.arc / 2) continue;
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
     damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute, {
@@ -1431,48 +1479,111 @@ function shuffle<T>(rng: Rng, arr: T[]): T[] {
   return a;
 }
 
-/** Build a between-floor sponsor draft for one player. Quality scales with the show. */
-function generateRewards(state: GameState, playerId: number): Reward[] {
-  const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234 ^ Math.imul(playerId + 1, 0x85ebca6b)) >>> 0);
-  const pl = state.players.find((pp) => pp.id === playerId) ?? state.players[0];
-  const q = 1 + pl.sponsors * 0.4 + Math.min(1, pl.favorites / 1000);
-  const count = Math.min(CONFIG.rewardMaxCount, CONFIG.rewardBaseCount + (pl.sponsors >= 2 ? 1 : 0));
-  const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
+/** Roll one sponsor gift of the given kind. Quality scalar q scales amounts. */
+function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number): Reward {
   const floor = state.floor;
-  return shuffle(rng, pool).slice(0, count).map((kind): Reward => {
-    const id = state.nextEntityId++;
-    switch (kind) {
-      case "healFull":
-        return { id, kind, title: "Field Medic", desc: "Restore all HP", amount: 0 };
-      case "maxHp": {
-        const amt = Math.round((18 + floor * 2) * q);
-        return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
-      }
-      case "damage": {
-        // Damage compounds with everything else the player stacks, so its
-        // quality scaling is capped — uncapped q hands out ~+80 damage per
-        // floor late-game and one-shots the boss ladder (balance bot survey).
-        const amt = Math.round((5 + floor) * Math.min(q, 2));
-        return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
-      }
-      case "crit": {
-        const pct = Math.round(4 + q * 2);
-        return { id, kind, title: "Targeting Chip", desc: `+${pct}% crit`, amount: pct / 100 };
-      }
-      case "gold": {
-        const amt = Math.round((40 + floor * 12) * q);
-        return { id, kind, title: "Cash Injection", desc: `+${amt} gold`, amount: amt };
-      }
-      case "bonusTime": {
-        const amt = Math.round(10 + q * 5);
-        return { id, kind, title: "Stabilizer", desc: `+${amt}s on this floor`, amount: amt };
-      }
-      case "item": {
-        const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
-        return { id, kind, title: item.name, desc: `${item.rarity} ${item.slot}`, amount: 0, item };
-      }
+  const id = state.nextEntityId++;
+  switch (kind) {
+    case "healFull":
+      return { id, kind, title: "Field Medic", desc: "Restore all HP", amount: 0 };
+    case "maxHp": {
+      const amt = Math.round((18 + floor * 2) * q);
+      return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
     }
-  });
+    case "damage": {
+      // Damage compounds with everything else the player stacks, so its
+      // quality scaling is capped — uncapped q hands out ~+80 damage per
+      // floor late-game and one-shots the boss ladder (balance bot survey).
+      const amt = Math.round((5 + floor) * Math.min(q, 2));
+      return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
+    }
+    case "crit": {
+      const pct = Math.round(4 + q * 2);
+      return { id, kind, title: "Targeting Chip", desc: `+${pct}% crit`, amount: pct / 100 };
+    }
+    case "gold": {
+      const amt = Math.round((40 + floor * 12) * q);
+      return { id, kind, title: "Cash Injection", desc: `+${amt} gold`, amount: amt };
+    }
+    case "bonusTime": {
+      const amt = Math.round(10 + q * 5);
+      return { id, kind, title: "Stabilizer", desc: `+${amt}s on this floor`, amount: amt };
+    }
+    case "item": {
+      const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
+      return { id, kind, title: item.name, desc: `${item.rarity} ${item.slot}`, amount: 0, item };
+    }
+  }
+}
+
+/**
+ * Rank a candidate gift for this crawler: raw power on the itemScore scale
+ * (damage 2 / hp 0.5 / crit 300), boosted up to 2x when the gift leans into
+ * stats the build already invests in. Deterministic — used only to pick which
+ * candidates survive an oversized draft.
+ */
+function rewardFitScore(p: Player, r: Reward): number {
+  // Build affinity per axis: what fraction of the crawler's investment
+  // (equipped affixes + permanent bonuses) sits on each stat.
+  let dmg = p.bonusDamage * 2;
+  let hp = p.bonusMaxHp * 0.5;
+  let crit = p.bonusCrit * 300;
+  for (const it of Object.values(p.equipment)) {
+    if (!it) continue;
+    dmg += (it.affixes.damage ?? 0) * 2;
+    hp += (it.affixes.maxHp ?? 0) * 0.5;
+    crit += (it.affixes.crit ?? 0) * 300;
+  }
+  const total = dmg + hp + crit || 1;
+  switch (r.kind) {
+    case "damage":
+      return r.amount * 2 * (1 + dmg / total);
+    case "maxHp":
+      return r.amount * 0.5 * (1 + hp / total);
+    case "crit":
+      return r.amount * 300 * (1 + crit / total);
+    case "item": {
+      const item = r.item!;
+      const cur = p.equipment[item.slot];
+      const gain = itemScore(item) - (cur ? itemScore(cur) : 0);
+      return itemScore(item) + Math.max(0, gain); // actual upgrades count double
+    }
+    case "healFull":
+      return (p.maxHp - p.hp) * 0.5; // worth exactly what it would restore
+    case "gold":
+      return r.amount * 0.08;
+    case "bonusTime":
+      return r.amount * 1.5;
+  }
+}
+
+/**
+ * Build a between-floor sponsor draft for one player. Each sponsor fields one
+ * gift, up to rewardMaxCount options — no sponsors, no gifts. Sponsors beyond
+ * the cap each pitch an extra candidate and only the best fits for this
+ * crawler's build survive, so a heavily-backed run sees stronger, more
+ * on-build options. Roll quality also scales with the show (q below).
+ */
+function generateRewards(state: GameState, playerId: number): Reward[] {
+  const pl = state.players.find((pp) => pp.id === playerId) ?? state.players[0];
+  const count = Math.min(CONFIG.rewardMaxCount, pl.sponsors);
+  if (count <= 0) return [];
+  const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234 ^ Math.imul(playerId + 1, 0x85ebca6b)) >>> 0);
+  const q = 1 + pl.sponsors * 0.4 + Math.min(1, pl.favorites / 1000);
+  const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
+  const surplus = Math.max(0, pl.sponsors - CONFIG.rewardMaxCount);
+  const candidates = shuffle(rng, pool)
+    .slice(0, Math.min(pool.length, count + surplus))
+    .map((kind) => makeReward(state, rng, kind, q));
+  if (candidates.length <= count) return candidates;
+  // Keep the best-fitting `count`, preserving the rolled order for display.
+  // A ±20% seeded jitter keeps this a bias, not a script — surplus backing
+  // raises the odds of strong on-build gifts without fixing the draft.
+  const scores = new Map(candidates.map((r) => [r, rewardFitScore(pl, r) * (0.8 + 0.4 * nextFloat(rng))]));
+  const keep = new Set(
+    [...candidates].sort((a, b) => scores.get(b)! - scores.get(a)!).slice(0, count),
+  );
+  return candidates.filter((r) => keep.has(r));
 }
 
 function applyReward(state: GameState, p: Player, r: Reward): void {
@@ -1578,7 +1689,7 @@ function radialDamage(
 ): void {
   for (const m of state.monsters) {
     const d = dist(center, m.pos);
-    if (d > radius) continue;
+    if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
     damageMonster(state, p, m, damage, { dir, knockback });
   }
@@ -1614,7 +1725,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
     for (let i = 0; i < op.blades; i++) {
       const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
       const blade = { x: p.pos.x + Math.cos(a) * op.radius, y: p.pos.y + Math.sin(a) * op.radius };
-      if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius) { touching = true; break; }
+      if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius + bodyRadius(m)) { touching = true; break; }
     }
     if (!touching) continue;
     damageMonster(state, p, m, p.baseDamage * op.damageMult, { allowCrit: false });
@@ -1765,7 +1876,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       let consumed = false;
       for (const m of state.monsters) {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
-        if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
+        if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
           });

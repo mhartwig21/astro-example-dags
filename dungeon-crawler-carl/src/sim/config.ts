@@ -53,7 +53,7 @@ export const CONFIG = {
   // Feature switches (disabled by request until the designs are reworked; the
   // code paths stay intact so flipping these back on re-enables everything).
   flaskEnabled: false, // Sponsor Slurp™ flask: drink no-ops, no refill events, chip hidden
-  achievementsEnabled: false, // no unlocks/announcements; panel section hidden
+  achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
   // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
   // the sustain loop, so the way out of danger is through the pack.
@@ -210,9 +210,10 @@ export const CONFIG = {
     frenzyExit: 40,
   },
 
-  // Sponsor rewards (end-of-floor draft)
-  rewardBaseCount: 3,
-  rewardMaxCount: 4,
+  // Sponsor rewards (end-of-floor draft): one option per sponsor, capped here.
+  // Sponsors beyond the cap pitch extra candidates and the best-fitting ones
+  // are kept (see generateRewards). No sponsors, no gifts.
+  rewardMaxCount: 3,
 
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
@@ -282,25 +283,27 @@ export type MonsterArchetype = {
   windup: number; // seconds an attack telegraphs before the strike resolves
   poise: number; // fraction of maxHp in accumulated damage that triggers a stagger
   mass: number; // knockback divisor (heavier archetypes barely move)
+  radius: number; // body radius (tiles) for HIT checks — matches render bulk,
+  // so clipping a brute's shoulder counts (elites scale by eliteScale)
 };
 
 export const ARCHETYPES = {
-  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.25, mass: 1 },
+  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.25, mass: 1, radius: 0.35 },
   // Swarmer: dies to one clean hit (that's the fantasy); threat comes from volume.
-  swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.1, mass: 0.8 },
+  swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.1, mass: 0.8, radius: 0.28 },
   // Brute: long, scary windup that lands a chunk of your HP; high poise (shrugs
   // off small hits) — respect it or interrupt it with something heavy.
-  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.7, mass: 3 },
+  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.7, mass: 3, radius: 0.55 },
   // Ranged: windup is its aim flash — it stands still to line up the shot.
-  ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1 },
+  ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1, radius: 0.35 },
   // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
   // Its "windup" is the fuse (bomberFuse) it lights on contact.
-  bomber: { hpMult: 0.55, dmgMult: 1.0, speedMult: 1.15, attackRange: 0.9, xpMult: 1.2, ranged: false, windup: 0.3, poise: 0.2, mass: 1 },
+  bomber: { hpMult: 0.55, dmgMult: 1.0, speedMult: 1.15, attackRange: 0.9, xpMult: 1.2, ranged: false, windup: 0.3, poise: 0.2, mass: 1, radius: 0.42 },
   // Shaman: never attacks (dmgMult unused); attackRange is its preferred standoff.
-  shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1 },
+  shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1, radius: 0.38 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
-  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8 },
-  boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6 },
+  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3 },
+  boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier.

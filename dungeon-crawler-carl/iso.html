@@ -126,11 +126,6 @@
         background: #0b0a14; border: 1px solid #1c1c28; border-radius: 3px; overflow: hidden; }
       #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #6fd8a8, #3fae7c);
         width: 0%; }
-      .constellation { display: block; width: 100%; height: 130px; margin-top: 6px;
-        background: #0b0a14; border: 1px solid #1c1c28; border-radius: 6px; }
-      .abil-card .icon { display: inline-block; width: 20px; height: 20px; vertical-align: -4px;
-        margin-right: 6px; background: #c9a24b; mask-size: contain; mask-repeat: no-repeat;
-        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; }
       #keys .credits { margin-top: 10px; color: #55556a; font-size: 10px; }
 
       /* Inventory panel */
@@ -229,17 +224,7 @@
       #abil h2 { margin: 0 0 4px; font-size: 15px; color: #4fd1ff; letter-spacing: 1px; }
       #abil .hint { color: #7a7a8a; font-size: 12px; margin-bottom: 14px; }
       #abil .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-      .abil-card { border: 1px solid #2a2a38; border-radius: 8px; padding: 10px 12px; background: #14131f; }
-      .abil-card.unknown { border-style: dashed; color: #6a6a7a; }
-      .abil-card .aname { font-weight: 700; font-size: 14px; color: #e6e6ec; }
-      .abil-card.unknown .aname { color: #6a6a7a; }
-      .abil-card .akey { color: #c9a24b; font-size: 11px; margin-left: 6px; }
-      .abil-card .ablurb { color: #8a8a9a; font-size: 12px; margin: 2px 0 8px; }
-      .abil-node { display: flex; justify-content: space-between; align-items: baseline;
-        font-size: 12px; padding: 3px 0; border-top: 1px dashed #22222e; }
-      .abil-node .ranks { color: #4fd1ff; letter-spacing: 2px; }
-      .abil-node .ranks .empty { color: #33334a; }
-      .abil-node.maxed .ranks { color: #f2c14e; }
+      /* Ability cards inside this panel reuse the .acard/.nrow styles below. */
 
       /* Achievements (inside the abilities panel) */
       #abil .ach-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
@@ -364,6 +349,79 @@
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
       .bag-grid .itile .ii { width: 26px; height: 26px; }
       .bag-grid .bempty { color: #3d4a42; font-size: 11px; font-style: italic; align-self: center; }
+      /* Shop sub-tabs (IN STOCK / ALL ITEMS) live inside the shop page. */
+      .shelf-col { display: flex; flex-direction: column; min-height: 0; }
+      .shop-subtabs { display: flex; gap: 3px; margin-bottom: 8px; }
+      .shop-subtabs .tab { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 2px;
+        padding: 4px 14px 3px; color: #7a8a7e; background: #0f1511; border: 1px solid #24302a; }
+      .shop-subtabs .tab:hover { color: #cfe0d2; }
+      .shop-subtabs .tab.active { color: #f2c14e; border-color: #7a6428; background: #16150f;
+        box-shadow: inset 0 -2px 0 #f2c14e; }
+      .shop-shelf { flex: 1; }
+      /* Safe-room pages (ABILITIES / ACHIEVEMENTS) share the shop's frame. */
+      .sr-page { flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px; padding-right: 6px; }
+      /* Loadout bar: 4 active slots + the ultimate. */
+      .loadout { display: flex; gap: 10px; margin: 4px 0 14px; }
+      .lslot { width: 58px; }
+      .lslot .ibox { width: 56px; height: 56px; position: relative; display: flex; align-items: center;
+        justify-content: center; background: linear-gradient(160deg, #131a16, #0b0f0d);
+        border: 1px solid #3d5244; box-shadow: inset 0 0 12px rgba(0,0,0,0.75); }
+      .lslot.empty .ibox { border-style: dashed; border-color: #24302a; }
+      .lslot.ult .ibox { border-color: #7a5cc9; }
+      .lslot .ii { width: 36px; height: 36px; background: #c9a24b; display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .lslot.ult .ii { background: #b998ff; }
+      .lslot .lkey { position: absolute; top: -1px; left: -1px; background: #0a0d0b;
+        border: 1px solid #3d5244; padding: 0 5px; font-size: 9px; color: #c9a24b; font-weight: 700; }
+      .lslot.ult .lkey { color: #b998ff; border-color: #7a5cc9; }
+      .lslot .lname { text-align: center; font-size: 9px; color: #7a8a7e; margin-top: 3px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
+         not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
+      .abil-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .acard { background: rgba(6,10,8,0.55); border: 1px solid #24302a; padding: 11px 13px; }
+      .acard.unknown { border-style: dashed; opacity: 0.55; }
+      .acard .ahead { display: flex; align-items: center; gap: 9px; }
+      .acard .ahead .ii { width: 26px; height: 26px; flex: none; background: #c9a24b; display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .acard.ult .ahead .ii { background: #b998ff; }
+      .acard .ahname { font-weight: 700; font-size: 13px; color: #e6e6ec; }
+      .acard .ahblurb { font-size: 11px; color: #7a8a7e; }
+      .acard .awhere { margin-left: auto; flex: none; font-size: 9px; letter-spacing: 1.5px;
+        color: #5fd08a; border: 1px solid #2c3a31; padding: 2px 8px; background: rgba(0,0,0,0.35); }
+      .acard .awhere.bench { color: #7a8a7e; }
+      .acard .awhere.ultc { color: #b998ff; border-color: #4a3a6a; }
+      .nrows { margin-top: 9px; }
+      .nrow { display: grid; grid-template-columns: 118px 44px 1fr; gap: 8px; align-items: baseline;
+        padding: 5px 2px 4px; border-top: 1px dashed #1c2620; font-size: 11.5px; }
+      .nrow .ntitle { color: #cfe0d2; font-weight: 700; }
+      .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
+      .nrow .npips .off { color: #2c3a31; }
+      .nrow .neffect { color: #b9d0c0; }
+      .nrow .neffect .nnext { color: #55606a; font-size: 10.5px; }
+      .nrow.taken .ntitle { color: #f2c14e; }
+      .nrow.untaken .ntitle { color: #7a8a7e; font-weight: 400; }
+      .nrow.untaken .neffect { color: #55606a; }
+      .nrow.locked { opacity: 0.45; }
+      .nrow.locked .neffect { color: #8a5a5a; font-style: italic; }
+      .nrow.capstone .ntitle { color: #c9a6ff; }
+      .nrow.taken.capstone .ntitle { color: #c9a6ff; text-shadow: 0 0 8px rgba(185,152,255,0.4); }
+      .nrow .npips .cap { font-size: 12px; }
+      /* Slot-swap buttons (safe room only; the sim enforces the gate). */
+      .slot-controls { display: flex; gap: 5px; margin-top: 9px; }
+      .slot-btn { cursor: pointer; font: inherit; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+        padding: 3px 10px; color: #9ab0a0; background: #0f1511; border: 1px solid #2c3a31; }
+      .slot-btn:hover { color: #f2c14e; border-color: #7a6428; }
+      /* Achievements page */
+      .sr-ach-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+      .sr-ach { background: rgba(6,10,8,0.55); border: 1px solid #24302a; padding: 10px 12px; }
+      .sr-ach .atitle { font-size: 12px; font-weight: 700; color: #f2c14e; letter-spacing: 0.4px; }
+      .sr-ach .adesc { font-size: 11px; color: #7a8a7e; margin-top: 3px; line-height: 1.45; }
+      .sr-ach .areward { font-size: 10px; color: #5fd08a; margin-top: 5px; }
+      .sr-ach.locked { border-style: dashed; opacity: 0.5; }
+      .sr-ach.locked .atitle { color: #7a8a7e; }
       #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: 14px;
         margin-top: 12px; padding-top: 11px; border-top: 1px solid #24302a; }
       #saferoom .descend button { cursor: pointer; background: #14231a; color: #5fd08a;
@@ -446,16 +504,23 @@
     <div id="saferoom">
       <div class="panel">
         <div class="shop-head">
-          <h2>◆ SYSTEM SHOP</h2>
+          <h2>◆ SAFE ROOM</h2>
           <div class="shop-tabs">
-            <button class="tab active" id="sr-tab-stock">IN STOCK</button>
-            <button class="tab" id="sr-tab-all">ALL ITEMS</button>
+            <button class="tab active" id="sr-tab-shop">SYSTEM SHOP</button>
+            <button class="tab" id="sr-tab-abil">ABILITIES</button>
+            <button class="tab" id="sr-tab-ach">ACHIEVEMENTS</button>
           </div>
           <div class="shop-wallet" id="sr-wallet"></div>
         </div>
         <div class="tip" id="sr-tip"></div>
-        <div class="shop-body">
-          <div class="shop-shelf" id="sr-shelf"></div>
+        <div class="shop-body" id="sr-page-shop">
+          <div class="shelf-col">
+            <div class="shop-subtabs">
+              <button class="tab active" id="sr-tab-stock">IN STOCK</button>
+              <button class="tab" id="sr-tab-all">ALL ITEMS</button>
+            </div>
+            <div class="shop-shelf" id="sr-shelf"></div>
+          </div>
           <div class="shop-side">
             <div class="shop-detail" id="sr-detail"></div>
             <div class="shop-bag">
@@ -465,6 +530,15 @@
               <div class="bag-grid" id="sr-bag"></div>
             </div>
           </div>
+        </div>
+        <div class="sr-page" id="sr-page-abil" style="display:none">
+          <div class="sec-label">THE FIVE — your loadout (4 actives + ultimate; re-slotting is a safe-room decision)</div>
+          <div class="loadout" id="sr-loadout"></div>
+          <div class="abil-cards" id="sr-abil"></div>
+        </div>
+        <div class="sr-page" id="sr-page-ach" style="display:none">
+          <div class="sec-label" id="sr-ach-count"></div>
+          <div class="sr-ach-grid" id="sr-ach"></div>
         </div>
         <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span></div>
       </div>

@@ -117,13 +117,17 @@ function hasLos(state: GameState, a: Vec2, b: Vec2): boolean {
   return true;
 }
 
-/** Nearest living, VISIBLE, non-blacklisted monster to `pos` within `range`. */
+/** Nearest living, VISIBLE, non-blacklisted monster to `pos` within `range`.
+ * The blacklist exists for unreachable-through-walls targets — a monster in
+ * arm's reach is ALWAYS a valid target, or a faster chaser (elite swarmers
+ * outrun the player) nibbles an "ignoring" bot to death. */
 function nearestThreat(state: GameState, pos: Vec2, range: number, avoid: Record<number, number>): Monster | null {
   let best: Monster | null = null;
   let bestD = range;
   for (const m of state.monsters) {
-    if (m.hp <= 0 || avoid[m.id]) continue;
+    if (m.hp <= 0) continue;
     const d = dist(pos, m.pos);
+    if (avoid[m.id] && d > 2) continue; // blacklist never applies point-blank
     if (d < bestD && hasLos(state, pos, m.pos)) { bestD = d; best = m; }
   }
   return best;

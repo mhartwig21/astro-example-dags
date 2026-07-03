@@ -8,7 +8,7 @@ import { CATALOG_BY_ID, consumablePrice, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { availableUpgrades, boltParams, knows, rank } from "../src/sim/abilities";
-import { NO_INTENT, Tile, type FloorMap, type Intent, type Vec2 } from "../src/sim/types";
+import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
@@ -332,11 +332,19 @@ describe("the show (viewers / favorites / sponsors)", () => {
 });
 
 describe("sponsor draft", () => {
-  it("leaving the safe room opens a personal reward draft (world keeps running)", () => {
-    const g = createGame(5);
+  /** Warp onto the stairs, enter the safe room, then descend with `sponsors` backers. */
+  function descendWith(seed: number, sponsors: number, tweak?: (g: GameState) => void) {
+    const g = createGame(seed);
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    g.players[0].sponsors = sponsors;
+    tweak?.(g);
     leaveSafeRoom(g);
+    return g;
+  }
+
+  it("leaving the safe room opens a personal reward draft (world keeps running)", () => {
+    const g = descendWith(5, 2);
     expect(g.floor).toBe(2);
     expect(g.players[0].pendingRewards.length).toBeGreaterThan(0);
     // Multiplayer-safe: movement still works while the draft pends.
@@ -346,6 +354,31 @@ describe("sponsor draft", () => {
     // Choosing clears the draft.
     chooseReward(g, 0, 0);
     expect(g.players[0].pendingRewards.length).toBe(0);
+  });
+
+  it("offers one option per sponsor, capped at 3 — and none without sponsors", () => {
+    expect(descendWith(5, 0).players[0].pendingRewards.length).toBe(0);
+    expect(descendWith(5, 1).players[0].pendingRewards.length).toBe(1);
+    expect(descendWith(5, 2).players[0].pendingRewards.length).toBe(2);
+    expect(descendWith(5, 3).players[0].pendingRewards.length).toBe(3);
+    expect(descendWith(5, 7).players[0].pendingRewards.length).toBe(3);
+  });
+
+  it("surplus sponsors drop dead-weight options (full-HP crawler never drafts Field Medic)", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const g = descendWith(seed, 7, (gg) => { gg.players[0].hp = gg.players[0].maxHp; });
+      // 7 sponsors pitch all 7 kinds; the 3 kept are the best fits, and a full
+      // heal for a full-HP crawler scores zero.
+      expect(g.players[0].pendingRewards.map((r) => r.kind)).not.toContain("healFull");
+    }
+  });
+
+  it("surplus sponsors skew the draft toward the crawler's build", () => {
+    // Same seed, same candidates — only the build differs.
+    const critBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusCrit = 1; });
+    const hpBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusMaxHp = 500; });
+    expect(critBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("crit");
+    expect(hpBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("maxHp");
   });
 
   it("applies the chosen reward's effect", () => {
@@ -359,14 +392,10 @@ describe("sponsor draft", () => {
   });
 
   it("generates a deterministic draft for the same seed/floor", () => {
-    function draftTitles(seed: number) {
-      const g = createGame(seed);
-      g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
-      step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
-      leaveSafeRoom(g);
-      return g.players[0].pendingRewards.map((r) => r.kind);
+    function draftKinds(seed: number) {
+      return descendWith(seed, 5).players[0].pendingRewards.map((r) => r.kind);
     }
-    expect(draftTitles(77)).toEqual(draftTitles(77));
+    expect(draftKinds(77)).toEqual(draftKinds(77));
   });
 });
 
@@ -483,10 +512,12 @@ describe("safe room + System Shop", () => {
     p.gold = 10_000;
     buyCatalogItem(g, 0, "honed_edge"); // equips (weapon slot empty-ish)
     buyCatalogItem(g, 0, "killer_instinct");
-    const goldBefore = p.gold;
+    // Measure via goldSpent: achievement payouts (RETAIL THERAPY) add gold
+    // mid-purchase, but goldSpent tracks the spend alone.
+    const spentBefore = p.goldSpent;
     buyCatalogItem(g, 0, "primetime_cleaver");
     // Both components credited at full price: pay only the combine cost.
-    expect(goldBefore - p.gold).toBe(CATALOG_BY_ID.primetime_cleaver.cost);
+    expect(p.goldSpent - spentBefore).toBe(CATALOG_BY_ID.primetime_cleaver.cost);
     expect(p.equipment.weapon?.catalogId).toBe("primetime_cleaver");
     // The consumed components are gone from bag and slots alike.
     expect(p.inventory.some((it) => it.catalogId === "honed_edge")).toBe(false);
@@ -955,7 +986,9 @@ describe("cumulative damage stats", () => {
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
     g.monsters.length = 0;
-    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 9999, maxHp: 9999, damage: 5, speed: 0, attackCooldown: 0 }));
+    // attackRange 2: the player's knockback shoves a speed-0 monster out of a
+    // normal melee band, so give it reach or it never lands the return hit.
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 9999, maxHp: 9999, damage: 5, speed: 0, attackRange: 2, attackCooldown: 0 }));
     // One swing lands; the monster also swings back over time.
     for (let i = 0; i < 90; i++) {
       step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -1245,6 +1278,60 @@ describe("attack telegraphs + hit reactions", () => {
     const minRoll = Math.round(CONFIG.playerBaseDamage * 0.85);
     const swarmerHp = Math.round(CONFIG.monsterBaseHp * 0.35);
     expect(minRoll).toBeGreaterThanOrEqual(swarmerHp);
+  });
+});
+
+describe("melee hitboxes (the 'that should have hit' class)", () => {
+  function swing(g: ReturnType<typeof createGame>) {
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+  }
+
+  it("point-blank melee always connects (the lunge never overshoots)", () => {
+    const g = createGame(970);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    // A tiny swarmer INSIDE arm's reach — the exact repro of the whiff bug:
+    // the swing's lunge used to carry the player past it, out of the arc.
+    g.monsters.push(mkMon({ id: 1, kind: "swarmer", pos: { x: p.pos.x + 0.2, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    swing(g);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+  });
+
+  it("body size counts: a brute's shoulder in reach is a hit at ranges a grunt is not", () => {
+    const hits = (kind: "brute" | "grunt") => {
+      const g = createGame(971);
+      const p = g.players[0];
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({ id: 1, kind, pos: { x: p.pos.x + 2.2, y: p.pos.y }, hp: 500, maxHp: 500 }));
+      swing(g);
+      return g.monsters[0].hp < 500;
+    };
+    expect(hits("brute")).toBe(true); // radius 0.55: the sweep touches the body
+    expect(hits("grunt")).toBe(false); // radius 0.35: genuinely out of reach
+  });
+
+  it("aim assist: a swing aimed the wrong way snaps to the enemy in arm's reach", () => {
+    const g = createGame(972);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Enemy directly BEHIND the aim direction, but adjacent.
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x - 0.8, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    swing(g); // aim = +x, enemy at -x
+    expect(g.monsters[0].hp).toBeLessThan(500);
+  });
+
+  it("bolts clip fat shoulders their line only grazes", () => {
+    const g = createGame(973);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    // Brute offset 0.8 tiles from the bolt's path: old check (0.65) missed it,
+    // body-radius check (0.35 + 0.55 = 0.90) grazes it.
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 3, y: p.pos.y + 0.8 }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: false, bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    for (let i = 0; i < 60 && g.monsters[0].hp === 500; i++) step(g, idle(), 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
   });
 });
 
