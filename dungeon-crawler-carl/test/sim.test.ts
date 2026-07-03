@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
-  chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
-  slotAbility, dismantleItem, upgradeItem, craftCompleted,
+  chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
+  leaveSafeRoom, addPlayer, setReady, slotAbility,
 } from "../src/sim/game";
+import { CATALOG_BY_ID, consumablePrice, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { availableUpgrades, boltParams, knows, rank } from "../src/sim/abilities";
@@ -369,7 +370,7 @@ describe("sponsor draft", () => {
   });
 });
 
-describe("safe room + shop", () => {
+describe("safe room + System Shop", () => {
   function reachSafeRoom(seed: number) {
     const g = createGame(seed);
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
@@ -377,56 +378,168 @@ describe("safe room + shop", () => {
     return g;
   }
 
-  it("stocks a deterministic shop for the same seed", () => {
-    const stock = (seed: number) =>
-      reachSafeRoom(seed).safeRoom!.stock.map((s) => `${s.kind}:${s.title}:${s.price}`);
-    expect(stock(300)).toEqual(stock(300));
-    expect(reachSafeRoom(300).safeRoom!.stock.length).toBeGreaterThanOrEqual(5);
+  /** A safe room deeper in the run: restore at `floor`, warp to the stairs. */
+  function reachDeepSafeRoom(seed: number, floor: number) {
+    const g = restoreGame({
+      seed, floor,
+      player: { hp: 200, maxHp: 200, level: 6, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    g.monsters.length = 0; // a live city boss seals the stairs
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    return g;
+  }
+
+  it("stocks a deterministic shelf for the same seed", () => {
+    const shelf = (seed: number) => {
+      const room = reachSafeRoom(seed).safeRoom!;
+      return [room.tomeAbility, ...room.available].join(",");
+    };
+    expect(shelf(300)).toEqual(shelf(300));
+    expect(reachSafeRoom(300).safeRoom!.available.length).toBeGreaterThanOrEqual(10);
   });
 
-  it("buying deducts gold, applies the effect, and marks the item sold", () => {
+  it("shop 1 carries only consumables + starter + basic (tier gating)", () => {
+    const room = reachSafeRoom(305).safeRoom!;
+    for (const id of room.available) {
+      expect(["consumable", "starter", "basic"]).toContain(CATALOG_BY_ID[id].tier);
+    }
+  });
+
+  it("deeper shops unlock growing advanced/legendary subsets", () => {
+    // Shop index 3 (descending from floor 3): advanced yes, legendary not yet.
+    const room3 = reachDeepSafeRoom(306, 3).safeRoom!;
+    const tiers3 = room3.available.map((id) => CATALOG_BY_ID[id].tier);
+    expect(tiers3.filter((t) => t === "advanced").length).toBe(4); // 3 + (3-2)
+    expect(tiers3).not.toContain("legendary");
+    // Shop index 5: one more advanced pick, and the first legendary appears.
+    const room5 = reachDeepSafeRoom(306, 5).safeRoom!;
+    const tiers5 = room5.available.map((id) => CATALOG_BY_ID[id].tier);
+    expect(tiers5.filter((t) => t === "advanced").length).toBe(6);
+    expect(tiers5.filter((t) => t === "legendary").length).toBe(1);
+  });
+
+  it("buying a Field Ration heals, deducts gold, and tracks goldSpent", () => {
     const g = reachSafeRoom(301);
-    const room = g.safeRoom!;
-    const healIdx = room.stock.findIndex((s) => s.kind === "heal");
-    g.players[0].hp = 10;
-    g.players[0].gold = 10_000;
-    const gold0 = g.players[0].gold;
-    buyShopItem(g, 0, healIdx);
-    expect(g.players[0].hp).toBeGreaterThan(10);
-    expect(g.players[0].gold).toBe(gold0 - room.stock[healIdx].price);
-    expect(room.stock[healIdx].sold).toBe(true);
-    expect(g.players[0].goldSpent).toBe(room.stock[healIdx].price);
-    // Re-buying a sold item is a no-op.
-    buyShopItem(g, 0, healIdx);
-    expect(g.players[0].gold).toBe(gold0 - room.stock[healIdx].price);
+    const p = g.players[0];
+    const price = consumablePrice(CATALOG_BY_ID.field_ration, g.safeRoom!.nextFloor);
+    p.hp = 10;
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "field_ration");
+    expect(p.hp).toBeGreaterThan(10);
+    expect(p.gold).toBe(10_000 - price);
+    expect(p.goldSpent).toBe(price);
   });
 
-  it("cannot buy what you cannot afford", () => {
+  it("cannot buy what you cannot afford (or what's off the shelf)", () => {
     const g = reachSafeRoom(302);
-    g.players[0].gold = 0;
-    buyShopItem(g, 0, 0);
-    expect(g.safeRoom!.stock[0].sold).toBe(false);
-    expect(g.players[0].goldSpent).toBe(0);
+    const p = g.players[0];
+    p.gold = 0;
+    buyCatalogItem(g, 0, "field_ration");
+    expect(p.goldSpent).toBe(0);
+    // Advanced gear is not stocked at shop 1, money or not.
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "primetime_cleaver");
+    expect(p.goldSpent).toBe(0);
+    expect(p.equipment.weapon?.catalogId).not.toBe("primetime_cleaver");
   });
 
   it("a purchased stabilizer extends the next floor's timer", () => {
     const g = reachSafeRoom(303);
-    const room = g.safeRoom!;
-    const timeIdx = room.stock.findIndex((s) => s.kind === "time");
     g.players[0].gold = 10_000;
-    buyShopItem(g, 0, timeIdx);
+    buyCatalogItem(g, 0, "stabilizer_rod");
     leaveSafeRoom(g);
     expect(g.timeBudget).toBeCloseTo(floorTimeBudget(2) + 15);
   });
 
-  it("sells a tome that teaches the ability on the spot", () => {
+  it("the tome teaches today's ability, once", () => {
     const g = reachSafeRoom(304);
+    const p = g.players[0];
+    const ability = g.safeRoom!.tomeAbility!;
+    expect(ability).toBeTruthy(); // plenty undiscovered on floor 1
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "tome");
+    expect(knows(p, ability)).toBe(true);
+    const gold = p.gold;
+    buyCatalogItem(g, 0, "tome"); // already known -> refused, no charge
+    expect(p.gold).toBe(gold);
+  });
+
+  it("gear purchase materializes a catalog item and auto-equips an upgrade", () => {
+    const g = reachSafeRoom(307);
+    const p = g.players[0];
+    p.gold = 1000;
+    buyCatalogItem(g, 0, "boxcutter");
+    expect(p.equipment.weapon?.catalogId).toBe("boxcutter");
+    expect(p.gold).toBe(1000 - totalCost("boxcutter"));
+    expect(p.equipment.weapon?.affixes.damage).toBeGreaterThanOrEqual(3);
+  });
+
+  it("build paths consume owned components and charge only the difference", () => {
+    const g = reachSafeRoom(308);
+    const p = g.players[0];
     const room = g.safeRoom!;
-    const tomeIdx = room.stock.findIndex((s) => s.kind === "tome");
-    expect(tomeIdx).toBeGreaterThanOrEqual(0); // both abilities undiscovered at floor 1
-    g.players[0].gold = 10_000;
-    buyShopItem(g, 0, tomeIdx);
-    expect(knows(g.players[0], room.stock[tomeIdx].ability!)).toBe(true);
+    room.available.push("primetime_cleaver"); // force-stock the advanced recipe
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "honed_edge"); // equips (weapon slot empty-ish)
+    buyCatalogItem(g, 0, "killer_instinct");
+    const goldBefore = p.gold;
+    buyCatalogItem(g, 0, "primetime_cleaver");
+    // Both components credited at full price: pay only the combine cost.
+    expect(goldBefore - p.gold).toBe(CATALOG_BY_ID.primetime_cleaver.cost);
+    expect(p.equipment.weapon?.catalogId).toBe("primetime_cleaver");
+    // The consumed components are gone from bag and slots alike.
+    expect(p.inventory.some((it) => it.catalogId === "honed_edge")).toBe(false);
+    expect(p.equipment.trinket?.catalogId).not.toBe("killer_instinct");
+  });
+
+  it("legendaries demand sponsor backing and materials", () => {
+    const g = reachSafeRoom(309);
+    const p = g.players[0];
+    const room = g.safeRoom!;
+    room.available.push("headliner_cleaver");
+    p.gold = 10_000;
+    p.sponsors = 0;
+    p.materials.elite_trophy = 5;
+    buyCatalogItem(g, 0, "headliner_cleaver"); // no backing -> refused
+    expect(p.equipment.weapon?.passive).toBeUndefined();
+    p.sponsors = 1;
+    p.materials.elite_trophy = 0;
+    buyCatalogItem(g, 0, "headliner_cleaver"); // no trophies -> refused
+    expect(p.equipment.weapon?.passive).toBeUndefined();
+    p.materials.elite_trophy = 2;
+    buyCatalogItem(g, 0, "headliner_cleaver");
+    expect(p.equipment.weapon?.passive).toBe("showrunner");
+    expect(p.equipment.weapon?.rarity).toBe("epic");
+    expect(p.materials.elite_trophy).toBe(0); // spent
+  });
+
+  it("selling returns gold (60% catalog value; flat for drops) and is safe-room gated", () => {
+    const g = reachSafeRoom(310);
+    const p = g.players[0];
+    p.inventory.push({ id: 9101, slot: "weapon", rarity: "magic", name: "Honed Edge", affixes: { damage: 6 }, catalogId: "honed_edge" });
+    p.inventory.push({ id: 9102, slot: "armor", rarity: "rare", name: "Runed Plate", affixes: { maxHp: 30 } });
+    const gold0 = p.gold;
+    sellItem(g, 0, p.inventory.length - 2);
+    expect(p.gold).toBe(gold0 + Math.round(totalCost("honed_edge") * 0.6));
+    const dropIdx = p.inventory.length - 1;
+    expect(sellValue(p.inventory[dropIdx])).toBe(50);
+    sellItem(g, 0, dropIdx);
+    expect(p.gold).toBe(gold0 + Math.round(totalCost("honed_edge") * 0.6) + 50);
+    // In the field: no-op.
+    leaveSafeRoom(g);
+    p.inventory.push({ id: 9103, slot: "trinket", rarity: "epic", name: "Idol", affixes: { crit: 0.1 } });
+    const gold1 = p.gold;
+    sellItem(g, 0, p.inventory.length - 1);
+    expect(p.gold).toBe(gold1);
+  });
+
+  it("effectivePrice previews the component discount without buying", () => {
+    const g = reachSafeRoom(311);
+    const p = g.players[0];
+    expect(effectivePrice(p, "primetime_cleaver", 2)).toBe(totalCost("primetime_cleaver"));
+    p.inventory.push({ id: 9104, slot: "weapon", rarity: "magic", name: "Honed Edge", affixes: { damage: 6 }, catalogId: "honed_edge" });
+    expect(effectivePrice(p, "primetime_cleaver", 2)).toBe(totalCost("primetime_cleaver") - totalCost("honed_edge"));
   });
 
   it("floor 18 still wins immediately without a safe room", () => {
@@ -1676,16 +1789,7 @@ describe("ultimates", () => {
   });
 });
 
-describe("crafting bench", () => {
-  function benchGame(seed = 900) {
-    const g = createGame(seed);
-    const p = g.players[0];
-    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
-    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
-    expect(g.safeRoom).not.toBeNull();
-    return g;
-  }
-
+describe("materials (the elite/boss hunt)", () => {
   it("elites drop a trophy; city bosses drop a sigil", () => {
     const g = createGame(901);
     const p = g.players[0];
@@ -1700,102 +1804,17 @@ describe("crafting bench", () => {
     expect(onGround || p.materials.elite_trophy >= 1).toBe(true);
   });
 
-  it("dismantling a bag item yields scrap by rarity and is safe-room gated", () => {
-    const g = benchGame(902);
-    const p = g.players[0];
-    p.inventory.push({ id: 9001, slot: "weapon", rarity: "rare", name: "Runed Blade", affixes: { damage: 9 } });
-    const bagIdx = p.inventory.length - 1;
-    dismantleItem(g, p.id, bagIdx);
-    expect(p.materials.scrap).toBe(CONFIG.craft.dismantleScrap.rare);
-    // Outside the safe room: no-op.
-    leaveSafeRoom(g);
-    p.inventory.push({ id: 9002, slot: "armor", rarity: "epic", name: "Sovereign Plate", affixes: { maxHp: 40 } });
-    const before = p.materials.scrap;
-    dismantleItem(g, p.id, p.inventory.length - 1);
-    expect(p.materials.scrap).toBe(before);
-  });
-
-  it("upgrading raises rarity, keeps the noun, grows affixes, and spends the recipe", () => {
-    const g = benchGame(903);
-    const p = g.players[0];
-    const weapon = { id: 9003, slot: "weapon" as const, rarity: "common" as const, name: "Rusty Blade", affixes: { damage: 5 } };
-    p.equipment.weapon = weapon;
-    const noun = weapon.name.split(" ").pop();
-    const dmg0 = weapon.affixes.damage ?? 0;
-    p.gold = 500;
-    p.materials.scrap = 10;
-    upgradeItem(g, p.id, "weapon");
-    expect(p.equipment.weapon!.rarity).toBe("magic");
-    expect(p.equipment.weapon!.name.endsWith(noun!)).toBe(true);
-    expect(p.equipment.weapon!.affixes.damage ?? 0).toBeGreaterThan(dmg0);
-    expect(p.gold).toBe(500 - CONFIG.craft.upgrade.common.gold);
-    expect(p.materials.scrap).toBe(10 - CONFIG.craft.upgrade.common.scrap);
-    expect(Object.keys(p.equipment.weapon!.affixes).length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("higher tiers demand trophies/sigils and refuse without them", () => {
-    const g = benchGame(904);
-    const p = g.players[0];
-    const weapon = { id: 9004, slot: "weapon" as const, rarity: "magic" as const, name: "Keen Axe", affixes: { damage: 8, crit: 0.03 } };
-    p.equipment.weapon = weapon;
-    p.gold = 999;
-    p.materials.scrap = 99;
-    upgradeItem(g, p.id, "weapon"); // no elite trophy -> refused
-    expect(p.equipment.weapon!.rarity).toBe("magic");
-    p.materials.elite_trophy = 1;
-    upgradeItem(g, p.id, "weapon");
-    expect(p.equipment.weapon!.rarity).toBe("rare");
-    expect(p.materials.elite_trophy).toBe(0);
-  });
-
-  it("materials persist through the save/restore seam", () => {
+  it("materials persist through the save/restore seam (legacy scrap dropped)", () => {
     const g = restoreGame({
       seed: 905, floor: 3,
       player: { hp: 80, level: 4, xp: 0, xpToNext: 99, gold: 50,
-        materials: { scrap: 7, elite_trophy: 2, boss_sigil: 1 } },
+        materials: { scrap: 7, elite_trophy: 2, boss_sigil: 1 } as never },
     });
-    expect(g.players[0].materials).toEqual({ scrap: 7, elite_trophy: 2, boss_sigil: 1 });
+    expect(g.players[0].materials).toEqual({ elite_trophy: 2, boss_sigil: 1 });
   });
 });
 
-describe("completed works (signature gear)", () => {
-  function forgeGame(seed: number) {
-    const g = createGame(seed);
-    const p = g.players[0];
-    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
-    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
-    p.gold = 1000;
-    p.materials.scrap = 30;
-    p.materials.elite_trophy = 5;
-    p.sponsors = 3;
-    return g;
-  }
-
-  it("forges an equipped epic into a named item with the passive (noun kept)", () => {
-    const g = forgeGame(950);
-    const p = g.players[0];
-    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "epic", name: "Apocalyptic Cleaver", affixes: { damage: 20 } };
-    craftCompleted(g, p.id, "showrunner");
-    expect(p.equipment.weapon!.name).toBe("Headliner Cleaver");
-    expect(p.equipment.weapon!.passive).toBe("showrunner");
-    expect(p.equipment.weapon!.affixes.damage).toBe(20); // affixes untouched
-  });
-
-  it("refuses without sponsors, epic base, or in the field", () => {
-    const g = forgeGame(951);
-    const p = g.players[0];
-    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "rare", name: "Runed Axe", affixes: { damage: 12 } };
-    craftCompleted(g, p.id, "showrunner"); // not epic
-    expect(p.equipment.weapon!.passive).toBeUndefined();
-    p.equipment.weapon.rarity = "epic";
-    p.sponsors = 0;
-    craftCompleted(g, p.id, "showrunner"); // no backing
-    expect(p.equipment.weapon!.passive).toBeUndefined();
-    p.sponsors = 3;
-    leaveSafeRoom(g);
-    craftCompleted(g, p.id, "showrunner"); // no bench in the field
-    expect(p.equipment.weapon!.passive).toBeUndefined();
-  });
+describe("signature gear passives", () => {
 
   it("Landlord's Ledger pays gold on kill credit", () => {
     const g = createGame(952);

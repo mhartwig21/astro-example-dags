@@ -176,6 +176,45 @@ glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
 New abilities: pick an icon at game-icons.net, fetch the raw SVG from the
 GitHub mirror, strip `<path d="M0 0h512v512H0z"/>`, and add a row here.
 
+### Item icons — `public/icons/items/` (same source, license, and convention)
+
+The System Shop catalog (`src/sim/catalog.ts`) uses `/icons/items/<catalogId>.svg`,
+tier-tinted via CSS mask. Same pipeline as ability icons; same CC BY 3.0
+attribution requirement (covered by the same in-game credits line).
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| field_ration | meat | Lorc |
+| stabilizer_rod | sands-of-time | Lorc |
+| plating_kit | toolbox | Delapouite |
+| mystery_box | perspective-dice-six-faces-random | Delapouite |
+| tome | burning-book | Lorc |
+| system_favor | aura | Lorc |
+| boxcutter | box-cutter | Delapouite |
+| cardboard_cuirass | cardboard-box | Delapouite |
+| lucky_bottlecap | bottle-cap | Delapouite |
+| honed_edge | broadsword | Lorc |
+| swift_wraps | fist | Lorc |
+| iron_plating | scale-mail | Lorc |
+| padded_lining | lamellar | Lorc |
+| killer_instinct | on-target | Lorc |
+| glass_charm | gem-pendant | Lorc |
+| focus_bead | prayer-beads | Delapouite |
+| primetime_cleaver | meat-cleaver | Lorc |
+| roadie_runner | running-shoe | Delapouite |
+| bloodsport_maul | warhammer | Delapouite |
+| showstopper_plate | breastplate | Lorc |
+| stagedive_harness | cape | Delapouite |
+| crowd_medallion | laurels | Lorc |
+| ratings_magnet | magnet | Lorc |
+| headliner_cleaver | microphone | Delapouite |
+| blastplate_harness | explosive-materials | Lorc |
+| landlords_ledger | notebook | Delapouite |
+| overtime_clause | time-trap | Lorc |
+| elite_trophy | trophy-cup | Delapouite |
+| boss_sigil | crowned-skull | Lorc |
+| gold | two-coins | Delapouite |
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.

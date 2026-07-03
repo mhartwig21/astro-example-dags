@@ -261,40 +261,116 @@
       #abil .stats-table tr.you td:first-child { color: #4fd1ff; }
       #abil .stats-table tr.dead td { color: #6a6a7a; }
 
-      /* Safe room */
+      /* Safe room — the SYSTEM SHOP (hybrid shop / build-path crafting).
+         LoL-inspired layout: tier-sectioned icon shelf + detail pane with the
+         build tree, framed in the game's dark-emerald + System-gold trim. */
       #saferoom { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.78); z-index: 24; }
-      #saferoom .panel { width: 760px; max-width: 94vw; max-height: 86vh; overflow: auto;
-        background: #0f1410; border: 1px solid #5fd08a; border-radius: 12px; padding: 20px 22px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.7); }
-      #saferoom h2 { margin: 0 0 2px; color: #5fd08a; letter-spacing: 1px; font-size: 16px; }
-      #saferoom .tip { color: #b9d0c0; font-size: 13px; margin-bottom: 4px; font-style: italic; }
+        background: rgba(4,4,8,0.8); z-index: 24; }
+      #saferoom .panel { width: 1060px; max-width: 96vw; height: min(680px, 92vh);
+        display: flex; flex-direction: column;
+        background: linear-gradient(168deg, #101613 0%, #0b100e 52%, #0a0e11 100%);
+        border: 1px solid #3d5244; outline: 1px solid #17201a; outline-offset: 3px;
+        border-radius: 3px; padding: 14px 18px 12px;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.8), inset 0 0 70px rgba(8,18,12,0.55); }
+      .shop-head { display: flex; align-items: center; gap: 14px;
+        border-bottom: 1px solid #24302a; padding-bottom: 9px; }
+      #saferoom h2 { margin: 0; color: #5fd08a; letter-spacing: 2px; font-size: 15px;
+        text-shadow: 0 0 14px rgba(95,208,138,0.35); }
+      .shop-tabs { display: flex; gap: 3px; }
+      .shop-tabs .tab { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 2px;
+        padding: 5px 16px 4px; color: #7a8a7e; background: #0f1511; border: 1px solid #24302a; }
+      .shop-tabs .tab:hover { color: #cfe0d2; }
+      .shop-tabs .tab.active { color: #f2c14e; border-color: #7a6428; background: #16150f;
+        box-shadow: inset 0 -2px 0 #f2c14e; }
+      .shop-wallet { margin-left: auto; display: flex; gap: 8px; font-size: 12px; color: #cfe0d2; }
+      .shop-wallet .chip { display: flex; gap: 6px; align-items: center; background: rgba(0,0,0,0.35);
+        border: 1px solid #24302a; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+      .micon { display: inline-block; width: 13px; height: 13px; background: #f2c14e; flex: none;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      #saferoom .tip { color: #9ab0a0; font-size: 12px; margin: 7px 0 2px; font-style: italic; }
       #saferoom .tip::before { content: "MORDECAI: "; color: #5fd08a; font-weight: 700; font-style: normal; }
-      #saferoom .gold { color: #f2c14e; font-size: 13px; margin-bottom: 14px; }
-      #saferoom .stock { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-      .shop-item { cursor: pointer; background: #131a15; border: 1px solid #2a382e;
-        border-radius: 8px; padding: 12px; transition: transform 0.1s ease, border-color 0.1s ease; }
-      .shop-item:hover { transform: translateY(-2px); border-color: #5fd08a; }
-      .shop-item .stitle { font-weight: 700; font-size: 13px; }
-      .shop-item .sdesc { color: #9ab0a0; font-size: 12px; margin: 3px 0 8px; }
-      .shop-item .sprice { color: #f2c14e; font-size: 12px; font-weight: 700; }
-      .shop-item.sold, .shop-item.broke { cursor: default; opacity: 0.45; }
-      .shop-item.sold:hover, .shop-item.broke:hover { transform: none; border-color: #2a382e; }
-      .shop-item.sold .sprice::after { content: " · SOLD"; color: #6a6a7a; }
-      .shop-item.broke .sprice { color: #e2574c; }
-      #saferoom .descend { margin-top: 16px; text-align: center; }
+      .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 330px;
+        gap: 14px; margin-top: 8px; }
+      .shop-shelf { overflow-y: auto; padding-right: 6px; }
+      .tier-h { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 700;
+        letter-spacing: 3px; color: var(--tc, #8fb8a0); margin: 12px 0 7px; }
+      .shop-shelf .tier-h:first-child { margin-top: 2px; }
+      .tier-h::after { content: ""; flex: 1; height: 1px;
+        background: linear-gradient(90deg, var(--tc, #8fb8a0), transparent); opacity: 0.35; }
+      .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: #55606a; }
+      .igrid { display: flex; flex-wrap: wrap; gap: 8px; }
+      .itile { --tc: #8fb8a0; width: 56px; cursor: pointer; }
+      .itile .ibox { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(160deg, #131a16, #0b0f0d); border: 1px solid #2c3a31;
+        box-shadow: inset 0 0 12px rgba(0,0,0,0.75); position: relative;
+        transition: border-color 0.1s ease, box-shadow 0.1s ease; }
+      .itile .ii { width: 36px; height: 36px; background: var(--tc); display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .itile .iglyph { font-size: 26px; color: var(--tc); line-height: 1; }
+      .itile .iprice { display: flex; justify-content: center; align-items: center; gap: 3px;
+        margin-top: 3px; font-size: 10px; color: #f2c14e; font-variant-numeric: tabular-nums; }
+      .itile .iprice .micon { width: 9px; height: 9px; }
+      .itile:hover .ibox { border-color: var(--tc); }
+      .itile.sel .ibox { border-color: #f2c14e; box-shadow: 0 0 10px rgba(242,193,78,0.35),
+        inset 0 0 12px rgba(0,0,0,0.75); }
+      .itile.locked .ibox { border-style: dashed; opacity: 0.45; }
+      .itile.locked .iprice { opacity: 0.45; }
+      .itile.locked .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
+        font-size: 10px; color: #55606a; }
+      .itile.broke .iprice { color: #e2574c; }
+      .itile.owned .ibox::before { content: ""; position: absolute; left: 3px; top: 3px;
+        width: 5px; height: 5px; background: #5fd08a; border-radius: 50%; }
+      /* Detail pane: the selected item's stats, build tree, and BUY/SELL. */
+      .shop-side { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
+      .shop-detail { flex: 1; overflow-y: auto; background: rgba(6,10,8,0.55);
+        border: 1px solid #24302a; padding: 12px 14px; }
+      .shop-detail .dempty { color: #55606a; font-size: 12px; font-style: italic; }
+      .dname { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; color: var(--tc, #e6e6ec); }
+      .dkind { font-size: 10px; letter-spacing: 2px; color: #7a8a7e; margin: 2px 0 8px; }
+      .dstats { font-size: 12px; color: #b9d0c0; line-height: 1.55; }
+      .dpassive { font-size: 12px; color: #f2c14e; font-style: italic; margin-top: 6px; }
+      .ddesc { font-size: 11px; color: #7a8a7e; margin-top: 6px; line-height: 1.5; }
+      .dsec { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 12px 0 5px;
+        display: flex; align-items: center; gap: 8px; }
+      .dsec::after { content: ""; flex: 1; height: 1px; background: #24302a; }
+      .dtree { display: flex; flex-wrap: wrap; gap: 6px; }
+      .dtree .itile { width: 40px; }
+      .dtree .itile .ibox { width: 38px; height: 38px; }
+      .dtree .itile .ii { width: 26px; height: 26px; }
+      .dtree .itile.have .ibox { border-color: #5fd08a; }
+      .dtree .itile.have .ibox::after { content: "✓"; position: absolute; right: 2px; bottom: 0;
+        font-size: 9px; color: #5fd08a; }
+      .dreq { font-size: 11px; margin-top: 3px; }
+      .dreq.met { color: #5fd08a; } .dreq.unmet { color: #e2574c; }
+      .dprice { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; font-size: 13px; }
+      .dprice .full { color: #55606a; text-decoration: line-through; font-size: 11px; }
+      .dprice .eff { color: #f2c14e; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+      .dbtns { display: flex; gap: 8px; margin-top: 10px; }
+      .dbtns button { cursor: pointer; flex: 1; font: inherit; font-size: 11px; font-weight: 700;
+        letter-spacing: 2px; padding: 8px 0; color: #0a0d0b; background: linear-gradient(180deg, #f2c14e, #c9932e);
+        border: 1px solid #f2c14e; }
+      .dbtns button:hover:not(:disabled) { filter: brightness(1.15); }
+      .dbtns button:disabled { cursor: default; color: #55606a; background: #101512;
+        border-color: #24302a; font-weight: 400; }
+      .dbtns button.sell { background: #101512; color: #9ab0a0; border-color: #2c3a31; font-weight: 400; }
+      .dbtns button.sell:hover { border-color: #e2574c; color: #ffb3ab; filter: none; }
+      /* Bag strip under the detail pane */
+      .shop-bag { background: rgba(6,10,8,0.55); border: 1px solid #24302a; padding: 9px 12px 11px; }
+      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 3px 0 6px; }
+      .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; }
+      .bag-grid .itile { width: 40px; }
+      .bag-grid .itile .ibox { width: 38px; height: 38px; }
+      .bag-grid .itile .ii { width: 26px; height: 26px; }
+      .bag-grid .bempty { color: #3d4a42; font-size: 11px; font-style: italic; align-self: center; }
+      #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: 14px;
+        margin-top: 12px; padding-top: 11px; border-top: 1px solid #24302a; }
       #saferoom .descend button { cursor: pointer; background: #14231a; color: #5fd08a;
-        border: 1px solid #5fd08a; border-radius: 8px; padding: 10px 34px; font: inherit;
-        font-weight: 700; letter-spacing: 1px; }
-      #saferoom .descend button:hover { background: #1b3123; }
-      #saferoom .materials { color: #c9a24b; font-size: 12px; margin-bottom: 8px; }
-      .bench-row { display: flex; justify-content: space-between; align-items: center; gap: 8px;
-        padding: 6px 4px; border-top: 1px dashed #22303a; font-size: 12px; }
-      .bench-row .bname { flex: 1; }
-      .bench-row button { cursor: pointer; background: #131a15; color: #9ab0a0; border: 1px solid #2a382e;
-        border-radius: 5px; padding: 3px 10px; font: inherit; font-size: 11px; }
-      .bench-row button:hover:not(:disabled) { border-color: #5fd08a; color: #cfe8d8; }
-      .bench-row button:disabled { opacity: 0.4; cursor: default; }
+        border: 1px solid #5fd08a; padding: 9px 40px; font: inherit; font-size: 13px;
+        font-weight: 700; letter-spacing: 2px; }
+      #saferoom .descend button:hover { background: #1b3123; box-shadow: 0 0 16px rgba(95,208,138,0.25); }
+      #saferoom .descend .rdy { color: #7a8a7e; font-size: 12px; }
     </style>
   </head>
   <body>
@@ -311,7 +387,7 @@
         <div class="kb-row"><span class="kb-name">Mouse aim<small>off = attack along movement direction</small></span>
           <span class="kb-key" id="kb-mouseaim">ON</span></div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
-        <div class="credits">Ability icons by Lorc, Delapouite &amp; Skoll — game-icons.net (CC BY 3.0) ·
+        <div class="credits">Ability &amp; item icons by Lorc, Delapouite &amp; Skoll — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>
         <div class="credits">Music: &quot;Battle Music&quot; by Alexandr Zhelanov ·
           &quot;Battle in the Winter&quot; by Johan Brodd ·
@@ -369,15 +445,28 @@
     </div>
     <div id="saferoom">
       <div class="panel">
-        <h2>◆ SAFE ROOM</h2>
+        <div class="shop-head">
+          <h2>◆ SYSTEM SHOP</h2>
+          <div class="shop-tabs">
+            <button class="tab active" id="sr-tab-stock">IN STOCK</button>
+            <button class="tab" id="sr-tab-all">ALL ITEMS</button>
+          </div>
+          <div class="shop-wallet" id="sr-wallet"></div>
+        </div>
         <div class="tip" id="sr-tip"></div>
-        <div class="gold" id="sr-gold"></div>
-        <div class="stock" id="sr-stock"></div>
-        <h2 style="margin-top:16px">◆ THE BENCH</h2>
-        <div class="tip" style="margin-bottom:8px">Dismantle spare gear for scrap. Upgrades keep the weapon — sponsors just make it meaner.</div>
-        <div class="materials" id="sr-materials"></div>
-        <div id="sr-bench"></div>
-        <div class="descend"><button id="sr-descend">DESCEND ▼</button></div>
+        <div class="shop-body">
+          <div class="shop-shelf" id="sr-shelf"></div>
+          <div class="shop-side">
+            <div class="shop-detail" id="sr-detail"></div>
+            <div class="shop-bag">
+              <div class="sec-label">EQUIPPED</div>
+              <div class="bag-grid" id="sr-equipped"></div>
+              <div class="sec-label">BAG</div>
+              <div class="bag-grid" id="sr-bag"></div>
+            </div>
+          </div>
+        </div>
+        <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span></div>
       </div>
     </div>
     <div id="fx"></div>
