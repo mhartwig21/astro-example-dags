@@ -247,7 +247,15 @@ deterministic, so multiplayer + tests hold.
 - **Client build:** Vite. **Render (slice):** Canvas2D top-down — fast to ship and enough
   to prove the loop. **Render (later):** isometric sprites or Three.js for the Diablo feel.
 - **Server (later):** Node + `ws` (WebSocket), Postgres for persistence.
-- **Testing:** Vitest against the pure sim core (deterministic → trivial to assert).
+- **Testing:** Vitest against the pure sim core (deterministic → trivial to assert),
+  including a **scripted balance bot** (`src/sim/bot.ts`): a deterministic policy
+  (BFS pathing to the floor objective, fight/dodge/flask heuristics, wedge escape)
+  that plays whole floors headlessly. `test/balance.test.ts` asserts playability
+  invariants across fixed seeds — floors 1-2 clearable before collapse, the dungeon
+  still deals real damage — so tuning changes are regression-tested, not vibed. It
+  also emits per-floor metrics (`runBot`) for tuning sweeps, doubles as a seed-scale
+  softlock fuzzer, and is the scripted-policy seed of the future RL env / MP load
+  tests. A determinism guard test keeps `Math.random`/wall-clock out of `src/sim/`.
 
 Rationale: staying single-language and keeping the sim pure means the exact code that runs
 in the browser slice will run unmodified inside the authoritative server and a headless
