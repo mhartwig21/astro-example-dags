@@ -14,9 +14,8 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
+# tsx is a production dependency (it runs the server), so npm ci installs it here.
 RUN npm ci --omit=dev && npm cache clean --force
-# tsx (runtime TS execution) ships as a devDependency; install it explicitly.
-RUN npm install --no-save tsx
 COPY --from=build /app/dist ./dist
 COPY src ./src
 COPY tsconfig.json ./
