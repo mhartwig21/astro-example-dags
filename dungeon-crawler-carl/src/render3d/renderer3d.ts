@@ -6,7 +6,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import { knows, novaParams, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
-import { ATTACHMENT_NODES, CANONICAL_LOADOUT, loadoutFor, rarityGlow } from "./weaponry";
+import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -29,7 +29,34 @@ export class Renderer3D {
   private key: THREE.DirectionalLight;
 
   private floorGroup = new THREE.Group();
-  private torchLights: { light: THREE.PointLight; base: number; seed: number }[] = [];
+  // Render-side position smoothing: the sim ticks at a fixed 60Hz while the
+  // display can run faster — applying raw sim positions makes movement (and
+  // especially hand-grafted weapons) judder on high-refresh screens, and dash
+  // reads as a hard cut. Meshes chase sim positions with a stiff exponential
+  // lerp (~40ms of sub-frame lag), which hides tick quantization at any Hz and
+  // turns teleports into 2-frame glides. Big jumps (floor change) snap.
+  private static SMOOTH_RATE = 22;
+  private static SNAP_DIST = 8;
+  private smoothTo(mesh: THREE.Object3D, x: number, y: number, z: number, dt: number): void {
+    const dx = x - mesh.position.x, dz = z - mesh.position.z;
+    if (dx * dx + dz * dz > Renderer3D.SNAP_DIST * Renderer3D.SNAP_DIST || !mesh.visible) {
+      mesh.position.set(x, y, z);
+      return;
+    }
+    const a = 1 - Math.exp(-Renderer3D.SMOOTH_RATE * Math.min(dt, 0.1));
+    mesh.position.x += dx * a;
+    mesh.position.y = y;
+    mesh.position.z += dz * a;
+  }
+
+  // Torch LIGHT POOL: torch meshes are everywhere, but only a handful of real
+  // point lights exist — reassigned each frame to the anchors nearest the
+  // player. Constant lighting cost regardless of floor size (forward-renderer
+  // fragment cost scales with light count).
+  private torchAnchors: { x: number; y: number; seed: number }[] = [];
+  private torchPool: THREE.PointLight[] = [];
+  private torchBase = 2.2;
+  private static TORCH_POOL_SIZE = 6;
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
@@ -40,8 +67,8 @@ export class Renderer3D {
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
-  private loot = new Map<number, THREE.Mesh>();
-  private projectiles = new Map<number, THREE.Mesh>();
+  private loot = new Map<number, THREE.Object3D>();
+  private projectiles = new Map<number, THREE.Object3D>();
 
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
@@ -72,6 +99,55 @@ export class Renderer3D {
     vx: number; vy: number; vz: number; life: number; max: number;
   }[] = [];
   private sharedParticleGeo = new THREE.TetrahedronGeometry(0.09, 0);
+  // Additive glow sprites (projectile trails, magic bursts). The texture is a
+  // canvas radial gradient — procedural, so the FX layer needs no image assets.
+  private fxSprites: { sprite: THREE.Sprite; life: number; max: number; grow: number }[] = [];
+  private glowTex: THREE.Texture | null = null;
+  private strikeMeshes: THREE.Object3D[] = []; // falling airstrike shells (pooled)
+  private prevStrikeCount = 0;
+  private prevStrikePos: { x: number; y: number }[] = [];
+
+  private glowTexture(): THREE.Texture {
+    if (this.glowTex) return this.glowTex;
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!;
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.4, "rgba(255,255,255,0.5)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    this.glowTex = new THREE.CanvasTexture(c);
+    return this.glowTex;
+  }
+
+  private makeGlow(color: number, size: number): THREE.Sprite {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this.glowTexture(), color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    s.scale.setScalar(size);
+    return s;
+  }
+
+  /** Fire-and-forget glow puff (trails, bursts). */
+  private spawnGlow(x: number, y: number, z: number, color: number, size: number, max = 0.35, grow = 0): void {
+    if (this.fxSprites.length > 240) return; // cap
+    const sprite = this.makeGlow(color, size);
+    sprite.position.set(x, y, z);
+    this.scene.add(sprite);
+    this.fxSprites.push({ sprite, life: 0, max, grow });
+  }
+
+  /** Radial burst of glow puffs (novas, impacts). */
+  private burst(x: number, z: number, color: number, count: number, size: number, radius: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      this.spawnGlow(x + Math.cos(a) * radius * 0.3, 0.5 + Math.random() * 0.4, z + Math.sin(a) * radius * 0.3,
+        color, size * (0.7 + Math.random() * 0.6), 0.4 + Math.random() * 0.25, radius * 2.2);
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -334,6 +410,65 @@ export class Renderer3D {
     return g;
   }
 
+  /**
+   * Ground-drop visuals: REAL models per loot kind — a coin (or stack) for
+   * gold, a potion bottle for heals, the dungeon key, the mage's spellbook for
+   * tomes, and for equipment the ACTUAL weapon/shield mesh you'd equip, tinted
+   * by rarity. Anything without a model falls back to the classic octahedron.
+   */
+  private buildLootMesh(l: GameState["loot"][number]): THREE.Object3D {
+    const fallback = (): THREE.Mesh => {
+      const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
+      return new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.2, 0),
+        flat(col, { emissive: col, emissiveIntensity: 0.6 }),
+      );
+    };
+    let obj: THREE.Object3D | null = null;
+    let scale = 0.5;
+    if (l.kind === "gold") {
+      obj = this.modelInstance(l.amount > 10 ? "coin_stack_small" : "coin");
+      scale = l.amount > 10 ? 0.45 : 0.55;
+    } else if (l.kind === "heal") {
+      obj = this.modelInstance("bottle_A_green");
+      scale = 0.55;
+    } else if (l.kind === "key") {
+      obj = this.modelInstance("key");
+      scale = 0.6;
+    } else if (l.kind === "tome") {
+      const book = this.models["monster_shaman"]?.scene.getObjectByName("Spellbook");
+      if (book) { obj = book.clone(true); scale = 0.8; }
+    } else if (l.kind === "item" && l.item) {
+      const vis = groundVisualFor(l.item);
+      const node = vis ? this.models[vis.srcKey]?.scene.getObjectByName(vis.node) : null;
+      if (node) {
+        obj = node.clone(true);
+        scale = 0.8;
+        // Rarity tint on CLONED materials (the source scene keeps its own).
+        const glow = rarityGlow(l.item.rarity);
+        obj.traverse((c) => {
+          const mesh = c as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+          if (glow) { mat.emissive = new THREE.Color(glow.color); mat.emissiveIntensity = glow.intensity; }
+          mesh.material = mat;
+        });
+      }
+    }
+    if (!obj) return fallback();
+    obj.scale.setScalar(scale);
+    obj.rotation.z = l.kind === "item" ? Math.PI / 2.6 : 0; // weapons lie at an angle
+    const group = new THREE.Group();
+    group.add(obj);
+    // A soft ground glow so drops read at a glance (gold for currency,
+    // rarity-tinted for gear).
+    const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
+    const halo = this.makeGlow(col, 0.9);
+    halo.position.y = -0.2;
+    group.add(halo);
+    return group;
+  }
+
   private lootColor(kind: string): number {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
     if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
@@ -370,16 +505,17 @@ export class Renderer3D {
   }
 
   private buildFloor(state: GameState): void {
+    // Release the previous floor's GPU buffers. Tile geometries are per-build
+    // clones (tileSource) or per-build boxes, so disposing them is safe; prop
+    // meshes share the loader cache and are skipped.
+    this.floorGroup.traverse((o) => {
+      const im = o as THREE.InstancedMesh;
+      if (im.isInstancedMesh) { im.dispose(); im.geometry.dispose(); }
+    });
     this.floorGroup.clear();
-    for (const t of this.torchLights) this.scene.remove(t.light);
-    this.torchLights = [];
+    this.torchAnchors = [];
 
     const map = state.map;
-    let floorCount = 0, wallCount = 0, doorCount = 0;
-    for (let i = 0; i < map.tiles.length; i++) {
-      if (map.tiles[i] === Tile.Wall) wallCount++; else floorCount++;
-      if (map.tiles[i] === Tile.DoorLocked) doorCount++; // floor carved under, door box on top
-    }
 
     // Theme band for this depth (art set + palette), plus a cosmetic per-floor
     // rng so floors within a band differ (mix ratio, props, tint jitter).
@@ -393,29 +529,12 @@ export class Renderer3D {
     const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
     const altSrc = this.tileSource(theme.floorAltKey);
     const wallSrc = this.tileSource(theme.wallKey) ?? this.tileSource("wall");
-    const floorMesh = floorSrc
-      ? new THREE.InstancedMesh(floorSrc.geo, floorSrc.mat, floorCount)
-      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floor), floorCount);
-    const floorAltMesh = altSrc
-      ? new THREE.InstancedMesh(altSrc.geo, altSrc.mat, floorCount)
-      : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.2, 1), flat(THEME.floorAlt), floorSrc ? 0 : floorCount);
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
     // The fill box is slightly shorter than the panels so their top/side surfaces
     // are never coplanar (coplanar faces z-fight and flicker as the camera moves).
     const wallHeight = 1.0;
     const fillHeight = wallHeight - 0.04;
-    const wallMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, fillHeight, 1), flat(THEME.wall), wallCount);
-    floorMesh.receiveShadow = true; floorAltMesh.receiveShadow = true;
-    wallMesh.castShadow = true; wallMesh.receiveShadow = true;
-    // Locked doors: gold/bronze blocks slightly taller than the walls, sitting on
-    // top of floor-carved tiles (the sim keeps them non-walkable until the key).
-    const doorMesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.96, 1.1, 0.96),
-      flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 }),
-      doorCount,
-    );
-    doorMesh.castShadow = true; doorMesh.receiveShadow = true;
 
     const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < map.w && y < map.h;
     const isFloorAt = (x: number, y: number) => inBounds(x, y) && map.tiles[y * map.w + x] !== Tile.Wall;
@@ -423,18 +542,26 @@ export class Renderer3D {
       { dx: 0, dz: 1 }, { dx: 0, dz: -1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 },
     ];
 
-    let panelMesh: THREE.InstancedMesh | null = null;
-    if (wallSrc) {
-      let panelCount = 0;
-      for (let y = 0; y < map.h; y++) {
-        for (let x = 0; x < map.w; x++) {
-          if (map.tiles[y * map.w + x] !== Tile.Wall) continue;
-          for (const d of DIRS) if (isFloorAt(x + d.dx, y + d.dz)) panelCount++;
-        }
+    // Tiles are bucketed into CHUNK x CHUNK regions, one InstancedMesh per
+    // (chunk, tile kind). A single map-wide instanced mesh defeats frustum
+    // culling — the camera sees ~1/6 of a 72x72 floor, and per-chunk meshes let
+    // three.js skip the rest (the dominant cost: 1M+ shaded triangles under
+    // many lights). Draw calls rise slightly; shaded fragments drop ~5x.
+    const CHUNK = 12;
+    const chunkCols = Math.ceil(map.w / CHUNK);
+    type Kind = "floor" | "alt" | "fill" | "panel" | "door";
+    const KINDS: Kind[] = ["floor", "alt", "fill", "panel", "door"];
+    type Bucket = Record<Kind, { m: THREE.Matrix4; tile: number }[]>;
+    const buckets = new Map<number, Bucket>();
+    const push = (kind: Kind, x: number, y: number, tile: number, mat: THREE.Matrix4) => {
+      const key = Math.floor(y / CHUNK) * chunkCols + Math.floor(x / CHUNK);
+      let b = buckets.get(key);
+      if (!b) {
+        b = { floor: [], alt: [], fill: [], panel: [], door: [] };
+        buckets.set(key, b);
       }
-      panelMesh = new THREE.InstancedMesh(wallSrc.geo, wallSrc.mat, panelCount);
-      panelMesh.castShadow = true; panelMesh.receiveShadow = true;
-    }
+      b[kind].push({ m: mat.clone(), tile });
+    };
 
     const m = new THREE.Matrix4();
     const placeFloor = (src: typeof floorSrc, x: number, y: number) => {
@@ -468,31 +595,25 @@ export class Renderer3D {
     // Track which map tile sits behind each instance so fog of war can tint it.
     // Wall instances key off the tile itself; panels key off the floor tile they
     // face (a wall face lights up when the room it borders is explored).
-    const floorTiles: number[] = [], floorAltTiles: number[] = [];
-    const wallTiles: number[] = [], panelTiles: number[] = [], doorTiles: number[] = [];
-    let fi = 0, fai = 0, wi = 0, pi = 0, di = 0;
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const idx = y * map.w + x;
         const t = map.tiles[idx];
         if (t === Tile.DoorLocked) {
-          // The door block sits over its tile; the floor branches below still run
-          // so the tile has ground under the door when it opens... which happens
-          // via a full rebuild (mapVersion bump), so just draw floor + door now.
+          // The door block sits over its tile; opening triggers a full rebuild
+          // (mapVersion bump), so just draw floor + door now.
           m.makeTranslation(x + 0.5, 1.1 / 2 - 0.02, y + 0.5);
-          doorTiles.push(idx);
-          doorMesh.setMatrixAt(di++, m);
+          push("door", x, y, idx, m);
         }
         if (t === Tile.Wall) {
           m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
-          wallTiles.push(idx);
-          wallMesh.setMatrixAt(wi++, m);
-          if (panelMesh) {
+          push("fill", x, y, idx, m);
+          if (wallSrc) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
               placePanel(x, y, d.dx, d.dz);
-              panelTiles.push((y + d.dz) * map.w + (x + d.dx));
-              panelMesh.setMatrixAt(pi++, m);
+              // Fog keys panels off the floor tile they FACE.
+              push("panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
             }
           }
         } else {
@@ -502,38 +623,48 @@ export class Renderer3D {
             : !floorSrc && (x + y) % 2 !== 0;
           if (useAlt) {
             placeFloor(altSrc, x, y);
-            floorAltTiles.push(idx);
-            floorAltMesh.setMatrixAt(fai++, m);
+            push("alt", x, y, idx, m);
           } else {
             placeFloor(floorSrc, x, y);
-            floorTiles.push(idx);
-            floorMesh.setMatrixAt(fi++, m);
+            push("floor", x, y, idx, m);
           }
         }
       }
     }
-    floorMesh.count = fi; floorAltMesh.count = fai; wallMesh.count = wi; doorMesh.count = di;
-    floorMesh.instanceMatrix.needsUpdate = true;
-    floorAltMesh.instanceMatrix.needsUpdate = true;
-    wallMesh.instanceMatrix.needsUpdate = true;
-    doorMesh.instanceMatrix.needsUpdate = true;
-    this.floorGroup.add(floorMesh, floorAltMesh, wallMesh);
-    if (di > 0) this.floorGroup.add(doorMesh);
-    if (panelMesh) {
-      panelMesh.count = pi;
-      panelMesh.instanceMatrix.needsUpdate = true;
-      this.floorGroup.add(panelMesh);
-    }
+
+    // Shared per-build geometry/material per kind (chunk meshes reuse them).
     const floorLit = new THREE.Color(theme.floorTint).multiplyScalar(tintJitter);
     const wallLitColor = new THREE.Color(theme.wallTint).multiplyScalar(tintJitter);
     const wallFillLit = wallLitColor.clone().multiplyScalar(0.55); // dark rock tops
-    this.fogTargets = [
-      { mesh: floorMesh, tiles: floorTiles, lit: floorLit },
-      { mesh: floorAltMesh, tiles: floorAltTiles, lit: floorLit },
-      { mesh: wallMesh, tiles: wallTiles, lit: wallFillLit },
-    ];
-    if (di > 0) this.fogTargets.push({ mesh: doorMesh, tiles: doorTiles, lit: new THREE.Color(1, 1, 1) });
-    if (panelMesh) this.fogTargets.push({ mesh: panelMesh, tiles: panelTiles, lit: wallLitColor });
+    const fillGeo = new THREE.BoxGeometry(1, fillHeight, 1);
+    const fillMat = flat(THEME.wall);
+    const fallbackFloorGeo = floorSrc && altSrc ? null : new THREE.BoxGeometry(1, 0.2, 1);
+    const doorGeo = new THREE.BoxGeometry(0.96, 1.1, 0.96);
+    const doorMat = flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 });
+    const kindSpec: Record<Kind, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; lit: THREE.Color; cast: boolean } | null> = {
+      floor: { geo: floorSrc?.geo ?? fallbackFloorGeo!, mat: floorSrc?.mat ?? flat(THEME.floor), lit: floorLit, cast: false },
+      alt: { geo: altSrc?.geo ?? fallbackFloorGeo!, mat: altSrc?.mat ?? flat(THEME.floorAlt), lit: floorLit, cast: false },
+      fill: { geo: fillGeo, mat: fillMat, lit: wallFillLit, cast: true },
+      panel: wallSrc ? { geo: wallSrc.geo, mat: wallSrc.mat, lit: wallLitColor, cast: true } : null,
+      door: { geo: doorGeo, mat: doorMat, lit: new THREE.Color(1, 1, 1), cast: true },
+    };
+
+    this.fogTargets = [];
+    for (const bucket of buckets.values()) {
+      for (const kind of KINDS) {
+        const list = bucket[kind];
+        const spec = kindSpec[kind];
+        if (list.length === 0 || !spec) continue;
+        const mesh = new THREE.InstancedMesh(spec.geo, spec.mat, list.length);
+        for (let i = 0; i < list.length; i++) mesh.setMatrixAt(i, list[i].m);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.castShadow = spec.cast;
+        mesh.receiveShadow = true;
+        mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
+        this.floorGroup.add(mesh);
+        this.fogTargets.push({ mesh, tiles: list.map((e) => e.tile), lit: spec.lit });
+      }
+    }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
@@ -653,7 +784,9 @@ export class Renderer3D {
           place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
         }
       }
-      place("table_small_decorated_A", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.7, rot: 0, jitter: 0 });
+      // Centerpiece: a fallen warrior monument (table_small_decorated_A is out —
+      // its model has candles baked in, and candles are banned from the floors).
+      place("sword_shield_broken", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.9, rot: 0, jitter: 0 });
     }
 
     // 5) VAULT: the hoard around the guardian's treasure.
@@ -685,13 +818,19 @@ export class Renderer3D {
 
   /** Point lights anchored where torch meshes were placed (light = source). */
   private addTorches(theme: FloorTheme, anchors: Vec2[], intensityJitter: number): void {
-    const intensity = theme.torchIntensity * intensityJitter;
-    anchors.forEach((s, i) => {
-      const light = new THREE.PointLight(theme.torchColor, intensity, THEME.torchDistance, 2);
-      light.position.set(s.x, 1.1, s.y);
-      this.scene.add(light);
-      this.torchLights.push({ light, base: intensity, seed: i * 1.7 });
-    });
+    this.torchBase = theme.torchIntensity * intensityJitter;
+    this.torchAnchors = anchors.map((s, i) => ({ x: s.x, y: s.y, seed: i * 1.7 }));
+    if (this.torchPool.length === 0) {
+      for (let i = 0; i < Renderer3D.TORCH_POOL_SIZE; i++) {
+        const light = new THREE.PointLight(0xffffff, 0, THEME.torchDistance, 2);
+        this.scene.add(light);
+        this.torchPool.push(light);
+      }
+    }
+    for (const light of this.torchPool) {
+      light.color.set(theme.torchColor);
+      light.intensity = 0;
+    }
   }
 
   // ---- Fog of war ----
@@ -723,7 +862,38 @@ export class Renderer3D {
 
   // ---- Ability visuals (orbit blades + nova ring) ----
 
+  /** Sponsor Airstrike: shells render as falling KEGS (sponsor-branded
+   * ordnance); each impact pops an orange burst where it lands. */
+  private updateStrikeFx(state: GameState): void {
+    const strikes = state.strikes ?? [];
+    // Impacts: the count dropped — burst at the previous positions that landed.
+    if (strikes.length < this.prevStrikeCount) {
+      for (const pos of this.prevStrikePos.slice(strikes.length)) {
+        this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+      }
+    }
+    this.prevStrikeCount = strikes.length;
+    this.prevStrikePos = strikes.map((s) => ({ x: s.pos.x, y: s.pos.y }));
+    while (this.strikeMeshes.length < strikes.length) {
+      const keg = this.modelInstance("keg") ?? new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
+      keg.scale.multiplyScalar(0.5);
+      this.scene.add(keg);
+      this.strikeMeshes.push(keg);
+    }
+    for (let i = 0; i < this.strikeMeshes.length; i++) {
+      const mesh = this.strikeMeshes[i];
+      const s = strikes[i];
+      if (!s) { mesh.visible = false; continue; }
+      mesh.visible = true;
+      mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
+      mesh.rotation.x += 0.2;
+      mesh.rotation.z += 0.13;
+    }
+  }
+
   private updateAbilityFx(state: GameState, dt: number): void {
+    this.updateStrikeFx(state);
     for (const p of state.players) {
       // Orbit blades: reconcile each player's pool with their learned blade count.
       const op = knows(p, "orbit") && p.alive ? orbitParams(p) : null;
@@ -761,6 +931,7 @@ export class Renderer3D {
         }
         const np = novaParams(p);
         const prog = 1 - p.novaFlash / 0.3;
+        if (!ring.visible) this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
         ring.visible = true;
         ring.position.set(p.pos.x, 0.15, p.pos.y);
         ring.scale.setScalar(Math.max(0.05, np.radius * prog));
@@ -803,7 +974,7 @@ export class Renderer3D {
       const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
       const plSpeed = Math.hypot(pl.pos.x - prev.x, pl.pos.y - prev.y) / dt;
       this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
-      mesh.position.set(pl.pos.x, 0, pl.pos.y);
+      this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
@@ -861,7 +1032,7 @@ export class Renderer3D {
       const prev = this.prevMon.get(mon.id) ?? mon.pos;
       const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
       this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
-      mesh.position.set(mon.pos.x, 0, mon.pos.y);
+      this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
         // Rigged model: clip by combat state — hit reaction while staggered,
@@ -983,14 +1154,25 @@ export class Renderer3D {
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
         const color = pr.from === "player" ? THEME.projectilePlayer : THEME.projectileEnemy;
-        mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 8, 8),
-          flat(color, { emissive: color, emissiveIntensity: 0.9 }),
+        const group = new THREE.Group();
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.11, 8, 8),
+          flat(color, { emissive: color, emissiveIntensity: 1.4 }),
         );
+        group.add(core, this.makeGlow(color, 0.85));
+        group.userData.color = color;
+        group.userData.lastTrail = 0;
+        mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
-      mesh.position.set(pr.pos.x, 0.6, pr.pos.y);
+      this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
       mesh.visible = inVision(pr.pos);
+      // Comet trail: a fading glow puff every few ms of flight.
+      mesh.userData.lastTrail += dt;
+      if (mesh.visible && mesh.userData.lastTrail > 0.035) {
+        mesh.userData.lastTrail = 0;
+        this.spawnGlow(mesh.position.x, mesh.position.y, mesh.position.z, mesh.userData.color, 0.5, 0.22, -0.8);
+      }
     }
     for (const [id, mesh] of this.projectiles) {
       if (!projSeen.has(id)) { this.scene.remove(mesh); this.projectiles.delete(id); }
@@ -1002,11 +1184,7 @@ export class Renderer3D {
       lootSeen.add(l.id);
       let mesh = this.loot.get(l.id);
       if (!mesh) {
-        const col = l.kind === "item" && l.rarity ? THEME.rarity[l.rarity] : this.lootColor(l.kind);
-        mesh = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.2, 0),
-          flat(col, { emissive: col, emissiveIntensity: 0.6 }),
-        );
+        mesh = this.buildLootMesh(l);
         this.scene.add(mesh); this.loot.set(l.id, mesh);
       }
       // Equipment bobs a touch higher and spins faster so drops read as "loot".
@@ -1019,9 +1197,21 @@ export class Renderer3D {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }
     }
 
-    // Torch flicker (cosmetic; uses render time, not sim time).
-    for (const t of this.torchLights) {
-      t.light.intensity = t.base * (0.75 + 0.25 * Math.sin(time * 9 + t.seed) * Math.sin(time * 3.3 + t.seed));
+    // Torch light pool: park the few real lights at the anchors nearest the
+    // player (off-screen torches don't need light), then flicker.
+    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
+    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
+      const nearest = [...this.torchAnchors]
+        .sort((a, b) =>
+          (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2 -
+          ((b.x - lp.pos.x) ** 2 + (b.y - lp.pos.y) ** 2))
+        .slice(0, this.torchPool.length);
+      this.torchPool.forEach((light, i) => {
+        const t = nearest[i];
+        if (!t) { light.intensity = 0; return; }
+        light.position.set(t.x, 1.1, t.y);
+        light.intensity = this.torchBase * (0.75 + 0.25 * Math.sin(time * 9 + t.seed) * Math.sin(time * 3.3 + t.seed));
+      });
     }
 
     this.updateParticles(dt);
@@ -1035,14 +1225,17 @@ export class Renderer3D {
     const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
+    const anchor = this.playerMeshes.get(p.id)?.position;
+    const ax = anchor ? anchor.x : p.pos.x;
+    const az = anchor ? anchor.z : p.pos.y;
     this.camera.position.set(
-      p.pos.x + (d.x / len) * dist + sx,
+      ax + (d.x / len) * dist + sx,
       (d.y / len) * dist,
-      p.pos.y + (d.z / len) * dist + sz,
+      az + (d.z / len) * dist + sz,
     );
-    this.camera.lookAt(p.pos.x, 0, p.pos.y);
-    this.key.position.set(p.pos.x + 8, 20, p.pos.y + 6);
-    this.key.target.position.set(p.pos.x, 0, p.pos.y);
+    this.camera.lookAt(ax, 0, az);
+    this.key.position.set(ax + 8, 20, az + 6);
+    this.key.target.position.set(ax, 0, az);
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
@@ -1150,6 +1343,18 @@ export class Renderer3D {
       alive.push(pt);
     }
     this.particles = alive;
+
+    // Glow sprites: fade + optional grow/shrink, no gravity.
+    const fxAlive: typeof this.fxSprites = [];
+    for (const fx of this.fxSprites) {
+      fx.life += dt;
+      if (fx.life >= fx.max) { this.scene.remove(fx.sprite); continue; }
+      const t = fx.life / fx.max;
+      (fx.sprite.material as THREE.SpriteMaterial).opacity = 1 - t;
+      if (fx.grow !== 0) fx.sprite.scale.multiplyScalar(1 + fx.grow * dt);
+      fxAlive.push(fx);
+    }
+    this.fxSprites = fxAlive;
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */

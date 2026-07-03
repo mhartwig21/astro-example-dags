@@ -28,7 +28,10 @@ export interface FloorTheme {
 export const FLOOR_THEMES: FloorTheme[] = [
   {
     name: "THE UNDERCROFT", // floors 1-4: clean warm stone
-    floorKey: "floor", floorAltKey: "floor_tile_small_decorated", altRatio: 0.14,
+    // NOTE: floor_tile_small_decorated has CANDLES baked into the model —
+    // that's why removing the candle PROPS didn't stop candles appearing on
+    // every early floor. Cracked tiles vary the floor without the tea lights.
+    floorKey: "floor", floorAltKey: "floor_tile_small_broken_A", altRatio: 0.14,
     wallKey: "wall", stairsKey: "stairs",
     props: ["barrel_small", "box_small", "crates_stacked", "keg", "trunk_small_A"],
     propDensity: 0.018,

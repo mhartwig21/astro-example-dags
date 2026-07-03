@@ -1,4 +1,5 @@
-import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyShopItem, setReady } from "./sim/game";
+import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyCatalogItem, effectivePrice, setReady } from "./sim/game";
+import { CATALOG_BY_ID } from "./sim/catalog";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
@@ -65,7 +66,10 @@ window.addEventListener("keydown", (e) => {
   if (n >= 1 && n <= 9) {
     if (me.pendingRewards.length > 0) chooseReward(state, me.id, n - 1);
     else if (me.pendingUpgrades.length > 0) chooseUpgrade(state, me.id, n - 1);
-    else if (state.safeRoom) buyShopItem(state, me.id, n - 1);
+    else if (state.safeRoom) {
+      const id = state.safeRoom.available[n - 1];
+      if (id) buyCatalogItem(state, me.id, id);
+    }
     for (const ev of state.events) log.push(ev);
     state.events = [];
   } else if (e.key === "Enter" && state.safeRoom) {
@@ -99,8 +103,12 @@ function frame(now: number): void {
   if (paused && !pausePrompted) {
     pausePrompted = true;
     if (state.safeRoom) {
-      log.push(`SAFE ROOM — ${state.safeRoom.tip}`);
-      state.safeRoom.stock.forEach((s, i) => log.push(`  [${i + 1}] ${s.title} — ${s.desc} (${s.price}g)`));
+      const room = state.safeRoom;
+      log.push(`SAFE ROOM — ${room.tip}`);
+      room.available.slice(0, 9).forEach((id, i) => {
+        const e = CATALOG_BY_ID[id];
+        log.push(`  [${i + 1}] ${e.name} — ${e.desc} (${effectivePrice(lp, id, room.nextFloor)}g)`);
+      });
       log.push("  Press 1-9 to buy, Enter to descend.");
     } else {
       const offers: { title: string; desc: string }[] = lp.pendingRewards.length > 0 ? lp.pendingRewards : lp.pendingUpgrades;
