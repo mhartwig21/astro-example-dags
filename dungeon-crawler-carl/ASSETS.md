@@ -102,7 +102,9 @@ public/audio/
           dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
           announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
-  music/  dungeon.ogg, safe_room.mp3, collapse.wav   (loops)
+  music/  dungeon.ogg, safe_room.mp3, collapse.wav,
+          battle_theme_a.ogg, battle_music.ogg, battle_winter.ogg,   (battle rotation)
+          boss_epic.ogg, boss_blackmoor.ogg, boss_colossal.ogg   (boss themes; all loop)
 ```
 
 The full list with per-sound volume/bus/throttle lives in `src/audio/manifest.ts`
@@ -121,6 +123,8 @@ pointers for the audio sources too.
 | `music/dungeon.ogg` | [Loopable Dungeon Ambience](https://opengameart.org/content/loopable-dungeon-ambience) | JaggedStone | CC0 |
 | `music/safe_room.mp3` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) | The Cynic Project (cynicmusic.com) | CC0 |
 | `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
+| `music/battle_theme_a.ogg` | [Battle Theme A](https://opengameart.org/content/battle-theme-a) | cynicmusic (The Cynic Project) | CC0 |
+| `music/boss_epic.ogg` | [Boss Battle Music](https://opengameart.org/content/boss-battle-music) | Juhani Junkala (SubspaceAudio) | CC0 |
 
 Not yet sourced: `sfx/crowd.ogg` (multi-kill roar) — no CC0 match in the Kenney
 packs; the game stays silent for it until a clip is added.
@@ -130,9 +134,21 @@ table guidance; OpenGameArt (license-filtered to CC0) is the better music source
 
 ### Attribution (CC-BY assets in use)
 
-_None — everything committed is CC0. Add a row here (author, work, license,
-link) for every CC-BY file you commit, and mirror it in the in-game credits
-screen._
+Attribution is REQUIRED for these. It is provided here and in-game (KEY
+BINDINGS panel footer in `iso.html`) — keep both in sync when adding rows.
+
+| Work | Author | License | Source | Our file |
+|---|---|---|---|---|
+| Battle Music | Alexandr Zhelanov | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-music) | `music/battle_music.ogg` |
+| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` |
+| Colossal Boss Battle Theme | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/colossal-boss-battle-theme) | `music/boss_colossal.ogg` |
+| Blackmoor Tides (Epic Pirate Battle Theme) | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/blackmoor-tides-epic-pirate-battle-theme) | `music/boss_blackmoor.ogg` |
+
+The `.ogg` files are re-encodes of the authors' seamless-loop WAV/MP3 releases
+(format conversion only, no creative changes). Rejected during sourcing:
+"Orchestral Battle Music" (Zefz) — CC-BY-SA/GPL only, and the author states the
+samples come from a commercial MAGIX sample DVD, so the relicensing chain is
+unclear. Don't ship it.
 
 ## Ability icons — game-icons.net (CC BY 3.0, attribution REQUIRED)
 

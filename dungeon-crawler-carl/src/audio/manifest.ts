@@ -51,6 +51,14 @@ export const AUDIO_MANIFEST = {
   music_dungeon: { url: "/audio/music/dungeon.ogg", bus: "music", volume: 0.5, loop: true },
   music_safe: { url: "/audio/music/safe_room.mp3", bus: "music", volume: 0.5, loop: true },
   music_collapse: { url: "/audio/music/collapse.wav", bus: "music", volume: 0.65, loop: true },
+  // Battle rotation (regular combat; picked per floor — see director.ts).
+  music_battle_a: { url: "/audio/music/battle_theme_a.ogg", bus: "music", volume: 0.5, loop: true },
+  music_battle_b: { url: "/audio/music/battle_music.ogg", bus: "music", volume: 0.5, loop: true },
+  music_battle_c: { url: "/audio/music/battle_winter.ogg", bus: "music", volume: 0.5, loop: true },
+  // Boss themes: city-boss arenas (floors 6/12) escalate to the final floor.
+  music_boss_epic: { url: "/audio/music/boss_epic.ogg", bus: "music", volume: 0.55, loop: true },
+  music_boss_tides: { url: "/audio/music/boss_blackmoor.ogg", bus: "music", volume: 0.55, loop: true },
+  music_boss_colossal: { url: "/audio/music/boss_colossal.ogg", bus: "music", volume: 0.6, loop: true },
 } satisfies Record<string, SoundDef>;
 
 export type SoundId = keyof typeof AUDIO_MANIFEST;
