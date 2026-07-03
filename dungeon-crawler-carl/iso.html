@@ -69,24 +69,46 @@
         background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
         padding: 4px 14px; font-size: 12px; color: #9fd8e8; pointer-events: none; }
 
-      /* Skill bar */
-      #skills { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-        display: flex; gap: 10px; pointer-events: none; }
-      .skill { width: 64px; text-align: center; background: rgba(12,10,20,0.8);
-        border: 1px solid #2a2a38; border-radius: 6px; padding: 5px 4px 4px; font-size: 11px; color: #cfcfe0; }
-      .skill .key { color: #c9a24b; font-weight: 700; }
-      .skill .cd { height: 5px; margin-top: 4px; background: #000; border-radius: 3px; overflow: hidden; }
-      .skill .cd > i { display: block; height: 100%; background: #4fd1ff; width: 0%; }
-      .skill.ready { border-color: #3f5f6f; }
-      .skill.empty { opacity: 0.45; border-style: dashed; }
+      /* Action bar (D4/WoW cockpit): globe + slots + XP strip */
+      #cockpit { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
+      #skills { display: flex; gap: 8px; }
+      .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
+        border: 2px solid #2a2a38; border-radius: 8px; font-size: 10px; color: #cfcfe0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .skill .key { position: absolute; top: -1px; left: -1px; background: #14131f;
+        border: 1px solid #2a2a38; border-radius: 6px 0 6px 0; padding: 0 5px; font-size: 9px;
+        color: #c9a24b; font-weight: 700; line-height: 1.5; }
+      .skill .label { position: absolute; bottom: 2px; font-size: 8px; color: #8a8a9a;
+        max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .skill .cd { display: none; }
+      /* Radial cooldown sweep: --cd goes 0 (ready) -> 1 (full cooldown). */
+      .skill .sweep { position: absolute; inset: 0; border-radius: 6px;
+        background: conic-gradient(rgba(6,6,12,0.85) calc(var(--cd, 0) * 360deg), transparent 0); }
+      .skill.ready { border-color: #3f5f6f; box-shadow: 0 0 8px rgba(79,209,255,0.12); }
+      .skill.empty { opacity: 0.4; border-style: dashed; }
       .skill.ult { border-color: #7a5cc9; }
+      .skill.ult.ready { box-shadow: 0 0 12px rgba(185,152,255,0.35); }
       .skill.ult .key { color: #b998ff; }
-      .skill .bench-badge { color: #8a8a9a; }
-      .skill .icon { display: block; width: 30px; height: 30px; margin: 2px auto 0;
+      .skill .bench-badge { color: #8a8a9a; font-size: 9px; }
+      .skill .icon { display: block; width: 30px; height: 30px;
         background: #c9a24b; mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .skill.ult .icon { background: #b998ff; }
       .skill.empty .icon { background: #33334a; }
+      /* Health globe */
+      #globe { position: relative; width: 64px; height: 64px; border-radius: 50%;
+        border: 2px solid #3a2a2e; background: #0b0a14; overflow: hidden; }
+      #globe .fill { position: absolute; inset: 0; background: linear-gradient(#ff6a5e, #a02020);
+        transform-origin: bottom; transform: scaleY(var(--hp, 1)); transition: transform 0.25s ease; }
+      #globe .num { position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; font-size: 11px; font-weight: 700; color: #ffe9e4;
+        text-shadow: 0 1px 3px #000; }
+      /* XP strip under the slots */
+      #xpbar { position: absolute; left: 78px; right: 0; bottom: -8px; height: 4px;
+        background: #0b0a14; border: 1px solid #1c1c28; border-radius: 3px; overflow: hidden; }
+      #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #6fd8a8, #3fae7c);
+        width: 0%; }
       .constellation { display: block; width: 100%; height: 130px; margin-top: 6px;
         background: #0b0a14; border: 1px solid #1c1c28; border-radius: 6px; }
       .abil-card .icon { display: inline-block; width: 20px; height: 20px; vertical-align: -4px;
@@ -308,7 +330,11 @@
         </div>
       </div>
     </div>
-    <div id="skills"></div>
+    <div id="cockpit">
+      <div id="globe"><div class="fill"></div><div class="num"></div></div>
+      <div id="skills"></div>
+      <div id="xpbar"><i></i></div>
+    </div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>
 </html>

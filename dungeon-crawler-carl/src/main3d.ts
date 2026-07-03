@@ -671,6 +671,9 @@ srDescend.addEventListener("click", () => {
 // count). Structure rebuilds only when the loadout changes; cooldown fills
 // update every frame.
 const skillsEl = document.getElementById("skills")!;
+const globeFill = document.querySelector("#globe .fill") as HTMLElement;
+const globeNum = document.querySelector("#globe .num") as HTMLElement;
+const xpFill = document.querySelector("#xpbar > i") as HTMLElement;
 let skillBarKey = "";
 const CD_BASE: Partial<Record<AbilityId, number>> = {
   melee: CONFIG.playerAttackCooldown, dash: CONFIG.dashCooldown, bolt: CONFIG.boltCooldown,
@@ -693,13 +696,14 @@ function updateSkills(s: GameState): void {
         const bind = bindingLabel(bindings, slotActions[i]).split(" / ")[0];
         const label = e.ability
           ? ABILITY_INFO[e.ability].name.split(" ").pop()
-          : "&nbsp;—&nbsp;";
+          : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}${label}<div class="cd"><i></i></div></div>`;
+        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
+          `<span class="label">${label}</span><span class="sweep"></span></div>`;
       })
       .join("") +
       (p.abilities.bench.length > 0
@@ -710,13 +714,16 @@ function updateSkills(s: GameState): void {
   entries.forEach((e, i) => {
     const chip = chips[i] as HTMLElement | undefined;
     if (!chip) return;
-    const fill = chip.querySelector(".cd > i") as HTMLElement | null;
-    if (!e.ability || !fill) return;
+    if (!e.ability) return;
     const remaining = p.cd[e.ability] ?? 0;
     const base = CD_BASE[e.ability] ?? 1;
-    fill.style.width = `${Math.max(0, Math.min(1, remaining / base)) * 100}%`;
+    chip.style.setProperty("--cd", String(Math.max(0, Math.min(1, remaining / base))));
     chip.classList.toggle("ready", remaining === 0);
   });
+  // Health globe + XP strip.
+  globeFill.style.setProperty("--hp", String(Math.max(0, Math.min(1, p.hp / p.maxHp))));
+  globeNum.textContent = `${Math.max(0, Math.ceil(p.hp))}`;
+  xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
 }
 
 // Top-down minimap: explored floor only (fog of war), stairs once seen,
