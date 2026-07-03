@@ -7,6 +7,7 @@ import { stepMonster } from "./ai";
 import { COMPLETED_RECIPES, generateItem, itemScore } from "./items";
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
+  rank,
   novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId,
 } from "./abilities";
@@ -801,7 +802,9 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     if (Math.hypot(toMon.x, toMon.y) > CONFIG.playerAttackRange) continue;
     // Must be within the swing arc of the facing direction.
     if (angleBetween(facing, toMon) > mp.arc / 2) continue;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult);
+    // EXECUTIONER capstone: finish the wounded.
+    const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
+    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute);
   }
 }
 
@@ -1347,6 +1350,11 @@ function doDash(state: GameState, p: Player): void {
   if (dp.shockMult > 0) {
     radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult);
   }
+  // AFTERSHOCK capstone: the arrival point detonates outright.
+  if (rank(p, "dash.after") > 0) {
+    radialDamage(state, p, p.pos, 1.8, p.baseDamage);
+    p.novaFlash = Math.max(p.novaFlash, 0.18);
+  }
 }
 
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
@@ -1385,6 +1393,15 @@ function radialDamage(state: GameState, p: Player, center: Vec2, radius: number,
 function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
   p.cd.nova = np.cooldown;
+  // IMPLOSION capstone: drag everything in range toward you first.
+  if (rank(p, "nova.implode") > 0) {
+    for (const m of state.monsters) {
+      const d = dist(p.pos, m.pos);
+      if (d > np.radius * 1.6 || d < 1.2) continue;
+      const dir = { x: (p.pos.x - m.pos.x) / d, y: (p.pos.y - m.pos.y) / d };
+      moveWithCollision(state.map, m.pos, dir, Math.min(d - 1, 2.2), isWalkable);
+    }
+  }
   p.novaFlash = 0.3;
   radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult);
 }
@@ -1547,6 +1564,26 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + 0.3) {
           damageMonster(state, owner, m, pr.damage);
+          // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
+          if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
+            let best: Monster | null = null;
+            let bestD = 4.5;
+            for (const o of state.monsters) {
+              if (o === m || o.hp <= 0) continue;
+              const d = dist(pr.pos, o.pos);
+              if (d < bestD) { bestD = d; best = o; }
+            }
+            if (best) {
+              const dir = normalize({ x: best.pos.x - pr.pos.x, y: best.pos.y - pr.pos.y });
+              state.projectiles.push({
+                id: state.nextEntityId++,
+                pos: { x: pr.pos.x, y: pr.pos.y },
+                vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
+                damage: pr.damage * 0.6, ttl: 0.8, from: "player", ownerId: owner.id,
+                bounced: true, hitIds: [m.id],
+              });
+            }
+          }
           if (pr.pierce && pr.pierce > 0) {
             pr.pierce--;
             (pr.hitIds ??= []).push(m.id); // keep flying through

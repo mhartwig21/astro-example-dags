@@ -6,7 +6,7 @@ import {
 } from "../src/sim/game";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
-import { boltParams, knows, rank } from "../src/sim/abilities";
+import { availableUpgrades, boltParams, knows, rank } from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -1399,6 +1399,87 @@ describe("completed works (signature gear)", () => {
     const cd = g.players[0].cd.cataclysm ?? 0;
     expect(cd).toBeLessThan(CONFIG.ultCataclysmCooldown * 0.76);
     expect(cd).toBeGreaterThan(CONFIG.ultCataclysmCooldown * 0.7);
+  });
+});
+
+describe("ability constellation (prereqs, forks, capstones)", () => {
+  it("drafts never offer a node whose prerequisites are unmet", () => {
+    const g = createGame(970);
+    const p = g.players[0];
+    // Fresh melee tree: heavy/swift/execute all require arc.
+    p.upgradeDraftsOwed = 5;
+    for (let i = 0; i < 5; i++) {
+      p.pendingUpgrades = [];
+      step(g, idle(), 1 / 60);
+      for (const u of p.pendingUpgrades) {
+        expect(["melee.heavy", "melee.swift", "melee.execute"]).not.toContain(u.id);
+      }
+    }
+  });
+
+  it("taking one side of a fork locks the other side out", () => {
+    const g = createGame(971);
+    const p = g.players[0];
+    p.abilities.ranks["bolt.rapid"] = 1;
+    p.abilities.ranks["bolt.split"] = 1; // pick the split side
+    const open = availableUpgrades(p).map((u) => u.id);
+    expect(open).not.toContain("bolt.pierce");
+    expect(open).toContain("bolt.split"); // can keep investing in the chosen side
+  });
+
+  it("EXECUTIONER: melee hits harder below 30% HP", () => {
+    const g = createGame(972);
+    const p = g.players[0];
+    p.abilities.ranks["melee.execute"] = 1;
+    p.critChance = 0;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 25, maxHp: 100 }));
+    g.monsters.push(mkMon({ id: 2, pos: { x: p.pos.x + 0.8, y: p.pos.y + 0.2 }, hp: 90, maxHp: 100 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    const wounded = 25 - g.monsters.find((m) => m.id === 1)!.hp;
+    const healthy = 90 - g.monsters.find((m) => m.id === 2)!.hp;
+    expect(wounded).toBeGreaterThan(healthy * 1.3);
+  });
+
+  it("AFTERSHOCK: dash arrival detonates", () => {
+    const g = createGame(973);
+    const p = g.players[0];
+    p.abilities.ranks["dash.after"] = 1;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    const dp = 3.2; // dash distance
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + dp, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 1, y: 0 }, useStairs: false, cast: [false, true, false, false, false] }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500);
+  });
+
+  it("RICOCHET: a bolt kill-hit bounces to a nearby second target", () => {
+    const g = createGame(974);
+    const p = g.players[0];
+    p.abilities.ranks["bolt.ricochet"] = 1;
+    p.critChance = 0;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 999, maxHp: 999 }));
+    g.monsters.push(mkMon({ id: 2, pos: { x: p.pos.x + 2, y: p.pos.y + 2 }, hp: 999, maxHp: 999 }));
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, true, false, false], aim: { x: 1, y: 0 } }, 1 / 60);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60);
+    expect(g.monsters.find((m) => m.id === 1)!.hp).toBeLessThan(999); // direct hit
+    expect(g.monsters.find((m) => m.id === 2)!.hp).toBeLessThan(999); // the bounce
+  });
+
+  it("IMPLOSION: nova drags enemies inward before the blast", () => {
+    const g = createGame(975);
+    const p = g.players[0];
+    learnAbility(g, p, "nova");
+    p.abilities.ranks["nova.implode"] = 1;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 3.5, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    const d0 = 3.5;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, nova: true }, 1 / 60);
+    const d1 = Math.hypot(g.monsters[0].pos.x - p.pos.x, g.monsters[0].pos.y - p.pos.y);
+    expect(d1).toBeLessThan(d0 - 0.8);
   });
 });
 

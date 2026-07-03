@@ -9,7 +9,7 @@ import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  knows, rank, type AbilityId,
+  knows, nodeOpen, rank, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
@@ -267,6 +267,50 @@ function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
   return "BENCH";
 }
 
+/**
+ * The ability's upgrade constellation (D4/PoE-style map, Hades-style drafts):
+ * edges from prerequisites, dashed red ties between exclusive forks, diamond
+ * capstones. Fill shows invested ranks; a cyan ring marks draftable-next nodes.
+ */
+function constellation(p: ReturnType<typeof me>, id: AbilityId): string {
+  const nodes = UPGRADES.filter((u) => u.ability === id);
+  if (nodes.length === 0) return "";
+  const at = (nid: string) => nodes.find((n) => n.id === nid);
+  const parts: string[] = [];
+  // Prerequisite edges.
+  for (const u of nodes) {
+    for (const req of u.requires ?? []) {
+      const from = at(req);
+      if (!from) continue;
+      const lit = rank(p, req) > 0;
+      parts.push(`<line x1="${from.pos.x}" y1="${from.pos.y}" x2="${u.pos.x}" y2="${u.pos.y}" stroke="${lit ? "#c9a24b" : "#2a2a38"}" stroke-width="1.2"/>`);
+    }
+  }
+  // Fork ties (draw once per pair).
+  for (const u of nodes) {
+    for (const ex of u.excludes ?? []) {
+      if (u.id > ex) continue;
+      const other = at(ex);
+      if (!other) continue;
+      parts.push(`<line x1="${u.pos.x}" y1="${u.pos.y}" x2="${other.pos.x}" y2="${other.pos.y}" stroke="#7a3040" stroke-width="1" stroke-dasharray="3 3"/>`);
+    }
+  }
+  for (const u of nodes) {
+    const r = rank(p, u.id);
+    const open = nodeOpen(p, u) && r < u.maxRank;
+    const locked = !nodeOpen(p, u) && r === 0;
+    const fill = r >= u.maxRank ? "#c9a24b" : r > 0 ? "#6f5a2c" : "#14131f";
+    const ring = open ? "#4fd1ff" : locked ? "#22222e" : "#3a3a4a";
+    const label = `${u.title} — ${u.desc(Math.min(r + 1, u.maxRank))} (${r}/${u.maxRank})${locked ? " [LOCKED: fork taken or prerequisite missing]" : ""}`;
+    const shape = u.capstone
+      ? `<rect x="${u.pos.x - 6}" y="${u.pos.y - 6}" width="12" height="12" transform="rotate(45 ${u.pos.x} ${u.pos.y})" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`
+      : `<circle cx="${u.pos.x}" cy="${u.pos.y}" r="6" fill="${fill}" stroke="${ring}" stroke-width="1.6"/>`;
+    parts.push(`<g opacity="${locked ? 0.45 : 1}">${shape}<title>${label}</title>` +
+      `<text x="${u.pos.x}" y="${u.pos.y + 13}" text-anchor="middle" font-size="6.5" fill="${locked ? "#55556a" : "#9a9ab0"}">${u.title}</text></g>`);
+  }
+  return `<svg class="constellation" viewBox="-4 0 108 100" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -278,18 +322,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
       `</div>`
     );
   }
-  const nodes = UPGRADES.filter((u) => u.ability === id)
-    .map((u) => {
-      const r = rank(p, u.id);
-      const dots =
-        "●".repeat(r) + `<span class="empty">${"●".repeat(u.maxRank - r)}</span>`;
-      return (
-        `<div class="abil-node${r >= u.maxRank ? " maxed" : ""}">` +
-        `<span>${u.title}</span><span class="ranks">${dots}</span>` +
-        `</div>`
-      );
-    })
-    .join("");
+  const nodes = constellation(p, id);
   // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
   // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
   let controls = "";

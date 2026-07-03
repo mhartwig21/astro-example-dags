@@ -203,6 +203,7 @@ export interface Projectile {
   ownerId?: number; // firing player's id (crit rolls + kill credit)
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
+  bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
