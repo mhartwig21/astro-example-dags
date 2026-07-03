@@ -3,7 +3,7 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { knows, novaParams, orbitParams } from "../sim/abilities";
+import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
 import { CONFIG } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -917,8 +917,9 @@ export class Renderer3D {
       while (blades.length > want) this.scene.remove(blades.pop()!);
       if (op) {
         for (let i = 0; i < blades.length; i++) {
-          const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
-          blades[i].position.set(p.pos.x + Math.cos(a) * op.radius, 0.75, p.pos.y + Math.sin(a) * op.radius);
+          // Shared with the sim's hit test (incl. Corkscrew spiral radii).
+          const bp = orbitBladePos(p, i);
+          blades[i].position.set(bp.x, 0.75, bp.y);
           blades[i].rotation.y += dt * 10;
         }
       }

@@ -40,6 +40,9 @@ export const CONFIG = {
   novaKnockback: 0.7,
   airstrikeKnockback: 0.5,
   shockstepKnockback: 0.4,
+  // Shockstep damages a CAPSULE along the whole dash path (launch -> arrival),
+  // this wide — dashing THROUGH a pack is the point.
+  shockstepPathRadius: 1.0,
   staggerDuration: 0.22, // seconds a staggered monster is helpless
   elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
 
@@ -169,6 +172,15 @@ export const CONFIG = {
   orbitDamageMult: 0.5, // per tick, relative to melee base damage
   orbitTickSeconds: 0.4,
   orbitBladeHitRadius: 0.5,
+  // Swept-path hit test: the damage tick checks this many positions along each
+  // blade's travel since the last tick, so blades hit what they visibly passed.
+  orbitHitSamples: 8,
+  // Corkscrew (orbit.wide): blades spiral between this inner radius and
+  // orbitRadius + perRank * rank, oscillating at this rate — coverage across
+  // every range instead of one ring with a dead zone inside it.
+  orbitSpiralInner: 0.7,
+  orbitSpiralPerRank: 0.45,
+  orbitSpiralRevPerSec: 0.6, // in-out cycles per second
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up
