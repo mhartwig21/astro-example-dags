@@ -2,8 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyShopItem, setReady, equipFromInventory, slotAbility, setUltimate, dismantleItem, upgradeItem, craftCompleted } from "../sim/game";
-import type { PassiveId } from "../sim/types";
+import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import { serialize } from "../sim/snapshot";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
@@ -18,7 +17,8 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //     { t: "join", code: string, name: string }        join/create a party
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
-//     { t: "buy", idx: number }                        safe-room purchase
+//     { t: "buy", id: string }                         System Shop purchase (catalog id)
+//     { t: "sell", idx: number }                       sell a bag item back
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
 //     { t: "welcome", playerId, snapshot }             join accepted
@@ -213,7 +213,10 @@ export class GameServer {
           else chooseReward(inst.state, playerId, Number(msg.idx));
           break;
         case "buy":
-          buyShopItem(inst.state, playerId, Number(msg.idx));
+          buyCatalogItem(inst.state, playerId, String(msg.id));
+          break;
+        case "sell":
+          sellItem(inst.state, playerId, Number(msg.idx));
           break;
         case "ready":
           setReady(inst.state, playerId);
@@ -221,17 +224,6 @@ export class GameServer {
         case "equip":
           equipFromInventory(inst.state, playerId, Number(msg.idx));
           break;
-        case "craft": {
-          // Safe-room bench (the sim re-validates the gate + costs).
-          if (msg.action === "dismantle") dismantleItem(inst.state, playerId, Number(msg.idx));
-          else if (msg.action === "complete") craftCompleted(inst.state, playerId, String(msg.where) as PassiveId);
-          else if (msg.action === "upgrade") {
-            const w = msg.where;
-            if (w === "weapon" || w === "armor" || w === "trinket") upgradeItem(inst.state, playerId, w);
-            else upgradeItem(inst.state, playerId, Number(w));
-          }
-          break;
-        }
         case "slot": {
           // Safe-room loadout change (the sim re-validates the gate + tiers).
           const ability = typeof msg.ability === "string" && msg.ability in ABILITY_INFO

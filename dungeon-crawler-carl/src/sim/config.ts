@@ -173,19 +173,6 @@ export const CONFIG = {
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up
 
-  // Crafting bench (safe rooms). Deterministic recipes; the chase is in the
-  // material hunt, not a crafting slot machine.
-  craft: {
-    // Dismantling a bag item yields scrap by rarity.
-    dismantleScrap: { common: 1, magic: 2, rare: 4, epic: 7 },
-    // Rarity upgrade recipes (applied at the bench; noun/model preserved).
-    upgrade: {
-      common: { scrap: 3, gold: 40 }, // -> magic
-      magic: { scrap: 5, gold: 90, elite_trophy: 1 }, // -> rare
-      rare: { scrap: 8, gold: 150, boss_sigil: 1 }, // -> epic
-    },
-  },
-
   // Fog of war
   fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player
 

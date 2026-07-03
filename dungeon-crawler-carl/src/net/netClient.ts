@@ -107,18 +107,19 @@ export class NetClient {
   choose(kind: "upgrade" | "reward", idx: number): void {
     this.send({ t: "choose", kind, idx });
   }
-  buy(idx: number): void {
-    this.send({ t: "buy", idx });
+  /** System Shop purchase by catalog id (the sim re-validates gate + costs). */
+  buy(id: string): void {
+    this.send({ t: "buy", id });
+  }
+  /** Sell a bag item back to the System Shop. */
+  sell(idx: number): void {
+    this.send({ t: "sell", idx });
   }
   ready(): void {
     this.send({ t: "ready" });
   }
   equip(idx: number): void {
     this.send({ t: "equip", idx });
-  }
-  /** Safe-room bench: dismantle a bag item or upgrade an item's rarity. */
-  craft(action: "dismantle" | "upgrade" | "complete", where: string | number): void {
-    this.send({ t: "craft", action, idx: where, where });
   }
   /** Safe-room loadout change: slot = "0".."3" | "bench" | "ult" | "unult". */
   slot(slot: string, ability: string): void {

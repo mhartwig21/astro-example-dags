@@ -1,10 +1,13 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, RARITIES, floorBand, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, dist, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
-import { COMPLETED_RECIPES, generateItem, itemScore } from "./items";
+import { generateItem, itemScore } from "./items";
+import {
+  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, gearAffixes, tierStockCount, totalCost,
+} from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   rank,
@@ -14,7 +17,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import type {
   EliteAffix, GameState, HitEvent, Intent, Item, Loot, MaterialId, Monster, MonsterKind,
-  PartyIntents, PassiveId, Player, Reward, SafeRoom, ShopItem, Vec2,
+  PartyIntents, PassiveId, Player, Reward, SafeRoom, Vec2,
 } from "./types";
 import { NO_INTENT, Tile } from "./types";
 
@@ -375,7 +378,7 @@ function makePlayer(id: number, name: string): Player {
     kills: 0,
     killsThisStep: 0,
     lowHpKill: false,
-    materials: { scrap: 0, elite_trophy: 0, boss_sigil: 0 },
+    materials: { elite_trophy: 0, boss_sigil: 0 },
     damageDealt: 0,
     damageTaken: 0,
     hype: 0,
@@ -546,8 +549,9 @@ export function restoreGame(save: SavedProgress): GameState {
   p.damageDealt = s.damageDealt ?? 0;
   p.damageTaken = s.damageTaken ?? 0;
   if (s.materials) {
+    // Legacy saves may carry extra material keys (pre-shop "scrap"); take only
+    // what the current economy spends.
     p.materials = {
-      scrap: s.materials.scrap ?? 0,
       elite_trophy: s.materials.elite_trophy ?? 0,
       boss_sigil: s.materials.boss_sigil ?? 0,
     };
@@ -1199,96 +1203,186 @@ function safeRoomTip(rng: Rng, floor: number): string {
   return tips[nextInt(rng, 0, tips.length - 1)];
 }
 
-/** Roll the safe-room shop for the floor ahead. Seeded per (run, floor): reproducible. */
+/**
+ * Roll the System Shop shelf for the floor ahead. Seeded per (run, floor):
+ * reproducible. Consumables/starter/basic are always stocked; advanced and
+ * legendary tiers unlock as the run deepens and each shop carries a seeded,
+ * growing SUBSET — what's missing today is what the ALL ITEMS view plans around.
+ */
 function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
   const rng = createRng((floorSeed(state.seed, nextFloor) ^ 0x5a4e0000) >>> 0);
-  const floor = nextFloor;
-  const stock: ShopItem[] = [];
-  const id = () => state.nextEntityId++;
-
-  // Staples: a heal and a stabilizer are always on the shelf.
-  stock.push({
-    id: id(), kind: "heal", title: "Field Ration", sold: false,
-    desc: "Restore 50% HP", price: 25 + floor * 5,
-  });
-  stock.push({
-    id: id(), kind: "time", title: "Stabilizer Rod", sold: false,
-    desc: "+15s on the next floor", price: 30 + floor * 6,
-  });
-  // Two rolled gear pieces, priced by rarity.
-  for (let i = 0; i < 2; i++) {
-    const item = generateItem(rng, floor + 1, id);
-    const mult = { common: 1, magic: 2, rare: 3.5, epic: 6 }[item.rarity];
-    stock.push({
-      id: id(), kind: "item", title: item.name, sold: false,
-      desc: `${item.rarity} ${item.slot}`, price: Math.round((20 + floor * 8) * mult), item,
-    });
+  const shopIndex = nextFloor - 1; // shop #1 sits after floor 1
+  const available: string[] = [];
+  for (const tier of ["consumable", "starter", "basic", "advanced", "legendary"] as const) {
+    const pool = CATALOG.filter((e) => e.tier === tier);
+    const n = tierStockCount(tier, shopIndex);
+    if (n <= 0) continue;
+    const picks = n >= pool.length ? pool : shuffle(rng, pool).slice(0, n);
+    // Catalog order keeps the shelf layout stable shop to shop.
+    available.push(...CATALOG.filter((e) => picks.includes(e)).map((e) => e.id));
   }
-  // A permanent max-HP shot.
-  stock.push({
-    id: id(), kind: "maxHp", title: "Plating Kit", sold: false,
-    desc: `+${12 + floor * 2} max HP (permanent)`, price: 45 + floor * 9,
-  });
-  // A tome, if anything is left to discover — expensive, but guaranteed learning.
+  // Today's tome teaches ONE seeded ability someone still lacks; no tome once
+  // the party knows everything.
   const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p)))];
+  let tomeAbility: SafeRoom["tomeAbility"];
   if (undiscovered.length > 0) {
-    const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
-    stock.push({
-      id: id(), kind: "tome", title: `Tome of ${ABILITY_INFO[ability].name}`, sold: false,
-      desc: `Learn ${ABILITY_INFO[ability].name} (${ABILITY_INFO[ability].blurb})`, price: 120 + floor * 10, ability,
-    });
+    tomeAbility = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
   } else {
-    // Otherwise a mystery box: a loot-box roll, paid for.
-    stock.push({
-      id: id(), kind: "mystery", title: "Mystery Box", sold: false,
-      desc: "A loot-box roll. The System giggles.", price: 60 + floor * 8,
-    });
+    const t = available.indexOf("tome");
+    if (t >= 0) available.splice(t, 1);
   }
-  return { nextFloor, stock, tip: safeRoomTip(rng, floor), ready: [] };
+  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [] };
 }
 
-/** Buy the safe-room shop item at `idx` for one player. No-op if sold/unaffordable. */
-export function buyShopItem(state: GameState, playerId: number, idx: number): void {
-  const room = state.safeRoom;
-  if (!room || idx < 0 || idx >= room.stock.length) return;
-  const s = room.stock[idx];
-  const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || s.sold || p.gold < s.price) return;
-  p.gold -= s.price;
-  p.goldSpent += s.price;
-  s.sold = true;
-  switch (s.kind) {
-    case "heal":
-      p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
-      break;
-    case "time":
-      // Applied to the NEXT floor when it is built (leaveSafeRoom).
-      room.bonusTime = (room.bonusTime ?? 0) + 15;
-      break;
-    case "maxHp": {
-      const amt = 12 + room.nextFloor * 2;
-      p.bonusMaxHp += amt;
-      recomputeStats(p);
-      p.hp = Math.min(p.maxHp, p.hp + amt);
-      break;
-    }
-    case "item":
-      if (s.item) {
-        const cur = p.equipment[s.item.slot];
-        if (!cur || itemScore(s.item) > itemScore(cur)) equipItem(p, s.item);
-        else p.inventory.push(s.item);
-      }
-      break;
-    case "tome":
-      learnAbility(state, p, s.ability);
-      break;
-    case "mystery":
-      awardLootBox(state, p);
-      break;
+/**
+ * Find an owned, unclaimed component with this catalog id: bag first, then
+ * equipped gear (buying an upgrade OF your equipped item is the core loop).
+ */
+function findOwnedComponent(p: Player, catalogId: string, claimed: Set<Item>): Item | null {
+  for (const it of p.inventory) if (it.catalogId === catalogId && !claimed.has(it)) return it;
+  for (const slot of ["weapon", "armor", "trinket"] as const) {
+    const it = p.equipment[slot];
+    if (it && it.catalogId === catalogId && !claimed.has(it)) return it;
   }
-  state.events.push(`${p.name} bought ${s.title} (-${s.price} gold).`);
+  return null;
+}
+
+/**
+ * Claim components for one required id: consume an owned copy (crediting its
+ * FULL price, LoL-style), else recurse so owned grandchildren still count.
+ * Returns the gold credited by everything claimed.
+ */
+function claimComponents(p: Player, catalogId: string, claimed: Set<Item>): number {
+  const owned = findOwnedComponent(p, catalogId, claimed);
+  if (owned) {
+    claimed.add(owned);
+    return totalCost(catalogId);
+  }
+  let credit = 0;
+  for (const sub of CATALOG_BY_ID[catalogId]?.buildsFrom ?? []) {
+    credit += claimComponents(p, sub, claimed);
+  }
+  return credit;
+}
+
+/** What a player would pay for a catalog entry right now (component-discounted). */
+export function effectivePrice(p: Player, catalogId: string, nextFloor: number): number {
+  const entry = CATALOG_BY_ID[catalogId];
+  if (!entry) return 0;
+  if (entry.tier === "consumable") return consumablePrice(entry, nextFloor);
+  const claimed = new Set<Item>();
+  let credit = 0;
+  for (const c of entry.buildsFrom ?? []) credit += claimComponents(p, c, claimed);
+  return Math.max(0, totalCost(catalogId) - credit);
+}
+
+/**
+ * Buy a catalog entry from the System Shop. Gear consumes owned build-path
+ * components (bag or equipped) and charges the difference; legendaries also
+ * spend materials and demand sponsor backing. No-op when unaffordable,
+ * ungated, or off today's shelf — the UI communicates why.
+ */
+export function buyCatalogItem(state: GameState, playerId: number, catalogId: string): void {
+  const room = state.safeRoom;
+  const p = state.players.find((pl) => pl.id === playerId);
+  const entry = CATALOG_BY_ID[catalogId];
+  if (!room || !p || !entry || !room.available.includes(catalogId)) return;
+
+  if (entry.tier === "consumable") {
+    const price = consumablePrice(entry, room.nextFloor);
+    if (p.gold < price) return;
+    if (entry.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return;
+    p.gold -= price;
+    p.goldSpent += price;
+    switch (entry.effect) {
+      case "heal":
+        p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
+        break;
+      case "time":
+        // Applied to the NEXT floor when it is built (leaveSafeRoom).
+        room.bonusTime = (room.bonusTime ?? 0) + 15;
+        break;
+      case "maxHp": {
+        const amt = 12 + room.nextFloor * 2;
+        p.bonusMaxHp += amt;
+        recomputeStats(p);
+        p.hp = Math.min(p.maxHp, p.hp + amt);
+        break;
+      }
+      case "mystery":
+        awardLootBox(state, p);
+        break;
+      case "tome":
+        learnAbility(state, p, room.tomeAbility);
+        break;
+      case "favor":
+        p.upgradeDraftsOwed++;
+        announce(state, `${p.name} calls in a SYSTEM FAVOR. An upgrade draft is owed.`);
+        break;
+    }
+    state.events.push(`${p.name} bought ${entry.name} (-${price} gold).`);
+    checkAchievements(state);
+    return;
+  }
+
+  // Gear: price the build path, then gate on gold + sponsors + materials.
+  const claimed = new Set<Item>();
+  let credit = 0;
+  for (const c of entry.buildsFrom ?? []) credit += claimComponents(p, c, claimed);
+  const price = Math.max(0, totalCost(catalogId) - credit);
+  if (p.gold < price) return;
+  if ((entry.sponsors ?? 0) > p.sponsors) return;
+  const mats = entry.materials ?? {};
+  for (const [m, n] of Object.entries(mats)) {
+    if (p.materials[m as MaterialId] < (n ?? 0)) return;
+  }
+
+  p.gold -= price;
+  p.goldSpent += price;
+  for (const [m, n] of Object.entries(mats)) p.materials[m as MaterialId] -= n ?? 0;
+  // Consume claimed components wherever they live.
+  p.inventory = p.inventory.filter((it) => !claimed.has(it));
+  for (const slot of ["weapon", "armor", "trinket"] as const) {
+    if (p.equipment[slot] && claimed.has(p.equipment[slot]!)) p.equipment[slot] = null;
+  }
+  const item: Item = {
+    id: state.nextEntityId++,
+    slot: entry.slot!,
+    rarity: TIER_RARITY[entry.tier as keyof typeof TIER_RARITY],
+    name: entry.name,
+    affixes: gearAffixes(entry, room.nextFloor),
+    passive: entry.passive,
+    catalogId: entry.id,
+  };
+  const cur = p.equipment[item.slot];
+  if (!cur || itemScore(item) > itemScore(cur)) equipItem(p, item);
+  else p.inventory.push(item);
+  recomputeStats(p);
+  if (entry.tier === "legendary") {
+    announce(state, `SIGNATURE GEAR: ${p.name} claims ${entry.name}. ${entry.desc} The sponsors sign off — this one gets a product page.`);
+    addHype(state, p, CONFIG.show.hypeEpicDrop);
+  } else {
+    state.events.push(`${p.name} bought ${entry.name} (-${price} gold).`);
+  }
   // The sim idles in the safe room, so purchase-driven unlocks fire here.
   checkAchievements(state);
+}
+
+/** Sell value: 60% of a catalog item's full price; flat by rarity for drops. */
+export function sellValue(item: Item): number {
+  if (item.catalogId) return Math.round(totalCost(item.catalogId) * 0.6);
+  return { common: 10, magic: 25, rare: 50, epic: 100 }[item.rarity];
+}
+
+/** Sell a BAG item back to the System Shop. Equipped gear is safe. */
+export function sellItem(state: GameState, playerId: number, bagIdx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom) return;
+  if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
+  const item = p.inventory.splice(bagIdx, 1)[0];
+  const value = sellValue(item);
+  p.gold += value;
+  state.events.push(`${p.name} sold ${item.name} (+${value} gold).`);
 }
 
 /** Mark a player ready to descend; the party leaves when everyone is ready. */
@@ -1299,76 +1393,6 @@ export function setReady(state: GameState, playerId: number): void {
   const allReady = state.players.every((p) => room.ready.includes(p.id));
   if (allReady) leaveSafeRoom(state);
   else state.events.push(`${state.players.find((p) => p.id === playerId)?.name ?? "?"} is ready to descend (${room.ready.length}/${state.players.length}).`);
-}
-
-// ---- Crafting bench (safe rooms only) ----
-
-const RARITY_ORDER = ["common", "magic", "rare", "epic"] as const;
-
-/** Dismantle a BAG item into scrap (safe-room bench). Equipped gear is safe. */
-export function dismantleItem(state: GameState, playerId: number, bagIdx: number): void {
-  const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
-  if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
-  const item = p.inventory.splice(bagIdx, 1)[0];
-  const scrap = CONFIG.craft.dismantleScrap[item.rarity];
-  p.materials.scrap += scrap;
-  state.events.push(`${p.name} dismantled ${item.name} into ${scrap} scrap.`);
-}
-
-/**
- * Upgrade an item one rarity tier at the bench (deterministic recipe: scrap +
- * gold, plus a trophy/sigil at higher tiers). The item keeps its NOUN — your
- * axe stays an axe (and its 3D model) — affixes scale with the rarity multiplier
- * and a new affix is rolled if the tier grants one.
- */
-export function upgradeItem(state: GameState, playerId: number, where: "weapon" | "armor" | "trinket" | number): void {
-  const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
-  const item = typeof where === "number" ? p.inventory[where] : p.equipment[where];
-  if (!item || item.rarity === "epic") return;
-  const cost = CONFIG.craft.upgrade[item.rarity as keyof typeof CONFIG.craft.upgrade];
-  const needTrophy = ("elite_trophy" in cost ? cost.elite_trophy : 0) as number;
-  const needSigil = ("boss_sigil" in cost ? cost.boss_sigil : 0) as number;
-  if (p.gold < cost.gold || p.materials.scrap < cost.scrap) return;
-  if (p.materials.elite_trophy < needTrophy || p.materials.boss_sigil < needSigil) return;
-  p.gold -= cost.gold;
-  p.goldSpent += cost.gold;
-  p.materials.scrap -= cost.scrap;
-  p.materials.elite_trophy -= needTrophy;
-  p.materials.boss_sigil -= needSigil;
-
-  const from = RARITIES.find((r) => r.name === item.rarity)!;
-  const nextRarity = RARITY_ORDER[RARITY_ORDER.indexOf(item.rarity) + 1];
-  const to = RARITIES.find((r) => r.name === nextRarity)!;
-  const ratio = to.mult / from.mult;
-  const a = item.affixes;
-  if (a.damage) a.damage = Math.max(a.damage + 1, Math.round(a.damage * ratio));
-  if (a.maxHp) a.maxHp = Math.max(a.maxHp + 2, Math.round(a.maxHp * ratio));
-  if (a.speed) a.speed = +(a.speed * Math.min(1.5, ratio)).toFixed(2);
-  if (a.crit) a.crit = +(a.crit * Math.min(1.5, ratio)).toFixed(3);
-  // A fresh affix if the new tier grants more than the item carries.
-  const pools: Record<Item["slot"], (keyof typeof a)[]> = {
-    weapon: ["crit", "speed", "maxHp"], armor: ["damage", "speed", "crit"], trinket: ["speed", "damage", "maxHp"],
-  };
-  const counts = { common: 1, magic: 2, rare: 3, epic: 4 } as const;
-  if (Object.keys(a).length < counts[nextRarity]) {
-    const open = pools[item.slot].filter((k) => !a[k]);
-    if (open.length > 0) {
-      const key = open[nextInt(state.rng, 0, open.length - 1)];
-      if (key === "damage") a.damage = Math.max(1, Math.round((nextInt(state.rng, 2, 4) + state.floor) * to.mult));
-      else if (key === "maxHp") a.maxHp = Math.max(2, Math.round((nextInt(state.rng, 6, 12) + state.floor * 2) * to.mult));
-      else if (key === "speed") a.speed = +((0.15 + nextFloat(state.rng) * 0.25) * Math.min(2, to.mult)).toFixed(2);
-      else a.crit = +((0.02 + nextFloat(state.rng) * 0.04) * Math.min(2.5, to.mult)).toFixed(3);
-    }
-  }
-  // New rarity prefix, same noun (the weapon model + your attachment persist).
-  const noun = item.name.split(" ").pop()!;
-  const prefixes = { magic: ["Keen", "Sturdy", "Humming"], rare: ["Vicious", "Gilded", "Runed"], epic: ["Apocalyptic", "Sovereign", "Cataclysmic"] } as const;
-  item.name = `${pick(state.rng, prefixes[nextRarity as keyof typeof prefixes])} ${noun}`;
-  item.rarity = nextRarity;
-  recomputeStats(p);
-  announce(state, `THE BENCH DELIVERS: ${p.name}'s ${noun} is now ${nextRarity.toUpperCase()}. Sponsors approve of the glow-up.`);
 }
 
 /** Leave the safe room: build the next floor and open per-player sponsor drafts. */
@@ -1695,39 +1719,13 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2)
   }
 }
 
-/** True if any equipped item carries the given completed-work passive. */
+/** True if any equipped item carries the given signature-gear passive. */
 export function hasPassive(p: Player, id: PassiveId): boolean {
   return (
     p.equipment.weapon?.passive === id ||
     p.equipment.armor?.passive === id ||
     p.equipment.trinket?.passive === id
   );
-}
-
-/**
- * Forge a COMPLETED WORK at the bench: consumes an equipped EPIC base of the
- * recipe's slot + materials + gold, and requires the sponsor backing. The item
- * keeps its affixes (and a weapon its noun/model) and gains the unique passive.
- */
-export function craftCompleted(state: GameState, playerId: number, recipeId: PassiveId): void {
-  const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
-  const recipe = COMPLETED_RECIPES.find((r) => r.id === recipeId);
-  if (!recipe) return;
-  const item = p.equipment[recipe.slot];
-  if (!item || item.rarity !== "epic" || item.passive) return;
-  if (p.sponsors < recipe.sponsors) return;
-  if (p.gold < recipe.gold || p.materials.scrap < recipe.scrap || p.materials.elite_trophy < recipe.elite_trophy) return;
-  p.gold -= recipe.gold;
-  p.goldSpent += recipe.gold;
-  p.materials.scrap -= recipe.scrap;
-  p.materials.elite_trophy -= recipe.elite_trophy;
-  const noun = item.name.split(" ").pop()!;
-  item.name = recipe.name(noun);
-  item.passive = recipe.id;
-  recomputeStats(p);
-  announce(state, `COMPLETED WORK: ${p.name} forges ${item.name}. ${recipe.blurb}. The sponsors sign off — this one gets a product page.`);
-  addHype(state, p, CONFIG.show.hypeEpicDrop);
 }
 
 /** A player died; the run only ends when the whole party is down. */

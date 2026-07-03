@@ -1,11 +1,14 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyShopItem, setReady, addPlayer, slotAbility, setUltimate, dismantleItem, upgradeItem,
-  craftCompleted,
+  buyCatalogItem, sellItem, sellValue, effectivePrice, setReady, addPlayer, slotAbility, setUltimate,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { COMPLETED_RECIPES, affixLines, itemScore } from "./sim/items";
-import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
+import { affixLines, itemScore } from "./sim/items";
+import {
+  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
+  totalCost, type CatalogEntry, type CatalogTier,
+} from "./sim/catalog";
+import { Tile, type GameState, type HitEvent, type Item, type Player } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -610,116 +613,253 @@ input.onAction = (a) => {
 };
 applyBindings();
 
-// ---- Safe room (between floors; pauses the sim until DESCEND) ----
+// ---- The System Shop (safe room between floors; pauses the sim until DESCEND) ----
+// One hybrid shop/crafting UI (LoL-style): a tier-sectioned shelf of icon
+// tiles, a detail pane with the build tree (BUILDS FROM / BUILDS INTO), and
+// the bag for selling. IN STOCK shows today's seeded shelf; ALL ITEMS is the
+// full-catalog build planner (locked tiles show what future shops can carry).
 const srEl = document.getElementById("saferoom")!;
 const srTip = document.getElementById("sr-tip")!;
-const srGold = document.getElementById("sr-gold")!;
-const srStock = document.getElementById("sr-stock")!;
+const srWallet = document.getElementById("sr-wallet")!;
+const srShelf = document.getElementById("sr-shelf")!;
+const srDetail = document.getElementById("sr-detail")!;
+const srEquipped = document.getElementById("sr-equipped")!;
+const srBag = document.getElementById("sr-bag")!;
+const srReady = document.getElementById("sr-ready")!;
 const srDescend = document.getElementById("sr-descend")!;
+const srTabStock = document.getElementById("sr-tab-stock")!;
+const srTabAll = document.getElementById("sr-tab-all")!;
 
-const srMaterials = document.getElementById("sr-materials")!;
-const srBench = document.getElementById("sr-bench")!;
+const TIERS: CatalogTier[] = ["consumable", "starter", "basic", "advanced", "legendary"];
+const TIER_COLOR: Record<CatalogTier, string> = {
+  consumable: "#8fb8a0", starter: "#c9c9d4", basic: "#7fb0ff", advanced: "#f2c14e", legendary: "#c9a6ff",
+};
+const TIER_LABEL: Record<CatalogTier, string> = {
+  consumable: "CONSUMABLES", starter: "STARTER", basic: "BASIC", advanced: "ADVANCED", legendary: "LEGENDARY",
+};
 
-function upgradeCostLabel(rarity: string): string {
-  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
-  if (!cost) return "";
-  const parts = [`${cost.gold}g`, `${cost.scrap} scrap`];
-  if (cost.elite_trophy) parts.push(`${cost.elite_trophy} trophy`);
-  if (cost.boss_sigil) parts.push(`${cost.boss_sigil} sigil`);
-  return parts.join(" + ");
+let shopView: "stock" | "all" = "stock";
+type ShopSel =
+  | { kind: "catalog"; id: string }
+  | { kind: "bag"; idx: number }
+  | { kind: "equipped"; slot: "weapon" | "armor" | "trinket" };
+let shopSel: ShopSel | null = null;
+
+// Icons by convention: /icons/items/<catalogId>.svg (game-icons.net, CSS-mask tinted).
+const iconStyle = (id: string): string =>
+  `mask-image:url(/icons/items/${id}.svg);-webkit-mask-image:url(/icons/items/${id}.svg)`;
+const coin = `<i class="micon" style="${iconStyle("gold")}"></i>`;
+const matIcon = (id: string): string => `<i class="micon" style="${iconStyle(id)}"></i>`;
+
+/** How many of each catalog id the player owns (bag + equipped) — component dots. */
+function ownedCatalogCounts(p: Player): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const add = (it: Item | null) => {
+    if (it?.catalogId) counts[it.catalogId] = (counts[it.catalogId] ?? 0) + 1;
+  };
+  p.inventory.forEach((it) => add(it));
+  add(p.equipment.weapon);
+  add(p.equipment.armor);
+  add(p.equipment.trinket);
+  return counts;
 }
 
-function canAfford(p: ReturnType<typeof me>, rarity: string): boolean {
-  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
-  if (!cost) return false;
-  return p.gold >= cost.gold && p.materials.scrap >= cost.scrap &&
-    p.materials.elite_trophy >= (cost.elite_trophy ?? 0) && p.materials.boss_sigil >= (cost.boss_sigil ?? 0);
-}
-
-function renderBench(s: GameState): void {
+/** Why this entry can't be bought right now, or null if it can. */
+function buyBlocker(s: GameState, e: CatalogEntry): string | null {
+  const room = s.safeRoom!;
   const p = me(s);
-  srMaterials.textContent =
-    `Materials: ${p.materials.scrap} scrap · ${p.materials.elite_trophy} elite trophies · ${p.materials.boss_sigil} boss sigils`;
-  const rows: string[] = [];
-  for (const slot of ["weapon", "armor", "trinket"] as const) {
-    const it = p.equipment[slot];
-    if (!it) continue;
-    const up = it.rarity !== "epic"
-      ? `<button data-craft="upgrade" data-where="${slot}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
-      : `<span style="color:#c9a6ff">MAX</span>`;
-    rows.push(`<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(${slot}, equipped)</small></span>${up}</div>`);
+  if (!room.available.includes(e.id)) {
+    const unlock = TIER_UNLOCK_SHOP[e.tier];
+    return room.nextFloor - 1 < unlock ? `ARRIVES AT SHOP ${unlock}` : "NOT STOCKED TODAY";
   }
-  p.inventory.forEach((it, i) => {
-    const up = it.rarity !== "epic"
-      ? `<button data-craft="upgrade" data-where="${i}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
-      : "";
-    rows.push(
-      `<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(bag)</small></span>` +
-      `${up}<button data-craft="dismantle" data-where="${i}">Dismantle · +${CONFIG.craft.dismantleScrap[it.rarity]} scrap</button></div>`,
-    );
-  });
-  // COMPLETED WORKS: signature gear forged from an equipped EPIC base.
-  for (const r of COMPLETED_RECIPES) {
-    const base = p.equipment[r.slot];
-    const eligible = base && base.rarity === "epic" && !base.passive;
-    const backed = p.sponsors >= r.sponsors;
-    const afford = p.gold >= r.gold && p.materials.scrap >= r.scrap && p.materials.elite_trophy >= r.elite_trophy;
-    const name = r.name(base ? base.name.split(" ").pop()! : "…");
-    const need = `${r.gold}g + ${r.scrap} scrap + ${r.elite_trophy} trophies · needs epic ${r.slot} + ${r.sponsors} sponsor${r.sponsors > 1 ? "s" : ""}`;
-    const btn = eligible && backed && afford
-      ? `<button data-craft="complete" data-where="${r.id}">FORGE</button>`
-      : `<button disabled>${!eligible ? `needs epic ${r.slot}` : !backed ? `${r.sponsors} sponsors required` : "can't afford"}</button>`;
-    rows.push(
-      `<div class="bench-row"><span class="bname" style="color:#c9a6ff">${name} <small>${r.blurb} · ${need}</small></span>${btn}</div>`,
-    );
+  if (e.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return "ALREADY MASTERED";
+  if ((e.sponsors ?? 0) > p.sponsors) return `NEEDS ${e.sponsors} SPONSOR${(e.sponsors ?? 0) > 1 ? "S" : ""}`;
+  for (const [m, n] of Object.entries(e.materials ?? {})) {
+    if (p.materials[m as keyof Player["materials"]] < (n ?? 0)) return "NEEDS MATERIALS";
   }
-  srBench.innerHTML = rows.length ? rows.join("") : `<div class="bench-row"><span class="bname" style="color:#6a6a7a">Nothing to work on. Go loot something.</span></div>`;
+  if (effectivePrice(p, e.id, room.nextFloor) > p.gold) return "NOT ENOUGH GOLD";
+  return null;
 }
 
-srBench.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest("button[data-craft]") as HTMLElement | null;
-  if (!btn || (btn as HTMLButtonElement).disabled) return;
-  const action = btn.dataset.craft as "upgrade" | "dismantle" | "complete";
-  const whereRaw = btn.dataset.where!;
-  if (net) {
-    net.craft(action, whereRaw);
-  } else {
-    const p = me(state);
-    if (action === "dismantle") dismantleItem(state, p.id, Number(whereRaw));
-    else if (action === "complete") craftCompleted(state, p.id, whereRaw as never);
-    else if (action === "upgrade") {
-      const where = ["weapon", "armor", "trinket"].includes(whereRaw)
-        ? (whereRaw as "weapon" | "armor" | "trinket") : Number(whereRaw);
-      upgradeItem(state, p.id, where);
-    }
-    flushFeedback(state);
-    saveRun(state);
+function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, number>): string {
+  const room = s.safeRoom!;
+  const p = me(s);
+  const locked = !room.available.includes(e.id);
+  const price = effectivePrice(p, e.id, room.nextFloor);
+  const cls = [
+    "itile",
+    shopSel?.kind === "catalog" && shopSel.id === e.id ? "sel" : "",
+    locked ? "locked" : "",
+    !locked && price > p.gold ? "broke" : "",
+    (owned[e.id] ?? 0) > 0 ? "owned" : "",
+  ].filter(Boolean).join(" ");
+  return (
+    `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
+    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
+    `<div class="iprice">${coin}${price}</div>` +
+    `</div>`
+  );
+}
+
+/** Small icon tile for build-tree rows and the bag (no price line). */
+function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
+  return (
+    `<div class="itile ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
+    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
+    `</div>`
+  );
+}
+
+/** Bag/equipped tile: catalog gear shows its icon; field drops show a rarity gem. */
+function invTileHtml(it: Item, data: string, selected: boolean): string {
+  const inner = it.catalogId
+    ? `<i class="ii" style="${iconStyle(it.catalogId)}"></i>`
+    : `<span class="iglyph" style="color:${RARITY_TEXT[it.rarity]}">◆</span>`;
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  return (
+    `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
+    `<div class="ibox">${inner}</div>` +
+    `</div>`
+  );
+}
+
+function statLines(it: Pick<Item, "affixes">): string {
+  return affixLines(it as Item).join(" · ");
+}
+
+function renderShopDetail(s: GameState): void {
+  const room = s.safeRoom!;
+  const p = me(s);
+  if (!shopSel) {
+    srDetail.innerHTML = `<div class="dempty">Select an item. Components you own are credited toward anything they build into.</div>`;
+    return;
   }
-  renderBench(state);
-  renderSafeRoom(state);
-});
+  if (shopSel.kind === "catalog") {
+    const e = CATALOG_BY_ID[shopSel.id];
+    if (!e) { srDetail.innerHTML = ""; return; }
+    let html =
+      `<div class="dname" style="--tc:${TIER_COLOR[e.tier]}">${e.name}</div>` +
+      `<div class="dkind">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</div>`;
+    if (e.tier === "consumable") {
+      if (e.effect === "tome") {
+        const ab = room.tomeAbility;
+        html += ab
+          ? `<div class="dstats">Today's print: <b>${ABILITY_INFO[ab].name}</b> — ${ABILITY_INFO[ab].blurb}</div>`
+          : `<div class="dstats">Out of print — the party knows everything.</div>`;
+      } else if (e.effect === "maxHp") {
+        html += `<div class="dstats">+${12 + room.nextFloor * 2} max HP, permanent.</div>`;
+      }
+      html += `<div class="ddesc">${e.desc}</div>`;
+    } else {
+      html += `<div class="dstats">${statLines({ affixes: gearAffixes(e, room.nextFloor) })}</div>`;
+      if (e.passive) html += `<div class="dpassive">${e.desc}</div>`;
+      else html += `<div class="ddesc">${e.desc}</div>`;
+    }
+    // Build tree: what it's made of (with owned ✓s), and what it feeds.
+    if (e.buildsFrom?.length) {
+      const have = { ...ownedCatalogCounts(p) };
+      const tiles = e.buildsFrom.map((cid) => {
+        const c = CATALOG_BY_ID[cid];
+        const got = (have[cid] ?? 0) > 0;
+        if (got) have[cid]!--;
+        return miniTileHtml(c, got ? "have" : "", `data-id="${cid}"`);
+      }).join("");
+      html += `<div class="dsec">BUILDS FROM</div><div class="dtree">${tiles}</div>`;
+    }
+    const into = e.slot ? buildsInto(e.id) : [];
+    if (into.length) {
+      html += `<div class="dsec">BUILDS INTO</div><div class="dtree">${
+        into.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
+    }
+    // Requirements (sponsor backing + the material hunt).
+    if (e.sponsors || e.materials) {
+      html += `<div class="dsec">REQUIRES</div>`;
+      if (e.sponsors) {
+        html += `<div class="dreq ${p.sponsors >= e.sponsors ? "met" : "unmet"}">${e.sponsors} sponsor${e.sponsors > 1 ? "s" : ""} (you: ${p.sponsors})</div>`;
+      }
+      for (const [m, n] of Object.entries(e.materials ?? {})) {
+        const has = p.materials[m as keyof Player["materials"]];
+        html += `<div class="dreq ${has >= (n ?? 0) ? "met" : "unmet"}">${matIcon(m)} ${n}× ${m.replace("_", " ")} (you: ${has})</div>`;
+      }
+    }
+    // Price: full price struck through when owned components discount it.
+    const full = e.tier === "consumable" ? consumablePrice(e, room.nextFloor) : totalCost(e.id);
+    const eff = effectivePrice(p, e.id, room.nextFloor);
+    html += `<div class="dprice">${eff < full ? `<span class="full">${full}</span>` : ""}<span class="eff">${coin}${eff}</span></div>`;
+    const blocker = buyBlocker(s, e);
+    html += `<div class="dbtns"><button data-buy="${e.id}" ${blocker ? "disabled" : ""}>${blocker ?? "BUY"}</button></div>`;
+    srDetail.innerHTML = html;
+    return;
+  }
+  // Bag / equipped item detail.
+  const it = shopSel.kind === "bag" ? p.inventory[shopSel.idx] : p.equipment[shopSel.slot];
+  if (!it) { shopSel = null; renderShopDetail(s); return; }
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  let html =
+    `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
+    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
+    `<div class="dstats">${statLines(it)}</div>`;
+  if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
+  if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
+  if (it.catalogId) {
+    const into = buildsInto(it.catalogId);
+    if (into.length) {
+      html += `<div class="dsec">BUILDS INTO</div><div class="dtree">${
+        into.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
+    }
+  }
+  if (shopSel.kind === "bag") {
+    html += `<div class="dbtns">` +
+      `<button data-equip="${shopSel.idx}">EQUIP</button>` +
+      `<button class="sell" data-sell="${shopSel.idx}">SELL +${sellValue(it)}g</button>` +
+      `</div>`;
+  }
+  srDetail.innerHTML = html;
+}
 
 function renderSafeRoom(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
-  renderBench(s);
+  const p = me(s);
   srTip.textContent = room.tip;
-  srGold.textContent = `Your gold: ${me(s).gold}`;
-  if (s.safeRoom && s.players.length > 1) {
-    srGold.textContent += ` · ready ${s.safeRoom.ready.length}/${s.players.length}`;
+  srWallet.innerHTML =
+    `<span class="chip">${coin}<b>${p.gold}</b></span>` +
+    `<span class="chip">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>` +
+    `<span class="chip">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>` +
+    `<span class="chip" title="sponsors">🤝 <b>${p.sponsors}</b></span>`;
+  srTabStock.classList.toggle("active", shopView === "stock");
+  srTabAll.classList.toggle("active", shopView === "all");
+  // The shelf, tier by tier.
+  const avail = new Set(room.available);
+  const owned = ownedCatalogCounts(p);
+  const shopIndex = room.nextFloor - 1;
+  let shelf = "";
+  for (const tier of TIERS) {
+    const pool = CATALOG.filter((e) => e.tier === tier && (e.id !== "tome" || room.tomeAbility));
+    const entries = shopView === "stock" ? pool.filter((e) => avail.has(e.id)) : pool;
+    if (entries.length === 0) continue;
+    const unlock = TIER_UNLOCK_SHOP[tier];
+    const note = shopIndex < unlock
+      ? `<span class="tnote">— unlocks at shop ${unlock}</span>`
+      : shopView === "all" && entries.some((e) => !avail.has(e.id))
+        ? `<span class="tnote">— stock varies by shop</span>`
+        : "";
+    shelf +=
+      `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>`;
   }
-  srStock.innerHTML = room.stock
-    .map((it, i) => {
-      const cls = it.sold ? " sold" : me(s).gold < it.price ? " broke" : "";
-      return (
-        `<div class="shop-item${cls}" data-idx="${i}">` +
-        `<div class="stitle">${it.title}</div>` +
-        `<div class="sdesc">${it.desc}</div>` +
-        `<div class="sprice">${it.price} gold</div>` +
-        `</div>`
-      );
-    })
-    .join("");
+  srShelf.innerHTML = shelf;
+  // Equipped + bag.
+  srEquipped.innerHTML = (["weapon", "armor", "trinket"] as const).map((slot) => {
+    const it = p.equipment[slot];
+    if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
+    return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
+  }).join("");
+  srBag.innerHTML = p.inventory.length
+    ? p.inventory.map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("")
+    : `<span class="bempty">empty — buy components, they wait here</span>`;
+  srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
+  renderShopDetail(s);
 }
 
 // Clicks happen while the sim is paused, so announcements produced by the action
@@ -732,20 +872,80 @@ function flushFeedback(s: GameState): void {
   s.events = [];
 }
 
-srStock.addEventListener("click", (e) => {
-  const card = (e.target as HTMLElement).closest(".shop-item") as HTMLElement | null;
-  if (!card || card.dataset.idx === undefined) return;
-  const idx = Number(card.dataset.idx);
-  const stock = state.safeRoom?.stock[idx];
-  if (stock && !stock.sold && me(state).gold >= stock.price) audio.play("buy");
-  if (net) net.buy(idx);
-  else {
-    buyShopItem(state, me(state).id, idx);
-    flushFeedback(state);
-    saveRun(state);
-    renderSafeRoom(state); // refresh sold/affordability states
+// Shelf: click a tile to inspect it (locked tiles too — that's the planner).
+srShelf.addEventListener("click", (e) => {
+  const tile = (e.target as HTMLElement).closest(".itile[data-id]") as HTMLElement | null;
+  if (!tile) return;
+  shopSel = { kind: "catalog", id: tile.dataset.id! };
+  renderSafeRoom(state);
+});
+
+// Detail pane: BUY / SELL / EQUIP buttons + build-tree navigation.
+srDetail.addEventListener("click", (e) => {
+  const el = e.target as HTMLElement;
+  const buyBtn = el.closest("button[data-buy]") as HTMLButtonElement | null;
+  if (buyBtn && !buyBtn.disabled) {
+    const id = buyBtn.dataset.buy!;
+    audio.play("buy");
+    if (net) net.buy(id);
+    else {
+      buyCatalogItem(state, me(state).id, id);
+      flushFeedback(state);
+      saveRun(state);
+    }
+    renderSafeRoom(state);
+    return;
+  }
+  const sellBtn = el.closest("button[data-sell]") as HTMLButtonElement | null;
+  if (sellBtn) {
+    const idx = Number(sellBtn.dataset.sell);
+    if (net) net.sell(idx);
+    else {
+      sellItem(state, me(state).id, idx);
+      flushFeedback(state);
+      saveRun(state);
+    }
+    shopSel = null;
+    renderSafeRoom(state);
+    return;
+  }
+  const equipBtn = el.closest("button[data-equip]") as HTMLButtonElement | null;
+  if (equipBtn) {
+    const idx = Number(equipBtn.dataset.equip);
+    audio.play("equip");
+    if (net) net.equip(idx);
+    else {
+      equipFromInventory(state, me(state).id, idx);
+      flushFeedback(state);
+      saveRun(state);
+    }
+    shopSel = null;
+    renderSafeRoom(state);
+    return;
+  }
+  const nav = el.closest(".itile[data-id]") as HTMLElement | null;
+  if (nav) {
+    shopSel = { kind: "catalog", id: nav.dataset.id! };
+    renderSafeRoom(state);
   }
 });
+
+srEquipped.addEventListener("click", (e) => {
+  const tile = (e.target as HTMLElement).closest(".itile[data-slot]") as HTMLElement | null;
+  if (!tile) return;
+  shopSel = { kind: "equipped", slot: tile.dataset.slot as "weapon" | "armor" | "trinket" };
+  renderSafeRoom(state);
+});
+
+srBag.addEventListener("click", (e) => {
+  const tile = (e.target as HTMLElement).closest(".itile[data-bag]") as HTMLElement | null;
+  if (!tile) return;
+  shopSel = { kind: "bag", idx: Number(tile.dataset.bag) };
+  renderSafeRoom(state);
+});
+
+srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
+srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
 
 srDescend.addEventListener("click", () => {
   if (net) {
@@ -1045,6 +1245,8 @@ async function main(): Promise<void> {
     if (draftEl.style.display === "flex" && !draftPending) draftEl.style.display = "none";
     const inSafeRoom = state.safeRoom !== null;
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
+      shopView = "stock"; // every shop opens on today's shelf
+      shopSel = null;
       renderSafeRoom(state);
       srEl.style.display = "flex";
     }

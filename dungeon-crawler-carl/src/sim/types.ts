@@ -141,9 +141,9 @@ export interface Monster {
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
 
-// Crafting materials. Scrap comes from dismantling; trophies/sigils from named
-// menaces. All spent at the safe-room bench (see CONFIG.craft).
-export type MaterialId = "scrap" | "elite_trophy" | "boss_sigil";
+// Crafting materials, dropped by named menaces and spent in the System Shop
+// on legendary signature gear (see catalog.ts).
+export type MaterialId = "elite_trophy" | "boss_sigil";
 export type Rarity = "common" | "magic" | "rare" | "epic";
 export type ItemSlot = "weapon" | "armor" | "trinket";
 
@@ -155,8 +155,8 @@ export interface Affixes {
   crit?: number; // added crit chance (0..1)
 }
 
-// Unique behaviors carried by COMPLETED items (crafted at the bench from an
-// epic base). Implemented as hooks in game.ts; one id = one behavior.
+// Unique behaviors carried by LEGENDARY signature gear (sponsor-gated shop
+// purchases). Implemented as hooks in game.ts; one id = one behavior.
 export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
@@ -169,7 +169,10 @@ export interface Item {
   rarity: Rarity;
   name: string;
   affixes: Affixes;
-  passive?: PassiveId; // present on completed items only
+  passive?: PassiveId; // present on legendary signature gear only
+  // Set when this item came from the System Shop catalog: it can be consumed
+  // as a build-path component (see buyCatalogItem). Dropped loot has none.
+  catalogId?: string;
 }
 
 export interface Loot {
@@ -183,25 +186,14 @@ export interface Loot {
   material?: MaterialId; // present when kind === "material"
 }
 
-// Safe-room shop: gold sinks offered between floors (see generateSafeRoom in game.ts).
-export type ShopKind = "heal" | "item" | "maxHp" | "time" | "tome" | "mystery";
-
-export interface ShopItem {
-  id: number;
-  kind: ShopKind;
-  title: string;
-  desc: string;
-  price: number;
-  item?: Item; // present when kind === "item"
-  ability?: AbilityId; // present when kind === "tome"
-  sold: boolean;
-}
-
-// The between-floors safe room. While non-null, the sim is paused: shop, then
-// leaveSafeRoom() drops the crawler onto `nextFloor`.
+// The between-floors safe room / System Shop. While non-null, the sim is
+// paused: buy from the catalog shelf, then leaveSafeRoom() drops the crawler
+// onto `nextFloor`. The shelf (`available`) is a floor-gated, seeded subset of
+// the static catalog (see generateSafeRoom in game.ts + catalog.ts).
 export interface SafeRoom {
   nextFloor: number;
-  stock: ShopItem[];
+  available: string[]; // catalog ids purchasable in THIS shop
+  tomeAbility?: AbilityId; // what today's Ability Tome teaches (absent = no tome)
   tip: string; // Mordecai-style manager advice about the next floor
   bonusTime?: number; // purchased stabilizer seconds, applied when the floor builds
   ready: number[]; // player ids who hit DESCEND; the party leaves when all are ready
