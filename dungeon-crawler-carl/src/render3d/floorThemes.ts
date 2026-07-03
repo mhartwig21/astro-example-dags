@@ -30,7 +30,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
     name: "THE UNDERCROFT", // floors 1-4: clean warm stone
     floorKey: "floor", floorAltKey: "floor_tile_small_decorated", altRatio: 0.14,
     wallKey: "wall", stairsKey: "stairs",
-    props: ["barrel_small", "box_small", "crates_stacked", "candle_lit"],
+    props: ["barrel_small", "box_small", "crates_stacked", "keg", "trunk_small_A"],
     propDensity: 0.018,
     floorTint: 0xffffff, wallTint: 0xffffff,
     torchColor: 0xff9a3c, torchIntensity: 2.2,
@@ -70,7 +70,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
     name: "THE APPROACH", // floors 17-18: arched grandeur, banners, blood light
     floorKey: "floor_tile_large", floorAltKey: "floor_tile_big_spikes", altRatio: 0.1,
     wallKey: "wall_arched", stairsKey: "stairs_wood_decorated",
-    props: ["banner_red", "banner_shield_red", "candle_triple", "pillar_decorated", "chest_gold"],
+    props: ["banner_red", "banner_shield_red", "sword_shield_broken", "pillar_decorated", "chest_gold"],
     propDensity: 0.024,
     floorTint: 0xe8d0d0, wallTint: 0xd8b8b8,
     torchColor: 0xff4438, torchIntensity: 2.6,
