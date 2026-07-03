@@ -142,7 +142,21 @@ export class GameServer {
       res.writeHead(404).end("not found");
       return;
     }
-    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+    // Cache policy: we deploy many times a day, and a browser mixing old HTML
+    // with new hashed chunks (or vice versa) renders a dungeon that doesn't
+    // match the sim. HTML must always revalidate; Vite's content-hashed bundles
+    // are immutable; everything else (models/audio/icons) gets a short TTL.
+    const ext = extname(file);
+    const hashed = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file);
+    const cache = ext === ".html"
+      ? "no-cache"
+      : hashed
+        ? "public, max-age=31536000, immutable"
+        : "public, max-age=300";
+    res.writeHead(200, {
+      "content-type": MIME[ext] ?? "application/octet-stream",
+      "cache-control": cache,
+    });
     createReadStream(file).pipe(res);
   }
 
