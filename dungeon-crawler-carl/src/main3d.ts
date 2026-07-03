@@ -1,9 +1,10 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyShopItem, setReady, addPlayer, slotAbility, setUltimate,
+  buyShopItem, setReady, addPlayer, slotAbility, setUltimate, dismantleItem, upgradeItem,
+  craftCompleted,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { COMPLETED_RECIPES, affixLines, itemScore } from "./sim/items";
 import { Tile, type GameState, type HitEvent, type Item } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -492,9 +493,92 @@ const srGold = document.getElementById("sr-gold")!;
 const srStock = document.getElementById("sr-stock")!;
 const srDescend = document.getElementById("sr-descend")!;
 
+const srMaterials = document.getElementById("sr-materials")!;
+const srBench = document.getElementById("sr-bench")!;
+
+function upgradeCostLabel(rarity: string): string {
+  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
+  if (!cost) return "";
+  const parts = [`${cost.gold}g`, `${cost.scrap} scrap`];
+  if (cost.elite_trophy) parts.push(`${cost.elite_trophy} trophy`);
+  if (cost.boss_sigil) parts.push(`${cost.boss_sigil} sigil`);
+  return parts.join(" + ");
+}
+
+function canAfford(p: ReturnType<typeof me>, rarity: string): boolean {
+  const cost = (CONFIG.craft.upgrade as Record<string, { gold: number; scrap: number; elite_trophy?: number; boss_sigil?: number }>)[rarity];
+  if (!cost) return false;
+  return p.gold >= cost.gold && p.materials.scrap >= cost.scrap &&
+    p.materials.elite_trophy >= (cost.elite_trophy ?? 0) && p.materials.boss_sigil >= (cost.boss_sigil ?? 0);
+}
+
+function renderBench(s: GameState): void {
+  const p = me(s);
+  srMaterials.textContent =
+    `Materials: ${p.materials.scrap} scrap · ${p.materials.elite_trophy} elite trophies · ${p.materials.boss_sigil} boss sigils`;
+  const rows: string[] = [];
+  for (const slot of ["weapon", "armor", "trinket"] as const) {
+    const it = p.equipment[slot];
+    if (!it) continue;
+    const up = it.rarity !== "epic"
+      ? `<button data-craft="upgrade" data-where="${slot}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
+      : `<span style="color:#c9a6ff">MAX</span>`;
+    rows.push(`<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(${slot}, equipped)</small></span>${up}</div>`);
+  }
+  p.inventory.forEach((it, i) => {
+    const up = it.rarity !== "epic"
+      ? `<button data-craft="upgrade" data-where="${i}" ${canAfford(p, it.rarity) ? "" : "disabled"}>Upgrade · ${upgradeCostLabel(it.rarity)}</button>`
+      : "";
+    rows.push(
+      `<div class="bench-row"><span class="bname" style="color:${RARITY_TEXT[it.rarity]}">${it.name} <small>(bag)</small></span>` +
+      `${up}<button data-craft="dismantle" data-where="${i}">Dismantle · +${CONFIG.craft.dismantleScrap[it.rarity]} scrap</button></div>`,
+    );
+  });
+  // COMPLETED WORKS: signature gear forged from an equipped EPIC base.
+  for (const r of COMPLETED_RECIPES) {
+    const base = p.equipment[r.slot];
+    const eligible = base && base.rarity === "epic" && !base.passive;
+    const backed = p.sponsors >= r.sponsors;
+    const afford = p.gold >= r.gold && p.materials.scrap >= r.scrap && p.materials.elite_trophy >= r.elite_trophy;
+    const name = r.name(base ? base.name.split(" ").pop()! : "…");
+    const need = `${r.gold}g + ${r.scrap} scrap + ${r.elite_trophy} trophies · needs epic ${r.slot} + ${r.sponsors} sponsor${r.sponsors > 1 ? "s" : ""}`;
+    const btn = eligible && backed && afford
+      ? `<button data-craft="complete" data-where="${r.id}">FORGE</button>`
+      : `<button disabled>${!eligible ? `needs epic ${r.slot}` : !backed ? `${r.sponsors} sponsors required` : "can't afford"}</button>`;
+    rows.push(
+      `<div class="bench-row"><span class="bname" style="color:#c9a6ff">${name} <small>${r.blurb} · ${need}</small></span>${btn}</div>`,
+    );
+  }
+  srBench.innerHTML = rows.length ? rows.join("") : `<div class="bench-row"><span class="bname" style="color:#6a6a7a">Nothing to work on. Go loot something.</span></div>`;
+}
+
+srBench.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("button[data-craft]") as HTMLElement | null;
+  if (!btn || (btn as HTMLButtonElement).disabled) return;
+  const action = btn.dataset.craft as "upgrade" | "dismantle" | "complete";
+  const whereRaw = btn.dataset.where!;
+  if (net) {
+    net.craft(action, whereRaw);
+  } else {
+    const p = me(state);
+    if (action === "dismantle") dismantleItem(state, p.id, Number(whereRaw));
+    else if (action === "complete") craftCompleted(state, p.id, whereRaw as never);
+    else if (action === "upgrade") {
+      const where = ["weapon", "armor", "trinket"].includes(whereRaw)
+        ? (whereRaw as "weapon" | "armor" | "trinket") : Number(whereRaw);
+      upgradeItem(state, p.id, where);
+    }
+    flushFeedback(state);
+    saveRun(state);
+  }
+  renderBench(state);
+  renderSafeRoom(state);
+});
+
 function renderSafeRoom(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
+  renderBench(s);
   srTip.textContent = room.tip;
   srGold.textContent = `Your gold: ${me(s).gold}`;
   if (s.safeRoom && s.players.length > 1) {

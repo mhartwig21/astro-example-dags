@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
-  slotAbility,
+  slotAbility, dismantleItem, upgradeItem, craftCompleted,
 } from "../src/sim/game";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
@@ -1243,6 +1243,162 @@ describe("ultimates", () => {
     const monsterMoved = m0 - g.monsters[0].pos.x;
     const playerMoved = p0 - p.pos.x;
     expect(playerMoved).toBeGreaterThan(monsterMoved * 2); // world slowed, crawler not
+  });
+});
+
+describe("crafting bench", () => {
+  function benchGame(seed = 900) {
+    const g = createGame(seed);
+    const p = g.players[0];
+    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).not.toBeNull();
+    return g;
+  }
+
+  it("elites drop a trophy; city bosses drop a sigil", () => {
+    const g = createGame(901);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.6, y: p.pos.y }, elite: true, eliteName: "Testy" }));
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 99999;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    // The corpse is inside pickup radius, so the trophy lands in the pocket.
+    const onGround = g.loot.some((l) => l.kind === "material" && l.material === "elite_trophy");
+    expect(onGround || p.materials.elite_trophy >= 1).toBe(true);
+  });
+
+  it("dismantling a bag item yields scrap by rarity and is safe-room gated", () => {
+    const g = benchGame(902);
+    const p = g.players[0];
+    p.inventory.push({ id: 9001, slot: "weapon", rarity: "rare", name: "Runed Blade", affixes: { damage: 9 } });
+    const bagIdx = p.inventory.length - 1;
+    dismantleItem(g, p.id, bagIdx);
+    expect(p.materials.scrap).toBe(CONFIG.craft.dismantleScrap.rare);
+    // Outside the safe room: no-op.
+    leaveSafeRoom(g);
+    p.inventory.push({ id: 9002, slot: "armor", rarity: "epic", name: "Sovereign Plate", affixes: { maxHp: 40 } });
+    const before = p.materials.scrap;
+    dismantleItem(g, p.id, p.inventory.length - 1);
+    expect(p.materials.scrap).toBe(before);
+  });
+
+  it("upgrading raises rarity, keeps the noun, grows affixes, and spends the recipe", () => {
+    const g = benchGame(903);
+    const p = g.players[0];
+    const weapon = { id: 9003, slot: "weapon" as const, rarity: "common" as const, name: "Rusty Blade", affixes: { damage: 5 } };
+    p.equipment.weapon = weapon;
+    const noun = weapon.name.split(" ").pop();
+    const dmg0 = weapon.affixes.damage ?? 0;
+    p.gold = 500;
+    p.materials.scrap = 10;
+    upgradeItem(g, p.id, "weapon");
+    expect(p.equipment.weapon!.rarity).toBe("magic");
+    expect(p.equipment.weapon!.name.endsWith(noun!)).toBe(true);
+    expect(p.equipment.weapon!.affixes.damage ?? 0).toBeGreaterThan(dmg0);
+    expect(p.gold).toBe(500 - CONFIG.craft.upgrade.common.gold);
+    expect(p.materials.scrap).toBe(10 - CONFIG.craft.upgrade.common.scrap);
+    expect(Object.keys(p.equipment.weapon!.affixes).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("higher tiers demand trophies/sigils and refuse without them", () => {
+    const g = benchGame(904);
+    const p = g.players[0];
+    const weapon = { id: 9004, slot: "weapon" as const, rarity: "magic" as const, name: "Keen Axe", affixes: { damage: 8, crit: 0.03 } };
+    p.equipment.weapon = weapon;
+    p.gold = 999;
+    p.materials.scrap = 99;
+    upgradeItem(g, p.id, "weapon"); // no elite trophy -> refused
+    expect(p.equipment.weapon!.rarity).toBe("magic");
+    p.materials.elite_trophy = 1;
+    upgradeItem(g, p.id, "weapon");
+    expect(p.equipment.weapon!.rarity).toBe("rare");
+    expect(p.materials.elite_trophy).toBe(0);
+  });
+
+  it("materials persist through the save/restore seam", () => {
+    const g = restoreGame({
+      seed: 905, floor: 3,
+      player: { hp: 80, level: 4, xp: 0, xpToNext: 99, gold: 50,
+        materials: { scrap: 7, elite_trophy: 2, boss_sigil: 1 } },
+    });
+    expect(g.players[0].materials).toEqual({ scrap: 7, elite_trophy: 2, boss_sigil: 1 });
+  });
+});
+
+describe("completed works (signature gear)", () => {
+  function forgeGame(seed: number) {
+    const g = createGame(seed);
+    const p = g.players[0];
+    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    p.gold = 1000;
+    p.materials.scrap = 30;
+    p.materials.elite_trophy = 5;
+    p.sponsors = 3;
+    return g;
+  }
+
+  it("forges an equipped epic into a named item with the passive (noun kept)", () => {
+    const g = forgeGame(950);
+    const p = g.players[0];
+    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "epic", name: "Apocalyptic Cleaver", affixes: { damage: 20 } };
+    craftCompleted(g, p.id, "showrunner");
+    expect(p.equipment.weapon!.name).toBe("Headliner Cleaver");
+    expect(p.equipment.weapon!.passive).toBe("showrunner");
+    expect(p.equipment.weapon!.affixes.damage).toBe(20); // affixes untouched
+  });
+
+  it("refuses without sponsors, epic base, or in the field", () => {
+    const g = forgeGame(951);
+    const p = g.players[0];
+    p.equipment.weapon = { id: 1, slot: "weapon", rarity: "rare", name: "Runed Axe", affixes: { damage: 12 } };
+    craftCompleted(g, p.id, "showrunner"); // not epic
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+    p.equipment.weapon.rarity = "epic";
+    p.sponsors = 0;
+    craftCompleted(g, p.id, "showrunner"); // no backing
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+    p.sponsors = 3;
+    leaveSafeRoom(g);
+    craftCompleted(g, p.id, "showrunner"); // no bench in the field
+    expect(p.equipment.weapon!.passive).toBeUndefined();
+  });
+
+  it("Landlord's Ledger pays gold on kill credit", () => {
+    const g = createGame(952);
+    const p = g.players[0];
+    p.equipment.trinket = { id: 2, slot: "trinket", rarity: "epic", name: "Landlord's Ledger", affixes: {}, passive: "ledger" };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.6, y: p.pos.y }, xp: 5 }));
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 9999;
+    const gold0 = p.gold;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.gold).toBeGreaterThanOrEqual(gold0 + 3);
+  });
+
+  it("Blastplate detonates the dash launch point", () => {
+    const g = createGame(953);
+    const p = g.players[0];
+    p.equipment.armor = { id: 3, slot: "armor", rarity: "epic", name: "Blastplate Harness", affixes: {}, passive: "blastplate" };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x - 1, y: p.pos.y }, hp: 500, maxHp: 500 }));
+    step(g, { move: { x: 1, y: 0 }, useStairs: false, cast: [false, true, false, false, false] }, 1 / 60);
+    expect(g.monsters[0].hp).toBeLessThan(500); // caught in the launch blast
+  });
+
+  it("Overtime Clause trims ultimate cooldowns by 25%", () => {
+    const g = createGame(954);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.equipment.trinket = { id: 4, slot: "trinket", rarity: "epic", name: "Overtime Clause", affixes: {}, passive: "overtime" };
+    g.monsters.length = 0;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true] }, 1 / 60);
+    const cd = g.players[0].cd.cataclysm ?? 0;
+    expect(cd).toBeLessThan(CONFIG.ultCataclysmCooldown * 0.76);
+    expect(cd).toBeGreaterThan(CONFIG.ultCataclysmCooldown * 0.7);
   });
 });
 

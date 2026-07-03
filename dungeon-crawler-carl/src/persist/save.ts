@@ -30,6 +30,7 @@ export interface SaveData {
     kills?: number;
     damageDealt?: number;
     damageTaken?: number;
+    materials?: Player["materials"];
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -59,6 +60,7 @@ export function saveRun(state: GameState): void {
         kills: p.kills,
         damageDealt: p.damageDealt,
         damageTaken: p.damageTaken,
+        materials: p.materials,
       },
       show: {
         hype: p.hype,
