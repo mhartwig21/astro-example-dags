@@ -124,11 +124,13 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     while ((m.phase ?? 0) < wantPhase) {
       m.phase = (m.phase ?? 0) + 1;
       m.speed *= CONFIG.bossPhaseSpeedMult;
-      state.announcements.push(
-        m.phase === 1
+      state.announcements.push({
+        text: m.phase === 1
           ? "The boss is ANGRY now. Phase two — the sponsors love a comeback arc."
           : "The boss is DESPERATE. Everything is a projectile. RATINGS.",
-      );
+        kind: "boss",
+        priority: "normal",
+      });
       state.events.push(`Boss phase ${m.phase + 1}.`);
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.

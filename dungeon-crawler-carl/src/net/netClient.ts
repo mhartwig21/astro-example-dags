@@ -1,5 +1,5 @@
 import { deserialize } from "../sim/snapshot";
-import type { GameState, HitEvent, Intent } from "../sim/types";
+import type { Announcement, GameState, HitEvent, Intent } from "../sim/types";
 
 // Browser-side network client for the authoritative server. Receives full
 // snapshots (15/s) + per-tick transient events, and produces a smooth display
@@ -9,7 +9,7 @@ import type { GameState, HitEvent, Intent } from "../sim/types";
 
 export interface NetEventBatch {
   events: string[];
-  announcements: string[];
+  announcements: Announcement[];
   hits: HitEvent[];
 }
 
