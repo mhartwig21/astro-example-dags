@@ -84,7 +84,10 @@ describe("audio director", () => {
   it("chimes once for announcements and roars on multi-kills", () => {
     const { sink, director, state } = setup();
     state.killsThisStep = 3;
-    director.frame(state, [], ["LINE ONE", "LINE TWO"], 0);
+    director.frame(state, [], [
+      { text: "LINE ONE", kind: "flavor", priority: "normal" },
+      { text: "LINE TWO", kind: "flavor", priority: "normal" },
+    ], 0);
     expect(sink.ids().filter((i) => i === "announce")).toHaveLength(1);
     expect(sink.ids()).toContain("crowd");
   });

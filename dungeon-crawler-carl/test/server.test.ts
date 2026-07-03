@@ -63,7 +63,7 @@ function connect(port: number, code: string, name: string): Promise<TestClient> 
       } else if (msg.t === "snap") {
         client.lastSnap = deserialize(msg.snapshot);
       } else if (msg.t === "events") {
-        client.events.push(...msg.events, ...msg.announcements);
+        client.events.push(...msg.events, ...msg.announcements.map((a: { text: string }) => a.text));
       }
     });
     ws.on("error", reject);

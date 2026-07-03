@@ -171,8 +171,12 @@ This document describes the full target architecture, then defines the scope of 
 
 ### 5.5 DCC flavor layer (started)
 - AI "System" announcer emitting event messages, loot boxes, achievements, absurd upgrades.
-  Implemented via `GameState.announcements` — a curated, DCC-voiced subset of events the
-  host surfaces as game-show toasts — with no coupling into core rules.
+  Implemented via `GameState.announcements` — a curated, DCC-voiced subset of events, each
+  typed `{ text, kind, priority }` — with no coupling into core rules. The sim merges
+  intrinsically-batchy sources (multi-level XP grants, same-step achievement unlocks) into
+  one line; the 3D host shows `priority: "high"` lines as an exclusive center-screen banner
+  and paces the rest through a capped toast queue (max 3 visible, ~0.65s stagger, stale
+  lines fall back to the log) so a boss kill doesn't wallpaper the screen.
 - **Loot boxes** (in the slice): every N kills the System awards a randomized buff
   (weapon mod / max-HP / heal) with an announcer line, tracked in `GameState.lootBoxes`.
 

@@ -8,7 +8,7 @@ import {
   CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
-import { Tile, type GameState, type HitEvent, type Item, type Player } from "./sim/types";
+import { Tile, type Announcement, type GameState, type HitEvent, type Item, type Player } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -1166,14 +1166,80 @@ function spawnDamageNumber(h: HitEvent): void {
   setTimeout(() => el.remove(), 850);
 }
 
-// DCC "System" announcer toast.
-function showAnnouncement(text: string): void {
+// DCC "System" announcer. High-priority lines get an exclusive banner; the
+// rest go through a paced toast queue so a boss-kill burst (level-ups, loot
+// box, achievements, ...) trickles in instead of wallpapering the screen.
+// Every line is also in the HUD log, so dropping a stale toast loses nothing.
+const TOAST_VISIBLE_MAX = 3; // concurrent toasts on screen
+const TOAST_GAP_MS = 650; // spacing between toast reveals
+const TOAST_HOLD_MS = 2600; // how long a toast holds before fading
+const TOAST_STALE_MS = 6000; // queued longer than this -> stays log-only
+const BANNER_HOLD_MS = 3400;
+
+const toastQueue: { a: Announcement; queuedAt: number }[] = [];
+let toastsVisible = 0;
+let nextToastAt = 0;
+let toastPumpTimer = 0;
+
+function showAnnouncement(a: Announcement): void {
+  if (a.priority === "high") { showBanner(a); return; }
+  toastQueue.push({ a, queuedAt: performance.now() });
+  pumpToasts();
+}
+
+function pumpToasts(): void {
+  const now = performance.now();
+  // The moment passed while the queue was backed up; the log has it.
+  while (toastQueue.length > 0 && now - toastQueue[0].queuedAt > TOAST_STALE_MS) toastQueue.shift();
+  if (toastQueue.length === 0) return;
+  if (toastsVisible >= TOAST_VISIBLE_MAX || now < nextToastAt) {
+    // A slot opening (fade-out below) or the gap timer re-pumps.
+    if (now < nextToastAt) {
+      clearTimeout(toastPumpTimer);
+      toastPumpTimer = window.setTimeout(pumpToasts, nextToastAt - now);
+    }
+    return;
+  }
+  const { a } = toastQueue.shift()!;
+  nextToastAt = now + TOAST_GAP_MS;
+  toastsVisible++;
   const el = document.createElement("div");
   el.className = "ann";
-  el.textContent = text;
+  el.textContent = a.text;
   toastLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
-  setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 400); }, 2600);
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 400);
+    toastsVisible--;
+    pumpToasts();
+  }, TOAST_HOLD_MS);
+  if (toastQueue.length > 0) {
+    clearTimeout(toastPumpTimer);
+    toastPumpTimer = window.setTimeout(pumpToasts, TOAST_GAP_MS);
+  }
+}
+
+// Headline moments (boss down, new band, wipe): one at a time, front and center.
+const bannerLayer = document.getElementById("banner")!;
+const bannerQueue: Announcement[] = [];
+let bannerActive = false;
+
+function showBanner(a: Announcement): void {
+  if (bannerActive) { bannerQueue.push(a); return; }
+  bannerActive = true;
+  const el = document.createElement("div");
+  el.className = "ann banner";
+  el.textContent = a.text;
+  bannerLayer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 400);
+    bannerActive = false;
+    const next = bannerQueue.shift();
+    if (next) showBanner(next);
+  }, BANNER_HOLD_MS);
 }
 
 function phaseColor(s: GameState): string {
@@ -1231,7 +1297,7 @@ let hitStop = 0;
 // Network mode: transient feedback arrives as an event stream, buffered here
 // until the frame loop consumes it.
 const netHits: HitEvent[] = [];
-const netAnns: string[] = [];
+const netAnns: Announcement[] = [];
 let netIntentAcc = 0;
 let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
@@ -1272,7 +1338,7 @@ async function main(): Promise<void> {
     };
     net.onDisconnect = () => {
       log.push("Disconnected from the server.");
-      showAnnouncement("CONNECTION LOST. The System apologizes for the technical difficulties.");
+      showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
   }
@@ -1285,7 +1351,7 @@ async function main(): Promise<void> {
 
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
-    const frameAnns: string[] = [];
+    const frameAnns: Announcement[] = [];
 
     if (net) {
       // Authoritative snapshots drive the world; we pump intent + drain events.

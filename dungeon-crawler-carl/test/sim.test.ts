@@ -192,7 +192,7 @@ describe("combat feedback + loot boxes", () => {
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
     expect(g.lootBoxes).toBe(1);
-    expect(g.announcements.some((a) => a.includes("LOOT BOX"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("LOOT BOX"))).toBe(true);
   });
 
   it("keeps hits/announcements deterministic across identical runs", () => {
@@ -604,7 +604,7 @@ describe("achievements", () => {
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.players[0].achievements).toContain("first_blood");
     expect(g.players[0].gold).toBeGreaterThan(gold0);
-    expect(g.announcements.some((a) => a.includes("FIRST BLOOD"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("FIRST BLOOD"))).toBe(true);
     // Never unlocks twice.
     g.monsters.push(mkMon({ id: 2, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -648,6 +648,24 @@ describe("achievements", () => {
     const ids = ACHIEVEMENTS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("several same-step unlocks combine into one announcer line", () => {
+    const g = createGame(404);
+    g.players[0].facing = { x: 1, y: 0 };
+    g.players[0].baseDamage = 9999;
+    g.monsters.length = 0;
+    for (let i = 0; i < 3; i++) {
+      g.monsters.push(mkMon({ id: 20 + i, pos: { x: g.players[0].pos.x + 0.7, y: g.players[0].pos.y } }));
+    }
+    // One step kills all three: FIRST BLOOD + DIRTY FIGHTER unlock together.
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(g.players[0].achievements).toEqual(expect.arrayContaining(["first_blood", "dirty_fighter"]));
+    const lines = g.announcements.filter((a) => a.kind === "achievement");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].text).toContain("ACHIEVEMENTS");
+    // The log still carries each unlock's full description.
+    expect(g.events.filter((e) => e.startsWith("ACHIEVEMENT (")).length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("boss floor", () => {
@@ -662,6 +680,38 @@ describe("boss floor", () => {
     boss!.hp = 0;
     step(g, idle(), 1 / 60);
     expect(g.status).toBe("won");
+  });
+});
+
+describe("announcement tiers (anti-flood)", () => {
+  it("a multi-level XP grant announces once with the final level", () => {
+    const g = createGame(410);
+    const p = g.players[0];
+    p.facing = { x: 1, y: 0 };
+    p.baseDamage = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, xp: 500 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.level).toBeGreaterThan(2); // the grant crossed several levels
+    const lines = g.announcements.filter((a) => a.kind === "levelup");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].text).toContain(`LEVEL ${p.level}`);
+    expect(lines[0].text).toContain(`+${p.level - 1} levels`);
+  });
+
+  it("headline moments carry high priority; routine lines do not", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, maxHp: 100, baseDamage: 10, level: 1, xp: 0, xpToNext: 20, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    boss.hp = 0;
+    step(g, idle(), 1 / 60);
+    const bossLine = g.announcements.find((a) => a.text.includes("FLOOR BOSS"));
+    expect(bossLine?.kind).toBe("boss");
+    expect(bossLine?.priority).toBe("high");
+    const levelLine = g.announcements.find((a) => a.kind === "levelup");
+    expect(levelLine?.priority).toBe("normal");
   });
 });
 
@@ -794,7 +844,7 @@ describe("multiplayer party sim", () => {
     expect(g.players.length).toBe(2);
     expect(donut.id).toBe(1);
     expect(donut.alive).toBe(true);
-    expect(g.announcements.some((a) => a.includes("Donut"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("Donut"))).toBe(true);
   });
 
   it("per-player intents move players independently", () => {
@@ -1059,7 +1109,7 @@ describe("boss hierarchy", () => {
     const name = elite.eliteName!;
     elite.hp = 0;
     step(g, idle(), 1 / 60);
-    expect(g.announcements.some((a) => a.includes(name) && a.includes("DOWN"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes(name) && a.text.includes("DOWN"))).toBe(true);
     expect(g.loot.some((l) => l.kind === "item")).toBe(true);
   });
 });
@@ -1084,7 +1134,7 @@ describe("new archetypes", () => {
     expect(p.hp).toBeLessThan(hp0); // stood in it — caught in the blast
     expect(g.monsters.length).toBe(0); // the bomber died and was reaped normally
     expect(g.killCount).toBe(1);
-    expect(g.announcements.some((a) => a.includes("bomber"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("bomber"))).toBe(true);
   });
 
   it("walking out of the fuse radius dodges the detonation", () => {
@@ -1364,7 +1414,7 @@ describe("crowd frenzy", () => {
     addHype(g, p, CONFIG.show.frenzyEnter + 20);
     step(g, idle(), 1 / 60);
     expect(p.frenzy).toBe(true);
-    expect(g.announcements.some((a) => a.includes("CHANTING"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("CHANTING"))).toBe(true);
     // Faster hands: the melee cooldown lands shorter than base.
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(p.cd.melee!).toBeLessThan(CONFIG.playerAttackCooldown * 0.99);
@@ -1547,7 +1597,7 @@ describe("ringside introductions", () => {
     expect(g.encounter!.monsterId).toBe(elite.id);
     expect(g.encounter!.name).toBe(elite.eliteName);
     expect(elite.introduced).toBe(true);
-    expect(g.announcements.some((a) => a.includes("RINGSIDE") && a.includes(elite.eliteName!))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("RINGSIDE") && a.text.includes(elite.eliteName!))).toBe(true);
     // Frozen: nobody moves, nobody winds up, nobody gets hit.
     const px = p.pos.x;
     const introSteps = Math.ceil(CONFIG.encounterIntroSeconds * 60);
@@ -1602,7 +1652,7 @@ describe("boss phases", () => {
     step(g, idle(), 1 / 60);
     expect(boss.phase).toBe(1);
     expect(boss.speed).toBeGreaterThan(speed0);
-    expect(g.announcements.some((a) => a.includes("ANGRY"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("ANGRY"))).toBe(true);
     // Phase 2 stacks on top.
     boss.hp = Math.floor(boss.maxHp * 0.2);
     step(g, idle(), 1 / 60);
@@ -1626,7 +1676,7 @@ describe("theme bands", () => {
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
     expect(g.floor).toBe(5);
-    expect(g.announcements.some((a) => a.includes("THE SEWERS"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("THE SEWERS"))).toBe(true);
   });
 
   it("does not re-announce within a band (5 -> 6)", () => {
@@ -1639,7 +1689,7 @@ describe("theme bands", () => {
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
     expect(g.floor).toBe(6);
-    expect(g.announcements.some((a) => a.includes("Now entering"))).toBe(false);
+    expect(g.announcements.some((a) => a.text.includes("Now entering"))).toBe(false);
   });
 });
 
@@ -2068,7 +2118,7 @@ describe("locked floors", () => {
       const map = g.map;
       expect(map.locked).toBe(true);
       expect(doorCount(map)).toBeGreaterThan(0);
-      expect(g.announcements.some((a) => a.includes("LOCKED"))).toBe(true);
+      expect(g.announcements.some((a) => a.text.includes("LOCKED"))).toBe(true);
       // Spawn -> stairs is blocked by the locked doors...
       expect(canReach(map, map.spawn, map.stairs)).toBe(false);
       // ...but every room other than the stairs room stays reachable.
@@ -2106,7 +2156,7 @@ describe("locked floors", () => {
     step(g, idle(), 1 / 60);
     const key = g.loot.find((l) => l.kind === "key");
     expect(key).toBeDefined();
-    expect(g.announcements.some((a) => a.includes("KEYHOLDER"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("KEYHOLDER"))).toBe(true);
     // Walk onto the key: all doors open, geometry version bumps, stairs open up.
     const versionBefore = g.mapVersion;
     g.players[0].pos = { x: key!.pos.x, y: key!.pos.y };
@@ -2115,7 +2165,7 @@ describe("locked floors", () => {
     expect(doorCount(g.map)).toBe(0);
     expect(g.map.locked).toBe(false);
     expect(g.mapVersion).toBe(versionBefore + 1);
-    expect(g.announcements.some((a) => a.includes("OPEN"))).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("OPEN"))).toBe(true);
     expect(canReach(g.map, g.map.spawn, g.map.stairs)).toBe(true);
   });
 

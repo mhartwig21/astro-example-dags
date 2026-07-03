@@ -304,6 +304,25 @@ export interface HitEvent {
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
 }
 
+// Semantic source of an announcer line. Hosts use this to route presentation
+// (audio stingers, multiplayer filtering); it is data, not styling.
+export type AnnouncementKind =
+  | "boss" // named-monster intros, deaths, phase changes, corpse warnings
+  | "progress" // floors, bands, keys/doors, collapse timer, win/wipe
+  | "levelup" // levels, abilities learned, upgrade ranks
+  | "loot" // loot boxes, tomes, notable drops, signature gear
+  | "achievement"
+  | "show" // audience economy: sponsors, frenzy, ultimates, favors
+  | "flavor"; // one-off color lines
+
+export interface Announcement {
+  text: string;
+  kind: AnnouncementKind;
+  // high = a headline moment (boss down, new band, wipe); hosts may give these
+  // an exclusive full-width treatment. normal = a queued toast.
+  priority: "high" | "normal";
+}
+
 export interface GameState {
   rng: Rng;
   seed: number;
@@ -335,7 +354,7 @@ export interface GameState {
   // Event messages produced during the last step (consumed by host for the log/HUD).
   events: string[];
   // Announcer lines in the DCC "System" game-show voice (a curated subset of drama).
-  announcements: string[];
+  announcements: Announcement[];
   // Combat/feedback events for this step (floating numbers, particles, shake).
   hits: HitEvent[];
   killCount: number; // monsters killed this run (drives loot-box milestones)

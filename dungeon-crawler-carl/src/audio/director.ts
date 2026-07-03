@@ -1,5 +1,5 @@
 import { CONFIG } from "../sim/config";
-import type { GameState, HitEvent, HitKind } from "../sim/types";
+import type { Announcement, GameState, HitEvent, HitKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
 
@@ -68,7 +68,7 @@ export class AudioDirector {
   constructor(private sink: AudioSink) {}
 
   /** Call once per render frame with the frame's buffered feedback. */
-  frame(state: GameState, hits: HitEvent[], announcements: string[], localId: number): void {
+  frame(state: GameState, hits: HitEvent[], announcements: Announcement[], localId: number): void {
     const p = state.players.find((pl) => pl.id === localId) ?? state.players[0];
     if (!p) return;
 

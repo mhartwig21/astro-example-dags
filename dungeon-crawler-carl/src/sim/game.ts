@@ -16,8 +16,8 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
-  EliteAffix, GameState, HitEvent, Intent, Item, Loot, MaterialId, Monster, MonsterKind,
-  PartyIntents, PassiveId, Player, Reward, SafeRoom, Vec2,
+  Announcement, AnnouncementKind, EliteAffix, GameState, HitEvent, Intent, Item, Loot,
+  MaterialId, Monster, MonsterKind, PartyIntents, PassiveId, Player, Reward, SafeRoom, Vec2,
 } from "./types";
 import { NO_INTENT, Tile } from "./types";
 
@@ -190,7 +190,7 @@ function spawnMonsters(state: GameState): void {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
     }
-    announce(state, `CITY BOSS: ${boss.eliteName} holds floor ${floor}. The exit is SEALED. Ratings, Crawlers.`);
+    announce(state, "boss", `CITY BOSS: ${boss.eliteName} holds floor ${floor}. The exit is SEALED. Ratings, Crawlers.`, "high");
     return;
   }
 
@@ -300,7 +300,7 @@ function spawnMonsters(state: GameState): void {
       if (m.affix === "swift") m.speed *= CONFIG.swiftSpeedMult;
     }
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
-    announce(state, `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
+    announce(state, "boss", `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
   }
 }
 
@@ -337,7 +337,7 @@ function assignKeyCarrier(state: GameState): void {
     return;
   }
   candidates[nextInt(rng, 0, candidates.length - 1)].hasKey = true;
-  announce(state, "The stairs district is LOCKED. One of the residents has the key. Ask nicely.");
+  announce(state, "progress", "The stairs district is LOCKED. One of the residents has the key. Ask nicely.");
 }
 
 function makePlayer(id: number, name: string): Player {
@@ -436,7 +436,7 @@ export function addPlayer(state: GameState, name: string): Player {
   const p = makePlayer(id, name);
   resetForFloor(p, state.map.spawn, state.players.length);
   state.players.push(p);
-  announce(state, `${name} drops into the dungeon. The audience loves fresh meat.`);
+  announce(state, "show", `${name} drops into the dungeon. The audience loves fresh meat.`);
   return p;
 }
 
@@ -451,7 +451,7 @@ function buildFloor(state: GameState, floor: number): void {
   const newBand = floorBand(floor);
   if (floor === 1 || newBand !== prevBand) {
     const band = FLOOR_BANDS[newBand];
-    announce(state, `Now entering ${band.name}. ${band.line}`);
+    announce(state, "progress", `Now entering ${band.name}. ${band.line}`, "high");
   }
   const rng: Rng = createRng(floorSeed(state.seed, floor));
   state.rng = rng;
@@ -631,13 +631,13 @@ function updateShow(state: GameState, dt: number): void {
     // Crossing a favorite threshold earns a sponsor.
     while (p.sponsors < s.sponsorThresholds.length && p.favorites >= s.sponsorThresholds[p.sponsors]) {
       p.sponsors++;
-      announce(state, `NEW SPONSOR for ${p.name}! ${p.sponsors} now bankroll the run. They expect a show.`);
+      announce(state, "show", `NEW SPONSOR for ${p.name}! ${p.sponsors} now bankroll the run. They expect a show.`);
     }
     // Crowd Frenzy: sustained hype buffs the crawler (hysteresis so the state
     // doesn't flap as hype oscillates around the threshold).
     if (!p.frenzy && p.hype >= s.frenzyEnter) {
       p.frenzy = true;
-      announce(state, `The crowd is CHANTING ${p.name.toUpperCase()}. Frenzy: faster feet, faster hands.`);
+      announce(state, "show", `The crowd is CHANTING ${p.name.toUpperCase()}. Frenzy: faster feet, faster hands.`);
     } else if (p.frenzy && p.hype < s.frenzyExit) {
       p.frenzy = false;
     }
@@ -686,10 +686,11 @@ function maybeStartEncounter(state: GameState): void {
     };
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
     announce(
-      state,
+      state, "boss",
       m.kind === "boss"
         ? `RINGSIDE INTRODUCTION: ${name}. The exit stays sealed while it breathes. FIGHT.`
         : `RINGSIDE INTRODUCTION: ${name}${tag}. The crowd wants a clean fight. They won't get one.`,
+      "high",
     );
     for (const p of alivePlayers(state)) addHype(state, p, 8); // entrances play great
     return;
@@ -707,9 +708,16 @@ export function summonMinion(state: GameState, m: Monster): void {
   hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
 }
 
-/** Push a dramatic line in the DCC "System" game-show voice (also logged). */
-function announce(state: GameState, line: string): void {
-  state.announcements.push(line);
+/**
+ * Push a dramatic line in the DCC "System" game-show voice (also logged).
+ * `priority: "high"` marks the handful of headline moments (boss down, new
+ * band, wipe) that hosts may present bigger than a toast.
+ */
+function announce(
+  state: GameState, kind: AnnouncementKind, line: string,
+  priority: Announcement["priority"] = "normal",
+): void {
+  state.announcements.push({ text: line, kind, priority });
   state.events.push(line);
 }
 
@@ -723,6 +731,7 @@ function hit(
 /** Grant XP to one player (kill XP is split before calling this). */
 function grantXp(state: GameState, p: Player, amount: number): void {
   p.xp += amount;
+  const before = p.level;
   while (p.xp >= p.xpToNext) {
     p.xp -= p.xpToNext;
     p.level++;
@@ -730,7 +739,11 @@ function grantXp(state: GameState, p: Player, amount: number): void {
     recomputeStats(p); // intrinsic stats scale with level
     p.hp = p.maxHp; // level-up fully heals
     p.upgradeDraftsOwed++; // each level opens an ability draft (queued if several)
-    announce(state, `${p.name} hits LEVEL ${p.level}! The System offers an evolution.`);
+  }
+  // One line per XP grant, however many levels it crossed (boss XP jumps 2-3).
+  if (p.level > before) {
+    const jump = p.level - before > 1 ? ` (+${p.level - before} levels)` : "";
+    announce(state, "levelup", `${p.name} hits LEVEL ${p.level}${jump}! The System offers an evolution.`);
   }
 }
 
@@ -750,7 +763,7 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
   p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
   p.pendingUpgrades = [];
   const def = upgradeDef(offer.id);
-  announce(state, `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+  announce(state, "levelup", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
 
 /**
@@ -773,7 +786,7 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
     L.bench.push(ability);
     where = "BENCHED (re-slot in a safe room)";
   }
-  announce(state, `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
+  announce(state, "levelup", `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
   addHype(state, p, CONFIG.show.hypeEpicDrop);
 }
 
@@ -825,23 +838,23 @@ function awardLootBox(state: GameState, p: Player): void {
   const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
   if (roll === 3) {
     const ability = undiscovered[nextInt(state.rng, 0, undiscovered.length - 1)];
-    announce(state, `LOOT BOX #${state.lootBoxes}: a forbidden skill chip!`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a forbidden skill chip!`);
     learnAbility(state, p, ability);
   } else if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
     p.bonusDamage += amt;
     recomputeStats(p);
-    announce(state, `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
   } else if (roll === 1) {
     const amt = nextInt(state.rng, 15, 30);
     p.bonusMaxHp += amt;
     recomputeStats(p);
     p.hp = Math.min(p.maxHp, p.hp + amt);
-    announce(state, `LOOT BOX #${state.lootBoxes}: reinforced plating! (+${amt} max HP)`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: reinforced plating! (+${amt} max HP)`);
   } else {
     const amt = nextInt(state.rng, 25, 50);
     p.hp = Math.min(p.maxHp, p.hp + amt);
-    announce(state, `LOOT BOX #${state.lootBoxes}: a health surge! (+${amt} HP)`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a health surge! (+${amt} HP)`);
   }
 }
 
@@ -864,7 +877,7 @@ function dropLoot(state: GameState, pos: Vec2): void {
   if (undiscovered.length > 0 && chance(rng, CONFIG.tomeDropChance)) {
     const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "tome", amount: 0, ability });
-    announce(state, `An ABILITY TOME dropped! The System loves an upset.`);
+    announce(state, "loot", `An ABILITY TOME dropped! The System loves an upset.`);
   }
   if (chance(rng, CONFIG.goldDropChance)) {
     const amount = nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor);
@@ -1035,8 +1048,8 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
       addHype(state, p, CONFIG.show.hypeLowHpHit);
     }
   }
-  if (caught > 0) announce(state, "KABOOM! A bomber detonates point-blank. The crowd feels that one.");
-  else announce(state, "A bomber pops early — all bark, no bite. The System is disappointed.");
+  if (caught > 0) announce(state, "flavor", "KABOOM! A bomber detonates point-blank. The crowd feels that one.");
+  else announce(state, "flavor", "A bomber pops early — all bark, no bite. The System is disappointed.");
 }
 
 function reapDead(state: GameState): void {
@@ -1078,13 +1091,13 @@ function reapDead(state: GameState): void {
         radius: CONFIG.volatileRadius,
         damage: m.damage * CONFIG.volatileDmgMult,
       });
-      announce(state, `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+      announce(state, "boss", `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
     }
     grantPartyXp(state, m.xp);
     if (m.hasKey) {
       // The key carrier ALWAYS drops the stairs-district key.
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "key", amount: 0 });
-      announce(state, "The KEYHOLDER is down! That shiny thing it dropped? Take it.");
+      announce(state, "progress", "The KEYHOLDER is down! That shiny thing it dropped? Take it.");
     }
     dropLoot(state, m.pos);
     if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
@@ -1093,18 +1106,18 @@ function reapDead(state: GameState): void {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "elite_trophy" });
       dropBossBonus(state, m.pos, 1);
       addHype(state, killer, CONFIG.show.hypeBrute);
-      announce(state, `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
+      announce(state, "boss", `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
     }
     if (m.kind === "boss") {
       if (state.floor >= CONFIG.finalFloor) {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         state.status = "won";
-        announce(state, "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.");
+        announce(state, "boss", "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.", "high");
       } else {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         dropBossBonus(state, m.pos, 2);
         addHype(state, killer, CONFIG.show.hypeBoss);
-        announce(state, `CITY BOSS ${m.eliteName ?? ""} DEFEATED! The exit is OPEN. Sponsors are weeping with joy.`);
+        announce(state, "boss", `CITY BOSS ${m.eliteName ?? ""} DEFEATED! The exit is OPEN. Sponsors are weeping with joy.`, "high");
       }
     }
   }
@@ -1112,7 +1125,7 @@ function reapDead(state: GameState): void {
   for (const pl of state.players) {
     if (pl.killsThisStep > 1) {
       addHype(state, pl, (pl.killsThisStep - 1) * CONFIG.show.hypeMultiKillPerExtra);
-      if (pl.killsThisStep >= 3) announce(state, `${pl.killsThisStep}-KILL COMBO by ${pl.name}! The crowd is on its feet.`);
+      if (pl.killsThisStep >= 3) announce(state, "show", `${pl.killsThisStep}-KILL COMBO by ${pl.name}! The crowd is on its feet.`);
     }
   }
   state.killsThisStep = killsThisStep;
@@ -1140,7 +1153,7 @@ function collectLoot(state: GameState): void {
         break;
       case "key": {
         unlockDoors(state);
-        announce(state, `${p.name} has the key! The stairs district is OPEN.`);
+        announce(state, "progress", `${p.name} has the key! The stairs district is OPEN.`);
         addHype(state, p, 12);
         hit(state, p.pos, 0, "weapon");
         break;
@@ -1175,10 +1188,11 @@ function collectLoot(state: GameState): void {
         const equipped = p.equipment[item.slot];
         if (!equipped || itemScore(item) > itemScore(equipped)) {
           equipItem(p, item);
-          if (item.rarity === "rare" || item.rarity === "epic") {
-            announce(state, `${item.rarity.toUpperCase()} DROP: ${item.name}! Equipped. The crowd loses it.`);
+          if (item.rarity === "epic") {
+            announce(state, "loot", `EPIC DROP: ${item.name}! Equipped. The crowd loses it.`);
           } else {
-            state.events.push(`Equipped ${item.name}.`);
+            // Rare-and-below equips already have pickup feedback; log only.
+            state.events.push(`Equipped ${item.name} (${item.rarity}).`);
           }
         } else {
           p.inventory.push(item);
@@ -1198,7 +1212,7 @@ function updateTimer(state: GameState, dt: number): void {
   if (state.timeRemaining <= 0) {
     if (state.phase !== "collapse") {
       state.phase = "collapse";
-      announce(state, "The floor is COLLAPSING, Crawler. Descend, or become a statistic.");
+      announce(state, "progress", "The floor is COLLAPSING, Crawler. Descend, or become a statistic.", "high");
     }
     state.collapseElapsed += dt;
     const dps = CONFIG.collapseDpsBase + state.collapseElapsed * CONFIG.collapseDpsRamp;
@@ -1216,7 +1230,7 @@ function updateTimer(state: GameState, dt: number): void {
   } else if (state.timeRemaining <= warnAt) {
     if (state.phase === "safe") {
       state.phase = "warning";
-      announce(state, "The floor is destabilizing. The clock is your enemy now.");
+      announce(state, "progress", "The floor is destabilizing. The clock is your enemy now.");
     }
   }
 }
@@ -1234,7 +1248,7 @@ function tryDescend(state: GameState, p: Player): void {
   }
   if (state.floor >= CONFIG.finalFloor) {
     state.status = "won";
-    announce(state, `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`);
+    announce(state, "progress", `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`, "high");
     return;
   }
   if (state.phase === "collapse") state.escapedCollapse = true;
@@ -1242,7 +1256,7 @@ function tryDescend(state: GameState, p: Player): void {
   // Descent routes through a safe room: the sim pauses while the crawler shops;
   // leaveSafeRoom() performs the actual floor change (and opens the sponsor draft).
   state.safeRoom = generateSafeRoom(state, next);
-  announce(state, `Safe room reached. Breathe, spend, gear up — floor ${next} is waiting.`);
+  announce(state, "progress", `Safe room reached. Breathe, spend, gear up — floor ${next} is waiting.`);
 }
 
 /** Mordecai-style manager advice for the floor ahead (deterministic flavor). */
@@ -1372,7 +1386,7 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
         break;
       case "favor":
         p.upgradeDraftsOwed++;
-        announce(state, `${p.name} calls in a SYSTEM FAVOR. An upgrade draft is owed.`);
+        announce(state, "show", `${p.name} calls in a SYSTEM FAVOR. An upgrade draft is owed.`);
         break;
     }
     state.events.push(`${p.name} bought ${entry.name} (-${price} gold).`);
@@ -1414,7 +1428,7 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   else p.inventory.push(item);
   recomputeStats(p);
   if (entry.tier === "legendary") {
-    announce(state, `SIGNATURE GEAR: ${p.name} claims ${entry.name}. ${entry.desc} The sponsors sign off — this one gets a product page.`);
+    announce(state, "loot", `SIGNATURE GEAR: ${p.name} claims ${entry.name}. ${entry.desc} The sponsors sign off — this one gets a product page.`);
     addHype(state, p, CONFIG.show.hypeEpicDrop);
   } else {
     state.events.push(`${p.name} bought ${entry.name} (-${price} gold).`);
@@ -1455,7 +1469,7 @@ export function leaveSafeRoom(state: GameState): void {
   const room = state.safeRoom;
   if (!room) return;
   state.safeRoom = null;
-  announce(state, `Descending to floor ${room.nextFloor}. The cameras are rolling, Crawlers.`);
+  announce(state, "progress", `Descending to floor ${room.nextFloor}. The cameras are rolling, Crawlers.`);
   buildFloor(state, room.nextFloor);
   if (room.bonusTime) {
     state.timeBudget += room.bonusTime;
@@ -1467,7 +1481,7 @@ export function leaveSafeRoom(state: GameState): void {
     p.pendingRewards = generateRewards(state, p.id);
     if (p.pendingRewards.length > 0) any = true;
   }
-  if (any) announce(state, "Your sponsors have gifts. Choose, Crawlers.");
+  if (any) announce(state, "show", "Your sponsors have gifts. Choose, Crawlers.");
 }
 
 function shuffle<T>(rng: Rng, arr: T[]): T[] {
@@ -1628,7 +1642,8 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
   const r = p.pendingRewards[idx];
   applyReward(state, p, r);
   p.pendingRewards = [];
-  announce(state, `${p.name} accepts a sponsor gift: ${r.title}.`);
+  // Direct response to the player's own click — the log entry is enough.
+  state.events.push(`${p.name} accepts a sponsor gift: ${r.title}.`);
 }
 
 /**
@@ -1750,7 +1765,7 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
       ownerId: p.id,
     });
   }
-  announce(state, `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
+  announce(state, "show", `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
 }
 
 /** Tick volatile-corpse blasts; expiry damages players still in the ring. */
@@ -1807,14 +1822,14 @@ function doCataclysm(state: GameState, p: Player): void {
     const dir = { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d };
     moveWithCollision(state.map, m.pos, dir, CONFIG.ultCataclysmKnockback, isWalkable);
   }
-  announce(state, `${p.name} CRACKS THE FLOOR. Everything airborne is a highlight.`);
+  announce(state, "show", `${p.name} CRACKS THE FLOOR. Everything airborne is a highlight.`);
 }
 
 /** Bullet Time: the world slows; crawlers do not. */
 function doBulletTime(state: GameState, p: Player): void {
   p.cd.bullettime = CONFIG.ultBulletTimeCooldown;
   state.bulletTimeLeft = CONFIG.ultBulletTimeDuration;
-  announce(state, `${p.name} bends the broadcast frame rate. BULLET TIME.`);
+  announce(state, "show", `${p.name} bends the broadcast frame rate. BULLET TIME.`);
 }
 
 /**
@@ -1853,10 +1868,10 @@ export function hasPassive(p: Player, id: PassiveId): boolean {
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
   p.alive = false;
-  announce(state, line);
+  announce(state, "progress", line);
   if (alivePlayers(state).length === 0) {
     state.status = "dead";
-    announce(state, "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.");
+    announce(state, "progress", "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.", "high");
   }
 }
 
@@ -2088,14 +2103,28 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 function checkAchievements(state: GameState): void {
   if (!CONFIG.achievementsEnabled) return;
   for (const p of state.players) {
+    // Big moments (boss kills, level bursts) unlock several at once — collect
+    // them and announce one combined line so the toast layer isn't flooded.
+    const unlocked: (typeof ACHIEVEMENTS)[number][] = [];
     for (const a of ACHIEVEMENTS) {
       if (p.achievements.includes(a.id)) continue;
       if (!a.test(state, p)) continue;
       p.achievements.push(a.id);
       p.gold += a.gold;
       if (a.hype > 0) addHype(state, p, a.hype);
+      unlocked.push(a);
+    }
+    if (unlocked.length === 1) {
+      const a = unlocked[0];
       const payout = a.gold > 0 ? ` Reward: ${a.gold} gold.` : "";
-      announce(state, `ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}${payout}`);
+      announce(state, "achievement", `ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}${payout}`);
+    } else if (unlocked.length > 1) {
+      const gold = unlocked.reduce((sum, a) => sum + a.gold, 0);
+      const payout = gold > 0 ? ` Reward: ${gold} gold.` : "";
+      const titles = unlocked.map((a) => a.title).join(", ");
+      announce(state, "achievement", `${unlocked.length} ACHIEVEMENTS (${p.name}): ${titles}.${payout}`);
+      // The log still gets each unlock's full description.
+      for (const a of unlocked) state.events.push(`ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}`);
     }
   }
 }
