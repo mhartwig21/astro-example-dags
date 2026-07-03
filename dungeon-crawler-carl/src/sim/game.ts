@@ -644,6 +644,7 @@ function cdMult(p: Player): number {
 
 /** Drink the flask: charge-gated heal; a full-HP chug is not consumed. */
 export function useFlask(state: GameState, p: Player): void {
+  if (!CONFIG.flaskEnabled) return;
   if (!p.alive || p.flaskCharges <= 0 || p.hp >= p.maxHp) return;
   p.flaskCharges--;
   const amt = Math.round(p.maxHp * CONFIG.flaskHealFraction);
@@ -1000,7 +1001,7 @@ function reapDead(state: GameState): void {
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
     // Kills refill the flask (only while a charge is missing): aggression = sustain.
-    if (killer.flaskCharges < CONFIG.flaskMaxCharges) {
+    if (CONFIG.flaskEnabled && killer.flaskCharges < CONFIG.flaskMaxCharges) {
       killer.flaskKillProgress++;
       if (killer.flaskKillProgress >= CONFIG.flaskKillsPerCharge) {
         killer.flaskKillProgress = 0;
@@ -1966,6 +1967,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 
 /** Unlock any achievement whose condition now holds for a player; announce + pay out. */
 function checkAchievements(state: GameState): void {
+  if (!CONFIG.achievementsEnabled) return;
   for (const p of state.players) {
     for (const a of ACHIEVEMENTS) {
       if (p.achievements.includes(a.id)) continue;

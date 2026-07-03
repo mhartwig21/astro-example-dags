@@ -653,7 +653,9 @@ export class Renderer3D {
           place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
         }
       }
-      place("table_small_decorated_A", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.7, rot: 0, jitter: 0 });
+      // Centerpiece: a fallen warrior monument (table_small_decorated_A is out —
+      // its model has candles baked in, and candles are banned from the floors).
+      place("sword_shield_broken", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.9, rot: 0, jitter: 0 });
     }
 
     // 5) VAULT: the hoard around the guardian's treasure.

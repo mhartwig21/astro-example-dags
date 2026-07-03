@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyShopItem, leaveSafeRoom, addPlayer, setReady,
@@ -444,6 +444,12 @@ describe("safe room + shop", () => {
 });
 
 describe("achievements", () => {
+  // The feature ships disabled (CONFIG.achievementsEnabled); the mechanics
+  // still need to work for when it returns, so tests flip the switch.
+  const flags = CONFIG as { achievementsEnabled: boolean };
+  beforeAll(() => { flags.achievementsEnabled = true; });
+  afterAll(() => { flags.achievementsEnabled = false; });
+
   it("FIRST BLOOD unlocks on the first kill with a payout", () => {
     const g = createGame(400);
     g.players[0].facing = { x: 1, y: 0 };
@@ -1182,6 +1188,11 @@ describe("crowd frenzy", () => {
 });
 
 describe("sponsor slurp flask", () => {
+  // Ships disabled (CONFIG.flaskEnabled); mechanics stay tested for its return.
+  const flags = CONFIG as { flaskEnabled: boolean };
+  beforeAll(() => { flags.flaskEnabled = true; });
+  afterAll(() => { flags.flaskEnabled = false; });
+
   it("drinking heals a fraction of max HP and consumes a charge", () => {
     const g = createGame(940);
     const p = g.players[0];

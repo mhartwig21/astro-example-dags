@@ -467,6 +467,8 @@ const statsRows = document.getElementById("stats-rows")!;
 function renderAbilities(s: GameState): void {
   const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
   abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  document.getElementById("ach-section")!.style.display =
+    CONFIG.achievementsEnabled ? "" : "none";
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
   achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
     const got = me(s).achievements.includes(a.id);
@@ -529,6 +531,7 @@ function applyBindings(): void {
 
 function renderKeybinds(): void {
   kbRows.innerHTML = (Object.keys(ACTION_INFO) as BindableAction[])
+    .filter((a) => a !== "flask" || CONFIG.flaskEnabled) // no dead key rows
     .map((a) => {
       const info = ACTION_INFO[a];
       const cls = listening === a ? "kb-key listening" : "kb-key";
@@ -759,8 +762,6 @@ srDescend.addEventListener("click", () => {
 // count). Structure rebuilds only when the loadout changes; cooldown fills
 // update every frame.
 const skillsEl = document.getElementById("skills")!;
-const globeFill = document.querySelector("#globe .fill") as HTMLElement;
-const globeNum = document.querySelector("#globe .num") as HTMLElement;
 const xpFill = document.querySelector("#xpbar > i") as HTMLElement;
 let skillBarKey = "";
 const CD_BASE: Partial<Record<AbilityId, number>> = {
@@ -799,12 +800,14 @@ function updateSkills(s: GameState): void {
       .join("") +
       // Flask chip (cockpit-style): charge count in the label; the radial
       // sweep shows progress toward the next charge (kills refill it).
-      `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
-      `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
-      `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
-      `<i class="icon"></i>` +
-      `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
-      `</div>` +
+      (CONFIG.flaskEnabled
+        ? `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
+          `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
+          `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
+          `<i class="icon"></i>` +
+          `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
+          `</div>`
+        : "") +
       (p.abilities.bench.length > 0
         ? `<div class="skill empty"><span class="bench-badge">bench ${p.abilities.bench.length}</span></div>`
         : "");
@@ -825,9 +828,7 @@ function updateSkills(s: GameState): void {
     chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
   });
-  // Health globe + XP strip.
-  globeFill.style.setProperty("--hp", String(Math.max(0, Math.min(1, p.hp / p.maxHp))));
-  globeNum.textContent = `${Math.max(0, Math.ceil(p.hp))}`;
+  // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
 }
 
