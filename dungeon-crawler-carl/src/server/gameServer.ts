@@ -106,6 +106,10 @@ export class GameServer {
   private wss: WebSocketServer;
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
+  // Capacity telemetry for /health: EMA + max of per-instance tick cost.
+  private tickMsEma = 0;
+  private tickMsMax = 0;
+  private startedAt = Date.now();
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
@@ -122,8 +126,21 @@ export class GameServer {
 
   private onRequest(url: string, res: import("node:http").ServerResponse): void {
     if (url === "/health") {
+      // Capacity telemetry: budget per tick at 30Hz is 33ms ACROSS ALL
+      // instances (one Node thread). tickMsEma is per-instance cost; total
+      // thread load ~= tickMsEma * instances * 30 / 1000.
+      let players = 0;
+      for (const inst of this.instances.values()) players += inst.clients.length;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, instances: this.instances.size }));
+      res.end(JSON.stringify({
+        ok: true,
+        instances: this.instances.size,
+        players,
+        tickMsEma: +this.tickMsEma.toFixed(2),
+        tickMsMax: +this.tickMsMax.toFixed(1),
+        rssMb: Math.round(process.memoryUsage().rss / 1e6),
+        uptimeMin: Math.round((Date.now() - this.startedAt) / 60000),
+      }));
       return;
     }
     if (!this.staticDir) {
@@ -296,6 +313,7 @@ export class GameServer {
   }
 
   private tickInstance(inst: Instance): void {
+    const t0 = performance.now();
     inst.tick++;
     // Fixed dt: sim time advances by exactly one tick regardless of wall clock.
     step(inst.state, inst.intents, 1 / TICK_HZ);
@@ -312,6 +330,9 @@ export class GameServer {
     if (inst.tick % SNAPSHOT_EVERY === 0) {
       this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
     }
+    const ms = performance.now() - t0;
+    this.tickMsEma = this.tickMsEma * 0.98 + ms * 0.02;
+    if (ms > this.tickMsMax) this.tickMsMax = ms;
   }
 
   private broadcast(inst: Instance, msg: unknown): void {
