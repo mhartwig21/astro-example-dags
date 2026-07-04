@@ -1,9 +1,9 @@
 import { ARCHETYPES, CONFIG } from "./config";
-import { dist, normalize, rollDamage } from "./combat";
+import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { addHype, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
+import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -42,18 +42,9 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc — whiff
-    const dmg = rollDamage(state.rng, m.damage);
-    player.hp -= dmg;
-    player.damageTaken += dmg;
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    state.hits.push({
-      pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player",
-      dir, killed: player.hp <= 0,
-    });
-    if (player.hp <= 0) {
+    if (damagePlayerHit(state, player, m.damage, { dir })) {
       handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
-    } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, player, CONFIG.show.hypeLowHpHit); // living dangerously = great television
     }
   }
 }
@@ -112,18 +103,9 @@ function stepCharge(state: GameState, m: Monster, dt: number): void {
     if (m.chargeHits?.includes(player.id)) continue; // one clip per rush
     if (dist(m.pos, player.pos) > CONFIG.chargerHitRadius) continue;
     (m.chargeHits ??= []).push(player.id);
-    const dmg = rollDamage(state.rng, m.damage);
-    player.hp -= dmg;
-    player.damageTaken += dmg;
     const away = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    state.hits.push({
-      pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player",
-      dir: away, killed: player.hp <= 0,
-    });
-    if (player.hp <= 0) {
+    if (damagePlayerHit(state, player, m.damage, { dir: away })) {
       handlePlayerDeath(state, player, `${player.name} stood on the tracks. The charger did not brake.`);
-    } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, player, CONFIG.show.hypeLowHpHit);
     }
   }
   if (m.chargeT === 0) {

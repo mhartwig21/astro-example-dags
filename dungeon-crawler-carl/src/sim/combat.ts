@@ -20,11 +20,38 @@ export function angleBetween(a: Vec2, b: Vec2): number {
   return Math.acos(Math.max(-1, Math.min(1, dot)));
 }
 
+/** Default hit variance (monsters, and players with bare hands). */
+export const DEFAULT_VARIANCE = 0.15;
+
+/** Low/high bounds of a damage roll — the truth the character sheet prints. */
+export function rollBounds(base: number, variance = DEFAULT_VARIANCE): { min: number; max: number } {
+  return {
+    min: Math.max(1, Math.round(base * (1 - variance))),
+    max: Math.max(1, Math.round(base * (1 + variance))),
+  };
+}
+
 /**
- * Roll damage with ±15% variance from the seeded RNG. Kept intentionally simple
- * for the slice; the seam is here to grow into weapon/armor mitigation later.
+ * Roll damage with ± `variance` from the seeded RNG. Player hits pass their
+ * weapon class's variance (see damageVariance in abilities.ts) — a maul is a
+ * gamble per swing, a blade is a metronome. Monsters roll the default.
  */
-export function rollDamage(rng: Rng, base: number): number {
-  const variance = 0.85 + nextFloat(rng) * 0.3; // 0.85 .. 1.15
-  return Math.max(1, Math.round(base * variance));
+export function rollDamage(rng: Rng, base: number, variance = DEFAULT_VARIANCE): number {
+  const mult = 1 - variance + nextFloat(rng) * 2 * variance;
+  return Math.max(1, Math.round(base * mult));
+}
+
+/**
+ * Armor mitigation: reduction = armor / (armor + armorK), capped. Diminishing
+ * returns by construction — every point helps, no point makes you immortal.
+ * Pure so the character sheet can print the exact same estimate combat uses.
+ */
+export function armorReduction(armor: number, armorK: number, cap: number): number {
+  if (armor <= 0) return 0;
+  return Math.min(cap, armor / (armor + armorK));
+}
+
+/** Apply armor to an incoming hit (post-roll). A landed hit never drops below 1. */
+export function mitigate(raw: number, reduction: number): number {
+  return Math.max(1, Math.round(raw * (1 - reduction)));
 }

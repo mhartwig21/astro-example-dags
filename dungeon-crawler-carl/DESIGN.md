@@ -313,6 +313,30 @@ school MIX starts mattering per pack; a warded elite pack is the crossbow crawle
 - **Saves:** fold legacy `damage` affixes/`bonusDamage` into physical; `spellPower` starts at
   intrinsic. Same migration pattern as the loadout rework.
 
+### 5.9 Damage rolls, armor & the Crawler Profile (SHIPPED)
+
+**Damage rolls.** Every hit was already a ±15% roll (`rollDamage`); now the WEAPON sets the
+player's dice (`CONFIG.weaponVariance`, read via `damageVariance`): swift ±10% (a metronome),
+reach/ballistic ±15%, arcane ±20%, heavy ±30% (a gamble per swing), chaotic ±40% (the Mug is
+a slot machine). Averages unchanged — variance is feel + itemization texture, not power.
+
+**Armor.** The first defense stat. Armor-slot items lead with an `armor` affix (HP moved to
+their extra pool; trinkets can roll it too). Mitigation = `armor/(armor+armorK)` capped at
+`armorMaxReduction` (60 armor = 50%, hard cap 60%) — diminishing returns by construction.
+All monster→player damage funnels through ONE choke point (`damagePlayerHit` in game.ts):
+roll → mitigate → apply → hit event → low-HP hype; death lines stay with the caller. The
+collapse timer bypasses it on purpose (the dungeon deals true damage). Phase-3 resistances
+(5.8) slot naturally beside it as per-school branches.
+
+**Crawler Profile (P).** The System's personnel file: a pure sim module
+(`buildCharacterSheet` in `sheet.ts`) derives every number from the SAME param functions
+combat calls — per-ability `[min–max]` roll bounds, crit range, cooldown, sustained-DPS
+estimate, armor → reduction % → effective HP, plus a concrete "a floor-N hit: X raw → Y
+taken" example. The host panel (`renderSheet`, `#sheet`) only formats: gear rows +
+LoL-style attribute tiles (game-icons stats set) left; D4-style damage rows + defense meter
++ Show chips right. Estimates show BASE numbers; situational mults (stance, overcharge,
+execute) are notes, so the ranges match an ordinary hit.
+
 **Effort:** three sessions, shippable independently — (1) stats + scaling table + migration +
 tests; (2) bolt-from-weapon + classes + generation + UI (item cards show class + school, stat
 panel shows AP/SP); (3) resistances + catalog caster branch + balance pass.
