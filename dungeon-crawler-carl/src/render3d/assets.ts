@@ -76,6 +76,12 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "ribcage", "bone_A",
       // DemonLord's arena set-piece (KayKit Monthly, CC0)
       "summoning_circle",
+      // THE GARDEN goes green (KayKit Forest Nature Pack, CC0 — see ASSETS.md)
+      "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a", "forest_tree_3_a",
+      "forest_tree_5_a", "forest_tree_bare_1_a",
+      "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
+      "forest_rock_1_a", "forest_rock_3_c", "forest_rock_6_a",
+      "forest_grass_1_a", "forest_grass_2_a",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

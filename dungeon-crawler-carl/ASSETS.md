@@ -22,6 +22,7 @@ appreciated).
 | LowPoly Modular Dungeon Pack (45+ pcs) | Quaternius | CC0 | https://quaternius.itch.io/lowpoly-modular-dungeon-pack |
 | KayKit Dungeon Remastered | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Halloween Bits (THE GARDEN band: dead trees, graves, crypt, lanterns) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
+| KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 
 Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
 mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via

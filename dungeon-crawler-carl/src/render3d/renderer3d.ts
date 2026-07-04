@@ -935,7 +935,8 @@ export class Renderer3D {
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
       const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
-      obj.scale.multiplyScalar((opts.scale ?? 0.55 + frng() * 0.2) / fp);
+      const themed = theme.propScale?.[key];
+      obj.scale.multiplyScalar((opts.scale ?? (themed ? themed * (0.85 + frng() * 0.3) : 0.55 + frng() * 0.2)) / fp);
       const scaled = new THREE.Box3().setFromObject(obj);
       const j = opts.jitter ?? 0.25;
       obj.position.set(
