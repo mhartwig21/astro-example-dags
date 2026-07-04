@@ -76,6 +76,13 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "ribcage", "bone_A",
       // DemonLord's arena set-piece (KayKit Monthly, CC0)
       "summoning_circle",
+      // Interior richness (KayKit Dungeon Remastered 1.1 + Resource Bits, CC0):
+      // libraries, tavern camps, band-colored gate banners, and vault hoards.
+      "bookcase_single", "bookcase_double_decorateda", "shelf_small_books", "book_single",
+      "bartop_a_medium", "keg_decorated", "stool_round", "plate_stack",
+      "chest_large_gold", "chest_mimic", "table_round_medium",
+      "banner_green", "banner_blue", "banner_brown", "banner_white",
+      "gold_bars_stack_medium", "gems_pile_large", "money_pile_medium", "gems_chest",
       // Equippable weapon meshes (KayKit Fantasy Weapons Bits, CC0). Grafted
       // whole-scene onto handslots (weaponry.ts uses node "*" for these).
       "weapon_sword_a", "weapon_sword_e", "weapon_axe_a", "weapon_axe_c",

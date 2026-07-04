@@ -1032,15 +1032,22 @@ export class Renderer3D {
       place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
     }
 
-    // 5) VAULT: the hoard around the guardian's treasure.
+    // 5) VAULT: the hoard around the guardian's treasure. One vault in four
+    //    keeps its gold in a MIMIC — cosmetic foreshadowing only, the sim
+    //    doesn't know; it just reads as "this dungeon bites."
     const vaultIdx = map.roles.indexOf("vault");
     if (vaultIdx >= 0) {
       const r = map.rooms[vaultIdx];
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      place("chest_gold", cx, cy + 1, { scale: 0.7, rot: Math.PI, jitter: 0 });
-      place("coin_stack_large", cx - 1, cy, { scale: 0.4 });
-      place("coin_stack_medium", cx + 1, cy - 0.5, { scale: 0.35 });
-      place("coin_stack_small", cx + 0.5, cy + 0.2, { scale: 0.3 });
+      const chestKey = frng() < 0.25 ? "chest_mimic" : "chest_large_gold";
+      if (!place(chestKey, cx, cy + 1, { scale: 0.85, rot: Math.PI, jitter: 0 })) {
+        place("chest_gold", cx, cy + 1, { scale: 0.7, rot: Math.PI, jitter: 0 });
+      }
+      place("gems_pile_large", cx - 1.2, cy, { scale: 0.6 });
+      place("gold_bars_stack_medium", cx + 1.2, cy - 0.4, { scale: 0.5 });
+      place("money_pile_medium", cx + 0.5, cy + 0.4, { scale: 0.5 });
+      place("coin_stack_large", cx - 0.5, cy - 0.8, { scale: 0.4 });
+      place("gems_chest", cx - 1.6, cy + 1.2, { scale: 0.6 });
     }
 
     // 6) Boss arenas are summoning sites: a ritual circle under the menace
