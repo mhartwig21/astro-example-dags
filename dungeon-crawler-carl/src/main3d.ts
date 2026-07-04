@@ -3,7 +3,7 @@ import {
   buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { affixLines, itemScore, weaponClassOf } from "./sim/items";
 import {
   CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
@@ -239,13 +239,15 @@ function renderDraft(s: GameState): void {
       .map((u, i) => {
         const info = ABILITY_INFO[u.ability];
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
-        const pips = Array.from({ length: max }, (_, r) => (r < u.nextRank ? "●" : "○")).join("");
+        // Overrank offers extend the pip row past the printed max with stars.
+        const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
+          r < u.nextRank ? (r >= max ? "⭑" : "●") : "○").join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
-          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}" data-idx="${i}">` +
+          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
           `<div class="oicon">${icon}<span class="orank">${pips}</span></div>` +
           `<div class="obody">` +
-          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${info.name}</span></div>` +
+          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${u.overrank ? "OVERRANK · " : ""}${info.name}</span></div>` +
           `<div class="rdesc">${u.desc}</div>` +
           `</div>` +
           `<kbd class="okey">${i + 1}</kbd>` +
@@ -372,7 +374,9 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   const locked = !open && r === 0;
   const pips = u.capstone
     ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
-    : `${"●".repeat(r)}<span class="off">${"○".repeat(u.maxRank - r)}</span>`;
+    : `${"●".repeat(Math.min(r, u.maxRank))}` +
+      `<span class="opip">${"⭑".repeat(Math.max(0, r - u.maxRank))}</span>` +
+      `<span class="off">${"○".repeat(Math.max(0, u.maxRank - r))}</span>`;
   let effect: string;
   if (locked) {
     const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
@@ -383,7 +387,8 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   } else if (r > 0) {
     effect = u.desc(r) +
       (r < u.maxRank ? ` <span class="nnext">· next rank: ${u.desc(r + 1)}</span>` : "") +
-      (r >= u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "");
+      (r === u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "") +
+      (r > u.maxRank ? ` <span class="nover">· OVERRANK +${r - u.maxRank}</span>` : "");
   } else {
     effect = `${u.desc(1)} <span class="nnext">· from level-up drafts</span>`;
   }
@@ -831,7 +836,9 @@ function renderShopDetail(s: GameState): void {
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   let html =
     `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
+    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
+    `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
+    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
     `<div class="dstats">${statLines(it)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
   if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
@@ -912,6 +919,13 @@ function renderAchPage(s: GameState): void {
 }
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
+// Bag density thresholds: item counts at which the bag grid steps down a tile
+// size (see .bag-grid.dense/.micro in iso.html), sized so each tier fills its
+// rows before the bag would crowd the detail pane out of the side column.
+const BAG_DENSE_AT = 19; // 40px tiles hold 3 comfortable rows
+const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
+const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
+
 function renderShopPage(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
@@ -944,8 +958,19 @@ function renderShopPage(s: GameState): void {
     if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
-  srBag.innerHTML = p.inventory.length
-    ? p.inventory.map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("")
+  // The bag TIGHTENS as it fills so the panel always fits the viewport
+  // (house rule: no scrollbars): 40px tiles, then 32px, then 26px; past what
+  // even micro tiles can hold, the tail collapses into a "+K more" summary.
+  const bagN = p.inventory.length;
+  srBag.classList.toggle("dense", bagN >= BAG_DENSE_AT && bagN < BAG_MICRO_AT);
+  srBag.classList.toggle("micro", bagN >= BAG_MICRO_AT);
+  const hidden = Math.max(0, bagN - BAG_SHOW_MAX);
+  srBag.innerHTML = bagN
+    ? p.inventory.slice(0, BAG_SHOW_MAX)
+        .map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("") +
+      (hidden > 0
+        ? `<div class="itile more" title="${hidden} more item${hidden === 1 ? "" : "s"} — sell or equip to thin the bag"><div class="ibox">+${hidden}</div></div>`
+        : "")
     : `<span class="bempty">empty — buy components, they wait here</span>`;
   renderShopDetail(s);
 }
@@ -1263,7 +1288,7 @@ function updateHud(s: GameState): void {
   const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
   hudTR.innerHTML =
     `Level ${p.level} · ${p.gold} gold · ` +
-    `<span style="color:${rc}">DMG ${p.baseDamage} (${p.weaponRarity})</span><br>` +
+    `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;

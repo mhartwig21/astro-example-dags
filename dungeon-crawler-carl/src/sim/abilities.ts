@@ -1,5 +1,6 @@
 import { CONFIG } from "./config";
-import { nextInt, type Rng } from "./rng";
+import { weaponClassOf } from "./items";
+import { chance, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
 
 // Ability system (DESIGN.md 5.7 "The Five"): a build is exactly 4 active slots
@@ -21,6 +22,38 @@ export type AbilityId =
 // and orbit blades are melee-type; bolts are ranged-type; everything else is
 // stance-neutral. Extensible — a third stance is a union member away.
 export type StanceId = "melee" | "ranged";
+
+// Damage schools (DESIGN 5.8). Orthogonal to stance: stance judges RANGE,
+// school decides which power stat feeds the hit (and, later, what resists it).
+export type School = "physical" | "magic";
+
+/**
+ * School routing per ability: weights applied to attackPower/spellPower.
+ * Magnitude coefficients stay in CONFIG (novaDamageMult etc.) — this table only
+ * says WHICH stat an ability eats. Hybrids are both keys nonzero. Bolt is the
+ * one deliberate absentee: its school comes from the equipped WEAPON
+ * (boltParams) — a crossbow throws bolts, a staff throws magic missiles.
+ */
+export const SCALING: Partial<Record<AbilityId, { ap?: number; sp?: number }>> = {
+  melee: { ap: 1 },
+  orbit: { ap: 1 },
+  airstrike: { ap: 1 }, // sponsor ordnance is extremely physical
+  dash: { sp: 1 }, // shockstep/aftershock detonations are arcane
+  nova: { sp: 1 },
+  cataclysm: { sp: 1 },
+};
+
+/** The power an ability scales from (defaults to physical for the untabled). */
+export function power(p: Player, ability: AbilityId): number {
+  const s = SCALING[ability] ?? { ap: 1 };
+  return p.attackPower * (s.ap ?? 0) + p.spellPower * (s.sp ?? 0);
+}
+
+/** Dominant school of an ability's damage (hit tinting + future resists). */
+export function abilitySchool(ability: AbilityId): School {
+  const s = SCALING[ability] ?? { ap: 1 };
+  return (s.sp ?? 0) > (s.ap ?? 0) ? "magic" : "physical";
+}
 
 export type AbilityTier = "active" | "ultimate";
 
@@ -51,6 +84,9 @@ export interface UpgradeDef {
   ability: AbilityId;
   title: string;
   maxRank: number;
+  /** Overrank headroom: chase-able ranks past maxRank that only ever appear
+   * through the draft lottery (rollUpgradeDraft) — never guaranteed. */
+  over?: number;
   /** Human description of what the NEXT rank grants. */
   desc: (nextRank: number) => string;
   /** Node ids that must all hold rank > 0 before this node can be offered. */
@@ -67,45 +103,50 @@ export interface UpgradeDef {
 // FORK (pick a side — that choice is the build), and a CAPSTONE that changes
 // behavior rather than numbers. Level-up drafts (Hades) roll from what the
 // graph says is reachable (PoE): requires gate, excludes lock the road not taken.
+//
+// `over` is each node's OVERRANK headroom: ranks past the printed max that only
+// the draft lottery can offer (backlog #7 — OP builds exist, but hitting one is
+// a run-to-run chase, not a guarantee). Cooldown nodes get 1 (they compound the
+// hardest); other numeric nodes get 2; capstones are behavior bits and get none.
 export const UPGRADES: UpgradeDef[] = [
   // Melee: arc -> (heavy XOR swift) -> Executioner
-  { id: "melee.arc", ability: "melee", title: "Wide Arc", maxRank: 2, desc: (r) => `Swing arc +${r * 22}°`, pos: { x: 50, y: 12 } },
-  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, desc: (r) => `Melee damage +${r * 20}%`, requires: ["melee.arc"], excludes: ["melee.swift"], pos: { x: 22, y: 48 } },
-  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, desc: (r) => `Melee cooldown -${r * 12}%`, requires: ["melee.arc"], excludes: ["melee.heavy"], pos: { x: 78, y: 48 } },
+  { id: "melee.arc", ability: "melee", title: "Wide Arc", maxRank: 2, over: 2, desc: (r) => `Swing arc +${r * 22}°`, pos: { x: 50, y: 12 } },
+  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, over: 2, desc: (r) => `Melee damage +${r * 20}%`, requires: ["melee.arc"], excludes: ["melee.swift"], pos: { x: 22, y: 48 } },
+  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, over: 1, desc: (r) => `Melee cooldown -${r * 12}%`, requires: ["melee.arc"], excludes: ["melee.heavy"], pos: { x: 78, y: 48 } },
   { id: "melee.execute", ability: "melee", title: "EXECUTIONER", maxRank: 1, desc: () => "Melee deals +60% to enemies below 30% HP", requires: ["melee.arc"], capstone: true, pos: { x: 50, y: 86 } },
   // Dash: (quick XOR blink) -> shock -> Aftershock
-  { id: "dash.quick", ability: "dash", title: "Quickstep", maxRank: 3, desc: (r) => `Dash cooldown -${r * 18}%`, excludes: ["dash.blink"], pos: { x: 22, y: 14 } },
-  { id: "dash.blink", ability: "dash", title: "Long Blink", maxRank: 2, desc: (r) => `Dash distance +${r * 30}%`, excludes: ["dash.quick"], pos: { x: 78, y: 14 } },
-  { id: "dash.shock", ability: "dash", title: "Shockstep", maxRank: 3, desc: (r) => `Arrival burst: ${r * 50}% damage nearby`, pos: { x: 50, y: 50 } },
+  { id: "dash.quick", ability: "dash", title: "Quickstep", maxRank: 3, over: 1, desc: (r) => `Dash cooldown -${r * 18}%`, excludes: ["dash.blink"], pos: { x: 22, y: 14 } },
+  { id: "dash.blink", ability: "dash", title: "Long Blink", maxRank: 2, over: 2, desc: (r) => `Dash distance +${r * 30}%`, excludes: ["dash.quick"], pos: { x: 78, y: 14 } },
+  { id: "dash.shock", ability: "dash", title: "Shockstep", maxRank: 3, over: 2, desc: (r) => `Arrival burst: ${r * 50}% damage nearby`, pos: { x: 50, y: 50 } },
   { id: "dash.after", ability: "dash", title: "AFTERSHOCK", maxRank: 1, desc: () => "Your dash also detonates at the arrival point", requires: ["dash.shock"], capstone: true, pos: { x: 50, y: 86 } },
   // Bolt: rapid -> (split XOR pierce) -> Ricochet
-  { id: "bolt.rapid", ability: "bolt", title: "Rapid Bolts", maxRank: 3, desc: (r) => `Bolt cooldown -${r * 15}%`, pos: { x: 50, y: 12 } },
-  { id: "bolt.split", ability: "bolt", title: "Split Shot", maxRank: 2, desc: (r) => `Fire ${1 + r} bolts in a fan`, requires: ["bolt.rapid"], excludes: ["bolt.pierce"], pos: { x: 22, y: 48 } },
-  { id: "bolt.pierce", ability: "bolt", title: "Piercing Bolts", maxRank: 2, desc: (r) => `Bolts pierce ${r} extra ${r === 1 ? "enemy" : "enemies"}`, requires: ["bolt.rapid"], excludes: ["bolt.split"], pos: { x: 78, y: 48 } },
+  { id: "bolt.rapid", ability: "bolt", title: "Rapid Bolts", maxRank: 3, over: 1, desc: (r) => `Bolt cooldown -${r * 15}%`, pos: { x: 50, y: 12 } },
+  { id: "bolt.split", ability: "bolt", title: "Split Shot", maxRank: 2, over: 2, desc: (r) => `Fire ${1 + r} bolts in a fan`, requires: ["bolt.rapid"], excludes: ["bolt.pierce"], pos: { x: 22, y: 48 } },
+  { id: "bolt.pierce", ability: "bolt", title: "Piercing Bolts", maxRank: 2, over: 2, desc: (r) => `Bolts pierce ${r} extra ${r === 1 ? "enemy" : "enemies"}`, requires: ["bolt.rapid"], excludes: ["bolt.split"], pos: { x: 78, y: 48 } },
   { id: "bolt.ricochet", ability: "bolt", title: "RICOCHET", maxRank: 1, desc: () => "Bolts bounce to a nearby enemy on hit (60% damage)", requires: ["bolt.rapid"], capstone: true, pos: { x: 50, y: 86 } },
   // Nova: bang -> (after XOR conc) -> Implosion
-  { id: "nova.bang", ability: "nova", title: "Bigger Bang", maxRank: 2, desc: (r) => `Nova radius +${r * 25}%`, pos: { x: 50, y: 12 } },
-  { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
-  { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
+  { id: "nova.bang", ability: "nova", title: "Bigger Bang", maxRank: 2, over: 2, desc: (r) => `Nova radius +${r * 25}%`, pos: { x: 50, y: 12 } },
+  { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, over: 1, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
+  { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, over: 2, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
   { id: "nova.implode", ability: "nova", title: "IMPLOSION", maxRank: 1, desc: () => "Nova first drags everything in range toward you", requires: ["nova.bang"], capstone: true, pos: { x: 50, y: 86 } },
   // Stance: edge -> (discipline XOR flow) -> a capstone per side. The fork IS
   // the playstyle question: plant your feet in one stance, or dance between them.
-  { id: "stance.edge", ability: "stance", title: "Honed Edge", maxRank: 2, desc: (r) => `Matching-stance damage +${r * 8}%`, pos: { x: 50, y: 12 } },
-  { id: "stance.discipline", ability: "stance", title: "Discipline", maxRank: 3, desc: (r) => `Settled (${CONFIG.stanceSettleSeconds}s+ in one stance): matching damage +${r * 10}%`, requires: ["stance.edge"], excludes: ["stance.flow"], pos: { x: 22, y: 48 } },
-  { id: "stance.flow", ability: "stance", title: "Flow", maxRank: 3, desc: (r) => `For ${CONFIG.stanceSurgeSeconds}s after a swap: matching damage +${r * 15}%`, requires: ["stance.edge"], excludes: ["stance.discipline"], pos: { x: 78, y: 48 } },
+  { id: "stance.edge", ability: "stance", title: "Honed Edge", maxRank: 2, over: 2, desc: (r) => `Matching-stance damage +${r * 8}%`, pos: { x: 50, y: 12 } },
+  { id: "stance.discipline", ability: "stance", title: "Discipline", maxRank: 3, over: 2, desc: (r) => `Settled (${CONFIG.stanceSettleSeconds}s+ in one stance): matching damage +${r * 10}%`, requires: ["stance.edge"], excludes: ["stance.flow"], pos: { x: 22, y: 48 } },
+  { id: "stance.flow", ability: "stance", title: "Flow", maxRank: 3, over: 2, desc: (r) => `For ${CONFIG.stanceSurgeSeconds}s after a swap: matching damage +${r * 15}%`, requires: ["stance.edge"], excludes: ["stance.discipline"], pos: { x: 78, y: 48 } },
   { id: "stance.perfect", ability: "stance", title: "PERFECT FORM", maxRank: 1, desc: () => "While settled, BOTH attack types count as matching", requires: ["stance.discipline"], capstone: true, pos: { x: 22, y: 86 } },
   { id: "stance.moment", ability: "stance", title: "MOMENTUM", maxRank: 1, desc: () => "Swapping stances primes a guaranteed crit on your next matching attack", requires: ["stance.flow"], capstone: true, pos: { x: 78, y: 86 } },
   // Overcharge: surge -> (volley XOR echo) -> System Shock. The fork picks
   // WHICH attack the banked power is built around: bolt volleys or swings.
-  { id: "overcharge.surge", ability: "overcharge", title: "Surge", maxRank: 3, desc: (r) => `Overcharged damage bonus +${r * 25}%`, pos: { x: 50, y: 12 } },
-  { id: "overcharge.volley", ability: "overcharge", title: "Overcharged Volley", maxRank: 2, desc: (r) => `Overcharged bolt casts fire ${r} extra bolt${r === 1 ? "" : "s"}`, requires: ["overcharge.surge"], excludes: ["overcharge.echo"], pos: { x: 22, y: 48 } },
-  { id: "overcharge.echo", ability: "overcharge", title: "Echo Strike", maxRank: 2, desc: (r) => `Overcharged swings strike twice (echo at ${r * 40}% damage)`, requires: ["overcharge.surge"], excludes: ["overcharge.volley"], pos: { x: 78, y: 48 } },
+  { id: "overcharge.surge", ability: "overcharge", title: "Surge", maxRank: 3, over: 2, desc: (r) => `Overcharged damage bonus +${r * 25}%`, pos: { x: 50, y: 12 } },
+  { id: "overcharge.volley", ability: "overcharge", title: "Overcharged Volley", maxRank: 2, over: 1, desc: (r) => `Overcharged bolt casts fire ${r} extra bolt${r === 1 ? "" : "s"}`, requires: ["overcharge.surge"], excludes: ["overcharge.echo"], pos: { x: 22, y: 48 } },
+  { id: "overcharge.echo", ability: "overcharge", title: "Echo Strike", maxRank: 2, over: 1, desc: (r) => `Overcharged swings strike twice (echo at ${r * 40}% damage)`, requires: ["overcharge.surge"], excludes: ["overcharge.volley"], pos: { x: 78, y: 48 } },
   { id: "overcharge.shock", ability: "overcharge", title: "SYSTEM SHOCK", maxRank: 1, desc: () => "Overcharged hits shatter poise — non-boss enemies stagger instantly", requires: ["overcharge.surge"], capstone: true, pos: { x: 50, y: 86 } },
   // Orbit: blade -> razor + corkscrew (no fork; the passive stays simple)
-  { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
-  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
+  { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, over: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
+  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, over: 2, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
   {
-    id: "orbit.wide", ability: "orbit", title: "Corkscrew", maxRank: 2,
+    id: "orbit.wide", ability: "orbit", title: "Corkscrew", maxRank: 2, over: 1,
     desc: (r) => `Blades spiral ${CONFIG.orbitSpiralInner}–${(CONFIG.orbitRadius + CONFIG.orbitSpiralPerRank * r).toFixed(1)} tiles, sweeping every range`,
     requires: ["orbit.blade"], pos: { x: 75, y: 62 },
   },
@@ -153,10 +194,18 @@ export function startingLoadout(): Player["abilities"] {
 // ---- Effective ability parameters (pure; read CONFIG + node ranks) ----
 
 export function meleeParams(p: Player) {
+  // Weapon-class hooks (DESIGN 5.8): swift swings faster, heavy hits harder
+  // (and staggers harder) but slower, reach extends the arc's radius. The Mug
+  // does a little of everything, badly.
+  const wc = weaponClassOf(p.equipment.weapon);
+  const classDmg = wc === "heavy" ? CONFIG.heavyMeleeDmgMult : wc === "chaotic" ? 1.15 : 1;
+  const classCd = wc === "swift" ? CONFIG.swiftMeleeCdMult : wc === "heavy" ? CONFIG.heavyMeleeCdMult : wc === "chaotic" ? 0.95 : 1;
   return {
-    damageMult: 1 + rank(p, "melee.heavy") * 0.2,
-    cooldown: CONFIG.playerAttackCooldown * (1 - rank(p, "melee.swift") * 0.12),
+    damageMult: (1 + rank(p, "melee.heavy") * 0.2) * classDmg,
+    cooldown: CONFIG.playerAttackCooldown * (1 - rank(p, "melee.swift") * 0.12) * classCd,
     arc: CONFIG.playerAttackArc + rank(p, "melee.arc") * (22 * Math.PI / 180),
+    range: CONFIG.playerAttackRange + (wc === "reach" ? CONFIG.reachRangeBonus : wc === "chaotic" ? 0.25 : 0),
+    poiseMult: wc === "heavy" ? CONFIG.heavyPoiseMult : 1,
   };
 }
 
@@ -164,21 +213,44 @@ export function dashParams(p: Player) {
   return {
     cooldown: CONFIG.dashCooldown * (1 - rank(p, "dash.quick") * 0.18),
     distance: CONFIG.dashDistance * (1 + rank(p, "dash.blink") * 0.3),
-    shockMult: rank(p, "dash.shock") * 0.5, // fraction of baseDamage dealt on arrival
+    shockMult: rank(p, "dash.shock") * 0.5, // fraction of dash power dealt along the path
   };
 }
 
+/**
+ * Bolt is the weapon's projectile (DESIGN 5.8): what pressing BOLT throws —
+ * and which school pays for it — comes from the equipped weapon. Crossbows
+ * loose real bolts (attack power, fast, pierce at rare+); wands/staffs cast
+ * magic missiles (spell power; wand = faster casts, staff pays out on nova);
+ * melee-class weapons fall back to a weak thrown sidearm; bare hands throw a
+ * plain 0.8× jab. The Mug throws whatever's strongest, poorly.
+ */
 export function boltParams(p: Player) {
+  const w = p.equipment.weapon;
+  const wc = weaponClassOf(w);
+  const rareUp = w && (w.rarity === "rare" || w.rarity === "epic");
+  const profile =
+    wc === "ballistic" ? { dmg: p.attackPower * CONFIG.boltBallisticMult, school: "physical" as School, speedMult: CONFIG.boltBallisticSpeedMult, bonusPierce: rareUp ? 1 : 0, cdMult: 1 }
+    : wc === "arcane" ? { dmg: p.spellPower * CONFIG.boltArcaneMult, school: "magic" as School, speedMult: 1, bonusPierce: 0, cdMult: /Wand$/.test(w!.name) ? CONFIG.wandBoltCdMult : 1 }
+    : wc === "chaotic" ? { dmg: Math.max(p.attackPower, p.spellPower) * CONFIG.chaoticBoltMult, school: (p.spellPower > p.attackPower ? "magic" : "physical") as School, speedMult: 1.15, bonusPierce: 0, cdMult: 0.95 }
+    : wc !== null ? { dmg: p.attackPower * CONFIG.boltSidearmMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 } // melee-class sidearm
+    : { dmg: p.attackPower * CONFIG.boltDamageMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 }; // bare hands
   return {
     count: 1 + rank(p, "bolt.split"),
-    pierce: rank(p, "bolt.pierce"),
-    cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15),
+    pierce: rank(p, "bolt.pierce") + profile.bonusPierce,
+    cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15) * profile.cdMult,
+    dmg: profile.dmg,
+    school: profile.school,
+    speedMult: profile.speedMult,
   };
 }
 
 export function novaParams(p: Player) {
+  // Staff hook: the caster's weapon pays out on the AoE, not the missile.
+  const w = p.equipment.weapon;
+  const staff = weaponClassOf(w) === "arcane" && /Staff$/.test(w!.name);
   return {
-    radius: CONFIG.novaRadius * (1 + rank(p, "nova.bang") * 0.25),
+    radius: CONFIG.novaRadius * (1 + rank(p, "nova.bang") * 0.25) * (staff ? CONFIG.staffAoeRadiusMult : 1),
     cooldown: CONFIG.novaCooldown * (1 - rank(p, "nova.after") * 0.15),
     damageMult: CONFIG.novaDamageMult * (1 + rank(p, "nova.conc") * 0.3),
   };
@@ -250,6 +322,13 @@ export interface UpgradeOffer {
   title: string;
   desc: string;
   nextRank: number;
+  /** Lottery offer past the node's printed max — hosts style it as a jackpot. */
+  overrank?: boolean;
+}
+
+/** The true rank ceiling: printed max plus overrank headroom. */
+export function effectiveMaxRank(u: UpgradeDef): number {
+  return u.maxRank + (u.over ?? 0);
 }
 
 /** True when the node's graph position allows investment: prerequisites taken,
@@ -266,17 +345,38 @@ export function availableUpgrades(p: Player): UpgradeDef[] {
   return UPGRADES.filter((u) => slotted(p, u.ability) && rank(p, u.id) < u.maxRank && nodeOpen(p, u));
 }
 
+/** Nodes eligible for the overrank lottery: at printed max, headroom left. */
+export function overrankUpgrades(p: Player): UpgradeDef[] {
+  return UPGRADES.filter(
+    (u) => slotted(p, u.ability) && nodeOpen(p, u) && rank(p, u.id) >= u.maxRank && rank(p, u.id) < effectiveMaxRank(u),
+  );
+}
+
+/** Odds that a draft on this floor dangles an overrank (deeper = luckier). */
+export function overrankChance(floor: number): number {
+  return Math.min(CONFIG.overrankChanceMax, CONFIG.overrankChanceBase + floor * CONFIG.overrankChancePerFloor);
+}
+
 /**
  * Roll a level-up draft: up to `count` distinct node rank-ups, seeded from the
- * sim's RNG stream so replays reproduce the same offers.
+ * sim's RNG stream so replays reproduce the same offers. At most ONE slot may
+ * carry an overrank — a rare, floor-weighted lottery rank past a node's printed
+ * max. Missing the roll leaves overranked power on the table; that scarcity is
+ * the design (backlog #7).
  */
-export function rollUpgradeDraft(rng: Rng, p: Player, count: number): UpgradeOffer[] {
-  const pool = availableUpgrades(p);
+export function rollUpgradeDraft(rng: Rng, p: Player, count: number, floor = 1): UpgradeOffer[] {
   const offers: UpgradeOffer[] = [];
+  const overPool = overrankUpgrades(p);
+  if (overPool.length > 0 && chance(rng, overrankChance(floor))) {
+    const won = pick(rng, overPool);
+    const next = rank(p, won.id) + 1;
+    offers.push({ id: won.id, ability: won.ability, title: won.title, desc: won.desc(next), nextRank: next, overrank: true });
+  }
+  const pool = availableUpgrades(p);
   while (offers.length < count && pool.length > 0) {
-    const pick = pool.splice(nextInt(rng, 0, pool.length - 1), 1)[0];
-    const next = rank(p, pick.id) + 1;
-    offers.push({ id: pick.id, ability: pick.ability, title: pick.title, desc: pick.desc(next), nextRank: next });
+    const drawn = pool.splice(nextInt(rng, 0, pool.length - 1), 1)[0];
+    const next = rank(p, drawn.id) + 1;
+    offers.push({ id: drawn.id, ability: drawn.ability, title: drawn.title, desc: drawn.desc(next), nextRank: next });
   }
   return offers;
 }

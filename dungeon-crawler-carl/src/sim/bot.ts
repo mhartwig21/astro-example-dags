@@ -350,7 +350,7 @@ export function runBot(state: GameState, floors: number, maxSteps = 150_000): Bo
     // Encounter tracking: open on introduction, close on the kill.
     for (const m of state.monsters) {
       if ((m.kind === "boss" || m.elite) && m.introduced && !fights.has(m.id)) {
-        fights.set(m.id, { start: state.elapsed, hp0: p.damageTaken, m, level: p.level, dmg: p.baseDamage });
+        fights.set(m.id, { start: state.elapsed, hp0: p.damageTaken, m, level: p.level, dmg: p.attackPower });
       }
     }
     for (const [id, f] of fights) {

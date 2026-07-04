@@ -120,10 +120,15 @@ This document describes the full target architecture, then defines the scope of 
   sim emits typed feedback events (enemy/crit/player/heal/gold/weapon) that hosts turn into
   floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
   same seeded RNG stream, these effects are deterministic and replay identically.
-- **Enemy archetypes** (grunt / swarmer / brute / ranged / boss): stats scale per floor and
-  are modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts`
-  (melee chase, ranged kite-and-shoot, boss chase + radial volley). The spawn mix shifts
-  toward tougher enemies with depth.
+- **Enemy archetypes** (grunt / swarmer / brute / ranged / boss / bomber / shaman /
+  phantom / charger / spitter / necromancer): stats scale per floor and are modified per
+  archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee chase,
+  ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
+  charger locked-lane rush, spitter acid lobs that linger as ticking ground puddles,
+  necromancer corpse-raising — deaths leave TTL-capped `GameState.corpses` it consumes —
+  and boss chase + radial volley). The spawn mix shifts toward tougher enemies with
+  depth; specialists unlock by floor (bomber 2+, charger 3+, shaman 4+, spitter 5+,
+  phantom 6+, necromancer 7+).
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
@@ -149,8 +154,10 @@ This document describes the full target architecture, then defines the scope of 
   +12% move speed and −15% cooldowns while the crowd chants.
 - **Elite affixes (floor 3+):** every named elite rolls one mechanic — **swift** (+40%
   speed), **shielded** (takes 30% less damage), **volatile** (0.8s delayed corpse blast,
-  telegraphed by a ground ring — clear the corpse), or **summoner** (calls swarmer adds,
-  lifetime-capped, worth ~no XP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
+  telegraphed by a ground ring — clear the corpse), **summoner** (calls swarmer adds,
+  lifetime-capped, worth ~no XP), **splitter** (bursts into swarmers on death), or
+  **thorns** (reflects a slice of every hit back at the attacker, capped per hit at a
+  fraction of their max HP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
   (faster chase, +3 volley projectiles and a shorter volley cooldown per phase, announced).
 - **Ringside introductions:** the first time any player closes within 7 tiles of an unmet
   boss/elite, the sim FREEZES the whole world (`GameState.encounter`, like the safe-room
@@ -246,7 +253,7 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
-### 5.8 Genuine itemization (planned — weapon classes + damage schools)
+### 5.8 Genuine itemization (phases 1–2 SHIPPED; phase 3 = resistances + caster catalog)
 
 **Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
 weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
