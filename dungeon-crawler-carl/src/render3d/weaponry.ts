@@ -23,19 +23,23 @@ export const CANONICAL_LOADOUT: Record<string, string[]> = {
 
 interface WeaponVisual {
   srcKey: string; // model whose GLB holds the node
-  node: string;
+  node: string; // "*" = the whole GLB is the weapon (Fantasy Weapons Bits)
   twoHanded?: boolean; // hides the shield
 }
 
-/** Weapon noun -> mesh. Rare+ one-handers upgrade to their two-handed cousin. */
+/** Weapon noun -> mesh. Rare+ one-handers upgrade to their two-handed cousin.
+ * Standalone meshes come from KayKit Fantasy Weapons Bits (grip at origin,
+ * same attachment convention as the adventurers' native arsenal); Crossbow
+ * and the Mug keep their adventurer-GLB sources — the weapons pack has no
+ * crossbow, and there is only one Mug. */
 const WEAPON_VISUALS: Record<string, { base: WeaponVisual; heavy?: WeaponVisual }> = {
-  Blade: { base: { srcKey: "player", node: "1H_Sword" }, heavy: { srcKey: "player", node: "2H_Sword", twoHanded: true } },
-  Axe: { base: { srcKey: "armory_axes", node: "1H_Axe" }, heavy: { srcKey: "armory_axes", node: "2H_Axe", twoHanded: true } },
-  Maul: { base: { srcKey: "armory_axes", node: "2H_Axe", twoHanded: true } },
-  Spear: { base: { srcKey: "armory_arcana", node: "2H_Staff", twoHanded: true } },
-  Cleaver: { base: { srcKey: "armory_knives", node: "Knife" } },
-  Wand: { base: { srcKey: "armory_arcana", node: "1H_Wand" } },
-  Staff: { base: { srcKey: "armory_arcana", node: "2H_Staff", twoHanded: true } },
+  Blade: { base: { srcKey: "weapon_sword_a", node: "*" }, heavy: { srcKey: "weapon_sword_e", node: "*", twoHanded: true } },
+  Axe: { base: { srcKey: "weapon_axe_a", node: "*" }, heavy: { srcKey: "weapon_axe_c", node: "*", twoHanded: true } },
+  Maul: { base: { srcKey: "weapon_hammer_b", node: "*", twoHanded: true } },
+  Spear: { base: { srcKey: "weapon_spear_a", node: "*", twoHanded: true }, heavy: { srcKey: "weapon_halberd", node: "*", twoHanded: true } },
+  Cleaver: { base: { srcKey: "weapon_dagger_a", node: "*" } },
+  Wand: { base: { srcKey: "weapon_wand_a", node: "*" } },
+  Staff: { base: { srcKey: "weapon_staff_b", node: "*", twoHanded: true }, heavy: { srcKey: "weapon_staff_d", node: "*", twoHanded: true } },
   Crossbow: { base: { srcKey: "armory_knives", node: "1H_Crossbow" }, heavy: { srcKey: "armory_knives", node: "2H_Crossbow", twoHanded: true } },
   Mug: { base: { srcKey: "armory_axes", node: "Mug" } },
 };

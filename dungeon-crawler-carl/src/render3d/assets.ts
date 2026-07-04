@@ -76,6 +76,11 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "ribcage", "bone_A",
       // DemonLord's arena set-piece (KayKit Monthly, CC0)
       "summoning_circle",
+      // Equippable weapon meshes (KayKit Fantasy Weapons Bits, CC0). Grafted
+      // whole-scene onto handslots (weaponry.ts uses node "*" for these).
+      "weapon_sword_a", "weapon_sword_e", "weapon_axe_a", "weapon_axe_c",
+      "weapon_hammer_b", "weapon_spear_a", "weapon_halberd", "weapon_dagger_a",
+      "weapon_wand_a", "weapon_staff_b", "weapon_staff_d",
       // THE GARDEN goes green (KayKit Forest Nature Pack, CC0 — see ASSETS.md)
       "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a", "forest_tree_3_a",
       "forest_tree_5_a", "forest_tree_bare_1_a",

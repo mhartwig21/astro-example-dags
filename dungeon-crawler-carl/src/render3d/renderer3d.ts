@@ -550,9 +550,11 @@ export class Renderer3D {
    */
   private showAttachment(mesh: THREE.Group, srcKey: string, node: string, hand: "l" | "r"): THREE.Object3D | null {
     let obj: THREE.Object3D | null =
-      mesh.getObjectByName(node) ?? mesh.getObjectByName(`graft_${srcKey}_${node}`) ?? null;
+      (node !== "*" ? mesh.getObjectByName(node) : null) ?? mesh.getObjectByName(`graft_${srcKey}_${node}`) ?? null;
     if (!obj) {
-      const srcNode = this.models[srcKey]?.scene.getObjectByName(node);
+      // node "*": the whole GLB is the weapon (standalone Fantasy Weapons mesh,
+      // grip modeled at origin — same convention as the rigs' handslot children).
+      const srcNode = node === "*" ? this.models[srcKey]?.scene : this.models[srcKey]?.scene.getObjectByName(node);
       // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
       const handObj = mesh.getObjectByName(`handslot${hand}`) ?? mesh.getObjectByName(`handslot.${hand}`);
       if (srcNode && handObj) {
@@ -666,7 +668,9 @@ export class Renderer3D {
       if (book) { obj = book.clone(true); scale = 0.8; }
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
-      const node = vis ? this.models[vis.srcKey]?.scene.getObjectByName(vis.node) : null;
+      const node = vis
+        ? (vis.node === "*" ? this.models[vis.srcKey]?.scene : this.models[vis.srcKey]?.scene.getObjectByName(vis.node))
+        : null;
       if (node) {
         obj = node.clone(true);
         scale = 0.8;
