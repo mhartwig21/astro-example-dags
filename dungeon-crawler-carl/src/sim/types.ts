@@ -61,6 +61,9 @@ export interface Player {
     ranks: Record<string, number>;
   };
   critChance: number; // effective crit chance (base + equipment)
+  // Effective armor (equipment + permanent bonuses). Incoming hits are reduced
+  // by armor/(armor+armorK), capped — see armorReduction/mitigate in combat.ts.
+  armor: number;
   level: number;
   xp: number;
   xpToNext: number;
@@ -74,6 +77,7 @@ export interface Player {
   bonusSpell: number; // permanent magic buff (kept separate so gear stays the differentiator)
   bonusMaxHp: number;
   bonusCrit: number; // permanent crit-chance buff
+  bonusArmor: number; // permanent armor buff
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
@@ -178,6 +182,7 @@ export interface Affixes {
   maxHp?: number;
   speed?: number; // tiles/sec
   crit?: number; // added crit chance (0..1); crit serves BOTH schools
+  armor?: number; // flat armor; mitigates incoming hits via armor/(armor+K)
 }
 
 // Unique behaviors carried by LEGENDARY signature gear (sponsor-gated shop

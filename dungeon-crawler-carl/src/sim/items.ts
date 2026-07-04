@@ -79,17 +79,20 @@ function rollAffix(rng: Rng, key: keyof Affixes, floor: number, mult: number): n
       return +((0.15 + nextFloat(rng) * 0.25) * Math.min(2, mult)).toFixed(2);
     case "crit":
       return +((0.02 + nextFloat(rng) * 0.04) * Math.min(2.5, mult)).toFixed(3);
+    case "armor":
+      return Math.max(1, Math.round((nextInt(rng, 3, 6) + floor * 1.5) * mult));
   }
 }
 
 // Each slot has a guaranteed primary affix, then extras drawn from a slot-flavored
 // pool. Arcane weapons flip their rolls to the magic school — finding a great
-// staff IS the nudge toward a caster build. Armor/trinkets can roll either school.
-const PRIMARY: Record<ItemSlot, keyof Affixes> = { weapon: "damage", armor: "maxHp", trinket: "crit" };
+// staff IS the nudge toward a caster build. Armor pieces lead with ARMOR (the
+// mitigation stat is a gear story); HP moved to their extra pool.
+const PRIMARY: Record<ItemSlot, keyof Affixes> = { weapon: "damage", armor: "armor", trinket: "crit" };
 const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
   weapon: ["crit", "speed", "maxHp"],
-  armor: ["damage", "spell", "speed", "crit"],
-  trinket: ["speed", "damage", "spell", "maxHp"],
+  armor: ["maxHp", "damage", "spell", "speed", "crit"],
+  trinket: ["speed", "damage", "spell", "maxHp", "armor"],
 };
 
 // Signature gear (unique passives, sponsor-gated) lives in the System Shop
@@ -130,7 +133,10 @@ export function generateItem(rng: Rng, floor: number, nextId: () => number): Ite
  * School-agnostic: both powers count the same (the player curates the build). */
 export function itemScore(item: Item): number {
   const a = item.affixes;
-  return (a.damage ?? 0) * 2 + (a.spell ?? 0) * 2 + (a.maxHp ?? 0) * 0.5 + (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300;
+  return (
+    (a.damage ?? 0) * 2 + (a.spell ?? 0) * 2 + (a.maxHp ?? 0) * 0.5 +
+    (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300 + (a.armor ?? 0) * 1.5
+  );
 }
 
 /** Human-readable affix lines for the inventory UI, e.g. ["+7 ATK", "+4% crit"]. */
@@ -140,6 +146,7 @@ export function affixLines(item: Item): string[] {
   if (a.damage) out.push(`+${a.damage} ATK`);
   if (a.spell) out.push(`+${a.spell} MAG`);
   if (a.maxHp) out.push(`+${a.maxHp} HP`);
+  if (a.armor) out.push(`+${a.armor} ARM`);
   if (a.speed) out.push(`+${a.speed.toFixed(2)} SPD`);
   if (a.crit) out.push(`+${Math.round(a.crit * 100)}% crit`);
   return out;

@@ -212,6 +212,20 @@ One file per noun, lowercase: `/icons/nouns/<noun>.svg`.
 | band | diamond-ring | Delapouite |
 | totem | totem-mask | Lorc |
 
+### Stat icons — `public/icons/stats/` (same source, license, and convention)
+
+The Crawler Profile panel's attribute tiles (`renderSheet` in `src/main3d.ts`),
+tinted per stat via CSS mask.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| attack | crossed-swords | Lorc |
+| spell | magic-swirl | Lorc |
+| crit | on-target | Lorc |
+| speed | wingfoot | Lorc |
+| armor | shield | sbed |
+| hp | health-normal | sbed |
+
 ### Item icons — `public/icons/items/` (same source, license, and convention)
 
 The System Shop catalog (`src/sim/catalog.ts`) uses `/icons/items/<catalogId>.svg`,
