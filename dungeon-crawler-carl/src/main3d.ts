@@ -891,6 +891,13 @@ function renderAchPage(s: GameState): void {
 }
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
+// Bag density thresholds: item counts at which the bag grid steps down a tile
+// size (see .bag-grid.dense/.micro in iso.html), sized so each tier fills its
+// rows before the bag would crowd the detail pane out of the side column.
+const BAG_DENSE_AT = 19; // 40px tiles hold 3 comfortable rows
+const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
+const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
+
 function renderShopPage(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
@@ -923,8 +930,19 @@ function renderShopPage(s: GameState): void {
     if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
-  srBag.innerHTML = p.inventory.length
-    ? p.inventory.map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("")
+  // The bag TIGHTENS as it fills so the panel always fits the viewport
+  // (house rule: no scrollbars): 40px tiles, then 32px, then 26px; past what
+  // even micro tiles can hold, the tail collapses into a "+K more" summary.
+  const bagN = p.inventory.length;
+  srBag.classList.toggle("dense", bagN >= BAG_DENSE_AT && bagN < BAG_MICRO_AT);
+  srBag.classList.toggle("micro", bagN >= BAG_MICRO_AT);
+  const hidden = Math.max(0, bagN - BAG_SHOW_MAX);
+  srBag.innerHTML = bagN
+    ? p.inventory.slice(0, BAG_SHOW_MAX)
+        .map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("") +
+      (hidden > 0
+        ? `<div class="itile more" title="${hidden} more item${hidden === 1 ? "" : "s"} — sell or equip to thin the bag"><div class="ibox">+${hidden}</div></div>`
+        : "")
     : `<span class="bempty">empty — buy components, they wait here</span>`;
   renderShopDetail(s);
 }
