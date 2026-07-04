@@ -7,7 +7,10 @@ import {
 import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
-import { DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, knows, rank, stanceMult } from "../src/sim/abilities";
+import {
+  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, effectiveMaxRank, knows, overrankChance,
+  overrankUpgrades, rank, rollUpgradeDraft, stanceMult, upgradeDef,
+} from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -2089,6 +2092,78 @@ describe("signature gear passives", () => {
     const cd = g.players[0].cd.cataclysm ?? 0;
     expect(cd).toBeLessThan(CONFIG.ultCataclysmCooldown * 0.76);
     expect(cd).toBeGreaterThan(CONFIG.ultCataclysmCooldown * 0.7);
+  });
+});
+
+describe("overranks (backlog #7): lottery ranks past the printed max", () => {
+  it("a maxed node leaves the normal pool and enters the overrank pool", () => {
+    const g = createGame(980);
+    const p = g.players[0];
+    p.abilities.ranks["melee.arc"] = 2; // printed max
+    expect(availableUpgrades(p).map((u) => u.id)).not.toContain("melee.arc");
+    expect(overrankUpgrades(p).map((u) => u.id)).toContain("melee.arc");
+  });
+
+  it("the effective cap ends the chase: no overrank offers past maxRank + over", () => {
+    const g = createGame(981);
+    const p = g.players[0];
+    const def = upgradeDef("melee.arc")!;
+    p.abilities.ranks["melee.arc"] = effectiveMaxRank(def); // 2 + 2
+    expect(overrankUpgrades(p).map((u) => u.id)).not.toContain("melee.arc");
+  });
+
+  it("capstones have no overrank headroom", () => {
+    const def = upgradeDef("melee.execute")!;
+    expect(effectiveMaxRank(def)).toBe(def.maxRank);
+  });
+
+  it("overrank offers are scarce, at most one per draft, and only for maxed nodes", () => {
+    const g = createGame(982);
+    const p = g.players[0];
+    p.abilities.ranks["melee.arc"] = 2; // the only maxed node
+    let overs = 0;
+    const rolls = 400;
+    for (let i = 0; i < rolls; i++) {
+      const draft = rollUpgradeDraft(createRng(9000 + i), p, CONFIG.upgradeDraftSize, 20);
+      const overOffers = draft.filter((o) => o.overrank);
+      expect(overOffers.length).toBeLessThanOrEqual(1);
+      for (const o of overOffers) {
+        expect(o.id).toBe("melee.arc");
+        expect(o.nextRank).toBe(3); // one past the printed max
+      }
+      overs += overOffers.length;
+    }
+    expect(overs).toBeGreaterThan(0); // the jackpot exists...
+    expect(overs).toBeLessThan(rolls / 2); // ...but stays a lottery, not a fixture
+  });
+
+  it("no lottery fires while nothing is maxed", () => {
+    const g = createGame(983);
+    const p = g.players[0];
+    for (let i = 0; i < 100; i++) {
+      const draft = rollUpgradeDraft(createRng(7000 + i), p, CONFIG.upgradeDraftSize, 20);
+      expect(draft.some((o) => o.overrank)).toBe(false);
+    }
+  });
+
+  it("overrank odds grow with depth but clamp at the ceiling", () => {
+    expect(overrankChance(1)).toBeLessThan(overrankChance(10));
+    expect(overrankChance(50)).toBe(CONFIG.overrankChanceMax);
+  });
+
+  it("choosing an overrank applies the rank past max and headlines the moment", () => {
+    const g = createGame(984);
+    const p = g.players[0];
+    p.abilities.ranks["melee.arc"] = 2;
+    p.pendingUpgrades = [{
+      id: "melee.arc", ability: "melee", title: "Wide Arc", desc: "Swing arc +66°", nextRank: 3, overrank: true,
+    }];
+    chooseUpgrade(g, p.id, 0);
+    expect(rank(p, "melee.arc")).toBe(3);
+    const ann = g.announcements.find((a) => a.text.includes("OVERRANK"));
+    expect(ann).toBeDefined();
+    expect(ann!.kind).toBe("levelup");
+    expect(ann!.priority).toBe("high");
   });
 });
 

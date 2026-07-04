@@ -221,6 +221,10 @@
       #draft.levelup h2 { color: #4fd1ff; text-shadow: 0 0 18px rgba(79,209,255,0.45); }
       #draft.levelup .reward { --oc: #4fd1ff; }
       #draft.levelup .reward.ult { --oc: #b998ff; }
+      /* Overrank lottery offer: gold, and it breathes — this card is the jackpot. */
+      #draft.levelup .reward.over { --oc: #f2c14e;
+        animation: offer-in 0.3s ease backwards, over-pulse 1.6s ease-in-out 0.3s infinite; }
+      @keyframes over-pulse { 50% { box-shadow: 0 0 24px -4px #f2c14e; } }
 
       /* Ability tree panel */
       #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -406,6 +410,8 @@
       .nrow .ntitle { color: #cfe0d2; font-weight: 700; }
       .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
       .nrow .npips .off { color: #2c3a31; }
+      .nrow .npips .opip { color: #ffdf7e; text-shadow: 0 0 6px rgba(242,193,78,0.6); }
+      .nrow .neffect .nover { color: #f2c14e; font-size: 10.5px; }
       .nrow .neffect { color: #b9d0c0; }
       .nrow .neffect .nnext { color: #55606a; font-size: 10.5px; }
       .nrow.taken .ntitle { color: #f2c14e; }
