@@ -90,3 +90,19 @@ just renders too many as center-screen toasts. Route by kind/priority:
   entirely behind a verbosity setting (e.g. `dcc:notify` local setting with
   critical/normal/all).
 The sim already provides the data; this is purely host-side routing.
+
+## 10. More equipment slots (LoL has six; we have three) — design/feature
+
+`Player.equipment` is hard-coded to `{ weapon, armor, trinket }`
+(`src/sim/types.ts`, `ItemSlot`). Expand toward an ARPG spread — e.g. weapon,
+armor, helm, boots, and two trinket/accessory slots. Touches:
+- `src/sim/items.ts` (generation must roll the new slots; name pools per slot),
+  `recomputeStats`/`equipItem`/`itemScore`/auto-equip in `src/sim/game.ts`.
+- Catalog gear (`src/sim/catalog.ts`) + signature-gear passives (`Item.passive`
+  checks read all equipment pieces — keep `hasPassive` slot-agnostic).
+- Shop/inventory UI + cockpit paper-doll in `src/main3d.ts` / `iso.html`
+  (which also intersects backlog #3/#4).
+- Save migration: old `{weapon, armor, trinket}` saves must load (fold into
+  the new shape with empty new slots), like the loadout migration did.
+- Balance: six affix-bearing pieces stack far more raw stat than three — either
+  shrink per-piece budgets or let monster scaling absorb it (balance bot gates).
