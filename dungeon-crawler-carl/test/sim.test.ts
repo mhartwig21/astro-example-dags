@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
+  createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents,
 } from "../src/sim/game";
@@ -2323,6 +2323,47 @@ describe("overranks (backlog #7): lottery ranks past the printed max", () => {
     expect(ann).toBeDefined();
     expect(ann!.kind).toBe("levelup");
     expect(ann!.priority).toBe("high");
+  });
+});
+
+describe("test mode (createTestGame)", () => {
+  it("jumps to the requested floor with a leveled, geared crawler", () => {
+    const g = createTestGame({ floor: 9, level: 12, seed: 7 });
+    const p = g.players[0];
+    expect(g.floor).toBe(9);
+    expect(p.level).toBe(12);
+    expect(p.hp).toBe(p.maxHp);
+    expect(p.equipment.weapon ?? p.equipment.armor ?? p.equipment.trinket).toBeTruthy();
+    // Levels were spent through the real draft roller, so ranks exist.
+    const ranks = Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0);
+    expect(ranks).toBeGreaterThan(0);
+    expect(g.status).toBe("playing");
+  });
+
+  it("is deterministic: same setup, same crawler, same floor", () => {
+    const a = createTestGame({ floor: 5, level: 8, seed: 42 });
+    const b = createTestGame({ floor: 5, level: 8, seed: 42 });
+    expect(JSON.stringify(a.players[0])).toBe(JSON.stringify(b.players[0]));
+    expect(Array.from(a.map.tiles)).toEqual(Array.from(b.map.tiles));
+  });
+
+  it("clamps the floor and slots requested abilities", () => {
+    const g = createTestGame({ floor: 99, abilities: ["nova", "airstrike"] });
+    expect(g.floor).toBe(CONFIG.finalFloor);
+    const p = g.players[0];
+    expect(knows(p, "nova")).toBe(true);
+    expect(p.abilities.ultimate).toBe("airstrike");
+  });
+
+  it("abilities: 'all' discovers the whole kit", () => {
+    const p = createTestGame({ abilities: "all", level: 20 }).players[0];
+    for (const a of DISCOVERABLE_ABILITIES) expect(knows(p, a)).toBe(true);
+  });
+
+  it("gear: false starts bare-handed; default gold scales with floor", () => {
+    const bare = createTestGame({ floor: 10, gear: false }).players[0];
+    expect(bare.equipment.weapon).toBeNull();
+    expect(bare.gold).toBe(400);
   });
 });
 
