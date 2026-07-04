@@ -30,6 +30,12 @@ export const CONFIG = {
   playerAttackArc: Math.PI / 2, // 90° swing in facing direction
   playerCritChance: 0.18,
   playerCritMult: 2.0,
+  // Armor (defense): incoming hits are reduced by armor/(armor+armorK), capped.
+  // The player starts with none — mitigation is a GEAR story (armor-slot items
+  // roll it as their primary affix), so the sheet's DEFENSE panel is earned.
+  playerBaseArmor: 0,
+  armorK: 60, // 60 armor = 50% reduction; diminishing returns past that
+  armorMaxReduction: 0.6, // even a fortress crawler eats 40% of every hit
   meleeLungeDistance: 0.45, // tiles the swing steps toward the aim (aggression + reach)
 
   // Hit reactions: player damage shoves monsters (divided by archetype mass) and
@@ -143,6 +149,12 @@ export const CONFIG = {
   wandBoltCdMult: 0.8, // Wand: faster casts
   staffAoeRadiusMult: 1.25, // Staff: bigger nova
   chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
+  // Damage rolls: every player hit rolls ±variance around its base, and the
+  // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
+  // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
+  weaponVariance: {
+    swift: 0.1, heavy: 0.3, reach: 0.15, ballistic: 0.15, arcane: 0.2, chaotic: 0.4,
+  } as Record<string, number>,
 
   // Enemy projectiles (ranged archetype + boss)
   monsterProjectileSpeed: 7,

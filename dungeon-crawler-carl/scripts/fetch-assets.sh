@@ -57,6 +57,8 @@ versions and unzip into public/assets/ as noted:
   KayKit — Adventurers + Skeletons (CC0, rigged + animated)
     https://kaylousberg.itch.io/kaykit-adventurers   -> public/assets/characters/adventurer.glb
     https://kaylousberg.itch.io/kaykit-skeletons     -> public/assets/characters/skeleton.glb
+    Scriptable mirror (per-file raw GLBs, same CC0 pack):
+    https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/main/addons/kaykit_character_pack_adventures/Characters/gltf/<Name>.glb
 
 After placing files, enable the matching lines in src/render3d/assets.ts
 (MODEL_MANIFEST) and reload — the renderer will use the models automatically.

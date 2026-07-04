@@ -2,13 +2,16 @@
 import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
-  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents,
+  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
+  damagePlayerHit, playerMitigation,
 } from "../src/sim/game";
+import { armorReduction, rollDamage } from "../src/sim/combat";
+import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
-  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, effectiveMaxRank, knows, meleeParams,
+  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
   novaParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
@@ -264,7 +267,7 @@ describe("itemization", () => {
     const a = generateItem(rng1, 5, () => ++id1);
     const b = generateItem(rng2, 5, () => ++id2);
     expect(a).toEqual(b);
-    const primaryBySlot = { weapon: "damage", armor: "maxHp", trinket: "crit" } as const;
+    const primaryBySlot = { weapon: "damage", armor: "armor", trinket: "crit" } as const;
     expect(a.affixes[primaryBySlot[a.slot]]).toBeGreaterThan(0);
   });
 
@@ -1461,6 +1464,99 @@ describe("new elite affixes (splitter / thorns)", () => {
     const reflected = hp0 - p.hp;
     expect(reflected).toBeGreaterThan(0); // and it bit back
     expect(reflected).toBeLessThanOrEqual(Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)));
+  });
+});
+
+describe("damage rolls + armor", () => {
+  it("rollDamage stays inside its variance bounds", () => {
+    const rng = createRng(77);
+    for (let i = 0; i < 300; i++) {
+      const d = rollDamage(rng, 100, 0.4);
+      expect(d).toBeGreaterThanOrEqual(60);
+      expect(d).toBeLessThanOrEqual(140);
+    }
+  });
+
+  it("the equipped weapon sets the player's dice", () => {
+    const g = createGame(915);
+    const p = g.players[0];
+    expect(damageVariance(p)).toBe(0.15); // bare hands roll the default
+    equipItem(p, { id: 1, slot: "weapon", rarity: "epic", name: "Apocalyptic Maul", affixes: { damage: 5 } });
+    expect(damageVariance(p)).toBe(CONFIG.weaponVariance.heavy); // a gamble per swing
+    equipItem(p, { id: 2, slot: "weapon", rarity: "epic", name: "Apocalyptic Mug", affixes: { damage: 5 } });
+    expect(damageVariance(p)).toBe(CONFIG.weaponVariance.chaotic); // a slot machine
+  });
+
+  it("armor recomputes from gear and mitigates incoming hits", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    // armorK armor = exactly 50% reduction by construction.
+    equipItem(p, { id: 1, slot: "armor", rarity: "epic", name: "Apocalyptic Plate", affixes: { armor: CONFIG.armorK } });
+    expect(p.armor).toBe(CONFIG.playerBaseArmor + CONFIG.armorK);
+    expect(playerMitigation(p)).toBeCloseTo(0.5);
+    const hp0 = p.hp;
+    damagePlayerHit(g, p, 40, { roll: false }); // deterministic: 40 raw -> 20 taken
+    expect(hp0 - p.hp).toBe(20);
+    expect(p.damageTaken).toBe(20);
+  });
+
+  it("mitigation is hard-capped — no immortal crawlers", () => {
+    expect(armorReduction(1e6, CONFIG.armorK, CONFIG.armorMaxReduction)).toBe(CONFIG.armorMaxReduction);
+  });
+
+  it("armor-slot drops lead with the armor affix", () => {
+    const rng = createRng(4321);
+    let id = 0;
+    for (let i = 0; i < 60; i++) {
+      const it = generateItem(rng, 5, () => ++id);
+      if (it.slot === "armor") expect(it.affixes.armor ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("pre-armor saves load with zero bonus armor", () => {
+    const restored = restoreGame({
+      seed: 42, floor: 3,
+      player: { hp: 55, level: 5, xp: 10, xpToNext: 100, gold: 9, bonusDamage: 4 },
+    });
+    expect(restored.players[0].bonusArmor).toBe(0);
+    expect(restored.players[0].armor).toBe(CONFIG.playerBaseArmor);
+  });
+});
+
+describe("character sheet (buildCharacterSheet)", () => {
+  it("melee estimate matches the real roll bounds and cooldown", () => {
+    const g = createGame(918);
+    const p = g.players[0];
+    const sh = buildCharacterSheet(g, p);
+    const melee = sh.offense.find((r) => r.id === "melee")!;
+    const mp = meleeParams(p);
+    const base = power(p, "melee") * mp.damageMult;
+    const v = damageVariance(p);
+    expect(melee.hit!.min).toBe(Math.max(1, Math.round(base * (1 - v))));
+    expect(melee.hit!.max).toBe(Math.max(1, Math.round(base * (1 + v))));
+    expect(melee.hit!.critMax).toBe(Math.round(melee.hit!.max * CONFIG.playerCritMult));
+    expect(melee.hit!.cooldown).toBeCloseTo(mp.cooldown);
+    expect(melee.hit!.dps).toBeGreaterThan(0);
+  });
+
+  it("defense block mirrors combat's mitigation math", () => {
+    const g = createGame(919);
+    const p = g.players[0];
+    equipItem(p, { id: 1, slot: "armor", rarity: "rare", name: "Runed Plate", affixes: { armor: 30 } });
+    const sh = buildCharacterSheet(g, p);
+    expect(sh.defense.armor).toBe(30);
+    expect(sh.defense.reduction).toBeCloseTo(30 / (30 + CONFIG.armorK));
+    expect(sh.defense.exampleTaken).toBe(Math.max(1, Math.round(sh.defense.exampleRaw * (1 - sh.defense.reduction))));
+    expect(sh.defense.effectiveHp).toBeGreaterThan(p.maxHp);
+  });
+
+  it("lists the slotted kit in slot order", () => {
+    const g = createGame(920);
+    const p = g.players[0];
+    const sh = buildCharacterSheet(g, p);
+    expect(sh.offense.map((r) => r.id)).toEqual(["melee", "dash", "bolt"]); // starting kit
+    expect(sh.identity.weaponName).toBe("Bare Hands");
+    expect(sh.identity.variance).toBe(0.15);
   });
 });
 
@@ -2702,6 +2798,23 @@ describe("genuine itemization (schools + weapon classes)", () => {
     }
     expect(arcaneSeen).toBeGreaterThan(5);
     expect(physSeen).toBeGreaterThan(5);
+  });
+});
+
+describe("hero skins", () => {
+  it("is deterministic per (seed, player), varies across runs, and never twins a party", () => {
+    expect(heroSkin(123, 0)).toBe(heroSkin(123, 0)); // stable for a run
+    // A full party wears distinct skins.
+    const party = [0, 1, 2, 3, 4].map((id) => heroSkin(555, id));
+    expect(new Set(party).size).toBe(party.length);
+    // Different runs shuffle who you drop in as (spot-check a spread of seeds).
+    const firsts = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => heroSkin(s, 0)));
+    expect(firsts.size).toBeGreaterThan(1);
+    // Skins never consume the sim's rng: identical floors with or without the call.
+    const a = createGame(777);
+    heroSkin(777, 0);
+    const b = createGame(777);
+    expect(JSON.stringify(a.map.tiles)).toBe(JSON.stringify(b.map.tiles));
   });
 });
 

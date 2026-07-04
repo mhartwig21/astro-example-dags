@@ -35,11 +35,15 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_boss_6: "/assets/characters/black_knight.glb",
   monster_boss_12: "/assets/characters/frost_golem.glb",
   monster_boss_18: "/assets/characters/demon_lord.glb",
-  // Armory sources: never spawned as characters, but their GLBs carry the
-  // weapon/shield meshes weaponry.ts grafts onto the player's hands.
+  // Armory sources: the 1.0 adventurer GLBs. They carry the weapon/shield
+  // meshes weaponry.ts grafts onto hands, AND they are the barbarian/mage/
+  // rogue hero skins (heroSkin in sim/game.ts) now that monsters wear the
+  // newer KayKit cast instead.
   armory_axes: "/assets/characters/barbarian.glb",
   armory_arcana: "/assets/characters/mage.glb",
   armory_knives: "/assets/characters/rogue.glb",
+  // Extra hero skin: the one adventurer nothing else wears.
+  hero_hooded: "/assets/characters/rogue_hooded.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",

@@ -5,6 +5,7 @@ import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
+import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -501,13 +502,25 @@ export class Renderer3D {
 
   // ---- Procedural meshes (placeholders for CC0 glTF art) ----
 
-  private buildPlayerMesh(): THREE.Group {
-    const model = this.modelInstance("player");
+  // Hero skins (heroSkin in sim/game.ts): model key per skin id. Barbarian/
+  // mage/rogue ride the armory_* GLBs (the 1.0 adventurers that also source
+  // weapon meshes) — monsters wear the newer KayKit cast now, so hero skins
+  // no longer overlap with the menagerie.
+  private static readonly SKIN_MODEL: Record<string, string> = {
+    knight: "player", barbarian: "armory_axes", mage: "armory_arcana",
+    rogue: "armory_knives", hooded: "hero_hooded",
+  };
+
+  private buildPlayerMesh(skin: string): THREE.Group {
+    const model =
+      this.modelInstance(Renderer3D.SKIN_MODEL[skin] ?? "player") ?? this.modelInstance("player");
     if (model) {
       this.normalizeHeight(model, 1.35);
+      model.userData.skinId = skin;
       return model;
     }
     const g = new THREE.Group();
+    g.userData.skinId = skin;
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), flat(THEME.player));
     body.position.y = 0.55; body.castShadow = true;
     const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), flat(THEME.playerTrim));
@@ -529,51 +542,51 @@ export class Renderer3D {
    * from the barbarian GLB) are cloned once and grafted onto the handslot.r
    * bone, where they ride the hand through every animation clip.
    */
+  /**
+   * Show one attachment on this rig: the native node if this skin's GLB ships
+   * it, else a cached graft cloned from the source model onto the requested
+   * hand bone. All adventurers share the KayKit rig, so a grafted node's local
+   * transform relative to its own handslot carries over 1:1.
+   */
+  private showAttachment(mesh: THREE.Group, srcKey: string, node: string, hand: "l" | "r"): THREE.Object3D | null {
+    let obj: THREE.Object3D | null =
+      mesh.getObjectByName(node) ?? mesh.getObjectByName(`graft_${srcKey}_${node}`) ?? null;
+    if (!obj) {
+      const srcNode = this.models[srcKey]?.scene.getObjectByName(node);
+      // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
+      const handObj = mesh.getObjectByName(`handslot${hand}`) ?? mesh.getObjectByName(`handslot.${hand}`);
+      if (srcNode && handObj) {
+        obj = srcNode.clone(true);
+        obj.name = `graft_${srcKey}_${node}`;
+        handObj.add(obj);
+        const grafts = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
+        grafts.push(obj);
+        mesh.userData.grafts = grafts;
+      }
+    }
+    if (obj) obj.visible = true;
+    return obj;
+  }
+
   private applyLoadout(mesh: THREE.Group, pl: Player): void {
     const { weapon, shield } = loadoutFor(pl);
     const key = `${weapon.srcKey}/${weapon.node}/${shield ?? "-"}/${pl.equipment.weapon?.rarity ?? "-"}`;
     if (this.loadoutKeys.get(pl.id) === key) return;
     this.loadoutKeys.set(pl.id, key);
 
-    // Hide every known attachment (including previous grafts).
-    for (const name of ATTACHMENT_NODES.player) {
+    // Hide every known attachment across ALL rigs — each skin ships its own
+    // default arsenal, and a barbarian's axe must not photobomb your Blade —
+    // plus any previous grafts.
+    for (const name of Object.values(ATTACHMENT_NODES).flat()) {
       const node = mesh.getObjectByName(name);
       if (node) node.visible = false;
     }
-    const grafts: THREE.Object3D[] = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
-    for (const g of grafts) g.visible = false;
+    for (const g of (mesh.userData.grafts as THREE.Object3D[]) ?? []) g.visible = false;
 
-    // Shield (armor slot), unless the weapon needs both hands.
-    if (shield) {
-      const node = mesh.getObjectByName(shield);
-      if (node) node.visible = true;
-    }
-
-    // Weapon: native node or a cached cross-model graft.
-    let weaponObj: THREE.Object3D | null = null;
-    if (weapon.srcKey === "player") {
-      weaponObj = mesh.getObjectByName(weapon.node) ?? null;
-      if (weaponObj) weaponObj.visible = true;
-    } else {
-      const graftName = `graft_${weapon.srcKey}_${weapon.node}`;
-      weaponObj = mesh.getObjectByName(graftName) ?? null;
-      if (!weaponObj) {
-        const srcModel = this.models[weapon.srcKey];
-        const srcNode = srcModel?.scene.getObjectByName(weapon.node);
-        // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
-        const hand = mesh.getObjectByName("handslotr") ?? mesh.getObjectByName("handslot.r");
-        if (srcNode && hand) {
-          weaponObj = srcNode.clone(true);
-          weaponObj.name = graftName;
-          // Same rig family: the node's local transform relative to its own
-          // handslot carries over 1:1.
-          hand.add(weaponObj);
-          grafts.push(weaponObj);
-          mesh.userData.grafts = grafts;
-        }
-      }
-      if (weaponObj) weaponObj.visible = true;
-    }
+    // Shield (armor slot) rides the off hand, unless the weapon needs both.
+    if (shield) this.showAttachment(mesh, "player", shield, "l");
+    // Weapon: native to this skin's rig, or a cached cross-model graft.
+    const weaponObj = this.showAttachment(mesh, weapon.srcKey, weapon.node, "r");
 
     // Rarity flair: emissive tint on the weapon's materials.
     if (weaponObj) {
@@ -1212,8 +1225,17 @@ export class Renderer3D {
     const pSeen = new Set<number>();
     for (const pl of state.players) {
       pSeen.add(pl.id);
+      // Hero skin: derived from (seed, player id) — a fresh adventurer every
+      // run. A seed change (new game, restore) rebuilds the body + regrafts.
+      const skin = heroSkin(state.seed, pl.id);
       let mesh = this.playerMeshes.get(pl.id);
-      if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
+      if (mesh && mesh.userData.skinId !== skin) {
+        this.scene.remove(mesh);
+        this.playerMeshes.delete(pl.id);
+        this.loadoutKeys.delete(pl.id);
+        mesh = undefined;
+      }
+      if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;

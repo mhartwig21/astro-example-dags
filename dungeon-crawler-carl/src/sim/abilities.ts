@@ -55,6 +55,16 @@ export function abilitySchool(ability: AbilityId): School {
   return (s.sp ?? 0) > (s.ap ?? 0) ? "magic" : "physical";
 }
 
+/**
+ * The player's damage-roll variance: the equipped WEAPON sets the dice for
+ * every hit they land (swift ±10% metronome … chaotic ±40% slot machine).
+ * Bare hands roll the default. The character sheet prints these same bounds.
+ */
+export function damageVariance(p: Player): number {
+  const wc = weaponClassOf(p.equipment.weapon);
+  return (wc && CONFIG.weaponVariance[wc]) || 0.15;
+}
+
 export type AbilityTier = "active" | "ultimate";
 
 export const ABILITY_SLOTS = 4; // active slots (the ultimate has its own slot)

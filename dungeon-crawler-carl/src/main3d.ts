@@ -1,10 +1,11 @@
 import {
-  createGame, createTestGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
+  createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
   buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
   type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
+import { buildCharacterSheet, type SheetAbilityRow } from "./sim/sheet";
 import {
   CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
@@ -552,6 +553,117 @@ function toggleAbilities(): void {
   if (abilOpen) renderAbilities(state);
 }
 
+// ---- Crawler Profile (pauses the game while open) ----
+// The System's personnel file: every number comes from buildCharacterSheet
+// (sim/sheet.ts), which derives it from the same math combat runs — the panel
+// only formats. Icons: /icons/stats/* (game-icons.net, CSS-mask tinted).
+const sheetEl = document.getElementById("sheet")!;
+const sheetSub = document.getElementById("sheet-sub")!;
+const sheetGear = document.getElementById("sheet-gear")!;
+const sheetAttrs = document.getElementById("sheet-attrs")!;
+const sheetProgress = document.getElementById("sheet-progress")!;
+const sheetDice = document.getElementById("sheet-dice")!;
+const sheetDmg = document.getElementById("sheet-dmg")!;
+const sheetDef = document.getElementById("sheet-def")!;
+const sheetShow = document.getElementById("sheet-show")!;
+let sheetOpen = false;
+
+const statIcon = (id: string): string =>
+  `mask-image:url(/icons/stats/${id}.svg);-webkit-mask-image:url(/icons/stats/${id}.svg)`;
+const abilIcon = (id: string): string =>
+  `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
+
+function gearRowHtml(slot: "weapon" | "armor" | "trinket", it: Item | null): string {
+  if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
+  const noun = it.name.split(" ").pop()!.toLowerCase();
+  const icon = it.catalogId
+    ? iconStyle(it.catalogId)
+    : `mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)`;
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  return (
+    `<div class="gear-row rar-${it.rarity}">` +
+    `<div class="gbox" style="--tc:${tc}"><i class="ii" style="${icon}"></i></div>` +
+    `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
+    `<div class="gaff">${affixLines(it).join(" · ") || "—"}</div></div>` +
+    `<div class="gslot">${slot}</div>` +
+    `</div>`
+  );
+}
+
+function damageRowHtml(row: SheetAbilityRow, critChance: number): string {
+  const school = `<span class="school ${row.school === "magic" ? "mag" : "phys"}">${row.school === "magic" ? "MAG" : "PHYS"}</span>`;
+  const head =
+    `<div class="dic"><i style="${abilIcon(row.id)}"></i></div>` +
+    `<div><div class="dnm">${row.name} ${school}</div><div class="dmech">${row.note}</div></div>`;
+  if (!row.hit) return `<div class="drow utility${row.ultimate ? " ult" : ""}">${head}</div>`;
+  const h = row.hit;
+  const critTip = `crit (${Math.round(critChance * 100)}% chance): ${h.critMin}–${h.critMax}`;
+  const dpsTip = `sustained: avg roll${h.count > 1 ? ` × ${h.count}` : ""} × crit factor ÷ cooldown`;
+  return (
+    `<div class="drow${row.ultimate ? " ult" : ""}">` + head +
+    `<div class="drange" title="${critTip}"><b>${h.min}–${h.max}</b><small>PER HIT${h.count > 1 ? ` ×${h.count}` : ""}</small></div>` +
+    `<div class="dcd">${h.cooldown.toFixed(1)}s<small>CD</small></div>` +
+    `<div class="ddps" title="${dpsTip}"><b>≈${Math.round(h.dps)}</b><small>DPS</small></div>` +
+    `</div>`
+  );
+}
+
+function renderSheet(s: GameState): void {
+  const p = me(s);
+  const sh = buildCharacterSheet(s, p);
+  const id = sh.identity;
+  const a = sh.attributes;
+  const d = sh.defense;
+  sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}`;
+  sheetGear.innerHTML = (["weapon", "armor", "trinket"] as const)
+    .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
+  const tiles: [string, string, string, string, string][] = [
+    ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
+      "Physical school: melee, orbit blades, airstrike — and what most weapons throw as bolts."],
+    ["spell", "#b998ff", String(a.spellPower), "SPELL PWR",
+      "Magic school: nova, dash detonations, cataclysm — wands and staffs cast bolts off this."],
+    ["crit", "#f2c14e", `${Math.round(a.critChance * 100)}%`, "CRIT",
+      `Every hit has this chance to land at ×${a.critMult}.`],
+    ["speed", "#6fe3ff", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
+    ["armor", "#a9c7d8", String(a.armor), "ARMOR",
+      `Every incoming hit is reduced by armor÷(armor+${d.armorK}) — currently ${Math.round(d.reduction * 100)}%, hard-capped at ${Math.round(d.reductionCap * 100)}%.`],
+    ["hp", "#ff7b70", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
+  ];
+  sheetAttrs.innerHTML = tiles
+    .map(([ic, c, v, l, tip]) =>
+      `<div class="stile" style="--sc:${c}" title="${tip}"><i class="si" style="${statIcon(ic)}"></i><span><b>${v}</b><small>${l}</small></span></div>`)
+    .join("");
+  sheetProgress.innerHTML =
+    `<b>◈ ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
+    `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
+  sheetDice.textContent =
+    `${id.weaponName}${id.weaponClass ? ` (${id.weaponClass})` : ""} — every hit rolls ±${Math.round(id.variance * 100)}%`;
+  sheetDmg.innerHTML = sh.offense.length
+    ? sh.offense.map((row) => damageRowHtml(row, a.critChance)).join("")
+    : `<div class="drow utility"><div class="dmech">nothing slotted</div></div>`;
+  const redPct = Math.round(d.reduction * 100);
+  sheetDef.innerHTML =
+    `<div class="def-box">` +
+    `<div class="dbig" title="armor ÷ (armor + ${d.armorK}), capped at ${Math.round(d.reductionCap * 100)}%"><b>${d.armor}</b><small>ARMOR · ${redPct}% REDUCTION</small></div>` +
+    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="cap" style="left:100%"></span></div>` +
+    `<div class="def-lines" style="margin-top:7px">Effective HP ≈ <b>${d.effectiveHp}</b> · dash i-frames ×${d.dashCharges}<br>` +
+    `<span class="ex">A typical floor-${id.floor} hit: <b>${d.exampleRaw}</b> raw → <b>${d.exampleTaken}</b> taken</span></div></div>` +
+    `</div>`;
+  sheetShow.innerHTML =
+    `<span class="show-chip viewers"><b>${sh.show.viewers.toLocaleString()}</b>viewers</span>` +
+    `<span class="show-chip favorites"><b>${sh.show.favorites.toLocaleString()}</b>favorites</span>` +
+    `<span class="show-chip sponsors"><b>${sh.show.sponsors}</b>sponsors</span>` +
+    `<span class="show-chip"><b>${sh.show.kills}</b>kills</span>` +
+    `<span class="show-chip"><b>${sh.show.damageDealt.toLocaleString()}</b>dmg dealt</span>` +
+    `<span class="show-chip"><b>${sh.show.damageTaken.toLocaleString()}</b>dmg taken</span>`;
+}
+
+function toggleSheet(): void {
+  sheetOpen = !sheetOpen;
+  sheetEl.style.display = sheetOpen ? "flex" : "none";
+  if (sheetOpen) renderSheet(state);
+}
+
 // ---- Key bindings (rebindable; persisted per browser) ----
 let bindings: Bindings = loadBindings();
 const keysEl = document.getElementById("keys")!;
@@ -571,11 +683,13 @@ function applyBindings(): void {
     `<kbd>${first("ultimate")}</kbd> ultimate · ` +
     `<kbd>${first("inventory")}</kbd> inv · ` +
     `<kbd>${first("abilities")}</kbd> loadout · ` +
+    `<kbd>${first("character")}</kbd> profile · ` +
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
     `<kbd>${first("newRun")}</kbd> new run · ` +
     `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
+  document.getElementById("sheet-close-key")!.textContent = first("character");
 }
 
 function renderKeybinds(): void {
@@ -660,6 +774,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "escape") {
     if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
+    else if (sheetOpen) toggleSheet();
     else if (kbOpen) toggleKeybinds();
   }
 });
@@ -667,6 +782,7 @@ window.addEventListener("keydown", (e) => {
 input.onAction = (a) => {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
+  else if (a === "character") toggleSheet();
   else if (a === "keybinds") toggleKeybinds();
   else if (a === "mute") log.push(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
 };
@@ -1347,6 +1463,7 @@ if (new URLSearchParams(location.search).has("debug")) {
     renderer,
     addPlayer: (name: string) => addPlayer(state, name),
     step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
+    equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
   };
 }
 
@@ -1459,7 +1576,7 @@ async function main(): Promise<void> {
     if (!net) {
       // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
       // networked world never pauses for drafts); drop accumulated time.
-      if (invOpen || abilOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
+      if (invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(), SIM_DT);

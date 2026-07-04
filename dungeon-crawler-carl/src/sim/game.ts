@@ -1,7 +1,7 @@
 import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
-import { angleBetween, dist, normalize, rollDamage } from "./combat";
+import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
@@ -9,7 +9,7 @@ import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, gearAffixes, tierStockCount, totalCost,
 } from "./catalog";
 import {
-  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, dashParams, knows, meleeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, damageVariance, dashParams, knows, meleeParams,
   rank,
   novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId, type School,
@@ -32,6 +32,7 @@ export function recomputeStats(p: Player): void {
   let hp = intrinsicHp + p.bonusMaxHp;
   let spd = CONFIG.playerSpeed;
   let crit = CONFIG.playerCritChance + p.bonusCrit;
+  let arm = CONFIG.playerBaseArmor + p.bonusArmor;
   for (const slot of ["weapon", "armor", "trinket"] as const) {
     const it = p.equipment[slot];
     if (!it) continue;
@@ -40,12 +41,14 @@ export function recomputeStats(p: Player): void {
     hp += it.affixes.maxHp ?? 0;
     spd += it.affixes.speed ?? 0;
     crit += it.affixes.crit ?? 0;
+    arm += it.affixes.armor ?? 0;
   }
   p.attackPower = atk;
   p.spellPower = mag;
   p.maxHp = hp;
   p.speed = spd;
   p.critChance = crit;
+  p.armor = arm;
   p.weaponRarity = p.equipment.weapon?.rarity ?? "common";
   if (p.hp > p.maxHp) p.hp = p.maxHp;
 }
@@ -366,6 +369,7 @@ function makePlayer(id: number, name: string): Player {
     attackPower: CONFIG.playerBaseDamage,
     spellPower: CONFIG.playerBaseDamage,
     critChance: CONFIG.playerCritChance,
+    armor: CONFIG.playerBaseArmor,
     cd: {},
     dashTime: 0,
     dashCharges: CONFIG.dashCharges,
@@ -393,6 +397,7 @@ function makePlayer(id: number, name: string): Player {
     bonusSpell: 0,
     bonusMaxHp: 0,
     bonusCrit: 0,
+    bonusArmor: 0,
     alive: true,
     attackSwing: 0,
     pendingUpgrades: [],
@@ -437,6 +442,20 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
     p.alive = true;
     p.hp = Math.round(p.maxHp * 0.5);
   }
+}
+
+// Cosmetic hero skins: every run you drop in as a random adventurer, and party
+// members never twin (up to the pool size). Purely DERIVED from (seed, player
+// id) — no state, no save field, no rng-stream impact, and every client
+// computes the same answer from the shared seed. Becomes real chosen state
+// when character types/classes land.
+export const HERO_SKINS = ["knight", "barbarian", "mage", "rogue", "hooded"] as const;
+export type HeroSkin = (typeof HERO_SKINS)[number];
+
+/** Which adventurer this crawler is for this run (hosts map it to a model). */
+export function heroSkin(seed: number, playerId: number): HeroSkin {
+  const base = (Math.imul(seed ^ 0x9e3779b1, 0x85ebca6b) >>> 8) % HERO_SKINS.length;
+  return HERO_SKINS[(base + playerId) % HERO_SKINS.length];
 }
 
 /** Living party members (most systems only care about these). */
@@ -514,6 +533,7 @@ export interface SavedProgress {
     bonusSpell?: number;
     bonusMaxHp?: number;
     bonusCrit?: number;
+    bonusArmor?: number;
     equipment?: Player["equipment"];
     inventory?: Item[];
     abilities?: Player["abilities"];
@@ -549,6 +569,7 @@ export function restoreGame(save: SavedProgress): GameState {
   p.bonusSpell = s.bonusSpell ?? 0;
   p.bonusMaxHp = s.bonusMaxHp ?? 0;
   p.bonusCrit = s.bonusCrit ?? 0;
+  p.bonusArmor = s.bonusArmor ?? 0; // pre-armor saves default to 0
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
   if (s.abilities) {
@@ -837,6 +858,34 @@ function hit(
   state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed, school: extra?.school });
 }
 
+/** Effective incoming-damage reduction from the player's armor (0..cap). */
+export function playerMitigation(p: Player): number {
+  return armorReduction(p.armor, CONFIG.armorK, CONFIG.armorMaxReduction);
+}
+
+/**
+ * The single choke point for monster→player damage: roll (unless the caller
+ * pre-rolled/capped), mitigate through armor, apply, emit the hit event and
+ * low-HP hype. Death stays with the CALLER — every source has its own
+ * announcer line. Returns true when the hit dropped them.
+ * (The collapse timer bypasses this on purpose: the dungeon itself deals
+ * fractional true damage no armor can argue with.)
+ */
+export function damagePlayerHit(
+  state: GameState, p: Player, base: number,
+  opts: { dir?: Vec2; roll?: boolean } = {},
+): boolean {
+  const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
+  const dmg = mitigate(raw, playerMitigation(p));
+  p.hp -= dmg;
+  p.damageTaken += dmg;
+  hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0 });
+  if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+    addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
+  }
+  return p.hp <= 0;
+}
+
 /** Grant XP to one player (kill XP is split before calling this). */
 function grantXp(state: GameState, p: Player, amount: number): void {
   p.xp += amount;
@@ -1027,7 +1076,7 @@ function damageMonster(
   } = {},
 ): void {
   const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
-  let dmg = rollDamage(state.rng, base);
+  let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
   // One-shot insurance: named menaces never lose more than a capped fraction
@@ -1064,13 +1113,8 @@ function damageMonster(
       Math.round(dmg * CONFIG.thornsReflectFraction),
       Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)),
     );
-    p.hp -= reflect;
-    p.damageTaken += reflect;
-    hit(state, p.pos, reflect, "player");
-    if (p.hp <= 0) {
+    if (damagePlayerHit(state, p, reflect, { roll: false })) {
       handlePlayerDeath(state, p, `${p.name} beat ${m.eliteName ?? "an elite"} to death with their own health bar. THORNS, folks.`);
-    } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, p, CONFIG.show.hypeLowHpHit);
     }
   }
 }
@@ -1192,18 +1236,12 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
   for (const p of state.players) {
     if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
     if (dist(m.pos, p.pos) > radius) continue;
-    const dmg = rollDamage(state.rng, base);
-    p.hp -= dmg;
-    p.damageTaken += dmg;
     caught++;
     const away = dist(m.pos, p.pos) > 1e-4
       ? normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y })
       : undefined;
-    hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
-    if (p.hp <= 0) {
+    if (damagePlayerHit(state, p, base, { dir: away })) {
       handlePlayerDeath(state, p, `${p.name} was BLOWN APART by a bomber. Sponsors, roll the replay.`);
-    } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, p, CONFIG.show.hypeLowHpHit);
     }
   }
   if (caught > 0) announce(state, "flavor", "KABOOM! A bomber detonates point-blank. The crowd feels that one.");
@@ -2070,14 +2108,8 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          const dmg = rollDamage(state.rng, hz.damage);
-          p.hp -= dmg;
-          p.damageTaken += dmg;
-          hit(state, p.pos, dmg, "player", { killed: p.hp <= 0 });
-          if (p.hp <= 0) {
+          if (damagePlayerHit(state, p, hz.damage)) {
             handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
-          } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-            addHype(state, p, CONFIG.show.hypeLowHpHit);
           }
         }
       }
@@ -2089,18 +2121,12 @@ function updateHazards(state: GameState, dt: number): void {
     for (const p of state.players) {
       if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
       if (dist(hz.pos, p.pos) > hz.radius) continue;
-      const dmg = rollDamage(state.rng, hz.damage);
-      p.hp -= dmg;
-      p.damageTaken += dmg;
       const d = dist(hz.pos, p.pos);
       const away = d > 1e-4
         ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
         : undefined;
-      hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
-      if (p.hp <= 0) {
+      if (damagePlayerHit(state, p, hz.damage, { dir: away })) {
         handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
-      } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-        addHype(state, p, CONFIG.show.hypeLowHpHit);
       }
     }
   }
@@ -2251,11 +2277,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       for (const p of state.players) {
         if (!p.alive || p.dashTime > 0) continue;
         if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
-        p.hp -= pr.damage;
-        p.damageTaken += pr.damage;
-        hit(state, p.pos, Math.round(pr.damage), "player", { dir: normalize(pr.vel), killed: p.hp <= 0 });
-        if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) addHype(state, p, CONFIG.show.hypeLowHpHit);
-        if (p.hp <= 0) {
+        if (damagePlayerHit(state, p, pr.damage, { dir: normalize(pr.vel) })) {
           handlePlayerDeath(state, p, `${p.name} was shot down in the arena. The audience is on its feet.`);
         }
         absorbed = true;
