@@ -293,16 +293,27 @@ function spawnMonsters(state: GameState): void {
       const r = map.rooms[landmarkIdx];
       return m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
     };
-    const candidates = state.monsters.filter((m) => inLandmark(m) && m.kind !== "boss");
+    // Support castes never take the crown: shamans heal and necromancers raise —
+    // neither ever ATTACKS, and a named "boss" that deals zero damage reads as
+    // a bug, not a mechanic (packs get shaman escorts from floor 4+, so the
+    // landmark pack very often contains one).
+    const canBoss = (m: Monster) =>
+      m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer";
+    const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
       m = candidates[nextInt(rng, 0, candidates.length - 1)];
     } else if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
-      m = makeMonster(state, rollArchetype(rng, floor), { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+      const rolled = rollArchetype(rng, floor);
+      const kind = rolled === "shaman" || rolled === "necromancer" ? "brute" : rolled;
+      m = makeMonster(state, kind, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
       state.monsters.push(m);
     } else {
-      m = state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+      const fighters = state.monsters.filter(canBoss);
+      m = fighters.length > 0
+        ? fighters[nextInt(rng, 0, fighters.length - 1)]
+        : state.monsters[nextInt(rng, 0, state.monsters.length - 1)]; // all-support floor: unreachable in practice
     }
     m.elite = true;
     m.eliteName = pick(rng, ELITE_NAMES);

@@ -1465,6 +1465,23 @@ describe("new elite affixes (splitter / thorns)", () => {
     expect(reflected).toBeGreaterThan(0); // and it bit back
     expect(reflected).toBeLessThanOrEqual(Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)));
   });
+
+  it("the named elite is never a support caste (a boss that can't attack is a bug)", () => {
+    // Shamans heal and necromancers raise — neither ever attacks. Before the
+    // canBoss filter, ~11% of named elites across seeds rolled one of these
+    // and stood at standoff dealing literally zero damage for the whole fight.
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [3, 5, 7, 9, 11, 13]) {
+        const g = createTestGame({ seed, floor, gear: false });
+        for (const e of g.monsters.filter((m) => m.elite)) {
+          expect(
+            e.kind,
+            `seed ${seed} floor ${floor}: ${e.eliteName} rolled a support caste`,
+          ).not.toMatch(/^(shaman|necromancer)$/);
+        }
+      }
+    }
+  });
 });
 
 describe("damage rolls + armor", () => {
