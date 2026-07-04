@@ -207,16 +207,19 @@ export const TIER_RARITY = {
 // Catalog gear is materialized at purchase, scaled by the floor ahead so the
 // build tree stays relevant across an 18-floor run (a Prime-Time Cleaver
 // bought on floor 10 outswings one bought on floor 3 — rebuying/upgrading
-// through the tree is the intended refresh). Probability/speed affixes scale
-// on a tighter leash than raw stats.
+// through the tree is the intended refresh). The 0.15/floor slope is
+// calibrated for TIER PARITY with drops (items.ts rollAffix × RARITIES.mult):
+// advanced keeps pace with rare drops, legendary with epics — the shop sells
+// certainty and build paths, not strictly-worse stat sticks. Probability/speed
+// affixes scale on a tighter leash than raw stats.
 export function gearAffixes(e: CatalogEntry, floor: number): Affixes {
-  const mult = 1 + 0.1 * Math.max(0, floor - 2);
+  const mult = 1 + 0.15 * Math.max(0, floor - 2);
   const a = e.affixes ?? {};
   const out: Affixes = {};
   if (a.damage) out.damage = Math.round(a.damage * mult);
   if (a.maxHp) out.maxHp = Math.round(a.maxHp * mult);
-  if (a.speed) out.speed = +(a.speed * Math.min(mult, 1.6)).toFixed(2);
-  if (a.crit) out.crit = +(a.crit * Math.min(mult, 2)).toFixed(3);
+  if (a.speed) out.speed = +(a.speed * Math.min(mult, 2)).toFixed(2);
+  if (a.crit) out.crit = +(a.crit * Math.min(mult, 2.4)).toFixed(3);
   return out;
 }
 

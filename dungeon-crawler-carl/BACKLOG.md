@@ -33,32 +33,6 @@ UI in `iso.html` + `src/main3d.ts` (shop/inventory render). Constraint from
 the house style: panels must FIT the viewport — fix with a tighter grid /
 capped rows, not scrollbars.
 
-## 4. Shop shows no icons for equipped gear + bag items — bug
-
-Catalog entries have icons (`/icons/items/<catalogId>.svg`), but player items
-are *generated* (`src/sim/items.ts` names like "Cruel Blade") with no icon
-mapping — so the "yours" side of the shop renders iconless. Add a noun→icon
-map (weaponry.ts already maps nouns→meshes; mirror that for 2D icons, reusing
-catalog icons where the noun matches, game-icons.net CC-BY for the rest —
-attribution row in ASSETS.md required).
-
-## 5. Dropped items outscale shop items quickly — tuning/design
-
-Ground drops scale with floor (`generateItem` affix budgets grow), while the
-System Shop catalog (`src/sim/catalog.ts`) is mostly static — a few floors in,
-the shop is strictly worse than the floor loot. Options: floor-indexed catalog
-stat scaling, per-band restock tiers, or repositioning the shop as the home of
-consumables/materials/signature gear (things drops can't give) rather than
-stat sticks.
-
-## 6. Shop doesn't gate item purchases on prerequisites — bug/design
-
-Reported: "inventory shop doesn't require the builds from items to already be
-purchased to buy the item." Needs a repro/clarification pass — likely meaning:
-tiered/upgrade items in the catalog can be bought without owning the base item
-they build on. Audit `buyCatalogItem` (`src/sim/game.ts`) + catalog tier
-definitions and add prerequisite gating.
-
 ## 7. Higher upgrade caps + scarcity = chase-able OP builds — design
 
 Constellation nodes cap at maxRank 1–3 (`src/sim/abilities.ts UPGRADES`).
