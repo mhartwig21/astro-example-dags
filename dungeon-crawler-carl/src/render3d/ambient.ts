@@ -16,10 +16,11 @@ interface BandSpec {
   sway: number; // horizontal wander amplitude
 }
 
-// Matches FLOOR_THEMES band order (undercroft, sewers, ruins, ironworks, approach).
+// Matches FLOOR_THEMES band order (undercroft, sewers, garden, ruins, ironworks, approach).
 const BAND_SPECS: BandSpec[] = [
   { count: 320, color: 0xb8b0a0, size: 5.0, opacity: 0.26, additive: false, riseSpeed: 0.04, sway: 0.12 }, // dust motes
   { count: 300, color: 0x9fd98f, size: 5.5, opacity: 0.32, additive: false, riseSpeed: 0.12, sway: 0.18 }, // marsh spores
+  { count: 260, color: 0xd8a848, size: 6.0, opacity: 0.42, additive: false, riseSpeed: -0.1, sway: 0.4 }, // falling leaves
   { count: 240, color: 0xffa050, size: 5.5, opacity: 0.8, additive: true, riseSpeed: 0.5, sway: 0.25 }, // rising embers
   { count: 280, color: 0xa8ccff, size: 4.5, opacity: 0.45, additive: true, riseSpeed: -0.3, sway: 0.3 }, // cold sparks
   { count: 340, color: 0xc9a0a0, size: 5.5, opacity: 0.38, additive: false, riseSpeed: -0.16, sway: 0.25 }, // drifting ash

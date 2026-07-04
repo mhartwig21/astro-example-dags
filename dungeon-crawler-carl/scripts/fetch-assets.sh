@@ -33,6 +33,11 @@ echo "== Scriptable CC0 sources =="
 # over time — browse https://poly.pizza and copy a model's GLB link if one 404s.
 # (Left as examples; uncomment/replace with the exact models you want.)
 # fetch "https://poly.pizza/api/download/<MODEL_ID>?format=glb" "$DEST/dungeon/wall.glb"
+#
+# KayKit packs with GitHub mirrors are fully scriptable: each model is a .gltf +
+# sidecar .bin + shared texture png; convert with `npx gltf-pipeline -i x.gltf -o x.glb`.
+# THE GARDEN band models came from Halloween Bits this way:
+#   https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0/main/addons/kaykit_halloween_bits/Assets/gltf/<name>.gltf
 
 echo
 echo "== Manual downloads (browser required) =="

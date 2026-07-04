@@ -15,6 +15,7 @@ const FOG_BASE = "#07080d";
 const FOG_TINTS: [number, number, number][] = [
   [86, 93, 122], // undercroft
   [76, 100, 80], // sewers
+  [104, 98, 68], // garden
   [108, 88, 70], // ruins
   [76, 92, 118], // ironworks
   [112, 74, 82], // approach
@@ -66,10 +67,11 @@ function drawFogLayer(
   ctx.restore();
 }
 
-// Per-band palettes (bands shift every 4 floors; see FLOOR_BANDS in config).
+// Per-band palettes (bands shift every 3 floors; see FLOOR_BANDS in config).
 const BAND_PALETTES = [
   { floor: "#22222f", floorAlt: "#26263a", wall: "#12121c", wallEdge: "#1e1e2e" }, // undercroft
   { floor: "#1e2a1c", floorAlt: "#243524", wall: "#101a10", wallEdge: "#1c2c1c" }, // sewers
+  { floor: "#262c16", floorAlt: "#2e361a", wall: "#171410", wallEdge: "#26221a" }, // garden
   { floor: "#2e2218", floorAlt: "#382a1c", wall: "#1a120c", wallEdge: "#2c1e14" }, // ruins
   { floor: "#1c2432", floorAlt: "#202c3e", wall: "#10141e", wallEdge: "#1c2432" }, // ironworks
   { floor: "#2e1a1c", floorAlt: "#382024", wall: "#1a0e10", wallEdge: "#2c181c" }, // approach

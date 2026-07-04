@@ -1914,21 +1914,34 @@ describe("boss phases", () => {
 });
 
 describe("theme bands", () => {
-  it("maps floors to 4-floor bands", () => {
-    expect([1, 4, 5, 8, 9, 12, 13, 16, 17, 18].map((f) => floorBand(f)))
-      .toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  it("maps floors to 3-floor bands", () => {
+    expect([1, 3, 4, 6, 7, 9, 10, 12, 13, 15, 16, 18].map((f) => floorBand(f)))
+      .toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
   });
 
-  it("announces the district when crossing a band boundary (4 -> 5)", () => {
+  it("announces the district when crossing a band boundary (3 -> 4)", () => {
     const g = restoreGame({
-      seed: 71, floor: 4,
+      seed: 71, floor: 3,
       player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
     });
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
-    expect(g.floor).toBe(5);
+    expect(g.floor).toBe(4);
     expect(g.announcements.some((a) => a.text.includes("THE SEWERS"))).toBe(true);
+  });
+
+  it("announces THE GARDEN at floor 7", () => {
+    const g = restoreGame({
+      seed: 73, floor: 6,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.monsters.length = 0; // floor 6 is a city-boss floor; the boss seals the stairs
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
+    expect(g.floor).toBe(7);
+    expect(g.announcements.some((a) => a.text.includes("THE GARDEN"))).toBe(true);
   });
 
   it("does not re-announce within a band (5 -> 6)", () => {
