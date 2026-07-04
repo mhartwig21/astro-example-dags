@@ -258,40 +258,44 @@ export class Renderer3D {
       }
       return null;
     };
+    // Two clip-name generations coexist: the 1.0 packs baked into characters
+    // ("1H_Melee_Attack_Chop", "Spellcast_Shoot") and the shared rig libraries
+    // ("Melee_1H_Attack_Chop", "Ranged_Magic_Shoot") attached at load time to
+    // the newer animation-less characters. Every pick chains both spellings.
     const found: Record<string, THREE.AnimationClip | null> = {
       // Locomotion + idles (looping)
-      idle: pick(/^idle$/i, /idle/i),
-      idle_brawler: pick(/2H_Melee_Idle/i, /Idle_Combat/i), // stance: weapon up
-      idle_deadeye: pick(/1H_Ranged_Aiming/i), // stance: sighting down the barrel
+      idle: pick(/^idle$/i, /^idle_a$/i, /^idle/i, /idle/i),
+      idle_brawler: pick(/2H_Melee_Idle/i, /Melee_2H_Idle/i, /Idle_Combat/i), // stance: weapon up
+      idle_deadeye: pick(/1H_Ranged_Aiming/i, /Ranged_1H_Aiming/i), // stance: sighting down the barrel
       walk: pick(/^walking_a$/i, /^walk/i, /walk/i, /^run/i, /run/i),
       run: pick(/^running_a$/i, /^run/i),
       walk_back: pick(/Walking_Backwards/i),
       strafe_left: pick(/Running_Strafe_Left/i),
       strafe_right: pick(/Running_Strafe_Right/i),
       // Attacks (one-shot). melee_a..d cycle as a swing combo.
-      attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab/i),
-      melee_a: pick(/1H_Melee_Attack_Chop/i),
-      melee_b: pick(/1H_Melee_Attack_Slice_Diagonal/i),
-      melee_c: pick(/1H_Melee_Attack_Slice_Horizontal/i),
-      melee_d: pick(/1H_Melee_Attack_Stab/i),
-      spin: pick(/2H_Melee_Attack_Spin\b/i, /Spinning/i), // overcharged swings
-      shoot: pick(/1H_Ranged_Shoot$/i, /Spellcast_Shoot/i),
-      cast_raise: pick(/Spellcast_Raise/i), // nova: raise-and-burst
-      cast_long: pick(/Spellcast_Long/i, /Spellcasting/i), // overcharge: banking power
-      cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i), // ultimates: call it down
-      block: pick(/^Block$/i, /^Blocking$/i), // stance-swap flourish
-      block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield
+      attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab|slash|slam/i),
+      melee_a: pick(/1H_Melee_Attack_Chop/i, /Melee_1H_Attack_Chop/i, /Melee_1H_Slash/i),
+      melee_b: pick(/1H_Melee_Attack_Slice_Diagonal/i, /Melee_1H_Attack_Slice_Diagonal/i, /Melee_1H_Stab/i),
+      melee_c: pick(/1H_Melee_Attack_Slice_Horizontal/i, /Melee_1H_Attack_Slice_Horizontal/i),
+      melee_d: pick(/1H_Melee_Attack_Stab/i, /Melee_1H_Attack_Stab/i),
+      spin: pick(/2H_Melee_Attack_Spin\b/i, /Melee_2H_Attack_Spin\b/i, /Spinning/i), // overcharged swings
+      shoot: pick(/1H_Ranged_Shoot$/i, /Spellcast_Shoot/i, /Ranged_Magic_Shoot$/i, /Ranged_1H_Shoot$/i, /Ranged_Bow_Release$/i),
+      cast_raise: pick(/Spellcast_Raise/i, /Ranged_Magic_Raise/i), // nova: raise-and-burst
+      cast_long: pick(/Spellcast_Long/i, /Spellcasting/i, /Ranged_Magic_Shooting/i), // overcharge: banking power
+      cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i, /Ranged_Magic_Raise/i), // ultimates: call it down
+      block: pick(/^Block$/i, /^Blocking$/i, /^Melee_Block$/i, /^Melee_Blocking$/i), // stance-swap flourish
+      block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield (both gens contain this)
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
       throw: pick(/^Throw$/i), // melee-class sidearm bolt
-      spellshoot: pick(/^Spellcast_Shoot$/i), // arcane bolt (magic missiles)
+      spellshoot: pick(/^Spellcast_Shoot$/i, /^Ranged_Magic_Shoot$/i), // arcane bolt (magic missiles)
       // Reactions + exits (one-shot)
       hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
       hit_b: pick(/^Hit_B$/i),
       death: pick(/^death_a$/i, /^death/i, /death|die/i),
       death_b: pick(/^Death_B$/i),
       // Theater (one-shot)
-      awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i), // rise on first reveal
-      taunt: pick(/Taunt_Longer/i, /^Taunt$/i), // ringside introductions
+      awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i, /^Skeletons_Spawn_Ground$/i), // rise on first reveal
+      taunt: pick(/Taunt_Longer/i, /^Taunt$/i, /Skeletons_Taunt$/i), // ringside introductions
       cheer: pick(/^Cheer/i), // floor clear / victory lap
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
@@ -590,10 +594,12 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number): THREE.Group {
     const spec = THEME.archetype[kind];
-    // Prefer an archetype-specific model, then the generic skeleton/monster.
+    // Prefer a floor-named menace (city bosses + the finale), then the
+    // archetype-specific model, then the generic skeleton/monster.
     const model =
+      (kind === "boss" ? this.modelInstance(`monster_boss_${floor}`) : null) ??
       this.modelInstance(`monster_${kind}`) ??
       this.modelInstance("skeleton") ??
       this.modelInstance("monster");
@@ -643,7 +649,7 @@ export class Renderer3D {
       obj = this.modelInstance("key");
       scale = 0.6;
     } else if (l.kind === "tome") {
-      const book = this.models["monster_shaman"]?.scene.getObjectByName("Spellbook");
+      const book = this.models["armory_arcana"]?.scene.getObjectByName("Spellbook");
       if (book) { obj = book.clone(true); scale = 0.8; }
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
@@ -1019,7 +1025,18 @@ export class Renderer3D {
       place("coin_stack_small", cx + 0.5, cy + 0.2, { scale: 0.3 });
     }
 
-    // 6) A light sprinkle of theme props elsewhere for texture (much sparser
+    // 6) Boss arenas are summoning sites: a ritual circle under the menace
+    //    marks where the System put it down. The finale's is DemonLord-sized.
+    const boss = state.monsters.find((mo) => mo.kind === "boss");
+    if (boss) {
+      place("summoning_circle", boss.pos.x, boss.pos.y, {
+        scale: state.floor >= CONFIG.finalFloor ? 3.2 : 2.0,
+        rot: 0,
+        jitter: 0,
+      });
+    }
+
+    // 7) A light sprinkle of theme props elsewhere for texture (much sparser
     //    than before — the intentional placements carry the look now).
     const density = theme.propDensity * 0.35 * (0.6 + frng() * 0.9);
     for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
@@ -1241,7 +1258,7 @@ export class Renderer3D {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
       if (!mesh) {
-        mesh = this.buildMonsterMesh(mon.kind);
+        mesh = this.buildMonsterMesh(mon.kind, state.floor);
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;

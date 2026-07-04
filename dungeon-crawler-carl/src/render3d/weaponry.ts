@@ -5,20 +5,20 @@ import type { Item, Player, Rarity } from "../sim/types";
 // arsenal as toggleable nodes parented to `handslot.l/r` bones, so a weapon from
 // one model can be grafted onto another's hand and it rides the animations.
 
-/** Every attachment node we know about, per source model (manifest key). */
+/** Every attachment node we know about, per source model (manifest key).
+ * The armory_* keys point at the 1.0 barbarian/mage/rogue GLBs, kept loaded
+ * purely as weapon-mesh sources now that monsters wear the newer KayKit cast
+ * (which ships clean bodies with no arsenal nodes). */
 export const ATTACHMENT_NODES: Record<string, string[]> = {
   player: ["1H_Sword", "2H_Sword", "1H_Sword_Offhand", "Badge_Shield", "Rectangle_Shield", "Round_Shield", "Spike_Shield"],
-  monster_bomber: ["1H_Axe", "2H_Axe", "1H_Axe_Offhand", "Mug"], // barbarian.glb
-  monster_shaman: ["1H_Wand", "2H_Staff", "Spellbook", "Spellbook_open"], // mage.glb
-  monster_phantom: ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"], // rogue.glb
+  armory_axes: ["1H_Axe", "2H_Axe", "1H_Axe_Offhand", "Mug"], // barbarian.glb
+  armory_arcana: ["1H_Wand", "2H_Staff", "Spellbook", "Spellbook_open"], // mage.glb
+  armory_knives: ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"], // rogue.glb
 };
 
 /** What each character shows when nothing special is equipped (one clean loadout). */
 export const CANONICAL_LOADOUT: Record<string, string[]> = {
   player: ["1H_Sword", "Round_Shield"],
-  monster_bomber: ["1H_Axe"],
-  monster_shaman: ["2H_Staff"],
-  monster_phantom: ["Knife"],
 };
 
 interface WeaponVisual {
@@ -30,14 +30,14 @@ interface WeaponVisual {
 /** Weapon noun -> mesh. Rare+ one-handers upgrade to their two-handed cousin. */
 const WEAPON_VISUALS: Record<string, { base: WeaponVisual; heavy?: WeaponVisual }> = {
   Blade: { base: { srcKey: "player", node: "1H_Sword" }, heavy: { srcKey: "player", node: "2H_Sword", twoHanded: true } },
-  Axe: { base: { srcKey: "monster_bomber", node: "1H_Axe" }, heavy: { srcKey: "monster_bomber", node: "2H_Axe", twoHanded: true } },
-  Maul: { base: { srcKey: "monster_bomber", node: "2H_Axe", twoHanded: true } },
-  Spear: { base: { srcKey: "monster_shaman", node: "2H_Staff", twoHanded: true } },
-  Cleaver: { base: { srcKey: "monster_phantom", node: "Knife" } },
-  Wand: { base: { srcKey: "monster_shaman", node: "1H_Wand" } },
-  Staff: { base: { srcKey: "monster_shaman", node: "2H_Staff", twoHanded: true } },
-  Crossbow: { base: { srcKey: "monster_phantom", node: "1H_Crossbow" }, heavy: { srcKey: "monster_phantom", node: "2H_Crossbow", twoHanded: true } },
-  Mug: { base: { srcKey: "monster_bomber", node: "Mug" } },
+  Axe: { base: { srcKey: "armory_axes", node: "1H_Axe" }, heavy: { srcKey: "armory_axes", node: "2H_Axe", twoHanded: true } },
+  Maul: { base: { srcKey: "armory_axes", node: "2H_Axe", twoHanded: true } },
+  Spear: { base: { srcKey: "armory_arcana", node: "2H_Staff", twoHanded: true } },
+  Cleaver: { base: { srcKey: "armory_knives", node: "Knife" } },
+  Wand: { base: { srcKey: "armory_arcana", node: "1H_Wand" } },
+  Staff: { base: { srcKey: "armory_arcana", node: "2H_Staff", twoHanded: true } },
+  Crossbow: { base: { srcKey: "armory_knives", node: "1H_Crossbow" }, heavy: { srcKey: "armory_knives", node: "2H_Crossbow", twoHanded: true } },
+  Mug: { base: { srcKey: "armory_axes", node: "Mug" } },
 };
 
 /** Armor noun -> which of the Knight's shields you carry. */
