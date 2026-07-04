@@ -8,7 +8,9 @@ import {
   CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
-import { Tile, type Announcement, type GameState, type HitEvent, type Item, type Player } from "./sim/types";
+import {
+  Tile, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type Player,
+} from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -16,8 +18,8 @@ import {
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, rebind,
-  saveBindings, saveMouseAim, type BindableAction, type Bindings,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadNotify, rebind,
+  saveBindings, saveMouseAim, saveNotify, type BindableAction, type Bindings, type NotifyLevel,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -63,6 +65,7 @@ let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
 let mouseAim = loadMouseAim();
+let notifyLevel = loadNotify();
 canvas.style.cursor = mouseAim ? "crosshair" : "default"; // crosshair only when aiming
 
 function resize(): void {
@@ -106,7 +109,7 @@ const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
 const fxLayer = document.getElementById("fx")!;
-const toastLayer = document.getElementById("toast")!;
+const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 
@@ -582,6 +585,19 @@ kbMouseAim.addEventListener("click", () => {
   applyBindings(); // refresh the banner hint
 });
 renderMouseAim();
+
+// System-chatter verbosity: cycles the ticker filter (see TICKER_KINDS).
+const NOTIFY_CYCLE: NotifyLevel[] = ["normal", "critical", "all"];
+const kbNotify = document.getElementById("kb-notify")!;
+function renderNotify(): void {
+  kbNotify.textContent = notifyLevel.toUpperCase();
+}
+kbNotify.addEventListener("click", () => {
+  notifyLevel = NOTIFY_CYCLE[(NOTIFY_CYCLE.indexOf(notifyLevel) + 1) % NOTIFY_CYCLE.length];
+  saveNotify(notifyLevel);
+  renderNotify();
+});
+renderNotify();
 
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
@@ -1202,58 +1218,34 @@ function spawnDamageNumber(h: HitEvent): void {
   setTimeout(() => el.remove(), 850);
 }
 
-// DCC "System" announcer. High-priority lines get an exclusive banner; the
-// rest go through a paced toast queue so a boss-kill burst (level-ups, loot
-// box, achievements, ...) trickles in instead of wallpapering the screen.
-// Every line is also in the HUD log, so dropping a stale toast loses nothing.
-const TOAST_VISIBLE_MAX = 3; // concurrent toasts on screen
-const TOAST_GAP_MS = 650; // spacing between toast reveals
-const TOAST_HOLD_MS = 2600; // how long a toast holds before fading
-const TOAST_STALE_MS = 6000; // queued longer than this -> stays log-only
+// DCC "System" announcer, routed by priority + kind (backlog #9). High-priority
+// lines get the exclusive center banner; everything else goes to the compact
+// right-rail ticker, filtered by the player's verbosity setting. Every line is
+// also in the HUD log, so filtering loses nothing.
+const TICKER_MAX = 6; // visible ticker lines before the oldest is evicted
+const TICKER_HOLD_MS = 4200;
 const BANNER_HOLD_MS = 3400;
 
-const toastQueue: { a: Announcement; queuedAt: number }[] = [];
-let toastsVisible = 0;
-let nextToastAt = 0;
-let toastPumpTimer = 0;
+// What each verbosity tier lets through to the ticker (banners are unaffected).
+const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
+  all: ["boss", "progress", "levelup", "loot", "achievement", "show", "flavor"],
+  normal: ["boss", "progress", "levelup", "loot", "achievement", "show"],
+  critical: ["boss", "progress", "achievement"],
+};
 
 function showAnnouncement(a: Announcement): void {
   if (a.priority === "high") { showBanner(a); return; }
-  toastQueue.push({ a, queuedAt: performance.now() });
-  pumpToasts();
-}
-
-function pumpToasts(): void {
-  const now = performance.now();
-  // The moment passed while the queue was backed up; the log has it.
-  while (toastQueue.length > 0 && now - toastQueue[0].queuedAt > TOAST_STALE_MS) toastQueue.shift();
-  if (toastQueue.length === 0) return;
-  if (toastsVisible >= TOAST_VISIBLE_MAX || now < nextToastAt) {
-    // A slot opening (fade-out below) or the gap timer re-pumps.
-    if (now < nextToastAt) {
-      clearTimeout(toastPumpTimer);
-      toastPumpTimer = window.setTimeout(pumpToasts, nextToastAt - now);
-    }
-    return;
-  }
-  const { a } = toastQueue.shift()!;
-  nextToastAt = now + TOAST_GAP_MS;
-  toastsVisible++;
+  if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   const el = document.createElement("div");
-  el.className = "ann";
+  el.className = `tk tk-${a.kind}`;
   el.textContent = a.text;
-  toastLayer.appendChild(el);
+  tickerLayer.appendChild(el);
+  while (tickerLayer.children.length > TICKER_MAX) tickerLayer.firstElementChild!.remove();
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => {
     el.classList.remove("show");
-    setTimeout(() => el.remove(), 400);
-    toastsVisible--;
-    pumpToasts();
-  }, TOAST_HOLD_MS);
-  if (toastQueue.length > 0) {
-    clearTimeout(toastPumpTimer);
-    toastPumpTimer = window.setTimeout(pumpToasts, TOAST_GAP_MS);
-  }
+    setTimeout(() => el.remove(), 350);
+  }, TICKER_HOLD_MS);
 }
 
 // Headline moments (boss down, new band, wipe): one at a time, front and center.

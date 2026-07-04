@@ -126,3 +126,26 @@ export function saveMouseAim(on: boolean): void {
     /* best-effort */
   }
 }
+
+// Announcer verbosity: how much System chatter reaches the side ticker.
+// Headline banners always show; the HUD log always keeps everything.
+export type NotifyLevel = "all" | "normal" | "critical";
+
+const NOTIFY_KEY = "dcc:notify:v1";
+
+export function loadNotify(): NotifyLevel {
+  try {
+    const v = localStorage.getItem(NOTIFY_KEY);
+    return v === "all" || v === "critical" ? v : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+export function saveNotify(level: NotifyLevel): void {
+  try {
+    localStorage.setItem(NOTIFY_KEY, level);
+  } catch {
+    /* best-effort */
+  }
+}
