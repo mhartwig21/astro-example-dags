@@ -18,15 +18,31 @@ export const MODEL_MANIFEST: Record<string, string> = {
   player: "/assets/characters/adventurer.glb",
   skeleton: "/assets/characters/skeleton.glb",
   // Per-archetype monster skins (fall back to `skeleton` when absent).
-  monster_swarmer: "/assets/characters/skeleton_rogue.glb",
-  monster_brute: "/assets/characters/skeleton_warrior.glb",
+  // The newer KayKit generation (Mystery Monthly + Skeletons 1.1) ships
+  // characters WITHOUT baked animations — they play the shared rig clip
+  // libraries below (see CHARACTER_RIGS / RIG_CLIP_MANIFEST).
+  monster_swarmer: "/assets/characters/skeleton_minion.glb",
+  monster_brute: "/assets/characters/orc_brute.glb",
   monster_ranged: "/assets/characters/skeleton_mage.glb",
-  monster_bomber: "/assets/characters/barbarian.glb",
-  monster_shaman: "/assets/characters/mage.glb",
-  monster_phantom: "/assets/characters/rogue.glb",
+  monster_bomber: "/assets/characters/clown.glb", // the System loves its clowns
+  monster_shaman: "/assets/characters/witch.glb",
+  monster_phantom: "/assets/characters/vampire.glb",
+  monster_charger: "/assets/characters/werewolf.glb",
+  monster_spitter: "/assets/characters/plant_warrior.glb",
+  monster_necromancer: "/assets/characters/necromancer.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
-  // Extra hero skin (heroSkin in sim/game.ts): the one adventurer the monster
-  // roster doesn't already wear. knight/barbarian/mage/rogue reuse loaded GLBs.
+  // City-boss arenas + the finale get named menaces (keyed by floor).
+  monster_boss_6: "/assets/characters/black_knight.glb",
+  monster_boss_12: "/assets/characters/frost_golem.glb",
+  monster_boss_18: "/assets/characters/demon_lord.glb",
+  // Armory sources: the 1.0 adventurer GLBs. They carry the weapon/shield
+  // meshes weaponry.ts grafts onto hands, AND they are the barbarian/mage/
+  // rogue hero skins (heroSkin in sim/game.ts) now that monsters wear the
+  // newer KayKit cast instead.
+  armory_axes: "/assets/characters/barbarian.glb",
+  armory_arcana: "/assets/characters/mage.glb",
+  armory_knives: "/assets/characters/rogue.glb",
+  // Extra hero skin: the one adventurer nothing else wears.
   hero_hooded: "/assets/characters/rogue_hooded.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
@@ -58,15 +74,55 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "gravestone", "grave_A", "grave_B", "gravemarker_A", "crypt",
       "lantern_standing", "bench", "pumpkin_orange", "pumpkin_orange_small",
       "ribcage", "bone_A",
+      // DemonLord's arena set-piece (KayKit Monthly, CC0)
+      "summoning_circle",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
+};
+
+// Animation-less characters and the rig whose shared clip library animates
+// them. KayKit's Medium and Large rigs use identical bone NAMES (clips bind
+// by name), differing only in proportions — matching the rig keeps feet
+// planted and hands where the clip expects them.
+export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
+  monster_swarmer: "medium", // Skeleton_Minion
+  monster_brute: "large", // OrcBrute
+  monster_bomber: "medium", // Clown
+  monster_shaman: "medium", // Witch
+  monster_phantom: "medium", // Vampire
+  monster_charger: "medium", // Werewolf
+  monster_spitter: "medium", // PlantWarrior
+  monster_necromancer: "medium", // Necromancer
+  monster_boss_6: "large", // BlackKnight
+  monster_boss_12: "large", // FrostGolem
+  monster_boss_18: "large", // DemonLord
+};
+
+// Shared rig clip libraries (KayKit Character Animations 1.1 + DemonLord pack).
+// Loaded once; their AnimationClips are appended to every character on that rig.
+const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
+  medium: [
+    "/assets/characters/rig_medium_general.glb",
+    "/assets/characters/rig_medium_movementbasic.glb",
+    "/assets/characters/rig_medium_combatmelee.glb",
+    "/assets/characters/rig_medium_combatranged.glb",
+    "/assets/characters/rig_medium_special.glb",
+  ],
+  large: [
+    "/assets/characters/rig_large_general.glb",
+    "/assets/characters/rig_large_movementbasic.glb",
+    "/assets/characters/rig_large_combatmelee.glb",
+  ],
 };
 
 export async function loadModels(): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();
   const out: Record<string, LoadedModel> = {};
-  await Promise.all(
-    Object.entries(MODEL_MANIFEST).map(async ([key, url]) => {
+  // Rig clip libraries load alongside the models; each library GLB carries a
+  // mannequin we discard — only its AnimationClips matter.
+  const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
+  await Promise.all([
+    ...Object.entries(MODEL_MANIFEST).map(async ([key, url]) => {
       try {
         const gltf = await loader.loadAsync(url);
         out[key] = { scene: gltf.scene, animations: gltf.animations };
@@ -74,6 +130,28 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
         // File absent or failed to parse — leave it out; renderer falls back.
       }
     }),
-  );
+    ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).map(async (rig) => {
+      // Per-pack slots keep the clip order stable regardless of which fetch
+      // finishes first — the renderer's regex fallbacks are order-sensitive.
+      const slots = await Promise.all(
+        RIG_CLIP_MANIFEST[rig].map(async (url) => {
+          try {
+            return (await loader.loadAsync(url)).animations;
+          } catch {
+            // Missing clip pack: rig-based characters just animate with less variety.
+            return [];
+          }
+        }),
+      );
+      rigClips[rig] = slots.flat();
+    }),
+  ]);
+  // Attach the shared library to every animation-less rig-based character.
+  // Clips bind to each model's own skeleton by node name at mixer time, so
+  // one clip array can serve many characters.
+  for (const [key, rig] of Object.entries(CHARACTER_RIGS)) {
+    const m = out[key];
+    if (m && m.animations.length === 0) m.animations = rigClips[rig];
+  }
   return out;
 }
