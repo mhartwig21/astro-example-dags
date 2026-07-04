@@ -43,28 +43,6 @@ scarcity so hitting one is a run-to-run lottery, not a guarantee:
 - Keep the balance bot honest: OP must mean "feels broken", not "breaks the
   regression tests" — tune monster scaling alongside.
 
-## 8. Boss name overlaps announcements — popup collision audit — bug
-
-The ringside encounter banner and announcement toasts collide (there was a
-prior `#banner` id collision fix — the layout conflict remains). Do a full
-audit of everything that can occupy the screen at once: encounter banner,
-announcement toasts, headline moments, level-up draft, sponsor draft,
-achievement pops, minimap, cockpit. Define screen zones + a single stacking
-policy (in `iso.html` CSS + `src/main3d.ts` toast/banner code) so no two
-systems ever claim the same pixels.
-
-## 9. Way too many System notifications — UX
-
-Announcements already carry `kind` (boss/progress/levelup/loot/achievement/
-show/flavor) and `priority` (`announce()` in `src/sim/game.ts`) — the host
-just renders too many as center-screen toasts. Route by kind/priority:
-- Center toasts: ONLY high-priority headliners (boss, wipe, epic/ultimate
-  loot, new band).
-- Everything else: a compact side ticker/log that fades, or suppressed
-  entirely behind a verbosity setting (e.g. `dcc:notify` local setting with
-  critical/normal/all).
-The sim already provides the data; this is purely host-side routing.
-
 ## 10. More equipment slots (LoL has six; we have three) — design/feature
 
 `Player.equipment` is hard-coded to `{ weapon, armor, trinket }`
