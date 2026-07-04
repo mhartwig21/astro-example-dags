@@ -109,7 +109,8 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
-  // specialists: bombers (floor 2+), shamans (floor 4+), phantoms (floor 6+).
+  // specialists: bombers (floor 2+), chargers (3+), shamans (4+), spitters
+  // (5+), phantoms (6+), necromancers (7+).
   const rangedW = 1 + floor * 0.5;
   const bruteW = floor >= 3 ? floor * 0.4 : 0;
   const swarmW = 2 + floor * 0.3;
@@ -117,7 +118,10 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const bomberW = floor >= 2 ? floor * 0.3 : 0;
   const shamanW = floor >= 4 ? floor * 0.25 : 0;
   const phantomW = floor >= 6 ? floor * 0.3 : 0;
-  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW;
+  const chargerW = floor >= 3 ? floor * 0.3 : 0;
+  const spitterW = floor >= 5 ? floor * 0.25 : 0;
+  const necroW = floor >= 7 ? floor * 0.2 : 0;
+  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -125,6 +129,9 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= bomberW) < 0) return "bomber";
   if ((r -= shamanW) < 0) return "shaman";
   if ((r -= phantomW) < 0) return "phantom";
+  if ((r -= chargerW) < 0) return "charger";
+  if ((r -= spitterW) < 0) return "spitter";
+  if ((r -= necroW) < 0) return "necromancer";
   return "brute";
 }
 
@@ -139,7 +146,9 @@ const CITY_BOSS_NAMES = [
 ];
 
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
-const ELITE_AFFIXES: EliteAffix[] = ["swift", "shielded", "volatile", "summoner"];
+const ELITE_AFFIXES: EliteAffix[] = [
+  "swift", "shielded", "volatile", "summoner", "splitter", "thorns",
+];
 
 /** A city-boss arena floor (6, 12, ... but never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
@@ -473,6 +482,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.loot = [];
   state.projectiles = [];
   state.hazards = [];
+  state.corpses = [];
   state.encounter = null;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
@@ -611,6 +621,7 @@ export function createGame(seed: number): GameState {
     strikes: [],
     bulletTimeLeft: 0,
     hazards: [],
+    corpses: [],
     encounter: null,
     killsThisStep: 0,
     escapedCollapse: false,
@@ -705,6 +716,24 @@ function maybeStartEncounter(state: GameState): void {
     for (const p of alivePlayers(state)) addHype(state, p, 8); // entrances play great
     return;
   }
+}
+
+/**
+ * Necromancer raise resolves: the committed corpse (if it hasn't faded) gets
+ * back up as a fresh, weakened minion of its old kind. Worth almost no XP.
+ */
+export function raiseCorpse(state: GameState, m: Monster): void {
+  const idx = state.corpses.findIndex((c) => c.id === m.raiseId);
+  m.raiseId = undefined;
+  if (idx < 0) return; // the corpse faded mid-ritual — whiffed
+  const corpse = state.corpses.splice(idx, 1)[0];
+  const raised = makeMonster(state, corpse.kind, corpse.pos);
+  raised.hp = raised.maxHp = Math.max(1, Math.round(raised.maxHp * CONFIG.necroRaisedHpMult));
+  raised.xp = CONFIG.necroRaisedXp;
+  m.summons = (m.summons ?? 0) + 1;
+  state.monsters.push(raised);
+  hit(state, raised.pos, 0, "weapon"); // a poof for the juice layer
+  state.events.push(`A necromancer drags a ${corpse.kind} back to its feet.`);
 }
 
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
@@ -937,6 +966,8 @@ function damageMonster(
       m.stagger = CONFIG.staggerDuration;
       m.windup = 0; // interrupted — the committed attack never lands
       m.windupKind = undefined;
+      m.chargeT = 0; // a poise break also stops a rush cold
+      m.chargeDir = undefined;
     }
     if (opts.dir && opts.knockback) {
       moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
@@ -945,6 +976,22 @@ function damageMonster(
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0 });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
+  // Thorns elites bite back: a slice of every hit returns to the attacker,
+  // capped per hit so burst builds feel it without getting one-shot by it.
+  if (m.affix === "thorns" && p.alive && dmg > 0) {
+    const reflect = Math.min(
+      Math.round(dmg * CONFIG.thornsReflectFraction),
+      Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)),
+    );
+    p.hp -= reflect;
+    p.damageTaken += reflect;
+    hit(state, p.pos, reflect, "player");
+    if (p.hp <= 0) {
+      handlePlayerDeath(state, p, `${p.name} beat ${m.eliteName ?? "an elite"} to death with their own health bar. THORNS, folks.`);
+    } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+      addHype(state, p, CONFIG.show.hypeLowHpHit);
+    }
+  }
 }
 
 /** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
@@ -1042,6 +1089,9 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   bomber: CONFIG.show.hypeBomber,
   shaman: CONFIG.show.hypeShaman,
   phantom: CONFIG.show.hypePhantom,
+  charger: CONFIG.show.hypeCharger,
+  spitter: CONFIG.show.hypeSpitter,
+  necromancer: CONFIG.show.hypeNecromancer,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -1081,11 +1131,17 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
 
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
+  const spawned: Monster[] = []; // splitter children (added after the sweep)
   let killsThisStep = 0;
   for (const m of state.monsters) {
     if (m.hp > 0) {
       survivors.push(m);
       continue;
+    }
+    // Every fallen regular leaves a raisable corpse (necromancer fuel).
+    if (m.kind !== "boss") {
+      state.corpses.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: m.kind, t: CONFIG.corpseTtl });
+      if (state.corpses.length > CONFIG.corpseMax) state.corpses.shift();
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
@@ -1119,6 +1175,19 @@ function reapDead(state: GameState): void {
         damage: m.damage * CONFIG.volatileDmgMult,
       });
       announce(state, "boss", `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+    }
+    // Splitter elites burst into a swarm — the fight isn't over, it multiplied.
+    if (m.affix === "splitter") {
+      for (let i = 0; i < CONFIG.splitterCount; i++) {
+        const a = nextFloat(state.rng) * Math.PI * 2;
+        const child = makeMonster(state, "swarmer", {
+          x: m.pos.x + Math.cos(a) * 0.6, y: m.pos.y + Math.sin(a) * 0.6,
+        });
+        child.xp = 1; // the payout was the elite, not the confetti
+        spawned.push(child);
+        hit(state, child.pos, 0, "weapon"); // a poof per child for the juice layer
+      }
+      announce(state, "boss", `${m.eliteName ?? "The elite"} SPLITS APART. It's never just one.`);
     }
     grantPartyXp(state, m.xp);
     if (m.hasKey) {
@@ -1156,7 +1225,7 @@ function reapDead(state: GameState): void {
     }
   }
   state.killsThisStep = killsThisStep;
-  state.monsters = survivors;
+  state.monsters = spawned.length > 0 ? survivors.concat(spawned) : survivors;
 }
 
 function collectLoot(state: GameState): void {
@@ -1870,12 +1939,38 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
   announce(state, "show", `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
 }
 
-/** Tick volatile-corpse blasts; expiry damages players still in the ring. */
+/**
+ * Tick ground danger. Blasts (volatile corpses) damage once on expiry;
+ * puddles (spitter acid) damage everyone inside on a repeating tick until
+ * they dry up. Dash i-frames dodge both.
+ */
 function updateHazards(state: GameState, dt: number): void {
   if (state.hazards.length === 0) return;
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
+    if (hz.kind === "puddle") {
+      if (hz.t <= 0) continue; // dried up, harmless
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds;
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          const dmg = rollDamage(state.rng, hz.damage);
+          p.hp -= dmg;
+          p.damageTaken += dmg;
+          hit(state, p.pos, dmg, "player", { killed: p.hp <= 0 });
+          if (p.hp <= 0) {
+            handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
+          } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+            addHype(state, p, CONFIG.show.hypeLowHpHit);
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.t > 0) { remaining.push(hz); continue; }
     hit(state, hz.pos, 0, "crit"); // impact flash for the juice layer
     for (const p of state.players) {
@@ -1897,6 +1992,13 @@ function updateHazards(state: GameState, dt: number): void {
     }
   }
   state.hazards = remaining;
+}
+
+/** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
+function updateCorpses(state: GameState, dt: number): void {
+  if (state.corpses.length === 0) return;
+  for (const c of state.corpses) c.t -= dt;
+  state.corpses = state.corpses.filter((c) => c.t > 0);
 }
 
 /** Tick scheduled airstrike shells; each impact is a radial blast. */
@@ -2159,6 +2261,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt);
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
+  updateCorpses(state, mdt);
   updateStrikes(state, dt);
   updateProjectiles(state, dt);
 

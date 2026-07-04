@@ -147,6 +147,33 @@ export const CONFIG = {
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
   phantomBlinkCooldown: 2.8, // seconds between blinks
 
+  // Charger: locks a direction during a LONG windup, then rushes down the line,
+  // plowing through anyone still standing on it. Sidestep the lane — the commit
+  // point is the tell, the direction never updates after it.
+  chargerMinRange: 2.2, // tiles: closer than this it just swings instead
+  chargerRange: 7, // tiles: max distance it will commit to a rush from
+  chargerDashSpeed: 11, // tiles/sec during the rush
+  chargerHitRadius: 0.6, // tiles: how close the rush must pass to clip you
+  chargerCooldown: 3.5, // seconds before it can rush again
+
+  // Spitter: keeps a ranged standoff and lobs acid that lingers as a ground
+  // puddle. Standing in it is a choice; the damage repeats per tick.
+  spitterCooldown: 3.2, // seconds between lobs
+  puddleRadius: 1.2, // tiles
+  puddleDuration: 3.0, // seconds a puddle lingers
+  puddleTickSeconds: 0.5, // seconds between damage ticks while standing in it
+  spitterPuddleDmgMult: 0.35, // per-tick damage relative to the spitter's damage stat
+
+  // Necromancer: a back-line caster that RAISES fallen monsters (fresh corpses
+  // only). Kill it first or the pack never stays dead.
+  corpseTtl: 12, // seconds a corpse stays raisable
+  corpseMax: 40, // corpse list cap (oldest fall off — bounded state)
+  necroRaiseRange: 5, // tiles: corpses it can reach
+  necroRaiseCooldown: 5, // seconds between raises
+  necroRaiseMax: 4, // lifetime raises per necromancer
+  necroRaisedHpMult: 0.6, // raised minions come back at reduced HP
+  necroRaisedXp: 1, // raised minions are worth almost nothing (not a farm)
+
   // Ultimates (the fifth slot): long cooldowns, screen-scale impact.
   ultAirstrikeCooldown: 45,
   ultAirstrikeShells: 6,
@@ -219,6 +246,9 @@ export const CONFIG = {
     hypeBomber: 4, // explosive deaths play great on camera
     hypeShaman: 6, // priority target down = crowd relief
     hypePhantom: 5, // catching the fast one is a highlight reel
+    hypeCharger: 6, // dodging the freight train, then dropping it
+    hypeSpitter: 4,
+    hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -257,7 +287,8 @@ export const CONFIG = {
   eliteHitCapFraction: 0.12,
   // Elite AFFIXES (from this floor): each named elite rolls one mechanic —
   // swift (+speed), shielded (takes less damage), volatile (delayed death
-  // blast — clear the corpse), summoner (calls swarmer adds).
+  // blast — clear the corpse), summoner (calls swarmer adds), splitter
+  // (bursts into swarmers on death), thorns (reflects a slice of your hits).
   eliteAffixFromFloor: 3,
   // Ringside introductions: closing within this range of an unmet boss/elite
   // freezes the world for the reveal (nobody gets hit mid-banner).
@@ -270,6 +301,9 @@ export const CONFIG = {
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  splitterCount: 3, // swarmers a splitter elite bursts into on death
+  thornsReflectFraction: 0.25, // slice of each hit reflected back at the attacker...
+  thornsReflectCapFraction: 0.04, // ...capped at this fraction of the attacker's maxHp per hit
   cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
   // City-boss pools sized against measured shopping-player DPS, which roughly
   // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
@@ -324,6 +358,13 @@ export const ARCHETYPES = {
   shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1, radius: 0.38 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
   phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3 },
+  // Charger: its long windup IS the dodge window — the rush direction is locked
+  // at commit (see charger* knobs). Heavy: hard to stagger out of the commit.
+  charger: { hpMult: 1.4, dmgMult: 1.3, speedMult: 0.8, attackRange: 1.0, xpMult: 1.6, ranged: false, windup: 0.85, poise: 0.55, mass: 2.2, radius: 0.45 },
+  // Spitter: standoff caster; dmgMult scales its puddle ticks (see spitter*/puddle*).
+  spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
+  // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
+  necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

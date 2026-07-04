@@ -1272,6 +1272,152 @@ describe("new archetypes", () => {
   });
 });
 
+describe("new specialist archetypes (charger / spitter / necromancer)", () => {
+  it("charger locks a lane, telegraphs long, then rushes through whoever stayed on it", () => {
+    const g = createGame(910);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    g.map.tiles.fill(1); // open floor so walls can't cut the rush short
+    const ch = mkMon({
+      id: 1, kind: "charger", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 60, maxHp: 60, damage: 10, attackRange: 1.0, speed: 0,
+    });
+    g.monsters.push(ch);
+    step(g, idle(), 1 / 60);
+    expect(ch.windup).toBeGreaterThan(0); // committed — this is the dodge window
+    expect(ch.windupKind).toBe("charge");
+    const hp0 = p.hp;
+    stepPastWindup(g, ch);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // let the rush run its line out
+    expect(p.hp).toBeLessThan(hp0); // stood on the tracks
+    expect(ch.attackCooldown).toBeGreaterThan(0); // winded after the rush
+  });
+
+  it("sidestepping off the locked lane dodges the whole rush", () => {
+    const g = createGame(915);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    g.map.tiles.fill(1);
+    const ch = mkMon({
+      id: 1, kind: "charger", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 60, maxHp: 60, damage: 10, attackRange: 1.0, speed: 0,
+    });
+    g.monsters.push(ch);
+    step(g, idle(), 1 / 60); // direction locked NOW
+    expect(ch.windupKind).toBe("charge");
+    p.pos = { x: p.pos.x, y: p.pos.y + 2 }; // step off the lane
+    const hp0 = p.hp;
+    stepPastWindup(g, ch);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60);
+    expect(p.hp).toBe(hp0); // the train went by
+  });
+
+  it("spitter lobs a lingering acid puddle that ticks anyone standing in it, then dries up", () => {
+    const g = createGame(911);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const sp = mkMon({
+      id: 1, kind: "spitter", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 30, maxHp: 30, damage: 10, attackRange: 5.5, speed: 0,
+    });
+    g.monsters.push(sp);
+    step(g, idle(), 1 / 60);
+    expect(sp.windup).toBeGreaterThan(0); // aiming the lob at where you stand
+    expect(sp.windupKind).toBe("spit");
+    const hp0 = p.hp;
+    stepPastWindup(g, sp);
+    expect(g.hazards.some((hz) => hz.kind === "puddle")).toBe(true);
+    expect(p.hp).toBeLessThan(hp0); // caught the splash tick
+    sp.hp = 0; // retire the spitter so no second lob muddies the assertion
+    const afterSplash = p.hp;
+    for (let i = 0; i < 45; i++) step(g, idle(), 1 / 60); // ~0.75s: at least one more tick
+    expect(p.hp).toBeLessThan(afterSplash); // standing in it is a CHOICE
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 60); // past puddleDuration
+    expect(g.hazards.length).toBe(0); // dried up
+  });
+
+  it("fallen monsters leave raisable corpses that fade after their TTL", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const grunt = mkMon({ id: 1, pos: { x: p.pos.x + 6, y: p.pos.y }, hp: 0, maxHp: 10 });
+    g.monsters.push(grunt);
+    step(g, idle(), 1 / 60); // reaped
+    expect(g.corpses.length).toBe(1);
+    expect(g.corpses[0].kind).toBe("grunt");
+    for (let i = 0; i < Math.ceil((CONFIG.corpseTtl + 1) * 60); i++) step(g, idle(), 1 / 60);
+    expect(g.corpses.length).toBe(0); // too cold to raise
+  });
+
+  it("necromancer raises a fresh corpse as a weakened, worthless-XP minion", () => {
+    const g = createGame(912);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const necro = mkMon({
+      id: 1, kind: "necromancer", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 50, maxHp: 50, attackRange: 5.5, speed: 0,
+    });
+    g.monsters.push(necro);
+    g.corpses.push({ id: 777, pos: { x: p.pos.x + 4, y: p.pos.y + 1 }, kind: "grunt", t: 10 });
+    step(g, idle(), 1 / 60);
+    expect(necro.windup).toBeGreaterThan(0); // the ritual telegraphs — interrupt it
+    expect(necro.windupKind).toBe("raise");
+    expect(necro.healCd).toBeGreaterThan(0); // paid up front
+    stepPastWindup(g, necro);
+    expect(g.monsters.length).toBe(2);
+    const raised = g.monsters.find((m) => m.id !== 1)!;
+    expect(raised.kind).toBe("grunt");
+    expect(raised.xp).toBe(CONFIG.necroRaisedXp); // not a farm
+    expect(raised.hp).toBeLessThan(CONFIG.monsterBaseHp); // came back weakened
+    expect(g.corpses.length).toBe(0); // the corpse was consumed
+    expect(necro.summons).toBe(1); // lifetime raise cap ticks up
+  });
+});
+
+describe("new elite affixes (splitter / thorns)", () => {
+  it("splitter elites burst into swarmers on death", () => {
+    const g = createGame(913);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const elite = mkMon({
+      id: 1, kind: "brute", pos: { x: p.pos.x + 8, y: p.pos.y },
+      hp: 0, maxHp: 80, elite: true, eliteName: "Testy the Divisible", affix: "splitter",
+    });
+    g.monsters.push(elite);
+    step(g, idle(), 1 / 60);
+    const children = g.monsters.filter((m) => m.kind === "swarmer");
+    expect(children.length).toBe(CONFIG.splitterCount);
+    expect(children.every((c) => c.hp > 0 && c.xp === 1)).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("SPLITS APART"))).toBe(true);
+  });
+
+  it("thorns elites reflect a capped slice of every hit back at the attacker", () => {
+    const g = createGame(914);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const elite = mkMon({
+      id: 1, kind: "grunt", pos: { x: p.pos.x + 1.0, y: p.pos.y },
+      hp: 5000, maxHp: 5000, elite: true, eliteName: "Sir Prickly", affix: "thorns",
+      introduced: true, // skip the ringside freeze — we're here for the thorns
+      attackCooldown: 99, // it never swings back — any damage taken is thorns
+    });
+    g.monsters.push(elite);
+    const hp0 = p.hp;
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(elite.hp).toBeLessThan(5000); // the swing landed
+    const reflected = hp0 - p.hp;
+    expect(reflected).toBeGreaterThan(0); // and it bit back
+    expect(reflected).toBeLessThanOrEqual(Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)));
+  });
+});
+
 describe("attack telegraphs + hit reactions", () => {
   function adjacentGrunt(g: ReturnType<typeof createGame>, over: Partial<import("../src/sim/types").Monster> = {}) {
     const p = g.players[0];
