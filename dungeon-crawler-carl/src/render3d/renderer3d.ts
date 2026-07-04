@@ -1297,13 +1297,18 @@ export class Renderer3D {
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
         const radius =
           mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
-          mon.windupKind === "shot" ? 0.5 : mon.attackRange + CONFIG.monsterStrikeGrace;
+          mon.windupKind === "shot" || mon.windupKind === "spit" ? 0.5 :
+          mon.windupKind === "raise" ? 0.7 :
+          mon.windupKind === "charge" ? 0.9 : mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
         const mat = tel.material as THREE.MeshBasicMaterial;
         mat.color.setHex(
           mon.windupKind === "fuse" ? 0xff7733 :
-          mon.windupKind === "shot" ? 0xffcc44 : 0xff5030,
+          mon.windupKind === "shot" ? 0xffcc44 :
+          mon.windupKind === "spit" ? 0xa4c93f :
+          mon.windupKind === "raise" ? 0x8a5cff :
+          mon.windupKind === "charge" ? 0xff9a2e : 0xff5030,
         );
         mat.opacity = 0.2 + prog * 0.65;
         tel.visible = mesh.visible;
@@ -1367,15 +1372,20 @@ export class Renderer3D {
     this.prevMonsterCount = monsterCount;
     this.prevStatus = state.status;
 
-    // Volatile-corpse hazards: reconcile blast-telegraph rings by id.
+    // Ground hazards, reconciled by id: volatile blasts are rings that brighten
+    // toward detonation; spitter puddles are filled acid pools that fade out.
     const hazSeen = new Set<number>();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
+      const puddle = hz.kind === "puddle";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
-          new THREE.RingGeometry(0.8, 1, 28),
-          new THREE.MeshBasicMaterial({ color: 0xff4628, transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          puddle ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
+          new THREE.MeshBasicMaterial({
+            color: puddle ? 0x7fb832 : 0xff4628,
+            transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
         );
         ring.rotation.x = -Math.PI / 2;
         this.scene.add(ring);
@@ -1383,8 +1393,9 @@ export class Renderer3D {
       }
       ring.position.set(hz.pos.x, 0.06, hz.pos.y);
       ring.scale.setScalar(hz.radius);
-      (ring.material as THREE.MeshBasicMaterial).opacity =
-        0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+      (ring.material as THREE.MeshBasicMaterial).opacity = puddle
+        ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
+        : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
       ring.visible = inVision(hz.pos);
     }
     for (const [id, ring] of this.hazardRings) {

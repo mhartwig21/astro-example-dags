@@ -101,12 +101,14 @@ export interface Player {
 }
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
-export type EliteAffix = "swift" | "shielded" | "volatile" | "summoner";
+export type EliteAffix =
+  | "swift" | "shielded" | "volatile" | "summoner" | "splitter" | "thorns";
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
-  | "bomber" | "shaman" | "phantom";
+  | "bomber" | "shaman" | "phantom"
+  | "charger" | "spitter" | "necromancer";
 
 export interface Monster {
   id: number;
@@ -127,7 +129,16 @@ export interface Monster {
   // dodge out of range or through it with dash i-frames.
   windup: number; // seconds until the pending attack resolves (0 = none)
   windupTotal: number; // full length of the pending windup (render progress)
-  windupKind?: "melee" | "shot" | "fuse"; // what resolves when windup expires
+  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise"; // what resolves when windup expires
+  // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
+  // plowing through players (each hit at most once per charge).
+  chargeDir?: Vec2;
+  chargeT?: number; // seconds of rush remaining
+  chargeHits?: number[]; // player ids already hit by this charge
+  // Spitter: where the committed lob will land (locked at windup start).
+  spitTarget?: Vec2;
+  // Necromancer: the corpse it committed to raising (may expire mid-windup).
+  raiseId?: number;
   // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
   // archetype's poise threshold interrupts the windup and freezes the monster.
   stagger: number; // seconds of stagger remaining (helpless while > 0)
@@ -289,15 +300,29 @@ export interface Encounter {
   total: number; // full intro length (render progress)
 }
 
-// A delayed enemy-side blast (volatile elite corpses): telegraphed on the
-// ground by hosts, damages players in radius when the timer expires.
+// Enemy-side ground danger. Two shapes share the struct:
+// - "blast" (default): a delayed one-shot — t counts down to detonation,
+//   damage lands once on players still in radius (volatile elite corpses).
+// - "puddle": a lingering zone (spitter lobs) — active for its whole life,
+//   dealing `damage` to players inside every tick until t runs out.
 export interface Hazard {
   id: number;
   pos: Vec2;
-  t: number; // seconds until detonation
-  total: number; // full delay (render progress)
+  t: number; // blast: seconds until detonation; puddle: seconds of life left
+  total: number; // full delay/duration (render progress)
   radius: number; // tiles
-  damage: number;
+  damage: number; // blast: the hit; puddle: damage per tick
+  kind?: "blast" | "puddle"; // absent = blast (older saves/snapshots)
+  tick?: number; // puddle: seconds until the next damage tick
+}
+
+// A fallen monster the necromancer can raise. Purely positional — the fresh
+// minion is rebuilt from the corpse's kind (see raiseCorpse in game.ts).
+export interface Corpse {
+  id: number;
+  pos: Vec2;
+  kind: MonsterKind;
+  t: number; // seconds until the corpse is too cold to raise
 }
 
 // Transient combat/feedback events emitted during a single step. Hosts turn these
@@ -374,8 +399,11 @@ export interface GameState {
   strikes: Strike[];
   bulletTimeLeft: number;
 
-  // Enemy-side delayed blasts (volatile elite corpses).
+  // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
+
+  // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
+  corpses: Corpse[];
 
   // Ringside introduction in progress (world frozen while non-null).
   encounter: Encounter | null;

@@ -5,34 +5,6 @@ order reported, not priority order. Each entry notes the likely code home so
 any session can pick one up cold. Delete items when they ship (git history
 remembers).
 
-## 1. Mob density still too low — tuning
-
-More mobs per floor. Density lives in `src/sim/config.ts`:
-`monsterBaseCountFloor1` (13), `monsterCountPerFloor` (3), `monsterMaxCount`
-(44), plus pack shape (`packSizeMin/Max` 3–6, `packLoneFraction` 0.2).
-Raise, then let the balance bot regression tests (`test/balance.test.ts`)
-confirm floors stay clearable — they encode "playable", not "current numbers".
-
-## 2. More mob variety, including abilities — feature
-
-Eight archetypes exist (grunt/swarmer/brute/ranged/boss/bomber/shaman/phantom)
-plus 4 elite affixes. Directions:
-- New archetypes in `src/sim/ai.ts` + `ARCHETYPES`: e.g. a charger (telegraphed
-  line rush), an AoE spitter (ground puddles), a necromancer that raises fresh
-  corpses (the skeleton GLBs literally ship a `Death_C_Skeletons_Resurrect`
-  clip), a shieldbearer that blocks frontal damage.
-- More elite affixes (frost/slow aura, thorns, splitter-on-death).
-- Quaternius CC0 animated monster packs (see ASSETS.md) for non-humanoid
-  skins once behaviors exist — the clip animator fuzzy-matches names, so new
-  packs inherit the animation machine.
-
-## 3. Shop/inventory visual bug when the bag gets big — bug
-
-The safe-room System Shop inventory panel breaks visually with a large bag.
-UI in `iso.html` + `src/main3d.ts` (shop/inventory render). Constraint from
-the house style: panels must FIT the viewport — fix with a tighter grid /
-capped rows, not scrollbars.
-
 ## 7. Higher upgrade caps + scarcity = chase-able OP builds — design
 
 Constellation nodes cap at maxRank 1–3 (`src/sim/abilities.ts UPGRADES`).
