@@ -59,12 +59,12 @@ export const FLOOR_THEMES: FloorTheme[] = [
     floorTint: 0xffffff, wallTint: 0xffffff,
     torchColor: 0xff9a3c, torchIntensity: 2.2,
     background: 0x0a0a12,
-    landmark: { // an abandoned library/storeroom
-      pillarKey: "pillar_decorated", pillarScale: 0.9,
-      centerpieceKey: "table_medium_broken", centerpieceScale: 0.9,
-      props: ["shelf_small", "shelf_small", "box_small"],
+    landmark: { // an abandoned library
+      pillarKey: "bookcase_single", pillarScale: 1.0,
+      centerpieceKey: "bookcase_double_decorateda", centerpieceScale: 1.4,
+      props: ["shelf_small_books", "shelf_small", "book_single"],
     },
-    entranceProps: ["barrel_small", "keg", "box_small"],
+    entranceProps: ["bartop_a_medium", "keg_decorated", "stool_round", "plate_stack"],
     doorFlankKey: "banner_red",
   },
   {
@@ -82,7 +82,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
       props: ["barrel_large", "bottle_A_green", "rubble_half"],
     },
     entranceProps: ["barrel_large", "trunk_small_A"],
-    doorFlankKey: "banner_red",
+    doorFlankKey: "banner_green",
   },
   {
     name: "THE GARDEN", // floors 7-9: the forest the System grew over the stone
@@ -130,7 +130,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
       props: ["rubble_half", "sword_shield_broken"],
     },
     entranceProps: ["trunk_small_A", "rubble_half"],
-    doorFlankKey: "banner_red",
+    doorFlankKey: "banner_brown",
   },
   {
     name: "THE IRONWORKS", // floors 13-15: grates, scaffolds, cold steel
@@ -143,11 +143,11 @@ export const FLOOR_THEMES: FloorTheme[] = [
     background: 0x060a14,
     landmark: { // an abandoned workshop
       pillarKey: "pillar_decorated", pillarScale: 0.9,
-      centerpieceKey: "table_medium_broken", centerpieceScale: 1.0,
-      props: ["shelf_small", "box_large", "keg"],
+      centerpieceKey: "table_round_medium", centerpieceScale: 1.1,
+      props: ["shelf_small", "box_large", "keg", "stool_round"],
     },
-    entranceProps: ["keg", "box_large"],
-    doorFlankKey: "banner_red",
+    entranceProps: ["keg", "box_large", "stool_round"],
+    doorFlankKey: "banner_blue",
   },
   {
     name: "THE APPROACH", // floors 16-18: arched grandeur, banners, blood light

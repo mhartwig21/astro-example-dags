@@ -24,6 +24,8 @@ appreciated).
 | KayKit Halloween Bits (THE GARDEN band: dead trees, graves, crypt, lanterns) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
 | KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
+| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
 
 Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
 mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
