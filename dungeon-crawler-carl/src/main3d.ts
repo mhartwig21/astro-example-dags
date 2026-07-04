@@ -3,7 +3,7 @@ import {
   buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { affixLines, itemScore, weaponClassOf } from "./sim/items";
 import {
   CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
@@ -815,7 +815,9 @@ function renderShopDetail(s: GameState): void {
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   let html =
     `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
+    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
+    `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
+    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
     `<div class="dstats">${statLines(it)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
   if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
@@ -1289,7 +1291,7 @@ function updateHud(s: GameState): void {
   const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
   hudTR.innerHTML =
     `Level ${p.level} · ${p.gold} gold · ` +
-    `<span style="color:${rc}">DMG ${p.baseDamage} (${p.weaponRarity})</span><br>` +
+    `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;

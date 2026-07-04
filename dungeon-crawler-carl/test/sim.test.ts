@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
@@ -6,8 +6,11 @@ import {
 } from "../src/sim/game";
 import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
-import { generateItem } from "../src/sim/items";
-import { DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, knows, rank, stanceMult } from "../src/sim/abilities";
+import { generateItem, weaponClassOf } from "../src/sim/items";
+import {
+  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, knows, meleeParams, novaParams,
+  power, rank, stanceMult,
+} from "../src/sim/abilities";
 import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -184,7 +187,7 @@ describe("combat feedback + loot boxes", () => {
     const g = createGame(7);
     // Kill lootBoxEveryKills monsters in one swing by stacking them in-arc at point blank.
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 100000;
+    g.players[0].attackPower = 100000;
     g.monsters.length = 0;
     for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
       g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.players[0].pos.x + 0.6, y: g.players[0].pos.y } }));
@@ -241,7 +244,7 @@ describe("skills + projectiles", () => {
     const g = createGame(21);
     g.monsters.length = 0;
     g.projectiles.length = 0;
-    // Place next to the player (guaranteed walkable — the player stands there) so the
+    // Place next to the player (guaranteed walkable â€” the player stands there) so the
     // fired bolt isn't culled against a wall on spawn.
     g.monsters.push(mkMon({ id: 1, kind: "ranged", pos: { x: g.players[0].pos.x + 1.5, y: g.players[0].pos.y }, hp: 50, maxHp: 50, damage: 5, attackRange: 6.5 }));
     let fired = false;
@@ -268,9 +271,9 @@ describe("itemization", () => {
   it("equipping an item recomputes effective stats", () => {
     const g = createGame(1);
     const p = g.players[0];
-    const baseDmg = p.baseDamage;
+    const baseDmg = p.attackPower;
     equipItem(p, { id: 1, slot: "weapon", rarity: "rare", name: "Test Blade", affixes: { damage: 15, crit: 0.1 } });
-    expect(p.baseDamage).toBe(baseDmg + 15);
+    expect(p.attackPower).toBe(baseDmg + 15);
     expect(p.critChance).toBeCloseTo(CONFIG.playerCritChance + 0.1);
     expect(p.weaponRarity).toBe("rare");
   });
@@ -301,7 +304,7 @@ describe("itemization", () => {
     equipFromInventory(g, 0, 0);
     expect(p.equipment.weapon?.id).toBe(2);
     expect(p.inventory.some((i) => i.id === 1)).toBe(true); // old weapon returned to bag
-    expect(p.baseDamage).toBe(CONFIG.playerBaseDamage + 20);
+    expect(p.attackPower).toBe(CONFIG.playerBaseDamage + 20);
   });
 });
 
@@ -322,7 +325,7 @@ describe("the show (viewers / favorites / sponsors)", () => {
   it("killing a monster adds hype", () => {
     const g = createGame(2);
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 9999;
+    g.players[0].attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y }, hp: 1, maxHp: 1 }));
     const before = g.players[0].hype;
@@ -356,7 +359,7 @@ describe("sponsor draft", () => {
     expect(g.players[0].pendingRewards.length).toBe(0);
   });
 
-  it("offers one option per sponsor, capped at 3 — and none without sponsors", () => {
+  it("offers one option per sponsor, capped at 3 â€” and none without sponsors", () => {
     expect(descendWith(5, 0).players[0].pendingRewards.length).toBe(0);
     expect(descendWith(5, 1).players[0].pendingRewards.length).toBe(1);
     expect(descendWith(5, 2).players[0].pendingRewards.length).toBe(2);
@@ -374,7 +377,7 @@ describe("sponsor draft", () => {
   });
 
   it("surplus sponsors skew the draft toward the crawler's build", () => {
-    // Same seed, same candidates — only the build differs.
+    // Same seed, same candidates â€” only the build differs.
     const critBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusCrit = 1; });
     const hpBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusMaxHp = 500; });
     expect(critBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("crit");
@@ -384,10 +387,10 @@ describe("sponsor draft", () => {
   it("applies the chosen reward's effect", () => {
     const g = createGame(6);
     const p = g.players[0];
-    const dmg0 = p.baseDamage;
+    const dmg0 = p.attackPower;
     g.players[0].pendingRewards = [{ id: 1, kind: "damage", title: "Weapon Mod", desc: "+10 damage", amount: 10 }];
     chooseReward(g, 0, 0);
-    expect(p.baseDamage).toBe(dmg0 + 10);
+    expect(p.attackPower).toBe(dmg0 + 10);
     expect(g.players[0].pendingRewards.length).toBe(0);
   });
 
@@ -640,7 +643,7 @@ describe("achievements", () => {
   it("FIRST BLOOD unlocks on the first kill with a payout", () => {
     const g = createGame(400);
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 9999;
+    g.players[0].attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
     const gold0 = g.players[0].gold;
@@ -657,7 +660,7 @@ describe("achievements", () => {
   it("DIRTY FIGHTER unlocks on a 3-kill instant", () => {
     const g = createGame(401);
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 9999;
+    g.players[0].attackPower = 9999;
     g.monsters.length = 0;
     for (let i = 0; i < 3; i++) {
       g.monsters.push(mkMon({ id: 10 + i, pos: { x: g.players[0].pos.x + 0.7, y: g.players[0].pos.y } }));
@@ -695,7 +698,7 @@ describe("achievements", () => {
   it("several same-step unlocks combine into one announcer line", () => {
     const g = createGame(404);
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 9999;
+    g.players[0].attackPower = 9999;
     g.monsters.length = 0;
     for (let i = 0; i < 3; i++) {
       g.monsters.push(mkMon({ id: 20 + i, pos: { x: g.players[0].pos.x + 0.7, y: g.players[0].pos.y } }));
@@ -731,7 +734,7 @@ describe("announcement tiers (anti-flood)", () => {
     const g = createGame(410);
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 9999;
+    p.attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, xp: 500 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -763,7 +766,7 @@ describe("ability tree + upgrade drafts", () => {
     const g = createGame(31);
     g.players[0].xp = g.players[0].xpToNext; // one level-up on the next XP grant
     g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].baseDamage = 9999;
+    g.players[0].attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y }, xp: 1 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -840,7 +843,7 @@ describe("ability tree + upgrade drafts", () => {
 
   it("orbit's swept-path tick hits on-ring targets regardless of blade phase", () => {
     // The blades sweep ~full circle between damage ticks, so a monster parked
-    // anywhere on the ring must be hit within a couple of ticks — no more
+    // anywhere on the ring must be hit within a couple of ticks â€” no more
     // snapshot roulette.
     for (const angle of [0, Math.PI / 3, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
       const g = createGame(16);
@@ -967,7 +970,7 @@ describe("multiplayer party sim", () => {
     addPlayer(g, "Donut");
     const [a, b] = g.players;
     a.facing = { x: 1, y: 0 };
-    a.baseDamage = 9999;
+    a.attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: a.pos.x + 0.8, y: a.pos.y }, xp: 10 }));
     step(g, { [a.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
@@ -1111,7 +1114,7 @@ describe("per-player show economy", () => {
     addPlayer(g, "Donut");
     const [carl, donut] = g.players;
     carl.facing = { x: 1, y: 0 };
-    carl.baseDamage = 9999;
+    carl.attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: carl.pos.x + 0.8, y: carl.pos.y } }));
     step(g, { [carl.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
@@ -1229,12 +1232,12 @@ describe("new archetypes", () => {
     });
     g.monsters.push(bomber);
     const hp0 = p.hp;
-    // Contact starts the FUSE — a dodge window, not an instant blast.
+    // Contact starts the FUSE â€” a dodge window, not an instant blast.
     step(g, idle(), 1 / 60);
     expect(bomber.windup).toBeGreaterThan(0);
     expect(p.hp).toBe(hp0); // nothing has landed yet
     stepPastWindup(g, bomber);
-    expect(p.hp).toBeLessThan(hp0); // stood in it — caught in the blast
+    expect(p.hp).toBeLessThan(hp0); // stood in it â€” caught in the blast
     expect(g.monsters.length).toBe(0); // the bomber died and was reaped normally
     expect(g.killCount).toBe(1);
     expect(g.announcements.some((a) => a.text.includes("bomber"))).toBe(true);
@@ -1474,7 +1477,7 @@ describe("attack telegraphs + hit reactions", () => {
     return m;
   }
 
-  it("monster melee winds up before landing — damage is never instant", () => {
+  it("monster melee winds up before landing â€” damage is never instant", () => {
     const g = createGame(910);
     const p = g.players[0];
     const m = adjacentGrunt(g);
@@ -1483,7 +1486,7 @@ describe("attack telegraphs + hit reactions", () => {
     expect(m.windup).toBeGreaterThan(0); // committed, telegraphing
     expect(p.hp).toBe(hp0); // nothing landed yet
     stepPastWindup(g, m);
-    expect(p.hp).toBeLessThan(hp0); // stood in it — the strike connects
+    expect(p.hp).toBeLessThan(hp0); // stood in it â€” the strike connects
     expect(m.attackCooldown).toBeGreaterThan(0);
   });
 
@@ -1504,7 +1507,7 @@ describe("attack telegraphs + hit reactions", () => {
     const g = createGame(912);
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 200; // over the grunt poise threshold (500 * 0.25) in one hit
+    p.attackPower = 200; // over the grunt poise threshold (500 * 0.25) in one hit
     const m = adjacentGrunt(g);
     step(g, idle(), 1 / 60); // monster commits to a swing
     expect(m.windup).toBeGreaterThan(0);
@@ -1564,7 +1567,7 @@ describe("attack telegraphs + hit reactions", () => {
     const g = createGame(917);
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 9999;
+    p.attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y } }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -1590,7 +1593,7 @@ describe("melee hitboxes (the 'that should have hit' class)", () => {
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
     g.monsters.length = 0;
-    // A tiny swarmer INSIDE arm's reach — the exact repro of the whiff bug:
+    // A tiny swarmer INSIDE arm's reach â€” the exact repro of the whiff bug:
     // the swing's lunge used to carry the player past it, out of the arc.
     g.monsters.push(mkMon({ id: 1, kind: "swarmer", pos: { x: p.pos.x + 0.2, y: p.pos.y }, hp: 500, maxHp: 500 }));
     swing(g);
@@ -1643,7 +1646,7 @@ describe("dash charges", () => {
     expect(p.dashCharges).toBe(CONFIG.dashCharges - 1);
     expect(p.cd.dash ?? 0).toBeGreaterThan(0); // recharge timer running
     step(g, { ...idle(), dash: true }, 1 / 60);
-    expect(p.dashCharges).toBe(0); // both spent back-to-back — that's the point
+    expect(p.dashCharges).toBe(0); // both spent back-to-back â€” that's the point
     const x0 = p.pos.x;
     step(g, { ...idle(), dash: true, move: { x: 0, y: 0 } }, 1 / 60);
     expect(p.dashCharges).toBe(0); // tank is empty
@@ -1708,7 +1711,7 @@ describe("sponsor slurp flask", () => {
     const p = g.players[0];
     g.monsters.length = 0;
     step(g, { ...idle(), flask: true }, 1 / 60);
-    expect(p.flaskCharges).toBe(CONFIG.flaskMaxCharges); // full HP — saved the charge
+    expect(p.flaskCharges).toBe(CONFIG.flaskMaxCharges); // full HP â€” saved the charge
     p.flaskCharges = 0;
     p.hp = 10;
     step(g, { ...idle(), flask: true }, 1 / 60);
@@ -1719,7 +1722,7 @@ describe("sponsor slurp flask", () => {
     const g = createGame(942);
     const p = g.players[0];
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 100000;
+    p.attackPower = 100000;
     p.flaskCharges = 0;
     g.monsters.length = 0;
     for (let i = 0; i < CONFIG.flaskKillsPerCharge; i++) {
@@ -2095,7 +2098,7 @@ describe("the five (ability loadout)", () => {
     expect(p.abilities.bench).toContain("melee");
     leaveSafeRoom(g);
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 9999;
+    p.attackPower = 9999;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 50, maxHp: 50 }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
@@ -2183,7 +2186,7 @@ describe("materials (the elite/boss hunt)", () => {
     // `introduced` skips the ringside-intro world freeze (tested elsewhere).
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.6, y: p.pos.y }, elite: true, eliteName: "Testy", introduced: true }));
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 99999;
+    p.attackPower = 99999;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     // The corpse is inside pickup radius, so the trophy lands in the pocket.
     const onGround = g.loot.some((l) => l.kind === "material" && l.material === "elite_trophy");
@@ -2209,7 +2212,7 @@ describe("signature gear passives", () => {
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.6, y: p.pos.y }, xp: 5 }));
     p.facing = { x: 1, y: 0 };
-    p.baseDamage = 9999;
+    p.attackPower = 9999;
     const gold0 = p.gold;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(p.gold).toBeGreaterThanOrEqual(gold0 + 3);
@@ -2355,12 +2358,12 @@ describe("battle stance", () => {
     learnAbility(g, p, "stance"); // Brawler: bolts are the WRONG type
     step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const wrong = g.projectiles[g.projectiles.length - 1].damage;
-    expect(wrong).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.stanceWrongMult)));
+    expect(wrong).toBe(Math.max(1, Math.round(p.attackPower * CONFIG.boltDamageMult * CONFIG.stanceWrongMult)));
     step(g, swapCast, 1 / 60); // Deadeye: bolts now match
     for (let i = 0; i < 60; i++) step(g, idle(), 1 / 60); // wait out the bolt cooldown
     step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const right = g.projectiles[g.projectiles.length - 1].damage;
-    expect(right).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.stanceRightMult)));
+    expect(right).toBe(Math.max(1, Math.round(p.attackPower * CONFIG.boltDamageMult * CONFIG.stanceRightMult)));
     expect(right).toBeGreaterThan(wrong);
   });
 
@@ -2428,7 +2431,7 @@ describe("overcharge", () => {
     step(g, { move: { x: 0, y: 0 }, bolt: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(p.overcharged).toBe(false); // spent on fire
     const dmg = g.projectiles[g.projectiles.length - 1].damage;
-    expect(dmg).toBe(Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * CONFIG.overchargeDamageMult)));
+    expect(dmg).toBe(Math.max(1, Math.round(p.attackPower * CONFIG.boltDamageMult * CONFIG.overchargeDamageMult)));
   });
 
   it("a whiffed swing does not waste the charge; a connecting one spends it", () => {
@@ -2488,6 +2491,91 @@ describe("overcharge", () => {
     for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.monsters[0].stagger).toBeGreaterThan(0);
+  });
+});
+
+describe("genuine itemization (schools + weapon classes)", () => {
+  it("magic abilities eat spellPower; physical abilities eat attackPower", () => {
+    const g = createGame(1000);
+    const p = g.players[0];
+    const ap0 = p.attackPower, sp0 = p.spellPower;
+    equipItem(p, { id: 9301, slot: "trinket", rarity: "rare", name: "Runed Sigil", affixes: { spell: 40 } });
+    expect(p.spellPower).toBe(sp0 + 40);
+    expect(p.attackPower).toBe(ap0);
+    expect(power(p, "nova")).toBe(p.spellPower);
+    expect(power(p, "cataclysm")).toBe(p.spellPower);
+    expect(power(p, "melee")).toBe(p.attackPower);
+    expect(power(p, "airstrike")).toBe(p.attackPower);
+  });
+
+  it("a crossbow IS a crossbow: full-power fast bolts, pierce at rare+", () => {
+    const g = createGame(1001);
+    const p = g.players[0];
+    equipItem(p, { id: 9302, slot: "weapon", rarity: "rare", name: "Vicious Crossbow", affixes: { damage: 10 } });
+    const bp = boltParams(p);
+    expect(bp.dmg).toBeCloseTo(p.attackPower * CONFIG.boltBallisticMult);
+    expect(bp.school).toBe("physical");
+    expect(bp.speedMult).toBeCloseTo(CONFIG.boltBallisticSpeedMult);
+    expect(bp.pierce).toBe(1); // rare+ ballistic pierces without the tree node
+  });
+
+  it("arcane weapons cast magic missiles; the staff pays out on nova", () => {
+    const g = createGame(1002);
+    const p = g.players[0];
+    equipItem(p, { id: 9303, slot: "weapon", rarity: "magic", name: "Humming Wand", affixes: { spell: 12 } });
+    let bp = boltParams(p);
+    expect(bp.school).toBe("magic");
+    expect(bp.dmg).toBeCloseTo(p.spellPower * CONFIG.boltArcaneMult);
+    expect(bp.cooldown).toBeCloseTo(CONFIG.boltCooldown * CONFIG.wandBoltCdMult);
+    const wandNova = novaParams(p).radius;
+    equipItem(p, { id: 9304, slot: "weapon", rarity: "magic", name: "Humming Staff", affixes: { spell: 12 } });
+    bp = boltParams(p);
+    expect(bp.cooldown).toBeCloseTo(CONFIG.boltCooldown); // no wand haste on a staff
+    expect(novaParams(p).radius).toBeCloseTo(wandNova * CONFIG.staffAoeRadiusMult);
+  });
+
+  it("melee-class weapons: sidearm bolts, heavy staggers, reach reaches", () => {
+    const g = createGame(1003);
+    const p = g.players[0];
+    equipItem(p, { id: 9305, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } });
+    expect(boltParams(p).dmg).toBeCloseTo(p.attackPower * CONFIG.boltSidearmMult);
+    const swift = meleeParams(p);
+    equipItem(p, { id: 9306, slot: "weapon", rarity: "common", name: "Worn Maul", affixes: { damage: 5 } });
+    const heavy = meleeParams(p);
+    expect(heavy.damageMult).toBeCloseTo(swift.damageMult * CONFIG.heavyMeleeDmgMult);
+    expect(heavy.poiseMult).toBe(CONFIG.heavyPoiseMult);
+    expect(heavy.cooldown).toBeGreaterThan(swift.cooldown);
+    equipItem(p, { id: 9307, slot: "weapon", rarity: "common", name: "Worn Spear", affixes: { damage: 5 } });
+    expect(meleeParams(p).range).toBeCloseTo(CONFIG.playerAttackRange + CONFIG.reachRangeBonus);
+  });
+
+  it("legacy saves fold pre-schools damage into BOTH powers", () => {
+    const restored = restoreGame({
+      seed: 42, floor: 3,
+      player: { hp: 100, maxHp: 150, baseDamage: 30, level: 4, xp: 0, xpToNext: 50, gold: 0 },
+    });
+    const p = restored.players[0];
+    const intrinsic = CONFIG.playerBaseDamage + 3 * CONFIG.damagePerLevel;
+    expect(p.bonusDamage).toBe(Math.max(0, 30 - intrinsic));
+    expect(p.bonusSpell).toBe(p.bonusDamage);
+    expect(p.attackPower).toBe(p.spellPower); // pre-schools crawlers stay even
+  });
+
+  it("generation matches school to weapon class (staffs roll MAG, blades roll ATK)", () => {
+    const rng = createRng(777);
+    let id = 0;
+    let arcaneSeen = 0, physSeen = 0;
+    for (let i = 0; i < 300; i++) {
+      const it = generateItem(rng, 5, () => id++);
+      const wc = weaponClassOf(it);
+      if (wc === "arcane") { arcaneSeen++; expect(it.affixes.spell ?? 0).toBeGreaterThan(0); }
+      if (wc === "swift" || wc === "heavy" || wc === "reach" || wc === "ballistic") {
+        physSeen++;
+        expect(it.affixes.damage ?? 0).toBeGreaterThan(0);
+      }
+    }
+    expect(arcaneSeen).toBeGreaterThan(5);
+    expect(physSeen).toBeGreaterThan(5);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { Rng } from "./rng";
-import type { AbilityId, StanceId, UpgradeOffer } from "./abilities";
+import type { AbilityId, School, StanceId, UpgradeOffer } from "./abilities";
 
 export interface Vec2 {
   x: number;
@@ -23,7 +23,11 @@ export interface Player {
   hp: number;
   maxHp: number;
   speed: number;
-  baseDamage: number;
+  // Damage schools (DESIGN 5.8): physical abilities scale off attackPower,
+  // magic ones off spellPower — see SCALING/power() in abilities.ts. Both are
+  // recomputed as intrinsic(level) + permanent bonuses + equipment.
+  attackPower: number;
+  spellPower: number;
   // Unified per-ability cooldowns (seconds remaining), keyed by AbilityId —
   // scales to any number of abilities without new fields.
   cd: Partial<Record<AbilityId, number>>;
@@ -66,7 +70,8 @@ export interface Player {
   // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
   equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
   inventory: Item[];
-  bonusDamage: number; // permanent buffs (loot boxes / sponsor rewards), outside equipment
+  bonusDamage: number; // permanent physical buff (loot boxes / sponsor rewards grant BOTH schools)
+  bonusSpell: number; // permanent magic buff (kept separate so gear stays the differentiator)
   bonusMaxHp: number;
   bonusCrit: number; // permanent crit-chance buff
   alive: boolean;
@@ -168,10 +173,11 @@ export type ItemSlot = "weapon" | "armor" | "trinket";
 
 // Stat modifiers granted by an equipped item. All optional; summed across equipment.
 export interface Affixes {
-  damage?: number;
+  damage?: number; // attack power (physical school)
+  spell?: number; // spell power (magic school)
   maxHp?: number;
   speed?: number; // tiles/sec
-  crit?: number; // added crit chance (0..1)
+  crit?: number; // added crit chance (0..1); crit serves BOTH schools
 }
 
 // Unique behaviors carried by LEGENDARY signature gear (sponsor-gated shop
@@ -245,6 +251,7 @@ export interface Projectile {
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
+  school?: School; // damage school (hosts tint magic missiles differently)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
@@ -337,6 +344,7 @@ export interface HitEvent {
   kind: HitKind;
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
+  school?: School; // damage school of a player hit (hosts tint magic numbers)
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation

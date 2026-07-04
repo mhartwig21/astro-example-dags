@@ -420,7 +420,7 @@ function drawHud(
   ctx.fillRect(rx - 10, 40, 210, 92);
   ctx.fillStyle = "#e6e6ec";
   ctx.fillText(`Level ${p.level}   ${p.gold} gold`, rx, 48);
-  ctx.fillText(`DMG ${p.baseDamage}`, rx, 70);
+  ctx.fillText(`ATK ${p.attackPower} · MAG ${p.spellPower}`, rx, 70);
   // HP bar.
   ctx.fillStyle = "#000";
   ctx.fillRect(rx, 92, 190, 10);

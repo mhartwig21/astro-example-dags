@@ -126,8 +126,23 @@ export const CONFIG = {
   boltCooldown: 0.6,
   boltSpeed: 12, // tiles/sec
   boltTtl: 1.2, // seconds
-  boltDamageMult: 0.8, // relative to melee base damage
+  boltDamageMult: 0.8, // unarmed/neutral bolt, relative to attack power
   projectileRadius: 0.35, // hit radius (tiles)
+
+  // Genuine itemization (DESIGN 5.8): weapon-class hooks. Melee hooks apply to
+  // swings; the bolt profile decides what pressing BOLT actually throws.
+  swiftMeleeCdMult: 0.9, // Blade/Cleaver: faster swings
+  heavyMeleeDmgMult: 1.3, // Maul/Axe: hits like a truck...
+  heavyMeleeCdMult: 1.15, // ...swings like one too
+  heavyPoiseMult: 2, // heavy swings break poise twice as fast
+  reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
+  boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
+  boltBallisticMult: 1.0, // Crossbow: real bolts, full attack power
+  boltBallisticSpeedMult: 1.3, // ...and they MOVE
+  boltArcaneMult: 0.9, // Wand/Staff: magic missiles off spell power
+  wandBoltCdMult: 0.8, // Wand: faster casts
+  staffAoeRadiusMult: 1.25, // Staff: bigger nova
+  chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
 
   // Enemy projectiles (ranged archetype + boss)
   monsterProjectileSpeed: 7,

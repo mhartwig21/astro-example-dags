@@ -4,6 +4,7 @@ import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { weaponClassOf } from "../sim/items";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -281,6 +282,8 @@ export class Renderer3D {
       block: pick(/^Block$/i, /^Blocking$/i), // stance-swap flourish
       block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
+      throw: pick(/^Throw$/i), // melee-class sidearm bolt
+      spellshoot: pick(/^Spellcast_Shoot$/i), // arcane bolt (magic missiles)
       // Reactions + exits (one-shot)
       hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
       hit_b: pick(/^Hit_B$/i),
@@ -296,7 +299,8 @@ export class Renderer3D {
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
-      spin: 0.5, shoot: 0.3, cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
+      spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35,
+      cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
       block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
     const mixer = new THREE.AnimationMixer(g);
@@ -377,7 +381,13 @@ export class Renderer3D {
             play("attack", true);
           }
         }
-      } else if (cdRose("bolt")) playFirst("shoot", "attack");
+      } else if (cdRose("bolt")) {
+        // The cast matches the weapon: casters conjure, melee crawlers THROW.
+        const wc = weaponClassOf(pl.equipment.weapon);
+        if (wc === "arcane") playFirst("spellshoot", "shoot", "attack");
+        else if (wc === "ballistic" || wc === null) playFirst("shoot", "attack");
+        else playFirst("throw", "shoot", "attack");
+      }
       else if (cdRose("nova")) playFirst("cast_raise", "attack");
       else if (cdRose("overcharge")) playFirst("cast_long", "cast_raise");
       else if (cdRose("stance")) playFirst("block");
@@ -1408,7 +1418,9 @@ export class Renderer3D {
       projSeen.add(pr.id);
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
-        const color = pr.from === "player" ? THEME.projectilePlayer : THEME.projectileEnemy;
+        // Magic missiles read arcane-violet; physical bolts keep the player hue.
+        const color = pr.from !== "player" ? THEME.projectileEnemy
+          : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
         const core = new THREE.Mesh(
           new THREE.SphereGeometry(0.11, 8, 8),

@@ -53,6 +53,18 @@ armor, helm, boots, and two trinket/accessory slots. Touches:
 - Balance: six affix-bearing pieces stack far more raw stat than three — either
   shrink per-piece budgets or let monster scaling absorb it (balance bot gates).
 
+## 10b. Itemization phase 3: school counterplay + caster catalog — design/feature
+
+Phases 1–2 of DESIGN 5.8 shipped (attackPower/spellPower, weapon classes,
+bolt-from-weapon). Remaining:
+- Monster resist tags: `armored` (physical −30%) / `warded` (magic −30%) as new
+  elite affixes + a couple of archetype defaults — damageMonster already
+  receives the school on every hit, so this is a multiplier at one choke point.
+- A caster branch in the System Shop catalog (basic `spell` components building
+  into advanced/legendary staff-flavored gear) so SP builds can SHOP, not just
+  pray to the drop gods.
+- Damage-number tinting by school in the juice layer (HitEvent.school ships).
+
 ## 11. Boss battles: much harder, in larger arenas — design/tuning
 
 Two halves:

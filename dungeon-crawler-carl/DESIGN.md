@@ -253,7 +253,7 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
-### 5.8 Genuine itemization (planned — weapon classes + damage schools)
+### 5.8 Genuine itemization (phases 1–2 SHIPPED; phase 3 = resistances + caster catalog)
 
 **Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
 weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items

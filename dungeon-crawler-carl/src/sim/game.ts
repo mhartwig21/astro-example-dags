@@ -11,8 +11,8 @@ import {
 import {
   ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitBladePos, orbitParams, overchargeParams, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
-  unknownAbilities, upgradeDef, type AbilityId,
+  novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
+  unknownAbilities, upgradeDef, type AbilityId, type School,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
@@ -23,21 +23,26 @@ import { NO_INTENT, Tile } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
-  const intrinsicDmg = CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel;
+  // Both schools share the intrinsic level curve — at zero gear a fresh nova
+  // hits exactly as hard as it did pre-schools. GEAR is the differentiator.
+  const intrinsicPower = CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel;
   const intrinsicHp = CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel;
-  let dmg = intrinsicDmg + p.bonusDamage;
+  let atk = intrinsicPower + p.bonusDamage;
+  let mag = intrinsicPower + p.bonusSpell;
   let hp = intrinsicHp + p.bonusMaxHp;
   let spd = CONFIG.playerSpeed;
   let crit = CONFIG.playerCritChance + p.bonusCrit;
   for (const slot of ["weapon", "armor", "trinket"] as const) {
     const it = p.equipment[slot];
     if (!it) continue;
-    dmg += it.affixes.damage ?? 0;
+    atk += it.affixes.damage ?? 0;
+    mag += it.affixes.spell ?? 0;
     hp += it.affixes.maxHp ?? 0;
     spd += it.affixes.speed ?? 0;
     crit += it.affixes.crit ?? 0;
   }
-  p.baseDamage = dmg;
+  p.attackPower = atk;
+  p.spellPower = mag;
   p.maxHp = hp;
   p.speed = spd;
   p.critChance = crit;
@@ -358,7 +363,8 @@ function makePlayer(id: number, name: string): Player {
     hp: CONFIG.playerMaxHp,
     maxHp: CONFIG.playerMaxHp,
     speed: CONFIG.playerSpeed,
-    baseDamage: CONFIG.playerBaseDamage,
+    attackPower: CONFIG.playerBaseDamage,
+    spellPower: CONFIG.playerBaseDamage,
     critChance: CONFIG.playerCritChance,
     cd: {},
     dashTime: 0,
@@ -384,6 +390,7 @@ function makePlayer(id: number, name: string): Player {
     equipment: { weapon: null, armor: null, trinket: null },
     inventory: [],
     bonusDamage: 0,
+    bonusSpell: 0,
     bonusMaxHp: 0,
     bonusCrit: 0,
     alive: true,
@@ -504,6 +511,7 @@ export interface SavedProgress {
     xpToNext: number;
     gold: number;
     bonusDamage?: number;
+    bonusSpell?: number;
     bonusMaxHp?: number;
     bonusCrit?: number;
     equipment?: Player["equipment"];
@@ -538,6 +546,7 @@ export function restoreGame(save: SavedProgress): GameState {
   p.xpToNext = s.xpToNext;
   p.gold = s.gold;
   p.bonusDamage = s.bonusDamage ?? 0;
+  p.bonusSpell = s.bonusSpell ?? 0;
   p.bonusMaxHp = s.bonusMaxHp ?? 0;
   p.bonusCrit = s.bonusCrit ?? 0;
   if (s.equipment) p.equipment = s.equipment;
@@ -580,9 +589,11 @@ export function restoreGame(save: SavedProgress): GameState {
     };
   }
   // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
-  // fold the surplus over intrinsic into permanent bonuses so old runs resume intact.
+  // fold the surplus over intrinsic into permanent bonuses so old runs resume
+  // intact. Pre-schools damage fed EVERY ability, so it folds into both powers.
   if (s.bonusDamage === undefined && s.baseDamage !== undefined) {
     p.bonusDamage = Math.max(0, s.baseDamage - (CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel));
+    p.bonusSpell = p.bonusDamage;
   }
   if (s.bonusMaxHp === undefined && s.maxHp !== undefined) {
     p.bonusMaxHp = Math.max(0, s.maxHp - (CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel));
@@ -762,9 +773,9 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean },
+  extra?: { dir?: Vec2; killed?: boolean; school?: School },
 ): void {
-  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed });
+  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed, school: extra?.school });
 }
 
 /** Grant XP to one player (kill XP is split before calling this). */
@@ -881,9 +892,12 @@ function awardLootBox(state: GameState, p: Player): void {
     learnAbility(state, p, ability);
   } else if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
+    // Permanent power buffs are school-agnostic (both ATK and MAG) so a loot
+    // box never rolls dead for a build; gear stays the school differentiator.
     p.bonusDamage += amt;
+    p.bonusSpell += amt;
     recomputeStats(p);
-    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} power)`);
   } else if (roll === 1) {
     const amt = nextInt(state.rng, 15, 30);
     p.bonusMaxHp += amt;
@@ -943,7 +957,10 @@ function dropLoot(state: GameState, pos: Vec2): void {
  */
 function damageMonster(
   state: GameState, p: Player, m: Monster, base: number,
-  opts: { allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean; dir?: Vec2; knockback?: number } = {},
+  opts: {
+    allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean;
+    poiseMult?: number; school?: School; dir?: Vec2; knockback?: number;
+  } = {},
 ): void {
   const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
   let dmg = rollDamage(state.rng, base);
@@ -959,7 +976,7 @@ function damageMonster(
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
-    m.poiseDmg += dmg;
+    m.poiseDmg += dmg * (opts.poiseMult ?? 1); // heavy weapons stagger harder
     // SYSTEM SHOCK (overcharge capstone): the hit itself is a poise break.
     if ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
       m.poiseDmg = 0;
@@ -973,7 +990,7 @@ function damageMonster(
       moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
     }
   }
-  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0 });
+  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0, school: opts.school });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
   // Thorns elites bite back: a slice of every hit returns to the attacker,
@@ -1037,7 +1054,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   // arm's reach, snap the swing to the nearest such target — at melee range
   // the player's intent is "hit the thing next to me", not the exact cursor.
   const wouldHit = state.monsters.some(
-    (m) => m.hp > 0 && inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc),
+    (m) => m.hp > 0 && inSwing(p.pos, facing, m, mp.range, mp.arc),
   );
   if (!wouldHit) {
     let snap: Monster | null = null;
@@ -1045,7 +1062,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     for (const m of state.monsters) {
       if (m.hp <= 0) continue;
       const edge = dist(p.pos, m.pos) - bodyRadius(m);
-      if (edge <= CONFIG.playerAttackRange && edge < snapD) { snapD = edge; snap = m; }
+      if (edge <= mp.range && edge < snapD) { snapD = edge; snap = m; }
     }
     if (snap) {
       facing = normalize({ x: snap.pos.x - p.pos.x, y: snap.pos.y - p.pos.y });
@@ -1060,18 +1077,18 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
-    if (!inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc)) continue;
+    if (!inSwing(p.pos, facing, m, mp.range, mp.arc)) continue;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    const dmg = p.baseDamage * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1);
+    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1);
     damageMonster(state, p, m, dmg, {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
-      forceCrit: momentum, shatterPoise: oc?.shatter,
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical",
+      forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
     });
     // Echo Strike: the overcharged swing lands a second, softer hit.
     if (oc && oc.echoFrac > 0 && m.hp > 0) {
-      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon) });
+      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon), school: "physical" });
     }
     connected = true;
   }
@@ -1660,12 +1677,12 @@ function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number)
 function rewardFitScore(p: Player, r: Reward): number {
   // Build affinity per axis: what fraction of the crawler's investment
   // (equipped affixes + permanent bonuses) sits on each stat.
-  let dmg = p.bonusDamage * 2;
+  let dmg = (p.bonusDamage + p.bonusSpell) * 2;
   let hp = p.bonusMaxHp * 0.5;
   let crit = p.bonusCrit * 300;
   for (const it of Object.values(p.equipment)) {
     if (!it) continue;
-    dmg += (it.affixes.damage ?? 0) * 2;
+    dmg += ((it.affixes.damage ?? 0) + (it.affixes.spell ?? 0)) * 2;
     hp += (it.affixes.maxHp ?? 0) * 0.5;
     crit += (it.affixes.crit ?? 0) * 300;
   }
@@ -1733,6 +1750,7 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       break;
     case "damage":
       p.bonusDamage += r.amount;
+      p.bonusSpell += r.amount; // sponsor buffs serve every build (see loot boxes)
       recomputeStats(p);
       break;
     case "crit":
@@ -1780,7 +1798,7 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown * cdMult(p);
   // Blastplate Harness: the launch point detonates behind you.
   if (hasPassive(p, "blastplate")) {
-    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, p.baseDamage);
+    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, power(p, "dash"), 0, "magic");
   }
   p.dashTime = CONFIG.dashDuration;
   const dir = normalize(move.x !== 0 || move.y !== 0 ? move : p.facing);
@@ -1791,11 +1809,11 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   // so dashing through a pack connects — and Long Blink extends the reach.
   if (dp.shockMult > 0) {
     segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
-      p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
+      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, "magic");
   }
   // AFTERSHOCK capstone: the arrival point additionally detonates outright.
   if (rank(p, "dash.after") > 0) {
-    radialDamage(state, p, p.pos, 1.8, p.baseDamage);
+    radialDamage(state, p, p.pos, 1.8, power(p, "dash"), 0, "magic");
     p.novaFlash = Math.max(p.novaFlash, 0.18);
   }
 }
@@ -1839,7 +1857,10 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   if (momentum) p.stanceCritReady = false;
   const oc = p.overcharged ? overchargeParams(p) : null;
   if (oc) p.overcharged = false;
-  const damage = Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
+  // The weapon decides what a "bolt" even is (boltParams): crossbow bolts off
+  // attack power, magic missiles off spell power, or a melee-class sidearm.
+  const damage = Math.max(1, Math.round(bp.dmg * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
+  const speed = CONFIG.boltSpeed * bp.speedMult;
   const count = bp.count + (oc?.extraBolts ?? 0); // Overcharged Volley widens the fan
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
@@ -1849,7 +1870,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
     state.projectiles.push({
       id: state.nextEntityId++,
       pos: { x: p.pos.x + d.x * 0.6, y: p.pos.y + d.y * 0.6 },
-      vel: { x: d.x * CONFIG.boltSpeed, y: d.y * CONFIG.boltSpeed },
+      vel: { x: d.x * speed, y: d.y * speed },
       damage,
       ttl: CONFIG.boltTtl,
       from: "player",
@@ -1857,6 +1878,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       pierce: bp.pierce,
       crit: momentum || undefined,
       shatter: oc?.shatter || undefined,
+      school: bp.school,
     });
   }
 }
@@ -1864,20 +1886,22 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
 /** Damage every monster within `radius` of `center` (crit-able); used by nova/aftershock.
  * Blasts shove outward from the center when `knockback` > 0. */
 function radialDamage(
-  state: GameState, p: Player, center: Vec2, radius: number, damage: number, knockback = 0,
+  state: GameState, p: Player, center: Vec2, radius: number, damage: number,
+  knockback = 0, school: School = "physical",
 ): void {
   for (const m of state.monsters) {
     const d = dist(center, m.pos);
     if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback });
+    damageMonster(state, p, m, damage, { dir, knockback, school });
   }
 }
 
 /** Damage every monster whose body touches the capsule around segment a->b
  * (Shockstep's dash path). Knockback shoves away from the path. */
 function segmentDamage(
-  state: GameState, p: Player, a: Vec2, b: Vec2, radius: number, damage: number, knockback = 0,
+  state: GameState, p: Player, a: Vec2, b: Vec2, radius: number, damage: number,
+  knockback = 0, school: School = "physical",
 ): void {
   const ab = { x: b.x - a.x, y: b.y - a.y };
   const len2 = ab.x * ab.x + ab.y * ab.y;
@@ -1889,7 +1913,7 @@ function segmentDamage(
     const d = dist(closest, m.pos);
     if (d - bodyRadius(m) > radius) continue;
     const dir = d > 1e-4 ? { x: (m.pos.x - closest.x) / d, y: (m.pos.y - closest.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback });
+    damageMonster(state, p, m, damage, { dir, knockback, school });
   }
 }
 
@@ -1907,7 +1931,7 @@ function doNova(state: GameState, p: Player): void {
     }
   }
   p.novaFlash = 0.3;
-  radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
+  radialDamage(state, p, p.pos, np.radius, power(p, "nova") * np.damageMult, CONFIG.novaKnockback, "magic");
 }
 
 /**
@@ -1939,7 +1963,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, p.baseDamage * op.damageMult * stanceMult(p, "melee"), { allowCrit: false });
+    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: "physical" });
   }
 }
 
@@ -2034,7 +2058,7 @@ function updateStrikes(state: GameState, dt: number): void {
     s.t -= dt;
     if (s.t > 0) { remaining.push(s); continue; }
     const owner = state.players.find((pl) => pl.id === s.ownerId) ?? state.players[0];
-    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, owner.baseDamage * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
+    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, power(owner, "airstrike") * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
     hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
   }
   state.strikes = remaining;
@@ -2044,7 +2068,7 @@ function updateStrikes(state: GameState, dt: number): void {
 function doCataclysm(state: GameState, p: Player): void {
   p.cd.cataclysm = CONFIG.ultCataclysmCooldown;
   p.novaFlash = 0.3; // reuse the ring effect
-  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, p.baseDamage * CONFIG.ultCataclysmDmgMult);
+  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult, 0, "magic");
   for (const m of state.monsters) {
     const d = dist(p.pos, m.pos);
     if (d > CONFIG.ultCataclysmRadius || d < 1e-4) continue;
@@ -2125,7 +2149,7 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
-            forceCrit: pr.crit, shatterPoise: pr.shatter,
+            forceCrit: pr.crit, shatterPoise: pr.shatter, school: pr.school,
           });
           // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
           if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
@@ -2143,7 +2167,7 @@ function updateProjectiles(state: GameState, dt: number): void {
                 pos: { x: pr.pos.x, y: pr.pos.y },
                 vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
                 damage: pr.damage * 0.6, ttl: 0.8, from: "player", ownerId: owner.id,
-                bounced: true, hitIds: [m.id],
+                bounced: true, hitIds: [m.id], school: pr.school,
               });
             }
           }
