@@ -950,22 +950,29 @@ export class Renderer3D {
     }
     this.addTorches(theme, torchAnchors, 0.85 + frng() * 0.3);
 
-    // 2) Banners flanking locked doors (a gate should look like a gate).
+    // 2) Theme props flanking locked doors (a gate should look like a gate) —
+    //    banners in the stone districts, standing lanterns in the Garden.
     let banners = 0;
     for (let i = 0; i < map.tiles.length && banners < 6; i++) {
       if (map.tiles[i] !== Tile.DoorLocked) continue;
       const x = (i % map.w) + 0.5, y = Math.floor(i / map.w) + 0.5;
       for (const [dx, dy] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]] as const) {
-        if (place("banner_red", x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
+        if (place(theme.doorFlankKey, x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
           banners++;
           break;
         }
       }
     }
 
-    // 3) Corner clutter clusters (2 corners per room, 1-2 theme props each).
+    // 3) Corner clutter clusters (2 corners per room, 1-2 props each). The pool
+    //    is role-keyed: the landmark hall clutters with its own set-dressing,
+    //    the entrance gets a soft camp, everything else uses the band props.
     for (let ri = 0; ri < map.rooms.length; ri++) {
-      if (map.roles[ri] === "entrance") continue;
+      const role = map.roles[ri];
+      const pool = role === "entrance" ? theme.entranceProps
+        : role === "landmark" ? theme.landmark.props
+        : theme.props;
+      if (pool.length === 0) continue;
       const r = map.rooms[ri];
       const corners: Vec2[] = [
         { x: r.x + 1.2, y: r.y + 1.2 }, { x: r.x + r.w - 1.2, y: r.y + 1.2 },
@@ -976,26 +983,29 @@ export class Renderer3D {
         const corner = corners[(start + c * 2) % 4];
         const n = 1 + Math.floor(frng() * 2);
         for (let k = 0; k < n; k++) {
-          const key = theme.props[Math.floor(frng() * theme.props.length)];
+          const key = pool[Math.floor(frng() * pool.length)];
           place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
         }
       }
     }
 
-    // 4) LANDMARK hall: a pillar colonnade + a centered altar.
+    // 4) LANDMARK hall: a colonnade + centered set-piece, both band-flavored
+    //    (library table in the Undercroft, crypt among dead trees in the Garden,
+    //    war monument on the Approach — see FLOOR_THEMES.landmark).
     const landmarkIdx = map.roles.indexOf("landmark");
     if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
+      const lm = theme.landmark;
       for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
         for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
           // Colonnade along the room edges of the interior grid, not the middle.
           if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
-          place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
+          place(lm.pillarKey, px + 0.5, py + 0.5, { scale: lm.pillarScale, rot: 0, jitter: 0 });
         }
       }
-      // Centerpiece: a fallen warrior monument (table_small_decorated_A is out —
-      // its model has candles baked in, and candles are banned from the floors).
-      place("sword_shield_broken", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.9, rot: 0, jitter: 0 });
+      // Centerpiece note: table_small_decorated_A stays out — its model has
+      // candles baked in, and candles are banned from the floors.
+      place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
     }
 
     // 5) VAULT: the hoard around the guardian's treasure.
