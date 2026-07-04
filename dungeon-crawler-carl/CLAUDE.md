@@ -7,6 +7,14 @@ Diablo-like ARPG inspired by *Dungeon Crawler Carl*. Full design: `DESIGN.md`.
 - `npm run server` — authoritative multiplayer server (ws, port 5281)
 - `npm test` / `npm run typecheck` — Vitest + tsc (run both before committing)
 
+## Test mode (jump into any stage)
+`/iso.html?test&floor=9&level=12&abilities=all&gold=500&seed=42` (2D: `/?test...`).
+Builds a deterministic stage-representative crawler via `createTestGame`
+(sim/game.ts): floor clamps to 1..finalFloor, levels auto-draft real
+constellation ranks, gear rolls floor-scaled (`gear=0` disables),
+`abilities` is `all` or a comma list. Nothing is loaded or saved — the real
+run's save is untouched. R rerolls the seed unless `seed=` is pinned.
+
 ## Architecture rules (load-bearing)
 - `src/sim/` is a **pure deterministic core**: no DOM, no `Math.random`, no
   `Date.now()`. All randomness through the seeded RNG in state; time only via

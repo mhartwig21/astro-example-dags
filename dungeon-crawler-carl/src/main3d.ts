@@ -1,6 +1,7 @@
 import {
-  createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
+  createGame, createTestGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
   buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
@@ -77,16 +78,52 @@ resize();
 function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
 }
+
+// ---- Test mode (?test[&floor=9&level=12&abilities=all&gold=500&seed=42]) ----
+// Jump straight to a dungeon stage with a stage-representative crawler. Local
+// only, and nothing is loaded or saved — the real run's save is untouched.
+const testMode = params.has("test") && !net;
+function testSetup(): TestSetup {
+  const num = (k: string): number | undefined => {
+    const raw = params.get(k);
+    if (raw === null || raw === "") return undefined;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : undefined;
+  };
+  const ab = params.get("abilities");
+  return {
+    seed: num("seed"),
+    floor: num("floor"),
+    level: num("level"),
+    gold: num("gold"),
+    abilities: ab === "all" ? "all" : ab ? (ab.split(",").filter((a) => a in ABILITY_INFO) as AbilityId[]) : undefined,
+    gear: params.get("gear") !== "0",
+  };
+}
+/** In test mode the run is disposable — never write it over the real save. */
+function persistRun(g: GameState): void {
+  if (!testMode) saveRun(g);
+}
+
 function startFresh(): GameState {
+  if (testMode) {
+    const s = testSetup();
+    if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
+    return createTestGame(s);
+  }
   clearRun();
   const g = createGame(freshSeed());
   saveRun(g);
   return g;
 }
 function boot(): GameState {
+  if (testMode) return createTestGame(testSetup());
   const save = loadRun();
   if (save && save.status === "playing") return restoreGame(save);
   return startFresh();
+}
+if (testMode) {
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#e2574c">TEST MODE</b> · ');
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -269,7 +306,7 @@ function chooseDraft(idx: number): void {
     if (p.pendingRewards.length > 0) chooseReward(state, p.id, idx);
     else chooseUpgrade(state, p.id, idx);
     flushFeedback(state);
-    saveRun(state);
+    persistRun(state);
   }
   draftEl.style.display = "none";
 }
@@ -346,7 +383,7 @@ invBag.addEventListener("click", (e) => {
   if (net) net.equip(idx);
   else {
     equipFromInventory(state, me(state).id, idx);
-    saveRun(state);
+    persistRun(state);
   }
   renderInventory(state);
 });
@@ -465,7 +502,7 @@ function handleSlotClick(e: Event, rerender: (s: GameState) => void): void {
       if (idx >= 0) slotAbility(state, p.id, idx, null);
     } else slotAbility(state, p.id, Number(slot), ability);
     flushFeedback(state);
-    saveRun(state);
+    persistRun(state);
   }
   rerender(state);
 }
@@ -1004,7 +1041,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       buyCatalogItem(state, me(state).id, id);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     renderSafeRoom(state);
     return;
@@ -1016,7 +1053,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       sellItem(state, me(state).id, idx);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     shopSel = null;
     renderSafeRoom(state);
@@ -1030,7 +1067,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       equipFromInventory(state, me(state).id, idx);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     shopSel = null;
     renderSafeRoom(state);
@@ -1071,7 +1108,7 @@ srDescend.addEventListener("click", () => {
   }
   setReady(state, me(state).id);
   flushFeedback(state);
-  saveRun(state);
+  persistRun(state);
   srEl.style.display = "none";
 });
 
@@ -1430,8 +1467,8 @@ async function main(): Promise<void> {
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
         acc -= SIM_DT;
-        if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
-        if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
+        if (state.floor !== lastFloor) { lastFloor = state.floor; persistRun(state); }
+        if (state.status !== lastStatus) { lastStatus = state.status; persistRun(state); }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths
       // hang for drama, ordinary kills get a couple of frames.
@@ -1441,7 +1478,7 @@ async function main(): Promise<void> {
       }
 
       saveAcc += dt;
-      if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; saveRun(state); }
+      if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
     }
 
     // Particles + shake use world space, so they can fire before the camera moves.

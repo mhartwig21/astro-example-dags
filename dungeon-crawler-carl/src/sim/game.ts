@@ -9,7 +9,7 @@ import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, gearAffixes, tierStockCount, totalCost,
 } from "./catalog";
 import {
-  ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, dashParams, knows, meleeParams,
   rank,
   novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId, type School,
@@ -601,6 +601,65 @@ export function restoreGame(save: SavedProgress): GameState {
   recomputeStats(p);
   p.hp = Math.min(s.hp, p.maxHp);
   buildFloor(state, save.floor);
+  return state;
+}
+
+export interface TestSetup {
+  seed?: number;
+  floor?: number; // starting floor, clamped to 1..finalFloor
+  level?: number; // crawler level; ranks are auto-drafted to match
+  gold?: number; // default scales with the floor so the shop is testable
+  abilities?: AbilityId[] | "all"; // learned + auto-slotted before leveling
+  gear?: boolean; // roll floor-scaled random gear (default true)
+}
+
+/**
+ * Test-mode bootstrap (hosts gate it behind a ?test URL): a deterministic,
+ * stage-representative run — floor N, a crawler leveled through the REAL
+ * draft roller (so the constellation build is one a player could hold),
+ * floor-scaled gear, and any requested abilities slotted. Only the seeded
+ * RNG is used: the same setup always produces the same character.
+ */
+export function createTestGame(opts: TestSetup = {}): GameState {
+  const seed = (opts.seed ?? 0xc0ffee) >>> 0;
+  const floor = Math.max(1, Math.min(CONFIG.finalFloor, Math.floor(opts.floor ?? 1)));
+  const level = Math.max(1, Math.min(50, Math.floor(opts.level ?? 1)));
+  const state = createGame(seed);
+  const p = state.players[0];
+
+  const wanted: AbilityId[] = opts.abilities === "all" ? [...DISCOVERABLE_ABILITIES] : opts.abilities ?? [];
+  for (const a of wanted) learnAbility(state, p, a);
+
+  while (p.level < level) {
+    p.level++;
+    p.xpToNext = xpForLevel(p.level);
+    const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, floor);
+    if (offers.length > 0) {
+      const offer = pick(state.rng, offers);
+      p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
+    }
+  }
+  p.xp = 0;
+
+  // Floor-scaled loadout: several rolls, wear the upgrades, bag a few spares.
+  if (opts.gear !== false) {
+    for (let i = 0; i < 8; i++) {
+      const item = generateItem(state.rng, floor, () => state.nextEntityId++);
+      const worn = p.equipment[item.slot];
+      if (!worn || itemScore(item) > itemScore(worn)) {
+        p.equipment[item.slot] = item;
+        if (worn && p.inventory.length < 4) p.inventory.push(worn);
+      } else if (p.inventory.length < 4) {
+        p.inventory.push(item);
+      }
+    }
+  }
+
+  p.gold = Math.max(0, Math.floor(opts.gold ?? floor * 40));
+  recomputeStats(p);
+  p.hp = p.maxHp;
+  buildFloor(state, floor);
+  state.events.push(`TEST MODE: floor ${floor}, level ${level}, seed ${seed}.`);
   return state;
 }
 
