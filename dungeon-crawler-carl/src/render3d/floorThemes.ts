@@ -40,6 +40,10 @@ export interface FloorTheme {
   landmark: LandmarkDressing;
   entranceProps: string[]; // soft "camp" clutter for the spawn room's corners
   doorFlankKey: string; // prop flanking locked doors (a gate should look like a gate)
+  // Per-key FOOTPRINT scale (tiles) for props whose default ~0.6-tile
+  // normalization lies about their nature — trees should tower, grass should
+  // hug the dirt. Unlisted keys keep the default.
+  propScale?: Record<string, number>;
 }
 
 export const FLOOR_THEMES: FloorTheme[] = [
@@ -81,24 +85,35 @@ export const FLOOR_THEMES: FloorTheme[] = [
     doorFlankKey: "banner_red",
   },
   {
-    name: "THE GARDEN", // floors 7-9: the System's dead orchard reclaiming the stone
-    floorKey: "floor_dirt", floorAltKey: "floor_dirt_grave", altRatio: 0.16,
+    name: "THE GARDEN", // floors 7-9: the forest the System grew over the stone
+    // (KayKit Forest Nature Pack: live trees/bushes/rocks/grass; the crypt and
+    // a few graves persist as the landmark's memory of what got buried here.)
+    floorKey: "floor_dirt", floorAltKey: "floor_dirt_grave", altRatio: 0.07,
     wallKey: "wall_broken", stairsKey: "stairs_walled",
     props: [
-      "tree_dead_small", "tree_dead_medium", "gravestone", "gravemarker_A",
-      "grave_B", "pumpkin_orange_small", "ribcage", "bone_A",
+      "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a",
+      "forest_tree_5_a", "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
+      "forest_rock_1_a", "forest_rock_3_c", "forest_rock_6_a",
+      "forest_grass_1_a", "forest_grass_2_a", "forest_grass_1_a", "forest_grass_2_a",
     ],
-    propDensity: 0.026,
-    floorTint: 0xc4d8a4, wallTint: 0x9cc09c,
-    torchColor: 0xffd27f, torchIntensity: 2.1, // lantern glow against violet dusk
-    background: 0x0d0814,
-    landmark: { // the crypt at the heart of the orchard
+    propDensity: 0.07, // the one band that should feel THICK with scatter
+    floorTint: 0xb8d8a0, wallTint: 0x9cc09c,
+    torchColor: 0xffd27f, torchIntensity: 2.1, // lantern glow under the canopy
+    background: 0x0a0f10,
+    landmark: { // the crypt in the overgrowth, dead trees keeping watch
       pillarKey: "tree_dead_medium", pillarScale: 1.1,
       centerpieceKey: "crypt", centerpieceScale: 1.6,
-      props: ["gravestone", "gravemarker_A", "grave_A"],
+      props: ["gravestone", "gravemarker_A", "grave_A", "forest_tree_bare_1_a"],
     },
-    entranceProps: ["bench", "lantern_standing", "pumpkin_orange_small"],
+    entranceProps: ["bench", "lantern_standing", "forest_bush_1_a"],
     doorFlankKey: "lantern_standing",
+    propScale: {
+      forest_tree_1_a: 1.6, forest_tree_1_b: 1.7, forest_tree_2_a: 1.5,
+      forest_tree_3_a: 1.1, forest_tree_5_a: 1.6, forest_tree_bare_1_a: 1.4,
+      forest_bush_1_a: 0.9, forest_bush_2_a: 0.85, forest_bush_4_a: 1.0,
+      forest_rock_1_a: 0.8, forest_rock_3_c: 1.2, forest_rock_6_a: 0.9,
+      forest_grass_1_a: 0.55, forest_grass_2_a: 0.55,
+    },
   },
   {
     name: "THE RUINS", // floors 10-12: broken tile, rubble, ember light
