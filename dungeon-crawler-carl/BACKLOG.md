@@ -5,34 +5,6 @@ order reported, not priority order. Each entry notes the likely code home so
 any session can pick one up cold. Delete items when they ship (git history
 remembers).
 
-## 1. Mob density still too low — tuning
-
-More mobs per floor. Density lives in `src/sim/config.ts`:
-`monsterBaseCountFloor1` (13), `monsterCountPerFloor` (3), `monsterMaxCount`
-(44), plus pack shape (`packSizeMin/Max` 3–6, `packLoneFraction` 0.2).
-Raise, then let the balance bot regression tests (`test/balance.test.ts`)
-confirm floors stay clearable — they encode "playable", not "current numbers".
-
-## 2. More mob variety, including abilities — feature
-
-Eight archetypes exist (grunt/swarmer/brute/ranged/boss/bomber/shaman/phantom)
-plus 4 elite affixes. Directions:
-- New archetypes in `src/sim/ai.ts` + `ARCHETYPES`: e.g. a charger (telegraphed
-  line rush), an AoE spitter (ground puddles), a necromancer that raises fresh
-  corpses (the skeleton GLBs literally ship a `Death_C_Skeletons_Resurrect`
-  clip), a shieldbearer that blocks frontal damage.
-- More elite affixes (frost/slow aura, thorns, splitter-on-death).
-- Quaternius CC0 animated monster packs (see ASSETS.md) for non-humanoid
-  skins once behaviors exist — the clip animator fuzzy-matches names, so new
-  packs inherit the animation machine.
-
-## 3. Shop/inventory visual bug when the bag gets big — bug
-
-The safe-room System Shop inventory panel breaks visually with a large bag.
-UI in `iso.html` + `src/main3d.ts` (shop/inventory render). Constraint from
-the house style: panels must FIT the viewport — fix with a tighter grid /
-capped rows, not scrollbars.
-
 ## 8. Boss name overlaps announcements — popup collision audit — bug
 
 The ringside encounter banner and announcement toasts collide (there was a
@@ -70,6 +42,18 @@ armor, helm, boots, and two trinket/accessory slots. Touches:
   the new shape with empty new slots), like the loadout migration did.
 - Balance: six affix-bearing pieces stack far more raw stat than three — either
   shrink per-piece budgets or let monster scaling absorb it (balance bot gates).
+
+## 10b. Itemization phase 3: school counterplay + caster catalog — design/feature
+
+Phases 1–2 of DESIGN 5.8 shipped (attackPower/spellPower, weapon classes,
+bolt-from-weapon). Remaining:
+- Monster resist tags: `armored` (physical −30%) / `warded` (magic −30%) as new
+  elite affixes + a couple of archetype defaults — damageMonster already
+  receives the school on every hit, so this is a multiplier at one choke point.
+- A caster branch in the System Shop catalog (basic `spell` components building
+  into advanced/legendary staff-flavored gear) so SP builds can SHOP, not just
+  pray to the drop gods.
+- Damage-number tinting by school in the juice layer (HitEvent.school ships).
 
 ## 11. Boss battles: much harder, in larger arenas — design/tuning
 

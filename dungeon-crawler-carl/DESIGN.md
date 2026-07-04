@@ -120,10 +120,15 @@ This document describes the full target architecture, then defines the scope of 
   sim emits typed feedback events (enemy/crit/player/heal/gold/weapon) that hosts turn into
   floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
   same seeded RNG stream, these effects are deterministic and replay identically.
-- **Enemy archetypes** (grunt / swarmer / brute / ranged / boss): stats scale per floor and
-  are modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts`
-  (melee chase, ranged kite-and-shoot, boss chase + radial volley). The spawn mix shifts
-  toward tougher enemies with depth.
+- **Enemy archetypes** (grunt / swarmer / brute / ranged / boss / bomber / shaman /
+  phantom / charger / spitter / necromancer): stats scale per floor and are modified per
+  archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee chase,
+  ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
+  charger locked-lane rush, spitter acid lobs that linger as ticking ground puddles,
+  necromancer corpse-raising — deaths leave TTL-capped `GameState.corpses` it consumes —
+  and boss chase + radial volley). The spawn mix shifts toward tougher enemies with
+  depth; specialists unlock by floor (bomber 2+, charger 3+, shaman 4+, spitter 5+,
+  phantom 6+, necromancer 7+).
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
@@ -149,8 +154,10 @@ This document describes the full target architecture, then defines the scope of 
   +12% move speed and −15% cooldowns while the crowd chants.
 - **Elite affixes (floor 3+):** every named elite rolls one mechanic — **swift** (+40%
   speed), **shielded** (takes 30% less damage), **volatile** (0.8s delayed corpse blast,
-  telegraphed by a ground ring — clear the corpse), or **summoner** (calls swarmer adds,
-  lifetime-capped, worth ~no XP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
+  telegraphed by a ground ring — clear the corpse), **summoner** (calls swarmer adds,
+  lifetime-capped, worth ~no XP), **splitter** (bursts into swarmers on death), or
+  **thorns** (reflects a slice of every hit back at the attacker, capped per hit at a
+  fraction of their max HP). **Boss phases:** crossing 2/3 and 1/3 HP enrages bosses
   (faster chase, +3 volley projectiles and a shorter volley cooldown per phase, announced).
 - **Ringside introductions:** the first time any player closes within 7 tiles of an unmet
   boss/elite, the sim FREEZES the whole world (`GameState.encounter`, like the safe-room
@@ -245,6 +252,70 @@ any slot.
 and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discovery adds to an
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
+
+### 5.8 Genuine itemization (phases 1–2 SHIPPED; phase 3 = resistances + caster catalog)
+
+**Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
+weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
+can't push builds, and "magical attack" isn't a real concept the sim can price.
+
+**Three moves, in dependency order:**
+
+**(1) Damage schools.** Split the one damage stat into two:
+- `attackPower` (physical) and `spellPower` (magic) on `Player`, both = intrinsic(level) +
+  bonuses + equipment. `maxHp`/`speed`/`crit` stay shared (crit applies to both schools).
+- The affix pool gains `spell`; `damage` becomes the physical stat. Item generation rolls
+  the school that fits the item (see move 3) — finding a great caster weapon IS the nudge
+  toward a caster build.
+- **Every ability declares its scaling in the registry** (next to `ABILITY_INFO`, so a new
+  ability declares its school the same place it declares everything else):
+  `SCALING: Record<AbilityId, { ap: number; sp: number }>` — e.g. melee `{ap:1}`, orbit
+  `{ap:0.5}`, nova `{sp:1.2}`, cataclysm `{sp:3}`, airstrike `{ap:2.5}` (sponsor ordnance is
+  very physical), dash-shockstep `{sp:0.5}`. Hybrids are just both keys nonzero.
+- Damage instances carry a `school` tag (extends the existing `HitEvent`/damage plumbing),
+  which move (3)'s resistances and the juice layer (color-coded numbers) read.
+
+**(2) Bolt becomes the weapon's projectile — the crossbow finally IS a crossbow.**
+Bolt is the one ability whose school and feel come FROM the equipped weapon:
+- **Ballistic** weapon (Crossbow): physical bolts off `attackPower`, +30% projectile speed,
+  +1 pierce at rare+. **Arcane** weapon (Wand/Staff): magic missiles off `spellPower` (wand:
+  −20% bolt cooldown; staff: +25% nova/AoE radius instead). **Melee** weapons: a thrown
+  sidearm — weak default (0.5×AP), using the rig's `Throw` clip. The renderer already grafts
+  real weapon models and has shoot/spellcast animations; this move makes mechanics match.
+
+**(3) Weapon classes.** Noun → class, each with ONE mechanical hook (house capstone style —
+a behavior, not a stat pile):
+
+| Class | Nouns | Hook |
+|---|---|---|
+| Swift | Blade, Cleaver | melee cooldown −10% |
+| Heavy | Maul, Axe | melee +30% damage, 2× poise damage, cooldown +15% |
+| Reach | Spear | melee range +0.5 tiles |
+| Ballistic | Crossbow | bolt profile above |
+| Arcane | Wand, Staff | bolt/AoE profile above; weapon rolls `spell` affixes |
+| ??? | Mug | all of the above, badly (the joke stays) |
+
+Generation picks class with the slot, then rolls class-fitting affixes. The catalog tags each
+entry's school (existing tree is physical; a caster component branch is the natural catalog
+expansion). Armor/trinkets stay school-agnostic until proven boring.
+
+**Counterplay (phase 3, cheap):** monster resist tags — `armored` (physical −30%) and
+`warded` (magic −30%) — as new elite affixes plus a couple of archetype defaults. The party's
+school MIX starts mattering per pack; a warded elite pack is the crossbow crawler's fight.
+
+**Interactions with existing systems:**
+- **Battle Stance** stays about attack RANGE (Brawler/Deadeye); school is orthogonal — a
+  Deadeye wand build is ranged-magic, and PERFECT FORM still reads range, not school.
+- **Overcharge** multiplies whatever the spent attack's school computes — no change.
+- **Balance bot / regression tests** exercise legacy intents and auto-equip; auto-equip's
+  `itemScore` must learn schools (score an item BY the build's dominant school, so a caster
+  doesn't auto-equip a maul).
+- **Saves:** fold legacy `damage` affixes/`bonusDamage` into physical; `spellPower` starts at
+  intrinsic. Same migration pattern as the loadout rework.
+
+**Effort:** three sessions, shippable independently — (1) stats + scaling table + migration +
+tests; (2) bolt-from-weapon + classes + generation + UI (item cards show class + school, stat
+panel shows AP/SP); (3) resistances + catalog caster branch + balance pass.
 
 ---
 

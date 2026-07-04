@@ -1,4 +1,5 @@
 import { CONFIG } from "./config";
+import { weaponClassOf } from "./items";
 import { chance, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
 
@@ -21,6 +22,38 @@ export type AbilityId =
 // and orbit blades are melee-type; bolts are ranged-type; everything else is
 // stance-neutral. Extensible — a third stance is a union member away.
 export type StanceId = "melee" | "ranged";
+
+// Damage schools (DESIGN 5.8). Orthogonal to stance: stance judges RANGE,
+// school decides which power stat feeds the hit (and, later, what resists it).
+export type School = "physical" | "magic";
+
+/**
+ * School routing per ability: weights applied to attackPower/spellPower.
+ * Magnitude coefficients stay in CONFIG (novaDamageMult etc.) — this table only
+ * says WHICH stat an ability eats. Hybrids are both keys nonzero. Bolt is the
+ * one deliberate absentee: its school comes from the equipped WEAPON
+ * (boltParams) — a crossbow throws bolts, a staff throws magic missiles.
+ */
+export const SCALING: Partial<Record<AbilityId, { ap?: number; sp?: number }>> = {
+  melee: { ap: 1 },
+  orbit: { ap: 1 },
+  airstrike: { ap: 1 }, // sponsor ordnance is extremely physical
+  dash: { sp: 1 }, // shockstep/aftershock detonations are arcane
+  nova: { sp: 1 },
+  cataclysm: { sp: 1 },
+};
+
+/** The power an ability scales from (defaults to physical for the untabled). */
+export function power(p: Player, ability: AbilityId): number {
+  const s = SCALING[ability] ?? { ap: 1 };
+  return p.attackPower * (s.ap ?? 0) + p.spellPower * (s.sp ?? 0);
+}
+
+/** Dominant school of an ability's damage (hit tinting + future resists). */
+export function abilitySchool(ability: AbilityId): School {
+  const s = SCALING[ability] ?? { ap: 1 };
+  return (s.sp ?? 0) > (s.ap ?? 0) ? "magic" : "physical";
+}
 
 export type AbilityTier = "active" | "ultimate";
 
@@ -161,10 +194,18 @@ export function startingLoadout(): Player["abilities"] {
 // ---- Effective ability parameters (pure; read CONFIG + node ranks) ----
 
 export function meleeParams(p: Player) {
+  // Weapon-class hooks (DESIGN 5.8): swift swings faster, heavy hits harder
+  // (and staggers harder) but slower, reach extends the arc's radius. The Mug
+  // does a little of everything, badly.
+  const wc = weaponClassOf(p.equipment.weapon);
+  const classDmg = wc === "heavy" ? CONFIG.heavyMeleeDmgMult : wc === "chaotic" ? 1.15 : 1;
+  const classCd = wc === "swift" ? CONFIG.swiftMeleeCdMult : wc === "heavy" ? CONFIG.heavyMeleeCdMult : wc === "chaotic" ? 0.95 : 1;
   return {
-    damageMult: 1 + rank(p, "melee.heavy") * 0.2,
-    cooldown: CONFIG.playerAttackCooldown * (1 - rank(p, "melee.swift") * 0.12),
+    damageMult: (1 + rank(p, "melee.heavy") * 0.2) * classDmg,
+    cooldown: CONFIG.playerAttackCooldown * (1 - rank(p, "melee.swift") * 0.12) * classCd,
     arc: CONFIG.playerAttackArc + rank(p, "melee.arc") * (22 * Math.PI / 180),
+    range: CONFIG.playerAttackRange + (wc === "reach" ? CONFIG.reachRangeBonus : wc === "chaotic" ? 0.25 : 0),
+    poiseMult: wc === "heavy" ? CONFIG.heavyPoiseMult : 1,
   };
 }
 
@@ -172,21 +213,44 @@ export function dashParams(p: Player) {
   return {
     cooldown: CONFIG.dashCooldown * (1 - rank(p, "dash.quick") * 0.18),
     distance: CONFIG.dashDistance * (1 + rank(p, "dash.blink") * 0.3),
-    shockMult: rank(p, "dash.shock") * 0.5, // fraction of baseDamage dealt on arrival
+    shockMult: rank(p, "dash.shock") * 0.5, // fraction of dash power dealt along the path
   };
 }
 
+/**
+ * Bolt is the weapon's projectile (DESIGN 5.8): what pressing BOLT throws —
+ * and which school pays for it — comes from the equipped weapon. Crossbows
+ * loose real bolts (attack power, fast, pierce at rare+); wands/staffs cast
+ * magic missiles (spell power; wand = faster casts, staff pays out on nova);
+ * melee-class weapons fall back to a weak thrown sidearm; bare hands throw a
+ * plain 0.8× jab. The Mug throws whatever's strongest, poorly.
+ */
 export function boltParams(p: Player) {
+  const w = p.equipment.weapon;
+  const wc = weaponClassOf(w);
+  const rareUp = w && (w.rarity === "rare" || w.rarity === "epic");
+  const profile =
+    wc === "ballistic" ? { dmg: p.attackPower * CONFIG.boltBallisticMult, school: "physical" as School, speedMult: CONFIG.boltBallisticSpeedMult, bonusPierce: rareUp ? 1 : 0, cdMult: 1 }
+    : wc === "arcane" ? { dmg: p.spellPower * CONFIG.boltArcaneMult, school: "magic" as School, speedMult: 1, bonusPierce: 0, cdMult: /Wand$/.test(w!.name) ? CONFIG.wandBoltCdMult : 1 }
+    : wc === "chaotic" ? { dmg: Math.max(p.attackPower, p.spellPower) * CONFIG.chaoticBoltMult, school: (p.spellPower > p.attackPower ? "magic" : "physical") as School, speedMult: 1.15, bonusPierce: 0, cdMult: 0.95 }
+    : wc !== null ? { dmg: p.attackPower * CONFIG.boltSidearmMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 } // melee-class sidearm
+    : { dmg: p.attackPower * CONFIG.boltDamageMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 }; // bare hands
   return {
     count: 1 + rank(p, "bolt.split"),
-    pierce: rank(p, "bolt.pierce"),
-    cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15),
+    pierce: rank(p, "bolt.pierce") + profile.bonusPierce,
+    cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15) * profile.cdMult,
+    dmg: profile.dmg,
+    school: profile.school,
+    speedMult: profile.speedMult,
   };
 }
 
 export function novaParams(p: Player) {
+  // Staff hook: the caster's weapon pays out on the AoE, not the missile.
+  const w = p.equipment.weapon;
+  const staff = weaponClassOf(w) === "arcane" && /Staff$/.test(w!.name);
   return {
-    radius: CONFIG.novaRadius * (1 + rank(p, "nova.bang") * 0.25),
+    radius: CONFIG.novaRadius * (1 + rank(p, "nova.bang") * 0.25) * (staff ? CONFIG.staffAoeRadiusMult : 1),
     cooldown: CONFIG.novaCooldown * (1 - rank(p, "nova.after") * 0.15),
     damageMult: CONFIG.novaDamageMult * (1 + rank(p, "nova.conc") * 0.3),
   };

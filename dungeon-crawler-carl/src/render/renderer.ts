@@ -214,9 +214,18 @@ export function render(
     }
   }
 
-  // Volatile-corpse hazards: a blast ring that brightens as detonation nears.
+  // Ground hazards: volatile blast rings brighten toward detonation; spitter
+  // acid puddles render filled and fade as they dry.
   for (const hz of state.hazards) {
     if (!inVision(hz.pos.x, hz.pos.y)) continue;
+    if (hz.kind === "puddle") {
+      const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
+      ctx.fillStyle = `rgba(127,184,50,${0.18 + life * 0.2})`;
+      ctx.beginPath();
+      ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
     const prog = 1 - hz.t / Math.max(hz.total, 1e-3);
     ctx.strokeStyle = `rgba(255,70,40,${0.3 + prog * 0.6})`;
     ctx.lineWidth = 3;
@@ -259,7 +268,9 @@ export function render(
       const prog = 1 - m.windup / Math.max(m.windupTotal, 1e-3);
       const r =
         m.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
-        m.windupKind === "shot" ? 0.5 : m.attackRange + CONFIG.monsterStrikeGrace;
+        m.windupKind === "shot" || m.windupKind === "spit" ? 0.5 :
+        m.windupKind === "raise" ? 0.7 :
+        m.windupKind === "charge" ? 0.9 : m.attackRange + CONFIG.monsterStrikeGrace;
       ctx.strokeStyle = `rgba(255,110,60,${0.25 + prog * 0.6})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -409,7 +420,7 @@ function drawHud(
   ctx.fillRect(rx - 10, 40, 210, 92);
   ctx.fillStyle = "#e6e6ec";
   ctx.fillText(`Level ${p.level}   ${p.gold} gold`, rx, 48);
-  ctx.fillText(`DMG ${p.baseDamage}`, rx, 70);
+  ctx.fillText(`ATK ${p.attackPower} · MAG ${p.spellPower}`, rx, 70);
   // HP bar.
   ctx.fillStyle = "#000";
   ctx.fillRect(rx, 92, 190, 10);
