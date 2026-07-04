@@ -94,7 +94,6 @@ export class Renderer3D {
   private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
-  private prevPlayers = new Map<number, Vec2>();
   // Last-frame combat state per player: the clip machine fires on EDGES
   // (cooldowns jumping up = a cast; overcharge falling = the spend; etc.).
   private animPrev = new Map<number, {
@@ -105,7 +104,6 @@ export class Renderer3D {
   private prevMonsterCount = -1;
   private prevStatus = "playing";
   private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
-  private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
   // Trauma-based screen shake: hits add trauma (clamped 0..1), the applied
   // amplitude is trauma SQUARED — chip damage barely whispers, boss slams and
@@ -335,6 +333,8 @@ export class Renderer3D {
     g.userData.animTick = (dt: number) => {
       mixer.update(dt);
       if (busy > 0) busy = Math.max(0, busy - dt);
+      const hold = g.userData.locoHold as number | undefined;
+      if (hold && hold > 0) g.userData.locoHold = Math.max(0, hold - dt);
     };
     g.userData.animBusy = () => busy;
   }
@@ -391,27 +391,71 @@ export class Renderer3D {
     (ud.animTick as (dt: number) => void)(dt);
   }
 
-  /** Feet vs facing: forward run/walk, backpedal when retreating under aim, strafes sideways. */
+  /**
+   * Per-frame velocity of the SMOOTHED mesh, EMA'd over ~100ms (stored on
+   * userData). This is what the eye tracks, it is nonzero on every frame while
+   * moving, and the smoothing means no boundary in the clip machine ever sees
+   * frame-to-frame noise. Teleport-sized samples (floor change, respawn snap)
+   * reset the average instead of polluting it.
+   */
+  private smoothedVel(mesh: THREE.Group, dt: number): Vec2 {
+    const ud = mesh.userData;
+    const ix = ud.lastX === undefined ? 0 : (mesh.position.x - (ud.lastX as number)) / dt;
+    const iz = ud.lastZ === undefined ? 0 : (mesh.position.z - (ud.lastZ as number)) / dt;
+    ud.lastX = mesh.position.x;
+    ud.lastZ = mesh.position.z;
+    if (Math.hypot(ix, iz) > 25) {
+      ud.velX = 0; ud.velZ = 0; // teleport, not movement
+    } else {
+      const k = Math.min(1, dt / 0.1);
+      ud.velX = ((ud.velX as number) ?? 0) + (ix - ((ud.velX as number) ?? 0)) * k;
+      ud.velZ = ((ud.velZ as number) ?? 0) + (iz - ((ud.velZ as number) ?? 0)) * k;
+    }
+    return { x: ud.velX as number, y: ud.velZ as number };
+  }
+
+  /**
+   * Feet vs facing: forward run/walk, backpedal when retreating under aim,
+   * strafes sideways. Every boundary (idle/moving, walk/run, direction) has
+   * hysteresis, and a switched-to clip is held for a beat — a locomotion cycle
+   * that can't complete a stride reads as stutter, not animation.
+   */
   private playLocomotion(mesh: THREE.Group, pl: Player, speed: number, move: Vec2): void {
     const ud = mesh.userData;
     const play = ud.play as (n: string, force?: boolean) => void;
-    const playFirst = ud.playFirst as (...n: string[]) => void;
-    if (speed <= 0.4) {
+    const hasClip = ud.hasClip as (n: string) => boolean;
+    ud.locoMoving = (ud.locoMoving as boolean) ? speed > 0.5 : speed > 0.9;
+    let target: string;
+    if (!ud.locoMoving) {
       // Idle broadcasts the stance: Brawler squares up, Deadeye sights the lane.
-      if (pl.abilities.slots.includes("stance")) {
-        playFirst(pl.stance === "melee" ? "idle_brawler" : "idle_deadeye", "idle");
-      } else {
-        play("idle");
-      }
-      return;
+      target = pl.abilities.slots.includes("stance")
+        ? (pl.stance === "melee" ? "idle_brawler" : "idle_deadeye")
+        : "idle";
+      if (!hasClip(target)) target = "idle";
+    } else {
+      const mx = move.x / speed, my = move.y / speed;
+      const forward = mx * pl.facing.x + my * pl.facing.y;
+      const side = pl.facing.x * my - pl.facing.y * mx; // >0: drifting left of facing
+      // Direction only changes on a CLEAR read; inside the deadband keep the last.
+      let cat = (ud.locoCat as string) ?? "fwd";
+      if (forward > 0.65) cat = "fwd";
+      else if (forward < -0.65) cat = "back";
+      else if (Math.abs(side) > 0.75) cat = side > 0 ? "left" : "right";
+      ud.locoCat = cat;
+      ud.locoRun = (ud.locoRun as boolean) ? speed > 2.6 : speed > 3.4;
+      target =
+        cat === "back" ? "walk_back" :
+        cat === "left" ? "strafe_left" :
+        cat === "right" ? "strafe_right" :
+        ud.locoRun ? "run" : "walk";
+      if (!hasClip(target)) target = "walk";
     }
-    const len = Math.hypot(move.x, move.y);
-    const mx = move.x / len, my = move.y / len;
-    const forward = mx * pl.facing.x + my * pl.facing.y;
-    const side = pl.facing.x * my - pl.facing.y * mx; // >0: drifting left of facing
-    if (forward > 0.5) playFirst(speed > 3 ? "run" : "walk", "walk");
-    else if (forward < -0.5) playFirst("walk_back", "walk");
-    else playFirst(side > 0 ? "strafe_left" : "strafe_right", "walk");
+    if (target !== ud.locoClip) {
+      if (((ud.locoHold as number) ?? 0) > 0) return; // let the current cycle breathe
+      ud.locoClip = target;
+      ud.locoHold = 0.25;
+    }
+    play(target);
   }
 
   private raycaster = new THREE.Raycaster();
@@ -1133,14 +1177,18 @@ export class Renderer3D {
       pSeen.add(pl.id);
       let mesh = this.playerMeshes.get(pl.id);
       if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
-      const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
-      const move = { x: pl.pos.x - prev.x, y: pl.pos.y - prev.y };
-      const plSpeed = Math.hypot(move.x, move.y) / dt;
-      this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
+      // Animation velocity comes from the SMOOTHED mesh (which moves every
+      // frame), EMA'd over ~100ms. Raw sim deltas are ZERO on render frames
+      // between 60Hz sim steps (and between 15Hz net snapshots), so speed read
+      // as 0 / 2x / 0 / 2x — flapping idle<->run every frame was THE walk
+      // stutter. Teleports (floor change, respawn) read as absurd speed; skip
+      // those samples instead of smearing them into the average.
+      const move = this.smoothedVel(mesh, dt);
+      const plSpeed = Math.hypot(move.x, move.y);
       if (mesh.userData.mixer) {
         // Real rigged model: drive clips; procedural bob/tip-over would fight them.
         this.animateRiggedPlayer(mesh, pl, plSpeed, move, dt);
@@ -1152,7 +1200,6 @@ export class Renderer3D {
       if (!pSeen.has(id)) {
         this.scene.remove(mesh);
         this.playerMeshes.delete(id);
-        this.prevPlayers.delete(id);
         this.animPrev.delete(id);
       }
     }
@@ -1186,10 +1233,9 @@ export class Renderer3D {
       }
       mesh.visible = inVision(mon.pos);
       const bs = (mesh.userData.baseScale as number) ?? 1;
-      const prev = this.prevMon.get(mon.id) ?? mon.pos;
-      const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
-      this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
       this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
+      const mVel = this.smoothedVel(mesh, dt);
+      const mSpeed = Math.hypot(mVel.x, mVel.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
         // Rigged model: clip by combat state. No squash (it would deform the
@@ -1217,7 +1263,9 @@ export class Renderer3D {
           } else if (mon.windup > 0) {
             playM(mon.windupKind === "shot" && (ud.hasClip as (n: string) => boolean)("shoot") ? "shoot" : "attack");
           } else if ((ud.animBusy as () => number)() <= 0) {
-            playM(mSpeed > 0.2 ? "walk" : "idle");
+            // Same hysteresis as players: enter walking decisively, leave lazily.
+            ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
+            playM(ud.locoMoving ? "walk" : "idle");
           }
         }
         ud.prevStagger = mon.stagger;
@@ -1285,7 +1333,7 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) {
-        this.monsters.delete(id); this.prevMon.delete(id);
+        this.monsters.delete(id);
         const marker = this.keyMarkers.get(id);
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
         const tel = this.telegraphs.get(id);
