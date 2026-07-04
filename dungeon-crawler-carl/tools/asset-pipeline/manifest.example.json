@@ -1,0 +1,36 @@
+{
+  "defaults": {
+    "art_style": "sculpture",
+    "target_polycount": 3000,
+    "topology": "triangle",
+    "max_tris": 8000
+  },
+  "assets": [
+    {
+      "id": "crate_reinforced",
+      "type": "prop",
+      "prompt": "low poly wooden crate reinforced with iron bands, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.8
+    },
+    {
+      "id": "market_stall",
+      "type": "prop",
+      "prompt": "low poly medieval market stall with striped cloth awning, stylized game asset, chunky proportions, flat colors",
+      "target_height": 2.2
+    },
+    {
+      "id": "goblin_grunt",
+      "type": "character",
+      "prompt": "low poly goblin warrior character, T-pose, stylized chunky proportions, big head and hands, flat colors, game character",
+      "target_height": 1.4,
+      "target_polycount": 6000,
+      "rig": true
+    },
+    {
+      "id": "barrel_local_test",
+      "type": "prop",
+      "source_glb": "../../public/assets/dungeon/barrel_large.glb",
+      "target_height": 0.9
+    }
+  ]
+}

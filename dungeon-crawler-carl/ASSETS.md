@@ -245,6 +245,20 @@ attribution requirement (covered by the same in-game credits line).
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |
 
+## AI-generated assets — `tools/asset-pipeline/`
+
+The asset pipeline (`tools/asset-pipeline/`) generates new models with Meshy AI
+and re-textures them onto the KayKit gradient atlas so they match the packs
+above. Provenance rules for anything it produces:
+
+- `tools/asset-pipeline/palette/*.png` are atlas textures **extracted from the
+  KayKit GLBs already recorded above** (CC0, Kay Lousberg) — same license,
+  same origin.
+- Meshy-generated models are governed by the **Meshy plan's license at
+  generation time**, not CC0 — free-tier output is CC-BY/non-commercial;
+  paid tiers grant commercial rights. When committing a generated model to
+  `public/assets/`, add it to a table here with `Meshy (<plan>)` as the origin.
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.
