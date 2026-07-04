@@ -2,7 +2,7 @@
 import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
-  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents,
+  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
 } from "../src/sim/game";
 import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
@@ -2702,6 +2702,23 @@ describe("genuine itemization (schools + weapon classes)", () => {
     }
     expect(arcaneSeen).toBeGreaterThan(5);
     expect(physSeen).toBeGreaterThan(5);
+  });
+});
+
+describe("hero skins", () => {
+  it("is deterministic per (seed, player), varies across runs, and never twins a party", () => {
+    expect(heroSkin(123, 0)).toBe(heroSkin(123, 0)); // stable for a run
+    // A full party wears distinct skins.
+    const party = [0, 1, 2, 3, 4].map((id) => heroSkin(555, id));
+    expect(new Set(party).size).toBe(party.length);
+    // Different runs shuffle who you drop in as (spot-check a spread of seeds).
+    const firsts = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => heroSkin(s, 0)));
+    expect(firsts.size).toBeGreaterThan(1);
+    // Skins never consume the sim's rng: identical floors with or without the call.
+    const a = createGame(777);
+    heroSkin(777, 0);
+    const b = createGame(777);
+    expect(JSON.stringify(a.map.tiles)).toBe(JSON.stringify(b.map.tiles));
   });
 });
 

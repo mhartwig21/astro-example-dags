@@ -439,6 +439,20 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   }
 }
 
+// Cosmetic hero skins: every run you drop in as a random adventurer, and party
+// members never twin (up to the pool size). Purely DERIVED from (seed, player
+// id) — no state, no save field, no rng-stream impact, and every client
+// computes the same answer from the shared seed. Becomes real chosen state
+// when character types/classes land.
+export const HERO_SKINS = ["knight", "barbarian", "mage", "rogue", "hooded"] as const;
+export type HeroSkin = (typeof HERO_SKINS)[number];
+
+/** Which adventurer this crawler is for this run (hosts map it to a model). */
+export function heroSkin(seed: number, playerId: number): HeroSkin {
+  const base = (Math.imul(seed ^ 0x9e3779b1, 0x85ebca6b) >>> 8) % HERO_SKINS.length;
+  return HERO_SKINS[(base + playerId) % HERO_SKINS.length];
+}
+
 /** Living party members (most systems only care about these). */
 export function alivePlayers(state: GameState): Player[] {
   return state.players.filter((p) => p.alive);

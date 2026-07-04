@@ -25,6 +25,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_shaman: "/assets/characters/mage.glb",
   monster_phantom: "/assets/characters/rogue.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
+  // Extra hero skin (heroSkin in sim/game.ts): the one adventurer the monster
+  // roster doesn't already wear. knight/barbarian/mage/rogue reuse loaded GLBs.
+  hero_hooded: "/assets/characters/rogue_hooded.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",
