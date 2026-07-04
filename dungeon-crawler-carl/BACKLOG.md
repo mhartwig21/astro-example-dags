@@ -5,16 +5,6 @@ order reported, not priority order. Each entry notes the likely code home so
 any session can pick one up cold. Delete items when they ship (git history
 remembers).
 
-## 7. Higher upgrade caps + scarcity = chase-able OP builds — design
-
-Constellation nodes cap at maxRank 1–3 (`src/sim/abilities.ts UPGRADES`).
-Explore raising ceilings so OP builds EXIST, but gate the tail ranks behind
-scarcity so hitting one is a run-to-run lottery, not a guarantee:
-- "Overrank" ranks past current max that only appear in drafts rarely
-  (weighted by floor/luck), or via a rare "System Favor" drop.
-- Keep the balance bot honest: OP must mean "feels broken", not "breaks the
-  regression tests" — tune monster scaling alongside.
-
 ## 8. Boss name overlaps announcements — popup collision audit — bug
 
 The ringside encounter banner and announcement toasts collide (there was a

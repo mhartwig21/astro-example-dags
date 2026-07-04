@@ -812,6 +812,11 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
   const offer = p.pendingUpgrades[idx];
   p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
   p.pendingUpgrades = [];
+  if (offer.overrank) {
+    // A lottery rank past the printed max — rare enough to headline.
+    announce(state, "levelup", `${p.name} seizes OVERRANK ${offer.title} ${offer.nextRank}! Power beyond System limits.`, "high");
+    return;
+  }
   const def = upgradeDef(offer.id);
   announce(state, "levelup", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
@@ -2330,7 +2335,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   if (state.status === "playing") {
     for (const p of ordered) {
       if (p.upgradeDraftsOwed > 0 && p.pendingUpgrades.length === 0) {
-        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize);
+        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, state.floor);
         if (offers.length > 0) {
           p.upgradeDraftsOwed--;
           p.pendingUpgrades = offers;

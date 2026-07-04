@@ -235,6 +235,10 @@ export const CONFIG = {
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up
+  // Overranks: lottery ranks past a node's printed max (see rollUpgradeDraft).
+  overrankChanceBase: 0.05, // draft chance to dangle one on floor 0
+  overrankChancePerFloor: 0.01, // added per floor — the deep dungeon tempts harder
+  overrankChanceMax: 0.2, // even floor 15+ stays a gamble
 
   // Fog of war
   fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player

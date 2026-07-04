@@ -236,13 +236,15 @@ function renderDraft(s: GameState): void {
       .map((u, i) => {
         const info = ABILITY_INFO[u.ability];
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
-        const pips = Array.from({ length: max }, (_, r) => (r < u.nextRank ? "●" : "○")).join("");
+        // Overrank offers extend the pip row past the printed max with stars.
+        const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
+          r < u.nextRank ? (r >= max ? "⭑" : "●") : "○").join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
-          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}" data-idx="${i}">` +
+          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
           `<div class="oicon">${icon}<span class="orank">${pips}</span></div>` +
           `<div class="obody">` +
-          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${info.name}</span></div>` +
+          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${u.overrank ? "OVERRANK · " : ""}${info.name}</span></div>` +
           `<div class="rdesc">${u.desc}</div>` +
           `</div>` +
           `<kbd class="okey">${i + 1}</kbd>` +
@@ -369,7 +371,9 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   const locked = !open && r === 0;
   const pips = u.capstone
     ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
-    : `${"●".repeat(r)}<span class="off">${"○".repeat(u.maxRank - r)}</span>`;
+    : `${"●".repeat(Math.min(r, u.maxRank))}` +
+      `<span class="opip">${"⭑".repeat(Math.max(0, r - u.maxRank))}</span>` +
+      `<span class="off">${"○".repeat(Math.max(0, u.maxRank - r))}</span>`;
   let effect: string;
   if (locked) {
     const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
@@ -380,7 +384,8 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   } else if (r > 0) {
     effect = u.desc(r) +
       (r < u.maxRank ? ` <span class="nnext">· next rank: ${u.desc(r + 1)}</span>` : "") +
-      (r >= u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "");
+      (r === u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "") +
+      (r > u.maxRank ? ` <span class="nover">· OVERRANK +${r - u.maxRank}</span>` : "");
   } else {
     effect = `${u.desc(1)} <span class="nnext">· from level-up drafts</span>`;
   }

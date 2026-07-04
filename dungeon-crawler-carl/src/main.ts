@@ -111,8 +111,9 @@ function frame(now: number): void {
       });
       log.push("  Press 1-9 to buy, Enter to descend.");
     } else {
-      const offers: { title: string; desc: string }[] = lp.pendingRewards.length > 0 ? lp.pendingRewards : lp.pendingUpgrades;
-      offers.forEach((o, i) => log.push(`  [${i + 1}] ${o.title} — ${o.desc}`));
+      const offers: { title: string; desc: string; overrank?: boolean }[] =
+        lp.pendingRewards.length > 0 ? lp.pendingRewards : lp.pendingUpgrades;
+      offers.forEach((o, i) => log.push(`  [${i + 1}] ${o.overrank ? "⭑ OVERRANK " : ""}${o.title} — ${o.desc}`));
       log.push("  Press 1-9 to choose.");
     }
   }
