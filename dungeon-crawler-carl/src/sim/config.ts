@@ -407,19 +407,20 @@ export const RARITIES = [
   { name: "epic", weight: 3, mult: 3.6 },
 ] as const;
 
-// Theme bands: the dungeon shifts tone every 4 floors. The sim announces the
+// Theme bands: the dungeon shifts tone every 3 floors. The sim announces the
 // district on entry; the renderers pick art/palettes from the same index.
 export const FLOOR_BANDS = [
   { name: "THE UNDERCROFT", line: "Clean stone, warm torches. Don't get comfortable." },
   { name: "THE SEWERS", line: "Mind the weeds. Mind the smell. The cameras have smell-o-vision now." },
+  { name: "THE GARDEN", line: "The System grew you a garden. Everything in it is dead, and most of it is still hungry." },
   { name: "THE RUINS", line: "Whoever lived here lost. Try to break the pattern." },
   { name: "THE IRONWORKS", line: "Steel grates and cold drafts. The machinery remembers." },
   { name: "THE APPROACH", line: "Banners, spikes, and something enormous breathing below." },
 ] as const;
 
-/** Band index (0-4) for a floor: 1-4, 5-8, 9-12, 13-16, 17-18. */
+/** Band index (0-5) for a floor: 1-3, 4-6, 7-9, 10-12, 13-15, 16-18. */
 export function floorBand(floor: number): number {
-  return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 4));
+  return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
 }
 
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */

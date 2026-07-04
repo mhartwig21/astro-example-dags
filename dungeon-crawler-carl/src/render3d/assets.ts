@@ -25,6 +25,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_shaman: "/assets/characters/mage.glb",
   monster_phantom: "/assets/characters/rogue.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
+  // Extra hero skin (heroSkin in sim/game.ts): the one adventurer the monster
+  // roster doesn't already wear. knight/barbarian/mage/rogue reuse loaded GLBs.
+  hero_hooded: "/assets/characters/rogue_hooded.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",
@@ -49,6 +52,12 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // table_small_decorated_A is banned: candles baked into the model.
       "torch_lit", "torch_mounted", "coin_stack_small", "coin_stack_medium",
       "coin_stack_large",
+      // THE GARDEN band (KayKit Halloween Bits, CC0 — see ASSETS.md)
+      "floor_dirt", "floor_dirt_grave", "floor_dirt_small",
+      "tree_dead_large", "tree_dead_medium", "tree_dead_small",
+      "gravestone", "grave_A", "grave_B", "gravemarker_A", "crypt",
+      "lantern_standing", "bench", "pumpkin_orange", "pumpkin_orange_small",
+      "ribcage", "bone_A",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

@@ -5,6 +5,7 @@ import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
+import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -497,13 +498,25 @@ export class Renderer3D {
 
   // ---- Procedural meshes (placeholders for CC0 glTF art) ----
 
-  private buildPlayerMesh(): THREE.Group {
-    const model = this.modelInstance("player");
+  // Hero skins (heroSkin in sim/game.ts): model key per skin id. Three skins
+  // reuse GLBs that also dress monsters (barbarian/mage/rogue) — acceptable
+  // overlap until character types become real picks; the knight and hooded
+  // rogue stay player-only.
+  private static readonly SKIN_MODEL: Record<string, string> = {
+    knight: "player", barbarian: "monster_bomber", mage: "monster_shaman",
+    rogue: "monster_phantom", hooded: "hero_hooded",
+  };
+
+  private buildPlayerMesh(skin: string): THREE.Group {
+    const model =
+      this.modelInstance(Renderer3D.SKIN_MODEL[skin] ?? "player") ?? this.modelInstance("player");
     if (model) {
       this.normalizeHeight(model, 1.35);
+      model.userData.skinId = skin;
       return model;
     }
     const g = new THREE.Group();
+    g.userData.skinId = skin;
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), flat(THEME.player));
     body.position.y = 0.55; body.castShadow = true;
     const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), flat(THEME.playerTrim));
@@ -525,51 +538,51 @@ export class Renderer3D {
    * from the barbarian GLB) are cloned once and grafted onto the handslot.r
    * bone, where they ride the hand through every animation clip.
    */
+  /**
+   * Show one attachment on this rig: the native node if this skin's GLB ships
+   * it, else a cached graft cloned from the source model onto the requested
+   * hand bone. All adventurers share the KayKit rig, so a grafted node's local
+   * transform relative to its own handslot carries over 1:1.
+   */
+  private showAttachment(mesh: THREE.Group, srcKey: string, node: string, hand: "l" | "r"): THREE.Object3D | null {
+    let obj: THREE.Object3D | null =
+      mesh.getObjectByName(node) ?? mesh.getObjectByName(`graft_${srcKey}_${node}`) ?? null;
+    if (!obj) {
+      const srcNode = this.models[srcKey]?.scene.getObjectByName(node);
+      // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
+      const handObj = mesh.getObjectByName(`handslot${hand}`) ?? mesh.getObjectByName(`handslot.${hand}`);
+      if (srcNode && handObj) {
+        obj = srcNode.clone(true);
+        obj.name = `graft_${srcKey}_${node}`;
+        handObj.add(obj);
+        const grafts = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
+        grafts.push(obj);
+        mesh.userData.grafts = grafts;
+      }
+    }
+    if (obj) obj.visible = true;
+    return obj;
+  }
+
   private applyLoadout(mesh: THREE.Group, pl: Player): void {
     const { weapon, shield } = loadoutFor(pl);
     const key = `${weapon.srcKey}/${weapon.node}/${shield ?? "-"}/${pl.equipment.weapon?.rarity ?? "-"}`;
     if (this.loadoutKeys.get(pl.id) === key) return;
     this.loadoutKeys.set(pl.id, key);
 
-    // Hide every known attachment (including previous grafts).
-    for (const name of ATTACHMENT_NODES.player) {
+    // Hide every known attachment across ALL rigs — each skin ships its own
+    // default arsenal, and a barbarian's axe must not photobomb your Blade —
+    // plus any previous grafts.
+    for (const name of Object.values(ATTACHMENT_NODES).flat()) {
       const node = mesh.getObjectByName(name);
       if (node) node.visible = false;
     }
-    const grafts: THREE.Object3D[] = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
-    for (const g of grafts) g.visible = false;
+    for (const g of (mesh.userData.grafts as THREE.Object3D[]) ?? []) g.visible = false;
 
-    // Shield (armor slot), unless the weapon needs both hands.
-    if (shield) {
-      const node = mesh.getObjectByName(shield);
-      if (node) node.visible = true;
-    }
-
-    // Weapon: native node or a cached cross-model graft.
-    let weaponObj: THREE.Object3D | null = null;
-    if (weapon.srcKey === "player") {
-      weaponObj = mesh.getObjectByName(weapon.node) ?? null;
-      if (weaponObj) weaponObj.visible = true;
-    } else {
-      const graftName = `graft_${weapon.srcKey}_${weapon.node}`;
-      weaponObj = mesh.getObjectByName(graftName) ?? null;
-      if (!weaponObj) {
-        const srcModel = this.models[weapon.srcKey];
-        const srcNode = srcModel?.scene.getObjectByName(weapon.node);
-        // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
-        const hand = mesh.getObjectByName("handslotr") ?? mesh.getObjectByName("handslot.r");
-        if (srcNode && hand) {
-          weaponObj = srcNode.clone(true);
-          weaponObj.name = graftName;
-          // Same rig family: the node's local transform relative to its own
-          // handslot carries over 1:1.
-          hand.add(weaponObj);
-          grafts.push(weaponObj);
-          mesh.userData.grafts = grafts;
-        }
-      }
-      if (weaponObj) weaponObj.visible = true;
-    }
+    // Shield (armor slot) rides the off hand, unless the weapon needs both.
+    if (shield) this.showAttachment(mesh, "player", shield, "l");
+    // Weapon: native to this skin's rig, or a cached cross-model graft.
+    const weaponObj = this.showAttachment(mesh, weapon.srcKey, weapon.node, "r");
 
     // Rarity flair: emissive tint on the weapon's materials.
     if (weaponObj) {
@@ -950,22 +963,29 @@ export class Renderer3D {
     }
     this.addTorches(theme, torchAnchors, 0.85 + frng() * 0.3);
 
-    // 2) Banners flanking locked doors (a gate should look like a gate).
+    // 2) Theme props flanking locked doors (a gate should look like a gate) —
+    //    banners in the stone districts, standing lanterns in the Garden.
     let banners = 0;
     for (let i = 0; i < map.tiles.length && banners < 6; i++) {
       if (map.tiles[i] !== Tile.DoorLocked) continue;
       const x = (i % map.w) + 0.5, y = Math.floor(i / map.w) + 0.5;
       for (const [dx, dy] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]] as const) {
-        if (place("banner_red", x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
+        if (place(theme.doorFlankKey, x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
           banners++;
           break;
         }
       }
     }
 
-    // 3) Corner clutter clusters (2 corners per room, 1-2 theme props each).
+    // 3) Corner clutter clusters (2 corners per room, 1-2 props each). The pool
+    //    is role-keyed: the landmark hall clutters with its own set-dressing,
+    //    the entrance gets a soft camp, everything else uses the band props.
     for (let ri = 0; ri < map.rooms.length; ri++) {
-      if (map.roles[ri] === "entrance") continue;
+      const role = map.roles[ri];
+      const pool = role === "entrance" ? theme.entranceProps
+        : role === "landmark" ? theme.landmark.props
+        : theme.props;
+      if (pool.length === 0) continue;
       const r = map.rooms[ri];
       const corners: Vec2[] = [
         { x: r.x + 1.2, y: r.y + 1.2 }, { x: r.x + r.w - 1.2, y: r.y + 1.2 },
@@ -976,26 +996,29 @@ export class Renderer3D {
         const corner = corners[(start + c * 2) % 4];
         const n = 1 + Math.floor(frng() * 2);
         for (let k = 0; k < n; k++) {
-          const key = theme.props[Math.floor(frng() * theme.props.length)];
+          const key = pool[Math.floor(frng() * pool.length)];
           place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
         }
       }
     }
 
-    // 4) LANDMARK hall: a pillar colonnade + a centered altar.
+    // 4) LANDMARK hall: a colonnade + centered set-piece, both band-flavored
+    //    (library table in the Undercroft, crypt among dead trees in the Garden,
+    //    war monument on the Approach — see FLOOR_THEMES.landmark).
     const landmarkIdx = map.roles.indexOf("landmark");
     if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
+      const lm = theme.landmark;
       for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
         for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
           // Colonnade along the room edges of the interior grid, not the middle.
           if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
-          place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
+          place(lm.pillarKey, px + 0.5, py + 0.5, { scale: lm.pillarScale, rot: 0, jitter: 0 });
         }
       }
-      // Centerpiece: a fallen warrior monument (table_small_decorated_A is out —
-      // its model has candles baked in, and candles are banned from the floors).
-      place("sword_shield_broken", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.9, rot: 0, jitter: 0 });
+      // Centerpiece note: table_small_decorated_A stays out — its model has
+      // candles baked in, and candles are banned from the floors.
+      place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
     }
 
     // 5) VAULT: the hoard around the guardian's treasure.
@@ -1185,8 +1208,17 @@ export class Renderer3D {
     const pSeen = new Set<number>();
     for (const pl of state.players) {
       pSeen.add(pl.id);
+      // Hero skin: derived from (seed, player id) — a fresh adventurer every
+      // run. A seed change (new game, restore) rebuilds the body + regrafts.
+      const skin = heroSkin(state.seed, pl.id);
       let mesh = this.playerMeshes.get(pl.id);
-      if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
+      if (mesh && mesh.userData.skinId !== skin) {
+        this.scene.remove(mesh);
+        this.playerMeshes.delete(pl.id);
+        this.loadoutKeys.delete(pl.id);
+        mesh = undefined;
+      }
+      if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;

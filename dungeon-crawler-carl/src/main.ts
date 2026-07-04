@@ -1,4 +1,8 @@
-import { createGame, restoreGame, step, chooseReward, chooseUpgrade, buyCatalogItem, effectivePrice, setReady } from "./sim/game";
+import {
+  createGame, createTestGame, restoreGame, step, chooseReward, chooseUpgrade, buyCatalogItem,
+  effectivePrice, setReady, type TestSetup,
+} from "./sim/game";
+import { ABILITY_INFO, type AbilityId } from "./sim/abilities";
 import { CATALOG_BY_ID } from "./sim/catalog";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
@@ -30,7 +34,37 @@ function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
 }
 
+// Test mode (?test[&floor=&level=&abilities=&gold=&seed=]): jump straight to a
+// dungeon stage; nothing is loaded or saved, so the real run is untouched.
+const params = new URLSearchParams(location.search);
+const testMode = params.has("test");
+function testSetup(): TestSetup {
+  const num = (k: string): number | undefined => {
+    const raw = params.get(k);
+    if (raw === null || raw === "") return undefined;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : undefined;
+  };
+  const ab = params.get("abilities");
+  return {
+    seed: num("seed"),
+    floor: num("floor"),
+    level: num("level"),
+    gold: num("gold"),
+    abilities: ab === "all" ? "all" : ab ? (ab.split(",").filter((a) => a in ABILITY_INFO) as AbilityId[]) : undefined,
+    gear: params.get("gear") !== "0",
+  };
+}
+function persistRun(g: GameState): void {
+  if (!testMode) saveRun(g);
+}
+
 function startFresh(): GameState {
+  if (testMode) {
+    const s = testSetup();
+    if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
+    return createTestGame(s);
+  }
   clearRun();
   const g = createGame(freshSeed());
   saveRun(g);
@@ -39,6 +73,7 @@ function startFresh(): GameState {
 
 // Log on/off: resume a saved run if one exists and isn't already finished.
 function boot(): GameState {
+  if (testMode) return createTestGame(testSetup());
   const save = loadRun();
   if (save && save.status === "playing") {
     return restoreGame(save);
@@ -129,11 +164,11 @@ function frame(now: number): void {
     // Persist on floor change and status change (the meaningful save points).
     if (state.floor !== lastFloor) {
       lastFloor = state.floor;
-      saveRun(state);
+      persistRun(state);
     }
     if (state.status !== lastStatus) {
       lastStatus = state.status;
-      saveRun(state);
+      persistRun(state);
     }
   }
 
@@ -141,7 +176,7 @@ function frame(now: number): void {
   saveAccumulator += dt;
   if (saveAccumulator > 3 && state.status === "playing") {
     saveAccumulator = 0;
-    saveRun(state);
+    persistRun(state);
   }
 
   updateCamera(cam, state, viewW, viewH);

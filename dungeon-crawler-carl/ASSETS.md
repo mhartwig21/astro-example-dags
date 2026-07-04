@@ -21,6 +21,12 @@ appreciated).
 | Mini Dungeon (with animations) | Kenney | CC0 | https://kenney-assets.itch.io/mini-dungeon |
 | LowPoly Modular Dungeon Pack (45+ pcs) | Quaternius | CC0 | https://quaternius.itch.io/lowpoly-modular-dungeon-pack |
 | KayKit Dungeon Remastered | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
+| KayKit Halloween Bits (THE GARDEN band: dead trees, graves, crypt, lanterns) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
+
+Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
+mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
+`gltf-pipeline`; the pack license ships alongside the models as
+`public/assets/dungeon/LICENSE-halloween-bits.txt`.
 
 ### Characters & monsters (rigged + animated — the big 3D win)
 | Pack | Author | License | Link |

@@ -1,8 +1,8 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
+  createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
-  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents,
+  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation,
 } from "../src/sim/game";
 import { armorReduction, rollDamage } from "../src/sim/combat";
@@ -2010,21 +2010,34 @@ describe("boss phases", () => {
 });
 
 describe("theme bands", () => {
-  it("maps floors to 4-floor bands", () => {
-    expect([1, 4, 5, 8, 9, 12, 13, 16, 17, 18].map((f) => floorBand(f)))
-      .toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
+  it("maps floors to 3-floor bands", () => {
+    expect([1, 3, 4, 6, 7, 9, 10, 12, 13, 15, 16, 18].map((f) => floorBand(f)))
+      .toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
   });
 
-  it("announces the district when crossing a band boundary (4 -> 5)", () => {
+  it("announces the district when crossing a band boundary (3 -> 4)", () => {
     const g = restoreGame({
-      seed: 71, floor: 4,
+      seed: 71, floor: 3,
       player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
     });
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
-    expect(g.floor).toBe(5);
+    expect(g.floor).toBe(4);
     expect(g.announcements.some((a) => a.text.includes("THE SEWERS"))).toBe(true);
+  });
+
+  it("announces THE GARDEN at floor 7", () => {
+    const g = restoreGame({
+      seed: 73, floor: 6,
+      player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
+    });
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.monsters.length = 0; // floor 6 is a city-boss floor; the boss seals the stairs
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+    leaveSafeRoom(g);
+    expect(g.floor).toBe(7);
+    expect(g.announcements.some((a) => a.text.includes("THE GARDEN"))).toBe(true);
   });
 
   it("does not re-announce within a band (5 -> 6)", () => {
@@ -2409,6 +2422,47 @@ describe("overranks (backlog #7): lottery ranks past the printed max", () => {
   });
 });
 
+describe("test mode (createTestGame)", () => {
+  it("jumps to the requested floor with a leveled, geared crawler", () => {
+    const g = createTestGame({ floor: 9, level: 12, seed: 7 });
+    const p = g.players[0];
+    expect(g.floor).toBe(9);
+    expect(p.level).toBe(12);
+    expect(p.hp).toBe(p.maxHp);
+    expect(p.equipment.weapon ?? p.equipment.armor ?? p.equipment.trinket).toBeTruthy();
+    // Levels were spent through the real draft roller, so ranks exist.
+    const ranks = Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0);
+    expect(ranks).toBeGreaterThan(0);
+    expect(g.status).toBe("playing");
+  });
+
+  it("is deterministic: same setup, same crawler, same floor", () => {
+    const a = createTestGame({ floor: 5, level: 8, seed: 42 });
+    const b = createTestGame({ floor: 5, level: 8, seed: 42 });
+    expect(JSON.stringify(a.players[0])).toBe(JSON.stringify(b.players[0]));
+    expect(Array.from(a.map.tiles)).toEqual(Array.from(b.map.tiles));
+  });
+
+  it("clamps the floor and slots requested abilities", () => {
+    const g = createTestGame({ floor: 99, abilities: ["nova", "airstrike"] });
+    expect(g.floor).toBe(CONFIG.finalFloor);
+    const p = g.players[0];
+    expect(knows(p, "nova")).toBe(true);
+    expect(p.abilities.ultimate).toBe("airstrike");
+  });
+
+  it("abilities: 'all' discovers the whole kit", () => {
+    const p = createTestGame({ abilities: "all", level: 20 }).players[0];
+    for (const a of DISCOVERABLE_ABILITIES) expect(knows(p, a)).toBe(true);
+  });
+
+  it("gear: false starts bare-handed; default gold scales with floor", () => {
+    const bare = createTestGame({ floor: 10, gear: false }).players[0];
+    expect(bare.equipment.weapon).toBeNull();
+    expect(bare.gold).toBe(400);
+  });
+});
+
 describe("ability constellation (prereqs, forks, capstones)", () => {
   it("drafts never offer a node whose prerequisites are unmet", () => {
     const g = createGame(970);
@@ -2744,6 +2798,23 @@ describe("genuine itemization (schools + weapon classes)", () => {
     }
     expect(arcaneSeen).toBeGreaterThan(5);
     expect(physSeen).toBeGreaterThan(5);
+  });
+});
+
+describe("hero skins", () => {
+  it("is deterministic per (seed, player), varies across runs, and never twins a party", () => {
+    expect(heroSkin(123, 0)).toBe(heroSkin(123, 0)); // stable for a run
+    // A full party wears distinct skins.
+    const party = [0, 1, 2, 3, 4].map((id) => heroSkin(555, id));
+    expect(new Set(party).size).toBe(party.length);
+    // Different runs shuffle who you drop in as (spot-check a spread of seeds).
+    const firsts = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => heroSkin(s, 0)));
+    expect(firsts.size).toBeGreaterThan(1);
+    // Skins never consume the sim's rng: identical floors with or without the call.
+    const a = createGame(777);
+    heroSkin(777, 0);
+    const b = createGame(777);
+    expect(JSON.stringify(a.map.tiles)).toBe(JSON.stringify(b.map.tiles));
   });
 });
 
