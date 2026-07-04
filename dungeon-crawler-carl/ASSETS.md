@@ -178,6 +178,34 @@ glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
 New abilities: pick an icon at game-icons.net, fetch the raw SVG from the
 GitHub mirror, strip `<path d="M0 0h512v512H0z"/>`, and add a row here.
 
+### Noun icons — `public/icons/nouns/` (same source, license, and convention)
+
+Generated field drops (`src/sim/items.ts` SLOT_NOUNS) show their weapon/armor/
+trinket NOUN's icon in the bag and equipped rows, rarity-tinted via CSS mask.
+One file per noun, lowercase: `/icons/nouns/<noun>.svg`.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| blade | broadsword | Lorc |
+| axe | battle-axe | Lorc |
+| maul | warhammer | Delapouite |
+| spear | barbed-spear | Lorc |
+| cleaver | bowie-knife | Lorc |
+| wand | fairy-wand | Lorc |
+| staff | wizard-staff | Lorc |
+| crossbow | crossbow | Carl Olsen |
+| mug | beer-stein | Lorc |
+| plate | breastplate | Lorc |
+| hauberk | scale-mail | Lorc |
+| carapace | turtle-shell | Lorc |
+| aegis | checked-shield | Lorc |
+| vest | sleeveless-jacket | Delapouite |
+| charm | gem-pendant | Lorc |
+| sigil | rune-stone | Lorc |
+| idol | totem-head | Lorc |
+| band | diamond-ring | Delapouite |
+| totem | totem-mask | Lorc |
+
 ### Item icons — `public/icons/items/` (same source, license, and convention)
 
 The System Shop catalog (`src/sim/catalog.ts`) uses `/icons/items/<catalogId>.svg`,

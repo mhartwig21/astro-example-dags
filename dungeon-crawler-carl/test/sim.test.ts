@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
-  leaveSafeRoom, addPlayer, setReady, slotAbility,
+  leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents,
 } from "../src/sim/game";
-import { CATALOG_BY_ID, consumablePrice, totalCost } from "../src/sim/catalog";
+import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem } from "../src/sim/items";
 import { DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, knows, rank, stanceMult } from "../src/sim/abilities";
@@ -530,6 +530,8 @@ describe("safe room + System Shop", () => {
     const room = g.safeRoom!;
     room.available.push("headliner_cleaver");
     p.gold = 10_000;
+    // Build gating: the legendary requires its component in hand first.
+    p.inventory.push({ id: 9200, slot: "weapon", rarity: "rare", name: "Prime-Time Cleaver", affixes: { damage: 14 }, catalogId: "primetime_cleaver" });
     p.sponsors = 0;
     p.materials.elite_trophy = 5;
     buyCatalogItem(g, 0, "headliner_cleaver"); // no backing -> refused
@@ -563,6 +565,47 @@ describe("safe room + System Shop", () => {
     const gold1 = p.gold;
     sellItem(g, 0, p.inventory.length - 1);
     expect(p.gold).toBe(gold1);
+  });
+
+  it("built gear requires components IN HAND (backlog #6)", () => {
+    const g = reachSafeRoom(312);
+    const p = g.players[0];
+    g.safeRoom!.available.push("primetime_cleaver");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "primetime_cleaver"); // no components -> refused
+    expect(p.goldSpent).toBe(0);
+    buyCatalogItem(g, 0, "honed_edge"); // one of two isn't enough
+    const spent1 = p.goldSpent;
+    buyCatalogItem(g, 0, "primetime_cleaver");
+    expect(p.goldSpent).toBe(spent1);
+    expect(missingComponents(p, "primetime_cleaver")).toEqual(["killer_instinct"]);
+    buyCatalogItem(g, 0, "killer_instinct");
+    buyCatalogItem(g, 0, "primetime_cleaver"); // full build -> goes through
+    expect(p.equipment.weapon?.catalogId).toBe("primetime_cleaver");
+    // Components were consumed by the build: a SECOND cleaver needs them anew.
+    expect(missingComponents(p, "primetime_cleaver")).toEqual(["honed_edge", "killer_instinct"]);
+  });
+
+  it("duplicate components count separately (Showstopper needs TWO platings)", () => {
+    const g = reachSafeRoom(313);
+    const p = g.players[0];
+    g.safeRoom!.available.push("showstopper_plate");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "iron_plating"); // auto-equips
+    buyCatalogItem(g, 0, "showstopper_plate"); // one of two -> refused
+    expect(p.equipment.armor?.catalogId).toBe("iron_plating");
+    buyCatalogItem(g, 0, "iron_plating"); // second copy lands in the bag
+    buyCatalogItem(g, 0, "showstopper_plate");
+    expect(p.equipment.armor?.catalogId).toBe("showstopper_plate");
+    expect(p.inventory.some((it) => it.catalogId === "iron_plating")).toBe(false); // both consumed
+  });
+
+  it("catalog gear keeps tier parity with same-rarity drops deep in the run (backlog #5)", () => {
+    // Worst-case drop primary at floor 10 is (2 + floor) * rarity mult (items.ts rollAffix).
+    const adv = gearAffixes(CATALOG_BY_ID.primetime_cleaver, 10).damage!;
+    const leg = gearAffixes(CATALOG_BY_ID.headliner_cleaver, 10).damage!;
+    expect(adv).toBeGreaterThanOrEqual(Math.round((2 + 10) * 2.4)); // rare-tier parity
+    expect(leg).toBeGreaterThanOrEqual(Math.round((2 + 10) * 3.6)); // epic-tier parity
   });
 
   it("effectivePrice previews the component discount without buying", () => {

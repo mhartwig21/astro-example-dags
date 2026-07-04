@@ -253,6 +253,70 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
+### 5.8 Genuine itemization (planned — weapon classes + damage schools)
+
+**Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
+weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
+can't push builds, and "magical attack" isn't a real concept the sim can price.
+
+**Three moves, in dependency order:**
+
+**(1) Damage schools.** Split the one damage stat into two:
+- `attackPower` (physical) and `spellPower` (magic) on `Player`, both = intrinsic(level) +
+  bonuses + equipment. `maxHp`/`speed`/`crit` stay shared (crit applies to both schools).
+- The affix pool gains `spell`; `damage` becomes the physical stat. Item generation rolls
+  the school that fits the item (see move 3) — finding a great caster weapon IS the nudge
+  toward a caster build.
+- **Every ability declares its scaling in the registry** (next to `ABILITY_INFO`, so a new
+  ability declares its school the same place it declares everything else):
+  `SCALING: Record<AbilityId, { ap: number; sp: number }>` — e.g. melee `{ap:1}`, orbit
+  `{ap:0.5}`, nova `{sp:1.2}`, cataclysm `{sp:3}`, airstrike `{ap:2.5}` (sponsor ordnance is
+  very physical), dash-shockstep `{sp:0.5}`. Hybrids are just both keys nonzero.
+- Damage instances carry a `school` tag (extends the existing `HitEvent`/damage plumbing),
+  which move (3)'s resistances and the juice layer (color-coded numbers) read.
+
+**(2) Bolt becomes the weapon's projectile — the crossbow finally IS a crossbow.**
+Bolt is the one ability whose school and feel come FROM the equipped weapon:
+- **Ballistic** weapon (Crossbow): physical bolts off `attackPower`, +30% projectile speed,
+  +1 pierce at rare+. **Arcane** weapon (Wand/Staff): magic missiles off `spellPower` (wand:
+  −20% bolt cooldown; staff: +25% nova/AoE radius instead). **Melee** weapons: a thrown
+  sidearm — weak default (0.5×AP), using the rig's `Throw` clip. The renderer already grafts
+  real weapon models and has shoot/spellcast animations; this move makes mechanics match.
+
+**(3) Weapon classes.** Noun → class, each with ONE mechanical hook (house capstone style —
+a behavior, not a stat pile):
+
+| Class | Nouns | Hook |
+|---|---|---|
+| Swift | Blade, Cleaver | melee cooldown −10% |
+| Heavy | Maul, Axe | melee +30% damage, 2× poise damage, cooldown +15% |
+| Reach | Spear | melee range +0.5 tiles |
+| Ballistic | Crossbow | bolt profile above |
+| Arcane | Wand, Staff | bolt/AoE profile above; weapon rolls `spell` affixes |
+| ??? | Mug | all of the above, badly (the joke stays) |
+
+Generation picks class with the slot, then rolls class-fitting affixes. The catalog tags each
+entry's school (existing tree is physical; a caster component branch is the natural catalog
+expansion). Armor/trinkets stay school-agnostic until proven boring.
+
+**Counterplay (phase 3, cheap):** monster resist tags — `armored` (physical −30%) and
+`warded` (magic −30%) — as new elite affixes plus a couple of archetype defaults. The party's
+school MIX starts mattering per pack; a warded elite pack is the crossbow crawler's fight.
+
+**Interactions with existing systems:**
+- **Battle Stance** stays about attack RANGE (Brawler/Deadeye); school is orthogonal — a
+  Deadeye wand build is ranged-magic, and PERFECT FORM still reads range, not school.
+- **Overcharge** multiplies whatever the spent attack's school computes — no change.
+- **Balance bot / regression tests** exercise legacy intents and auto-equip; auto-equip's
+  `itemScore` must learn schools (score an item BY the build's dominant school, so a caster
+  doesn't auto-equip a maul).
+- **Saves:** fold legacy `damage` affixes/`bonusDamage` into physical; `spellPower` starts at
+  intrinsic. Same migration pattern as the loadout rework.
+
+**Effort:** three sessions, shippable independently — (1) stats + scaling table + migration +
+tests; (2) bolt-from-weapon + classes + generation + UI (item cards show class + school, stat
+panel shows AP/SP); (3) resistances + catalog caster branch + balance pass.
+
 ---
 
 ## 6. Tech stack

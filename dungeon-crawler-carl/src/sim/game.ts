@@ -1430,6 +1430,29 @@ function claimComponents(p: Player, catalogId: string, claimed: Set<Item>): numb
   return credit;
 }
 
+/**
+ * Direct components (with multiplicity) the player still lacks for a build.
+ * Purchases of built gear are GATED on this being empty: the build tree is a
+ * path you walk, not a price sheet — assembling the pieces shop-to-shop is
+ * the intended rhythm. Exported for the shop UI's lock reason.
+ */
+export function missingComponents(p: Player, catalogId: string): string[] {
+  const need = CATALOG_BY_ID[catalogId]?.buildsFrom ?? [];
+  if (need.length === 0) return [];
+  const owned: Record<string, number> = {};
+  const count = (it: Item | null) => {
+    if (it?.catalogId) owned[it.catalogId] = (owned[it.catalogId] ?? 0) + 1;
+  };
+  for (const it of p.inventory) count(it);
+  for (const slot of ["weapon", "armor", "trinket"] as const) count(p.equipment[slot]);
+  const missing: string[] = [];
+  for (const c of need) {
+    if ((owned[c] ?? 0) > 0) owned[c]--;
+    else missing.push(c);
+  }
+  return missing;
+}
+
 /** What a player would pay for a catalog entry right now (component-discounted). */
 export function effectivePrice(p: Player, catalogId: string, nextFloor: number): number {
   const entry = CATALOG_BY_ID[catalogId];
@@ -1490,7 +1513,9 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
     return;
   }
 
-  // Gear: price the build path, then gate on gold + sponsors + materials.
+  // Gear: built items REQUIRE their components in hand (see missingComponents);
+  // then price the build path and gate on gold + sponsors + materials.
+  if (missingComponents(p, catalogId).length > 0) return;
   const claimed = new Set<Item>();
   let credit = 0;
   for (const c of entry.buildsFrom ?? []) credit += claimComponents(p, c, claimed);

@@ -1,6 +1,6 @@
 import {
   createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyCatalogItem, sellItem, sellValue, effectivePrice, setReady, addPlayer, slotAbility, setUltimate,
+  buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore } from "./sim/items";
@@ -686,6 +686,8 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
     return room.nextFloor - 1 < unlock ? `ARRIVES AT SHOP ${unlock}` : "NOT STOCKED TODAY";
   }
   if (e.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return "ALREADY MASTERED";
+  // Built gear needs its components IN HAND (the BUILDS FROM row shows which).
+  if (e.buildsFrom?.length && missingComponents(p, e.id).length > 0) return "NEEDS COMPONENTS";
   if ((e.sponsors ?? 0) > p.sponsors) return `NEEDS ${e.sponsors} SPONSOR${(e.sponsors ?? 0) > 1 ? "S" : ""}`;
   for (const [m, n] of Object.entries(e.materials ?? {})) {
     if (p.materials[m as keyof Player["materials"]] < (n ?? 0)) return "NEEDS MATERIALS";
@@ -723,11 +725,14 @@ function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
   );
 }
 
-/** Bag/equipped tile: catalog gear shows its icon; field drops show a rarity gem. */
+/** Bag/equipped tile: catalog gear shows its catalog icon; field drops show
+ * their NOUN's icon (every generated-item noun has one at /icons/nouns/),
+ * tinted by rarity via the tile's --tc mask color. */
 function invTileHtml(it: Item, data: string, selected: boolean): string {
+  const noun = it.name.split(" ").pop()!.toLowerCase();
   const inner = it.catalogId
     ? `<i class="ii" style="${iconStyle(it.catalogId)}"></i>`
-    : `<span class="iglyph" style="color:${RARITY_TEXT[it.rarity]}">◆</span>`;
+    : `<i class="ii" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   return (
     `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
