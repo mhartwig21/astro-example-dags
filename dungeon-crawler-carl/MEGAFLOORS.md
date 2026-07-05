@@ -163,6 +163,77 @@ replays/tests are unaffected. Ambush packs (already shipped) sprinkle in.
   72², wasteful at 216²).
 - Saves: unaffected (seed+floor regenerate the map).
 
+## Implementation impact map — everything that must move with the shift
+
+Traced through the code (2026-07-05). Two type-level breaking changes, one
+config restructure, and a ring of economy knock-ons that are easy to forget.
+
+### Breaking change 1: `FloorMap.stairs: Vec2` → `stairs: Vec2[]`
+13 call sites couple to the single-stair assumption: `tryDescend`'s
+proximity check, renderer stair-model placement + `stairsTile`, minimap
+marker, prop-clearance radius, bot navigation, and several tests. Mechanical
+but wide — do it as its own commit before any mapgen changes.
+
+### Breaking change 2: per-band generation config
+`floorGridW/H`, monster counts, and the timer become a per-band table
+(`BANDS[band] = { grid, stairways, budget, monsterDensity, packsPerRegion,
+roamers }`) instead of flat CONFIG scalars. Everything downstream reads the
+band table; today's constants become band 0's row.
+
+### Mapgen (`floor.ts`) — the core rewrite
+- Region partitioning: macro-cells (2×2 → 3×3 by band), the existing
+  room+corridor generator runs per cell, cells join via 3-wide arteries
+  (which the corridor/path renderer already draws as trodden roads).
+- Room count/size distributions scale with cell area, or big floors go sparse.
+- Multi-stair placement: outer-third rule (min BFS from spawn), minimum
+  separation between stairways (different regions), beatability clamp
+  (BFS ≤ 35% of budget or re-roll) + many-seeds test.
+- Door seals + key: the key/locked-door ritual stays attached to ONE
+  stairway (the boss/best one); other stairways get guardians, not locks —
+  two lock systems on one floor would read as noise.
+- Boss floors (6/12/18): the arena wraps the sealed stairway; the second
+  stairway on those floors is the "coward's exit" — guarded, worse loot.
+
+### Population (`game.ts` spawn + `ai.ts`)
+- Density model: `count = density(band) × walkableTiles` (replaces
+  base+per-floor+cap); packs allocated PER REGION so no region is empty and
+  no region is a wall of teeth. Elite/affix and ambush rates become per-area.
+- Roaming packs: new patrol behavior walking artery waypoint loops; 2-4 per
+  floor from P2.
+- **AI sleep LOD is a prerequisite, not an optimization**: monsters farther
+  than ~24 tiles from every player run a cheap wake-check tick; roamers
+  advance along routes abstractly while asleep. Deterministic (pure function
+  of state), so replays/tests are unaffected.
+- Key-carrier reachability check extends to the region graph.
+
+### Economy knock-ons (the easy-to-forget ring)
+More area ⇒ more kills per floor ⇒ every per-kill faucet inflates:
+- **XP**: `xpBase`/`xpGrowth` (20 / 1.35) are tuned for ~24-110 kills per
+  floor. 2-3× kills ⇒ levels arrive absurdly fast. Either scale XP-per-kill
+  by band density or retune the curve. The draft cadence (a draft per level)
+  is the real pacing constraint.
+- **Tomes**: `tomeDropChance` is per-kill (6%) — at 3× kills the whole kit
+  discovers by floor 4. Convert to per-floor expected value.
+- **Gold/loot**: drop rates per kill inflate the same way; shop prices and
+  sponsor gift budgets assume today's income curve.
+- **Flasks**: kills refill flasks — more kills = more sustain = a stealth
+  difficulty drop. Refill-per-kill likely needs a cooldown or per-floor cap.
+- **Hype/The Show**: viewers scale per floor + hype per kill; pacing holds
+  roughly, but sponsor thresholds hit earlier with more kills.
+- **Achievements**: kill-count and speed thresholds recalibrate per band.
+Balance bot gates all of this — which is why the stairs-seeking bot policy
+lands in P1.
+
+### Hosts & net
+- Renderer: multiple stair models + `stairsTile` set; minimap caching
+  (offscreen explored layer, redraw on `exploredVersion`) + a marker per
+  DISCOVERED stairway; floor-build transition beat.
+- Net protocol/snapshots: whatever serializes `map.stairs` follows the
+  array change; monster counts stay within today's wire budget until P3
+  interest management.
+- Test mode: `?test&floor=N` keeps working unchanged (it rides
+  `buildFloor`), and stays the fastest way to eyeball any band's generation.
+
 ## Phasing (each phase ships playable)
 
 **P1 — Deeper means vaster.** Depth-scaled grids (cap ~2.4×/Garden-size
