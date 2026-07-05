@@ -59,6 +59,11 @@ export interface Player {
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   reviveProgress: number; // 0..1: teammates standing close stabilize a downed crawler
+  // RIVALS mode (all no-ops in co-op):
+  floorNo: number; // which floor world this crawler is on (mirrors state.floor in co-op)
+  safeRoom?: SafeRoom | null; // PERSONAL shop between floors — the race keeps running
+  downedT?: number; // seconds until auto-revive after going down
+  reviveGraceT?: number; // brief post-revive immunity (no spawn-camping the timer)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -524,7 +529,51 @@ export interface Announcement {
   priority: "high" | "normal";
 }
 
+/**
+ * RIVALS mode: everything that belongs to ONE floor, so several floors can
+ * run concurrently while rivals race at their own pace. The sim still executes
+ * through the classic GameState slots — stepRivals MOUNTS a world into them,
+ * runs the ordinary floor logic for that floor's residents, and captures the
+ * fields back. Co-op never allocates worlds; nothing changes for it.
+ */
+export interface FloorWorld {
+  floor: number;
+  rng: Rng;
+  map: FloorMap;
+  explored: Uint8Array;
+  exploredVersion: number;
+  mapVersion: number;
+  monsters: Monster[];
+  loot: Loot[];
+  projectiles: Projectile[];
+  strikes: Strike[];
+  bulletTimeLeft: number;
+  hazards: Hazard[];
+  corpses: Corpse[];
+  pings: Ping[];
+  encounter: Encounter | null;
+  floorEvent: FloorEvent | null;
+  goldSurge: boolean;
+  timeBudget: number;
+  timeRemaining: number;
+  phase: TimerPhase;
+  collapseElapsed: number;
+}
+
 export interface GameState {
+  // "coop" is the classic run (default). "rivals" is the competitive race:
+  // up to 4 hostile crawlers, individual descent through concurrent floor
+  // worlds, 15s revives, rival kills pay XP, first FINAL-BOSS kill wins.
+  mode: "coop" | "rivals";
+  // Rivals only: the concurrent floor instances, keyed by floor number.
+  worlds?: Record<number, FloorWorld>;
+  winnerId?: number; // rivals: who secured the contract (status "won")
+  // Rivals only, CLIENT-side: standings meta from the personal snapshot
+  // (see serializeFor in snapshot.ts). The server never reads this.
+  rivals?: {
+    id: number; name: string; floor: number; level: number;
+    alive: boolean; downedT: number; shopping: boolean;
+  }[];
   rng: Rng;
   seed: number;
   floor: number; // 1-indexed current floor

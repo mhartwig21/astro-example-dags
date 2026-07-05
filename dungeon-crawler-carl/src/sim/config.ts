@@ -173,6 +173,16 @@ export const CONFIG = {
   broodSpawnMax: 10, // lifetime births per mother
   broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
 
+  // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
+  // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
+  // Rival kills pay XP, not loot (no naked-respawn snowball).
+  rivalsReviveSeconds: 15, // downed timer before auto-revive at the floor entry
+  rivalsReviveHpFraction: 0.5, // revive at half HP
+  rivalsReviveGraceSeconds: 2.5, // post-revive immunity (no spawn-camping the timer)
+  pvpDamageMult: 0.4, // builds are tuned vs telegraphed monsters; PvP is instant
+  pkXpBase: 60, // XP for dropping a rival...
+  pkXpPerLevel: 30, // ...plus this per victim level — killing the LEADER pays most
+
   // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
   // the point. Lone wanderers always roam, packPatrolChance of packs patrol
   // together, the rest are sentries holding their post; dormant ambushers lie

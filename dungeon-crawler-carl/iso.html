@@ -515,6 +515,17 @@
         border-radius: 4px; padding: 1px 8px; font: inherit; font-size: 10px; letter-spacing: 1px;
         cursor: pointer; }
       #sr-sellall:hover { background: #33221f; color: #e29a86; }
+      /* RIVALS downed overlay: the 15-second contract clock, front and center
+         (below the headline zone; only ever shown while YOU are down). */
+      #downed { position: fixed; top: 38%; left: 50%; transform: translateX(-50%);
+        display: none; text-align: center; pointer-events: none; z-index: 21;
+        background: rgba(20,6,8,0.82); border: 1px solid #5a2028; border-radius: 12px;
+        padding: 14px 30px; }
+      #downed .dtitle { color: #e2574c; font-size: 20px; font-weight: 800; letter-spacing: 3px; }
+      #downed .dcount { color: #ffdd88; font-size: 34px; font-weight: 800;
+        font-variant-numeric: tabular-nums; }
+      #downed .dsub { color: #9a8a8a; font-size: 12px; }
+
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
          stats live here). Fixed, cursor-following, never intercepts clicks. */
       #itemtip { position: fixed; display: none; z-index: 30; pointer-events: none;
@@ -841,6 +852,7 @@
       </div>
     </div>
     <div id="fx"></div>
+    <div id="downed"></div>
     <div id="itemtip"></div>
     <div id="ticker"></div>
     <div id="headline"></div>
@@ -933,7 +945,8 @@
             <div class="m-form" id="m-party-form" style="display:none">
               <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
               <button class="m-mini" id="m-roll">NEW CODE</button>
-              <button class="m-go" id="m-join">ENTER ▶</button>
+              <button class="m-go" id="m-join">CO-OP ▶</button>
+              <button class="m-go" id="m-rivals" title="Up to 4 HOSTILE crawlers. First to kill the boss wins. Rival kills pay XP.">RIVALS ⚔</button>
             </div>
             <button class="m-card dim" id="m-test">
               <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>

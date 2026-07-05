@@ -19,7 +19,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, BossSignature, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -596,6 +596,7 @@ function makePlayer(id: number, name: string): Player {
     plotArmorUsed: false,
     statuses: [],
     reviveProgress: 0,
+    floorNo: 1,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -914,8 +915,9 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   return state;
 }
 
-export function createGame(seed: number): GameState {
+export function createGame(seed: number, mode: GameState["mode"] = "coop"): GameState {
   const state: GameState = {
+    mode,
     rng: createRng(seed),
     seed: seed >>> 0,
     floor: 1,
@@ -952,6 +954,9 @@ export function createGame(seed: number): GameState {
     elapsed: 0,
   };
   buildFloor(state, 1);
+  // Rivals: floor 1 becomes the first concurrent world (others build lazily
+  // as the race spreads out). The mounted slots stay live references to it.
+  if (mode === "rivals") state.worlds = { 1: captureWorld(state) };
   return state;
 }
 
@@ -1318,6 +1323,8 @@ export function damagePlayerHit(
   state: GameState, p: Player, base: number,
   opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind } = {},
 ): boolean {
+  // Rivals revive grace: a crawler fresh off the timer is briefly untouchable.
+  if ((p.reviveGraceT ?? 0) > 0) return false;
   const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
   const dmg = mitigate(raw, playerMitigation(p));
   p.hp -= dmg;
@@ -1358,7 +1365,12 @@ function grantXp(state: GameState, p: Player, amount: number): void {
 }
 
 /** Split kill XP across living party members (no kill-stealing). */
-function grantPartyXp(state: GameState, amount: number): void {
+function grantPartyXp(state: GameState, amount: number, killer?: Player): void {
+  // Rivals sharing a floor are NOT a party: the killer keeps the whole bounty.
+  if (state.mode === "rivals" && killer) {
+    grantXp(state, killer, amount);
+    return;
+  }
   const alive = alivePlayers(state);
   if (alive.length === 0) return;
   const share = Math.max(1, Math.round(amount / alive.length));
@@ -1773,6 +1785,14 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
       p.meleeComboT = CONFIG.meleeMomentumWindow;
     }
   }
+  // RIVALS: the same swing arc also cuts rivals sharing this floor.
+  for (const v of rivalTargets(state, p)) {
+    const toV = { x: v.pos.x - p.pos.x, y: v.pos.y - p.pos.y };
+    const edge = Math.hypot(toV.x, toV.y) - 0.35;
+    if (edge > mp.range || angleBetween(facing, toV) > mp.arc / 2) continue;
+    const dmg = power(p, "melee") * mp.damageMult * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
+    pvpStrike(state, p, v, dmg, normalize(toV));
+  }
 }
 
 const KILL_HYPE: Record<Monster["kind"], number> = {
@@ -1882,7 +1902,7 @@ function reapDead(state: GameState): void {
       }
       announce(state, "boss", `${m.eliteName ?? "The elite"} SPLITS APART. It's never just one.`);
     }
-    grantPartyXp(state, m.xp);
+    grantPartyXp(state, m.xp, killer);
     if (m.hasKey) {
       // The key carrier ALWAYS drops the stairs-district key.
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "key", amount: 0 });
@@ -1901,7 +1921,13 @@ function reapDead(state: GameState): void {
       if (state.floor >= CONFIG.finalFloor) {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         state.status = "won";
-        announce(state, "boss", "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.", "high");
+        if (state.mode === "rivals") {
+          // The RACE: whoever lands the killing blow takes the whole season.
+          state.winnerId = killer.id;
+          announce(state, "boss", `CONTRACT SECURED: ${killer.name} killed the boss FIRST. One winner. One renewal. That's showbiz.`, "high");
+        } else {
+          announce(state, "boss", "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.", "high");
+        }
       } else {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         dropBossBonus(state, m.pos, 2);
@@ -2190,8 +2216,8 @@ export function effectivePrice(p: Player, catalogId: string, nextFloor: number):
  * ungated, or off today's shelf — the UI communicates why.
  */
 export function buyCatalogItem(state: GameState, playerId: number, catalogId: string): void {
-  const room = state.safeRoom;
   const p = state.players.find((pl) => pl.id === playerId);
+  const room = p ? shopRoomFor(state, p) : null;
   const entry = CATALOG_BY_ID[catalogId];
   if (!room || !p || !entry || !room.available.includes(catalogId)) return;
 
@@ -2282,7 +2308,7 @@ export function sellValue(item: Item): number {
 /** Sell a BAG item back to the System Shop. Equipped gear is safe. */
 export function sellItem(state: GameState, playerId: number, bagIdx: number): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
+  if (!p || !shopRoomFor(state, p)) return;
   if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
   const item = p.inventory.splice(bagIdx, 1)[0];
   const value = sellValue(item);
@@ -2293,7 +2319,7 @@ export function sellItem(state: GameState, playerId: number, bagIdx: number): vo
 /** Sell the WHOLE bag back to the System Shop (equipped gear is safe). */
 export function sellAllItems(state: GameState, playerId: number): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom || p.inventory.length === 0) return;
+  if (!p || !shopRoomFor(state, p) || p.inventory.length === 0) return;
   const n = p.inventory.length;
   let total = 0;
   for (const item of p.inventory) total += sellValue(item);
@@ -2303,7 +2329,18 @@ export function sellAllItems(state: GameState, playerId: number): void {
 }
 
 /** Mark a player ready to descend; the party leaves when everyone is ready. */
+/** The shop this player is currently standing in: personal in rivals, shared in co-op. */
+export function shopRoomFor(state: GameState, p: Player): SafeRoom | null {
+  return state.mode === "rivals" ? p.safeRoom ?? null : state.safeRoom;
+}
+
 export function setReady(state: GameState, playerId: number): void {
+  if (state.mode === "rivals") {
+    // Personal shop: READY means leave NOW — nobody waits for anybody.
+    const p = state.players.find((pl) => pl.id === playerId);
+    if (p?.safeRoom) leaveRivalSafeRoom(state, p);
+    return;
+  }
   const room = state.safeRoom;
   if (!room) return;
   if (!room.ready.includes(playerId)) room.ready.push(playerId);
@@ -2772,6 +2809,13 @@ function radialDamage(
     damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult });
     if (m.hp <= 0) killed.push(m);
   }
+  // RIVALS: blasts don't check contracts — rivals in the radius eat it too.
+  for (const v of rivalTargets(state, p)) {
+    const d = dist(center, v.pos);
+    if (d - 0.35 > radius) continue;
+    const dir = d > 1e-4 ? { x: (v.pos.x - center.x) / d, y: (v.pos.y - center.y) / d } : undefined;
+    pvpStrike(state, p, v, damage, dir);
+  }
   return killed;
 }
 
@@ -2805,6 +2849,16 @@ function segmentDamage(
     if (d - bodyRadius(m) > radius) continue;
     const dir = d > 1e-4 ? { x: (m.pos.x - closest.x) / d, y: (m.pos.y - closest.y) / d } : undefined;
     damageMonster(state, p, m, damage, { dir, knockback, school });
+  }
+  // RIVALS: shockstepping THROUGH a rival counts.
+  for (const v of rivalTargets(state, p)) {
+    const t = len2 > 1e-6
+      ? Math.max(0, Math.min(1, ((v.pos.x - a.x) * ab.x + (v.pos.y - a.y) * ab.y) / len2))
+      : 0;
+    const closest = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+    const d = dist(closest, v.pos);
+    if (d - 0.35 > radius) continue;
+    pvpStrike(state, p, v, damage, d > 1e-4 ? { x: (v.pos.x - closest.x) / d, y: (v.pos.y - closest.y) / d } : undefined);
   }
 }
 
@@ -2881,6 +2935,15 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       m.lastHitBy = p.id;
       hit(state, m.pos, Math.max(1, left), "enemy", { killed: true });
     }
+  }
+  // RIVALS: walking your blade ring through a rival grinds them too.
+  for (const v of rivalTargets(state, p)) {
+    let touching = false;
+    for (let i = 0; i < op.blades && !touching; i++) {
+      const blade = orbitBladePos(p, i, 0, 0);
+      if (dist(blade, v.pos) <= CONFIG.orbitBladeHitRadius + 0.35) touching = true;
+    }
+    if (touching) pvpStrike(state, p, v, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"));
   }
 }
 
@@ -3115,6 +3178,14 @@ export function handlePlayerDeath(state: GameState, p: Player, line: string): vo
   p.alive = false;
   p.reviveProgress = 0;
   announce(state, "progress", line);
+  // RIVALS: death is a 15-second time-out, never a run end — the race only
+  // ends when someone kills the final boss. Gear stays yours (rival kills pay
+  // the killer XP instead; see pvpStrike).
+  if (state.mode === "rivals") {
+    p.downedT = CONFIG.rivalsReviveSeconds;
+    announce(state, "progress", `${p.name} is DOWN — ${CONFIG.rivalsReviveSeconds} seconds on the contract clock.`);
+    return;
+  }
   if (alivePlayers(state).length === 0) {
     state.status = "dead";
     announce(state, "progress", "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.", "high");
@@ -3149,6 +3220,7 @@ function updatePings(state: GameState, dt: number): void {
  * the fallback; this is the mid-floor rescue.
  */
 function updateRevives(state: GameState, dt: number): void {
+  if (state.mode === "rivals") return; // rivals revive on their own timer (stepRivals)
   for (const down of state.players) {
     if (down.alive) continue;
     const medic = state.players.find(
@@ -3230,6 +3302,17 @@ function updateProjectiles(state: GameState, dt: number): void {
           break;
         }
       }
+      // RIVALS: player bolts also strike rivals (a hit always consumes the
+      // bolt — nobody pierces through a person, that's a different show).
+      if (!consumed && state.mode === "rivals") {
+        for (const v of rivalTargets(state, owner)) {
+          if (dist(pr.pos, v.pos) <= CONFIG.projectileRadius + 0.35) {
+            pvpStrike(state, owner, v, pr.damage, normalize(pr.vel));
+            consumed = true;
+            break;
+          }
+        }
+      }
       if (consumed) continue;
     } else {
       // Enemy projectile: hits the first living player in its radius (dash = i-frames).
@@ -3269,25 +3352,43 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     p.lowHpKill = false;
   }
   if (state.status !== "playing") return state;
-  // The safe room is the one world-level pause: the whole party is between floors.
-  // Personal drafts do NOT pause the world (multiplayer-safe); hosts may pause
-  // locally in solo as a UX choice.
-  if (state.safeRoom) return state;
+
+  const intents: PartyIntents =
+    "move" in intent ? { [state.players[0]?.id ?? 0]: intent as Intent } : (intent as PartyIntents);
+
+  // RIVALS: several floor worlds run concurrently; each is mounted into the
+  // classic slots and stepped with its own residents (see stepRivals).
+  if (state.mode === "rivals") {
+    stepRivals(state, intents, dt);
+    return state;
+  }
+
+  stepFloor(state, intents, dt);
+  return state;
+}
+
+/**
+ * One floor's step: the classic sim body. In co-op this IS the game; in
+ * rivals it runs once per mounted world with that floor's residents in
+ * state.players. Every early return below scopes to this floor only.
+ */
+function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
+  // The safe room is the one world-level pause in CO-OP: the whole party is
+  // between floors. (Rivals never sets state.safeRoom — shops are personal
+  // and the race keeps running; see tryDescendRival/setReady.)
+  if (state.safeRoom) return;
 
   // Ringside introduction: the world holds its breath (players AND monsters)
   // while the banner plays, so the reveal can never be the thing that kills you.
   if (state.encounter) {
     state.encounter.timeLeft -= dt;
     if (state.encounter.timeLeft <= 0) state.encounter = null;
-    return state;
+    return;
   }
   maybeStartEncounter(state);
-  if (state.encounter) return state;
+  if (state.encounter) return;
 
-  const intents: PartyIntents =
-    "move" in intent ? { [state.players[0]?.id ?? 0]: intent as Intent } : (intent as PartyIntents);
-
-  state.elapsed += dt;
+  if (state.mode !== "rivals") state.elapsed += dt; // rivals adds ONCE, outside the world loop
 
   // Per-player: timers, movement, skills, attack — in stable id order so the
   // seeded RNG stream is reproducible regardless of intent-map key order.
@@ -3424,11 +3525,16 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     }
   }
 
-  // Descent request from anyone on the stairs (opens the safe room).
+  // Descent request from anyone on the stairs (opens the safe room; in
+  // rivals, EVERY resident may descend this step — the race is individual).
   if (state.status === "playing" && !state.safeRoom) {
     for (const p of ordered) {
       const pi = intents[p.id] ?? NO_INTENT;
       if (pi.useStairs && p.alive) {
+        if (state.mode === "rivals") {
+          tryDescendRival(state, p);
+          continue;
+        }
         tryDescend(state, p);
         break;
       }
@@ -3437,8 +3543,185 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 
   // Achievements last, so they see everything this step did (kills, descent, buys).
   checkAchievements(state);
+}
 
-  return state;
+// ---- RIVALS: the competitive race (concurrent floor worlds) ----
+
+/** Every per-floor GameState slot; mounting a world swaps these wholesale. */
+const WORLD_FIELDS = [
+  "floor", "rng", "map", "explored", "exploredVersion", "mapVersion",
+  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft",
+  "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge",
+  "timeBudget", "timeRemaining", "phase", "collapseElapsed",
+] as const;
+
+function captureWorld(state: GameState): FloorWorld {
+  const w = {} as Record<string, unknown>;
+  for (const f of WORLD_FIELDS) w[f] = state[f];
+  return w as unknown as FloorWorld;
+}
+
+function mountWorld(state: GameState, w: FloorWorld): void {
+  for (const f of WORLD_FIELDS) (state as unknown as Record<string, unknown>)[f] = w[f];
+}
+
+/** Get (or lazily build) the world for a floor. Deterministic per (seed, floor). */
+export function ensureWorld(state: GameState, floor: number): FloorWorld {
+  const worlds = state.worlds!;
+  if (worlds[floor]) return worlds[floor];
+  const saved = captureWorld(state);
+  const savedPlayers = state.players;
+  state.players = []; // buildFloor resets residents; the arriving rival is placed by the caller
+  buildFloor(state, floor);
+  const built = captureWorld(state);
+  worlds[floor] = built;
+  state.players = savedPlayers;
+  mountWorld(state, saved);
+  return built;
+}
+
+/**
+ * The rivals step: revive timers tick globally, then every ACTIVE world
+ * (a floor with at least one non-shopping resident) is mounted and stepped
+ * with exactly its residents. Announcements/hits from every floor share the
+ * step buffers — each rival's client hears the whole race's drama.
+ */
+function stepRivals(state: GameState, intents: PartyIntents, dt: number): void {
+  state.elapsed += dt;
+  const worlds = state.worlds!;
+  const roster = state.players;
+
+  // Downed rivals tick toward their revive wherever they fell.
+  for (const p of roster) {
+    if ((p.reviveGraceT ?? 0) > 0) p.reviveGraceT = Math.max(0, (p.reviveGraceT ?? 0) - dt);
+    if (!p.alive && (p.downedT ?? 0) > 0) {
+      p.downedT = Math.max(0, (p.downedT ?? 0) - dt);
+      if (p.downedT === 0) reviveRival(state, p);
+    }
+  }
+
+  const floors = Object.keys(worlds).map(Number).sort((a, b) => a - b);
+  for (const f of floors) {
+    const residents = roster.filter((p) => p.floorNo === f && !p.safeRoom);
+    if (residents.length === 0) continue;
+    mountWorld(state, worlds[f]);
+    state.players = residents;
+    stepFloor(state, intents, dt);
+    worlds[f] = captureWorld(state);
+    state.players = roster;
+    if (state.status !== "playing") break; // the contract has been secured
+  }
+
+  // Hosts read the classic slots directly: keep the local (first) player's
+  // world mounted between steps. Server snapshots re-mount per client.
+  const anchor = roster[0];
+  const view = worlds[anchor?.floorNo ?? floors[0]] ?? worlds[floors[0]];
+  if (view) mountWorld(state, view);
+
+  // Worlds nobody can ever return to (every rival is past them) get dropped.
+  const lowest = Math.min(...roster.map((p) => (p.safeRoom ? p.safeRoom.nextFloor : p.floorNo)));
+  for (const f of floors) if (f < lowest) delete worlds[f];
+}
+
+/** Rivals descent: THIS crawler steps out of the race into their personal
+ * shop; the world keeps running — shopping costs race time. */
+function tryDescendRival(state: GameState, p: Player): void {
+  if (dist(p.pos, state.map.stairs) > 1.0) {
+    state.events.push("No stairs here. Find the stairs down.");
+    return;
+  }
+  if (state.monsters.some((m) => m.kind === "boss")) {
+    state.events.push("The boss seals the only way out. Put it down.");
+    return;
+  }
+  // The final floor has no descent — the BOSS is the finish line.
+  if (state.floor >= CONFIG.finalFloor) return;
+  p.safeRoom = generateSafeRoom(state, state.floor + 1);
+  announce(state, "progress", `${p.name} reaches the floor-${state.floor} safe room. The race does not wait.`);
+  if (hasPassive(p, "ledger") && p.gold > 0) {
+    const interest = Math.min(Math.round(p.gold * CONFIG.ledgerInterestFraction), CONFIG.ledgerInterestCap);
+    if (interest > 0) {
+      p.gold += interest;
+      announce(state, "show", `${p.name}'s Ledger pays out: +${interest} gold in interest.`);
+    }
+  }
+}
+
+/** Rivals: leave the personal shop and drop onto the next floor's world. */
+function leaveRivalSafeRoom(state: GameState, p: Player): void {
+  const room = p.safeRoom;
+  if (!room) return;
+  const next = room.nextFloor;
+  p.safeRoom = null;
+  const w = ensureWorld(state, next);
+  if (room.bonusTime) w.timeRemaining += room.bonusTime; // stabilizers help whoever's floor it is
+  p.floorNo = next;
+  const a = (p.id % 6) * (Math.PI * 2 / 6);
+  p.pos = { x: w.map.spawn.x + Math.cos(a) * 0.5, y: w.map.spawn.y + Math.sin(a) * 0.5 };
+  // Per-player floor reset (the slice of resetForFloor that is personal).
+  p.facing = { x: 0, y: 1 };
+  p.cd = {};
+  p.dashTime = 0;
+  p.dashCharges = CONFIG.dashCharges;
+  p.flaskCharges = CONFIG.flaskMaxCharges;
+  p.flaskKillProgress = 0;
+  p.novaFlash = 0;
+  p.attackSwing = 0;
+  p.stanceTime = 0;
+  p.stanceSwapWindow = 0;
+  p.stanceCritReady = false;
+  p.overcharged = false;
+  p.plotArmorUsed = false;
+  p.statuses = [];
+  announce(state, "progress", `${p.name} descends to floor ${next}. The standings shift.`);
+  // Sponsor draft between floors, same as co-op's leaveSafeRoom rhythm.
+  if (p.sponsors > 0 && p.pendingRewards.length === 0) {
+    p.pendingRewards = generateRewards(state, p.id);
+  }
+}
+
+/** The 15 seconds are up: back on your feet at the floor entry, briefly immune. */
+function reviveRival(state: GameState, p: Player): void {
+  const w = state.worlds?.[p.floorNo];
+  p.alive = true;
+  p.hp = Math.max(1, Math.round(p.maxHp * CONFIG.rivalsReviveHpFraction));
+  p.reviveGraceT = CONFIG.rivalsReviveGraceSeconds;
+  p.downedT = 0;
+  p.statuses = [];
+  if (w) p.pos = { x: w.map.spawn.x, y: w.map.spawn.y };
+  announce(state, "show", `${p.name} is BACK. The System loves a comeback arc.`);
+}
+
+/**
+ * PvP damage (rivals only): every player-damage source routes rival hits
+ * through here. Tuned down by pvpDamageMult (builds are balanced against
+ * telegraphed monsters; player attacks are instant). A killing blow pays the
+ * attacker a BIG XP bounty that scales with the victim's level — dropping
+ * the race leader is worth the detour.
+ */
+export function pvpStrike(
+  state: GameState, attacker: Player, victim: Player, base: number, dir?: Vec2,
+): boolean {
+  if (state.mode !== "rivals" || attacker.id === victim.id) return false;
+  if (!victim.alive || (victim.reviveGraceT ?? 0) > 0 || victim.safeRoom) return false;
+  const dead = damagePlayerHit(state, victim, base * CONFIG.pvpDamageMult, { dir });
+  if (dead) {
+    const bounty = CONFIG.pkXpBase + victim.level * CONFIG.pkXpPerLevel;
+    announce(state, "show",
+      `CONTRACT DISPUTE: ${attacker.name} drops ${victim.name}! The sponsors pay ${bounty} XP for the highlight.`, "high");
+    addHype(state, attacker, CONFIG.show.hypeBoss / 2);
+    grantXp(state, attacker, bounty);
+    handlePlayerDeath(state, victim, `${victim.name} lost the exchange. ${CONFIG.rivalsReviveSeconds} seconds on the clock.`);
+  }
+  return dead;
+}
+
+/** Living, hittable rivals sharing the attacker's mounted floor. */
+function rivalTargets(state: GameState, attacker: Player): Player[] {
+  if (state.mode !== "rivals") return [];
+  return state.players.filter(
+    (v) => v.id !== attacker.id && v.alive && (v.reviveGraceT ?? 0) <= 0 && !v.safeRoom && v.dashTime <= 0,
+  );
 }
 
 /** Unlock any achievement whose condition now holds for a player; announce + pay out. */

@@ -4,7 +4,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
-import { serialize } from "../sim/snapshot";
+import { serialize, serializeFor } from "../sim/snapshot";
 import { Leaderboard } from "./leaderboard";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
@@ -33,6 +33,7 @@ export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
 export const MAX_PARTY_SIZE = 6;
+export const MAX_RIVALS = 4; // the competitive race seats exactly four contracts
 export const MAX_INSTANCES = 200;
 export const MAX_WS_PAYLOAD = 16 * 1024; // bytes; intents/choices are tiny
 export const MAX_CODE_LEN = 32;
@@ -273,12 +274,14 @@ export class GameServer {
           ws.close();
           return;
         }
-        const inst = this.getOrCreateInstance(code);
+        // RIVALS: the first joiner's flag decides the instance's mode.
+        const inst = this.getOrCreateInstance(code, msg.rivals === true);
         // First joiner takes the pre-made players[0] seat; later joiners drop in.
         const seatless = inst.state.players.filter(
           (p) => !inst.clients.some((c) => c.playerId === p.id),
         );
-        if (!seatless[0] && inst.state.players.length >= MAX_PARTY_SIZE) {
+        const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
+        if (!seatless[0] && inst.state.players.length >= cap) {
           ws.send(JSON.stringify({ t: "error", reason: "party full" }));
           ws.close();
           return;
@@ -287,7 +290,10 @@ export class GameServer {
         player.name = name;
         inst.clients.push({ ws, playerId: player.id });
         joined = { inst, playerId: player.id };
-        ws.send(JSON.stringify({ t: "welcome", playerId: player.id, snapshot: serialize(inst.state) }));
+        ws.send(JSON.stringify({
+          t: "welcome", playerId: player.id,
+          snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
+        }));
         return;
       }
 
@@ -357,10 +363,10 @@ export class GameServer {
     });
   }
 
-  private getOrCreateInstance(code: string): Instance {
+  private getOrCreateInstance(code: string, rivals = false): Instance {
     let inst = this.instances.get(code);
     if (inst) return inst;
-    const state = createGame(seedFromCode(code));
+    const state = createGame(seedFromCode(code), rivals ? "rivals" : "coop");
     inst = {
       code,
       state,
@@ -389,7 +395,16 @@ export class GameServer {
       this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
     }
     if (inst.tick % SNAPSHOT_EVERY === 0) {
-      this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+      if (s.mode === "rivals") {
+        // Personal snapshots: each rival sees THEIR floor + the standings.
+        for (const c of inst.clients) {
+          if (c.ws.readyState === WebSocket.OPEN) {
+            c.ws.send(JSON.stringify({ t: "snap", tick: inst.tick, snapshot: serializeFor(s, c.playerId) }));
+          }
+        }
+      } else {
+        this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+      }
     }
     const ms = performance.now() - t0;
     this.tickMsEma = this.tickMsEma * 0.98 + ms * 0.02;
