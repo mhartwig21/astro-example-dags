@@ -16,7 +16,7 @@ import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raise
 // (+monsterStrikeGrace) and dash i-frames. Getting staggered (see damageMonster
 // in game.ts) cancels the windup — interrupting a brute mid-slam is a real play.
 
-function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number): void {
+function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number, srcKind?: string): void {
   const d = normalize(dir);
   state.projectiles.push({
     id: state.nextEntityId++,
@@ -25,6 +25,7 @@ function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number)
     damage,
     ttl: CONFIG.monsterProjectileTtl,
     from: "enemy",
+    srcKind,
   });
 }
 
@@ -96,7 +97,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     m.attackCooldown = CONFIG.monsterAttackCooldown * 1.3 * monsterTempo(state.floor).cooldown;
     const player = nearestPlayer(state, m.pos);
     if (!player) return;
-    spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage);
+    spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage, m.kind);
     return;
   }
   if (kind === "charge") {
@@ -310,7 +311,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2;
-        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6);
+        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6, m.kind);
       }
     }
     return;

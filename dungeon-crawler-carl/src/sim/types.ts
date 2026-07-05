@@ -313,6 +313,7 @@ export interface Projectile {
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
+  srcKind?: string; // firing monster's archetype (hosts pick the projectile mesh)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
