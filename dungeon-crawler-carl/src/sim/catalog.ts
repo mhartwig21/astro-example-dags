@@ -295,6 +295,12 @@ export const CATALOG: CatalogEntry[] = [
     buildsFrom: ["stagedive_harness"], affixes: { maxHp: 45, speed: 0.35, armor: 8 },
     passive: "phase", sponsors: 2, materials: { elite_trophy: 2, boss_sigil: 1 },
   },
+  {
+    id: "location_scout", name: "Location Scout", tier: "legendary", slot: "charm",
+    desc: "The stairs are marked on your minimap from the moment you arrive. Crew knowledge.", cost: 140,
+    buildsFrom: ["vip_pass"], affixes: { speed: 0.35, maxHp: 20, crit: 0.04 },
+    passive: "pathfinder", sponsors: 1, materials: { elite_trophy: 2 },
+  },
 ];
 
 export const CATALOG_BY_ID: Record<string, CatalogEntry> = Object.fromEntries(

@@ -230,7 +230,8 @@ export type PassiveId =
   | "leech" // lifesteal: heal a fraction of the damage you deal
   | "cancellation" // executes: non-elite monsters below a threshold just die
   | "conduit" // crits arc a fraction of the hit to a nearby enemy (magic)
-  | "phase"; // your dash passes through walls when it can reach the far side
+  | "phase" // your dash passes through walls when it can reach the far side
+  | "pathfinder"; // the stairs are marked on your minimap, explored or not
 
 export interface Item {
   id: number;

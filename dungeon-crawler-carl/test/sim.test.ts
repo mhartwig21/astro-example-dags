@@ -3605,6 +3605,15 @@ describe("chase legendaries (store-only uniques)", () => {
     expect(g.hits.some((h) => h.school === "magic")).toBe(true); // arcs read arcane
   });
 
+  it("Location Scout: pathfinder passive, sharing the VIP Pass rung with Blood Subscription", () => {
+    // The minimap marker itself is host-side; the sim guarantees the passive
+    // and the build fork (two charm legendaries off one advanced component).
+    expect(CATALOG_BY_ID.location_scout.passive).toBe("pathfinder");
+    expect(CATALOG_BY_ID.location_scout.slot).toBe("charm");
+    expect(CATALOG_BY_ID.location_scout.buildsFrom).toEqual(["vip_pass"]);
+    expect(CATALOG_BY_ID.blood_subscription.buildsFrom).toEqual(["vip_pass"]);
+  });
+
   it("the full chase path: components -> advanced -> sponsor-gated unique", () => {
     const g = reachShop(994);
     const p = g.players[0];

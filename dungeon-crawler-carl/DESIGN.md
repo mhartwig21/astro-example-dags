@@ -315,9 +315,11 @@ school-agnostic until proven boring.
   damage dealt, per-hit cap), *Cancellation Axe* (heavy weapon — strikes execute non-elite
   monsters below 15% HP), *Live Feed* (trinket — crits arc 30% of the hit to the nearest
   other enemy as a magic-school echo, one bounce), *Backstage Pass* (armor — the dash
-  phases through walls it can clear; locked doors refuse it, keys stay load-bearing).
-  Combat hooks live at the one damageMonster choke point, so they compose with
-  schools/resists/caps for free.
+  phases through walls it can clear; locked doors refuse it, keys stay load-bearing),
+  *Location Scout* (charm — the stairs are marked on the minimap from arrival, fog or
+  no fog; a pure host-side read of the passive, the sim reveals nothing). Combat hooks
+  live at the one damageMonster choke point, so they compose with schools/resists/caps
+  for free.
 - Reworks from play feedback (2026-07-05): *Landlord's Ledger* pays +6 gold per kill AND
   10% interest on banked gold every safe room (cap 120) — a greed engine, not a tip jar.
   *Signature Choreography* grants +20% crit during the post-swap surge window instead of

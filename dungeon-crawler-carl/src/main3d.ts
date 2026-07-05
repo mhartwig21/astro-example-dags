@@ -1,6 +1,6 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
-  buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  buyCatalogItem, hasPassive, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
   type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
@@ -1426,6 +1426,23 @@ function drawMinimap(s: GameState): void {
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
+  }
+  // Location Scout (chase legendary): the stairs are marked from the moment
+  // you arrive — a pulsing gold diamond, fog or no fog.
+  if (hasPassive(me(s), "pathfinder")) {
+    const cx = pad + s.map.stairs.x * sx, cy = pad + s.map.stairs.y * sy;
+    const pulse = 4 + Math.sin(performance.now() / 250) * 1.5;
+    mmCtx.strokeStyle = "#ffd700";
+    mmCtx.lineWidth = 1.5;
+    mmCtx.beginPath();
+    mmCtx.moveTo(cx, cy - pulse);
+    mmCtx.lineTo(cx + pulse, cy);
+    mmCtx.lineTo(cx, cy + pulse);
+    mmCtx.lineTo(cx - pulse, cy);
+    mmCtx.closePath();
+    mmCtx.stroke();
+    mmCtx.fillStyle = "#ffd700";
+    mmCtx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
   }
 }
 

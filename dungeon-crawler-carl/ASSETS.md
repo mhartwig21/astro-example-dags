@@ -307,6 +307,7 @@ attribution requirement (covered by the same in-game credits line).
 | cancellation_axe | battered-axe | Lorc |
 | live_feed | tv | Delapouite |
 | backstage_pass | magic-portal | Lorc |
+| location_scout | treasure-map | Lorc |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |
