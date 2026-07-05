@@ -1,6 +1,6 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
-  buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
   type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
@@ -1218,6 +1218,72 @@ srBag.addEventListener("click", (e) => {
   shopSel = { kind: "bag", idx: Number(tile.dataset.bag) };
   renderSafeRoom(state);
 });
+
+// SELL ALL: liquidate the bag in one click (equipped gear is safe by design).
+document.getElementById("sr-sellall")!.addEventListener("click", () => {
+  if (me(state).inventory.length === 0) return;
+  audio.play("buy");
+  if (net) net.sellAll();
+  else {
+    sellAllItems(state, me(state).id);
+    flushFeedback(state);
+    persistRun(state);
+  }
+  if (shopSel?.kind === "bag") shopSel = null; // the selected tile just sold
+  renderSafeRoom(state);
+});
+
+// ---- Item hover tooltip (store bag/equipped tiles are icon-only) ----
+const itemTipEl = document.getElementById("itemtip")!;
+
+function itemTipHtml(it: Item): string {
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const wclass = weaponClassOf(it);
+  const into = it.catalogId ? buildsInto(it.catalogId) : [];
+  return (
+    `<div class="tname" style="color:${tc}">${it.name}</div>` +
+    `<div class="tmeta">${it.rarity} ${it.slot}${wclass ? ` · ${wclass}` : ""}</div>` +
+    (affixLines(it).map((l) => `<div class="taff">${l}</div>`).join("") || `<div class="taff">—</div>`) +
+    (it.passive && it.catalogId ? `<div class="tpass">${CATALOG_BY_ID[it.catalogId].desc}</div>` : "") +
+    (into.length ? `<div class="tbuild">component of: ${into.map((e) => e.name).join(", ")}</div>` : "") +
+    `<div class="tsell">sells for ${sellValue(it)} gold</div>`
+  );
+}
+
+function moveItemTip(e: MouseEvent): void {
+  const pad = 14;
+  const w = itemTipEl.offsetWidth, h = itemTipEl.offsetHeight;
+  itemTipEl.style.left = `${Math.min(e.clientX + pad, window.innerWidth - w - 8)}px`;
+  itemTipEl.style.top = `${Math.min(e.clientY + pad, window.innerHeight - h - 8)}px`;
+}
+
+/** Resolve the Item under a hovered tile in the shop panel, if any. */
+function tipItemFor(el: HTMLElement): Item | null {
+  const p = me(state);
+  const bagTile = el.closest(".itile[data-bag]") as HTMLElement | null;
+  if (bagTile) return p.inventory[Number(bagTile.dataset.bag)] ?? null;
+  const slotTile = el.closest(".itile[data-slot]") as HTMLElement | null;
+  if (slotTile) return p.equipment[slotTile.dataset.slot as ItemSlot];
+  return null;
+}
+
+for (const container of [srBag, srEquipped]) {
+  container.addEventListener("mouseover", (e) => {
+    const it = tipItemFor(e.target as HTMLElement);
+    if (!it) { itemTipEl.style.display = "none"; return; }
+    itemTipEl.innerHTML = itemTipHtml(it);
+    itemTipEl.style.display = "block";
+    moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mousemove", (e) => {
+    if (itemTipEl.style.display === "block") moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mouseleave", () => { itemTipEl.style.display = "none"; });
+}
+// The tooltip must never outlive the shop screen.
+new MutationObserver(() => {
+  if (srEl.style.display === "none") itemTipEl.style.display = "none";
+}).observe(srEl, { attributes: true, attributeFilter: ["style"] });
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });

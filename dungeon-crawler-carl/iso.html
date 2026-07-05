@@ -38,6 +38,7 @@
            bottom strip:        #hud-log left · #cockpit center · #minimap right
            modals (z 20-27):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing outranks it)
+           cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
          New overlays must pick a zone here first. */
 
       /* DCC "System" announcer — headline banners (high priority only).
@@ -433,6 +434,22 @@
         flex: none; min-height: 0; max-height: 62%; overflow: hidden;
         display: flex; flex-direction: column; }
       .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 3px 0 6px; flex: none; }
+      #sr-sellall { float: right; background: #241a1a; color: #d08a7a; border: 1px solid #4a2f2f;
+        border-radius: 4px; padding: 1px 8px; font: inherit; font-size: 10px; letter-spacing: 1px;
+        cursor: pointer; }
+      #sr-sellall:hover { background: #33221f; color: #e29a86; }
+      /* Item hover tooltip (store bag/equipped tiles are icon-only — the
+         stats live here). Fixed, cursor-following, never intercepts clicks. */
+      #itemtip { position: fixed; display: none; z-index: 30; pointer-events: none;
+        max-width: 240px; background: #0c0b14; border: 1px solid #2a2a38; border-radius: 8px;
+        padding: 8px 11px; font-size: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.65); }
+      #itemtip .tname { font-weight: 700; font-size: 13px; }
+      #itemtip .tmeta { color: #7a7a8a; font-size: 10.5px; text-transform: uppercase;
+        letter-spacing: 1px; margin-bottom: 4px; }
+      #itemtip .taff { color: #b9d0c0; }
+      #itemtip .tpass { color: #c9a6ff; margin-top: 4px; font-style: italic; }
+      #itemtip .tbuild { color: #f2c14e; margin-top: 4px; font-size: 11px; }
+      #itemtip .tsell { color: #c9a24b; margin-top: 4px; font-size: 11px; }
       .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; align-content: flex-start; }
       .bag-grid .itile { width: 40px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
@@ -726,7 +743,7 @@
             <div class="shop-bag">
               <div class="sec-label">EQUIPPED</div>
               <div class="bag-grid" id="sr-equipped"></div>
-              <div class="sec-label">BAG</div>
+              <div class="sec-label">BAG <button id="sr-sellall" title="Sell every bag item (equipped gear is safe)">SELL ALL</button></div>
               <div class="bag-grid" id="sr-bag"></div>
             </div>
           </div>
@@ -744,6 +761,7 @@
       </div>
     </div>
     <div id="fx"></div>
+    <div id="itemtip"></div>
     <div id="ticker"></div>
     <div id="headline"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
