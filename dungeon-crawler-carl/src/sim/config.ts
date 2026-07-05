@@ -362,6 +362,29 @@ export const CONFIG = {
   ultBulletTimeEncoreExtend: 0.5, // ENCORE: seconds added per kill inside
   ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
 
+  // Fun-kit wave (ABILITY-CONCEPTS.md): Cut To / Crowd Surf / Stunt Double.
+  cutToRange: 6, // tiles the camera can cut
+  cutToCooldown: 6, // long enough that each cut is a decision, not a spam
+  cutToDmgMult: 1.2, // arrival strike, off attackPower
+  cutToStagger: 0.35, // Smash Cut: non-elite arrival stagger (seconds)
+  cutToMatchWindow: 1, // MATCH CUT: kill inside this window resets the cooldown
+  surfRange: 7, // chain reach (tiles)
+  surfCooldown: 7,
+  surfMassLimit: 1.5, // heavier than this (or elite/boss) pulls YOU instead
+  surfStagger: 0.5, // pulled enemies land staggered this long
+  surfStaggerPerRank: 0.3, // Headliner's Grip: extra stagger per rank
+  surfDiveFracPerRank: 0.6, // Stage Dive: arrival blast fraction of power per rank
+  surfDiveRadius: 1.6,
+  surfArriveGap: 1.0, // both pull modes stop this far from the target
+  surfPathRadius: 1.0, // THE WAVE: drag capsule half-width along the chain
+  doubleContract: 5, // seconds the stunt performer works
+  doubleCooldown: 18,
+  doubleTauntRadius: 5, // monsters inside hunt the double instead of players
+  doubleMirrorFrac: 0.3, // mirrored swing damage, of the owner's swing
+  doubleExplodeFrac: 0.5, // farewell blast = absorbed damage x this...
+  doubleExplodeCap: 3, // ...capped at owner attackPower x this (no infinite banks)
+  doubleExplodeRadius: 2,
+
   // Orbit capstone + melee fork identities (abilities.ts constellation pass).
   orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this
   meleeOverkillRadius: 1.4, // Heavy Blows: killing-swing overkill splashes this far

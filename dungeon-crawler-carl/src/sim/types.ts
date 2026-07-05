@@ -56,6 +56,8 @@ export interface Player {
   // (stacks capped by rank; the timer resets on every hit, stacks drop on expiry).
   meleeCombo: number;
   meleeComboT: number; // seconds left before the combo drops
+  // MATCH CUT (Cut To capstone): the marked target + the reset window left.
+  cutMark?: { monsterId: number; t: number } | null;
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   reviveProgress: number; // 0..1: teammates standing close stabilize a downed crawler
@@ -439,6 +441,19 @@ export interface Strike {
   school?: School;
 }
 
+// STUNT DOUBLE: a taunting copy of a crawler. Monsters in taunt range hunt it
+// instead of players, their hits are ABSORBED (banked, never lethal — it's a
+// professional), and the contract's end is an explosion proportional to what
+// it soaked. The game's first friendly entity.
+export interface Decoy {
+  id: number;
+  ownerId: number;
+  pos: Vec2;
+  facing: Vec2; // mirrored swings + rendering read this
+  t: number; // seconds left on the contract
+  absorbed: number; // damage soaked so far (feeds the farewell blast)
+}
+
 // A ringside introduction: set when the party first closes with a boss/elite.
 // While non-null the WORLD IS FROZEN (like the safe room) so the reveal can't
 // kill anyone; hosts render the intro splash + boss health bar from it.
@@ -548,6 +563,7 @@ export interface FloorWorld {
   projectiles: Projectile[];
   strikes: Strike[];
   bulletTimeLeft: number;
+  decoys: Decoy[]; // active Stunt Doubles (friendly entities)
   hazards: Hazard[];
   corpses: Corpse[];
   pings: Ping[];
@@ -613,6 +629,9 @@ export interface GameState {
   // Ultimate side-state: scheduled airstrike impacts + bullet-time remaining.
   strikes: Strike[];
   bulletTimeLeft: number;
+
+  // Friendly entities: active Stunt Doubles (see Decoy).
+  decoys: Decoy[];
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];

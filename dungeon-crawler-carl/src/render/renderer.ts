@@ -299,6 +299,21 @@ export function render(
     ctx.fillRect(px - 12, py - T * 0.5, 24 * frac, 4);
   }
 
+  // Stunt doubles: a ghost outline of a crawler holding its mark.
+  for (const dc of state.decoys ?? []) {
+    const dpx = offX + dc.pos.x * T;
+    const dpy = offY + dc.pos.y * T;
+    ctx.strokeStyle = "rgba(234,246,255,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(234,246,255,0.2)";
+    ctx.beginPath();
+    ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Players (whole party; players[0] is the local one).
   for (const p of state.players) {
   const ppx = offX + p.pos.x * T;

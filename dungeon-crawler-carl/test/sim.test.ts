@@ -4360,3 +4360,129 @@ describe("RIVALS mode (competitive race)", () => {
     expect(b.level).toBe(bLevel);
   });
 });
+
+describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
+  const CAST4: boolean[] = [false, false, false, true, false]; // slot 4 = the learned active
+  const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it("Cut To teleports onto the aimed enemy and strikes it", () => {
+    const g = createGame(960);
+    const p = g.players[0];
+    learnAbility(g, p, "cutto"); // slot 4 is open
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    const m = mkMon({ id: 20, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1e5, maxHp: 1e5 });
+    g.monsters.push(m);
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, m.pos)).toBeLessThan(2);
+    expect(m.hp).toBeLessThan(1e5);
+    expect(p.cd.cutto!).toBeGreaterThan(0);
+  });
+
+  it("MATCH CUT: killing the target inside the window resets the cooldown", () => {
+    const g = createGame(961);
+    const p = g.players[0];
+    learnAbility(g, p, "cutto");
+    p.abilities.ranks["cut.match"] = 1;
+    p.attackPower = 500;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 21, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1, maxHp: 10 }));
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(p.cd.cutto ?? 0).toBe(0); // the camera resets
+  });
+
+  it("Crowd Surf yanks light enemies into your arms, staggered", () => {
+    const g = createGame(962);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    g.monsters.length = 0;
+    const m = mkMon({ id: 22, pos: { x: p.pos.x + 4, y: p.pos.y }, hp: 100, maxHp: 100 });
+    g.monsters.push(m);
+    const px = p.pos.x;
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, m.pos)).toBeLessThan(1.6);
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(Math.abs(p.pos.x - px)).toBeLessThan(0.2); // YOU did not move
+  });
+
+  it("Crowd Surf yanks YOU to the heavy ones", () => {
+    const g = createGame(963);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    g.monsters.length = 0;
+    const brute = mkMon({ id: 23, kind: "brute", pos: { x: p.pos.x + 4, y: p.pos.y }, hp: 500, maxHp: 500 });
+    g.monsters.push(brute);
+    const bx = brute.pos.x;
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, brute.pos)).toBeLessThan(1.6); // you rode the chain
+    expect(Math.abs(brute.pos.x - bx)).toBeLessThan(0.2); // the anchor held
+  });
+
+  it("THE WAVE drags everything the chain passed through", () => {
+    const g = createGame(964);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    p.abilities.ranks["surf.wave"] = 1;
+    g.monsters.length = 0;
+    const far = mkMon({ id: 24, pos: { x: p.pos.x + 4.5, y: p.pos.y }, hp: 100, maxHp: 100 });
+    const onPath = mkMon({ id: 25, pos: { x: p.pos.x + 2.5, y: p.pos.y + 0.4 }, hp: 100, maxHp: 100 });
+    g.monsters.push(far, onPath);
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, far.pos)).toBeLessThan(1.6);
+    expect(gap(p.pos, onPath.pos)).toBeLessThan(1.6);
+  });
+
+  it("Stunt Double taunts: monsters hunt the decoy, and it soaks their hits", () => {
+    const g = createGame(965);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60); // hire the double at your feet
+    expect(g.decoys.length).toBe(1);
+    const dc = g.decoys[0];
+    // A biter arrives next to the double; the owner retreats across the room.
+    g.monsters.push(mkMon({ id: 26, pos: { x: dc.pos.x + 0.8, y: dc.pos.y }, hp: 100, maxHp: 100, damage: 20, speed: 2 }));
+    p.pos = { x: dc.pos.x + 9, y: dc.pos.y };
+    const hpBefore = p.hp;
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // 1.5s: windup + strike
+    expect(dc.absorbed).toBeGreaterThan(0); // the professional took the hit
+    expect(p.hp).toBe(hpBefore); // and you did not
+  });
+
+  it("the double mirrors your swings and exits with a bang", () => {
+    const g = createGame(966);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    p.attackPower = 100;
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60);
+    const dc = g.decoys[0];
+    // A monster in the DOUBLE's reach but far from the owner.
+    const nearDouble = mkMon({ id: 27, pos: { x: dc.pos.x + 0.8, y: dc.pos.y }, hp: 1e5, maxHp: 1e5 });
+    g.monsters.push(nearDouble);
+    p.pos = { x: dc.pos.x + 6, y: dc.pos.y };
+    p.facing = { x: 1, y: 0 };
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(nearDouble.hp).toBeLessThan(1e5); // the mirror connected
+    // Bank a beating, run out the contract: the farewell blast lands.
+    dc.absorbed = 200;
+    dc.t = 0.01;
+    const before = nearDouble.hp;
+    for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
+    expect(g.decoys.length).toBe(0);
+    expect(nearDouble.hp).toBeLessThan(before);
+  });
+
+  it("AWARD SEASON: a finished contract refunds half the booking", () => {
+    const g = createGame(967);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    p.abilities.ranks["double.award"] = 1;
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60);
+    const cdAfterCast = p.cd.stuntdouble!;
+    g.decoys[0].t = 0.01;
+    for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
+    expect(p.cd.stuntdouble!).toBeLessThan(cdAfterCast * 0.6);
+  });
+});

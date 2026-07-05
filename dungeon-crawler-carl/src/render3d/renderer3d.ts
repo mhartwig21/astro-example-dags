@@ -87,6 +87,7 @@ export class Renderer3D {
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
+  private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
@@ -237,6 +238,8 @@ export class Renderer3D {
     // rebuilds with real models on the next update.
     for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
     this.playerMeshes.clear();
+    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+    this.decoyMeshes.clear();
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
@@ -1606,6 +1609,37 @@ export class Renderer3D {
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
       }
+    }
+
+    // STUNT DOUBLES: a ghost-faded copy of the owner's body, idling in place.
+    // (The sim moves nothing here — the contract is a statue that soaks.)
+    const dSeen = new Set<number>();
+    for (const dc of state.decoys ?? []) {
+      dSeen.add(dc.id);
+      let mesh = this.decoyMeshes.get(dc.id);
+      if (!mesh) {
+        mesh = this.buildPlayerMesh(heroSkin(state.seed, dc.ownerId));
+        mesh.traverse((o) => {
+          const mm = o as THREE.Mesh;
+          if (!mm.isMesh || !mm.material) return;
+          const mats = (Array.isArray(mm.material) ? mm.material : [mm.material]).map((mat) => {
+            const g = mat.clone();
+            g.transparent = true;
+            g.opacity = 0.55;
+            return g;
+          });
+          mm.material = Array.isArray(mm.material) ? mats : mats[0];
+        });
+        (mesh.userData.play as ((n: string) => void) | undefined)?.("idle");
+        this.scene.add(mesh);
+        this.decoyMeshes.set(dc.id, mesh);
+      }
+      mesh.position.set(dc.pos.x, 0, dc.pos.y);
+      mesh.rotation.set(0, Math.atan2(dc.facing.x, dc.facing.y), 0);
+      (mesh.userData.animTick as ((d: number) => void) | undefined)?.(dt);
+    }
+    for (const [id, mesh] of this.decoyMeshes) {
+      if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
     }
 
     // Fog of war: entities render inside ANY living player's vision (shared show).
