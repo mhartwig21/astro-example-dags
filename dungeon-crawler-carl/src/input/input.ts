@@ -16,6 +16,9 @@ export class InputController {
   private mouseBolt = false; // RMB -> slot 3
   private useStairsEdge = false;
   private flaskEdge = false;
+  /** Edge-triggered ping request. The HOST consumes this (it owns the mouse ->
+   *  world mapping) and attaches the world position to the sampled intent. */
+  pingEdge = false;
   private bindings: Bindings = { ...DEFAULT_BINDINGS };
   /** Latest mouse position in canvas coordinates (for aim mapping by the host). */
   mouse: Vec2 | null = null;
@@ -32,6 +35,7 @@ export class InputController {
       this.keys.add(k);
       if (this.is("stairs", k)) this.useStairsEdge = true;
       if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
+      if (this.is("ping", k) && !wasDown) this.pingEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
       for (const a of ["inventory", "abilities", "character", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);

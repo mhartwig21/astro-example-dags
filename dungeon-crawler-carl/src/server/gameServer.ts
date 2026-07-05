@@ -62,6 +62,7 @@ export function sanitizeIntent(raw: unknown): Intent {
     dash: o.dash === true,
     bolt: o.bolt === true,
     nova: o.nova === true,
+    ping: o.ping === undefined ? undefined : vec(o.ping),
     cast,
   };
 }
@@ -324,7 +325,7 @@ export class GameServer {
     // Edge-triggered intent flags (dash/nova/useStairs) must not repeat next tick.
     for (const id of Object.keys(inst.intents)) {
       const i = inst.intents[Number(id)];
-      inst.intents[Number(id)] = { ...i, dash: false, nova: false, useStairs: false };
+      inst.intents[Number(id)] = { ...i, dash: false, nova: false, useStairs: false, ping: undefined };
     }
 
     const s = inst.state;
