@@ -31,7 +31,11 @@ export interface LandmarkDressing {
  */
 export interface OpenAirSpec {
   cliffSides: string[]; // thin cliff facades for wall faces that border floor
-  clusterKeys: string[]; // tree/rock pool for wall tiles rendered as woods
+  // TALL blocking pieces for wall tiles rendered as woods. Every woods tile
+  // plants one of these near its center so blocked ground always reads
+  // blocked — low pieces (rocks, bushes) belong in accentKeys, never here.
+  clusterKeys: string[];
+  accentKeys?: string[]; // low texture pieces mixed into woods tiles as extras
   clusterRatio: number; // fraction of edge wall tiles that go woods, 0..1
   clusterScale: number; // footprint scale for cluster pieces (trees tower)
   grass: number; // ground color, primary
@@ -142,8 +146,8 @@ export const FLOOR_THEMES: FloorTheme[] = [
       clusterKeys: [
         "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a",
         "forest_tree_3_a", "forest_tree_4_a", "forest_tree_5_a",
-        "forest_rock_5_a", "forest_rock_5_c",
       ],
+      accentKeys: ["forest_rock_5_a", "forest_rock_5_c", "forest_bush_1_a"],
       clusterRatio: 0.45,
       clusterScale: 1.5,
       grass: 0x5d7a44, grassAlt: 0x516c3b,

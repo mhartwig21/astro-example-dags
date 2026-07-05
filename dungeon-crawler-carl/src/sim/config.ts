@@ -173,6 +173,11 @@ export const CONFIG = {
   cancellationThreshold: 0.15, // "cancellation": execute non-elites below this HP fraction
   conduitFraction: 0.3, // "conduit": crits arc this fraction of the hit...
   conduitRadius: 3, // ...to the nearest other enemy within this many tiles
+  choreographyCritBonus: 0.2, // "choreography": +crit during the post-swap surge window
+  ledgerKillGold: 6, // "ledger": gold per kill credit...
+  ledgerInterestFraction: 0.1, // ...plus interest on banked gold each safe room...
+  ledgerInterestCap: 120, // ...capped per shop (greed compounds, but politely)
+  // "phase": dash passes through walls when it reaches the far side (binary)
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.

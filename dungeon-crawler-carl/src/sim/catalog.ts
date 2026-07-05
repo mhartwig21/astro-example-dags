@@ -216,31 +216,31 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "headliner_cleaver", name: "The Headliner", tier: "legendary", slot: "weapon",
     desc: "Kills play in primetime: +4 hype per kill.", cost: 150,
-    buildsFrom: ["primetime_cleaver"], affixes: { damage: 20, crit: 0.08 },
+    buildsFrom: ["primetime_cleaver"], affixes: { damage: 24, crit: 0.1 },
     passive: "showrunner", sponsors: 1, materials: { elite_trophy: 2 },
   },
   {
     id: "blastplate_harness", name: "Blastplate Harness", tier: "legendary", slot: "armor",
     desc: "Your dash detonates at the launch point.", cost: 150,
-    buildsFrom: ["showstopper_plate"], affixes: { maxHp: 50 },
+    buildsFrom: ["showstopper_plate"], affixes: { maxHp: 60, armor: 10 },
     passive: "blastplate", sponsors: 2, materials: { elite_trophy: 2 },
   },
   {
     id: "landlords_ledger", name: "Landlord's Ledger", tier: "legendary", slot: "trinket",
-    desc: "Every kill credit pays +3 gold.", cost: 130,
-    buildsFrom: ["crowd_medallion"], affixes: { crit: 0.06, speed: 0.3 },
+    desc: "Kills pay +6 gold, and banked gold earns 10% interest every safe room.", cost: 140,
+    buildsFrom: ["crowd_medallion"], affixes: { crit: 0.08, speed: 0.35, maxHp: 20 },
     passive: "ledger", sponsors: 1, materials: { elite_trophy: 2 },
   },
   {
     id: "overtime_clause", name: "Overtime Clause", tier: "legendary", slot: "trinket",
     desc: "Ultimate cooldowns reduced by 25%.", cost: 160,
-    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.1 },
+    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.12, maxHp: 20 },
     passive: "overtime", sponsors: 2, materials: { elite_trophy: 3, boss_sigil: 1 },
   },
   {
     id: "sweeps_week_staff", name: "Sweeps Week Staff", tier: "legendary", slot: "weapon",
     desc: "Every ability cooldown runs 15% faster. Ratings never sleep.", cost: 155,
-    buildsFrom: ["stormcall_staff"], affixes: { spell: 20, crit: 0.06 },
+    buildsFrom: ["stormcall_staff"], affixes: { spell: 24, crit: 0.08 },
     passive: "tempo", sponsors: 1, materials: { elite_trophy: 2 },
   },
   // CHASE UNIQUES: store-only build-definers. You cannot loot these — you
@@ -248,25 +248,25 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "perpetual_encore", name: "Perpetual Encore", tier: "legendary", slot: "trinket",
     desc: "+1 orbit blade, and the blades strike 25% faster. The show must go on.", cost: 150,
-    buildsFrom: ["gyro_stabilizer"], affixes: { speed: 0.3, damage: 8 },
+    buildsFrom: ["gyro_stabilizer"], affixes: { damage: 12, speed: 0.35, crit: 0.05 },
     passive: "encore", sponsors: 2, materials: { elite_trophy: 2 },
   },
   {
     id: "standing_ovation", name: "Standing Ovation Crossbow", tier: "legendary", slot: "weapon",
     desc: "Bolts pierce +2 bodies. The back row deserves a show too.", cost: 155,
-    buildsFrom: ["box_seat_crossbow"], affixes: { damage: 18, crit: 0.08 },
+    buildsFrom: ["box_seat_crossbow"], affixes: { damage: 22, crit: 0.1 },
     passive: "skewer", sponsors: 1, materials: { elite_trophy: 2 },
   },
   {
     id: "signature_choreography", name: "Signature Choreography", tier: "legendary", slot: "boots",
-    desc: "Swapping Battle Stance resets swing + bolt cooldowns. The swap IS the rotation.", cost: 150,
-    buildsFrom: ["encore_treads"], affixes: { speed: 0.45, crit: 0.06 },
+    desc: "Swapping Battle Stance grants +20% crit for the surge window. Swap, spike, repeat.", cost: 150,
+    buildsFrom: ["encore_treads"], affixes: { speed: 0.5, crit: 0.08, damage: 8 },
     passive: "choreography", sponsors: 2, materials: { elite_trophy: 3 },
   },
   {
     id: "plot_armor", name: "Plot Armor", tier: "legendary", slot: "helm",
     desc: "Once per floor, a killing blow leaves you at 1 HP. The writers insist.", cost: 180,
-    buildsFrom: ["mosh_pit_helm"], affixes: { maxHp: 45, armor: 12 },
+    buildsFrom: ["mosh_pit_helm"], affixes: { maxHp: 55, armor: 15 },
     passive: "plot_armor", sponsors: 3, materials: { elite_trophy: 2, boss_sigil: 1 },
   },
   // Novel mechanics that exist NOWHERE else in the game — no constellation
@@ -274,20 +274,26 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "blood_subscription", name: "Blood Subscription", tier: "legendary", slot: "charm",
     desc: "Heal 6% of the damage you deal. Auto-renews. Cancellation is difficult.", cost: 160,
-    buildsFrom: ["vip_pass"], affixes: { crit: 0.06, maxHp: 25 },
+    buildsFrom: ["vip_pass"], affixes: { crit: 0.08, maxHp: 30 },
     passive: "leech", sponsors: 2, materials: { elite_trophy: 2 },
   },
   {
     id: "cancellation_axe", name: "Cancellation Axe", tier: "legendary", slot: "weapon",
     desc: "Strikes CANCEL non-elite monsters below 15% HP. No appeals.", cost: 160,
-    buildsFrom: ["bloodsport_maul"], affixes: { damage: 19, maxHp: 30 },
+    buildsFrom: ["bloodsport_maul"], affixes: { damage: 24, maxHp: 35 },
     passive: "cancellation", sponsors: 2, materials: { elite_trophy: 3 },
   },
   {
     id: "live_feed", name: "Live Feed", tier: "legendary", slot: "trinket",
     desc: "Crits arc 30% of the hit to a nearby enemy, as magic. Share the moment.", cost: 150,
-    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.09 },
+    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.12, damage: 8 },
     passive: "conduit", sponsors: 1, materials: { elite_trophy: 2 },
+  },
+  {
+    id: "backstage_pass", name: "Backstage Pass", tier: "legendary", slot: "armor",
+    desc: "Your dash passes through walls when it can reach the far side. Set dressing.", cost: 170,
+    buildsFrom: ["stagedive_harness"], affixes: { maxHp: 45, speed: 0.35, armor: 8 },
+    passive: "phase", sponsors: 2, materials: { elite_trophy: 2, boss_sigil: 1 },
   },
 ];
 

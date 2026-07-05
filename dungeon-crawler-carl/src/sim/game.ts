@@ -1,5 +1,5 @@
 import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel, type MonsterArchetype } from "./config";
-import { generateFloor, isWalkable, walkableTiles } from "./floor";
+import { generateFloor, isWalkable, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
@@ -1188,7 +1188,10 @@ function damageMonster(
     chained?: boolean; // a conduit arc — never arcs again (no chains of chains)
   } = {},
 ): void {
-  const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
+  // Signature Choreography: the post-swap surge window carries bonus crit.
+  const critBonus =
+    p.stanceSwapWindow > 0 && hasPassive(p, "choreography") ? CONFIG.choreographyCritBonus : 0;
+  const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance + critBonus));
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
@@ -1429,7 +1432,7 @@ function reapDead(state: GameState): void {
     const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
     killer.kills++;
     killer.killsThisStep++;
-    if (hasPassive(killer, "ledger")) killer.gold += 3; // Landlord's Ledger
+    if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
@@ -1631,6 +1634,19 @@ function tryDescend(state: GameState, p: Player): void {
   // leaveSafeRoom() performs the actual floor change (and opens the sponsor draft).
   state.safeRoom = generateSafeRoom(state, next);
   announce(state, "progress", `Safe room reached. Breathe, spend, gear up — floor ${next} is waiting.`);
+  // Landlord's Ledger: banked gold pays INTEREST at every safe room (capped)
+  // — the greed build's engine: sell everything, buy nothing, watch it grow.
+  for (const pl of state.players) {
+    if (!hasPassive(pl, "ledger") || pl.gold <= 0) continue;
+    const interest = Math.min(
+      Math.round(pl.gold * CONFIG.ledgerInterestFraction),
+      CONFIG.ledgerInterestCap,
+    );
+    if (interest > 0) {
+      pl.gold += interest;
+      announce(state, "show", `${pl.name}'s Ledger pays out: +${interest} gold in interest. The rent collects itself.`);
+    }
+  }
 }
 
 /** Mordecai-style manager advice for the floor ahead (deterministic flavor). */
@@ -2113,7 +2129,38 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   const dir = normalize(move.x !== 0 || move.y !== 0 ? move : p.facing);
   p.facing = dir;
   const start = { x: p.pos.x, y: p.pos.y };
-  moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
+  // Walk the dash path in sub-steps so it STOPS at walls. (A single full-
+  // distance moveWithCollision only checks the landing point — dashes used to
+  // quietly tunnel through one-tile walls, which is now Backstage Pass's job.)
+  for (let moved = 0; moved < dp.distance; moved += 0.2) {
+    const before = { x: p.pos.x, y: p.pos.y };
+    moveWithCollision(state.map, p.pos, dir, Math.min(0.2, dp.distance - moved), isWalkable);
+    if (dist(before, p.pos) < 0.01) break; // dead stop: a wall ate the dash
+  }
+  // Backstage Pass (chase legendary): walls are set dressing. If the ordinary
+  // dash slide stopped short but the reach extends to walkable ground on the
+  // FAR side, blink there — scanning from full reach backward for the farthest
+  // landing. Locked doors are load-bearing (keys, boss seals): crossing one
+  // anywhere along the line refuses the phase.
+  if (hasPassive(p, "phase")) {
+    const slid = dist(start, p.pos);
+    for (let d = dp.distance; d > slid + 0.5; d -= 0.25) {
+      const landing = { x: start.x + dir.x * d, y: start.y + dir.y * d };
+      if (!isWalkable(state.map, landing.x, landing.y)) continue;
+      let crossesDoor = false;
+      for (let s = 0.25; s < d; s += 0.25) {
+        if (tileAt(state.map, start.x + dir.x * s, start.y + dir.y * s) === Tile.DoorLocked) {
+          crossesDoor = true;
+          break;
+        }
+      }
+      if (crossesDoor) break;
+      p.pos.x = landing.x;
+      p.pos.y = landing.y;
+      hit(state, p.pos, 0, "weapon"); // arrival poof: you exited through the wall
+      break;
+    }
+  }
   // Shockstep: damage along the WHOLE dash path (launch -> arrival capsule),
   // so dashing through a pack connects — and Long Blink extends the reach.
   if (dp.shockMult > 0) {
@@ -2138,12 +2185,9 @@ function doStance(state: GameState, p: Player): void {
   p.stanceTime = 0;
   p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
   if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
-  // Signature Choreography (chase legendary): the swap IS the rotation —
-  // both attack cooldowns reset, so a dance-build weaves swap-swing-swap-bolt.
-  if (hasPassive(p, "choreography")) {
-    p.cd.melee = 0;
-    p.cd.bolt = 0;
-  }
+  // Signature Choreography (chase legendary): every swap opens a crit surge —
+  // the +crit rides the same post-swap window Flow uses (see damageMonster),
+  // so the dance-build's rhythm is swap, spike, swap, spike.
   hit(state, p.pos, 0, "weapon"); // a flourish poof for the juice layer
 }
 
