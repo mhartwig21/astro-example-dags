@@ -3,7 +3,7 @@ import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
-import { stepMonster } from "./ai";
+import { springAmbush, stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
@@ -808,6 +808,9 @@ function maybeStartEncounter(state: GameState): void {
     );
     if (!near) continue;
     m.introduced = true;
+    // A ringside introduction blows the trap's cover: a revealed named menace
+    // never stands inert — its whole dormant cluster springs with it.
+    if (m.dormant) springAmbush(state, m);
     const name = m.eliteName ?? (state.floor >= CONFIG.finalFloor ? "THE FLOOR BOSS" : "THE BOSS");
     state.encounter = {
       monsterId: m.id,
@@ -1125,7 +1128,7 @@ function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
-  if (m.dormant) { m.dormant = false; m.surgeT = CONFIG.ambushSurgeSeconds; } // shot an ambusher awake
+  if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {

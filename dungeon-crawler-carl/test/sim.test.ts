@@ -469,18 +469,50 @@ describe("difficulty pass: consumable scarcity + ambushes", () => {
     expect(g.announcements.some((an) => an.text.includes("AMBUSH"))).toBe(true);
   });
 
-  it("shooting a dormant ambusher springs it early", () => {
+  it("shooting a dormant ambusher springs the WHOLE trap, not just the target", () => {
+    // Otherwise a ranged crawler dismantles an ambush one body at a time with
+    // zero risk — however the trap is discovered, the cluster commits together.
     const g = createGame(9);
     const p = g.players[0];
     g.monsters.length = 0;
+    g.announcements.length = 0;
     const m = mkMon({
       id: 1, kind: "grunt", pos: { x: p.pos.x + 1.0, y: p.pos.y },
       hp: 500, maxHp: 500, damage: 10, dormant: true, attackCooldown: 99,
     });
-    g.monsters.push(m);
+    const buddy = mkMon({
+      id: 2, kind: "grunt", pos: { x: p.pos.x + 2.0, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 10, dormant: true, attackCooldown: 99,
+    });
+    g.monsters.push(m, buddy);
     step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
-    expect(m.hp).toBeLessThan(500); // the swing connected on the dormant body
-    expect(m.dormant).toBeFalsy(); // and woke it
+    expect(m.dormant).toBeFalsy(); // the one you hit woke...
+    expect(buddy.dormant).toBeFalsy(); // ...and dragged its cluster up with it
+    expect((buddy.surgeT ?? 0)).toBeGreaterThan(0);
+    expect(g.announcements.some((an) => an.text.includes("AMBUSH"))).toBe(true);
+  });
+
+  it("a ringside introduction blows the trap: a revealed dormant elite springs its cluster", () => {
+    const g = createGame(10);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.announcements.length = 0;
+    // Elite + packmate lie in ambush just inside reveal range (7) but outside
+    // the proximity trigger (5): only the introduction can spring them here.
+    const fx = p.pos.x + 6;
+    const elite = mkMon({
+      id: 1, kind: "brute", pos: { x: fx, y: p.pos.y }, hp: 400, maxHp: 400,
+      damage: 10, dormant: true, elite: true, eliteName: "The Trapdoor King",
+    });
+    const packmate = mkMon({
+      id: 2, kind: "brute", pos: { x: fx + 1, y: p.pos.y }, hp: 400, maxHp: 400,
+      damage: 10, dormant: true,
+    });
+    g.monsters.push(elite, packmate);
+    step(g, idle(), 1 / 60); // reveal fires maybeStartEncounter
+    expect(elite.introduced).toBe(true);
+    expect(elite.dormant).toBeFalsy(); // no inert statues after their own intro
+    expect(packmate.dormant).toBeFalsy(); // the whole court rises with the king
   });
 });
 
