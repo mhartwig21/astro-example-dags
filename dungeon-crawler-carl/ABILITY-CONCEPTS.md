@@ -114,4 +114,68 @@ a damage tally, every one impossible to describe without mentioning the show.
 Second wave (Repossession, Crowd Surf, Stunt Double) lands with the
 friendly-entity surface.
 
+---
+
+# Mined from the repo (2026-07-05 sweep)
+
+A systematic pass over docs, code comments, monster AI, elite affixes, boss
+signatures, and catalog passives found abilities the codebase has ALREADY
+half-built. These are cheaper than the Showtime slate — the sim plumbing
+exists; most need only a player caster + constellation entries.
+
+## Boss signatures = pre-built ultimates (DESIGN 5.14, game.ts helpers)
+
+The band-boss signature mechanics are self-contained, telegraphed,
+floor-agnostic helpers with config knobs. Each is an ultimate wearing a
+boss costume:
+
+- **Flame Sweep** → *PYRO SWEEP*: an advancing directional wall of fire
+  (bossFlameSweep; flameRows/flameStepDelay knobs). Burn status included.
+- **Debris Rain** → *METEOR STORM*: telegraphed impact circles at the cursor
+  (bossDebrisRain) — this is the DESIGN.md 5.7 example ultimate, already coded.
+- **Flood Surge** → *FLASH FLOOD*: carpet a zone in ticking sludge pools.
+- **Entangling Roots** → *STAGE CABLES*: root-snare zones — the hard-CC verb
+  the player kit completely lacks (Player.rootT already exists).
+- **Dark Ritual** → *SEASON FINALE*: a long, INTERRUPTIBLE self-channel into
+  an arena-scale nuke — high-risk broadcast television.
+
+## Monster flips = pre-built actives (ai.ts + config knobs)
+
+- **Phantom blink** → *CUT TO*: targeted teleport-onto-enemy strike (distinct
+  from dash's directional blink).
+- **Charger rush** → *STAMPEDE*: committed line-rush hitting everything in
+  the lane once (chargeHits plumbing).
+- **Spitter lob** → *CAUSTIC LOB*: plant a ticking poison puddle (hazard +
+  poison status both live).
+- **Bomber fuse** → *TIME BOMB*: plant a fused charge; the dodge-window
+  telegraph is the fun.
+- **Ambush dormancy** → *SLEEPER CELL*: brief stealth ending in a surge
+  alpha-strike (ambushSurge knobs).
+- **Boss radial volley** → *FIREWORK VOLLEY*: full ring of bolts.
+
+## The friendly-entity flag is the master unlock
+
+summonMinion + raiseCorpse already construct monsters at runtime; an "ally"
+ownership flag turns on FIVE designs at once: **Summon Champion** (the other
+named-but-unbuilt DESIGN 5.7 ultimate), **Understudy** (raise one corpse as
+your fighter — necromancer flip), **Franchise** (deployed nest births allied
+swarmers — broodmother flip), plus the slate's UNION LABOR and STUNT DOUBLE.
+One surface, five abilities.
+
+## Smaller seeds
+
+- **Elite affixes as player buffs**: shielded → *CUT TO COMMERCIAL* (short
+  mitigation bubble — the missing defensive cooldown); thorns → retaliation
+  window; chilling aura → *COLD OPEN* slow-field toggle (chill status live).
+- **Shaman heal flip** → *FIELD MEDIC*: heal the lowest-HP nearby crawler
+  (co-op verb; hypeRevive already pays hype for rescues).
+- **Shrine bargains as actives**: Blood Price → *BLOOD PACT* (spend HP for
+  crit/damage burst); Greed Clause → *HIGH ROLLER* (double gold, hype cost).
+- **Third Battle Stance**: abilities.ts invites it ("a third stance is a
+  union member away") — a defensive stance completes the triangle.
+- **Status appliers**: burn/poison/chill shipped with only 1-2 sources each;
+  a dedicated applicator active per status has room (e.g. *POISON DART*).
+- **A pure interrupt/stun button**: poise/stagger is a full system, but only
+  SYSTEM SHOCK (overcharge capstone) touches it on demand.
+
 Delete sections from this doc as they ship (BACKLOG.md convention).
