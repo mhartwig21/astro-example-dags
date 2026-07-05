@@ -292,6 +292,16 @@ attribution requirement (covered by the same in-game credits line).
 | cursed_amplifier | sonic-shout | Lorc |
 | stormcall_staff | lightning-storm | Lorc |
 | sweeps_week_staff | lightning-branches | Lorc |
+| crash_helmet | full-motorcycle-helmet | Delapouite |
+| tour_treads | converse-shoe | Delapouite |
+| box_seat_crossbow | crossbow | Carl Olsen |
+| gyro_stabilizer | vortex | Lorc |
+| mosh_pit_helm | horned-helm | Lorc |
+| encore_treads | wingfoot | Lorc |
+| perpetual_encore | orbital | Lorc |
+| standing_ovation | theater-curtains | Delapouite |
+| signature_choreography | ballerina-shoes | Delapouite |
+| plot_armor | drama-masks | Lorc |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |

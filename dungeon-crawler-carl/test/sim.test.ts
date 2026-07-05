@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
-  chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
+  chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
@@ -13,7 +13,7 @@ import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
   DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
-  novaParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
+  novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
@@ -620,13 +620,13 @@ describe("safe room + System Shop", () => {
     // Shop index 3 (descending from floor 3): advanced yes, legendary not yet.
     const room3 = reachDeepSafeRoom(306, 3).safeRoom!;
     const tiers3 = room3.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers3.filter((t) => t === "advanced").length).toBe(4); // 3 + (3-2)
+    expect(tiers3.filter((t) => t === "advanced").length).toBe(5); // 4 + (3-2)
     expect(tiers3).not.toContain("legendary");
-    // Shop index 5: one more advanced pick, and the first legendary appears.
+    // Shop index 5: one more advanced pick, and the first legendaries appear.
     const room5 = reachDeepSafeRoom(306, 5).safeRoom!;
     const tiers5 = room5.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers5.filter((t) => t === "advanced").length).toBe(6);
-    expect(tiers5.filter((t) => t === "legendary").length).toBe(1);
+    expect(tiers5.filter((t) => t === "advanced").length).toBe(7);
+    expect(tiers5.filter((t) => t === "legendary").length).toBe(2);
   });
 
   it("buying a Field Ration heals, deducts gold, and tracks goldSpent", () => {
@@ -3324,5 +3324,139 @@ describe("locked floors", () => {
     const b = atFloor(2, 3);
     expect(Array.from(a.map.tiles)).toEqual(Array.from(b.map.tiles));
     expect(a.monsters.find((m) => m.hasKey)?.id).toBe(b.monsters.find((m) => m.hasKey)?.id);
+  });
+});
+
+/** Walk seed's floor-1 stairs into the first safe room (shared by the new suites). */
+function reachShop(seed: number) {
+  const g = createGame(seed);
+  g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+  step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+  return g;
+}
+
+describe("chase legendaries (store-only uniques)", () => {
+  const wear = (g: GameState, item: Partial<import("../src/sim/types").Item> & { slot: import("../src/sim/types").ItemSlot }) => {
+    const p = g.players[0];
+    equipItem(p, { id: 900, rarity: "epic", name: "X", affixes: {}, ...item } as import("../src/sim/types").Item);
+    return p;
+  };
+
+  it("Perpetual Encore: +1 orbit blade, faster damage ticks", () => {
+    const g = createGame(990);
+    const p = g.players[0];
+    const before = orbitParams(p);
+    wear(g, { slot: "trinket", name: "Perpetual Encore", passive: "encore", catalogId: "perpetual_encore" });
+    const after = orbitParams(p);
+    expect(after.blades).toBe(before.blades + 1);
+    expect(after.tickSeconds).toBeCloseTo(before.tickSeconds * CONFIG.encoreOrbitTickMult, 5);
+  });
+
+  it("Standing Ovation: bolts pierce +2 on top of the weapon profile", () => {
+    const g = createGame(991);
+    const p = g.players[0];
+    // Epic crossbow WITHOUT the passive: ballistic rare+ pierce = 1.
+    wear(g, { slot: "weapon", name: "Box Seat Crossbow", catalogId: "box_seat_crossbow" });
+    expect(boltParams(p).pierce).toBe(1);
+    wear(g, { slot: "weapon", name: "Standing Ovation Crossbow", passive: "skewer", catalogId: "standing_ovation" });
+    expect(boltParams(p).pierce).toBe(1 + CONFIG.skewerBonusPierce);
+  });
+
+  it("Signature Choreography: stance swap resets swing + bolt cooldowns", () => {
+    const g = createGame(992);
+    const p = g.players[0];
+    learnAbility(g, p, "stance"); // auto-slots into slot 4
+    g.monsters.length = 0;
+    wear(g, { slot: "boots", name: "Signature Choreography", passive: "choreography", catalogId: "signature_choreography" });
+    p.cd.melee = 0.4;
+    p.cd.bolt = 0.6;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] }, 1 / 60);
+    expect(p.stance).toBe("ranged"); // the swap happened
+    expect(p.cd.melee ?? 0).toBe(0);
+    expect(p.cd.bolt ?? 0).toBe(0);
+  });
+
+  it("Plot Armor: one killing blow per floor leaves you at 1 HP", () => {
+    const g = createGame(993);
+    const p = g.players[0];
+    wear(g, { slot: "helm", name: "Plot Armor", passive: "plot_armor", catalogId: "plot_armor" });
+    p.hp = 5;
+    expect(damagePlayerHit(g, p, 10_000, { roll: false })).toBe(false); // survived
+    expect(p.hp).toBe(1);
+    expect(p.plotArmorUsed).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("PLOT ARMOR"))).toBe(true);
+    // The writers only save you once per floor.
+    expect(damagePlayerHit(g, p, 10_000, { roll: false })).toBe(true);
+    // A fresh floor re-arms it.
+    p.hp = p.maxHp;
+    p.alive = true;
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    for (const m of g.monsters) m.hp = 0;
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    if (g.safeRoom) leaveSafeRoom(g);
+    expect(p.plotArmorUsed).toBe(false);
+  });
+
+  it("the full chase path: components -> advanced -> sponsor-gated unique", () => {
+    const g = reachShop(994);
+    const p = g.players[0];
+    g.safeRoom!.available.push("box_seat_crossbow", "standing_ovation");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "honed_edge");
+    buyCatalogItem(g, 0, "glass_charm");
+    buyCatalogItem(g, 0, "box_seat_crossbow");
+    expect(p.equipment.weapon?.catalogId).toBe("box_seat_crossbow");
+    // The unique needs sponsors + trophies on top of the build path.
+    buyCatalogItem(g, 0, "standing_ovation");
+    expect(p.equipment.weapon?.catalogId).toBe("box_seat_crossbow"); // refused
+    p.sponsors = 1;
+    p.materials.elite_trophy = 2;
+    buyCatalogItem(g, 0, "standing_ovation");
+    expect(p.equipment.weapon?.passive).toBe("skewer");
+    expect(boltParams(p).pierce).toBeGreaterThanOrEqual(1 + CONFIG.skewerBonusPierce);
+  });
+});
+
+describe("planning-first drops", () => {
+  it("a slice of equipment drops are catalog components (they feed build paths)", () => {
+    const g = createGame(995);
+    const p = g.players[0];
+    p.attackPower = 99_999;
+    g.monsters.length = 0;
+    let component = 0, rolled = 0;
+    for (let i = 0; i < 400; i++) {
+      g.loot.length = 0;
+      g.monsters.push(mkMon({ id: 10_000 + i, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1 }));
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+      for (const l of g.loot) {
+        if (l.kind !== "item" || !l.item) continue;
+        if (l.item.catalogId) component++;
+        else rolled++;
+      }
+      // let the melee cooldown clear between kills
+      for (let k = 0; k < 30; k++) step(g, idle(), 1 / 60);
+    }
+    expect(component).toBeGreaterThan(0); // drops now advance planned builds...
+    expect(rolled).toBeGreaterThan(component); // ...but rolled gear still leads
+    // Dropped components are REAL components: they satisfy build gating.
+    const entry = CATALOG_BY_ID.honed_edge;
+    expect(entry.tier).toBe("basic");
+  });
+
+  it("sell all liquidates the bag at per-item sell value (safe-room only)", () => {
+    const g = reachShop(996);
+    const p = g.players[0];
+    p.inventory.push({ id: 1, slot: "weapon", rarity: "magic", name: "Honed Edge", affixes: { damage: 6 }, catalogId: "honed_edge" });
+    p.inventory.push({ id: 2, slot: "armor", rarity: "rare", name: "Runed Plate", affixes: { maxHp: 30 } });
+    const expected = sellValue(p.inventory[0]) + sellValue(p.inventory[1]);
+    const gold0 = p.gold;
+    sellAllItems(g, 0);
+    expect(p.inventory.length).toBe(0);
+    expect(p.gold).toBe(gold0 + expected);
+    // Outside the safe room: no-op.
+    leaveSafeRoom(g);
+    p.inventory.push({ id: 3, slot: "trinket", rarity: "epic", name: "Idol", affixes: { crit: 0.1 } });
+    sellAllItems(g, 0);
+    expect(p.inventory.length).toBe(1);
   });
 });

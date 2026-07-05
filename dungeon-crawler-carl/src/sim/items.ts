@@ -1,6 +1,12 @@
 import { RARITIES } from "./config";
 import { nextFloat, nextInt, pick, type Rng } from "./rng";
-import type { Affixes, Item, ItemSlot, Rarity } from "./types";
+import { EQUIP_SLOTS, type Affixes, type Item, type ItemSlot, type PassiveId, type Player, type Rarity } from "./types";
+
+/** True if any equipped item carries the given signature-gear passive.
+ * Lives here (not game.ts) so the ability param functions can read it too. */
+export function hasPassive(p: Player, id: PassiveId): boolean {
+  return EQUIP_SLOTS.some((slot) => p.equipment[slot]?.passive === id);
+}
 
 // Deterministic item generation. Everything rolls off the seeded RNG so drops are
 // reproducible. Items carry affixes (stat modifiers) that the player sums across

@@ -2,7 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
+import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import { serialize } from "../sim/snapshot";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
@@ -19,6 +19,7 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
 //     { t: "sell", idx: number }                       sell a bag item back
+//     { t: "sellAll" }                                 liquidate the whole bag
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
 //     { t: "welcome", playerId, snapshot }             join accepted
@@ -248,6 +249,9 @@ export class GameServer {
           break;
         case "sell":
           sellItem(inst.state, playerId, Number(msg.idx));
+          break;
+        case "sellAll":
+          sellAllItems(inst.state, playerId);
           break;
         case "ready":
           setReady(inst.state, playerId);
