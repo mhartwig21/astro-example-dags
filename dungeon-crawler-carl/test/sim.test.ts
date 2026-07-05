@@ -2360,6 +2360,34 @@ describe("boss phases", () => {
     const plainStairs = plain.rooms[plain.roles.indexOf("stairs")];
     expect(Math.max(plainStairs.w, plainStairs.h)).toBeLessThanOrEqual(12);
   });
+
+  it("corridors are at least two tiles wide (pathways must read on sight)", () => {
+    // A 1-wide corridor tile has exactly 2 walkable neighbors; 2-wide carving
+    // gives every corridor tile its lateral partner (3+). Allow a tiny
+    // remainder for map-border clamps, but a 1-wide system fails massively.
+    for (const seed of [11, 77, 555]) {
+      for (const floor of [2, 7, 13]) {
+        const map = generateFloor(createRng(seed), floor);
+        const inRoom = (x: number, y: number) =>
+          map.rooms.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        const walkable = (x: number, y: number) =>
+          x >= 0 && y >= 0 && x < map.w && y < map.h && map.tiles[y * map.w + x] !== Tile.Wall;
+        let corridor = 0;
+        let narrow = 0;
+        for (let y = 0; y < map.h; y++) {
+          for (let x = 0; x < map.w; x++) {
+            if (!walkable(x, y) || inRoom(x, y)) continue;
+            corridor++;
+            const n = [walkable(x + 1, y), walkable(x - 1, y), walkable(x, y + 1), walkable(x, y - 1)]
+              .filter(Boolean).length;
+            if (n < 3) narrow++;
+          }
+        }
+        expect(corridor).toBeGreaterThan(0);
+        expect(narrow / corridor).toBeLessThan(0.02);
+      }
+    }
+  });
 });
 
 describe("theme bands", () => {
