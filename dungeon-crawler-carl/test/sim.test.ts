@@ -6,7 +6,8 @@ import {
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
-import { generateFloor, walkableTiles } from "../src/sim/floor";
+import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
+import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
@@ -1740,6 +1741,67 @@ describe("brute Ground Slam + boss kit escalation", () => {
     const hp0 = p.hp;
     stepPastWindup(g, boss);
     expect(p.hp).toBeLessThan(hp0 - 20); // a real, serious hit — not a chip
+  });
+});
+
+describe("swept movement — nothing tunnels through thin walls or door rings", () => {
+  // moveWithCollision used to check only each axis ENDPOINT, so any single call
+  // longer than a tile (phantom blink 3.0, cataclysm knockback 2.5) tunneled
+  // through 1-tile wall bands — including the locked stairs district's door
+  // ring, where a blinking KEY CARRIER could seal itself in with the stairs.
+
+  it("a large single move stops at a one-tile wall band instead of crossing it", () => {
+    const g = createGame(930);
+    const m = g.map;
+    const sx = Math.floor(m.spawn.x), sy = Math.floor(m.spawn.y);
+    const wallX = sx + 2;
+    for (let y = 0; y < m.h; y++) m.tiles[y * m.w + wallX] = Tile.Wall;
+    const pos = { x: sx + 0.5, y: sy + 0.5 };
+    moveWithCollision(m, pos, { x: 1, y: 0 }, 4, isWalkable);
+    expect(pos.x).toBeLessThan(wallX - 0.29); // stopped short, entity radius respected
+  });
+
+  it("a phantom-length blink cannot cross a locked-door line (the key softlock)", () => {
+    const g = createGame(931);
+    const m = g.map;
+    const sx = Math.floor(m.spawn.x), sy = Math.floor(m.spawn.y);
+    const doorX = sx + 2;
+    for (let y = 0; y < m.h; y++) m.tiles[y * m.w + doorX] = Tile.DoorLocked;
+    const pos = { x: sx + 0.5, y: sy + 0.5 };
+    moveWithCollision(m, pos, { x: 1, y: 0 }, CONFIG.phantomBlinkDistance, isWalkable);
+    expect(pos.x).toBeLessThan(doorX - 0.29);
+  });
+
+  it("the key carrier always spawns reachable from the party spawn", () => {
+    const reachable = (map: FloorMap, from: Vec2): Uint8Array => {
+      const seen = new Uint8Array(map.w * map.h);
+      const q = [Math.floor(from.y) * map.w + Math.floor(from.x)];
+      seen[q[0]] = 1;
+      for (let qi = 0; qi < q.length; qi++) {
+        const x = q[qi] % map.w, y = (q[qi] / map.w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+          const ni = ny * map.w + nx;
+          const t = map.tiles[ni];
+          if (seen[ni] || t === Tile.Wall || t === Tile.DoorLocked) continue;
+          seen[ni] = 1;
+          q.push(ni);
+        }
+      }
+      return seen;
+    };
+    for (let seed = 1; seed <= 12; seed++) {
+      for (const floor of [10, 14, 17]) {
+        const g = createTestGame({ seed, floor, gear: false });
+        if (!g.map.locked) continue;
+        const carrier = g.monsters.find((mm) => mm.hasKey);
+        if (!carrier) continue; // softlock guard opened the doors instead
+        const seen = reachable(g.map, g.map.spawn);
+        const ci = Math.floor(carrier.pos.y) * g.map.w + Math.floor(carrier.pos.x);
+        expect(seen[ci], `seed ${seed} floor ${floor}: key carrier sealed in with the stairs`).toBe(1);
+      }
+    }
   });
 });
 
