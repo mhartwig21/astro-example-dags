@@ -11,7 +11,8 @@ import {
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
 import {
-  Tile, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type Player,
+  EQUIP_SLOTS, Tile,
+  type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
 } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -353,7 +354,7 @@ function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): strin
 
 function renderInventory(s: GameState): void {
   const p = me(s);
-  invEquipped.innerHTML = (["weapon", "armor", "trinket"] as const)
+  invEquipped.innerHTML = EQUIP_SLOTS
     .map((slot) => {
       const it = p.equipment[slot];
       return it
@@ -574,7 +575,7 @@ const statIcon = (id: string): string =>
 const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
-function gearRowHtml(slot: "weapon" | "armor" | "trinket", it: Item | null): string {
+function gearRowHtml(slot: ItemSlot, it: Item | null): string {
   if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const icon = it.catalogId
@@ -616,7 +617,7 @@ function renderSheet(s: GameState): void {
   const a = sh.attributes;
   const d = sh.defense;
   sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}`;
-  sheetGear.innerHTML = (["weapon", "armor", "trinket"] as const)
+  sheetGear.innerHTML = EQUIP_SLOTS
     .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
   const tiles: [string, string, string, string, string][] = [
     ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
@@ -830,7 +831,7 @@ let shopView: "stock" | "all" = "stock";
 type ShopSel =
   | { kind: "catalog"; id: string }
   | { kind: "bag"; idx: number }
-  | { kind: "equipped"; slot: "weapon" | "armor" | "trinket" };
+  | { kind: "equipped"; slot: ItemSlot };
 let shopSel: ShopSel | null = null;
 
 // Icons by convention: /icons/items/<catalogId>.svg (game-icons.net, CSS-mask tinted).
@@ -846,9 +847,7 @@ function ownedCatalogCounts(p: Player): Record<string, number> {
     if (it?.catalogId) counts[it.catalogId] = (counts[it.catalogId] ?? 0) + 1;
   };
   p.inventory.forEach((it) => add(it));
-  add(p.equipment.weapon);
-  add(p.equipment.armor);
-  add(p.equipment.trinket);
+  for (const slot of EQUIP_SLOTS) add(p.equipment[slot]);
   return counts;
 }
 
@@ -1115,7 +1114,7 @@ function renderShopPage(s: GameState): void {
   }
   srShelf.innerHTML = shelf;
   // Equipped + bag.
-  srEquipped.innerHTML = (["weapon", "armor", "trinket"] as const).map((slot) => {
+  srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
     if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
@@ -1208,7 +1207,7 @@ srDetail.addEventListener("click", (e) => {
 srEquipped.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-slot]") as HTMLElement | null;
   if (!tile) return;
-  shopSel = { kind: "equipped", slot: tile.dataset.slot as "weapon" | "armor" | "trinket" };
+  shopSel = { kind: "equipped", slot: tile.dataset.slot as ItemSlot };
   renderSafeRoom(state);
 });
 

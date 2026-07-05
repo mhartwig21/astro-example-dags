@@ -112,7 +112,9 @@ export const CONFIG = {
   // dungeon steepens instead of flattening. Kept off floors 1-6 so early-game
   // playability (and the balance-bot floors-1-2 net) is untouched.
   monsterScaleCompoundFrom: 6,
-  monsterScaleCompound: 1.055, // ~1.85x by floor 18 on top of the linear curve
+  // 1.055 pre-#10; nudged up when the six-slot spread landed (helm/boots/charm
+  // add ~60% more worn affix budget at full kit — the deep floors absorb it).
+  monsterScaleCompound: 1.062, // ~2.1x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
   monsterBaseDamage: 15,

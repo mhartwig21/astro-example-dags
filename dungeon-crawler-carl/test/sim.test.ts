@@ -14,7 +14,10 @@ import {
   DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
   novaParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
-import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
+import {
+  EQUIP_SLOTS, NO_INTENT, Tile,
+  type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
+} from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
@@ -267,7 +270,9 @@ describe("itemization", () => {
     const a = generateItem(rng1, 5, () => ++id1);
     const b = generateItem(rng2, 5, () => ++id2);
     expect(a).toEqual(b);
-    const primaryBySlot = { weapon: "damage", armor: "armor", trinket: "crit" } as const;
+    const primaryBySlot = {
+      weapon: "damage", armor: "armor", helm: "maxHp", boots: "speed", trinket: "crit", charm: "crit",
+    } as const;
     expect(a.affixes[primaryBySlot[a.slot]]).toBeGreaterThan(0);
   });
 
@@ -297,6 +302,64 @@ describe("itemization", () => {
     step(g, idle(), 1 / 60);
     expect(p.equipment.weapon?.id).toBe(1);
     expect(p.inventory.some((i) => i.id === 2)).toBe(true);
+  });
+
+  it("rolls items for all six equipment slots (backlog #10)", () => {
+    const rng = createRng(777);
+    let id = 0;
+    const seen = new Set<ItemSlot>();
+    for (let i = 0; i < 400; i++) seen.add(generateItem(rng, 5, () => ++id).slot);
+    for (const slot of EQUIP_SLOTS) expect(seen.has(slot)).toBe(true);
+  });
+
+  it("support slots (helm/boots/charm) roll on a reduced budget", () => {
+    // Same rarity + floor: an armor piece's HP rolls must outbudget a helm's.
+    const rng = createRng(123);
+    let id = 0;
+    let armorHp = 0, armorN = 0, helmHp = 0, helmN = 0;
+    for (let i = 0; i < 3000; i++) {
+      const it = generateItem(rng, 8, () => ++id);
+      if (it.rarity !== "rare") continue;
+      if (it.slot === "armor" && it.affixes.maxHp) { armorHp += it.affixes.maxHp; armorN++; }
+      if (it.slot === "helm" && it.affixes.maxHp) { helmHp += it.affixes.maxHp; helmN++; }
+    }
+    expect(armorN).toBeGreaterThan(0);
+    expect(helmN).toBeGreaterThan(0);
+    expect(helmHp / helmN).toBeLessThan(armorHp / armorN);
+  });
+
+  it("all six slots feed recomputeStats and hasPassive stays slot-agnostic", () => {
+    const g = createGame(9);
+    const p = g.players[0];
+    const base = { atk: p.attackPower, hp: p.maxHp, crit: p.critChance };
+    equipItem(p, { id: 1, slot: "helm", rarity: "magic", name: "Test Helm", affixes: { maxHp: 20 } });
+    equipItem(p, { id: 2, slot: "boots", rarity: "magic", name: "Test Treads", affixes: { speed: 0.3 } });
+    equipItem(p, { id: 3, slot: "charm", rarity: "epic", name: "Test Locket", affixes: { crit: 0.05, damage: 4 } });
+    expect(p.maxHp).toBe(base.hp + 20);
+    expect(p.speed).toBeCloseTo(CONFIG.playerSpeed + 0.3);
+    expect(p.critChance).toBeCloseTo(base.crit + 0.05);
+    expect(p.attackPower).toBe(base.atk + 4);
+  });
+
+  it("migrates a pre-#10 three-slot save into the six-socket shape", () => {
+    const oldEquipment = {
+      weapon: { id: 1, slot: "weapon", rarity: "rare", name: "Old Blade", affixes: { damage: 10 } },
+      armor: null,
+      trinket: { id: 2, slot: "trinket", rarity: "magic", name: "Old Band", affixes: { crit: 0.03 } },
+    };
+    const g = restoreGame({
+      seed: 42, floor: 3,
+      player: {
+        hp: 80, level: 4, xp: 0, xpToNext: 50, gold: 10,
+        equipment: oldEquipment as unknown as import("../src/sim/types").Player["equipment"],
+      },
+    });
+    const p = g.players[0];
+    expect(p.equipment.weapon?.name).toBe("Old Blade");
+    expect(p.equipment.trinket?.name).toBe("Old Band");
+    for (const slot of ["helm", "boots", "charm"] as const) expect(p.equipment[slot]).toBeNull();
+    // Recompute walked all six sockets without tripping on the empty ones.
+    expect(p.attackPower).toBeGreaterThan(0);
   });
 
   it("equipFromInventory swaps the equipped item back to the bag", () => {

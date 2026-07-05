@@ -16,10 +16,10 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
-  Announcement, AnnouncementKind, EliteAffix, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, PassiveId, Player, Reward, SafeRoom, Vec2,
 } from "./types";
-import { NO_INTENT, Tile } from "./types";
+import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
@@ -33,7 +33,7 @@ export function recomputeStats(p: Player): void {
   let spd = CONFIG.playerSpeed;
   let crit = CONFIG.playerCritChance + p.bonusCrit;
   let arm = CONFIG.playerBaseArmor + p.bonusArmor;
-  for (const slot of ["weapon", "armor", "trinket"] as const) {
+  for (const slot of EQUIP_SLOTS) {
     const it = p.equipment[slot];
     if (!it) continue;
     atk += it.affixes.damage ?? 0;
@@ -51,6 +51,11 @@ export function recomputeStats(p: Player): void {
   p.armor = arm;
   p.weaponRarity = p.equipment.weapon?.rarity ?? "common";
   if (p.hp > p.maxHp) p.hp = p.maxHp;
+}
+
+/** A fresh all-empty equipment record (one socket per EQUIP_SLOTS entry). */
+export function emptyEquipment(): Equipment {
+  return Object.fromEntries(EQUIP_SLOTS.map((s) => [s, null])) as unknown as Equipment;
 }
 
 /** Equip an item (from anywhere); the currently-equipped item in that slot goes to the bag. */
@@ -413,7 +418,7 @@ function makePlayer(id: number, name: string): Player {
     xpToNext: xpForLevel(1),
     gold: 0,
     weaponRarity: "common",
-    equipment: { weapon: null, armor: null, trinket: null },
+    equipment: emptyEquipment(),
     inventory: [],
     bonusDamage: 0,
     bonusSpell: 0,
@@ -592,7 +597,14 @@ export function restoreGame(save: SavedProgress): GameState {
   p.bonusMaxHp = s.bonusMaxHp ?? 0;
   p.bonusCrit = s.bonusCrit ?? 0;
   p.bonusArmor = s.bonusArmor ?? 0; // pre-armor saves default to 0
-  if (s.equipment) p.equipment = s.equipment;
+  if (s.equipment) {
+    // Fold whatever slots the save knew about into the current six-socket
+    // shape (pre-#10 saves carried only weapon/armor/trinket) — missing
+    // sockets load empty, unknown extras are dropped.
+    const e = emptyEquipment();
+    for (const slot of EQUIP_SLOTS) e[slot] = s.equipment[slot] ?? null;
+    p.equipment = e;
+  }
   if (s.inventory) p.inventory = s.inventory;
   if (s.abilities) {
     const legacy = s.abilities as unknown as { known?: AbilityId[]; ranks?: Record<string, number> };
@@ -1569,7 +1581,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
  */
 function findOwnedComponent(p: Player, catalogId: string, claimed: Set<Item>): Item | null {
   for (const it of p.inventory) if (it.catalogId === catalogId && !claimed.has(it)) return it;
-  for (const slot of ["weapon", "armor", "trinket"] as const) {
+  for (const slot of EQUIP_SLOTS) {
     const it = p.equipment[slot];
     if (it && it.catalogId === catalogId && !claimed.has(it)) return it;
   }
@@ -1608,7 +1620,7 @@ export function missingComponents(p: Player, catalogId: string): string[] {
     if (it?.catalogId) owned[it.catalogId] = (owned[it.catalogId] ?? 0) + 1;
   };
   for (const it of p.inventory) count(it);
-  for (const slot of ["weapon", "armor", "trinket"] as const) count(p.equipment[slot]);
+  for (const slot of EQUIP_SLOTS) count(p.equipment[slot]);
   const missing: string[] = [];
   for (const c of need) {
     if ((owned[c] ?? 0) > 0) owned[c]--;
@@ -1700,7 +1712,7 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   for (const [m, n] of Object.entries(mats)) p.materials[m as MaterialId] -= n ?? 0;
   // Consume claimed components wherever they live.
   p.inventory = p.inventory.filter((it) => !claimed.has(it));
-  for (const slot of ["weapon", "armor", "trinket"] as const) {
+  for (const slot of EQUIP_SLOTS) {
     if (p.equipment[slot] && claimed.has(p.equipment[slot]!)) p.equipment[slot] = null;
   }
   const item: Item = {
@@ -2291,11 +2303,7 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
 
 /** True if any equipped item carries the given signature-gear passive. */
 export function hasPassive(p: Player, id: PassiveId): boolean {
-  return (
-    p.equipment.weapon?.passive === id ||
-    p.equipment.armor?.passive === id ||
-    p.equipment.trinket?.passive === id
-  );
+  return EQUIP_SLOTS.some((slot) => p.equipment[slot]?.passive === id);
 }
 
 /** A player died; the run only ends when the whole party is down. */
