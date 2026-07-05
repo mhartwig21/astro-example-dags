@@ -269,6 +269,33 @@ export const CONFIG = {
   ultBulletTimeDuration: 4, // seconds
   ultBulletTimeFactor: 0.35, // monster/enemy-projectile time scale while active
 
+  // Ultimate constellations (abilities.ts): rank-scaled knobs per node.
+  ultAirstrikePayloadDmg: 0.25, // shell damage per Bigger Payload rank
+  ultAirstrikeSaturationShells: 2, // extra shells per Saturation Barrage rank
+  ultAirstrikeSaturationSpread: 0.18, // extra scatter per Saturation rank (the cost)
+  ultAirstrikePrecisionSpread: 0.3, // scatter removed per Precision Strike rank
+  ultAirstrikeLoyaltyRefund: 0.08, // SPONSOR LOYALTY: cooldown fraction per barrage kill
+  ultCataclysmEpicenterRadius: 0.15, // radius per Epicenter rank
+  ultCataclysmAftermathBase: 0.25, // Aftermath echo fraction at rank 0...
+  ultCataclysmAftermathPerRank: 0.15, // ...plus this per rank (rank 1 = 40%, 2 = 55%)
+  ultCataclysmAftermathDelay: 1.2, // seconds until the echo shock lands
+  ultCataclysmUpheavalKnock: 0.45, // extra hurl per Upheaval rank
+  ultCataclysmUpheavalPoise: 2, // Upheaval hits crush poise this much harder (any rank)
+  ultCataclysmExtinctionFrac: 0.6, // EXTINCTION corpse blast, fraction of cataclysm power
+  ultCataclysmExtinctionRadius: 1.8, // tiles around each detonating corpse
+  ultBulletTimeFocusSeconds: 1, // duration per Deep Focus rank
+  ultBulletTimeAdrenaline: 0.5, // extra cooldown tick speed per Adrenaline rank, inside
+  ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
+  ultBulletTimeEncoreExtend: 0.5, // ENCORE: seconds added per kill inside
+  ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
+
+  // Orbit capstone + melee fork identities (abilities.ts constellation pass).
+  orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this
+  meleeOverkillRadius: 1.4, // Heavy Blows: killing-swing overkill splashes this far
+  meleeMomentumPerStack: 0.06, // Swift Strikes: damage per momentum stack
+  meleeMomentumStacksPerRank: 2, // stack cap per Swift Strikes rank
+  meleeMomentumWindow: 2.5, // seconds between connecting swings before momentum drops
+
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   novaCooldown: 5.0,
   novaRadius: 2.6,

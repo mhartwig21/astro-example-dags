@@ -10,10 +10,11 @@ import {
   type CatalogEntry,
 } from "./catalog";
 import {
-  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, damageVariance, dashParams, knows, meleeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, airstrikeParams, boltParams, bulletTimeParams,
+  cataclysmParams, damageVariance, dashParams, knows, meleeParams,
   rank,
   novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
-  unknownAbilities, upgradeDef, type AbilityId, type School,
+  unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
@@ -414,6 +415,8 @@ function makePlayer(id: number, name: string): Player {
     stanceTime: 0,
     stanceSwapWindow: 0,
     stanceCritReady: false,
+    meleeCombo: 0,
+    meleeComboT: 0,
     overcharged: false,
     plotArmorUsed: false,
     abilities: startingLoadout(),
@@ -695,7 +698,12 @@ export function createTestGame(opts: TestSetup = {}): GameState {
     p.xpToNext = xpForLevel(p.level);
     const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, floor);
     if (offers.length > 0) {
-      const offer = pick(state.rng, offers);
+      // Stage-representative drafting: a player builds their core kit first
+      // and feeds the ultimate's constellation with the spare picks — random
+      // over ALL nodes would scatter a third of the ranks into the ultimate
+      // and understate the crawler the deep floors actually face.
+      const actives = offers.filter((o) => ABILITY_INFO[o.ability].tier === "active");
+      const offer = pick(state.rng, actives.length > 0 ? actives : offers);
       p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
     }
   }
@@ -1189,8 +1197,10 @@ function damageMonster(
   } = {},
 ): void {
   // Signature Choreography: the post-swap surge window carries bonus crit.
+  // Dead Eye (Bullet Time fork): inside the slow, everything is a headshot window.
   const critBonus =
-    p.stanceSwapWindow > 0 && hasPassive(p, "choreography") ? CONFIG.choreographyCritBonus : 0;
+    (p.stanceSwapWindow > 0 && hasPassive(p, "choreography") ? CONFIG.choreographyCritBonus : 0) +
+    (state.bulletTimeLeft > 0 ? bulletTimeParams(p).critBonus : 0);
   const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance + critBonus));
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
@@ -1344,6 +1354,10 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   // actually connects — whiffing into empty air doesn't waste the setup.
   const momentum = p.stanceCritReady && p.stance === "melee";
   const oc = p.overcharged ? overchargeParams(p) : null;
+  // Swift Strikes momentum: this swing rides the stacks the flurry already built.
+  const swiftRank = rank(p, "melee.swift");
+  const comboMult = 1 + p.meleeCombo * CONFIG.meleeMomentumPerStack;
+  const heavySplash = rank(p, "melee.heavy") > 0;
   let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
@@ -1351,7 +1365,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1);
+    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
     damageMonster(state, p, m, dmg, {
       dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical",
       forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
@@ -1360,11 +1374,25 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     if (oc && oc.echoFrac > 0 && m.hp > 0) {
       damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon), school: "physical" });
     }
+    // Heavy Blows: a killing swing's OVERKILL splashes to everything nearby —
+    // the big hit carries through the corpse.
+    if (heavySplash && m.hp < 0) {
+      const overkill = -m.hp;
+      for (const other of state.monsters) {
+        if (other === m || other.hp <= 0) continue;
+        if (dist(m.pos, other.pos) > CONFIG.meleeOverkillRadius) continue;
+        damageMonster(state, p, other, overkill, { allowCrit: false, school: "physical" });
+      }
+    }
     connected = true;
   }
   if (connected) {
     if (momentum) p.stanceCritReady = false;
     if (oc) p.overcharged = false;
+    if (swiftRank > 0) {
+      p.meleeCombo = Math.min(swiftRank * CONFIG.meleeMomentumStacksPerRank, p.meleeCombo + 1);
+      p.meleeComboT = CONFIG.meleeMomentumWindow;
+    }
   }
 }
 
@@ -1434,6 +1462,10 @@ function reapDead(state: GameState): void {
     killer.killsThisStep++;
     if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
+    // ENCORE (Bullet Time capstone): kills inside the slow stretch it out.
+    if (state.bulletTimeLeft > 0 && bulletTimeParams(killer).encore) {
+      state.bulletTimeLeft = Math.min(CONFIG.ultBulletTimeEncoreCap, state.bulletTimeLeft + CONFIG.ultBulletTimeEncoreExtend);
+    }
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
     // Kills refill the flask (only while a charge is missing): aggression = sustain.
@@ -1966,6 +1998,20 @@ function makeReward(state: GameState, rng: Rng, p: Player, kind: Reward["kind"],
       // An owed constellation draft — advances the BUILD, self-limiting (nodes cap).
       return { id, kind, title: "System Favor", desc: "An extra ability-upgrade draft", amount: 1 };
     }
+    case "retrain": {
+      // A mid-run identity pivot: unlearn one fork side, get the ranks back
+      // as drafts. Only rolled when a retrainable node exists (see pool).
+      const nodes = retrainableNodes(p);
+      if (nodes.length === 0) return { id, kind: "favor", title: "System Favor", desc: "An extra ability-upgrade draft", amount: 1 };
+      const node = pick(rng, nodes);
+      const ranks = p.abilities.ranks[node.id] ?? 0;
+      const s = ranks === 1 ? "" : "s";
+      return {
+        id, kind, title: "Retraining Arc",
+        desc: `Unlearn ${node.title} (${ranks} rank${s}) — ${ranks} fresh draft${s}`,
+        amount: ranks, nodeId: node.id,
+      };
+    }
     case "item": {
       const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
       return { id, kind, title: item.name, desc: `${item.rarity} ${item.slot}`, amount: 0, item };
@@ -2017,7 +2063,19 @@ function rewardFitScore(p: Player, r: Reward): number {
       return 55; // steady pull toward signature gear (flat — it's build variety)
     case "favor":
       return 70; // a constellation rank is strong, but not always the pick
+    case "retrain":
+      return 60; // a build pivot: worth a slot, never the auto-pick
   }
+}
+
+/** Fork-side nodes a Retraining Arc may refund: ranked, exclusive, and safe
+ * to unlearn — nothing RANKED sits downstream (no orphaned capstones). */
+function retrainableNodes(p: Player): UpgradeDef[] {
+  return UPGRADES.filter((u) =>
+    (u.excludes?.length ?? 0) > 0 &&
+    (p.abilities.ranks[u.id] ?? 0) > 0 &&
+    !UPGRADES.some((d) => (d.requires ?? []).includes(u.id) && (p.abilities.ranks[d.id] ?? 0) > 0),
+  );
 }
 
 /**
@@ -2038,6 +2096,8 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
   const pool: Reward["kind"][] = [
     "healFull", "maxHp", "damage", "crit", "armor", "item", "gold", "bonusTime", "materials", "favor",
   ];
+  // Retraining Arc joins the pool only when there's a fork side to refund.
+  if (retrainableNodes(pl).length > 0) pool.push("retrain");
   const surplus = Math.max(0, pl.sponsors - CONFIG.rewardMaxCount);
   const candidates = shuffle(rng, pool)
     .slice(0, Math.min(pool.length, count + surplus))
@@ -2084,6 +2144,15 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       break;
     case "favor":
       p.upgradeDraftsOwed += r.amount;
+      break;
+    case "retrain":
+      // Unlearn the fork side; the invested ranks come back as fresh drafts.
+      // The rival node unlocks naturally (nodeOpen sees zero ranks here now).
+      if (r.nodeId && (p.abilities.ranks[r.nodeId] ?? 0) > 0) {
+        delete p.abilities.ranks[r.nodeId];
+        p.upgradeDraftsOwed += r.amount;
+        announce(state, "show", `${p.name} takes a RETRAINING ARC — ${upgradeDef(r.nodeId)?.title ?? r.nodeId} unlearned. The crowd loves a reinvention.`);
+      }
       break;
     case "bonusTime":
       state.timeBudget += r.amount;
@@ -2243,16 +2312,34 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
 }
 
 /** Damage every monster within `radius` of `center` (crit-able); used by nova/aftershock.
- * Blasts shove outward from the center when `knockback` > 0. */
+ * Blasts shove outward from the center when `knockback` > 0. Returns the
+ * monsters this blast KILLED (Extinction chains / Sponsor Loyalty refunds). */
 function radialDamage(
   state: GameState, p: Player, center: Vec2, radius: number, damage: number,
-  knockback = 0, school: School = "physical",
-): void {
+  knockback = 0, school: School = "physical", poiseMult = 1,
+): Monster[] {
+  const killed: Monster[] = [];
   for (const m of state.monsters) {
+    if (m.hp <= 0) continue; // already dead this step — not this blast's kill
     const d = dist(center, m.pos);
     if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback, school });
+    damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult });
+    if (m.hp <= 0) killed.push(m);
+  }
+  return killed;
+}
+
+/** EXTINCTION EVENT (Cataclysm capstone): every kill detonates the corpse,
+ * chaining a smaller magic blast outward. One generation only — the chain's
+ * own kills don't re-detonate, so a packed room pops like a firework, not
+ * an infinite loop. */
+function extinctionChain(state: GameState, p: Player, killed: Monster[]): void {
+  if (killed.length === 0) return;
+  const dmg = power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult * CONFIG.ultCataclysmExtinctionFrac;
+  for (const corpse of killed) {
+    hit(state, corpse.pos, 0, "crit"); // detonation flash for the juice layer
+    radialDamage(state, p, corpse.pos, CONFIG.ultCataclysmExtinctionRadius, dmg, 0.4, "magic");
   }
 }
 
@@ -2323,25 +2410,40 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
     }
     if (!touching) continue;
     damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: "physical" });
+    // GUILLOTINE capstone: chaff the blades have worn down is simply finished.
+    // (Exact HP, no damage roll — an execute that sometimes whiffs is a lie.)
+    if (
+      m.hp > 0 && !m.elite && m.kind !== "boss" &&
+      rank(p, "orbit.guillotine") > 0 && m.hp <= m.maxHp * CONFIG.orbitGuillotineThreshold
+    ) {
+      const left = Math.round(m.hp);
+      m.hp = 0;
+      m.lastHitBy = p.id;
+      hit(state, m.pos, Math.max(1, left), "enemy", { killed: true });
+    }
   }
 }
 
 // ---- Ultimates (the fifth slot) ----
 
-/** Sponsor Airstrike: schedule a shell bombardment around the aim point. */
+/** Sponsor Airstrike: schedule a shell bombardment around the aim point.
+ * The constellation shapes the barrage: Payload hardens shells, Saturation
+ * adds them (wider), Precision tightens the grouping. */
 function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
   p.cd.airstrike = CONFIG.ultAirstrikeCooldown;
+  const ap = airstrikeParams(p);
   const len = Math.hypot(aim.x, aim.y);
   const range = Math.min(CONFIG.ultAirstrikeRange, len || 1);
   const dir = len > 0 ? { x: aim.x / len, y: aim.y / len } : p.facing;
   const target = { x: p.pos.x + dir.x * range, y: p.pos.y + dir.y * range };
-  for (let i = 0; i < CONFIG.ultAirstrikeShells; i++) {
+  for (let i = 0; i < ap.shells; i++) {
     const a = nextFloat(state.rng) * Math.PI * 2;
-    const d = nextFloat(state.rng) * CONFIG.ultAirstrikeSpread;
+    const d = nextFloat(state.rng) * ap.spread;
     state.strikes.push({
       pos: { x: target.x + Math.cos(a) * d, y: target.y + Math.sin(a) * d },
       t: 0.45 + i * 0.22,
       ownerId: p.id,
+      kind: "shell",
     });
   }
   announce(state, "show", `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
@@ -2397,7 +2499,8 @@ function updateCorpses(state: GameState, dt: number): void {
   state.corpses = state.corpses.filter((c) => c.t > 0);
 }
 
-/** Tick scheduled airstrike shells; each impact is a radial blast. */
+/** Tick scheduled blasts: airstrike shells (per-owner constellation shapes
+ * them) and Cataclysm's Aftermath echo (pre-computed at schedule time). */
 function updateStrikes(state: GameState, dt: number): void {
   if (state.strikes.length === 0) return;
   const remaining: GameState["strikes"] = [];
@@ -2405,30 +2508,61 @@ function updateStrikes(state: GameState, dt: number): void {
     s.t -= dt;
     if (s.t > 0) { remaining.push(s); continue; }
     const owner = state.players.find((pl) => pl.id === s.ownerId) ?? state.players[0];
-    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, power(owner, "airstrike") * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
+    const ap = airstrikeParams(owner);
+    const radius = s.radius ?? CONFIG.ultAirstrikeRadius;
+    const dmg = s.dmg ?? power(owner, "airstrike") * ap.dmgMult;
+    const killed = radialDamage(state, owner, s.pos, radius, dmg, s.knockback ?? CONFIG.airstrikeKnockback, s.school ?? "physical");
     hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
+    if (s.kind === "echo") {
+      // The echo is still a Cataclysm: EXTINCTION chains off its kills too.
+      if (cataclysmParams(owner).extinction) extinctionChain(state, owner, killed);
+    } else if (ap.loyalty && killed.length > 0 && (owner.cd.airstrike ?? 0) > 0) {
+      // SPONSOR LOYALTY: the network pays per confirmed kill, in cooldown.
+      owner.cd.airstrike = Math.max(
+        0, (owner.cd.airstrike ?? 0) - killed.length * CONFIG.ultAirstrikeLoyaltyRefund * CONFIG.ultAirstrikeCooldown,
+      );
+    }
   }
   state.strikes = remaining;
 }
 
-/** Cataclysm Nova: a floor-shaking blast that hurls enemies back. */
+/** Cataclysm Nova: a floor-shaking blast that hurls enemies back. The
+ * constellation shapes it: Epicenter widens, Upheaval hurls harder and
+ * crushes poise, Aftermath schedules an echo shock, EXTINCTION chains kills. */
 function doCataclysm(state: GameState, p: Player): void {
   p.cd.cataclysm = CONFIG.ultCataclysmCooldown;
+  const cp = cataclysmParams(p);
   p.novaFlash = 0.3; // reuse the ring effect
-  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult, 0, "magic");
+  const blastDmg = power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult;
+  const killed = radialDamage(state, p, p.pos, cp.radius, blastDmg, 0, "magic", cp.poiseMult);
+  // Corpses detonate where they DIED — before the survivors get hurled.
+  if (cp.extinction) extinctionChain(state, p, killed);
   for (const m of state.monsters) {
+    if (m.hp <= 0) continue; // the dead don't fly
     const d = dist(p.pos, m.pos);
-    if (d > CONFIG.ultCataclysmRadius || d < 1e-4) continue;
+    if (d > cp.radius || d < 1e-4) continue;
     const dir = { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d };
-    moveWithCollision(state.map, m.pos, dir, CONFIG.ultCataclysmKnockback, isWalkable);
+    moveWithCollision(state.map, m.pos, dir, cp.knockback, isWalkable);
+  }
+  if (cp.echoFrac > 0) {
+    state.strikes.push({
+      pos: { x: p.pos.x, y: p.pos.y }, // the ground remembers where you stood
+      t: CONFIG.ultCataclysmAftermathDelay,
+      ownerId: p.id,
+      kind: "echo",
+      radius: cp.radius,
+      dmg: blastDmg * cp.echoFrac,
+      knockback: 0,
+      school: "magic",
+    });
   }
   announce(state, "show", `${p.name} CRACKS THE FLOOR. Everything airborne is a highlight.`);
 }
 
-/** Bullet Time: the world slows; crawlers do not. */
+/** Bullet Time: the world slows; crawlers do not. Deep Focus stretches it. */
 function doBulletTime(state: GameState, p: Player): void {
   p.cd.bullettime = CONFIG.ultBulletTimeCooldown;
-  state.bulletTimeLeft = CONFIG.ultBulletTimeDuration;
+  state.bulletTimeLeft = bulletTimeParams(p).duration;
   announce(state, "show", `${p.name} bends the broadcast frame rate. BULLET TIME.`);
 }
 
@@ -2587,8 +2721,15 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   for (const p of ordered) {
     const pi = intents[p.id] ?? NO_INTENT;
 
+    // Adrenaline (Bullet Time fork): inside the slow, YOUR cooldowns race.
+    const cdt = state.bulletTimeLeft > 0 ? dt * bulletTimeParams(p).cdTickMult : dt;
     for (const key of Object.keys(p.cd) as AbilityId[]) {
-      if ((p.cd[key] ?? 0) > 0) p.cd[key] = Math.max(0, (p.cd[key] ?? 0) - dt);
+      if ((p.cd[key] ?? 0) > 0) p.cd[key] = Math.max(0, (p.cd[key] ?? 0) - cdt);
+    }
+    // Swift Strikes momentum drops when the flurry pauses.
+    if (p.meleeComboT > 0) {
+      p.meleeComboT = Math.max(0, p.meleeComboT - dt);
+      if (p.meleeComboT === 0) p.meleeCombo = 0;
     }
     // Dash recharge: an expired timer banks a charge and, while still below
     // max, immediately starts refilling the next one.
