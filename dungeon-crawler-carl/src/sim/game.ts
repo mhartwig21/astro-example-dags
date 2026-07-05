@@ -181,6 +181,7 @@ function spawnMonsters(state: GameState): void {
     boss.damage = CONFIG.bossDamage * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
     boss.speed = CONFIG.bossSpeed;
     boss.xp = CONFIG.bossXp;
+    boss.bossTier = 3; // Ground Slam + Call for Backup + Dark Ritual — the full kit
     state.monsters.push(boss);
     for (let i = 0; i < 3 && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
@@ -201,6 +202,7 @@ function spawnMonsters(state: GameState): void {
     boss.speed = CONFIG.bossSpeed;
     boss.xp = Math.round(CONFIG.bossXp * 0.4);
     boss.eliteName = pick(rng, CITY_BOSS_NAMES);
+    boss.bossTier = arena <= 1 ? 1 : 2; // arena 1 (floor 6): Ground Slam; arena 2+ (floor 12): + Call for Backup
     state.monsters.push(boss);
     for (let i = 0; i < CONFIG.cityBossAdds && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
@@ -861,6 +863,21 @@ export function summonMinion(state: GameState, m: Monster): void {
   spawned.xp = 1;
   state.monsters.push(spawned);
   hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
+}
+
+/** Boss tier 2+ Call for Backup: rings in a couple of ranged adds around the
+ * boss at a phase break — real reinforcements (not lifetime-capped-to-nothing
+ * like a summoner elite's adds), spread out so they don't clump. */
+export function bossCallAdds(state: GameState, m: Monster, count: number): void {
+  for (let i = 0; i < count; i++) {
+    const a = nextFloat(state.rng) * Math.PI * 2;
+    const ringDist = 1.2 + nextFloat(state.rng) * 0.8;
+    const spawned = makeMonster(state, "ranged", {
+      x: m.pos.x + Math.cos(a) * ringDist, y: m.pos.y + Math.sin(a) * ringDist,
+    });
+    state.monsters.push(spawned);
+    hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
+  }
 }
 
 /**

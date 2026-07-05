@@ -3,7 +3,7 @@ import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
+import { bossCallAdds, damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -49,6 +49,41 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
   }
 }
 
+/** Ground Slam lands: a self-centered AoE, no facing/arc — everyone standing
+ * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
+function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
+  m.attackCooldown = CONFIG.monsterAttackCooldown;
+  for (const player of state.players) {
+    if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
+    if (dist(m.pos, player.pos) > radius) continue;
+    const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+    if (damagePlayerHit(state, player, dmg, { dir })) {
+      handlePlayerDeath(state, player, `${player.name} stood in the blast radius. The System rolls the replay.`);
+    }
+  }
+}
+
+/** Dark Ritual lands (boss tier 3 only): a long-telegraphed, arena-scale AoE —
+ * the game's one real "interrupt it or eat a serious hit" stake. Poise-stagger
+ * (see damageMonster in game.ts) cancels the windup exactly like anything else;
+ * this ability is just dangerous enough that failing to land that stagger costs. */
+function resolveRitualStrike(state: GameState, m: Monster): void {
+  const dmg = m.damage * CONFIG.ritualDmgMult;
+  let caught = 0;
+  for (const player of state.players) {
+    if (!player.alive || player.dashTime > 0) continue;
+    if (dist(m.pos, player.pos) > CONFIG.ritualRadius) continue;
+    caught++;
+    const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+    if (damagePlayerHit(state, player, dmg, { dir })) {
+      handlePlayerDeath(state, player, `${player.name} let the ritual finish. The System does not offer refunds.`);
+    }
+  }
+  if (caught > 0) {
+    state.announcements.push({ text: "THE RITUAL LANDS. That's going to leave a mark.", kind: "boss", priority: "normal" });
+  }
+}
+
 /** The windup expired: resolve whatever this monster committed to. */
 function resolveStrike(state: GameState, m: Monster): void {
   const kind = m.windupKind;
@@ -88,6 +123,18 @@ function resolveStrike(state: GameState, m: Monster): void {
   }
   if (kind === "raise") {
     raiseCorpse(state, m); // whiffs harmlessly if the corpse faded mid-ritual
+    return;
+  }
+  if (kind === "slam") {
+    // Brute's own attack uses its stat damage as-is; a boss's Ground Slam is an
+    // extra ability layered on top of its melee+volley kit, so it's discounted.
+    const radius = m.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius;
+    const dmg = m.kind === "boss" ? m.damage * CONFIG.bossSlamDmgMult : m.damage;
+    resolveSlamStrike(state, m, radius, dmg);
+    return;
+  }
+  if (kind === "ritual") {
+    resolveRitualStrike(state, m);
     return;
   }
   resolveMeleeStrike(state, m);
@@ -146,6 +193,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
   if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - dt);
   if ((m.surgeT ?? 0) > 0) m.surgeT = Math.max(0, (m.surgeT ?? 0) - dt);
+  if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - dt);
+  if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
   // AMBUSH: a dormant monster lies inert until a player strays within trigger
@@ -213,6 +262,33 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         priority: "normal",
       });
       state.events.push(`Boss phase ${m.phase + 1}.`);
+      // Tier 2+: every phase break rings in reinforcements (lifetime-capped).
+      if ((m.bossTier ?? 0) >= 2 && (m.addsSpawned ?? 0) < CONFIG.bossCallAddsMax) {
+        const n = Math.min(CONFIG.bossCallAddsCount, CONFIG.bossCallAddsMax - (m.addsSpawned ?? 0));
+        m.addsSpawned = (m.addsSpawned ?? 0) + n;
+        bossCallAdds(state, m, n);
+        state.announcements.push({
+          text: "CALLING FOR BACKUP. The System never fights fair.", kind: "boss", priority: "normal",
+        });
+      }
+    }
+    // Tier 3: Dark Ritual — a long channelled cast, its own cooldown, arena-scale
+    // AoE. This is the one attack in the game worth a genuine "stagger it now or
+    // eat a big hit" decision, so it telegraphs unmistakably (see renderer3d.ts).
+    if ((m.bossTier ?? 0) >= 3 && (m.ritualCd ?? 0) === 0 && d <= CONFIG.ritualRange) {
+      m.ritualCd = CONFIG.ritualCooldown;
+      beginWindup(m, "ritual", CONFIG.ritualWindup);
+      state.announcements.push({
+        text: "The boss is CHANNELING something. Interrupt it or brace for impact.", kind: "boss", priority: "high",
+      });
+      return;
+    }
+    // Tier 1+: Ground Slam — an extra AoE on its own cooldown, layered on top
+    // of the regular melee+volley kit rather than replacing it.
+    if ((m.bossTier ?? 0) >= 1 && (m.slamCd ?? 0) === 0 && d <= CONFIG.bossSlamRange) {
+      m.slamCd = CONFIG.bossSlamCooldown;
+      beginWindup(m, "slam", CONFIG.bossSlamWindup);
+      return;
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);
@@ -357,7 +433,19 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
-  // Melee archetypes (grunt / swarmer / brute).
+  if (m.kind === "brute") {
+    // Brute: its long, scary windup resolves as a self-centered Ground Slam —
+    // an AoE, not a single-target hit. Respect it (back off) or interrupt it.
+    if (d > CONFIG.monsterAggroRange) return;
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "slam", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  // Melee archetypes (grunt / swarmer).
   if (d > CONFIG.monsterAggroRange) return;
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);

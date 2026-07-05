@@ -1539,6 +1539,89 @@ describe("new specialist archetypes (charger / spitter / necromancer)", () => {
   });
 });
 
+describe("brute Ground Slam + boss kit escalation", () => {
+  it("brute's slam is a self-centered AoE with its own tunable radius (wider than the old point-check reach)", () => {
+    const g = createGame(920);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const brute = mkMon({
+      id: 1, kind: "brute", pos: { x: p.pos.x + 1, y: p.pos.y },
+      hp: 60, maxHp: 60, damage: 20, attackRange: 1.1, speed: 0,
+    });
+    g.monsters.push(brute);
+    step(g, idle(), 1 / 60); // commits within attackRange
+    expect(brute.windup).toBeGreaterThan(0);
+    expect(brute.windupKind).toBe("slam");
+    // Step to just inside the new slam radius (1.5) but outside the OLD point-check
+    // reach (attackRange 1.1 + grace 0.35 = 1.45) — only the AoE catches this.
+    p.pos = { x: brute.pos.x + 1.48, y: brute.pos.y };
+    const hp0 = p.hp;
+    stepPastWindup(g, brute);
+    expect(p.hp).toBeLessThan(hp0);
+  });
+
+  it("boss tier 1 (floor-6 city boss) gets a periodic Ground Slam beyond its normal melee/volley kit", () => {
+    const g = createGame(921);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const boss = mkMon({
+      id: 1, kind: "boss", pos: { x: p.pos.x + 2.0, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 30, attackRange: 1.4, speed: 0, bossTier: 1,
+    });
+    boss.introduced = true;
+    g.monsters.push(boss);
+    // Too far to melee (1.4), within slam's commit range (3.2) AND its damage radius (2.4).
+    step(g, idle(), 1 / 60);
+    expect(boss.windupKind).toBe("slam");
+    expect(boss.slamCd).toBeGreaterThan(0);
+    const hp0 = p.hp;
+    stepPastWindup(g, boss);
+    expect(p.hp).toBeLessThan(hp0);
+  });
+
+  it("boss tier 2 (floor-12 city boss) calls for backup when it crosses a phase break", () => {
+    const g = createGame(922);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const boss = mkMon({
+      id: 1, kind: "boss", pos: { x: p.pos.x + 5, y: p.pos.y }, // out of slam/melee range: isolates the phase logic
+      hp: 90, maxHp: 300, damage: 30, attackRange: 1.4, speed: 0, bossTier: 2,
+    });
+    boss.introduced = true;
+    g.monsters.push(boss);
+    step(g, idle(), 1 / 60); // hp/maxHp = 0.3 -> crosses both phase breaks this step
+    expect(boss.phase).toBe(2);
+    expect(boss.addsSpawned).toBeGreaterThan(0);
+    expect(g.monsters.some((m) => m.kind === "ranged")).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("BACKUP"))).toBe(true);
+  });
+
+  it("boss tier 3 (final boss) channels a Dark Ritual — the one real interrupt-or-hurt attack in the game", () => {
+    const g = createGame(923);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const boss = mkMon({
+      // Beyond slam's commit range (3.2), within ritual's commit range (9) AND its
+      // damage radius (3.6) — isolates the ritual from slam/melee entirely.
+      id: 1, kind: "boss", pos: { x: p.pos.x + 3.4, y: p.pos.y },
+      hp: 1000, maxHp: 1000, damage: 40, attackRange: 1.4, speed: 0, bossTier: 3,
+    });
+    boss.introduced = true;
+    g.monsters.push(boss);
+    step(g, idle(), 1 / 60);
+    expect(boss.windupKind).toBe("ritual");
+    expect(boss.ritualCd).toBeGreaterThan(0);
+    expect(g.announcements.some((a) => a.text.includes("CHANNELING"))).toBe(true);
+    const hp0 = p.hp;
+    stepPastWindup(g, boss);
+    expect(p.hp).toBeLessThan(hp0 - 20); // a real, serious hit — not a chip
+  });
+});
+
 describe("new elite affixes (splitter / thorns)", () => {
   it("splitter elites burst into swarmers on death", () => {
     const g = createGame(913);
@@ -2184,6 +2267,7 @@ describe("boss phases", () => {
     g.monsters = [boss];
     g.projectiles.length = 0;
     boss.introduced = true; // skip the ringside intro; this test is about phases
+    boss.bossTier = undefined; // no Dark Ritual windup eating a step; this test is about phases
     g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
     const speed0 = boss.speed;
     boss.hp = Math.floor(boss.maxHp * 0.5); // between 2/3 and 1/3
