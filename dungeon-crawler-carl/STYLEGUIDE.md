@@ -56,6 +56,16 @@ Rarity (D4/LoL convention — rare is GOLD):
 - **Data:** body face + `font-variant-numeric: tabular-nums` wherever digits
   column up. Monospace survives ONLY in the debug console.
 
+## The fourth rule (play feedback, 2026-07-05)
+
+**Stone is for SETS, glass is for the fight.** The warm slab treatment
+belongs to full-screen sets you step INTO (menu, shop, profile, recap,
+keybinds). Anything overlaid on live gameplay — HUD chips, show bar, party
+chip, ticker, announcements, and the level-up/sponsor offer plates — stays
+quiet neutral glass (`rgba(0,0,0,0.5)` / the cool `rgba(12,10,20,·)` family)
+so the dungeon reads through it. Fonts, icons, and accents still follow the
+system; only the PLATE stays cool.
+
 ## The three rules
 
 1. **Gold is the only chrome.** Frames bronze; emphasis/prices/headers/primary
