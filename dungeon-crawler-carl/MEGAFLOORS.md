@@ -77,6 +77,18 @@ clamped per band roughly to **2:00 / 3:00 / 4:00 / 5:30 / 7:30 / 10:00**. The
 pressure DCC-style comes from stair *scarcity and distance*, not a stopwatch
 tuned for a 72² map. Collapse phases (SAFE/WARNING/FRENZY) stay proportional.
 
+**Player-facing ramp: "+5s per floor" legibility.** A steady, announceable
+per-floor increase ("the System grants a little more time the deeper you go")
+reads *fair* in a way a formula never will — players can plan around it. So
+the budget should satisfy BOTH: monotonically increasing floor-over-floor
+(roughly +5-10s within a band, with a visible jump at each band boundary as
+the maps grow), AND never below what the area formula demands. Note the
+honest math: a flat +5s/floor alone (120s → ~205s by floor 18) under-prices a
+full 216² floor by minutes — crossing it once costs ~73s — which is exactly
+why the flat ramp is the *perceived* layer and the area-derived clamp is the
+load-bearing one. If P1 lands on gentler map growth (≤3×), a plain
++5s/floor over today's base is genuinely sufficient by itself.
+
 ### 3. Regions: big floors must be places, not soup
 
 Partition the grid into macro-cells (2×2 up to 4×4 by band), run the existing
