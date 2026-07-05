@@ -303,12 +303,19 @@ numbers arcane-purple, so a mixed build can SEE its schools mid-fight. Armor/tri
 school-agnostic until proven boring.
 
 **Planning-first itemization (SHIPPED).** Builds come from the STORE, not slot machines:
-- **Chase uniques** — store-only legendaries you cannot loot, each warping one build around
-  itself: *Perpetual Encore* (+1 orbit blade, 25% faster ticks), *Standing Ovation Crossbow*
-  (bolts pierce +2), *Signature Choreography* (stance swap resets swing+bolt cooldowns — the
-  swap IS the rotation), *Plot Armor* (once per floor a killing blow leaves you at 1 HP).
-  Every one sits atop a basic → advanced → legendary build path plus sponsor/material gates,
-  so getting there is a run-long plan, not a lucky corpse.
+- **Chase uniques** — store-only legendaries you cannot loot (12 total), each warping one
+  build around itself: *Perpetual Encore* (+1 orbit blade, 25% faster ticks), *Standing
+  Ovation Crossbow* (bolts pierce +2), *Signature Choreography* (stance swap resets
+  swing+bolt cooldowns — the swap IS the rotation), *Plot Armor* (once per floor a killing
+  blow leaves you at 1 HP), plus the original signature set (Headliner/Blastplate/Ledger/
+  Overtime/Sweeps Week). Every one sits atop a basic → advanced → legendary build path plus
+  sponsor/material gates, so getting there is a run-long plan, not a lucky corpse.
+- **Novel-mechanic uniques** — mechanics that exist NOWHERE else (no tree node, no drop
+  affix; the item IS the mechanic): *Blood Subscription* (charm — lifesteal: heal 6% of
+  damage dealt, per-hit cap), *Cancellation Axe* (heavy weapon — strikes execute non-elite
+  monsters below 15% HP), *Live Feed* (trinket — crits arc 30% of the hit to the nearest
+  other enemy as a magic-school echo, one bounce). All hook the one damageMonster choke
+  point, so they compose with schools/resists/caps for free.
 - **Drops tuned down** — rare/epic weights 11/3 → 8/2, item drop chance 0.45 → 0.36. A rare
   drop is a windfall now, not a strategy.
 - **Component drops** — ~35% of equipment drops are catalog BASICS carrying their catalogId,

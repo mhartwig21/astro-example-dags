@@ -3397,6 +3397,62 @@ describe("chase legendaries (store-only uniques)", () => {
     expect(p.plotArmorUsed).toBe(false);
   });
 
+  it("Blood Subscription: heal a capped slice of damage dealt (lifesteal)", () => {
+    const g = createGame(996);
+    const p = g.players[0];
+    wear(g, { slot: "charm", name: "Blood Subscription", passive: "leech", catalogId: "blood_subscription" });
+    p.attackPower = 500; // big hit -> the per-hit CAP is what heals
+    p.hp = 10;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.hp).toBeGreaterThan(10);
+    expect(p.hp - 10).toBeLessThanOrEqual(Math.round(p.maxHp * CONFIG.leechCapFraction) + 1);
+    // Full HP: no overheal.
+    p.hp = p.maxHp;
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.hp).toBe(p.maxHp);
+  });
+
+  it("Cancellation Axe: executes non-elites in the threshold; named menaces are immune", () => {
+    const g = createGame(997);
+    const p = g.players[0];
+    wear(g, { slot: "weapon", name: "Cancellation Axe", passive: "cancellation", catalogId: "cancellation_axe" });
+    p.attackPower = 2; // a tap: normally nowhere near lethal
+    g.monsters.length = 0;
+    const chaff = mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 14, maxHp: 100 });
+    g.monsters.push(chaff);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(chaff.hp).toBeLessThanOrEqual(0); // 14/100 HP -> CANCELED
+    // An elite in the same band shrugs it off.
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    const named = mkMon({ id: 2, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 14, maxHp: 100, elite: true, introduced: true });
+    g.monsters.push(named);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(named.hp).toBeGreaterThan(0);
+  });
+
+  it("Live Feed: crits arc a magic echo to the nearest other enemy, one bounce only", () => {
+    const g = createGame(998);
+    const p = g.players[0];
+    wear(g, { slot: "trinket", name: "Live Feed", passive: "conduit", catalogId: "live_feed" });
+    p.critChance = 1; // every hit crits
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    const primary = mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 9999, maxHp: 9999 });
+    // BEHIND the player: outside the 90-degree swing arc, inside the conduit radius.
+    const bystander = mkMon({ id: 2, pos: { x: p.pos.x - 1.5, y: p.pos.y }, hp: 9999, maxHp: 9999 });
+    g.monsters.push(primary, bystander);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(primary.hp).toBeLessThan(9999);
+    expect(bystander.hp).toBeLessThan(9999); // the arc reached around the swing
+    const arcDmg = 9999 - bystander.hp;
+    const mainDmg = 9999 - primary.hp;
+    expect(arcDmg).toBeLessThan(mainDmg); // an echo, not a second hit
+    expect(g.hits.some((h) => h.school === "magic")).toBe(true); // arcs read arcane
+  });
+
   it("the full chase path: components -> advanced -> sponsor-gated unique", () => {
     const g = reachShop(994);
     const p = g.players[0];

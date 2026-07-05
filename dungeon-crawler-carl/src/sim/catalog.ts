@@ -206,6 +206,11 @@ export const CATALOG: CatalogEntry[] = [
     desc: "The crowd stomps along. You stomp first.", cost: 85,
     buildsFrom: ["tour_treads", "glass_charm"], affixes: { speed: 0.35, crit: 0.05 },
   },
+  {
+    id: "vip_pass", name: "VIP Pass", tier: "advanced", slot: "charm",
+    desc: "Backstage access. The blood bar is included.", cost: 85,
+    buildsFrom: ["killer_instinct", "focus_bead"], affixes: { crit: 0.05, speed: 0.25 },
+  },
 
   // ---- Legendary — sponsor-gated signature gear (unique passives) ----
   {
@@ -263,6 +268,26 @@ export const CATALOG: CatalogEntry[] = [
     desc: "Once per floor, a killing blow leaves you at 1 HP. The writers insist.", cost: 180,
     buildsFrom: ["mosh_pit_helm"], affixes: { maxHp: 45, armor: 12 },
     passive: "plot_armor", sponsors: 3, materials: { elite_trophy: 2, boss_sigil: 1 },
+  },
+  // Novel mechanics that exist NOWHERE else in the game — no constellation
+  // node, no drop affix. If you want lifesteal, you plan for this charm.
+  {
+    id: "blood_subscription", name: "Blood Subscription", tier: "legendary", slot: "charm",
+    desc: "Heal 6% of the damage you deal. Auto-renews. Cancellation is difficult.", cost: 160,
+    buildsFrom: ["vip_pass"], affixes: { crit: 0.06, maxHp: 25 },
+    passive: "leech", sponsors: 2, materials: { elite_trophy: 2 },
+  },
+  {
+    id: "cancellation_axe", name: "Cancellation Axe", tier: "legendary", slot: "weapon",
+    desc: "Strikes CANCEL non-elite monsters below 15% HP. No appeals.", cost: 160,
+    buildsFrom: ["bloodsport_maul"], affixes: { damage: 19, maxHp: 30 },
+    passive: "cancellation", sponsors: 2, materials: { elite_trophy: 3 },
+  },
+  {
+    id: "live_feed", name: "Live Feed", tier: "legendary", slot: "trinket",
+    desc: "Crits arc 30% of the hit to a nearby enemy, as magic. Share the moment.", cost: 150,
+    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.09 },
+    passive: "conduit", sponsors: 1, materials: { elite_trophy: 2 },
   },
 ];
 

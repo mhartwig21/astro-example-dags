@@ -168,6 +168,11 @@ export const CONFIG = {
   skewerBonusPierce: 2, // "skewer": bolts punch through this many extra bodies
   // "choreography": stance swap resets swing + bolt cooldowns (no knob — binary)
   // "plot_armor": once per floor a killing blow leaves you at 1 HP (binary)
+  leechFraction: 0.06, // "leech": heal this fraction of damage dealt...
+  leechCapFraction: 0.04, // ...capped per hit at this fraction of max HP
+  cancellationThreshold: 0.15, // "cancellation": execute non-elites below this HP fraction
+  conduitFraction: 0.3, // "conduit": crits arc this fraction of the hit...
+  conduitRadius: 3, // ...to the nearest other enemy within this many tiles
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.

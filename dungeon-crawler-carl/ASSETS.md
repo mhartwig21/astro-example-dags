@@ -302,6 +302,10 @@ attribution requirement (covered by the same in-game credits line).
 | standing_ovation | theater-curtains | Delapouite |
 | signature_choreography | ballerina-shoes | Delapouite |
 | plot_armor | drama-masks | Lorc |
+| vip_pass | ticket | Delapouite |
+| blood_subscription | heart-drop | Lorc |
+| cancellation_axe | battered-axe | Lorc |
+| live_feed | tv | Delapouite |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |
