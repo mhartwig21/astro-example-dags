@@ -7,13 +7,22 @@ import type { GameState, Item, Player } from "../sim/types";
 
 const KEY = "dcc:save:v1";
 
+/** How this run was seeded. Daily runs remember their day so a resumed run
+ *  still submits to the right board when it ends. */
+export interface RunMode {
+  kind: "random" | "daily";
+  day?: string; // YYYY-MM-DD (daily only)
+}
+
 export interface SaveData {
   seed: number;
   floor: number;
+  mode?: RunMode; // absent on pre-menu saves: treated as a random run
   // Character progression only — the floor itself is regenerated from seed + floor,
   // so we never persist transient monster/loot/timer state. Effective stats
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
   player: {
+    name?: string; // chosen at the check-in menu; pre-menu saves default to "Carl"
     hp: number;
     level: number;
     xp: number;
@@ -38,14 +47,16 @@ export interface SaveData {
   status: GameState["status"];
 }
 
-export function saveRun(state: GameState): void {
+export function saveRun(state: GameState, mode?: RunMode): void {
   try {
     // Single-player persistence: the local player's progression (players[0]).
     const p = state.players[0];
     const data: SaveData = {
       seed: state.seed,
       floor: state.floor,
+      mode,
       player: {
+        name: p.name,
         hp: p.hp,
         level: p.level,
         xp: p.xp,

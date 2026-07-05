@@ -133,6 +133,13 @@ This document describes the full target architecture, then defines the scope of 
 - **Depth tempo** (`monsterTempo` in config): past floor 4 monsters get QUICKER, not just
   fatter — move speed ramps to +35%, attack cooldowns shrink to −35%, telegraph windups
   shorten to −25% (capped so tells stay readable). Floors 1–3 keep the training pace.
+- **Roaming / behavior variety** (`wander` in ai.ts): monsters aren't all statues waiting
+  for aggro. Lone wanderers PATROL (always), ~40% of packs patrol their territory together,
+  the rest are sentries holding their post; dormant ambushers lie perfectly still, the
+  vault guardian never leaves its treasure, bosses hold their arena. Patrols stroll in
+  short randomized legs at 0.55× speed, leashed ~7 tiles to their post so encounters stay
+  roughly where the floor placed them — and the moment a player is in range, the kind's
+  combat brain takes over. The dungeon reads alive; danger sometimes walks into YOU.
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
@@ -415,7 +422,84 @@ their fixes:
   >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
   hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
 
-### 5.11 Band bosses + floor events (SHIPPED)
+### 5.11 Co-op verbs — party pings + proximity revives (SHIPPED)
+
+**Pings.** `G` (rebindable) marks the spot under the cursor: `GameState.pings`
+(TTL 6s, 3 per player, oldest replaced), pure sim data that rides snapshots so
+the whole party sees it. Hosts render an expanding gold pulse in the world and
+on the minimap — pings pierce fog on purpose ("over THERE" must work unseen) —
+and the audio director chimes once per fresh mark, panned toward it. Downed
+players may ping (calling for help is content).
+
+**Revives.** In a party, death is now DOWNED, not benched-until-descent: a
+living crawler standing within `reviveRadius` of a downed one stabilizes them
+by proximity — no button, the reviver pays in exposure, not APM
+(`updateRevives` in game.ts). ~3.5s of continuous closeness revives at 35% max
+HP (+hype for the medic: a save is great television); walking away decays the
+progress 1.5× faster than it built. Hosts show a green ring tightening around
+the body, a hollow red minimap ring saying "stand here", and a DOWNED line in
+the HUD. Solo death and full wipes are unchanged, and the descend-revive at
+50% remains the fallback.
+
+### 5.12 Ringside Check-in + the Daily Crawl (SHIPPED)
+
+**Entry menu.** `iso.html` opens on the RINGSIDE CHECK-IN (`#menu`, z 28): name
+field (persisted, `dcc:name:v1`), CONTINUE RUN (when a mid-run save exists),
+DAILY CRAWL, NEW RUN, PARTY CRAWL (rolls a readable 5-char code — the code IS
+the seed, the URL is the invite), and TEST CHAMBER (builds the existing `?test`
+deep link). `?join=` and `?test` URLs skip the menu — they already carry a
+complete decision. While open the menu freezes the local sim (backdrop dungeon)
+and owns the keyboard via `input.captureMode`. Nothing is saved until a mode is
+picked, and R / NEW SEASON reruns **in the same mode** — a daily rerun replays
+today's dungeon.
+
+**The Daily Crawl.** One dungeon per UTC day, shared by every crawler:
+`dailySeed(day)` (`src/sim/daily.ts`, pure djb2 over the date — client and
+server derive identically). The run's mode + day persist in the save, so a
+resumed daily still reports to the right board.
+
+**Leaderboard.** The game server exposes `GET/POST /leaderboard`
+(`src/server/leaderboard.ts`): hard shape validation, best-entry-per-name per
+day (retrying all day is playing, not cheating), rank = full clears → depth →
+speed → kills, 200 entries/day, 30 days kept, JSON-file persistence
+(`LEADERBOARD_FILE`, default `leaderboard.json`; a redeploy resets it — the
+Postgres upgrade rides with accounts). Solo daily runs submit fire-and-forget
+on win/wipe; the menu shows today's top 10, the recap shows your rank. Trust
+model: solo sims run client-side, so scores are self-reported bragging rights —
+shape is validated, numbers are believed.
+
+### 5.13 Status effects + the flask returns (SHIPPED)
+
+A small, deterministic status layer for BOTH sides of the fight — exactly three
+effects, each with one player source and one monster source, all ticked by `dt`
+in `status.ts` (`Monster.statuses` / `Player.statuses`):
+
+- **Burn** — fast magic DoT (0.5s ticks, 3s), refresh-on-reapply, no stacking.
+  Source: the **Afterburn** nova node (nova ignites for 35%/rank of its hit).
+- **Poison** — slow physical DoT (1s ticks, 5s), stacks to 3, each stack adds.
+  Sources: **spitter acid** (every puddle tick also stacks poison, so lingering
+  costs you after you step out) and the **Venom Clause** legendary charm
+  (crits inject a stack — the only lootless poison source).
+- **Chill** — no damage; the afflicted entity's combat clock runs at −30%:
+  movement, windups, and cooldown recovery all stretch (the same per-entity
+  time-scale trick bullet time uses). Sources: the **Frost Bolts** node and the
+  new **chilling** elite affix (a cold aura that slows crawlers inside it).
+  Bosses take half the slow — meaningful, never immune.
+
+DoT ticks route back through the SAME choke points as every other hit
+(`damageMonster` / `damagePlayerHit`), so schools, resists (a warded elite
+shrugs 30% of a burn), armor, shielded, one-shot caps, kill credit, and hit
+events compose for free. DoT never crits and never builds poise (a burn can't
+stagger-lock a brute). `HitEvent.effect` tags DoT numbers so the 3D host tints
+them (burn ember-orange, poison toxin-green), status pips render on the boss
+bar + a debuff row under the player HP readout, and a faint colored ring hums
+under statused monsters. Statuses reset every floor.
+
+**The Sponsor Slurp™ flask is back on** (`flaskEnabled: true`, unchanged
+tuning: 35% heal, 8 kills per charge, safe-room top-up) — aggression is the
+sustain loop again, and it doubles as the answer to "I'm poisoned and low."
+
+### 5.14 Band bosses + floor events (SHIPPED)
 
 Every themed band now ENDS in a boss, and ordinary floors carry seeded events, so descent
 reads as chapters instead of a corridor of identical floors.
@@ -457,6 +541,7 @@ reads as chapters instead of a corridor of identical floors.
   - **Sponsor challenge:** entering the landmark hall arms a dare — clear its tracked pack
     without ANY crawler taking a hit — paying gold + hype on a clean clear, voiding on the
     first point of damage.
+
 
 ---
 

@@ -63,6 +63,8 @@ export class AudioDirector {
   private prev: Prev | null = null;
   // Monsters currently winding up an attack — a new id is a fresh "tell".
   private winding = new Set<number>();
+  // Pings already chimed (same pattern as winding: a new id is a fresh mark).
+  private pinged = new Set<number>();
   private battleUntil = 0; // state.elapsed until which the battle bed persists
 
   constructor(private sink: AudioSink) {}
@@ -108,6 +110,20 @@ export class AudioDirector {
       });
     }
     this.winding = winding;
+
+    // Party pings: one soft System chime per fresh mark, panned toward it.
+    const pinged = new Set<number>();
+    for (const pg of state.pings) {
+      pinged.add(pg.id);
+      if (this.pinged.has(pg.id)) continue;
+      const dx = pg.pos.x - p.pos.x;
+      const dy = pg.pos.y - p.pos.y;
+      this.sink.play("announce", {
+        gain: 0.55,
+        pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+      });
+    }
+    this.pinged = pinged;
 
     // A multi-kill this step: the crowd loves it. (Throttled in the engine.)
     if (state.killsThisStep >= 3) this.sink.play("crowd");

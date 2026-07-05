@@ -59,9 +59,8 @@ export const CONFIG = {
   monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
   bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
-  // Feature switches (disabled by request until the designs are reworked; the
-  // code paths stay intact so flipping these back on re-enables everything).
-  flaskEnabled: false, // Sponsor Slurp™ flask: drink no-ops, no refill events, chip hidden
+  // Feature switches (code paths stay intact so these can toggle cleanly).
+  flaskEnabled: true, // Sponsor Slurp™ flask: kill-credit sustain loop (re-enabled with the status pass)
   achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
   // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
@@ -74,6 +73,37 @@ export const CONFIG = {
   // economy feeding back into combat). Enter/exit thresholds live in show{}.
   frenzyMoveMult: 1.12,
   frenzyCooldownMult: 0.85, // melee/bolt/nova cooldowns + dash recharge
+
+  // Status effects (DESIGN 5.13; framework in status.ts). Exactly three:
+  // burn (fast magic DoT, refreshes), poison (slow physical DoT, stacks to 3),
+  // chill (no damage — the afflicted entity's clock runs slower).
+  burnDuration: 3, // seconds a burn lasts (re-applying restarts it)
+  burnTickSeconds: 0.5, // fast ticks — burn is the bursty DoT
+  poisonDuration: 5, // seconds a poison lasts (re-applying refreshes + stacks)
+  poisonTickSeconds: 1, // slow ticks — poison is the lingering DoT
+  poisonMaxStacks: 3, // each stack adds a full tick's damage
+  chillDuration: 2.5, // seconds a chill lasts (refresh-on-reapply)
+  chillBossMult: 0.5, // bosses shrug off half the slow (never immune)
+  chillSlowPerRank: 0.3, // FROST BOLTS: slow fraction per node rank (r1 = -30%)
+  chillSlowMax: 0.45, // hard cap, whatever overranks roll
+  novaScorchFracPerRank: 0.35, // AFTERBURN: burn total = this × nova hit per rank
+  venomTickFraction: 0.12, // Venom Clause: poison tick (per stack) = this × the crit
+  puddlePoisonFraction: 0.6, // spitter acid: poison tick = this × the puddle tick
+  chillingAuraRadius: 3.2, // "chilling" elite: crawlers inside are slowed...
+  chillingAuraSlow: 0.3, // ...by this fraction (fades ~a beat after you break away)
+
+  // Party pings: a marked spot the whole party sees (world pulse + minimap).
+  pingTtl: 6, // seconds a ping lives
+  pingMaxPerPlayer: 3, // oldest ping is replaced beyond this
+
+  // Co-op revives: stand close to a downed crawler to stabilize them. No
+  // button — proximity IS the channel (the reviver pays in exposure, not APM).
+  // Walking away lets the wound reopen (progress decays). Descending still
+  // revives everyone at 50% as before; this is the mid-floor rescue.
+  reviveRadius: 1.7, // tiles from the downed body
+  reviveChannelSec: 3.5, // seconds of continuous proximity to stabilize
+  reviveHpFraction: 0.35, // of max HP on revive
+  reviveDecayMult: 1.5, // progress decays this much faster than it builds
 
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
@@ -143,10 +173,23 @@ export const CONFIG = {
   broodSpawnMax: 10, // lifetime births per mother
   broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
 
+  // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
+  // the point. Lone wanderers always roam, packPatrolChance of packs patrol
+  // together, the rest are sentries holding their post; dormant ambushers lie
+  // perfectly still, the vault guardian never leaves its treasure, and bosses
+  // hold their arena. Leashed so encounters stay roughly where placed.
+  packPatrolChance: 0.4, // share of (non-ambush) packs that patrol
+  wanderSpeedMult: 0.55, // stroll speed, relative to combat speed
+  wanderLegSeconds: 2.2, // seconds per wander leg (randomized 0.5-1.5x)
+  wanderPauseChance: 0.35, // legs spent just standing around
+  wanderLeash: 7, // tiles from the patrol post before the stroll drifts back
+
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
   // catalog COMPONENTS — random loot that advances the build you planned.
-  lootDropChance: 0.36,
+  // 0.36 when 40% of drops were health potions; potions are gone (health
+  // should be scary — see dropLoot), so this holds gear rates steady.
+  lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
@@ -401,6 +444,7 @@ export const CONFIG = {
     // Crowd Frenzy hysteresis: enter hot, drop out only when the hype fades.
     frenzyEnter: 60,
     frenzyExit: 40,
+    hypeRevive: 22, // pulling a teammate off the mat is GREAT television
   },
 
   // Sponsor rewards (end-of-floor draft): one option per sponsor, capped here.

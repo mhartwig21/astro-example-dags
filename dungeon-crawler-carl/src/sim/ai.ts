@@ -1,8 +1,10 @@
 import { ARCHETYPES, CONFIG, monsterTempo } from "./config";
 import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
+import { chance, nextFloat } from "./rng";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
+import { applyStatus } from "./status";
 import {
   bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
   damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
@@ -19,7 +21,7 @@ import {
 // (+monsterStrikeGrace) and dash i-frames. Getting staggered (see damageMonster
 // in game.ts) cancels the windup — interrupting a brute mid-slam is a real play.
 
-function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number): void {
+function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number, srcKind?: string): void {
   const d = normalize(dir);
   state.projectiles.push({
     id: state.nextEntityId++,
@@ -28,7 +30,36 @@ function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number)
     damage,
     ttl: CONFIG.monsterProjectileTtl,
     from: "enemy",
+    srcKind,
   });
+}
+
+/**
+ * ROAMING: an off-duty monster patrols instead of standing at its post — the
+ * dungeon reads alive, and danger sometimes walks into YOU. Strolls run in
+ * short randomized legs (some legs are just standing around), leashed to a
+ * patrol post so encounters stay roughly where the floor placed them. The
+ * moment a player is back in range, the kind's combat brain takes over.
+ */
+function wander(state: GameState, m: Monster, dt: number): void {
+  if (!m.roams) return; // sentries hold their post — variety IS the behavior
+  m.home ??= { x: m.pos.x, y: m.pos.y }; // first off-duty beat sets the post
+  m.wanderT = Math.max(0, (m.wanderT ?? 0) - dt);
+  if (m.wanderT === 0) {
+    if (chance(state.rng, CONFIG.wanderPauseChance)) {
+      m.wanderDir = undefined; // loiter a beat
+    } else if (dist(m.pos, m.home) > CONFIG.wanderLeash) {
+      // Strayed too far: the next leg heads back toward the post.
+      m.wanderDir = normalize({ x: m.home.x - m.pos.x, y: m.home.y - m.pos.y });
+    } else {
+      const a = nextFloat(state.rng) * Math.PI * 2;
+      m.wanderDir = { x: Math.cos(a), y: Math.sin(a) };
+    }
+    m.wanderT = CONFIG.wanderLegSeconds * (0.5 + nextFloat(state.rng));
+  }
+  if (m.wanderDir) {
+    moveWithCollision(state.map, m.pos, m.wanderDir, m.speed * CONFIG.wanderSpeedMult * dt, isWalkable);
+  }
 }
 
 /** Commit to an attack: root the monster and start the tell. */
@@ -99,7 +130,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     m.attackCooldown = CONFIG.monsterAttackCooldown * 1.3 * monsterTempo(state.floor).cooldown;
     const player = nearestPlayer(state, m.pos);
     if (!player) return;
-    spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage);
+    spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage, m.kind);
     return;
   }
   if (kind === "charge") {
@@ -212,6 +243,16 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     const prey = nearestPlayer(state, m.pos);
     if (!prey || dist(m.pos, prey.pos) > CONFIG.ambushTriggerRadius) return; // still waiting
     springAmbush(state, m);
+  }
+
+  // CHILLING elites (5.11) radiate cold: any crawler inside the aura is
+  // slowed (short duration, re-applied every step in range — it fades a beat
+  // after you break away). Passive frost: it radiates even mid-windup/stagger.
+  if (m.affix === "chilling") {
+    for (const pl of state.players) {
+      if (!pl.alive || dist(m.pos, pl.pos) > CONFIG.chillingAuraRadius) continue;
+      applyStatus(pl, { kind: "chill", duration: 0.8, magnitude: CONFIG.chillingAuraSlow, school: "magic" });
+    }
   }
 
   // Staggered: helpless. The stagger that set this also canceled any windup
@@ -352,7 +393,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2;
-        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6);
+        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6, m.kind);
       }
     }
     return;
@@ -360,7 +401,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "ranged") {
     // Ranged: keep a standoff, kite if crowded, aim (windup) then shoot when in band.
-    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (m.attackCooldown === 0 && d <= standoff + 1.5) {
       beginWindup(m, "shot", windup); // stands still to line up the shot
@@ -378,7 +419,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Bomber: waddle at the nearest player; on contact it LIGHTS THE FUSE and
     // roots — the detonation lands where the fuse ran out, dodge it or eat it.
     // Shot down early, it still cooks off at half radius (see reapDead in game.ts).
-    if (d > CONFIG.monsterAggroRange) return;
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) beginWindup(m, "fuse", CONFIG.bomberFuse);
     else moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     return;
@@ -387,7 +428,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "shaman") {
     // Shaman: keeps a ranged-style standoff, but instead of shooting it patches
     // up the lowest-HP wounded monster in reach on a cooldown. Priority target.
-    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (d < standoff - 1.5) {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
@@ -414,7 +455,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "charger") {
     // Charger: in its rush band it LOCKS a direction and telegraphs long —
     // the lane is the danger, sidestep it. Point-blank it just swings.
-    if (d > CONFIG.monsterAggroRange * 1.5) return;
+    if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
     if (m.attackCooldown === 0 && d >= CONFIG.chargerMinRange && d <= CONFIG.chargerRange) {
       m.chargeDir = toPlayer; // frozen NOW; the windup is your dodge window
       beginWindup(m, "charge", windup);
@@ -431,7 +472,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "spitter") {
     // Spitter: ranged standoff; lobs acid at where you're STANDING. The puddle
     // is the threat — it lingers, so the floor itself becomes the enemy.
-    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (m.shootCd === 0 && d <= standoff + 2) {
       m.shootCd = CONFIG.spitterCooldown;
@@ -450,7 +491,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "necromancer") {
     // Necromancer: shaman-style standoff, but its cast RAISES a fresh corpse
     // as a weakened minion. Kill it first or the pack never stays dead.
-    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (d < standoff - 1.5) {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
@@ -476,7 +517,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Broodmother: a walking nest. She never attacks — she waddles AWAY from
     // trouble and BIRTHS swarmers on a timer, so a pack you ignore grows.
     // Lifetime-capped per mother, plus a global population guard.
-    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     if (d < m.attackRange) {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     }
@@ -497,7 +538,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "phantom") {
     // Phantom: fast, fragile; periodically blinks toward its prey, then telegraphs
     // a quick strike. The blink slides via moveWithCollision so it never clips walls.
-    if (d > CONFIG.monsterAggroRange) return;
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) {
       if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
     } else if (m.blinkCd === 0 && d > m.attackRange + 0.5) {
@@ -512,7 +553,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "brute") {
     // Brute: its long, scary windup resolves as a self-centered Ground Slam —
     // an AoE, not a single-target hit. Respect it (back off) or interrupt it.
-    if (d > CONFIG.monsterAggroRange) return;
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) {
       if (m.attackCooldown === 0) beginWindup(m, "slam", windup);
     } else {
@@ -522,7 +563,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   // Melee archetypes (grunt / swarmer).
-  if (d > CONFIG.monsterAggroRange) return;
+  if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
   } else {

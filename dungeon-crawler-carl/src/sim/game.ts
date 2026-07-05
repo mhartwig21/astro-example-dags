@@ -17,9 +17,10 @@ import {
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
+import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, BossSignature, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
-  MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, Vec2,
+  MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
 
@@ -174,7 +175,7 @@ const BAND_BOSSES: { name: string; signature: BossSignature }[] = [
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
 const ELITE_AFFIXES: EliteAffix[] = [
   "swift", "shielded", "volatile", "summoner", "splitter", "thorns",
-  "armored", "warded",
+  "armored", "warded", "chilling",
 ];
 
 /** A band-end boss arena floor (3, 6, 9, 12, 15 — never the final floor). */
@@ -282,7 +283,12 @@ function spawnMonsters(state: GameState): void {
   const singles = Math.round(count * CONFIG.packLoneFraction);
   for (let i = 0; i < singles && totalW > 0; i++) {
     const pos = inRoom(pickRoom());
-    if (pos) { state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos)); budget--; }
+    if (pos) {
+      const lone = makeMonster(state, rollArchetype(rng, floor), pos);
+      lone.roams = true; // lone WANDERERS live up to the name
+      state.monsters.push(lone);
+      budget--;
+    }
   }
   let guard = 0;
   while (budget > 0 && totalW > 0 && guard++ < 60) {
@@ -298,15 +304,22 @@ function spawnMonsters(state: GameState): void {
       kind !== "ranged" && kind !== "shaman" && kind !== "spitter" &&
       kind !== "necromancer" && kind !== "broodmother";
     const ambush = floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance);
+    // Behavior VARIETY: a share of (non-ambush) packs PATROL their territory
+    // together; the rest are sentries that hold the room they spawned in.
+    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance);
     for (let k = 0; k < size; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
       const a = nextFloat(rng) * Math.PI * 2;
       const d = 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
-      const memberKind = escort && k === size - 1 ? "shaman" : kind;
+      const memberKind =
+        escort && k === size - 1 ? "shaman"
+        : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
+        : kind;
       const m = makeMonster(state, memberKind, pos);
       if (ambush) m.dormant = true;
+      if (patrol) m.roams = true;
       state.monsters.push(m);
       budget--;
     }
@@ -581,6 +594,8 @@ function makePlayer(id: number, name: string): Player {
     meleeComboT: 0,
     overcharged: false,
     plotArmorUsed: false,
+    statuses: [],
+    reviveProgress: 0,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -635,6 +650,8 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.stanceCritReady = false;
   p.overcharged = false;
   p.plotArmorUsed = false; // the writers grant one save per floor
+  p.statuses = []; // the stairwell air burns the poison right out
+  p.reviveProgress = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -926,6 +943,7 @@ export function createGame(seed: number): GameState {
     bulletTimeLeft: 0,
     hazards: [],
     corpses: [],
+    pings: [],
     encounter: null,
     floorEvent: null,
     goldSurge: false,
@@ -1274,11 +1292,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean },
+  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind },
 ): void {
   state.hits.push({
     pos: { x: pos.x, y: pos.y }, amount, kind,
     dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+    effect: extra?.effect,
   });
 }
 
@@ -1297,7 +1316,7 @@ export function playerMitigation(p: Player): number {
  */
 export function damagePlayerHit(
   state: GameState, p: Player, base: number,
-  opts: { dir?: Vec2; roll?: boolean } = {},
+  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind } = {},
 ): boolean {
   const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
   const dmg = mitigate(raw, playerMitigation(p));
@@ -1312,7 +1331,7 @@ export function damagePlayerHit(
     announce(state, "show", `${p.name} should be DEAD — but the writers disagree. PLOT ARMOR. The crowd is furious and delighted.`);
     addHype(state, p, CONFIG.show.hypeLowHpHit * 2);
   }
-  hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0 });
+  hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0, effect: opts.effect });
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
   }
@@ -1498,11 +1517,16 @@ function dropLoot(state: GameState, pos: Vec2): void {
     const amount = (nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor)) * surge;
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
   }
+  // Health potions no longer rain from chaff. Measured before removal: they
+  // supplied 280-780 free HP per run (~a third of all damage taken absorbed),
+  // and winners spent 0.0% of the run below 35% HP — health wasn't scary.
+  // Healing is now a DECISION: field rations, sponsor gifts, level-ups, the
+  // flask (returning), leech — all chosen, none ambient. lootDropChance was
+  // rescaled (0.36 -> 0.22) when the potions' 40% share left, so gear and
+  // component drop rates are unchanged.
   if (chance(rng, CONFIG.lootDropChance)) {
     const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
-    if (chance(rng, 0.4)) {
-      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "heal", amount: nextInt(rng, 15, 30) });
-    } else if (chance(rng, CONFIG.componentDropChance)) {
+    if (chance(rng, CONFIG.componentDropChance)) {
       // A catalog BASIC drops: it carries its catalogId, so it slots straight
       // into a build path — random loot in service of the plan, not instead of it.
       const basics = CATALOG.filter((e) => e.tier === "basic");
@@ -1539,6 +1563,7 @@ function damageMonster(
     allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean;
     poiseMult?: number; school?: School; dir?: Vec2; knockback?: number;
     chained?: boolean; // a conduit arc — never arcs again (no chains of chains)
+    effect?: StatusKind; // a DoT tick — hosts tint the number per effect
   } = {},
 ): void {
   // Signature Choreography: the post-swap surge window carries bonus crit.
@@ -1590,9 +1615,18 @@ function damageMonster(
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
     dir: opts.dir, killed: m.hp <= 0, school: opts.school, resisted: resisted || undefined,
+    effect: opts.effect,
   });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
+  // Venom Clause (chase legendary): crits inject a poison stack — the DoT
+  // ticks back through this same choke point, so resists/caps keep applying.
+  if (isCrit && m.hp > 0 && hasPassive(p, "venom")) {
+    applyStatus(m, {
+      kind: "poison", duration: CONFIG.poisonDuration, school: "physical",
+      magnitude: Math.max(1, Math.round(dmg * CONFIG.venomTickFraction)), sourceId: p.id,
+    });
+  }
   // Blood Subscription (chase legendary): heal a slice of the damage you deal,
   // capped per hit so ultimates don't refill the bar in one cast. Small drains
   // (orbit ticks) heal silently; only meaningful sips emit a number.
@@ -2716,6 +2750,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       crit: momentum || undefined,
       shatter: oc?.shatter || undefined,
       school: bp.school,
+      chill: bp.chill > 0 ? bp.chill : undefined,
     });
   }
 }
@@ -2786,7 +2821,22 @@ function doNova(state: GameState, p: Player): void {
     }
   }
   p.novaFlash = 0.3;
-  radialDamage(state, p, p.pos, np.radius, power(p, "nova") * np.damageMult, CONFIG.novaKnockback, "magic");
+  const base = power(p, "nova") * np.damageMult;
+  radialDamage(state, p, p.pos, np.radius, base, CONFIG.novaKnockback, "magic");
+  // AFTERBURN (5.11): the shockwave ignites — everything it touched burns for
+  // a fraction of the nova hit, spread over burnDuration. Refresh, no stacking.
+  const scorch = rank(p, "nova.scorch");
+  if (scorch > 0) {
+    const perTick = (base * CONFIG.novaScorchFracPerRank * scorch) /
+      (CONFIG.burnDuration / CONFIG.burnTickSeconds);
+    for (const m of state.monsters) {
+      if (m.hp <= 0 || dist(p.pos, m.pos) - bodyRadius(m) > np.radius) continue;
+      applyStatus(m, {
+        kind: "burn", duration: CONFIG.burnDuration, school: "magic",
+        magnitude: Math.max(1, Math.round(perTick)), sourceId: p.id,
+      });
+    }
+  }
 }
 
 /**
@@ -2859,6 +2909,25 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
 }
 
 /**
+ * Tick monster-side status effects (5.11). Due DoT ticks route through
+ * damageMonster — the ONE monster choke point — so schools, resists, shielded,
+ * one-shot caps, kill credit, and hit events all compose for free. DoT never
+ * crits and never builds poise (a burn shouldn't stagger-lock a brute).
+ */
+function updateMonsterStatuses(state: GameState, dt: number): void {
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || !m.statuses || m.statuses.length === 0) continue;
+    for (const due of tickStatuses(m, dt)) {
+      if (m.hp <= 0) break;
+      const src = state.players.find((pl) => pl.id === due.sourceId) ?? state.players[0];
+      damageMonster(state, src, m, due.damage, {
+        allowCrit: false, poiseMult: 0, school: due.school, effect: due.kind,
+      });
+    }
+  }
+}
+
+/**
  * Tick ground danger. Blasts (volatile corpses) damage once on expiry;
  * puddles (spitter acid) damage everyone inside on a repeating tick until
  * they dry up; armed zones (boss sludge/roots) telegraph for `arm` seconds,
@@ -2906,6 +2975,13 @@ function updateHazards(state: GameState, dt: number): void {
           if (dist(hz.pos, p.pos) > hz.radius) continue;
           if (damagePlayerHit(state, p, hz.damage)) {
             handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
+          } else {
+            // The acid SOAKS IN (5.11): every tick in the puddle also stacks
+            // poison, so lingering costs you after you finally step out.
+            applyStatus(p, {
+              kind: "poison", duration: CONFIG.poisonDuration, school: "physical",
+              magnitude: Math.max(1, Math.round(hz.damage * CONFIG.puddlePoisonFraction)),
+            });
           }
         }
       }
@@ -3036,10 +3112,62 @@ export { hasPassive };
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
   p.alive = false;
+  p.reviveProgress = 0;
   announce(state, "progress", line);
   if (alivePlayers(state).length === 0) {
     state.status = "dead";
     announce(state, "progress", "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.", "high");
+  } else {
+    announce(state, "progress", `${p.name} is DOWN. Stand close to stabilize them.`);
+  }
+}
+
+/** Drop a party ping at a world position (clamped into the map). Few per player. */
+function addPing(state: GameState, p: Player, at: Vec2): void {
+  const pos = {
+    x: Math.max(0, Math.min(state.map.w - 1, at.x)),
+    y: Math.max(0, Math.min(state.map.h - 1, at.y)),
+  };
+  const mine = state.pings.filter((pg) => pg.byId === p.id);
+  if (mine.length >= CONFIG.pingMaxPerPlayer) {
+    const oldest = mine.reduce((a, b) => (a.t < b.t ? a : b));
+    state.pings.splice(state.pings.indexOf(oldest), 1);
+  }
+  state.pings.push({ id: state.nextEntityId++, pos, byId: p.id, t: CONFIG.pingTtl, total: CONFIG.pingTtl });
+}
+
+function updatePings(state: GameState, dt: number): void {
+  for (const pg of state.pings) pg.t -= dt;
+  state.pings = state.pings.filter((pg) => pg.t > 0);
+}
+
+/**
+ * Co-op revives: a living crawler standing within reviveRadius of a downed one
+ * stabilizes them by PROXIMITY (no button — the reviver pays in exposure, not
+ * APM). Walking away lets the wound reopen. The descend-revive at 50% remains
+ * the fallback; this is the mid-floor rescue.
+ */
+function updateRevives(state: GameState, dt: number): void {
+  for (const down of state.players) {
+    if (down.alive) continue;
+    const medic = state.players.find(
+      (pl) => pl.alive && pl.id !== down.id && dist(pl.pos, down.pos) <= CONFIG.reviveRadius,
+    );
+    if (!medic) {
+      down.reviveProgress = Math.max(
+        0, down.reviveProgress - (dt / CONFIG.reviveChannelSec) * CONFIG.reviveDecayMult,
+      );
+      continue;
+    }
+    if (down.reviveProgress === 0) state.events.push(`${medic.name} is stabilizing ${down.name}…`);
+    down.reviveProgress += dt / CONFIG.reviveChannelSec;
+    if (down.reviveProgress >= 1) {
+      down.reviveProgress = 0;
+      down.alive = true;
+      down.hp = Math.max(1, Math.round(down.maxHp * CONFIG.reviveHpFraction));
+      addHype(state, medic, CONFIG.show.hypeRevive);
+      announce(state, "show", `${down.name} is BACK IN THE FIGHT — ${medic.name} with the save! The crowd erupts.`);
+    }
   }
 }
 
@@ -3064,6 +3192,14 @@ function updateProjectiles(state: GameState, dt: number): void {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
             forceCrit: pr.crit, shatterPoise: pr.shatter, school: pr.school,
           });
+          // Frost Bolts (5.11): the impact CHILLS — move + attack/windup speed
+          // slowed. Bosses shrug off half the slow (meaningful, never immune).
+          if (pr.chill && m.hp > 0) {
+            applyStatus(m, {
+              kind: "chill", duration: CONFIG.chillDuration, school: "magic",
+              magnitude: m.kind === "boss" ? pr.chill * CONFIG.chillBossMult : pr.chill,
+            });
+          }
           // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
           if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
             let best: Monster | null = null;
@@ -3080,7 +3216,7 @@ function updateProjectiles(state: GameState, dt: number): void {
                 pos: { x: pr.pos.x, y: pr.pos.y },
                 vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
                 damage: pr.damage * 0.6, ttl: 0.8, from: "player", ownerId: owner.id,
-                bounced: true, hitIds: [m.id], school: pr.school,
+                bounced: true, hitIds: [m.id], school: pr.school, chill: pr.chill,
               });
             }
           }
@@ -3158,8 +3294,24 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   for (const p of ordered) {
     const pi = intents[p.id] ?? NO_INTENT;
 
-    // Adrenaline (Bullet Time fork): inside the slow, YOUR cooldowns race.
-    const cdt = state.bulletTimeLeft > 0 ? dt * bulletTimeParams(p).cdTickMult : dt;
+    // Status effects (5.11): DoT ticks route through the player choke point
+    // (armor mitigates every tick); chill slows this crawler's whole combat
+    // clock — movement below and cooldown recovery here both run on ptime.
+    if (p.alive) {
+      for (const due of tickStatuses(p, dt)) {
+        if (!p.alive) break;
+        if (damagePlayerHit(state, p, due.damage, { roll: false, effect: due.kind })) {
+          handlePlayerDeath(state, p, due.kind === "poison"
+            ? `${p.name} succumbed to the poison. The System sells antidotes, for the record.`
+            : `${p.name} burned out of the season. Literally.`);
+        }
+      }
+    }
+    const ptime = statusTimeMult(p);
+
+    // Adrenaline (Bullet Time fork) races cooldowns inside the slow; a chill
+    // stretches them — both scale the same recovery clock.
+    const cdt = (state.bulletTimeLeft > 0 ? dt * bulletTimeParams(p).cdTickMult : dt) * ptime;
     for (const key of Object.keys(p.cd) as AbilityId[]) {
       if ((p.cd[key] ?? 0) > 0) p.cd[key] = Math.max(0, (p.cd[key] ?? 0) - cdt);
     }
@@ -3186,7 +3338,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       const dir = normalize(move);
       p.facing = dir;
       // Root snare (boss roots zones): a heavy slow — dashing is unaffected.
-      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
+      // Chill (ptime) and roots stack multiplicatively; both are escape tests.
+      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
       moveWithCollision(state.map, p.pos, dir, speed * dt, isWalkable);
     }
 
@@ -3220,13 +3373,18 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       }
       if (pi.flask) useFlask(state, p);
     }
+    // Pings are allowed dead or alive — calling for help is content.
+    if (pi.ping) addPing(state, p, pi.ping);
     updateOrbit(state, p, dt);
   }
 
   // Monsters + projectiles (bullet time slows the world, not the crawlers).
+  // A CHILLED monster's clock runs slower still (5.11): movement, windups,
+  // and cooldowns all stretch — same trick bullet time uses, per-monster.
   if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
-  for (const m of state.monsters) stepMonster(state, m, mdt);
+  for (const m of state.monsters) stepMonster(state, m, mdt * statusTimeMult(m));
+  updateMonsterStatuses(state, mdt); // DoT burns on WORLD time (chill can't slow its own poison)
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
   updateCorpses(state, mdt);
   updateStrikes(state, dt);
@@ -3234,6 +3392,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 
   reapDead(state);
   collectLoot(state);
+  updatePings(state, dt);
+  updateRevives(state, dt);
 
   // Floor event bookkeeping (vault trigger/reseal, challenge verdicts) —
   // after combat so it can read this step's deaths and damage.

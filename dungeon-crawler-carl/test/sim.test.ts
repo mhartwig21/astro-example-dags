@@ -5,8 +5,8 @@ import {
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
-import { armorReduction, rollDamage } from "../src/sim/combat";
-import { generateFloor } from "../src/sim/floor";
+import { armorReduction, dist, rollDamage } from "../src/sim/combat";
+import { generateFloor, walkableTiles } from "../src/sim/floor";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
@@ -77,6 +77,7 @@ describe("floor generation", () => {
 describe("collapse timer", () => {
   it("advances only through dt and transitions phases", () => {
     const g = createGame(42);
+    g.monsters.length = 0; // isolate the timer (roaming packs now find idlers!)
     expect(g.phase).toBe("safe");
     const budget = floorTimeBudget(1);
     expect(g.timeBudget).toBeCloseTo(budget);
@@ -1339,6 +1340,9 @@ describe("per-player show economy", () => {
     carl.facing = { x: 1, y: 0 };
     carl.attackPower = 9999;
     g.monsters.length = 0;
+    // Park the bystander away from the corpse: loot-pickup hype (rare drops)
+    // belongs to whoever grabs the drop, which isn't what this test measures.
+    donut.pos = { x: carl.pos.x - 4, y: carl.pos.y };
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: carl.pos.x + 0.8, y: carl.pos.y } }));
     step(g, { [carl.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
     expect(carl.hype).toBeGreaterThan(0);
@@ -1349,6 +1353,7 @@ describe("per-player show economy", () => {
     const g = createGame(506);
     addPlayer(g, "Donut");
     const [carl, donut] = g.players;
+    g.monsters.length = 0; // roaming patrols would find (and end) the idle pair
     // Carl sustains a hyped broadcast (~15s — sqrt conversion pays out
     // steadily, not explosively); Donut idles.
     for (let i = 0; i < 900; i++) {
@@ -2175,11 +2180,8 @@ describe("crowd frenzy", () => {
 });
 
 describe("sponsor slurp flask", () => {
-  // Ships disabled (CONFIG.flaskEnabled); mechanics stay tested for its return.
-  const flags = CONFIG as { flaskEnabled: boolean };
-  beforeAll(() => { flags.flaskEnabled = true; });
-  afterAll(() => { flags.flaskEnabled = false; });
-
+  // Re-enabled (CONFIG.flaskEnabled: true) with the status-effect pass —
+  // aggression is the sustain loop again.
   it("drinking heals a fraction of max HP and consumes a charge", () => {
     const g = createGame(940);
     const p = g.players[0];
@@ -3941,5 +3943,85 @@ describe("broodmother (the pack grows if you ignore it)", () => {
       expect(crowned?.kind).not.toBe("broodmother");
     }
     expect(seen).toBeGreaterThan(0);
+  });
+});
+
+describe("roaming (behavior variety: patrols, sentries, ambushers)", () => {
+  it("a patrolling monster strolls around its post, leashed; a sentry holds it", () => {
+    const g = createGame(7200);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Both placed well outside aggro range on open floor near the stairs.
+    const roamer = mkMon({ id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6, roams: true });
+    const sentry = mkMon({ id: 2, pos: { x: g.map.stairs.x + 1, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6 });
+    if (dist(roamer.pos, p.pos) <= CONFIG.monsterAggroRange * 2) return; // seed guard
+    g.monsters.push(roamer, sentry);
+    const roamStart = { x: roamer.pos.x, y: roamer.pos.y };
+    const sentryStart = { x: sentry.pos.x, y: sentry.pos.y };
+    let maxFromPost = 0;
+    for (let i = 0; i < 60 * 12; i++) {
+      step(g, idle(), 1 / 60);
+      maxFromPost = Math.max(maxFromPost, dist(roamer.pos, roamStart));
+    }
+    expect(maxFromPost).toBeGreaterThan(1); // the patroller went somewhere...
+    expect(maxFromPost).toBeLessThan(CONFIG.wanderLeash + 4); // ...but stayed leashed
+    expect(dist(sentry.pos, sentryStart)).toBeLessThan(0.01); // the sentry held its post
+  });
+
+  it("floors spawn a MIX: lone wanderers always roam, some packs patrol, some hold", () => {
+    let roamers = 0, sentries = 0;
+    for (let seed = 1; seed <= 5; seed++) {
+      const g = restoreGame({
+        seed, floor: 5, player: { hp: 100, level: 6, xp: 0, xpToNext: 999, gold: 0 },
+      });
+      for (const m of g.monsters) {
+        if (m.kind === "boss") continue;
+        if (m.roams) roamers++;
+        else sentries++;
+      }
+    }
+    expect(roamers).toBeGreaterThan(0);
+    expect(sentries).toBeGreaterThan(0);
+  });
+
+  it("dormant ambushers do NOT roam — they lie in wait", () => {
+    const g = restoreGame({
+      seed: 3, floor: 9, player: { hp: 200, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const dormant = g.monsters.filter((m) => m.dormant &&
+      dist(m.pos, g.players[0].pos) > CONFIG.ambushTriggerRadius + 3);
+    if (dormant.length === 0) return; // seed rolled no distant ambush pack
+    const starts = dormant.map((m) => ({ m, x: m.pos.x, y: m.pos.y }));
+    for (let i = 0; i < 60 * 5; i++) step(g, idle(), 1 / 60);
+    for (const s of starts) {
+      if (!s.m.dormant) continue; // something else sprang it (damage etc.)
+      expect(dist(s.m.pos, { x: s.x, y: s.y })).toBeLessThan(0.01);
+    }
+  });
+
+  it("a roamer that spots you drops the stroll and attacks", () => {
+    const g = createGame(7201);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Real walkable ground for everyone: the roamer patrols the stairs room,
+    // the player steps onto a walkable tile a few tiles away from it.
+    const roamer = mkMon({
+      id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y },
+      hp: 100, maxHp: 100, speed: 2.6, damage: 10, attackRange: 1, roams: true,
+    });
+    g.monsters.push(roamer);
+    for (let i = 0; i < 10; i++) step(g, idle(), 1 / 60); // a brief off-duty stroll
+    const spot = walkableTiles(g.map).find(
+      (t) => dist(t, roamer.pos) > 4 && dist(t, roamer.pos) < 6,
+    );
+    expect(spot).toBeTruthy();
+    p.pos = { x: spot!.x, y: spot!.y };
+    const d0 = dist(roamer.pos, p.pos);
+    let engaged = false;
+    for (let i = 0; i < 60 * 3 && !engaged; i++) {
+      step(g, idle(), 1 / 60);
+      engaged = roamer.windup > 0 || dist(roamer.pos, p.pos) < d0 - 1.5;
+    }
+    expect(engaged).toBe(true);
   });
 });
