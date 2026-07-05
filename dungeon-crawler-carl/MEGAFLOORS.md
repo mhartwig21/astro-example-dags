@@ -57,23 +57,34 @@ Grid size and stairway count per band — early floors stay close to today (the
 balance suite and new-player readability survive untouched), deep floors go
 big and lonely:
 
-Sized to the 4-minute ceiling (see the budget table below — each band's
-realistic find-the-stairs + fight cost must fit its budget with margin):
+Sized to the 4-minute ceiling. The honest difficulty metric is **area per
+stairway** (how much map hides each exit) — today's floor is 5,184 tiles
+hiding 1 stair. That number must start near parity and RISE with depth, or
+extra stairways accidentally make the early game easier than today:
 
-| Band | Floors | Grid | Area vs today | Stairways | Budget (band start, +5s/floor) | Feel |
-|---|---|---|---|---|---|---|
-| Undercroft | 1-3 | 80² | 1.2× | 4 | 2:00 | orientation; stairs everywhere |
-| Sewers | 4-6 | 96² | 1.8× | 3 | 2:30 | comfortable |
-| Garden | 7-9 | 112² | 2.4× | 3 | 2:50 | first "this is big" moment |
-| Ruins | 10-12 | 128² | 3.2× | 2 | 3:10 | choose your exit carefully |
-| Ironworks | 13-15 | 144² | 4× | 2 | 3:25 | expeditions, not sprints |
-| Approach | 16-18 | 160² | 4.9× | 2 | 3:40 → 3:50 | the hunt, capped at 4:00 |
+| Band | Floors | Grid | Area vs today | Stairways | Area/stair (today: 5,184) | Budget (band start, +5s/floor) | Feel |
+|---|---|---|---|---|---|---|---|
+| Undercroft | 1-3 | 80² | 1.2× | 2 | 3,200 | 2:00 | today + a choice of exit |
+| Sewers | 4-6 | 96² | 1.8× | 3 | 3,072 | 2:30 | options, while they last |
+| Garden | 7-9 | 112² | 2.4× | 3 | 4,181 | 2:50 | first "this is big" moment |
+| Ruins | 10-12 | 128² | 3.2× | 2 | 8,192 | 3:10 | choose your exit carefully |
+| Ironworks | 13-15 | 144² | 4× | 2 | 10,368 | 3:25 | expeditions, not sprints |
+| Approach | 16-18 | 160² | 4.9× | 2 | 12,800 | 3:40 → 3:50 | the hunt, capped at 4:00 |
 
-Sanity check on the deepest band: 160² with 2 stairways puts the nearest one
-~70-100 tiles out (~17-24s pure walk, ~45-60s realistic search with wrong
-turns) plus 1:30-2:00 of deep-floor combat ≈ **2:30-3:00 total against a
-3:40-3:50 budget** — pressured but honest, with room for looting or a
-settlement stop. Every floor stays under 4:00; no floor ever has one exit.
+Search difficulty rises ~4× across the run while never starting easier than
+today's feel — with one crucial placement rule: **stairways only spawn in the
+outer third of the map** (minimum BFS distance from spawn), exactly like
+today's farthest-room rule. Multiple stairways then mean *choice of route
+and of guardian*, not a shortcut that happens to spawn next door. (Bands 0-1
+sit slightly below today's raw number, deliberately: those are the onboarding
+floors, and their nearest-exit distance is held up by the placement rule.)
+
+Sanity check on the deepest band: 160² with 2 far-placed stairways puts the
+nearest one ~70-100 tiles out (~17-24s pure walk, ~45-60s realistic search
+with wrong turns) plus 1:30-2:00 of deep-floor combat ≈ **2:30-3:00 total
+against a 3:40-3:50 budget** — pressured but honest, with room for looting
+or a settlement stop. Every floor stays under 4:00; no floor ever has one
+exit.
 
 *Rejected variant, for the record:* 216²/9× with a single stairway needs
 7-10 minute budgets — great expedition fantasy, but it violates the 4-minute
