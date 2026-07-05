@@ -92,19 +92,27 @@ export const CONFIG = {
   mpDamagePerExtraPlayer: 0.15, // +15% monster damage per extra crawler
   mpBossHpPerExtraPlayer: 0.75, // the boss scales harder (it is shared)
 
-  // Monsters (density tuned for the 72x72 floors: it should feel like you
-  // could actually die on floor 1, not like an empty museum)
-  monsterBaseCountFloor1: 18,
-  monsterCountPerFloor: 4,
-  monsterMaxCount: 60,
+  // Monsters (density tuned for the 72x72 floors: crowded, not an empty museum).
+  // The full-clear power curve outruns linear scaling by midgame, so the back
+  // half leans on DENSITY (more mobs) + COMPOUNDING stats (below).
+  monsterBaseCountFloor1: 24,
+  monsterCountPerFloor: 6,
+  monsterMaxCount: 110,
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
   // on you together), with a few lone wanderers between them.
   packSizeMin: 3,
-  packSizeMax: 7,
+  packSizeMax: 9,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
+  // Compounding scaling: linear per-floor growth loses to a farming player by
+  // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
+  // damage additionally multiply by monsterScaleCompound each floor, so the deep
+  // dungeon steepens instead of flattening. Kept off floors 1-6 so early-game
+  // playability (and the balance-bot floors-1-2 net) is untouched.
+  monsterScaleCompoundFrom: 6,
+  monsterScaleCompound: 1.055, // ~1.85x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
   monsterBaseDamage: 15,
@@ -296,6 +304,15 @@ export const CONFIG = {
   // Sponsors beyond the cap pitch extra candidates and the best-fitting ones
   // are kept (see generateRewards). No sponsors, no gifts.
   rewardMaxCount: 3,
+  // Anti-concentration: a permanent stat gift diminishes against what the
+  // crawler has ALREADY banked on that axis (factor = k/(k+owned)). The first
+  // Weapon Mod is juicy; the tenth is a rounding error — so stacking one stat
+  // every floor stops being the obvious play and the varied pool (armor,
+  // materials, favors, gear) competes. Per-axis k (owned units match makeReward).
+  rewardDrDamageK: 45, // owned = bonusDamage
+  rewardDrMaxHpK: 140, // owned = bonusMaxHp
+  rewardDrCritK: 16, // owned = bonusCrit * 100 (percentage points)
+  rewardDrArmorK: 40, // owned = bonusArmor
 
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
@@ -335,6 +352,16 @@ export const CONFIG = {
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
+  // the fog until a player strays within trigger range, then the whole cluster
+  // springs at once with a brief speed surge to close the gap. A pack that lets
+  // you walk into the middle of it is a very different threat from one you saw.
+  ambushFromFloor: 8,
+  ambushPackChance: 0.4, // share of deep-floor packs that lie in wait
+  ambushTriggerRadius: 5, // tiles: a player this close springs the trap
+  ambushWakeRadius: 6.5, // tiles: the sprung monster also wakes its neighbors
+  ambushSurgeSpeed: 1.6, // speed multiplier during the surge (the pounce)
+  ambushSurgeSeconds: 2.5, // how long the surge lasts after springing
   splitterCount: 3, // swarmers a splitter elite bursts into on death
   thornsReflectFraction: 0.25, // slice of each hit reflected back at the attacker...
   thornsReflectCapFraction: 0.04, // ...capped at this fraction of the attacker's maxHp per hit

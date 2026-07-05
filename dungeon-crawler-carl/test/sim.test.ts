@@ -3,11 +3,11 @@ import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation, monsterResist,
+  damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
 import { armorReduction, rollDamage } from "../src/sim/combat";
 import { buildCharacterSheet } from "../src/sim/sheet";
-import { CATALOG_BY_ID, consumablePrice, gearAffixes, totalCost } from "../src/sim/catalog";
+import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
@@ -379,12 +379,23 @@ describe("sponsor draft", () => {
     }
   });
 
-  it("surplus sponsors skew the draft toward the crawler's build", () => {
-    // Same seed, same candidates â€” only the build differs.
-    const critBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusCrit = 1; });
-    const hpBuild = descendWith(9, 7, (gg) => { gg.players[0].bonusMaxHp = 500; });
-    expect(critBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("crit");
-    expect(hpBuild.players[0].pendingRewards.map((r) => r.kind)).toContain("maxHp");
+  it("diminishing returns curb stat concentration (k/(k+owned), monotonic)", () => {
+    expect(rewardDr(0, 45)).toBe(1); // fresh axis: full value
+    expect(rewardDr(45, 45)).toBeCloseTo(0.5); // owned == k: half
+    expect(rewardDr(180, 45)).toBeLessThan(rewardDr(45, 45)); // more owned, less value
+    expect(rewardDr(45, 45)).toBeLessThan(rewardDr(10, 45));
+  });
+
+  it("the gift pool is WIDE — build-variety kinds appear, not just stat stacks", () => {
+    // Across seeds a fully-backed draft should surface some of the non-stat
+    // variety (item / materials / favor / gold / bonusTime), diluting the
+    // every-floor +damage pick.
+    const varietyKinds = new Set(["item", "materials", "favor", "gold", "bonusTime", "armor"]);
+    const seen = new Set<string>();
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      for (const r of descendWith(seed, 7).players[0].pendingRewards) seen.add(r.kind);
+    }
+    expect([...seen].some((k) => varietyKinds.has(k))).toBe(true);
   });
 
   it("applies the chosen reward's effect", () => {
@@ -402,6 +413,74 @@ describe("sponsor draft", () => {
       return descendWith(seed, 5).players[0].pendingRewards.map((r) => r.kind);
     }
     expect(draftKinds(77)).toEqual(draftKinds(77));
+  });
+
+  it("new sponsor kinds apply: armor, materials, favor", () => {
+    const g = createGame(6);
+    const p = g.players[0];
+    const arm0 = p.armor;
+    p.pendingRewards = [{ id: 1, kind: "armor", title: "Ablative Weave", desc: "+20 armor", amount: 20 }];
+    chooseReward(g, 0, 0);
+    expect(p.armor).toBe(arm0 + 20);
+    p.pendingRewards = [{ id: 2, kind: "materials", title: "Bounty", desc: "", amount: 1, material: "elite_trophy" }];
+    chooseReward(g, 0, 0);
+    expect(p.materials.elite_trophy).toBe(1);
+    const owed0 = p.upgradeDraftsOwed;
+    p.pendingRewards = [{ id: 3, kind: "favor", title: "Favor", desc: "", amount: 1 }];
+    chooseReward(g, 0, 0);
+    expect(p.upgradeDraftsOwed).toBe(owed0 + 1);
+  });
+});
+
+describe("difficulty pass: consumable scarcity + ambushes", () => {
+  it("consumables run out of per-shop stock (excess gold can't buy infinite plating)", () => {
+    const g = createGame(5);
+    const p = g.players[0];
+    p.gold = 100000;
+    g.safeRoom = { nextFloor: 3, available: ["plating_kit"], tip: "", ready: [], purchased: {} };
+    const stock = consumableStock(CATALOG_BY_ID["plating_kit"]);
+    const price = consumablePrice(CATALOG_BY_ID["plating_kit"], 3);
+    const gold0 = p.gold;
+    for (let i = 0; i < stock + 5; i++) buyCatalogItem(g, 0, "plating_kit");
+    expect(g.safeRoom!.purchased["plating_kit"]).toBe(stock); // capped
+    expect(gold0 - p.gold).toBe(stock * price); // paid for exactly `stock`, no more
+  });
+
+  it("ambush monsters lie dormant, then the whole cluster springs when a player nears", () => {
+    const g = createGame(8);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.announcements.length = 0;
+    const fx = p.pos.x + 8; // well past the trigger radius
+    const a = mkMon({ id: 1, kind: "grunt", pos: { x: fx, y: p.pos.y }, hp: 100, maxHp: 100, damage: 10, speed: 2, dormant: true });
+    const b = mkMon({ id: 2, kind: "grunt", pos: { x: fx + 1, y: p.pos.y }, hp: 100, maxHp: 100, damage: 10, speed: 2, dormant: true });
+    g.monsters.push(a, b);
+    // Far away: inert — no movement, no attack, still dormant.
+    const ax0 = a.pos.x;
+    step(g, idle(), 1 / 60);
+    expect(a.dormant).toBe(true);
+    expect(a.pos.x).toBe(ax0);
+    // Player steps into the trap: it springs and drags the neighbor up too.
+    p.pos = { x: fx - 1, y: p.pos.y };
+    step(g, idle(), 1 / 60);
+    expect(a.dormant).toBeFalsy();
+    expect(b.dormant).toBeFalsy(); // coordinated wake within ambushWakeRadius
+    expect((a.surgeT ?? 0)).toBeGreaterThan(0); // surging to close
+    expect(g.announcements.some((an) => an.text.includes("AMBUSH"))).toBe(true);
+  });
+
+  it("shooting a dormant ambusher springs it early", () => {
+    const g = createGame(9);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const m = mkMon({
+      id: 1, kind: "grunt", pos: { x: p.pos.x + 1.0, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 10, dormant: true, attackCooldown: 99,
+    });
+    g.monsters.push(m);
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(m.hp).toBeLessThan(500); // the swing connected on the dormant body
+    expect(m.dormant).toBeFalsy(); // and woke it
   });
 });
 

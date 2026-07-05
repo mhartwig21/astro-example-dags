@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { createGame, restoreGame } from "../src/sim/game";
+import { createGame, restoreGame, createTestGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
 
@@ -143,5 +143,54 @@ describe("balance bot: boss difficulty", () => {
         `seed ${seed}: first elite (floor ${first.floor}) died in ${first.ttk.toFixed(1)}s`,
       ).toBeGreaterThanOrEqual(2.5);
     }
+  });
+});
+
+describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
+  // The counterpart to "still playable": if a tuning/economy change flattens the
+  // back half back into an empty museum, THIS fails. Fixtures are a well-equipped
+  // crawler (level + floor-scaled gear + all abilities via createTestGame) — the
+  // maximalist farmer these changes were aimed at — dropped onto ONE deep floor.
+
+  it("floor 12 costs a fully-kitted crawler real HP (density + compounding bite)", () => {
+    // Pre-change, a clean dodger cleared a deep floor at ~0% HP lost (the
+    // "empty museum" the density/compounding pass fixed). Now contact is
+    // unavoidable. Summed across seeds so a single lucky clear can't pass it.
+    let totalLostPct = 0;
+    let cleared = 0;
+    for (const seed of [7, 42, 101, 5]) {
+      const g = createTestGame({ seed, floor: 12, level: 18, abilities: "all" });
+      const maxHp = g.players[0].maxHp;
+      const r = runBot(g, 1, 120_000);
+      const fl = r.floors[0];
+      if (fl) { cleared++; totalLostPct += (fl.damageTaken / maxHp) * 100; }
+    }
+    expect(cleared, "a competent crawler should still clear floor 12 on most seeds").toBeGreaterThanOrEqual(3);
+    expect(
+      totalLostPct,
+      `floor 12 barely scratched the crawler (${totalLostPct.toFixed(0)}% total HP across seeds) — scaling may have been flattened`,
+    ).toBeGreaterThan(40);
+  });
+
+  it("deep floors are DENSE, not empty (count outgrows the old 60 cap)", () => {
+    // Structural + deterministic: the density lever, independent of the bot.
+    const g = createTestGame({ seed: 7, floor: 15, gear: false });
+    expect(
+      g.monsters.length,
+      `floor 15 spawned only ${g.monsters.length} monsters — density regressed`,
+    ).toBeGreaterThan(80);
+  });
+
+  it("monster stats COMPOUND past the linear curve on deep floors", () => {
+    // A floor-16 grunt (hpMult 1) must exceed its pure-linear projection —
+    // proof the compounding term is live (and would fail if it's removed).
+    const linear16 = CONFIG.monsterBaseHp + (16 - 1) * CONFIG.monsterHpPerFloor;
+    const g = createTestGame({ seed: 3, floor: 16, gear: false });
+    const grunt = g.monsters.find((m) => m.kind === "grunt");
+    expect(grunt, "expected a grunt on floor 16").toBeTruthy();
+    expect(
+      grunt!.maxHp,
+      `floor-16 grunt HP ${grunt!.maxHp} is not above the linear projection ${linear16} — compounding missing`,
+    ).toBeGreaterThan(linear16 * 1.3);
   });
 });

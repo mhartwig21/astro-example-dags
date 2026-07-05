@@ -6,7 +6,7 @@ import { moveWithCollision } from "./movement";
 import { stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, gearAffixes, tierStockCount, totalCost,
+  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
 } from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, damageVariance, dashParams, knows, meleeParams,
@@ -88,8 +88,11 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   const a = ARCHETYPES[kind];
   const mpHp = 1 + extraPlayers(state) * CONFIG.mpHpPerExtraPlayer;
   const mpDmg = 1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer;
-  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp;
-  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg;
+  // Compounding scaling steepens the back half (the linear curve loses to a
+  // farming player by midgame). No effect at/under monsterScaleCompoundFrom.
+  const compound = Math.pow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
+  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound;
+  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
   const hp = Math.round(baseHp * a.hpMult);
   return {
@@ -263,6 +266,11 @@ function spawnMonsters(state: GameState): void {
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
     const kind = rollArchetype(rng, floor);
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
+    // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
+    // one when a player wanders in (see stepMonster). A ranged/support pack
+    // makes a poor ambush, so this favors melee kinds that benefit from surprise.
+    const canAmbush = kind !== "ranged" && kind !== "shaman" && kind !== "spitter" && kind !== "necromancer";
+    const ambush = floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance);
     for (let k = 0; k < size; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
       const a = nextFloat(rng) * Math.PI * 2;
@@ -270,7 +278,9 @@ function spawnMonsters(state: GameState): void {
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
       const memberKind = escort && k === size - 1 ? "shaman" : kind;
-      state.monsters.push(makeMonster(state, memberKind, pos));
+      const m = makeMonster(state, memberKind, pos);
+      if (ambush) m.dormant = true;
+      state.monsters.push(m);
       budget--;
     }
   }
@@ -1115,6 +1125,7 @@ function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
+  if (m.dormant) { m.dormant = false; m.surgeT = CONFIG.ambushSurgeSeconds; } // shot an ambusher awake
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
@@ -1546,7 +1557,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
     const t = available.indexOf("tome");
     if (t >= 0) available.splice(t, 1);
   }
-  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [] };
+  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [], purchased: {} };
 }
 
 /**
@@ -1627,11 +1638,15 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   if (!room || !p || !entry || !room.available.includes(catalogId)) return;
 
   if (entry.tier === "consumable") {
+    // Scarcity: each consumable has a limited per-shop stock (excess gold can no
+    // longer buy an unbounded HP graft — that was the maximalist EHP leak).
+    if ((room.purchased[catalogId] ?? 0) >= consumableStock(entry)) return;
     const price = consumablePrice(entry, room.nextFloor);
     if (p.gold < price) return;
     if (entry.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return;
     p.gold -= price;
     p.goldSpent += price;
+    room.purchased[catalogId] = (room.purchased[catalogId] ?? 0) + 1;
     switch (entry.effect) {
       case "heal":
         p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
@@ -1764,27 +1779,36 @@ function shuffle<T>(rng: Rng, arr: T[]): T[] {
   return a;
 }
 
-/** Roll one sponsor gift of the given kind. Quality scalar q scales amounts. */
-function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number): Reward {
+/** Diminishing-returns factor for a permanent stat gift: full value on a fresh
+ * axis, tapering as the crawler stacks it (k/(k+owned)). This is what stops
+ * "+damage every floor" from being the one true pick — see rewardDr*K. */
+export function rewardDr(owned: number, k: number): number {
+  return k / (k + Math.max(0, owned));
+}
+
+/** Roll one sponsor gift of the given kind. `q` scales with backing; permanent
+ * stat gifts additionally diminish against what `p` has already banked. */
+function makeReward(state: GameState, rng: Rng, p: Player, kind: Reward["kind"], q: number): Reward {
   const floor = state.floor;
   const id = state.nextEntityId++;
   switch (kind) {
     case "healFull":
       return { id, kind, title: "Field Medic", desc: "Restore all HP", amount: 0 };
     case "maxHp": {
-      const amt = Math.round((18 + floor * 2) * q);
+      const amt = Math.max(6, Math.round((18 + floor * 2) * q * rewardDr(p.bonusMaxHp, CONFIG.rewardDrMaxHpK)));
       return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
     }
     case "damage": {
-      // Damage compounds with everything else the player stacks, so its
-      // quality scaling is capped — uncapped q hands out ~+80 damage per
-      // floor late-game and one-shots the boss ladder (balance bot survey).
-      const amt = Math.round((5 + floor) * Math.min(q, 2));
+      const amt = Math.max(2, Math.round((5 + floor) * Math.min(q, 2) * rewardDr(p.bonusDamage, CONFIG.rewardDrDamageK)));
       return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
     }
     case "crit": {
-      const pct = Math.round(4 + q * 2);
+      const pct = Math.max(2, Math.round((4 + q * 2) * rewardDr(p.bonusCrit * 100, CONFIG.rewardDrCritK)));
       return { id, kind, title: "Targeting Chip", desc: `+${pct}% crit`, amount: pct / 100 };
+    }
+    case "armor": {
+      const amt = Math.max(3, Math.round((6 + floor * 1.5) * q * rewardDr(p.bonusArmor, CONFIG.rewardDrArmorK)));
+      return { id, kind, title: "Ablative Weave", desc: `+${amt} armor`, amount: amt };
     }
     case "gold": {
       const amt = Math.round((40 + floor * 12) * q);
@@ -1793,6 +1817,17 @@ function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number)
     case "bonusTime": {
       const amt = Math.round(10 + q * 5);
       return { id, kind, title: "Stabilizer", desc: `+${amt}s on this floor`, amount: amt };
+    }
+    case "materials": {
+      // Progress toward SIGNATURE gear — a build-defining pull that never
+      // concentrates a stat. Deeper floors owe the rarer boss sigil.
+      const mat: MaterialId = floor >= 10 && chance(rng, 0.5) ? "boss_sigil" : "elite_trophy";
+      const label = mat === "boss_sigil" ? "Boss Sigil" : "Elite Trophy";
+      return { id, kind, title: "Sponsor Bounty", desc: `+1 ${label} (signature crafting)`, amount: 1, material: mat };
+    }
+    case "favor": {
+      // An owed constellation draft — advances the BUILD, self-limiting (nodes cap).
+      return { id, kind, title: "System Favor", desc: "An extra ability-upgrade draft", amount: 1 };
     }
     case "item": {
       const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
@@ -1833,12 +1868,18 @@ function rewardFitScore(p: Player, r: Reward): number {
       const gain = itemScore(item) - (cur ? itemScore(cur) : 0);
       return itemScore(item) + Math.max(0, gain); // actual upgrades count double
     }
+    case "armor":
+      return r.amount * 1.5; // EHP on the mitigation curve; not build-axis weighted
     case "healFull":
       return (p.maxHp - p.hp) * 0.5; // worth exactly what it would restore
     case "gold":
       return r.amount * 0.08;
     case "bonusTime":
       return r.amount * 1.5;
+    case "materials":
+      return 55; // steady pull toward signature gear (flat — it's build variety)
+    case "favor":
+      return 70; // a constellation rank is strong, but not always the pick
   }
 }
 
@@ -1855,11 +1896,15 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
   if (count <= 0) return [];
   const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234 ^ Math.imul(playerId + 1, 0x85ebca6b)) >>> 0);
   const q = 1 + pl.sponsors * 0.4 + Math.min(1, pl.favorites / 1000);
-  const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
+  // Wide pool so the every-floor pick isn't obvious: 4 permanent stat gifts
+  // (each diminishing as you stack it) alongside build-variety gifts.
+  const pool: Reward["kind"][] = [
+    "healFull", "maxHp", "damage", "crit", "armor", "item", "gold", "bonusTime", "materials", "favor",
+  ];
   const surplus = Math.max(0, pl.sponsors - CONFIG.rewardMaxCount);
   const candidates = shuffle(rng, pool)
     .slice(0, Math.min(pool.length, count + surplus))
-    .map((kind) => makeReward(state, rng, kind, q));
+    .map((kind) => makeReward(state, rng, pl, kind, q));
   if (candidates.length <= count) return candidates;
   // Keep the best-fitting `count`, preserving the rolled order for display.
   // A ±20% seeded jitter keeps this a bias, not a script — surplus backing
@@ -1890,8 +1935,18 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       p.bonusCrit += r.amount;
       recomputeStats(p);
       break;
+    case "armor":
+      p.bonusArmor += r.amount;
+      recomputeStats(p);
+      break;
     case "gold":
       p.gold += r.amount;
+      break;
+    case "materials":
+      if (r.material) p.materials[r.material] += r.amount;
+      break;
+    case "favor":
+      p.upgradeDraftsOwed += r.amount;
       break;
     case "bonusTime":
       state.timeBudget += r.amount;

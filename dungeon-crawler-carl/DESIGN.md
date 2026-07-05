@@ -344,6 +344,38 @@ execute) are notes, so the ranges match an ordinary hit.
 tests; (2) bolt-from-weapon + classes + generation + UI (item cards show class + school, stat
 panel shows AP/SP); (3) resistances + catalog caster branch + balance pass.
 
+### 5.10 Difficulty pass — scarcity, gift variety, density, ambushes (SHIPPED)
+
+A maximalist full-clear run (all XP, all gold, always 3 sponsors) was trivializing the back
+half: player power compounds ~quadratically while monster scaling was linear and count-capped
+at floor 11, so a floor-18 crawler needed ~214 grunt hits to die. The measured leaks and
+their fixes:
+
+- **Consumable scarcity.** Plating kits (a permanent HP graft, ~80% of the maximalist HP pool)
+  were unlimited per shop. All consumables now have a per-shop `stock` (`consumableStock` in
+  catalog.ts; plating 2, rations 3, tome/favor 1), tracked in `SafeRoom.purchased`. Excess
+  gold can no longer buy infinite EHP. Shop tiles show remaining stock (`×N`) and a sold-out
+  state.
+- **Sponsor gift variety + anti-concentration.** Picking +damage every floor was optimal and
+  compounded. The permanent stat gifts (damage/maxHp/crit/armor) now DIMINISH against what
+  you've already banked (`rewardDr` = k/(k+owned)), and the pool widened with build-variety
+  gifts that never concentrate a stat: **armor**, **materials** (toward signature gear), and
+  **favor** (an owed constellation draft). Gifts still feel important on a fresh axis; the
+  tenth +damage is a rounding error.
+- **Density + compounding scaling.** Base count 18→24, per-floor 4→6, cap 60→110, packs up to
+  9 — the floors were "too empty." Past floor 6, monster HP and damage additionally compound
+  (`monsterScaleCompound` 1.055/floor, ~1.85× by floor 18), so the deep dungeon steepens
+  instead of flattening. Early floors (1–6, the playability net) are untouched.
+- **Ambushes (deep-floor tactic).** From floor 8, a share of packs spawn **dormant** — inert
+  and quiet in the fog until a player strays within `ambushTriggerRadius`, then the whole
+  cluster springs at once (`springAmbush` in ai.ts) with a brief speed surge to close. Hitting
+  a dormant monster springs it early. A pack you walk into the middle of is a very different
+  threat from one you saw coming.
+- **Balance bot asserts difficulty now.** Beyond "still playable," the suite now fails if the
+  back half flattens: a fully-kitted bot must lose real HP on floor 12, floor 15 must spawn
+  >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
+  hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
+
 ---
 
 ## 6. Tech stack
