@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
@@ -156,6 +156,7 @@ const CITY_BOSS_NAMES = [
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
 const ELITE_AFFIXES: EliteAffix[] = [
   "swift", "shielded", "volatile", "summoner", "splitter", "thorns",
+  "armored", "warded",
 ];
 
 /** A city-boss arena floor (6, 12, ... but never the final floor). */
@@ -864,9 +865,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School },
+  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean },
 ): void {
-  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed, school: extra?.school });
+  state.hits.push({
+    pos: { x: pos.x, y: pos.y }, amount, kind,
+    dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+  });
 }
 
 /** Effective incoming-damage reduction from the player's armor (0..cap). */
@@ -1072,6 +1076,15 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
 }
 
+/** The school a monster resists (takes resistDamageTakenMult on), if any:
+ * the elite affix wins, else the archetype's innate tag (charger/phantom). */
+export function monsterResist(m: Monster): School | null {
+  if (m.affix === "armored") return "physical";
+  if (m.affix === "warded") return "magic";
+  const a: MonsterArchetype = ARCHETYPES[m.kind]; // widen past the as-const literal
+  return a.resist ?? null;
+}
+
 /**
  * Damage a monster with a player's roll (shared crit/credit path). Beyond the
  * HP: hits SHOVE the target (`knockback` tiles / archetype mass, along `dir`)
@@ -1090,6 +1103,11 @@ function damageMonster(
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
+  // School resists (5.8 phase 3): armored shrugs physical, warded shrugs magic
+  // — from the elite affix roll or the archetype's innate tag. The party's
+  // damage MIX is the counterplay, so the reduction reads loud (dim numbers).
+  const resisted = monsterResist(m) === (opts.school ?? "physical");
+  if (resisted) dmg = Math.max(1, Math.round(dmg * CONFIG.resistDamageTakenMult));
   // One-shot insurance: named menaces never lose more than a capped fraction
   // of their pool to a single hit — a boss fight is a FIGHT, not a screenshot.
   if (m.kind === "boss") dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.bossHitCapFraction)));
@@ -1114,7 +1132,9 @@ function damageMonster(
       moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
     }
   }
-  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0, school: opts.school });
+  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
+    dir: opts.dir, killed: m.hp <= 0, school: opts.school, resisted: resisted || undefined,
+  });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
   // Thorns elites bite back: a slice of every hit returns to the attacker,

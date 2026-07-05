@@ -111,7 +111,11 @@ export interface Player {
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
 export type EliteAffix =
-  | "swift" | "shielded" | "volatile" | "summoner" | "splitter" | "thorns";
+  | "swift" | "shielded" | "volatile" | "summoner" | "splitter" | "thorns"
+  // School resists (DESIGN 5.8 phase 3): the party's damage MIX starts
+  // mattering — a warded elite pack is the crossbow crawler's fight.
+  | "armored" // takes reduced PHYSICAL damage
+  | "warded"; // takes reduced MAGIC damage
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
@@ -350,6 +354,7 @@ export interface HitEvent {
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
   school?: School; // damage school of a player hit (hosts tint magic numbers)
+  resisted?: boolean; // the target resisted this school (hosts dim the number)
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation
