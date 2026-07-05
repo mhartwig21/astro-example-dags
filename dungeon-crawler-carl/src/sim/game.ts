@@ -770,14 +770,17 @@ export function addHype(_state: GameState, p: Player, amount: number): void {
 function updateShow(state: GameState, dt: number): void {
   const s = CONFIG.show;
   for (const p of state.players) {
-    // Hype decays toward zero.
-    p.hype = Math.max(0, p.hype - s.hypeDecay * dt);
+    // Hype cools proportionally — the hotter the crowd, the faster it fades.
+    // Sustained play finds an equilibrium (input/frac) instead of pinning the
+    // cap, which is what lets +hype-per-kill gear shift where you sit.
+    p.hype = Math.max(0, p.hype - (s.hypeDecay + p.hype * s.hypeDecayFrac) * dt);
     // Viewers ease toward a target set by floor depth + current hype + fan loyalty.
     const target = s.baseViewers + state.floor * s.viewersPerFloor + p.hype * s.viewersPerHype + p.favorites * 0.5;
     p.viewers += (target - p.viewers) * Math.min(1, s.viewerEase * dt);
-    // A slice of the audience converts to sticky favorites while the crowd is hyped.
+    // A slice of the audience converts to sticky favorites while the crowd is
+    // hyped. sqrt: excitement spikes convert, camping at the cap can't run away.
     if (p.hype > s.favConvertThreshold) {
-      p.favorites += (p.hype - s.favConvertThreshold) * s.favPerHypePerSec * dt;
+      p.favorites += Math.sqrt(p.hype - s.favConvertThreshold) * s.favPerHypePerSec * dt;
     }
     // Crossing a favorite threshold earns a sponsor.
     while (p.sponsors < s.sponsorThresholds.length && p.favorites >= s.sponsorThresholds[p.sponsors]) {

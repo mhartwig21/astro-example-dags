@@ -161,6 +161,11 @@ const RARITY_COLORS: Record<string, string> = {
 const statViewers = document.getElementById("stat-viewers")!;
 const statFavorites = document.getElementById("stat-favorites")!;
 const statSponsors = document.getElementById("stat-sponsors")!;
+const hypeBar = document.getElementById("hype-bar")!;
+const hypeFill = document.getElementById("hype-fill") as HTMLElement;
+const hypeTick = document.getElementById("hype-tick") as HTMLElement;
+// The frenzy line is a fixed fraction of the meter — place it once.
+hypeTick.style.left = `${(CONFIG.show.frenzyEnter / CONFIG.show.hypeMax) * 100}%`;
 const draftEl = document.getElementById("draft")!;
 const draftCards = document.getElementById("draft-cards")!;
 let shownSponsors = 0;
@@ -234,6 +239,10 @@ function updateShowHud(s: GameState): void {
   // Pop the viewer chip on a big surge (exciting moment).
   if (v > shownViewers * 1.25 && v > 500) bump(statViewers);
   shownViewers = v;
+  // Live hype meter: the resource the crowd actually reacts to. Past the gold
+  // tick the crowd is in Frenzy and the bar burns hot.
+  hypeFill.style.width = `${Math.min(1, p.hype / CONFIG.show.hypeMax) * 100}%`;
+  hypeBar.classList.toggle("frenzy", p.frenzy);
 }
 
 const RARITY_TEXT: Record<string, string> = {

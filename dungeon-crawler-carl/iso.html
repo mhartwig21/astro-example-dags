@@ -223,9 +223,17 @@
       #recap .rfoot .dismiss { background: #14131f; color: #8a8a9a; border-color: #2a2a38; }
       #recap .rfoot .note { color: #7a7a8a; font-size: 11px; }
 
-      /* The Show — audience bar */
+      /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
       #show { position: fixed; top: 84px; left: 50%; transform: translateX(-50%);
-        display: flex; gap: 10px; pointer-events: none; font-size: 13px; }
+        display: flex; flex-direction: column; align-items: center; gap: 5px;
+        pointer-events: none; font-size: 13px; }
+      #show .chips { display: flex; gap: 10px; }
+      #show .hypebar { position: relative; width: 250px; height: 5px; border-radius: 3px;
+        background: rgba(12,10,20,0.72); border: 1px solid #2a2a38; overflow: hidden; }
+      #show .hypebar > i { display: block; height: 100%; width: 0%;
+        background: linear-gradient(90deg, #7a5cff, #ff8ac2); transition: width 0.15s linear; }
+      #show .hypebar.frenzy > i { background: linear-gradient(90deg, #ffd23e, #ff6a28); }
+      #show .hypebar > s { position: absolute; top: 0; bottom: 0; width: 2px; background: #c9a24b; opacity: 0.85; }
       #show .stat { background: rgba(12,10,20,0.72); border: 1px solid #2a2a38;
         border-radius: 999px; padding: 4px 12px; display: flex; gap: 6px; align-items: baseline; }
       #show .stat b { font-variant-numeric: tabular-nums; }
@@ -689,9 +697,12 @@
       <div class="bi-affix" id="bi-affix"></div>
     </div>
     <div id="show">
-      <div class="stat viewers">👁 <b id="stat-viewers">0</b> viewers</div>
-      <div class="stat favorites">⭐ <b id="stat-favorites">0</b> favorites</div>
-      <div class="stat sponsors">🤝 <b id="stat-sponsors">0</b> sponsors</div>
+      <div class="chips">
+        <div class="stat viewers">👁 <b id="stat-viewers">0</b> viewers</div>
+        <div class="stat favorites">⭐ <b id="stat-favorites">0</b> favorites</div>
+        <div class="stat sponsors">🤝 <b id="stat-sponsors">0</b> sponsors</div>
+      </div>
+      <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><s id="hype-tick"></s></div>
     </div>
     <div id="draft">
       <div class="panel">
