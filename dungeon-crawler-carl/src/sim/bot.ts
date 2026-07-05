@@ -224,6 +224,17 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
     const d = dist(p.pos, threat.pos);
     const aim = { x: threat.pos.x - p.pos.x, y: threat.pos.y - p.pos.y };
     intent.aim = aim;
+    // Spend the ultimate on a real occasion: a pack in range or a boss. The
+    // sim no-ops the cast while it's on cooldown, so this can stay greedy —
+    // a player with an ultimate PRESSES it (and the balance tests should
+    // price ultimate constellation ranks, not treat them as dead weight).
+    if (p.abilities.ultimate) {
+      let packed = 0;
+      for (const m of state.monsters) {
+        if (m.hp > 0 && dist(p.pos, m.pos) <= 5) packed++;
+      }
+      if (packed >= 3 || threat.kind === "boss") intent.cast = [false, false, false, false, true];
+    }
     if (d <= CONFIG.playerAttackRange * 0.95) {
       intent.attack = true;
     } else {

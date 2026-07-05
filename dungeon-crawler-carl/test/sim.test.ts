@@ -5,21 +5,22 @@ import {
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
-import { armorReduction, rollDamage } from "../src/sim/combat";
-import { generateFloor } from "../src/sim/floor";
+import { armorReduction, dist, rollDamage } from "../src/sim/combat";
+import { generateFloor, walkableTiles } from "../src/sim/floor";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
-  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
+  DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
+  damageVariance, effectiveMaxRank, knows, meleeParams,
   novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
 function idle(): Intent {
@@ -76,6 +77,7 @@ describe("floor generation", () => {
 describe("collapse timer", () => {
   it("advances only through dt and transitions phases", () => {
     const g = createGame(42);
+    g.monsters.length = 0; // isolate the timer (roaming packs now find idlers!)
     expect(g.phase).toBe("safe");
     const budget = floorTimeBudget(1);
     expect(g.timeBudget).toBeCloseTo(budget);
@@ -1338,6 +1340,9 @@ describe("per-player show economy", () => {
     carl.facing = { x: 1, y: 0 };
     carl.attackPower = 9999;
     g.monsters.length = 0;
+    // Park the bystander away from the corpse: loot-pickup hype (rare drops)
+    // belongs to whoever grabs the drop, which isn't what this test measures.
+    donut.pos = { x: carl.pos.x - 4, y: carl.pos.y };
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: carl.pos.x + 0.8, y: carl.pos.y } }));
     step(g, { [carl.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
     expect(carl.hype).toBeGreaterThan(0);
@@ -1348,6 +1353,7 @@ describe("per-player show economy", () => {
     const g = createGame(506);
     addPlayer(g, "Donut");
     const [carl, donut] = g.players;
+    g.monsters.length = 0; // roaming patrols would find (and end) the idle pair
     // Carl sustains a hyped broadcast (~15s — sqrt conversion pays out
     // steadily, not explosively); Donut idles.
     for (let i = 0; i < 900; i++) {
@@ -3675,5 +3681,343 @@ describe("planning-first drops", () => {
     p.inventory.push({ id: 3, slot: "trinket", rarity: "epic", name: "Idol", affixes: { crit: 0.1 } });
     sellAllItems(g, 0);
     expect(p.inventory.length).toBe(1);
+  });
+});
+
+describe("ultimate constellations", () => {
+  it("Deep Focus stretches bullet time; ENCORE extends it on kills inside", () => {
+    const g = createGame(940);
+    const p = g.players[0];
+    learnAbility(g, p, "bullettime"); // the empty ultimate slot auto-fills
+    p.abilities.ranks["bt.focus"] = 2;
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    const expected = CONFIG.ultBulletTimeDuration + 2 * CONFIG.ultBulletTimeFocusSeconds;
+    expect(g.bulletTimeLeft).toBeGreaterThan(expected - 0.1);
+    // ENCORE: a kill while the world is slow buys more slow.
+    p.abilities.ranks["bt.encore"] = 1;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 9, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1, maxHp: 10 }));
+    p.facing = { x: 1, y: 0 };
+    p.attackPower = 9999;
+    const before = g.bulletTimeLeft;
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.bulletTimeLeft).toBeGreaterThan(before);
+  });
+
+  it("Adrenaline ticks the crawler's cooldowns faster inside the slow", () => {
+    const g = createGame(941);
+    const p = g.players[0];
+    p.abilities.ranks["bt.adrenaline"] = 2; // cdTickMult = 2
+    g.bulletTimeLeft = 3;
+    p.cd.nova = 1.0;
+    step(g, idle(), 1 / 60);
+    expect(p.cd.nova!).toBeCloseTo(1.0 - (1 / 60) * 2, 3);
+    // Outside the slow, cooldowns tick at normal speed again.
+    g.bulletTimeLeft = 0;
+    const cd = p.cd.nova!;
+    step(g, idle(), 1 / 60);
+    expect(p.cd.nova!).toBeCloseTo(cd - 1 / 60, 3);
+  });
+
+  it("airstrike nodes shape the barrage: payload hardens, saturation adds, precision tightens", () => {
+    const g = createGame(942);
+    const p = g.players[0];
+    const base = airstrikeParams(p);
+    expect(base.shells).toBe(CONFIG.ultAirstrikeShells);
+    p.abilities.ranks["air.payload"] = 2;
+    p.abilities.ranks["air.saturation"] = 2;
+    const sat = airstrikeParams(p);
+    expect(sat.shells).toBe(CONFIG.ultAirstrikeShells + 2 * CONFIG.ultAirstrikeSaturationShells);
+    expect(sat.spread).toBeGreaterThan(base.spread);
+    expect(sat.dmgMult).toBeGreaterThan(base.dmgMult);
+    delete p.abilities.ranks["air.saturation"];
+    p.abilities.ranks["air.precision"] = 2;
+    expect(airstrikeParams(p).spread).toBeLessThan(base.spread * 0.5);
+  });
+
+  it("Aftermath schedules an echo shock that lands where you stood", () => {
+    const g = createGame(943);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.abilities.ranks["cata.aftermath"] = 1;
+    p.spellPower = 100;
+    g.monsters.length = 0;
+    const m = mkMon({ id: 5, pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 1e6, maxHp: 1e6 });
+    g.monsters.push(m);
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    expect(g.strikes.some((s) => s.kind === "echo")).toBe(true);
+    const afterBlast = m.hp; // took the primary hit
+    expect(afterBlast).toBeLessThan(1e6);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // 1.5s: the echo lands
+    expect(m.hp).toBeLessThan(afterBlast);
+    expect(g.strikes.length).toBe(0);
+  });
+
+  it("EXTINCTION EVENT chains cataclysm kills outward", () => {
+    const g = createGame(944);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.abilities.ranks["cata.extinction"] = 1;
+    p.spellPower = 100;
+    g.monsters.length = 0;
+    const radius = cataclysmParams(p).radius;
+    // The victim dies inside the blast; the bystander stands beyond it,
+    // reachable only through the victim's detonation.
+    const victim = mkMon({ id: 6, pos: { x: p.pos.x + radius - 0.5, y: p.pos.y }, hp: 1, maxHp: 10 });
+    const bystander = mkMon({
+      id: 7, pos: { x: p.pos.x + radius + 0.8, y: p.pos.y }, hp: 1e6, maxHp: 1e6,
+    });
+    g.monsters.push(victim, bystander);
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    expect(victim.hp).toBeLessThanOrEqual(0);
+    expect(bystander.hp).toBeLessThan(1e6);
+  });
+
+  it("GUILLOTINE finishes worn-down chaff; elites are exempt", () => {
+    const g = createGame(945);
+    const p = g.players[0];
+    learnAbility(g, p, "orbit"); // slot 4 is open
+    p.abilities.ranks["orbit.guillotine"] = 1;
+    p.attackPower = 1; // blades chip, they don't kill on their own
+    g.monsters.length = 0;
+    const chaff = mkMon({ id: 8, pos: { x: p.pos.x + CONFIG.orbitRadius, y: p.pos.y }, hp: 100, maxHp: 1000 });
+    g.monsters.push(chaff);
+    for (let i = 0; i < 240 && chaff.hp > 0; i++) step(g, idle(), 1 / 60);
+    expect(chaff.hp).toBeLessThanOrEqual(0);
+    const elite = mkMon({
+      id: 9, pos: { x: p.pos.x + CONFIG.orbitRadius, y: p.pos.y }, hp: 100, maxHp: 1000,
+      elite: true, introduced: true,
+    });
+    g.monsters.push(elite);
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 60);
+    expect(elite.hp).toBeGreaterThan(0);
+  });
+
+  it("Heavy Blows: a killing swing's overkill splashes to a neighbor", () => {
+    const g = createGame(946);
+    const p = g.players[0];
+    p.abilities.ranks["melee.heavy"] = 1;
+    p.attackPower = 500;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    const victim = mkMon({ id: 10, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1, maxHp: 10 });
+    // Out of the swing's reach, but inside the overkill splash radius of the victim.
+    const bystander = mkMon({ id: 11, pos: { x: p.pos.x + 2.0, y: p.pos.y }, hp: 500, maxHp: 500 });
+    g.monsters.push(victim, bystander);
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(victim.hp).toBeLessThanOrEqual(0);
+    expect(bystander.hp).toBeLessThan(500);
+  });
+
+  it("Swift Strikes: connecting swings build momentum; pausing drops it", () => {
+    const g = createGame(947);
+    const p = g.players[0];
+    p.abilities.ranks["melee.swift"] = 2;
+    p.attackPower = 1;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 12, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1e6, maxHp: 1e6, introduced: true }));
+    const swing = { ...idle(), attack: true, aim: { x: 1, y: 0 } };
+    step(g, swing, 1 / 60);
+    expect(p.meleeCombo).toBe(1);
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // wait out the cooldown
+    step(g, swing, 1 / 60);
+    expect(p.meleeCombo).toBe(2);
+    // The flurry pauses past the window: momentum drops.
+    for (let i = 0; i < Math.ceil(CONFIG.meleeMomentumWindow * 60) + 5; i++) step(g, idle(), 1 / 60);
+    expect(p.meleeCombo).toBe(0);
+  });
+
+  it("Retraining Arc refunds a fork side as fresh drafts", () => {
+    const g = createGame(948);
+    const p = g.players[0];
+    p.abilities.ranks["melee.heavy"] = 2;
+    p.pendingRewards = [{
+      id: 1, kind: "retrain", title: "Retraining Arc",
+      desc: "Unlearn Heavy Blows (2 ranks) — 2 fresh drafts", amount: 2, nodeId: "melee.heavy",
+    }];
+    chooseReward(g, p.id, 0);
+    expect(rank(p, "melee.heavy")).toBe(0);
+    expect(p.upgradeDraftsOwed).toBeGreaterThanOrEqual(2);
+    // The road not taken reopens: Swift Strikes is draftable again.
+    p.abilities.ranks["melee.arc"] = 1;
+    expect(availableUpgrades(p).some((u) => u.id === "melee.swift")).toBe(true);
+  });
+
+  it("orbit's razor and corkscrew are a real fork now", () => {
+    const g = createGame(949);
+    const p = g.players[0];
+    learnAbility(g, p, "orbit");
+    p.abilities.ranks["orbit.blade"] = 1;
+    p.abilities.ranks["orbit.razor"] = 1;
+    const open = availableUpgrades(p).map((u) => u.id);
+    expect(open).not.toContain("orbit.wide");
+    expect(open).toContain("orbit.guillotine"); // the capstone stays reachable
+  });
+});
+
+describe("depth tempo (monsters get quicker, not just fatter)", () => {
+  it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
+    // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
+    for (const f of [1, 2, 3, 4]) {
+      expect(monsterTempo(f)).toEqual({ speed: 1, cooldown: 1, windup: 1 });
+    }
+    const mid = monsterTempo(10);
+    expect(mid.speed).toBeGreaterThan(1);
+    expect(mid.cooldown).toBeLessThan(1);
+    expect(mid.windup).toBeLessThan(1);
+    // Deep floors hit the caps and stay there (fast but still readable).
+    const deep = monsterTempo(30);
+    expect(deep.speed).toBe(CONFIG.monsterTempoSpeedMax);
+    expect(deep.cooldown).toBe(CONFIG.monsterTempoCdMin);
+    expect(deep.windup).toBe(CONFIG.monsterTempoWindupMin);
+  });
+
+  it("a floor-12 grunt genuinely moves faster than a floor-1 grunt", () => {
+    const find = (g: GameState) => g.monsters.find((m) => m.kind === "grunt");
+    let early: number | null = null, late: number | null = null;
+    for (let seed = 1; seed < 30 && (!early || !late); seed++) {
+      early ??= find(createGame(seed))?.speed ?? null;
+      late ??= find(restoreGame({
+        seed, floor: 12, player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+      }))?.speed ?? null;
+    }
+    expect(early).not.toBeNull();
+    expect(late).not.toBeNull();
+    expect(late! / early!).toBeCloseTo(monsterTempo(12).speed, 5);
+  });
+});
+
+describe("broodmother (the pack grows if you ignore it)", () => {
+  it("births swarmers on a timer, capped per mother, and never attacks", () => {
+    const g = createGame(7100);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const mother = mkMon({
+      id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 500, maxHp: 500, attackRange: 6,
+    });
+    g.monsters.push(mother);
+    // Run long enough for several birth cycles.
+    const seconds = CONFIG.broodSpawnCooldown * 3 + 1;
+    for (let i = 0; i < 60 * seconds; i++) step(g, idle(), 1 / 60);
+    const brood = g.monsters.filter((m) => m.kind === "swarmer" && m.hp > 0);
+    expect(mother.summons).toBeGreaterThanOrEqual(3);
+    expect(brood.length).toBeGreaterThan(0); // the floor got MORE crowded
+    expect(mother.windup).toBe(0); // she never commits to an attack
+    // Lifetime cap: run far past the cap and she stops.
+    for (let i = 0; i < 60 * CONFIG.broodSpawnCooldown * CONFIG.broodSpawnMax; i++) step(g, idle(), 1 / 60);
+    expect(mother.summons).toBeLessThanOrEqual(CONFIG.broodSpawnMax);
+  });
+
+  it("respects the global population guard", () => {
+    const g = createGame(7101);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Flood the floor to the guard line with inert chaff.
+    const cap = Math.ceil(CONFIG.monsterMaxCount * CONFIG.broodPopulationCap);
+    for (let i = 0; i < cap; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: 1.5, y: 1.5 }, hp: 1, maxHp: 1 }));
+    }
+    const mother = mkMon({
+      id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 500, maxHp: 500, attackRange: 6,
+    });
+    g.monsters.push(mother);
+    for (let i = 0; i < 60 * (CONFIG.broodSpawnCooldown + 1); i++) step(g, idle(), 1 / 60);
+    expect(mother.summons ?? 0).toBe(0); // guard held: no births past the cap
+  });
+
+  it("spawns in the deep-floor archetype mix but never takes the elite crown", () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const g = restoreGame({
+        seed, floor: 9, player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+      });
+      seen += g.monsters.filter((m) => m.kind === "broodmother").length;
+      const crowned = g.monsters.find((m) => m.elite);
+      expect(crowned?.kind).not.toBe("broodmother");
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
+describe("roaming (behavior variety: patrols, sentries, ambushers)", () => {
+  it("a patrolling monster strolls around its post, leashed; a sentry holds it", () => {
+    const g = createGame(7200);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Both placed well outside aggro range on open floor near the stairs.
+    const roamer = mkMon({ id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6, roams: true });
+    const sentry = mkMon({ id: 2, pos: { x: g.map.stairs.x + 1, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6 });
+    if (dist(roamer.pos, p.pos) <= CONFIG.monsterAggroRange * 2) return; // seed guard
+    g.monsters.push(roamer, sentry);
+    const roamStart = { x: roamer.pos.x, y: roamer.pos.y };
+    const sentryStart = { x: sentry.pos.x, y: sentry.pos.y };
+    let maxFromPost = 0;
+    for (let i = 0; i < 60 * 12; i++) {
+      step(g, idle(), 1 / 60);
+      maxFromPost = Math.max(maxFromPost, dist(roamer.pos, roamStart));
+    }
+    expect(maxFromPost).toBeGreaterThan(1); // the patroller went somewhere...
+    expect(maxFromPost).toBeLessThan(CONFIG.wanderLeash + 4); // ...but stayed leashed
+    expect(dist(sentry.pos, sentryStart)).toBeLessThan(0.01); // the sentry held its post
+  });
+
+  it("floors spawn a MIX: lone wanderers always roam, some packs patrol, some hold", () => {
+    let roamers = 0, sentries = 0;
+    for (let seed = 1; seed <= 5; seed++) {
+      const g = restoreGame({
+        seed, floor: 5, player: { hp: 100, level: 6, xp: 0, xpToNext: 999, gold: 0 },
+      });
+      for (const m of g.monsters) {
+        if (m.kind === "boss") continue;
+        if (m.roams) roamers++;
+        else sentries++;
+      }
+    }
+    expect(roamers).toBeGreaterThan(0);
+    expect(sentries).toBeGreaterThan(0);
+  });
+
+  it("dormant ambushers do NOT roam — they lie in wait", () => {
+    const g = restoreGame({
+      seed: 3, floor: 9, player: { hp: 200, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const dormant = g.monsters.filter((m) => m.dormant &&
+      dist(m.pos, g.players[0].pos) > CONFIG.ambushTriggerRadius + 3);
+    if (dormant.length === 0) return; // seed rolled no distant ambush pack
+    const starts = dormant.map((m) => ({ m, x: m.pos.x, y: m.pos.y }));
+    for (let i = 0; i < 60 * 5; i++) step(g, idle(), 1 / 60);
+    for (const s of starts) {
+      if (!s.m.dormant) continue; // something else sprang it (damage etc.)
+      expect(dist(s.m.pos, { x: s.x, y: s.y })).toBeLessThan(0.01);
+    }
+  });
+
+  it("a roamer that spots you drops the stroll and attacks", () => {
+    const g = createGame(7201);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Real walkable ground for everyone: the roamer patrols the stairs room,
+    // the player steps onto a walkable tile a few tiles away from it.
+    const roamer = mkMon({
+      id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y },
+      hp: 100, maxHp: 100, speed: 2.6, damage: 10, attackRange: 1, roams: true,
+    });
+    g.monsters.push(roamer);
+    for (let i = 0; i < 10; i++) step(g, idle(), 1 / 60); // a brief off-duty stroll
+    const spot = walkableTiles(g.map).find(
+      (t) => dist(t, roamer.pos) > 4 && dist(t, roamer.pos) < 6,
+    );
+    expect(spot).toBeTruthy();
+    p.pos = { x: spot!.x, y: spot!.y };
+    const d0 = dist(roamer.pos, p.pos);
+    let engaged = false;
+    for (let i = 0; i < 60 * 3 && !engaged; i++) {
+      step(g, idle(), 1 / 60);
+      engaged = roamer.windup > 0 || dist(roamer.pos, p.pos) < d0 - 1.5;
+    }
+    expect(engaged).toBe(true);
   });
 });
