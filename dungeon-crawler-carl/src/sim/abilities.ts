@@ -212,9 +212,16 @@ export function slotted(p: Player, ability: AbilityId): boolean {
   return p.abilities.slots.includes(ability) || p.abilities.ultimate === ability;
 }
 
-/** Abilities not yet discovered (tomes can drop for these). */
-export function unknownAbilities(p: Player): AbilityId[] {
-  return DISCOVERABLE_ABILITIES.filter((a) => !knows(p, a));
+/**
+ * Abilities not yet discovered (tomes can drop for these). Ultimates are
+ * late-run power: they stay out of EVERY discovery pool (tome drops, safe-room
+ * tomes, loot-box skill chips) until `CONFIG.ultimateMinFloor` — finding one
+ * should feel like an act break, not a floor-3 lottery ticket.
+ */
+export function unknownAbilities(p: Player, floor: number): AbilityId[] {
+  return DISCOVERABLE_ABILITIES.filter(
+    (a) => !knows(p, a) && (ABILITY_INFO[a].tier !== "ultimate" || floor >= CONFIG.ultimateMinFloor),
+  );
 }
 
 /** Fresh loadout for a new crawler. */

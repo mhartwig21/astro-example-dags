@@ -196,6 +196,7 @@ attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
 | carpet-bombing | airstrike | Skoll |
 | quake-stomp | cataclysm | Lorc |
 | stopwatch | bullettime | Lorc |
+| flask *(original)* | Sponsor Slurp™ flask chip | drawn for this repo, CC0 — NOT game-icons |
 
 Convention: `/icons/<abilityId>.svg`, background rect stripped so the white
 glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
