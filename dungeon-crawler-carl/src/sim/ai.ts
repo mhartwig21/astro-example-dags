@@ -3,6 +3,7 @@ import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
+import { applyStatus } from "./status";
 import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
@@ -204,6 +205,16 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     const prey = nearestPlayer(state, m.pos);
     if (!prey || dist(m.pos, prey.pos) > CONFIG.ambushTriggerRadius) return; // still waiting
     springAmbush(state, m);
+  }
+
+  // CHILLING elites (5.11) radiate cold: any crawler inside the aura is
+  // slowed (short duration, re-applied every step in range — it fades a beat
+  // after you break away). Passive frost: it radiates even mid-windup/stagger.
+  if (m.affix === "chilling") {
+    for (const pl of state.players) {
+      if (!pl.alive || dist(m.pos, pl.pos) > CONFIG.chillingAuraRadius) continue;
+      applyStatus(pl, { kind: "chill", duration: 0.8, magnitude: CONFIG.chillingAuraSlow, school: "magic" });
+    }
   }
 
   // Staggered: helpless. The stagger that set this also canceled any windup

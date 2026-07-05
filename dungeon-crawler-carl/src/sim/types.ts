@@ -102,6 +102,10 @@ export interface Player {
   damageDealt: number;
   damageTaken: number;
 
+  // Active status effects on this crawler (poison from acid, chill auras).
+  // Optional for old-save/snapshot compat; reset every floor.
+  statuses?: StatusEffect[];
+
   // The Show, PER CRAWLER: everyone runs their own broadcast. Your crits and
   // kills grow YOUR audience; your near-death moments are your ratings gold.
   hype: number; // excitement meter (decays)
@@ -116,7 +120,27 @@ export type EliteAffix =
   // School resists (DESIGN 5.8 phase 3): the party's damage MIX starts
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
-  | "warded"; // takes reduced MAGIC damage
+  | "warded" // takes reduced MAGIC damage
+  | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
+
+// ---- Status effects (burn / poison / chill) ----
+// Deterministic, dt-ticked entries living on the afflicted entity (monster or
+// player). Apply/stack/tick rules live in status.ts; DoT damage flows back
+// through the damageMonster/damagePlayerHit choke points in game.ts so
+// schools, resists, armor, and hit events compose for free.
+export type StatusKind = "burn" | "poison" | "chill";
+
+export interface StatusEffect {
+  kind: StatusKind;
+  remaining: number; // seconds until the effect fades
+  // burn/poison: damage per tick PER STACK; chill: fraction of speed removed
+  // (move + attack/windup — a chilled entity experiences slowed time).
+  magnitude: number;
+  stacks: number; // poison stacks up to poisonMaxStacks (each adds); others stay 1
+  tick: number; // DoT only: seconds until the next damage tick
+  school: School; // DoT school (burn = magic, poison = physical) — resists apply
+  sourceId?: number; // player id credited with monster-side DoT kills
+}
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
@@ -183,6 +207,8 @@ export interface Monster {
   // near, then springs — the whole cluster wakes together with a speed surge.
   dormant?: boolean; // waiting in ambush: no move, no attack, until sprung
   surgeT?: number; // seconds of ambush speed-surge remaining (the pounce)
+  // Active status effects (optional so old snapshots/tests stay valid).
+  statuses?: StatusEffect[];
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
@@ -231,7 +257,8 @@ export type PassiveId =
   | "cancellation" // executes: non-elite monsters below a threshold just die
   | "conduit" // crits arc a fraction of the hit to a nearby enemy (magic)
   | "phase" // your dash passes through walls when it can reach the far side
-  | "pathfinder"; // the stairs are marked on your minimap, explored or not
+  | "pathfinder" // the stairs are marked on your minimap, explored or not
+  | "venom"; // crits inject a poison stack (the only lootless poison source)
 
 export interface Item {
   id: number;
@@ -306,6 +333,7 @@ export interface Projectile {
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
+  chill?: number; // FROST BOLTS node: slow fraction applied on impact
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
@@ -400,6 +428,7 @@ export interface HitEvent {
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
+  effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation

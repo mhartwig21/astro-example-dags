@@ -296,6 +296,12 @@ export const CATALOG: CatalogEntry[] = [
     passive: "phase", sponsors: 2, materials: { elite_trophy: 2, boss_sigil: 1 },
   },
   {
+    id: "venom_clause", name: "Venom Clause", tier: "legendary", slot: "charm",
+    desc: "Crits inject POISON — stacks to 3, each stack biting harder. Terms and conditions metabolize.", cost: 150,
+    buildsFrom: ["vip_pass"], affixes: { crit: 0.1, damage: 10 },
+    passive: "venom", sponsors: 2, materials: { elite_trophy: 2 },
+  },
+  {
     id: "location_scout", name: "Location Scout", tier: "legendary", slot: "charm",
     desc: "The stairs are marked on your minimap from the moment you arrive. Crew knowledge.", cost: 140,
     buildsFrom: ["vip_pass"], affixes: { speed: 0.35, maxHp: 20, crit: 0.04 },

@@ -59,9 +59,8 @@ export const CONFIG = {
   monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
   bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
-  // Feature switches (disabled by request until the designs are reworked; the
-  // code paths stay intact so flipping these back on re-enables everything).
-  flaskEnabled: false, // Sponsor Slurp™ flask: drink no-ops, no refill events, chip hidden
+  // Feature switches (code paths stay intact so these can toggle cleanly).
+  flaskEnabled: true, // Sponsor Slurp™ flask: kill-credit sustain loop (re-enabled with the status pass)
   achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
   // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
@@ -74,6 +73,24 @@ export const CONFIG = {
   // economy feeding back into combat). Enter/exit thresholds live in show{}.
   frenzyMoveMult: 1.12,
   frenzyCooldownMult: 0.85, // melee/bolt/nova cooldowns + dash recharge
+
+  // Status effects (DESIGN 5.11; framework in status.ts). Exactly three:
+  // burn (fast magic DoT, refreshes), poison (slow physical DoT, stacks to 3),
+  // chill (no damage — the afflicted entity's clock runs slower).
+  burnDuration: 3, // seconds a burn lasts (re-applying restarts it)
+  burnTickSeconds: 0.5, // fast ticks — burn is the bursty DoT
+  poisonDuration: 5, // seconds a poison lasts (re-applying refreshes + stacks)
+  poisonTickSeconds: 1, // slow ticks — poison is the lingering DoT
+  poisonMaxStacks: 3, // each stack adds a full tick's damage
+  chillDuration: 2.5, // seconds a chill lasts (refresh-on-reapply)
+  chillBossMult: 0.5, // bosses shrug off half the slow (never immune)
+  chillSlowPerRank: 0.3, // FROST BOLTS: slow fraction per node rank (r1 = -30%)
+  chillSlowMax: 0.45, // hard cap, whatever overranks roll
+  novaScorchFracPerRank: 0.35, // AFTERBURN: burn total = this × nova hit per rank
+  venomTickFraction: 0.12, // Venom Clause: poison tick (per stack) = this × the crit
+  puddlePoisonFraction: 0.6, // spitter acid: poison tick = this × the puddle tick
+  chillingAuraRadius: 3.2, // "chilling" elite: crawlers inside are slowed...
+  chillingAuraSlow: 0.3, // ...by this fraction (fades ~a beat after you break away)
 
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,

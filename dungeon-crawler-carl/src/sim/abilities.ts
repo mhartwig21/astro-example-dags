@@ -133,11 +133,18 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "bolt.rapid", ability: "bolt", title: "Rapid Bolts", maxRank: 3, over: 1, desc: (r) => `Bolt cooldown -${r * 15}%`, pos: { x: 50, y: 12 } },
   { id: "bolt.split", ability: "bolt", title: "Split Shot", maxRank: 2, over: 2, desc: (r) => `Fire ${1 + r} bolts in a fan`, requires: ["bolt.rapid"], excludes: ["bolt.pierce"], pos: { x: 22, y: 48 } },
   { id: "bolt.pierce", ability: "bolt", title: "Piercing Bolts", maxRank: 2, over: 2, desc: (r) => `Bolts pierce ${r} extra ${r === 1 ? "enemy" : "enemies"}`, requires: ["bolt.rapid"], excludes: ["bolt.split"], pos: { x: 78, y: 48 } },
+  // Status rider (5.11): a single behavior rank beside the split/pierce fork
+  // (not inside it — any bolt build can run cold). One rank keeps the draft
+  // pool lean; the overrank lottery can push the slow deeper.
+  { id: "bolt.frost", ability: "bolt", title: "Frost Bolts", maxRank: 1, over: 1, desc: (r) => `Bolts CHILL: −${Math.round(Math.min(CONFIG.chillSlowMax, r * CONFIG.chillSlowPerRank) * 100)}% move & attack speed for ${CONFIG.chillDuration}s`, requires: ["bolt.rapid"], pos: { x: 50, y: 52 } },
   { id: "bolt.ricochet", ability: "bolt", title: "RICOCHET", maxRank: 1, desc: () => "Bolts bounce to a nearby enemy on hit (60% damage)", requires: ["bolt.rapid"], capstone: true, pos: { x: 50, y: 86 } },
   // Nova: bang -> (after XOR conc) -> Implosion
   { id: "nova.bang", ability: "nova", title: "Bigger Bang", maxRank: 2, over: 2, desc: (r) => `Nova radius +${r * 25}%`, pos: { x: 50, y: 12 } },
   { id: "nova.after", ability: "nova", title: "Aftershock", maxRank: 3, over: 1, desc: (r) => `Nova cooldown -${r * 15}%`, requires: ["nova.bang"], excludes: ["nova.conc"], pos: { x: 22, y: 48 } },
   { id: "nova.conc", ability: "nova", title: "Concussive", maxRank: 3, over: 2, desc: (r) => `Nova damage +${r * 30}%`, requires: ["nova.bang"], excludes: ["nova.after"], pos: { x: 78, y: 48 } },
+  // Status rider (5.11): one behavior rank beside the after/conc fork —
+  // either side can burn; overranks stoke it hotter.
+  { id: "nova.scorch", ability: "nova", title: "Afterburn", maxRank: 1, over: 1, desc: (r) => `Nova IGNITES: burn for ${Math.round(r * CONFIG.novaScorchFracPerRank * 100)}% of its damage over ${CONFIG.burnDuration}s`, requires: ["nova.bang"], pos: { x: 50, y: 52 } },
   { id: "nova.implode", ability: "nova", title: "IMPLOSION", maxRank: 1, desc: () => "Nova first drags everything in range toward you", requires: ["nova.bang"], capstone: true, pos: { x: 50, y: 86 } },
   // Stance: edge -> (discipline XOR flow) -> a capstone per side. The fork IS
   // the playstyle question: plant your feet in one stance, or dance between them.
@@ -253,6 +260,8 @@ export function boltParams(p: Player) {
     dmg: profile.dmg,
     school: profile.school,
     speedMult: profile.speedMult,
+    // Frost Bolts (5.11): impacts chill by this slow fraction (0 = node untaken).
+    chill: Math.min(CONFIG.chillSlowMax, rank(p, "bolt.frost") * CONFIG.chillSlowPerRank),
   };
 }
 

@@ -411,6 +411,37 @@ their fixes:
   >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
   hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
 
+### 5.11 Status effects + the flask returns (SHIPPED)
+
+A small, deterministic status layer for BOTH sides of the fight — exactly three
+effects, each with one player source and one monster source, all ticked by `dt`
+in `status.ts` (`Monster.statuses` / `Player.statuses`):
+
+- **Burn** — fast magic DoT (0.5s ticks, 3s), refresh-on-reapply, no stacking.
+  Source: the **Afterburn** nova node (nova ignites for 35%/rank of its hit).
+- **Poison** — slow physical DoT (1s ticks, 5s), stacks to 3, each stack adds.
+  Sources: **spitter acid** (every puddle tick also stacks poison, so lingering
+  costs you after you step out) and the **Venom Clause** legendary charm
+  (crits inject a stack — the only lootless poison source).
+- **Chill** — no damage; the afflicted entity's combat clock runs at −30%:
+  movement, windups, and cooldown recovery all stretch (the same per-entity
+  time-scale trick bullet time uses). Sources: the **Frost Bolts** node and the
+  new **chilling** elite affix (a cold aura that slows crawlers inside it).
+  Bosses take half the slow — meaningful, never immune.
+
+DoT ticks route back through the SAME choke points as every other hit
+(`damageMonster` / `damagePlayerHit`), so schools, resists (a warded elite
+shrugs 30% of a burn), armor, shielded, one-shot caps, kill credit, and hit
+events compose for free. DoT never crits and never builds poise (a burn can't
+stagger-lock a brute). `HitEvent.effect` tags DoT numbers so the 3D host tints
+them (burn ember-orange, poison toxin-green), status pips render on the boss
+bar + a debuff row under the player HP readout, and a faint colored ring hums
+under statused monsters. Statuses reset every floor.
+
+**The Sponsor Slurp™ flask is back on** (`flaskEnabled: true`, unchanged
+tuning: 35% heal, 8 kills per charge, safe-room top-up) — aggression is the
+sustain loop again, and it doubles as the answer to "I'm poisoned and low."
+
 ---
 
 ## 6. Tech stack
