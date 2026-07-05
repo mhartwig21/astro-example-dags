@@ -117,7 +117,7 @@
 
       /* Minimap */
       #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
-        border: 1px solid #6e5533; border-radius: 6px; }
+        border: 1px solid #2a2a34; border-radius: 6px; }
 
       /* Keybinds panel */
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -384,7 +384,7 @@
       #draft .hint { color: #a99f8c; font-size: 12px; margin-bottom: 18px; }
       #draft .cards { display: flex; flex-direction: column; gap: 12px; }
       .reward { --oc: #c9a24b; position: relative; cursor: pointer; display: flex; align-items: center;
-        gap: 14px; padding: 12px 16px; border: 1px solid #6e5533; border-left: 3px solid var(--oc);
+        gap: 14px; padding: 12px 16px; border: 1px solid #2a2a38; border-left: 3px solid var(--oc);
         background: linear-gradient(100deg, rgba(20,19,31,0.95) 55%, rgba(20,19,31,0.65));
         transform: skewX(-6deg); animation: offer-in 0.3s ease backwards;
         transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; }
@@ -821,8 +821,10 @@
          The slab: every modal panel is the same torchlit stone plate with a
          bronze double-frame. Individual panels above keep their layout; this
          layer owns their MATERIAL. */
+      /* NOT #draft — the offer overlay floats on the live game (rule four:
+         glass for the fight); a stone slab there boxed it in as a brown plate. */
       #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
-      #saferoom .panel, #draft .panel, #menu .panel {
+      #saferoom .panel, #menu .panel {
         background: linear-gradient(180deg, var(--raised), var(--stone) 36%);
         border: 1px solid var(--bronze);
         border-radius: 3px;
