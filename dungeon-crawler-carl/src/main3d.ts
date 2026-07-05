@@ -141,6 +141,7 @@ input.onReset = () => {
   if (abilOpen) toggleAbilities();
   document.getElementById("saferoom")!.style.display = "none";
   document.getElementById("draft")!.style.display = "none";
+  document.getElementById("recap")!.style.display = "none"; // last season's report card
 };
 
 // HUD elements.
@@ -1444,6 +1445,81 @@ function showBanner(a: Announcement): void {
   }, BANNER_HOLD_MS);
 }
 
+// ---- Run recap (backlog #12): the season report card ----
+// Shown once per status edge: won = SEASON FINALE, wipe = IN MEMORIAM. All the
+// data already lives on Player/GameState; this only formats it.
+const recapEl = document.getElementById("recap")!;
+let recapFor: GameState["status"] | null = null;
+
+function renderRecap(s: GameState): void {
+  const p = me(s);
+  const won = s.status === "won";
+  const title = document.getElementById("recap-title")!;
+  title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
+  title.className = won ? "win" : "wipe";
+  document.getElementById("recap-sub")!.textContent = won
+    ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
+    : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  const stats: [string, string][] = [
+    [String(p.level), "LEVEL"],
+    [p.kills.toLocaleString(), "KILLS"],
+    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
+    [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
+    [`◈ ${p.gold.toLocaleString()}`, "GOLD BANKED"],
+    [`◈ ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
+  ];
+  document.getElementById("recap-stats")!.innerHTML =
+    stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
+  document.getElementById("recap-show")!.innerHTML =
+    `<div class="rstat viewers"><b>${Math.round(p.viewers).toLocaleString()}</b><small>VIEWERS</small></div>` +
+    `<div class="rstat favorites"><b>${Math.floor(p.favorites).toLocaleString()}</b><small>FAVORITES</small></div>` +
+    `<div class="rstat sponsors"><b>${p.sponsors}</b><small>SPONSORS</small></div>`;
+  const ach = p.achievements
+    .map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.title)
+    .filter((t): t is string => !!t);
+  document.getElementById("recap-ach")!.textContent = ach.length
+    ? `★ ${ach.join(" · ★ ")}`
+    : "None recorded. The System pretends not to judge.";
+  document.getElementById("recap-gear")!.innerHTML =
+    EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
+  const held: { id: AbilityId; ult: boolean }[] = [
+    ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ({ id, ult: false })),
+    ...(p.abilities.ultimate ? [{ id: p.abilities.ultimate, ult: true }] : []),
+  ];
+  document.getElementById("recap-abils")!.innerHTML = held.length
+    ? held.map(({ id, ult }) => {
+        const ranks = UPGRADES.filter((u) => u.ability === id).reduce((sum, u) => sum + rank(p, u.id), 0);
+        return (
+          `<div class="rabil${ult ? " ultimate" : ""}">` +
+          `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+          `${ABILITY_INFO[id].name}${ult ? " · ULTIMATE" : ""}` +
+          `<span class="rk">${ranks ? `${ranks} rank${ranks === 1 ? "" : "s"}` : "base"}</span></div>`
+        );
+      }).join("")
+    : `<div class="rabil">bare hands and bad intentions</div>`;
+  document.getElementById("recap-note")!.textContent = net
+    ? "the server hosts the next season"
+    : won ? "season two is contractually obligated" : "";
+  document.getElementById("recap-again")!.style.display = net ? "none" : "";
+}
+
+/** Show the recap when the run ends; re-arm when a new run starts. */
+function maybeShowRecap(s: GameState): void {
+  if (s.status === "playing") { recapFor = null; return; }
+  if (recapFor === s.status) return;
+  recapFor = s.status;
+  renderRecap(s);
+  recapEl.style.display = "flex";
+}
+
+document.getElementById("recap-dismiss")!.addEventListener("click", () => {
+  recapEl.style.display = "none"; // spectate the arena; R still restarts
+});
+document.getElementById("recap-again")!.addEventListener("click", () => {
+  recapEl.style.display = "none";
+  input.onReset?.();
+});
+
 function phaseColor(s: GameState): string {
   return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
 }
@@ -1627,6 +1703,7 @@ async function main(): Promise<void> {
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
+    maybeShowRecap(state);
     updateSkills(state);
     updateShowHud(state);
     updateBossBar(state);
