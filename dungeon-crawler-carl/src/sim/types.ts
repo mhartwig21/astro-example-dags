@@ -395,6 +395,13 @@ export interface FloorMap {
   cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
+  // Landmark set pieces carved into the GRID (tile indices; the tiles are
+  // Wall): pillars/pedestal used to be walk-through renderer dressing —
+  // "solid" props players clipped through. Now the sim blocks them and
+  // renderers draw pillar/centerpiece models ON these tiles, so what the
+  // floor SHOWS and what it BLOCKS agree.
+  pillars: number[];
+  pedestal: number; // centerpiece tile (-1 = none); OFF-center so the room center stays walkable
 }
 
 export type RunStatus = "playing" | "dead" | "won";

@@ -273,6 +273,46 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     farthestIdx === 0 ? 1 : Math.min(1, i / farthestIdx),
   );
 
+  // LANDMARK SET PIECES carved into the grid: the colonnade + centerpiece
+  // used to be walk-through renderer dressing — "solid" pillars the player
+  // clipped straight through (and paths that lied). Now they are real Wall
+  // tiles the sim blocks; renderers draw the models ON them. The ring keeps
+  // 2-tile gaps (never seals anything) and the pedestal sits OFF-center so
+  // the room center — elite spawn, reachability probes — stays walkable.
+  const pillars: number[] = [];
+  let pedestal = -1;
+  if (landmarkIdx >= 0) {
+    const r = rooms[landmarkIdx];
+    if (r.w >= 7 && r.h >= 7) {
+      for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
+        for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
+          // Colonnade along the interior grid's edge ring, not the middle.
+          if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
+          const i = idx(w, px, py);
+          if (tiles[i] !== Tile.Floor) continue; // never overwrite stairs/doors
+          tiles[i] = Tile.Wall;
+          pillars.push(i);
+        }
+      }
+      // Pedestal: one tile off-center (the center stays open), and ONLY where
+      // it keeps 2-wide clearance from every pillar and the room walls — the
+      // floor-wide "no 1-wide chokepoints" invariant holds around set pieces.
+      const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+      const py2 = cy - 1;
+      const insideMargin =
+        cx >= r.x + 3 && cx < r.x + r.w - 3 && py2 >= r.y + 3 && py2 < r.y + r.h - 3;
+      const clearOfPillars = pillars.every((ti) => {
+        const tx = ti % w, ty = Math.floor(ti / w);
+        return Math.max(Math.abs(tx - cx), Math.abs(ty - py2)) >= 3;
+      });
+      const pi = idx(w, cx, py2);
+      if (insideMargin && clearOfPillars && tiles[pi] === Tile.Floor) {
+        tiles[pi] = Tile.Wall;
+        pedestal = pi;
+      }
+    }
+  }
+
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
   const locked =
     floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
@@ -289,6 +329,8 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     cycles,
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
+    pillars,
+    pedestal,
   };
 }
 
