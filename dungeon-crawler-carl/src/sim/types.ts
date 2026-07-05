@@ -216,7 +216,11 @@ export type PassiveId =
   | "encore" // +1 orbit blade; blades tick faster
   | "skewer" // bolts pierce +2
   | "choreography" // swapping Battle Stance resets swing + bolt cooldowns
-  | "plot_armor"; // once per floor, a killing blow leaves you at 1 HP
+  | "plot_armor" // once per floor, a killing blow leaves you at 1 HP
+  // Novel mechanics that ONLY exist on these items — no tree, no drop:
+  | "leech" // lifesteal: heal a fraction of the damage you deal
+  | "cancellation" // executes: non-elite monsters below a threshold just die
+  | "conduit"; // crits arc a fraction of the hit to a nearby enemy (magic)
 
 export interface Item {
   id: number;
