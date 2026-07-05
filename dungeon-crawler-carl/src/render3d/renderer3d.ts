@@ -38,6 +38,16 @@ interface CanopyEntry {
   target: number; // 1 = full size, 0.12 = stepped aside for the camera
 }
 
+// Which clip a committed windup PREFERS (falls back to "attack" if the rig
+// doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
+const WINDUP_CLIP: Record<string, string> = {
+  shot: "shoot",
+  slam: "spin", // the 2H overhead spin reads as a wide AoE, not a jab
+  ritual: "cast_long", // channelled cast — the long wind-up IS the interrupt window
+  spit: "throw",
+  raise: "cast_raise",
+};
+
 export class Renderer3D {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -1523,7 +1533,11 @@ export class Renderer3D {
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
             else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (mon.windup > 0) {
-            playM(mon.windupKind === "shot" && (ud.hasClip as (n: string) => boolean)("shoot") ? "shoot" : "attack");
+            // Prefer a clip matching the committed attack; fall back to the
+            // generic swing when the rig doesn't have that specific one baked.
+            const hasClip = ud.hasClip as (n: string) => boolean;
+            const wanted = WINDUP_CLIP[mon.windupKind ?? ""] ?? "attack";
+            playM(hasClip(wanted) ? wanted : "attack");
           } else if ((ud.animBusy as () => number)() <= 0) {
             // Same hysteresis as players: enter walking decisively, leave lazily.
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
@@ -1561,7 +1575,10 @@ export class Renderer3D {
           mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
           mon.windupKind === "shot" || mon.windupKind === "spit" ? 0.5 :
           mon.windupKind === "raise" ? 0.7 :
-          mon.windupKind === "charge" ? 0.9 : mon.attackRange + CONFIG.monsterStrikeGrace;
+          mon.windupKind === "charge" ? 0.9 :
+          mon.windupKind === "slam" ? (mon.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius) :
+          mon.windupKind === "ritual" ? CONFIG.ritualRadius :
+          mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
         const mat = tel.material as THREE.MeshBasicMaterial;
@@ -1570,7 +1587,9 @@ export class Renderer3D {
           mon.windupKind === "shot" ? 0xffcc44 :
           mon.windupKind === "spit" ? 0xa4c93f :
           mon.windupKind === "raise" ? 0x8a5cff :
-          mon.windupKind === "charge" ? 0xff9a2e : 0xff5030,
+          mon.windupKind === "charge" ? 0xff9a2e :
+          mon.windupKind === "slam" ? 0xff2020 :
+          mon.windupKind === "ritual" ? 0x8800ee : 0xff5030,
         );
         mat.opacity = 0.2 + prog * 0.65;
         tel.visible = mesh.visible;

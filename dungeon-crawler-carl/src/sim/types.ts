@@ -143,7 +143,9 @@ export interface Monster {
   // dodge out of range or through it with dash i-frames.
   windup: number; // seconds until the pending attack resolves (0 = none)
   windupTotal: number; // full length of the pending windup (render progress)
-  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise"; // what resolves when windup expires
+  // "slam": self-centered ground AoE (brute's signature hit, also a boss ability).
+  // "ritual": boss-tier-3 channelled cast — the game's one real interrupt-or-hurt stake.
+  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"; // what resolves when windup expires
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
   chargeDir?: Vec2;
@@ -167,6 +169,13 @@ export interface Monster {
   affixCd?: number; // summoner: seconds until the next summon
   summons?: number; // summoner: lifetime adds spawned (capped)
   phase?: number; // boss enrage tier already applied (0..2)
+  // Boss-tier kit escalation, layered on the universal boss behavior (phase
+  // adds waves + hazard rain, backlog #11): 1 = floor-6 city boss (Ground
+  // Slam), 2 = floor-12 city boss (slam cycles faster), 3 = final boss
+  // (+ Dark Ritual). Every tier keeps the abilities of the ones below it.
+  bossTier?: 1 | 2 | 3;
+  slamCd?: number; // boss only: seconds until Ground Slam can commit again
+  ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)

@@ -187,6 +187,7 @@ function spawnMonsters(state: GameState): void {
     boss.damage = CONFIG.bossDamage * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
     boss.speed = CONFIG.bossSpeed;
     boss.xp = CONFIG.bossXp;
+    boss.bossTier = 3; // Ground Slam + Call for Backup + Dark Ritual — the full kit
     state.monsters.push(boss);
     for (let i = 0; i < 3 && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
@@ -207,6 +208,7 @@ function spawnMonsters(state: GameState): void {
     boss.speed = CONFIG.bossSpeed;
     boss.xp = Math.round(CONFIG.bossXp * 0.4);
     boss.eliteName = pick(rng, CITY_BOSS_NAMES);
+    boss.bossTier = arena <= 1 ? 1 : 2; // arena 1 (floor 6): Ground Slam; arena 2+ (floor 12): + Call for Backup
     state.monsters.push(boss);
     for (let i = 0; i < CONFIG.cityBossAdds && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
