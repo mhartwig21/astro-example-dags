@@ -783,6 +783,15 @@ export class Renderer3D {
 
     const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < map.w && y < map.h;
     const isFloorAt = (x: number, y: number) => inBounds(x, y) && map.tiles[y * map.w + x] !== Tile.Wall;
+    // Corridor mask: walkable tiles outside every room rect. Open-air bands
+    // render these as trodden earth (corridors are carved TWO wide, so any
+    // neighbor-counting heuristic misses them).
+    const roomMask = new Uint8Array(map.w * map.h);
+    for (const r of map.rooms) {
+      for (let y = r.y; y < r.y + r.h; y++) {
+        for (let x = r.x; x < r.x + r.w; x++) roomMask[y * map.w + x] = 1;
+      }
+    }
     const DIRS = [
       { dx: 0, dz: 1 }, { dx: 0, dz: -1 }, { dx: 1, dz: 0 }, { dx: -1, dz: 0 },
     ];
@@ -910,12 +919,8 @@ export class Renderer3D {
             }
           }
         } else if (openAir) {
-          // Grass everywhere; straight high-traffic corridors show trodden earth.
-          const corridor =
-            pathSrc &&
-            ((isFloorAt(x - 1, y) && isFloorAt(x + 1, y) && !isFloorAt(x, y - 1) && !isFloorAt(x, y + 1)) ||
-              (!isFloorAt(x - 1, y) && !isFloorAt(x + 1, y) && isFloorAt(x, y - 1) && isFloorAt(x, y + 1)));
-          if (corridor) {
+          // Grass everywhere; the corridors between clearings show trodden earth.
+          if (pathSrc && !roomMask[idx]) {
             placeFloor(pathSrc, x, y);
             push("path", x, y, idx, m);
           } else {
@@ -962,7 +967,8 @@ export class Renderer3D {
       const grassMat = flat(0xffffff);
       kindSpec.floor = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grass).multiplyScalar(tintJitter), cast: false };
       kindSpec.alt = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grassAlt).multiplyScalar(tintJitter), cast: false };
-      if (pathSrc) kindSpec.path = { geo: pathSrc.geo, mat: pathSrc.mat, lit: floorLit, cast: false };
+      // Warm earth, brighter than the grass around it — the trail must pop.
+      if (pathSrc) kindSpec.path = { geo: pathSrc.geo, mat: pathSrc.mat, lit: new THREE.Color(0xdcc49e).multiplyScalar(tintJitter), cast: false };
       kindSpec.fill = { geo: fillGeo, mat: flat(0xffffff), lit: new THREE.Color(oa!.grass).multiplyScalar(0.5 * tintJitter), cast: true };
       cliffSrcs.forEach((src, i) => { kindSpec[`cliff${i}`] = { geo: src.geo, mat: src.mat, lit: wallLitColor, cast: true }; });
       clusterSrcs.forEach((src, i) => { kindSpec[`cluster${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
@@ -1209,6 +1215,9 @@ export class Renderer3D {
     for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
       for (let x = 1; x < map.w - 1 && this.propEntries.length < 150; x++) {
         if (map.tiles[y * map.w + x] !== Tile.Floor) continue;
+        // Open-air: keep scatter off the trodden paths so the tracks stay
+        // readable — a bush in the middle of the trail unreads the trail.
+        if (openAir && !roomMask[y * map.w + x]) continue;
         if (frng() > density) continue;
         const key = theme.props[Math.floor(frng() * theme.props.length)];
         place(key, x + 0.5, y + 0.5, { jitter: 0.4 });
