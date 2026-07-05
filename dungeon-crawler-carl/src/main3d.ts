@@ -132,6 +132,10 @@ if (testMode) {
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
+
+// Test-mode debug hook: lets headless verification (CDP-driven) inspect the
+// live sim instead of guessing from pixels. Never set outside ?test.
+if (testMode) Object.defineProperty(window, "__dcc", { get: () => ({ state }) });
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
