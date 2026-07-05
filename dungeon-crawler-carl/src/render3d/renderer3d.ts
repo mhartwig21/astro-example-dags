@@ -31,6 +31,7 @@ export class Renderer3D {
   private scene = new THREE.Scene();
   private camera: THREE.OrthographicCamera;
   private key: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
 
   private floorGroup = new THREE.Group();
   // Render-side position smoothing: the sim ticks at a fixed 60Hz while the
@@ -184,7 +185,8 @@ export class Renderer3D {
 
     // Lighting: ambient + hemisphere fill, one shadow-casting key light, torches added per floor.
     this.scene.add(new THREE.AmbientLight(THEME.ambient, THEME.ambientIntensity));
-    this.scene.add(new THREE.HemisphereLight(THEME.hemiSky, THEME.hemiGround, THEME.hemiIntensity));
+    this.hemi = new THREE.HemisphereLight(THEME.hemiSky, THEME.hemiGround, THEME.hemiIntensity);
+    this.scene.add(this.hemi);
     this.key = new THREE.DirectionalLight(THEME.keyLight, THEME.keyIntensity);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(2048, 2048);
@@ -755,6 +757,19 @@ export class Renderer3D {
     const tintJitter = 0.93 + frng() * 0.12;
     this.scene.background = new THREE.Color(theme.background);
 
+    // Open-air districts (BIOMES.md): terrain instead of masonry. Sky light up,
+    // sun a touch warmer — dusk rather than noon, so fog of war still reads.
+    // Degrades to the interior treatment when the terrain models are absent.
+    const oa = theme.openAir;
+    type Src = NonNullable<ReturnType<Renderer3D["tileSource"]>>;
+    const notNull = (s: Src | null): s is Src => !!s;
+    const cliffSrcs = (oa?.cliffSides ?? []).map((k) => this.tileSource(k)).filter(notNull);
+    const clusterSrcs = (oa?.clusterKeys ?? []).map((k) => this.tileSource(k)).filter(notNull);
+    const pathSrc = oa ? this.tileSource(oa.pathKey) : null;
+    const openAir = !!oa && cliffSrcs.length > 0 && clusterSrcs.length > 0;
+    this.hemi.intensity = openAir ? oa!.hemiIntensity : THEME.hemiIntensity;
+    this.key.intensity = openAir ? oa!.keyIntensity : THEME.keyIntensity;
+
     // Real glTF tiles when present (instanced for perf), procedural boxes otherwise.
     const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
     const altSrc = this.tileSource(theme.floorAltKey);
@@ -779,18 +794,23 @@ export class Renderer3D {
     // many lights). Draw calls rise slightly; shaded fragments drop ~5x.
     const CHUNK = 12;
     const chunkCols = Math.ceil(map.w / CHUNK);
-    type Kind = "floor" | "alt" | "fill" | "panel" | "door";
-    const KINDS: Kind[] = ["floor", "alt", "fill", "panel", "door"];
-    type Bucket = Record<Kind, { m: THREE.Matrix4; tile: number }[]>;
+    // Kinds are dynamic: interior bands use floor/alt/fill/panel/door; open-air
+    // bands add a trodden path plus per-variant cliff facades and tree clusters.
+    type Bucket = Map<string, { m: THREE.Matrix4; tile: number }[]>;
     const buckets = new Map<number, Bucket>();
-    const push = (kind: Kind, x: number, y: number, tile: number, mat: THREE.Matrix4) => {
+    const push = (kind: string, x: number, y: number, tile: number, mat: THREE.Matrix4) => {
       const key = Math.floor(y / CHUNK) * chunkCols + Math.floor(x / CHUNK);
       let b = buckets.get(key);
       if (!b) {
-        b = { floor: [], alt: [], fill: [], panel: [], door: [] };
+        b = new Map();
         buckets.set(key, b);
       }
-      b[kind].push({ m: mat.clone(), tile });
+      let list = b.get(kind);
+      if (!list) {
+        list = [];
+        b.set(kind, list);
+      }
+      list.push({ m: mat.clone(), tile });
     };
 
     const m = new THREE.Matrix4();
@@ -806,8 +826,8 @@ export class Renderer3D {
     const quat = new THREE.Quaternion();
     const pos = new THREE.Vector3();
     const scl = new THREE.Vector3();
-    const placePanel = (x: number, y: number, dx: number, dz: number) => {
-      const src = wallSrc!;
+    const UP = new THREE.Vector3(0, 1, 0);
+    const placePanel = (src: Src, x: number, y: number, dx: number, dz: number) => {
       const s = src.scale;
       const sy = wallHeight / Math.max(1e-4, src.box.max.y - src.box.min.y);
       const halfThick = ((src.box.max.z - src.box.min.z) / 2) * s;
@@ -820,6 +840,24 @@ export class Renderer3D {
       pos.set(x + 0.5 + dx * off - centerOff.x, -src.box.min.y * sy, y + 0.5 + dz * off - centerOff.z);
       scl.set(s, sy, s);
       m.compose(pos, quat, scl);
+    };
+    // Open-air wall tile rendered as WOODS: a couple of jittered trees/rocks
+    // (instanced like everything else; cluster pieces are near-origin-centered).
+    const placeCluster = (x: number, y: number, tile: number, count: number, baseY: number) => {
+      for (let i = 0; i < count; i++) {
+        const h = tileHash(x * 5 + i * 13 + 1, y * 3 + i * 7 + 2, state.floor);
+        const src = clusterSrcs[h % clusterSrcs.length];
+        const s = src.scale * oa!.clusterScale * (0.8 + ((h >> 3) % 100) / 250);
+        quat.setFromAxisAngle(UP, ((h >> 1) % 628) / 100);
+        pos.set(
+          x + 0.5 + (((h >> 2) % 100) / 100 - 0.5) * 0.5,
+          baseY - src.box.min.y * s,
+          y + 0.5 + (((h >> 5) % 100) / 100 - 0.5) * 0.5,
+        );
+        scl.set(s, s, s);
+        m.compose(pos, quat, scl);
+        push(`cluster${h % clusterSrcs.length}`, x, y, tile, m);
+      }
     };
 
     // Track which map tile sits behind each instance so fog of war can tint it.
@@ -835,16 +873,54 @@ export class Renderer3D {
           m.makeTranslation(x + 0.5, 1.1 / 2 - 0.02, y + 0.5);
           push("door", x, y, idx, m);
         }
-        if (t === Tile.Wall) {
+        if (t === Tile.Wall && openAir) {
+          // Terrain, not masonry: grass runs under everything, edge tiles are
+          // cliff facades or tree masses, deep tiles are grass-topped hill
+          // mass with the odd canopy poking over it.
+          m.makeTranslation(x + 0.5, 0.001, y + 0.5);
+          push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
+          const facing = DIRS.filter((d) => isFloorAt(x + d.dx, y + d.dz));
+          const h = tileHash(x, y, state.floor + 101);
+          if (facing.length === 0) {
+            m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
+            push("fill", x, y, idx, m);
+            if (h < 140) placeCluster(x, y, idx, 1, fillHeight - 0.05);
+          } else if (h < oa!.clusterRatio * 1000 || facing.length >= 3) {
+            // Woods hem this stretch (thin walls and outcrops always go woods —
+            // a cliff facade can't sell a 1-tile-thick ridge).
+            placeCluster(x, y, idx, 2 + (h % 2), 0);
+          } else {
+            m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
+            push("fill", x, y, idx, m);
+            for (const d of facing) {
+              const v = tileHash(x + d.dx * 7, y + d.dz * 7, state.floor) % cliffSrcs.length;
+              placePanel(cliffSrcs[v], x, y, d.dx, d.dz);
+              push(`cliff${v}`, x, y, (y + d.dz) * map.w + (x + d.dx), m);
+            }
+          }
+        } else if (t === Tile.Wall) {
           m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
           push("fill", x, y, idx, m);
           if (wallSrc) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
-              placePanel(x, y, d.dx, d.dz);
+              placePanel(wallSrc, x, y, d.dx, d.dz);
               // Fog keys panels off the floor tile they FACE.
               push("panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
             }
+          }
+        } else if (openAir) {
+          // Grass everywhere; straight high-traffic corridors show trodden earth.
+          const corridor =
+            pathSrc &&
+            ((isFloorAt(x - 1, y) && isFloorAt(x + 1, y) && !isFloorAt(x, y - 1) && !isFloorAt(x, y + 1)) ||
+              (!isFloorAt(x - 1, y) && !isFloorAt(x + 1, y) && isFloorAt(x, y - 1) && isFloorAt(x, y + 1)));
+          if (corridor) {
+            placeFloor(pathSrc, x, y);
+            push("path", x, y, idx, m);
+          } else {
+            m.makeTranslation(x + 0.5, 0.001, y + 0.5);
+            push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
           }
         } else {
           // Mix primary/alt ground per tile (stable hash: same tile, same look).
@@ -871,18 +947,30 @@ export class Renderer3D {
     const fallbackFloorGeo = floorSrc && altSrc ? null : new THREE.BoxGeometry(1, 0.2, 1);
     const doorGeo = new THREE.BoxGeometry(0.96, 1.1, 0.96);
     const doorMat = flat(0xc9a24b, { emissive: 0x5a3f08, emissiveIntensity: 0.55, metalness: 0.55, roughness: 0.35 });
-    const kindSpec: Record<Kind, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; lit: THREE.Color; cast: boolean } | null> = {
+    const kindSpec: Record<string, { geo: THREE.BufferGeometry; mat: THREE.Material | THREE.Material[]; lit: THREE.Color; cast: boolean } | null> = {
       floor: { geo: floorSrc?.geo ?? fallbackFloorGeo!, mat: floorSrc?.mat ?? flat(THEME.floor), lit: floorLit, cast: false },
       alt: { geo: altSrc?.geo ?? fallbackFloorGeo!, mat: altSrc?.mat ?? flat(THEME.floorAlt), lit: floorLit, cast: false },
       fill: { geo: fillGeo, mat: fillMat, lit: wallFillLit, cast: true },
       panel: wallSrc ? { geo: wallSrc.geo, mat: wallSrc.mat, lit: wallLitColor, cast: true } : null,
       door: { geo: doorGeo, mat: doorMat, lit: new THREE.Color(1, 1, 1), cast: true },
     };
+    if (openAir) {
+      // Ground is flat grass mats (white material; the LIT color carries the
+      // green so fog-of-war darkening keeps working), hill mass is grass-dark,
+      // cliff/cluster variants get their own instanced kinds.
+      const grassGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+      const grassMat = flat(0xffffff);
+      kindSpec.floor = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grass).multiplyScalar(tintJitter), cast: false };
+      kindSpec.alt = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grassAlt).multiplyScalar(tintJitter), cast: false };
+      if (pathSrc) kindSpec.path = { geo: pathSrc.geo, mat: pathSrc.mat, lit: floorLit, cast: false };
+      kindSpec.fill = { geo: fillGeo, mat: flat(0xffffff), lit: new THREE.Color(oa!.grass).multiplyScalar(0.5 * tintJitter), cast: true };
+      cliffSrcs.forEach((src, i) => { kindSpec[`cliff${i}`] = { geo: src.geo, mat: src.mat, lit: wallLitColor, cast: true }; });
+      clusterSrcs.forEach((src, i) => { kindSpec[`cluster${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
+    }
 
     this.fogTargets = [];
     for (const bucket of buckets.values()) {
-      for (const kind of KINDS) {
-        const list = bucket[kind];
+      for (const [kind, list] of bucket) {
         const spec = kindSpec[kind];
         if (list.length === 0 || !spec) continue;
         const mesh = new THREE.InstancedMesh(spec.geo, spec.mat, list.length);
@@ -898,6 +986,57 @@ export class Renderer3D {
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
     this.fogBank.rebuild(map, theme);
     this.ambientFx.rebuild(floorBand(state.floor), state.players[0]?.pos.x ?? map.w / 2, state.players[0]?.pos.y ?? map.h / 2);
+
+    if (openAir) {
+      // The world past the playfield: a dark meadow skirt and a dim treeline
+      // silhouette ring, so the map edge reads as forest under mist, not void.
+      // Fixed dim colors (never fog-tinted); the rolling fog planes above do
+      // the atmospheric work. InstancedMesh throughout so the rebuild's
+      // dispose pass reclaims the geometry.
+      const SKIRT_PAD = 24; // matches the fog bank's overhang
+      const skirt = new THREE.InstancedMesh(
+        new THREE.PlaneGeometry(map.w + SKIRT_PAD * 2, map.h + SKIRT_PAD * 2).rotateX(-Math.PI / 2),
+        flat(new THREE.Color(oa!.grassAlt).multiplyScalar(0.3).getHex()),
+        1,
+      );
+      skirt.setMatrixAt(0, new THREE.Matrix4().makeTranslation(map.w / 2, -0.08, map.h / 2));
+      skirt.instanceMatrix.needsUpdate = true;
+      skirt.receiveShadow = true;
+      skirt.computeBoundingSphere();
+      this.floorGroup.add(skirt);
+      const skirtSrcs = oa!.skirtKeys.map((k) => this.tileSource(k)).filter(notNull);
+      if (skirtSrcs.length > 0) {
+        const srng = cosmeticRng((state.seed ^ Math.imul(state.floor, 0x51a917)) >>> 0);
+        const dim = new THREE.Color(0.3, 0.36, 0.32);
+        const perSrc: THREE.Matrix4[][] = skirtSrcs.map(() => []);
+        for (let i = 0; i < 110; i++) {
+          const side = i % 4;
+          const along = srng() * (side < 2 ? map.w + 24 : map.h + 24) - 12;
+          const out = 1.5 + srng() * 11;
+          const px = side === 0 || side === 1 ? along : side === 2 ? -out : map.w + out;
+          const pz = side === 2 || side === 3 ? along : side === 0 ? -out : map.h + out;
+          const si = Math.floor(srng() * skirtSrcs.length);
+          const src = skirtSrcs[si];
+          const s = src.scale * (oa!.clusterScale ?? 1.5) * (0.9 + srng() * 0.9);
+          quat.setFromAxisAngle(UP, srng() * Math.PI * 2);
+          pos.set(px, -0.08 - src.box.min.y * s, pz);
+          scl.set(s, s, s);
+          perSrc[si].push(new THREE.Matrix4().compose(pos, quat, scl));
+        }
+        perSrc.forEach((mats, si) => {
+          if (mats.length === 0) return;
+          const mesh = new THREE.InstancedMesh(skirtSrcs[si].geo, skirtSrcs[si].mat, mats.length);
+          mats.forEach((mm, i) => {
+            mesh.setMatrixAt(i, mm);
+            mesh.setColorAt(i, dim);
+          });
+          mesh.instanceMatrix.needsUpdate = true;
+          if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+          mesh.computeBoundingSphere();
+          this.floorGroup.add(mesh);
+        });
+      }
+    }
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
@@ -967,7 +1106,10 @@ export class Renderer3D {
         if (map.tiles[i] !== Tile.Floor) return;
         const nearWall = [i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.Wall);
         if (!nearWall || !clear(x, y)) return;
-        if (place("torch_lit", x, y, { scale: 0.55, jitter: 0.05 })) torchAnchors.push({ x, y });
+        // Open-air districts light their paths with standing lanterns, not
+        // wall torches — there is no masonry to mount a torch on.
+        const torchKey = openAir ? "lantern_standing" : "torch_lit";
+        if (place(torchKey, x, y, { scale: openAir ? 0.7 : 0.55, jitter: 0.05 })) torchAnchors.push({ x, y });
       };
       for (let x = r.x; x < r.x + r.w; x++) { tryTorch(x + 0.5, r.y + 0.5); tryTorch(x + 0.5, r.y + r.h - 0.5); }
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) { tryTorch(r.x + 0.5, y + 0.5); tryTorch(r.x + r.w - 0.5, y + 0.5); }
