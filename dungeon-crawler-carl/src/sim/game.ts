@@ -1170,11 +1170,16 @@ function dropLoot(state: GameState, pos: Vec2): void {
     const amount = nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor);
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
   }
+  // Health potions no longer rain from chaff. Measured before removal: they
+  // supplied 280-780 free HP per run (~a third of all damage taken absorbed),
+  // and winners spent 0.0% of the run below 35% HP — health wasn't scary.
+  // Healing is now a DECISION: field rations, sponsor gifts, level-ups, the
+  // flask (returning), leech — all chosen, none ambient. lootDropChance was
+  // rescaled (0.36 -> 0.22) when the potions' 40% share left, so gear and
+  // component drop rates are unchanged.
   if (chance(rng, CONFIG.lootDropChance)) {
     const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
-    if (chance(rng, 0.4)) {
-      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "heal", amount: nextInt(rng, 15, 30) });
-    } else if (chance(rng, CONFIG.componentDropChance)) {
+    if (chance(rng, CONFIG.componentDropChance)) {
       // A catalog BASIC drops: it carries its catalogId, so it slots straight
       // into a build path — random loot in service of the plan, not instead of it.
       const basics = CATALOG.filter((e) => e.tier === "basic");
