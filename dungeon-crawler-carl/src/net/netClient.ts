@@ -115,6 +115,10 @@ export class NetClient {
   sell(idx: number): void {
     this.send({ t: "sell", idx });
   }
+  /** Liquidate the whole bag (equipped gear is safe). */
+  sellAll(): void {
+    this.send({ t: "sellAll" });
+  }
   ready(): void {
     this.send({ t: "ready" });
   }

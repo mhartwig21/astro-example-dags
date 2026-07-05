@@ -4,9 +4,10 @@ import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
 import { springAmbush, stepMonster } from "./ai";
-import { generateItem, itemScore } from "./items";
+import { generateItem, hasPassive, itemScore } from "./items";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
+  type CatalogEntry,
 } from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, damageVariance, dashParams, knows, meleeParams,
@@ -17,7 +18,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import type {
   Announcement, AnnouncementKind, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
-  MaterialId, Monster, MonsterKind, PartyIntents, PassiveId, Player, Reward, SafeRoom, Vec2,
+  MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
 
@@ -412,6 +413,7 @@ function makePlayer(id: number, name: string): Player {
     stanceSwapWindow: 0,
     stanceCritReady: false,
     overcharged: false,
+    plotArmorUsed: false,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -464,6 +466,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.stanceSwapWindow = 0;
   p.stanceCritReady = false;
   p.overcharged = false;
+  p.plotArmorUsed = false; // the writers grant one save per floor
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -944,6 +947,15 @@ export function damagePlayerHit(
   const dmg = mitigate(raw, playerMitigation(p));
   p.hp -= dmg;
   p.damageTaken += dmg;
+  // Plot Armor (chase legendary): once per floor, the season arc demands you
+  // survive — a killing blow leaves you at 1 HP instead. The collapse timer
+  // bypasses this whole function, so the dungeon itself still gets the kill.
+  if (p.hp <= 0 && !p.plotArmorUsed && hasPassive(p, "plot_armor")) {
+    p.plotArmorUsed = true;
+    p.hp = 1;
+    announce(state, "show", `${p.name} should be DEAD — but the writers disagree. PLOT ARMOR. The crowd is furious and delighted.`);
+    addHype(state, p, CONFIG.show.hypeLowHpHit * 2);
+  }
   hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0 });
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
@@ -1101,6 +1113,20 @@ function dropBossBonus(state: GameState, pos: Vec2, items: number): void {
   state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount: gold });
 }
 
+/** Materialize a catalog entry as a real Item, floor-scaled. Shared by shop
+ * purchases and component DROPS (random loot that advances a planned build). */
+function makeCatalogItem(state: GameState, entry: CatalogEntry, floor: number): Item {
+  return {
+    id: state.nextEntityId++,
+    slot: entry.slot!,
+    rarity: TIER_RARITY[entry.tier as keyof typeof TIER_RARITY],
+    name: entry.name,
+    affixes: gearAffixes(entry, floor),
+    passive: entry.passive,
+    catalogId: entry.id,
+  };
+}
+
 function dropLoot(state: GameState, pos: Vec2): void {
   const { rng, floor } = state;
   // Ability tomes: rare, and only while someone in the party has left to learn.
@@ -1118,6 +1144,13 @@ function dropLoot(state: GameState, pos: Vec2): void {
     const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
     if (chance(rng, 0.4)) {
       state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "heal", amount: nextInt(rng, 15, 30) });
+    } else if (chance(rng, CONFIG.componentDropChance)) {
+      // A catalog BASIC drops: it carries its catalogId, so it slots straight
+      // into a build path — random loot in service of the plan, not instead of it.
+      const basics = CATALOG.filter((e) => e.tier === "basic");
+      const entry = basics[nextInt(rng, 0, basics.length - 1)];
+      const item = makeCatalogItem(state, entry, floor);
+      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
     } else {
       // Equipment drop: a rolled item with a rarity + affixes.
       const item = generateItem(rng, floor, () => state.nextEntityId++);
@@ -1740,15 +1773,7 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   for (const slot of EQUIP_SLOTS) {
     if (p.equipment[slot] && claimed.has(p.equipment[slot]!)) p.equipment[slot] = null;
   }
-  const item: Item = {
-    id: state.nextEntityId++,
-    slot: entry.slot!,
-    rarity: TIER_RARITY[entry.tier as keyof typeof TIER_RARITY],
-    name: entry.name,
-    affixes: gearAffixes(entry, room.nextFloor),
-    passive: entry.passive,
-    catalogId: entry.id,
-  };
+  const item = makeCatalogItem(state, entry, room.nextFloor);
   const cur = p.equipment[item.slot];
   if (!cur || itemScore(item) > itemScore(cur)) equipItem(p, item);
   else p.inventory.push(item);
@@ -1778,6 +1803,18 @@ export function sellItem(state: GameState, playerId: number, bagIdx: number): vo
   const value = sellValue(item);
   p.gold += value;
   state.events.push(`${p.name} sold ${item.name} (+${value} gold).`);
+}
+
+/** Sell the WHOLE bag back to the System Shop (equipped gear is safe). */
+export function sellAllItems(state: GameState, playerId: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || !state.safeRoom || p.inventory.length === 0) return;
+  const n = p.inventory.length;
+  let total = 0;
+  for (const item of p.inventory) total += sellValue(item);
+  p.inventory = [];
+  p.gold += total;
+  state.events.push(`${p.name} liquidated the bag: ${n} item${n === 1 ? "" : "s"}, +${total} gold.`);
 }
 
 /** Mark a player ready to descend; the party leaves when everyone is ready. */
@@ -2057,6 +2094,12 @@ function doStance(state: GameState, p: Player): void {
   p.stanceTime = 0;
   p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
   if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
+  // Signature Choreography (chase legendary): the swap IS the rotation —
+  // both attack cooldowns reset, so a dance-build weaves swap-swing-swap-bolt.
+  if (hasPassive(p, "choreography")) {
+    p.cd.melee = 0;
+    p.cd.bolt = 0;
+  }
   hit(state, p.pos, 0, "weapon"); // a flourish poof for the juice layer
 }
 
@@ -2176,9 +2219,9 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
   p.orbitSpiral = (p.orbitSpiral + CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
   if (p.orbitTick > 0) return;
-  p.orbitTick = CONFIG.orbitTickSeconds;
-  const angleSweep = CONFIG.orbitRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
-  const phaseSweep = CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
+  p.orbitTick = op.tickSeconds; // Encore spins to a faster beat
+  const angleSweep = CONFIG.orbitRevPerSec * Math.PI * 2 * op.tickSeconds;
+  const phaseSweep = CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * op.tickSeconds;
   const samples = CONFIG.orbitHitSamples;
   for (const m of state.monsters) {
     const reach = CONFIG.orbitBladeHitRadius + bodyRadius(m);
@@ -2326,10 +2369,9 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
   }
 }
 
-/** True if any equipped item carries the given signature-gear passive. */
-export function hasPassive(p: Player, id: PassiveId): boolean {
-  return EQUIP_SLOTS.some((slot) => p.equipment[slot]?.passive === id);
-}
+// hasPassive lives in items.ts now (abilities.ts needs it too); re-exported
+// so existing importers keep working.
+export { hasPassive };
 
 /** A player died; the run only ends when the whole party is down. */
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {

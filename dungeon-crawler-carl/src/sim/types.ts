@@ -52,6 +52,7 @@ export interface Player {
   stanceSwapWindow: number; // seconds left of Flow's post-swap surge
   stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
   overcharged: boolean; // Overcharge banked: the next attack spends it
+  plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -209,7 +210,13 @@ export type PassiveId =
   | "blastplate" // your dash detonates at the launch point
   | "ledger" // every kill credit pays bonus gold
   | "overtime" // ultimate cooldowns reduced
-  | "tempo"; // active-ability cooldowns reduced (legendary caster staff)
+  | "tempo" // active-ability cooldowns reduced (legendary caster staff)
+  // CHASE passives (store-only legendaries): each one warps a specific build
+  // around itself — the reason you planned three shops ahead.
+  | "encore" // +1 orbit blade; blades tick faster
+  | "skewer" // bolts pierce +2
+  | "choreography" // swapping Battle Stance resets swing + bolt cooldowns
+  | "plot_armor"; // once per floor, a killing blow leaves you at 1 HP
 
 export interface Item {
   id: number;

@@ -126,8 +126,11 @@ export const CONFIG = {
   monsterXp: 10,
   monsterXpPerFloor: 4,
 
-  // Loot
-  lootDropChance: 0.45,
+  // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
+  // drops run leaner and rarer at the top end, and a slice of item drops are
+  // catalog COMPONENTS — random loot that advances the build you planned.
+  lootDropChance: 0.36,
+  componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
   goldMax: 12,
@@ -160,6 +163,11 @@ export const CONFIG = {
   staffAoeRadiusMult: 1.25, // Staff: bigger nova
   chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
   tempoCooldownMult: 0.85, // "tempo" signature passive: active cooldowns run faster
+  // Chase passives (store-only legendary uniques — plan three shops ahead):
+  encoreOrbitTickMult: 0.75, // "encore": orbit blades tick this much faster (+1 blade too)
+  skewerBonusPierce: 2, // "skewer": bolts punch through this many extra bodies
+  // "choreography": stance swap resets swing + bolt cooldowns (no knob — binary)
+  // "plot_armor": once per floor a killing blow leaves you at 1 HP (binary)
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
@@ -448,12 +456,14 @@ export const ARCHETYPES = {
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
-// Weapon rarity tiers: spawn weight + damage-bonus multiplier.
+// Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
+// were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a
+// rare drop should feel like a windfall, not a plan.
 export const RARITIES = [
-  { name: "common", weight: 60, mult: 1.0 },
+  { name: "common", weight: 64, mult: 1.0 },
   { name: "magic", weight: 26, mult: 1.6 },
-  { name: "rare", weight: 11, mult: 2.4 },
-  { name: "epic", weight: 3, mult: 3.6 },
+  { name: "rare", weight: 8, mult: 2.4 },
+  { name: "epic", weight: 2, mult: 3.6 },
 ] as const;
 
 // Theme bands: the dungeon shifts tone every 3 floors. The sim announces the

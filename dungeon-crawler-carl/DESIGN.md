@@ -302,6 +302,21 @@ active cooldowns −15%) — SP builds shop like AP builds do. Magic hits also t
 numbers arcane-purple, so a mixed build can SEE its schools mid-fight. Armor/trinkets stay
 school-agnostic until proven boring.
 
+**Planning-first itemization (SHIPPED).** Builds come from the STORE, not slot machines:
+- **Chase uniques** — store-only legendaries you cannot loot, each warping one build around
+  itself: *Perpetual Encore* (+1 orbit blade, 25% faster ticks), *Standing Ovation Crossbow*
+  (bolts pierce +2), *Signature Choreography* (stance swap resets swing+bolt cooldowns — the
+  swap IS the rotation), *Plot Armor* (once per floor a killing blow leaves you at 1 HP).
+  Every one sits atop a basic → advanced → legendary build path plus sponsor/material gates,
+  so getting there is a run-long plan, not a lucky corpse.
+- **Drops tuned down** — rare/epic weights 11/3 → 8/2, item drop chance 0.45 → 0.36. A rare
+  drop is a windfall now, not a strategy.
+- **Component drops** — ~35% of equipment drops are catalog BASICS carrying their catalogId,
+  so random loot advances the build you planned (they gate-check, price-credit, and combine
+  like bought components).
+- Higher shop tiers stock deeper per shop (advanced 4+/shop, legendary 2+), and the shop UI
+  grew SELL ALL + hover stat tooltips so managing the plan is one screen.
+
 **Counterplay (phase 3 — SHIPPED):** monster resist tags — `armored` (physical −30%) and
 `warded` (magic −30%) — as elite affixes plus archetype defaults (charger is innately
 armored, phantom innately warded; `monsterResist` in game.ts, `resistDamageTakenMult`).

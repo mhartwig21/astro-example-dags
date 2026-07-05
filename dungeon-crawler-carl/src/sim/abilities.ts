@@ -1,5 +1,5 @@
 import { CONFIG } from "./config";
-import { weaponClassOf } from "./items";
+import { hasPassive, weaponClassOf } from "./items";
 import { chance, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
 
@@ -247,7 +247,8 @@ export function boltParams(p: Player) {
     : { dmg: p.attackPower * CONFIG.boltDamageMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 }; // bare hands
   return {
     count: 1 + rank(p, "bolt.split"),
-    pierce: rank(p, "bolt.pierce") + profile.bonusPierce,
+    // Standing Ovation (chase legendary): +2 pierce on top of tree + weapon.
+    pierce: rank(p, "bolt.pierce") + profile.bonusPierce + (hasPassive(p, "skewer") ? CONFIG.skewerBonusPierce : 0),
     cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15) * profile.cdMult,
     dmg: profile.dmg,
     school: profile.school,
@@ -295,11 +296,15 @@ export function overchargeParams(p: Player) {
 }
 
 export function orbitParams(p: Player) {
+  // Perpetual Encore (chase legendary): one more blade, spinning to a faster
+  // damage beat — the orbit build's payoff you shop three floors toward.
+  const encore = hasPassive(p, "encore");
   return {
-    blades: CONFIG.orbitBladesBase + rank(p, "orbit.blade"),
+    blades: CONFIG.orbitBladesBase + rank(p, "orbit.blade") + (encore ? 1 : 0),
     radius: CONFIG.orbitRadius,
     damageMult: CONFIG.orbitDamageMult * (1 + rank(p, "orbit.razor") * 0.35),
     spiralRank: rank(p, "orbit.wide"),
+    tickSeconds: CONFIG.orbitTickSeconds * (encore ? CONFIG.encoreOrbitTickMult : 1),
   };
 }
 
