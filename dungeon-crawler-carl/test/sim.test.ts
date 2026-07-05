@@ -4021,3 +4021,79 @@ describe("roaming (behavior variety: patrols, sentries, ambushers)", () => {
     expect(engaged).toBe(true);
   });
 });
+
+describe("landmark set pieces are REAL (looks = collision)", () => {
+  it("carves the colonnade + pedestal as wall tiles inside the landmark hall", () => {
+    let sawPillars = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const map = generateFloor(createRng(seed), 2);
+      const li = map.roles.indexOf("landmark");
+      if (li < 0) continue;
+      const r = map.rooms[li];
+      if (r.w < 7 || r.h < 7) continue;
+      expect(map.pillars.length).toBeGreaterThan(0);
+      sawPillars++;
+      for (const ti of map.pillars) {
+        expect(map.tiles[ti]).toBe(Tile.Wall);
+        const x = ti % map.w, y = Math.floor(ti / map.w);
+        expect(x).toBeGreaterThanOrEqual(r.x + 2);
+        expect(x).toBeLessThan(r.x + r.w - 2);
+        expect(y).toBeGreaterThanOrEqual(r.y + 2);
+        expect(y).toBeLessThan(r.y + r.h - 2);
+      }
+      // The pedestal is blocked but the room CENTER stays walkable (elite
+      // spawns there; reachability probes use it).
+      const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+      expect(map.tiles[cy * map.w + cx]).toBe(Tile.Floor);
+      if (map.pedestal >= 0) expect(map.tiles[map.pedestal]).toBe(Tile.Wall);
+    }
+    expect(sawPillars).toBeGreaterThan(0);
+  });
+
+  it("the sim blocks movement through a pillar tile", () => {
+    const g = createGame(31);
+    const map = g.map;
+    if (map.pillars.length === 0) return; // seed guard (tiny landmark)
+    const ti = map.pillars[0];
+    const px = ti % map.w, py = Math.floor(ti / map.w);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Stand just west of the pillar and push east THROUGH it for 2 seconds.
+    p.pos = { x: px - 0.5, y: py + 0.5 };
+    for (let i = 0; i < 120; i++) step(g, { move: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px); // the bookcase is a bookcase now
+  });
+
+  it("FULL-GAME SWEEP: every room on floors 1-18 stays reachable from spawn", () => {
+    // Doors count as walkable here: a key always exists for locked districts.
+    const reachable = (map: FloorMap): Uint8Array => {
+      const seen = new Uint8Array(map.w * map.h);
+      const q = [Math.floor(map.spawn.y) * map.w + Math.floor(map.spawn.x)];
+      seen[q[0]] = 1;
+      while (q.length) {
+        const i = q.shift()!;
+        const x = i % map.w, y = Math.floor(i / map.w);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+          const ni = ny * map.w + nx;
+          if (seen[ni] || map.tiles[ni] === Tile.Wall) continue;
+          seen[ni] = 1;
+          q.push(ni);
+        }
+      }
+      return seen;
+    };
+    for (const seed of [11, 22, 33]) {
+      for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+        const map = generateFloor(createRng(seed * 1000 + floor), floor);
+        const seen = reachable(map);
+        expect(seen[Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x)]).toBe(1);
+        map.rooms.forEach((r) => {
+          const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+          expect(seen[cy * map.w + cx]).toBe(1);
+        });
+      }
+    }
+  });
+});

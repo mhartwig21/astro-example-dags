@@ -912,6 +912,12 @@ export class Renderer3D {
       }
     };
 
+    // Landmark set-piece tiles (sim-blocked pillars/pedestal): drawn as their
+    // MODEL standing on ordinary ground — the generic rock fill would swallow
+    // it. The props themselves are placed with the dressing below.
+    const pillarSet = new Set<number>(map.pillars ?? []);
+    if ((map.pedestal ?? -1) >= 0) pillarSet.add(map.pedestal);
+
     // Track which map tile sits behind each instance so fog of war can tint it.
     // Wall instances key off the tile itself; panels key off the floor tile they
     // face (a wall face lights up when the room it borders is explored).
@@ -919,6 +925,16 @@ export class Renderer3D {
       for (let x = 0; x < map.w; x++) {
         const idx = y * map.w + x;
         const t = map.tiles[idx];
+        if (t === Tile.Wall && pillarSet.has(idx)) {
+          // Ground under the set piece, no fill box, no wall panels.
+          if (openAir) {
+            m.makeTranslation(x + 0.5, 0.001, y + 0.5);
+          } else {
+            placeFloor(floorSrc, x, y);
+          }
+          push("floor", x, y, idx, m);
+          continue;
+        }
         if (t === Tile.DoorLocked) {
           // The door block sits over its tile; opening triggers a full rebuild
           // (mapVersion bump), so just draw floor + door now.
@@ -1138,8 +1154,10 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number } = {}): boolean => {
-      if (this.propEntries.length > 150 || !clear(x, y)) return false;
+    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean } = {}): boolean => {
+      // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
+      // one case where a prop belongs on a non-Floor tile (looks = collision).
+      if (this.propEntries.length > 150 || (!opts.onWall && !clear(x, y))) return false;
       const obj = this.modelInstance(key);
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
@@ -1170,12 +1188,17 @@ export class Renderer3D {
         if (steps++ % 4 !== 0) return;
         const i = Math.floor(y) * map.w + Math.floor(x);
         if (map.tiles[i] !== Tile.Floor) return;
-        const nearWall = [i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.Wall);
-        if (!nearWall || !clear(x, y)) return;
+        // Which neighbor is the wall? The torch HUGS that face instead of
+        // standing mid-lane (a walk-through torch in the walking lane was
+        // part of the "props lie about the path" complaint).
+        const wallDir = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+          .find(([dx, dy]) => map.tiles[i + dy * map.w + dx] === Tile.Wall);
+        if (!wallDir || !clear(x, y)) return;
         // Open-air districts light their paths with standing lanterns, not
         // wall torches — there is no masonry to mount a torch on.
         const torchKey = openAir ? "lantern_standing" : "torch_lit";
-        if (place(torchKey, x, y, { scale: openAir ? 0.7 : 0.55, jitter: 0.05 })) torchAnchors.push({ x, y });
+        const tx = x + wallDir[0] * 0.33, ty = y + wallDir[1] * 0.33;
+        if (place(torchKey, tx, ty, { scale: openAir ? 0.7 : 0.55, jitter: 0.05 })) torchAnchors.push({ x: tx, y: ty });
       };
       for (let x = r.x; x < r.x + r.w; x++) { tryTorch(x + 0.5, r.y + 0.5); tryTorch(x + 0.5, r.y + r.h - 0.5); }
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) { tryTorch(r.x + 0.5, y + 0.5); tryTorch(r.x + r.w - 0.5, y + 0.5); }
@@ -1221,23 +1244,24 @@ export class Renderer3D {
       }
     }
 
-    // 4) LANDMARK hall: a colonnade + centered set-piece, both band-flavored
-    //    (library table in the Undercroft, crypt among dead trees in the Garden,
-    //    war monument on the Approach — see FLOOR_THEMES.landmark).
-    const landmarkIdx = map.roles.indexOf("landmark");
-    if (landmarkIdx >= 0) {
-      const r = map.rooms[landmarkIdx];
+    // 4) LANDMARK hall: colonnade + centerpiece on the SIM's set-piece tiles
+    //    (map.pillars / map.pedestal — real Wall tiles the player cannot walk
+    //    through; the mapgen owns the layout so looks and collision agree).
+    //    Band-flavored models: bookcases in the Undercroft library, columns in
+    //    the cistern, dead trees at the Garden crypt (FLOOR_THEMES.landmark).
+    //    Centerpiece note: table_small_decorated_A stays out — its model has
+    //    candles baked in, and candles are banned from the floors.
+    {
       const lm = theme.landmark;
-      for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
-        for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
-          // Colonnade along the room edges of the interior grid, not the middle.
-          if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
-          place(lm.pillarKey, px + 0.5, py + 0.5, { scale: lm.pillarScale, rot: 0, jitter: 0 });
-        }
+      for (const ti of map.pillars ?? []) {
+        const px = (ti % map.w) + 0.5, py = Math.floor(ti / map.w) + 0.5;
+        // Fill the tile: the visual footprint should MATCH the blocked tile.
+        place(lm.pillarKey, px, py, { scale: Math.max(0.9, lm.pillarScale), rot: 0, jitter: 0, onWall: true });
       }
-      // Centerpiece note: table_small_decorated_A stays out — its model has
-      // candles baked in, and candles are banned from the floors.
-      place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
+      if ((map.pedestal ?? -1) >= 0) {
+        const px = (map.pedestal % map.w) + 0.5, py = Math.floor(map.pedestal / map.w) + 0.5;
+        place(lm.centerpieceKey, px, py, { scale: Math.max(0.95, lm.centerpieceScale), rot: 0, jitter: 0, onWall: true });
+      }
     }
 
     // 5) VAULT: the hoard around the guardian's treasure. One vault in four
