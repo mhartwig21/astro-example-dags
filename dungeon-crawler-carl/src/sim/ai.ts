@@ -116,9 +116,10 @@ function stepCharge(state: GameState, m: Monster, dt: number): void {
 }
 
 /** Spring an ambush: wake this monster and every dormant neighbor in range, all
- * surging to close, and announce it once. Hitting a dormant monster also springs
- * it (see damageMonster) — either way the whole cluster commits together. */
-function springAmbush(state: GameState, trigger: Monster): void {
+ * surging to close, and announce it once. Hitting a dormant monster (damageMonster)
+ * or revealing one ringside (maybeStartEncounter) also routes here — however the
+ * trap is discovered, the whole cluster commits together. */
+export function springAmbush(state: GameState, trigger: Monster): void {
   let woke = 0;
   for (const n of state.monsters) {
     if (!n.dormant || n.hp <= 0) continue;
