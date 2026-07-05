@@ -198,6 +198,30 @@ export const CONFIG = {
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
   phantomBlinkCooldown: 2.8, // seconds between blinks
 
+  // Brute Ground Slam: its ONE attack is a self-centered AoE (no facing/arc —
+  // everyone standing close eats it), not a single-target point hit. Same
+  // windup as before; the long telegraph is the dodge window either way.
+  bruteSlamRadius: 1.5, // tiles from the brute's own position
+
+  // Boss kit escalation (DESIGN: three boss-tier fights should feel like
+  // escalating KITS, not just bigger numbers on one script). Adds waves at
+  // phase breaks + hazard rain are UNIVERSAL boss behavior (backlog #11);
+  // the tiers layer on top of that:
+  //   tier 1 (floor 6 city boss)  — melee+volley + Ground Slam
+  //   tier 2 (floor 12 city boss) — Ground Slam cycles faster
+  //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
+  bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
+  bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
+  bossSlamWindup: 0.9, // seconds telegraphed before it erupts
+  bossSlamCooldown: 6.5, // seconds between slams (independent of melee/volley)
+  bossSlamHasteT2: 0.65, // tier 2+ slam-cooldown multiplier (the tier-2 escalation)
+  bossSlamDmgMult: 0.85, // relative to the boss's own damage stat (it's a BONUS hit)
+  ritualRange: 9, // tiles: the boss will channel from anywhere in the arena
+  ritualWindup: 1.9, // seconds — long and unmistakable; interrupt it or eat it
+  ritualCooldown: 14, // seconds between rituals
+  ritualRadius: 3.6, // tiles: arena-scale AoE around the boss
+  ritualDmgMult: 1.6, // relative to the boss's own damage stat — this one HURTS
+
   // Charger: locks a direction during a LONG windup, then rushes down the line,
   // plowing through anyone still standing on it. Sidestep the lane — the commit
   // point is the tell, the direction never updates after it.
