@@ -25,9 +25,12 @@ appreciated).
 | KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Forest Nature Pack — Hill_Cliff kit (open-air Garden walls: `cliff_side_*.glb`, `cliff_inner_*.glb`, `cliff_outer_*.glb` + `forest_tree_3/4_a`, `forest_rock_5_a/c`; Color1, converted via gltf-pipeline) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Halloween Bits — `fence_gate.glb` (open-air gate dressing) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
-| KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves; `weapon_arrow_a.glb` flies as the ballistic bolt) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Skeletons 1.1 — `skeleton_arrow.glb` (ranged-archetype projectile) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
+| KayKit Mystery Monthly: Plant Warrior — `plant_warrior_arrow.glb` (spitter windup lob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
-| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
+| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
 
 Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
 mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via

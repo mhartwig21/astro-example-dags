@@ -127,7 +127,8 @@ export type EliteAffix =
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
   | "bomber" | "shaman" | "phantom"
-  | "charger" | "spitter" | "necromancer";
+  | "charger" | "spitter" | "necromancer"
+  | "broodmother";
 
 export interface Monster {
   id: number;
@@ -188,6 +189,14 @@ export interface Monster {
   // near, then springs — the whole cluster wakes together with a speed surge.
   dormant?: boolean; // waiting in ambush: no move, no attack, until sprung
   surgeT?: number; // seconds of ambush speed-surge remaining (the pounce)
+  // Roaming (see wander in ai.ts): off-duty patrol around a leashed post.
+  // VARIETY is the point: lone wanderers always roam, some packs patrol
+  // together, the rest are sentries that hold their post (and ambushers lie
+  // perfectly still). Rolled at spawn.
+  roams?: boolean; // this monster patrols when off-duty (absent = sentry)
+  home?: Vec2; // patrol post (set the first time the monster goes off-duty)
+  wanderDir?: Vec2; // current stroll heading (undefined = standing a beat)
+  wanderT?: number; // seconds left on the current wander leg
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
@@ -313,6 +322,7 @@ export interface Projectile {
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
+  srcKind?: string; // firing monster's archetype (hosts pick the projectile mesh)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */

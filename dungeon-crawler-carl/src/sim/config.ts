@@ -138,11 +138,41 @@ export const CONFIG = {
   monsterAggroRange: 8, // tiles
   monsterXp: 10,
   monsterXpPerFloor: 4,
+  // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
+  // Past the ramp floor, monsters get quicker on every axis — faster chase,
+  // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
+  // the caps keep the deep dungeon fast but still READABLE and dodgeable.
+  monsterTempoFrom: 4,
+  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
+  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
+  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+
+  // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
+  // mob that makes ignoring a pack the wrong call. Kill the mother first.
+  broodSpawnCooldown: 6, // seconds between births
+  broodSpawnMax: 10, // lifetime births per mother
+  broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
+
+  // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
+  // the point. Lone wanderers always roam, packPatrolChance of packs patrol
+  // together, the rest are sentries holding their post; dormant ambushers lie
+  // perfectly still, the vault guardian never leaves its treasure, and bosses
+  // hold their arena. Leashed so encounters stay roughly where placed.
+  packPatrolChance: 0.4, // share of (non-ambush) packs that patrol
+  wanderSpeedMult: 0.55, // stroll speed, relative to combat speed
+  wanderLegSeconds: 2.2, // seconds per wander leg (randomized 0.5-1.5x)
+  wanderPauseChance: 0.35, // legs spent just standing around
+  wanderLeash: 7, // tiles from the patrol post before the stroll drifts back
 
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
   // catalog COMPONENTS — random loot that advances the build you planned.
-  lootDropChance: 0.36,
+  // 0.36 when 40% of drops were health potions; potions are gone (health
+  // should be scary — see dropLoot), so this holds gear rates steady.
+  lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
@@ -385,6 +415,7 @@ export const CONFIG = {
     hypeCharger: 6, // dodging the freight train, then dropping it
     hypeSpitter: 4,
     hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
+    hypeBroodmother: 9, // ending the nest = the whole arena exhales
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -540,8 +571,22 @@ export const ARCHETYPES = {
   spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
   // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
   necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Broodmother: never attacks (dmgMult unused); a slow walking nest that
+  // births swarmers on a timer (see brood* knobs) — the pack GROWS if ignored.
+  broodmother: { hpMult: 2.2, dmgMult: 0, speedMult: 0.5, attackRange: 6, xpMult: 2.5, ranged: true, windup: 0.8, poise: 0.6, mass: 2.5, radius: 0.55 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
+
+/** Depth tempo multipliers: how much quicker monsters move, swing, and
+ * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
+  const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
+  return {
+    speed: Math.min(CONFIG.monsterTempoSpeedMax, 1 + past * CONFIG.monsterTempoSpeedPerFloor),
+    cooldown: Math.max(CONFIG.monsterTempoCdMin, 1 - past * CONFIG.monsterTempoCdPerFloor),
+    windup: Math.max(CONFIG.monsterTempoWindupMin, 1 - past * CONFIG.monsterTempoWindupPerFloor),
+  };
+}
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
 // were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a

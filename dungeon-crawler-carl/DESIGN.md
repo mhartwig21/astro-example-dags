@@ -121,14 +121,25 @@ This document describes the full target architecture, then defines the scope of 
   floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
   same seeded RNG stream, these effects are deterministic and replay identically.
 - **Enemy archetypes** (grunt / swarmer / brute / ranged / boss / bomber / shaman /
-  phantom / charger / spitter / necromancer): stats scale per floor and are modified per
-  archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee chase,
-  ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
+  phantom / charger / spitter / necromancer / broodmother): stats scale per floor and are
+  modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee
+  chase, ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
   charger locked-lane rush, spitter acid lobs that linger as ticking ground puddles,
   necromancer corpse-raising — deaths leave TTL-capped `GameState.corpses` it consumes —
-  and boss chase + radial volley). The spawn mix shifts toward tougher enemies with
-  depth; specialists unlock by floor (bomber 2+, charger 3+, shaman 4+, spitter 5+,
-  phantom 6+, necromancer 7+).
+  broodmother nest-births (a walking spawner that BIRTHS swarmers on a timer, lifetime-
+  capped + population-guarded, so an ignored pack grows), and boss chase + radial volley).
+  The spawn mix shifts toward tougher enemies with depth; specialists unlock by floor
+  (bomber 2+, charger 3+, shaman 4+, spitter 5+/broodmother 5+, phantom 6+, necromancer 7+).
+- **Depth tempo** (`monsterTempo` in config): past floor 4 monsters get QUICKER, not just
+  fatter — move speed ramps to +35%, attack cooldowns shrink to −35%, telegraph windups
+  shorten to −25% (capped so tells stay readable). Floors 1–3 keep the training pace.
+- **Roaming / behavior variety** (`wander` in ai.ts): monsters aren't all statues waiting
+  for aggro. Lone wanderers PATROL (always), ~40% of packs patrol their territory together,
+  the rest are sentries holding their post; dormant ambushers lie perfectly still, the
+  vault guardian never leaves its treasure, bosses hold their arena. Patrols stroll in
+  short randomized legs at 0.55× speed, leashed ~7 tiles to their post so encounters stay
+  roughly where the floor placed them — and the moment a player is in range, the kind's
+  combat brain takes over. The dungeon reads alive; danger sometimes walks into YOU.
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
@@ -429,6 +440,33 @@ progress 1.5× faster than it built. Hosts show a green ring tightening around
 the body, a hollow red minimap ring saying "stand here", and a DOWNED line in
 the HUD. Solo death and full wipes are unchanged, and the descend-revive at
 50% remains the fallback.
+
+### 5.12 Ringside Check-in + the Daily Crawl (SHIPPED)
+
+**Entry menu.** `iso.html` opens on the RINGSIDE CHECK-IN (`#menu`, z 28): name
+field (persisted, `dcc:name:v1`), CONTINUE RUN (when a mid-run save exists),
+DAILY CRAWL, NEW RUN, PARTY CRAWL (rolls a readable 5-char code — the code IS
+the seed, the URL is the invite), and TEST CHAMBER (builds the existing `?test`
+deep link). `?join=` and `?test` URLs skip the menu — they already carry a
+complete decision. While open the menu freezes the local sim (backdrop dungeon)
+and owns the keyboard via `input.captureMode`. Nothing is saved until a mode is
+picked, and R / NEW SEASON reruns **in the same mode** — a daily rerun replays
+today's dungeon.
+
+**The Daily Crawl.** One dungeon per UTC day, shared by every crawler:
+`dailySeed(day)` (`src/sim/daily.ts`, pure djb2 over the date — client and
+server derive identically). The run's mode + day persist in the save, so a
+resumed daily still reports to the right board.
+
+**Leaderboard.** The game server exposes `GET/POST /leaderboard`
+(`src/server/leaderboard.ts`): hard shape validation, best-entry-per-name per
+day (retrying all day is playing, not cheating), rank = full clears → depth →
+speed → kills, 200 entries/day, 30 days kept, JSON-file persistence
+(`LEADERBOARD_FILE`, default `leaderboard.json`; a redeploy resets it — the
+Postgres upgrade rides with accounts). Solo daily runs submit fire-and-forget
+on win/wipe; the menu shows today's top 10, the recap shows your rank. Trust
+model: solo sims run client-side, so scores are self-reported bragging rights —
+shape is validated, numbers are believed.
 
 ---
 
