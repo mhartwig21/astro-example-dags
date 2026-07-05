@@ -26,6 +26,18 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
   return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.85, metalness: 0.05, ...opts });
 }
 
+// One open-air cluster piece (tree/rock) registered for camera courtesy:
+// where it stands, which instanced-mesh slot draws it, and its shrink easing.
+interface CanopyEntry {
+  mesh: THREE.InstancedMesh;
+  index: number;
+  base: THREE.Matrix4;
+  x: number;
+  z: number;
+  f: number; // current scale factor (eased)
+  target: number; // 1 = full size, 0.12 = stepped aside for the camera
+}
+
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
 // doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
 const WINDUP_CLIP: Record<string, string> = {
@@ -93,6 +105,10 @@ export class Renderer3D {
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
   // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
   private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
+  // Camera courtesy (open-air): tree/rock instances between the camera and an
+  // entity shrink away so the shot stays clear. Grid-keyed by ground tile.
+  private canopy: Map<number, CanopyEntry[]> | null = null;
+  private canopyGridW = 0;
   // The visible fog bank over unexplored space (drifting planes; see fogOfWar.ts).
   private fogBank = new FogOfWar();
   // Band-themed atmosphere (dust/spores/embers/sparks/ash; see ambient.ts).
@@ -775,6 +791,7 @@ export class Renderer3D {
     const notNull = (s: Src | null): s is Src => !!s;
     const cliffSrcs = (oa?.cliffSides ?? []).map((k) => this.tileSource(k)).filter(notNull);
     const clusterSrcs = (oa?.clusterKeys ?? []).map((k) => this.tileSource(k)).filter(notNull);
+    const accentSrcs = (oa?.accentKeys ?? []).map((k) => this.tileSource(k)).filter(notNull);
     const pathSrc = oa ? this.tileSource(oa.pathKey) : null;
     const openAir = !!oa && cliffSrcs.length > 0 && clusterSrcs.length > 0;
     this.hemi.intensity = openAir ? oa!.hemiIntensity : THEME.hemiIntensity;
@@ -860,22 +877,28 @@ export class Renderer3D {
       scl.set(s, sy, s);
       m.compose(pos, quat, scl);
     };
-    // Open-air wall tile rendered as WOODS: a couple of jittered trees/rocks
-    // (instanced like everything else; cluster pieces are near-origin-centered).
+    // Open-air wall tile rendered as WOODS. Piece 0 is ALWAYS a tall tree
+    // planted near the tile center — blocked ground must read blocked even
+    // before its companions fill in; extras mix in low accents for texture.
     const placeCluster = (x: number, y: number, tile: number, count: number, baseY: number) => {
       for (let i = 0; i < count; i++) {
         const h = tileHash(x * 5 + i * 13 + 1, y * 3 + i * 7 + 2, state.floor);
-        const src = clusterSrcs[h % clusterSrcs.length];
-        const s = src.scale * oa!.clusterScale * (0.8 + ((h >> 3) % 100) / 250);
+        const accent = i > 0 && accentSrcs.length > 0 && h % 3 === 0;
+        const srcs = accent ? accentSrcs : clusterSrcs;
+        const v = h % srcs.length;
+        const src = srcs[v];
+        const jitter = i === 0 ? 0.24 : 0.62; // anchor tree stays centered
+        const sMin = i === 0 ? 1.0 : 0.8;
+        const s = src.scale * oa!.clusterScale * (sMin + ((h >> 3) % 100) / 300);
         quat.setFromAxisAngle(UP, ((h >> 1) % 628) / 100);
         pos.set(
-          x + 0.5 + (((h >> 2) % 100) / 100 - 0.5) * 0.5,
+          x + 0.5 + (((h >> 2) % 100) / 100 - 0.5) * jitter,
           baseY - src.box.min.y * s,
-          y + 0.5 + (((h >> 5) % 100) / 100 - 0.5) * 0.5,
+          y + 0.5 + (((h >> 5) % 100) / 100 - 0.5) * jitter,
         );
         scl.set(s, s, s);
         m.compose(pos, quat, scl);
-        push(`cluster${h % clusterSrcs.length}`, x, y, tile, m);
+        push(`${accent ? "accent" : "cluster"}${v}`, x, y, tile, m);
       }
     };
 
@@ -893,11 +916,12 @@ export class Renderer3D {
           push("door", x, y, idx, m);
         }
         if (t === Tile.Wall && openAir) {
-          // Terrain, not masonry: grass runs under everything, edge tiles are
-          // cliff facades or tree masses, deep tiles are grass-topped hill
-          // mass with the odd canopy poking over it.
+          // Terrain, not masonry: UNDERBRUSH ground (clearly darker than the
+          // walkable meadow, so blocked ground never reads as path even where
+          // the pieces on it are sparse), edge tiles are cliff facades or tree
+          // masses, deep tiles are grass-topped hill mass with the odd canopy.
           m.makeTranslation(x + 0.5, 0.001, y + 0.5);
-          push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
+          push("brush", x, y, idx, m);
           const facing = DIRS.filter((d) => isFloorAt(x + d.dx, y + d.dz));
           const h = tileHash(x, y, state.floor + 101);
           if (facing.length === 0) {
@@ -907,7 +931,7 @@ export class Renderer3D {
           } else if (h < oa!.clusterRatio * 1000 || facing.length >= 3) {
             // Woods hem this stretch (thin walls and outcrops always go woods —
             // a cliff facade can't sell a 1-tile-thick ridge).
-            placeCluster(x, y, idx, 2 + (h % 2), 0);
+            placeCluster(x, y, idx, 3, 0);
           } else {
             m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
             push("fill", x, y, idx, m);
@@ -980,11 +1004,16 @@ export class Renderer3D {
       // Warm earth, brighter than the grass around it — the trail must pop.
       if (pathSrc) kindSpec.path = { geo: pathSrc.geo, mat: pathSrc.mat, lit: new THREE.Color(0xdcc49e).multiplyScalar(tintJitter), cast: false };
       kindSpec.fill = { geo: fillGeo, mat: flat(0xffffff), lit: new THREE.Color(oa!.grass).multiplyScalar(0.5 * tintJitter), cast: true };
+      // Underbrush: the ground beneath wall tiles, darker than any meadow.
+      kindSpec.brush = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grass).multiplyScalar(0.55 * tintJitter), cast: false };
       cliffSrcs.forEach((src, i) => { kindSpec[`cliff${i}`] = { geo: src.geo, mat: src.mat, lit: wallLitColor, cast: true }; });
       clusterSrcs.forEach((src, i) => { kindSpec[`cluster${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
+      accentSrcs.forEach((src, i) => { kindSpec[`accent${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
     }
 
     this.fogTargets = [];
+    this.canopy = openAir ? new Map() : null;
+    this.canopyGridW = map.w;
     for (const bucket of buckets.values()) {
       for (const [kind, list] of bucket) {
         const spec = kindSpec[kind];
@@ -997,6 +1026,17 @@ export class Renderer3D {
         mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
         this.floorGroup.add(mesh);
         this.fogTargets.push({ mesh, tiles: list.map((e) => e.tile), lit: spec.lit });
+        if (this.canopy && (kind.startsWith("cluster") || kind.startsWith("accent"))) {
+          // Register cluster pieces for camera courtesy (world pos from matrix).
+          for (let i = 0; i < list.length; i++) {
+            const e = list[i].m.elements;
+            const gx = Math.floor(e[12]), gz = Math.floor(e[14]);
+            const key = gz * map.w + gx;
+            let cell = this.canopy.get(key);
+            if (!cell) { cell = []; this.canopy.set(key, cell); }
+            cell.push({ mesh, index: i, base: list[i].m.clone(), x: e[12], z: e[14], f: 1, target: 1 });
+          }
+        }
       }
     }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
@@ -1738,6 +1778,66 @@ export class Renderer3D {
 
     // Band atmosphere rides in a wrap-around box centered on the player.
     this.ambientFx.update(ax, az, dt, time);
+
+    // Camera courtesy: shrink foliage that hides the action (open-air only).
+    this.updateCanopy(state, ax, az, dt);
+  }
+
+  /**
+   * Open-air occlusion courtesy: the camera looks along (+1,+1) on the ground
+   * plane, so a tall cluster piece hides an entity when it sits a short way
+   * down that diagonal from them. Such pieces shrink toward their root until
+   * the shot is clear, then grow back — the System's cameras get their shot.
+   */
+  private updateCanopy(state: GameState, ax: number, az: number, dt: number): void {
+    if (!this.canopy) return;
+    const SQ2 = Math.SQRT1_2;
+    const wantHidden = (px: number, pz: number, ex: number, ez: number): boolean => {
+      const vx = px - ex, vz = pz - ez;
+      const u = (vx + vz) * SQ2; // along the camera diagonal
+      const w = (vx - vz) * SQ2; // across it
+      return u > -0.7 && u < 2.6 && Math.abs(w) < 1.15;
+    };
+    // Entities that deserve a clear shot: living players + monsters near the
+    // local player (the ones actually in frame and in the fight).
+    const ents: { x: number; y: number }[] = [];
+    for (const p of state.players) if (p.alive) ents.push(p.pos);
+    for (const mo of state.monsters) {
+      if (Math.abs(mo.pos.x - ax) < 14 && Math.abs(mo.pos.y - az) < 10) ents.push(mo.pos);
+    }
+    // Mark targets around each entity (candidate cells: the diagonal cone).
+    const marked = new Set<CanopyEntry>();
+    for (const e of ents) {
+      const bx = Math.floor(e.x), bz = Math.floor(e.y);
+      for (let dzz = -2; dzz <= 3; dzz++) {
+        for (let dxx = -2; dxx <= 3; dxx++) {
+          const cell = this.canopy.get((bz + dzz) * this.canopyGridW + (bx + dxx));
+          if (!cell) continue;
+          for (const c of cell) {
+            if (wantHidden(c.x, c.z, e.x, e.y)) marked.add(c);
+          }
+        }
+      }
+    }
+    // Ease every registered piece toward its target; write matrices on change.
+    const k = Math.min(1, dt * 9);
+    const dirty = new Set<THREE.InstancedMesh>();
+    const scratchM = new THREE.Matrix4();
+    const scratchV = new THREE.Vector3();
+    for (const cell of this.canopy.values()) {
+      for (const c of cell) {
+        c.target = marked.has(c) ? 0.12 : 1;
+        if (Math.abs(c.f - c.target) < 0.01) {
+          if (c.f === c.target) continue;
+          c.f = c.target;
+        } else {
+          c.f += (c.target - c.f) * k;
+        }
+        dirty.add(c.mesh);
+        c.mesh.setMatrixAt(c.index, scratchM.copy(c.base).scale(scratchV.set(c.f, c.f, c.f)));
+      }
+    }
+    for (const mesh of dirty) mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
