@@ -108,8 +108,10 @@ export const CONFIG = {
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
 
-  // Leveling
-  xpBase: 20, // xp to reach level 2
+  // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
+  // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
+  // shifts the whole curve down ~half a level early, less later.
+  xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
   damagePerLevel: 3,
