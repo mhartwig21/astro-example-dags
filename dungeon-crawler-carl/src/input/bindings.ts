@@ -5,7 +5,7 @@
 export type BindableAction =
   | "moveUp" | "moveDown" | "moveLeft" | "moveRight"
   | "slot1" | "slot2" | "slot3" | "slot4" | "ultimate" | "flask"
-  | "stairs" | "inventory" | "abilities" | "character" | "keybinds" | "newRun" | "mute";
+  | "stairs" | "ping" | "inventory" | "abilities" | "character" | "keybinds" | "newRun" | "mute";
 
 export type Bindings = Record<BindableAction, string[]>;
 
@@ -21,6 +21,7 @@ export const ACTION_INFO: Record<BindableAction, { name: string; hint?: string }
   ultimate: { name: "Ultimate" },
   flask: { name: "Drink flask", hint: "heals; kills refill it" },
   stairs: { name: "Use stairs / descend" },
+  ping: { name: "Ping", hint: "mark a spot for the party" },
   inventory: { name: "Inventory" },
   abilities: { name: "Abilities & achievements" },
   character: { name: "Crawler profile", hint: "stats, damage, defense" },
@@ -41,6 +42,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   ultimate: ["f"],
   flask: ["x"],
   stairs: ["e"],
+  ping: ["g"],
   inventory: ["i"],
   abilities: ["t"],
   character: ["p"],

@@ -92,6 +92,8 @@ export class Renderer3D {
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
+  private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
+  private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -1807,6 +1809,61 @@ export class Renderer3D {
     // Windup-bound FX: the spitter's lobbed thorn and the bomber's held bomb
     // exist only while the tell runs — pure presentation over sim windup state.
     this.updateWindupFx(state);
+
+    // Party pings: an expanding gold pulse on the marked spot. The pulse cycle
+    // derives from the ping's remaining life (sim time), so replays match.
+    // Pings pierce the fog on purpose — "over THERE" must work unseen.
+    const pingSeen = new Set<number>();
+    for (const pg of state.pings) {
+      pingSeen.add(pg.id);
+      let ring = this.pingRings.get(pg.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.72, 1, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd23e, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.pingRings.set(pg.id, ring);
+      }
+      const cycle = 1 - ((pg.t * 1.6) % 1); // 0 -> 1 expanding pulse
+      ring.position.set(pg.pos.x, 0.07, pg.pos.y);
+      ring.scale.setScalar(0.35 + cycle * 0.85);
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        (0.85 - cycle * 0.55) * Math.min(1, pg.t / 1.2); // and fades as it dies
+    }
+    for (const [id, ring] of this.pingRings) {
+      if (!pingSeen.has(id)) { this.scene.remove(ring); this.pingRings.delete(id); }
+    }
+
+    // Revive channel: a green ring tightening around a downed crawler as a
+    // teammate stabilizes them (radius shows the stand-here zone).
+    const revSeen = new Set<number>();
+    for (const pl of state.players) {
+      if (pl.alive || pl.reviveProgress <= 0) continue;
+      revSeen.add(pl.id);
+      let ring = this.reviveRings.get(pl.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.78, 0.95, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0x5fd08a, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.reviveRings.set(pl.id, ring);
+      }
+      ring.position.set(pl.pos.x, 0.07, pl.pos.y);
+      ring.scale.setScalar(CONFIG.reviveRadius * (1.05 - pl.reviveProgress * 0.55));
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.55 * pl.reviveProgress;
+      ring.visible = inVision(pl.pos);
+    }
+    for (const [id, ring] of this.reviveRings) {
+      if (!revSeen.has(id)) { this.scene.remove(ring); this.reviveRings.delete(id); }
+    }
 
     // Projectiles: reconcile a mesh pool by id.
     const projSeen = new Set<number>();

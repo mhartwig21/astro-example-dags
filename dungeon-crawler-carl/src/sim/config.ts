@@ -75,6 +75,19 @@ export const CONFIG = {
   frenzyMoveMult: 1.12,
   frenzyCooldownMult: 0.85, // melee/bolt/nova cooldowns + dash recharge
 
+  // Party pings: a marked spot the whole party sees (world pulse + minimap).
+  pingTtl: 6, // seconds a ping lives
+  pingMaxPerPlayer: 3, // oldest ping is replaced beyond this
+
+  // Co-op revives: stand close to a downed crawler to stabilize them. No
+  // button — proximity IS the channel (the reviver pays in exposure, not APM).
+  // Walking away lets the wound reopen (progress decays). Descending still
+  // revives everyone at 50% as before; this is the mid-floor rescue.
+  reviveRadius: 1.7, // tiles from the downed body
+  reviveChannelSec: 3.5, // seconds of continuous proximity to stabilize
+  reviveHpFraction: 0.35, // of max HP on revive
+  reviveDecayMult: 1.5, // progress decays this much faster than it builds
+
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
 
@@ -413,6 +426,7 @@ export const CONFIG = {
     // Crowd Frenzy hysteresis: enter hot, drop out only when the hype fades.
     frenzyEnter: 60,
     frenzyExit: 40,
+    hypeRevive: 22, // pulling a teammate off the mat is GREAT television
   },
 
   // Sponsor rewards (end-of-floor draft): one option per sponsor, capped here.

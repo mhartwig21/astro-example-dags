@@ -1581,10 +1581,30 @@ function drawMinimap(s: GameState): void {
     mmCtx.fill();
   }
   for (const pl of s.players) {
+    if (!pl.alive) {
+      // Downed crawler: a hollow red ring — go stand inside it.
+      mmCtx.strokeStyle = "#e2574c";
+      mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath();
+      mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
+      mmCtx.stroke();
+      continue;
+    }
     mmCtx.fillStyle = pl.id === me(s).id ? "#4fd1ff" : "#7be89b";
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
+  }
+  // Party pings: gold pulses (they pierce fog — that's the point of a ping).
+  for (const pg of s.pings) {
+    const cycle = 1 - ((pg.t * 1.6) % 1);
+    mmCtx.strokeStyle = "#ffd23e";
+    mmCtx.lineWidth = 1.5;
+    mmCtx.globalAlpha = 0.9 - cycle * 0.6;
+    mmCtx.beginPath();
+    mmCtx.arc(pad + pg.pos.x * sx, pad + pg.pos.y * sy, 2 + cycle * 4, 0, Math.PI * 2);
+    mmCtx.stroke();
+    mmCtx.globalAlpha = 1;
   }
   // Location Scout (chase legendary): the stairs are marked from the moment
   // you arrive — a pulsing gold diamond, fog or no fog.
@@ -1793,6 +1813,12 @@ function updateHud(s: GameState): void {
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;
   hudLog.innerHTML = log.slice(-5).join("<br>");
+  if (s.status === "playing" && !p.alive) {
+    hudLog.innerHTML += `<br><b style="color:#e2574c">DOWNED</b> — ` +
+      (p.reviveProgress > 0
+        ? `stabilizing… ${Math.round(p.reviveProgress * 100)}%`
+        : "a teammate standing close can stabilize you (or you rejoin on descent)");
+  }
   if (s.status !== "playing") {
     hudLog.innerHTML +=
       `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
@@ -1843,6 +1869,13 @@ function sampleIntent(): ReturnType<InputController["sample"]> {
       const dx = g.x - p.pos.x, dy = g.y - p.pos.y;
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
+  }
+  // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
+  if (input.pingEdge) {
+    input.pingEdge = false;
+    const p = me(state);
+    const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
+    intent.ping = g ?? { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
   }
   return intent;
 }

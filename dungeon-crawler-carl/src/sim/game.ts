@@ -436,6 +436,7 @@ function makePlayer(id: number, name: string): Player {
     meleeComboT: 0,
     overcharged: false,
     plotArmorUsed: false,
+    reviveProgress: 0,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -489,6 +490,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.stanceCritReady = false;
   p.overcharged = false;
   p.plotArmorUsed = false; // the writers grant one save per floor
+  p.reviveProgress = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -777,6 +779,7 @@ export function createGame(seed: number): GameState {
     bulletTimeLeft: 0,
     hazards: [],
     corpses: [],
+    pings: [],
     encounter: null,
     killsThisStep: 0,
     escapedCollapse: false,
@@ -2622,10 +2625,62 @@ export { hasPassive };
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
   p.hp = 0;
   p.alive = false;
+  p.reviveProgress = 0;
   announce(state, "progress", line);
   if (alivePlayers(state).length === 0) {
     state.status = "dead";
     announce(state, "progress", "PARTY WIPE. The season finale nobody wanted. The crowd goes wild.", "high");
+  } else {
+    announce(state, "progress", `${p.name} is DOWN. Stand close to stabilize them.`);
+  }
+}
+
+/** Drop a party ping at a world position (clamped into the map). Few per player. */
+function addPing(state: GameState, p: Player, at: Vec2): void {
+  const pos = {
+    x: Math.max(0, Math.min(state.map.w - 1, at.x)),
+    y: Math.max(0, Math.min(state.map.h - 1, at.y)),
+  };
+  const mine = state.pings.filter((pg) => pg.byId === p.id);
+  if (mine.length >= CONFIG.pingMaxPerPlayer) {
+    const oldest = mine.reduce((a, b) => (a.t < b.t ? a : b));
+    state.pings.splice(state.pings.indexOf(oldest), 1);
+  }
+  state.pings.push({ id: state.nextEntityId++, pos, byId: p.id, t: CONFIG.pingTtl, total: CONFIG.pingTtl });
+}
+
+function updatePings(state: GameState, dt: number): void {
+  for (const pg of state.pings) pg.t -= dt;
+  state.pings = state.pings.filter((pg) => pg.t > 0);
+}
+
+/**
+ * Co-op revives: a living crawler standing within reviveRadius of a downed one
+ * stabilizes them by PROXIMITY (no button — the reviver pays in exposure, not
+ * APM). Walking away lets the wound reopen. The descend-revive at 50% remains
+ * the fallback; this is the mid-floor rescue.
+ */
+function updateRevives(state: GameState, dt: number): void {
+  for (const down of state.players) {
+    if (down.alive) continue;
+    const medic = state.players.find(
+      (pl) => pl.alive && pl.id !== down.id && dist(pl.pos, down.pos) <= CONFIG.reviveRadius,
+    );
+    if (!medic) {
+      down.reviveProgress = Math.max(
+        0, down.reviveProgress - (dt / CONFIG.reviveChannelSec) * CONFIG.reviveDecayMult,
+      );
+      continue;
+    }
+    if (down.reviveProgress === 0) state.events.push(`${medic.name} is stabilizing ${down.name}…`);
+    down.reviveProgress += dt / CONFIG.reviveChannelSec;
+    if (down.reviveProgress >= 1) {
+      down.reviveProgress = 0;
+      down.alive = true;
+      down.hp = Math.max(1, Math.round(down.maxHp * CONFIG.reviveHpFraction));
+      addHype(state, medic, CONFIG.show.hypeRevive);
+      announce(state, "show", `${down.name} is BACK IN THE FIGHT — ${medic.name} with the save! The crowd erupts.`);
+    }
   }
 }
 
@@ -2804,6 +2859,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       }
       if (pi.flask) useFlask(state, p);
     }
+    // Pings are allowed dead or alive — calling for help is content.
+    if (pi.ping) addPing(state, p, pi.ping);
     updateOrbit(state, p, dt);
   }
 
@@ -2818,6 +2875,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
 
   reapDead(state);
   collectLoot(state);
+  updatePings(state, dt);
+  updateRevives(state, dt);
 
   // Collapse timer (applied after combat so its DoT can be the killing blow).
   if (state.status === "playing" && alivePlayers(state).length > 0) updateTimer(state, dt);

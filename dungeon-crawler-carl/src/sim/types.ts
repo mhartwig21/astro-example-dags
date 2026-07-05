@@ -57,6 +57,7 @@ export interface Player {
   meleeComboT: number; // seconds left before the combo drops
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
+  reviveProgress: number; // 0..1: teammates standing close stabilize a downed crawler
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -400,6 +401,17 @@ export interface Hazard {
   tick?: number; // puddle: seconds until the next damage tick
 }
 
+// A party ping: a crawler marks a spot for the team ("loot here", "danger",
+// "this way"). Pure sim data with a TTL — hosts render the pulse on the world
+// and minimap; multiplayer gets it for free via snapshots.
+export interface Ping {
+  id: number;
+  pos: Vec2;
+  byId: number; // player who pinged (hosts color/label by party member)
+  t: number; // seconds of life left
+  total: number; // full lifetime (render progress)
+}
+
 // A fallen monster the necromancer can raise. Purely positional — the fresh
 // minion is rebuilt from the corpse's kind (see raiseCorpse in game.ts).
 export interface Corpse {
@@ -491,6 +503,9 @@ export interface GameState {
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];
 
+  // Active party pings (TTL-capped, few per player).
+  pings: Ping[];
+
   // Ringside introduction in progress (world frozen while non-null).
   encounter: Encounter | null;
 
@@ -520,6 +535,9 @@ export interface Intent {
   dash?: boolean;
   bolt?: boolean;
   nova?: boolean;
+  // Drop a party ping at this WORLD position (edge-triggered). Downed players
+  // may ping too — calling for help is content.
+  ping?: Vec2;
 }
 
 export const NO_INTENT: Intent = {

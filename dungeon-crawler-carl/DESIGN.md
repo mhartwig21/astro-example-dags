@@ -422,7 +422,26 @@ their fixes:
   >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
   hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
 
-### 5.11 Ringside Check-in + the Daily Crawl (SHIPPED)
+### 5.11 Co-op verbs — party pings + proximity revives (SHIPPED)
+
+**Pings.** `G` (rebindable) marks the spot under the cursor: `GameState.pings`
+(TTL 6s, 3 per player, oldest replaced), pure sim data that rides snapshots so
+the whole party sees it. Hosts render an expanding gold pulse in the world and
+on the minimap — pings pierce fog on purpose ("over THERE" must work unseen) —
+and the audio director chimes once per fresh mark, panned toward it. Downed
+players may ping (calling for help is content).
+
+**Revives.** In a party, death is now DOWNED, not benched-until-descent: a
+living crawler standing within `reviveRadius` of a downed one stabilizes them
+by proximity — no button, the reviver pays in exposure, not APM
+(`updateRevives` in game.ts). ~3.5s of continuous closeness revives at 35% max
+HP (+hype for the medic: a save is great television); walking away decays the
+progress 1.5× faster than it built. Hosts show a green ring tightening around
+the body, a hollow red minimap ring saying "stand here", and a DOWNED line in
+the HUD. Solo death and full wipes are unchanged, and the descend-revive at
+50% remains the fallback.
+
+### 5.12 Ringside Check-in + the Daily Crawl (SHIPPED)
 
 **Entry menu.** `iso.html` opens on the RINGSIDE CHECK-IN (`#menu`, z 28): name
 field (persisted, `dcc:name:v1`), CONTINUE RUN (when a mid-run save exists),
