@@ -694,6 +694,11 @@ export class Renderer3D {
     } else if (l.kind === "tome") {
       const book = this.models["armory_arcana"]?.scene.getObjectByName("Spellbook");
       if (book) { obj = book.clone(true); scale = 0.8; }
+    } else if (l.kind === "shrine") {
+      // System Shrine (floor event): a standing lantern reads as a fixture,
+      // not a pickup — the purple halo below marks it as a System offer.
+      obj = this.modelInstance("lantern_standing");
+      scale = 0.85;
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
       const node = vis
@@ -730,6 +735,7 @@ export class Renderer3D {
   private lootColor(kind: string): number {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
     if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
+    if (kind === "shrine") return 0xc58cff; // System Shrine: bargain purple
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
   }
 
@@ -1654,17 +1660,22 @@ export class Renderer3D {
     this.prevStatus = state.status;
 
     // Ground hazards, reconciled by id: volatile blasts are rings that brighten
-    // toward detonation; spitter puddles are filled acid pools that fade out.
+    // toward detonation; spitter puddles are filled acid pools that fade out;
+    // boss sludge/roots zones are filled pools that GHOST through their arming
+    // telegraph, then snap solid when they go live.
     const hazSeen = new Set<number>();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
-      const puddle = hz.kind === "puddle";
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
-          puddle ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
+          pool ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
           new THREE.MeshBasicMaterial({
-            color: puddle ? 0x7fb832 : 0xff4628,
+            color:
+              hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
+              hz.kind === "roots" ? 0x2e8b57 : // grasping green
+              pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),
         );
@@ -1674,9 +1685,12 @@ export class Renderer3D {
       }
       ring.position.set(hz.pos.x, 0.06, hz.pos.y);
       ring.scale.setScalar(hz.radius);
-      (ring.material as THREE.MeshBasicMaterial).opacity = puddle
-        ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
-        : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+      const arming = pool && (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
+      (ring.material as THREE.MeshBasicMaterial).opacity = arming
+        ? 0.1 + 0.2 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)) // telegraph fades in
+        : pool
+          ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
+          : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
       ring.visible = inVision(hz.pos);
     }
     for (const [id, ring] of this.hazardRings) {

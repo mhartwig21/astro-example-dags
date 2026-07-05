@@ -3,7 +3,10 @@ import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion } from "./game";
+import {
+  bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
+  damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
+} from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -122,7 +125,11 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "raise") {
-    raiseCorpse(state, m); // whiffs harmlessly if the corpse faded mid-ritual
+    // The crypt boss's Grave Rising channel raises a whole handful; the
+    // necromancer raises the one corpse it committed to. Both whiff
+    // harmlessly if the bodies faded mid-ritual.
+    if (m.kind === "boss") bossGraveRaise(state, m);
+    else raiseCorpse(state, m);
     return;
   }
   if (kind === "slam") {
@@ -195,6 +202,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.surgeT ?? 0) > 0) m.surgeT = Math.max(0, (m.surgeT ?? 0) - dt);
   if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - dt);
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
+  if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
   // AMBUSH: a dormant monster lies inert until a player strays within trigger
@@ -263,6 +271,40 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         priority: "normal",
       });
       state.events.push(`Boss phase ${m.phase + 1}.`);
+    }
+    // SIGNATURE mechanic: each band-end boss layers ONE themed ability on the
+    // shared kit (see BAND_BOSSES + the boss* helpers in game.ts). Gated on
+    // `introduced` so the arena never starts cooking before the ringside
+    // reveal. Grave Rising is a windup (interruptible channel); the rest lay
+    // telegraphed ground danger and let the boss keep fighting.
+    if (m.signature && m.introduced && (m.sigCd ?? 0) === 0 && d <= CONFIG.monsterAggroRange * 2.5) {
+      if (m.signature === "graverising") {
+        // Only commit when there is actually a body to raise (necromancer rules).
+        if (state.corpses.some((c) => dist(m.pos, c.pos) <= CONFIG.graveRaiseRange)) {
+          m.sigCd = CONFIG.graveRaiseCooldown;
+          beginWindup(m, "raise", CONFIG.graveRaiseWindup);
+          if (!m.sigUsed) {
+            m.sigUsed = true;
+            state.announcements.push({
+              text: "The Concierge is WAKING THE GUESTS. Interrupt the ritual or meet the returning residents.",
+              kind: "boss", priority: "normal",
+            });
+          }
+          return;
+        }
+      } else if (m.signature === "flood") {
+        m.sigCd = CONFIG.floodCooldown;
+        bossFloodSurge(state, m);
+      } else if (m.signature === "roots") {
+        m.sigCd = CONFIG.rootsCooldown;
+        bossRootGrasp(state, m);
+      } else if (m.signature === "debris") {
+        m.sigCd = CONFIG.debrisCooldown;
+        bossDebrisRain(state, m);
+      } else if (m.signature === "flamewall") {
+        m.sigCd = CONFIG.flameCooldown;
+        bossFlameSweep(state, m);
+      }
     }
     // Tier 3: Dark Ritual — a long channelled cast, its own cooldown, arena-scale
     // AoE. This is the one attack in the game worth a genuine "stagger it now or

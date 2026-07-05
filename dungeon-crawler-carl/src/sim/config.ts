@@ -208,12 +208,13 @@ export const CONFIG = {
   // windup as before; the long telegraph is the dodge window either way.
   bruteSlamRadius: 1.5, // tiles from the brute's own position
 
-  // Boss kit escalation (DESIGN: three boss-tier fights should feel like
-  // escalating KITS, not just bigger numbers on one script). Adds waves at
-  // phase breaks + hazard rain are UNIVERSAL boss behavior (backlog #11);
-  // the tiers layer on top of that:
-  //   tier 1 (floor 6 city boss)  — melee+volley + Ground Slam
-  //   tier 2 (floor 12 city boss) — Ground Slam cycles faster
+  // Boss kit escalation (DESIGN: boss-tier fights should feel like escalating
+  // KITS, not just bigger numbers on one script). Adds waves at phase breaks +
+  // hazard rain are UNIVERSAL boss behavior (backlog #11); the tiers layer on
+  // top of that (band-end bosses ALSO carry a per-band signature — see below):
+  //   tier 0 (floor 3)            — melee+volley only (early-game, gentle)
+  //   tier 1 (floors 6, 9)        — + Ground Slam
+  //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
@@ -374,7 +375,9 @@ export const CONFIG = {
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
   //   archetype with a name, guaranteed loot, and an announcer moment.
-  // - CITY BOSS: every 6th floor (6, 12) is a sealed arena with a real boss.
+  // - BAND BOSS: every band-END floor (3, 6, 9, 12, 15) is a sealed arena with
+  //   a real boss carrying its band's SIGNATURE mechanic (see the signature
+  //   knobs below + ai.ts).
   // - Floor 18 remains the final boss.
   eliteFromFloor: 2,
   // Elite durability tracks the player power curve (measured by the balance
@@ -422,14 +425,84 @@ export const CONFIG = {
   splitterCount: 3, // swarmers a splitter elite bursts into on death
   thornsReflectFraction: 0.25, // slice of each hit reflected back at the attacker...
   thornsReflectCapFraction: 0.04, // ...capped at this fraction of the attacker's maxHp per hit
-  cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
-  // City-boss pools sized against measured shopping-player DPS, which roughly
-  // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
-  // grow per ARENA, not per floor: hp = base * (1 + (arena-1) * growth).
+  bossFloorEvery: 3, // floors 3, 6, 9, 12, 15 (18 is the final boss)
+  // Band-boss pools per arena (floors 3/6/9/12/15), sized against measured
+  // shopping-player DPS, which roughly DOUBLES between the floor-6 and
+  // floor-12 arenas (~300 -> ~1100); floors 6 and 12 keep their pre-band
+  // values (5400 / 18360). Floor 3 is early-game and deliberately GENTLE.
   // Target: a real 15-25s arena fight, not a speed bump.
-  cityBossHpBase: 5400,
-  cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
+  bandBossHp: [1500, 5400, 10500, 18360, 27000],
+  bandBossDmgMult: [0.5, 0.7, 0.7, 0.7, 0.7], // x bossDamage per arena
+  bandBossXpMult: [0.2, 0.4, 0.4, 0.4, 0.4], // x bossXp per arena
   cityBossAdds: 2, // ranged escorts
+  // Ordinary-crowd share on a boss floor: thinner mid-run so the arena fight
+  // stays the show; the final band keeps the deep-dungeon density story.
+  bossFloorCrowd: 0.5,
+  bossFloorCrowdDeep: 0.8,
+  bossFloorCrowdDeepFrom: 13,
+
+  // SIGNATURE boss mechanics — one themed ability per band-end arena, layered
+  // on the shared melee+volley+phase kit (dispatch in ai.ts, helpers in
+  // game.ts). Every one of them telegraphs: pools ARM before they bite,
+  // impact circles ring before they land, the raise is an interruptible
+  // channel. Floor 18's crown stays the tier-3 Dark Ritual (above).
+  // UNDERCROFT (floor 3): Grave Rising — raises fresh corpses as weakened adds.
+  graveRaiseCooldown: 10, // seconds between raise channels
+  graveRaiseWindup: 1.1, // channel length (staggering it cancels the raise)
+  graveRaiseRange: 7, // tiles: corpses it can reach
+  graveRaiseCount: 3, // corpses raised per channel (freshest first)
+  // SEWERS (floor 6): Flood Surge — sludge pools blanket a seeded half of the
+  // arena; they arm (telegraph), then tick like acid until they drain.
+  floodCooldown: 12, // seconds between surges
+  floodTelegraph: 1.6, // seconds a pool arms before it goes live (the dodge window)
+  floodDuration: 3.5, // seconds a live pool keeps ticking
+  floodPools: 12, // pools per surge
+  floodPoolRadius: 1.6, // tiles
+  floodDmgMult: 0.4, // per-tick damage relative to the boss's damage stat
+  // GARDEN (floor 9): Entangling Roots — root zones SNARE (heavy slow, no
+  // damage) players who stay; dashing out is the escape.
+  rootsCooldown: 9, // seconds between casts
+  rootsTelegraph: 1.1, // seconds a zone arms before it grips
+  rootsDuration: 2.6, // seconds a live zone keeps gripping
+  rootsRadius: 1.5, // tiles
+  rootsSnare: 0.7, // seconds of snare refreshed while standing in a live zone
+  rootsSlowMult: 0.35, // move-speed multiplier while snared
+  rootsExtra: 2, // extra seeded zones beyond one per crawler
+  // RUINS (floor 12): Collapsing Masonry — telegraphed debris impact circles
+  // rain all fight (one per crawler + seeded scatter), not just from phase 1.
+  debrisCooldown: 6.5, // seconds between volleys
+  debrisDelay: 1.3, // seconds from telegraph to impact
+  debrisRadius: 1.6, // tiles
+  debrisCount: 6, // circles per volley (players targeted first, rest scatter)
+  debrisDmgMult: 0.9, // relative to the boss's damage stat
+  // IRONWORKS (floor 15): Flame Sweep — an advancing wall of fire, row by
+  // row toward the boss's target; each row detonates later than the last, so
+  // the wave READS and the play is "pick a gap and commit".
+  flameCooldown: 13, // seconds between sweeps
+  flameTelegraph: 1.4, // seconds before the FIRST row erupts
+  flameStepDelay: 0.35, // extra seconds per row (the advance speed)
+  flameRows: 6, // rows the wall advances through
+  flameRowSpacing: 1.4, // tiles between rows
+  flameSpacing: 1.8, // tiles between circles across a row
+  flameHalfWidth: 2, // circles each side of a row's center (5 across)
+  flameRadius: 1.1, // tiles per fire circle
+  flameDmgMult: 1.0, // relative to the boss's damage stat
+
+  // FLOOR EVENTS (floors 2+, never on boss floors): a seeded roll gives most
+  // floors ONE of — a System Shrine (pick-1 bargain), a timed vault (sealed
+  // treasure that opens on approach and re-seals on a timer), or a sponsor
+  // challenge (clear a room's pack untouched for a purse). Pure sim data;
+  // hosts only render and announce.
+  eventChance: 0.7, // share of eligible floors that roll an event at all
+  shrineBloodCostFraction: 0.2, // Blood Price: HP offered (of max, floored at 1)
+  shrineBloodCrit: 0.03, // ...for this much permanent crit
+  shrineGreedSpeedMult: 1.15, // Greed Clause: this floor's monsters speed up...
+  shrineGreedGoldMult: 2, // ...and its gold drops pay double
+  vaultOpenSeconds: 45, // how long a sprung timed vault stays open
+  vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
+  challengeGoldBase: 40, // sponsor-challenge purse...
+  challengeGoldPerFloor: 15, // ...plus this per floor
+  challengeHype: 25, // hype paid alongside the purse
 
   // Boss (floor 18)
   bossHp: 34000,

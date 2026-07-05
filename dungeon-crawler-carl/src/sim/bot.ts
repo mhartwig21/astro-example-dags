@@ -198,6 +198,33 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
     return intent;
   }
 
+  // Step out of ground danger: telegraphed circles (debris, flame rows, blast
+  // rain) and armed pools (sludge, roots) alike. Straight away from the
+  // nearest overlapping hazard's center — walls slide, and the boss fight
+  // resumes the moment the feet are clear.
+  let inHazard: GameState["hazards"][number] | null = null;
+  let inHazardD = Infinity;
+  for (const hz of state.hazards) {
+    const d = dist(p.pos, hz.pos);
+    if (d > hz.radius + 0.35) continue;
+    if (d < inHazardD) { inHazardD = d; inHazard = hz; }
+  }
+  if (inHazard) {
+    intent.move = inHazardD > 1e-3
+      ? normalize({ x: p.pos.x - inHazard.pos.x, y: p.pos.y - inHazard.pos.y })
+      : { x: 1, y: 0 }; // dead center: any exit beats no exit
+    // Keep swinging on the way out — retreating with the sword down is how a
+    // pack turns one puddle into a rout.
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      if (dist(p.pos, m.pos) > CONFIG.playerAttackRange) continue;
+      intent.attack = true;
+      intent.aim = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
+      break;
+    }
+    return intent;
+  }
+
   // Respect HEAVY telegraphs (boss slams always; otherwise a hit worth >= ~12%
   // of max HP, or a bomber fuse): back away, dashing through the strike frame
   // if it's about to land. Chaff windups are traded through — retreating from

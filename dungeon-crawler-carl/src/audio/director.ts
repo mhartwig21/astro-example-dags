@@ -37,7 +37,7 @@ const BOSS_EARSHOT = 26; // a living boss within this range owns the soundtrack
 /** The final floor gets the colossal theme; city-boss arenas rotate the rest. */
 function bossTrack(floor: number): SoundId {
   if (floor >= CONFIG.finalFloor) return "music_boss_colossal";
-  const arena = Math.max(0, Math.floor(floor / CONFIG.cityBossEvery) - 1);
+  const arena = Math.max(0, Math.floor(floor / CONFIG.bossFloorEvery) - 1);
   return CITY_BOSS_TRACKS[arena % CITY_BOSS_TRACKS.length];
 }
 

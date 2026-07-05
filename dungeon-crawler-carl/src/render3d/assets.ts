@@ -31,9 +31,13 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_spitter: "/assets/characters/plant_warrior.glb",
   monster_necromancer: "/assets/characters/necromancer.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
-  // City-boss arenas + the finale get named menaces (keyed by floor).
-  monster_boss_6: "/assets/characters/black_knight.glb",
-  monster_boss_12: "/assets/characters/frost_golem.glb",
+  // Band-boss arenas + the finale get named menaces (keyed by floor). All are
+  // reuses of characters already in the cast — no new asset files.
+  monster_boss_3: "/assets/characters/necromancer.glb", // The Crypt Concierge
+  monster_boss_6: "/assets/characters/black_knight.glb", // The Sump King
+  monster_boss_9: "/assets/characters/plant_warrior.glb", // The Topiary Warden
+  monster_boss_12: "/assets/characters/frost_golem.glb", // The Condemned Architect
+  monster_boss_15: "/assets/characters/orc_brute.glb", // The Furnace Marshal
   monster_boss_18: "/assets/characters/demon_lord.glb",
   // Armory sources: the 1.0 adventurer GLBs. They carry the weapon/shield
   // meshes weaponry.ts grafts onto hands, AND they are the barbarian/mage/
@@ -117,8 +121,11 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_charger: "medium", // Werewolf
   monster_spitter: "medium", // PlantWarrior
   monster_necromancer: "medium", // Necromancer
+  monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
+  monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
   monster_boss_12: "large", // FrostGolem
+  monster_boss_15: "large", // OrcBrute (as The Furnace Marshal)
   monster_boss_18: "large", // DemonLord
 };
 

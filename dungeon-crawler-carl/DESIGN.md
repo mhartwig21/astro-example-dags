@@ -411,6 +411,49 @@ their fixes:
   >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
   hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
 
+### 5.11 Band bosses + floor events (SHIPPED)
+
+Every themed band now ENDS in a boss, and ordinary floors carry seeded events, so descent
+reads as chapters instead of a corridor of identical floors.
+
+- **A signature boss per band.** Every band-end floor (3, 6, 9, 12, 15) is a sealed arena
+  (`bossFloorEvery` in config; floor.ts carves the oversized arena, the stairs stay sealed
+  until the boss falls). Each boss keeps the shared melee+volley+phase script and layers
+  exactly ONE band-themed signature (dispatch in ai.ts, helpers in game.ts; every one
+  telegraphs — pools ARM, circles ring, channels can be staggered out):
+  - **Floor 3, The Crypt Concierge (UNDERCROFT):** *Grave Rising* — an interruptible channel
+    that raises fresh `GameState.corpses` as weakened adds (necromancer plumbing reused).
+    Tier 0: no Ground Slam — deliberately the trainer boss (bot TTK ~20-35s at level ~6).
+  - **Floor 6, The Sump King (SEWERS):** *Flood Surge* — sludge pools blanket a seeded half
+    of the arena; they arm for 1.6s, then tick like acid until they drain (`Hazard.kind:
+    "sludge"` with an `arm` telegraph window).
+  - **Floor 9, The Topiary Warden (GARDEN):** *Entangling Roots* — root zones under each
+    crawler that SNARE (`Player.rootT`, heavy slow, zero damage) anyone who stays; dash out.
+  - **Floor 12, The Condemned Architect (RUINS):** *Collapsing Masonry* — telegraphed debris
+    impact circles rain all fight (phase 0 onward), one targeting each crawler.
+  - **Floor 15, The Furnace Marshal (IRONWORKS):** *Flame Sweep* — a wall of fire advances
+    row by row toward the boss's target; each row erupts a beat after the last.
+  - **Floor 18 (APPROACH):** unchanged tier-3 finale — Dark Ritual stays the crown.
+  HP ladder per arena (`bandBossHp`): 1.5k / 5.4k / 10.5k / 18.4k / 27k — floors 6 and 12
+  keep their pre-band pools, so the boss-difficulty contract bands held without retuning.
+  The renderer keys boss models by floor (necromancer / black knight / plant warrior / frost
+  golem / orc brute / demon lord — all cast reuses, no new assets). The balance bot dodges
+  ground hazards now (swinging on the way out) and must clear floors 1–3 in the suite.
+- **Floor events (floors 2+, never boss floors).** `maybeSpawnFloorEvent` rolls at most ONE
+  seeded event per floor (~70% of eligible floors; `GameState.floorEvent`):
+  - **System Shrine:** a touchable prop (loot kind `"shrine"`) offering a pick-1 bargain
+    through the SAME `pendingRewards` plumbing as sponsor drafts (no new host UI): *Blood
+    Price* (pay 20% max HP on the spot for +3% permanent crit), *Greed Clause* (this floor's
+    monsters gain +15% speed, its gold drops pay double — `GameState.goldSurge`), or *Walk
+    Away*.
+  - **Timed vault:** the vault room is sealed at build (`sealRoomOnMap`, softlock-guarded);
+    approaching springs it open for 45s of sprint-for-loot, then it seals forever. It never
+    seals a crawler inside (holds until the room clears), and the floor KEY never opens the
+    vault's own doors.
+  - **Sponsor challenge:** entering the landmark hall arms a dare — clear its tracked pack
+    without ANY crawler taking a hit — paying gold + hype on a clean clear, voiding on the
+    first point of damage.
+
 ---
 
 ## 6. Tech stack

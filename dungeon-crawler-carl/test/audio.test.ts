@@ -209,13 +209,17 @@ describe("audio director", () => {
     const boss = { ...state.monsters[0], id: 9999, kind: "boss" as const, hp: 100, pos: { x: p.pos.x + 5, y: p.pos.y } };
     state.monsters = [boss];
 
-    state.floor = 6;
+    state.floor = 3;
     director.frame(state, [], [], p.id);
     expect(sink.lastMusic()).toBe("music_boss_epic");
 
-    state.floor = 12;
+    state.floor = 6;
     director.frame(state, [], [], p.id);
     expect(sink.lastMusic()).toBe("music_boss_tides");
+
+    state.floor = 9;
+    director.frame(state, [], [], p.id);
+    expect(sink.lastMusic()).toBe("music_boss_epic");
 
     state.floor = 18;
     director.frame(state, [], [], p.id);
