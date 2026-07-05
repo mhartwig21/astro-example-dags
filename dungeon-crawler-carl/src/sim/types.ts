@@ -32,6 +32,7 @@ export interface Player {
   // scales to any number of abilities without new fields.
   cd: Partial<Record<AbilityId, number>>;
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
+  rootT: number; // seconds of root snare remaining (heavy slow; boss roots zones)
   // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
   // (only ticking while below max), so dashes can be woven into offense.
   dashCharges: number;
@@ -147,6 +148,10 @@ export interface StatusEffect {
   sourceId?: number; // player id credited with monster-side DoT kills
 }
 
+// Band-end boss signature mechanics: ONE themed ability per arena, layered on
+// the shared boss kit (set at spawn from the floor's band — see spawnMonsters).
+export type BossSignature = "graverising" | "flood" | "roots" | "debris" | "flamewall";
+
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
@@ -206,6 +211,10 @@ export interface Monster {
   bossTier?: 1 | 2 | 3;
   slamCd?: number; // boss only: seconds until Ground Slam can commit again
   ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
+  // Band-end boss signature mechanic (one per arena, themed to the band).
+  signature?: BossSignature;
+  sigCd?: number; // seconds until the signature can fire again
+  sigUsed?: boolean; // the first-cast announcer line already played
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -225,7 +234,7 @@ export interface Monster {
   wanderT?: number; // seconds left on the current wander leg
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
 // on legendary signature gear (see catalog.ts).
@@ -321,7 +330,11 @@ export type RewardKind =
   | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
   | "materials" // crafting material toward signature (legendary) gear
   | "favor" // an owed ability-upgrade draft (advances the constellation build)
-  | "retrain"; // unlearn one fork-side node; its ranks return as fresh drafts
+  | "retrain" // unlearn one fork-side node; its ranks return as fresh drafts
+  // System Shrine bargains (floor events — never in the sponsor pool):
+  | "shrineBlood" // pay a slice of max HP now for permanent crit
+  | "shrineGreed" // this floor's monsters speed up; its gold drops double
+  | "shrineDecline"; // walk away (the System notes the cowardice)
 
 export interface Reward {
   id: number;
@@ -386,6 +399,20 @@ export interface FloorMap {
 
 export type RunStatus = "playing" | "dead" | "won";
 
+// Seeded per-floor event (floors 2+, never on boss floors): at most ONE per
+// floor, rolled at build time. Pure sim data — hosts only render/announce.
+export type FloorEvent =
+  // A shrine prop (carried in `loot` as kind "shrine"): touching it opens a
+  // pick-1 bargain via the same pendingRewards plumbing as sponsor drafts.
+  | { type: "shrine" }
+  // The vault room is sealed at build; proximity springs it open for
+  // `openT` seconds of sprint-for-loot, then it seals forever. `doors` are
+  // the tile indices this event owns (the floor KEY never opens them).
+  | { type: "vault"; roomIdx: number; doors: number[]; phase: "sealed" | "open" | "resealed"; openT: number }
+  // A room-scoped dare: clear the tracked pack without ANY crawler taking a
+  // hit. Activates when someone enters the room; pays gold + hype on success.
+  | { type: "challenge"; roomIdx: number; phase: "offered" | "active" | "failed" | "cleared"; ids: number[]; gold: number; dmg0?: number };
+
 // A scheduled ultimate impact: Sponsor Airstrike shells in flight, or
 // Cataclysm's Aftermath echo. Absent fields fall back to airstrike-shell
 // defaults in updateStrikes (echoes pre-compute their blast at schedule time).
@@ -413,20 +440,25 @@ export interface Encounter {
   total: number; // full intro length (render progress)
 }
 
-// Enemy-side ground danger. Two shapes share the struct:
+// Enemy-side ground danger. Four shapes share the struct:
 // - "blast" (default): a delayed one-shot — t counts down to detonation,
 //   damage lands once on players still in radius (volatile elite corpses).
 // - "puddle": a lingering zone (spitter lobs) — active for its whole life,
 //   dealing `damage` to players inside every tick until t runs out.
+// - "sludge": an ARMED pool (boss Flood Surge) — inert for the first `arm`
+//   seconds (the telegraph), then ticks like a puddle until t runs out.
+// - "roots": an armed zone (boss Entangling Roots) — after arming it SNARES
+//   (heavy slow) players inside instead of damaging them.
 export interface Hazard {
   id: number;
   pos: Vec2;
-  t: number; // blast: seconds until detonation; puddle: seconds of life left
+  t: number; // blast: seconds until detonation; zones: seconds of life left
   total: number; // full delay/duration (render progress)
   radius: number; // tiles
-  damage: number; // blast: the hit; puddle: damage per tick
-  kind?: "blast" | "puddle"; // absent = blast (older saves/snapshots)
-  tick?: number; // puddle: seconds until the next damage tick
+  damage: number; // blast: the hit; puddle/sludge: damage per tick
+  kind?: "blast" | "puddle" | "sludge" | "roots"; // absent = blast (older saves/snapshots)
+  tick?: number; // puddle/sludge: seconds until the next damage tick
+  arm?: number; // sludge/roots: telegraph seconds before the zone goes live
 }
 
 // A party ping: a crawler marks a spot for the team ("loot here", "danger",
@@ -537,6 +569,11 @@ export interface GameState {
 
   // Ringside introduction in progress (world frozen while non-null).
   encounter: Encounter | null;
+
+  // Seeded per-floor event (see FloorEvent). Reset every floor build.
+  floorEvent: FloorEvent | null;
+  // Shrine Greed Clause accepted on this floor: gold drops pay double.
+  goldSurge: boolean;
 
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.

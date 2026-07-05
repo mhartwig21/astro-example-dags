@@ -1403,16 +1403,16 @@ describe("boss hierarchy", () => {
   }
 
   it("ordinary floors (2+) spawn one named neighborhood boss with boosted stats", () => {
-    const g = onFloor(3);
+    const g = onFloor(4); // floor 3 is a band-boss arena now — no elite there
     const elites = g.monsters.filter((m) => m.elite);
     expect(elites.length).toBe(1);
     expect(elites[0].eliteName).toBeTruthy();
     expect(elites[0].kind).not.toBe("boss");
   });
 
-  it("floor 1 has no elite; city-boss floors (6, 12) spawn a sealed city boss", () => {
+  it("floor 1 has no elite; band-boss floors (3, 6, 9, 12, 15) spawn a sealed boss", () => {
     expect(onFloor(1).monsters.some((m) => m.elite)).toBe(false);
-    for (const f of [6, 12]) {
+    for (const f of [3, 6, 9, 12, 15]) {
       const g = onFloor(f);
       const boss = g.monsters.find((m) => m.kind === "boss");
       expect(boss).toBeDefined();
@@ -2499,6 +2499,7 @@ describe("theme bands", () => {
       player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
     });
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.monsters.length = 0; // floor 3 is a band-boss floor; the boss seals the stairs
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
     expect(g.floor).toBe(4);
@@ -2580,7 +2581,7 @@ describe("intentional floors (mission-lite)", () => {
     let clustered = 0, total = 0;
     for (const seed of [77, 1234, 5555]) {
       const g = restoreGame({
-        seed, floor: 3,
+        seed, floor: 4, // 3 is a band-boss arena (its crowd spawns unclustered)
         player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
       });
       for (const m of g.monsters) {
@@ -3403,13 +3404,19 @@ describe("locked floors", () => {
     expect(g.players[0].hype).toBeGreaterThan(hype0);
   });
 
-  it("floors 1-2 have no locked doors and no key carrier", () => {
+  it("floors 1-2 have no stairs-district doors and no key carrier", () => {
     for (const seed of [1, 2, 3, 9]) {
       for (const floor of [1, 2]) {
         const g = floor === 1 ? createGame(seed) : atFloor(seed, 2);
         expect(g.map.locked).toBe(false);
         expect(g.map.lockedRoomIdx).toBe(-1);
-        expect(doorCount(g.map)).toBe(0);
+        // A floor-2 timed-vault EVENT may seal its own room; only doors that
+        // aren't the vault's would betray a stairs lock leaking early.
+        const vaultDoors = new Set(g.floorEvent?.type === "vault" ? g.floorEvent.doors : []);
+        const strayDoors = Array.from(g.map.tiles).filter(
+          (t, i) => t === Tile.DoorLocked && !vaultDoors.has(i),
+        ).length;
+        expect(strayDoors).toBe(0);
         expect(g.monsters.some((m) => m.hasKey)).toBe(false);
         expect(canReach(g.map, g.map.spawn, g.map.stairs)).toBe(true);
       }

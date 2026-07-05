@@ -417,15 +417,21 @@ const draftHint = document.getElementById("draft-hint")!;
 const REWARD_GLYPHS: Record<string, string> = {
   healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
   bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
+  shrineBlood: "❖", shrineGreed: "◈", shrineDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
+// System Shrine bargains ride the same pendingRewards channel — only the
+// header changes (the choice cards are already fully data-driven).
 function renderDraft(s: GameState): void {
   const lp = me(s);
   if (lp.pendingRewards.length > 0) {
+    const shrine = lp.pendingRewards.some((r) => r.kind.startsWith("shrine"));
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = "◆ SPONSOR DRAFT";
-    draftHint.textContent = "Your sponsors reward a good show. Take one gift down — press its number or click.";
+    draftTitle.textContent = shrine ? "❖ SYSTEM SHRINE" : "◆ SPONSOR DRAFT";
+    draftHint.textContent = shrine
+      ? "The shrine offers a bargain. Every deal has fine print — pick one, or walk."
+      : "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
         const tint = r.item ? ` style="--oc:${RARITY_TEXT[r.item.rarity]}"` : "";

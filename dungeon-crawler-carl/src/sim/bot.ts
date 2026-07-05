@@ -198,6 +198,38 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
     return intent;
   }
 
+  // Step out of LIVE damaging pools (spitter acid, boss sludge): those tick
+  // repeatedly, so standing in one is strictly bad. One-shot telegraph
+  // circles are NOT dodged here — the bot's constant strafing already beats
+  // most of them, and measured runs show fleeing every ring gets it swarmed
+  // on dense tempo floors (kiting through a pack costs more than the blast).
+  let inHazard: GameState["hazards"][number] | null = null;
+  let inHazardD = Infinity;
+  for (const hz of state.hazards) {
+    const ticking =
+      (hz.kind === "puddle" && hz.damage > 0) ||
+      (hz.kind === "sludge" && hz.total - hz.t >= (hz.arm ?? 0)); // live, not arming
+    if (!ticking) continue;
+    const d = dist(p.pos, hz.pos);
+    if (d > hz.radius + 0.35) continue;
+    if (d < inHazardD) { inHazardD = d; inHazard = hz; }
+  }
+  if (inHazard) {
+    intent.move = inHazardD > 1e-3
+      ? normalize({ x: p.pos.x - inHazard.pos.x, y: p.pos.y - inHazard.pos.y })
+      : { x: 1, y: 0 }; // dead center: any exit beats no exit
+    // Keep swinging on the way out — retreating with the sword down is how a
+    // pack turns one puddle into a rout.
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      if (dist(p.pos, m.pos) > CONFIG.playerAttackRange) continue;
+      intent.attack = true;
+      intent.aim = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
+      break;
+    }
+    return intent;
+  }
+
   // Respect HEAVY telegraphs (boss slams always; otherwise a hit worth >= ~12%
   // of max HP, or a bomber fuse): back away, dashing through the strike frame
   // if it's about to land. Chaff windups are traded through — retreating from

@@ -1,5 +1,5 @@
 import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
-import { generateFloor, isWalkable, tileAt, walkableTiles } from "./floor";
+import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
@@ -19,7 +19,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, BossSignature, EliteAffix, Equipment, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -162,8 +162,14 @@ const ELITE_NAMES = [
   "Skitters Prime", "Old Chompy", "The Block Captain", "Sewer Baron Vex",
   "Knuckles the Landlord", "The HOA President",
 ];
-const CITY_BOSS_NAMES = [
-  "The Borough Butcher", "Magistrate Maw", "The Transit Authority", "Commissioner Dread",
+// Band-end boss identities: one signature menace per arena (floors 3/6/9/12/15),
+// each themed to its band and carrying that band's signature mechanic.
+const BAND_BOSSES: { name: string; signature: BossSignature }[] = [
+  { name: "The Crypt Concierge", signature: "graverising" }, // THE UNDERCROFT (3)
+  { name: "The Sump King", signature: "flood" }, // THE SEWERS (6)
+  { name: "The Topiary Warden", signature: "roots" }, // THE GARDEN (9)
+  { name: "The Condemned Architect", signature: "debris" }, // THE RUINS (12)
+  { name: "The Furnace Marshal", signature: "flamewall" }, // THE IRONWORKS (15)
 ];
 
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
@@ -172,9 +178,9 @@ const ELITE_AFFIXES: EliteAffix[] = [
   "armored", "warded", "chilling",
 ];
 
-/** A city-boss arena floor (6, 12, ... but never the final floor). */
+/** A band-end boss arena floor (3, 6, 9, 12, 15 — never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
-  return floor < CONFIG.finalFloor && floor >= CONFIG.cityBossEvery && floor % CONFIG.cityBossEvery === 0;
+  return floor < CONFIG.finalFloor && floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0;
 }
 
 function spawnMonsters(state: GameState): void {
@@ -200,25 +206,33 @@ function spawnMonsters(state: GameState): void {
     return;
   }
 
-  // CITY BOSS floors: a sealed mid-run arena — smaller boss + escorts + a
-  // thinner regular crowd. The stairs stay sealed until the boss falls.
+  // BAND BOSS floors (every band-end: 3, 6, 9, 12, 15): a sealed arena —
+  // boss + escorts + a thinner regular crowd. Each arena's boss carries its
+  // band's SIGNATURE mechanic on top of the shared kit; the tier ladder
+  // (Ground Slam and its haste) climbs with depth, and the floor-3 opener
+  // stays tier-0 gentle. The stairs stay sealed until the boss falls.
   if (isCityBossFloor(floor)) {
     const boss = makeMonster(state, "boss", { x: map.stairs.x, y: map.stairs.y });
-    const arena = Math.floor(floor / CONFIG.cityBossEvery);
-    const hp = CONFIG.cityBossHpBase * (1 + (arena - 1) * CONFIG.cityBossHpArenaGrowth) *
+    const arena = Math.floor(floor / CONFIG.bossFloorEvery); // 1..5
+    const hp = CONFIG.bandBossHp[arena - 1] *
       (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer);
     boss.hp = boss.maxHp = Math.round(hp);
-    boss.damage = CONFIG.bossDamage * 0.7 * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
+    boss.damage = CONFIG.bossDamage * CONFIG.bandBossDmgMult[arena - 1] *
+      (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
     boss.speed = CONFIG.bossSpeed;
-    boss.xp = Math.round(CONFIG.bossXp * 0.4);
-    boss.eliteName = pick(rng, CITY_BOSS_NAMES);
-    boss.bossTier = arena <= 1 ? 1 : 2; // arena 1 (floor 6): Ground Slam; arena 2+ (floor 12): + Call for Backup
+    boss.xp = Math.round(CONFIG.bossXp * CONFIG.bandBossXpMult[arena - 1]);
+    boss.eliteName = BAND_BOSSES[arena - 1].name;
+    boss.signature = BAND_BOSSES[arena - 1].signature;
+    // Tier ladder: floor 3 has no slam (early-game), 6/9 slam, 12/15 slam faster.
+    boss.bossTier = floor >= 12 ? 2 : floor >= 6 ? 1 : undefined;
     state.monsters.push(boss);
     for (let i = 0; i < CONFIG.cityBossAdds && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, "ranged", pos));
     }
-    const count = Math.floor(monsterCount(state, floor) / 2);
+    // Deep arenas keep the density story (the floor-15 crowd is a contract).
+    const crowd = floor >= CONFIG.bossFloorCrowdDeepFrom ? CONFIG.bossFloorCrowdDeep : CONFIG.bossFloorCrowd;
+    const count = Math.floor(monsterCount(state, floor) * crowd);
     for (let i = 0; i < count && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
@@ -370,12 +384,16 @@ function spawnMonsters(state: GameState): void {
   }
 }
 
-/** Remove every locked door on the floor. Returns how many were opened. */
+/** Remove every locked door on the floor — except a timed vault's own doors,
+ * which answer only to the vault's timer. Returns how many were opened. */
 function unlockDoors(state: GameState): number {
   const { map } = state;
+  const vaultDoors =
+    state.floorEvent?.type === "vault" ? new Set(state.floorEvent.doors) : null;
   let opened = 0;
   for (let i = 0; i < map.tiles.length; i++) {
     if (map.tiles[i] === Tile.DoorLocked) {
+      if (vaultDoors?.has(i)) continue; // the key is not THAT good
       map.tiles[i] = Tile.Floor;
       opened++;
     }
@@ -397,13 +415,151 @@ function assignKeyCarrier(state: GameState): void {
   const room = map.rooms[map.lockedRoomIdx];
   const inLockedRoom = (pos: Vec2) =>
     pos.x >= room.x && pos.x < room.x + room.w && pos.y >= room.y && pos.y < room.y + room.h;
-  const candidates = state.monsters.filter((m) => m.kind !== "boss" && !inLockedRoom(m.pos));
+  // A timed-vault event seals its own room too — its guardian can't carry the key.
+  const vault = state.floorEvent?.type === "vault" ? map.rooms[state.floorEvent.roomIdx] : null;
+  const inVault = (pos: Vec2) =>
+    !!vault && pos.x >= vault.x && pos.x < vault.x + vault.w && pos.y >= vault.y && pos.y < vault.y + vault.h;
+  const candidates = state.monsters.filter((m) => m.kind !== "boss" && !inLockedRoom(m.pos) && !inVault(m.pos));
   if (candidates.length === 0) {
     unlockDoors(state);
     return;
   }
   candidates[nextInt(rng, 0, candidates.length - 1)].hasKey = true;
   announce(state, "progress", "The stairs district is LOCKED. One of the residents has the key. Ask nicely.");
+}
+
+/**
+ * FLOOR EVENTS: most floors 2+ (never boss floors) roll ONE seeded event —
+ * a System Shrine (pick-1 bargain at a touchable prop), a timed vault (the
+ * vault room seals; approach springs it open on a timer), or a sponsor
+ * challenge (clear a room's pack untouched for a purse). Pure sim data:
+ * hosts render the prop/doors and relay the announcements.
+ */
+function maybeSpawnFloorEvent(state: GameState): void {
+  const { map, rng, floor } = state;
+  if (floor < 2 || floor >= CONFIG.finalFloor || isCityBossFloor(floor)) return;
+  if (!chance(rng, CONFIG.eventChance)) return;
+
+  // What this floor's layout supports; the roll picks among the eligible.
+  const options: ("shrine" | "vault" | "challenge")[] = ["shrine"];
+  const vaultIdx = map.roles.indexOf("vault");
+  if (vaultIdx >= 0) options.push("vault");
+  const landmarkIdx = map.roles.indexOf("landmark");
+  const inRoom = (pos: Vec2, i: number) => {
+    const r = map.rooms[i];
+    return pos.x >= r.x && pos.x < r.x + r.w && pos.y >= r.y && pos.y < r.y + r.h;
+  };
+  const packIds = landmarkIdx >= 0
+    ? state.monsters.filter((m) => inRoom(m.pos, landmarkIdx)).map((m) => m.id)
+    : [];
+  if (packIds.length >= 3) options.push("challenge");
+  const type = pick(rng, options);
+
+  if (type === "vault") {
+    const doors = sealRoomOnMap(map, vaultIdx);
+    if (doors) {
+      const r = map.rooms[vaultIdx];
+      const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      dropBossBonus(state, c, 1); // a sweetener on top of the standing vault haul
+      state.floorEvent = { type: "vault", roomIdx: vaultIdx, doors, phase: "sealed", openT: 0 };
+      announce(state, "loot", "A TIMED VAULT is sealed on this floor. It opens for whoever knocks — briefly.");
+      return;
+    }
+    // Sealing declined (softlock guard) — fall through to the shrine.
+  }
+
+  if (type === "challenge") {
+    state.floorEvent = {
+      type: "challenge", roomIdx: landmarkIdx, phase: "offered", ids: packIds,
+      gold: CONFIG.challengeGoldBase + floor * CONFIG.challengeGoldPerFloor,
+    };
+    return; // announced when someone steps into the hall
+  }
+
+  // System Shrine: a touchable prop in a seeded combat/landmark room.
+  const roomChoices = map.rooms
+    .map((_r, i) => i)
+    .filter((i) => map.roles[i] === "combat" || map.roles[i] === "landmark");
+  if (roomChoices.length === 0) return;
+  const ri = roomChoices[nextInt(rng, 0, roomChoices.length - 1)];
+  const r = map.rooms[ri];
+  for (let tries = 0; tries < 12; tries++) {
+    const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
+    const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
+    if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== Tile.Floor) continue;
+    if (dist({ x, y }, map.spawn) <= 6) continue;
+    state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "shrine", amount: 0 });
+    state.floorEvent = { type: "shrine" };
+    announce(state, "flavor", "A SYSTEM SHRINE hums on this floor. It wants to make a deal.");
+    return;
+  }
+}
+
+/** Tick the floor event: vault trigger/reseal, challenge activation/verdict. */
+function updateFloorEvent(state: GameState, dt: number): void {
+  const ev = state.floorEvent;
+  if (!ev) return;
+  if (ev.type === "vault") {
+    const room = state.map.rooms[ev.roomIdx];
+    const within = (pad: number) => state.players.some(
+      (p) => p.alive &&
+        p.pos.x >= room.x - pad && p.pos.x < room.x + room.w + pad &&
+        p.pos.y >= room.y - pad && p.pos.y < room.y + room.h + pad,
+    );
+    if (ev.phase === "sealed" && within(CONFIG.vaultTriggerRadius)) {
+      for (const i of ev.doors) if (state.map.tiles[i] === Tile.DoorLocked) state.map.tiles[i] = Tile.Floor;
+      state.mapVersion++;
+      ev.phase = "open";
+      ev.openT = CONFIG.vaultOpenSeconds;
+      announce(state, "loot", `THE VAULT OPENS. ${CONFIG.vaultOpenSeconds} seconds until it seals again — sprint, Crawler.`);
+    } else if (ev.phase === "open") {
+      ev.openT -= dt;
+      if (ev.openT > 0) return;
+      // Never seal a crawler inside: hold until the room and doorways clear.
+      if (within(1)) return;
+      for (const i of ev.doors) if (state.map.tiles[i] === Tile.Floor) state.map.tiles[i] = Tile.DoorLocked;
+      state.mapVersion++;
+      ev.phase = "resealed";
+      announce(state, "loot", "The vault SEALS. Whatever you grabbed is the haul; the System counts the leftovers.");
+    }
+    return;
+  }
+  if (ev.type === "challenge") {
+    const total = () => state.players.reduce((s, p) => s + p.damageTaken, 0);
+    if (ev.phase === "offered") {
+      const room = state.map.rooms[ev.roomIdx];
+      const entered = state.players.some(
+        (p) => p.alive &&
+          p.pos.x >= room.x && p.pos.x < room.x + room.w &&
+          p.pos.y >= room.y && p.pos.y < room.y + room.h,
+      );
+      if (!entered) return;
+      ev.ids = ev.ids.filter((id) => state.monsters.some((m) => m.id === id && m.hp > 0));
+      if (ev.ids.length === 0) {
+        ev.phase = "cleared"; // pack sniped from the doorway — clean, but no dare, no purse
+        return;
+      }
+      ev.phase = "active";
+      ev.dmg0 = total();
+      announce(state, "show", `SPONSOR CHALLENGE: clear this hall WITHOUT taking a hit. Purse: ${ev.gold} gold. Cameras up.`);
+      return;
+    }
+    if (ev.phase !== "active") return;
+    if (total() > (ev.dmg0 ?? 0) + 0.5) {
+      ev.phase = "failed";
+      announce(state, "show", "Challenge VOID — the sponsors saw that hit. The purse evaporates.");
+      return;
+    }
+    if (!ev.ids.some((id) => state.monsters.some((m) => m.id === id && m.hp > 0))) {
+      ev.phase = "cleared";
+      for (const p of alivePlayers(state)) {
+        p.gold += ev.gold;
+        addHype(state, p, CONFIG.challengeHype);
+      }
+      announce(state, "show", `CHALLENGE COMPLETE — untouched! The sponsors pay ${ev.gold} gold. A CLEAN fight, folks.`);
+    }
+    return;
+  }
 }
 
 function makePlayer(id: number, name: string): Player {
@@ -421,6 +577,7 @@ function makePlayer(id: number, name: string): Player {
     armor: CONFIG.playerBaseArmor,
     cd: {},
     dashTime: 0,
+    rootT: 0,
     dashCharges: CONFIG.dashCharges,
     flaskCharges: CONFIG.flaskMaxCharges,
     flaskKillProgress: 0,
@@ -482,6 +639,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.facing = { x: 0, y: 1 };
   p.cd = {};
   p.dashTime = 0;
+  p.rootT = 0;
   p.dashCharges = CONFIG.dashCharges;
   p.flaskCharges = CONFIG.flaskMaxCharges; // safe-room rest tops the Slurps back up
   p.flaskKillProgress = 0;
@@ -567,6 +725,8 @@ function buildFloor(state: GameState, floor: number): void {
   state.hazards = [];
   state.corpses = [];
   state.encounter = null;
+  state.floorEvent = null;
+  state.goldSurge = false;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
   state.timeRemaining = state.timeBudget;
@@ -574,6 +734,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.collapseElapsed = 0;
   state.mapVersion++;
   spawnMonsters(state);
+  maybeSpawnFloorEvent(state); // before the key roll: a sealed vault never holds the key
   assignKeyCarrier(state);
 }
 
@@ -784,6 +945,8 @@ export function createGame(seed: number): GameState {
     corpses: [],
     pings: [],
     encounter: null,
+    floorEvent: null,
+    goldSurge: false,
     killsThisStep: 0,
     escapedCollapse: false,
     elapsed: 0,
@@ -937,6 +1100,181 @@ export function spawnBossWave(state: GameState, boss: Monster): void {
     hit(state, add.pos, 0, "weapon"); // arrival poof for the juice layer
   }
   announce(state, "boss", "The boss calls for BACKUP. The union rules here are grim.");
+}
+
+// ---- Band-boss signature mechanics (dispatched from the boss branch in ai.ts).
+// Each band-end arena carries exactly ONE of these, themed to its band. All of
+// them telegraph: armed pools, ringed impact circles, an interruptible channel.
+
+/** First use of a signature announces it once (normal priority — the visual
+ * telegraph carries repeats); later casts run on spectacle alone. */
+function announceSignature(state: GameState, m: Monster, line: string): void {
+  if (m.sigUsed) return;
+  m.sigUsed = true;
+  announce(state, "boss", line);
+}
+
+/**
+ * GRAVE RISING (floor 3, THE UNDERCROFT): the crypt boss drags every fresh
+ * corpse in reach back to its feet as a weakened add. Resolves from a "raise"
+ * windup committed in ai.ts — stagger it mid-channel and nothing gets up.
+ */
+export function bossGraveRaise(state: GameState, m: Monster): void {
+  const reachable = state.corpses
+    .filter((c) => dist(m.pos, c.pos) <= CONFIG.graveRaiseRange)
+    .sort((a, b) => b.t - a.t) // freshest first — same taste as the necromancer
+    .slice(0, CONFIG.graveRaiseCount);
+  if (reachable.length === 0) return; // every corpse faded mid-channel — whiffed
+  for (const corpse of reachable) {
+    state.corpses.splice(state.corpses.indexOf(corpse), 1);
+    const raised = makeMonster(state, corpse.kind, corpse.pos);
+    raised.hp = raised.maxHp = Math.max(1, Math.round(raised.maxHp * CONFIG.necroRaisedHpMult));
+    raised.xp = CONFIG.necroRaisedXp;
+    state.monsters.push(raised);
+    hit(state, raised.pos, 0, "weapon"); // a poof per riser for the juice layer
+  }
+  announce(state, "boss", `${m.eliteName ?? "The boss"} raises the fallen. Check-out time was never on the books.`);
+}
+
+/**
+ * FLOOD SURGE (floor 6, THE SEWERS): sludge pools blanket a seeded HALF of the
+ * arena. Each pool ARMS for floodTelegraph seconds (visible, harmless), then
+ * ticks like acid until it drains — reposition to the dry half.
+ */
+export function bossFloodSurge(state: GameState, m: Monster): void {
+  const { map, rng } = state;
+  // The arena is the room the boss stands in (fall back to a rect around it).
+  const room = map.rooms.find(
+    (r) => m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h,
+  ) ?? { x: m.pos.x - 8, y: m.pos.y - 8, w: 16, h: 16 };
+  const vertical = nextInt(rng, 0, 1) === 0; // split axis
+  const side = nextInt(rng, 0, 1); // which half floods
+  for (let i = 0; i < CONFIG.floodPools; i++) {
+    const fx = vertical
+      ? room.x + (side * room.w) / 2 + nextFloat(rng) * (room.w / 2)
+      : room.x + nextFloat(rng) * room.w;
+    const fy = vertical
+      ? room.y + nextFloat(rng) * room.h
+      : room.y + (side * room.h) / 2 + nextFloat(rng) * (room.h / 2);
+    if (!isWalkable(map, fx, fy)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: fx, y: fy },
+      t: CONFIG.floodTelegraph + CONFIG.floodDuration,
+      total: CONFIG.floodTelegraph + CONFIG.floodDuration,
+      arm: CONFIG.floodTelegraph,
+      radius: CONFIG.floodPoolRadius,
+      damage: m.damage * CONFIG.floodDmgMult,
+      kind: "sludge",
+      tick: 0, // first tick bites the moment the pool goes live
+    });
+  }
+  announceSignature(state, m, "THE SLUICES OPEN! Half this arena is about to be soup. Find the dry side, Crawlers.");
+}
+
+/**
+ * ENTANGLING ROOTS (floor 9, THE GARDEN): root zones bloom under each crawler
+ * (plus seeded extras). They arm, then SNARE — a heavy slow, no damage — for
+ * as long as you stand in them. Dashing out is the escape.
+ */
+export function bossRootGrasp(state: GameState, m: Monster): void {
+  const { rng } = state;
+  const spots: Vec2[] = [];
+  for (const p of state.players) {
+    if (p.alive && dist(m.pos, p.pos) <= CONFIG.monsterAggroRange * 2.5) {
+      spots.push({ x: p.pos.x, y: p.pos.y });
+    }
+  }
+  const anchors = spots.length > 0 ? [...spots] : [{ x: m.pos.x, y: m.pos.y }];
+  for (let i = 0; i < CONFIG.rootsExtra; i++) {
+    const around = anchors[nextInt(rng, 0, anchors.length - 1)];
+    const a = nextFloat(rng) * Math.PI * 2;
+    const d = 1.5 + nextFloat(rng) * 2.5;
+    spots.push({ x: around.x + Math.cos(a) * d, y: around.y + Math.sin(a) * d });
+  }
+  for (const pos of spots) {
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      total: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      arm: CONFIG.rootsTelegraph,
+      radius: CONFIG.rootsRadius,
+      damage: 0, // roots grip, they don't bite — the boss does the biting
+      kind: "roots",
+    });
+  }
+  announceSignature(state, m, "The garden is GRABBY. Roots incoming — keep those feet moving or lose them.");
+}
+
+/**
+ * COLLAPSING MASONRY (floor 12, THE RUINS): telegraphed debris circles rain
+ * all fight long — one on each crawler, the rest seeded across the arena.
+ * Same blast grammar as hazard rain, but it never waits for a phase.
+ */
+export function bossDebrisRain(state: GameState, m: Monster): void {
+  const { rng } = state;
+  const targets: Vec2[] = [];
+  for (const p of state.players) {
+    if (p.alive && dist(m.pos, p.pos) <= CONFIG.monsterAggroRange * 2.5) {
+      targets.push({ x: p.pos.x, y: p.pos.y });
+    }
+  }
+  while (targets.length < CONFIG.debrisCount) {
+    const a = nextFloat(rng) * Math.PI * 2;
+    const d = 2 + nextFloat(rng) * 6;
+    targets.push({ x: m.pos.x + Math.cos(a) * d, y: m.pos.y + Math.sin(a) * d });
+  }
+  for (const pos of targets) {
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.debrisDelay,
+      total: CONFIG.debrisDelay,
+      radius: CONFIG.debrisRadius,
+      damage: m.damage * CONFIG.debrisDmgMult,
+      kind: "blast",
+    });
+  }
+  announceSignature(state, m, "The ceiling is NEGOTIABLE. Masonry incoming — watch the circles, not the boss.");
+}
+
+/**
+ * FLAME SWEEP (floor 15, THE IRONWORKS): a wall of fire advances row by row
+ * toward the boss's target — each row telegraphs, then erupts a beat after
+ * the one before it. The lane is the danger; pick a gap and commit.
+ */
+export function bossFlameSweep(state: GameState, m: Monster): void {
+  const prey = nearestPlayer(state, m.pos);
+  const raw = prey
+    ? { x: prey.pos.x - m.pos.x, y: prey.pos.y - m.pos.y }
+    : { x: 1, y: 0 };
+  // Axis-snap the advance so the wall reads as clean rows, not a smear.
+  const dir = Math.abs(raw.x) >= Math.abs(raw.y)
+    ? { x: Math.sign(raw.x) || 1, y: 0 }
+    : { x: 0, y: Math.sign(raw.y) || 1 };
+  const perp = { x: -dir.y, y: dir.x };
+  for (let row = 0; row < CONFIG.flameRows; row++) {
+    const cx = m.pos.x + dir.x * (1.5 + row * CONFIG.flameRowSpacing);
+    const cy = m.pos.y + dir.y * (1.5 + row * CONFIG.flameRowSpacing);
+    const delay = CONFIG.flameTelegraph + row * CONFIG.flameStepDelay;
+    for (let j = -CONFIG.flameHalfWidth; j <= CONFIG.flameHalfWidth; j++) {
+      const pos = { x: cx + perp.x * j * CONFIG.flameSpacing, y: cy + perp.y * j * CONFIG.flameSpacing };
+      if (!isWalkable(state.map, pos.x, pos.y)) continue;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos,
+        t: delay,
+        total: delay,
+        radius: CONFIG.flameRadius,
+        damage: m.damage * CONFIG.flameDmgMult,
+        kind: "blast",
+      });
+    }
+  }
+  announceSignature(state, m, "THE FURNACE EXHALES. A wall of fire is coming through — pick a gap and COMMIT.");
 }
 
 /**
@@ -1174,7 +1512,9 @@ function dropLoot(state: GameState, pos: Vec2): void {
     announce(state, "loot", `An ABILITY TOME dropped! The System loves an upset.`);
   }
   if (chance(rng, CONFIG.goldDropChance)) {
-    const amount = nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor);
+    // Greed Clause (System Shrine): this floor's gold pays double.
+    const surge = state.goldSurge ? CONFIG.shrineGreedGoldMult : 1;
+    const amount = (nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor)) * surge;
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
   }
   // Health potions no longer rain from chaff. Measured before removal: they
@@ -1615,6 +1955,18 @@ function collectLoot(state: GameState): void {
         }
         break;
       }
+      case "shrine": {
+        // A bargain, not a pickup: consumed only when the crawler is free to
+        // choose (never clobbers a pending sponsor draft — walk by, come back).
+        if (p.pendingRewards.length > 0) {
+          remaining.push(l);
+          break;
+        }
+        p.pendingRewards = shrineChoices(state, p);
+        announce(state, "show", `SYSTEM SHRINE: the System offers ${p.name} a deal. Read the fine print.`);
+        hit(state, p.pos, 0, "weapon");
+        break;
+      }
       case "tome": {
         if (l.ability && !knows(p, l.ability)) {
           learnAbility(state, p, l.ability);
@@ -1995,9 +2347,12 @@ export function rewardDr(owned: number, k: number): number {
   return k / (k + Math.max(0, owned));
 }
 
+/** Gift kinds sponsors can roll — shrine bargains are built by shrineChoices only. */
+type SponsorRewardKind = Exclude<Reward["kind"], "shrineBlood" | "shrineGreed" | "shrineDecline">;
+
 /** Roll one sponsor gift of the given kind. `q` scales with backing; permanent
  * stat gifts additionally diminish against what `p` has already banked. */
-function makeReward(state: GameState, rng: Rng, p: Player, kind: Reward["kind"], q: number): Reward {
+function makeReward(state: GameState, rng: Rng, p: Player, kind: SponsorRewardKind, q: number): Reward {
   const floor = state.floor;
   const id = state.nextEntityId++;
   switch (kind) {
@@ -2105,6 +2460,10 @@ function rewardFitScore(p: Player, r: Reward): number {
       return 70; // a constellation rank is strong, but not always the pick
     case "retrain":
       return 60; // a build pivot: worth a slot, never the auto-pick
+    case "shrineBlood":
+    case "shrineGreed":
+    case "shrineDecline":
+      return 0; // shrine bargains never enter the sponsor pool
   }
 }
 
@@ -2133,7 +2492,7 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
   const q = 1 + pl.sponsors * 0.4 + Math.min(1, pl.favorites / 1000);
   // Wide pool so the every-floor pick isn't obvious: 4 permanent stat gifts
   // (each diminishing as you stack it) alongside build-variety gifts.
-  const pool: Reward["kind"][] = [
+  const pool: SponsorRewardKind[] = [
     "healFull", "maxHp", "damage", "crit", "armor", "item", "gold", "bonusTime", "materials", "favor",
   ];
   // Retraining Arc joins the pool only when there's a fork side to refund.
@@ -2205,6 +2564,22 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
         else p.inventory.push(r.item);
       }
       break;
+    // System Shrine bargains (floor events — see shrineChoices):
+    case "shrineBlood": {
+      const cost = Math.max(1, Math.round(p.maxHp * CONFIG.shrineBloodCostFraction));
+      p.hp = Math.max(1, p.hp - cost); // an offering, not a hit — no armor, no death
+      p.bonusCrit += r.amount;
+      recomputeStats(p);
+      announce(state, "show", `${p.name} pays the BLOOD PRICE. The shrine drinks deep. +${Math.round(r.amount * 100)}% crit, forever.`);
+      break;
+    }
+    case "shrineGreed":
+      state.goldSurge = true;
+      for (const m of state.monsters) m.speed *= CONFIG.shrineGreedSpeedMult;
+      announce(state, "show", "GREED CLAUSE signed: everything on this floor is faster, and everything it drops pays double.");
+      break;
+    case "shrineDecline":
+      break; // the shrine dims, unimpressed
   }
 }
 
@@ -2216,7 +2591,35 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
   applyReward(state, p, r);
   p.pendingRewards = [];
   // Direct response to the player's own click — the log entry is enough.
-  state.events.push(`${p.name} accepts a sponsor gift: ${r.title}.`);
+  state.events.push(
+    r.kind.startsWith("shrine")
+      ? `${p.name} answers the shrine: ${r.title}.`
+      : `${p.name} accepts a sponsor gift: ${r.title}.`,
+  );
+}
+
+/** The System Shrine's pick-1 bargain (floor event). Rides pendingRewards —
+ * the same non-blocking personal-draft plumbing sponsor gifts use, so hosts
+ * need no new UI. Costs are spelled out in the desc; applyReward collects. */
+function shrineChoices(state: GameState, p: Player): Reward[] {
+  const cost = Math.max(1, Math.round(p.maxHp * CONFIG.shrineBloodCostFraction));
+  return [
+    {
+      id: state.nextEntityId++, kind: "shrineBlood", title: "Blood Price",
+      desc: `Offer ${cost} HP on the spot for +${Math.round(CONFIG.shrineBloodCrit * 100)}% crit, permanently`,
+      amount: CONFIG.shrineBloodCrit,
+    },
+    {
+      id: state.nextEntityId++, kind: "shrineGreed", title: "Greed Clause",
+      desc: `This floor's monsters gain +${Math.round((CONFIG.shrineGreedSpeedMult - 1) * 100)}% speed; its gold drops pay DOUBLE`,
+      amount: 0,
+    },
+    {
+      id: state.nextEntityId++, kind: "shrineDecline", title: "Walk Away",
+      desc: "No deal. The System respects cowardice; it just doesn't pay for it",
+      amount: 0,
+    },
+  ];
 }
 
 /**
@@ -2527,13 +2930,41 @@ function updateMonsterStatuses(state: GameState, dt: number): void {
 /**
  * Tick ground danger. Blasts (volatile corpses) damage once on expiry;
  * puddles (spitter acid) damage everyone inside on a repeating tick until
- * they dry up. Dash i-frames dodge both.
+ * they dry up; armed zones (boss sludge/roots) telegraph for `arm` seconds,
+ * then bite or grip until they expire. Dash i-frames dodge all of it.
  */
 function updateHazards(state: GameState, dt: number): void {
   if (state.hazards.length === 0) return;
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
+    if (hz.kind === "sludge" || hz.kind === "roots") {
+      if (hz.t <= 0) continue; // drained / withered
+      const live = hz.total - hz.t >= (hz.arm ?? 0); // past the telegraph
+      if (live && hz.kind === "roots") {
+        // Roots GRIP: refresh the snare on anyone standing in the zone.
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue; // dashing THROUGH is the escape
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          p.rootT = Math.max(p.rootT, CONFIG.rootsSnare);
+        }
+      } else if (live) {
+        // Sludge bites on the puddle cadence.
+        hz.tick = (hz.tick ?? 0) - dt;
+        if (hz.tick <= 0) {
+          hz.tick = CONFIG.puddleTickSeconds;
+          for (const p of state.players) {
+            if (!p.alive || p.dashTime > 0) continue;
+            if (dist(hz.pos, p.pos) > hz.radius) continue;
+            if (damagePlayerHit(state, p, hz.damage)) {
+              handlePlayerDeath(state, p, `${p.name} tried to swim the surge. The sludge won. Smell-o-vision regrets everything.`);
+            }
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.kind === "puddle") {
       if (hz.t <= 0) continue; // dried up, harmless
       hz.tick = (hz.tick ?? 0) - dt;
@@ -2897,6 +3328,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
+    if (p.rootT > 0) p.rootT = Math.max(0, p.rootT - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
     p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
     if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
@@ -2905,7 +3337,9 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     if ((move.x !== 0 || move.y !== 0) && p.alive) {
       const dir = normalize(move);
       p.facing = dir;
-      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime;
+      // Root snare (boss roots zones): a heavy slow — dashing is unaffected.
+      // Chill (ptime) and roots stack multiplicatively; both are escape tests.
+      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
       moveWithCollision(state.map, p.pos, dir, speed * dt, isWalkable);
     }
 
@@ -2960,6 +3394,10 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   collectLoot(state);
   updatePings(state, dt);
   updateRevives(state, dt);
+
+  // Floor event bookkeeping (vault trigger/reseal, challenge verdicts) —
+  // after combat so it can read this step's deaths and damage.
+  updateFloorEvent(state, dt);
 
   // Collapse timer (applied after combat so its DoT can be the killing blow).
   if (state.status === "playing" && alivePlayers(state).length > 0) updateTimer(state, dt);

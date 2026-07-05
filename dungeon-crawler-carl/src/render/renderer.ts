@@ -217,12 +217,16 @@ export function render(
   }
 
   // Ground hazards: volatile blast rings brighten toward detonation; spitter
-  // acid puddles render filled and fade as they dry.
+  // acid puddles render filled and fade as they dry; boss sludge/roots zones
+  // ghost through their arming telegraph, then snap solid when live.
   for (const hz of state.hazards) {
     if (!inVision(hz.pos.x, hz.pos.y)) continue;
-    if (hz.kind === "puddle") {
+    if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots") {
+      const arming = (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
       const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
-      ctx.fillStyle = `rgba(127,184,50,${0.18 + life * 0.2})`;
+      const alpha = arming ? 0.08 + 0.14 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)) : 0.18 + life * 0.2;
+      const rgb = hz.kind === "sludge" ? "95,112,32" : hz.kind === "roots" ? "46,139,87" : "127,184,50";
+      ctx.fillStyle = `rgba(${rgb},${alpha})`;
       ctx.beginPath();
       ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);
       ctx.fill();
@@ -253,6 +257,7 @@ export function render(
     ctx.fillStyle =
       l.kind === "tome" ? "#66f0c8" :
       l.kind === "key" ? "#ffd23e" :
+      l.kind === "shrine" ? "#c58cff" :
       l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
     ctx.beginPath();
     ctx.arc(px, py, 5, 0, Math.PI * 2);
