@@ -157,7 +157,9 @@ export const CONFIG = {
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
   // catalog COMPONENTS — random loot that advances the build you planned.
-  lootDropChance: 0.36,
+  // 0.36 when 40% of drops were health potions; potions are gone (health
+  // should be scary — see dropLoot), so this holds gear rates steady.
+  lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
