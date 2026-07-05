@@ -253,7 +253,7 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
-### 5.8 Genuine itemization (phases 1–3 SHIPPED; still open: caster catalog branch)
+### 5.8 Genuine itemization (phases 1–3 SHIPPED, caster catalog included)
 
 **Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
 weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
@@ -295,9 +295,34 @@ a behavior, not a stat pile):
 | Arcane | Wand, Staff | bolt/AoE profile above; weapon rolls `spell` affixes |
 | ??? | Mug | all of the above, badly (the joke stays) |
 
-Generation picks class with the slot, then rolls class-fitting affixes. The catalog tags each
-entry's school (existing tree is physical; a caster component branch is the natural catalog
-expansion). Armor/trinkets stay school-agnostic until proven boring.
+Generation picks class with the slot, then rolls class-fitting affixes. The catalog carries a
+CASTER branch (SHIPPED): Ozone Wand + Cursed Amplifier (basic `spell` components) build into
+the Stormcall Staff (advanced), topped by the Sweeps Week Staff (legendary, `tempo` passive:
+active cooldowns −15%) — SP builds shop like AP builds do. Magic hits also tint their damage
+numbers arcane-purple, so a mixed build can SEE its schools mid-fight. Armor/trinkets stay
+school-agnostic until proven boring.
+
+**Planning-first itemization (SHIPPED).** Builds come from the STORE, not slot machines:
+- **Chase uniques** — store-only legendaries you cannot loot (12 total), each warping one
+  build around itself: *Perpetual Encore* (+1 orbit blade, 25% faster ticks), *Standing
+  Ovation Crossbow* (bolts pierce +2), *Signature Choreography* (stance swap resets
+  swing+bolt cooldowns — the swap IS the rotation), *Plot Armor* (once per floor a killing
+  blow leaves you at 1 HP), plus the original signature set (Headliner/Blastplate/Ledger/
+  Overtime/Sweeps Week). Every one sits atop a basic → advanced → legendary build path plus
+  sponsor/material gates, so getting there is a run-long plan, not a lucky corpse.
+- **Novel-mechanic uniques** — mechanics that exist NOWHERE else (no tree node, no drop
+  affix; the item IS the mechanic): *Blood Subscription* (charm — lifesteal: heal 6% of
+  damage dealt, per-hit cap), *Cancellation Axe* (heavy weapon — strikes execute non-elite
+  monsters below 15% HP), *Live Feed* (trinket — crits arc 30% of the hit to the nearest
+  other enemy as a magic-school echo, one bounce). All hook the one damageMonster choke
+  point, so they compose with schools/resists/caps for free.
+- **Drops tuned down** — rare/epic weights 11/3 → 8/2, item drop chance 0.45 → 0.36. A rare
+  drop is a windfall now, not a strategy.
+- **Component drops** — ~35% of equipment drops are catalog BASICS carrying their catalogId,
+  so random loot advances the build you planned (they gate-check, price-credit, and combine
+  like bought components).
+- Higher shop tiers stock deeper per shop (advanced 4+/shop, legendary 2+), and the shop UI
+  grew SELL ALL + hover stat tooltips so managing the plan is one screen.
 
 **Counterplay (phase 3 — SHIPPED):** monster resist tags — `armored` (physical −30%) and
 `warded` (magic −30%) — as elite affixes plus archetype defaults (charger is innately

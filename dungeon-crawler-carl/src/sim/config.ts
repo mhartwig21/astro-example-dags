@@ -112,7 +112,9 @@ export const CONFIG = {
   // dungeon steepens instead of flattening. Kept off floors 1-6 so early-game
   // playability (and the balance-bot floors-1-2 net) is untouched.
   monsterScaleCompoundFrom: 6,
-  monsterScaleCompound: 1.055, // ~1.85x by floor 18 on top of the linear curve
+  // 1.055 pre-#10; nudged up when the six-slot spread landed (helm/boots/charm
+  // add ~60% more worn affix budget at full kit — the deep floors absorb it).
+  monsterScaleCompound: 1.062, // ~2.1x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
   monsterBaseDamage: 15,
@@ -124,8 +126,11 @@ export const CONFIG = {
   monsterXp: 10,
   monsterXpPerFloor: 4,
 
-  // Loot
-  lootDropChance: 0.45,
+  // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
+  // drops run leaner and rarer at the top end, and a slice of item drops are
+  // catalog COMPONENTS — random loot that advances the build you planned.
+  lootDropChance: 0.36,
+  componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
   goldMax: 12,
@@ -157,6 +162,17 @@ export const CONFIG = {
   wandBoltCdMult: 0.8, // Wand: faster casts
   staffAoeRadiusMult: 1.25, // Staff: bigger nova
   chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
+  tempoCooldownMult: 0.85, // "tempo" signature passive: active cooldowns run faster
+  // Chase passives (store-only legendary uniques — plan three shops ahead):
+  encoreOrbitTickMult: 0.75, // "encore": orbit blades tick this much faster (+1 blade too)
+  skewerBonusPierce: 2, // "skewer": bolts punch through this many extra bodies
+  // "choreography": stance swap resets swing + bolt cooldowns (no knob — binary)
+  // "plot_armor": once per floor a killing blow leaves you at 1 HP (binary)
+  leechFraction: 0.06, // "leech": heal this fraction of damage dealt...
+  leechCapFraction: 0.04, // ...capped per hit at this fraction of max HP
+  cancellationThreshold: 0.15, // "cancellation": execute non-elites below this HP fraction
+  conduitFraction: 0.3, // "conduit": crits arc this fraction of the hit...
+  conduitRadius: 3, // ...to the nearest other enemy within this many tiles
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
@@ -188,17 +204,18 @@ export const CONFIG = {
   bruteSlamRadius: 1.5, // tiles from the brute's own position
 
   // Boss kit escalation (DESIGN: three boss-tier fights should feel like
-  // escalating KITS, not just bigger numbers on one script):
-  //   tier 1 (floor 6 city boss)  — existing melee+volley + Ground Slam
-  //   tier 2 (floor 12 city boss) — + Call for Backup at each phase break
+  // escalating KITS, not just bigger numbers on one script). Adds waves at
+  // phase breaks + hazard rain are UNIVERSAL boss behavior (backlog #11);
+  // the tiers layer on top of that:
+  //   tier 1 (floor 6 city boss)  — melee+volley + Ground Slam
+  //   tier 2 (floor 12 city boss) — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
   bossSlamCooldown: 6.5, // seconds between slams (independent of melee/volley)
+  bossSlamHasteT2: 0.65, // tier 2+ slam-cooldown multiplier (the tier-2 escalation)
   bossSlamDmgMult: 0.85, // relative to the boss's own damage stat (it's a BONUS hit)
-  bossCallAddsCount: 2, // ranged adds summoned per phase break (tier 2+)
-  bossCallAddsMax: 4, // lifetime adds from Call for Backup (this fight only)
   ritualRange: 9, // tiles: the boss will channel from anywhere in the arena
   ritualWindup: 1.9, // seconds — long and unmistakable; interrupt it or eat it
   ritualCooldown: 14, // seconds between rituals
@@ -393,14 +410,14 @@ export const CONFIG = {
   // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
   // grow per ARENA, not per floor: hp = base * (1 + (arena-1) * growth).
   // Target: a real 15-25s arena fight, not a speed bump.
-  cityBossHpBase: 4700,
+  cityBossHpBase: 5400,
   cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
   cityBossAdds: 2, // ranged escorts
 
   // Boss (floor 18)
-  bossHp: 30000,
+  bossHp: 34000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 34,
+  bossDamage: 38,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,
@@ -409,6 +426,19 @@ export const CONFIG = {
   bossPhaseSpeedMult: 1.15, // per phase
   bossPhaseVolleyBonus: 3, // extra projectiles per phase
   bossPhaseVolleyHaste: 0.5, // seconds shaved off the volley cooldown per phase
+  // Boss MECHANICS (backlog #11): a boss is a fight you learn, not a big grunt.
+  // City-boss floors + floor 18 host the fight in a dedicated oversized arena.
+  bossArenaSize: 19, // tiles per side (ordinary rooms are 6-12)
+  // Phase transitions call ADDS WAVES: a pack of chaff + a ranged flanker so
+  // the enrage moment changes what you're doing, not just the numbers.
+  bossWaveAdds: 3, // adds per wave...
+  bossWaveAddsPerPhase: 2, // ...plus this many more per phase reached
+  // From phase 1, the arena itself attacks: telegraphed blast hazards rain on
+  // each crawler's position — standing still through the enrage is a choice.
+  bossHazardCooldown: 5, // seconds between hazard volleys (phase >= 1)
+  bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
+  bossHazardRadius: 1.7, // tiles
+  bossHazardDmgMult: 1.1, // relative to the boss's damage stat
 } as const;
 
 // Enemy archetype stat multipliers (relative to the per-floor base) + behavior.
@@ -455,12 +485,14 @@ export const ARCHETYPES = {
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
-// Weapon rarity tiers: spawn weight + damage-bonus multiplier.
+// Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
+// were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a
+// rare drop should feel like a windfall, not a plan.
 export const RARITIES = [
-  { name: "common", weight: 60, mult: 1.0 },
+  { name: "common", weight: 64, mult: 1.0 },
   { name: "magic", weight: 26, mult: 1.6 },
-  { name: "rare", weight: 11, mult: 2.4 },
-  { name: "epic", weight: 3, mult: 3.6 },
+  { name: "rare", weight: 8, mult: 2.4 },
+  { name: "epic", weight: 2, mult: 3.6 },
 ] as const;
 
 // Theme bands: the dungeon shifts tone every 3 floors. The sim announces the

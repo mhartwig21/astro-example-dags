@@ -52,6 +52,7 @@ export interface Player {
   stanceSwapWindow: number; // seconds left of Flow's post-swap surge
   stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
   overcharged: boolean; // Overcharge banked: the next attack spends it
+  plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -71,7 +72,7 @@ export interface Player {
   weaponRarity: Rarity; // rarity of the currently-equipped weapon (for HUD/flavor)
   // Itemization. Effective baseDamage/maxHp/speed/critChance are recomputed as
   // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
-  equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
+  equipment: Equipment;
   inventory: Item[];
   bonusDamage: number; // permanent physical buff (loot boxes / sponsor rewards grant BOTH schools)
   bonusSpell: number; // permanent magic buff (kept separate so gear stays the differentiator)
@@ -168,13 +169,13 @@ export interface Monster {
   affixCd?: number; // summoner: seconds until the next summon
   summons?: number; // summoner: lifetime adds spawned (capped)
   phase?: number; // boss enrage tier already applied (0..2)
-  // Boss-tier kit escalation: 1 = floor-6 city boss (Ground Slam), 2 = floor-12
-  // city boss (+ Call for Backup), 3 = final boss (+ Dark Ritual). Every tier
-  // keeps the abilities of the ones below it.
+  // Boss-tier kit escalation, layered on the universal boss behavior (phase
+  // adds waves + hazard rain, backlog #11): 1 = floor-6 city boss (Ground
+  // Slam), 2 = floor-12 city boss (slam cycles faster), 3 = final boss
+  // (+ Dark Ritual). Every tier keeps the abilities of the ones below it.
   bossTier?: 1 | 2 | 3;
   slamCd?: number; // boss only: seconds until Ground Slam can commit again
   ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
-  addsSpawned?: number; // boss tier 2+: lifetime Call for Backup adds (capped)
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -190,7 +191,16 @@ export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
 // on legendary signature gear (see catalog.ts).
 export type MaterialId = "elite_trophy" | "boss_sigil";
 export type Rarity = "common" | "magic" | "rare" | "epic";
-export type ItemSlot = "weapon" | "armor" | "trinket";
+// Six-slot ARPG spread (backlog #10): weapon/armor carry the build's spine,
+// helm/boots are supporting armor pieces, trinket/charm are the two accessory
+// sockets. An item's slot IS its socket — no shared-socket special cases.
+export type ItemSlot = "weapon" | "armor" | "helm" | "boots" | "trinket" | "charm";
+
+/** Every equipment socket, in paper-doll display order. The ONE list all
+ * slot iteration derives from (stats, shop, UI, save migration). */
+export const EQUIP_SLOTS = ["weapon", "armor", "helm", "boots", "trinket", "charm"] as const;
+
+export type Equipment = Record<ItemSlot, Item | null>;
 
 // Stat modifiers granted by an equipped item. All optional; summed across equipment.
 export interface Affixes {
@@ -208,7 +218,18 @@ export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
   | "ledger" // every kill credit pays bonus gold
-  | "overtime"; // ultimate cooldowns reduced
+  | "overtime" // ultimate cooldowns reduced
+  | "tempo" // active-ability cooldowns reduced (legendary caster staff)
+  // CHASE passives (store-only legendaries): each one warps a specific build
+  // around itself — the reason you planned three shops ahead.
+  | "encore" // +1 orbit blade; blades tick faster
+  | "skewer" // bolts pierce +2
+  | "choreography" // swapping Battle Stance resets swing + bolt cooldowns
+  | "plot_armor" // once per floor, a killing blow leaves you at 1 HP
+  // Novel mechanics that ONLY exist on these items — no tree, no drop:
+  | "leech" // lifesteal: heal a fraction of the damage you deal
+  | "cancellation" // executes: non-elite monsters below a threshold just die
+  | "conduit"; // crits arc a fraction of the hit to a nearby enemy (magic)
 
 export interface Item {
   id: number;

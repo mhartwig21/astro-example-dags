@@ -36,7 +36,9 @@
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            right rail:          #ticker — normal-priority System chatter
            bottom strip:        #hud-log left · #cockpit center · #minimap right
-           modals (z 20-26):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
+           modals (z 20-27):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
+                                · #recap 27 (end-of-run report; nothing outranks it)
+           cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
          New overlays must pick a zone here first. */
 
       /* DCC "System" announcer — headline banners (high priority only).
@@ -181,6 +183,45 @@
       .rar-magic  { border-left-color: #5a9bff; } .rar-magic .name  { color: #7fb0ff; }
       .rar-rare   { border-left-color: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
       .rar-epic   { border-left-color: #b98bff; } .rar-epic .name   { color: #c9a6ff; }
+
+      /* Run recap (backlog #12) — the season report card, shown once per
+         status edge (won = SEASON FINALE, wipe = IN MEMORIAM). z 27: the run
+         is over, nothing else deserves the pixels. */
+      #recap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.82); z-index: 27; }
+      #recap .panel { width: 880px; max-width: 94vw; max-height: 90vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 20px 24px;
+        box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+      #recap h2 { margin: 0 0 2px; font-size: 22px; letter-spacing: 3px; }
+      #recap h2.win { color: #5fd08a; text-shadow: 0 0 18px rgba(95,208,138,0.4); }
+      #recap h2.wipe { color: #e2574c; text-shadow: 0 0 18px rgba(226,87,76,0.4); }
+      #recap .rsub { color: #8a8a9a; font-size: 12px; margin-bottom: 14px; }
+      #recap .rcols { display: grid; grid-template-columns: 1fr 1.1fr; gap: 20px; }
+      #recap .rsec { font-size: 11px; color: #c9a24b; letter-spacing: 2px; margin: 12px 0 6px; }
+      #recap .rstat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      #recap .rstat { background: #14131f; border: 1px solid #23222f; border-radius: 6px;
+        padding: 7px 10px; }
+      #recap .rstat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+      #recap .rstat small { color: #7a7a8a; font-size: 10px; letter-spacing: 1px; }
+      #recap .rshow { display: flex; gap: 8px; }
+      #recap .rshow .rstat { flex: 1; }
+      #recap .rshow .viewers b { color: #6fe3ff; }
+      #recap .rshow .favorites b { color: #ff8ac2; }
+      #recap .rshow .sponsors b { color: #c9a24b; }
+      #recap .rabil { display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+        font-size: 12px; color: #c9c9d4; }
+      #recap .rabil .ii { width: 18px; height: 18px; background: #9fd8e8; display: inline-block;
+        mask-size: contain; -webkit-mask-size: contain; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat; }
+      #recap .rabil .rk { margin-left: auto; color: #7a7a8a; font-size: 11px; }
+      #recap .rabil.ultimate .ii { background: #c9a24b; }
+      #recap .rach { color: #b9d0c0; font-size: 12px; line-height: 1.7; }
+      #recap .rfoot { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+      #recap .rfoot button { background: #1a2b1f; color: #5fd08a; border: 1px solid #2f5a3c;
+        border-radius: 6px; padding: 8px 18px; font: inherit; font-weight: 700; letter-spacing: 1px;
+        cursor: pointer; }
+      #recap .rfoot button:hover { background: #234030; }
+      #recap .rfoot .dismiss { background: #14131f; color: #8a8a9a; border-color: #2a2a38; }
+      #recap .rfoot .note { color: #7a7a8a; font-size: 11px; }
 
       /* The Show — audience bar */
       #show { position: fixed; top: 84px; left: 50%; transform: translateX(-50%);
@@ -393,6 +434,22 @@
         flex: none; min-height: 0; max-height: 62%; overflow: hidden;
         display: flex; flex-direction: column; }
       .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 3px 0 6px; flex: none; }
+      #sr-sellall { float: right; background: #241a1a; color: #d08a7a; border: 1px solid #4a2f2f;
+        border-radius: 4px; padding: 1px 8px; font: inherit; font-size: 10px; letter-spacing: 1px;
+        cursor: pointer; }
+      #sr-sellall:hover { background: #33221f; color: #e29a86; }
+      /* Item hover tooltip (store bag/equipped tiles are icon-only — the
+         stats live here). Fixed, cursor-following, never intercepts clicks. */
+      #itemtip { position: fixed; display: none; z-index: 30; pointer-events: none;
+        max-width: 240px; background: #0c0b14; border: 1px solid #2a2a38; border-radius: 8px;
+        padding: 8px 11px; font-size: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.65); }
+      #itemtip .tname { font-weight: 700; font-size: 13px; }
+      #itemtip .tmeta { color: #7a7a8a; font-size: 10.5px; text-transform: uppercase;
+        letter-spacing: 1px; margin-bottom: 4px; }
+      #itemtip .taff { color: #b9d0c0; }
+      #itemtip .tpass { color: #c9a6ff; margin-top: 4px; font-style: italic; }
+      #itemtip .tbuild { color: #f2c14e; margin-top: 4px; font-size: 11px; }
+      #itemtip .tsell { color: #c9a24b; margin-top: 4px; font-size: 11px; }
       .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; align-content: flex-start; }
       .bag-grid .itile { width: 40px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
@@ -686,7 +743,7 @@
             <div class="shop-bag">
               <div class="sec-label">EQUIPPED</div>
               <div class="bag-grid" id="sr-equipped"></div>
-              <div class="sec-label">BAG</div>
+              <div class="sec-label">BAG <button id="sr-sellall" title="Sell every bag item (equipped gear is safe)">SELL ALL</button></div>
               <div class="bag-grid" id="sr-bag"></div>
             </div>
           </div>
@@ -704,6 +761,7 @@
       </div>
     </div>
     <div id="fx"></div>
+    <div id="itemtip"></div>
     <div id="ticker"></div>
     <div id="headline"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
@@ -744,6 +802,33 @@
     <div id="cockpit">
       <div id="skills"></div>
       <div id="xpbar"><i></i></div>
+    </div>
+    <div id="recap">
+      <div class="panel">
+        <h2 id="recap-title"></h2>
+        <div class="rsub" id="recap-sub"></div>
+        <div class="rcols">
+          <div>
+            <div class="rsec">FINAL STATS</div>
+            <div class="rstat-grid" id="recap-stats"></div>
+            <div class="rsec">SEASON RATINGS</div>
+            <div class="rshow" id="recap-show"></div>
+            <div class="rsec">ACHIEVEMENTS</div>
+            <div class="rach" id="recap-ach"></div>
+          </div>
+          <div>
+            <div class="rsec">FINAL BUILD</div>
+            <div id="recap-gear"></div>
+            <div class="rsec">THE FIVE</div>
+            <div id="recap-abils"></div>
+          </div>
+        </div>
+        <div class="rfoot">
+          <button id="recap-again">NEW SEASON <kbd>R</kbd></button>
+          <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
+          <span class="note" id="recap-note"></span>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main3d.ts"></script>
   </body>

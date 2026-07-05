@@ -3,7 +3,7 @@ import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { bossCallAdds, damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
+import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -254,6 +254,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     while ((m.phase ?? 0) < wantPhase) {
       m.phase = (m.phase ?? 0) + 1;
       m.speed *= CONFIG.bossPhaseSpeedMult;
+      spawnBossWave(state, m); // the enrage brings friends (backlog #11)
       state.announcements.push({
         text: m.phase === 1
           ? "The boss is ANGRY now. Phase two — the sponsors love a comeback arc."
@@ -262,15 +263,6 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         priority: "normal",
       });
       state.events.push(`Boss phase ${m.phase + 1}.`);
-      // Tier 2+: every phase break rings in reinforcements (lifetime-capped).
-      if ((m.bossTier ?? 0) >= 2 && (m.addsSpawned ?? 0) < CONFIG.bossCallAddsMax) {
-        const n = Math.min(CONFIG.bossCallAddsCount, CONFIG.bossCallAddsMax - (m.addsSpawned ?? 0));
-        m.addsSpawned = (m.addsSpawned ?? 0) + n;
-        bossCallAdds(state, m, n);
-        state.announcements.push({
-          text: "CALLING FOR BACKUP. The System never fights fair.", kind: "boss", priority: "normal",
-        });
-      }
     }
     // Tier 3: Dark Ritual — a long channelled cast, its own cooldown, arena-scale
     // AoE. This is the one attack in the game worth a genuine "stagger it now or
@@ -284,11 +276,30 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       return;
     }
     // Tier 1+: Ground Slam — an extra AoE on its own cooldown, layered on top
-    // of the regular melee+volley kit rather than replacing it.
+    // of the regular melee+volley kit rather than replacing it. Tier 2+ cycles
+    // it faster (the kit escalation between the floor-6 and floor-12 arenas;
+    // adds waves + hazard rain are universal boss behavior — backlog #11).
     if ((m.bossTier ?? 0) >= 1 && (m.slamCd ?? 0) === 0 && d <= CONFIG.bossSlamRange) {
-      m.slamCd = CONFIG.bossSlamCooldown;
+      m.slamCd = CONFIG.bossSlamCooldown * ((m.bossTier ?? 1) >= 2 ? CONFIG.bossSlamHasteT2 : 1);
       beginWindup(m, "slam", CONFIG.bossSlamWindup);
       return;
+    }
+    // Phase 1+: HAZARD RAIN — telegraphed blasts on each crawler's position
+    // (healCd is unused on bosses; it paces the rain). Keep moving or eat it.
+    if ((m.phase ?? 0) >= 1 && m.healCd === 0) {
+      m.healCd = CONFIG.bossHazardCooldown;
+      for (const target of state.players) {
+        if (!target.alive || dist(m.pos, target.pos) > CONFIG.monsterAggroRange * 2.5) continue;
+        state.hazards.push({
+          id: state.nextEntityId++,
+          pos: { x: target.pos.x, y: target.pos.y },
+          t: CONFIG.bossHazardDelay,
+          total: CONFIG.bossHazardDelay,
+          radius: CONFIG.bossHazardRadius,
+          damage: m.damage * CONFIG.bossHazardDmgMult,
+          kind: "blast",
+        });
+      }
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);
