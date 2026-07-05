@@ -28,6 +28,7 @@ import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
+import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 import { NetClient } from "./net/netClient";
 
@@ -237,6 +238,30 @@ function submitDaily(s: GameState): void {
   }).catch(() => { /* offline is fine */ });
 }
 
+/** The CAREER panel: personal bests + recent seasons, from the local ledger. */
+function renderCareer(): void {
+  const panel = document.getElementById("m-career")!;
+  const history = loadHistory();
+  const bests = careerBests(history);
+  if (!bests) {
+    panel.style.display = "none"; // no finished runs yet: no empty shrine
+    return;
+  }
+  panel.style.display = "";
+  document.getElementById("m-career-sub")!.textContent =
+    `${bests.runs} season${bests.runs === 1 ? "" : "s"} · ${bests.wins} escape${bests.wins === 1 ? "" : "s"}`;
+  document.getElementById("m-career-bests")!.innerHTML =
+    `<div class="best"><b>${bests.bestFloor}</b><small>BEST FLOOR</small></div>` +
+    `<div class="best"><b>${bests.fastestClearSec !== null ? fmt(bests.fastestClearSec) : "—"}</b><small>FASTEST CLEAR</small></div>` +
+    `<div class="best"><b>${bests.mostKills.toLocaleString()}</b><small>MOST KILLS</small></div>` +
+    `<div class="best"><b>${bests.peakViewers.toLocaleString()}</b><small>PEAK VIEWERS</small></div>`;
+  document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
+    `<li><span class="rank">${r.mode === "daily" ? "◆" : "·"}</span>` +
+    `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
+    `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${r.kills} kills`}</span></li>`,
+  ).join("");
+}
+
 function openMenu(): void {
   menuOpen = true;
   input.captureMode = true; // typing a name must not fire game binds
@@ -251,6 +276,7 @@ function openMenu(): void {
   }
   document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
   void refreshBoard();
+  renderCareer();
 }
 function closeMenu(): void {
   menuOpen = false;
@@ -2079,7 +2105,10 @@ async function main(): Promise<void> {
         if (state.status !== lastStatus) {
           lastStatus = state.status;
           persistRun(state);
-          if (state.status !== "playing") submitDaily(state); // daily runs report to the board
+          if (state.status !== "playing") {
+            submitDaily(state); // daily runs report to the board
+            if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
+          }
         }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths

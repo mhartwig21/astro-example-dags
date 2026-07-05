@@ -337,6 +337,13 @@
         margin-left: auto; background: linear-gradient(180deg, #f2c14e, #c9932e); color: #0a0d0b;
         border: 1px solid #f2c14e; border-radius: 4px; padding: 6px 18px; }
       .m-go:hover { filter: brightness(1.15); }
+      .m-side { display: flex; flex-direction: column; gap: 14px; align-self: start; }
+      .m-bests { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .m-bests .best { background: #1b1510; border: 1px solid #3a2f22; border-radius: 6px;
+        padding: 6px 9px; }
+      .m-bests .best b { display: block; font-size: 14px; color: #f2c14e;
+        font-variant-numeric: tabular-nums; }
+      .m-bests .best small { color: #8a7f6c; font-size: 9px; letter-spacing: 1px; }
       .m-board { background: #14100c; border: 1px solid #3a2f22; border-radius: 8px;
         padding: 12px 14px; align-self: start; }
       .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px; }
@@ -1115,9 +1122,17 @@
               <button class="m-go" id="m-t-go">ENTER ▶</button>
             </div>
           </div>
-          <div class="m-board">
-            <div class="m-board-h">TODAY'S BOARD · <span id="m-board-day"></span></div>
-            <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+          <div class="m-side">
+            <div class="m-board">
+              <div class="m-board-h">TODAY'S BOARD · <span id="m-board-day"></span></div>
+              <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+            </div>
+            <div class="m-board" id="m-career" style="display:none">
+              <div class="m-board-h">YOUR CAREER · <span id="m-career-sub"></span></div>
+              <div class="m-bests" id="m-career-bests"></div>
+              <div class="m-board-h" style="margin-top:10px">RECENT SEASONS</div>
+              <ol id="m-career-list"></ol>
+            </div>
           </div>
         </div>
         <div class="m-foot">the System is legally required to inform you that survival is optional</div>

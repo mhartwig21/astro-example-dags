@@ -33,9 +33,14 @@ PORT=8080 STATIC_DIR=dist npm run server
 ```
 
 The daily-crawl leaderboard persists to `LEADERBOARD_FILE` (default
-`leaderboard.json` in the working directory). On Fly the file lives on the
-machine's ephemeral disk: it survives restarts but a `fly deploy` replaces it.
-Acceptable for a board that resets daily anyway; real persistence (Postgres)
+`leaderboard.json` in the working directory). In production it lives on the
+persistent volume `dcc_data` mounted at `/data` (`LEADERBOARD_FILE=
+/data/leaderboard.json`, both set in fly.toml), so boards SURVIVE deploys and
+restarts; Fly snapshots the volume daily (5 kept). The volume was created with
+`fly volumes create dcc_data --region ord --size 1` — one volume, one machine,
+same region; if the machine is ever recreated from scratch, make sure a
+`dcc_data` volume exists in its region first. Run history / personal bests are
+browser-local (`dcc:history:v1`); real cross-device persistence (Postgres)
 arrives with accounts.
 
 Or the actual container, if Docker is installed:
