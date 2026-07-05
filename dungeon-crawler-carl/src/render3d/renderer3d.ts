@@ -3,7 +3,7 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
@@ -1492,8 +1492,9 @@ export class Renderer3D {
   private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
     for (const p of state.players) {
-      // Orbit blades: reconcile each player's pool with their learned blade count.
-      const op = knows(p, "orbit") && p.alive ? orbitParams(p) : null;
+      // Orbit blades: only while SLOTTED (matches updateOrbit in the sim —
+      // a benched orbit spins no steel).
+      const op = slotted(p, "orbit") && p.alive ? orbitParams(p) : null;
       const want = op ? op.blades : 0;
       let blades = this.orbitBlades.get(p.id);
       if (!blades) { blades = []; this.orbitBlades.set(p.id, blades); }

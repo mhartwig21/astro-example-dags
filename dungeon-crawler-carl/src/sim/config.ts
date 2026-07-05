@@ -387,6 +387,10 @@ export const CONFIG = {
   overchargeDamageMult: 1.5, // the banked attack's base multiplier
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
+  // Ultimates are the late-run power spike: no discovery pool (tomes, chips)
+  // offers one before this floor. Landing right after the Sump King falls,
+  // so the second act opens with the big toys.
+  ultimateMinFloor: 7,
   upgradeDraftSize: 3, // cards offered per level-up
   // Overranks: lottery ranks past a node's printed max (see rollUpgradeDraft).
   overrankChanceBase: 0.05, // draft chance to dangle one on floor 0

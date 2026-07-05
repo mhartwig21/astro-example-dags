@@ -1505,7 +1505,7 @@ function updateSkills(s: GameState): void {
     { ability: p.abilities.ultimate, ult: true },
   ];
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
+    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     skillsEl.innerHTML = entries
@@ -1535,12 +1535,9 @@ function updateSkills(s: GameState): void {
         ? `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
           `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
           `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
-          `<i class="icon"></i>` +
+          `<i class="icon" style="mask-image:url(/icons/flask.svg);-webkit-mask-image:url(/icons/flask.svg)"></i>` +
           `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
           `</div>`
-        : "") +
-      (p.abilities.bench.length > 0
-        ? `<div class="skill empty"><span class="bench-badge">bench ${p.abilities.bench.length}</span></div>`
         : "");
   }
   const chips = skillsEl.querySelectorAll(".skill[data-i]");
