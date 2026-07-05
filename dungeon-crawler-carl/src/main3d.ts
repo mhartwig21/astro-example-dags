@@ -130,14 +130,14 @@ function boot(): GameState {
   return createGame(freshSeed());
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#e2574c">TEST MODE</b> · ');
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#c0392f">TEST MODE</b> · ');
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
 
 // Test-mode debug hook: lets headless verification (CDP-driven) inspect the
 // live sim instead of guessing from pixels. Never set outside ?test.
-if (testMode) Object.defineProperty(window, "__dcc", { get: () => ({ state }) });
+if (testMode) Object.defineProperty(window, "__dcc", { configurable: true, get: () => ({ state }) });
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
@@ -325,7 +325,7 @@ const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 
 const RARITY_COLORS: Record<string, string> = {
-  common: "#c9c9d4", magic: "#5a9bff", rare: "#f2c14e", epic: "#b98bff",
+  common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
 };
 
 // ---- The Show: audience bar + sponsor draft ----
@@ -392,7 +392,7 @@ function updateBossBar(s: GameState): void {
     return;
   }
   bossbarEl.style.display = "block";
-  bbIcon.textContent = target.kind === "boss" ? "☠" : "◆";
+  bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
   // the party has stuck to it (burn/poison/chill uptime at a glance).
@@ -404,7 +404,7 @@ function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
   // Crowd Frenzy: the viewer count burns gold while the buff is live.
-  statViewers.style.color = p.frenzy ? "#ffd23e" : "";
+  statViewers.style.color = p.frenzy ? "#f2c14e" : "";
   statViewers.textContent = v.toLocaleString();
   statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
   statSponsors.textContent = String(p.sponsors);
@@ -419,17 +419,26 @@ function updateShowHud(s: GameState): void {
 }
 
 const RARITY_TEXT: Record<string, string> = {
-  common: "#c9c9d4", magic: "#7fb0ff", rare: "#f2c14e", epic: "#c9a6ff",
+  common: "#b9b2a4", magic: "#8fb0d9", rare: "#f2c14e", epic: "#b08fd9",
 };
+
+// Drawn UI icons (game-icons.net, /icons/ui/) — the styleguide's third rule:
+// icons are drawn, never typed. Sized to the surrounding text via 1em mask.
+const uic = (name: string): string =>
+  `<i class="uic" style="mask-image:url(/icons/ui/${name}.svg);-webkit-mask-image:url(/icons/ui/${name}.svg)"></i>`;
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
 // Sponsor gifts have no ability icon; a glyph in the plate carries the read.
+// (Engraved geometric marks are fine; true emoji are not — STYLEGUIDE.md.)
+const coinIcon = `<i class="uic" style="mask-image:url(/icons/items/gold.svg);-webkit-mask-image:url(/icons/items/gold.svg)"></i>`;
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
+  healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
   bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
-  shrineBlood: "❖", shrineGreed: "◈", shrineDecline: "—",
+  shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -809,23 +818,23 @@ function renderSheet(s: GameState): void {
   sheetGear.innerHTML = EQUIP_SLOTS
     .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
   const tiles: [string, string, string, string, string][] = [
-    ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
+    ["attack", "#d98e4a", String(a.attackPower), "ATTACK PWR",
       "Physical school: melee, orbit blades, airstrike — and what most weapons throw as bolts."],
-    ["spell", "#b998ff", String(a.spellPower), "SPELL PWR",
+    ["spell", "#9a6bd0", String(a.spellPower), "SPELL PWR",
       "Magic school: nova, dash detonations, cataclysm — wands and staffs cast bolts off this."],
     ["crit", "#f2c14e", `${Math.round(a.critChance * 100)}%`, "CRIT",
       `Every hit has this chance to land at ×${a.critMult}.`],
-    ["speed", "#6fe3ff", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
-    ["armor", "#a9c7d8", String(a.armor), "ARMOR",
+    ["speed", "#7ba3d6", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
+    ["armor", "#b9b2a4", String(a.armor), "ARMOR",
       `Every incoming hit is reduced by armor÷(armor+${d.armorK}) — currently ${Math.round(d.reduction * 100)}%, hard-capped at ${Math.round(d.reductionCap * 100)}%.`],
-    ["hp", "#ff7b70", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
+    ["hp", "#d14538", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
   ];
   sheetAttrs.innerHTML = tiles
     .map(([ic, c, v, l, tip]) =>
       `<div class="stile" style="--sc:${c}" title="${tip}"><i class="si" style="${statIcon(ic)}"></i><span><b>${v}</b><small>${l}</small></span></div>`)
     .join("");
   sheetProgress.innerHTML =
-    `<b>◈ ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
+    `<b>${coinIcon} ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
     `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
   sheetDice.textContent =
     `${id.weaponName}${id.weaponClass ? ` (${id.weaponClass})` : ""} — every hit rolls ±${Math.round(id.variance * 100)}%`;
@@ -1010,7 +1019,7 @@ let srTab: "shop" | "abil" | "ach" = "shop";
 
 const TIERS: CatalogTier[] = ["consumable", "starter", "basic", "advanced", "legendary"];
 const TIER_COLOR: Record<CatalogTier, string> = {
-  consumable: "#8fb8a0", starter: "#c9c9d4", basic: "#7fb0ff", advanced: "#f2c14e", legendary: "#c9a6ff",
+  consumable: "#a99f8c", starter: "#b9b2a4", basic: "#8fb0d9", advanced: "#f2c14e", legendary: "#b08fd9",
 };
 const TIER_LABEL: Record<CatalogTier, string> = {
   consumable: "CONSUMABLES", starter: "STARTER", basic: "BASIC", advanced: "ADVANCED", legendary: "LEGENDARY",
@@ -1305,7 +1314,7 @@ function renderShopPage(s: GameState): void {
   // Equipped + bag.
   srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
-    if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
+    if (!it) return `<div class="itile" style="--tc:#2c241b"><div class="ibox"><span class="iglyph" style="color:#2c241b">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
   // The bag TIGHTENS as it fills so the panel always fits the viewport
@@ -1583,7 +1592,7 @@ function drawMinimap(s: GameState): void {
       if (t === Tile.Wall) continue;
       mmCtx.fillStyle =
         t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#ffd23e" : "#2c2c40";
+        t === Tile.DoorLocked ? "#f2c14e" : "#3a2f24";
       mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
     }
   }
@@ -1591,7 +1600,7 @@ function drawMinimap(s: GameState): void {
   for (const m of s.monsters) {
     const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
     if (dx * dx + dy * dy > vis2) continue;
-    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
+    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#c0392f";
     const r = m.kind === "boss" ? 3.5 : 2;
     mmCtx.beginPath();
     mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
@@ -1600,14 +1609,14 @@ function drawMinimap(s: GameState): void {
   for (const pl of s.players) {
     if (!pl.alive) {
       // Downed crawler: a hollow red ring — go stand inside it.
-      mmCtx.strokeStyle = "#e2574c";
+      mmCtx.strokeStyle = "#c0392f";
       mmCtx.lineWidth = 1.5;
       mmCtx.beginPath();
       mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
       mmCtx.stroke();
       continue;
     }
-    mmCtx.fillStyle = pl.id === me(s).id ? "#4fd1ff" : "#7be89b";
+    mmCtx.fillStyle = pl.id === me(s).id ? "#5a87c6" : "#86b86a";
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
@@ -1615,7 +1624,7 @@ function drawMinimap(s: GameState): void {
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
     const cycle = 1 - ((pg.t * 1.6) % 1);
-    mmCtx.strokeStyle = "#ffd23e";
+    mmCtx.strokeStyle = "#f2c14e";
     mmCtx.lineWidth = 1.5;
     mmCtx.globalAlpha = 0.9 - cycle * 0.6;
     mmCtx.beginPath();
@@ -1643,8 +1652,8 @@ function drawMinimap(s: GameState): void {
 }
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
-  enemy: "#ffb347", crit: "#ffe066", player: "#ff5a4d",
-  heal: "#5fd08a", gold: "#f2c14e", weapon: "#b98bff",
+  enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
+  heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
 };
 
 // Floating combat numbers: project a world hit to screen and float it upward.
@@ -1661,7 +1670,7 @@ function spawnDamageNumber(h: HitEvent): void {
   // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
   // can SEE which school each number came from (physical keeps the defaults).
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    el.style.color = h.kind === "crit" ? "#d3b6ff" : "#b998ff";
+    el.style.color = h.kind === "crit" ? "#c4a8e8" : "#9a6bd0";
   }
   // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
   // poison toxin-green — so a DoT build can read its uptime mid-fight.
@@ -1670,7 +1679,7 @@ function spawnDamageNumber(h: HitEvent): void {
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
-    el.style.color = "#8a97a5";
+    el.style.color = "#8a8272";
     el.style.opacity = "0.85";
     el.textContent = `${el.textContent} ⛨`;
   }
@@ -1773,8 +1782,8 @@ function renderRecap(s: GameState): void {
     [p.kills.toLocaleString(), "KILLS"],
     [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
     [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
-    [`◈ ${p.gold.toLocaleString()}`, "GOLD BANKED"],
-    [`◈ ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
+    [`${coinIcon} ${p.gold.toLocaleString()}`, "GOLD BANKED"],
+    [`${coinIcon} ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
   ];
   document.getElementById("recap-stats")!.innerHTML =
     stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
@@ -1844,7 +1853,7 @@ function updateDowned(s: GameState): void {
 }
 
 function phaseColor(s: GameState): string {
-  return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
+  return s.phase === "safe" ? "#6da356" : s.phase === "warning" ? "#f2c14e" : "#c0392f";
 }
 function fmt(t: number): string {
   const c = Math.max(0, t);
@@ -1860,7 +1869,7 @@ const STATUS_CHIP: Record<string, { label: string; color: string }> = {
 function statusChips(st: { kind: string; stacks: number; remaining: number }[] | undefined): string {
   if (!st || st.length === 0) return "";
   return st.map((e) => {
-    const c = STATUS_CHIP[e.kind] ?? { label: e.kind.toUpperCase(), color: "#c9c9d4" };
+    const c = STATUS_CHIP[e.kind] ?? { label: e.kind.toUpperCase(), color: "#b9b2a4" };
     const stacks = e.stacks > 1 ? `×${e.stacks}` : "";
     return `<span style="color:${c.color};border:1px solid ${c.color}55;border-radius:3px;` +
       `padding:0 4px;margin-right:4px;font-size:10px;letter-spacing:1px">` +
@@ -1875,25 +1884,25 @@ function updateHud(s: GameState): void {
     `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
     `<span style="color:${phaseColor(s)}">Collapse ${fmt(s.timeRemaining)} · ${s.phase.toUpperCase()}</span>` +
     `<div class="bar"><i style="width:${tf * 100}%;background:${phaseColor(s)}"></i></div>`;
-  const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
+  const rc = RARITY_COLORS[p.weaponRarity] ?? "#b9b2a4";
   hudTR.innerHTML =
     `Level ${p.level} · ${p.gold} gold · ` +
     `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
-    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
-    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>` +
+    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#c0392f"></i></div>` +
+    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#5a87c6"></i></div>` +
     // Debuff row (5.11): active statuses read right under the health bar.
     ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
   hudLog.innerHTML = log.slice(-5).join("<br>");
   if (s.status === "playing" && !p.alive) {
-    hudLog.innerHTML += `<br><b style="color:#e2574c">DOWNED</b> — ` +
+    hudLog.innerHTML += `<br><b style="color:#c0392f">DOWNED</b> — ` +
       (p.reviveProgress > 0
         ? `stabilizing… ${Math.round(p.reviveProgress * 100)}%`
         : "a teammate standing close can stabilize you (or you rejoin on descent)");
   }
   if (s.status !== "playing") {
     hudLog.innerHTML +=
-      `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
+      `<br><b style="color:${s.status === "won" ? "#6da356" : "#c0392f"}">` +
       `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>` +
       `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
       `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
@@ -1902,14 +1911,20 @@ function updateHud(s: GameState): void {
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
 // and manual debugging can stage scenarios; off by default, no effect in normal play.
+// defineProperty (configurable) rather than assignment: test mode already defined
+// a minimal getter-only __dcc, and assigning over it throws — ?test&debug=1 now
+// upgrades to the full hook instead of erroring at load.
 if (new URLSearchParams(location.search).has("debug")) {
-  (window as unknown as { __dcc: unknown }).__dcc = {
-    get state() { return state; },
-    renderer,
-    addPlayer: (name: string) => addPlayer(state, name),
-    step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
-    equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
-  };
+  Object.defineProperty(window, "__dcc", {
+    configurable: true,
+    get: () => ({
+      state,
+      renderer,
+      addPlayer: (name: string) => addPlayer(state, name),
+      step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
+      equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
+    }),
+  });
 }
 
 let lastFloor = state.floor;
@@ -1959,7 +1974,7 @@ async function main(): Promise<void> {
     try {
       state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode);
     } catch (err) {
-      hudLog.innerHTML = `<b style="color:#e2574c">${(err as Error).message}</b><br>` +
+      hudLog.innerHTML = `<b style="color:#c0392f">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;
       return;
     }
@@ -2000,17 +2015,21 @@ async function main(): Promise<void> {
       frameHits.push(...netHits.splice(0));
       frameAnns.push(...netAnns.splice(0));
       // Party chip: co-op shows the roster; RIVALS shows the race standings.
+      // (Drawn icons, not emoji — see STYLEGUIDE.md.)
       if (state.mode === "rivals" && state.rivals) {
         const rows = [...state.rivals]
           .sort((a, b) => b.floor - a.floor || b.level - a.level)
           .map((r) => {
-            const status = !r.alive ? ` ☠${Math.ceil(r.downedT)}s` : r.shopping ? " 🛒" : "";
-            const you = r.id === localId ? "▶" : "";
-            return `${you}${r.name} F${r.floor} L${r.level}${status}`;
+            const status = !r.alive
+              ? ` <span style="color:#c0392f">${uic("skull")}${Math.ceil(r.downedT)}s</span>`
+              : r.shopping ? ` ${uic("shopping")}` : "";
+            const you = r.id === localId ? `${uic("marker")} ` : "";
+            return `${you}${esc(r.name)} <span style="color:#a99f8c">F${r.floor} · L${r.level}</span>${status}`;
           });
-        partyChip.textContent = `🏁 ${joinCode} · ${rows.join("  ·  ")}`;
+        partyChip.innerHTML = `${uic("race")} ${esc(joinCode ?? "")} &nbsp; ${rows.join(" &nbsp;·&nbsp; ")}`;
       } else {
-        partyChip.textContent = `⚔ ${joinCode} · ${state.players.map((p) => p.name).join(", ")}`;
+        partyChip.innerHTML =
+          `${uic("party")} ${esc(joinCode ?? "")} · ${state.players.map((p) => esc(p.name)).join(", ")}`;
       }
       // Safe-room stock/ready counts change server-side; refresh while open.
       srRefreshAcc += dt;
