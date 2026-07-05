@@ -36,6 +36,11 @@ Priorities that fall out of that:
   is mostly single-ability internal (overcharge→spend, stance-swap→momentum,
   dash→shockstep); cross-ability setups are the gap.
 
+**SHIPPED (PR #60):** Crowd Surf, Stunt Double (as a regular active), and
+CUT TO from the mined list — the friendly-entity surface is live
+(state.decoys + the ai.ts taunt seam), so the summon designs below are
+unblocked.
+
 ## Actives
 
 ### 1. CROWD WORK — hype as ammunition
@@ -85,17 +90,6 @@ where monsters died; denies reruns.
   for 10s. (Friendly-minion surface — capstone can ship after the base.)
 - Rides: state.corpses, necromancer denial.
 
-### 6. CROWD SURF — the hook, but mass-aware
-Throw a chain: anything lighter than you gets yanked to your arms (staggered,
-into melee/orbit range); anything heavier yanks YOU to it (gap-close with
-i-frames). One button, two verbs, resolved by the mass stat monsters already
-have.
-- Fork: **Headliner's Grip** (pulled enemies arrive staggered longer) vs
-  **Stage Dive** (pulling yourself detonates on arrival).
-- Capstone: **THE WAVE** — the chain drags everything it passed through.
-- Rides: ARCHETYPES.mass, stagger/poise. Closest to a genre staple — the
-  mass-flip earns its slot.
-
 ## Ultimates
 
 ### 7. STOP THE COUNT — gamble against the house clock
@@ -116,21 +110,6 @@ get pranked. The show economy decides the quality of your ultimate.
 - Fork: **Fan Favorites** (more packages) vs **Heel Turn** (meaner anvils).
 - Capstone: **BELOVED** — in frenzy, the rotten slot is removed.
 - Rides: hype state, strikes rail (telegraphed impacts), hazards.
-
-### 9. STUNT DOUBLE — the production hires help
-**RETIERED to a regular ACTIVE (owner call):** the decoy is a utility verb
-you weave into a rotation, not a once-a-fight event. Active-budget numbers:
-~5s contract, ~18s cooldown, mirror swings at 25-30%.
-Spawn a copy of you: taunts everything nearby (the aggro-transfer defensive
-tool the kit lacks) and mirrors your melee swings. When the contract expires
-it takes a bow and explodes proportional to damage absorbed.
-Combo lines: cast INSTANT REPLAY while the double swings (both tally); drop
-it mid-CROWD SURF pull so the pack lands on the decoy, not you.
-- Fork: **Method Actor** (longer contract, harder taunt) vs **Pyrotechnic
-  Exit** (bigger finale).
-- Capstone: **AWARD SEASON** — if the double survives its contract, its
-  next casting is free (no cooldown).
-- Needs: friendly-entity surface (shared with UNION LABOR).
 
 ## Recommended first wave
 
