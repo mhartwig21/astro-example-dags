@@ -253,7 +253,7 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
-### 5.8 Genuine itemization (phases 1–2 SHIPPED; phase 3 = resistances + caster catalog)
+### 5.8 Genuine itemization (phases 1–3 SHIPPED; still open: caster catalog branch)
 
 **Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
 weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
@@ -299,9 +299,12 @@ Generation picks class with the slot, then rolls class-fitting affixes. The cata
 entry's school (existing tree is physical; a caster component branch is the natural catalog
 expansion). Armor/trinkets stay school-agnostic until proven boring.
 
-**Counterplay (phase 3, cheap):** monster resist tags — `armored` (physical −30%) and
-`warded` (magic −30%) — as new elite affixes plus a couple of archetype defaults. The party's
-school MIX starts mattering per pack; a warded elite pack is the crossbow crawler's fight.
+**Counterplay (phase 3 — SHIPPED):** monster resist tags — `armored` (physical −30%) and
+`warded` (magic −30%) — as elite affixes plus archetype defaults (charger is innately
+armored, phantom innately warded; `monsterResist` in game.ts, `resistDamageTakenMult`).
+The party's school MIX starts mattering per pack; a warded elite pack is the crossbow
+crawler's fight. Resisted hits emit `HitEvent.resisted` — the 3D host renders them as
+muted gray numbers with a ⛨ so the lesson is legible mid-fight.
 
 **Interactions with existing systems:**
 - **Battle Stance** stays about attack RANGE (Brawler/Deadeye); school is orthogonal — a

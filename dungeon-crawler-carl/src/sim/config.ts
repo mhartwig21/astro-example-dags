@@ -327,6 +327,9 @@ export const CONFIG = {
   encounterIntroSeconds: 2.2,
   swiftSpeedMult: 1.4,
   shieldedDamageTakenMult: 0.7,
+  // School resists (5.8 phase 3): armored/warded elites and resist-tagged
+  // archetypes take this fraction of matching-school damage (−30%).
+  resistDamageTakenMult: 0.7,
   volatileDelay: 0.8, // seconds from death to blast (the dodge window)
   volatileRadius: 1.5, // tiles
   volatileDmgMult: 1.2, // relative to the elite's damage stat
@@ -371,6 +374,9 @@ export type MonsterArchetype = {
   mass: number; // knockback divisor (heavier archetypes barely move)
   radius: number; // body radius (tiles) for HIT checks — matches render bulk,
   // so clipping a brute's shoulder counts (elites scale by eliteScale)
+  // School resist (DESIGN 5.8 phase 3): this archetype takes
+  // resistDamageTakenMult on hits of the matching school.
+  resist?: "physical" | "magic";
 };
 
 export const ARCHETYPES = {
@@ -388,10 +394,10 @@ export const ARCHETYPES = {
   // Shaman: never attacks (dmgMult unused); attackRange is its preferred standoff.
   shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1, radius: 0.38 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
-  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3 },
+  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3, resist: "magic" }, // half-spectral: hit it with something solid
   // Charger: its long windup IS the dodge window — the rush direction is locked
   // at commit (see charger* knobs). Heavy: hard to stagger out of the commit.
-  charger: { hpMult: 1.4, dmgMult: 1.3, speedMult: 0.8, attackRange: 1.0, xpMult: 1.6, ranged: false, windup: 0.85, poise: 0.55, mass: 2.2, radius: 0.45 },
+  charger: { hpMult: 1.4, dmgMult: 1.3, speedMult: 0.8, attackRange: 1.0, xpMult: 1.6, ranged: false, windup: 0.85, poise: 0.55, mass: 2.2, radius: 0.45, resist: "physical" }, // plated hide: bring magic
   // Spitter: standoff caster; dmgMult scales its puddle ticks (see spitter*/puddle*).
   spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
   // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.

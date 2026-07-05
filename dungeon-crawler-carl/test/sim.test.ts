@@ -3,7 +3,7 @@ import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation,
+  damagePlayerHit, playerMitigation, monsterResist,
 } from "../src/sim/game";
 import { armorReduction, rollDamage } from "../src/sim/combat";
 import { buildCharacterSheet } from "../src/sim/sheet";
@@ -1464,6 +1464,68 @@ describe("new elite affixes (splitter / thorns)", () => {
     const reflected = hp0 - p.hp;
     expect(reflected).toBeGreaterThan(0); // and it bit back
     expect(reflected).toBeLessThanOrEqual(Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)));
+  });
+
+  it("armored elites shrug physical hits; warded ones don't care (school resists)", () => {
+    // Twin games on one seed share the exact rng stream, so the only
+    // difference in damage dealt is the resist multiplier itself.
+    const meleeOnce = (over: Partial<import("../src/sim/types").Monster>) => {
+      const g = createGame(921);
+      const p = g.players[0];
+      g.monsters.length = 0;
+      g.projectiles.length = 0;
+      const m = mkMon({
+        id: 1, pos: { x: p.pos.x + 1.0, y: p.pos.y },
+        hp: 100000, maxHp: 100000, attackCooldown: 99, ...over,
+      });
+      g.monsters.push(m);
+      step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+      const ev = g.hits.find((h) => h.kind === "enemy" || h.kind === "crit");
+      return { dealt: 100000 - m.hp, resisted: ev?.resisted };
+    };
+    const plain = meleeOnce({});
+    const armored = meleeOnce({ affix: "armored" });
+    const warded = meleeOnce({ affix: "warded" });
+    expect(plain.dealt).toBeGreaterThan(0);
+    expect(armored.dealt).toBe(Math.max(1, Math.round(plain.dealt * CONFIG.resistDamageTakenMult)));
+    expect(armored.resisted).toBe(true);
+    expect(warded.dealt).toBe(plain.dealt); // melee is physical — warded ignores it
+    expect(warded.resisted).toBeUndefined();
+  });
+
+  it("magic bolts are shrugged by warded targets, full-strength on armored ones", () => {
+    // A staff makes BOLT a magic missile (boltParams) — fire one at twin targets.
+    const boltOnce = (over: Partial<import("../src/sim/types").Monster>) => {
+      const g = createGame(922);
+      const p = g.players[0];
+      equipItem(p, { id: 9, slot: "weapon", rarity: "rare", name: "Runed Staff", affixes: { spell: 10 } });
+      g.monsters.length = 0;
+      g.projectiles.length = 0;
+      const m = mkMon({
+        id: 1, pos: { x: p.pos.x + 3.0, y: p.pos.y },
+        hp: 100000, maxHp: 100000, attackCooldown: 99, ...over,
+      });
+      g.monsters.push(m);
+      const cast = [false, false, true, false, false]; // slot 3 = bolt
+      for (let i = 0; i < 60 && m.hp === 100000; i++) {
+        step(g, { ...idle(), cast, aim: { x: 1, y: 0 } }, 1 / 60);
+      }
+      return 100000 - m.hp;
+    };
+    const plain = boltOnce({});
+    const warded = boltOnce({ affix: "warded" });
+    const armored = boltOnce({ affix: "armored" });
+    expect(plain).toBeGreaterThan(0);
+    expect(warded).toBe(Math.max(1, Math.round(plain * CONFIG.resistDamageTakenMult)));
+    expect(armored).toBe(plain); // magic sails past ARMOR plating
+  });
+
+  it("charger is innately armored, phantom innately warded; the affix wins over the tag", () => {
+    expect(monsterResist(mkMon({ kind: "charger" }))).toBe("physical");
+    expect(monsterResist(mkMon({ kind: "phantom" }))).toBe("magic");
+    expect(monsterResist(mkMon({ kind: "grunt" }))).toBeNull();
+    expect(monsterResist(mkMon({ kind: "grunt", affix: "armored" }))).toBe("physical");
+    expect(monsterResist(mkMon({ kind: "phantom", affix: "armored" }))).toBe("physical");
   });
 
   it("the named elite is never a support caste (a boss that can't attack is a bug)", () => {

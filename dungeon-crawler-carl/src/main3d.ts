@@ -1361,6 +1361,13 @@ function spawnDamageNumber(h: HitEvent): void {
   el.style.top = `${s.y}px`;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  // School resist (armored/warded): the number reads muted so the player
+  // learns to swap schools without reading a tooltip.
+  if (h.resisted) {
+    el.style.color = "#8a97a5";
+    el.style.opacity = "0.85";
+    el.textContent = `${el.textContent} ⛨`;
+  }
   fxLayer.appendChild(el);
   // Kick off the float+fade on the next frame so the transition applies.
   requestAnimationFrame(() => {
