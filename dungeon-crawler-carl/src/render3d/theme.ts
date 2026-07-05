@@ -50,6 +50,7 @@ export const THEME = {
     charger: { color: 0xd97b29, scale: 1.25 }, // rust orange: the freight train
     spitter: { color: 0xa4c93f, scale: 0.95 }, // acid green: don't stand in it
     necromancer: { color: 0x8a5cff, scale: 1.05 }, // violet: kill the caster first
+    broodmother: { color: 0xd45db8, scale: 1.4 }, // magenta: the nest — kill it first
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

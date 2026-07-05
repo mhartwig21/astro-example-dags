@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel, type MonsterArchetype } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
@@ -109,7 +109,7 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
     hp,
     maxHp: hp,
     damage: baseDmg * a.dmgMult,
-    speed: CONFIG.monsterSpeed * a.speedMult,
+    speed: CONFIG.monsterSpeed * a.speedMult * monsterTempo(floor).speed,
     attackRange: a.attackRange,
     attackCooldown: 0,
     shootCd: 0,
@@ -139,7 +139,8 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const chargerW = floor >= 3 ? floor * 0.3 : 0;
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
-  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW;
+  const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW + broodW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -150,6 +151,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= chargerW) < 0) return "charger";
   if ((r -= spitterW) < 0) return "spitter";
   if ((r -= necroW) < 0) return "necromancer";
+  if ((r -= broodW) < 0) return "broodmother";
   return "brute";
 }
 
@@ -278,7 +280,9 @@ function spawnMonsters(state: GameState): void {
     // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
     // one when a player wanders in (see stepMonster). A ranged/support pack
     // makes a poor ambush, so this favors melee kinds that benefit from surprise.
-    const canAmbush = kind !== "ranged" && kind !== "shaman" && kind !== "spitter" && kind !== "necromancer";
+    const canAmbush =
+      kind !== "ranged" && kind !== "shaman" && kind !== "spitter" &&
+      kind !== "necromancer" && kind !== "broodmother";
     const ambush = floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance);
     for (let k = 0; k < size; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
@@ -318,7 +322,8 @@ function spawnMonsters(state: GameState): void {
     // a bug, not a mechanic (packs get shaman escorts from floor 4+, so the
     // landmark pack very often contains one).
     const canBoss = (m: Monster) =>
-      m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer";
+      m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer" &&
+      m.kind !== "broodmother"; // support castes never take the crown
     const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
@@ -326,7 +331,7 @@ function spawnMonsters(state: GameState): void {
     } else if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
       const rolled = rollArchetype(rng, floor);
-      const kind = rolled === "shaman" || rolled === "necromancer" ? "brute" : rolled;
+      const kind = rolled === "shaman" || rolled === "necromancer" || rolled === "broodmother" ? "brute" : rolled;
       m = makeMonster(state, kind, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
       state.monsters.push(m);
     } else {
@@ -1407,6 +1412,7 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   charger: CONFIG.show.hypeCharger,
   spitter: CONFIG.show.hypeSpitter,
   necromancer: CONFIG.show.hypeNecromancer,
+  broodmother: CONFIG.show.hypeBroodmother,
   boss: CONFIG.show.hypeBoss,
 };
 
