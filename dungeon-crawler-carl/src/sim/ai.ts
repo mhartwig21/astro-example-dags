@@ -7,7 +7,8 @@ import { moveWithCollision } from "./movement";
 import { applyStatus } from "./status";
 import {
   bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
-  damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
+  damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
+  tauntingDecoy,
 } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
@@ -73,6 +74,8 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
 function resolveMeleeStrike(state: GameState, m: Monster): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+  // A STUNT DOUBLE in reach takes the hit — that is what it is paid for.
+  if (decoySoak(state, m.pos, reach, m.damage)) return;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc — whiff
@@ -87,6 +90,9 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
  * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
 function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+  // The double dives on the slam too (players in the radius still get spared —
+  // one professional sacrifice per blast).
+  if (decoySoak(state, m.pos, radius, dmg)) return;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > radius) continue;
@@ -130,7 +136,8 @@ function resolveStrike(state: GameState, m: Monster): void {
     m.attackCooldown = CONFIG.monsterAttackCooldown * 1.3 * monsterTempo(state.floor).cooldown;
     const player = nearestPlayer(state, m.pos);
     if (!player) return;
-    spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage, m.kind);
+    const aimAt = tauntingDecoy(state, m.pos) ?? player; // the double draws fire
+    spawnEnemyBolt(state, m.pos, { x: aimAt.pos.x - m.pos.x, y: aimAt.pos.y - m.pos.y }, m.damage, m.kind);
     return;
   }
   if (kind === "charge") {
@@ -277,11 +284,13 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
-  // Each monster hunts the nearest living party member.
+  // Each monster hunts the nearest living party member — unless a STUNT
+  // DOUBLE in taunt range steals the show (the whole point of hiring one).
   const player = nearestPlayer(state, m.pos);
   if (!player) return;
-  const d = dist(m.pos, player.pos);
-  const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+  const hunt = tauntingDecoy(state, m.pos) ?? player;
+  const d = dist(m.pos, hunt.pos);
+  const toPlayer = normalize({ x: hunt.pos.x - m.pos.x, y: hunt.pos.y - m.pos.y });
   // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
   const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;
   // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
@@ -476,7 +485,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     const standoff = m.attackRange;
     if (m.shootCd === 0 && d <= standoff + 2) {
       m.shootCd = CONFIG.spitterCooldown;
-      m.spitTarget = { x: player.pos.x, y: player.pos.y };
+      m.spitTarget = { x: hunt.pos.x, y: hunt.pos.y };
       beginWindup(m, "spit", windup);
       return;
     }

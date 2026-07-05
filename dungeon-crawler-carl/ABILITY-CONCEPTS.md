@@ -15,6 +15,32 @@ everything, so which tome drops starts defining the run.
 Constellation sketches follow the shipped grammar: entry → exclusive fork →
 capstone.
 
+## Direction (owner review, 2026-07-05)
+
+Favorites from this slate: **Audience Participation**, **Stunt Double**
+(retiered — see its section: it should be a REGULAR ACTIVE, not an ultimate),
+and **Crowd Surf**. Stated taste, which should weight all future picks:
+
+> "I like mobility and utility skills, I think they're what make kits fun,
+> as well as combo skills (where you press multiple buttons to set up attacks)."
+
+Priorities that fall out of that:
+- **Mobility beyond dash**: Crowd Surf (pull-yourself mode) and CUT TO (the
+  phantom-blink flip, mined section) are the top mobility candidates.
+- **Utility verbs over damage buttons**: decoys (Stunt Double), zones and CC
+  (STAGE CABLES roots), defensive windows (CUT TO COMMERCIAL), the crowd
+  roulette (Audience Participation).
+- **Cross-ability combo hooks**: every new ability should name at least one
+  setup→payoff line with an EXISTING ability (pull-in → nova; roots →
+  stampede; decoy taunt → backstab bonus). The kit's current combo texture
+  is mostly single-ability internal (overcharge→spend, stance-swap→momentum,
+  dash→shockstep); cross-ability setups are the gap.
+
+**SHIPPED (PR #60):** Crowd Surf, Stunt Double (as a regular active), and
+CUT TO from the mined list — the friendly-entity surface is live
+(state.decoys + the ai.ts taunt seam), so the summon designs below are
+unblocked.
+
 ## Actives
 
 ### 1. CROWD WORK — hype as ammunition
@@ -64,17 +90,6 @@ where monsters died; denies reruns.
   for 10s. (Friendly-minion surface — capstone can ship after the base.)
 - Rides: state.corpses, necromancer denial.
 
-### 6. CROWD SURF — the hook, but mass-aware
-Throw a chain: anything lighter than you gets yanked to your arms (staggered,
-into melee/orbit range); anything heavier yanks YOU to it (gap-close with
-i-frames). One button, two verbs, resolved by the mass stat monsters already
-have.
-- Fork: **Headliner's Grip** (pulled enemies arrive staggered longer) vs
-  **Stage Dive** (pulling yourself detonates on arrival).
-- Capstone: **THE WAVE** — the chain drags everything it passed through.
-- Rides: ARCHETYPES.mass, stagger/poise. Closest to a genre staple — the
-  mass-flip earns its slot.
-
 ## Ultimates
 
 ### 7. STOP THE COUNT — gamble against the house clock
@@ -96,16 +111,6 @@ get pranked. The show economy decides the quality of your ultimate.
 - Capstone: **BELOVED** — in frenzy, the rotten slot is removed.
 - Rides: hype state, strikes rail (telegraphed impacts), hazards.
 
-### 9. STUNT DOUBLE — the production hires help
-Spawn a copy of you for 8s: taunts everything nearby (the aggro-transfer
-defensive tool the kit lacks) and mirrors your melee swings at 40%. When the
-contract expires it takes a bow and explodes proportional to damage absorbed.
-- Fork: **Method Actor** (longer contract, harder taunt) vs **Pyrotechnic
-  Exit** (bigger finale).
-- Capstone: **AWARD SEASON** — if the double survives its contract, refund
-  50% of your ultimate cooldown.
-- Needs: friendly-entity surface (shared with UNION LABOR).
-
 ## Recommended first wave
 
 **Crowd Work, Golden Handshake, Kill Clause, Instant Replay + Stop the
@@ -113,5 +118,69 @@ Count, Audience Participation** — six abilities, zero new sim surfaces beyond
 a damage tally, every one impossible to describe without mentioning the show.
 Second wave (Repossession, Crowd Surf, Stunt Double) lands with the
 friendly-entity surface.
+
+---
+
+# Mined from the repo (2026-07-05 sweep)
+
+A systematic pass over docs, code comments, monster AI, elite affixes, boss
+signatures, and catalog passives found abilities the codebase has ALREADY
+half-built. These are cheaper than the Showtime slate — the sim plumbing
+exists; most need only a player caster + constellation entries.
+
+## Boss signatures = pre-built ultimates (DESIGN 5.14, game.ts helpers)
+
+The band-boss signature mechanics are self-contained, telegraphed,
+floor-agnostic helpers with config knobs. Each is an ultimate wearing a
+boss costume:
+
+- **Flame Sweep** → *PYRO SWEEP*: an advancing directional wall of fire
+  (bossFlameSweep; flameRows/flameStepDelay knobs). Burn status included.
+- **Debris Rain** → *METEOR STORM*: telegraphed impact circles at the cursor
+  (bossDebrisRain) — this is the DESIGN.md 5.7 example ultimate, already coded.
+- **Flood Surge** → *FLASH FLOOD*: carpet a zone in ticking sludge pools.
+- **Entangling Roots** → *STAGE CABLES*: root-snare zones — the hard-CC verb
+  the player kit completely lacks (Player.rootT already exists).
+- **Dark Ritual** → *SEASON FINALE*: a long, INTERRUPTIBLE self-channel into
+  an arena-scale nuke — high-risk broadcast television.
+
+## Monster flips = pre-built actives (ai.ts + config knobs)
+
+- **Phantom blink** → *CUT TO*: targeted teleport-onto-enemy strike (distinct
+  from dash's directional blink).
+- **Charger rush** → *STAMPEDE*: committed line-rush hitting everything in
+  the lane once (chargeHits plumbing).
+- **Spitter lob** → *CAUSTIC LOB*: plant a ticking poison puddle (hazard +
+  poison status both live).
+- **Bomber fuse** → *TIME BOMB*: plant a fused charge; the dodge-window
+  telegraph is the fun.
+- **Ambush dormancy** → *SLEEPER CELL*: brief stealth ending in a surge
+  alpha-strike (ambushSurge knobs).
+- **Boss radial volley** → *FIREWORK VOLLEY*: full ring of bolts.
+
+## The friendly-entity flag is the master unlock
+
+summonMinion + raiseCorpse already construct monsters at runtime; an "ally"
+ownership flag turns on FIVE designs at once: **Summon Champion** (the other
+named-but-unbuilt DESIGN 5.7 ultimate), **Understudy** (raise one corpse as
+your fighter — necromancer flip), **Franchise** (deployed nest births allied
+swarmers — broodmother flip), plus the slate's UNION LABOR and STUNT DOUBLE.
+One surface, five abilities.
+
+## Smaller seeds
+
+- **Elite affixes as player buffs**: shielded → *CUT TO COMMERCIAL* (short
+  mitigation bubble — the missing defensive cooldown); thorns → retaliation
+  window; chilling aura → *COLD OPEN* slow-field toggle (chill status live).
+- **Shaman heal flip** → *FIELD MEDIC*: heal the lowest-HP nearby crawler
+  (co-op verb; hypeRevive already pays hype for rescues).
+- **Shrine bargains as actives**: Blood Price → *BLOOD PACT* (spend HP for
+  crit/damage burst); Greed Clause → *HIGH ROLLER* (double gold, hype cost).
+- **Third Battle Stance**: abilities.ts invites it ("a third stance is a
+  union member away") — a defensive stance completes the triangle.
+- **Status appliers**: burn/poison/chill shipped with only 1-2 sources each;
+  a dedicated applicator active per status has room (e.g. *POISON DART*).
+- **A pure interrupt/stun button**: poise/stagger is a full system, but only
+  SYSTEM SHOCK (overcharge capstone) touches it on demand.
 
 Delete sections from this doc as they ship (BACKLOG.md convention).

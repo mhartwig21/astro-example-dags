@@ -56,9 +56,16 @@ export interface Player {
   // (stacks capped by rank; the timer resets on every hit, stacks drop on expiry).
   meleeCombo: number;
   meleeComboT: number; // seconds left before the combo drops
+  // MATCH CUT (Cut To capstone): the marked target + the reset window left.
+  cutMark?: { monsterId: number; t: number } | null;
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   reviveProgress: number; // 0..1: teammates standing close stabilize a downed crawler
+  // RIVALS mode (all no-ops in co-op):
+  floorNo: number; // which floor world this crawler is on (mirrors state.floor in co-op)
+  safeRoom?: SafeRoom | null; // PERSONAL shop between floors — the race keeps running
+  downedT?: number; // seconds until auto-revive after going down
+  reviveGraceT?: number; // brief post-revive immunity (no spawn-camping the timer)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -434,6 +441,19 @@ export interface Strike {
   school?: School;
 }
 
+// STUNT DOUBLE: a taunting copy of a crawler. Monsters in taunt range hunt it
+// instead of players, their hits are ABSORBED (banked, never lethal — it's a
+// professional), and the contract's end is an explosion proportional to what
+// it soaked. The game's first friendly entity.
+export interface Decoy {
+  id: number;
+  ownerId: number;
+  pos: Vec2;
+  facing: Vec2; // mirrored swings + rendering read this
+  t: number; // seconds left on the contract
+  absorbed: number; // damage soaked so far (feeds the farewell blast)
+}
+
 // A ringside introduction: set when the party first closes with a boss/elite.
 // While non-null the WORLD IS FROZEN (like the safe room) so the reveal can't
 // kill anyone; hosts render the intro splash + boss health bar from it.
@@ -524,7 +544,52 @@ export interface Announcement {
   priority: "high" | "normal";
 }
 
+/**
+ * RIVALS mode: everything that belongs to ONE floor, so several floors can
+ * run concurrently while rivals race at their own pace. The sim still executes
+ * through the classic GameState slots — stepRivals MOUNTS a world into them,
+ * runs the ordinary floor logic for that floor's residents, and captures the
+ * fields back. Co-op never allocates worlds; nothing changes for it.
+ */
+export interface FloorWorld {
+  floor: number;
+  rng: Rng;
+  map: FloorMap;
+  explored: Uint8Array;
+  exploredVersion: number;
+  mapVersion: number;
+  monsters: Monster[];
+  loot: Loot[];
+  projectiles: Projectile[];
+  strikes: Strike[];
+  bulletTimeLeft: number;
+  decoys: Decoy[]; // active Stunt Doubles (friendly entities)
+  hazards: Hazard[];
+  corpses: Corpse[];
+  pings: Ping[];
+  encounter: Encounter | null;
+  floorEvent: FloorEvent | null;
+  goldSurge: boolean;
+  timeBudget: number;
+  timeRemaining: number;
+  phase: TimerPhase;
+  collapseElapsed: number;
+}
+
 export interface GameState {
+  // "coop" is the classic run (default). "rivals" is the competitive race:
+  // up to 4 hostile crawlers, individual descent through concurrent floor
+  // worlds, 15s revives, rival kills pay XP, first FINAL-BOSS kill wins.
+  mode: "coop" | "rivals";
+  // Rivals only: the concurrent floor instances, keyed by floor number.
+  worlds?: Record<number, FloorWorld>;
+  winnerId?: number; // rivals: who secured the contract (status "won")
+  // Rivals only, CLIENT-side: standings meta from the personal snapshot
+  // (see serializeFor in snapshot.ts). The server never reads this.
+  rivals?: {
+    id: number; name: string; floor: number; level: number;
+    alive: boolean; downedT: number; shopping: boolean;
+  }[];
   rng: Rng;
   seed: number;
   floor: number; // 1-indexed current floor
@@ -565,6 +630,9 @@ export interface GameState {
   strikes: Strike[];
   bulletTimeLeft: number;
 
+  // Friendly entities: active Stunt Doubles (see Decoy).
+  decoys: Decoy[];
+
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
 
@@ -581,6 +649,10 @@ export interface GameState {
   floorEvent: FloorEvent | null;
   // Shrine Greed Clause accepted on this floor: gold drops pay double.
   goldSurge: boolean;
+
+  // Softlock self-healing: seconds until the next locked-door key audit
+  // (auditKeyReachability in game.ts). Optional for snapshot/save compat.
+  keyAuditT?: number;
 
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.

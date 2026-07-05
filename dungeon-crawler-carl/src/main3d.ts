@@ -55,6 +55,8 @@ const audioDirector = new AudioDirector(audio);
 // from the server and forwards intents/actions. Same renderer, same UI.
 const params = new URLSearchParams(location.search);
 const joinCode = params.get("join");
+// RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
+const rivalsMode = params.has("rivals");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
@@ -129,14 +131,14 @@ function boot(): GameState {
   return createGame(freshSeed());
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#e2574c">TEST MODE</b> · ');
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#c0392f">TEST MODE</b> · ');
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
 
 // Test-mode debug hook: lets headless verification (CDP-driven) inspect the
 // live sim instead of guessing from pixels. Never set outside ?test.
-if (testMode) Object.defineProperty(window, "__dcc", { get: () => ({ state }) });
+if (testMode) Object.defineProperty(window, "__dcc", { configurable: true, get: () => ({ state }) });
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
@@ -313,6 +315,12 @@ document.getElementById("m-join")!.addEventListener("click", () => {
   if (!code) { codeInput.focus(); return; }
   location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
 });
+// RIVALS: same code plumbing, hostile rules — the first joiner arms the race.
+document.getElementById("m-rivals")!.addEventListener("click", () => {
+  const code = codeInput.value.trim().toUpperCase().slice(0, 32);
+  if (!code) { codeInput.focus(); return; }
+  location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+});
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
 document.getElementById("m-test")!.addEventListener("click", () => {
@@ -343,7 +351,7 @@ const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 
 const RARITY_COLORS: Record<string, string> = {
-  common: "#c9c9d4", magic: "#5a9bff", rare: "#f2c14e", epic: "#b98bff",
+  common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
 };
 
 // ---- The Show: audience bar + sponsor draft ----
@@ -410,7 +418,7 @@ function updateBossBar(s: GameState): void {
     return;
   }
   bossbarEl.style.display = "block";
-  bbIcon.textContent = target.kind === "boss" ? "☠" : "◆";
+  bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
   // the party has stuck to it (burn/poison/chill uptime at a glance).
@@ -422,7 +430,7 @@ function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
   // Crowd Frenzy: the viewer count burns gold while the buff is live.
-  statViewers.style.color = p.frenzy ? "#ffd23e" : "";
+  statViewers.style.color = p.frenzy ? "#f2c14e" : "";
   statViewers.textContent = v.toLocaleString();
   statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
   statSponsors.textContent = String(p.sponsors);
@@ -437,17 +445,26 @@ function updateShowHud(s: GameState): void {
 }
 
 const RARITY_TEXT: Record<string, string> = {
-  common: "#c9c9d4", magic: "#7fb0ff", rare: "#f2c14e", epic: "#c9a6ff",
+  common: "#b9b2a4", magic: "#8fb0d9", rare: "#f2c14e", epic: "#b08fd9",
 };
+
+// Drawn UI icons (game-icons.net, /icons/ui/) — the styleguide's third rule:
+// icons are drawn, never typed. Sized to the surrounding text via 1em mask.
+const uic = (name: string): string =>
+  `<i class="uic" style="mask-image:url(/icons/ui/${name}.svg);-webkit-mask-image:url(/icons/ui/${name}.svg)"></i>`;
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
 // Sponsor gifts have no ability icon; a glyph in the plate carries the read.
+// (Engraved geometric marks are fine; true emoji are not — STYLEGUIDE.md.)
+const coinIcon = `<i class="uic" style="mask-image:url(/icons/items/gold.svg);-webkit-mask-image:url(/icons/items/gold.svg)"></i>`;
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
+  healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
   bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
-  shrineBlood: "❖", shrineGreed: "◈", shrineDecline: "—",
+  shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -619,11 +636,14 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   const r = rank(p, u.id);
   const open = nodeOpen(p, u);
   const locked = !open && r === 0;
+  // Rank pips as inset gem SOCKETS (STYLEGUIDE Phase 2): filled gems for
+  // taken ranks, empty bronze sockets for the rest, a rotated diamond for
+  // capstones, and overrank gems burn hot.
   const pips = u.capstone
-    ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
-    : `${"●".repeat(Math.min(r, u.maxRank))}` +
-      `<span class="opip">${"⭑".repeat(Math.max(0, r - u.maxRank))}</span>` +
-      `<span class="off">${"○".repeat(Math.max(0, u.maxRank - r))}</span>`;
+    ? `<i class="pip cap${r > 0 ? " on" : ""}"></i>`
+    : `<i class="pip on"></i>`.repeat(Math.min(r, u.maxRank)) +
+      `<i class="pip over"></i>`.repeat(Math.max(0, r - u.maxRank)) +
+      `<i class="pip"></i>`.repeat(Math.max(0, u.maxRank - r));
   let effect: string;
   if (locked) {
     const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
@@ -827,23 +847,29 @@ function renderSheet(s: GameState): void {
   sheetGear.innerHTML = EQUIP_SLOTS
     .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
   const tiles: [string, string, string, string, string][] = [
-    ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
+    ["attack", "#d98e4a", String(a.attackPower), "ATTACK PWR",
       "Physical school: melee, orbit blades, airstrike — and what most weapons throw as bolts."],
-    ["spell", "#b998ff", String(a.spellPower), "SPELL PWR",
+    ["spell", "#9a6bd0", String(a.spellPower), "SPELL PWR",
       "Magic school: nova, dash detonations, cataclysm — wands and staffs cast bolts off this."],
     ["crit", "#f2c14e", `${Math.round(a.critChance * 100)}%`, "CRIT",
       `Every hit has this chance to land at ×${a.critMult}.`],
-    ["speed", "#6fe3ff", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
-    ["armor", "#a9c7d8", String(a.armor), "ARMOR",
+    ["speed", "#7ba3d6", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
+    ["armor", "#b9b2a4", String(a.armor), "ARMOR",
       `Every incoming hit is reduced by armor÷(armor+${d.armorK}) — currently ${Math.round(d.reduction * 100)}%, hard-capped at ${Math.round(d.reductionCap * 100)}%.`],
-    ["hp", "#ff7b70", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
+    ["hp", "#d14538", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
   ];
-  sheetAttrs.innerHTML = tiles
-    .map(([ic, c, v, l, tip]) =>
-      `<div class="stile" style="--sc:${c}" title="${tip}"><i class="si" style="${statIcon(ic)}"></i><span><b>${v}</b><small>${l}</small></span></div>`)
-    .join("");
+  // PoE-style ledger (STYLEGUIDE Phase 2): small-caps label, dotted leader,
+  // tabular value — the icon keeps the scan, ink carries the data.
+  sheetAttrs.innerHTML =
+    `<table class="ledger">` +
+    tiles.map(([ic, c, v, l, tip]) =>
+      `<tr title="${tip}">` +
+      `<td class="lic"><i class="si" style="${statIcon(ic)};background:${c}"></i></td>` +
+      `<td class="lab">${l}</td><td class="dots"></td>` +
+      `<td class="val">${v}</td></tr>`).join("") +
+    `</table>`;
   sheetProgress.innerHTML =
-    `<b>◈ ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
+    `<b>${coinIcon} ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
     `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
   sheetDice.textContent =
     `${id.weaponName}${id.weaponClass ? ` (${id.weaponClass})` : ""} — every hit rolls ±${Math.round(id.variance * 100)}%`;
@@ -1028,7 +1054,7 @@ let srTab: "shop" | "abil" | "ach" = "shop";
 
 const TIERS: CatalogTier[] = ["consumable", "starter", "basic", "advanced", "legendary"];
 const TIER_COLOR: Record<CatalogTier, string> = {
-  consumable: "#8fb8a0", starter: "#c9c9d4", basic: "#7fb0ff", advanced: "#f2c14e", legendary: "#c9a6ff",
+  consumable: "#a99f8c", starter: "#b9b2a4", basic: "#8fb0d9", advanced: "#f2c14e", legendary: "#b08fd9",
 };
 const TIER_LABEL: Record<CatalogTier, string> = {
   consumable: "CONSUMABLES", starter: "STARTER", basic: "BASIC", advanced: "ADVANCED", legendary: "LEGENDARY",
@@ -1323,7 +1349,7 @@ function renderShopPage(s: GameState): void {
   // Equipped + bag.
   srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
-    if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
+    if (!it) return `<div class="itile" style="--tc:#2c241b"><div class="ibox"><span class="iglyph" style="color:#2c241b">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
   // The bag TIGHTENS as it fills so the panel always fits the viewport
@@ -1601,7 +1627,7 @@ function drawMinimap(s: GameState): void {
       if (t === Tile.Wall) continue;
       mmCtx.fillStyle =
         t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#ffd23e" : "#2c2c40";
+        t === Tile.DoorLocked ? "#f2c14e" : "#3a2f24";
       mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
     }
   }
@@ -1609,7 +1635,7 @@ function drawMinimap(s: GameState): void {
   for (const m of s.monsters) {
     const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
     if (dx * dx + dy * dy > vis2) continue;
-    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#e2574c";
+    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#c0392f";
     const r = m.kind === "boss" ? 3.5 : 2;
     mmCtx.beginPath();
     mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
@@ -1618,14 +1644,14 @@ function drawMinimap(s: GameState): void {
   for (const pl of s.players) {
     if (!pl.alive) {
       // Downed crawler: a hollow red ring — go stand inside it.
-      mmCtx.strokeStyle = "#e2574c";
+      mmCtx.strokeStyle = "#c0392f";
       mmCtx.lineWidth = 1.5;
       mmCtx.beginPath();
       mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
       mmCtx.stroke();
       continue;
     }
-    mmCtx.fillStyle = pl.id === me(s).id ? "#4fd1ff" : "#7be89b";
+    mmCtx.fillStyle = pl.id === me(s).id ? "#5a87c6" : "#86b86a";
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
@@ -1633,7 +1659,7 @@ function drawMinimap(s: GameState): void {
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
     const cycle = 1 - ((pg.t * 1.6) % 1);
-    mmCtx.strokeStyle = "#ffd23e";
+    mmCtx.strokeStyle = "#f2c14e";
     mmCtx.lineWidth = 1.5;
     mmCtx.globalAlpha = 0.9 - cycle * 0.6;
     mmCtx.beginPath();
@@ -1661,8 +1687,8 @@ function drawMinimap(s: GameState): void {
 }
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
-  enemy: "#ffb347", crit: "#ffe066", player: "#ff5a4d",
-  heal: "#5fd08a", gold: "#f2c14e", weapon: "#b98bff",
+  enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
+  heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
 };
 
 // Floating combat numbers: project a world hit to screen and float it upward.
@@ -1679,7 +1705,7 @@ function spawnDamageNumber(h: HitEvent): void {
   // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
   // can SEE which school each number came from (physical keeps the defaults).
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    el.style.color = h.kind === "crit" ? "#d3b6ff" : "#b998ff";
+    el.style.color = h.kind === "crit" ? "#c4a8e8" : "#9a6bd0";
   }
   // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
   // poison toxin-green — so a DoT build can read its uptime mid-fight.
@@ -1688,7 +1714,7 @@ function spawnDamageNumber(h: HitEvent): void {
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
-    el.style.color = "#8a97a5";
+    el.style.color = "#8a8272";
     el.style.opacity = "0.85";
     el.textContent = `${el.textContent} ⛨`;
   }
@@ -1765,18 +1791,34 @@ function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
   const title = document.getElementById("recap-title")!;
-  title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
-  title.className = won ? "win" : "wipe";
-  document.getElementById("recap-sub")!.textContent = won
-    ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
-    : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  if (s.mode === "rivals" && won) {
+    // The RACE has exactly one winner — everyone gets the same headline moment,
+    // just from very different sides of it.
+    const iWon = s.winnerId === p.id;
+    const winner = s.rivals?.find((r) => r.id === s.winnerId)?.name
+      ?? s.players.find((pl) => pl.id === s.winnerId)?.name ?? "A RIVAL";
+    title.textContent = iWon ? "CONTRACT SECURED" : `${winner.toUpperCase()} TOOK THE CONTRACT`;
+    title.className = iWon ? "win" : "wipe";
+    const standings = [...(s.rivals ?? [])]
+      .sort((a, b) => b.floor - a.floor || b.level - a.level)
+      .map((r, i) => `${i + 1}. ${r.name} (F${r.floor} · L${r.level})`)
+      .join("  ·  ");
+    document.getElementById("recap-sub")!.textContent =
+      `THE RACE IS OVER · run time ${fmt(s.elapsed)} · ${standings}`;
+  } else {
+    title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
+    title.className = won ? "win" : "wipe";
+    document.getElementById("recap-sub")!.textContent = won
+      ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
+      : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  }
   const stats: [string, string][] = [
     [String(p.level), "LEVEL"],
     [p.kills.toLocaleString(), "KILLS"],
     [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
     [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
-    [`◈ ${p.gold.toLocaleString()}`, "GOLD BANKED"],
-    [`◈ ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
+    [`${coinIcon} ${p.gold.toLocaleString()}`, "GOLD BANKED"],
+    [`${coinIcon} ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
   ];
   document.getElementById("recap-stats")!.innerHTML =
     stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
@@ -1830,8 +1872,23 @@ document.getElementById("recap-again")!.addEventListener("click", () => {
   input.onReset?.();
 });
 
+// RIVALS: the downed overlay — your 15 seconds, front and center.
+const downedEl = document.getElementById("downed")!;
+function updateDowned(s: GameState): void {
+  const p = me(s);
+  if (s.mode === "rivals" && !p.alive && (p.downedT ?? 0) > 0) {
+    downedEl.style.display = "block";
+    downedEl.innerHTML =
+      `<div class="dtitle">YOU ARE DOWN</div>` +
+      `<div class="dcount">${Math.ceil(p.downedT ?? 0)}</div>` +
+      `<div class="dsub">back on your feet at the floor entry — the race is still running</div>`;
+  } else {
+    downedEl.style.display = "none";
+  }
+}
+
 function phaseColor(s: GameState): string {
-  return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
+  return s.phase === "safe" ? "#6da356" : s.phase === "warning" ? "#f2c14e" : "#c0392f";
 }
 function fmt(t: number): string {
   const c = Math.max(0, t);
@@ -1847,7 +1904,7 @@ const STATUS_CHIP: Record<string, { label: string; color: string }> = {
 function statusChips(st: { kind: string; stacks: number; remaining: number }[] | undefined): string {
   if (!st || st.length === 0) return "";
   return st.map((e) => {
-    const c = STATUS_CHIP[e.kind] ?? { label: e.kind.toUpperCase(), color: "#c9c9d4" };
+    const c = STATUS_CHIP[e.kind] ?? { label: e.kind.toUpperCase(), color: "#b9b2a4" };
     const stacks = e.stacks > 1 ? `×${e.stacks}` : "";
     return `<span style="color:${c.color};border:1px solid ${c.color}55;border-radius:3px;` +
       `padding:0 4px;margin-right:4px;font-size:10px;letter-spacing:1px">` +
@@ -1862,25 +1919,25 @@ function updateHud(s: GameState): void {
     `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
     `<span style="color:${phaseColor(s)}">Collapse ${fmt(s.timeRemaining)} · ${s.phase.toUpperCase()}</span>` +
     `<div class="bar"><i style="width:${tf * 100}%;background:${phaseColor(s)}"></i></div>`;
-  const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
+  const rc = RARITY_COLORS[p.weaponRarity] ?? "#b9b2a4";
   hudTR.innerHTML =
     `Level ${p.level} · ${p.gold} gold · ` +
     `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
-    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
-    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>` +
+    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#c0392f"></i></div>` +
+    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#5a87c6"></i></div>` +
     // Debuff row (5.11): active statuses read right under the health bar.
     ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
   hudLog.innerHTML = log.slice(-5).join("<br>");
   if (s.status === "playing" && !p.alive) {
-    hudLog.innerHTML += `<br><b style="color:#e2574c">DOWNED</b> — ` +
+    hudLog.innerHTML += `<br><b style="color:#c0392f">DOWNED</b> — ` +
       (p.reviveProgress > 0
         ? `stabilizing… ${Math.round(p.reviveProgress * 100)}%`
         : "a teammate standing close can stabilize you (or you rejoin on descent)");
   }
   if (s.status !== "playing") {
     hudLog.innerHTML +=
-      `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
+      `<br><b style="color:${s.status === "won" ? "#6da356" : "#c0392f"}">` +
       `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>` +
       `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
       `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
@@ -1889,14 +1946,20 @@ function updateHud(s: GameState): void {
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
 // and manual debugging can stage scenarios; off by default, no effect in normal play.
+// defineProperty (configurable) rather than assignment: test mode already defined
+// a minimal getter-only __dcc, and assigning over it throws — ?test&debug=1 now
+// upgrades to the full hook instead of erroring at load.
 if (new URLSearchParams(location.search).has("debug")) {
-  (window as unknown as { __dcc: unknown }).__dcc = {
-    get state() { return state; },
-    renderer,
-    addPlayer: (name: string) => addPlayer(state, name),
-    step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
-    equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
-  };
+  Object.defineProperty(window, "__dcc", {
+    configurable: true,
+    get: () => ({
+      state,
+      renderer,
+      addPlayer: (name: string) => addPlayer(state, name),
+      step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
+      equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
+    }),
+  });
 }
 
 let lastFloor = state.floor;
@@ -1944,9 +2007,9 @@ async function main(): Promise<void> {
 
   if (net) {
     try {
-      state = await net.connect(serverUrl, joinCode!, playerName);
+      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode);
     } catch (err) {
-      hudLog.innerHTML = `<b style="color:#e2574c">${(err as Error).message}</b><br>` +
+      hudLog.innerHTML = `<b style="color:#c0392f">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;
       return;
     }
@@ -1986,8 +2049,23 @@ async function main(): Promise<void> {
       if (disp) state = disp;
       frameHits.push(...netHits.splice(0));
       frameAnns.push(...netAnns.splice(0));
-      // Party chip: code + roster.
-      partyChip.textContent = `⚔ ${joinCode} · ${state.players.map((p) => p.name).join(", ")}`;
+      // Party chip: co-op shows the roster; RIVALS shows the race standings.
+      // (Drawn icons, not emoji — see STYLEGUIDE.md.)
+      if (state.mode === "rivals" && state.rivals) {
+        const rows = [...state.rivals]
+          .sort((a, b) => b.floor - a.floor || b.level - a.level)
+          .map((r) => {
+            const status = !r.alive
+              ? ` <span style="color:#c0392f">${uic("skull")}${Math.ceil(r.downedT)}s</span>`
+              : r.shopping ? ` ${uic("shopping")}` : "";
+            const you = r.id === localId ? `${uic("marker")} ` : "";
+            return `${you}${esc(r.name)} <span style="color:#a99f8c">F${r.floor} · L${r.level}</span>${status}`;
+          });
+        partyChip.innerHTML = `${uic("race")} ${esc(joinCode ?? "")} &nbsp; ${rows.join(" &nbsp;·&nbsp; ")}`;
+      } else {
+        partyChip.innerHTML =
+          `${uic("party")} ${esc(joinCode ?? "")} · ${state.players.map((p) => esc(p.name)).join(", ")}`;
+      }
       // Safe-room stock/ready counts change server-side; refresh while open.
       srRefreshAcc += dt;
       if (state.safeRoom && srEl.style.display === "flex" && srRefreshAcc > 0.3) {
@@ -2053,6 +2131,7 @@ async function main(): Promise<void> {
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
+    updateDowned(state);
     maybeShowRecap(state);
     updateSkills(state);
     updateShowHud(state);

@@ -108,8 +108,10 @@ export const CONFIG = {
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
 
-  // Leveling
-  xpBase: 20, // xp to reach level 2
+  // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
+  // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
+  // shifts the whole curve down ~half a level early, less later.
+  xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
   damagePerLevel: 3,
@@ -172,6 +174,16 @@ export const CONFIG = {
   broodSpawnCooldown: 6, // seconds between births
   broodSpawnMax: 10, // lifetime births per mother
   broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
+
+  // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
+  // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
+  // Rival kills pay XP, not loot (no naked-respawn snowball).
+  rivalsReviveSeconds: 15, // downed timer before auto-revive at the floor entry
+  rivalsReviveHpFraction: 0.5, // revive at half HP
+  rivalsReviveGraceSeconds: 2.5, // post-revive immunity (no spawn-camping the timer)
+  pvpDamageMult: 0.4, // builds are tuned vs telegraphed monsters; PvP is instant
+  pkXpBase: 60, // XP for dropping a rival...
+  pkXpPerLevel: 30, // ...plus this per victim level — killing the LEADER pays most
 
   // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
   // the point. Lone wanderers always roam, packPatrolChance of packs patrol
@@ -349,6 +361,29 @@ export const CONFIG = {
   ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
   ultBulletTimeEncoreExtend: 0.5, // ENCORE: seconds added per kill inside
   ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
+
+  // Fun-kit wave (ABILITY-CONCEPTS.md): Cut To / Crowd Surf / Stunt Double.
+  cutToRange: 6, // tiles the camera can cut
+  cutToCooldown: 6, // long enough that each cut is a decision, not a spam
+  cutToDmgMult: 1.2, // arrival strike, off attackPower
+  cutToStagger: 0.35, // Smash Cut: non-elite arrival stagger (seconds)
+  cutToMatchWindow: 1, // MATCH CUT: kill inside this window resets the cooldown
+  surfRange: 7, // chain reach (tiles)
+  surfCooldown: 7,
+  surfMassLimit: 1.5, // heavier than this (or elite/boss) pulls YOU instead
+  surfStagger: 0.5, // pulled enemies land staggered this long
+  surfStaggerPerRank: 0.3, // Headliner's Grip: extra stagger per rank
+  surfDiveFracPerRank: 0.6, // Stage Dive: arrival blast fraction of power per rank
+  surfDiveRadius: 1.6,
+  surfArriveGap: 1.0, // both pull modes stop this far from the target
+  surfPathRadius: 1.0, // THE WAVE: drag capsule half-width along the chain
+  doubleContract: 5, // seconds the stunt performer works
+  doubleCooldown: 18,
+  doubleTauntRadius: 5, // monsters inside hunt the double instead of players
+  doubleMirrorFrac: 0.3, // mirrored swing damage, of the owner's swing
+  doubleExplodeFrac: 0.5, // farewell blast = absorbed damage x this...
+  doubleExplodeCap: 3, // ...capped at owner attackPower x this (no infinite banks)
+  doubleExplodeRadius: 2,
 
   // Orbit capstone + melee fork identities (abilities.ts constellation pass).
   orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this

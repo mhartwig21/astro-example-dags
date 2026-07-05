@@ -16,6 +16,7 @@ import type { Player } from "./types";
 
 export type AbilityId =
   | "melee" | "dash" | "bolt" | "nova" | "orbit" | "stance" | "overcharge"
+  | "cutto" | "crowdsurf" | "stuntdouble"
   | "airstrike" | "cataclysm" | "bullettime";
 
 // Battle Stance: which attack TYPE the crawler currently favors. Melee swings
@@ -37,6 +38,9 @@ export type School = "physical" | "magic";
 export const SCALING: Partial<Record<AbilityId, { ap?: number; sp?: number }>> = {
   melee: { ap: 1 },
   orbit: { ap: 1 },
+  cutto: { ap: 1 }, // the arrival strike is steel
+  crowdsurf: { ap: 1 }, // the chain is hardware (Stage Dive's blast stays arcane)
+  stuntdouble: { ap: 1 }, // mirrors swings; the farewell blast is pyrotechnics
   airstrike: { ap: 1 }, // sponsor ordnance is extremely physical
   dash: { sp: 1 }, // shockstep/aftershock detonations are arcane
   nova: { sp: 1 },
@@ -74,6 +78,8 @@ export const STARTING_ABILITIES: AbilityId[] = ["melee", "dash", "bolt"];
 /** Abilities that must be discovered (tomes/boxes/shop) before they can slot. */
 export const DISCOVERABLE_ABILITIES: AbilityId[] = [
   "nova", "orbit", "stance", "overcharge", "airstrike", "cataclysm", "bullettime",
+  // The fun-kit wave (mobility/utility/combo — see ABILITY-CONCEPTS.md).
+  "cutto", "crowdsurf", "stuntdouble",
 ];
 
 export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier: AbilityTier; passive?: boolean }> = {
@@ -84,6 +90,9 @@ export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier
   orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
   stance: { name: "Battle Stance", blurb: "Toggle Brawler/Deadeye: matching attacks hit harder, mismatched softer", tier: "active" },
   overcharge: { name: "Overcharge", blurb: "Bank power: your next attack hits much harder", tier: "active" },
+  cutto: { name: "Cut To", blurb: "The camera cuts: teleport onto an enemy and strike", tier: "active" },
+  crowdsurf: { name: "Crowd Surf", blurb: "Chain: yank the light to you, yank yourself to the heavy", tier: "active" },
+  stuntdouble: { name: "Stunt Double", blurb: "A taunting double soaks hits, mirrors your swings, exits with a bang", tier: "active" },
   airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
   cataclysm: { name: "Cataclysm", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
   bullettime: { name: "Bullet Time", blurb: "The world slows; you do not", tier: "ultimate" },
@@ -171,6 +180,21 @@ export const UPGRADES: UpgradeDef[] = [
     requires: ["orbit.blade"], excludes: ["orbit.razor"], pos: { x: 75, y: 48 },
   },
   { id: "orbit.guillotine", ability: "orbit", title: "GUILLOTINE", maxRank: 1, desc: () => `Blades CANCEL non-elites below ${Math.round(CONFIG.orbitGuillotineThreshold * 100)}% HP`, requires: ["orbit.blade"], capstone: true, pos: { x: 50, y: 86 } },
+  // Cut To: range -> (jump XOR smash) -> MATCH CUT
+  { id: "cut.range", ability: "cutto", title: "Rolling Take", maxRank: 2, over: 2, desc: (r) => `Cut range +${r * 15}%`, pos: { x: 50, y: 12 } },
+  { id: "cut.jump", ability: "cutto", title: "Jump Cut", maxRank: 2, over: 1, desc: (r) => `Cut To cooldown -${r * 15}%`, requires: ["cut.range"], excludes: ["cut.smash"], pos: { x: 22, y: 48 } },
+  { id: "cut.smash", ability: "cutto", title: "Smash Cut", maxRank: 2, over: 1, desc: (r) => `Arrival strike +${r * 30}%; non-elites arrive STAGGERED`, requires: ["cut.range"], excludes: ["cut.jump"], pos: { x: 78, y: 48 } },
+  { id: "cut.match", ability: "cutto", title: "MATCH CUT", maxRank: 1, desc: () => `Kill the target within ${CONFIG.cutToMatchWindow}s of arriving: Cut To resets`, requires: ["cut.range"], capstone: true, pos: { x: 50, y: 86 } },
+  // Crowd Surf: chain -> (grip XOR dive) -> THE WAVE
+  { id: "surf.chain", ability: "crowdsurf", title: "Long Chain", maxRank: 2, over: 2, desc: (r) => `Chain range +${r * 20}%`, pos: { x: 50, y: 12 } },
+  { id: "surf.grip", ability: "crowdsurf", title: "Headliner's Grip", maxRank: 2, over: 1, desc: (r) => `Pulled enemies land staggered +${(r * CONFIG.surfStaggerPerRank).toFixed(1)}s longer`, requires: ["surf.chain"], excludes: ["surf.dive"], pos: { x: 22, y: 48 } },
+  { id: "surf.dive", ability: "crowdsurf", title: "Stage Dive", maxRank: 2, over: 1, desc: (r) => `Pulling YOURSELF detonates on arrival (${Math.round(r * CONFIG.surfDiveFracPerRank * 100)}% power)`, requires: ["surf.chain"], excludes: ["surf.grip"], pos: { x: 78, y: 48 } },
+  { id: "surf.wave", ability: "crowdsurf", title: "THE WAVE", maxRank: 1, desc: () => "The chain drags EVERYTHING it passes through", requires: ["surf.chain"], capstone: true, pos: { x: 50, y: 86 } },
+  // Stunt Double: contract -> (method XOR pyro) -> AWARD SEASON
+  { id: "double.break", ability: "stuntdouble", title: "Big Break", maxRank: 2, over: 2, desc: (r) => `Contract +${r}s`, pos: { x: 50, y: 12 } },
+  { id: "double.method", ability: "stuntdouble", title: "Method Actor", maxRank: 2, over: 1, desc: (r) => `Taunt radius +${r * 25}%`, requires: ["double.break"], excludes: ["double.pyro"], pos: { x: 22, y: 48 } },
+  { id: "double.pyro", ability: "stuntdouble", title: "Pyrotechnic Exit", maxRank: 2, over: 1, desc: (r) => `Farewell blast +${r * 40}% of absorbed damage`, requires: ["double.break"], excludes: ["double.method"], pos: { x: 78, y: 48 } },
+  { id: "double.award", ability: "stuntdouble", title: "AWARD SEASON", maxRank: 1, desc: () => "A double that survives its contract refunds the cooldown", requires: ["double.break"], capstone: true, pos: { x: 50, y: 86 } },
   // Sponsor Airstrike: payload -> (saturation XOR precision) -> SPONSOR LOYALTY
   { id: "air.payload", ability: "airstrike", title: "Bigger Payload", maxRank: 2, over: 2, desc: (r) => `Shell damage +${Math.round(r * CONFIG.ultAirstrikePayloadDmg * 100)}%`, pos: { x: 50, y: 12 } },
   { id: "air.saturation", ability: "airstrike", title: "Saturation Barrage", maxRank: 2, over: 1, desc: (r) => `+${r * CONFIG.ultAirstrikeSaturationShells} shells, wider scatter`, requires: ["air.payload"], excludes: ["air.precision"], pos: { x: 22, y: 48 } },
@@ -396,6 +420,39 @@ export function bulletTimeParams(p: Player) {
     cdTickMult: 1 + rank(p, "bt.adrenaline") * CONFIG.ultBulletTimeAdrenaline,
     critBonus: rank(p, "bt.deadeye") * CONFIG.ultBulletTimeDeadeyeCrit,
     encore: rank(p, "bt.encore") > 0,
+  };
+}
+
+// ---- Fun-kit wave params (pure; read CONFIG + node ranks) ----
+
+export function cutToParams(p: Player) {
+  return {
+    range: CONFIG.cutToRange * (1 + rank(p, "cut.range") * 0.15),
+    cooldown: CONFIG.cutToCooldown * (1 - rank(p, "cut.jump") * 0.15),
+    dmgMult: CONFIG.cutToDmgMult * (1 + rank(p, "cut.smash") * 0.3),
+    smash: rank(p, "cut.smash") > 0, // arrival staggers non-elites
+    match: rank(p, "cut.match") > 0,
+  };
+}
+
+export function crowdSurfParams(p: Player) {
+  return {
+    range: CONFIG.surfRange * (1 + rank(p, "surf.chain") * 0.2),
+    cooldown: CONFIG.surfCooldown,
+    stagger: CONFIG.surfStagger + rank(p, "surf.grip") * CONFIG.surfStaggerPerRank,
+    diveFrac: rank(p, "surf.dive") * CONFIG.surfDiveFracPerRank,
+    wave: rank(p, "surf.wave") > 0,
+  };
+}
+
+export function stuntDoubleParams(p: Player) {
+  return {
+    contract: CONFIG.doubleContract + rank(p, "double.break"),
+    cooldown: CONFIG.doubleCooldown,
+    tauntRadius: CONFIG.doubleTauntRadius * (1 + rank(p, "double.method") * 0.25),
+    mirrorFrac: CONFIG.doubleMirrorFrac,
+    explodeFrac: CONFIG.doubleExplodeFrac * (1 + rank(p, "double.pyro") * 0.4),
+    award: rank(p, "double.award") > 0,
   };
 }
 
