@@ -373,14 +373,14 @@ export const CONFIG = {
   // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
   // grow per ARENA, not per floor: hp = base * (1 + (arena-1) * growth).
   // Target: a real 15-25s arena fight, not a speed bump.
-  cityBossHpBase: 4700,
+  cityBossHpBase: 5400,
   cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
   cityBossAdds: 2, // ranged escorts
 
   // Boss (floor 18)
-  bossHp: 30000,
+  bossHp: 34000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 34,
+  bossDamage: 38,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,
@@ -389,6 +389,19 @@ export const CONFIG = {
   bossPhaseSpeedMult: 1.15, // per phase
   bossPhaseVolleyBonus: 3, // extra projectiles per phase
   bossPhaseVolleyHaste: 0.5, // seconds shaved off the volley cooldown per phase
+  // Boss MECHANICS (backlog #11): a boss is a fight you learn, not a big grunt.
+  // City-boss floors + floor 18 host the fight in a dedicated oversized arena.
+  bossArenaSize: 19, // tiles per side (ordinary rooms are 6-12)
+  // Phase transitions call ADDS WAVES: a pack of chaff + a ranged flanker so
+  // the enrage moment changes what you're doing, not just the numbers.
+  bossWaveAdds: 3, // adds per wave...
+  bossWaveAddsPerPhase: 2, // ...plus this many more per phase reached
+  // From phase 1, the arena itself attacks: telegraphed blast hazards rain on
+  // each crawler's position — standing still through the enrage is a choice.
+  bossHazardCooldown: 5, // seconds between hazard volleys (phase >= 1)
+  bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
+  bossHazardRadius: 1.7, // tiles
+  bossHazardDmgMult: 1.1, // relative to the boss's damage stat
 } as const;
 
 // Enemy archetype stat multipliers (relative to the per-floor base) + behavior.

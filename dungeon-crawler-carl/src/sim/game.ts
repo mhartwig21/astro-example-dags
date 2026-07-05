@@ -880,6 +880,27 @@ export function summonMinion(state: GameState, m: Monster): void {
 }
 
 /**
+ * Boss phase transition calls an ADDS WAVE (backlog #11): a ring of chaff
+ * plus a ranged flanker so the enrage changes what the party is DOING.
+ * Waves are worth almost no XP — the boss is the payday, not its entourage.
+ */
+export function spawnBossWave(state: GameState, boss: Monster): void {
+  const count = CONFIG.bossWaveAdds + (boss.phase ?? 0) * CONFIG.bossWaveAddsPerPhase;
+  for (let i = 0; i < count; i++) {
+    const kind: MonsterKind = i === count - 1 ? "ranged" : "swarmer";
+    const a = (i / count) * Math.PI * 2 + nextFloat(state.rng) * 0.5;
+    const d = 1.5 + nextFloat(state.rng) * 1.5;
+    let pos = { x: boss.pos.x + Math.cos(a) * d, y: boss.pos.y + Math.sin(a) * d };
+    if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: boss.pos.x, y: boss.pos.y };
+    const add = makeMonster(state, kind, pos);
+    add.xp = 1;
+    state.monsters.push(add);
+    hit(state, add.pos, 0, "weapon"); // arrival poof for the juice layer
+  }
+  announce(state, "boss", "The boss calls for BACKUP. The union rules here are grim.");
+}
+
+/**
  * Push a dramatic line in the DCC "System" game-show voice (also logged).
  * `priority: "high"` marks the handful of headline moments (boss down, new
  * band, wipe) that hosts may present bigger than a toast.

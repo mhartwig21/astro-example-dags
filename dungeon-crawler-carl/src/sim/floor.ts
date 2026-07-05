@@ -208,6 +208,36 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
       farthestIdx = i;
     }
   }
+  // BOSS ARENAS (backlog #11): city-boss floors (6, 12) and the final floor
+  // trade the ordinary stairs room for a dedicated OVERSIZED arena — sized so
+  // charge lanes, radial volleys, and hazard rain have room to be dodged
+  // rather than facetanked. The arena replaces the farthest room in place;
+  // any room whose center it swallows merges into it (their corridors stay).
+  const bossFloor =
+    floor >= CONFIG.finalFloor ||
+    (floor >= CONFIG.cityBossEvery && floor % CONFIG.cityBossEvery === 0);
+  if (bossFloor) {
+    const size = CONFIG.bossArenaSize;
+    const c = center(rooms[farthestIdx]);
+    const arena: Room = {
+      x: Math.max(1, Math.min(w - size - 1, c.x - Math.floor(size / 2))),
+      y: Math.max(1, Math.min(h - size - 1, c.y - Math.floor(size / 2))),
+      w: size,
+      h: size,
+    };
+    const swallowed = (r: Room, i: number): boolean => {
+      if (i === 0 || i === farthestIdx) return false; // never the spawn or the arena itself
+      const rc = center(r);
+      return rc.x >= arena.x && rc.x < arena.x + arena.w && rc.y >= arena.y && rc.y < arena.y + arena.h;
+    };
+    rooms[farthestIdx] = arena;
+    const kept = rooms.filter((r, i) => !swallowed(r, i));
+    farthestIdx = kept.indexOf(arena);
+    rooms.length = 0;
+    rooms.push(...kept);
+    carveRoom(tiles, w, arena);
+  }
+
   const stairs = center(rooms[farthestIdx]);
   tiles[idx(w, stairs.x, stairs.y)] = Tile.StairsDown;
 

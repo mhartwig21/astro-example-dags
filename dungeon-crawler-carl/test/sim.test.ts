@@ -6,6 +6,7 @@ import {
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
 import { armorReduction, rollDamage } from "../src/sim/combat";
+import { generateFloor } from "../src/sim/floor";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
@@ -2301,6 +2302,63 @@ describe("boss phases", () => {
     step(g, idle(), 1 / 60);
     expect(boss.phase).toBe(2);
     expect(boss.speed).toBeGreaterThan(speed0 * CONFIG.bossPhaseSpeedMult);
+  });
+
+  it("phase transitions call an adds wave (backlog #11)", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5);
+    step(g, idle(), 1 / 60);
+    expect(boss.phase).toBe(1);
+    // The wave arrived around the boss and is worth almost nothing.
+    const adds = g.monsters.filter((m) => m !== boss);
+    expect(adds.length).toBeGreaterThanOrEqual(CONFIG.bossWaveAdds + CONFIG.bossWaveAddsPerPhase);
+    expect(adds.every((m) => m.xp <= 1)).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("BACKUP"))).toBe(true);
+  });
+
+  it("phase 1+ rains telegraphed hazards on crawler positions (backlog #11)", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    g.hazards.length = 0;
+    boss.introduced = true;
+    const p = g.players[0];
+    p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
+    step(g, idle(), 1 / 60);
+    const rain = g.hazards.filter((h) => h.kind === "blast");
+    expect(rain.length).toBeGreaterThanOrEqual(1);
+    // Aimed at where the crawler WAS standing — moving out is the dodge.
+    expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);
+    // Spawned this step, so it has already ticked down by one dt.
+    expect(rain[0].t).toBeGreaterThan(CONFIG.bossHazardDelay - 0.1);
+    expect(rain[0].total).toBeCloseTo(CONFIG.bossHazardDelay, 3);
+  });
+
+  it("boss floors host the fight in a dedicated oversized arena (backlog #11)", () => {
+    for (const floor of [6, 12, CONFIG.finalFloor]) {
+      const map = generateFloor(createRng(1234 + floor), floor);
+      const stairsRoom = map.rooms[map.roles.indexOf("stairs")];
+      expect(stairsRoom.w).toBe(CONFIG.bossArenaSize);
+      expect(stairsRoom.h).toBe(CONFIG.bossArenaSize);
+      // The stairs (= boss spawn) sit inside the arena.
+      expect(map.stairs.x).toBeGreaterThanOrEqual(stairsRoom.x);
+      expect(map.stairs.x).toBeLessThan(stairsRoom.x + stairsRoom.w);
+    }
+    // Ordinary floors keep ordinary rooms (max side 12).
+    const plain = generateFloor(createRng(555), 7);
+    const plainStairs = plain.rooms[plain.roles.indexOf("stairs")];
+    expect(Math.max(plainStairs.w, plainStairs.h)).toBeLessThanOrEqual(12);
   });
 });
 
