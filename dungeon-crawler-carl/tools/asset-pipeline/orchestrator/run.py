@@ -35,7 +35,10 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
 DEFAULTS = {
-    "art_style": "sculpture",
+    # "realistic" is the ONLY art_style the live v2 API accepts (verified via a
+    # test-mode wire call 2026-07-05; "sculpture" now 400s). House style comes
+    # from the prompt suffix + the palette-snap gate, not this knob.
+    "art_style": "realistic",
     "target_polycount": 3000,
     "topology": "triangle",
     "target_height": 1.0,

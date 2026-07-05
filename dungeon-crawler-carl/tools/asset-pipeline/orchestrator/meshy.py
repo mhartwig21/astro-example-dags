@@ -86,7 +86,9 @@ class MeshyClient:
     def text_to_3d_preview(
         self,
         prompt: str,
-        art_style: str = "sculpture",
+        # The live v2 API rejects everything except "realistic" (verified via
+        # test mode 2026-07-05: 'ArtStyle must be one of [realistic]').
+        art_style: str = "realistic",
         target_polycount: int | None = None,
         topology: str | None = None,
         seed: int | None = None,

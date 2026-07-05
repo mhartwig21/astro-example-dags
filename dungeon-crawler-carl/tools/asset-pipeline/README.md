@@ -98,6 +98,10 @@ documented test-mode key (`orchestrator/meshy.py: TEST_MODE_KEY`).
 Phase 0–1 (this directory): prop path proven end-to-end — a KayKit barrel
 round-trips through the gate visually unchanged, and a deliberately
 off-palette synthetic model comes out with every face on the atlas.
+**Live API wiring verified** (2026-07-05, test mode, zero credits): create →
+poll → SUCCEEDED with GLB URLs. One find: the v2 endpoint now accepts only
+`art_style: "realistic"` — defaults updated; house style comes from the
+prompt suffix + palette snap, so nothing else changes.
 Next per `docs/plan-v2.md`: character path (auto-rig + shared animation
 retargeting), 2D concept stage for style anchoring, batch runs + contact-sheet
 review, cost/reject-rate measurement.

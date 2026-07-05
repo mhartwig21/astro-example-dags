@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "art_style": "sculpture",
+    "art_style": "realistic",
     "target_polycount": 3000,
     "topology": "triangle",
     "max_tris": 8000
