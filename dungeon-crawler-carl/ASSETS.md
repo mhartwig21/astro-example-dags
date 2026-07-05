@@ -316,6 +316,29 @@ attribution requirement (covered by the same in-game credits line).
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |
 
+### UI icons — `public/icons/ui/` (same source, license, and convention)
+
+Chrome icons that replaced the emoji glyphs (STYLEGUIDE.md rule three:
+icons are drawn, never typed). CSS-mask tinted via `.uic`.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| party | crossed-swords | Lorc |
+| skull | skull-crossed-bones | Lorc |
+| race | laurels | Lorc |
+| shopping | shopping-cart | Delapouite |
+| marker | position-marker | Delapouite |
+
+### Fonts — `public/fonts/` (SIL Open Font License 1.1)
+
+The Torchlit Broadcast type system (STYLEGUIDE.md). OFL license texts ship
+alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
+
+| File | Family | Role | Source |
+|---|---|---|---|
+| Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
+| AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.
