@@ -3,7 +3,7 @@ import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
+import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -205,6 +205,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     while ((m.phase ?? 0) < wantPhase) {
       m.phase = (m.phase ?? 0) + 1;
       m.speed *= CONFIG.bossPhaseSpeedMult;
+      spawnBossWave(state, m); // the enrage brings friends (backlog #11)
       state.announcements.push({
         text: m.phase === 1
           ? "The boss is ANGRY now. Phase two — the sponsors love a comeback arc."
@@ -213,6 +214,23 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         priority: "normal",
       });
       state.events.push(`Boss phase ${m.phase + 1}.`);
+    }
+    // Phase 1+: HAZARD RAIN — telegraphed blasts on each crawler's position
+    // (healCd is unused on bosses; it paces the rain). Keep moving or eat it.
+    if ((m.phase ?? 0) >= 1 && m.healCd === 0) {
+      m.healCd = CONFIG.bossHazardCooldown;
+      for (const target of state.players) {
+        if (!target.alive || dist(m.pos, target.pos) > CONFIG.monsterAggroRange * 2.5) continue;
+        state.hazards.push({
+          id: state.nextEntityId++,
+          pos: { x: target.pos.x, y: target.pos.y },
+          t: CONFIG.bossHazardDelay,
+          total: CONFIG.bossHazardDelay,
+          radius: CONFIG.bossHazardRadius,
+          damage: m.damage * CONFIG.bossHazardDmgMult,
+          kind: "blast",
+        });
+      }
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);

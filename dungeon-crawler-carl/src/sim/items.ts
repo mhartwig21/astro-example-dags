@@ -7,10 +7,20 @@ import type { Affixes, Item, ItemSlot, Rarity } from "./types";
 // equipped slots (see recomputeStats in game.ts).
 
 const SLOT_WEIGHTS: { slot: ItemSlot; weight: number }[] = [
-  { slot: "weapon", weight: 42 },
-  { slot: "armor", weight: 34 },
-  { slot: "trinket", weight: 24 },
+  { slot: "weapon", weight: 30 },
+  { slot: "armor", weight: 20 },
+  { slot: "helm", weight: 13 },
+  { slot: "boots", weight: 13 },
+  { slot: "trinket", weight: 12 },
+  { slot: "charm", weight: 12 },
 ];
+
+// Six sockets stack twice the affix real estate of the old three, so the
+// SUPPORT slots (helm/boots/charm) roll at a reduced budget — the weapon/
+// armor/trinket curves (and their catalog tier parity) stay untouched.
+const SLOT_BUDGET: Record<ItemSlot, number> = {
+  weapon: 1, armor: 1, trinket: 1, helm: 0.6, boots: 0.6, charm: 0.6,
+};
 
 const RARITY_AFFIX_COUNT: Record<Rarity, number> = { common: 1, magic: 2, rare: 3, epic: 4 };
 
@@ -18,7 +28,10 @@ const RARITY_AFFIX_COUNT: Record<Rarity, number> = { common: 1, magic: 2, rare: 
 const SLOT_NOUNS: Record<ItemSlot, string[]> = {
   weapon: ["Blade", "Axe", "Maul", "Spear", "Cleaver", "Wand", "Staff", "Crossbow"],
   armor: ["Plate", "Hauberk", "Carapace", "Aegis", "Vest"],
+  helm: ["Helm", "Visor", "Hood", "Crown"],
+  boots: ["Boots", "Greaves", "Treads", "Striders"],
   trinket: ["Charm", "Sigil", "Idol", "Band", "Totem"],
+  charm: ["Pendant", "Talisman", "Locket", "Fetish"],
 };
 
 // Genuine itemization (DESIGN 5.8): every weapon noun belongs to a CLASS with
@@ -88,11 +101,16 @@ function rollAffix(rng: Rng, key: keyof Affixes, floor: number, mult: number): n
 // pool. Arcane weapons flip their rolls to the magic school — finding a great
 // staff IS the nudge toward a caster build. Armor pieces lead with ARMOR (the
 // mitigation stat is a gear story); HP moved to their extra pool.
-const PRIMARY: Record<ItemSlot, keyof Affixes> = { weapon: "damage", armor: "armor", trinket: "crit" };
+const PRIMARY: Record<ItemSlot, keyof Affixes> = {
+  weapon: "damage", armor: "armor", helm: "maxHp", boots: "speed", trinket: "crit", charm: "crit",
+};
 const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
   weapon: ["crit", "speed", "maxHp"],
   armor: ["maxHp", "damage", "spell", "speed", "crit"],
+  helm: ["armor", "crit", "damage", "spell"],
+  boots: ["maxHp", "armor", "crit"],
   trinket: ["speed", "damage", "spell", "maxHp", "armor"],
+  charm: ["damage", "spell", "maxHp", "speed"],
 };
 
 // Signature gear (unique passives, sponsor-gated) lives in the System Shop
@@ -101,7 +119,7 @@ const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
 export function generateItem(rng: Rng, floor: number, nextId: () => number): Item {
   const slot = rollSlot(rng);
   const rarity = rollRarity(rng);
-  const mult = rarityMult(rarity);
+  const mult = rarityMult(rarity) * SLOT_BUDGET[slot];
 
   // Noun first: the weapon's CLASS decides which school its stats feed.
   // The System's favorite joke: a sliver of epic weapons are just... a Mug.

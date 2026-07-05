@@ -71,7 +71,7 @@ export interface Player {
   weaponRarity: Rarity; // rarity of the currently-equipped weapon (for HUD/flavor)
   // Itemization. Effective baseDamage/maxHp/speed/critChance are recomputed as
   // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
-  equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
+  equipment: Equipment;
   inventory: Item[];
   bonusDamage: number; // permanent physical buff (loot boxes / sponsor rewards grant BOTH schools)
   bonusSpell: number; // permanent magic buff (kept separate so gear stays the differentiator)
@@ -181,7 +181,16 @@ export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
 // on legendary signature gear (see catalog.ts).
 export type MaterialId = "elite_trophy" | "boss_sigil";
 export type Rarity = "common" | "magic" | "rare" | "epic";
-export type ItemSlot = "weapon" | "armor" | "trinket";
+// Six-slot ARPG spread (backlog #10): weapon/armor carry the build's spine,
+// helm/boots are supporting armor pieces, trinket/charm are the two accessory
+// sockets. An item's slot IS its socket — no shared-socket special cases.
+export type ItemSlot = "weapon" | "armor" | "helm" | "boots" | "trinket" | "charm";
+
+/** Every equipment socket, in paper-doll display order. The ONE list all
+ * slot iteration derives from (stats, shop, UI, save migration). */
+export const EQUIP_SLOTS = ["weapon", "armor", "helm", "boots", "trinket", "charm"] as const;
+
+export type Equipment = Record<ItemSlot, Item | null>;
 
 // Stat modifiers granted by an equipped item. All optional; summed across equipment.
 export interface Affixes {
@@ -199,7 +208,8 @@ export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
   | "ledger" // every kill credit pays bonus gold
-  | "overtime"; // ultimate cooldowns reduced
+  | "overtime" // ultimate cooldowns reduced
+  | "tempo"; // active-ability cooldowns reduced (legendary caster staff)
 
 export interface Item {
   id: number;

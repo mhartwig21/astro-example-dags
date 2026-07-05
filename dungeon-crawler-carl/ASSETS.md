@@ -226,6 +226,18 @@ One file per noun, lowercase: `/icons/nouns/<noun>.svg`.
 | idol | totem-head | Lorc |
 | band | diamond-ring | Delapouite |
 | totem | totem-mask | Lorc |
+| helm | visored-helm | Lorc |
+| visor | heavy-helm | Lorc |
+| hood | hood | Lorc |
+| crown | crown | Lorc |
+| boots | leather-boot | Lorc |
+| greaves | greaves | Delapouite |
+| treads | footprint | Lorc |
+| striders | running-shoe | Delapouite |
+| pendant | pearl-necklace | Delapouite |
+| talisman | ankh | Lorc |
+| locket | heart-necklace | Delapouite |
+| fetish | voodoo-doll | Lorc |
 
 ### Stat icons — `public/icons/stats/` (same source, license, and convention)
 
@@ -276,6 +288,10 @@ attribution requirement (covered by the same in-game credits line).
 | blastplate_harness | explosive-materials | Lorc |
 | landlords_ledger | notebook | Delapouite |
 | overtime_clause | time-trap | Lorc |
+| ozone_wand | crystal-wand | Lorc |
+| cursed_amplifier | sonic-shout | Lorc |
+| stormcall_staff | lightning-storm | Lorc |
+| sweeps_week_staff | lightning-branches | Lorc |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |

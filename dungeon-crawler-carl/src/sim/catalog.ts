@@ -122,6 +122,17 @@ export const CATALOG: CatalogEntry[] = [
     id: "focus_bead", name: "Focus Bead", tier: "basic", slot: "trinket",
     desc: "Click it and the world slows down. (It doesn't.)", cost: 55, affixes: { speed: 0.25 },
   },
+  // The CASTER branch (DESIGN 5.8 phase 3): spell-power components so SP
+  // builds can SHOP instead of praying to the drop gods. Names end in their
+  // weapon-class noun, so buying one genuinely changes your bolt profile.
+  {
+    id: "ozone_wand", name: "Ozone Wand", tier: "basic", slot: "weapon",
+    desc: "Smells like a thunderstorm filing a complaint.", cost: 65, affixes: { spell: 6 },
+  },
+  {
+    id: "cursed_amplifier", name: "Cursed Amplifier", tier: "basic", slot: "charm",
+    desc: "Turns it up to eleven. The eleven is cursed.", cost: 60, affixes: { spell: 3, crit: 0.03 },
+  },
 
   // ---- Advanced (two components + combine gold; floor-gated, shop-varying) ----
   {
@@ -159,6 +170,11 @@ export const CATALOG: CatalogEntry[] = [
     desc: "Violence tests well in every demographic.", cost: 95,
     buildsFrom: ["glass_charm", "killer_instinct"], affixes: { crit: 0.11 },
   },
+  {
+    id: "stormcall_staff", name: "Stormcall Staff", tier: "advanced", slot: "weapon",
+    desc: "The weather report is you now.", cost: 95,
+    buildsFrom: ["ozone_wand", "cursed_amplifier"], affixes: { spell: 13, crit: 0.05 },
+  },
 
   // ---- Legendary — sponsor-gated signature gear (unique passives) ----
   {
@@ -184,6 +200,12 @@ export const CATALOG: CatalogEntry[] = [
     desc: "Ultimate cooldowns reduced by 25%.", cost: 160,
     buildsFrom: ["ratings_magnet"], affixes: { crit: 0.1 },
     passive: "overtime", sponsors: 2, materials: { elite_trophy: 3, boss_sigil: 1 },
+  },
+  {
+    id: "sweeps_week_staff", name: "Sweeps Week Staff", tier: "legendary", slot: "weapon",
+    desc: "Every ability cooldown runs 15% faster. Ratings never sleep.", cost: 155,
+    buildsFrom: ["stormcall_staff"], affixes: { spell: 20, crit: 0.06 },
+    passive: "tempo", sponsors: 1, materials: { elite_trophy: 2 },
   },
 ];
 
@@ -229,6 +251,7 @@ export function gearAffixes(e: CatalogEntry, floor: number): Affixes {
   const a = e.affixes ?? {};
   const out: Affixes = {};
   if (a.damage) out.damage = Math.round(a.damage * mult);
+  if (a.spell) out.spell = Math.round(a.spell * mult); // the schools scale together
   if (a.maxHp) out.maxHp = Math.round(a.maxHp * mult);
   if (a.speed) out.speed = +(a.speed * Math.min(mult, 2)).toFixed(2);
   if (a.crit) out.crit = +(a.crit * Math.min(mult, 2.4)).toFixed(3);
