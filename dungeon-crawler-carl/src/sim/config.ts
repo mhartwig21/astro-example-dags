@@ -143,6 +143,17 @@ export const CONFIG = {
   broodSpawnMax: 10, // lifetime births per mother
   broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
 
+  // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
+  // the point. Lone wanderers always roam, packPatrolChance of packs patrol
+  // together, the rest are sentries holding their post; dormant ambushers lie
+  // perfectly still, the vault guardian never leaves its treasure, and bosses
+  // hold their arena. Leashed so encounters stay roughly where placed.
+  packPatrolChance: 0.4, // share of (non-ambush) packs that patrol
+  wanderSpeedMult: 0.55, // stroll speed, relative to combat speed
+  wanderLegSeconds: 2.2, // seconds per wander leg (randomized 0.5-1.5x)
+  wanderPauseChance: 0.35, // legs spent just standing around
+  wanderLeash: 7, // tiles from the patrol post before the stroll drifts back
+
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
   // catalog COMPONENTS — random loot that advances the build you planned.

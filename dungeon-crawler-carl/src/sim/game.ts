@@ -268,7 +268,12 @@ function spawnMonsters(state: GameState): void {
   const singles = Math.round(count * CONFIG.packLoneFraction);
   for (let i = 0; i < singles && totalW > 0; i++) {
     const pos = inRoom(pickRoom());
-    if (pos) { state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos)); budget--; }
+    if (pos) {
+      const lone = makeMonster(state, rollArchetype(rng, floor), pos);
+      lone.roams = true; // lone WANDERERS live up to the name
+      state.monsters.push(lone);
+      budget--;
+    }
   }
   let guard = 0;
   while (budget > 0 && totalW > 0 && guard++ < 60) {
@@ -284,15 +289,22 @@ function spawnMonsters(state: GameState): void {
       kind !== "ranged" && kind !== "shaman" && kind !== "spitter" &&
       kind !== "necromancer" && kind !== "broodmother";
     const ambush = floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance);
+    // Behavior VARIETY: a share of (non-ambush) packs PATROL their territory
+    // together; the rest are sentries that hold the room they spawned in.
+    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance);
     for (let k = 0; k < size; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
       const a = nextFloat(rng) * Math.PI * 2;
       const d = 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
-      const memberKind = escort && k === size - 1 ? "shaman" : kind;
+      const memberKind =
+        escort && k === size - 1 ? "shaman"
+        : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
+        : kind;
       const m = makeMonster(state, memberKind, pos);
       if (ambush) m.dormant = true;
+      if (patrol) m.roams = true;
       state.monsters.push(m);
       budget--;
     }
