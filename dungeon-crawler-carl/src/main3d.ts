@@ -610,11 +610,14 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   const r = rank(p, u.id);
   const open = nodeOpen(p, u);
   const locked = !open && r === 0;
+  // Rank pips as inset gem SOCKETS (STYLEGUIDE Phase 2): filled gems for
+  // taken ranks, empty bronze sockets for the rest, a rotated diamond for
+  // capstones, and overrank gems burn hot.
   const pips = u.capstone
-    ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
-    : `${"●".repeat(Math.min(r, u.maxRank))}` +
-      `<span class="opip">${"⭑".repeat(Math.max(0, r - u.maxRank))}</span>` +
-      `<span class="off">${"○".repeat(Math.max(0, u.maxRank - r))}</span>`;
+    ? `<i class="pip cap${r > 0 ? " on" : ""}"></i>`
+    : `<i class="pip on"></i>`.repeat(Math.min(r, u.maxRank)) +
+      `<i class="pip over"></i>`.repeat(Math.max(0, r - u.maxRank)) +
+      `<i class="pip"></i>`.repeat(Math.max(0, u.maxRank - r));
   let effect: string;
   if (locked) {
     const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
@@ -829,10 +832,16 @@ function renderSheet(s: GameState): void {
       `Every incoming hit is reduced by armor÷(armor+${d.armorK}) — currently ${Math.round(d.reduction * 100)}%, hard-capped at ${Math.round(d.reductionCap * 100)}%.`],
     ["hp", "#d14538", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
   ];
-  sheetAttrs.innerHTML = tiles
-    .map(([ic, c, v, l, tip]) =>
-      `<div class="stile" style="--sc:${c}" title="${tip}"><i class="si" style="${statIcon(ic)}"></i><span><b>${v}</b><small>${l}</small></span></div>`)
-    .join("");
+  // PoE-style ledger (STYLEGUIDE Phase 2): small-caps label, dotted leader,
+  // tabular value — the icon keeps the scan, ink carries the data.
+  sheetAttrs.innerHTML =
+    `<table class="ledger">` +
+    tiles.map(([ic, c, v, l, tip]) =>
+      `<tr title="${tip}">` +
+      `<td class="lic"><i class="si" style="${statIcon(ic)};background:${c}"></i></td>` +
+      `<td class="lab">${l}</td><td class="dots"></td>` +
+      `<td class="val">${v}</td></tr>`).join("") +
+    `</table>`;
   sheetProgress.innerHTML =
     `<b>${coinIcon} ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
     `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
