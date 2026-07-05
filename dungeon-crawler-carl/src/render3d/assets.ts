@@ -94,6 +94,12 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
       "forest_rock_1_a", "forest_rock_3_c", "forest_rock_6_a",
       "forest_grass_1_a", "forest_grass_2_a",
+      // Open-air Garden walls (Forest Hill_Cliff kit + extra flora, Halloween
+      // fence_gate — all CC0; design in BIOMES.md "Open-air districts")
+      "cliff_side_b", "cliff_side_d", "cliff_side_f", "cliff_side_h",
+      "cliff_inner_a", "cliff_inner_c", "cliff_inner_g", "cliff_inner_i",
+      "cliff_outer_a", "cliff_outer_c", "cliff_outer_g", "cliff_outer_i",
+      "forest_tree_4_a", "forest_rock_5_a", "forest_rock_5_c", "fence_gate",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

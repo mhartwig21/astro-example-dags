@@ -23,6 +23,25 @@ export interface LandmarkDressing {
   props: string[]; // corner clutter pool for this room (overrides band props)
 }
 
+/**
+ * Open-air treatment (BIOMES.md "Open-air districts"): the band renders as
+ * terrain instead of masonry. The sim's Wall/Floor grid is untouched — wall
+ * tiles simply LOOK like cliff edges or tree masses, so what reads as
+ * impassable is exactly what is impassable.
+ */
+export interface OpenAirSpec {
+  cliffSides: string[]; // thin cliff facades for wall faces that border floor
+  clusterKeys: string[]; // tree/rock pool for wall tiles rendered as woods
+  clusterRatio: number; // fraction of edge wall tiles that go woods, 0..1
+  clusterScale: number; // footprint scale for cluster pieces (trees tower)
+  grass: number; // ground color, primary
+  grassAlt: number; // ground color, mixed in per-tile
+  pathKey: string; // corridor tiles get this trodden-earth tile model
+  skirtKeys: string[]; // silhouette trees ringing the world past the map edge
+  hemiIntensity: number; // hemisphere light override (open sky above)
+  keyIntensity: number; // key light override (late-day sun)
+}
+
 export interface FloorTheme {
   name: string;
   floorKey: string; // primary ground tile
@@ -44,6 +63,8 @@ export interface FloorTheme {
   // normalization lies about their nature — trees should tower, grass should
   // hug the dirt. Unlisted keys keep the default.
   propScale?: Record<string, number>;
+  // Present = this band is an open-air district (see OpenAirSpec above).
+  openAir?: OpenAirSpec;
 }
 
 export const FLOOR_THEMES: FloorTheme[] = [
@@ -98,8 +119,8 @@ export const FLOOR_THEMES: FloorTheme[] = [
     ],
     propDensity: 0.07, // the one band that should feel THICK with scatter
     floorTint: 0xb8d8a0, wallTint: 0x9cc09c,
-    torchColor: 0xffd27f, torchIntensity: 2.1, // lantern glow under the canopy
-    background: 0x0a0f10,
+    torchColor: 0xffd27f, torchIntensity: 1.6, // soft lantern glow (flat grass turns hot pools neon)
+    background: 0x14211f, // dusk sky over the treeline, not dungeon murk
     landmark: { // the crypt in the overgrowth, dead trees keeping watch
       pillarKey: "tree_dead_medium", pillarScale: 1.1,
       centerpieceKey: "crypt", centerpieceScale: 1.6,
@@ -113,6 +134,23 @@ export const FLOOR_THEMES: FloorTheme[] = [
       forest_bush_1_a: 0.9, forest_bush_2_a: 0.85, forest_bush_4_a: 1.0,
       forest_rock_1_a: 0.8, forest_rock_3_c: 1.2, forest_rock_6_a: 0.9,
       forest_grass_1_a: 0.55, forest_grass_2_a: 0.55,
+    },
+    // The Garden is TRANSPORTED, not dungeon-dressed: cliffsides and tree
+    // masses are the walls, corridors are trodden earth between grass.
+    openAir: {
+      cliffSides: ["cliff_side_b", "cliff_side_d", "cliff_side_f", "cliff_side_h"],
+      clusterKeys: [
+        "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a",
+        "forest_tree_3_a", "forest_tree_4_a", "forest_tree_5_a",
+        "forest_rock_5_a", "forest_rock_5_c",
+      ],
+      clusterRatio: 0.45,
+      clusterScale: 1.5,
+      grass: 0x5d7a44, grassAlt: 0x516c3b,
+      pathKey: "floor_dirt",
+      skirtKeys: ["forest_tree_1_a", "forest_tree_2_a", "forest_tree_5_a"],
+      hemiIntensity: 0.85,
+      keyIntensity: 1.2,
     },
   },
   {
