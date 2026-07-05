@@ -42,7 +42,7 @@ interface TestClient {
   close: () => void;
 }
 
-function connect(port: number, code: string, name: string): Promise<TestClient> {
+function connect(port: number, code: string, name: string, rivals = false): Promise<TestClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const client: TestClient = {
@@ -53,7 +53,7 @@ function connect(port: number, code: string, name: string): Promise<TestClient> 
       send: (msg) => ws.send(JSON.stringify(msg)),
       close: () => ws.close(),
     };
-    ws.on("open", () => client.send({ t: "join", code, name }));
+    ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined }));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
@@ -132,6 +132,20 @@ describe("authoritative server", () => {
     expect(a.lastSnap!.seed).not.toBe(b.lastSnap!.seed);
     expect(a.lastSnap!.players.length).toBe(1);
     expect(b.lastSnap!.players.length).toBe(1);
+    a.close();
+    b.close();
+  });
+
+  it("RIVALS: personal snapshots carry the race standings and personal shops", async () => {
+    const a = await connect(port, "RACE-1", "Carl", true);
+    const b = await connect(port, "RACE-1", "Donut");
+    expect(a.lastSnap!.mode).toBe("rivals"); // first joiner's flag decides
+    await waitFor(() => (b.lastSnap?.rivals?.length ?? 0) >= 2);
+    // Standings meta covers everyone; the world view is per-client.
+    expect(b.lastSnap!.mode).toBe("rivals");
+    expect(b.lastSnap!.rivals!.map((r) => r.name).sort()).toEqual(["Carl", "Donut"]);
+    expect(b.lastSnap!.worlds).toBeUndefined(); // the multiverse never ships
+    expect(b.lastSnap!.map.tiles.length).toBeGreaterThan(0); // but YOUR floor does
     a.close();
     b.close();
   });

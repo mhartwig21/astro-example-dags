@@ -54,6 +54,8 @@ const audioDirector = new AudioDirector(audio);
 // from the server and forwards intents/actions. Same renderer, same UI.
 const params = new URLSearchParams(location.search);
 const joinCode = params.get("join");
+// RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
+const rivalsMode = params.has("rivals");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
@@ -286,6 +288,12 @@ document.getElementById("m-join")!.addEventListener("click", () => {
   const code = codeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { codeInput.focus(); return; }
   location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+});
+// RIVALS: same code plumbing, hostile rules — the first joiner arms the race.
+document.getElementById("m-rivals")!.addEventListener("click", () => {
+  const code = codeInput.value.trim().toUpperCase().slice(0, 32);
+  if (!code) { codeInput.focus(); return; }
+  location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
 });
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
@@ -1739,11 +1747,27 @@ function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
   const title = document.getElementById("recap-title")!;
-  title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
-  title.className = won ? "win" : "wipe";
-  document.getElementById("recap-sub")!.textContent = won
-    ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
-    : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  if (s.mode === "rivals" && won) {
+    // The RACE has exactly one winner — everyone gets the same headline moment,
+    // just from very different sides of it.
+    const iWon = s.winnerId === p.id;
+    const winner = s.rivals?.find((r) => r.id === s.winnerId)?.name
+      ?? s.players.find((pl) => pl.id === s.winnerId)?.name ?? "A RIVAL";
+    title.textContent = iWon ? "CONTRACT SECURED" : `${winner.toUpperCase()} TOOK THE CONTRACT`;
+    title.className = iWon ? "win" : "wipe";
+    const standings = [...(s.rivals ?? [])]
+      .sort((a, b) => b.floor - a.floor || b.level - a.level)
+      .map((r, i) => `${i + 1}. ${r.name} (F${r.floor} · L${r.level})`)
+      .join("  ·  ");
+    document.getElementById("recap-sub")!.textContent =
+      `THE RACE IS OVER · run time ${fmt(s.elapsed)} · ${standings}`;
+  } else {
+    title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
+    title.className = won ? "win" : "wipe";
+    document.getElementById("recap-sub")!.textContent = won
+      ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
+      : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  }
   const stats: [string, string][] = [
     [String(p.level), "LEVEL"],
     [p.kills.toLocaleString(), "KILLS"],
@@ -1803,6 +1827,21 @@ document.getElementById("recap-again")!.addEventListener("click", () => {
   recapEl.style.display = "none";
   input.onReset?.();
 });
+
+// RIVALS: the downed overlay — your 15 seconds, front and center.
+const downedEl = document.getElementById("downed")!;
+function updateDowned(s: GameState): void {
+  const p = me(s);
+  if (s.mode === "rivals" && !p.alive && (p.downedT ?? 0) > 0) {
+    downedEl.style.display = "block";
+    downedEl.innerHTML =
+      `<div class="dtitle">YOU ARE DOWN</div>` +
+      `<div class="dcount">${Math.ceil(p.downedT ?? 0)}</div>` +
+      `<div class="dsub">back on your feet at the floor entry — the race is still running</div>`;
+  } else {
+    downedEl.style.display = "none";
+  }
+}
 
 function phaseColor(s: GameState): string {
   return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
@@ -1918,7 +1957,7 @@ async function main(): Promise<void> {
 
   if (net) {
     try {
-      state = await net.connect(serverUrl, joinCode!, playerName);
+      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode);
     } catch (err) {
       hudLog.innerHTML = `<b style="color:#e2574c">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;
@@ -1960,8 +1999,19 @@ async function main(): Promise<void> {
       if (disp) state = disp;
       frameHits.push(...netHits.splice(0));
       frameAnns.push(...netAnns.splice(0));
-      // Party chip: code + roster.
-      partyChip.textContent = `⚔ ${joinCode} · ${state.players.map((p) => p.name).join(", ")}`;
+      // Party chip: co-op shows the roster; RIVALS shows the race standings.
+      if (state.mode === "rivals" && state.rivals) {
+        const rows = [...state.rivals]
+          .sort((a, b) => b.floor - a.floor || b.level - a.level)
+          .map((r) => {
+            const status = !r.alive ? ` ☠${Math.ceil(r.downedT)}s` : r.shopping ? " 🛒" : "";
+            const you = r.id === localId ? "▶" : "";
+            return `${you}${r.name} F${r.floor} L${r.level}${status}`;
+          });
+        partyChip.textContent = `🏁 ${joinCode} · ${rows.join("  ·  ")}`;
+      } else {
+        partyChip.textContent = `⚔ ${joinCode} · ${state.players.map((p) => p.name).join(", ")}`;
+      }
       // Safe-room stock/ready counts change server-side; refresh while open.
       srRefreshAcc += dt;
       if (state.safeRoom && srEl.style.display === "flex" && srRefreshAcc > 0.3) {
@@ -2024,6 +2074,7 @@ async function main(): Promise<void> {
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
+    updateDowned(state);
     maybeShowRecap(state);
     updateSkills(state);
     updateShowHud(state);

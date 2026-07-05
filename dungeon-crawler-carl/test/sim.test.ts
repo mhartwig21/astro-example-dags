@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
+  createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
@@ -4161,5 +4161,150 @@ describe("landmark set pieces are REAL (looks = collision)", () => {
         });
       }
     }
+  });
+});
+
+describe("RIVALS mode (competitive race)", () => {
+  const rivalsGame = (seed: number, n = 2) => {
+    const g = createGame(seed, "rivals");
+    for (let i = 1; i < n; i++) addPlayer(g, `Rival${i}`);
+    return g;
+  };
+  const intentsFor = (g: GameState, per: Record<number, Partial<Intent>>): Record<number, Intent> => {
+    const out: Record<number, Intent> = {};
+    for (const p of g.players) out[p.id] = { move: { x: 0, y: 0 }, useStairs: false, ...(per[p.id] ?? {}) };
+    return out;
+  };
+
+  it("rivals descend INDIVIDUALLY through concurrent floor worlds", () => {
+    const g = rivalsGame(8100, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    // A reaches the stairs and descends; B stays on floor 1.
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy(); // personal shop — the world keeps running
+    expect(g.status).toBe("playing");
+    expect(b.floorNo).toBe(1);
+    // A leaves the shop: floor 2 world spins up, floor 1 keeps existing (B is on it).
+    setReady(g, a.id);
+    expect(a.floorNo).toBe(2);
+    expect(g.worlds![2]).toBeTruthy();
+    expect(g.worlds![1]).toBeTruthy();
+    // Both worlds STEP: their monsters live independently.
+    const f1Monsters = g.worlds![1].monsters.length;
+    const f2Monsters = g.worlds![2].monsters.length;
+    expect(f2Monsters).toBeGreaterThan(0);
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1].monsters.length).toBe(f1Monsters);
+    expect(g.worlds![2].monsters.length).toBeGreaterThanOrEqual(f2Monsters);
+  });
+
+  it("personal shops work mid-race (buy while a rival keeps fighting)", () => {
+    const g = rivalsGame(8101, 2);
+    const [a] = g.players;
+    g.worlds![1].monsters = [];
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy();
+    a.gold = 1000;
+    buyCatalogItem(g, a.id, "boxcutter");
+    expect(a.equipment.weapon?.catalogId).toBe("boxcutter");
+    // The OTHER rival can't shop from the dungeon floor.
+    const b = g.players[1];
+    b.gold = 1000;
+    buyCatalogItem(g, b.id, "boxcutter");
+    expect(b.equipment.weapon?.catalogId).not.toBe("boxcutter");
+  });
+
+  it("PvP: rivals damage each other at reduced tune; a kill pays level-scaled XP", () => {
+    const g = rivalsGame(8102, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    b.level = 5;
+    b.hp = 10;
+    a.attackPower = 9999;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    a.facing = { x: 1, y: 0 };
+    const level0 = a.level;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.alive).toBe(false);
+    expect(b.downedT).toBeCloseTo(CONFIG.rivalsReviveSeconds, 1);
+    // 60 + 5*30 = 210 XP at level 1 = several instant level-ups: the bounty is BIG.
+    expect(a.level).toBeGreaterThan(level0 + 1);
+    expect(g.status).toBe("playing"); // no wipe in rivals
+    expect(g.announcements.some((an) => an.text.includes("CONTRACT DISPUTE"))).toBe(true);
+  });
+
+  it("PvP damage is tuned down by pvpDamageMult", () => {
+    const g = rivalsGame(8103, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.attackPower = 100;
+    b.armor = 0;
+    b.hp = b.maxHp = 1000;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    const dealt = 1000 - b.hp;
+    expect(dealt).toBeGreaterThan(0);
+    expect(dealt).toBeLessThan(100); // a 100-power swing lands well under full
+  });
+
+  it("the 15-second timer revives at the floor entry with grace", () => {
+    const g = rivalsGame(8104, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    b.hp = 5;
+    a.attackPower = 9999;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.alive).toBe(false);
+    for (let i = 0; i < 60 * (CONFIG.rivalsReviveSeconds + 1); i++) step(g, intentsFor(g, {}), 1 / 60);
+    expect(b.alive).toBe(true);
+    expect(b.hp).toBe(Math.round(b.maxHp * CONFIG.rivalsReviveHpFraction));
+    expect(dist(b.pos, g.worlds![1].map.spawn)).toBeLessThan(1.5);
+    // Grace: an immediate follow-up swing does nothing.
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    const hp0 = b.hp;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.hp).toBe(hp0);
+  });
+
+  it("first FINAL-BOSS killing blow wins the race", () => {
+    const g = rivalsGame(8105, 2);
+    const [a] = g.players;
+    // Fast-forward A to the final floor world.
+    const w = ensureWorld(g, CONFIG.finalFloor);
+    a.floorNo = CONFIG.finalFloor;
+    a.pos = { x: w.map.spawn.x, y: w.map.spawn.y };
+    const boss = w.monsters.find((m: import("../src/sim/types").Monster) => m.kind === "boss")!;
+    boss.introduced = true;
+    boss.hp = 1;
+    a.attackPower = 99999;
+    a.pos = { x: boss.pos.x - 1.0, y: boss.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(g.status).toBe("won");
+    expect(g.winnerId).toBe(a.id);
+    expect(g.announcements.some((an) => an.text.includes("CONTRACT SECURED"))).toBe(true);
+  });
+
+  it("kill XP is NOT split between rivals sharing a floor", () => {
+    const g = rivalsGame(8106, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.attackPower = 9999;
+    b.pos = { x: a.pos.x + 0.3, y: a.pos.y }; // standing right there
+    g.worlds![1].monsters.push(mkMon({ id: 900, pos: { x: a.pos.x + 0.9, y: a.pos.y }, hp: 1, xp: 50 }));
+    const bXp = b.xp;
+    const bLevel = b.level;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(a.level).toBeGreaterThan(1); // 50 XP at level 1: full bounty levels A up
+    expect(b.xp).toBe(bXp); // the bystander rival gets NOTHING
+    expect(b.level).toBe(bLevel);
   });
 });

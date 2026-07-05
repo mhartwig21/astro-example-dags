@@ -542,6 +542,37 @@ reads as chapters instead of a corridor of identical floors.
     without ANY crawler taking a hit — paying gold + hype on a clean clear, voiding on the
     first point of damage.
 
+### 5.15 RIVALS — the competitive race (SHIPPED)
+
+Up to **4 hostile crawlers**, one dungeon, one rule: **first killing blow on the final
+boss wins.** Four sponsored rivals, one contract renewal — the Show format writes itself.
+
+- **Concurrent floor worlds.** `GameState.mode: "rivals"` + `worlds: Record<floor,
+  FloorWorld>`: every per-floor slot (map/monsters/loot/projectiles/hazards/timer/
+  encounter/rng/…) lives in a world instance. `stepRivals` MOUNTS each active world into
+  the classic GameState slots, runs the ordinary floor logic with exactly that floor's
+  residents, and captures it back — the whole sim body is reused untouched, and co-op
+  never allocates worlds. Worlds build lazily (deterministic per floorSeed) and are
+  dropped once every rival is past them.
+- **Individual descent.** Stairs open a PERSONAL safe room (`Player.safeRoom`) — the race
+  keeps running while you shop, so shopping costs race time. READY drops you onto the
+  next floor's world immediately; nobody waits for anybody. Ledger interest, sponsor
+  drafts, and the full planning-first shop all work per player.
+- **PvP.** Rivals sharing a floor are hittable at every player-damage choke point (melee
+  arc, bolts — no piercing through people, AoE radials/segments, orbit blades) at
+  `pvpDamageMult` (0.4×: builds are tuned vs telegraphed monsters, player attacks are
+  instant). Kill XP is never split between rivals — the killer takes the whole bounty.
+- **Death = 15 seconds, gear stays yours.** A downed rival auto-revives at the floor
+  entry at 50% HP with brief grace (no spawn-camping the timer). Killing a rival pays a
+  BIG XP bounty (`pkXpBase + pkXpPerLevel × victim level`) — dropping the race LEADER
+  pays the most, a built-in rubber band. No item looting: no naked-respawn snowball.
+- **Netcode.** Personal snapshots: each client receives THEIR floor's world mounted as a
+  classic state (renderer/UI unchanged), their own shop as `state.safeRoom`, same-floor
+  players only, plus `rivals[]` standings meta (name/floor/level/alive/downedT) for the
+  race ticker. Announcements from every floor are shared — you hear the race's drama.
+- **UI.** RIVALS button on the party menu (`?rivals=1&join=CODE`), standings chip,
+  downed-countdown overlay, and a recap that ends in either CONTRACT SECURED or
+  "{RIVAL} TOOK THE CONTRACT" with final standings.
 
 ---
 
