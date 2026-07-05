@@ -217,19 +217,20 @@ export interface Affixes {
 export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
-  | "ledger" // every kill credit pays bonus gold
+  | "ledger" // kills pay bonus gold + banked gold earns interest each safe room
   | "overtime" // ultimate cooldowns reduced
   | "tempo" // active-ability cooldowns reduced (legendary caster staff)
   // CHASE passives (store-only legendaries): each one warps a specific build
   // around itself — the reason you planned three shops ahead.
   | "encore" // +1 orbit blade; blades tick faster
   | "skewer" // bolts pierce +2
-  | "choreography" // swapping Battle Stance resets swing + bolt cooldowns
+  | "choreography" // swapping Battle Stance grants bonus crit for the surge window
   | "plot_armor" // once per floor, a killing blow leaves you at 1 HP
   // Novel mechanics that ONLY exist on these items — no tree, no drop:
   | "leech" // lifesteal: heal a fraction of the damage you deal
   | "cancellation" // executes: non-elite monsters below a threshold just die
-  | "conduit"; // crits arc a fraction of the hit to a nearby enemy (magic)
+  | "conduit" // crits arc a fraction of the hit to a nearby enemy (magic)
+  | "phase"; // your dash passes through walls when it can reach the far side
 
 export interface Item {
   id: number;

@@ -314,8 +314,16 @@ school-agnostic until proven boring.
   affix; the item IS the mechanic): *Blood Subscription* (charm — lifesteal: heal 6% of
   damage dealt, per-hit cap), *Cancellation Axe* (heavy weapon — strikes execute non-elite
   monsters below 15% HP), *Live Feed* (trinket — crits arc 30% of the hit to the nearest
-  other enemy as a magic-school echo, one bounce). All hook the one damageMonster choke
-  point, so they compose with schools/resists/caps for free.
+  other enemy as a magic-school echo, one bounce), *Backstage Pass* (armor — the dash
+  phases through walls it can clear; locked doors refuse it, keys stay load-bearing).
+  Combat hooks live at the one damageMonster choke point, so they compose with
+  schools/resists/caps for free.
+- Reworks from play feedback (2026-07-05): *Landlord's Ledger* pays +6 gold per kill AND
+  10% interest on banked gold every safe room (cap 120) — a greed engine, not a tip jar.
+  *Signature Choreography* grants +20% crit during the post-swap surge window instead of
+  resetting the (already short) attack cooldowns — swap, spike, swap, spike. All
+  legendaries also carry meaningfully fatter stat lines now; they should read best-in-slot
+  before the passive even triggers.
 - **Drops tuned down** — rare/epic weights 11/3 → 8/2, item drop chance 0.45 → 0.36. A rare
   drop is a windfall now, not a strategy.
 - **Component drops** — ~35% of equipment drops are catalog BASICS carrying their catalogId,

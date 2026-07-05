@@ -3453,18 +3453,76 @@ describe("chase legendaries (store-only uniques)", () => {
     expect(boltParams(p).pierce).toBe(1 + CONFIG.skewerBonusPierce);
   });
 
-  it("Signature Choreography: stance swap resets swing + bolt cooldowns", () => {
+  it("Signature Choreography: the post-swap surge window carries bonus crit", () => {
     const g = createGame(992);
     const p = g.players[0];
-    learnAbility(g, p, "stance"); // auto-slots into slot 4
-    g.monsters.length = 0;
+    learnAbility(g, p, "stance");
     wear(g, { slot: "boots", name: "Signature Choreography", passive: "choreography", catalogId: "signature_choreography" });
-    p.cd.melee = 0.4;
-    p.cd.bolt = 0.6;
-    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] }, 1 / 60);
-    expect(p.stance).toBe("ranged"); // the swap happened
-    expect(p.cd.melee ?? 0).toBe(0);
-    expect(p.cd.bolt ?? 0).toBe(0);
+    p.critChance = 0; // every crit below comes from the choreography window
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 999999, maxHp: 999999 }));
+    const swingCrits = (window: number, swings: number): number => {
+      let crits = 0;
+      for (let i = 0; i < swings; i++) {
+        p.stanceSwapWindow = window;
+        p.cd.melee = 0;
+        step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+        crits += g.hits.filter((h) => h.kind === "crit").length;
+      }
+      return crits;
+    };
+    // Inside the surge window: 20% crit over 60 swings — a full miss run is ~1e-6.
+    expect(swingCrits(3, 60)).toBeGreaterThan(0);
+    // Window closed: zero base crit means zero crits.
+    expect(swingCrits(0, 30)).toBe(0);
+  });
+
+  it("Landlord's Ledger: kills pay gold and banked gold earns safe-room interest", () => {
+    const g = createGame(9920);
+    const p = g.players[0];
+    wear(g, { slot: "trinket", name: "Landlord's Ledger", passive: "ledger", catalogId: "landlords_ledger" });
+    p.attackPower = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 1 }));
+    const gold0 = p.gold;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.gold - gold0).toBeGreaterThanOrEqual(CONFIG.ledgerKillGold);
+    // Interest at the safe room: 10% of banked gold, capped.
+    p.gold = 500;
+    g.monsters.length = 0;
+    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).toBeTruthy();
+    expect(p.gold).toBe(500 + 50);
+    expect(g.announcements.some((a) => a.text.includes("interest"))).toBe(true);
+  });
+
+  it("Backstage Pass: the dash phases through walls it can clear — but never locked doors", () => {
+    const g = createGame(9921);
+    const p = g.players[0];
+    const px = Math.floor(p.pos.x), py = Math.floor(p.pos.y);
+    const set = (x: number, y: number, t: number) => { g.map.tiles[y * g.map.w + x] = t; };
+    // A 3-tall wall column one tile ahead, clear floor beyond it.
+    for (const dy of [-1, 0, 1]) set(px + 1, py + dy, Tile.Wall);
+    for (const dx of [2, 3, 4]) set(px + dx, py, Tile.Floor);
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.facing = { x: 1, y: 0 };
+    // WITHOUT the passive: the slide stops at the wall.
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px + 1);
+    // WITH it: the same dash exits on the far side.
+    wear(g, { slot: "armor", name: "Backstage Pass", passive: "phase", catalogId: "backstage_pass" });
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.dashCharges = 2;
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeGreaterThan(px + 2);
+    // A LOCKED DOOR in the wall refuses the phase (keys stay load-bearing).
+    set(px + 1, py, Tile.DoorLocked);
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.dashCharges = 2;
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px + 1);
   });
 
   it("Plot Armor: one killing blow per floor leaves you at 1 HP", () => {
