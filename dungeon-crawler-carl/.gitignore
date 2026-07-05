@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.log
 .DS_Store
+leaderboard.json
 
 # 3D assets are COMMITTED (all CC0; provenance in ASSETS.md + bundled LICENSE files)
 # so cloud builds ship real art. scripts/fetch-assets.sh remains for re-sourcing.

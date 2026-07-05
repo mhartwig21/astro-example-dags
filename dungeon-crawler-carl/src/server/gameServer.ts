@@ -1,10 +1,11 @@
-import { createServer, type Server as HttpServer } from "node:http";
+import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import { serialize } from "../sim/snapshot";
+import { Leaderboard } from "./leaderboard";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
 // Authoritative multiplayer server (DESIGN.md milestone). One deterministic sim
@@ -107,6 +108,7 @@ export class GameServer {
   private wss: WebSocketServer;
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
+  readonly leaderboard: Leaderboard;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
   private tickMsMax = 0;
@@ -117,15 +119,21 @@ export class GameServer {
    * /health endpoint) and the game WebSocket on the same port. Plain Node —
    * no platform-specific APIs, so the container runs anywhere (Fly, GCP, a VPS).
    */
-  constructor(port: number, staticDir?: string) {
+  constructor(port: number, staticDir?: string, leaderboardFile?: string) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
-    this.http = createServer((req, res) => this.onRequest(req.url ?? "/", res));
+    this.leaderboard = new Leaderboard(leaderboardFile);
+    this.http = createServer((req, res) => this.onRequest(req, res));
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
   }
 
-  private onRequest(url: string, res: import("node:http").ServerResponse): void {
+  private onRequest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const url = req.url ?? "/";
+    if (url.split("?")[0] === "/leaderboard") {
+      this.onLeaderboard(req, res);
+      return;
+    }
     if (url === "/health") {
       // Capacity telemetry: budget per tick at 30Hz is 33ms ACROSS ALL
       // instances (one Node thread). tickMsEma is per-instance cost; total
@@ -178,6 +186,53 @@ export class GameServer {
     createReadStream(file).pipe(res);
   }
 
+  /**
+   * Daily Crawl board: GET /leaderboard?day=YYYY-MM-DD (today if omitted),
+   * POST /leaderboard {day, name, floor, won, timeSec, kills}. CORS is open —
+   * the board is public data, and the Vite dev client lives on another port.
+   */
+  private onLeaderboard(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method === "GET") {
+      const day = new URL(req.url ?? "/", "http://x").searchParams.get("day")
+        ?? new Date().toISOString().slice(0, 10);
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+      res.end(JSON.stringify({ day, entries: this.leaderboard.get(day).slice(0, 100) }));
+      return;
+    }
+    if (req.method === "POST") {
+      let body = "";
+      let overflow = false;
+      req.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 4096) { overflow = true; req.destroy(); }
+      });
+      req.on("end", () => {
+        if (overflow) return;
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(body);
+        } catch {
+          res.writeHead(400, cors).end();
+          return;
+        }
+        const rank = this.leaderboard.submit(String(msg.day ?? ""), msg, Date.now());
+        res.writeHead(rank === null ? 400 : 200, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify(rank === null ? { ok: false } : { ok: true, rank }));
+      });
+      return;
+    }
+    res.writeHead(405, cors).end();
+  }
+
   get port(): number {
     return (this.http.address() as { port: number }).port;
   }
@@ -191,6 +246,7 @@ export class GameServer {
   }
 
   close(): void {
+    this.leaderboard.flush();
     for (const inst of this.instances.values()) clearInterval(inst.timer);
     for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();
@@ -354,7 +410,8 @@ const isMain = process.argv[1]?.replace(/\\/g, "/").endsWith("gameServer.ts");
 if (isMain) {
   const port = Number(process.env.PORT ?? 5281);
   const staticDir = process.env.STATIC_DIR; // e.g. "dist" in the container
-  const server = new GameServer(port, staticDir);
+  const lbFile = process.env.LEADERBOARD_FILE ?? "leaderboard.json";
+  const server = new GameServer(port, staticDir, lbFile);
   void server.ready().then(() => {
     console.log(`Dungeon Crawler Claude server on :${port} (ws + ${staticDir ? `static from ${staticDir}` : "no static"})`);
     console.log(`Party instances tick at ${TICK_HZ}Hz, snapshots every ${SNAPSHOT_EVERY} ticks.`);
