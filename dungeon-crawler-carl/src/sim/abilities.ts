@@ -121,8 +121,10 @@ export interface UpgradeDef {
 export const UPGRADES: UpgradeDef[] = [
   // Melee: arc -> (heavy XOR swift) -> Executioner
   { id: "melee.arc", ability: "melee", title: "Wide Arc", maxRank: 2, over: 2, desc: (r) => `Swing arc +${r * 22}°`, pos: { x: 50, y: 12 } },
-  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, over: 2, desc: (r) => `Melee damage +${r * 20}%`, requires: ["melee.arc"], excludes: ["melee.swift"], pos: { x: 22, y: 48 } },
-  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, over: 1, desc: (r) => `Melee cooldown -${r * 12}%`, requires: ["melee.arc"], excludes: ["melee.heavy"], pos: { x: 78, y: 48 } },
+  // The fork sides carry an IDENTITY, not just a number: Heavy's killing
+  // swings splash their overkill, Swift's connecting swings stack momentum.
+  { id: "melee.heavy", ability: "melee", title: "Heavy Blows", maxRank: 3, over: 2, desc: (r) => `Melee damage +${r * 20}%${r === 1 ? "; killing-swing overkill splashes nearby" : ""}`, requires: ["melee.arc"], excludes: ["melee.swift"], pos: { x: 22, y: 48 } },
+  { id: "melee.swift", ability: "melee", title: "Swift Strikes", maxRank: 3, over: 1, desc: (r) => `Melee cooldown -${r * 12}%; momentum stacks to +${r * CONFIG.meleeMomentumStacksPerRank * Math.round(CONFIG.meleeMomentumPerStack * 100)}%`, requires: ["melee.arc"], excludes: ["melee.heavy"], pos: { x: 78, y: 48 } },
   { id: "melee.execute", ability: "melee", title: "EXECUTIONER", maxRank: 1, desc: () => "Melee deals +60% to enemies below 30% HP", requires: ["melee.arc"], capstone: true, pos: { x: 50, y: 86 } },
   // Dash: (quick XOR blink) -> shock -> Aftershock
   { id: "dash.quick", ability: "dash", title: "Quickstep", maxRank: 3, over: 1, desc: (r) => `Dash cooldown -${r * 18}%`, excludes: ["dash.blink"], pos: { x: 22, y: 14 } },
@@ -159,14 +161,31 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "overcharge.volley", ability: "overcharge", title: "Overcharged Volley", maxRank: 2, over: 1, desc: (r) => `Overcharged bolt casts fire ${r} extra bolt${r === 1 ? "" : "s"}`, requires: ["overcharge.surge"], excludes: ["overcharge.echo"], pos: { x: 22, y: 48 } },
   { id: "overcharge.echo", ability: "overcharge", title: "Echo Strike", maxRank: 2, over: 1, desc: (r) => `Overcharged swings strike twice (echo at ${r * 40}% damage)`, requires: ["overcharge.surge"], excludes: ["overcharge.volley"], pos: { x: 78, y: 48 } },
   { id: "overcharge.shock", ability: "overcharge", title: "SYSTEM SHOCK", maxRank: 1, desc: () => "Overcharged hits shatter poise — non-boss enemies stagger instantly", requires: ["overcharge.surge"], capstone: true, pos: { x: 50, y: 86 } },
-  // Orbit: blade -> razor + corkscrew (no fork; the passive stays simple)
+  // Orbit: blade -> (razor XOR corkscrew) -> GUILLOTINE. The fork is the
+  // build question: a close-in grinder or a whirling every-range sweeper.
   { id: "orbit.blade", ability: "orbit", title: "Extra Blade", maxRank: 2, over: 2, desc: (r) => `${CONFIG.orbitBladesBase + r} orbiting blades`, pos: { x: 50, y: 14 } },
-  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, over: 2, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], pos: { x: 25, y: 62 } },
+  { id: "orbit.razor", ability: "orbit", title: "Razor's Edge", maxRank: 3, over: 2, desc: (r) => `Blade damage +${r * 35}%`, requires: ["orbit.blade"], excludes: ["orbit.wide"], pos: { x: 25, y: 48 } },
   {
     id: "orbit.wide", ability: "orbit", title: "Corkscrew", maxRank: 2, over: 1,
     desc: (r) => `Blades spiral ${CONFIG.orbitSpiralInner}–${(CONFIG.orbitRadius + CONFIG.orbitSpiralPerRank * r).toFixed(1)} tiles, sweeping every range`,
-    requires: ["orbit.blade"], pos: { x: 75, y: 62 },
+    requires: ["orbit.blade"], excludes: ["orbit.razor"], pos: { x: 75, y: 48 },
   },
+  { id: "orbit.guillotine", ability: "orbit", title: "GUILLOTINE", maxRank: 1, desc: () => `Blades CANCEL non-elites below ${Math.round(CONFIG.orbitGuillotineThreshold * 100)}% HP`, requires: ["orbit.blade"], capstone: true, pos: { x: 50, y: 86 } },
+  // Sponsor Airstrike: payload -> (saturation XOR precision) -> SPONSOR LOYALTY
+  { id: "air.payload", ability: "airstrike", title: "Bigger Payload", maxRank: 2, over: 2, desc: (r) => `Shell damage +${Math.round(r * CONFIG.ultAirstrikePayloadDmg * 100)}%`, pos: { x: 50, y: 12 } },
+  { id: "air.saturation", ability: "airstrike", title: "Saturation Barrage", maxRank: 2, over: 1, desc: (r) => `+${r * CONFIG.ultAirstrikeSaturationShells} shells, wider scatter`, requires: ["air.payload"], excludes: ["air.precision"], pos: { x: 22, y: 48 } },
+  { id: "air.precision", ability: "airstrike", title: "Precision Strike", maxRank: 2, over: 1, desc: (r) => `Shell scatter -${Math.round(r * CONFIG.ultAirstrikePrecisionSpread * 100)}%`, requires: ["air.payload"], excludes: ["air.saturation"], pos: { x: 78, y: 48 } },
+  { id: "air.loyalty", ability: "airstrike", title: "SPONSOR LOYALTY", maxRank: 1, desc: () => `Every barrage kill refunds ${Math.round(CONFIG.ultAirstrikeLoyaltyRefund * 100)}% of the cooldown`, requires: ["air.payload"], capstone: true, pos: { x: 50, y: 86 } },
+  // Cataclysm: epicenter -> (aftermath XOR upheaval) -> EXTINCTION EVENT
+  { id: "cata.epicenter", ability: "cataclysm", title: "Epicenter", maxRank: 2, over: 2, desc: (r) => `Cataclysm radius +${Math.round(r * CONFIG.ultCataclysmEpicenterRadius * 100)}%`, pos: { x: 50, y: 12 } },
+  { id: "cata.aftermath", ability: "cataclysm", title: "Aftermath", maxRank: 2, over: 1, desc: (r) => `An echo shock ${CONFIG.ultCataclysmAftermathDelay}s later at ${Math.round((CONFIG.ultCataclysmAftermathBase + r * CONFIG.ultCataclysmAftermathPerRank) * 100)}% power`, requires: ["cata.epicenter"], excludes: ["cata.upheaval"], pos: { x: 22, y: 48 } },
+  { id: "cata.upheaval", ability: "cataclysm", title: "Upheaval", maxRank: 2, over: 1, desc: (r) => `Hurl +${Math.round(r * CONFIG.ultCataclysmUpheavalKnock * 100)}%; the blast crushes poise`, requires: ["cata.epicenter"], excludes: ["cata.aftermath"], pos: { x: 78, y: 48 } },
+  { id: "cata.extinction", ability: "cataclysm", title: "EXTINCTION EVENT", maxRank: 1, desc: () => "Enemies killed by Cataclysm DETONATE, chaining the blast outward", requires: ["cata.epicenter"], capstone: true, pos: { x: 50, y: 86 } },
+  // Bullet Time: focus -> (adrenaline XOR dead eye) -> ENCORE
+  { id: "bt.focus", ability: "bullettime", title: "Deep Focus", maxRank: 2, over: 2, desc: (r) => `Bullet time lasts +${r * CONFIG.ultBulletTimeFocusSeconds}s`, pos: { x: 50, y: 12 } },
+  { id: "bt.adrenaline", ability: "bullettime", title: "Adrenaline", maxRank: 2, over: 1, desc: (r) => `YOUR cooldowns tick ${Math.round(r * CONFIG.ultBulletTimeAdrenaline * 100)}% faster inside`, requires: ["bt.focus"], excludes: ["bt.deadeye"], pos: { x: 22, y: 48 } },
+  { id: "bt.deadeye", ability: "bullettime", title: "Dead Eye", maxRank: 2, over: 1, desc: (r) => `+${Math.round(r * CONFIG.ultBulletTimeDeadeyeCrit * 100)}% crit chance inside`, requires: ["bt.focus"], excludes: ["bt.adrenaline"], pos: { x: 78, y: 48 } },
+  { id: "bt.encore", ability: "bullettime", title: "ENCORE", maxRank: 1, desc: () => `Kills inside extend bullet time ${CONFIG.ultBulletTimeEncoreExtend}s. The show must go on.`, requires: ["bt.focus"], capstone: true, pos: { x: 50, y: 86 } },
 ];
 
 const BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -336,6 +355,41 @@ export function orbitBladePos(p: Player, i: number, angleBack = 0, phaseBack = 0
     rad = CONFIG.orbitSpiralInner + (outer - CONFIG.orbitSpiralInner) * 0.5 * (1 - Math.cos(ph));
   }
   return { x: p.pos.x + Math.cos(a) * rad, y: p.pos.y + Math.sin(a) * rad };
+}
+
+// ---- Ultimate constellation params (pure; read CONFIG + node ranks) ----
+
+export function airstrikeParams(p: Player) {
+  const sat = rank(p, "air.saturation");
+  return {
+    shells: CONFIG.ultAirstrikeShells + sat * CONFIG.ultAirstrikeSaturationShells,
+    spread: CONFIG.ultAirstrikeSpread
+      * (1 + sat * CONFIG.ultAirstrikeSaturationSpread)
+      * Math.max(0.1, 1 - rank(p, "air.precision") * CONFIG.ultAirstrikePrecisionSpread),
+    dmgMult: CONFIG.ultAirstrikeDmgMult * (1 + rank(p, "air.payload") * CONFIG.ultAirstrikePayloadDmg),
+    loyalty: rank(p, "air.loyalty") > 0,
+  };
+}
+
+export function cataclysmParams(p: Player) {
+  const after = rank(p, "cata.aftermath");
+  const up = rank(p, "cata.upheaval");
+  return {
+    radius: CONFIG.ultCataclysmRadius * (1 + rank(p, "cata.epicenter") * CONFIG.ultCataclysmEpicenterRadius),
+    knockback: CONFIG.ultCataclysmKnockback * (1 + up * CONFIG.ultCataclysmUpheavalKnock),
+    poiseMult: up > 0 ? CONFIG.ultCataclysmUpheavalPoise : 1,
+    echoFrac: after > 0 ? CONFIG.ultCataclysmAftermathBase + after * CONFIG.ultCataclysmAftermathPerRank : 0,
+    extinction: rank(p, "cata.extinction") > 0,
+  };
+}
+
+export function bulletTimeParams(p: Player) {
+  return {
+    duration: CONFIG.ultBulletTimeDuration + rank(p, "bt.focus") * CONFIG.ultBulletTimeFocusSeconds,
+    cdTickMult: 1 + rank(p, "bt.adrenaline") * CONFIG.ultBulletTimeAdrenaline,
+    critBonus: rank(p, "bt.deadeye") * CONFIG.ultBulletTimeDeadeyeCrit,
+    encore: rank(p, "bt.encore") > 0,
+  };
 }
 
 // ---- Level-up draft ----
