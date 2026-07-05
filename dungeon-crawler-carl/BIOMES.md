@@ -1,99 +1,125 @@
-# Floor biomes — asset research & room-dressing direction
+# Floor biomes — asset inventory & visual-variety direction
 
-Design notes from a brainstorm on expanding floor visual variety beyond the
-current single-pack reskin. Nothing here is implemented yet — this is the
-grounding for a future pass on `src/render3d/floorThemes.ts`. See `ASSETS.md`
-for the asset-sourcing/licensing pipeline this builds on.
+Art direction for floor variety, grounded in the assets we actually own. See
+`ASSETS.md` for the licensing pipeline, `src/render3d/floorThemes.ts` for the
+implementation this steers.
 
-## Where we are today
+## Where we are today (2026-07-05)
 
-`src/render3d/floorThemes.ts` reskins **one** asset pack (KayKit Dungeon
-Remastered) across 5 depth bands (Undercroft → Sewers → Ruins → Ironworks →
-Approach): each band swaps floor/wall/stairs models, a prop scatter set, and a
-tint/torch color. Variety comes from *material and palette*, not from a
-different kit or a different room layout. Dressing is keyed **only by depth
-band** — every room on a given floor gets the same prop pool whether it's the
-vault, the landmark room, or a random combat room. `floor.ts` already assigns
-per-room **roles** (`entrance` / `landmark` / `vault` / `stairs` / `combat`)
-that this dressing layer doesn't use yet.
+Shipped since the first draft of this doc:
 
-## Room-build inspiration from KayKit's own demo scenes
+- **Six 3-floor bands** (Undercroft → Sewers → Garden → Ruins → Ironworks →
+  Approach), each swapping tiles/props/palette via `FLOOR_THEMES`.
+- **Role-keyed room dressing**: band decides material/palette, room role
+  decides furniture (vault = treasure hoard, landmark = per-band set-piece,
+  entrance = camp). Per-floor cosmetic jitter keeps floors within a band
+  distinct.
+- **THE GARDEN** (floors 7-9) uses the Forest Nature Pack for its scatter —
+  live trees/bushes/rocks/grass over dirt, with the Halloween crypt as its
+  landmark memory.
 
-The [Dungeon Remastered](https://kaylousberg.itch.io/kaykit-dungeon-remastered)
-itch page's demo screenshots show recognizable room archetypes built from the
-same modular kit: treasure chambers with gold piles, dining halls, library/
-storage rooms with shelves and crates, prison cells with barred doors, and
-tavern interiors. These map close to 1:1 onto our existing room roles:
+**The limit that remains**: every band still renders wall tiles as dungeon
+masonry (`wall*` models) and ground as dungeon tiles. The Garden is a dungeon
+wearing a forest costume. The next leap is districts that don't read as
+"dungeon" at all — see *Open-air districts* below.
 
-| Room role | Suggested dressing set | Assets we already have |
+## The KayKit Complete Collection — what we own (all CC0)
+
+`The Complete KayKit Collection v6.zip` + `DemonLord.zip` (local, in
+Downloads; licenses inside, mirrored to `public/assets/characters/LICENSE-*`).
+22 packs, ~29k files. Conversion pipeline is documented in `ASSETS.md`
+(characters ship as ready GLBs; props as gltf+bin → `npx gltf-pipeline`).
+
+**Already integrated** (PRs #24-#27 + boss work): the monster cast +
+shared-rig animation seam (Skeletons 1.1, Mystery Monthly characters, rig
+clip libraries), Forest-pack Garden scatter, Fantasy Weapons for held meshes,
+Dungeon Remastered 1.1 interiors, Resource Bits vault hoards, DemonLord as
+the floor-18 finale boss with his summoning circle.
+
+**Untapped, ranked by likely value:**
+
+| Pack | What's inside | Natural fit |
 |---|---|---|
-| `vault` | Treasure chamber (gold piles, chest) | `chest_gold`, `coin_stack_small/medium/large` — currently gated to the Approach band only |
-| `landmark` | Library/shrine/forge set-piece (varies per band) | `shelf_small`, `table_medium_broken`, `column`, `pillar_decorated` |
-| `entrance` | Tavern/camp — a soft first impression | `barrel_small`, `keg`, `box_small`, `trunk_small_A` |
-| `stairs` / `combat` | No fixed motif needed | (band theme carries these) |
+| Forest Nature 1.0 (the rest) | **Modular hill/cliff WALL system** (Side/Inner/OuterCorner + Tall + Top caps), 67 rocks, 26 trees, 22 bushes, hill blocks — in **7 full colorways** | Open-air districts (below); colorways = seasonal biome variants for free |
+| Adventurers 2.0 | 9 player-class characters + modular held weapons | Class select / hero skins beyond the current 4 |
+| Halloween Bits (rest) | Fences, gates, coffins, cauldrons | Graveyard open-air variant; Garden landmark variety |
+| Board Game Bits | Cards, dice, meeples, boards | DCC game-show set dressing (safe rooms, The Show framing) |
+| Restaurant + Furniture Bits | Tables, counters, food, interiors | Safe-room interiors that feel like the System's canteen |
+| Platformer Pack | Saws, spikes, moving-part traps | Floor hazards, if/when the sim grows them |
+| Mystery Monthly S4-6 (rest) | 30+ more characters (Monstrosity, Tiefling, ToySoldier, FrostGolem variants…) | Future elites/bosses/NPCs |
+| Character Animations 1.1 (rest) | MovementAdvanced, Simulation, Tools clip packs | Richer idle/emote states |
+| Medieval Hexagon | Hex overworld tiles/buildings | Backdrop silhouettes only (wrong grid); skip otherwise |
+| City Builder / Space Base / Holiday / Prototype / Block / RPG Tools | Various | No current fit; park them |
 
-**Proposal:** add a second, role-keyed dressing layer orthogonal to the
-existing band layer — band decides material/palette, role decides furniture
-set. Same data shape `floorThemes.ts` already uses (a prop list + density per
-key), just indexed by role in addition to band. Not a rewrite.
+## Open-air districts: floors without dungeon walls
 
-## New pack: Forest Nature Pack — good fit
+Goal: some bands should feel *transported* — a forest clearing, a mountain
+pass — not corridors with nature props. Trees ARE the walls; the path is a
+trodden track between hillsides.
 
-[KayKit Forest Nature Pack](https://kaylousberg.itch.io/kaykit-forest) —
-trees, bushes, rocks, grass, modular terrain, CC0, same stylized low-poly
-single-gradient-atlas look as Dungeon Remastered (visually compatible,
-same author/pipeline). Our sim only cares whether a tile is `Wall` or
-`Floor` — it never cares what the tile looks like — so this drops in as
-another band with zero sim changes:
+### The invariant that makes this cheap
 
-- `wall` → rock outcrop / hedge
-- `floor` → dirt / moss
-- prop scatter → trees / bushes / rocks (same per-tile scatter mechanism
-  every existing band already uses)
-- `DoorLocked` (floors 3+) → a root-choked thicket instead of a wooden door,
-  still functionally the same tile
+The sim never changes. Mapgen, `Wall`/`Floor` tiles, pathing, fog, the
+minimap, and the 2D host are untouched — "open-air" is entirely a render
+treatment of the same grid, exactly like every band so far. The one honesty
+rule: **every wall tile must host a visually blocking mass** (never an open
+gap you can't walk through), and canopy/foliage overhang into walkable tiles
+stays small enough (~0.2 tile) that open ground never *looks* blocked.
 
-Proposed as a new band, **THE OVERGROWTH** — nature reclaiming the
-architecture — slotted early-mid (e.g. before Ruins), so the arc reads as
-civilization → reclaimed collapse → deep stone ruins → industrial → grand
-finale. The exact slot is a call to make later, not decided here.
+### The render seam (renderer3d.ts, buildFloor)
 
-## New packs: Medieval Hexagon / (Legacy) Medieval Builder — wrong shape
+Interior bands render a wall tile as a dark fill box + a thin decorated
+panel on each face that borders floor (instanced per chunk). An open-air
+theme (`kind: "openair"` on `FloorTheme`) replaces that one branch:
 
-Both are hex-grid **overworld/strategy** kits — exterior buildings, road and
-water tiles, village layouts — not a modular interior wall/floor/door kit
-like Dungeon Remastered. They don't compose with our square room-and-corridor
-generator the way Forest does.
+1. **Edge tiles** (wall touching floor): classify the tile's neighbor mask
+   (4-neighbors + diagonals) as *side / inner corner / outer corner* and
+   instance the matching **Forest `Hill_Cliff_*` piece** — the kit is
+   literally cut in this grammar (Side, InnerCorner, OuterCorner, Tall
+   variants, `Hill_Top_*` caps). This is the same adjacency data the panel
+   loop already walks.
+2. **Tree-mass interleave**: by `tileHash`, a themable fraction of edge
+   tiles render as a **cluster of 2-4 trees** (jittered rotation/scale/
+   offset) + undergrowth instead of cliff — so paths are sometimes hemmed by
+   rock, sometimes by woods, and the boundary never reads as a repeating
+   fence.
+3. **Deep wall tiles** (no floor within ~2 tiles): sparse cheap filler
+   (hill blocks / canopy blobs) — they're dark under fog of war anyway.
+4. **Ground**: grass mats per tile; corridor tiles (the ones with exactly
+   two opposing floor neighbors) get the dirt *trodden path* variant so
+   routes read at a glance; room interiors get heavier grass/flower scatter
+   through the existing prop layer.
+5. **Doors**: `DoorLocked` tiles get a gate prop (Halloween `fence_gate` /
+   a root-choked thicket) flanked per the existing `doorFlankKey` rule — a
+   locked path must still look locked.
+6. **Sky & light**: `background` becomes a dusk-sky tone; hemisphere light
+   up, key light warmer (dappled late light keeps fog-of-war readable —
+   full noon would fight the murk). Torches become `lantern_standing`
+   posts; the band's ambient particles (spores/fireflies) already exist.
+7. **Beyond the map**: extend a ground skirt + sparse silhouette trees into
+   the PAD region the fog planes already cover, so the world ends in misty
+   treeline instead of void.
 
-- [KayKit Medieval Hexagon Pack](https://kaylousberg.itch.io/kaykit-medieval-hexagon) —
-  200+ hex tiles/buildings (blacksmith, tavern, market, windmill, church…),
-  4 color variants, CC0.
-- [(Legacy) KayKit Medieval Builder Pack](https://kaylousberg.itch.io/kaykit-medieval-builder-pack) —
-  also hex/RTS-oriented, sand/rock/forest biome variants, exterior only.
+### Rollout
 
-Two honest paths instead of forcing the fit:
+1. **THE GARDEN converts first** (floors 7-9): it already owns the forest
+   scatter; this pass swaps its walls/ground/sky. ~18 cliff pieces + a few
+   more trees/rocks to convert from the zip (pipeline in ASSETS.md).
+2. Later, colorways make cheap siblings: an autumn or pale variant of the
+   same kit for a different band, a Halloween **graveyard-at-night**
+   (fence walls + dead trees) as a landmark-floor or band variant.
+3. Medieval Hexagon stays backdrop-only if ever used.
 
-1. **Skip them.** Dungeon Remastered's own tavern/dining dressing (barrels,
-   kegs, tables, banners — already in our manifest, already partly used in
-   the Undercroft band) already covers the "lived-in medieval" mood.
-2. **Cherry-pick a few standalone building meshes** (a broken windmill, a
-   church facade) purely as **non-walkable backdrop silhouettes** in a
-   landmark room — decorative set-dressing, not part of the tile grid. Much
-   smaller lift than pack integration.
+### Why this is diegetically free
 
-## Why this isn't a stretch
-
-Floors in Dungeon Crawler Carl are constructed by an alien game-show
-intelligence (see `DESIGN.md`) — a floor being an overgrown ruin instead of
-stone corridors is diegetically free. It's the System doing what the System
-does, not a reskin excuse.
+Floors are constructed by an alien game-show intelligence (`DESIGN.md`) — a
+floor that is simply *a forest* is the System flexing production budget,
+and the announcer already sells it ("The System grew you a garden…").
 
 ## Open items
 
-- Pick the Overgrowth band's slot in the depth-band sequence.
-- Decide whether role-based dressing ships alongside Overgrowth or as its
-  own pass.
-- Decide whether elites/bosses get biome-flavored set-pieces per band/role.
-- If a Medieval pack ever gets pulled in for set-piece meshes, record it in
-  `ASSETS.md` (source of truth for licenses) the same way every other pack
-  is tracked.
+- Convert + commit the Hill_Cliff/Top set (gltf → glb, record in ASSETS.md).
+- `FloorTheme.kind` + the open-air wall/ground branch in `buildFloor`.
+- Decide THE GARDEN's sky/light values in-engine (screenshots at floor 7
+  via `?test&floor=7`).
+- Whether elites/bosses get biome-flavored set-pieces per band/role.
