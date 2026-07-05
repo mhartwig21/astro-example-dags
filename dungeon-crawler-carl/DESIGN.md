@@ -133,6 +133,13 @@ This document describes the full target architecture, then defines the scope of 
 - **Depth tempo** (`monsterTempo` in config): past floor 4 monsters get QUICKER, not just
   fatter — move speed ramps to +35%, attack cooldowns shrink to −35%, telegraph windups
   shorten to −25% (capped so tells stay readable). Floors 1–3 keep the training pace.
+- **Roaming / behavior variety** (`wander` in ai.ts): monsters aren't all statues waiting
+  for aggro. Lone wanderers PATROL (always), ~40% of packs patrol their territory together,
+  the rest are sentries holding their post; dormant ambushers lie perfectly still, the
+  vault guardian never leaves its treasure, bosses hold their arena. Patrols stroll in
+  short randomized legs at 0.55× speed, leashed ~7 tiles to their post so encounters stay
+  roughly where the floor placed them — and the moment a player is in range, the kind's
+  combat brain takes over. The dungeon reads alive; danger sometimes walks into YOU.
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
