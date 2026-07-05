@@ -404,6 +404,64 @@ function unlockDoors(state: GameState): number {
   return opened;
 }
 
+const KEY_AUDIT_INTERVAL = 3; // seconds between locked-door softlock audits
+
+/**
+ * Softlock self-healing (runtime): while the stairs district is sealed, audit
+ * every few seconds that the KEY — its living carrier, or the dropped loot —
+ * is still reachable from the floor entrance without crossing a locked door,
+ * and that no living crawler is sealed inside the district. A violation means
+ * some vector (a teleport, a knockback, a spawn ring, something not written
+ * yet) put the run in an unwinnable state, so the System concedes the door
+ * instead of ending the run. Vault doors count as PASSABLE here: they spring
+ * open on approach, so a key waiting behind one is not a violation.
+ * The spawn-time guard in assignKeyCarrier covers placement; this covers
+ * everything that moves. Cost: one BFS over the grid every 3s, locked floors only.
+ */
+function auditKeyReachability(state: GameState, dt: number): void {
+  const { map } = state;
+  if (!map.locked) return;
+  state.keyAuditT = (state.keyAuditT ?? 0) - dt;
+  if (state.keyAuditT > 0) return;
+  state.keyAuditT = KEY_AUDIT_INTERVAL;
+
+  const vaultDoors = state.floorEvent?.type === "vault" ? new Set(state.floorEvent.doors) : null;
+  const seen = new Uint8Array(map.w * map.h);
+  const q = [Math.floor(map.spawn.y) * map.w + Math.floor(map.spawn.x)];
+  seen[q[0]] = 1;
+  for (let qi = 0; qi < q.length; qi++) {
+    const x = q[qi] % map.w, y = (q[qi] / map.w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+      const ni = ny * map.w + nx;
+      if (seen[ni]) continue;
+      const t = map.tiles[ni];
+      if (t === Tile.Wall) continue;
+      if (t === Tile.DoorLocked && !vaultDoors?.has(ni)) continue;
+      seen[ni] = 1;
+      q.push(ni);
+    }
+  }
+  const ok = (pos: Vec2) => !!seen[Math.floor(pos.y) * map.w + Math.floor(pos.x)];
+
+  const carrier = state.monsters.find((m) => m.hasKey && m.hp > 0);
+  const keyLoot = state.loot.find((l) => l.kind === "key");
+  const keyPos = carrier?.pos ?? keyLoot?.pos;
+  const playerSealed = state.players.some((p) => p.alive && !ok(p.pos));
+  if (keyPos && ok(keyPos) && !playerSealed) return; // all lawful — stay locked
+
+  if (unlockDoors(state) > 0) {
+    announce(
+      state, "progress",
+      !keyPos
+        ? "The floor key is GONE. The System audits the ledger and WAIVES the door fee."
+        : "RULES VIOLATION: the key left the arena of play. The System CONCEDES the door.",
+      "high",
+    );
+  }
+}
+
 /**
  * On a locked floor, hand the stairs-district key to one random monster that the
  * party can actually reach (not the boss, and not one sealed inside the stairs
@@ -3500,6 +3558,11 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   // Floor event bookkeeping (vault trigger/reseal, challenge verdicts) —
   // after combat so it can read this step's deaths and damage.
   updateFloorEvent(state, dt);
+
+  // Softlock self-healing: if the stairs key ever becomes unreachable (or a
+  // crawler gets sealed in), the System concedes the door instead of ending
+  // the run. Covers vectors no spawn-time guard can: anything that MOVES.
+  auditKeyReachability(state, dt);
 
   // Collapse timer (applied after combat so its DoT can be the killing blow).
   if (state.status === "playing" && alivePlayers(state).length > 0) updateTimer(state, dt);

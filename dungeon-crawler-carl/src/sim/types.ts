@@ -631,6 +631,10 @@ export interface GameState {
   // Shrine Greed Clause accepted on this floor: gold drops pay double.
   goldSurge: boolean;
 
+  // Softlock self-healing: seconds until the next locked-door key audit
+  // (auditKeyReachability in game.ts). Optional for snapshot/save compat.
+  keyAuditT?: number;
+
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
   safeRoom: SafeRoom | null;
