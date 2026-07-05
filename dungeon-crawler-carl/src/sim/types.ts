@@ -169,6 +169,10 @@ export interface Monster {
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
+  // Ambush (deep floors): a dormant monster lies inert until a player strays
+  // near, then springs — the whole cluster wakes together with a speed surge.
+  dormant?: boolean; // waiting in ambush: no move, no attack, until sprung
+  surgeT?: number; // seconds of ambush speed-surge remaining (the pounce)
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
@@ -231,11 +235,19 @@ export interface SafeRoom {
   tip: string; // Mordecai-style manager advice about the next floor
   bonusTime?: number; // purchased stabilizer seconds, applied when the floor builds
   ready: number[]; // player ids who hit DESCEND; the party leaves when all are ready
+  // Consumables have LIMITED per-shop stock now (scarcity — excess gold can no
+  // longer buy an infinite HP graft). This counts what's been bought here.
+  purchased: Record<string, number>; // catalogId -> units bought in this shop
 }
 
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
+// The pool is deliberately WIDE so no single stat is the every-floor pick:
+// permanent stat gifts (damage/maxHp/crit/armor) diminish as you stack them,
+// while build-variety gifts (item/materials/favor) never do.
 export type RewardKind =
-  | "healFull" | "maxHp" | "damage" | "crit" | "item" | "gold" | "bonusTime";
+  | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
+  | "materials" // crafting material toward signature (legendary) gear
+  | "favor"; // an owed ability-upgrade draft (advances the constellation build)
 
 export interface Reward {
   id: number;
@@ -244,6 +256,7 @@ export interface Reward {
   desc: string;
   amount: number;
   item?: Item; // present when kind === "item"
+  material?: MaterialId; // present when kind === "materials"
 }
 
 // Projectiles: player bolts and enemy shots share one system.

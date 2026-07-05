@@ -115,6 +115,28 @@ function stepCharge(state: GameState, m: Monster, dt: number): void {
   }
 }
 
+/** Spring an ambush: wake this monster and every dormant neighbor in range, all
+ * surging to close, and announce it once. Hitting a dormant monster also springs
+ * it (see damageMonster) — either way the whole cluster commits together. */
+function springAmbush(state: GameState, trigger: Monster): void {
+  let woke = 0;
+  for (const n of state.monsters) {
+    if (!n.dormant || n.hp <= 0) continue;
+    if (n !== trigger && dist(trigger.pos, n.pos) > CONFIG.ambushWakeRadius) continue;
+    n.dormant = false;
+    n.surgeT = CONFIG.ambushSurgeSeconds;
+    n.attackCooldown = 0; // spring loaded — engage on the first beat
+    woke++;
+  }
+  if (woke > 0) {
+    state.announcements.push({
+      text: "AMBUSH! The floor was never empty — it was waiting. The crowd LOVES this.",
+      kind: "boss",
+      priority: "high",
+    });
+  }
+}
+
 export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.hitFlash > 0) m.hitFlash = Math.max(0, m.hitFlash - dt);
   if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt);
@@ -122,7 +144,17 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
   if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - dt);
+  if ((m.surgeT ?? 0) > 0) m.surgeT = Math.max(0, (m.surgeT ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
+
+  // AMBUSH: a dormant monster lies inert until a player strays within trigger
+  // range, then springs — and drags its whole cluster up with it, all surging
+  // to close the gap. Until sprung it neither moves nor attacks (quiet in fog).
+  if (m.dormant) {
+    const prey = nearestPlayer(state, m.pos);
+    if (!prey || dist(m.pos, prey.pos) > CONFIG.ambushTriggerRadius) return; // still waiting
+    springAmbush(state, m);
+  }
 
   // Staggered: helpless. The stagger that set this also canceled any windup
   // (and any rush in progress — see damageMonster in game.ts).
@@ -152,6 +184,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   const d = dist(m.pos, player.pos);
   const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
   const windup = ARCHETYPES[m.kind].windup;
+  // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
+  const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1);
 
   // Summoner elites call swarmer adds while a player is near (lifetime-capped).
   if (
@@ -215,7 +249,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Shot down early, it still cooks off at half radius (see reapDead in game.ts).
     if (d > CONFIG.monsterAggroRange) return;
     if (d <= m.attackRange) beginWindup(m, "fuse", CONFIG.bomberFuse);
-    else moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    else moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     return;
   }
 
@@ -258,7 +292,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     if (d <= m.attackRange) {
       if (m.attackCooldown === 0) beginWindup(m, "melee", windup * 0.6);
     } else {
-      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
     return;
   }
@@ -317,7 +351,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       m.blinkCd = CONFIG.phantomBlinkCooldown;
       moveWithCollision(state.map, m.pos, toPlayer, Math.min(CONFIG.phantomBlinkDistance, d - m.attackRange * 0.5), isWalkable);
     } else {
-      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
     return;
   }
@@ -327,6 +361,6 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
   } else {
-    moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
   }
 }

@@ -102,7 +102,7 @@ describe("audio director", () => {
     expect(sink.lastMusic()).toBe("music_collapse");
 
     state.phase = "safe";
-    state.safeRoom = { nextFloor: 2, available: [], tip: "", ready: [] };
+    state.safeRoom = { nextFloor: 2, available: [], tip: "", ready: [], purchased: {} };
     director.frame(state, [], [], 0);
     expect(sink.lastMusic()).toBe("music_safe");
 

@@ -7,7 +7,7 @@ import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
 import { buildCharacterSheet, type SheetAbilityRow } from "./sim/sheet";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
+  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, consumableStock, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
 import {
@@ -243,7 +243,8 @@ const draftHint = document.getElementById("draft-hint")!;
 
 // Sponsor gifts have no ability icon; a glyph in the plate carries the read.
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", item: "▣", gold: "◈", bonusTime: "⌛",
+  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
+  bonusTime: "⌛", materials: "◆", favor: "★",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -859,6 +860,7 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
     const unlock = TIER_UNLOCK_SHOP[e.tier];
     return room.nextFloor - 1 < unlock ? `ARRIVES AT SHOP ${unlock}` : "NOT STOCKED TODAY";
   }
+  if (e.tier === "consumable" && (room.purchased[e.id] ?? 0) >= consumableStock(e)) return "SOLD OUT";
   if (e.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return "ALREADY MASTERED";
   // Built gear needs its components IN HAND (the BUILDS FROM row shows which).
   if (e.buildsFrom?.length && missingComponents(p, e.id).length > 0) return "NEEDS COMPONENTS";
@@ -875,17 +877,24 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
   const p = me(s);
   const locked = !room.available.includes(e.id);
   const price = effectivePrice(p, e.id, room.nextFloor);
+  // Consumable scarcity: show remaining per-shop stock; dim + ✕ when sold out.
+  const stock = consumableStock(e);
+  const left = Number.isFinite(stock) ? stock - (room.purchased[e.id] ?? 0) : Infinity;
+  const soldOut = left <= 0;
   const cls = [
     "itile",
     shopSel?.kind === "catalog" && shopSel.id === e.id ? "sel" : "",
     locked ? "locked" : "",
-    !locked && price > p.gold ? "broke" : "",
+    soldOut ? "soldout" : "",
+    !locked && !soldOut && price > p.gold ? "broke" : "",
     (owned[e.id] ?? 0) > 0 ? "owned" : "",
   ].filter(Boolean).join(" ");
+  const stockBadge = Number.isFinite(left) && !soldOut && !locked
+    ? `<div class="istock" title="${left} left in stock this shop">×${left}</div>` : "";
   return (
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
-    `<div class="iprice">${coin}${price}</div>` +
+    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i>${stockBadge}</div>` +
+    `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
 }
