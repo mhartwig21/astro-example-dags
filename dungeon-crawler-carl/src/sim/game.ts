@@ -11,6 +11,7 @@ import {
 } from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, airstrikeParams, boltParams, bulletTimeParams,
+  crowdSurfParams, cutToParams, stuntDoubleParams,
   cataclysmParams, damageVariance, dashParams, knows, meleeParams,
   rank,
   novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
@@ -19,7 +20,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -650,6 +651,7 @@ function makePlayer(id: number, name: string): Player {
     stanceCritReady: false,
     meleeCombo: 0,
     meleeComboT: 0,
+    cutMark: null,
     overcharged: false,
     plotArmorUsed: false,
     statuses: [],
@@ -783,6 +785,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.projectiles = [];
   state.hazards = [];
   state.corpses = [];
+  state.decoys = []; // stunt contracts don't follow you downstairs
   state.encounter = null;
   state.floorEvent = null;
   state.goldSurge = false;
@@ -1001,6 +1004,7 @@ export function createGame(seed: number, mode: GameState["mode"] = "coop"): Game
     safeRoom: null,
     strikes: [],
     bulletTimeLeft: 0,
+    decoys: [],
     hazards: [],
     corpses: [],
     pings: [],
@@ -1835,6 +1839,17 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     }
     connected = true;
   }
+  // STUNT DOUBLE: every double you own mirrors the swing from its own mark.
+  for (const dc of state.decoys) {
+    if (dc.ownerId !== p.id) continue;
+    dc.facing = { x: facing.x, y: facing.y };
+    const frac = stuntDoubleParams(p).mirrorFrac;
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      if (!inSwing(dc.pos, facing, m, mp.range, mp.arc)) continue;
+      damageMonster(state, p, m, power(p, "melee") * mp.damageMult * frac, { allowCrit: false, school: "physical" });
+    }
+  }
   if (connected) {
     if (momentum) p.stanceCritReady = false;
     if (oc) p.overcharged = false;
@@ -1920,6 +1935,13 @@ function reapDead(state: GameState): void {
     killer.killsThisStep++;
     if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
+    // MATCH CUT: the marked target died inside the window; the camera resets.
+    for (const pl of state.players) {
+      if (pl.cutMark && pl.cutMark.monsterId === m.id) {
+        pl.cutMark = null;
+        pl.cd.cutto = 0;
+      }
+    }
     // ENCORE (Bullet Time capstone): kills inside the slow stretch it out.
     if (state.bulletTimeLeft > 0 && bulletTimeParams(killer).encore) {
       state.bulletTimeLeft = Math.min(CONFIG.ultBulletTimeEncoreCap, state.bulletTimeLeft + CONFIG.ultBulletTimeEncoreExtend);
@@ -3005,6 +3027,172 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
   }
 }
 
+// ---- The fun-kit wave: Cut To / Crowd Surf / Stunt Double ----
+
+/** The monster the aim ray points at: closest to the ray within `range`, no
+ * more than ~a body off the line. Zero aim falls back to facing. */
+function pickAlongAim(state: GameState, p: Player, aim: Vec2, range: number): Monster | null {
+  const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
+  let best: Monster | null = null;
+  let bestPerp = Infinity;
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const rel = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
+    const along = rel.x * dir.x + rel.y * dir.y;
+    if (along < 0.3 || along > range) continue;
+    const perp = Math.abs(rel.x * dir.y - rel.y * dir.x) - bodyRadius(m);
+    if (perp > 1.0) continue; // too far off the line; the camera does not guess
+    if (perp < bestPerp) { bestPerp = perp; best = m; }
+  }
+  return best;
+}
+
+/** Cut To: the broadcast cuts to the action. Teleport onto the aimed enemy
+ * and strike as you arrive. No target, no cut (the cooldown is not spent). */
+function doCutTo(state: GameState, p: Player, aim: Vec2): void {
+  const cp = cutToParams(p);
+  const target = pickAlongAim(state, p, aim, cp.range);
+  if (!target) return;
+  p.cd.cutto = cp.cooldown * cdMult(p);
+  const d = dist(p.pos, target.pos);
+  const dir = d > 1e-4 ? { x: (target.pos.x - p.pos.x) / d, y: (target.pos.y - p.pos.y) / d } : p.facing;
+  // The cut slides the whole distance; collision keeps it honest (no walls).
+  moveWithCollision(state.map, p.pos, dir, Math.max(0, d - 0.9), isWalkable);
+  p.facing = { x: dir.x, y: dir.y };
+  p.attackSwing = 0.15;
+  hit(state, p.pos, 0, "weapon"); // arrival flash for the juice layer
+  // Smash Cut: the arrival strike shatters poise (non-bosses arrive staggered).
+  damageMonster(state, p, target, power(p, "cutto") * cp.dmgMult, {
+    dir, school: "physical", shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback,
+  });
+  // MATCH CUT: finish them inside the window and the camera resets (reapDead).
+  if (cp.match) p.cutMark = { monsterId: target.id, t: CONFIG.cutToMatchWindow };
+}
+
+/** Drag one monster to within reach of `p`, staggered; any committed attack
+ * or rush is yanked out from under it. */
+function dragToPlayer(state: GameState, p: Player, m: Monster, stagger: number): void {
+  const d = dist(m.pos, p.pos);
+  if (d > CONFIG.surfArriveGap) {
+    const dir = { x: (p.pos.x - m.pos.x) / d, y: (p.pos.y - m.pos.y) / d };
+    moveWithCollision(state.map, m.pos, dir, d - CONFIG.surfArriveGap, isWalkable);
+  }
+  m.stagger = Math.max(m.stagger, stagger);
+  m.windup = 0;
+  m.windupKind = undefined;
+  m.chargeT = 0;
+  m.chargeDir = undefined;
+  hit(state, m.pos, 0, "weapon"); // chain-yank flash
+}
+
+/** Crowd Surf: one chain, two verbs decided by weight. Light enemies land in
+ * your arms staggered; heavy ones (elites, bosses, the truly massive) hold
+ * fast and the chain yanks YOU across the gap instead, i-frames included. */
+function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
+  const sp = crowdSurfParams(p);
+  const target = pickAlongAim(state, p, aim, sp.range);
+  if (!target) return;
+  p.cd.crowdsurf = sp.cooldown * cdMult(p);
+  const anchor = { x: target.pos.x, y: target.pos.y }; // chain line, pre-drag
+  const d = dist(p.pos, anchor);
+  const dir = d > 1e-4 ? { x: (anchor.x - p.pos.x) / d, y: (anchor.y - p.pos.y) / d } : p.facing;
+  p.facing = { x: dir.x, y: dir.y };
+  const heavy = target.kind === "boss" || target.elite || ARCHETYPES[target.kind].mass > CONFIG.surfMassLimit;
+  if (heavy) {
+    // The anchor holds: you ride the chain. Brief i-frames cover the flight.
+    p.dashTime = Math.max(p.dashTime, 0.15);
+    moveWithCollision(state.map, p.pos, dir, Math.max(0, d - CONFIG.surfArriveGap), isWalkable);
+    hit(state, p.pos, 0, "weapon");
+    // Stage Dive: arriving IS the attack.
+    if (sp.diveFrac > 0) {
+      radialDamage(state, p, p.pos, CONFIG.surfDiveRadius, power(p, "crowdsurf") * sp.diveFrac, CONFIG.shockstepKnockback, "magic");
+      hit(state, p.pos, 0, "crit");
+    }
+  } else {
+    dragToPlayer(state, p, target, sp.stagger);
+  }
+  // THE WAVE: everything the chain passed through comes along (light bodies only).
+  if (sp.wave) {
+    const len2 = d * d;
+    for (const m of state.monsters) {
+      if (m === target || m.hp <= 0) continue;
+      if (m.kind === "boss" || m.elite || ARCHETYPES[m.kind].mass > CONFIG.surfMassLimit) continue;
+      const t = len2 > 1e-6
+        ? Math.max(0, Math.min(1, ((m.pos.x - p.pos.x) * (anchor.x - p.pos.x) + (m.pos.y - p.pos.y) * (anchor.y - p.pos.y)) / len2))
+        : 0;
+      const closest = { x: p.pos.x + (anchor.x - p.pos.x) * t, y: p.pos.y + (anchor.y - p.pos.y) * t };
+      if (dist(closest, m.pos) - bodyRadius(m) > CONFIG.surfPathRadius) continue;
+      dragToPlayer(state, p, m, sp.stagger);
+    }
+  }
+}
+
+/** Stunt Double: the production hires a professional. It taunts (ai.ts hunts
+ * it), soaks hits into its contract (never dies; pro), mirrors the owner's
+ * swings, and retires with a bang proportional to the beating it took. */
+function doStuntDouble(state: GameState, p: Player): void {
+  const dp = stuntDoubleParams(p);
+  p.cd.stuntdouble = dp.cooldown * cdMult(p);
+  state.decoys.push({
+    id: state.nextEntityId++,
+    ownerId: p.id,
+    pos: { x: p.pos.x, y: p.pos.y },
+    facing: { x: p.facing.x, y: p.facing.y },
+    t: dp.contract,
+    absorbed: 0,
+  });
+  announce(state, "show", `${p.name}'s STUNT DOUBLE takes the floor. The crowd can't tell them apart.`);
+}
+
+/** The nearest Stunt Double whose taunt radius covers `pos`; ai.ts targeting
+ * prefers this over the nearest player (the whole point of hiring one). */
+export function tauntingDecoy(state: GameState, pos: Vec2): Decoy | null {
+  let best: Decoy | null = null;
+  let bestD = Infinity;
+  for (const dc of state.decoys) {
+    const owner = state.players.find((pl) => pl.id === dc.ownerId);
+    const radius = owner ? stuntDoubleParams(owner).tauntRadius : CONFIG.doubleTauntRadius;
+    const d = dist(pos, dc.pos);
+    if (d <= radius && d < bestD) { bestD = d; best = dc; }
+  }
+  return best;
+}
+
+/** Route a monster strike into a decoy in reach, if any. The double soaks it
+ * (banked for the farewell blast) and the players behind it are spared. */
+export function decoySoak(state: GameState, from: Vec2, reach: number, damage: number): boolean {
+  for (const dc of state.decoys) {
+    if (dist(from, dc.pos) > reach) continue;
+    dc.absorbed += damage;
+    state.hits.push({ pos: { x: dc.pos.x, y: dc.pos.y }, amount: Math.round(damage), kind: "player" });
+    return true;
+  }
+  return false;
+}
+
+/** Tick stunt contracts; expiry = the farewell blast + AWARD SEASON refund. */
+function updateDecoys(state: GameState, dt: number): void {
+  if (state.decoys.length === 0) return;
+  const remaining: Decoy[] = [];
+  for (const dc of state.decoys) {
+    dc.t -= dt;
+    if (dc.t > 0) { remaining.push(dc); continue; }
+    const owner = state.players.find((pl) => pl.id === dc.ownerId) ?? state.players[0];
+    const dp = stuntDoubleParams(owner);
+    const dmg = Math.min(dc.absorbed * dp.explodeFrac, owner.attackPower * CONFIG.doubleExplodeCap);
+    if (dmg >= 1) {
+      radialDamage(state, owner, dc.pos, CONFIG.doubleExplodeRadius, dmg, 0.5, "physical");
+      hit(state, dc.pos, 0, "crit");
+      state.events.push(`${owner.name}'s stunt double takes a bow — and EXPLODES.`);
+    }
+    // AWARD SEASON: a finished contract refunds half of the next booking.
+    if (dp.award && (owner.cd.stuntdouble ?? 0) > 0) {
+      owner.cd.stuntdouble = (owner.cd.stuntdouble ?? 0) * 0.5;
+    }
+  }
+  state.decoys = remaining;
+}
+
 // ---- Ultimates (the fifth slot) ----
 
 /** Sponsor Airstrike: schedule a shell bombardment around the aim point.
@@ -3220,6 +3408,9 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
     case "stance": doStance(state, p); break;
     case "overcharge": doOvercharge(state, p); break;
     case "orbit": break; // passive: runs via updateOrbit while slotted
+    case "cutto": doCutTo(state, p, aim); break;
+    case "crowdsurf": doCrowdSurf(state, p, aim); break;
+    case "stuntdouble": doStuntDouble(state, p); break;
     case "airstrike": doAirstrike(state, p, aim); break;
     case "cataclysm": doCataclysm(state, p); break;
     case "bullettime": doBulletTime(state, p); break;
@@ -3373,9 +3564,17 @@ function updateProjectiles(state: GameState, dt: number): void {
       }
       if (consumed) continue;
     } else {
-      // Enemy projectile: hits the first living player in its radius (dash = i-frames).
+      // Enemy projectile: a stunt double bodily catches bolts first, then the
+      // first living player in radius (dash = i-frames).
       let absorbed = false;
-      for (const p of state.players) {
+      for (const dc of state.decoys) {
+        if (dist(pr.pos, dc.pos) > CONFIG.projectileRadius + 0.35) continue;
+        dc.absorbed += pr.damage;
+        state.hits.push({ pos: { x: dc.pos.x, y: dc.pos.y }, amount: Math.round(pr.damage), kind: "player" });
+        absorbed = true;
+        break;
+      }
+      if (!absorbed) for (const p of state.players) {
         if (!p.alive || p.dashTime > 0) continue;
         if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
         if (damagePlayerHit(state, p, pr.damage, { dir: normalize(pr.vel) })) {
@@ -3480,6 +3679,11 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       p.meleeComboT = Math.max(0, p.meleeComboT - dt);
       if (p.meleeComboT === 0) p.meleeCombo = 0;
     }
+    // MATCH CUT window closes on its own.
+    if (p.cutMark) {
+      p.cutMark.t -= dt;
+      if (p.cutMark.t <= 0) p.cutMark = null;
+    }
     // Dash recharge: an expired timer banks a charge and, while still below
     // max, immediately starts refilling the next one.
     if (p.dashCharges < CONFIG.dashCharges && (p.cd.dash ?? 0) <= 0) {
@@ -3548,6 +3752,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
   updateCorpses(state, mdt);
   updateStrikes(state, dt);
+  updateDecoys(state, dt);
   updateProjectiles(state, dt);
 
   reapDead(state);
@@ -3613,7 +3818,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
 /** Every per-floor GameState slot; mounting a world swaps these wholesale. */
 const WORLD_FIELDS = [
   "floor", "rng", "map", "explored", "exploredVersion", "mapVersion",
-  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft",
+  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys",
   "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge",
   "timeBudget", "timeRemaining", "phase", "collapseElapsed",
 ] as const;
