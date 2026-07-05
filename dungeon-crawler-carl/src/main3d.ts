@@ -27,7 +27,8 @@ import {
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, loadRun, saveRun } from "./persist/save";
+import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
+import { dailySeed, dayFromMs } from "./sim/daily";
 import { NetClient } from "./net/netClient";
 
 // 3D isometric host: runs the exact same deterministic sim as the 2D slice, but
@@ -104,25 +105,27 @@ function testSetup(): TestSetup {
 }
 /** In test mode the run is disposable — never write it over the real save. */
 function persistRun(g: GameState): void {
-  if (!testMode) saveRun(g);
+  if (!testMode) saveRun(g, runMode);
 }
 
-function startFresh(): GameState {
-  if (testMode) {
-    const s = testSetup();
-    if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
-    return createTestGame(s);
-  }
-  clearRun();
-  const g = createGame(freshSeed());
-  saveRun(g);
-  return g;
-}
+// ---- Run mode (set by the check-in menu; daily runs share one seed per day) ----
+let runMode: RunMode = { kind: "random" };
+let dailySubmitted = false; // one board submission per run end
+let hasContinue = false; // a mid-run save was restored; the menu offers CONTINUE
+
 function boot(): GameState {
   if (testMode) return createTestGame(testSetup());
   const save = loadRun();
-  if (save && save.status === "playing") return restoreGame(save);
-  return startFresh();
+  if (save && save.status === "playing") {
+    runMode = save.mode ?? { kind: "random" };
+    hasContinue = true;
+    const g = restoreGame(save);
+    if (save.player.name) g.players[0].name = save.player.name;
+    return g;
+  }
+  // No run to resume: this state is only the menu's backdrop. Nothing is
+  // saved until the crawler signs the waiver (picks a mode).
+  return createGame(freshSeed());
 }
 if (testMode) {
   document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#e2574c">TEST MODE</b> · ');
@@ -131,18 +134,174 @@ if (testMode) {
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
+/** Start a fresh local run in the given mode (menu choice or R-key rerun). */
+function startRun(mode: RunMode): void {
+  clearRun();
+  runMode = mode;
+  dailySubmitted = false;
+  const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
+  state = createGame(seed);
+  state.players[0].name = crawlerName();
+  saveRun(state, runMode);
+  log.length = 0;
+  log.push(mode.kind === "daily"
+    ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon. Only the board remembers.`
+    : `New run. Descend to floor ${CONFIG.finalFloor}.`);
+}
+
 const input = new InputController(canvas);
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
-  state = startFresh();
-  log.length = 0;
-  log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
+  if (testMode) {
+    const s = testSetup();
+    if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
+    state = createTestGame(s);
+    log.length = 0;
+    log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
+  } else {
+    startRun(runMode); // rerun keeps the mode: a daily rerun replays today's dungeon
+  }
   if (invOpen) toggleInventory(); // close stale panels from the old run
   if (abilOpen) toggleAbilities();
   document.getElementById("saferoom")!.style.display = "none";
   document.getElementById("draft")!.style.display = "none";
   document.getElementById("recap")!.style.display = "none"; // last season's report card
 };
+
+// ---- RINGSIDE CHECK-IN (entry menu) + the Daily Crawl board ----
+// Shown at page load for local play; ?join= and ?test deep links skip it (they
+// already carry a complete decision). While open it freezes the sim (backdrop
+// dungeon) and owns the keyboard via input.captureMode, like the rebind panel.
+const menuEl = document.getElementById("menu")!;
+let menuOpen = false;
+const NAME_KEY = "dcc:name:v1";
+const nameInput = document.getElementById("m-name") as HTMLInputElement;
+try { nameInput.value = localStorage.getItem(NAME_KEY) ?? "Carl"; } catch { nameInput.value = "Carl"; }
+function crawlerName(): string {
+  return (nameInput.value.trim() || "Carl").slice(0, 24);
+}
+nameInput.addEventListener("change", () => {
+  try { localStorage.setItem(NAME_KEY, crawlerName()); } catch { /* best-effort */ }
+});
+
+// Leaderboard API: same origin in production (the game server serves both);
+// in dev the Vite client on :5280 talks to the sibling server on :5281.
+const API_BASE = import.meta.env.DEV ? `http://${location.hostname}:5281` : "";
+
+async function refreshBoard(): Promise<void> {
+  const list = document.getElementById("m-board-list")!;
+  try {
+    const day = dayFromMs(Date.now());
+    const r = await fetch(`${API_BASE}/leaderboard?day=${day}`);
+    if (!r.ok) throw new Error(String(r.status));
+    const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number }[] };
+    list.innerHTML = data.entries.length
+      ? data.entries.slice(0, 10).map((e, i) =>
+          `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
+          `<span class="res${e.won ? " win" : ""}">${e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`}</span></li>`,
+        ).join("")
+      : '<li class="none">no crawlers on the board yet — be the first</li>';
+    // Names are player-supplied: set via textContent, never innerHTML.
+    const nms = list.querySelectorAll(".nm");
+    data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
+  } catch {
+    list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+  }
+}
+
+/** Submit a finished daily run (win or wipe). Fire-and-forget; the board is a
+ *  bonus, never a blocker. */
+function submitDaily(s: GameState): void {
+  if (net || testMode || runMode.kind !== "daily" || !runMode.day || dailySubmitted) return;
+  dailySubmitted = true;
+  const p = me(s);
+  void fetch(`${API_BASE}/leaderboard`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      day: runMode.day, name: p.name, floor: s.floor,
+      won: s.status === "won", timeSec: Math.round(s.elapsed), kills: p.kills,
+    }),
+  }).then(async (r) => {
+    if (!r.ok) return;
+    const { rank } = (await r.json()) as { rank: number };
+    log.push(`DAILY CRAWL: rank #${rank} on today's board.`);
+    const note = document.getElementById("recap-note")!;
+    note.textContent = `daily board: rank #${rank} today${note.textContent ? ` · ${note.textContent}` : ""}`;
+  }).catch(() => { /* offline is fine */ });
+}
+
+function openMenu(): void {
+  menuOpen = true;
+  input.captureMode = true; // typing a name must not fire game binds
+  menuEl.style.display = "flex";
+  const cont = document.getElementById("m-continue")!;
+  if (hasContinue) {
+    const p = state.players[0];
+    cont.style.display = "";
+    document.getElementById("m-continue-sub")!.textContent =
+      `${p.name} · floor ${state.floor} · level ${p.level} — the cameras never stopped rolling`;
+    if (p.name) nameInput.value = p.name;
+  }
+  document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
+  void refreshBoard();
+}
+function closeMenu(): void {
+  menuOpen = false;
+  input.captureMode = false;
+  menuEl.style.display = "none";
+}
+
+document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
+document.getElementById("m-daily")!.addEventListener("click", () => {
+  startRun({ kind: "daily", day: dayFromMs(Date.now()) });
+  closeMenu();
+});
+document.getElementById("m-solo")!.addEventListener("click", () => {
+  startRun({ kind: "random" });
+  closeMenu();
+});
+
+// Party crawl: the invite code IS the dungeon seed; the URL is the invite.
+const codeInput = document.getElementById("m-code") as HTMLInputElement;
+function rollCode(): string {
+  // Readable, unambiguous (no 0/O/1/I): good enough to say out loud on a call.
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let c = "";
+  for (let i = 0; i < 5; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
+}
+document.getElementById("m-party")!.addEventListener("click", () => {
+  const form = document.getElementById("m-party-form")!;
+  const opening = form.style.display === "none";
+  form.style.display = opening ? "flex" : "none";
+  if (opening && !codeInput.value) codeInput.value = rollCode();
+});
+document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.value = rollCode(); });
+document.getElementById("m-join")!.addEventListener("click", () => {
+  const code = codeInput.value.trim().toUpperCase().slice(0, 32);
+  if (!code) { codeInput.focus(); return; }
+  location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+});
+
+// Test chamber: builds the existing ?test deep link (createTestGame does the rest).
+document.getElementById("m-test")!.addEventListener("click", () => {
+  const form = document.getElementById("m-test-form")!;
+  form.style.display = form.style.display === "none" ? "flex" : "none";
+});
+document.getElementById("m-t-go")!.addEventListener("click", () => {
+  const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
+  const q = new URLSearchParams();
+  q.set("test", "");
+  if (val("m-t-floor")) q.set("floor", val("m-t-floor"));
+  if (val("m-t-level")) q.set("level", val("m-t-level"));
+  if (Number(val("m-t-gold")) > 0) q.set("gold", val("m-t-gold"));
+  if (val("m-t-seed")) q.set("seed", val("m-t-seed"));
+  if ((document.getElementById("m-t-all") as HTMLInputElement).checked) q.set("abilities", "all");
+  location.href = `${location.pathname}?${q.toString().replace("test=", "test")}`;
+});
+
+if (!net && !testMode) openMenu();
 
 // HUD elements.
 const hudTL = document.getElementById("hud-tl")!;
@@ -1424,10 +1583,30 @@ function drawMinimap(s: GameState): void {
     mmCtx.fill();
   }
   for (const pl of s.players) {
+    if (!pl.alive) {
+      // Downed crawler: a hollow red ring — go stand inside it.
+      mmCtx.strokeStyle = "#e2574c";
+      mmCtx.lineWidth = 1.5;
+      mmCtx.beginPath();
+      mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
+      mmCtx.stroke();
+      continue;
+    }
     mmCtx.fillStyle = pl.id === me(s).id ? "#4fd1ff" : "#7be89b";
     mmCtx.beginPath();
     mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
     mmCtx.fill();
+  }
+  // Party pings: gold pulses (they pierce fog — that's the point of a ping).
+  for (const pg of s.pings) {
+    const cycle = 1 - ((pg.t * 1.6) % 1);
+    mmCtx.strokeStyle = "#ffd23e";
+    mmCtx.lineWidth = 1.5;
+    mmCtx.globalAlpha = 0.9 - cycle * 0.6;
+    mmCtx.beginPath();
+    mmCtx.arc(pad + pg.pos.x * sx, pad + pg.pos.y * sy, 2 + cycle * 4, 0, Math.PI * 2);
+    mmCtx.stroke();
+    mmCtx.globalAlpha = 1;
   }
   // Location Scout (chase legendary): the stairs are marked from the moment
   // you arrive — a pulsing gold diamond, fog or no fog.
@@ -1660,6 +1839,12 @@ function updateHud(s: GameState): void {
     // Debuff row (5.11): active statuses read right under the health bar.
     ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
   hudLog.innerHTML = log.slice(-5).join("<br>");
+  if (s.status === "playing" && !p.alive) {
+    hudLog.innerHTML += `<br><b style="color:#e2574c">DOWNED</b> — ` +
+      (p.reviveProgress > 0
+        ? `stabilizing… ${Math.round(p.reviveProgress * 100)}%`
+        : "a teammate standing close can stabilize you (or you rejoin on descent)");
+  }
   if (s.status !== "playing") {
     hudLog.innerHTML +=
       `<br><b style="color:${s.status === "won" ? "#5fd08a" : "#e2574c"}">` +
@@ -1710,6 +1895,13 @@ function sampleIntent(): ReturnType<InputController["sample"]> {
       const dx = g.x - p.pos.x, dy = g.y - p.pos.y;
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
+  }
+  // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
+  if (input.pingEdge) {
+    input.pingEdge = false;
+    const p = me(state);
+    const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
+    intent.ping = g ?? { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
   }
   return intent;
 }
@@ -1790,7 +1982,7 @@ async function main(): Promise<void> {
     if (!net) {
       // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
       // networked world never pauses for drafts); drop accumulated time.
-      if (invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
+      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(), SIM_DT);
@@ -1799,7 +1991,11 @@ async function main(): Promise<void> {
         frameAnns.push(...state.announcements);
         acc -= SIM_DT;
         if (state.floor !== lastFloor) { lastFloor = state.floor; persistRun(state); }
-        if (state.status !== lastStatus) { lastStatus = state.status; persistRun(state); }
+        if (state.status !== lastStatus) {
+          lastStatus = state.status;
+          persistRun(state);
+          if (state.status !== "playing") submitDaily(state); // daily runs report to the board
+        }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths
       // hang for drama, ordinary kills get a couple of frames.

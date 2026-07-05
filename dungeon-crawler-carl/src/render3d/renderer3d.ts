@@ -93,6 +93,8 @@ export class Renderer3D {
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
   private statusRings = new Map<number, THREE.Mesh>(); // faint ring under statused monsters (5.11)
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
+  private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
+  private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -120,7 +122,9 @@ export class Renderer3D {
   private lastExploredVersion = -1;
 
   // Ability visuals, per player id.
-  private orbitBlades = new Map<number, THREE.Mesh[]>();
+  private orbitBlades = new Map<number, THREE.Group[]>();
+  private hazardBombs = new Map<number, THREE.Group>(); // blast-hazard bomb, by hazard id
+  private windupFx = new Map<number, THREE.Group>(); // spit lob / fuse bomb, by monster id
   private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
@@ -703,6 +707,12 @@ export class Renderer3D {
       if (node) {
         obj = node.clone(true);
         scale = 0.8;
+      } else if (l.item.slot === "trinket" || l.item.slot === "charm") {
+        // No wearable mesh for these — they drop as a cut gem (Resource Bits).
+        obj = this.modelInstance("gem_medium");
+        scale = 0.55;
+      }
+      if (obj) {
         // Rarity tint on CLONED materials (the source scene keeps its own).
         const glow = rarityGlow(l.item.rarity);
         obj.traverse((c) => {
@@ -1356,7 +1366,98 @@ export class Renderer3D {
     }
   }
 
-  private updateAbilityFx(state: GameState, dt: number): void {
+  /** Which real mesh a projectile flies as, or null for the glow orb: the
+   * skeleton archer's shot is a bone arrow, a ballistic crawler's bolt is a
+   * fletched arrow. Magic (and anything unmodeled) stays a glowing missile. */
+  private projectileModelKey(pr: GameState["projectiles"][number], state: GameState): string | null {
+    if (pr.from === "enemy") return pr.srcKind === "ranged" ? "skeleton_arrow" : null;
+    if (pr.school === "magic") return null;
+    const owner = state.players.find((p) => p.id === pr.ownerId);
+    return owner && weaponClassOf(owner.equipment.weapon) === "ballistic" ? "weapon_arrow_a" : null;
+  }
+
+  /** FX that live inside a monster's tell: the spitter's thorn arcs toward its
+   * committed splash point, the bomber hoists its bomb overhead. Both vanish
+   * the moment the windup resolves or is interrupted; damage never lives here. */
+  private updateWindupFx(state: GameState): void {
+    const seen = new Set<number>();
+    for (const m of state.monsters) {
+      const total = m.windupTotal ?? 0;
+      if (!m.windupKind || m.windup === undefined || total <= 0) continue;
+      const k = Math.min(1, Math.max(0, 1 - m.windup / total)); // 0 at commit -> 1 at resolve
+      if (m.windupKind === "spit" && m.spitTarget) {
+        const fx = this.windupFxFor(m.id, "plant_warrior_arrow", 0.8);
+        if (fx) {
+          seen.add(m.id);
+          const x = m.pos.x + (m.spitTarget.x - m.pos.x) * k;
+          const z = m.pos.y + (m.spitTarget.y - m.pos.y) * k;
+          fx.position.set(x, 0.9 + Math.sin(k * Math.PI) * 1.1, z);
+          fx.rotation.y = Math.atan2(m.spitTarget.x - m.pos.x, m.spitTarget.y - m.pos.y);
+          (fx.children[0] as THREE.Object3D).rotation.x = Math.PI / 2 + (k - 0.5) * 1.1; // nose over the arc
+          fx.visible = true;
+        }
+      } else if (m.windupKind === "fuse") {
+        const fx = this.windupFxFor(m.id, "clown_bomb", 0.5);
+        if (fx) {
+          seen.add(m.id);
+          fx.position.set(m.pos.x, 1.9 + 0.1 * Math.sin(k * 24), m.pos.y);
+          fx.rotation.y = k * 9; // frantic little spin as the fuse runs down
+          fx.visible = true;
+        }
+      }
+    }
+    for (const [id, fx] of this.windupFx) {
+      if (!seen.has(id)) { this.scene.remove(fx); this.windupFx.delete(id); }
+    }
+  }
+
+  /** Get-or-build the windup FX group for a monster; null if the model pack
+   * is absent (the telegraph ring still tells the story on its own). */
+  private windupFxFor(monsterId: number, key: string, scale: number): THREE.Group | null {
+    let fx = this.windupFx.get(monsterId) ?? null;
+    if (!fx) {
+      const model = this.modelInstance(key);
+      if (!model) return null;
+      model.scale.setScalar(scale);
+      fx = new THREE.Group();
+      fx.add(model);
+      this.scene.add(fx);
+      this.windupFx.set(monsterId, fx);
+    }
+    return fx;
+  }
+
+  /** Orbit blade: a real knife (the Fantasy Weapons dagger) laid flat so the
+   * yaw set each frame noses it along its orbit; gem fallback if no model. */
+  private buildOrbitBlade(): THREE.Group {
+    const group = new THREE.Group();
+    const dagger = this.models["weapon_dagger_a"]?.scene.clone(true);
+    if (dagger) {
+      dagger.traverse((c) => {
+        const mesh = c as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        // Emissive tint on CLONED materials (the source scene keeps its own).
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0x2f7d99);
+        mat.emissiveIntensity = 0.7;
+        mesh.material = mat;
+      });
+      dagger.rotation.x = Math.PI / 2; // grip-up rest pose -> blade forward (+Z)
+      dagger.scale.setScalar(0.7);
+      group.add(dagger);
+    } else {
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.16, 0),
+        flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
+      );
+      gem.castShadow = true;
+      group.add(gem);
+    }
+    return group;
+  }
+
+  private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
     for (const p of state.players) {
       // Orbit blades: reconcile each player's pool with their learned blade count.
@@ -1365,11 +1466,7 @@ export class Renderer3D {
       let blades = this.orbitBlades.get(p.id);
       if (!blades) { blades = []; this.orbitBlades.set(p.id, blades); }
       while (blades.length < want) {
-        const blade = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.16, 0),
-          flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
-        );
-        blade.castShadow = true;
+        const blade = this.buildOrbitBlade();
         this.scene.add(blade);
         blades.push(blade);
       }
@@ -1379,7 +1476,8 @@ export class Renderer3D {
           // Shared with the sim's hit test (incl. Corkscrew spiral radii).
           const bp = orbitBladePos(p, i);
           blades[i].position.set(bp.x, 0.75, bp.y);
-          blades[i].rotation.y += dt * 10;
+          // Nose along the direction of travel (tangent to the ring).
+          blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
         }
       }
       // Nova ring: expands over the flash window, fading out.
@@ -1703,13 +1801,97 @@ export class Renderer3D {
       }
       ring.position.set(hz.pos.x, 0.06, hz.pos.y);
       ring.scale.setScalar(hz.radius);
+      const urgency = 1 - hz.t / Math.max(hz.total, 1e-3);
       (ring.material as THREE.MeshBasicMaterial).opacity = puddle
         ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
-        : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+        : 0.3 + 0.6 * urgency;
       ring.visible = inVision(hz.pos);
+      // Blast hazards get a ticking bomb at the epicenter (clown ordnance —
+      // the System loves its clowns); the ring alone stays the fallback.
+      if (!puddle) {
+        let bomb = this.hazardBombs.get(hz.id);
+        if (!bomb) {
+          const model = this.modelInstance("clown_bomb");
+          if (model) {
+            bomb = new THREE.Group();
+            model.scale.setScalar(0.55);
+            bomb.add(model);
+            this.scene.add(bomb);
+            this.hazardBombs.set(hz.id, bomb);
+          }
+        }
+        if (bomb) {
+          // Ticking wobble that accelerates toward the boom.
+          bomb.position.set(hz.pos.x, 0, hz.pos.y);
+          bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          bomb.visible = ring.visible;
+        }
+      }
     }
     for (const [id, ring] of this.hazardRings) {
       if (!hazSeen.has(id)) { this.scene.remove(ring); this.hazardRings.delete(id); }
+    }
+    for (const [id, bomb] of this.hazardBombs) {
+      if (!hazSeen.has(id)) { this.scene.remove(bomb); this.hazardBombs.delete(id); }
+    }
+
+    // Windup-bound FX: the spitter's lobbed thorn and the bomber's held bomb
+    // exist only while the tell runs — pure presentation over sim windup state.
+    this.updateWindupFx(state);
+
+    // Party pings: an expanding gold pulse on the marked spot. The pulse cycle
+    // derives from the ping's remaining life (sim time), so replays match.
+    // Pings pierce the fog on purpose — "over THERE" must work unseen.
+    const pingSeen = new Set<number>();
+    for (const pg of state.pings) {
+      pingSeen.add(pg.id);
+      let ring = this.pingRings.get(pg.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.72, 1, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd23e, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.pingRings.set(pg.id, ring);
+      }
+      const cycle = 1 - ((pg.t * 1.6) % 1); // 0 -> 1 expanding pulse
+      ring.position.set(pg.pos.x, 0.07, pg.pos.y);
+      ring.scale.setScalar(0.35 + cycle * 0.85);
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        (0.85 - cycle * 0.55) * Math.min(1, pg.t / 1.2); // and fades as it dies
+    }
+    for (const [id, ring] of this.pingRings) {
+      if (!pingSeen.has(id)) { this.scene.remove(ring); this.pingRings.delete(id); }
+    }
+
+    // Revive channel: a green ring tightening around a downed crawler as a
+    // teammate stabilizes them (radius shows the stand-here zone).
+    const revSeen = new Set<number>();
+    for (const pl of state.players) {
+      if (pl.alive || pl.reviveProgress <= 0) continue;
+      revSeen.add(pl.id);
+      let ring = this.reviveRings.get(pl.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.78, 0.95, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0x5fd08a, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.reviveRings.set(pl.id, ring);
+      }
+      ring.position.set(pl.pos.x, 0.07, pl.pos.y);
+      ring.scale.setScalar(CONFIG.reviveRadius * (1.05 - pl.reviveProgress * 0.55));
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.55 * pl.reviveProgress;
+      ring.visible = inVision(pl.pos);
+    }
+    for (const [id, ring] of this.reviveRings) {
+      if (!revSeen.has(id)) { this.scene.remove(ring); this.reviveRings.delete(id); }
     }
 
     // Projectiles: reconcile a mesh pool by id.
@@ -1722,17 +1904,29 @@ export class Renderer3D {
         const color = pr.from !== "player" ? THEME.projectileEnemy
           : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
-        const core = new THREE.Mesh(
-          new THREE.SphereGeometry(0.11, 8, 8),
-          flat(color, { emissive: color, emissiveIntensity: 1.4 }),
-        );
-        group.add(core, this.makeGlow(color, 0.85));
+        // Ammo with a real mesh flies as that mesh (arrows nose along their
+        // velocity); magic and everything unmodeled stays the classic glow orb.
+        const key = this.projectileModelKey(pr, state);
+        const model = key ? this.modelInstance(key) : null;
+        if (model) {
+          model.rotation.x = Math.PI / 2; // rest pose points up -> nose forward (+Z)
+          model.scale.setScalar(0.9);
+          group.add(model, this.makeGlow(color, 0.5));
+          group.userData.aim = true;
+        } else {
+          const core = new THREE.Mesh(
+            new THREE.SphereGeometry(0.11, 8, 8),
+            flat(color, { emissive: color, emissiveIntensity: 1.4 }),
+          );
+          group.add(core, this.makeGlow(color, 0.85));
+        }
         group.userData.color = color;
         group.userData.lastTrail = 0;
         mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
+      if (mesh.userData.aim) mesh.rotation.y = Math.atan2(pr.vel.x, pr.vel.y);
       mesh.visible = inVision(pr.pos);
       // Comet trail: a fading glow puff every few ms of flight.
       mesh.userData.lastTrail += dt;
@@ -1783,7 +1977,7 @@ export class Renderer3D {
 
     this.updateParticles(dt);
     this.updateDying(dt);
-    this.updateAbilityFx(state, dt);
+    this.updateAbilityFx(state);
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
