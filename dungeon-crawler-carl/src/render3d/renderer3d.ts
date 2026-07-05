@@ -1423,7 +1423,9 @@ export class Renderer3D {
           const z = m.pos.y + (m.spitTarget.y - m.pos.y) * k;
           fx.position.set(x, 0.9 + Math.sin(k * Math.PI) * 1.1, z);
           fx.rotation.y = Math.atan2(m.spitTarget.x - m.pos.x, m.spitTarget.y - m.pos.y);
-          (fx.children[0] as THREE.Object3D).rotation.x = Math.PI / 2 + (k - 0.5) * 1.1; // nose over the arc
+          // The thorn's rest pose already lies nose-forward (+Z); just pitch
+          // it over the arc as it flies.
+          (fx.children[0] as THREE.Object3D).rotation.x = (k - 0.5) * 1.1;
           fx.visible = true;
         }
       } else if (m.windupKind === "fuse") {
@@ -1948,9 +1950,12 @@ export class Renderer3D {
         const key = this.projectileModelKey(pr, state);
         const model = key ? this.modelInstance(key) : null;
         if (model) {
-          model.rotation.x = Math.PI / 2; // rest pose points up -> nose forward (+Z)
+          // Normalize each mesh's rest pose to nose-forward (+Z): the skeleton
+          // arrow is modeled along Y tip-down; the fletched arrows already lie
+          // along +Z. (Measured from the glTF vertex data — don't guess.)
+          if (key === "skeleton_arrow") model.rotation.x = -Math.PI / 2;
           model.scale.setScalar(0.9);
-          group.add(model, this.makeGlow(color, 0.5));
+          group.add(model); // no glow billboard — the mesh IS the projectile
           group.userData.aim = true;
         } else {
           const core = new THREE.Mesh(
@@ -1967,9 +1972,10 @@ export class Renderer3D {
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
       if (mesh.userData.aim) mesh.rotation.y = Math.atan2(pr.vel.x, pr.vel.y);
       mesh.visible = inVision(pr.pos);
-      // Comet trail: a fading glow puff every few ms of flight.
+      // Comet trail: a fading glow puff every few ms of flight (orbs only —
+      // arrows read as arrows, not comets).
       mesh.userData.lastTrail += dt;
-      if (mesh.visible && mesh.userData.lastTrail > 0.035) {
+      if (mesh.visible && !mesh.userData.aim && mesh.userData.lastTrail > 0.035) {
         mesh.userData.lastTrail = 0;
         this.spawnGlow(mesh.position.x, mesh.position.y, mesh.position.z, mesh.userData.color, 0.5, 0.22, -0.8);
       }
