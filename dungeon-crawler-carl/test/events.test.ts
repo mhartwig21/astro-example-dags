@@ -140,8 +140,10 @@ describe("floor events: timed vault", () => {
     expect(ev.doors.length).toBeGreaterThan(0);
     for (const i of ev.doors) expect(g.map.tiles[i]).toBe(Tile.DoorLocked);
 
-    // Walk up to the doors: the vault springs open.
-    g.monsters = [];
+    // Walk up to the doors: the vault springs open. Keep the key carrier —
+    // deleting it makes the locked-door self-heal audit (correctly) waive the
+    // stairs doors, which double-bumps mapVersion and muddies this assert.
+    g.monsters = g.monsters.filter((m) => m.hasKey);
     const p = g.players[0];
     p.pos = { x: room.x - 1.5, y: room.y + room.h / 2 };
     const v0 = g.mapVersion;

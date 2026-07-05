@@ -1744,6 +1744,58 @@ describe("brute Ground Slam + boss kit escalation", () => {
   });
 });
 
+describe("locked-door self-healing (auditKeyReachability)", () => {
+  // The runtime backstop behind the spawn-time carrier guard and swept
+  // movement: if ANY vector — present or future — makes the stairs key
+  // unreachable (or seals a crawler in), the System concedes the door within
+  // one audit interval instead of ending the run.
+
+  /** A locked floor with a living key carrier, deterministically. */
+  function lockedGame(): { g: GameState; carrier: import("../src/sim/types").Monster } {
+    for (let seed = 1; seed <= 30; seed++) {
+      const g = createTestGame({ seed, floor: 10, level: 20, gear: false });
+      const carrier = g.monsters.find((m) => m.hasKey);
+      if (g.map.locked && carrier) return { g, carrier };
+    }
+    throw new Error("no locked floor with a carrier found in 30 seeds");
+  }
+
+  const stepSeconds = (g: GameState, secs: number): string[] => {
+    const lines: string[] = [];
+    for (let i = 0; i < secs * 60; i++) {
+      step(g, idle(), 1 / 60);
+      for (const a of g.announcements) lines.push(a.text);
+    }
+    return lines;
+  };
+
+  it("concedes the door when the key carrier ends up sealed in with the stairs", () => {
+    const { g, carrier } = lockedGame();
+    const room = g.map.rooms[g.map.lockedRoomIdx];
+    carrier.pos = { x: room.x + room.w / 2, y: room.y + room.h / 2 }; // forced violation
+    carrier.dormant = false;
+    const lines = stepSeconds(g, 4); // > one audit interval
+    expect(g.map.locked).toBe(false);
+    expect(g.map.tiles.includes(Tile.DoorLocked)).toBe(false);
+    expect(lines.some((t) => t.includes("CONCEDES"))).toBe(true);
+  });
+
+  it("waives the door when the key vanishes outright", () => {
+    const { g, carrier } = lockedGame();
+    g.monsters = g.monsters.filter((m) => m !== carrier); // key gone, no loot
+    const lines = stepSeconds(g, 4);
+    expect(g.map.locked).toBe(false);
+    expect(lines.some((t) => t.includes("WAIVES"))).toBe(true);
+  });
+
+  it("never fires on a lawful locked floor (no false positives)", () => {
+    const { g } = lockedGame();
+    stepSeconds(g, 4);
+    expect(g.map.locked).toBe(true);
+    expect(g.map.tiles.includes(Tile.DoorLocked)).toBe(true);
+  });
+});
+
 describe("swept movement — nothing tunnels through thin walls or door rings", () => {
   // moveWithCollision used to check only each axis ENDPOINT, so any single call
   // longer than a tile (phantom blink 3.0, cataclysm knockback 2.5) tunneled
