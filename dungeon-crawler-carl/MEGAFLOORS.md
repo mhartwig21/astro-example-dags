@@ -1,10 +1,16 @@
-# Megafloors — research: 8-9× floors, settlements, roaming mobs, scarce stairs
+# Megafloors — research: much larger floors, settlements, roaming mobs, scarce stairs
 
-Research for the "what if each level were 8-9× larger" direction: more bosses,
+Research for the "what if each level were much larger" direction: more bosses,
 settlements, roaming mobs, multiple stairways that get scarcer with depth (as
 in the *Dungeon Crawler Carl* books), without generating unbeatable floors.
 Verdict up front: **feasible, in phases, with three real engineering walls and
 one hard design guarantee we can enforce at generation time.**
+
+**Design ruling (2026-07-05): no floor budget over 4:00, and never fewer than
+two stairways.** The maps size to the clock, not the clock to the maps — that
+caps practical floor area at ~5× today's (160²), which is still a dramatic
+jump from 72². The original 8-9×/single-stair exploration is kept below as a
+rejected variant for the record.
 
 ## Where we are (measured, 2026-07-05)
 
@@ -51,14 +57,29 @@ Grid size and stairway count per band — early floors stay close to today (the
 balance suite and new-player readability survive untouched), deep floors go
 big and lonely:
 
-| Band | Floors | Grid | Area vs today | Stairways | Feel |
-|---|---|---|---|---|---|
-| Undercroft | 1-3 | 80² | 1.2× | 4 | orientation; stairs everywhere |
-| Sewers | 4-6 | 104² | 2.1× | 3 | comfortable |
-| Garden | 7-9 | 128² | 3.2× | 3 | first "this is big" moment |
-| Ruins | 10-12 | 152² | 4.5× | 2 | choose your exit carefully |
-| Ironworks | 13-15 | 184² | 6.5× | 2 | expeditions, not sprints |
-| Approach | 16-18 | 216² | 9× | 1 | the long hunt for the way down |
+Sized to the 4-minute ceiling (see the budget table below — each band's
+realistic find-the-stairs + fight cost must fit its budget with margin):
+
+| Band | Floors | Grid | Area vs today | Stairways | Budget (band start, +5s/floor) | Feel |
+|---|---|---|---|---|---|---|
+| Undercroft | 1-3 | 80² | 1.2× | 4 | 2:00 | orientation; stairs everywhere |
+| Sewers | 4-6 | 96² | 1.8× | 3 | 2:30 | comfortable |
+| Garden | 7-9 | 112² | 2.4× | 3 | 2:50 | first "this is big" moment |
+| Ruins | 10-12 | 128² | 3.2× | 2 | 3:10 | choose your exit carefully |
+| Ironworks | 13-15 | 144² | 4× | 2 | 3:25 | expeditions, not sprints |
+| Approach | 16-18 | 160² | 4.9× | 2 | 3:40 → 3:50 | the hunt, capped at 4:00 |
+
+Sanity check on the deepest band: 160² with 2 stairways puts the nearest one
+~70-100 tiles out (~17-24s pure walk, ~45-60s realistic search with wrong
+turns) plus 1:30-2:00 of deep-floor combat ≈ **2:30-3:00 total against a
+3:40-3:50 budget** — pressured but honest, with room for looting or a
+settlement stop. Every floor stays under 4:00; no floor ever has one exit.
+
+*Rejected variant, for the record:* 216²/9× with a single stairway needs
+7-10 minute budgets — great expedition fantasy, but it violates the 4-minute
+ruling and turns floors into sessions. If an "endless expanse" experience is
+ever wanted, it should be a special EVENT floor with its own rules, not the
+baseline.
 
 The System announces the count on entry ("This floor has TWO staircases,
 Crawler. The nearest one is lying about it.") — DCC voice doing UX work.
@@ -71,23 +92,14 @@ placement (the check is microseconds; re-roll is bounded). A floor cannot be
 born impossible. Lock it with a sim test across many seeds — same pattern as
 the corridor-width test.
 
-Timer becomes area-derived:
-`budget = 45s + pathTime(spawn→nearestStairs) × 3 + 8s × regionCount`,
-clamped per band roughly to **2:00 / 3:00 / 4:00 / 5:30 / 7:30 / 10:00**. The
-pressure DCC-style comes from stair *scarcity and distance*, not a stopwatch
-tuned for a 72² map. Collapse phases (SAFE/WARNING/FRENZY) stay proportional.
-
-**Player-facing ramp: "+5s per floor" legibility.** A steady, announceable
-per-floor increase ("the System grants a little more time the deeper you go")
-reads *fair* in a way a formula never will — players can plan around it. So
-the budget should satisfy BOTH: monotonically increasing floor-over-floor
-(roughly +5-10s within a band, with a visible jump at each band boundary as
-the maps grow), AND never below what the area formula demands. Note the
-honest math: a flat +5s/floor alone (120s → ~205s by floor 18) under-prices a
-full 216² floor by minutes — crossing it once costs ~73s — which is exactly
-why the flat ramp is the *perceived* layer and the area-derived clamp is the
-load-bearing one. If P1 lands on gentler map growth (≤3×), a plain
-+5s/floor over today's base is genuinely sufficient by itself.
+**The timer is a simple, announceable ramp under a hard 4:00 ceiling**: band
+start budgets from the table (2:00 → 3:40) **+5s per floor within the band**,
+never exceeding 4:00. Players can plan around a rule the System narrates
+("a little more time, the deeper you crawl; a fresh stipend each district").
+The pressure DCC-style comes from stair *scarcity and distance*, not a
+stopwatch tuned for a 72² map. Collapse phases (SAFE/WARNING/FRENZY) stay
+proportional. The beatability guarantee above is what makes a fixed ceiling
+safe: floors that would need more than the ceiling *cannot generate*.
 
 ### 3. Regions: big floors must be places, not soup
 
@@ -142,16 +154,18 @@ replays/tests are unaffected. Ambush packs (already shipped) sprinkle in.
 
 ## Phasing (each phase ships playable)
 
-**P1 — Deeper means vaster.** Depth-scaled grids (cap ~3× while we learn),
-multi-stairs + stair guardians, area-derived timer + the beatability
-guarantee + seeds test, stairway-count announcements, AI sleep LOD, minimap
-caching, stairs-seeking bot + rewritten balance tests. Monster cap ~180.
+**P1 — Deeper means vaster.** Depth-scaled grids (cap ~2.4×/Garden-size
+while we learn), multi-stairs + stair guardians, the banded +5s/floor timer
+under the 4:00 ceiling + the beatability guarantee + seeds test,
+stairway-count announcements, AI sleep LOD, minimap caching, stairs-seeking
+bot + rewritten balance tests. Monster cap ~180.
 **P2 — Living floors.** Settlements (kiosk/fountain/rumor ping), roaming
-patrol packs, region landmarks, discovered-stairs pinned on the minimap.
-**P3 — Full 9× + multiplayer scale.** 216² deep floors, monster caps by
-area, interest-managed + delta-compressed snapshots (the DEPLOY.md roadmap
-item), and phased regional collapse — outer regions die first, herding
-everything living toward the center. The season finale films itself.
+patrol packs, region landmarks, discovered-stairs pinned on the minimap,
+full band table (deep floors to 160²).
+**P3 — Multiplayer scale + spectacle.** Monster caps by area,
+interest-managed + delta-compressed snapshots (the DEPLOY.md roadmap item),
+and phased regional collapse — outer regions die first, herding everything
+living toward the center. The season finale films itself.
 
 ## Risks & honest costs
 
