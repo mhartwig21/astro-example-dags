@@ -121,14 +121,18 @@ This document describes the full target architecture, then defines the scope of 
   floating damage numbers, particle bursts, and camera shake. Because the crit roll uses the
   same seeded RNG stream, these effects are deterministic and replay identically.
 - **Enemy archetypes** (grunt / swarmer / brute / ranged / boss / bomber / shaman /
-  phantom / charger / spitter / necromancer): stats scale per floor and are modified per
-  archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee chase,
-  ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
+  phantom / charger / spitter / necromancer / broodmother): stats scale per floor and are
+  modified per archetype (see `ARCHETYPES` in config); behavior branches in `ai.ts` (melee
+  chase, ranged kite-and-shoot, bomber contact-fuse, shaman standoff-heal, phantom blink,
   charger locked-lane rush, spitter acid lobs that linger as ticking ground puddles,
   necromancer corpse-raising — deaths leave TTL-capped `GameState.corpses` it consumes —
-  and boss chase + radial volley). The spawn mix shifts toward tougher enemies with
-  depth; specialists unlock by floor (bomber 2+, charger 3+, shaman 4+, spitter 5+,
-  phantom 6+, necromancer 7+).
+  broodmother nest-births (a walking spawner that BIRTHS swarmers on a timer, lifetime-
+  capped + population-guarded, so an ignored pack grows), and boss chase + radial volley).
+  The spawn mix shifts toward tougher enemies with depth; specialists unlock by floor
+  (bomber 2+, charger 3+, shaman 4+, spitter 5+/broodmother 5+, phantom 6+, necromancer 7+).
+- **Depth tempo** (`monsterTempo` in config): past floor 4 monsters get QUICKER, not just
+  fatter — move speed ramps to +35%, attack cooldowns shrink to −35%, telegraph windups
+  shorten to −25% (capped so tells stay readable). Floors 1–3 keep the training pace.
 - **Active skills** — **dash** (blink in facing with brief i-frames, running on **2
   charges** that refill one at a time so dodges weave into offense) and a **ranged bolt**
   on a cooldown. Skills produce intents like everything else, so they port to the server.
