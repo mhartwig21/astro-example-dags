@@ -3,10 +3,14 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { knows, novaParams, orbitParams } from "../sim/abilities";
-import { CONFIG } from "../sim/config";
+import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { weaponClassOf } from "../sim/items";
+import { heroSkin } from "../sim/game";
+import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
+import { FogOfWar } from "./fogOfWar";
+import { AmbientParticles } from "./ambient";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -78,6 +82,10 @@ export class Renderer3D {
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
   // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
   private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
+  // The visible fog bank over unexplored space (drifting planes; see fogOfWar.ts).
+  private fogBank = new FogOfWar();
+  // Band-themed atmosphere (dust/spores/embers/sparks/ash; see ambient.ts).
+  private ambientFx = new AmbientParticles();
   private propEntries: { obj: THREE.Object3D; tile: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
@@ -88,12 +96,25 @@ export class Renderer3D {
   private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
-  private prevPlayers = new Map<number, Vec2>();
-  private prevSwings = new Map<number, number>();
+  // Last-frame combat state per player: the clip machine fires on EDGES
+  // (cooldowns jumping up = a cast; overcharge falling = the spend; etc.).
+  private animPrev = new Map<number, {
+    swing: number; dash: number; alive: boolean; overcharged: boolean;
+    cd: Partial<Record<string, number>>;
+  }>();
+  // Floor-clear celebration edge (monster count > 0 -> 0 while still playing).
+  private prevMonsterCount = -1;
+  private prevStatus = "playing";
   private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
-  private prevMon = new Map<number, Vec2>();
   private prevTime = 0;
-  private shake = 0;
+  // Trauma-based screen shake: hits add trauma (clamped 0..1), the applied
+  // amplitude is trauma SQUARED — chip damage barely whispers, boss slams and
+  // airstrikes kick — and trauma decays linearly so shakes settle fast.
+  private trauma = 0;
+  private static SHAKE_MAX = 0.5; // world-unit amplitude at full trauma
+  private addTrauma(amount: number): void {
+    this.trauma = Math.min(1, this.trauma + amount);
+  }
   private particles: {
     mesh: THREE.Mesh;
     vx: number; vy: number; vz: number; life: number; max: number;
@@ -173,6 +194,8 @@ export class Renderer3D {
     this.scene.add(this.key.target);
 
     this.scene.add(this.floorGroup);
+    this.scene.add(this.fogBank.group);
+    this.scene.add(this.ambientFx.group);
   }
 
   async init(): Promise<void> {
@@ -218,9 +241,15 @@ export class Renderer3D {
   }
 
   /**
-   * Wire an AnimationMixer with idle/walk/attack/death actions (clip names matched
-   * fuzzily so any humanoid pack works). Exposes userData.mixer and
-   * userData.play(name, force?) with crossfading; one-shot actions clamp.
+   * Wire an AnimationMixer over the full KayKit moveset (clip names matched
+   * fuzzily so any humanoid pack works; missing clips simply aren't registered).
+   * Exposes on userData:
+   *   mixer               — for external ticking (corpses)
+   *   play(name, force?)  — crossfade to a clip; one-shots clamp and set `busy`
+   *   playFirst(...names) — play the first name that exists (fallback chains)
+   *   hasClip(name)       — availability probe
+   *   animTick(dt)        — advance mixer + drain the busy timer
+   *   animBusy()          — seconds left of the current one-shot (0 = interruptible)
    */
   private attachClipAnimator(g: THREE.Group, clips: THREE.AnimationClip[]): void {
     const pick = (...res: RegExp[]) => {
@@ -230,35 +259,218 @@ export class Renderer3D {
       }
       return null;
     };
+    // Two clip-name generations coexist: the 1.0 packs baked into characters
+    // ("1H_Melee_Attack_Chop", "Spellcast_Shoot") and the shared rig libraries
+    // ("Melee_1H_Attack_Chop", "Ranged_Magic_Shoot") attached at load time to
+    // the newer animation-less characters. Every pick chains both spellings.
     const found: Record<string, THREE.AnimationClip | null> = {
-      idle: pick(/^idle$/i, /idle/i),
-      walk: pick(/^walk/i, /walk/i, /^run/i, /run/i),
-      attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab/i),
-      hit: pick(/^hit/i, /hit|impact|react/i), // stagger reaction (KayKit ships these)
-      death: pick(/^death/i, /death|die/i),
+      // Locomotion + idles (looping)
+      idle: pick(/^idle$/i, /^idle_a$/i, /^idle/i, /idle/i),
+      idle_brawler: pick(/2H_Melee_Idle/i, /Melee_2H_Idle/i, /Idle_Combat/i), // stance: weapon up
+      idle_deadeye: pick(/1H_Ranged_Aiming/i, /Ranged_1H_Aiming/i), // stance: sighting down the barrel
+      walk: pick(/^walking_a$/i, /^walk/i, /walk/i, /^run/i, /run/i),
+      run: pick(/^running_a$/i, /^run/i),
+      walk_back: pick(/Walking_Backwards/i),
+      strafe_left: pick(/Running_Strafe_Left/i),
+      strafe_right: pick(/Running_Strafe_Right/i),
+      // Attacks (one-shot). melee_a..d cycle as a swing combo.
+      attack: pick(/melee.*attack/i, /attack/i, /slice|chop|stab|slash|slam/i),
+      melee_a: pick(/1H_Melee_Attack_Chop/i, /Melee_1H_Attack_Chop/i, /Melee_1H_Slash/i),
+      melee_b: pick(/1H_Melee_Attack_Slice_Diagonal/i, /Melee_1H_Attack_Slice_Diagonal/i, /Melee_1H_Stab/i),
+      melee_c: pick(/1H_Melee_Attack_Slice_Horizontal/i, /Melee_1H_Attack_Slice_Horizontal/i),
+      melee_d: pick(/1H_Melee_Attack_Stab/i, /Melee_1H_Attack_Stab/i),
+      spin: pick(/2H_Melee_Attack_Spin\b/i, /Melee_2H_Attack_Spin\b/i, /Spinning/i), // overcharged swings
+      shoot: pick(/1H_Ranged_Shoot$/i, /Spellcast_Shoot/i, /Ranged_Magic_Shoot$/i, /Ranged_1H_Shoot$/i, /Ranged_Bow_Release$/i),
+      cast_raise: pick(/Spellcast_Raise/i, /Ranged_Magic_Raise/i), // nova: raise-and-burst
+      cast_long: pick(/Spellcast_Long/i, /Spellcasting/i, /Ranged_Magic_Shooting/i), // overcharge: banking power
+      cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i, /Ranged_Magic_Raise/i), // ultimates: call it down
+      block: pick(/^Block$/i, /^Blocking$/i, /^Melee_Block$/i, /^Melee_Blocking$/i), // stance-swap flourish
+      block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield (both gens contain this)
+      dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
+      throw: pick(/^Throw$/i), // melee-class sidearm bolt
+      spellshoot: pick(/^Spellcast_Shoot$/i, /^Ranged_Magic_Shoot$/i), // arcane bolt (magic missiles)
+      // Reactions + exits (one-shot)
+      hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
+      hit_b: pick(/^Hit_B$/i),
+      death: pick(/^death_a$/i, /^death/i, /death|die/i),
+      death_b: pick(/^Death_B$/i),
+      // Theater (one-shot)
+      awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i, /^Skeletons_Spawn_Ground$/i), // rise on first reveal
+      taunt: pick(/Taunt_Longer/i, /^Taunt$/i, /Skeletons_Taunt$/i), // ringside introductions
+      cheer: pick(/^Cheer/i), // floor clear / victory lap
+    };
+    // Everything except locomotion/idles plays once then yields via the busy timer.
+    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right"]);
+    // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
+    const TARGET: Record<string, number> = {
+      attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
+      spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35,
+      cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
+      block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
     const mixer = new THREE.AnimationMixer(g);
     const actions: Record<string, THREE.AnimationAction> = {};
+    const durations: Record<string, number> = {};
     for (const [name, clip] of Object.entries(found)) {
       if (!clip) continue;
       const a = mixer.clipAction(clip);
-      if (name === "attack" || name === "death") {
+      if (!LOOPING.has(name)) {
         a.setLoop(THREE.LoopOnce, 1);
-        a.clampWhenFinished = true;
-        if (name === "attack") a.timeScale = Math.max(1, clip.duration / 0.3);
+        a.clampWhenFinished = true; // hold the last frame; the next play() resets pose
+        if (TARGET[name]) a.timeScale = Math.max(1, clip.duration / TARGET[name]);
       }
+      durations[name] = clip.duration / (a.timeScale || 1);
       actions[name] = a;
     }
     let current = "";
+    let busy = 0;
     g.userData.mixer = mixer;
-    g.userData.play = (name: string, force = false) => {
+    g.userData.hasClip = (name: string) => !!actions[name];
+    const play = (name: string, force = false) => {
       const next = actions[name];
       if (!next || (current === name && !force)) return;
       const prev = actions[current];
       next.reset().play();
       if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
       current = name;
+      if (!LOOPING.has(name)) busy = durations[name];
     };
+    g.userData.play = play;
+    g.userData.playFirst = (...names: string[]) => {
+      for (const n of names) if (actions[n]) { play(n, true); return; }
+    };
+    g.userData.animTick = (dt: number) => {
+      mixer.update(dt);
+      if (busy > 0) busy = Math.max(0, busy - dt);
+      const hold = g.userData.locoHold as number | undefined;
+      if (hold && hold > 0) g.userData.locoHold = Math.max(0, hold - dt);
+    };
+    g.userData.animBusy = () => busy;
+  }
+
+  /**
+   * Drive a rigged player's clips from sim-state EDGES: a dash starts a dodge,
+   * each swing advances the melee combo (an overcharged spend becomes the spin),
+   * casts map per ability, and locomotion picks run/backpedal/strafe from where
+   * the feet actually go vs where the body faces. One-shots own the rig until
+   * their busy timer drains, so nothing gets stomped mid-swing.
+   */
+  private animateRiggedPlayer(mesh: THREE.Group, pl: Player, plSpeed: number, move: Vec2, dt: number): void {
+    const ud = mesh.userData;
+    const play = ud.play as (n: string, force?: boolean) => void;
+    const playFirst = ud.playFirst as (...n: string[]) => void;
+    const hasClip = ud.hasClip as (n: string) => boolean;
+    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {} };
+    const cds = pl.cd as Partial<Record<string, number>>;
+    const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
+
+    if (!pl.alive) {
+      if (prev.alive) {
+        ud.deathClip = Math.random() < 0.5 && hasClip("death_b") ? "death_b" : "death";
+      }
+      play(ud.deathClip as string ?? "death");
+    } else {
+      if (!prev.alive) play("idle", true); // revived on descent: stand back up
+      const spentCharge = prev.overcharged && !pl.overcharged;
+      if (pl.dashTime > prev.dash + 1e-6) {
+        playFirst("dodge");
+      } else if (pl.attackSwing > prev.swing + 1e-6) {
+        if (spentCharge && hasClip("spin")) {
+          play("spin", true); // the banked swing is a different animal
+        } else {
+          const combo = ["melee_a", "melee_b", "melee_c", "melee_d"].filter(hasClip);
+          if (combo.length > 0) {
+            ud.combo = (((ud.combo as number | undefined) ?? -1) + 1) % combo.length;
+            play(combo[ud.combo as number], true);
+          } else {
+            play("attack", true);
+          }
+        }
+      } else if (cdRose("bolt")) {
+        // The cast matches the weapon: casters conjure, melee crawlers THROW.
+        const wc = weaponClassOf(pl.equipment.weapon);
+        if (wc === "arcane") playFirst("spellshoot", "shoot", "attack");
+        else if (wc === "ballistic" || wc === null) playFirst("shoot", "attack");
+        else playFirst("throw", "shoot", "attack");
+      }
+      else if (cdRose("nova")) playFirst("cast_raise", "attack");
+      else if (cdRose("overcharge")) playFirst("cast_long", "cast_raise");
+      else if (cdRose("stance")) playFirst("block");
+      else if (cdRose("airstrike") || cdRose("cataclysm") || cdRose("bullettime")) playFirst("cast_summon", "cast_raise");
+      else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
+    }
+    this.animPrev.set(pl.id, {
+      swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
+      overcharged: pl.overcharged, cd: { ...cds },
+    });
+    (ud.animTick as (dt: number) => void)(dt);
+  }
+
+  /**
+   * Per-frame velocity of the SMOOTHED mesh, EMA'd over ~100ms (stored on
+   * userData). This is what the eye tracks, it is nonzero on every frame while
+   * moving, and the smoothing means no boundary in the clip machine ever sees
+   * frame-to-frame noise. Teleport-sized samples (floor change, respawn snap)
+   * reset the average instead of polluting it.
+   */
+  private smoothedVel(mesh: THREE.Group, dt: number): Vec2 {
+    const ud = mesh.userData;
+    const ix = ud.lastX === undefined ? 0 : (mesh.position.x - (ud.lastX as number)) / dt;
+    const iz = ud.lastZ === undefined ? 0 : (mesh.position.z - (ud.lastZ as number)) / dt;
+    ud.lastX = mesh.position.x;
+    ud.lastZ = mesh.position.z;
+    if (Math.hypot(ix, iz) > 25) {
+      ud.velX = 0; ud.velZ = 0; // teleport, not movement
+    } else {
+      const k = Math.min(1, dt / 0.1);
+      ud.velX = ((ud.velX as number) ?? 0) + (ix - ((ud.velX as number) ?? 0)) * k;
+      ud.velZ = ((ud.velZ as number) ?? 0) + (iz - ((ud.velZ as number) ?? 0)) * k;
+    }
+    return { x: ud.velX as number, y: ud.velZ as number };
+  }
+
+  /**
+   * Feet vs facing: forward run/walk, backpedal when retreating under aim,
+   * strafes sideways. Every boundary (idle/moving, walk/run, direction) has
+   * hysteresis, and a switched-to clip is held for a beat — a locomotion cycle
+   * that can't complete a stride reads as stutter, not animation.
+   */
+  private playLocomotion(mesh: THREE.Group, pl: Player, speed: number, move: Vec2): void {
+    const ud = mesh.userData;
+    const play = ud.play as (n: string, force?: boolean) => void;
+    const hasClip = ud.hasClip as (n: string) => boolean;
+    ud.locoMoving = (ud.locoMoving as boolean) ? speed > 0.5 : speed > 0.9;
+    let target: string;
+    if (!ud.locoMoving) {
+      // Idle broadcasts the stance: Brawler squares up, Deadeye sights the lane.
+      target = pl.abilities.slots.includes("stance")
+        ? (pl.stance === "melee" ? "idle_brawler" : "idle_deadeye")
+        : "idle";
+      if (!hasClip(target)) target = "idle";
+    } else {
+      const mx = move.x / speed, my = move.y / speed;
+      const forward = mx * pl.facing.x + my * pl.facing.y;
+      const side = pl.facing.x * my - pl.facing.y * mx; // >0: drifting left of facing
+      // Direction only changes on a CLEAR read; inside the deadband keep the last.
+      let cat = (ud.locoCat as string) ?? "fwd";
+      if (forward > 0.65) cat = "fwd";
+      else if (forward < -0.65) cat = "back";
+      else if (Math.abs(side) > 0.75) cat = side > 0 ? "left" : "right";
+      ud.locoCat = cat;
+      ud.locoRun = (ud.locoRun as boolean) ? speed > 2.6 : speed > 3.4;
+      target =
+        cat === "back" ? "walk_back" :
+        cat === "left" ? "strafe_left" :
+        cat === "right" ? "strafe_right" :
+        ud.locoRun ? "run" : "walk";
+      if (!hasClip(target)) target = "walk";
+    }
+    if (target !== ud.locoClip) {
+      if (((ud.locoHold as number) ?? 0) > 0) return; // let the current cycle breathe
+      ud.locoClip = target;
+      ud.locoHold = 0.25;
+    }
+    play(target);
   }
 
   private raycaster = new THREE.Raycaster();
@@ -290,13 +502,25 @@ export class Renderer3D {
 
   // ---- Procedural meshes (placeholders for CC0 glTF art) ----
 
-  private buildPlayerMesh(): THREE.Group {
-    const model = this.modelInstance("player");
+  // Hero skins (heroSkin in sim/game.ts): model key per skin id. Barbarian/
+  // mage/rogue ride the armory_* GLBs (the 1.0 adventurers that also source
+  // weapon meshes) — monsters wear the newer KayKit cast now, so hero skins
+  // no longer overlap with the menagerie.
+  private static readonly SKIN_MODEL: Record<string, string> = {
+    knight: "player", barbarian: "armory_axes", mage: "armory_arcana",
+    rogue: "armory_knives", hooded: "hero_hooded",
+  };
+
+  private buildPlayerMesh(skin: string): THREE.Group {
+    const model =
+      this.modelInstance(Renderer3D.SKIN_MODEL[skin] ?? "player") ?? this.modelInstance("player");
     if (model) {
       this.normalizeHeight(model, 1.35);
+      model.userData.skinId = skin;
       return model;
     }
     const g = new THREE.Group();
+    g.userData.skinId = skin;
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 4, 8), flat(THEME.player));
     body.position.y = 0.55; body.castShadow = true;
     const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), flat(THEME.playerTrim));
@@ -318,51 +542,53 @@ export class Renderer3D {
    * from the barbarian GLB) are cloned once and grafted onto the handslot.r
    * bone, where they ride the hand through every animation clip.
    */
+  /**
+   * Show one attachment on this rig: the native node if this skin's GLB ships
+   * it, else a cached graft cloned from the source model onto the requested
+   * hand bone. All adventurers share the KayKit rig, so a grafted node's local
+   * transform relative to its own handslot carries over 1:1.
+   */
+  private showAttachment(mesh: THREE.Group, srcKey: string, node: string, hand: "l" | "r"): THREE.Object3D | null {
+    let obj: THREE.Object3D | null =
+      (node !== "*" ? mesh.getObjectByName(node) : null) ?? mesh.getObjectByName(`graft_${srcKey}_${node}`) ?? null;
+    if (!obj) {
+      // node "*": the whole GLB is the weapon (standalone Fantasy Weapons mesh,
+      // grip modeled at origin — same convention as the rigs' handslot children).
+      const srcNode = node === "*" ? this.models[srcKey]?.scene : this.models[srcKey]?.scene.getObjectByName(node);
+      // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
+      const handObj = mesh.getObjectByName(`handslot${hand}`) ?? mesh.getObjectByName(`handslot.${hand}`);
+      if (srcNode && handObj) {
+        obj = srcNode.clone(true);
+        obj.name = `graft_${srcKey}_${node}`;
+        handObj.add(obj);
+        const grafts = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
+        grafts.push(obj);
+        mesh.userData.grafts = grafts;
+      }
+    }
+    if (obj) obj.visible = true;
+    return obj;
+  }
+
   private applyLoadout(mesh: THREE.Group, pl: Player): void {
     const { weapon, shield } = loadoutFor(pl);
     const key = `${weapon.srcKey}/${weapon.node}/${shield ?? "-"}/${pl.equipment.weapon?.rarity ?? "-"}`;
     if (this.loadoutKeys.get(pl.id) === key) return;
     this.loadoutKeys.set(pl.id, key);
 
-    // Hide every known attachment (including previous grafts).
-    for (const name of ATTACHMENT_NODES.player) {
+    // Hide every known attachment across ALL rigs — each skin ships its own
+    // default arsenal, and a barbarian's axe must not photobomb your Blade —
+    // plus any previous grafts.
+    for (const name of Object.values(ATTACHMENT_NODES).flat()) {
       const node = mesh.getObjectByName(name);
       if (node) node.visible = false;
     }
-    const grafts: THREE.Object3D[] = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
-    for (const g of grafts) g.visible = false;
+    for (const g of (mesh.userData.grafts as THREE.Object3D[]) ?? []) g.visible = false;
 
-    // Shield (armor slot), unless the weapon needs both hands.
-    if (shield) {
-      const node = mesh.getObjectByName(shield);
-      if (node) node.visible = true;
-    }
-
-    // Weapon: native node or a cached cross-model graft.
-    let weaponObj: THREE.Object3D | null = null;
-    if (weapon.srcKey === "player") {
-      weaponObj = mesh.getObjectByName(weapon.node) ?? null;
-      if (weaponObj) weaponObj.visible = true;
-    } else {
-      const graftName = `graft_${weapon.srcKey}_${weapon.node}`;
-      weaponObj = mesh.getObjectByName(graftName) ?? null;
-      if (!weaponObj) {
-        const srcModel = this.models[weapon.srcKey];
-        const srcNode = srcModel?.scene.getObjectByName(weapon.node);
-        // GLTFLoader sanitizes node names ("handslot.r" -> "handslotr").
-        const hand = mesh.getObjectByName("handslotr") ?? mesh.getObjectByName("handslot.r");
-        if (srcNode && hand) {
-          weaponObj = srcNode.clone(true);
-          weaponObj.name = graftName;
-          // Same rig family: the node's local transform relative to its own
-          // handslot carries over 1:1.
-          hand.add(weaponObj);
-          grafts.push(weaponObj);
-          mesh.userData.grafts = grafts;
-        }
-      }
-      if (weaponObj) weaponObj.visible = true;
-    }
+    // Shield (armor slot) rides the off hand, unless the weapon needs both.
+    if (shield) this.showAttachment(mesh, "player", shield, "l");
+    // Weapon: native to this skin's rig, or a cached cross-model graft.
+    const weaponObj = this.showAttachment(mesh, weapon.srcKey, weapon.node, "r");
 
     // Rarity flair: emissive tint on the weapon's materials.
     if (weaponObj) {
@@ -383,10 +609,12 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number): THREE.Group {
     const spec = THEME.archetype[kind];
-    // Prefer an archetype-specific model, then the generic skeleton/monster.
+    // Prefer a floor-named menace (city bosses + the finale), then the
+    // archetype-specific model, then the generic skeleton/monster.
     const model =
+      (kind === "boss" ? this.modelInstance(`monster_boss_${floor}`) : null) ??
       this.modelInstance(`monster_${kind}`) ??
       this.modelInstance("skeleton") ??
       this.modelInstance("monster");
@@ -436,11 +664,13 @@ export class Renderer3D {
       obj = this.modelInstance("key");
       scale = 0.6;
     } else if (l.kind === "tome") {
-      const book = this.models["monster_shaman"]?.scene.getObjectByName("Spellbook");
+      const book = this.models["armory_arcana"]?.scene.getObjectByName("Spellbook");
       if (book) { obj = book.clone(true); scale = 0.8; }
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
-      const node = vis ? this.models[vis.srcKey]?.scene.getObjectByName(vis.node) : null;
+      const node = vis
+        ? (vis.node === "*" ? this.models[vis.srcKey]?.scene : this.models[vis.srcKey]?.scene.getObjectByName(vis.node))
+        : null;
       if (node) {
         obj = node.clone(true);
         scale = 0.8;
@@ -666,6 +896,8 @@ export class Renderer3D {
       }
     }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
+    this.fogBank.rebuild(map, theme);
+    this.ambientFx.rebuild(floorBand(state.floor), state.players[0]?.pos.x ?? map.w / 2, state.players[0]?.pos.y ?? map.h / 2);
 
     // Stairs: the theme's glTF model when present, else a glowing stepped block.
     const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
@@ -707,7 +939,8 @@ export class Renderer3D {
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
       const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
-      obj.scale.multiplyScalar((opts.scale ?? 0.55 + frng() * 0.2) / fp);
+      const themed = theme.propScale?.[key];
+      obj.scale.multiplyScalar((opts.scale ?? (themed ? themed * (0.85 + frng() * 0.3) : 0.55 + frng() * 0.2)) / fp);
       const scaled = new THREE.Box3().setFromObject(obj);
       const j = opts.jitter ?? 0.25;
       obj.position.set(
@@ -741,22 +974,29 @@ export class Renderer3D {
     }
     this.addTorches(theme, torchAnchors, 0.85 + frng() * 0.3);
 
-    // 2) Banners flanking locked doors (a gate should look like a gate).
+    // 2) Theme props flanking locked doors (a gate should look like a gate) —
+    //    banners in the stone districts, standing lanterns in the Garden.
     let banners = 0;
     for (let i = 0; i < map.tiles.length && banners < 6; i++) {
       if (map.tiles[i] !== Tile.DoorLocked) continue;
       const x = (i % map.w) + 0.5, y = Math.floor(i / map.w) + 0.5;
       for (const [dx, dy] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]] as const) {
-        if (place("banner_red", x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
+        if (place(theme.doorFlankKey, x + dx, y + dy, { scale: 0.8, rot: Math.atan2(-dx, -dy), jitter: 0 })) {
           banners++;
           break;
         }
       }
     }
 
-    // 3) Corner clutter clusters (2 corners per room, 1-2 theme props each).
+    // 3) Corner clutter clusters (2 corners per room, 1-2 props each). The pool
+    //    is role-keyed: the landmark hall clutters with its own set-dressing,
+    //    the entrance gets a soft camp, everything else uses the band props.
     for (let ri = 0; ri < map.rooms.length; ri++) {
-      if (map.roles[ri] === "entrance") continue;
+      const role = map.roles[ri];
+      const pool = role === "entrance" ? theme.entranceProps
+        : role === "landmark" ? theme.landmark.props
+        : theme.props;
+      if (pool.length === 0) continue;
       const r = map.rooms[ri];
       const corners: Vec2[] = [
         { x: r.x + 1.2, y: r.y + 1.2 }, { x: r.x + r.w - 1.2, y: r.y + 1.2 },
@@ -767,40 +1007,61 @@ export class Renderer3D {
         const corner = corners[(start + c * 2) % 4];
         const n = 1 + Math.floor(frng() * 2);
         for (let k = 0; k < n; k++) {
-          const key = theme.props[Math.floor(frng() * theme.props.length)];
+          const key = pool[Math.floor(frng() * pool.length)];
           place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
         }
       }
     }
 
-    // 4) LANDMARK hall: a pillar colonnade + a centered altar.
+    // 4) LANDMARK hall: a colonnade + centered set-piece, both band-flavored
+    //    (library table in the Undercroft, crypt among dead trees in the Garden,
+    //    war monument on the Approach — see FLOOR_THEMES.landmark).
     const landmarkIdx = map.roles.indexOf("landmark");
     if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
+      const lm = theme.landmark;
       for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
         for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
           // Colonnade along the room edges of the interior grid, not the middle.
           if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
-          place("pillar_decorated", px + 0.5, py + 0.5, { scale: 0.9, rot: 0, jitter: 0 });
+          place(lm.pillarKey, px + 0.5, py + 0.5, { scale: lm.pillarScale, rot: 0, jitter: 0 });
         }
       }
-      // Centerpiece: a fallen warrior monument (table_small_decorated_A is out —
-      // its model has candles baked in, and candles are banned from the floors).
-      place("sword_shield_broken", r.x + r.w / 2, r.y + r.h / 2, { scale: 0.9, rot: 0, jitter: 0 });
+      // Centerpiece note: table_small_decorated_A stays out — its model has
+      // candles baked in, and candles are banned from the floors.
+      place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
     }
 
-    // 5) VAULT: the hoard around the guardian's treasure.
+    // 5) VAULT: the hoard around the guardian's treasure. One vault in four
+    //    keeps its gold in a MIMIC — cosmetic foreshadowing only, the sim
+    //    doesn't know; it just reads as "this dungeon bites."
     const vaultIdx = map.roles.indexOf("vault");
     if (vaultIdx >= 0) {
       const r = map.rooms[vaultIdx];
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      place("chest_gold", cx, cy + 1, { scale: 0.7, rot: Math.PI, jitter: 0 });
-      place("coin_stack_large", cx - 1, cy, { scale: 0.4 });
-      place("coin_stack_medium", cx + 1, cy - 0.5, { scale: 0.35 });
-      place("coin_stack_small", cx + 0.5, cy + 0.2, { scale: 0.3 });
+      const chestKey = frng() < 0.25 ? "chest_mimic" : "chest_large_gold";
+      if (!place(chestKey, cx, cy + 1, { scale: 0.85, rot: Math.PI, jitter: 0 })) {
+        place("chest_gold", cx, cy + 1, { scale: 0.7, rot: Math.PI, jitter: 0 });
+      }
+      place("gems_pile_large", cx - 1.2, cy, { scale: 0.6 });
+      place("gold_bars_stack_medium", cx + 1.2, cy - 0.4, { scale: 0.5 });
+      place("money_pile_medium", cx + 0.5, cy + 0.4, { scale: 0.5 });
+      place("coin_stack_large", cx - 0.5, cy - 0.8, { scale: 0.4 });
+      place("gems_chest", cx - 1.6, cy + 1.2, { scale: 0.6 });
     }
 
-    // 6) A light sprinkle of theme props elsewhere for texture (much sparser
+    // 6) Boss arenas are summoning sites: a ritual circle under the menace
+    //    marks where the System put it down. The finale's is DemonLord-sized.
+    const boss = state.monsters.find((mo) => mo.kind === "boss");
+    if (boss) {
+      place("summoning_circle", boss.pos.x, boss.pos.y, {
+        scale: state.floor >= CONFIG.finalFloor ? 3.2 : 2.0,
+        rot: 0,
+        jitter: 0,
+      });
+    }
+
+    // 7) A light sprinkle of theme props elsewhere for texture (much sparser
     //    than before — the intentional placements carry the look now).
     const density = theme.propDensity * 0.35 * (0.6 + frng() * 0.9);
     for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
@@ -870,6 +1131,7 @@ export class Renderer3D {
     if (strikes.length < this.prevStrikeCount) {
       for (const pos of this.prevStrikePos.slice(strikes.length)) {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+        this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
     this.prevStrikeCount = strikes.length;
@@ -912,8 +1174,9 @@ export class Renderer3D {
       while (blades.length > want) this.scene.remove(blades.pop()!);
       if (op) {
         for (let i = 0; i < blades.length; i++) {
-          const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
-          blades[i].position.set(p.pos.x + Math.cos(a) * op.radius, 0.75, p.pos.y + Math.sin(a) * op.radius);
+          // Shared with the sim's hit test (incl. Corkscrew spiral radii).
+          const bp = orbitBladePos(p, i);
+          blades[i].position.set(bp.x, 0.75, bp.y);
           blades[i].rotation.y += dt * 10;
         }
       }
@@ -931,7 +1194,10 @@ export class Renderer3D {
         }
         const np = novaParams(p);
         const prog = 1 - p.novaFlash / 0.3;
-        if (!ring.visible) this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
+        if (!ring.visible) {
+          this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
+          this.addTrauma(0.3);
+        }
         ring.visible = true;
         ring.position.set(p.pos.x, 0.15, p.pos.y);
         ring.scale.setScalar(Math.max(0.05, np.radius * prog));
@@ -957,9 +1223,11 @@ export class Renderer3D {
     if (state.exploredVersion !== this.lastExploredVersion) {
       this.lastExploredVersion = state.exploredVersion;
       this.applyFog(state);
+      this.fogBank.setExplored(state);
     }
     const dt = this.prevTime ? Math.min(0.1, time - this.prevTime) : 1 / 60;
     this.prevTime = time;
+    this.fogBank.update(dt, time);
 
     // The camera/light anchor: the local player (fall back to the first).
     const p = state.players.find((pl) => pl.id === this.localPlayerId) ?? state.players[0];
@@ -969,34 +1237,41 @@ export class Renderer3D {
     const pSeen = new Set<number>();
     for (const pl of state.players) {
       pSeen.add(pl.id);
+      // Hero skin: derived from (seed, player id) — a fresh adventurer every
+      // run. A seed change (new game, restore) rebuilds the body + regrafts.
+      const skin = heroSkin(state.seed, pl.id);
       let mesh = this.playerMeshes.get(pl.id);
-      if (!mesh) { mesh = this.buildPlayerMesh(); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
-      const prev = this.prevPlayers.get(pl.id) ?? pl.pos;
-      const plSpeed = Math.hypot(pl.pos.x - prev.x, pl.pos.y - prev.y) / dt;
-      this.prevPlayers.set(pl.id, { x: pl.pos.x, y: pl.pos.y });
+      if (mesh && mesh.userData.skinId !== skin) {
+        this.scene.remove(mesh);
+        this.playerMeshes.delete(pl.id);
+        this.loadoutKeys.delete(pl.id);
+        mesh = undefined;
+      }
+      if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
-      const prevSwing = this.prevSwings.get(pl.id) ?? 0;
+      // Animation velocity comes from the SMOOTHED mesh (which moves every
+      // frame), EMA'd over ~100ms. Raw sim deltas are ZERO on render frames
+      // between 60Hz sim steps (and between 15Hz net snapshots), so speed read
+      // as 0 / 2x / 0 / 2x — flapping idle<->run every frame was THE walk
+      // stutter. Teleports (floor change, respawn) read as absurd speed; skip
+      // those samples instead of smearing them into the average.
+      const move = this.smoothedVel(mesh, dt);
+      const plSpeed = Math.hypot(move.x, move.y);
       if (mesh.userData.mixer) {
         // Real rigged model: drive clips; procedural bob/tip-over would fight them.
-        const play = mesh.userData.play as (n: string, force?: boolean) => void;
-        if (!pl.alive) play("death");
-        else if (pl.attackSwing > prevSwing + 1e-6) play("attack", true);
-        else if (pl.attackSwing <= 0) play(plSpeed > 0.4 ? "walk" : "idle");
-        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+        this.animateRiggedPlayer(mesh, pl, plSpeed, move, dt);
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
-      this.prevSwings.set(pl.id, pl.attackSwing);
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
         this.scene.remove(mesh);
         this.playerMeshes.delete(id);
-        this.prevPlayers.delete(id);
-        this.prevSwings.delete(id);
+        this.animPrev.delete(id);
       }
     }
 
@@ -1017,7 +1292,7 @@ export class Renderer3D {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
       if (!mesh) {
-        mesh = this.buildMonsterMesh(mon.kind);
+        mesh = this.buildMonsterMesh(mon.kind, state.floor);
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
@@ -1029,20 +1304,43 @@ export class Renderer3D {
       }
       mesh.visible = inVision(mon.pos);
       const bs = (mesh.userData.baseScale as number) ?? 1;
-      const prev = this.prevMon.get(mon.id) ?? mon.pos;
-      const mSpeed = Math.hypot(mon.pos.x - prev.x, mon.pos.y - prev.y) / dt;
-      this.prevMon.set(mon.id, { x: mon.pos.x, y: mon.pos.y });
       this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
+      const mVel = this.smoothedVel(mesh, dt);
+      const mSpeed = Math.hypot(mVel.x, mVel.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
       if (mesh.userData.mixer) {
-        // Rigged model: clip by combat state — hit reaction while staggered,
-        // attack clip through the windup, else walk/idle. No squash (it would
-        // deform the skinned mesh instead of reading as a hit).
-        const playM = mesh.userData.play as (n: string, force?: boolean) => void;
-        if (mon.stagger > 0) playM("hit");
-        else if (mon.windup > 0) playM("attack");
-        else playM(mSpeed > 0.2 ? "walk" : "idle");
-        (mesh.userData.mixer as THREE.AnimationMixer).update(dt);
+        // Rigged model: clip by combat state. No squash (it would deform the
+        // skinned mesh instead of reading as a hit).
+        const ud = mesh.userData;
+        const playM = ud.play as (n: string, force?: boolean) => void;
+        const playFirstM = ud.playFirst as (...n: string[]) => void;
+        // Theater: skeletons RISE the first time the fog reveals them, and the
+        // introduced menace performs through its ringside freeze.
+        if (mesh.visible && !ud.revealed) {
+          ud.revealed = true;
+          playFirstM("awaken");
+        }
+        const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        if (state.encounter?.monsterId === mon.id) {
+          // One performance per introduction — playFirst force-restarts, so gate it.
+          if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
+        } else {
+          ud.taunting = false;
+          if (staggerRose) {
+            // Shielded elites soak it on the shield (explains the damage reduction);
+            // everyone else alternates the two hit reactions.
+            if (mon.affix === "shielded") playFirstM("block_hit", "hit");
+            else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
+          } else if (mon.windup > 0) {
+            playM(mon.windupKind === "shot" && (ud.hasClip as (n: string) => boolean)("shoot") ? "shoot" : "attack");
+          } else if ((ud.animBusy as () => number)() <= 0) {
+            // Same hysteresis as players: enter walking decisively, leave lazily.
+            ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
+            playM(ud.locoMoving ? "walk" : "idle");
+          }
+        }
+        ud.prevStagger = mon.stagger;
+        (ud.animTick as (dt: number) => void)(dt);
         mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
         mesh.scale.setScalar(bs);
       } else {
@@ -1070,13 +1368,18 @@ export class Renderer3D {
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
         const radius =
           mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
-          mon.windupKind === "shot" ? 0.5 : mon.attackRange + CONFIG.monsterStrikeGrace;
+          mon.windupKind === "shot" || mon.windupKind === "spit" ? 0.5 :
+          mon.windupKind === "raise" ? 0.7 :
+          mon.windupKind === "charge" ? 0.9 : mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
         const mat = tel.material as THREE.MeshBasicMaterial;
         mat.color.setHex(
           mon.windupKind === "fuse" ? 0xff7733 :
-          mon.windupKind === "shot" ? 0xffcc44 : 0xff5030,
+          mon.windupKind === "shot" ? 0xffcc44 :
+          mon.windupKind === "spit" ? 0xa4c93f :
+          mon.windupKind === "raise" ? 0x8a5cff :
+          mon.windupKind === "charge" ? 0xff9a2e : 0xff5030,
         );
         mat.opacity = 0.2 + prog * 0.65;
         tel.visible = mesh.visible;
@@ -1106,7 +1409,7 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) {
-        this.monsters.delete(id); this.prevMon.delete(id);
+        this.monsters.delete(id);
         const marker = this.keyMarkers.get(id);
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
         const tel = this.telegraphs.get(id);
@@ -1116,22 +1419,44 @@ export class Renderer3D {
           this.scene.remove(mesh);
         } else {
           // Death: let the corpse play out (death clip / tumble) before removal.
+          // Two death clips keep a cleared pack from dying in unison.
           const rigged = !!mesh.userData.mixer;
-          if (rigged) (mesh.userData.play as (n: string, force?: boolean) => void)("death", true);
-          this.dying.push({ mesh, t: 0.7, rigged });
+          if (rigged) {
+            const variant = Math.random() < 0.5 && (mesh.userData.hasClip as (n: string) => boolean)("death_b") ? "death_b" : "death";
+            (mesh.userData.play as (n: string, force?: boolean) => void)(variant, true);
+          }
+          this.dying.push({ mesh, t: rigged ? 1.1 : 0.7, rigged });
         }
       }
     }
 
-    // Volatile-corpse hazards: reconcile blast-telegraph rings by id.
+    // Floor cleared (or run won): the crawlers play to the camera. A rebuild
+    // also empties the count, so gate the edge on NOT having changed floors.
+    const monsterCount = state.monsters.length;
+    const cleared = !rebuilt && this.prevMonsterCount > 0 && monsterCount === 0 && state.status === "playing";
+    const won = state.status === "won" && this.prevStatus !== "won";
+    if (cleared || won) {
+      for (const m of this.playerMeshes.values()) {
+        if (m.userData.playFirst) (m.userData.playFirst as (...n: string[]) => void)("cheer");
+      }
+    }
+    this.prevMonsterCount = monsterCount;
+    this.prevStatus = state.status;
+
+    // Ground hazards, reconciled by id: volatile blasts are rings that brighten
+    // toward detonation; spitter puddles are filled acid pools that fade out.
     const hazSeen = new Set<number>();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
+      const puddle = hz.kind === "puddle";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
-          new THREE.RingGeometry(0.8, 1, 28),
-          new THREE.MeshBasicMaterial({ color: 0xff4628, transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          puddle ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
+          new THREE.MeshBasicMaterial({
+            color: puddle ? 0x7fb832 : 0xff4628,
+            transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
         );
         ring.rotation.x = -Math.PI / 2;
         this.scene.add(ring);
@@ -1139,8 +1464,9 @@ export class Renderer3D {
       }
       ring.position.set(hz.pos.x, 0.06, hz.pos.y);
       ring.scale.setScalar(hz.radius);
-      (ring.material as THREE.MeshBasicMaterial).opacity =
-        0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+      (ring.material as THREE.MeshBasicMaterial).opacity = puddle
+        ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
+        : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
       ring.visible = inVision(hz.pos);
     }
     for (const [id, ring] of this.hazardRings) {
@@ -1153,7 +1479,9 @@ export class Renderer3D {
       projSeen.add(pr.id);
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
-        const color = pr.from === "player" ? THEME.projectilePlayer : THEME.projectileEnemy;
+        // Magic missiles read arcane-violet; physical bolts keep the player hue.
+        const color = pr.from !== "player" ? THEME.projectileEnemy
+          : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
         const core = new THREE.Mesh(
           new THREE.SphereGeometry(0.11, 8, 8),
@@ -1218,10 +1546,11 @@ export class Renderer3D {
     this.updateDying(dt);
     this.updateAbilityFx(state, dt);
 
-    // Camera follows the player from the fixed iso direction, plus decaying shake.
-    this.shake = Math.max(0, this.shake - dt * 2.5);
-    const sx = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
-    const sz = this.shake > 0 ? (Math.random() - 0.5) * this.shake : 0;
+    // Camera follows the player from the fixed iso direction, plus trauma shake.
+    this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
+    const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
+    const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
@@ -1236,6 +1565,9 @@ export class Renderer3D {
     this.camera.lookAt(ax, 0, az);
     this.key.position.set(ax + 8, 20, az + 6);
     this.key.target.position.set(ax, 0, az);
+
+    // Band atmosphere rides in a wrap-around box centered on the player.
+    this.ambientFx.update(ax, az, dt, time);
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
@@ -1285,9 +1617,9 @@ export class Renderer3D {
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
       const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
-      if (h.kind === "player") this.shake = Math.min(0.6, this.shake + 0.35);
-      if (h.kind === "crit") this.shake = Math.min(0.4, this.shake + 0.15);
-      if (h.killed && h.kind !== "player") this.shake = Math.min(0.5, this.shake + 0.12);
+      if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
+      if (h.kind === "crit") this.addTrauma(0.3);
+      if (h.killed && h.kind !== "player") this.addTrauma(0.25);
     }
   }
 

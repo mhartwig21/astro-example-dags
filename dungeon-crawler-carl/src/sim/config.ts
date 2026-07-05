@@ -30,6 +30,12 @@ export const CONFIG = {
   playerAttackArc: Math.PI / 2, // 90° swing in facing direction
   playerCritChance: 0.18,
   playerCritMult: 2.0,
+  // Armor (defense): incoming hits are reduced by armor/(armor+armorK), capped.
+  // The player starts with none — mitigation is a GEAR story (armor-slot items
+  // roll it as their primary affix), so the sheet's DEFENSE panel is earned.
+  playerBaseArmor: 0,
+  armorK: 60, // 60 armor = 50% reduction; diminishing returns past that
+  armorMaxReduction: 0.6, // even a fortress crawler eats 40% of every hit
   meleeLungeDistance: 0.45, // tiles the swing steps toward the aim (aggression + reach)
 
   // Hit reactions: player damage shoves monsters (divided by archetype mass) and
@@ -40,6 +46,9 @@ export const CONFIG = {
   novaKnockback: 0.7,
   airstrikeKnockback: 0.5,
   shockstepKnockback: 0.4,
+  // Shockstep damages a CAPSULE along the whole dash path (launch -> arrival),
+  // this wide — dashing THROUGH a pack is the point.
+  shockstepPathRadius: 1.0,
   staggerDuration: 0.22, // seconds a staggered monster is helpless
   elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
 
@@ -83,19 +92,27 @@ export const CONFIG = {
   mpDamagePerExtraPlayer: 0.15, // +15% monster damage per extra crawler
   mpBossHpPerExtraPlayer: 0.75, // the boss scales harder (it is shared)
 
-  // Monsters (density tuned for the 72x72 floors: it should feel like you
-  // could actually die on floor 1, not like an empty museum)
-  monsterBaseCountFloor1: 13,
-  monsterCountPerFloor: 3,
-  monsterMaxCount: 44,
+  // Monsters (density tuned for the 72x72 floors: crowded, not an empty museum).
+  // The full-clear power curve outruns linear scaling by midgame, so the back
+  // half leans on DENSITY (more mobs) + COMPOUNDING stats (below).
+  monsterBaseCountFloor1: 24,
+  monsterCountPerFloor: 6,
+  monsterMaxCount: 110,
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
   // on you together), with a few lone wanderers between them.
   packSizeMin: 3,
-  packSizeMax: 6,
+  packSizeMax: 9,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
   monsterHpPerFloor: 6,
+  // Compounding scaling: linear per-floor growth loses to a farming player by
+  // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
+  // damage additionally multiply by monsterScaleCompound each floor, so the deep
+  // dungeon steepens instead of flattening. Kept off floors 1-6 so early-game
+  // playability (and the balance-bot floors-1-2 net) is untouched.
+  monsterScaleCompoundFrom: 6,
+  monsterScaleCompound: 1.055, // ~1.85x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
   monsterBaseDamage: 15,
@@ -123,8 +140,29 @@ export const CONFIG = {
   boltCooldown: 0.6,
   boltSpeed: 12, // tiles/sec
   boltTtl: 1.2, // seconds
-  boltDamageMult: 0.8, // relative to melee base damage
+  boltDamageMult: 0.8, // unarmed/neutral bolt, relative to attack power
   projectileRadius: 0.35, // hit radius (tiles)
+
+  // Genuine itemization (DESIGN 5.8): weapon-class hooks. Melee hooks apply to
+  // swings; the bolt profile decides what pressing BOLT actually throws.
+  swiftMeleeCdMult: 0.9, // Blade/Cleaver: faster swings
+  heavyMeleeDmgMult: 1.3, // Maul/Axe: hits like a truck...
+  heavyMeleeCdMult: 1.15, // ...swings like one too
+  heavyPoiseMult: 2, // heavy swings break poise twice as fast
+  reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
+  boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
+  boltBallisticMult: 1.0, // Crossbow: real bolts, full attack power
+  boltBallisticSpeedMult: 1.3, // ...and they MOVE
+  boltArcaneMult: 0.9, // Wand/Staff: magic missiles off spell power
+  wandBoltCdMult: 0.8, // Wand: faster casts
+  staffAoeRadiusMult: 1.25, // Staff: bigger nova
+  chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
+  // Damage rolls: every player hit rolls ±variance around its base, and the
+  // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
+  // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
+  weaponVariance: {
+    swift: 0.1, heavy: 0.3, reach: 0.15, ballistic: 0.15, arcane: 0.2, chaotic: 0.4,
+  } as Record<string, number>,
 
   // Enemy projectiles (ranged archetype + boss)
   monsterProjectileSpeed: 7,
@@ -143,6 +181,33 @@ export const CONFIG = {
   // Phantom: fast, fragile skirmisher that blinks toward its prey.
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
   phantomBlinkCooldown: 2.8, // seconds between blinks
+
+  // Charger: locks a direction during a LONG windup, then rushes down the line,
+  // plowing through anyone still standing on it. Sidestep the lane — the commit
+  // point is the tell, the direction never updates after it.
+  chargerMinRange: 2.2, // tiles: closer than this it just swings instead
+  chargerRange: 7, // tiles: max distance it will commit to a rush from
+  chargerDashSpeed: 11, // tiles/sec during the rush
+  chargerHitRadius: 0.6, // tiles: how close the rush must pass to clip you
+  chargerCooldown: 3.5, // seconds before it can rush again
+
+  // Spitter: keeps a ranged standoff and lobs acid that lingers as a ground
+  // puddle. Standing in it is a choice; the damage repeats per tick.
+  spitterCooldown: 3.2, // seconds between lobs
+  puddleRadius: 1.2, // tiles
+  puddleDuration: 3.0, // seconds a puddle lingers
+  puddleTickSeconds: 0.5, // seconds between damage ticks while standing in it
+  spitterPuddleDmgMult: 0.35, // per-tick damage relative to the spitter's damage stat
+
+  // Necromancer: a back-line caster that RAISES fallen monsters (fresh corpses
+  // only). Kill it first or the pack never stays dead.
+  corpseTtl: 12, // seconds a corpse stays raisable
+  corpseMax: 40, // corpse list cap (oldest fall off — bounded state)
+  necroRaiseRange: 5, // tiles: corpses it can reach
+  necroRaiseCooldown: 5, // seconds between raises
+  necroRaiseMax: 4, // lifetime raises per necromancer
+  necroRaisedHpMult: 0.6, // raised minions come back at reduced HP
+  necroRaisedXp: 1, // raised minions are worth almost nothing (not a farm)
 
   // Ultimates (the fifth slot): long cooldowns, screen-scale impact.
   ultAirstrikeCooldown: 45,
@@ -169,9 +234,31 @@ export const CONFIG = {
   orbitDamageMult: 0.5, // per tick, relative to melee base damage
   orbitTickSeconds: 0.4,
   orbitBladeHitRadius: 0.5,
+  // Swept-path hit test: the damage tick checks this many positions along each
+  // blade's travel since the last tick, so blades hit what they visibly passed.
+  orbitHitSamples: 8,
+  // Corkscrew (orbit.wide): blades spiral between this inner radius and
+  // orbitRadius + perRank * rank, oscillating at this rate — coverage across
+  // every range instead of one ring with a dead zone inside it.
+  orbitSpiralInner: 0.7,
+  orbitSpiralPerRank: 0.45,
+  orbitSpiralRevPerSec: 0.6, // in-out cycles per second
+  // Battle Stance: melee-type = swings + orbit blades, ranged-type = bolts.
+  stanceSwapCooldown: 3, // seconds between swaps (the dance's tempo floor)
+  stanceRightMult: 1.25, // matching attack-type damage
+  stanceWrongMult: 0.8, // mismatched attack-type damage
+  stanceSettleSeconds: 6, // time-in-stance before Discipline/PERFECT FORM apply
+  stanceSurgeSeconds: 3, // Flow's post-swap surge window
+  // Overcharge: bank power; the NEXT attack (melee swing or bolt volley) spends it.
+  overchargeCooldown: 8, // starts on cast, not on spend
+  overchargeDamageMult: 1.5, // the banked attack's base multiplier
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   upgradeDraftSize: 3, // cards offered per level-up
+  // Overranks: lottery ranks past a node's printed max (see rollUpgradeDraft).
+  overrankChanceBase: 0.05, // draft chance to dangle one on floor 0
+  overrankChancePerFloor: 0.01, // added per floor — the deep dungeon tempts harder
+  overrankChanceMax: 0.2, // even floor 15+ stays a gamble
 
   // Fog of war
   fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player
@@ -198,6 +285,9 @@ export const CONFIG = {
     hypeBomber: 4, // explosive deaths play great on camera
     hypeShaman: 6, // priority target down = crowd relief
     hypePhantom: 5, // catching the fast one is a highlight reel
+    hypeCharger: 6, // dodging the freight train, then dropping it
+    hypeSpitter: 4,
+    hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -214,6 +304,15 @@ export const CONFIG = {
   // Sponsors beyond the cap pitch extra candidates and the best-fitting ones
   // are kept (see generateRewards). No sponsors, no gifts.
   rewardMaxCount: 3,
+  // Anti-concentration: a permanent stat gift diminishes against what the
+  // crawler has ALREADY banked on that axis (factor = k/(k+owned)). The first
+  // Weapon Mod is juicy; the tenth is a rounding error — so stacking one stat
+  // every floor stops being the obvious play and the varied pool (armor,
+  // materials, favors, gear) competes. Per-axis k (owned units match makeReward).
+  rewardDrDamageK: 45, // owned = bonusDamage
+  rewardDrMaxHpK: 140, // owned = bonusMaxHp
+  rewardDrCritK: 16, // owned = bonusCrit * 100 (percentage points)
+  rewardDrArmorK: 40, // owned = bonusArmor
 
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
@@ -236,7 +335,8 @@ export const CONFIG = {
   eliteHitCapFraction: 0.12,
   // Elite AFFIXES (from this floor): each named elite rolls one mechanic —
   // swift (+speed), shielded (takes less damage), volatile (delayed death
-  // blast — clear the corpse), summoner (calls swarmer adds).
+  // blast — clear the corpse), summoner (calls swarmer adds), splitter
+  // (bursts into swarmers on death), thorns (reflects a slice of your hits).
   eliteAffixFromFloor: 3,
   // Ringside introductions: closing within this range of an unmet boss/elite
   // freezes the world for the reveal (nobody gets hit mid-banner).
@@ -244,11 +344,27 @@ export const CONFIG = {
   encounterIntroSeconds: 2.2,
   swiftSpeedMult: 1.4,
   shieldedDamageTakenMult: 0.7,
+  // School resists (5.8 phase 3): armored/warded elites and resist-tagged
+  // archetypes take this fraction of matching-school damage (−30%).
+  resistDamageTakenMult: 0.7,
   volatileDelay: 0.8, // seconds from death to blast (the dodge window)
   volatileRadius: 1.5, // tiles
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
+  // the fog until a player strays within trigger range, then the whole cluster
+  // springs at once with a brief speed surge to close the gap. A pack that lets
+  // you walk into the middle of it is a very different threat from one you saw.
+  ambushFromFloor: 8,
+  ambushPackChance: 0.4, // share of deep-floor packs that lie in wait
+  ambushTriggerRadius: 5, // tiles: a player this close springs the trap
+  ambushWakeRadius: 6.5, // tiles: the sprung monster also wakes its neighbors
+  ambushSurgeSpeed: 1.6, // speed multiplier during the surge (the pounce)
+  ambushSurgeSeconds: 2.5, // how long the surge lasts after springing
+  splitterCount: 3, // swarmers a splitter elite bursts into on death
+  thornsReflectFraction: 0.25, // slice of each hit reflected back at the attacker...
+  thornsReflectCapFraction: 0.04, // ...capped at this fraction of the attacker's maxHp per hit
   cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
   // City-boss pools sized against measured shopping-player DPS, which roughly
   // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
@@ -285,6 +401,9 @@ export type MonsterArchetype = {
   mass: number; // knockback divisor (heavier archetypes barely move)
   radius: number; // body radius (tiles) for HIT checks — matches render bulk,
   // so clipping a brute's shoulder counts (elites scale by eliteScale)
+  // School resist (DESIGN 5.8 phase 3): this archetype takes
+  // resistDamageTakenMult on hits of the matching school.
+  resist?: "physical" | "magic";
 };
 
 export const ARCHETYPES = {
@@ -302,7 +421,14 @@ export const ARCHETYPES = {
   // Shaman: never attacks (dmgMult unused); attackRange is its preferred standoff.
   shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1, radius: 0.38 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
-  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3 },
+  phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3, resist: "magic" }, // half-spectral: hit it with something solid
+  // Charger: its long windup IS the dodge window — the rush direction is locked
+  // at commit (see charger* knobs). Heavy: hard to stagger out of the commit.
+  charger: { hpMult: 1.4, dmgMult: 1.3, speedMult: 0.8, attackRange: 1.0, xpMult: 1.6, ranged: false, windup: 0.85, poise: 0.55, mass: 2.2, radius: 0.45, resist: "physical" }, // plated hide: bring magic
+  // Spitter: standoff caster; dmgMult scales its puddle ticks (see spitter*/puddle*).
+  spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
+  // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
+  necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
@@ -314,19 +440,20 @@ export const RARITIES = [
   { name: "epic", weight: 3, mult: 3.6 },
 ] as const;
 
-// Theme bands: the dungeon shifts tone every 4 floors. The sim announces the
+// Theme bands: the dungeon shifts tone every 3 floors. The sim announces the
 // district on entry; the renderers pick art/palettes from the same index.
 export const FLOOR_BANDS = [
   { name: "THE UNDERCROFT", line: "Clean stone, warm torches. Don't get comfortable." },
   { name: "THE SEWERS", line: "Mind the weeds. Mind the smell. The cameras have smell-o-vision now." },
+  { name: "THE GARDEN", line: "The System grew you a garden. Everything in it is dead, and most of it is still hungry." },
   { name: "THE RUINS", line: "Whoever lived here lost. Try to break the pattern." },
   { name: "THE IRONWORKS", line: "Steel grates and cold drafts. The machinery remembers." },
   { name: "THE APPROACH", line: "Banners, spikes, and something enormous breathing below." },
 ] as const;
 
-/** Band index (0-4) for a floor: 1-4, 5-8, 9-12, 13-16, 17-18. */
+/** Band index (0-5) for a floor: 1-3, 4-6, 7-9, 10-12, 13-15, 16-18. */
 export function floorBand(floor: number): number {
-  return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 4));
+  return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
 }
 
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */

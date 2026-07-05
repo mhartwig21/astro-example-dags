@@ -1,13 +1,77 @@
 import { CONFIG, floorBand } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
-import { knows, novaParams, orbitParams } from "../sim/abilities";
+import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { tileableFogNoise } from "./fogNoise";
 
 const T = CONFIG.tile;
 
-// Per-band palettes (bands shift every 4 floors; see FLOOR_BANDS in config).
+// ---- Fog of war: unknown space is a rolling fog bank, not raw void ----
+// A tileable noise pattern (band-tinted) drifts in two parallax layers under
+// the map; explored tiles paint over it, and frontier tiles get a translucent
+// wash so the boundary reads as haze instead of a hard tile edge.
+const FOG_PAT_SIZE = 192;
+const FOG_BASE = "#07080d";
+// Murk tint per floor band (matches BAND_PALETTES below).
+const FOG_TINTS: [number, number, number][] = [
+  [86, 93, 122], // undercroft
+  [76, 100, 80], // sewers
+  [104, 98, 68], // garden
+  [108, 88, 70], // ruins
+  [76, 92, 118], // ironworks
+  [112, 74, 82], // approach
+];
+let fogNoise: Float32Array | null = null;
+const fogPatterns = new Map<number, CanvasPattern>();
+
+function fogPattern(ctx: CanvasRenderingContext2D, band: number): CanvasPattern | null {
+  const cached = fogPatterns.get(band);
+  if (cached) return cached;
+  fogNoise ??= tileableFogNoise(FOG_PAT_SIZE, 0xf09b17);
+  const c = document.createElement("canvas");
+  c.width = c.height = FOG_PAT_SIZE;
+  const g = c.getContext("2d");
+  if (!g) return null;
+  const img = g.createImageData(FOG_PAT_SIZE, FOG_PAT_SIZE);
+  const [r, gr, b] = FOG_TINTS[band];
+  for (let i = 0; i < fogNoise.length; i++) {
+    const n = fogNoise[i];
+    const depth = 0.5 + 0.5 * n; // darker in the troughs, brighter billow crests
+    img.data[i * 4] = Math.round(r * depth);
+    img.data[i * 4 + 1] = Math.round(gr * depth);
+    img.data[i * 4 + 2] = Math.round(b * depth);
+    img.data[i * 4 + 3] = Math.round(255 * (0.35 + 0.6 * n));
+  }
+  g.putImageData(img, 0, 0);
+  const pat = ctx.createPattern(c, "repeat");
+  if (pat) fogPatterns.set(band, pat);
+  return pat;
+}
+
+/** One drifting, world-anchored fog layer over the whole viewport. */
+function drawFogLayer(
+  ctx: CanvasRenderingContext2D,
+  pat: CanvasPattern,
+  tx: number,
+  ty: number,
+  scale: number,
+  alpha: number,
+  w: number,
+  h: number,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(tx, ty);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = pat;
+  ctx.fillRect(-tx / scale, -ty / scale, w / scale, h / scale);
+  ctx.restore();
+}
+
+// Per-band palettes (bands shift every 3 floors; see FLOOR_BANDS in config).
 const BAND_PALETTES = [
   { floor: "#22222f", floorAlt: "#26263a", wall: "#12121c", wallEdge: "#1e1e2e" }, // undercroft
   { floor: "#1e2a1c", floorAlt: "#243524", wall: "#101a10", wallEdge: "#1c2c1c" }, // sewers
+  { floor: "#262c16", floorAlt: "#2e361a", wall: "#171410", wallEdge: "#26221a" }, // garden
   { floor: "#2e2218", floorAlt: "#382a1c", wall: "#1a120c", wallEdge: "#2c1e14" }, // ruins
   { floor: "#1c2432", floorAlt: "#202c3e", wall: "#10141e", wallEdge: "#1c2432" }, // ironworks
   { floor: "#2e1a1c", floorAlt: "#382024", wall: "#1a0e10", wallEdge: "#2c181c" }, // approach
@@ -71,12 +135,22 @@ export function render(
   viewH: number,
   log: string[],
 ): void {
-  ctx.clearRect(0, 0, viewW, viewH);
-
   const offX = viewW / 2 - cam.x * T;
   const offY = viewH / 2 - cam.y * T;
 
   const { map } = state;
+
+  // Fog bank first; explored tiles paint over it below. Offsets include the
+  // camera so the fog is world-locked, plus a slow time drift so it rolls.
+  const band = floorBand(state.floor);
+  ctx.fillStyle = FOG_BASE;
+  ctx.fillRect(0, 0, viewW, viewH);
+  const fogPat = fogPattern(ctx, band);
+  if (fogPat) {
+    const ft = performance.now() / 1000;
+    drawFogLayer(ctx, fogPat, offX + ft * 4.5, offY + ft * 2.8, 1, 0.55, viewW, viewH);
+    drawFogLayer(ctx, fogPat, offX - ft * 6.5, offY + ft * 3.8, 1.9, 0.4, viewW, viewH);
+  }
 
   // Visible tile range.
   const minX = Math.max(0, Math.floor(cam.x - viewW / 2 / T) - 1);
@@ -94,7 +168,7 @@ export function render(
     return false;
   };
 
-  const pal = BAND_PALETTES[floorBand(state.floor)];
+  const pal = BAND_PALETTES[band];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (!state.explored[y * map.w + x]) continue; // fog of war
@@ -127,9 +201,33 @@ export function render(
     }
   }
 
-  // Volatile-corpse hazards: a blast ring that brightens as detonation nears.
+  // Frontier haze: explored tiles that border fog get a translucent wash so
+  // the reveal boundary bleeds instead of snapping at tile edges.
+  const [fr, fg, fb] = FOG_TINTS[band];
+  ctx.fillStyle = `rgba(${fr},${fg},${fb},0.28)`;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!state.explored[i]) continue;
+      const foggy =
+        (x > 0 && !state.explored[i - 1]) || (x < map.w - 1 && !state.explored[i + 1]) ||
+        (y > 0 && !state.explored[i - map.w]) || (y < map.h - 1 && !state.explored[i + map.w]);
+      if (foggy) ctx.fillRect(Math.round(offX + x * T), Math.round(offY + y * T), T, T);
+    }
+  }
+
+  // Ground hazards: volatile blast rings brighten toward detonation; spitter
+  // acid puddles render filled and fade as they dry.
   for (const hz of state.hazards) {
     if (!inVision(hz.pos.x, hz.pos.y)) continue;
+    if (hz.kind === "puddle") {
+      const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
+      ctx.fillStyle = `rgba(127,184,50,${0.18 + life * 0.2})`;
+      ctx.beginPath();
+      ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
     const prog = 1 - hz.t / Math.max(hz.total, 1e-3);
     ctx.strokeStyle = `rgba(255,70,40,${0.3 + prog * 0.6})`;
     ctx.lineWidth = 3;
@@ -172,7 +270,9 @@ export function render(
       const prog = 1 - m.windup / Math.max(m.windupTotal, 1e-3);
       const r =
         m.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
-        m.windupKind === "shot" ? 0.5 : m.attackRange + CONFIG.monsterStrikeGrace;
+        m.windupKind === "shot" || m.windupKind === "spit" ? 0.5 :
+        m.windupKind === "raise" ? 0.7 :
+        m.windupKind === "charge" ? 0.9 : m.attackRange + CONFIG.monsterStrikeGrace;
       ctx.strokeStyle = `rgba(255,110,60,${0.25 + prog * 0.6})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -209,14 +309,14 @@ export function render(
     ctx.closePath();
     ctx.fill();
   }
-  // Orbit blades (auto ability).
+  // Orbit blades (auto ability). Positions shared with the sim's hit test.
   if (knows(p, "orbit")) {
     const op = orbitParams(p);
     ctx.fillStyle = "#9fe8ff";
     for (let i = 0; i < op.blades; i++) {
-      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
+      const bp = orbitBladePos(p, i);
       ctx.beginPath();
-      ctx.arc(ppx + Math.cos(a) * op.radius * T, ppy + Math.sin(a) * op.radius * T, 4, 0, Math.PI * 2);
+      ctx.arc(ppx + (bp.x - p.pos.x) * T, ppy + (bp.y - p.pos.y) * T, 4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -322,7 +422,7 @@ function drawHud(
   ctx.fillRect(rx - 10, 40, 210, 92);
   ctx.fillStyle = "#e6e6ec";
   ctx.fillText(`Level ${p.level}   ${p.gold} gold`, rx, 48);
-  ctx.fillText(`DMG ${p.baseDamage}`, rx, 70);
+  ctx.fillText(`ATK ${p.attackPower} · MAG ${p.spellPower}`, rx, 70);
   // HP bar.
   ctx.fillStyle = "#000";
   ctx.fillRect(rx, 92, 190, 10);

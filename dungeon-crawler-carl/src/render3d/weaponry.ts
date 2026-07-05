@@ -5,39 +5,43 @@ import type { Item, Player, Rarity } from "../sim/types";
 // arsenal as toggleable nodes parented to `handslot.l/r` bones, so a weapon from
 // one model can be grafted onto another's hand and it rides the animations.
 
-/** Every attachment node we know about, per source model (manifest key). */
+/** Every attachment node we know about, per source model (manifest key).
+ * The armory_* keys point at the 1.0 barbarian/mage/rogue GLBs, kept loaded
+ * purely as weapon-mesh sources now that monsters wear the newer KayKit cast
+ * (which ships clean bodies with no arsenal nodes). */
 export const ATTACHMENT_NODES: Record<string, string[]> = {
   player: ["1H_Sword", "2H_Sword", "1H_Sword_Offhand", "Badge_Shield", "Rectangle_Shield", "Round_Shield", "Spike_Shield"],
-  monster_bomber: ["1H_Axe", "2H_Axe", "1H_Axe_Offhand", "Mug"], // barbarian.glb
-  monster_shaman: ["1H_Wand", "2H_Staff", "Spellbook", "Spellbook_open"], // mage.glb
-  monster_phantom: ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"], // rogue.glb
+  armory_axes: ["1H_Axe", "2H_Axe", "1H_Axe_Offhand", "Mug"], // barbarian.glb
+  armory_arcana: ["1H_Wand", "2H_Staff", "Spellbook", "Spellbook_open"], // mage.glb
+  armory_knives: ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"], // rogue.glb
 };
 
 /** What each character shows when nothing special is equipped (one clean loadout). */
 export const CANONICAL_LOADOUT: Record<string, string[]> = {
   player: ["1H_Sword", "Round_Shield"],
-  monster_bomber: ["1H_Axe"],
-  monster_shaman: ["2H_Staff"],
-  monster_phantom: ["Knife"],
 };
 
 interface WeaponVisual {
   srcKey: string; // model whose GLB holds the node
-  node: string;
+  node: string; // "*" = the whole GLB is the weapon (Fantasy Weapons Bits)
   twoHanded?: boolean; // hides the shield
 }
 
-/** Weapon noun -> mesh. Rare+ one-handers upgrade to their two-handed cousin. */
+/** Weapon noun -> mesh. Rare+ one-handers upgrade to their two-handed cousin.
+ * Standalone meshes come from KayKit Fantasy Weapons Bits (grip at origin,
+ * same attachment convention as the adventurers' native arsenal); Crossbow
+ * and the Mug keep their adventurer-GLB sources — the weapons pack has no
+ * crossbow, and there is only one Mug. */
 const WEAPON_VISUALS: Record<string, { base: WeaponVisual; heavy?: WeaponVisual }> = {
-  Blade: { base: { srcKey: "player", node: "1H_Sword" }, heavy: { srcKey: "player", node: "2H_Sword", twoHanded: true } },
-  Axe: { base: { srcKey: "monster_bomber", node: "1H_Axe" }, heavy: { srcKey: "monster_bomber", node: "2H_Axe", twoHanded: true } },
-  Maul: { base: { srcKey: "monster_bomber", node: "2H_Axe", twoHanded: true } },
-  Spear: { base: { srcKey: "monster_shaman", node: "2H_Staff", twoHanded: true } },
-  Cleaver: { base: { srcKey: "monster_phantom", node: "Knife" } },
-  Wand: { base: { srcKey: "monster_shaman", node: "1H_Wand" } },
-  Staff: { base: { srcKey: "monster_shaman", node: "2H_Staff", twoHanded: true } },
-  Crossbow: { base: { srcKey: "monster_phantom", node: "1H_Crossbow" }, heavy: { srcKey: "monster_phantom", node: "2H_Crossbow", twoHanded: true } },
-  Mug: { base: { srcKey: "monster_bomber", node: "Mug" } },
+  Blade: { base: { srcKey: "weapon_sword_a", node: "*" }, heavy: { srcKey: "weapon_sword_e", node: "*", twoHanded: true } },
+  Axe: { base: { srcKey: "weapon_axe_a", node: "*" }, heavy: { srcKey: "weapon_axe_c", node: "*", twoHanded: true } },
+  Maul: { base: { srcKey: "weapon_hammer_b", node: "*", twoHanded: true } },
+  Spear: { base: { srcKey: "weapon_spear_a", node: "*", twoHanded: true }, heavy: { srcKey: "weapon_halberd", node: "*", twoHanded: true } },
+  Cleaver: { base: { srcKey: "weapon_dagger_a", node: "*" } },
+  Wand: { base: { srcKey: "weapon_wand_a", node: "*" } },
+  Staff: { base: { srcKey: "weapon_staff_b", node: "*", twoHanded: true }, heavy: { srcKey: "weapon_staff_d", node: "*", twoHanded: true } },
+  Crossbow: { base: { srcKey: "armory_knives", node: "1H_Crossbow" }, heavy: { srcKey: "armory_knives", node: "2H_Crossbow", twoHanded: true } },
+  Mug: { base: { srcKey: "armory_axes", node: "Mug" } },
 };
 
 /** Armor noun -> which of the Knight's shields you carry. */
@@ -54,7 +58,10 @@ function noun(item: Item): string {
   return parts[parts.length - 1];
 }
 
-/** Resolve a player's equipped items to the meshes their model should show. */
+/** Resolve a player's equipped items to the meshes their model should show.
+ * (You hold what you EQUIPPED — since weapon classes became mechanical
+ * (DESIGN 5.8), a crossbow in hand means a crossbow in the weapon slot; the
+ * old Deadeye-stance visual override would lie about your bolt profile.) */
 export function loadoutFor(p: Player): { weapon: WeaponVisual; shield: string | null } {
   const w = p.equipment.weapon;
   const spec = w ? WEAPON_VISUALS[noun(w)] : undefined;

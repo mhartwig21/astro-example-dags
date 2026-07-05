@@ -47,6 +47,9 @@ export const THEME = {
     bomber: { color: 0xff5a2e, scale: 0.9 }, // orange-red: reads as "about to explode"
     shaman: { color: 0x3fbf6f, scale: 1.0 }, // green: the healer, shoot it first
     phantom: { color: 0xbfe4ff, scale: 0.85 }, // pale blue: ghostly blink-striker
+    charger: { color: 0xd97b29, scale: 1.25 }, // rust orange: the freight train
+    spitter: { color: 0xa4c93f, scale: 0.95 }, // acid green: don't stand in it
+    necromancer: { color: 0x8a5cff, scale: 1.05 }, // violet: kill the caster first
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

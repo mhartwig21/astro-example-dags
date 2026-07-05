@@ -1,14 +1,18 @@
 import {
-  createGame, restoreGame, step, equipFromInventory, chooseReward, chooseUpgrade,
-  buyCatalogItem, sellItem, sellValue, effectivePrice, setReady, addPlayer, slotAbility, setUltimate,
+  createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
+  buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
-import { affixLines, itemScore } from "./sim/items";
+import { affixLines, itemScore, weaponClassOf } from "./sim/items";
+import { buildCharacterSheet, type SheetAbilityRow } from "./sim/sheet";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, gearAffixes,
+  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, consumableStock, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
-import { Tile, type Announcement, type GameState, type HitEvent, type Item, type Player } from "./sim/types";
+import {
+  Tile, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type Player,
+} from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -16,8 +20,8 @@ import {
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, rebind,
-  saveBindings, saveMouseAim, type BindableAction, type Bindings,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadNotify, rebind,
+  saveBindings, saveMouseAim, saveNotify, type BindableAction, type Bindings, type NotifyLevel,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -63,6 +67,7 @@ let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
 let mouseAim = loadMouseAim();
+let notifyLevel = loadNotify();
 canvas.style.cursor = mouseAim ? "crosshair" : "default"; // crosshair only when aiming
 
 function resize(): void {
@@ -74,16 +79,52 @@ resize();
 function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
 }
+
+// ---- Test mode (?test[&floor=9&level=12&abilities=all&gold=500&seed=42]) ----
+// Jump straight to a dungeon stage with a stage-representative crawler. Local
+// only, and nothing is loaded or saved — the real run's save is untouched.
+const testMode = params.has("test") && !net;
+function testSetup(): TestSetup {
+  const num = (k: string): number | undefined => {
+    const raw = params.get(k);
+    if (raw === null || raw === "") return undefined;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : undefined;
+  };
+  const ab = params.get("abilities");
+  return {
+    seed: num("seed"),
+    floor: num("floor"),
+    level: num("level"),
+    gold: num("gold"),
+    abilities: ab === "all" ? "all" : ab ? (ab.split(",").filter((a) => a in ABILITY_INFO) as AbilityId[]) : undefined,
+    gear: params.get("gear") !== "0",
+  };
+}
+/** In test mode the run is disposable — never write it over the real save. */
+function persistRun(g: GameState): void {
+  if (!testMode) saveRun(g);
+}
+
 function startFresh(): GameState {
+  if (testMode) {
+    const s = testSetup();
+    if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
+    return createTestGame(s);
+  }
   clearRun();
   const g = createGame(freshSeed());
   saveRun(g);
   return g;
 }
 function boot(): GameState {
+  if (testMode) return createTestGame(testSetup());
   const save = loadRun();
   if (save && save.status === "playing") return restoreGame(save);
   return startFresh();
+}
+if (testMode) {
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#e2574c">TEST MODE</b> · ');
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -106,7 +147,7 @@ const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
 const fxLayer = document.getElementById("fx")!;
-const toastLayer = document.getElementById("toast")!;
+const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 
@@ -202,7 +243,8 @@ const draftHint = document.getElementById("draft-hint")!;
 
 // Sponsor gifts have no ability icon; a glyph in the plate carries the read.
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", item: "▣", gold: "◈", bonusTime: "⌛",
+  healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
+  bonusTime: "⌛", materials: "◆", favor: "★",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -236,13 +278,15 @@ function renderDraft(s: GameState): void {
       .map((u, i) => {
         const info = ABILITY_INFO[u.ability];
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
-        const pips = Array.from({ length: max }, (_, r) => (r < u.nextRank ? "●" : "○")).join("");
+        // Overrank offers extend the pip row past the printed max with stars.
+        const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
+          r < u.nextRank ? (r >= max ? "⭑" : "●") : "○").join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
-          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}" data-idx="${i}">` +
+          `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
           `<div class="oicon">${icon}<span class="orank">${pips}</span></div>` +
           `<div class="obody">` +
-          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${info.name}</span></div>` +
+          `<div class="rtitle"><span>${u.title}</span><span class="oribbon">${u.overrank ? "OVERRANK · " : ""}${info.name}</span></div>` +
           `<div class="rdesc">${u.desc}</div>` +
           `</div>` +
           `<kbd class="okey">${i + 1}</kbd>` +
@@ -264,7 +308,7 @@ function chooseDraft(idx: number): void {
     if (p.pendingRewards.length > 0) chooseReward(state, p.id, idx);
     else chooseUpgrade(state, p.id, idx);
     flushFeedback(state);
-    saveRun(state);
+    persistRun(state);
   }
   draftEl.style.display = "none";
 }
@@ -341,7 +385,7 @@ invBag.addEventListener("click", (e) => {
   if (net) net.equip(idx);
   else {
     equipFromInventory(state, me(state).id, idx);
-    saveRun(state);
+    persistRun(state);
   }
   renderInventory(state);
 });
@@ -369,7 +413,9 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   const locked = !open && r === 0;
   const pips = u.capstone
     ? `<span class="cap">${r > 0 ? "◆" : "◇"}</span>`
-    : `${"●".repeat(r)}<span class="off">${"○".repeat(u.maxRank - r)}</span>`;
+    : `${"●".repeat(Math.min(r, u.maxRank))}` +
+      `<span class="opip">${"⭑".repeat(Math.max(0, r - u.maxRank))}</span>` +
+      `<span class="off">${"○".repeat(Math.max(0, u.maxRank - r))}</span>`;
   let effect: string;
   if (locked) {
     const forked = (u.excludes ?? []).filter((id) => rank(p, id) > 0).map((id) => upgradeDef(id)!.title);
@@ -380,7 +426,8 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   } else if (r > 0) {
     effect = u.desc(r) +
       (r < u.maxRank ? ` <span class="nnext">· next rank: ${u.desc(r + 1)}</span>` : "") +
-      (r >= u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "");
+      (r === u.maxRank && !u.capstone ? ` <span class="nnext">· MAX</span>` : "") +
+      (r > u.maxRank ? ` <span class="nover">· OVERRANK +${r - u.maxRank}</span>` : "");
   } else {
     effect = `${u.desc(1)} <span class="nnext">· from level-up drafts</span>`;
   }
@@ -457,7 +504,7 @@ function handleSlotClick(e: Event, rerender: (s: GameState) => void): void {
       if (idx >= 0) slotAbility(state, p.id, idx, null);
     } else slotAbility(state, p.id, Number(slot), ability);
     flushFeedback(state);
-    saveRun(state);
+    persistRun(state);
   }
   rerender(state);
 }
@@ -507,6 +554,117 @@ function toggleAbilities(): void {
   if (abilOpen) renderAbilities(state);
 }
 
+// ---- Crawler Profile (pauses the game while open) ----
+// The System's personnel file: every number comes from buildCharacterSheet
+// (sim/sheet.ts), which derives it from the same math combat runs — the panel
+// only formats. Icons: /icons/stats/* (game-icons.net, CSS-mask tinted).
+const sheetEl = document.getElementById("sheet")!;
+const sheetSub = document.getElementById("sheet-sub")!;
+const sheetGear = document.getElementById("sheet-gear")!;
+const sheetAttrs = document.getElementById("sheet-attrs")!;
+const sheetProgress = document.getElementById("sheet-progress")!;
+const sheetDice = document.getElementById("sheet-dice")!;
+const sheetDmg = document.getElementById("sheet-dmg")!;
+const sheetDef = document.getElementById("sheet-def")!;
+const sheetShow = document.getElementById("sheet-show")!;
+let sheetOpen = false;
+
+const statIcon = (id: string): string =>
+  `mask-image:url(/icons/stats/${id}.svg);-webkit-mask-image:url(/icons/stats/${id}.svg)`;
+const abilIcon = (id: string): string =>
+  `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
+
+function gearRowHtml(slot: "weapon" | "armor" | "trinket", it: Item | null): string {
+  if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
+  const noun = it.name.split(" ").pop()!.toLowerCase();
+  const icon = it.catalogId
+    ? iconStyle(it.catalogId)
+    : `mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)`;
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  return (
+    `<div class="gear-row rar-${it.rarity}">` +
+    `<div class="gbox" style="--tc:${tc}"><i class="ii" style="${icon}"></i></div>` +
+    `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
+    `<div class="gaff">${affixLines(it).join(" · ") || "—"}</div></div>` +
+    `<div class="gslot">${slot}</div>` +
+    `</div>`
+  );
+}
+
+function damageRowHtml(row: SheetAbilityRow, critChance: number): string {
+  const school = `<span class="school ${row.school === "magic" ? "mag" : "phys"}">${row.school === "magic" ? "MAG" : "PHYS"}</span>`;
+  const head =
+    `<div class="dic"><i style="${abilIcon(row.id)}"></i></div>` +
+    `<div><div class="dnm">${row.name} ${school}</div><div class="dmech">${row.note}</div></div>`;
+  if (!row.hit) return `<div class="drow utility${row.ultimate ? " ult" : ""}">${head}</div>`;
+  const h = row.hit;
+  const critTip = `crit (${Math.round(critChance * 100)}% chance): ${h.critMin}–${h.critMax}`;
+  const dpsTip = `sustained: avg roll${h.count > 1 ? ` × ${h.count}` : ""} × crit factor ÷ cooldown`;
+  return (
+    `<div class="drow${row.ultimate ? " ult" : ""}">` + head +
+    `<div class="drange" title="${critTip}"><b>${h.min}–${h.max}</b><small>PER HIT${h.count > 1 ? ` ×${h.count}` : ""}</small></div>` +
+    `<div class="dcd">${h.cooldown.toFixed(1)}s<small>CD</small></div>` +
+    `<div class="ddps" title="${dpsTip}"><b>≈${Math.round(h.dps)}</b><small>DPS</small></div>` +
+    `</div>`
+  );
+}
+
+function renderSheet(s: GameState): void {
+  const p = me(s);
+  const sh = buildCharacterSheet(s, p);
+  const id = sh.identity;
+  const a = sh.attributes;
+  const d = sh.defense;
+  sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}`;
+  sheetGear.innerHTML = (["weapon", "armor", "trinket"] as const)
+    .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
+  const tiles: [string, string, string, string, string][] = [
+    ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
+      "Physical school: melee, orbit blades, airstrike — and what most weapons throw as bolts."],
+    ["spell", "#b998ff", String(a.spellPower), "SPELL PWR",
+      "Magic school: nova, dash detonations, cataclysm — wands and staffs cast bolts off this."],
+    ["crit", "#f2c14e", `${Math.round(a.critChance * 100)}%`, "CRIT",
+      `Every hit has this chance to land at ×${a.critMult}.`],
+    ["speed", "#6fe3ff", a.speed.toFixed(2), "SPEED", "Movement, in tiles per second."],
+    ["armor", "#a9c7d8", String(a.armor), "ARMOR",
+      `Every incoming hit is reduced by armor÷(armor+${d.armorK}) — currently ${Math.round(d.reduction * 100)}%, hard-capped at ${Math.round(d.reductionCap * 100)}%.`],
+    ["hp", "#ff7b70", `${Math.ceil(a.hp)}/${a.maxHp}`, "LIFE", "Current / maximum HP."],
+  ];
+  sheetAttrs.innerHTML = tiles
+    .map(([ic, c, v, l, tip]) =>
+      `<div class="stile" style="--sc:${c}" title="${tip}"><i class="si" style="${statIcon(ic)}"></i><span><b>${v}</b><small>${l}</small></span></div>`)
+    .join("");
+  sheetProgress.innerHTML =
+    `<b>◈ ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
+    `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
+  sheetDice.textContent =
+    `${id.weaponName}${id.weaponClass ? ` (${id.weaponClass})` : ""} — every hit rolls ±${Math.round(id.variance * 100)}%`;
+  sheetDmg.innerHTML = sh.offense.length
+    ? sh.offense.map((row) => damageRowHtml(row, a.critChance)).join("")
+    : `<div class="drow utility"><div class="dmech">nothing slotted</div></div>`;
+  const redPct = Math.round(d.reduction * 100);
+  sheetDef.innerHTML =
+    `<div class="def-box">` +
+    `<div class="dbig" title="armor ÷ (armor + ${d.armorK}), capped at ${Math.round(d.reductionCap * 100)}%"><b>${d.armor}</b><small>ARMOR · ${redPct}% REDUCTION</small></div>` +
+    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="cap" style="left:100%"></span></div>` +
+    `<div class="def-lines" style="margin-top:7px">Effective HP ≈ <b>${d.effectiveHp}</b> · dash i-frames ×${d.dashCharges}<br>` +
+    `<span class="ex">A typical floor-${id.floor} hit: <b>${d.exampleRaw}</b> raw → <b>${d.exampleTaken}</b> taken</span></div></div>` +
+    `</div>`;
+  sheetShow.innerHTML =
+    `<span class="show-chip viewers"><b>${sh.show.viewers.toLocaleString()}</b>viewers</span>` +
+    `<span class="show-chip favorites"><b>${sh.show.favorites.toLocaleString()}</b>favorites</span>` +
+    `<span class="show-chip sponsors"><b>${sh.show.sponsors}</b>sponsors</span>` +
+    `<span class="show-chip"><b>${sh.show.kills}</b>kills</span>` +
+    `<span class="show-chip"><b>${sh.show.damageDealt.toLocaleString()}</b>dmg dealt</span>` +
+    `<span class="show-chip"><b>${sh.show.damageTaken.toLocaleString()}</b>dmg taken</span>`;
+}
+
+function toggleSheet(): void {
+  sheetOpen = !sheetOpen;
+  sheetEl.style.display = sheetOpen ? "flex" : "none";
+  if (sheetOpen) renderSheet(state);
+}
+
 // ---- Key bindings (rebindable; persisted per browser) ----
 let bindings: Bindings = loadBindings();
 const keysEl = document.getElementById("keys")!;
@@ -526,11 +684,13 @@ function applyBindings(): void {
     `<kbd>${first("ultimate")}</kbd> ultimate · ` +
     `<kbd>${first("inventory")}</kbd> inv · ` +
     `<kbd>${first("abilities")}</kbd> loadout · ` +
+    `<kbd>${first("character")}</kbd> profile · ` +
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
     `<kbd>${first("newRun")}</kbd> new run · ` +
     `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
+  document.getElementById("sheet-close-key")!.textContent = first("character");
 }
 
 function renderKeybinds(): void {
@@ -578,6 +738,19 @@ kbMouseAim.addEventListener("click", () => {
 });
 renderMouseAim();
 
+// System-chatter verbosity: cycles the ticker filter (see TICKER_KINDS).
+const NOTIFY_CYCLE: NotifyLevel[] = ["normal", "critical", "all"];
+const kbNotify = document.getElementById("kb-notify")!;
+function renderNotify(): void {
+  kbNotify.textContent = notifyLevel.toUpperCase();
+}
+kbNotify.addEventListener("click", () => {
+  notifyLevel = NOTIFY_CYCLE[(NOTIFY_CYCLE.indexOf(notifyLevel) + 1) % NOTIFY_CYCLE.length];
+  saveNotify(notifyLevel);
+  renderNotify();
+});
+renderNotify();
+
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
   saveBindings(bindings);
@@ -602,6 +775,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "escape") {
     if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
+    else if (sheetOpen) toggleSheet();
     else if (kbOpen) toggleKeybinds();
   }
 });
@@ -609,6 +783,7 @@ window.addEventListener("keydown", (e) => {
 input.onAction = (a) => {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
+  else if (a === "character") toggleSheet();
   else if (a === "keybinds") toggleKeybinds();
   else if (a === "mute") log.push(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
 };
@@ -685,7 +860,10 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
     const unlock = TIER_UNLOCK_SHOP[e.tier];
     return room.nextFloor - 1 < unlock ? `ARRIVES AT SHOP ${unlock}` : "NOT STOCKED TODAY";
   }
+  if (e.tier === "consumable" && (room.purchased[e.id] ?? 0) >= consumableStock(e)) return "SOLD OUT";
   if (e.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return "ALREADY MASTERED";
+  // Built gear needs its components IN HAND (the BUILDS FROM row shows which).
+  if (e.buildsFrom?.length && missingComponents(p, e.id).length > 0) return "NEEDS COMPONENTS";
   if ((e.sponsors ?? 0) > p.sponsors) return `NEEDS ${e.sponsors} SPONSOR${(e.sponsors ?? 0) > 1 ? "S" : ""}`;
   for (const [m, n] of Object.entries(e.materials ?? {})) {
     if (p.materials[m as keyof Player["materials"]] < (n ?? 0)) return "NEEDS MATERIALS";
@@ -699,17 +877,24 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
   const p = me(s);
   const locked = !room.available.includes(e.id);
   const price = effectivePrice(p, e.id, room.nextFloor);
+  // Consumable scarcity: show remaining per-shop stock; dim + ✕ when sold out.
+  const stock = consumableStock(e);
+  const left = Number.isFinite(stock) ? stock - (room.purchased[e.id] ?? 0) : Infinity;
+  const soldOut = left <= 0;
   const cls = [
     "itile",
     shopSel?.kind === "catalog" && shopSel.id === e.id ? "sel" : "",
     locked ? "locked" : "",
-    !locked && price > p.gold ? "broke" : "",
+    soldOut ? "soldout" : "",
+    !locked && !soldOut && price > p.gold ? "broke" : "",
     (owned[e.id] ?? 0) > 0 ? "owned" : "",
   ].filter(Boolean).join(" ");
+  const stockBadge = Number.isFinite(left) && !soldOut && !locked
+    ? `<div class="istock" title="${left} left in stock this shop">×${left}</div>` : "";
   return (
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
-    `<div class="iprice">${coin}${price}</div>` +
+    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i>${stockBadge}</div>` +
+    `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
 }
@@ -723,11 +908,14 @@ function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
   );
 }
 
-/** Bag/equipped tile: catalog gear shows its icon; field drops show a rarity gem. */
+/** Bag/equipped tile: catalog gear shows its catalog icon; field drops show
+ * their NOUN's icon (every generated-item noun has one at /icons/nouns/),
+ * tinted by rarity via the tile's --tc mask color. */
 function invTileHtml(it: Item, data: string, selected: boolean): string {
+  const noun = it.name.split(" ").pop()!.toLowerCase();
   const inner = it.catalogId
     ? `<i class="ii" style="${iconStyle(it.catalogId)}"></i>`
-    : `<span class="iglyph" style="color:${RARITY_TEXT[it.rarity]}">◆</span>`;
+    : `<i class="ii" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   return (
     `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
@@ -810,7 +998,9 @@ function renderShopDetail(s: GameState): void {
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   let html =
     `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
+    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
+    `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
+    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
     `<div class="dstats">${statLines(it)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
   if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
@@ -891,6 +1081,13 @@ function renderAchPage(s: GameState): void {
 }
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
+// Bag density thresholds: item counts at which the bag grid steps down a tile
+// size (see .bag-grid.dense/.micro in iso.html), sized so each tier fills its
+// rows before the bag would crowd the detail pane out of the side column.
+const BAG_DENSE_AT = 19; // 40px tiles hold 3 comfortable rows
+const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
+const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
+
 function renderShopPage(s: GameState): void {
   const room = s.safeRoom;
   if (!room) return;
@@ -923,8 +1120,19 @@ function renderShopPage(s: GameState): void {
     if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
-  srBag.innerHTML = p.inventory.length
-    ? p.inventory.map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("")
+  // The bag TIGHTENS as it fills so the panel always fits the viewport
+  // (house rule: no scrollbars): 40px tiles, then 32px, then 26px; past what
+  // even micro tiles can hold, the tail collapses into a "+K more" summary.
+  const bagN = p.inventory.length;
+  srBag.classList.toggle("dense", bagN >= BAG_DENSE_AT && bagN < BAG_MICRO_AT);
+  srBag.classList.toggle("micro", bagN >= BAG_MICRO_AT);
+  const hidden = Math.max(0, bagN - BAG_SHOW_MAX);
+  srBag.innerHTML = bagN
+    ? p.inventory.slice(0, BAG_SHOW_MAX)
+        .map((it, i) => invTileHtml(it, `data-bag="${i}"`, shopSel?.kind === "bag" && shopSel.idx === i)).join("") +
+      (hidden > 0
+        ? `<div class="itile more" title="${hidden} more item${hidden === 1 ? "" : "s"} — sell or equip to thin the bag"><div class="ibox">+${hidden}</div></div>`
+        : "")
     : `<span class="bempty">empty — buy components, they wait here</span>`;
   renderShopDetail(s);
 }
@@ -958,7 +1166,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       buyCatalogItem(state, me(state).id, id);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     renderSafeRoom(state);
     return;
@@ -970,7 +1178,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       sellItem(state, me(state).id, idx);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     shopSel = null;
     renderSafeRoom(state);
@@ -984,7 +1192,7 @@ srDetail.addEventListener("click", (e) => {
     else {
       equipFromInventory(state, me(state).id, idx);
       flushFeedback(state);
-      saveRun(state);
+      persistRun(state);
     }
     shopSel = null;
     renderSafeRoom(state);
@@ -1025,7 +1233,7 @@ srDescend.addEventListener("click", () => {
   }
   setReady(state, me(state).id);
   flushFeedback(state);
-  saveRun(state);
+  persistRun(state);
   srEl.style.display = "none";
 });
 
@@ -1037,7 +1245,9 @@ const xpFill = document.querySelector("#xpbar > i") as HTMLElement;
 let skillBarKey = "";
 const CD_BASE: Partial<Record<AbilityId, number>> = {
   melee: CONFIG.playerAttackCooldown, dash: CONFIG.dashCooldown, bolt: CONFIG.boltCooldown,
-  nova: CONFIG.novaCooldown, airstrike: CONFIG.ultAirstrikeCooldown,
+  nova: CONFIG.novaCooldown, stance: CONFIG.stanceSwapCooldown,
+  overcharge: CONFIG.overchargeCooldown,
+  airstrike: CONFIG.ultAirstrikeCooldown,
   cataclysm: CONFIG.ultCataclysmCooldown, bullettime: CONFIG.ultBulletTimeCooldown,
 };
 
@@ -1049,7 +1259,7 @@ function updateSkills(s: GameState): void {
     { ability: p.abilities.ultimate, ult: true },
   ];
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}`;
+    `|${p.abilities.bench.length}|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     skillsEl.innerHTML = entries
@@ -1058,7 +1268,11 @@ function updateSkills(s: GameState): void {
         const label = e.ability
           ? (e.ability === "dash"
             ? `Dash ×${p.dashCharges}` // charge count in the chip
-            : ABILITY_INFO[e.ability].name.split(" ").pop())
+            : e.ability === "stance"
+              ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
+              : e.ability === "overcharge" && p.overcharged
+                ? "CHARGED" // banked and waiting for the next attack
+                : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
@@ -1156,6 +1370,13 @@ function spawnDamageNumber(h: HitEvent): void {
   el.style.top = `${s.y}px`;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  // School resist (armored/warded): the number reads muted so the player
+  // learns to swap schools without reading a tooltip.
+  if (h.resisted) {
+    el.style.color = "#8a97a5";
+    el.style.opacity = "0.85";
+    el.textContent = `${el.textContent} ⛨`;
+  }
   fxLayer.appendChild(el);
   // Kick off the float+fade on the next frame so the transition applies.
   requestAnimationFrame(() => {
@@ -1166,62 +1387,39 @@ function spawnDamageNumber(h: HitEvent): void {
   setTimeout(() => el.remove(), 850);
 }
 
-// DCC "System" announcer. High-priority lines get an exclusive banner; the
-// rest go through a paced toast queue so a boss-kill burst (level-ups, loot
-// box, achievements, ...) trickles in instead of wallpapering the screen.
-// Every line is also in the HUD log, so dropping a stale toast loses nothing.
-const TOAST_VISIBLE_MAX = 3; // concurrent toasts on screen
-const TOAST_GAP_MS = 650; // spacing between toast reveals
-const TOAST_HOLD_MS = 2600; // how long a toast holds before fading
-const TOAST_STALE_MS = 6000; // queued longer than this -> stays log-only
+// DCC "System" announcer, routed by priority + kind (backlog #9). High-priority
+// lines get the exclusive center banner; everything else goes to the compact
+// right-rail ticker, filtered by the player's verbosity setting. Every line is
+// also in the HUD log, so filtering loses nothing.
+const TICKER_MAX = 6; // visible ticker lines before the oldest is evicted
+const TICKER_HOLD_MS = 4200;
 const BANNER_HOLD_MS = 3400;
 
-const toastQueue: { a: Announcement; queuedAt: number }[] = [];
-let toastsVisible = 0;
-let nextToastAt = 0;
-let toastPumpTimer = 0;
+// What each verbosity tier lets through to the ticker (banners are unaffected).
+const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
+  all: ["boss", "progress", "levelup", "loot", "achievement", "show", "flavor"],
+  normal: ["boss", "progress", "levelup", "loot", "achievement", "show"],
+  critical: ["boss", "progress", "achievement"],
+};
 
 function showAnnouncement(a: Announcement): void {
   if (a.priority === "high") { showBanner(a); return; }
-  toastQueue.push({ a, queuedAt: performance.now() });
-  pumpToasts();
-}
-
-function pumpToasts(): void {
-  const now = performance.now();
-  // The moment passed while the queue was backed up; the log has it.
-  while (toastQueue.length > 0 && now - toastQueue[0].queuedAt > TOAST_STALE_MS) toastQueue.shift();
-  if (toastQueue.length === 0) return;
-  if (toastsVisible >= TOAST_VISIBLE_MAX || now < nextToastAt) {
-    // A slot opening (fade-out below) or the gap timer re-pumps.
-    if (now < nextToastAt) {
-      clearTimeout(toastPumpTimer);
-      toastPumpTimer = window.setTimeout(pumpToasts, nextToastAt - now);
-    }
-    return;
-  }
-  const { a } = toastQueue.shift()!;
-  nextToastAt = now + TOAST_GAP_MS;
-  toastsVisible++;
+  if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   const el = document.createElement("div");
-  el.className = "ann";
+  el.className = `tk tk-${a.kind}`;
   el.textContent = a.text;
-  toastLayer.appendChild(el);
+  tickerLayer.appendChild(el);
+  while (tickerLayer.children.length > TICKER_MAX) tickerLayer.firstElementChild!.remove();
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => {
     el.classList.remove("show");
-    setTimeout(() => el.remove(), 400);
-    toastsVisible--;
-    pumpToasts();
-  }, TOAST_HOLD_MS);
-  if (toastQueue.length > 0) {
-    clearTimeout(toastPumpTimer);
-    toastPumpTimer = window.setTimeout(pumpToasts, TOAST_GAP_MS);
-  }
+    setTimeout(() => el.remove(), 350);
+  }, TICKER_HOLD_MS);
 }
 
 // Headline moments (boss down, new band, wipe): one at a time, front and center.
-const bannerLayer = document.getElementById("banner")!;
+// #headline, NOT #banner — that id belongs to the keybinds strip at the top.
+const bannerLayer = document.getElementById("headline")!;
 const bannerQueue: Announcement[] = [];
 let bannerActive = false;
 
@@ -1259,7 +1457,7 @@ function updateHud(s: GameState): void {
   const rc = RARITY_COLORS[p.weaponRarity] ?? "#c9c9d4";
   hudTR.innerHTML =
     `Level ${p.level} · ${p.gold} gold · ` +
-    `<span style="color:${rc}">DMG ${p.baseDamage} (${p.weaponRarity})</span><br>` +
+    `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;
@@ -1281,6 +1479,7 @@ if (new URLSearchParams(location.search).has("debug")) {
     renderer,
     addPlayer: (name: string) => addPlayer(state, name),
     step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
+    equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
   };
 }
 
@@ -1393,7 +1592,7 @@ async function main(): Promise<void> {
     if (!net) {
       // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
       // networked world never pauses for drafts); drop accumulated time.
-      if (invOpen || abilOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
+      if (invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(), SIM_DT);
@@ -1401,8 +1600,8 @@ async function main(): Promise<void> {
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
         acc -= SIM_DT;
-        if (state.floor !== lastFloor) { lastFloor = state.floor; saveRun(state); }
-        if (state.status !== lastStatus) { lastStatus = state.status; saveRun(state); }
+        if (state.floor !== lastFloor) { lastFloor = state.floor; persistRun(state); }
+        if (state.status !== lastStatus) { lastStatus = state.status; persistRun(state); }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths
       // hang for drama, ordinary kills get a couple of frames.
@@ -1412,7 +1611,7 @@ async function main(): Promise<void> {
       }
 
       saveAcc += dt;
-      if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; saveRun(state); }
+      if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
     }
 
     // Particles + shake use world space, so they can fire before the camera moves.

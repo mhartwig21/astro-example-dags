@@ -33,7 +33,7 @@ export class InputController {
       if (this.is("stairs", k)) this.useStairsEdge = true;
       if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
-      for (const a of ["inventory", "abilities", "keybinds", "mute"] as const) {
+      for (const a of ["inventory", "abilities", "character", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
       }
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();

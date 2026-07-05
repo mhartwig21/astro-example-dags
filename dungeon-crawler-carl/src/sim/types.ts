@@ -1,5 +1,5 @@
 import type { Rng } from "./rng";
-import type { AbilityId, UpgradeOffer } from "./abilities";
+import type { AbilityId, School, StanceId, UpgradeOffer } from "./abilities";
 
 export interface Vec2 {
   x: number;
@@ -23,7 +23,11 @@ export interface Player {
   hp: number;
   maxHp: number;
   speed: number;
-  baseDamage: number;
+  // Damage schools (DESIGN 5.8): physical abilities scale off attackPower,
+  // magic ones off spellPower — see SCALING/power() in abilities.ts. Both are
+  // recomputed as intrinsic(level) + permanent bonuses + equipment.
+  attackPower: number;
+  spellPower: number;
   // Unified per-ability cooldowns (seconds remaining), keyed by AbilityId —
   // scales to any number of abilities without new fields.
   cd: Partial<Record<AbilityId, number>>;
@@ -40,6 +44,14 @@ export interface Player {
   novaFlash: number; // transient render flag: seconds remaining of nova ring effect
   orbitAngle: number; // current rotation of the orbit blades (radians)
   orbitTick: number; // seconds until the orbit blades' next damage tick
+  // Corkscrew (orbit.wide): phase of the in-out spiral oscillation (radians).
+  orbitSpiral: number;
+  // Battle Stance (only meaningful while the stance ability is slotted).
+  stance: StanceId; // which attack type is currently favored
+  stanceTime: number; // seconds since the last swap (drives Discipline's "settled")
+  stanceSwapWindow: number; // seconds left of Flow's post-swap surge
+  stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
+  overcharged: boolean; // Overcharge banked: the next attack spends it
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -49,6 +61,9 @@ export interface Player {
     ranks: Record<string, number>;
   };
   critChance: number; // effective crit chance (base + equipment)
+  // Effective armor (equipment + permanent bonuses). Incoming hits are reduced
+  // by armor/(armor+armorK), capped — see armorReduction/mitigate in combat.ts.
+  armor: number;
   level: number;
   xp: number;
   xpToNext: number;
@@ -58,9 +73,11 @@ export interface Player {
   // intrinsic(level) + permanent bonuses + equipped affixes (see recomputeStats).
   equipment: { weapon: Item | null; armor: Item | null; trinket: Item | null };
   inventory: Item[];
-  bonusDamage: number; // permanent buffs (loot boxes / sponsor rewards), outside equipment
+  bonusDamage: number; // permanent physical buff (loot boxes / sponsor rewards grant BOTH schools)
+  bonusSpell: number; // permanent magic buff (kept separate so gear stays the differentiator)
   bonusMaxHp: number;
   bonusCrit: number; // permanent crit-chance buff
+  bonusArmor: number; // permanent armor buff
   alive: boolean;
   // transient render flag: seconds remaining to show an attack swing
   attackSwing: number;
@@ -93,12 +110,18 @@ export interface Player {
 }
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
-export type EliteAffix = "swift" | "shielded" | "volatile" | "summoner";
+export type EliteAffix =
+  | "swift" | "shielded" | "volatile" | "summoner" | "splitter" | "thorns"
+  // School resists (DESIGN 5.8 phase 3): the party's damage MIX starts
+  // mattering — a warded elite pack is the crossbow crawler's fight.
+  | "armored" // takes reduced PHYSICAL damage
+  | "warded"; // takes reduced MAGIC damage
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
-  | "bomber" | "shaman" | "phantom";
+  | "bomber" | "shaman" | "phantom"
+  | "charger" | "spitter" | "necromancer";
 
 export interface Monster {
   id: number;
@@ -119,7 +142,16 @@ export interface Monster {
   // dodge out of range or through it with dash i-frames.
   windup: number; // seconds until the pending attack resolves (0 = none)
   windupTotal: number; // full length of the pending windup (render progress)
-  windupKind?: "melee" | "shot" | "fuse"; // what resolves when windup expires
+  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise"; // what resolves when windup expires
+  // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
+  // plowing through players (each hit at most once per charge).
+  chargeDir?: Vec2;
+  chargeT?: number; // seconds of rush remaining
+  chargeHits?: number[]; // player ids already hit by this charge
+  // Spitter: where the committed lob will land (locked at windup start).
+  spitTarget?: Vec2;
+  // Necromancer: the corpse it committed to raising (may expire mid-windup).
+  raiseId?: number;
   // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
   // archetype's poise threshold interrupts the windup and freezes the monster.
   stagger: number; // seconds of stagger remaining (helpless while > 0)
@@ -137,6 +169,10 @@ export interface Monster {
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
+  // Ambush (deep floors): a dormant monster lies inert until a player strays
+  // near, then springs — the whole cluster wakes together with a speed surge.
+  dormant?: boolean; // waiting in ambush: no move, no attack, until sprung
+  surgeT?: number; // seconds of ambush speed-surge remaining (the pounce)
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
@@ -149,10 +185,12 @@ export type ItemSlot = "weapon" | "armor" | "trinket";
 
 // Stat modifiers granted by an equipped item. All optional; summed across equipment.
 export interface Affixes {
-  damage?: number;
+  damage?: number; // attack power (physical school)
+  spell?: number; // spell power (magic school)
   maxHp?: number;
   speed?: number; // tiles/sec
-  crit?: number; // added crit chance (0..1)
+  crit?: number; // added crit chance (0..1); crit serves BOTH schools
+  armor?: number; // flat armor; mitigates incoming hits via armor/(armor+K)
 }
 
 // Unique behaviors carried by LEGENDARY signature gear (sponsor-gated shop
@@ -197,11 +235,19 @@ export interface SafeRoom {
   tip: string; // Mordecai-style manager advice about the next floor
   bonusTime?: number; // purchased stabilizer seconds, applied when the floor builds
   ready: number[]; // player ids who hit DESCEND; the party leaves when all are ready
+  // Consumables have LIMITED per-shop stock now (scarcity — excess gold can no
+  // longer buy an infinite HP graft). This counts what's been bought here.
+  purchased: Record<string, number>; // catalogId -> units bought in this shop
 }
 
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
+// The pool is deliberately WIDE so no single stat is the every-floor pick:
+// permanent stat gifts (damage/maxHp/crit/armor) diminish as you stack them,
+// while build-variety gifts (item/materials/favor) never do.
 export type RewardKind =
-  | "healFull" | "maxHp" | "damage" | "crit" | "item" | "gold" | "bonusTime";
+  | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
+  | "materials" // crafting material toward signature (legendary) gear
+  | "favor"; // an owed ability-upgrade draft (advances the constellation build)
 
 export interface Reward {
   id: number;
@@ -210,6 +256,7 @@ export interface Reward {
   desc: string;
   amount: number;
   item?: Item; // present when kind === "item"
+  material?: MaterialId; // present when kind === "materials"
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -224,6 +271,9 @@ export interface Projectile {
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
+  crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
+  shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
+  school?: School; // damage school (hosts tint magic missiles differently)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
@@ -279,15 +329,29 @@ export interface Encounter {
   total: number; // full intro length (render progress)
 }
 
-// A delayed enemy-side blast (volatile elite corpses): telegraphed on the
-// ground by hosts, damages players in radius when the timer expires.
+// Enemy-side ground danger. Two shapes share the struct:
+// - "blast" (default): a delayed one-shot — t counts down to detonation,
+//   damage lands once on players still in radius (volatile elite corpses).
+// - "puddle": a lingering zone (spitter lobs) — active for its whole life,
+//   dealing `damage` to players inside every tick until t runs out.
 export interface Hazard {
   id: number;
   pos: Vec2;
-  t: number; // seconds until detonation
-  total: number; // full delay (render progress)
+  t: number; // blast: seconds until detonation; puddle: seconds of life left
+  total: number; // full delay/duration (render progress)
   radius: number; // tiles
-  damage: number;
+  damage: number; // blast: the hit; puddle: damage per tick
+  kind?: "blast" | "puddle"; // absent = blast (older saves/snapshots)
+  tick?: number; // puddle: seconds until the next damage tick
+}
+
+// A fallen monster the necromancer can raise. Purely positional — the fresh
+// minion is rebuilt from the corpse's kind (see raiseCorpse in game.ts).
+export interface Corpse {
+  id: number;
+  pos: Vec2;
+  kind: MonsterKind;
+  t: number; // seconds until the corpse is too cold to raise
 }
 
 // Transient combat/feedback events emitted during a single step. Hosts turn these
@@ -302,6 +366,8 @@ export interface HitEvent {
   kind: HitKind;
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
+  school?: School; // damage school of a player hit (hosts tint magic numbers)
+  resisted?: boolean; // the target resisted this school (hosts dim the number)
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation
@@ -364,8 +430,11 @@ export interface GameState {
   strikes: Strike[];
   bulletTimeLeft: number;
 
-  // Enemy-side delayed blasts (volatile elite corpses).
+  // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
+
+  // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
+  corpses: Corpse[];
 
   // Ringside introduction in progress (world frozen while non-null).
   encounter: Encounter | null;

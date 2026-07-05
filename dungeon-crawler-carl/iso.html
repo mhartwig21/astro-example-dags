@@ -28,20 +28,43 @@
         transition: transform 0.8s ease-out, opacity 0.8s ease-out; }
       .dmg.crit { font-size: 22px; }
 
-      /* DCC "System" announcer */
-      #toast { position: fixed; top: 16%; left: 50%; transform: translateX(-50%);
-        pointer-events: none; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+      /* ---- Screen zones (backlog #8): every overlay claims exactly ONE zone,
+         so no two systems ever fight for the same pixels.
+           top strip (12px):    #hud-tl left · #banner center · #hud-tr right
+           upper chips:         #bossbar 44px · #show 84px · #party 118px (center)
+           headline zone:       #headline — the ONE high-priority banner at a time
+           boss intro zone:     #bossintro ringside splash, BELOW the headline zone
+           right rail:          #ticker — normal-priority System chatter
+           bottom strip:        #hud-log left · #cockpit center · #minimap right
+           modals (z 20-26):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
+         New overlays must pick a zone here first. */
+
+      /* DCC "System" announcer — headline banners (high priority only).
+         NOTE: #banner is taken (the keybinds strip up top) — this layer is
+         #headline. max() keeps it clear of the upper chips on short viewports. */
+      #headline { position: fixed; top: max(19%, 152px); left: 50%; transform: translateX(-50%);
+        pointer-events: none; display: flex; flex-direction: column; align-items: center; }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.35s ease, transform 0.35s ease; max-width: 70ch; text-align: center; }
       .ann.show { opacity: 1; transform: translateY(0); }
       .ann::before { content: "◆ SYSTEM "; color: #c9a24b; font-weight: 700; }
-      /* Headline moments: one exclusive banner, bigger and center-stage */
-      #banner { position: fixed; top: 28%; left: 50%; transform: translateX(-50%);
-        pointer-events: none; display: flex; flex-direction: column; align-items: center; }
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
+
+      /* Right-rail ticker: the System's running commentary (normal priority).
+         Compact, fades fast, color-tagged by kind — never center-stage. */
+      #ticker { position: fixed; top: 148px; right: 12px; pointer-events: none;
+        display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 46ch; }
+      .tk { --tc: #c9a24b; background: rgba(12,10,20,0.78); border-right: 2px solid var(--tc);
+        color: #d8d4c8; padding: 4px 9px; border-radius: 4px; font-size: 11.5px;
+        letter-spacing: 0.2px; text-align: right; opacity: 0; transform: translateX(10px);
+        transition: opacity 0.3s ease, transform 0.3s ease; }
+      .tk.show { opacity: 1; transform: translateX(0); }
+      .tk-boss { --tc: #e2574c; } .tk-progress { --tc: #c9a24b; } .tk-levelup { --tc: #4fd1ff; }
+      .tk-loot { --tc: #b998ff; } .tk-achievement { --tc: #f2c14e; } .tk-show { --tc: #9fd8e8; }
+      .tk-flavor { --tc: #8a8a9a; }
 
       /* Minimap */
       #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
@@ -74,8 +97,10 @@
         background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
         padding: 4px 14px; font-size: 12px; color: #9fd8e8; pointer-events: none; }
 
-      /* Boss encounter: ringside intro splash + persistent top health bar */
-      #bossintro { position: fixed; top: 26%; left: 50%; transform: translateX(-50%);
+      /* Boss encounter: ringside intro splash + persistent top health bar.
+         The splash sits BELOW the headline zone (see screen zones above) — a
+         ringside introduction fires both, and they must never share pixels. */
+      #bossintro { position: fixed; top: max(32%, 240px); left: 50%; transform: translateX(-50%);
         display: none; text-align: center; pointer-events: none; z-index: 20; }
       #bossintro .bi-kicker { color: #c9a24b; font-size: 13px; letter-spacing: 4px; }
       #bossintro .bi-name { font-size: 36px; font-weight: 800; color: #ffe9c4; letter-spacing: 2px;
@@ -219,6 +244,10 @@
       #draft.levelup h2 { color: #4fd1ff; text-shadow: 0 0 18px rgba(79,209,255,0.45); }
       #draft.levelup .reward { --oc: #4fd1ff; }
       #draft.levelup .reward.ult { --oc: #b998ff; }
+      /* Overrank lottery offer: gold, and it breathes — this card is the jackpot. */
+      #draft.levelup .reward.over { --oc: #f2c14e;
+        animation: offer-in 0.3s ease backwards, over-pulse 1.6s ease-in-out 0.3s infinite; }
+      @keyframes over-pulse { 50% { box-shadow: 0 0 24px -4px #f2c14e; } }
 
       /* Ability tree panel */
       #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -309,6 +338,13 @@
       .itile.locked .iprice { opacity: 0.45; }
       .itile.locked .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
         font-size: 10px; color: #55606a; }
+      /* Consumable scarcity: remaining-stock badge + sold-out state. */
+      .itile .istock { position: absolute; top: 1px; right: 2px; font-size: 9px; line-height: 1;
+        color: #9ab0a0; font-variant-numeric: tabular-nums; }
+      .itile.soldout .ibox { border-style: dashed; opacity: 0.4; }
+      .itile.soldout .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
+        font-size: 10px; color: #e2574c; }
+      .itile.soldout .iprice { color: #6a6a7a; font-size: 8px; letter-spacing: 0.5px; }
       .itile.broke .iprice { color: #e2574c; }
       .itile.owned .ibox::before { content: ""; position: absolute; left: 3px; top: 3px;
         width: 5px; height: 5px; background: #5fd08a; border-radius: 50%; }
@@ -346,14 +382,34 @@
         border-color: #24302a; font-weight: 400; }
       .dbtns button.sell { background: #101512; color: #9ab0a0; border-color: #2c3a31; font-weight: 400; }
       .dbtns button.sell:hover { border-color: #e2574c; color: #ffb3ab; filter: none; }
-      /* Bag strip under the detail pane */
-      .shop-bag { background: rgba(6,10,8,0.55); border: 1px solid #24302a; padding: 9px 12px 11px; }
-      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 3px 0 6px; }
-      .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; }
+      /* Bag strip under the detail pane. House rule: panels FIT the viewport —
+         the bag never scrolls and never bleeds past the panel. It is bounded
+         (flex child that can shrink + overflow clip as a last-ditch guard) and
+         the grid TIGHTENS as it fills: renderShopPage swaps density classes
+         (40px -> 32px -> 26px tiles), and truly pathological bags summarize
+         the tail as a "+K more" tile instead of escaping the frame. */
+      .shop-detail { min-height: 150px; }
+      .shop-bag { background: rgba(6,10,8,0.55); border: 1px solid #24302a; padding: 9px 12px 11px;
+        flex: none; min-height: 0; max-height: 62%; overflow: hidden;
+        display: flex; flex-direction: column; }
+      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55606a; margin: 3px 0 6px; flex: none; }
+      .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; align-content: flex-start; }
       .bag-grid .itile { width: 40px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
       .bag-grid .itile .ii { width: 26px; height: 26px; }
       .bag-grid .bempty { color: #3d4a42; font-size: 11px; font-style: italic; align-self: center; }
+      .bag-grid.dense { gap: 5px; }
+      .bag-grid.dense .itile { width: 32px; }
+      .bag-grid.dense .itile .ibox { width: 30px; height: 30px; }
+      .bag-grid.dense .itile .ii { width: 20px; height: 20px; }
+      .bag-grid.dense .itile .iglyph { font-size: 18px; }
+      .bag-grid.micro { gap: 4px; }
+      .bag-grid.micro .itile { width: 26px; }
+      .bag-grid.micro .itile .ibox { width: 24px; height: 24px; }
+      .bag-grid.micro .itile .ii { width: 16px; height: 16px; }
+      .bag-grid.micro .itile .iglyph { font-size: 13px; }
+      .bag-grid .itile.more { cursor: default; }
+      .bag-grid .itile.more .ibox { color: #7a8a7e; font-size: 10px; letter-spacing: 0.5px; }
       /* Shop sub-tabs (IN STOCK / ALL ITEMS) live inside the shop page. */
       .shelf-col { display: flex; flex-direction: column; min-height: 0; }
       .shop-subtabs { display: flex; gap: 3px; margin-bottom: 8px; }
@@ -404,6 +460,8 @@
       .nrow .ntitle { color: #cfe0d2; font-weight: 700; }
       .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
       .nrow .npips .off { color: #2c3a31; }
+      .nrow .npips .opip { color: #ffdf7e; text-shadow: 0 0 6px rgba(242,193,78,0.6); }
+      .nrow .neffect .nover { color: #f2c14e; font-size: 10.5px; }
       .nrow .neffect { color: #b9d0c0; }
       .nrow .neffect .nnext { color: #55606a; font-size: 10.5px; }
       .nrow.taken .ntitle { color: #f2c14e; }
@@ -434,6 +492,101 @@
         font-weight: 700; letter-spacing: 2px; }
       #saferoom .descend button:hover { background: #1b3123; box-shadow: 0 0 16px rgba(95,208,138,0.25); }
       #saferoom .descend .rdy { color: #7a8a7e; font-size: 12px; }
+
+      /* Crawler Profile — the System's personnel file on YOU. PoE2-style
+         sectioned sheet: gear + attribute tiles left, damage estimates (D4
+         "[min–max] per hit" rows) + defense + Show numbers right. Same gold
+         document family as inventory/abilities (z 20; it pauses the game). */
+      #sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 20; }
+      #sheet .panel { width: 950px; max-width: 96vw; max-height: 88vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 18px 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+      #sheet h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px;
+        display: flex; align-items: baseline; gap: 12px; }
+      #sheet h2 .sub { font-size: 12px; color: #8a8a9a; letter-spacing: 0.5px; font-weight: 400; }
+      #sheet .hint { color: #7a7a8a; font-size: 12px; margin-bottom: 12px; }
+      .sheet-cols { display: grid; grid-template-columns: 305px 1fr; gap: 18px; }
+      .sheet-sec { font-size: 10px; font-weight: 700; letter-spacing: 3px; color: #8a8a9a;
+        margin: 14px 0 7px; display: flex; align-items: center; gap: 10px; }
+      .sheet-sec:first-child { margin-top: 0; }
+      .sheet-sec::after { content: ""; flex: 1; height: 1px;
+        background: linear-gradient(90deg, #2a2a38, transparent); }
+      .sheet-sec .note { font-weight: 400; letter-spacing: 0.5px; color: #55556a; font-size: 10px; }
+      /* Equipped gear rows: rarity-tinted icon tile + name + affix line. */
+      .gear-row { display: flex; gap: 10px; align-items: center; padding: 6px 8px;
+        border: 1px solid #2a2a38; border-left-width: 3px; border-radius: 6px;
+        background: #14131f; margin-bottom: 6px; }
+      .gear-row .gbox { --tc: #c9c9d4; flex: none; width: 40px; height: 40px; display: flex;
+        align-items: center; justify-content: center; background: linear-gradient(160deg, #1a1926, #0e0d16);
+        border: 1px solid #2a2a38; box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
+      .gear-row .gbox .ii { width: 26px; height: 26px; background: var(--tc); display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .gear-row .gname { font-weight: 700; font-size: 12.5px; }
+      .gear-row .gaff { color: #b9d0c0; font-size: 11px; margin-top: 2px; }
+      .gear-row .gslot { margin-left: auto; align-self: flex-start; flex: none; color: #55556a;
+        font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
+      .gear-row.none { border-style: dashed; color: #6a6a7a; font-style: italic; font-size: 12px; }
+      /* Attribute tiles (LoL stat-popout style): tinted glyph + big number. */
+      .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+      .stile { --sc: #c9a24b; display: flex; gap: 9px; align-items: center; padding: 7px 10px;
+        background: #14131f; border: 1px solid #2a2a38; border-radius: 6px; cursor: help; }
+      .stile .si { flex: none; width: 20px; height: 20px; background: var(--sc); display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .stile b { font-size: 15px; color: var(--sc); font-variant-numeric: tabular-nums; }
+      .stile small { display: block; color: #7a7a8a; font-size: 9px; letter-spacing: 1.5px; }
+      #sheet .progress { margin-top: 10px; font-size: 11px; color: #8a8a9a; }
+      #sheet .progress b { color: #f2c14e; }
+      #sheet .progress .bar { margin-top: 5px; border: 1px solid #1c1c28; }
+      #sheet .progress .bar > i { background: linear-gradient(90deg, #6fd8a8, #3fae7c); }
+      /* Damage rows: ability icon · name/mechanics · [min–max] · CD · DPS. */
+      .drow { display: grid; grid-template-columns: 34px 1fr 128px 52px 64px; gap: 10px;
+        align-items: center; padding: 7px 9px; background: #14131f; border: 1px solid #2a2a38;
+        border-radius: 6px; margin-bottom: 6px; }
+      .drow .dic { --oc: #c9a24b; width: 34px; height: 34px; display: flex; align-items: center;
+        justify-content: center; background: rgba(8,8,14,0.85); border: 1px solid var(--oc); }
+      .drow .dic i { display: block; width: 22px; height: 22px; background: var(--oc);
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .drow.ult .dic { --oc: #b998ff; }
+      .drow .dnm { font-weight: 700; font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; }
+      .drow .school { flex: none; font-size: 8px; font-weight: 700; letter-spacing: 1.5px;
+        padding: 1px 6px; border: 1px solid; border-radius: 3px; }
+      .drow .school.phys { color: #ff9a5c; border-color: #6a4530; }
+      .drow .school.mag { color: #b998ff; border-color: #4a3a6a; }
+      .drow .dmech { color: #7a7a8a; font-size: 10.5px; margin-top: 2px; }
+      .drow .drange { text-align: right; font-variant-numeric: tabular-nums; cursor: help; }
+      .drow .drange b { font-size: 14px; color: #e6e6ec; }
+      .drow .drange small { display: block; color: #55556a; font-size: 9px; letter-spacing: 1px; }
+      .drow .dcd, .drow .ddps { text-align: right; font-variant-numeric: tabular-nums;
+        color: #b9d0c0; font-size: 12px; }
+      .drow .dcd small, .drow .ddps small { display: block; color: #55556a; font-size: 9px; letter-spacing: 1px; }
+      .drow .ddps b { color: #f2c14e; font-size: 13px; }
+      .drow.utility { grid-template-columns: 34px 1fr; }
+      .drow.utility .dmech { color: #9ab0a0; }
+      /* Defense: armor number + mitigation meter + the concrete example. */
+      .def-box { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center;
+        padding: 10px 12px; background: #14131f; border: 1px solid #2a2a38; border-radius: 6px; }
+      .def-box .dbig { text-align: center; cursor: help; }
+      .def-box .dbig b { font-size: 26px; color: #a9c7d8; font-variant-numeric: tabular-nums; }
+      .def-box .dbig small { display: block; color: #7a7a8a; font-size: 9px; letter-spacing: 2px; }
+      .def-meter { height: 10px; background: #0b0a14; border: 1px solid #1c1c28; border-radius: 3px;
+        overflow: hidden; position: relative; }
+      .def-meter > i { display: block; height: 100%; background: linear-gradient(90deg, #5a7d96, #a9c7d8); }
+      .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #e2574c; }
+      .def-lines { font-size: 11.5px; color: #b9d0c0; line-height: 1.55; }
+      .def-lines b { color: #a9c7d8; }
+      .def-lines .ex { color: #7a7a8a; }
+      .def-lines .ex b { color: #e6e6ec; }
+      /* The Show strip: chips matching the top-bar audience colors. */
+      .show-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+      .show-chip { background: #14131f; border: 1px solid #2a2a38; border-radius: 999px;
+        padding: 4px 12px; font-size: 11px; color: #8a8a9a; }
+      .show-chip b { color: #e6e6ec; font-variant-numeric: tabular-nums; margin-right: 4px; }
+      .show-chip.viewers b { color: #6fe3ff; } .show-chip.favorites b { color: #ff8ac2; }
+      .show-chip.sponsors b { color: #c9a24b; }
     </style>
   </head>
   <body>
@@ -449,8 +602,10 @@
         <div id="kb-rows"></div>
         <div class="kb-row"><span class="kb-name">Mouse aim<small>off = attack along movement direction</small></span>
           <span class="kb-key" id="kb-mouseaim">ON</span></div>
+        <div class="kb-row"><span class="kb-name">System chatter<small>side-ticker verbosity — headlines always show</small></span>
+          <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
-        <div class="credits">Ability &amp; item icons by Lorc, Delapouite &amp; Skoll — game-icons.net (CC BY 3.0) ·
+        <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>
         <div class="credits">Music: &quot;Battle Music&quot; by Alexandr Zhelanov ·
           &quot;Battle in the Winter&quot; by Johan Brodd ·
@@ -549,8 +704,8 @@
       </div>
     </div>
     <div id="fx"></div>
-    <div id="toast"></div>
-    <div id="banner"></div>
+    <div id="ticker"></div>
+    <div id="headline"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
     <div id="inv">
       <div class="panel">
@@ -559,6 +714,30 @@
         <div class="cols">
           <div><div class="sec-title">Equipped</div><div id="inv-equipped"></div></div>
           <div><div class="sec-title">Bag</div><div id="inv-bag"></div></div>
+        </div>
+      </div>
+    </div>
+    <div id="sheet">
+      <div class="panel">
+        <h2>◆ CRAWLER PROFILE <span class="sub" id="sheet-sub"></span></h2>
+        <div class="hint">The System's file on you · hover anything for the math ·
+          <kbd id="sheet-close-key">P</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <div class="sheet-cols">
+          <div>
+            <div class="sheet-sec">EQUIPPED</div>
+            <div id="sheet-gear"></div>
+            <div class="sheet-sec">ATTRIBUTES</div>
+            <div class="stat-grid" id="sheet-attrs"></div>
+            <div class="progress" id="sheet-progress"></div>
+          </div>
+          <div>
+            <div class="sheet-sec">DAMAGE <span class="note" id="sheet-dice"></span></div>
+            <div id="sheet-dmg"></div>
+            <div class="sheet-sec">DEFENSE</div>
+            <div id="sheet-def"></div>
+            <div class="sheet-sec">THE SHOW <span class="note">your broadcast, this run</span></div>
+            <div class="show-grid" id="sheet-show"></div>
+          </div>
         </div>
       </div>
     </div>

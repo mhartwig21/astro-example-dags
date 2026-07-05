@@ -20,8 +20,10 @@ export interface SaveData {
     xpToNext: number;
     gold: number;
     bonusDamage: number;
+    bonusSpell?: number; // optional: pre-schools saves default to 0 on load
     bonusMaxHp: number;
     bonusCrit: number;
+    bonusArmor?: number; // optional: pre-armor saves default to 0 on load
     equipment: Player["equipment"];
     inventory: Item[];
     abilities?: Player["abilities"];
@@ -50,8 +52,10 @@ export function saveRun(state: GameState): void {
         xpToNext: p.xpToNext,
         gold: p.gold,
         bonusDamage: p.bonusDamage,
+        bonusSpell: p.bonusSpell,
         bonusMaxHp: p.bonusMaxHp,
         bonusCrit: p.bonusCrit,
+        bonusArmor: p.bonusArmor,
         equipment: p.equipment,
         inventory: p.inventory,
         abilities: p.abilities,

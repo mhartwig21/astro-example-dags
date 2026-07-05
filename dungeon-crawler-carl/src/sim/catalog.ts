@@ -38,33 +38,45 @@ export interface CatalogEntry {
   /** Crafting materials consumed on purchase (the elite/boss hunt). */
   materials?: Partial<Record<MaterialId, number>>;
   effect?: ConsumableEffect;
+  /** Consumables: how many can be bought PER SHOP (scarcity — was unlimited).
+   * Absent = the CONSUMABLE_STOCK_DEFAULT below. */
+  stock?: number;
+}
+
+/** Per-shop stock for a consumable with no explicit `stock`. */
+export const CONSUMABLE_STOCK_DEFAULT = 2;
+
+/** How many units of a consumable this shop stocks. Non-consumables are Infinity. */
+export function consumableStock(entry: CatalogEntry): number {
+  if (entry.tier !== "consumable") return Infinity;
+  return entry.stock ?? CONSUMABLE_STOCK_DEFAULT;
 }
 
 export const CATALOG: CatalogEntry[] = [
   // ---- Consumables (always stocked; repeatable buys; floor-scaled prices) ----
   {
     id: "field_ration", name: "Field Ration", tier: "consumable", effect: "heal",
-    desc: "Restore 50% HP. Tastes like sponsorship.", cost: 25, perFloor: 5,
+    desc: "Restore 50% HP. Tastes like sponsorship.", cost: 25, perFloor: 5, stock: 3,
   },
   {
     id: "stabilizer_rod", name: "Stabilizer Rod", tier: "consumable", effect: "time",
-    desc: "+15s on the next floor's collapse timer.", cost: 30, perFloor: 6,
+    desc: "+15s on the next floor's collapse timer.", cost: 30, perFloor: 6, stock: 2,
   },
   {
     id: "plating_kit", name: "Plating Kit", tier: "consumable", effect: "maxHp",
-    desc: "Permanent max-HP graft. Slightly itchy.", cost: 45, perFloor: 9,
+    desc: "Permanent max-HP graft. Slightly itchy. The System rations these.", cost: 45, perFloor: 9, stock: 2,
   },
   {
     id: "mystery_box", name: "Mystery Box", tier: "consumable", effect: "mystery",
-    desc: "A loot-box roll. The System giggles.", cost: 60, perFloor: 8,
+    desc: "A loot-box roll. The System giggles.", cost: 60, perFloor: 8, stock: 2,
   },
   {
     id: "tome", name: "Ability Tome", tier: "consumable", effect: "tome",
-    desc: "Learn the ability printed inside. Stock varies.", cost: 120, perFloor: 10,
+    desc: "Learn the ability printed inside. Stock varies.", cost: 120, perFloor: 10, stock: 1,
   },
   {
     id: "system_favor", name: "System Favor", tier: "consumable", effect: "favor",
-    desc: "The System owes you one: an extra ability-upgrade draft.", cost: 150, perFloor: 15,
+    desc: "The System owes you one: an extra ability-upgrade draft.", cost: 150, perFloor: 15, stock: 1,
   },
 
   // ---- Starter (floor-1 kit; cheap stat sticks; sell them back later) ----
@@ -207,16 +219,19 @@ export const TIER_RARITY = {
 // Catalog gear is materialized at purchase, scaled by the floor ahead so the
 // build tree stays relevant across an 18-floor run (a Prime-Time Cleaver
 // bought on floor 10 outswings one bought on floor 3 — rebuying/upgrading
-// through the tree is the intended refresh). Probability/speed affixes scale
-// on a tighter leash than raw stats.
+// through the tree is the intended refresh). The 0.15/floor slope is
+// calibrated for TIER PARITY with drops (items.ts rollAffix × RARITIES.mult):
+// advanced keeps pace with rare drops, legendary with epics — the shop sells
+// certainty and build paths, not strictly-worse stat sticks. Probability/speed
+// affixes scale on a tighter leash than raw stats.
 export function gearAffixes(e: CatalogEntry, floor: number): Affixes {
-  const mult = 1 + 0.1 * Math.max(0, floor - 2);
+  const mult = 1 + 0.15 * Math.max(0, floor - 2);
   const a = e.affixes ?? {};
   const out: Affixes = {};
   if (a.damage) out.damage = Math.round(a.damage * mult);
   if (a.maxHp) out.maxHp = Math.round(a.maxHp * mult);
-  if (a.speed) out.speed = +(a.speed * Math.min(mult, 1.6)).toFixed(2);
-  if (a.crit) out.crit = +(a.crit * Math.min(mult, 2)).toFixed(3);
+  if (a.speed) out.speed = +(a.speed * Math.min(mult, 2)).toFixed(2);
+  if (a.crit) out.crit = +(a.crit * Math.min(mult, 2.4)).toFixed(3);
   return out;
 }
 

@@ -5,7 +5,7 @@
 export type BindableAction =
   | "moveUp" | "moveDown" | "moveLeft" | "moveRight"
   | "slot1" | "slot2" | "slot3" | "slot4" | "ultimate" | "flask"
-  | "stairs" | "inventory" | "abilities" | "keybinds" | "newRun" | "mute";
+  | "stairs" | "inventory" | "abilities" | "character" | "keybinds" | "newRun" | "mute";
 
 export type Bindings = Record<BindableAction, string[]>;
 
@@ -23,6 +23,7 @@ export const ACTION_INFO: Record<BindableAction, { name: string; hint?: string }
   stairs: { name: "Use stairs / descend" },
   inventory: { name: "Inventory" },
   abilities: { name: "Abilities & achievements" },
+  character: { name: "Crawler profile", hint: "stats, damage, defense" },
   keybinds: { name: "Key bindings" },
   newRun: { name: "New run (solo)" },
   mute: { name: "Mute sound" },
@@ -42,6 +43,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   stairs: ["e"],
   inventory: ["i"],
   abilities: ["t"],
+  character: ["p"],
   keybinds: ["k"],
   newRun: ["r"],
   mute: ["m"],
@@ -122,6 +124,29 @@ export function loadMouseAim(): boolean {
 export function saveMouseAim(on: boolean): void {
   try {
     localStorage.setItem(AIM_KEY, on ? "on" : "off");
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Announcer verbosity: how much System chatter reaches the side ticker.
+// Headline banners always show; the HUD log always keeps everything.
+export type NotifyLevel = "all" | "normal" | "critical";
+
+const NOTIFY_KEY = "dcc:notify:v1";
+
+export function loadNotify(): NotifyLevel {
+  try {
+    const v = localStorage.getItem(NOTIFY_KEY);
+    return v === "all" || v === "critical" ? v : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+export function saveNotify(level: NotifyLevel): void {
+  try {
+    localStorage.setItem(NOTIFY_KEY, level);
   } catch {
     /* best-effort */
   }

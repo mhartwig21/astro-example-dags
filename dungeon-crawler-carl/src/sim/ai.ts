@@ -1,9 +1,9 @@
 import { ARCHETYPES, CONFIG } from "./config";
-import { dist, normalize, rollDamage } from "./combat";
+import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { addHype, explodeBomber, handlePlayerDeath, nearestPlayer, summonMinion } from "./game";
+import { damagePlayerHit, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, summonMinion } from "./game";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -42,18 +42,9 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc — whiff
-    const dmg = rollDamage(state.rng, m.damage);
-    player.hp -= dmg;
-    player.damageTaken += dmg;
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    state.hits.push({
-      pos: { x: player.pos.x, y: player.pos.y }, amount: dmg, kind: "player",
-      dir, killed: player.hp <= 0,
-    });
-    if (player.hp <= 0) {
+    if (damagePlayerHit(state, player, m.damage, { dir })) {
       handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
-    } else if (player.hp < player.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, player, CONFIG.show.hypeLowHpHit); // living dangerously = great television
     }
   }
 }
@@ -73,7 +64,78 @@ function resolveStrike(state: GameState, m: Monster): void {
     spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage);
     return;
   }
+  if (kind === "charge") {
+    // The rush launches down the direction locked at commit (see stepMonster).
+    m.chargeT = CONFIG.chargerRange / CONFIG.chargerDashSpeed;
+    m.chargeHits = [];
+    return;
+  }
+  if (kind === "spit") {
+    // The lob lands where the player WAS at commit — moving out is the dodge.
+    const target = m.spitTarget ?? m.pos;
+    m.spitTarget = undefined;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: target.x, y: target.y },
+      t: CONFIG.puddleDuration,
+      total: CONFIG.puddleDuration,
+      radius: CONFIG.puddleRadius,
+      damage: m.damage * CONFIG.spitterPuddleDmgMult,
+      kind: "puddle",
+      tick: 0, // anyone caught at the splash eats the first tick immediately
+    });
+    return;
+  }
+  if (kind === "raise") {
+    raiseCorpse(state, m); // whiffs harmlessly if the corpse faded mid-ritual
+    return;
+  }
   resolveMeleeStrike(state, m);
+}
+
+/** Charger mid-rush: barrel along the locked line, clipping anyone on it once. */
+function stepCharge(state: GameState, m: Monster, dt: number): void {
+  m.chargeT = Math.max(0, (m.chargeT ?? 0) - dt);
+  const dir = m.chargeDir ?? { x: 0, y: 0 };
+  moveWithCollision(state.map, m.pos, dir, CONFIG.chargerDashSpeed * dt, isWalkable);
+  for (const player of state.players) {
+    if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the train
+    if (m.chargeHits?.includes(player.id)) continue; // one clip per rush
+    if (dist(m.pos, player.pos) > CONFIG.chargerHitRadius) continue;
+    (m.chargeHits ??= []).push(player.id);
+    const away = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+    if (damagePlayerHit(state, player, m.damage, { dir: away })) {
+      handlePlayerDeath(state, player, `${player.name} stood on the tracks. The charger did not brake.`);
+    }
+  }
+  if (m.chargeT === 0) {
+    m.chargeDir = undefined;
+    m.chargeHits = undefined;
+    m.attackCooldown = CONFIG.chargerCooldown;
+  }
+}
+
+/** Spring an ambush: wake this monster and every dormant neighbor in range, all
+ * surging to close, and announce it once. Hitting a dormant monster (damageMonster)
+ * or revealing one ringside (maybeStartEncounter) also routes here — however the
+ * trap is discovered, the whole cluster commits together. */
+export function springAmbush(state: GameState, trigger: Monster): void {
+  let woke = 0;
+  for (const n of state.monsters) {
+    if (!n.dormant || n.hp <= 0) continue;
+    if (n !== trigger && dist(trigger.pos, n.pos) > CONFIG.ambushWakeRadius) continue;
+    n.dormant = false;
+    n.surgeT = CONFIG.ambushSurgeSeconds;
+    n.attackCooldown = 0; // spring loaded — engage on the first beat
+    woke++;
+  }
+  if (woke > 0) {
+    state.announcements.push({
+      text: "AMBUSH! The floor was never empty — it was waiting. The crowd LOVES this.",
+      kind: "boss",
+      priority: "high",
+    });
+  }
 }
 
 export function stepMonster(state: GameState, m: Monster, dt: number): void {
@@ -83,11 +145,28 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
   if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - dt);
+  if ((m.surgeT ?? 0) > 0) m.surgeT = Math.max(0, (m.surgeT ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
-  // Staggered: helpless. The stagger that set this also canceled any windup.
+  // AMBUSH: a dormant monster lies inert until a player strays within trigger
+  // range, then springs — and drags its whole cluster up with it, all surging
+  // to close the gap. Until sprung it neither moves nor attacks (quiet in fog).
+  if (m.dormant) {
+    const prey = nearestPlayer(state, m.pos);
+    if (!prey || dist(m.pos, prey.pos) > CONFIG.ambushTriggerRadius) return; // still waiting
+    springAmbush(state, m);
+  }
+
+  // Staggered: helpless. The stagger that set this also canceled any windup
+  // (and any rush in progress — see damageMonster in game.ts).
   if (m.stagger > 0) {
     m.stagger = Math.max(0, m.stagger - dt);
+    return;
+  }
+
+  // Mid-rush: the charge overrides everything until it runs its line out.
+  if ((m.chargeT ?? 0) > 0) {
+    stepCharge(state, m, dt);
     return;
   }
 
@@ -106,6 +185,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   const d = dist(m.pos, player.pos);
   const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
   const windup = ARCHETYPES[m.kind].windup;
+  // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
+  const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1);
 
   // Summoner elites call swarmer adds while a player is near (lifetime-capped).
   if (
@@ -169,7 +250,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Shot down early, it still cooks off at half radius (see reapDead in game.ts).
     if (d > CONFIG.monsterAggroRange) return;
     if (d <= m.attackRange) beginWindup(m, "fuse", CONFIG.bomberFuse);
-    else moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    else moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     return;
   }
 
@@ -200,6 +281,67 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
+  if (m.kind === "charger") {
+    // Charger: in its rush band it LOCKS a direction and telegraphs long —
+    // the lane is the danger, sidestep it. Point-blank it just swings.
+    if (d > CONFIG.monsterAggroRange * 1.5) return;
+    if (m.attackCooldown === 0 && d >= CONFIG.chargerMinRange && d <= CONFIG.chargerRange) {
+      m.chargeDir = toPlayer; // frozen NOW; the windup is your dodge window
+      beginWindup(m, "charge", windup);
+      return;
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup * 0.6);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "spitter") {
+    // Spitter: ranged standoff; lobs acid at where you're STANDING. The puddle
+    // is the threat — it lingers, so the floor itself becomes the enemy.
+    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    const standoff = m.attackRange;
+    if (m.shootCd === 0 && d <= standoff + 2) {
+      m.shootCd = CONFIG.spitterCooldown;
+      m.spitTarget = { x: player.pos.x, y: player.pos.y };
+      beginWindup(m, "spit", windup);
+      return;
+    }
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "necromancer") {
+    // Necromancer: shaman-style standoff, but its cast RAISES a fresh corpse
+    // as a weakened minion. Kill it first or the pack never stays dead.
+    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    const standoff = m.attackRange;
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    if (m.healCd === 0 && (m.summons ?? 0) < CONFIG.necroRaiseMax) {
+      let corpse: GameState["corpses"][number] | null = null;
+      for (const c of state.corpses) {
+        if (dist(m.pos, c.pos) > CONFIG.necroRaiseRange) continue;
+        if (!corpse || c.t > corpse.t) corpse = c; // prefers the freshest body
+      }
+      if (corpse) {
+        m.healCd = CONFIG.necroRaiseCooldown; // paid up front — a whiff still costs
+        m.raiseId = corpse.id;
+        beginWindup(m, "raise", windup);
+      }
+    }
+    return;
+  }
+
   if (m.kind === "phantom") {
     // Phantom: fast, fragile; periodically blinks toward its prey, then telegraphs
     // a quick strike. The blink slides via moveWithCollision so it never clips walls.
@@ -210,7 +352,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       m.blinkCd = CONFIG.phantomBlinkCooldown;
       moveWithCollision(state.map, m.pos, toPlayer, Math.min(CONFIG.phantomBlinkDistance, d - m.attackRange * 0.5), isWalkable);
     } else {
-      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
     return;
   }
@@ -220,6 +362,6 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
   } else {
-    moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
   }
 }

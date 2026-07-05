@@ -21,6 +21,27 @@ const SLOT_NOUNS: Record<ItemSlot, string[]> = {
   trinket: ["Charm", "Sigil", "Idol", "Band", "Totem"],
 };
 
+// Genuine itemization (DESIGN 5.8): every weapon noun belongs to a CLASS with
+// one mechanical hook (abilities.ts reads these for melee/bolt/nova params).
+// Catalog weapon names resolve through the same map (noun = last word), so
+// "Bloodsport Maul" is heavy and "Prime-Time Cleaver" is swift for free.
+export type WeaponClass = "swift" | "heavy" | "reach" | "ballistic" | "arcane" | "chaotic";
+const WEAPON_CLASS_BY_NOUN: Record<string, WeaponClass> = {
+  Blade: "swift", Cleaver: "swift", Boxcutter: "swift", Edge: "swift", Wraps: "swift", Runner: "swift", Headliner: "swift",
+  Axe: "heavy", Maul: "heavy",
+  Spear: "reach",
+  Crossbow: "ballistic",
+  Wand: "arcane", Staff: "arcane",
+  Mug: "chaotic",
+};
+
+/** Weapon class of an item (by name noun), or null for non-weapons/unknowns. */
+export function weaponClassOf(item: Item | null | undefined): WeaponClass | null {
+  if (!item || item.slot !== "weapon") return null;
+  const parts = item.name.split(" ");
+  return WEAPON_CLASS_BY_NOUN[parts[parts.length - 1]] ?? null;
+}
+
 const RARITY_PREFIX: Record<Rarity, string[]> = {
   common: ["Worn", "Plain", "Scrappy"],
   magic: ["Keen", "Sturdy", "Humming"],
@@ -50,6 +71,7 @@ function rollSlot(rng: Rng): ItemSlot {
 function rollAffix(rng: Rng, key: keyof Affixes, floor: number, mult: number): number {
   switch (key) {
     case "damage":
+    case "spell": // the schools grow on the same curve; gear picks WHICH
       return Math.max(1, Math.round((nextInt(rng, 2, 4) + floor) * mult));
     case "maxHp":
       return Math.max(2, Math.round((nextInt(rng, 6, 12) + floor * 2) * mult));
@@ -57,15 +79,20 @@ function rollAffix(rng: Rng, key: keyof Affixes, floor: number, mult: number): n
       return +((0.15 + nextFloat(rng) * 0.25) * Math.min(2, mult)).toFixed(2);
     case "crit":
       return +((0.02 + nextFloat(rng) * 0.04) * Math.min(2.5, mult)).toFixed(3);
+    case "armor":
+      return Math.max(1, Math.round((nextInt(rng, 3, 6) + floor * 1.5) * mult));
   }
 }
 
-// Each slot has a guaranteed primary affix, then extras drawn from a slot-flavored pool.
-const PRIMARY: Record<ItemSlot, keyof Affixes> = { weapon: "damage", armor: "maxHp", trinket: "crit" };
+// Each slot has a guaranteed primary affix, then extras drawn from a slot-flavored
+// pool. Arcane weapons flip their rolls to the magic school — finding a great
+// staff IS the nudge toward a caster build. Armor pieces lead with ARMOR (the
+// mitigation stat is a gear story); HP moved to their extra pool.
+const PRIMARY: Record<ItemSlot, keyof Affixes> = { weapon: "damage", armor: "armor", trinket: "crit" };
 const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
   weapon: ["crit", "speed", "maxHp"],
-  armor: ["damage", "speed", "crit"],
-  trinket: ["speed", "damage", "maxHp"],
+  armor: ["maxHp", "damage", "spell", "speed", "crit"],
+  trinket: ["speed", "damage", "spell", "maxHp", "armor"],
 };
 
 // Signature gear (unique passives, sponsor-gated) lives in the System Shop
@@ -75,9 +102,20 @@ export function generateItem(rng: Rng, floor: number, nextId: () => number): Ite
   const slot = rollSlot(rng);
   const rarity = rollRarity(rng);
   const mult = rarityMult(rarity);
-  const affixes: Affixes = {};
 
-  const primary = PRIMARY[slot];
+  // Noun first: the weapon's CLASS decides which school its stats feed.
+  // The System's favorite joke: a sliver of epic weapons are just... a Mug.
+  const noun =
+    slot === "weapon" && rarity === "epic" && nextFloat(rng) < 0.07
+      ? "Mug"
+      : pick(rng, SLOT_NOUNS[slot]);
+  const wclass = slot === "weapon" ? WEAPON_CLASS_BY_NOUN[noun] : undefined;
+
+  const affixes: Affixes = {};
+  const primary =
+    slot === "weapon" && wclass === "arcane" ? "spell"
+    : slot === "weapon" && wclass === "chaotic" ? (nextFloat(rng) < 0.5 ? "spell" : "damage")
+    : PRIMARY[slot];
   affixes[primary] = rollAffix(rng, primary, floor, mult);
 
   const extras = RARITY_AFFIX_COUNT[rarity] - 1;
@@ -87,27 +125,28 @@ export function generateItem(rng: Rng, floor: number, nextId: () => number): Ite
     affixes[key] = (affixes[key] ?? 0) + rollAffix(rng, key, floor, mult);
   }
 
-  // The System's favorite joke: a sliver of epic weapons are just... a Mug.
-  const noun =
-    slot === "weapon" && rarity === "epic" && nextFloat(rng) < 0.07
-      ? "Mug"
-      : pick(rng, SLOT_NOUNS[slot]);
   const name = `${pick(rng, RARITY_PREFIX[rarity])} ${noun}`;
   return { id: nextId(), slot, rarity, name, affixes };
 }
 
-/** A single scalar used to auto-equip "the better item" and to sort the bag. */
+/** A single scalar used to auto-equip "the better item" and to sort the bag.
+ * School-agnostic: both powers count the same (the player curates the build). */
 export function itemScore(item: Item): number {
   const a = item.affixes;
-  return (a.damage ?? 0) * 2 + (a.maxHp ?? 0) * 0.5 + (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300;
+  return (
+    (a.damage ?? 0) * 2 + (a.spell ?? 0) * 2 + (a.maxHp ?? 0) * 0.5 +
+    (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300 + (a.armor ?? 0) * 1.5
+  );
 }
 
-/** Human-readable affix lines for the inventory UI, e.g. ["+7 DMG", "+4% crit"]. */
+/** Human-readable affix lines for the inventory UI, e.g. ["+7 ATK", "+4% crit"]. */
 export function affixLines(item: Item): string[] {
   const a = item.affixes;
   const out: string[] = [];
-  if (a.damage) out.push(`+${a.damage} DMG`);
+  if (a.damage) out.push(`+${a.damage} ATK`);
+  if (a.spell) out.push(`+${a.spell} MAG`);
   if (a.maxHp) out.push(`+${a.maxHp} HP`);
+  if (a.armor) out.push(`+${a.armor} ARM`);
   if (a.speed) out.push(`+${a.speed.toFixed(2)} SPD`);
   if (a.crit) out.push(`+${Math.round(a.crit * 100)}% crit`);
   return out;

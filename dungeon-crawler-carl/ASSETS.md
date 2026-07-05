@@ -21,12 +21,31 @@ appreciated).
 | Mini Dungeon (with animations) | Kenney | CC0 | https://kenney-assets.itch.io/mini-dungeon |
 | LowPoly Modular Dungeon Pack (45+ pcs) | Quaternius | CC0 | https://quaternius.itch.io/lowpoly-modular-dungeon-pack |
 | KayKit Dungeon Remastered | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
+| KayKit Halloween Bits (THE GARDEN band: dead trees, graves, crypt, lanterns) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
+| KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
+| KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
+| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
+
+Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
+mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
+`gltf-pipeline`; the pack license ships alongside the models as
+`public/assets/dungeon/LICENSE-halloween-bits.txt`.
 
 ### Characters & monsters (rigged + animated — the big 3D win)
 | Pack | Author | License | Link |
 |---|---|---|---|
 | KayKit Character Pack: Adventurers | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Pack: Skeletons | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
+| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| KayKit Monthly Mystery Character: Demon Lord (July 2026; + SummoningCircle prop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+
+Collection characters were copied from the purchased Complete Collection zip
+(self-contained GLBs, textures embedded). The newer-generation characters ship
+without baked animations; the shared rig clip libraries
+(`rig_medium_*.glb` / `rig_large_*.glb`) animate them — see `CHARACTER_RIGS`
+in `src/render3d/assets.ts`. Pack licenses ship alongside as
+`LICENSE-kaykit-collection.txt` and `LICENSE-demonlord.txt`.
 | RPG Characters / Animated Monsters | Quaternius | CC0 | https://quaternius.com/ |
 
 KayKit Adventurers + Skeletons are the sweet spot for this game: rigged humanoids
@@ -167,6 +186,8 @@ attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
 | energy-arrow | bolt | Lorc |
 | explosion-rays | nova | Lorc |
 | orbital | orbit | Lorc |
+| switch-weapon | stance | Delapouite |
+| lightning-arc | overcharge | Lorc |
 | carpet-bombing | airstrike | Skoll |
 | quake-stomp | cataclysm | Lorc |
 | stopwatch | bullettime | Lorc |
@@ -175,6 +196,48 @@ Convention: `/icons/<abilityId>.svg`, background rect stripped so the white
 glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
 New abilities: pick an icon at game-icons.net, fetch the raw SVG from the
 GitHub mirror, strip `<path d="M0 0h512v512H0z"/>`, and add a row here.
+
+### Noun icons — `public/icons/nouns/` (same source, license, and convention)
+
+Generated field drops (`src/sim/items.ts` SLOT_NOUNS) show their weapon/armor/
+trinket NOUN's icon in the bag and equipped rows, rarity-tinted via CSS mask.
+One file per noun, lowercase: `/icons/nouns/<noun>.svg`.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| blade | broadsword | Lorc |
+| axe | battle-axe | Lorc |
+| maul | warhammer | Delapouite |
+| spear | barbed-spear | Lorc |
+| cleaver | bowie-knife | Lorc |
+| wand | fairy-wand | Lorc |
+| staff | wizard-staff | Lorc |
+| crossbow | crossbow | Carl Olsen |
+| mug | beer-stein | Lorc |
+| plate | breastplate | Lorc |
+| hauberk | scale-mail | Lorc |
+| carapace | turtle-shell | Lorc |
+| aegis | checked-shield | Lorc |
+| vest | sleeveless-jacket | Delapouite |
+| charm | gem-pendant | Lorc |
+| sigil | rune-stone | Lorc |
+| idol | totem-head | Lorc |
+| band | diamond-ring | Delapouite |
+| totem | totem-mask | Lorc |
+
+### Stat icons — `public/icons/stats/` (same source, license, and convention)
+
+The Crawler Profile panel's attribute tiles (`renderSheet` in `src/main3d.ts`),
+tinted per stat via CSS mask.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| attack | crossed-swords | Lorc |
+| spell | magic-swirl | Lorc |
+| crit | on-target | Lorc |
+| speed | wingfoot | Lorc |
+| armor | shield | sbed |
+| hp | health-normal | sbed |
 
 ### Item icons — `public/icons/items/` (same source, license, and convention)
 

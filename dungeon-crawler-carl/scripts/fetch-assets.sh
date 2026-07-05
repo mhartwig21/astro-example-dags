@@ -33,6 +33,11 @@ echo "== Scriptable CC0 sources =="
 # over time — browse https://poly.pizza and copy a model's GLB link if one 404s.
 # (Left as examples; uncomment/replace with the exact models you want.)
 # fetch "https://poly.pizza/api/download/<MODEL_ID>?format=glb" "$DEST/dungeon/wall.glb"
+#
+# KayKit packs with GitHub mirrors are fully scriptable: each model is a .gltf +
+# sidecar .bin + shared texture png; convert with `npx gltf-pipeline -i x.gltf -o x.glb`.
+# THE GARDEN band models came from Halloween Bits this way:
+#   https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0/main/addons/kaykit_halloween_bits/Assets/gltf/<name>.gltf
 
 echo
 echo "== Manual downloads (browser required) =="
@@ -52,6 +57,8 @@ versions and unzip into public/assets/ as noted:
   KayKit — Adventurers + Skeletons (CC0, rigged + animated)
     https://kaylousberg.itch.io/kaykit-adventurers   -> public/assets/characters/adventurer.glb
     https://kaylousberg.itch.io/kaykit-skeletons     -> public/assets/characters/skeleton.glb
+    Scriptable mirror (per-file raw GLBs, same CC0 pack):
+    https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/main/addons/kaykit_character_pack_adventures/Characters/gltf/<Name>.glb
 
 After placing files, enable the matching lines in src/render3d/assets.ts
 (MODEL_MANIFEST) and reload — the renderer will use the models automatically.

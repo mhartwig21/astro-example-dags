@@ -1,18 +1,18 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
-import { angleBetween, dist, normalize, rollDamage } from "./combat";
+import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
 import { moveWithCollision } from "./movement";
-import { stepMonster } from "./ai";
+import { springAmbush, stepMonster } from "./ai";
 import { generateItem, itemScore } from "./items";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, gearAffixes, tierStockCount, totalCost,
+  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
 } from "./catalog";
 import {
-  ABILITY_INFO, ABILITY_SLOTS, boltParams, dashParams, knows, meleeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, boltParams, damageVariance, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitParams, rollUpgradeDraft, slotted, startingLoadout,
-  unknownAbilities, upgradeDef, type AbilityId,
+  novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
+  unknownAbilities, upgradeDef, type AbilityId, type School,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import type {
@@ -23,24 +23,32 @@ import { NO_INTENT, Tile } from "./types";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
-  const intrinsicDmg = CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel;
+  // Both schools share the intrinsic level curve — at zero gear a fresh nova
+  // hits exactly as hard as it did pre-schools. GEAR is the differentiator.
+  const intrinsicPower = CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel;
   const intrinsicHp = CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel;
-  let dmg = intrinsicDmg + p.bonusDamage;
+  let atk = intrinsicPower + p.bonusDamage;
+  let mag = intrinsicPower + p.bonusSpell;
   let hp = intrinsicHp + p.bonusMaxHp;
   let spd = CONFIG.playerSpeed;
   let crit = CONFIG.playerCritChance + p.bonusCrit;
+  let arm = CONFIG.playerBaseArmor + p.bonusArmor;
   for (const slot of ["weapon", "armor", "trinket"] as const) {
     const it = p.equipment[slot];
     if (!it) continue;
-    dmg += it.affixes.damage ?? 0;
+    atk += it.affixes.damage ?? 0;
+    mag += it.affixes.spell ?? 0;
     hp += it.affixes.maxHp ?? 0;
     spd += it.affixes.speed ?? 0;
     crit += it.affixes.crit ?? 0;
+    arm += it.affixes.armor ?? 0;
   }
-  p.baseDamage = dmg;
+  p.attackPower = atk;
+  p.spellPower = mag;
   p.maxHp = hp;
   p.speed = spd;
   p.critChance = crit;
+  p.armor = arm;
   p.weaponRarity = p.equipment.weapon?.rarity ?? "common";
   if (p.hp > p.maxHp) p.hp = p.maxHp;
 }
@@ -80,8 +88,11 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   const a = ARCHETYPES[kind];
   const mpHp = 1 + extraPlayers(state) * CONFIG.mpHpPerExtraPlayer;
   const mpDmg = 1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer;
-  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp;
-  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg;
+  // Compounding scaling steepens the back half (the linear curve loses to a
+  // farming player by midgame). No effect at/under monsterScaleCompoundFrom.
+  const compound = Math.pow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
+  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound;
+  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
   const hp = Math.round(baseHp * a.hpMult);
   return {
@@ -109,7 +120,8 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
-  // specialists: bombers (floor 2+), shamans (floor 4+), phantoms (floor 6+).
+  // specialists: bombers (floor 2+), chargers (3+), shamans (4+), spitters
+  // (5+), phantoms (6+), necromancers (7+).
   const rangedW = 1 + floor * 0.5;
   const bruteW = floor >= 3 ? floor * 0.4 : 0;
   const swarmW = 2 + floor * 0.3;
@@ -117,7 +129,10 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const bomberW = floor >= 2 ? floor * 0.3 : 0;
   const shamanW = floor >= 4 ? floor * 0.25 : 0;
   const phantomW = floor >= 6 ? floor * 0.3 : 0;
-  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW;
+  const chargerW = floor >= 3 ? floor * 0.3 : 0;
+  const spitterW = floor >= 5 ? floor * 0.25 : 0;
+  const necroW = floor >= 7 ? floor * 0.2 : 0;
+  const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -125,6 +140,9 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= bomberW) < 0) return "bomber";
   if ((r -= shamanW) < 0) return "shaman";
   if ((r -= phantomW) < 0) return "phantom";
+  if ((r -= chargerW) < 0) return "charger";
+  if ((r -= spitterW) < 0) return "spitter";
+  if ((r -= necroW) < 0) return "necromancer";
   return "brute";
 }
 
@@ -139,7 +157,10 @@ const CITY_BOSS_NAMES = [
 ];
 
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
-const ELITE_AFFIXES: EliteAffix[] = ["swift", "shielded", "volatile", "summoner"];
+const ELITE_AFFIXES: EliteAffix[] = [
+  "swift", "shielded", "volatile", "summoner", "splitter", "thorns",
+  "armored", "warded",
+];
 
 /** A city-boss arena floor (6, 12, ... but never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
@@ -245,6 +266,11 @@ function spawnMonsters(state: GameState): void {
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
     const kind = rollArchetype(rng, floor);
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
+    // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
+    // one when a player wanders in (see stepMonster). A ranged/support pack
+    // makes a poor ambush, so this favors melee kinds that benefit from surprise.
+    const canAmbush = kind !== "ranged" && kind !== "shaman" && kind !== "spitter" && kind !== "necromancer";
+    const ambush = floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance);
     for (let k = 0; k < size; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
       const a = nextFloat(rng) * Math.PI * 2;
@@ -252,7 +278,9 @@ function spawnMonsters(state: GameState): void {
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
       const memberKind = escort && k === size - 1 ? "shaman" : kind;
-      state.monsters.push(makeMonster(state, memberKind, pos));
+      const m = makeMonster(state, memberKind, pos);
+      if (ambush) m.dormant = true;
+      state.monsters.push(m);
       budget--;
     }
   }
@@ -276,16 +304,27 @@ function spawnMonsters(state: GameState): void {
       const r = map.rooms[landmarkIdx];
       return m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
     };
-    const candidates = state.monsters.filter((m) => inLandmark(m) && m.kind !== "boss");
+    // Support castes never take the crown: shamans heal and necromancers raise —
+    // neither ever ATTACKS, and a named "boss" that deals zero damage reads as
+    // a bug, not a mechanic (packs get shaman escorts from floor 4+, so the
+    // landmark pack very often contains one).
+    const canBoss = (m: Monster) =>
+      m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer";
+    const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
       m = candidates[nextInt(rng, 0, candidates.length - 1)];
     } else if (landmarkIdx >= 0) {
       const r = map.rooms[landmarkIdx];
-      m = makeMonster(state, rollArchetype(rng, floor), { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+      const rolled = rollArchetype(rng, floor);
+      const kind = rolled === "shaman" || rolled === "necromancer" ? "brute" : rolled;
+      m = makeMonster(state, kind, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
       state.monsters.push(m);
     } else {
-      m = state.monsters[nextInt(rng, 0, state.monsters.length - 1)];
+      const fighters = state.monsters.filter(canBoss);
+      m = fighters.length > 0
+        ? fighters[nextInt(rng, 0, fighters.length - 1)]
+        : state.monsters[nextInt(rng, 0, state.monsters.length - 1)]; // all-support floor: unreachable in practice
     }
     m.elite = true;
     m.eliteName = pick(rng, ELITE_NAMES);
@@ -349,8 +388,10 @@ function makePlayer(id: number, name: string): Player {
     hp: CONFIG.playerMaxHp,
     maxHp: CONFIG.playerMaxHp,
     speed: CONFIG.playerSpeed,
-    baseDamage: CONFIG.playerBaseDamage,
+    attackPower: CONFIG.playerBaseDamage,
+    spellPower: CONFIG.playerBaseDamage,
     critChance: CONFIG.playerCritChance,
+    armor: CONFIG.playerBaseArmor,
     cd: {},
     dashTime: 0,
     dashCharges: CONFIG.dashCharges,
@@ -360,6 +401,12 @@ function makePlayer(id: number, name: string): Player {
     novaFlash: 0,
     orbitAngle: 0,
     orbitTick: 0,
+    orbitSpiral: 0,
+    stance: "melee",
+    stanceTime: 0,
+    stanceSwapWindow: 0,
+    stanceCritReady: false,
+    overcharged: false,
     abilities: startingLoadout(),
     level: 1,
     xp: 0,
@@ -369,8 +416,10 @@ function makePlayer(id: number, name: string): Player {
     equipment: { weapon: null, armor: null, trinket: null },
     inventory: [],
     bonusDamage: 0,
+    bonusSpell: 0,
     bonusMaxHp: 0,
     bonusCrit: 0,
+    bonusArmor: 0,
     alive: true,
     attackSwing: 0,
     pendingUpgrades: [],
@@ -406,11 +455,29 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.flaskKillProgress = 0;
   p.novaFlash = 0;
   p.attackSwing = 0;
+  p.stanceTime = 0; // the stance itself carries — it's part of the build
+  p.stanceSwapWindow = 0;
+  p.stanceCritReady = false;
+  p.overcharged = false;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
     p.hp = Math.round(p.maxHp * 0.5);
   }
+}
+
+// Cosmetic hero skins: every run you drop in as a random adventurer, and party
+// members never twin (up to the pool size). Purely DERIVED from (seed, player
+// id) — no state, no save field, no rng-stream impact, and every client
+// computes the same answer from the shared seed. Becomes real chosen state
+// when character types/classes land.
+export const HERO_SKINS = ["knight", "barbarian", "mage", "rogue", "hooded"] as const;
+export type HeroSkin = (typeof HERO_SKINS)[number];
+
+/** Which adventurer this crawler is for this run (hosts map it to a model). */
+export function heroSkin(seed: number, playerId: number): HeroSkin {
+  const base = (Math.imul(seed ^ 0x9e3779b1, 0x85ebca6b) >>> 8) % HERO_SKINS.length;
+  return HERO_SKINS[(base + playerId) % HERO_SKINS.length];
 }
 
 /** Living party members (most systems only care about these). */
@@ -463,6 +530,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.loot = [];
   state.projectiles = [];
   state.hazards = [];
+  state.corpses = [];
   state.encounter = null;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
@@ -484,8 +552,10 @@ export interface SavedProgress {
     xpToNext: number;
     gold: number;
     bonusDamage?: number;
+    bonusSpell?: number;
     bonusMaxHp?: number;
     bonusCrit?: number;
+    bonusArmor?: number;
     equipment?: Player["equipment"];
     inventory?: Item[];
     abilities?: Player["abilities"];
@@ -518,8 +588,10 @@ export function restoreGame(save: SavedProgress): GameState {
   p.xpToNext = s.xpToNext;
   p.gold = s.gold;
   p.bonusDamage = s.bonusDamage ?? 0;
+  p.bonusSpell = s.bonusSpell ?? 0;
   p.bonusMaxHp = s.bonusMaxHp ?? 0;
   p.bonusCrit = s.bonusCrit ?? 0;
+  p.bonusArmor = s.bonusArmor ?? 0; // pre-armor saves default to 0
   if (s.equipment) p.equipment = s.equipment;
   if (s.inventory) p.inventory = s.inventory;
   if (s.abilities) {
@@ -560,9 +632,11 @@ export function restoreGame(save: SavedProgress): GameState {
     };
   }
   // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
-  // fold the surplus over intrinsic into permanent bonuses so old runs resume intact.
+  // fold the surplus over intrinsic into permanent bonuses so old runs resume
+  // intact. Pre-schools damage fed EVERY ability, so it folds into both powers.
   if (s.bonusDamage === undefined && s.baseDamage !== undefined) {
     p.bonusDamage = Math.max(0, s.baseDamage - (CONFIG.playerBaseDamage + (p.level - 1) * CONFIG.damagePerLevel));
+    p.bonusSpell = p.bonusDamage;
   }
   if (s.bonusMaxHp === undefined && s.maxHp !== undefined) {
     p.bonusMaxHp = Math.max(0, s.maxHp - (CONFIG.playerMaxHp + (p.level - 1) * CONFIG.hpPerLevel));
@@ -570,6 +644,65 @@ export function restoreGame(save: SavedProgress): GameState {
   recomputeStats(p);
   p.hp = Math.min(s.hp, p.maxHp);
   buildFloor(state, save.floor);
+  return state;
+}
+
+export interface TestSetup {
+  seed?: number;
+  floor?: number; // starting floor, clamped to 1..finalFloor
+  level?: number; // crawler level; ranks are auto-drafted to match
+  gold?: number; // default scales with the floor so the shop is testable
+  abilities?: AbilityId[] | "all"; // learned + auto-slotted before leveling
+  gear?: boolean; // roll floor-scaled random gear (default true)
+}
+
+/**
+ * Test-mode bootstrap (hosts gate it behind a ?test URL): a deterministic,
+ * stage-representative run — floor N, a crawler leveled through the REAL
+ * draft roller (so the constellation build is one a player could hold),
+ * floor-scaled gear, and any requested abilities slotted. Only the seeded
+ * RNG is used: the same setup always produces the same character.
+ */
+export function createTestGame(opts: TestSetup = {}): GameState {
+  const seed = (opts.seed ?? 0xc0ffee) >>> 0;
+  const floor = Math.max(1, Math.min(CONFIG.finalFloor, Math.floor(opts.floor ?? 1)));
+  const level = Math.max(1, Math.min(50, Math.floor(opts.level ?? 1)));
+  const state = createGame(seed);
+  const p = state.players[0];
+
+  const wanted: AbilityId[] = opts.abilities === "all" ? [...DISCOVERABLE_ABILITIES] : opts.abilities ?? [];
+  for (const a of wanted) learnAbility(state, p, a);
+
+  while (p.level < level) {
+    p.level++;
+    p.xpToNext = xpForLevel(p.level);
+    const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, floor);
+    if (offers.length > 0) {
+      const offer = pick(state.rng, offers);
+      p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
+    }
+  }
+  p.xp = 0;
+
+  // Floor-scaled loadout: several rolls, wear the upgrades, bag a few spares.
+  if (opts.gear !== false) {
+    for (let i = 0; i < 8; i++) {
+      const item = generateItem(state.rng, floor, () => state.nextEntityId++);
+      const worn = p.equipment[item.slot];
+      if (!worn || itemScore(item) > itemScore(worn)) {
+        p.equipment[item.slot] = item;
+        if (worn && p.inventory.length < 4) p.inventory.push(worn);
+      } else if (p.inventory.length < 4) {
+        p.inventory.push(item);
+      }
+    }
+  }
+
+  p.gold = Math.max(0, Math.floor(opts.gold ?? floor * 40));
+  recomputeStats(p);
+  p.hp = p.maxHp;
+  buildFloor(state, floor);
+  state.events.push(`TEST MODE: floor ${floor}, level ${level}, seed ${seed}.`);
   return state;
 }
 
@@ -601,6 +734,7 @@ export function createGame(seed: number): GameState {
     strikes: [],
     bulletTimeLeft: 0,
     hazards: [],
+    corpses: [],
     encounter: null,
     killsThisStep: 0,
     escapedCollapse: false,
@@ -674,6 +808,9 @@ function maybeStartEncounter(state: GameState): void {
     );
     if (!near) continue;
     m.introduced = true;
+    // A ringside introduction blows the trap's cover: a revealed named menace
+    // never stands inert — its whole dormant cluster springs with it.
+    if (m.dormant) springAmbush(state, m);
     const name = m.eliteName ?? (state.floor >= CONFIG.finalFloor ? "THE FLOOR BOSS" : "THE BOSS");
     state.encounter = {
       monsterId: m.id,
@@ -695,6 +832,24 @@ function maybeStartEncounter(state: GameState): void {
     for (const p of alivePlayers(state)) addHype(state, p, 8); // entrances play great
     return;
   }
+}
+
+/**
+ * Necromancer raise resolves: the committed corpse (if it hasn't faded) gets
+ * back up as a fresh, weakened minion of its old kind. Worth almost no XP.
+ */
+export function raiseCorpse(state: GameState, m: Monster): void {
+  const idx = state.corpses.findIndex((c) => c.id === m.raiseId);
+  m.raiseId = undefined;
+  if (idx < 0) return; // the corpse faded mid-ritual — whiffed
+  const corpse = state.corpses.splice(idx, 1)[0];
+  const raised = makeMonster(state, corpse.kind, corpse.pos);
+  raised.hp = raised.maxHp = Math.max(1, Math.round(raised.maxHp * CONFIG.necroRaisedHpMult));
+  raised.xp = CONFIG.necroRaisedXp;
+  m.summons = (m.summons ?? 0) + 1;
+  state.monsters.push(raised);
+  hit(state, raised.pos, 0, "weapon"); // a poof for the juice layer
+  state.events.push(`A necromancer drags a ${corpse.kind} back to its feet.`);
 }
 
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
@@ -723,9 +878,40 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean },
+  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean },
 ): void {
-  state.hits.push({ pos: { x: pos.x, y: pos.y }, amount, kind, dir: extra?.dir, killed: extra?.killed });
+  state.hits.push({
+    pos: { x: pos.x, y: pos.y }, amount, kind,
+    dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+  });
+}
+
+/** Effective incoming-damage reduction from the player's armor (0..cap). */
+export function playerMitigation(p: Player): number {
+  return armorReduction(p.armor, CONFIG.armorK, CONFIG.armorMaxReduction);
+}
+
+/**
+ * The single choke point for monster→player damage: roll (unless the caller
+ * pre-rolled/capped), mitigate through armor, apply, emit the hit event and
+ * low-HP hype. Death stays with the CALLER — every source has its own
+ * announcer line. Returns true when the hit dropped them.
+ * (The collapse timer bypasses this on purpose: the dungeon itself deals
+ * fractional true damage no armor can argue with.)
+ */
+export function damagePlayerHit(
+  state: GameState, p: Player, base: number,
+  opts: { dir?: Vec2; roll?: boolean } = {},
+): boolean {
+  const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
+  const dmg = mitigate(raw, playerMitigation(p));
+  p.hp -= dmg;
+  p.damageTaken += dmg;
+  hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0 });
+  if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
+    addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
+  }
+  return p.hp <= 0;
 }
 
 /** Grant XP to one player (kill XP is split before calling this). */
@@ -762,6 +948,11 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
   const offer = p.pendingUpgrades[idx];
   p.abilities.ranks[offer.id] = (p.abilities.ranks[offer.id] ?? 0) + 1;
   p.pendingUpgrades = [];
+  if (offer.overrank) {
+    // A lottery rank past the printed max — rare enough to headline.
+    announce(state, "levelup", `${p.name} seizes OVERRANK ${offer.title} ${offer.nextRank}! Power beyond System limits.`, "high");
+    return;
+  }
   const def = upgradeDef(offer.id);
   announce(state, "levelup", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
@@ -842,9 +1033,12 @@ function awardLootBox(state: GameState, p: Player): void {
     learnAbility(state, p, ability);
   } else if (roll === 0) {
     const amt = nextInt(state.rng, 3, 6);
+    // Permanent power buffs are school-agnostic (both ATK and MAG) so a loot
+    // box never rolls dead for a build; gear stays the school differentiator.
     p.bonusDamage += amt;
+    p.bonusSpell += amt;
     recomputeStats(p);
-    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} damage)`);
+    announce(state, "loot", `LOOT BOX #${state.lootBoxes}: a wicked weapon mod! (+${amt} power)`);
   } else if (roll === 1) {
     const amt = nextInt(state.rng, 15, 30);
     p.bonusMaxHp += amt;
@@ -895,6 +1089,15 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
 }
 
+/** The school a monster resists (takes resistDamageTakenMult on), if any:
+ * the elite affix wins, else the archetype's innate tag (charger/phantom). */
+export function monsterResist(m: Monster): School | null {
+  if (m.affix === "armored") return "physical";
+  if (m.affix === "warded") return "magic";
+  const a: MonsterArchetype = ARCHETYPES[m.kind]; // widen past the as-const literal
+  return a.resist ?? null;
+}
+
 /**
  * Damage a monster with a player's roll (shared crit/credit path). Beyond the
  * HP: hits SHOVE the target (`knockback` tiles / archetype mass, along `dir`)
@@ -904,12 +1107,20 @@ function dropLoot(state: GameState, pos: Vec2): void {
  */
 function damageMonster(
   state: GameState, p: Player, m: Monster, base: number,
-  opts: { allowCrit?: boolean; dir?: Vec2; knockback?: number } = {},
+  opts: {
+    allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean;
+    poiseMult?: number; school?: School; dir?: Vec2; knockback?: number;
+  } = {},
 ): void {
-  const isCrit = (opts.allowCrit ?? true) && chance(state.rng, p.critChance);
-  let dmg = rollDamage(state.rng, base);
+  const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance));
+  let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
+  // School resists (5.8 phase 3): armored shrugs physical, warded shrugs magic
+  // — from the elite affix roll or the archetype's innate tag. The party's
+  // damage MIX is the counterplay, so the reduction reads loud (dim numbers).
+  const resisted = monsterResist(m) === (opts.school ?? "physical");
+  if (resisted) dmg = Math.max(1, Math.round(dmg * CONFIG.resistDamageTakenMult));
   // One-shot insurance: named menaces never lose more than a capped fraction
   // of their pool to a single hit — a boss fight is a FIGHT, not a screenshot.
   if (m.kind === "boss") dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.bossHitCapFraction)));
@@ -917,23 +1128,40 @@ function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
+  if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
-    m.poiseDmg += dmg;
-    if (m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
+    m.poiseDmg += dmg * (opts.poiseMult ?? 1); // heavy weapons stagger harder
+    // SYSTEM SHOCK (overcharge capstone): the hit itself is a poise break.
+    if ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
       m.poiseDmg = 0;
       m.stagger = CONFIG.staggerDuration;
       m.windup = 0; // interrupted — the committed attack never lands
       m.windupKind = undefined;
+      m.chargeT = 0; // a poise break also stops a rush cold
+      m.chargeDir = undefined;
     }
     if (opts.dir && opts.knockback) {
       moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
     }
   }
-  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", { dir: opts.dir, killed: m.hp <= 0 });
+  hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
+    dir: opts.dir, killed: m.hp <= 0, school: opts.school, resisted: resisted || undefined,
+  });
   p.damageDealt += dmg;
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
+  // Thorns elites bite back: a slice of every hit returns to the attacker,
+  // capped per hit so burst builds feel it without getting one-shot by it.
+  if (m.affix === "thorns" && p.alive && dmg > 0) {
+    const reflect = Math.min(
+      Math.round(dmg * CONFIG.thornsReflectFraction),
+      Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)),
+    );
+    if (damagePlayerHit(state, p, reflect, { roll: false })) {
+      handlePlayerDeath(state, p, `${p.name} beat ${m.eliteName ?? "an elite"} to death with their own health bar. THORNS, folks.`);
+    }
+  }
 }
 
 /** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
@@ -979,7 +1207,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   // arm's reach, snap the swing to the nearest such target — at melee range
   // the player's intent is "hit the thing next to me", not the exact cursor.
   const wouldHit = state.monsters.some(
-    (m) => m.hp > 0 && inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc),
+    (m) => m.hp > 0 && inSwing(p.pos, facing, m, mp.range, mp.arc),
   );
   if (!wouldHit) {
     let snap: Monster | null = null;
@@ -987,7 +1215,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     for (const m of state.monsters) {
       if (m.hp <= 0) continue;
       const edge = dist(p.pos, m.pos) - bodyRadius(m);
-      if (edge <= CONFIG.playerAttackRange && edge < snapD) { snapD = edge; snap = m; }
+      if (edge <= mp.range && edge < snapD) { snapD = edge; snap = m; }
     }
     if (snap) {
       facing = normalize({ x: snap.pos.x - p.pos.x, y: snap.pos.y - p.pos.y });
@@ -995,15 +1223,31 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     }
   }
 
+  // MOMENTUM (stance capstone) and Overcharge both spend only on a swing that
+  // actually connects — whiffing into empty air doesn't waste the setup.
+  const momentum = p.stanceCritReady && p.stance === "melee";
+  const oc = p.overcharged ? overchargeParams(p) : null;
+  let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
-    if (!inSwing(p.pos, facing, m, CONFIG.playerAttackRange, mp.arc)) continue;
+    if (!inSwing(p.pos, facing, m, mp.range, mp.arc)) continue;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    damageMonster(state, p, m, p.baseDamage * mp.damageMult * execute, {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback,
+    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1);
+    damageMonster(state, p, m, dmg, {
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical",
+      forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
     });
+    // Echo Strike: the overcharged swing lands a second, softer hit.
+    if (oc && oc.echoFrac > 0 && m.hp > 0) {
+      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon), school: "physical" });
+    }
+    connected = true;
+  }
+  if (connected) {
+    if (momentum) p.stanceCritReady = false;
+    if (oc) p.overcharged = false;
   }
 }
 
@@ -1015,6 +1259,9 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   bomber: CONFIG.show.hypeBomber,
   shaman: CONFIG.show.hypeShaman,
   phantom: CONFIG.show.hypePhantom,
+  charger: CONFIG.show.hypeCharger,
+  spitter: CONFIG.show.hypeSpitter,
+  necromancer: CONFIG.show.hypeNecromancer,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -1034,18 +1281,12 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
   for (const p of state.players) {
     if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
     if (dist(m.pos, p.pos) > radius) continue;
-    const dmg = rollDamage(state.rng, base);
-    p.hp -= dmg;
-    p.damageTaken += dmg;
     caught++;
     const away = dist(m.pos, p.pos) > 1e-4
       ? normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y })
       : undefined;
-    hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
-    if (p.hp <= 0) {
+    if (damagePlayerHit(state, p, base, { dir: away })) {
       handlePlayerDeath(state, p, `${p.name} was BLOWN APART by a bomber. Sponsors, roll the replay.`);
-    } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-      addHype(state, p, CONFIG.show.hypeLowHpHit);
     }
   }
   if (caught > 0) announce(state, "flavor", "KABOOM! A bomber detonates point-blank. The crowd feels that one.");
@@ -1054,11 +1295,17 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
 
 function reapDead(state: GameState): void {
   const survivors: Monster[] = [];
+  const spawned: Monster[] = []; // splitter children (added after the sweep)
   let killsThisStep = 0;
   for (const m of state.monsters) {
     if (m.hp > 0) {
       survivors.push(m);
       continue;
+    }
+    // Every fallen regular leaves a raisable corpse (necromancer fuel).
+    if (m.kind !== "boss") {
+      state.corpses.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: m.kind, t: CONFIG.corpseTtl });
+      if (state.corpses.length > CONFIG.corpseMax) state.corpses.shift();
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
@@ -1092,6 +1339,19 @@ function reapDead(state: GameState): void {
         damage: m.damage * CONFIG.volatileDmgMult,
       });
       announce(state, "boss", `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+    }
+    // Splitter elites burst into a swarm — the fight isn't over, it multiplied.
+    if (m.affix === "splitter") {
+      for (let i = 0; i < CONFIG.splitterCount; i++) {
+        const a = nextFloat(state.rng) * Math.PI * 2;
+        const child = makeMonster(state, "swarmer", {
+          x: m.pos.x + Math.cos(a) * 0.6, y: m.pos.y + Math.sin(a) * 0.6,
+        });
+        child.xp = 1; // the payout was the elite, not the confetti
+        spawned.push(child);
+        hit(state, child.pos, 0, "weapon"); // a poof per child for the juice layer
+      }
+      announce(state, "boss", `${m.eliteName ?? "The elite"} SPLITS APART. It's never just one.`);
     }
     grantPartyXp(state, m.xp);
     if (m.hasKey) {
@@ -1129,7 +1389,7 @@ function reapDead(state: GameState): void {
     }
   }
   state.killsThisStep = killsThisStep;
-  state.monsters = survivors;
+  state.monsters = spawned.length > 0 ? survivors.concat(spawned) : survivors;
 }
 
 function collectLoot(state: GameState): void {
@@ -1300,7 +1560,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
     const t = available.indexOf("tome");
     if (t >= 0) available.splice(t, 1);
   }
-  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [] };
+  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [], purchased: {} };
 }
 
 /**
@@ -1334,6 +1594,29 @@ function claimComponents(p: Player, catalogId: string, claimed: Set<Item>): numb
   return credit;
 }
 
+/**
+ * Direct components (with multiplicity) the player still lacks for a build.
+ * Purchases of built gear are GATED on this being empty: the build tree is a
+ * path you walk, not a price sheet — assembling the pieces shop-to-shop is
+ * the intended rhythm. Exported for the shop UI's lock reason.
+ */
+export function missingComponents(p: Player, catalogId: string): string[] {
+  const need = CATALOG_BY_ID[catalogId]?.buildsFrom ?? [];
+  if (need.length === 0) return [];
+  const owned: Record<string, number> = {};
+  const count = (it: Item | null) => {
+    if (it?.catalogId) owned[it.catalogId] = (owned[it.catalogId] ?? 0) + 1;
+  };
+  for (const it of p.inventory) count(it);
+  for (const slot of ["weapon", "armor", "trinket"] as const) count(p.equipment[slot]);
+  const missing: string[] = [];
+  for (const c of need) {
+    if ((owned[c] ?? 0) > 0) owned[c]--;
+    else missing.push(c);
+  }
+  return missing;
+}
+
 /** What a player would pay for a catalog entry right now (component-discounted). */
 export function effectivePrice(p: Player, catalogId: string, nextFloor: number): number {
   const entry = CATALOG_BY_ID[catalogId];
@@ -1358,11 +1641,15 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   if (!room || !p || !entry || !room.available.includes(catalogId)) return;
 
   if (entry.tier === "consumable") {
+    // Scarcity: each consumable has a limited per-shop stock (excess gold can no
+    // longer buy an unbounded HP graft — that was the maximalist EHP leak).
+    if ((room.purchased[catalogId] ?? 0) >= consumableStock(entry)) return;
     const price = consumablePrice(entry, room.nextFloor);
     if (p.gold < price) return;
     if (entry.effect === "tome" && (!room.tomeAbility || knows(p, room.tomeAbility))) return;
     p.gold -= price;
     p.goldSpent += price;
+    room.purchased[catalogId] = (room.purchased[catalogId] ?? 0) + 1;
     switch (entry.effect) {
       case "heal":
         p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
@@ -1394,7 +1681,9 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
     return;
   }
 
-  // Gear: price the build path, then gate on gold + sponsors + materials.
+  // Gear: built items REQUIRE their components in hand (see missingComponents);
+  // then price the build path and gate on gold + sponsors + materials.
+  if (missingComponents(p, catalogId).length > 0) return;
   const claimed = new Set<Item>();
   let credit = 0;
   for (const c of entry.buildsFrom ?? []) credit += claimComponents(p, c, claimed);
@@ -1493,27 +1782,36 @@ function shuffle<T>(rng: Rng, arr: T[]): T[] {
   return a;
 }
 
-/** Roll one sponsor gift of the given kind. Quality scalar q scales amounts. */
-function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number): Reward {
+/** Diminishing-returns factor for a permanent stat gift: full value on a fresh
+ * axis, tapering as the crawler stacks it (k/(k+owned)). This is what stops
+ * "+damage every floor" from being the one true pick — see rewardDr*K. */
+export function rewardDr(owned: number, k: number): number {
+  return k / (k + Math.max(0, owned));
+}
+
+/** Roll one sponsor gift of the given kind. `q` scales with backing; permanent
+ * stat gifts additionally diminish against what `p` has already banked. */
+function makeReward(state: GameState, rng: Rng, p: Player, kind: Reward["kind"], q: number): Reward {
   const floor = state.floor;
   const id = state.nextEntityId++;
   switch (kind) {
     case "healFull":
       return { id, kind, title: "Field Medic", desc: "Restore all HP", amount: 0 };
     case "maxHp": {
-      const amt = Math.round((18 + floor * 2) * q);
+      const amt = Math.max(6, Math.round((18 + floor * 2) * q * rewardDr(p.bonusMaxHp, CONFIG.rewardDrMaxHpK)));
       return { id, kind, title: "Reinforced Frame", desc: `+${amt} max HP`, amount: amt };
     }
     case "damage": {
-      // Damage compounds with everything else the player stacks, so its
-      // quality scaling is capped — uncapped q hands out ~+80 damage per
-      // floor late-game and one-shots the boss ladder (balance bot survey).
-      const amt = Math.round((5 + floor) * Math.min(q, 2));
+      const amt = Math.max(2, Math.round((5 + floor) * Math.min(q, 2) * rewardDr(p.bonusDamage, CONFIG.rewardDrDamageK)));
       return { id, kind, title: "Weapon Mod", desc: `+${amt} damage`, amount: amt };
     }
     case "crit": {
-      const pct = Math.round(4 + q * 2);
+      const pct = Math.max(2, Math.round((4 + q * 2) * rewardDr(p.bonusCrit * 100, CONFIG.rewardDrCritK)));
       return { id, kind, title: "Targeting Chip", desc: `+${pct}% crit`, amount: pct / 100 };
+    }
+    case "armor": {
+      const amt = Math.max(3, Math.round((6 + floor * 1.5) * q * rewardDr(p.bonusArmor, CONFIG.rewardDrArmorK)));
+      return { id, kind, title: "Ablative Weave", desc: `+${amt} armor`, amount: amt };
     }
     case "gold": {
       const amt = Math.round((40 + floor * 12) * q);
@@ -1522,6 +1820,17 @@ function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number)
     case "bonusTime": {
       const amt = Math.round(10 + q * 5);
       return { id, kind, title: "Stabilizer", desc: `+${amt}s on this floor`, amount: amt };
+    }
+    case "materials": {
+      // Progress toward SIGNATURE gear — a build-defining pull that never
+      // concentrates a stat. Deeper floors owe the rarer boss sigil.
+      const mat: MaterialId = floor >= 10 && chance(rng, 0.5) ? "boss_sigil" : "elite_trophy";
+      const label = mat === "boss_sigil" ? "Boss Sigil" : "Elite Trophy";
+      return { id, kind, title: "Sponsor Bounty", desc: `+1 ${label} (signature crafting)`, amount: 1, material: mat };
+    }
+    case "favor": {
+      // An owed constellation draft — advances the BUILD, self-limiting (nodes cap).
+      return { id, kind, title: "System Favor", desc: "An extra ability-upgrade draft", amount: 1 };
     }
     case "item": {
       const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
@@ -1539,12 +1848,12 @@ function makeReward(state: GameState, rng: Rng, kind: Reward["kind"], q: number)
 function rewardFitScore(p: Player, r: Reward): number {
   // Build affinity per axis: what fraction of the crawler's investment
   // (equipped affixes + permanent bonuses) sits on each stat.
-  let dmg = p.bonusDamage * 2;
+  let dmg = (p.bonusDamage + p.bonusSpell) * 2;
   let hp = p.bonusMaxHp * 0.5;
   let crit = p.bonusCrit * 300;
   for (const it of Object.values(p.equipment)) {
     if (!it) continue;
-    dmg += (it.affixes.damage ?? 0) * 2;
+    dmg += ((it.affixes.damage ?? 0) + (it.affixes.spell ?? 0)) * 2;
     hp += (it.affixes.maxHp ?? 0) * 0.5;
     crit += (it.affixes.crit ?? 0) * 300;
   }
@@ -1562,12 +1871,18 @@ function rewardFitScore(p: Player, r: Reward): number {
       const gain = itemScore(item) - (cur ? itemScore(cur) : 0);
       return itemScore(item) + Math.max(0, gain); // actual upgrades count double
     }
+    case "armor":
+      return r.amount * 1.5; // EHP on the mitigation curve; not build-axis weighted
     case "healFull":
       return (p.maxHp - p.hp) * 0.5; // worth exactly what it would restore
     case "gold":
       return r.amount * 0.08;
     case "bonusTime":
       return r.amount * 1.5;
+    case "materials":
+      return 55; // steady pull toward signature gear (flat — it's build variety)
+    case "favor":
+      return 70; // a constellation rank is strong, but not always the pick
   }
 }
 
@@ -1584,11 +1899,15 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
   if (count <= 0) return [];
   const rng = createRng((floorSeed(state.seed, state.floor) ^ 0x5eed1234 ^ Math.imul(playerId + 1, 0x85ebca6b)) >>> 0);
   const q = 1 + pl.sponsors * 0.4 + Math.min(1, pl.favorites / 1000);
-  const pool: Reward["kind"][] = ["healFull", "maxHp", "damage", "crit", "item", "gold", "bonusTime"];
+  // Wide pool so the every-floor pick isn't obvious: 4 permanent stat gifts
+  // (each diminishing as you stack it) alongside build-variety gifts.
+  const pool: Reward["kind"][] = [
+    "healFull", "maxHp", "damage", "crit", "armor", "item", "gold", "bonusTime", "materials", "favor",
+  ];
   const surplus = Math.max(0, pl.sponsors - CONFIG.rewardMaxCount);
   const candidates = shuffle(rng, pool)
     .slice(0, Math.min(pool.length, count + surplus))
-    .map((kind) => makeReward(state, rng, kind, q));
+    .map((kind) => makeReward(state, rng, pl, kind, q));
   if (candidates.length <= count) return candidates;
   // Keep the best-fitting `count`, preserving the rolled order for display.
   // A ±20% seeded jitter keeps this a bias, not a script — surplus backing
@@ -1612,14 +1931,25 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       break;
     case "damage":
       p.bonusDamage += r.amount;
+      p.bonusSpell += r.amount; // sponsor buffs serve every build (see loot boxes)
       recomputeStats(p);
       break;
     case "crit":
       p.bonusCrit += r.amount;
       recomputeStats(p);
       break;
+    case "armor":
+      p.bonusArmor += r.amount;
+      recomputeStats(p);
+      break;
     case "gold":
       p.gold += r.amount;
+      break;
+    case "materials":
+      if (r.material) p.materials[r.material] += r.amount;
+      break;
+    case "favor":
+      p.upgradeDraftsOwed += r.amount;
       break;
     case "bonusTime":
       state.timeBudget += r.amount;
@@ -1647,30 +1977,62 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 }
 
 /**
- * Dash skill: blink in the facing direction with brief i-frames (dashTime).
- * Runs on charges — spending one starts the recharge timer (cd.dash) if it
- * isn't already running; the step loop restores charges as it expires.
+ * Dash skill: blink with brief i-frames (dashTime), along the CURRENT move
+ * input when there is one (falling back to facing) — firing a bolt sets
+ * facing to the aim direction, and a dash should follow your feet, not your
+ * last shot. Runs on charges — spending one starts the recharge timer
+ * (cd.dash) if it isn't already running.
  */
-function doDash(state: GameState, p: Player): void {
+function doDash(state: GameState, p: Player, move: Vec2): void {
   const dp = dashParams(p);
   p.dashCharges--;
   if ((p.cd.dash ?? 0) <= 0) p.cd.dash = dp.cooldown * cdMult(p);
   // Blastplate Harness: the launch point detonates behind you.
   if (hasPassive(p, "blastplate")) {
-    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, p.baseDamage);
+    radialDamage(state, p, { x: p.pos.x, y: p.pos.y }, 1.6, power(p, "dash"), 0, "magic");
   }
   p.dashTime = CONFIG.dashDuration;
-  const dir = normalize(p.facing);
+  const dir = normalize(move.x !== 0 || move.y !== 0 ? move : p.facing);
+  p.facing = dir;
+  const start = { x: p.pos.x, y: p.pos.y };
   moveWithCollision(state.map, p.pos, dir, dp.distance, isWalkable);
-  // Shockstep: a damage burst around the arrival point.
+  // Shockstep: damage along the WHOLE dash path (launch -> arrival capsule),
+  // so dashing through a pack connects — and Long Blink extends the reach.
   if (dp.shockMult > 0) {
-    radialDamage(state, p, p.pos, 1.6, p.baseDamage * dp.shockMult, CONFIG.shockstepKnockback);
+    segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
+      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, "magic");
   }
-  // AFTERSHOCK capstone: the arrival point detonates outright.
+  // AFTERSHOCK capstone: the arrival point additionally detonates outright.
   if (rank(p, "dash.after") > 0) {
-    radialDamage(state, p, p.pos, 1.8, p.baseDamage);
+    radialDamage(state, p, p.pos, 1.8, power(p, "dash"), 0, "magic");
     p.novaFlash = Math.max(p.novaFlash, 0.18);
   }
+}
+
+/**
+ * Battle Stance: toggle which attack type the crawler favors (see stanceMult).
+ * The swap itself is the cast — Flow builds ride the post-swap surge window,
+ * Discipline builds plant their feet and let the stance settle instead.
+ */
+function doStance(state: GameState, p: Player): void {
+  p.stance = p.stance === "melee" ? "ranged" : "melee";
+  p.cd.stance = CONFIG.stanceSwapCooldown * cdMult(p);
+  p.stanceTime = 0;
+  p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
+  if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
+  hit(state, p.pos, 0, "weapon"); // a flourish poof for the juice layer
+}
+
+/**
+ * Overcharge: bank power now; the NEXT attack (melee swing or bolt volley)
+ * spends it — harder-hitting, plus whatever the tree adds (extra bolts, an
+ * echo strike, poise-shattering hits). The cooldown starts on cast, so the
+ * rhythm is charge -> pick the moment -> spend.
+ */
+function doOvercharge(state: GameState, p: Player): void {
+  p.overcharged = true;
+  p.cd.overcharge = CONFIG.overchargeCooldown * cdMult(p);
+  hit(state, p.pos, 0, "weapon"); // a crackle poof for the juice layer
 }
 
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
@@ -1679,34 +2041,70 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
   p.cd.bolt = bp.cooldown * cdMult(p);
+  // Stance judges the CAST (a volley loosed in Deadeye stays hot even if you
+  // swap mid-flight). MOMENTUM and Overcharge spend on fire — the shot taken
+  // is the shot primed; whether it lands is the archer's problem.
+  const momentum = p.stanceCritReady && p.stance === "ranged";
+  if (momentum) p.stanceCritReady = false;
+  const oc = p.overcharged ? overchargeParams(p) : null;
+  if (oc) p.overcharged = false;
+  // The weapon decides what a "bolt" even is (boltParams): crossbow bolts off
+  // attack power, magic missiles off spell power, or a melee-class sidearm.
+  const damage = Math.max(1, Math.round(bp.dmg * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
+  const speed = CONFIG.boltSpeed * bp.speedMult;
+  const count = bp.count + (oc?.extraBolts ?? 0); // Overcharged Volley widens the fan
   const base = Math.atan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
-  for (let i = 0; i < bp.count; i++) {
-    const a = base + (i - (bp.count - 1) / 2) * spread;
+  for (let i = 0; i < count; i++) {
+    const a = base + (i - (count - 1) / 2) * spread;
     const d = { x: Math.cos(a), y: Math.sin(a) };
     state.projectiles.push({
       id: state.nextEntityId++,
       pos: { x: p.pos.x + d.x * 0.6, y: p.pos.y + d.y * 0.6 },
-      vel: { x: d.x * CONFIG.boltSpeed, y: d.y * CONFIG.boltSpeed },
-      damage: Math.max(1, Math.round(p.baseDamage * CONFIG.boltDamageMult)),
+      vel: { x: d.x * speed, y: d.y * speed },
+      damage,
       ttl: CONFIG.boltTtl,
       from: "player",
       ownerId: p.id,
       pierce: bp.pierce,
+      crit: momentum || undefined,
+      shatter: oc?.shatter || undefined,
+      school: bp.school,
     });
   }
 }
 
-/** Damage every monster within `radius` of `center` (crit-able); used by nova/shockstep.
+/** Damage every monster within `radius` of `center` (crit-able); used by nova/aftershock.
  * Blasts shove outward from the center when `knockback` > 0. */
 function radialDamage(
-  state: GameState, p: Player, center: Vec2, radius: number, damage: number, knockback = 0,
+  state: GameState, p: Player, center: Vec2, radius: number, damage: number,
+  knockback = 0, school: School = "physical",
 ): void {
   for (const m of state.monsters) {
     const d = dist(center, m.pos);
     if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback });
+    damageMonster(state, p, m, damage, { dir, knockback, school });
+  }
+}
+
+/** Damage every monster whose body touches the capsule around segment a->b
+ * (Shockstep's dash path). Knockback shoves away from the path. */
+function segmentDamage(
+  state: GameState, p: Player, a: Vec2, b: Vec2, radius: number, damage: number,
+  knockback = 0, school: School = "physical",
+): void {
+  const ab = { x: b.x - a.x, y: b.y - a.y };
+  const len2 = ab.x * ab.x + ab.y * ab.y;
+  for (const m of state.monsters) {
+    const t = len2 > 1e-6
+      ? Math.max(0, Math.min(1, ((m.pos.x - a.x) * ab.x + (m.pos.y - a.y) * ab.y) / len2))
+      : 0;
+    const closest = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+    const d = dist(closest, m.pos);
+    if (d - bodyRadius(m) > radius) continue;
+    const dir = d > 1e-4 ? { x: (m.pos.x - closest.x) / d, y: (m.pos.y - closest.y) / d } : undefined;
+    damageMonster(state, p, m, damage, { dir, knockback, school });
   }
 }
 
@@ -1724,26 +2122,39 @@ function doNova(state: GameState, p: Player): void {
     }
   }
   p.novaFlash = 0.3;
-  radialDamage(state, p, p.pos, np.radius, p.baseDamage * np.damageMult, CONFIG.novaKnockback);
+  radialDamage(state, p, p.pos, np.radius, power(p, "nova") * np.damageMult, CONFIG.novaKnockback, "magic");
 }
 
-/** Orbit blades: automatic contact damage on a fixed tick while learned. */
+/**
+ * Orbit blades: automatic contact damage on a fixed tick while slotted. The
+ * tick tests the blade's SWEPT path since the last tick (sampled), not just
+ * its instantaneous position — blades hit what they visibly passed through.
+ * With Corkscrew the radius spirals between inner and outer reach (see
+ * orbitBladePos), so coverage spans every range instead of one ring.
+ */
 function updateOrbit(state: GameState, p: Player, dt: number): void {
   if (!slotted(p, "orbit") || !p.alive) return;
   const op = orbitParams(p);
   p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
+  p.orbitSpiral = (p.orbitSpiral + CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
   if (p.orbitTick > 0) return;
   p.orbitTick = CONFIG.orbitTickSeconds;
+  const angleSweep = CONFIG.orbitRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
+  const phaseSweep = CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * CONFIG.orbitTickSeconds;
+  const samples = CONFIG.orbitHitSamples;
   for (const m of state.monsters) {
+    const reach = CONFIG.orbitBladeHitRadius + bodyRadius(m);
     let touching = false;
-    for (let i = 0; i < op.blades; i++) {
-      const a = p.orbitAngle + (i * Math.PI * 2) / op.blades;
-      const blade = { x: p.pos.x + Math.cos(a) * op.radius, y: p.pos.y + Math.sin(a) * op.radius };
-      if (dist(blade, m.pos) <= CONFIG.orbitBladeHitRadius + bodyRadius(m)) { touching = true; break; }
+    for (let i = 0; i < op.blades && !touching; i++) {
+      for (let k = 0; k < samples; k++) {
+        const back = k / samples; // 0 = now, ->1 = start of the tick window
+        const blade = orbitBladePos(p, i, angleSweep * back, phaseSweep * back);
+        if (dist(blade, m.pos) <= reach) { touching = true; break; }
+      }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, p.baseDamage * op.damageMult, { allowCrit: false });
+    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: "physical" });
   }
 }
 
@@ -1768,33 +2179,54 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
   announce(state, "show", `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
 }
 
-/** Tick volatile-corpse blasts; expiry damages players still in the ring. */
+/**
+ * Tick ground danger. Blasts (volatile corpses) damage once on expiry;
+ * puddles (spitter acid) damage everyone inside on a repeating tick until
+ * they dry up. Dash i-frames dodge both.
+ */
 function updateHazards(state: GameState, dt: number): void {
   if (state.hazards.length === 0) return;
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
+    if (hz.kind === "puddle") {
+      if (hz.t <= 0) continue; // dried up, harmless
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds;
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.t > 0) { remaining.push(hz); continue; }
     hit(state, hz.pos, 0, "crit"); // impact flash for the juice layer
     for (const p of state.players) {
       if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
       if (dist(hz.pos, p.pos) > hz.radius) continue;
-      const dmg = rollDamage(state.rng, hz.damage);
-      p.hp -= dmg;
-      p.damageTaken += dmg;
       const d = dist(hz.pos, p.pos);
       const away = d > 1e-4
         ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
         : undefined;
-      hit(state, p.pos, dmg, "player", { dir: away, killed: p.hp <= 0 });
-      if (p.hp <= 0) {
+      if (damagePlayerHit(state, p, hz.damage, { dir: away })) {
         handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
-      } else if (p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
-        addHype(state, p, CONFIG.show.hypeLowHpHit);
       }
     }
   }
   state.hazards = remaining;
+}
+
+/** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
+function updateCorpses(state: GameState, dt: number): void {
+  if (state.corpses.length === 0) return;
+  for (const c of state.corpses) c.t -= dt;
+  state.corpses = state.corpses.filter((c) => c.t > 0);
 }
 
 /** Tick scheduled airstrike shells; each impact is a radial blast. */
@@ -1805,7 +2237,7 @@ function updateStrikes(state: GameState, dt: number): void {
     s.t -= dt;
     if (s.t > 0) { remaining.push(s); continue; }
     const owner = state.players.find((pl) => pl.id === s.ownerId) ?? state.players[0];
-    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, owner.baseDamage * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
+    radialDamage(state, owner, s.pos, CONFIG.ultAirstrikeRadius, power(owner, "airstrike") * CONFIG.ultAirstrikeDmgMult, CONFIG.airstrikeKnockback);
     hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
   }
   state.strikes = remaining;
@@ -1815,7 +2247,7 @@ function updateStrikes(state: GameState, dt: number): void {
 function doCataclysm(state: GameState, p: Player): void {
   p.cd.cataclysm = CONFIG.ultCataclysmCooldown;
   p.novaFlash = 0.3; // reuse the ring effect
-  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, p.baseDamage * CONFIG.ultCataclysmDmgMult);
+  radialDamage(state, p, p.pos, CONFIG.ultCataclysmRadius, power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult, 0, "magic");
   for (const m of state.monsters) {
     const d = dist(p.pos, m.pos);
     if (d > CONFIG.ultCataclysmRadius || d < 1e-4) continue;
@@ -1836,11 +2268,11 @@ function doBulletTime(state: GameState, p: Player): void {
  * Cast the ability in a slot. One switch = the whole cast surface; adding an
  * ability means one case here + a registry entry in abilities.ts.
  */
-function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2): void {
+function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2, move: Vec2): void {
   // Dash is charge-gated, not cooldown-gated: cd.dash is its recharge timer,
   // which may be ticking while a banked charge is still ready to spend.
   if (ability === "dash") {
-    if (p.dashCharges > 0) doDash(state, p);
+    if (p.dashCharges > 0) doDash(state, p, move);
     return;
   }
   if ((p.cd[ability] ?? 0) > 0) return;
@@ -1848,6 +2280,8 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2)
     case "melee": doPlayerAttack(state, p, aim); break;
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
+    case "stance": doStance(state, p); break;
+    case "overcharge": doOvercharge(state, p); break;
     case "orbit": break; // passive: runs via updateOrbit while slotted
     case "airstrike": doAirstrike(state, p, aim); break;
     case "cataclysm": doCataclysm(state, p); break;
@@ -1894,6 +2328,7 @@ function updateProjectiles(state: GameState, dt: number): void {
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
+            forceCrit: pr.crit, shatterPoise: pr.shatter, school: pr.school,
           });
           // RICOCHET capstone: bounce once to a nearby enemy at 60% damage.
           if (rank(owner, "bolt.ricochet") > 0 && !pr.bounced) {
@@ -1911,7 +2346,7 @@ function updateProjectiles(state: GameState, dt: number): void {
                 pos: { x: pr.pos.x, y: pr.pos.y },
                 vel: { x: dir.x * CONFIG.boltSpeed, y: dir.y * CONFIG.boltSpeed },
                 damage: pr.damage * 0.6, ttl: 0.8, from: "player", ownerId: owner.id,
-                bounced: true, hitIds: [m.id],
+                bounced: true, hitIds: [m.id], school: pr.school,
               });
             }
           }
@@ -1931,11 +2366,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       for (const p of state.players) {
         if (!p.alive || p.dashTime > 0) continue;
         if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
-        p.hp -= pr.damage;
-        p.damageTaken += pr.damage;
-        hit(state, p.pos, Math.round(pr.damage), "player", { dir: normalize(pr.vel), killed: p.hp <= 0 });
-        if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) addHype(state, p, CONFIG.show.hypeLowHpHit);
-        if (p.hp <= 0) {
+        if (damagePlayerHit(state, p, pr.damage, { dir: normalize(pr.vel) })) {
           handlePlayerDeath(state, p, `${p.name} was shot down in the arena. The audience is on its feet.`);
         }
         absorbed = true;
@@ -2005,6 +2436,8 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
+    p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
+    if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
 
     const move = pi.move;
     if ((move.x !== 0 || move.y !== 0) && p.alive) {
@@ -2032,10 +2465,10 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
       const aim = pi.aim ?? p.facing;
       for (let s = 0; s < ABILITY_SLOTS; s++) {
         const ability = p.abilities.slots[s];
-        if (cast[s] && ability) castAbility(state, p, ability, aim);
+        if (cast[s] && ability) castAbility(state, p, ability, aim, pi.move);
       }
       if (cast[ABILITY_SLOTS] && p.abilities.ultimate) {
-        castAbility(state, p, p.abilities.ultimate, aim);
+        castAbility(state, p, p.abilities.ultimate, aim, pi.move);
         // Overtime Clause: the network wants MORE ultimates.
         const ult = p.abilities.ultimate;
         if (hasPassive(p, "overtime") && (p.cd[ult] ?? 0) > 0) {
@@ -2052,6 +2485,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt);
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
+  updateCorpses(state, mdt);
   updateStrikes(state, dt);
   updateProjectiles(state, dt);
 
@@ -2071,7 +2505,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   if (state.status === "playing") {
     for (const p of ordered) {
       if (p.upgradeDraftsOwed > 0 && p.pendingUpgrades.length === 0) {
-        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize);
+        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, state.floor);
         if (offers.length > 0) {
           p.upgradeDraftsOwed--;
           p.pendingUpgrades = offers;
