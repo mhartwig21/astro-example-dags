@@ -92,7 +92,7 @@
          #headline. max() keeps it clear of the upper chips on short viewports. */
       #headline { position: fixed; top: max(19%, 152px); left: 50%; transform: translateX(-50%);
         pointer-events: none; display: flex; flex-direction: column; align-items: center; }
-      .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
+      .ann { background: rgba(23,19,16,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.35s ease, transform 0.35s ease; max-width: 70ch; text-align: center; }
@@ -105,7 +105,7 @@
          Compact, fades fast, color-tagged by kind — never center-stage. */
       #ticker { position: fixed; top: 148px; right: 12px; pointer-events: none;
         display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 46ch; }
-      .tk { --tc: #c9a24b; background: rgba(12,10,20,0.78); border-right: 2px solid var(--tc);
+      .tk { --tc: #c9a24b; background: rgba(23,19,16,0.78); border-right: 2px solid var(--tc);
         color: #d8d4c8; padding: 4px 9px; border-radius: 4px; font-size: 11.5px;
         letter-spacing: 0.2px; text-align: right; opacity: 0; transform: translateX(10px);
         transition: opacity 0.3s ease, transform 0.3s ease; }
@@ -120,7 +120,7 @@
 
       /* Keybinds panel */
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.6); z-index: 26; }
+        background: rgba(10,8,6,0.6); z-index: 26; }
       #keys .panel { width: 460px; max-width: 92vw; max-height: 84vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
@@ -142,7 +142,7 @@
 
       /* Party chip (network mode) */
       #party { position: fixed; top: 118px; left: 50%; transform: translateX(-50%);
-        background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
+        background: rgba(23,19,16,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
         padding: 4px 14px; font-size: 12px; color: #a99f8c; pointer-events: none; }
 
       /* Boss encounter: ringside intro splash + persistent top health bar.
@@ -166,9 +166,18 @@
       #bossbar .bb-row { display: flex; align-items: baseline; gap: 10px; justify-content: center;
         font-size: 13px; letter-spacing: 1px; }
       #bossbar .bb-icon { color: #c0392f; font-size: 15px; }
-      #bossbar .bb-name { color: #ffd9c9; font-weight: 700; }
+      #bossbar .bb-name { color: #ffd9c9; font-weight: 700;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; font-size: 15px; }
       #bossbar .bb-affix { color: #c0392f; font-size: 11px; letter-spacing: 2px; }
-      #bossbar .bar { height: 10px; margin-top: 6px; border: 1px solid #000; }
+      /* D4 endcaps: bronze diamonds pin the menace's bar at both ends. */
+      #bossbar .bar { height: 10px; margin-top: 6px; border: 1px solid #000;
+        position: relative; overflow: visible; }
+      #bossbar .bar::before, #bossbar .bar::after { content: ""; position: absolute; top: 50%;
+        width: 9px; height: 9px; margin-top: -5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; z-index: 1; }
+      #bossbar .bar::before { left: -6px; }
+      #bossbar .bar::after { right: -6px; }
       #bossbar .bar > i { background: linear-gradient(90deg, #c0392f, #a93226);
         transition: width 0.15s ease; }
 
@@ -176,7 +185,7 @@
       #cockpit { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
         display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
       #skills { display: flex; gap: 8px; }
-      .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
+      .skill { position: relative; width: 56px; height: 56px; background: rgba(23,19,16,0.85);
         border: 2px solid #6e5533; border-radius: 8px; font-size: 10px; color: #cfcfe0;
         display: flex; flex-direction: column; align-items: center; justify-content: center; }
       .skill .key { position: absolute; top: -1px; left: -1px; background: #221b15;
@@ -208,7 +217,7 @@
 
       /* Inventory panel */
       #inv { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.6); z-index: 20; }
+        background: rgba(10,8,6,0.6); z-index: 20; }
       #inv .panel { width: 620px; max-width: 92vw; max-height: 82vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
@@ -234,19 +243,26 @@
          status edge (won = SEASON FINALE, wipe = IN MEMORIAM). z 27: the run
          is over, nothing else deserves the pixels. */
       #recap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.82); z-index: 27; }
+        background: rgba(10,8,6,0.82); z-index: 27; }
       #recap .panel { width: 880px; max-width: 94vw; max-height: 90vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 20px 24px;
         box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
-      #recap h2 { margin: 0 0 2px; font-size: 22px; letter-spacing: 3px; }
-      #recap h2.win { color: #6da356; text-shadow: 0 0 18px rgba(95,208,138,0.4); }
-      #recap h2.wipe { color: #c0392f; text-shadow: 0 0 18px rgba(226,87,76,0.4); }
-      #recap .rsub { color: #a99f8c; font-size: 12px; margin-bottom: 14px; }
+      /* The VERDICT: an engraved headline between side rules (LoL victory bar).
+         Wins are GOLD — the Show pays in ratings, not chlorophyll. */
+      #recap h2 { margin: 0 0 2px; font-size: 30px; letter-spacing: 0.14em;
+        display: flex; align-items: center; justify-content: center; gap: 18px; text-align: center; }
+      #recap h2::before, #recap h2::after { content: ""; flex: 1; height: 3px;
+        border-top: 1px solid var(--bronze); border-bottom: 1px solid rgba(0,0,0,0.6); }
+      #recap h2.win { color: var(--gold-hi); text-shadow: 0 0 24px rgba(242,193,78,0.35); }
+      #recap h2.wipe { color: #d14538; text-shadow: 0 0 24px rgba(192,57,47,0.32); }
+      #recap .rsub { color: #a99f8c; font-size: 12.5px; margin-bottom: 14px; text-align: center;
+        font-variant: small-caps; letter-spacing: 0.08em; }
       #recap .rcols { display: grid; grid-template-columns: 1fr 1.1fr; gap: 20px; }
-      #recap .rsec { font-size: 11px; color: #c9a24b; letter-spacing: 2px; margin: 12px 0 6px; }
+      #recap .rsec { font-size: 12px; color: #c9a24b; letter-spacing: 2px; margin: 12px 0 6px;
+        font-family: var(--display); font-variant: small-caps; }
       #recap .rstat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-      #recap .rstat { background: #221b15; border: 1px solid #3a2f22; border-radius: 6px;
-        padding: 7px 10px; }
+      #recap .rstat { background: #221b15; border: 1px solid #3a2f22; border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); padding: 7px 10px; }
       #recap .rstat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
       #recap .rstat small { color: #6f6757; font-size: 10px; letter-spacing: 1px; }
       #recap .rshow { display: flex; gap: 8px; }
@@ -274,7 +290,7 @@
          today's daily board riding shotgun. Same gold-document family as the
          other panels; the dungeon idles behind it as a backdrop. */
       #menu { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: radial-gradient(ellipse at 50% 28%, rgba(22,17,36,0.86), rgba(4,4,8,0.96) 75%);
+        background: radial-gradient(ellipse at 50% 28%, rgba(22,17,36,0.86), rgba(10,8,6,0.96) 75%);
         z-index: 28; }
       #menu .panel { width: 900px; max-width: 94vw; max-height: 92vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 26px 30px 24px;
@@ -343,12 +359,12 @@
         pointer-events: none; font-size: 13px; }
       #show .chips { display: flex; gap: 10px; }
       #show .hypebar { position: relative; width: 250px; height: 5px; border-radius: 3px;
-        background: rgba(12,10,20,0.72); border: 1px solid #6e5533; overflow: hidden; }
+        background: rgba(23,19,16,0.72); border: 1px solid #6e5533; overflow: hidden; }
       #show .hypebar > i { display: block; height: 100%; width: 0%;
         background: linear-gradient(90deg, #7a5cff, #c98ba6); transition: width 0.15s linear; }
       #show .hypebar.frenzy > i { background: linear-gradient(90deg, #f2c14e, #ff6a28); }
       #show .hypebar > s { position: absolute; top: 0; bottom: 0; width: 2px; background: #c9a24b; opacity: 0.85; }
-      #show .stat { background: rgba(12,10,20,0.72); border: 1px solid #6e5533;
+      #show .stat { background: rgba(23,19,16,0.72); border: 1px solid #6e5533;
         border-radius: 999px; padding: 4px 12px; display: flex; gap: 6px; align-items: baseline; }
       #show .stat b { font-variant-numeric: tabular-nums; }
       #show .viewers b { color: #7ba3d6; }
@@ -360,7 +376,7 @@
       /* Draft overlay — the System's offer banners (level-up + sponsor).
          Stacked skewed rows, left-anchored so the run stays visible behind. */
       #draft { position: fixed; inset: 0; display: none; align-items: center; z-index: 25;
-        background: linear-gradient(100deg, rgba(4,4,8,0.92) 30%, rgba(4,4,8,0.55) 68%, rgba(4,4,8,0.25)); }
+        background: linear-gradient(100deg, rgba(10,8,6,0.92) 30%, rgba(10,8,6,0.55) 68%, rgba(10,8,6,0.25)); }
       #draft .panel { width: 600px; max-width: 88vw; margin-left: 6vw; }
       #draft h2 { margin: 0 0 3px; color: #c9a24b; letter-spacing: 4px; font-size: 21px;
         text-shadow: 0 0 18px rgba(201,162,75,0.45); }
@@ -368,13 +384,19 @@
       #draft .cards { display: flex; flex-direction: column; gap: 12px; }
       .reward { --oc: #c9a24b; position: relative; cursor: pointer; display: flex; align-items: center;
         gap: 14px; padding: 12px 16px; border: 1px solid #6e5533; border-left: 3px solid var(--oc);
-        background: linear-gradient(100deg, rgba(20,19,31,0.95) 55%, rgba(20,19,31,0.65));
+        background: linear-gradient(100deg, rgba(28,23,18,0.95) 55%, rgba(28,23,18,0.65));
         transform: skewX(-6deg); animation: offer-in 0.3s ease backwards;
         transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; }
       .reward::before { content: ""; position: absolute; inset: 0; pointer-events: none;
         background: linear-gradient(100deg, var(--oc) 0%, transparent 55%); opacity: 0.16;
         transition: opacity 0.12s ease; }
       .reward > * { transform: skewX(6deg); }
+      /* The System's wax seal: every offer is a CONTRACT (Phase 2). */
+      .reward::after { content: ""; position: absolute; right: -9px; top: -9px; width: 22px; height: 22px;
+        border-radius: 50%; transform: skewX(6deg);
+        background: radial-gradient(circle at 35% 30%, #d4574a, #8e2f26 60%, #5f1e18);
+        box-shadow: inset 0 0 0 2px rgba(0,0,0,0.28), inset 1px 2px 5px rgba(255,200,180,0.25),
+          0 2px 6px rgba(0,0,0,0.55); }
       .reward:nth-child(2) { animation-delay: 0.08s; }
       .reward:nth-child(3) { animation-delay: 0.16s; }
       .reward:nth-child(4) { animation-delay: 0.24s; }
@@ -385,7 +407,7 @@
       .reward:hover::before { opacity: 0.3; }
       .reward:hover .okey { color: var(--oc); border-color: var(--oc); }
       .oicon { flex: none; width: 54px; height: 54px; position: relative; border: 1px solid var(--oc);
-        background: rgba(8,8,14,0.85); display: flex; align-items: center; justify-content: center;
+        background: rgba(14,11,8,0.85); display: flex; align-items: center; justify-content: center;
         box-shadow: inset 0 0 14px rgba(0,0,0,0.8); }
       .oicon i { display: block; width: 34px; height: 34px; background: var(--oc);
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
@@ -414,7 +436,7 @@
 
       /* Ability tree panel */
       #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.6); z-index: 20; }
+        background: rgba(10,8,6,0.6); z-index: 20; }
       #abil .panel { width: 720px; max-width: 94vw; max-height: 84vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
@@ -447,22 +469,25 @@
          LoL-inspired layout: tier-sectioned icon shelf + detail pane with the
          build tree, framed in the game's dark-emerald + System-gold trim. */
       #saferoom { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.8); z-index: 24; }
+        background: rgba(10,8,6,0.8); z-index: 24; }
       #saferoom .panel { width: 1060px; max-width: 96vw; height: min(680px, 92vh);
         display: flex; flex-direction: column;
-        background: linear-gradient(168deg, #101613 0%, #0b100e 52%, #0a0e11 100%);
-        border: 1px solid #3d5244; outline: 1px solid #17201a; outline-offset: 3px;
+        background: linear-gradient(180deg, var(--raised), var(--stone) 40%);
+        border: 1px solid var(--bronze); outline: 1px solid #201812; outline-offset: 3px;
         border-radius: 3px; padding: 14px 18px 12px;
-        box-shadow: 0 24px 80px rgba(0,0,0,0.8), inset 0 0 70px rgba(8,18,12,0.55); }
+        box-shadow: 0 24px 80px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(0,0,0,0.55),
+          inset 0 0 70px rgba(10,7,4,0.5); }
       .shop-head { display: flex; align-items: center; gap: 14px;
-        border-bottom: 1px solid #221b15; padding-bottom: 9px; }
-      #saferoom h2 { margin: 0; color: #6da356; letter-spacing: 2px; font-size: 15px;
-        text-shadow: 0 0 14px rgba(95,208,138,0.35); }
-      .shop-tabs { display: flex; gap: 3px; }
-      .shop-tabs .tab { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 2px;
-        padding: 5px 16px 4px; color: #6f6757; background: #0f1511; border: 1px solid #221b15; }
-      .shop-tabs .tab:hover { color: #e8ddc8; }
-      .shop-tabs .tab.active { color: #f2c14e; border-color: #7a6428; background: #16150f;
+        border-bottom: 1px solid rgba(110,85,51,0.55); padding-bottom: 9px; }
+      #saferoom h2 { margin: 0; color: var(--gold); letter-spacing: 0.14em; font-size: 16px;
+        text-shadow: 0 0 14px rgba(201,162,75,0.3); }
+      /* LoL underline tabs: small-caps, the active tab carries a gold rule. */
+      .shop-tabs { display: flex; gap: 18px; }
+      .shop-tabs .tab { cursor: pointer; font-family: var(--display); font-variant: small-caps;
+        font-size: 12px; letter-spacing: 0.14em; padding: 5px 2px 6px; color: var(--ink-faint);
+        background: none; border: 0; position: relative; }
+      .shop-tabs .tab:hover { color: var(--ink); }
+      .shop-tabs .tab.active { color: var(--gold-hi); background: none; border: 0;
         box-shadow: inset 0 -2px 0 #f2c14e; }
       .shop-wallet { margin-left: auto; display: flex; gap: 8px; font-size: 12px; color: #e8ddc8; }
       .shop-wallet .chip { display: flex; gap: 6px; align-items: center; background: rgba(0,0,0,0.35);
@@ -564,11 +589,15 @@
          (below the headline zone; only ever shown while YOU are down). */
       #downed { position: fixed; top: 38%; left: 50%; transform: translateX(-50%);
         display: none; text-align: center; pointer-events: none; z-index: 21;
-        background: rgba(20,6,8,0.82); border: 1px solid #5a2028; border-radius: 12px;
+        background: linear-gradient(180deg, rgba(38,14,12,0.9), rgba(20,8,7,0.9));
+        border: 1px solid #5a2028; border-radius: 3px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 12px 40px rgba(0,0,0,0.6);
         padding: 14px 30px; }
-      #downed .dtitle { color: #c0392f; font-size: 20px; font-weight: 800; letter-spacing: 3px; }
-      #downed .dcount { color: #ffdd88; font-size: 34px; font-weight: 800;
-        font-variant-numeric: tabular-nums; }
+      #downed .dtitle { color: #c0392f; font-size: 20px; font-weight: 700; letter-spacing: 0.2em;
+        font-family: var(--display); font-variant: small-caps; }
+      #downed .dcount { color: #d14538; font-size: 42px; font-weight: 700;
+        font-family: var(--display); font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 18px rgba(192,57,47,0.5); }
       #downed .dsub { color: #9a8a8a; font-size: 12px; }
 
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
@@ -602,11 +631,12 @@
       .bag-grid .itile.more .ibox { color: #6f6757; font-size: 10px; letter-spacing: 0.5px; }
       /* Shop sub-tabs (IN STOCK / ALL ITEMS) live inside the shop page. */
       .shelf-col { display: flex; flex-direction: column; min-height: 0; }
-      .shop-subtabs { display: flex; gap: 3px; margin-bottom: 8px; }
-      .shop-subtabs .tab { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 2px;
-        padding: 4px 14px 3px; color: #6f6757; background: #0f1511; border: 1px solid #221b15; }
-      .shop-subtabs .tab:hover { color: #e8ddc8; }
-      .shop-subtabs .tab.active { color: #f2c14e; border-color: #7a6428; background: #16150f;
+      .shop-subtabs { display: flex; gap: 16px; margin-bottom: 8px; }
+      .shop-subtabs .tab { cursor: pointer; font-family: var(--display); font-variant: small-caps;
+        font-size: 11.5px; letter-spacing: 0.14em; padding: 4px 2px 5px; color: var(--ink-faint);
+        background: none; border: 0; }
+      .shop-subtabs .tab:hover { color: var(--ink); }
+      .shop-subtabs .tab.active { color: var(--gold-hi); background: none; border: 0;
         box-shadow: inset 0 -2px 0 #f2c14e; }
       .shop-shelf { flex: 1; }
       /* Safe-room pages (ABILITIES / ACHIEVEMENTS) share the shop's frame. */
@@ -649,8 +679,24 @@
         padding: 5px 2px 4px; border-top: 1px dashed #1c2620; font-size: 11.5px; }
       .nrow .ntitle { color: #e8ddc8; font-weight: 700; }
       .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
-      .nrow .npips .off { color: #2c241b; }
-      .nrow .npips .opip { color: #ffdf7e; text-shadow: 0 0 6px rgba(242,193,78,0.6); }
+      /* Gem sockets: an empty socket is a hole in the bronze; a taken rank
+         is a set gold gem; an overrank burns; capstones are rotated diamonds. */
+      .nrow .npips { display: inline-flex; gap: 4px; align-items: center; }
+      .nrow .npips .pip { width: 8px; height: 8px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #241d16, #0d0a07 70%);
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 0 0 1px #55493a, 0 1px 0 rgba(232,221,200,0.08); }
+      .nrow .npips .pip.on {
+        background: radial-gradient(circle at 35% 30%, #ffe9a8, #c9a24b 55%, #7a6428);
+        box-shadow: inset 0 -1px 2px rgba(0,0,0,0.5), 0 0 0 1px #7a6428, 0 0 6px rgba(201,162,75,0.5); }
+      .nrow .npips .pip.over {
+        background: radial-gradient(circle at 35% 30%, #fff2c8, #f2c14e 50%, #b07a1e);
+        box-shadow: 0 0 0 1px #b07a1e, 0 0 9px rgba(242,193,78,0.85); }
+      .nrow .npips .pip.cap { width: 9px; height: 9px; border-radius: 1px; transform: rotate(45deg);
+        background: radial-gradient(circle at 35% 30%, #241d16, #0d0a07 70%);
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 0 0 1px #6a4f86; }
+      .nrow .npips .pip.cap.on {
+        background: radial-gradient(circle at 35% 30%, #e2ccff, #9a6bd0 55%, #5d3f85);
+        box-shadow: 0 0 0 1px #5d3f85, 0 0 9px rgba(154,107,208,0.7); }
       .nrow .neffect .nover { color: #f2c14e; font-size: 10.5px; }
       .nrow .neffect { color: #cbbfa4; }
       .nrow .neffect .nnext { color: #55493a; font-size: 10.5px; }
@@ -661,7 +707,6 @@
       .nrow.locked .neffect { color: #8a5a5a; font-style: italic; }
       .nrow.capstone .ntitle { color: #b08fd9; }
       .nrow.taken.capstone .ntitle { color: #b08fd9; text-shadow: 0 0 8px rgba(185,152,255,0.4); }
-      .nrow .npips .cap { font-size: 12px; }
       /* Slot-swap buttons (safe room only; the sim enforces the gate). */
       .slot-controls { display: flex; gap: 5px; margin-top: 9px; }
       .slot-btn { cursor: pointer; font: inherit; font-size: 10px; font-weight: 700; letter-spacing: 1px;
@@ -688,7 +733,7 @@
          "[min–max] per hit" rows) + defense + Show numbers right. Same gold
          document family as inventory/abilities (z 20; it pauses the game). */
       #sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.6); z-index: 20; }
+        background: rgba(10,8,6,0.6); z-index: 20; }
       #sheet .panel { width: 950px; max-width: 96vw; max-height: 88vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
@@ -736,7 +781,7 @@
         align-items: center; padding: 7px 9px; background: #221b15; border: 1px solid #6e5533;
         border-radius: 6px; margin-bottom: 6px; }
       .drow .dic { --oc: #c9a24b; width: 34px; height: 34px; display: flex; align-items: center;
-        justify-content: center; background: rgba(8,8,14,0.85); border: 1px solid var(--oc); }
+        justify-content: center; background: rgba(14,11,8,0.85); border: 1px solid var(--oc); }
       .drow .dic i { display: block; width: 22px; height: 22px; background: var(--oc);
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
@@ -824,6 +869,20 @@
       .tk { border-radius: 2px; background: rgba(23,19,16,0.85); }
       /* Tooltip: engraved plate. */
       #itemtip { background: var(--void); border-color: var(--bronze); border-radius: 3px; }
+      /* PoE-style attribute ledger: small-caps label · dotted leader · value. */
+      .ledger { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+      .ledger td { padding: 4px 0; }
+      .ledger .lic { width: 22px; }
+      .ledger .lic .si { display: block; width: 15px; height: 15px;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .ledger .lab { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
+        color: var(--ink-dim); white-space: nowrap; padding-right: 10px; font-size: 12.5px; }
+      .ledger .dots { width: 100%; height: 1em;
+        background-image: radial-gradient(circle, var(--ink-faint) 1px, transparent 1.4px);
+        background-size: 7px 2px; background-repeat: repeat-x; background-position: 0 70%; opacity: 0.5; }
+      .ledger .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink);
+        padding-left: 10px; white-space: nowrap; font-weight: 700; }
       /* Drawn UI icons (game-icons masks) sized to surrounding text. */
       .uic { display: inline-block; width: 1em; height: 1em; vertical-align: -0.12em;
         background: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center;
