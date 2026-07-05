@@ -126,7 +126,8 @@ export type EliteAffix =
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
   | "bomber" | "shaman" | "phantom"
-  | "charger" | "spitter" | "necromancer";
+  | "charger" | "spitter" | "necromancer"
+  | "broodmother";
 
 export interface Monster {
   id: number;
