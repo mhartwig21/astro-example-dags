@@ -411,6 +411,33 @@ their fixes:
   >80 monsters, and floor-16 stats must exceed the linear projection. Post-change, floor-18
   hits-to-die fell ~214→~52 and floor-clear DPS-time roughly doubled.
 
+### 5.11 Ringside Check-in + the Daily Crawl (SHIPPED)
+
+**Entry menu.** `iso.html` opens on the RINGSIDE CHECK-IN (`#menu`, z 28): name
+field (persisted, `dcc:name:v1`), CONTINUE RUN (when a mid-run save exists),
+DAILY CRAWL, NEW RUN, PARTY CRAWL (rolls a readable 5-char code — the code IS
+the seed, the URL is the invite), and TEST CHAMBER (builds the existing `?test`
+deep link). `?join=` and `?test` URLs skip the menu — they already carry a
+complete decision. While open the menu freezes the local sim (backdrop dungeon)
+and owns the keyboard via `input.captureMode`. Nothing is saved until a mode is
+picked, and R / NEW SEASON reruns **in the same mode** — a daily rerun replays
+today's dungeon.
+
+**The Daily Crawl.** One dungeon per UTC day, shared by every crawler:
+`dailySeed(day)` (`src/sim/daily.ts`, pure djb2 over the date — client and
+server derive identically). The run's mode + day persist in the save, so a
+resumed daily still reports to the right board.
+
+**Leaderboard.** The game server exposes `GET/POST /leaderboard`
+(`src/server/leaderboard.ts`): hard shape validation, best-entry-per-name per
+day (retrying all day is playing, not cheating), rank = full clears → depth →
+speed → kills, 200 entries/day, 30 days kept, JSON-file persistence
+(`LEADERBOARD_FILE`, default `leaderboard.json`; a redeploy resets it — the
+Postgres upgrade rides with accounts). Solo daily runs submit fire-and-forget
+on win/wipe; the menu shows today's top 10, the recap shows your rank. Trust
+model: solo sims run client-side, so scores are self-reported bragging rights —
+shape is validated, numbers are believed.
+
 ---
 
 ## 6. Tech stack

@@ -36,8 +36,9 @@
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            right rail:          #ticker — normal-priority System chatter
            bottom strip:        #hud-log left · #cockpit center · #minimap right
-           modals (z 20-27):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
-                                · #recap 27 (end-of-run report; nothing outranks it)
+           modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
+                                · #recap 27 (end-of-run report; nothing in-run outranks it)
+                                · #menu 28 (RINGSIDE CHECK-IN — pre-run only, owns the screen)
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
          New overlays must pick a zone here first. */
 
@@ -222,6 +223,74 @@
       #recap .rfoot button:hover { background: #234030; }
       #recap .rfoot .dismiss { background: #14131f; color: #8a8a9a; border-color: #2a2a38; }
       #recap .rfoot .note { color: #7a7a8a; font-size: 11px; }
+
+      /* RINGSIDE CHECK-IN — the entry menu (z 28: pre-run, it owns the screen).
+         Continue / daily crawl / fresh seed / party code / test chamber, with
+         today's daily board riding shotgun. Same gold-document family as the
+         other panels; the dungeon idles behind it as a backdrop. */
+      #menu { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at 50% 28%, rgba(22,17,36,0.86), rgba(4,4,8,0.96) 75%);
+        z-index: 28; }
+      #menu .panel { width: 900px; max-width: 94vw; max-height: 92vh; overflow: auto;
+        background: #0f0e18; border: 1px solid #2a2a38; border-radius: 10px; padding: 26px 30px 24px;
+        box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+      #menu .m-kicker { text-align: center; color: #c9a24b; font-size: 11px; letter-spacing: 5px; }
+      #menu h1 { margin: 8px 0 4px; text-align: center; font-size: 32px; letter-spacing: 7px;
+        color: #f5e6bf; text-shadow: 0 0 34px rgba(201,162,75,0.4), 0 2px 3px #000; }
+      #menu .m-sub { text-align: center; color: #8a8a9a; font-size: 12px; margin-bottom: 18px; }
+      #menu .m-name-row { display: flex; justify-content: center; align-items: baseline; gap: 10px;
+        margin-bottom: 18px; font-size: 11px; letter-spacing: 2px; color: #8a8a9a; }
+      #menu input { background: #14131f; border: 1px solid #2a2a38; border-radius: 4px;
+        color: #e6e6ec; font: inherit; padding: 5px 10px; }
+      #menu input:focus { outline: none; border-color: #c9a24b; }
+      #menu .m-name-row input { width: 180px; text-align: center; font-weight: 700;
+        letter-spacing: 1px; color: #f5e6bf; }
+      #menu .m-cols { display: grid; grid-template-columns: 1fr 285px; gap: 22px; }
+      .m-card { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
+        background: #14131f; border: 1px solid #2a2a38; border-left: 3px solid #3f5f6f;
+        border-radius: 6px; padding: 11px 15px; margin-bottom: 9px; color: #e6e6ec;
+        transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease; }
+      .m-card b { display: block; font-size: 14px; letter-spacing: 2px; }
+      .m-card small { display: block; color: #7a7a8a; font-size: 11px; margin-top: 3px; }
+      .m-card:hover { border-color: #4fd1ff; background: #191826; transform: translateX(4px); }
+      .m-card.gold { border-left-color: #c9a24b; }
+      .m-card.gold b { color: #f2c14e; }
+      .m-card.gold:hover { border-color: #c9a24b; box-shadow: 0 0 18px rgba(201,162,75,0.18); }
+      .m-card.green { border-left-color: #2f5a3c; }
+      .m-card.green b { color: #5fd08a; }
+      .m-card.dim { border-left-color: #2a2a38; opacity: 0.75; }
+      .m-card.dim b { color: #8a8a9a; letter-spacing: 1.5px; font-size: 12px; }
+      .m-form { background: #0c0b14; border: 1px solid #23222f; border-radius: 6px;
+        padding: 10px 12px; margin: -3px 0 10px; display: flex; flex-wrap: wrap; gap: 8px;
+        align-items: center; font-size: 11px; color: #8a8a9a; letter-spacing: 1px; }
+      .m-form label { display: flex; align-items: center; gap: 6px; }
+      .m-form input[type="number"] { width: 64px; }
+      .m-form input[type="checkbox"] { accent-color: #c9a24b; }
+      #m-code { width: 150px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
+      .m-mini { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 1px;
+        background: #14131f; color: #9fd8e8; border: 1px solid #2a2a38; border-radius: 4px;
+        padding: 5px 12px; }
+      .m-mini:hover { border-color: #4fd1ff; }
+      .m-go { cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 2px;
+        margin-left: auto; background: linear-gradient(180deg, #f2c14e, #c9932e); color: #0a0d0b;
+        border: 1px solid #f2c14e; border-radius: 4px; padding: 6px 18px; }
+      .m-go:hover { filter: brightness(1.15); }
+      .m-board { background: #0c0b14; border: 1px solid #23222f; border-radius: 8px;
+        padding: 12px 14px; align-self: start; }
+      .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px; }
+      .m-board ol { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+      .m-board li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
+        border-top: 1px dashed #1e1e2a; font-variant-numeric: tabular-nums; }
+      .m-board li:first-child { border-top: none; }
+      .m-board li .rank { color: #55556a; width: 20px; flex: none; }
+      .m-board li:nth-child(1) .rank { color: #f2c14e; }
+      .m-board li .nm { color: #e6e6ec; font-weight: 700; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      .m-board li .res { margin-left: auto; flex: none; color: #8a8a9a; font-size: 11px; }
+      .m-board li .res.win { color: #5fd08a; }
+      .m-board li.none { color: #55556a; font-style: italic; border-top: none; }
+      #menu .m-foot { margin-top: 16px; text-align: center; color: #55556a; font-size: 10.5px;
+        letter-spacing: 0.5px; }
 
       /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
       #show { position: fixed; top: 84px; left: 50%; transform: translateX(-50%);
@@ -839,6 +908,51 @@
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
           <span class="note" id="recap-note"></span>
         </div>
+      </div>
+    </div>
+    <div id="menu">
+      <div class="panel">
+        <div class="m-kicker">◆ THE SYSTEM PRESENTS ◆</div>
+        <h1>DUNGEON CRAWLER CLAUDE</h1>
+        <div class="m-sub">RINGSIDE CHECK-IN · every floor is a set, every death is content</div>
+        <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
+        <div class="m-cols">
+          <div>
+            <button class="m-card green" id="m-continue" style="display:none">
+              <b>CONTINUE RUN</b><small id="m-continue-sub"></small>
+            </button>
+            <button class="m-card gold" id="m-daily">
+              <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
+            </button>
+            <button class="m-card" id="m-solo">
+              <b>NEW RUN</b><small>a fresh seed and a full camera crew</small>
+            </button>
+            <button class="m-card" id="m-party">
+              <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
+            </button>
+            <div class="m-form" id="m-party-form" style="display:none">
+              <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
+              <button class="m-mini" id="m-roll">NEW CODE</button>
+              <button class="m-go" id="m-join">ENTER ▶</button>
+            </div>
+            <button class="m-card dim" id="m-test">
+              <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
+            </button>
+            <div class="m-form" id="m-test-form" style="display:none">
+              <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>
+              <label>LEVEL <input id="m-t-level" type="number" min="1" max="40" value="1" /></label>
+              <label>GOLD <input id="m-t-gold" type="number" min="0" value="0" /></label>
+              <label>SEED <input id="m-t-seed" type="number" placeholder="random" /></label>
+              <label><input id="m-t-all" type="checkbox" /> ALL ABILITIES</label>
+              <button class="m-go" id="m-t-go">ENTER ▶</button>
+            </div>
+          </div>
+          <div class="m-board">
+            <div class="m-board-h">TODAY'S BOARD · <span id="m-board-day"></span></div>
+            <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+          </div>
+        </div>
+        <div class="m-foot">the System is legally required to inform you that survival is optional</div>
       </div>
     </div>
     <script type="module" src="/src/main3d.ts"></script>

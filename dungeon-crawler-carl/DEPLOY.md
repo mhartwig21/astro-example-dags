@@ -32,6 +32,12 @@ PORT=8080 STATIC_DIR=dist npm run server
 # open http://localhost:8080/iso.html?join=TEST&name=You
 ```
 
+The daily-crawl leaderboard persists to `LEADERBOARD_FILE` (default
+`leaderboard.json` in the working directory). On Fly the file lives on the
+machine's ephemeral disk: it survives restarts but a `fly deploy` replaces it.
+Acceptable for a board that resets daily anyway; real persistence (Postgres)
+arrives with accounts.
+
 Or the actual container, if Docker is installed:
 
 ```bash
