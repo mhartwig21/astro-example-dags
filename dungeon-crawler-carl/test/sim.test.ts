@@ -380,7 +380,9 @@ describe("the show (viewers / favorites / sponsors)", () => {
     const g = createGame(1);
     const p = g.players[0];
     expect(p.sponsors).toBe(0);
-    for (let i = 0; i < 200; i++) {
+    // ~15s of pinned hype: sqrt conversion means sustained excitement earns
+    // favorites steadily, not explosively (see CONFIG.show).
+    for (let i = 0; i < 900; i++) {
       addHype(g, p, 60); // exciting play every step
       step(g, idle(), 1 / 60);
     }
@@ -1346,8 +1348,9 @@ describe("per-player show economy", () => {
     const g = createGame(506);
     addPlayer(g, "Donut");
     const [carl, donut] = g.players;
-    // Carl sustains a hyped broadcast; Donut idles.
-    for (let i = 0; i < 200; i++) {
+    // Carl sustains a hyped broadcast (~15s — sqrt conversion pays out
+    // steadily, not explosively); Donut idles.
+    for (let i = 0; i < 900; i++) {
       addHype(g, carl, 60);
       step(g, idle(), 1 / 60);
     }

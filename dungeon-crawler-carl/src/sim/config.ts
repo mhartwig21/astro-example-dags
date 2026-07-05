@@ -311,16 +311,28 @@ export const CONFIG = {
   // The Show: viewers / favorites / sponsors economy. Exciting + challenging play
   // generates "hype" (which decays); hype drives viewers, a slice of whom convert to
   // sticky favorites, and favorite thresholds earn sponsors.
+  //
+  // Tuned against the balance bot (a full winning run earns exactly 5 sponsors;
+  // thresholds 6-7 sit 35-90% above the bot's best and are reserved for
+  // exceptional play). Two shape choices keep it honest:
+  //   - decay is PROPORTIONAL (base + hype*frac): the hotter the crowd, the
+  //     faster it cools. Sustained good play holds an equilibrium instead of
+  //     pinning the cap, so +hype gear raises WHERE you sit, not a dead stat;
+  //   - favorite conversion is sqrt(hype - threshold): spikes convert, camping
+  //     at high hype doesn't run away (cuts seed variance ~2.4x -> ~7%).
   show: {
     baseViewers: 180,
     viewersPerFloor: 90,
     viewersPerHype: 55,
     viewerEase: 0.9, // how fast the live count chases its target (per sec)
-    hypeDecay: 4, // hype lost per second
+    hypeDecay: 3, // base hype lost per second
+    hypeDecayFrac: 0.12, // + this fraction of current hype per second (soft cap)
     hypeMax: 140,
-    favConvertThreshold: 14, // favorites only accrue while hype is above this
-    favPerHypePerSec: 0.7, // favorite gain = (hype-threshold)*this*dt
-    sponsorThresholds: [40, 120, 260, 480, 800, 1300, 2000], // favorites needed per sponsor
+    favConvertThreshold: 10, // favorites only accrue while hype is above this
+    favPerHypePerSec: 0.12, // favorite gain = sqrt(hype-threshold)*this*dt
+    // Favorites needed per sponsor: #1 lands ~floor 3, #2 ~floor 7, #3 ~floor
+    // 10-11, a winning run ends on 5; 6-7 are legend tier (measured, see above).
+    sponsorThresholds: [15, 85, 155, 235, 325, 520, 750],
     // Hype awarded per exciting event:
     hypeCrit: 2.5,
     hypeKill: 3,
