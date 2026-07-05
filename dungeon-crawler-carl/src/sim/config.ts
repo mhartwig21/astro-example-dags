@@ -125,6 +125,23 @@ export const CONFIG = {
   monsterAggroRange: 8, // tiles
   monsterXp: 10,
   monsterXpPerFloor: 4,
+  // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
+  // Past the ramp floor, monsters get quicker on every axis — faster chase,
+  // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
+  // the caps keep the deep dungeon fast but still READABLE and dodgeable.
+  monsterTempoFrom: 4,
+  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
+  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
+  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+
+  // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
+  // mob that makes ignoring a pack the wrong call. Kill the mother first.
+  broodSpawnCooldown: 6, // seconds between births
+  broodSpawnMax: 10, // lifetime births per mother
+  broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
 
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
@@ -270,6 +287,33 @@ export const CONFIG = {
   ultBulletTimeDuration: 4, // seconds
   ultBulletTimeFactor: 0.35, // monster/enemy-projectile time scale while active
 
+  // Ultimate constellations (abilities.ts): rank-scaled knobs per node.
+  ultAirstrikePayloadDmg: 0.25, // shell damage per Bigger Payload rank
+  ultAirstrikeSaturationShells: 2, // extra shells per Saturation Barrage rank
+  ultAirstrikeSaturationSpread: 0.18, // extra scatter per Saturation rank (the cost)
+  ultAirstrikePrecisionSpread: 0.3, // scatter removed per Precision Strike rank
+  ultAirstrikeLoyaltyRefund: 0.08, // SPONSOR LOYALTY: cooldown fraction per barrage kill
+  ultCataclysmEpicenterRadius: 0.15, // radius per Epicenter rank
+  ultCataclysmAftermathBase: 0.25, // Aftermath echo fraction at rank 0...
+  ultCataclysmAftermathPerRank: 0.15, // ...plus this per rank (rank 1 = 40%, 2 = 55%)
+  ultCataclysmAftermathDelay: 1.2, // seconds until the echo shock lands
+  ultCataclysmUpheavalKnock: 0.45, // extra hurl per Upheaval rank
+  ultCataclysmUpheavalPoise: 2, // Upheaval hits crush poise this much harder (any rank)
+  ultCataclysmExtinctionFrac: 0.6, // EXTINCTION corpse blast, fraction of cataclysm power
+  ultCataclysmExtinctionRadius: 1.8, // tiles around each detonating corpse
+  ultBulletTimeFocusSeconds: 1, // duration per Deep Focus rank
+  ultBulletTimeAdrenaline: 0.5, // extra cooldown tick speed per Adrenaline rank, inside
+  ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
+  ultBulletTimeEncoreExtend: 0.5, // ENCORE: seconds added per kill inside
+  ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
+
+  // Orbit capstone + melee fork identities (abilities.ts constellation pass).
+  orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this
+  meleeOverkillRadius: 1.4, // Heavy Blows: killing-swing overkill splashes this far
+  meleeMomentumPerStack: 0.06, // Swift Strikes: damage per momentum stack
+  meleeMomentumStacksPerRank: 2, // stack cap per Swift Strikes rank
+  meleeMomentumWindow: 2.5, // seconds between connecting swings before momentum drops
+
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   novaCooldown: 5.0,
   novaRadius: 2.6,
@@ -346,6 +390,7 @@ export const CONFIG = {
     hypeCharger: 6, // dodging the freight train, then dropping it
     hypeSpitter: 4,
     hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
+    hypeBroodmother: 9, // ending the nest = the whole arena exhales
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -572,8 +617,22 @@ export const ARCHETYPES = {
   spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
   // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
   necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Broodmother: never attacks (dmgMult unused); a slow walking nest that
+  // births swarmers on a timer (see brood* knobs) — the pack GROWS if ignored.
+  broodmother: { hpMult: 2.2, dmgMult: 0, speedMult: 0.5, attackRange: 6, xpMult: 2.5, ranged: true, windup: 0.8, poise: 0.6, mass: 2.5, radius: 0.55 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
+
+/** Depth tempo multipliers: how much quicker monsters move, swing, and
+ * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
+  const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
+  return {
+    speed: Math.min(CONFIG.monsterTempoSpeedMax, 1 + past * CONFIG.monsterTempoSpeedPerFloor),
+    cooldown: Math.max(CONFIG.monsterTempoCdMin, 1 - past * CONFIG.monsterTempoCdPerFloor),
+    windup: Math.max(CONFIG.monsterTempoWindupMin, 1 - past * CONFIG.monsterTempoWindupPerFloor),
+  };
+}
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
 // were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a

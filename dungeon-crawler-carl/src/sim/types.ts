@@ -52,6 +52,10 @@ export interface Player {
   stanceTime: number; // seconds since the last swap (drives Discipline's "settled")
   stanceSwapWindow: number; // seconds left of Flow's post-swap surge
   stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
+  // Swift Strikes momentum: consecutive connecting swings stack a damage bonus
+  // (stacks capped by rank; the timer resets on every hit, stacks drop on expiry).
+  meleeCombo: number;
+  meleeComboT: number; // seconds left before the combo drops
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
@@ -127,7 +131,8 @@ export type BossSignature = "graverising" | "flood" | "roots" | "debris" | "flam
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
   | "bomber" | "shaman" | "phantom"
-  | "charger" | "spitter" | "necromancer";
+  | "charger" | "spitter" | "necromancer"
+  | "broodmother";
 
 export interface Monster {
   id: number;
@@ -289,6 +294,7 @@ export type RewardKind =
   | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
   | "materials" // crafting material toward signature (legendary) gear
   | "favor" // an owed ability-upgrade draft (advances the constellation build)
+  | "retrain" // unlearn one fork-side node; its ranks return as fresh drafts
   // System Shrine bargains (floor events — never in the sponsor pool):
   | "shrineBlood" // pay a slice of max HP now for permanent crit
   | "shrineGreed" // this floor's monsters speed up; its gold drops double
@@ -302,6 +308,7 @@ export interface Reward {
   amount: number;
   item?: Item; // present when kind === "item"
   material?: MaterialId; // present when kind === "materials"
+  nodeId?: string; // present when kind === "retrain": the node being refunded
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -368,11 +375,18 @@ export type FloorEvent =
   // hit. Activates when someone enters the room; pays gold + hype on success.
   | { type: "challenge"; roomIdx: number; phase: "offered" | "active" | "failed" | "cleared"; ids: number[]; gold: number; dmg0?: number };
 
-// A scheduled ultimate impact (Sponsor Airstrike shells in flight).
+// A scheduled ultimate impact: Sponsor Airstrike shells in flight, or
+// Cataclysm's Aftermath echo. Absent fields fall back to airstrike-shell
+// defaults in updateStrikes (echoes pre-compute their blast at schedule time).
 export interface Strike {
   pos: Vec2;
   t: number; // seconds until impact
   ownerId: number; // caster (kill credit)
+  kind?: "shell" | "echo";
+  radius?: number;
+  dmg?: number;
+  knockback?: number;
+  school?: School;
 }
 
 // A ringside introduction: set when the party first closes with a boss/elite.

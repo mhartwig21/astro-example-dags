@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG } from "./config";
+import { ARCHETYPES, CONFIG, monsterTempo } from "./config";
 import { dist, normalize } from "./combat";
 import { isWalkable } from "./floor";
 import type { GameState, Monster, Vec2 } from "./types";
@@ -40,7 +40,7 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
 
 /** A melee strike lands: damage every living player still inside range + grace. */
 function resolveMeleeStrike(state: GameState, m: Monster): void {
-  m.attackCooldown = CONFIG.monsterAttackCooldown;
+  m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   const reach = m.attackRange + CONFIG.monsterStrikeGrace;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
@@ -55,7 +55,7 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
 /** Ground Slam lands: a self-centered AoE, no facing/arc — everyone standing
  * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
 function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
-  m.attackCooldown = CONFIG.monsterAttackCooldown;
+  m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > radius) continue;
@@ -96,7 +96,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "shot") {
-    m.attackCooldown = CONFIG.monsterAttackCooldown * 1.3;
+    m.attackCooldown = CONFIG.monsterAttackCooldown * 1.3 * monsterTempo(state.floor).cooldown;
     const player = nearestPlayer(state, m.pos);
     if (!player) return;
     spawnEnemyBolt(state, m.pos, { x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y }, m.damage);
@@ -241,7 +241,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (!player) return;
   const d = dist(m.pos, player.pos);
   const toPlayer = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-  const windup = ARCHETYPES[m.kind].windup;
+  // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
+  const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;
   // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
   const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1);
 
@@ -466,6 +467,28 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         m.healCd = CONFIG.necroRaiseCooldown; // paid up front — a whiff still costs
         m.raiseId = corpse.id;
         beginWindup(m, "raise", windup);
+      }
+    }
+    return;
+  }
+
+  if (m.kind === "broodmother") {
+    // Broodmother: a walking nest. She never attacks — she waddles AWAY from
+    // trouble and BIRTHS swarmers on a timer, so a pack you ignore grows.
+    // Lifetime-capped per mother, plus a global population guard.
+    if (d > CONFIG.monsterAggroRange * 1.7) return;
+    if (d < m.attackRange) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
+    }
+    if (
+      (m.affixCd ?? 0) === 0 && (m.summons ?? 0) < CONFIG.broodSpawnMax &&
+      state.monsters.length < CONFIG.monsterMaxCount * CONFIG.broodPopulationCap
+    ) {
+      m.affixCd = CONFIG.broodSpawnCooldown;
+      m.summons = (m.summons ?? 0) + 1;
+      summonMinion(state, m);
+      if (m.summons === 1) {
+        state.events.push("A broodmother births another mouth. Kill the nest first.");
       }
     }
     return;

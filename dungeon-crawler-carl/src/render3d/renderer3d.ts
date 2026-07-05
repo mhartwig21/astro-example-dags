@@ -119,7 +119,7 @@ export class Renderer3D {
   private lastExploredVersion = -1;
 
   // Ability visuals, per player id.
-  private orbitBlades = new Map<number, THREE.Mesh[]>();
+  private orbitBlades = new Map<number, THREE.Group[]>();
   private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
@@ -1361,7 +1361,37 @@ export class Renderer3D {
     }
   }
 
-  private updateAbilityFx(state: GameState, dt: number): void {
+  /** Orbit blade: a real knife (the Fantasy Weapons dagger) laid flat so the
+   * yaw set each frame noses it along its orbit; gem fallback if no model. */
+  private buildOrbitBlade(): THREE.Group {
+    const group = new THREE.Group();
+    const dagger = this.models["weapon_dagger_a"]?.scene.clone(true);
+    if (dagger) {
+      dagger.traverse((c) => {
+        const mesh = c as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        // Emissive tint on CLONED materials (the source scene keeps its own).
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0x2f7d99);
+        mat.emissiveIntensity = 0.7;
+        mesh.material = mat;
+      });
+      dagger.rotation.x = Math.PI / 2; // grip-up rest pose -> blade forward (+Z)
+      dagger.scale.setScalar(0.7);
+      group.add(dagger);
+    } else {
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.16, 0),
+        flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
+      );
+      gem.castShadow = true;
+      group.add(gem);
+    }
+    return group;
+  }
+
+  private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
     for (const p of state.players) {
       // Orbit blades: reconcile each player's pool with their learned blade count.
@@ -1370,11 +1400,7 @@ export class Renderer3D {
       let blades = this.orbitBlades.get(p.id);
       if (!blades) { blades = []; this.orbitBlades.set(p.id, blades); }
       while (blades.length < want) {
-        const blade = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.16, 0),
-          flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
-        );
-        blade.castShadow = true;
+        const blade = this.buildOrbitBlade();
         this.scene.add(blade);
         blades.push(blade);
       }
@@ -1384,7 +1410,8 @@ export class Renderer3D {
           // Shared with the sim's hit test (incl. Corkscrew spiral radii).
           const bp = orbitBladePos(p, i);
           blades[i].position.set(bp.x, 0.75, bp.y);
-          blades[i].rotation.y += dt * 10;
+          // Nose along the direction of travel (tangent to the ring).
+          blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
         }
       }
       // Nova ring: expands over the flash window, fading out.
@@ -1768,7 +1795,7 @@ export class Renderer3D {
 
     this.updateParticles(dt);
     this.updateDying(dt);
-    this.updateAbilityFx(state, dt);
+    this.updateAbilityFx(state);
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);

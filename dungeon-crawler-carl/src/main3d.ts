@@ -255,7 +255,7 @@ const draftHint = document.getElementById("draft-hint")!;
 // Sponsor gifts have no ability icon; a glyph in the plate carries the read.
 const REWARD_GLYPHS: Record<string, string> = {
   healFull: "✚", maxHp: "♥", damage: "⚔", crit: "✦", armor: "⛨", item: "▣", gold: "◈",
-  bonusTime: "⌛", materials: "◆", favor: "★",
+  bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
   shrineBlood: "❖", shrineGreed: "◈", shrineDecline: "—",
 };
 
