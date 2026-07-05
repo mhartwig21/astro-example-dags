@@ -159,6 +159,7 @@ export const CONFIG = {
   wandBoltCdMult: 0.8, // Wand: faster casts
   staffAoeRadiusMult: 1.25, // Staff: bigger nova
   chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
+  tempoCooldownMult: 0.85, // "tempo" signature passive: active cooldowns run faster
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.

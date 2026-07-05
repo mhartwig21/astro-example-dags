@@ -253,7 +253,7 @@ and a `bench` (known-but-unslotted). Cast path reads slots (not `known`); discov
 open slot or the bench; a `T`-panel slotting UI performs safe-room re-slots. All pure/
 deterministic, so multiplayer + tests hold.
 
-### 5.8 Genuine itemization (phases 1–3 SHIPPED; still open: caster catalog branch)
+### 5.8 Genuine itemization (phases 1–3 SHIPPED, caster catalog included)
 
 **Problem.** Every ability scales off ONE stat (`baseDamage`) at fixed coefficients, and a
 weapon's noun is pure cosmetics — a Crossbow is a stat stick wearing a crossbow mesh. Items
@@ -295,9 +295,12 @@ a behavior, not a stat pile):
 | Arcane | Wand, Staff | bolt/AoE profile above; weapon rolls `spell` affixes |
 | ??? | Mug | all of the above, badly (the joke stays) |
 
-Generation picks class with the slot, then rolls class-fitting affixes. The catalog tags each
-entry's school (existing tree is physical; a caster component branch is the natural catalog
-expansion). Armor/trinkets stay school-agnostic until proven boring.
+Generation picks class with the slot, then rolls class-fitting affixes. The catalog carries a
+CASTER branch (SHIPPED): Ozone Wand + Cursed Amplifier (basic `spell` components) build into
+the Stormcall Staff (advanced), topped by the Sweeps Week Staff (legendary, `tempo` passive:
+active cooldowns −15%) — SP builds shop like AP builds do. Magic hits also tint their damage
+numbers arcane-purple, so a mixed build can SEE its schools mid-fight. Armor/trinkets stay
+school-agnostic until proven boring.
 
 **Counterplay (phase 3 — SHIPPED):** monster resist tags — `armored` (physical −30%) and
 `warded` (magic −30%) — as elite affixes plus archetype defaults (charger is innately

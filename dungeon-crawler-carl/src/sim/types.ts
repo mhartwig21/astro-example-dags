@@ -208,7 +208,8 @@ export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
   | "ledger" // every kill credit pays bonus gold
-  | "overtime"; // ultimate cooldowns reduced
+  | "overtime" // ultimate cooldowns reduced
+  | "tempo"; // active-ability cooldowns reduced (legendary caster staff)
 
 export interface Item {
   id: number;

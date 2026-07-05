@@ -780,6 +780,48 @@ describe("safe room + System Shop", () => {
     expect(p.inventory.some((it) => it.catalogId === "iron_plating")).toBe(false); // both consumed
   });
 
+  it("the caster branch shops spell power: wand + amplifier build the Stormcall Staff", () => {
+    const g = reachSafeRoom(314);
+    const p = g.players[0];
+    g.safeRoom!.available.push("ozone_wand", "cursed_amplifier", "stormcall_staff");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "ozone_wand"); // auto-equips the weapon socket
+    expect(p.equipment.weapon?.catalogId).toBe("ozone_wand");
+    expect(weaponClassOf(p.equipment.weapon)).toBe("arcane"); // real bolt-profile change
+    const sp0 = p.spellPower;
+    buyCatalogItem(g, 0, "cursed_amplifier"); // the charm socket carries SP too
+    expect(p.equipment.charm?.catalogId).toBe("cursed_amplifier");
+    expect(p.spellPower).toBeGreaterThan(sp0);
+    buyCatalogItem(g, 0, "stormcall_staff"); // consumes both components
+    expect(p.equipment.weapon?.catalogId).toBe("stormcall_staff");
+    expect(weaponClassOf(p.equipment.weapon)).toBe("arcane");
+    expect(p.equipment.charm).toBeNull(); // amplifier was consumed by the build
+  });
+
+  it("tempo (Sweeps Week Staff) speeds every active cooldown", () => {
+    const with_ = createGame(660);
+    const without = createGame(660);
+    for (const [g, tempo] of [[with_, true], [without, false]] as const) {
+      const p = g.players[0];
+      equipItem(p, {
+        id: 1, slot: "weapon", rarity: "epic", name: "Sweeps Week Staff",
+        affixes: { spell: 20 }, passive: tempo ? "tempo" : undefined, catalogId: "sweeps_week_staff",
+      });
+      step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    }
+    const cdWith = with_.players[0].cd.bolt!;
+    const cdWithout = without.players[0].cd.bolt!;
+    expect(cdWith).toBeCloseTo(cdWithout * CONFIG.tempoCooldownMult, 5);
+  });
+
+  it("catalog spell affixes scale with the floor ahead like the physical school", () => {
+    const early = gearAffixes(CATALOG_BY_ID.stormcall_staff, 2).spell!;
+    const late = gearAffixes(CATALOG_BY_ID.stormcall_staff, 10).spell!;
+    expect(late).toBeGreaterThan(early);
+    // Rare-tier parity vs a worst-case floor-10 drop primary (same rule as ATK).
+    expect(late).toBeGreaterThanOrEqual(Math.round((2 + 10) * 2.4) * 0.4);
+  });
+
   it("catalog gear keeps tier parity with same-rarity drops deep in the run (backlog #5)", () => {
     // Worst-case drop primary at floor 10 is (2 + floor) * rarity mult (items.ts rollAffix).
     const adv = gearAffixes(CATALOG_BY_ID.primetime_cleaver, 10).damage!;

@@ -1369,6 +1369,11 @@ function spawnDamageNumber(h: HitEvent): void {
   el.style.top = `${s.y}px`;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
+  // can SEE which school each number came from (physical keeps the defaults).
+  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
+    el.style.color = h.kind === "crit" ? "#d3b6ff" : "#b998ff";
+  }
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {

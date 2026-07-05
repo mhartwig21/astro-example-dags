@@ -286,6 +286,10 @@ attribution requirement (covered by the same in-game credits line).
 | blastplate_harness | explosive-materials | Lorc |
 | landlords_ledger | notebook | Delapouite |
 | overtime_clause | time-trap | Lorc |
+| ozone_wand | crystal-wand | Lorc |
+| cursed_amplifier | sonic-shout | Lorc |
+| stormcall_staff | lightning-storm | Lorc |
+| sweeps_week_staff | lightning-branches | Lorc |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |

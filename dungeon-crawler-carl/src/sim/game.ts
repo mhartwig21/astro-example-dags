@@ -792,7 +792,11 @@ function updateShow(state: GameState, dt: number): void {
 
 /** Frenzy shortens ability cooldowns (and the dash recharge). */
 function cdMult(p: Player): number {
-  return p.frenzy ? CONFIG.frenzyCooldownMult : 1;
+  let mult = p.frenzy ? CONFIG.frenzyCooldownMult : 1;
+  // Tempo (legendary caster staff): every ACTIVE cooldown runs faster —
+  // ultimates have their own clause (see the "overtime" hook in step()).
+  if (hasPassive(p, "tempo")) mult *= CONFIG.tempoCooldownMult;
+  return mult;
 }
 
 /** Drink the flask: charge-gated heal; a full-HP chug is not consumed. */
