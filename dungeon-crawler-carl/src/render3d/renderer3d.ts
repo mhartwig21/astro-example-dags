@@ -91,6 +91,7 @@ export class Renderer3D {
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
+  private statusRings = new Map<number, THREE.Mesh>(); // faint ring under statused monsters (5.11)
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
   private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
@@ -1714,6 +1715,32 @@ export class Renderer3D {
         marker.rotation.y = time * 2.2;
         marker.visible = mesh.visible;
       }
+      // Status ring (5.11): a faint pulsing halo colored by the dominant
+      // effect (burn > poison > chill) — one cheap mesh, sim decides, we tint.
+      const st = mon.statuses;
+      let ring = this.statusRings.get(mon.id);
+      if (st && st.length > 0 && mon.hp > 0) {
+        if (!ring) {
+          ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.78, 1, 24),
+            new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          ring.rotation.x = -Math.PI / 2;
+          this.scene.add(ring);
+          this.statusRings.set(mon.id, ring);
+        }
+        const kind = st.find((e) => e.kind === "burn") ? "burn"
+          : st.find((e) => e.kind === "poison") ? "poison" : "chill";
+        const mat = ring.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(kind === "burn" ? 0xff7a2f : kind === "poison" ? 0x7ed957 : 0x7fd4ff);
+        mat.opacity = 0.22 + 0.1 * Math.sin(time * 6 + mon.id);
+        ring.position.set(mon.pos.x, 0.04, mon.pos.y);
+        ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : 1));
+        ring.visible = mesh.visible;
+      } else if (ring) {
+        this.scene.remove(ring);
+        this.statusRings.delete(mon.id);
+      }
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) {
@@ -1722,6 +1749,8 @@ export class Renderer3D {
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
         const tel = this.telegraphs.get(id);
         if (tel) { this.scene.remove(tel); this.telegraphs.delete(id); }
+        const ring = this.statusRings.get(id);
+        if (ring) { this.scene.remove(ring); this.statusRings.delete(id); }
         if (rebuilt) {
           // Floor change: the whole population turned over — no corpses.
           this.scene.remove(mesh);

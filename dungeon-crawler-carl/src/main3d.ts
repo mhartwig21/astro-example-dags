@@ -382,7 +382,9 @@ function updateBossBar(s: GameState): void {
   bossbarEl.style.display = "block";
   bbIcon.textContent = target.kind === "boss" ? "☠" : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
-  bbAffix.textContent = target.affix ? target.affix.toUpperCase() : "";
+  // Affix tag + status pips (5.11): the bar shows what the menace IS and what
+  // the party has stuck to it (burn/poison/chill uptime at a glance).
+  bbAffix.innerHTML = (target.affix ? target.affix.toUpperCase() + " " : "") + statusChips(target.statuses);
   bbFill.style.width = `${Math.max(0, Math.min(1, target.hp / target.maxHp)) * 100}%`;
 }
 
@@ -1646,6 +1648,10 @@ function spawnDamageNumber(h: HitEvent): void {
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
     el.style.color = h.kind === "crit" ? "#d3b6ff" : "#b998ff";
   }
+  // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
+  // poison toxin-green — so a DoT build can read its uptime mid-fight.
+  if (h.effect === "burn") el.style.color = "#ff7a2f";
+  else if (h.effect === "poison") el.style.color = "#7ed957";
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
@@ -1798,6 +1804,24 @@ function fmt(t: number): string {
   const c = Math.max(0, t);
   return `${Math.floor(c / 60)}:${Math.floor(c % 60).toString().padStart(2, "0")}`;
 }
+// Status pips (5.11): tiny colored chips per active effect. Shared by the
+// player HUD (debuff row under the HP bar) and the boss bar.
+const STATUS_CHIP: Record<string, { label: string; color: string }> = {
+  burn: { label: "BURN", color: "#ff7a2f" },
+  poison: { label: "PSN", color: "#7ed957" },
+  chill: { label: "CHILL", color: "#7fd4ff" },
+};
+function statusChips(st: { kind: string; stacks: number; remaining: number }[] | undefined): string {
+  if (!st || st.length === 0) return "";
+  return st.map((e) => {
+    const c = STATUS_CHIP[e.kind] ?? { label: e.kind.toUpperCase(), color: "#c9c9d4" };
+    const stacks = e.stacks > 1 ? `×${e.stacks}` : "";
+    return `<span style="color:${c.color};border:1px solid ${c.color}55;border-radius:3px;` +
+      `padding:0 4px;margin-right:4px;font-size:10px;letter-spacing:1px">` +
+      `${c.label}${stacks} ${Math.ceil(e.remaining)}s</span>`;
+  }).join("");
+}
+
 function updateHud(s: GameState): void {
   const p = me(s);
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
@@ -1811,7 +1835,9 @@ function updateHud(s: GameState): void {
     `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
     `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
     `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#e2574c"></i></div>` +
-    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>`;
+    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#4fd1ff"></i></div>` +
+    // Debuff row (5.11): active statuses read right under the health bar.
+    ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
   hudLog.innerHTML = log.slice(-5).join("<br>");
   if (s.status === "playing" && !p.alive) {
     hudLog.innerHTML += `<br><b style="color:#e2574c">DOWNED</b> — ` +

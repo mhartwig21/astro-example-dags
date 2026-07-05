@@ -2180,11 +2180,8 @@ describe("crowd frenzy", () => {
 });
 
 describe("sponsor slurp flask", () => {
-  // Ships disabled (CONFIG.flaskEnabled); mechanics stay tested for its return.
-  const flags = CONFIG as { flaskEnabled: boolean };
-  beforeAll(() => { flags.flaskEnabled = true; });
-  afterAll(() => { flags.flaskEnabled = false; });
-
+  // Re-enabled (CONFIG.flaskEnabled: true) with the status-effect pass —
+  // aggression is the sustain loop again.
   it("drinking heals a fraction of max HP and consumes a charge", () => {
     const g = createGame(940);
     const p = g.players[0];
