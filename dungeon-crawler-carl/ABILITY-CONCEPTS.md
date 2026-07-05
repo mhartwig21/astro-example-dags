@@ -15,6 +15,27 @@ everything, so which tome drops starts defining the run.
 Constellation sketches follow the shipped grammar: entry → exclusive fork →
 capstone.
 
+## Direction (owner review, 2026-07-05)
+
+Favorites from this slate: **Audience Participation**, **Stunt Double**
+(retiered — see its section: it should be a REGULAR ACTIVE, not an ultimate),
+and **Crowd Surf**. Stated taste, which should weight all future picks:
+
+> "I like mobility and utility skills, I think they're what make kits fun,
+> as well as combo skills (where you press multiple buttons to set up attacks)."
+
+Priorities that fall out of that:
+- **Mobility beyond dash**: Crowd Surf (pull-yourself mode) and CUT TO (the
+  phantom-blink flip, mined section) are the top mobility candidates.
+- **Utility verbs over damage buttons**: decoys (Stunt Double), zones and CC
+  (STAGE CABLES roots), defensive windows (CUT TO COMMERCIAL), the crowd
+  roulette (Audience Participation).
+- **Cross-ability combo hooks**: every new ability should name at least one
+  setup→payoff line with an EXISTING ability (pull-in → nova; roots →
+  stampede; decoy taunt → backstab bonus). The kit's current combo texture
+  is mostly single-ability internal (overcharge→spend, stance-swap→momentum,
+  dash→shockstep); cross-ability setups are the gap.
+
 ## Actives
 
 ### 1. CROWD WORK — hype as ammunition
@@ -97,13 +118,18 @@ get pranked. The show economy decides the quality of your ultimate.
 - Rides: hype state, strikes rail (telegraphed impacts), hazards.
 
 ### 9. STUNT DOUBLE — the production hires help
-Spawn a copy of you for 8s: taunts everything nearby (the aggro-transfer
-defensive tool the kit lacks) and mirrors your melee swings at 40%. When the
-contract expires it takes a bow and explodes proportional to damage absorbed.
+**RETIERED to a regular ACTIVE (owner call):** the decoy is a utility verb
+you weave into a rotation, not a once-a-fight event. Active-budget numbers:
+~5s contract, ~18s cooldown, mirror swings at 25-30%.
+Spawn a copy of you: taunts everything nearby (the aggro-transfer defensive
+tool the kit lacks) and mirrors your melee swings. When the contract expires
+it takes a bow and explodes proportional to damage absorbed.
+Combo lines: cast INSTANT REPLAY while the double swings (both tally); drop
+it mid-CROWD SURF pull so the pack lands on the decoy, not you.
 - Fork: **Method Actor** (longer contract, harder taunt) vs **Pyrotechnic
   Exit** (bigger finale).
-- Capstone: **AWARD SEASON** — if the double survives its contract, refund
-  50% of your ultimate cooldown.
+- Capstone: **AWARD SEASON** — if the double survives its contract, its
+  next casting is free (no cooldown).
 - Needs: friendly-entity surface (shared with UNION LABOR).
 
 ## Recommended first wave
