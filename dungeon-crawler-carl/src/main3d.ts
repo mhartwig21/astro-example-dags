@@ -315,10 +315,19 @@ document.getElementById("m-join")!.addEventListener("click", () => {
   if (!code) { codeInput.focus(); return; }
   location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
 });
-// RIVALS: same code plumbing, hostile rules — the first joiner arms the race.
+// RIVALS: a first-class home-screen card with its own race code — same code
+// plumbing as co-op, hostile rules. The first joiner arms the race.
+const rivalCodeInput = document.getElementById("m-rcode") as HTMLInputElement;
+document.getElementById("m-rivals-card")!.addEventListener("click", () => {
+  const form = document.getElementById("m-rivals-form")!;
+  const opening = form.style.display === "none";
+  form.style.display = opening ? "flex" : "none";
+  if (opening && !rivalCodeInput.value) rivalCodeInput.value = rollCode();
+});
+document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeInput.value = rollCode(); });
 document.getElementById("m-rivals")!.addEventListener("click", () => {
-  const code = codeInput.value.trim().toUpperCase().slice(0, 32);
-  if (!code) { codeInput.focus(); return; }
+  const code = rivalCodeInput.value.trim().toUpperCase().slice(0, 32);
+  if (!code) { rivalCodeInput.focus(); return; }
   location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
 });
 

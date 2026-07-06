@@ -318,6 +318,9 @@
       .m-card.gold { border-left-color: #c9a24b; }
       .m-card.gold b { color: #f2c14e; }
       .m-card.gold:hover { border-color: #c9a24b; box-shadow: 0 0 18px rgba(201,162,75,0.18); }
+      .m-card.red { border-left-color: #8a3038; }
+      .m-card.red b { color: #e06a5a; }
+      .m-card.red:hover { border-color: #8a3038; box-shadow: 0 0 18px rgba(224,106,90,0.15); }
       .m-card.green { border-left-color: #6e5533; }
       .m-card.green b { color: #6da356; }
       .m-card.dim { border-left-color: #6e5533; opacity: 0.75; }
@@ -1108,7 +1111,14 @@
               <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
               <button class="m-mini" id="m-roll">NEW CODE</button>
               <button class="m-go" id="m-join">CO-OP ▶</button>
-              <button class="m-go" id="m-rivals" title="Up to 4 HOSTILE crawlers. First to kill the boss wins. Rival kills pay XP.">RIVALS</button>
+            </div>
+            <button class="m-card red" id="m-rivals-card">
+              <b>RIVALS</b><small>up to four HOSTILE crawlers, one contract &mdash; first boss kill wins</small>
+            </button>
+            <div class="m-form" id="m-rivals-form" style="display:none">
+              <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
+              <button class="m-mini" id="m-rroll">NEW CODE</button>
+              <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
             </div>
             <button class="m-card dim" id="m-test">
               <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
