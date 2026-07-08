@@ -70,7 +70,7 @@ soldiers are absolutely on-theme).
 |---|---|---|---|
 | Skeleton_Rogue | Skeletons 1.1 | medium | UNDERCROFT — fast stabby variant |
 | Skeleton_Golem | Skeletons 1.1 | **large** | UNDERCROFT/SEWERS — second brute silhouette |
-| OrcRaider | Mystery S4 | medium | SEWERS — grunt/raider (alt textures A/B in pack) |
+| ~~OrcRaider~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Drum Sergeant (SEWERS support mob) |
 | Caveman | Mystery S5 | medium | UNDERCROFT — club grunt |
 | Monster | Mystery S4 | medium | any — classic beast |
 | MonsterCostume | Mystery S4 | medium | THE SHOW twist — "it was a guy in a suit" |
@@ -94,7 +94,7 @@ soldiers are absolutely on-theme).
 | Monstrosity | Mystery S6 | **custom rig** | APPROACH — horror boss (no Rig_Medium/Large nodes; verify clips before committing) |
 | 4GTN | Mystery S6 | **large** | APPROACH — golem sentinel |
 | 4GTN_Forgotten | Mystery S6 | **large** | its ruined/corrupted variant |
-| Hoarder | Mystery S6 | medium | vault guardian / treasure-goblin chase mob |
+| ~~Hoarder~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Repo Rat (fleeing loot-goblin) |
 | Superhero | Mystery S5 | medium | THE SHOW — fallen "former favorite" rival |
 
 **NPC / crawler / flavor candidates (20):** Adventurers 2.0 Barbarian,
