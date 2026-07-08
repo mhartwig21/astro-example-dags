@@ -341,6 +341,7 @@ export const CONFIG = {
   shamanHeal: 16, // hp restored to the lowest-HP wounded monster per cast
   shamanHealCooldown: 2.5, // seconds between casts
   shamanHealRange: 6, // tiles: allies it can reach
+  shamanHealWindup: 0.8, // channel before the heal lands — the interrupt window
 
   // Phantom: fast, fragile skirmisher that blinks toward its prey.
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
@@ -662,6 +663,7 @@ export const CONFIG = {
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  summonWindup: 0.7, // channel before the add arrives (summoner elites + broodmother)
   // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
   // the fog until a player strays within trigger range, then the whole cluster
   // springs at once with a brief speed surge to close the gap. A pack that lets

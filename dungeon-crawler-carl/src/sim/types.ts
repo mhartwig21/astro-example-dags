@@ -216,7 +216,8 @@ export interface Monster {
   // "aim": sentinel's lock-on — the beam hazard does the damage; the windup
   // just holds the aiming pose. "vent": slagbreaker's forced heat dump.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
-    | "punch" | "aim" | "vent"; // what resolves when windup expires
+    | "punch" | "aim" | "vent" | "heal" | "summon"; // what resolves when windup expires
+  healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
   chargeDir?: Vec2;

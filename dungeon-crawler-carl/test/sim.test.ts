@@ -1531,10 +1531,37 @@ describe("new archetypes", () => {
     });
     g.monsters.push(shaman, wounded, healthier);
     step(g, idle(), 1 / 60);
+    // The heal is a CHANNEL now (the interrupt window): committed, not landed.
+    expect(shaman.windupKind).toBe("heal");
+    expect(shaman.healCd).toBeGreaterThan(0); // paid up front
+    expect(wounded.hp).toBe(10);
+    // Step to the resolve frame and stop THERE — hits clear every step.
+    let healed = false;
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.2 && !healed; t += 1 / 60) {
+      step(g, idle(), 1 / 60);
+      healed = wounded.hp > 10;
+    }
     expect(wounded.hp).toBe(10 + CONFIG.shamanHeal); // picked the most wounded ally
     expect(healthier.hp).toBe(30);
-    expect(shaman.healCd).toBeGreaterThan(0);
     expect(g.hits.some((h) => h.kind === "heal" && h.amount === CONFIG.shamanHeal)).toBe(true);
+  });
+
+  it("killing the shaman mid-channel cancels the heal", () => {
+    const g = createGame(903);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const wounded = mkMon({ id: 2, pos: { x: p.pos.x + 5, y: p.pos.y + 1 }, hp: 10, maxHp: 50 });
+    const shaman = mkMon({
+      id: 1, kind: "shaman", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 40, attackRange: 5.5,
+    });
+    g.monsters.push(shaman, wounded);
+    step(g, idle(), 1 / 60);
+    expect(shaman.windupKind).toBe("heal");
+    shaman.hp = 0; // focused down inside the window
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
+    expect(wounded.hp).toBe(10); // the medic never finished
   });
 
   it("phantom blinks toward the player, closing far more than a walk step", () => {
@@ -2426,14 +2453,17 @@ describe("elite affixes", () => {
     });
     g.monsters.push(m);
     step(g, idle(), 1 / 60);
+    // The summon is a telegraphed channel now: committed, cd paid, no add yet.
+    expect(m.windupKind).toBe("summon");
+    expect(m.affixCd).toBeGreaterThan(0);
+    for (let t = 0; t < CONFIG.summonWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.filter((mm) => mm.kind === "swarmer").length).toBe(1);
     expect(m.summons).toBe(1);
-    expect(m.affixCd).toBeGreaterThan(0);
     expect(g.monsters.find((mm) => mm.kind === "swarmer")!.xp).toBe(1); // not an XP farm
     m.summons = CONFIG.summonMax; // cap reached
     m.affixCd = 0;
     const count = g.monsters.length;
-    step(g, idle(), 1 / 60);
+    for (let t = 0; t < CONFIG.summonWindup + 0.2; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.length).toBeLessThanOrEqual(count); // no further summons
   });
 });

@@ -49,6 +49,8 @@ const WINDUP_CLIP: Record<string, string> = {
   punch: "punch", // lineworker piston — the unarmed haymaker
   aim: "idle_deadeye", // sentinel lock-on: sighting down the barrel (looping)
   vent: "spin", // slagbreaker heat dump: the big 2H wind-out
+  heal: "cast_raise", // shaman channel — arms up, interrupt the medic
+  summon: "cast_raise", // summoner elite / broodmother calling the add down
 };
 
 // Elite affix body glow. The affix is gameplay-critical (warded vs armored
@@ -1932,6 +1934,7 @@ export class Renderer3D {
           mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
           mon.windupKind === "shot" || mon.windupKind === "spit" ? 0.5 :
           mon.windupKind === "raise" ? 0.7 :
+          mon.windupKind === "heal" || mon.windupKind === "summon" ? 0.65 :
           mon.windupKind === "charge" ? 0.9 :
           mon.windupKind === "slam" ? (mon.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius) :
           mon.windupKind === "ritual" ? CONFIG.ritualRadius :
@@ -1945,6 +1948,8 @@ export class Renderer3D {
           mon.windupKind === "shot" ? 0xffcc44 :
           mon.windupKind === "spit" ? 0xa4c93f :
           mon.windupKind === "raise" ? 0x8a5cff :
+          mon.windupKind === "heal" ? 0x3fbf6f : // shaman green: interrupt the medic
+          mon.windupKind === "summon" ? 0x8a5cff : // violet: more of them incoming
           mon.windupKind === "charge" ? 0xff9a2e :
           mon.windupKind === "slam" ? 0xff2020 :
           mon.windupKind === "ritual" ? 0x8800ee : 0xff5030,
