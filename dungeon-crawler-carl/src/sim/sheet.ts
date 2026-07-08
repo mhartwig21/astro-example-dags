@@ -6,6 +6,7 @@ import {
   type AbilityId, type School,
 } from "./abilities";
 import { hasPassive, playerMitigation } from "./game";
+import { REVISIONS } from "./revisions";
 import { weaponClassOf, type WeaponClass } from "./items";
 import type { GameState, Player } from "./types";
 
@@ -47,6 +48,7 @@ export interface CharacterSheet {
     weaponName: string; // "Bare Hands" when nothing equipped
     weaponClass: WeaponClass | null;
     variance: number; // the weapon's dice, e.g. 0.3 = every hit rolls ±30%
+    revisions: string[]; // CLASS REVISION titles on file (empty = uncast)
   };
   attributes: {
     attackPower: number;
@@ -228,6 +230,8 @@ export function buildCharacterSheet(state: GameState, p: Player): CharacterSheet
       weaponName: weapon?.name ?? "Bare Hands",
       weaponClass: weaponClassOf(weapon),
       variance: damageVariance(p),
+      revisions: (p.revisions ?? [])
+        .map((id) => (id === "uncast" ? "UNCAST (defiant)" : REVISIONS[id]?.title ?? id)),
     },
     attributes: {
       attackPower: p.attackPower,
@@ -248,7 +252,8 @@ export function buildCharacterSheet(state: GameState, p: Player): CharacterSheet
       effectiveHp: Math.round(p.maxHp / (1 - reduction)),
       exampleRaw: raw,
       exampleTaken: Math.max(1, Math.round(raw * (1 - reduction))),
-      dashCharges: CONFIG.dashCharges,
+      dashCharges: CONFIG.dashCharges +
+        ((p.revisions ?? []).includes("parkour") ? CONFIG.revisionParkourCharges : 0),
     },
     show: {
       viewers: Math.round(p.viewers),
