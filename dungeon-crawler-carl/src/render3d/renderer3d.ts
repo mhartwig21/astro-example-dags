@@ -96,6 +96,7 @@ export class Renderer3D {
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
   private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
+  private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -524,6 +525,26 @@ export class Renderer3D {
     const hit = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(this.groundPlane, hit)) return null;
     return { x: hit.x, y: hit.z };
+  }
+
+  /** Show/hide the click-to-move destination chip (null hides it). */
+  setMoveMarker(pos: Vec2 | null): void {
+    if (!pos) {
+      if (this.moveMarker) this.moveMarker.visible = false;
+      return;
+    }
+    if (!this.moveMarker) {
+      this.moveMarker = new THREE.Mesh(
+        new THREE.RingGeometry(0.16, 0.3, 24),
+        new THREE.MeshBasicMaterial({
+          color: 0x5a87c6, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      this.moveMarker.rotation.x = -Math.PI / 2;
+      this.scene.add(this.moveMarker);
+    }
+    this.moveMarker.visible = true;
+    this.moveMarker.position.set(pos.x, 0.06, pos.y);
   }
 
   resize(w: number, h: number): void {
@@ -1940,6 +1961,13 @@ export class Renderer3D {
     }
     for (const [id, ring] of this.pingRings) {
       if (!pingSeen.has(id)) { this.scene.remove(ring); this.pingRings.delete(id); }
+    }
+
+    // Click-to-move destination: a quiet steel-blue chip, host-local (not sim
+    // state, unlike pings — nobody else sees where you told yourself to walk).
+    if (this.moveMarker?.visible) {
+      const mm = this.moveMarker.material as THREE.MeshBasicMaterial;
+      mm.opacity = 0.4 + 0.15 * Math.sin(performance.now() / 180);
     }
 
     // Revive channel: a green ring tightening around a downed crawler as a

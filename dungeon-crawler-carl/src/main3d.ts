@@ -20,9 +20,11 @@ import {
   knows, nodeOpen, rank, upgradeDef, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
+import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadNotify, rebind,
-  saveBindings, saveMouseAim, saveNotify, type BindableAction, type Bindings, type NotifyLevel,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadMouseMove, loadNotify,
+  rebind, saveBindings, saveMouseAim, saveMouseMove, saveNotify,
+  type BindableAction, type Bindings, type NotifyLevel,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -72,8 +74,10 @@ let localId = 0;
 const me = (s: GameState) => s.players.find((p) => p.id === localId) ?? s.players[0];
 
 let mouseAim = loadMouseAim();
+let mouseClickMove = loadMouseMove();
 let notifyLevel = loadNotify();
 canvas.style.cursor = mouseAim ? "crosshair" : "default"; // crosshair only when aiming
+const clickMove = createClickMove();
 
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight);
@@ -157,6 +161,7 @@ function startRun(mode: RunMode): void {
 }
 
 const input = new InputController(canvas);
+input.mouseMoveMode = mouseClickMove;
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -931,7 +936,8 @@ function applyBindings(): void {
     `<kbd>${first("keybinds")}</kbd> keys · ` +
     `<kbd>${first("stairs")}</kbd> stairs · ` +
     `<kbd>${first("newRun")}</kbd> new run · ` +
-    `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "");
+    `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "") +
+    (mouseClickMove ? " · click to move" : "");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
@@ -980,6 +986,21 @@ kbMouseAim.addEventListener("click", () => {
   applyBindings(); // refresh the banner hint
 });
 renderMouseAim();
+
+// Diablo-style mouse movement (see input/clickMove.ts).
+const kbMouseMove = document.getElementById("kb-mousemove")!;
+function renderMouseMove(): void {
+  kbMouseMove.textContent = mouseClickMove ? "ON" : "OFF";
+}
+kbMouseMove.addEventListener("click", () => {
+  mouseClickMove = !mouseClickMove;
+  saveMouseMove(mouseClickMove);
+  input.mouseMoveMode = mouseClickMove;
+  clickMove.target = null; // no stale autopilot across a mode flip
+  renderMouseMove();
+  applyBindings(); // refresh the banner hint
+});
+renderMouseMove();
 
 // System-chatter verbosity: cycles the ticker filter (see TICKER_KINDS).
 const NOTIFY_CYCLE: NotifyLevel[] = ["normal", "critical", "all"];
@@ -1990,7 +2011,7 @@ let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
-function sampleIntent(): ReturnType<InputController["sample"]> {
+function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
   if (mouseAim && input.mouse) {
@@ -2007,6 +2028,25 @@ function sampleIntent(): ReturnType<InputController["sample"]> {
     const p = me(state);
     const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
     intent.ping = g ?? { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
+  }
+  // Diablo-style mouse movement (opt-in): LMB on ground walks, LMB on a
+  // monster attacks. Pure input interpretation — the intent stays ordinary.
+  if (mouseClickMove) {
+    const p = me(state);
+    const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
+    const hover = !!g && state.monsters.some(
+      (m) => m.hp > 0 && (m.pos.x - g.x) ** 2 + (m.pos.y - g.y) ** 2 <= 0.55 * 0.55,
+    );
+    const out = stepClickMove(clickMove, {
+      playerPos: p.pos, cursorWorld: g, lmbHeld: input.lmbHeld, hoverMonster: hover,
+      keyboardMove: intent.move.x !== 0 || intent.move.y !== 0, dt,
+    });
+    if (out.move) intent.move = out.move;
+    if (out.attack && intent.cast) intent.cast[0] = true;
+    // Marker only for the committed autopilot; while steering, the cursor is it.
+    renderer.setMoveMarker(clickMove.holding ? null : clickMove.target);
+  } else {
+    renderer.setMoveMarker(null);
   }
   return intent;
 }
@@ -2052,7 +2092,7 @@ async function main(): Promise<void> {
       netIntentAcc += dt;
       if (netIntentAcc >= 0.05) {
         netIntentAcc = 0;
-        net.sendIntent(sampleIntent());
+        net.sendIntent(sampleIntent(0.05));
       }
       const disp = net.display(now);
       if (disp) state = disp;
@@ -2105,7 +2145,7 @@ async function main(): Promise<void> {
       if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
-        step(state, sampleIntent(), SIM_DT);
+        step(state, sampleIntent(SIM_DT), SIM_DT);
         for (const e of state.events) log.push(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
