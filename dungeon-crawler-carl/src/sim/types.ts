@@ -129,6 +129,15 @@ export interface Player {
   viewers: number; // live audience count
   favorites: number; // sticky fans
   sponsors: number; // backers earned at favorite thresholds
+
+  // CLASS REVISIONS taken (revisions.ts ids; "uncast" once per declined offer).
+  // Optional for old-save/snapshot compat; makePlayer initializes [].
+  revisions?: string[];
+  // The System's boredom bookkeeping (interference): seconds of hype flatline,
+  // and how many times it has intervened without a hype recovery between.
+  boredT?: number;
+  boredTier?: number;
+  petUsed?: boolean; // PRODUCER'S PET: the once-per-floor save spent (resets each floor)
 }
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
@@ -213,6 +222,9 @@ export interface Monster {
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
   eliteName?: string; // announcer name for elites and city bosses
+  // System bounty (interference tier 1): seconds left to collect + the purse.
+  bountyT?: number;
+  bountyGold?: number;
   // Elite affix: one extra mechanic per named elite (rolled at spawn, floor 3+).
   affix?: EliteAffix;
   affixCd?: number; // summoner: seconds until the next summon
@@ -361,7 +373,10 @@ export type RewardKind =
   // System Shrine bargains (floor events — never in the sponsor pool):
   | "shrineBlood" // pay a slice of max HP now for permanent crit
   | "shrineGreed" // this floor's monsters speed up; its gold drops double
-  | "shrineDecline"; // walk away (the System notes the cowardice)
+  | "shrineDecline" // walk away (the System notes the cowardice)
+  // CLASS REVISION milestone drafts (revisions.ts — never in the sponsor pool):
+  | "revision" // a permanent recasting with a built-in curse
+  | "revisionDecline"; // REMAIN UNCAST (defiance pays a small permanent hype bonus)
 
 export interface Reward {
   id: number;
@@ -372,6 +387,7 @@ export interface Reward {
   item?: Item; // present when kind === "item"
   material?: MaterialId; // present when kind === "materials"
   nodeId?: string; // present when kind === "retrain": the node being refunded
+  revisionId?: string; // present when kind === "revision": the casting on offer
 }
 
 // Projectiles: player bolts and enemy shots share one system.

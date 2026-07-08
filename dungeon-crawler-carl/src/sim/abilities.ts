@@ -277,8 +277,10 @@ export function meleeParams(p: Player) {
 }
 
 export function dashParams(p: Player) {
+  // THE HEAVY (class revision): mass keeps its own schedule — dash recharges slower.
+  const heavy = (p.revisions ?? []).includes("heavy") ? CONFIG.revisionHeavyDashCdMult : 1;
   return {
-    cooldown: CONFIG.dashCooldown * (1 - rank(p, "dash.quick") * 0.18),
+    cooldown: CONFIG.dashCooldown * (1 - rank(p, "dash.quick") * 0.18) * heavy,
     distance: CONFIG.dashDistance * (1 + rank(p, "dash.blink") * 0.3),
     shockMult: rank(p, "dash.shock") * 0.5, // fraction of dash power dealt along the path
   };
