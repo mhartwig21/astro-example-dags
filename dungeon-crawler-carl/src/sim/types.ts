@@ -133,6 +133,9 @@ export interface Player {
   // CLASS REVISIONS taken (revisions.ts ids; "uncast" once per declined offer).
   // Optional for old-save/snapshot compat; makePlayer initializes [].
   revisions?: string[];
+  // First-contact System tips already delivered (tips.ts ids) — each rule is
+  // explained exactly once, the first time it touches this crawler.
+  tipsSeen?: string[];
   // The System's boredom bookkeeping (interference): seconds of hype flatline,
   // and how many times it has intervened without a hype recovery between.
   boredT?: number;
@@ -575,6 +578,7 @@ export type AnnouncementKind =
   | "loot" // loot boxes, tomes, notable drops, signature gear
   | "achievement"
   | "show" // audience economy: sponsors, frenzy, ultimates, favors
+  | "tip" // first-contact rule explainers (tips.ts) — once per crawler, ever
   | "flavor"; // one-off color lines
 
 export interface Announcement {

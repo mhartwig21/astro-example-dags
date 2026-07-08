@@ -3,7 +3,7 @@ import {
   createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision,
+  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
@@ -4653,5 +4653,57 @@ describe("CLASS REVISION (milestone castings)", () => {
     expect(p.hype).toBe(0);
     addHype(g, p, 10);
     expect(p.hype).toBeCloseTo(10 * CONFIG.revisionCanceledHypeMult, 5);
+  });
+});
+
+describe("first-contact System tips", () => {
+  it("the bolt tip fires on the first cast and never again", () => {
+    const g = createGame(970);
+    const p = g.players[0];
+    step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(p.tipsSeen).toContain("bolt");
+    expect(g.announcements.some((a) => a.kind === "tip")).toBe(true);
+    // Wait out the cooldown, cast again: the System does not repeat itself.
+    for (let i = 0; i < 180; i++) step(g, idle(), 1 / 60);
+    step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.announcements.some((a) => a.kind === "tip")).toBe(false);
+  });
+
+  it("affliction and near-death each file their courtesy explanation", () => {
+    const g = createGame(971);
+    const p = g.players[0];
+    damagePlayerHit(g, p, 1, { effect: "poison", roll: false });
+    expect(p.tipsSeen).toContain("afflicted");
+    p.hp = Math.max(2, Math.floor(p.maxHp * 0.2));
+    damagePlayerHit(g, p, 1, { roll: false });
+    expect(p.tipsSeen).toContain("lowhp");
+  });
+
+  it("the first stagger explains poise", () => {
+    const g = createGame(972);
+    const p = g.players[0];
+    const m = g.monsters.find((mm) => mm.kind !== "boss" && !mm.elite)!;
+    damageMonster(g, p, m, 1, { allowCrit: false, shatterPoise: true });
+    expect(p.tipsSeen).toContain("stagger");
+  });
+
+  it("delivered tips survive the save file and never re-fire", () => {
+    const r = restoreGame({
+      seed: 973, floor: 1,
+      player: { hp: 100, level: 1, xp: 0, xpToNext: 10, gold: 0, tipsSeen: ["bolt"] },
+    });
+    expect(r.players[0].tipsSeen).toContain("bolt");
+    step(r, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(r.announcements.some((a) => a.kind === "tip")).toBe(false);
+  });
+
+  it("the first interference correction comes with the paperwork", () => {
+    const g = createTestGame({ seed: 974, floor: 4, level: 5 });
+    const p = g.players[0];
+    p.hype = 0;
+    p.boredT = CONFIG.interferenceBoredom;
+    step(g, idle(), 1 / 60);
+    expect(p.tipsSeen).toContain("interference");
+    expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("COURTESY EXPLANATION"))).toBe(true);
   });
 });

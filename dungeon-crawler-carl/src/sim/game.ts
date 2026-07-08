@@ -19,6 +19,7 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
+import { TIPS } from "./tips";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
@@ -720,6 +721,7 @@ function makePlayer(id: number, name: string): Player {
     favorites: 0,
     sponsors: 0,
     revisions: [],
+    tipsSeen: [],
   };
   recomputeStats(p);
   return p;
@@ -728,6 +730,15 @@ function makePlayer(id: number, name: string): Player {
 /** Has this crawler taken the given CLASS REVISION? (revisions.ts ids). */
 export function hasRevision(p: Player, id: string): boolean {
   return (p.revisions ?? []).includes(id);
+}
+
+/** First-contact rule explainer (tips.ts): fires ONCE per crawler, the first
+ * time the rule touches them. The System files a courtesy explanation. */
+function systemTip(state: GameState, p: Player, id: string): void {
+  const line = TIPS[id];
+  if (!line || (p.tipsSeen ?? []).includes(id)) return;
+  (p.tipsSeen ??= []).push(id);
+  announce(state, "tip", line);
 }
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
@@ -873,6 +884,7 @@ export interface SavedProgress {
     damageTaken?: number;
     materials?: Record<MaterialId, number>;
     revisions?: string[]; // CLASS REVISIONS taken (pre-revision saves: absent)
+    tipsSeen?: string[]; // first-contact tips already delivered (pre-tips saves: absent)
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -928,6 +940,7 @@ export function restoreGame(save: SavedProgress): GameState {
   }
   if (s.achievements) p.achievements = s.achievements;
   p.revisions = s.revisions ?? []; // CLASS REVISIONS survive the reload
+  p.tipsSeen = s.tipsSeen ?? []; // a rule explained once stays explained
   p.goldSpent = s.goldSpent ?? 0;
   p.kills = s.kills ?? 0;
   if (save.show) {
@@ -1104,12 +1117,14 @@ function updateShow(state: GameState, dt: number): void {
     // hyped. sqrt: excitement spikes convert, camping at the cap can't run away.
     if (p.hype > s.favConvertThreshold) {
       p.favorites += Math.sqrt(p.hype - s.favConvertThreshold) * s.favPerHypePerSec * dt;
+      if (p.favorites >= 1) systemTip(state, p, "favorites");
     }
     // Crossing a favorite threshold earns a sponsor (CORPORATE SELLOUT signs early).
     const thMult = hasRevision(p, "sellout") ? CONFIG.revisionSelloutThresholdMult : 1;
     while (p.sponsors < s.sponsorThresholds.length && p.favorites >= s.sponsorThresholds[p.sponsors] * thMult) {
       p.sponsors++;
       announce(state, "show", `NEW SPONSOR for ${p.name}! ${p.sponsors} now bankroll the run. They expect a show.`);
+      if (p.sponsors === 1) systemTip(state, p, "sponsors");
     }
     // Crowd Frenzy: sustained hype buffs the crawler (hysteresis so the state
     // doesn't flap as hype oscillates around the threshold).
@@ -1214,6 +1229,7 @@ function updateInterference(state: GameState, dt: number): void {
     p.boredT = (p.boredT ?? 0) + dt * rate;
     if (p.boredT < CONFIG.interferenceBoredom) continue;
     p.boredT = 0;
+    systemTip(state, p, "interference"); // the first correction comes with paperwork
     const tier = Math.min(p.boredTier ?? 0, 2);
     p.boredTier = (p.boredTier ?? 0) + 1;
     if (tier === 0) postBounty(state, p);
@@ -1576,8 +1592,10 @@ export function damagePlayerHit(
     addHype(state, p, CONFIG.show.hypeLowHpHit * 2);
   }
   hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0, effect: opts.effect });
+  if (opts.effect) systemTip(state, p, "afflicted");
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
+    systemTip(state, p, "lowhp");
   }
   return p.hp <= 0;
 }
@@ -1624,6 +1642,7 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
   if (offer.overrank) {
     // A lottery rank past the printed max — rare enough to headline.
     announce(state, "levelup", `${p.name} seizes OVERRANK ${offer.title} ${offer.nextRank}! Power beyond System limits.`, "high");
+    systemTip(state, p, "overrank");
     return;
   }
   const def = upgradeDef(offer.id);
@@ -1877,6 +1896,7 @@ export function damageMonster(
     if ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
       m.poiseDmg = 0;
       m.stagger = CONFIG.staggerDuration;
+      systemTip(state, p, "stagger");
       m.windup = 0; // interrupted — the committed attack never lands
       m.windupKind = undefined;
       m.chargeT = 0; // a poise break also stops a rush cold
@@ -3104,6 +3124,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
   p.cd.bolt = bp.cooldown * cdMult(p);
+  systemTip(state, p, "bolt"); // the weapon throws it; the System explains once
   // Stance judges the CAST (a volley loosed in Deadeye stays hot even if you
   // swap mid-flight). MOMENTUM and Overcharge spend on fire — the shot taken
   // is the shot primed; whether it lands is the archer's problem.
@@ -3365,6 +3386,7 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
   const heavy = target.kind === "boss" || target.elite || ARCHETYPES[target.kind].mass > CONFIG.surfMassLimit;
   if (heavy) {
     // The anchor holds: you ride the chain. Brief i-frames cover the flight.
+    systemTip(state, p, "extradition");
     p.dashTime = Math.max(p.dashTime, 0.15);
     moveWithCollision(state.map, p.pos, dir, Math.max(0, d - CONFIG.surfArriveGap), isWalkable);
     hit(state, p.pos, 0, "weapon");
