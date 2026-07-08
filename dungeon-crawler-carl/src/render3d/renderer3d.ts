@@ -49,6 +49,10 @@ const WINDUP_CLIP: Record<string, string> = {
   punch: "punch", // lineworker piston — the unarmed haymaker
   aim: "idle_deadeye", // sentinel lock-on: sighting down the barrel (looping)
   vent: "spin", // slagbreaker heat dump: the big 2H wind-out
+  hook: "attack", // lasher whip: the 1H slash sells the snap
+  morph: "transform", // understudy: KayKit's EXPERIMENTAL transform clip, at last
+  hex: "cast_long", // briar witch: the long channelled curse
+  lunge: "melee_d", // cutpurse: the 1H stab IS a lunge
   heal: "cast_raise", // shaman channel — arms up, interrupt the medic
   summon: "cast_raise", // summoner elite / broodmother calling the add down
 };
@@ -114,10 +118,12 @@ export class Renderer3D {
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
+  private laneStrips = new Map<number, THREE.Mesh>(); // LANE telegraphs: charger rush + lasher hook
   private statusRings = new Map<number, THREE.Mesh>(); // faint ring under statused monsters (5.11)
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
   private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
+  private curseRings = new Map<number, THREE.Mesh>(); // briar-witch mark under cursed crawlers
   private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
@@ -372,8 +378,9 @@ export class Renderer3D {
       punch: pick(/Unarmed_Attack_Punch/i, /Unarmed_Attack_Kick/i),
       // MovementAdvanced pack: the unnoticed Repo Rat creeps, it doesn't stroll.
       sneak: pick(/^Sneaking$/i),
-      // Special (large rig): the boss phase-up gets an actual transformation act.
-      transform: pick(/Large_Transform/i),
+      // The transformation act, both rigs: the understudy's morph (medium)
+      // and the boss phase-up (large) — clips bind by rig, so one key serves.
+      transform: pick(/EXPERIMENTAL_Medium_Transform/i, /Large_Transform/i),
       // Dormancy poses (Special library): ambush packs LIE on the floor among
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
@@ -1800,8 +1807,16 @@ export class Renderer3D {
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
+      // Second-stage morphs (the understudy) CHANGE KIND mid-fight — drop the
+      // old body and build the new one (the wolf takes the role).
+      if (mesh && mesh.userData.simKind !== mon.kind) {
+        this.scene.remove(mesh);
+        this.monsters.delete(mon.id);
+        mesh = undefined;
+      }
       if (!mesh) {
         mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite);
+        mesh.userData.simKind = mon.kind;
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
@@ -1915,11 +1930,51 @@ export class Renderer3D {
         const rear = mon.windup > 0 ? 1 + 0.14 * (1 - mon.windup / Math.max(mon.windupTotal, 1e-3)) : 1;
         mesh.scale.set(bs * squash, bs * (2 - squash) * rear, bs * squash);
       }
+      // LANE telegraphs: the charger's rush and the lasher's hook are LINES,
+      // not circles — draw the actual lane so the sidestep reads instantly.
+      const laneDir = (mon.windupKind === "hook" || mon.windupKind === "charge" || mon.windupKind === "lunge")
+        ? mon.chargeDir : undefined;
+      let strip = this.laneStrips.get(mon.id);
+      if (mon.windup > 0 && laneDir) {
+        if (!strip) {
+          strip = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          strip.rotation.order = "YXZ";
+          strip.rotation.x = -Math.PI / 2;
+          this.scene.add(strip);
+          this.laneStrips.set(mon.id, strip);
+        }
+        const len =
+          mon.windupKind === "hook" ? CONFIG.lasherHookRange :
+          mon.windupKind === "lunge" ? CONFIG.cutpurseLungeRange + 0.8 :
+          CONFIG.chargerRange;
+        const width =
+          mon.windupKind === "hook" ? CONFIG.lasherHookWidth * 2 :
+          mon.windupKind === "lunge" ? 0.7 :
+          CONFIG.chargerHitRadius * 2;
+        strip.position.set(mon.pos.x + laneDir.x * len / 2, 0.065, mon.pos.y + laneDir.y * len / 2);
+        strip.scale.set(len, width, 1);
+        strip.rotation.y = -Math.atan2(laneDir.y, laneDir.x);
+        const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
+        const mat = strip.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(
+          mon.windupKind === "hook" ? 0x7cc95a :
+          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e,
+        );
+        mat.opacity = 0.16 + prog * 0.4;
+        strip.visible = mesh.visible;
+      } else if (strip) {
+        this.scene.remove(strip);
+        this.laneStrips.delete(mon.id);
+      }
       // Attack telegraph: a ground ring that brightens as the strike approaches.
       // Radius = what the attack will actually cover (fuse blast / melee reach).
       // The sentinel's "aim" gets NO ring — its tracking beam IS the telegraph.
+      // Lane windups draw the strip above instead of a ring.
       let tel = this.telegraphs.get(mon.id);
-      if (mon.windup > 0 && mon.windupKind !== "aim") {
+      if (mon.windup > 0 && mon.windupKind !== "aim" && !laneDir) {
         if (!tel) {
           tel = new THREE.Mesh(
             new THREE.RingGeometry(0.8, 1, 28),
@@ -1939,6 +1994,8 @@ export class Renderer3D {
           mon.windupKind === "slam" ? (mon.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius) :
           mon.windupKind === "ritual" ? CONFIG.ritualRadius :
           mon.windupKind === "vent" ? CONFIG.slagVentRadius :
+          mon.windupKind === "hex" ? 0.6 :
+          mon.windupKind === "morph" ? 0.9 :
           mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
@@ -1952,7 +2009,9 @@ export class Renderer3D {
           mon.windupKind === "summon" ? 0x8a5cff : // violet: more of them incoming
           mon.windupKind === "charge" ? 0xff9a2e :
           mon.windupKind === "slam" ? 0xff2020 :
-          mon.windupKind === "ritual" ? 0x8800ee : 0xff5030,
+          mon.windupKind === "ritual" ? 0x8800ee :
+          mon.windupKind === "hex" ? 0xa64ca6 :
+          mon.windupKind === "morph" ? 0xd8d0a8 : 0xff5030,
         );
         mat.opacity = 0.2 + prog * 0.65;
         tel.visible = mesh.visible;
@@ -2013,6 +2072,8 @@ export class Renderer3D {
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
         const tel = this.telegraphs.get(id);
         if (tel) { this.scene.remove(tel); this.telegraphs.delete(id); }
+        const lane = this.laneStrips.get(id);
+        if (lane) { this.scene.remove(lane); this.laneStrips.delete(id); }
         const ring = this.statusRings.get(id);
         if (ring) { this.scene.remove(ring); this.statusRings.delete(id); }
         if (rebuilt) {
@@ -2080,7 +2141,7 @@ export class Renderer3D {
         strip.visible = inVision({ x: mx, y: my });
         continue;
       }
-      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
@@ -2089,6 +2150,7 @@ export class Renderer3D {
             color:
               hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
               hz.kind === "roots" ? 0x2e8b57 : // grasping green
+              hz.kind === "shards" ? 0xb8b0a0 : // ossuary debris: pale bone scatter
               pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),
@@ -2200,6 +2262,34 @@ export class Renderer3D {
     }
     for (const [id, ring] of this.reviveRings) {
       if (!revSeen.has(id)) { this.scene.remove(ring); this.reviveRings.delete(id); }
+    }
+
+    // The Briar Witch's mark: a thorny purple pulse under a cursed crawler —
+    // the whole party should see who to peel for.
+    const curseSeen = new Set<number>();
+    for (const pl of state.players) {
+      if (!pl.alive || (pl.cursedT ?? 0) <= 0) continue;
+      curseSeen.add(pl.id);
+      let ring = this.curseRings.get(pl.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.5, 0.68, 6), // hexagonal: it's a HEX
+          new THREE.MeshBasicMaterial({
+            color: 0xa64ca6, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.curseRings.set(pl.id, ring);
+      }
+      ring.position.set(pl.pos.x, 0.065, pl.pos.y);
+      ring.rotation.z = performance.now() / 900; // slow ominous spin
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        0.35 + 0.2 * Math.sin(performance.now() / 220);
+      ring.visible = inVision(pl.pos);
+    }
+    for (const [id, ring] of this.curseRings) {
+      if (!curseSeen.has(id)) { this.scene.remove(ring); this.curseRings.delete(id); }
     }
 
     // Projectiles: reconcile a mesh pool by id.

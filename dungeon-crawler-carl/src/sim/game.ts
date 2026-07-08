@@ -160,6 +160,16 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
   const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  // THE UNDERCROFT trainers (2+): floor 1 stays pristine — the contract floor.
+  const crypt = floor >= CONFIG.undercroftFromFloor;
+  const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
+  const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
+  const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
+  // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
+  const garden = floor >= CONFIG.gardenFromFloor;
+  const lashW = garden ? floor * 0.25 : 0;
+  const understudyW = garden ? floor * 0.3 : 0;
+  const hexW = garden ? floor * 0.2 : 0;
   // THE IRONWORKS (13+): the machine shift clocks in — robots, turret-bots,
   // steam brutes, and prop-mimic greeters join the mix for the band.
   const iron = floor >= CONFIG.ironworksFromFloor;
@@ -169,7 +179,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW + broodW
-    + lineW + sentW + slagW + greetW + toyW;
+    + cutW + wardW + digW + lashW + understudyW + hexW + lineW + sentW + slagW + greetW + toyW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -181,6 +191,12 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= spitterW) < 0) return "spitter";
   if ((r -= necroW) < 0) return "necromancer";
   if ((r -= broodW) < 0) return "broodmother";
+  if ((r -= cutW) < 0) return "cutpurse";
+  if ((r -= wardW) < 0) return "warden";
+  if ((r -= digW) < 0) return "digger";
+  if ((r -= lashW) < 0) return "lasher";
+  if ((r -= understudyW) < 0) return "understudy";
+  if ((r -= hexW) < 0) return "hexer";
   if ((r -= lineW) < 0) return "lineworker";
   if ((r -= sentW) < 0) return "sentinel";
   if ((r -= slagW) < 0) return "slagbreaker";
@@ -1588,10 +1604,12 @@ export function playerMitigation(p: Player): number {
  * and being shoved INTO a hazard is the design, not a bug. Distances stack up
  * to one slam's worth so chain-shoves don't launch anyone across the floor.
  */
-export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number): void {
+export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number, cap: number = CONFIG.bossSlamKnockback): void {
   if (!p.alive || tiles <= 0 || (dir.x === 0 && dir.y === 0)) return;
   const d = normalize(dir);
-  p.knock = { dir: d, left: Math.min(Math.max(p.knock?.left ?? 0, 0) + tiles, CONFIG.bossSlamKnockback) };
+  // Shoves stack only up to a slam's worth; PULLS (the lasher's hook) pass
+  // their own cap because the whole point is crossing the room.
+  p.knock = { dir: d, left: Math.min(Math.max(p.knock?.left ?? 0, 0) + tiles, Math.max(cap, tiles)) };
 }
 
 export function damagePlayerHit(
@@ -1601,7 +1619,10 @@ export function damagePlayerHit(
   // Rivals revive grace: a crawler fresh off the timer is briefly untouchable.
   if ((p.reviveGraceT ?? 0) > 0) return false;
   const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
-  const dmg = mitigate(raw, playerMitigation(p));
+  let dmg = mitigate(raw, playerMitigation(p));
+  // The Briar Witch's mark: everything hits harder while it holds. Kill the
+  // witch, outlast the mark, or in co-op peel for the marked crawler.
+  if ((p.cursedT ?? 0) > 0) dmg = Math.round(dmg * (1 + CONFIG.hexVulnerability));
   p.hp -= dmg;
   p.damageTaken += dmg;
   // Plot Armor (chase legendary): once per floor, the season arc demands you
@@ -2137,6 +2158,12 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   slagbreaker: CONFIG.show.hypeSlagbreaker,
   toysoldier: CONFIG.show.hypeToysoldier,
   greeter: CONFIG.show.hypeGreeter,
+  lasher: CONFIG.show.hypeLasher,
+  understudy: CONFIG.show.hypeUnderstudy,
+  hexer: CONFIG.show.hypeHexer,
+  cutpurse: CONFIG.show.hypeCutpurse,
+  warden: CONFIG.show.hypeWarden,
+  digger: CONFIG.show.hypeDigger,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -2190,8 +2217,9 @@ function reapDead(state: GameState): void {
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
-    // A caught Repo Rat spills the whole remaining purse.
-    if (m.kind === "filcher" && (m.carry ?? 0) > 0) {
+    // Any purse-carrier spills what it holds: the caught Repo Rat drops its
+    // whole remaining haul; a cutpurse refunds your gold WITH interest.
+    if ((m.carry ?? 0) > 0) {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: m.carry! });
       m.carry = 0;
     }
@@ -3663,6 +3691,24 @@ function updateHazards(state: GameState, dt: number): void {
       remaining.push(hz);
       continue;
     }
+    if (hz.kind === "shards") {
+      // The Ossuary Warden's slam debris: puddle cadence, physical bite,
+      // no poison soak — the room just got smaller.
+      if (hz.t <= 0) continue; // the shards crumble
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds;
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} lay down on the bone pile. The ossuary accepts the donation.`);
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.kind === "puddle") {
       if (hz.t <= 0) continue; // dried up, harmless
       hz.tick = (hz.tick ?? 0) - dt;
@@ -4095,6 +4141,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
     if (p.rootT > 0) p.rootT = Math.max(0, p.rootT - dt);
+    if ((p.cursedT ?? 0) > 0) p.cursedT = Math.max(0, (p.cursedT ?? 0) - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
     p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
     if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);

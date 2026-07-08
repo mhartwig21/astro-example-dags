@@ -199,6 +199,20 @@ function resolveStrike(state: GameState, m: Monster): void {
     const radius = m.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius;
     const dmg = m.kind === "boss" ? m.damage * CONFIG.bossSlamDmgMult : m.damage;
     resolveSlamStrike(state, m, radius, dmg);
+    // The Ossuary Warden's slam SHATTERS: a lingering bone-shard zone —
+    // every swing reshapes the room, doorway by doorway.
+    if (m.kind === "warden") {
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        t: CONFIG.wardenShardDuration,
+        total: CONFIG.wardenShardDuration,
+        radius: CONFIG.wardenShardRadius,
+        damage: Math.max(1, m.damage * CONFIG.wardenShardDmgMult),
+        kind: "shards",
+        tick: CONFIG.puddleTickSeconds, // the slam itself was the first hit
+      });
+    }
     return;
   }
   if (kind === "ritual") {
@@ -218,8 +232,41 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (damagePlayerHit(state, player, m.damage, { dir })) {
         handlePlayerDeath(state, player, `${player.name} met the piston. Quality control approves.`);
       } else {
-        applyPlayerKnockback(player, dir, CONFIG.punchKnockback);
+        // The Pit Digger's club launches FARTHER but hits gentler — it is
+        // the knockback tutor, three floors before hazards make it hurt.
+        applyPlayerKnockback(player, dir, m.kind === "digger" ? CONFIG.diggerKnockback : CONFIG.punchKnockback);
       }
+    }
+    return;
+  }
+  if (kind === "lunge") {
+    // Cutpurse: dash down the locked lane, stab whoever it reaches, and go
+    // for the PURSE — a hit steals gold into its carry (killing it refunds
+    // everything with interest via the generic purse drop in reapDead).
+    m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+    const dir = m.chargeDir ?? { x: 1, y: 0 };
+    m.chargeDir = undefined;
+    moveWithCollision(state.map, m.pos, dir, CONFIG.cutpurseLungeRange, isWalkable);
+    const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      if (dist(m.pos, player.pos) > reach) continue;
+      const hitDir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+      if (damagePlayerHit(state, player, m.damage, { dir: hitDir })) {
+        handlePlayerDeath(state, player, `${player.name} was mugged to death. The System bills the estate.`);
+        break;
+      }
+      const steal = Math.min(player.gold, Math.round(CONFIG.cutpurseStealBase + CONFIG.cutpurseStealPerFloor * state.floor));
+      if (steal > 0) {
+        player.gold -= steal;
+        m.carry = (m.carry ?? 0) + Math.round(steal * CONFIG.cutpurseInterest);
+        if (!m.noticed) {
+          m.noticed = true;
+          m.speed *= 1.2; // flush with your money and FASTER for it
+          state.events.push(`A cutpurse lifts ${steal} gold from ${player.name}! Catch it — it pays back with interest.`);
+        }
+      }
+      break; // one stab per lunge
     }
     return;
   }
@@ -248,6 +295,63 @@ function resolveStrike(state: GameState, m: Monster): void {
     }
     m.heat = 0;
     m.stagger = CONFIG.slagVentSelfStagger; // vented and helpless — unload
+    return;
+  }
+  if (kind === "hook") {
+    // Vine Lasher: the whip snaps down the locked lane — anyone snagged is
+    // damaged and DRAGGED to the lasher's feet, into whatever the Garden
+    // (or the pack) has waiting there. Dash i-frames beat the snag.
+    m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+    const dir = m.chargeDir ?? { x: 1, y: 0 };
+    m.chargeDir = undefined;
+    const tip = { x: m.pos.x + dir.x * CONFIG.lasherHookRange, y: m.pos.y + dir.y * CONFIG.lasherHookRange };
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      // Distance from the player to the whip segment (same math as beams).
+      const abx = tip.x - m.pos.x, aby = tip.y - m.pos.y;
+      const lenSq = abx * abx + aby * aby;
+      const t = lenSq < 1e-8 ? 0 : Math.max(0, Math.min(1, ((player.pos.x - m.pos.x) * abx + (player.pos.y - m.pos.y) * aby) / lenSq));
+      const distToLane = Math.hypot(player.pos.x - (m.pos.x + abx * t), player.pos.y - (m.pos.y + aby * t));
+      if (distToLane > CONFIG.lasherHookWidth) continue;
+      const toLasher = normalize({ x: m.pos.x - player.pos.x, y: m.pos.y - player.pos.y });
+      if (damagePlayerHit(state, player, m.damage * CONFIG.lasherHookDmgMult, { dir: { x: -toLasher.x, y: -toLasher.y } })) {
+        handlePlayerDeath(state, player, `${player.name} took the vine express. No return service.`);
+      } else {
+        const gap = dist(m.pos, player.pos);
+        const drag = Math.max(0, gap - CONFIG.lasherHookLandGap);
+        applyPlayerKnockback(player, toLasher, drag, drag); // a PULL: full-length, uncapped
+      }
+    }
+    return;
+  }
+  if (kind === "morph") {
+    // The Understudy's transformation clause: it BECOMES a charger — healed,
+    // faster, meaner, plated. (Stagger interrupts the windup like anything
+    // else; the clause just re-triggers while it's still bleeding.)
+    const from = ARCHETYPES.understudy;
+    const to = ARCHETYPES.charger;
+    m.kind = "charger";
+    m.maxHp = Math.round((m.maxHp / from.hpMult) * to.hpMult);
+    m.hp = m.maxHp; // the wolf arrives FRESH
+    m.damage = (m.damage / from.dmgMult) * to.dmgMult;
+    m.speed = (m.speed / from.speedMult) * to.speedMult;
+    m.attackRange = to.attackRange;
+    m.poiseDmg = 0;
+    state.announcements.push({
+      text: "The extra's contract has a TRANSFORMATION CLAUSE. The crowd goes feral.",
+      kind: "flavor", priority: "normal",
+    });
+    state.events.push("An understudy transforms — the wolf takes the role.");
+    return;
+  }
+  if (kind === "hex") {
+    // Briar Witch: mark the nearest crawler still in reach — +damage taken
+    // while it holds. Whiffs if everyone slipped out of range mid-cast.
+    const target = nearestPlayer(state, m.pos);
+    if (target && dist(m.pos, target.pos) <= CONFIG.hexRange + 1) {
+      target.cursedT = CONFIG.hexDuration;
+      state.events.push(`${target.name} is MARKED by a briar witch — everything hits harder. Kill her or outlast it.`);
+    }
     return;
   }
   resolveMeleeStrike(state, m);
@@ -548,6 +652,95 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     } else {
       wander(state, m, dt);
+    }
+    return;
+  }
+
+  if (m.kind === "cutpurse") {
+    // Cutpurse: circles for a LUNGE (short lane, real telegraph) and goes
+    // for the purse. Point-blank it jabs weakly. First skillshot lesson.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (m.shootCd === 0 && d >= 1.2 && d <= CONFIG.cutpurseLungeRange && m.attackCooldown === 0) {
+      m.shootCd = CONFIG.cutpurseLungeCooldown;
+      m.chargeDir = toPlayer; // lane locked NOW — sidestep the stab
+      beginWindup(m, "lunge", windup);
+      return;
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup * 0.7);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "warden" || m.kind === "digger") {
+    // Ossuary Warden: a slow bone golem whose slam SHATTERS into a lingering
+    // shard zone (see the slam resolve). Pit Digger: the knockback tutor —
+    // the game's slowest tell ends in a launch, not a wound.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, m.kind === "warden" ? "slam" : "punch", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "understudy") {
+    // Understudy: a weak shuffler with a TRANSFORMATION CLAUSE — bleeding
+    // below half HP commits the morph (interruptible; it re-arms while hurt).
+    if ((m.hp < m.maxHp * CONFIG.morphHpFraction) && m.windup <= 0) {
+      beginWindup(m, "morph", CONFIG.morphWindup);
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The understudy is TRANSFORMING — stagger it or meet the wolf.");
+      }
+      return;
+    }
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "lasher") {
+    // Vine Lasher: mid-range whip. In its band it locks the HOOK lane (the
+    // longest telegraph in the game) and drags whoever's still standing in
+    // it. It NEVER brawls — crowd it and it slinks back to whip range,
+    // which is exactly how you want to fight it (and how it wants you not to).
+    if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
+    if (m.shootCd === 0 && d >= 1.6 && d <= CONFIG.lasherHookRange) {
+      m.shootCd = CONFIG.lasherHookCooldown;
+      m.chargeDir = toPlayer; // the lane is frozen NOW; the windup is the dodge
+      beginWindup(m, "hook", windup);
+      return;
+    }
+    if (d < 1.6) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > m.attackRange + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "hexer") {
+    // Briar Witch: shaman-style standoff, but her cast MARKS a crawler with
+    // a vulnerability curse the whole pack cashes in. Kill-order pressure
+    // pointed at the PARTY, not the monsters.
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    const standoff = m.attackRange;
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    if (m.healCd === 0 && d <= CONFIG.hexRange && (player.cursedT ?? 0) <= 0) {
+      m.healCd = CONFIG.hexCooldown;
+      beginWindup(m, "hex", windup);
     }
     return;
   }

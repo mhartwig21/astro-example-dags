@@ -42,7 +42,7 @@ host-agnostic addition — feedback flows out as data like everything else.
 | ~~**Knockback**~~ | **SHIPPED 2026-07-08**: `applyPlayerKnockback` (game.ts) — queued shove consumed at `knockbackSpeed` through moveWithCollision; brute/boss slams shove survivors | — | Pit Digger, Line Worker, Vine Lasher (pull variant still open) |
 | ~~**Beam telegraph**~~ | **SHIPPED 2026-07-08**: `Hazard.kind: "beam"` (pos→`end`, arm → fire once → fade), rendered in both hosts; lock-on tracking (`trackId`) shipped with the sentinel | — | Archivist, Boom Operator reuse the seam |
 | ~~**Generalized auras**~~ | **SHIPPED 2026-07-08**: `Monster.aura: "frenzy"` radiates in ai.ts (drum* knobs); cooldown-decay haste + move speed | — | Last Rites zone, The Darling (new aura kinds on the same seam) |
-| **Second stage** | Swap `kind`/model/stats at an HP or timer threshold, announced | small branch in `damageMonster` + `MonsterKind` morph map | Understudy Wolf, Suit Actor, enrage variants |
+| ~~**Second stage**~~ | **SHIPPED 2026-07-08**: "morph" windup swaps kind/stats (understudy → charger); renderer rebuilds the mesh on kind change | — | Suit Actor, enrage variants reuse the seam |
 | **Directional guard** | Frontal arc damage reduction while guarding | angle check in `damageMonster` vs `Monster.facing` | Shieldbearer Husk, late-band elites |
 | **Burrow/relocate** | Untargetable traverse, moving ground ripple telegraph, eruption | monster phase flag + a traveling `Hazard` marker | The Thing in the Pipes, phantom variants |
 | ~~**Synced pack windup**~~ | **SHIPPED 2026-07-08**: `Monster.squadId` + leader-cadenced squad windups (toysoldier brain) | — | any future squad mob reuses the seam |
@@ -60,21 +60,16 @@ bomber, shaman, phantom, charger, spitter, necromancer, broodmother, boss).
 Each band adds 3–6 **band-locked specialists** so descent keeps introducing
 new problems. Format: **Name** (model · rig · brain) — the move, *the counter*.
 
-### THE UNDERCROFT (floors 1–3) — the tutorial gets teeth
+### THE UNDERCROFT (floors 1–3) — ~~the tutorial gets teeth~~ SHIPPED 2026-07-08
 
-- **The Cutpurse** (Skeleton_Rogue · medium · new: lunge-stab) — short
-  telegraphed dash-strike that STEALS gold on hit; it pockets the purse and
-  gets +speed. Killing it refunds everything with interest. *Counter: sidestep
-  the thin lunge lane; never let it disengage.* First taste of skillshot
-  dodging, stakes in show-economy currency, floor-1 safe (steals, never spikes).
-- **The Ossuary Warden** (Skeleton_Golem · **large** · brute+) — slow vault
-  guardian; its slam leaves a lingering bone-shard ring (hazard) so each swing
-  reshapes the room. High mass: it body-blocks doorways. *Counter: fight it in
-  the open, never in the corridor it wants.*
-- **The Pit Digger** (Caveman · medium · new: knockback debut) — huge club
-  windup (0.9s, longest in the band) that LAUNCHES you on hit. Near-zero damage
-  on floor 1–3 — the knockback IS the lesson, before deeper bands combine it
-  with hazards. *Counter: it's the slowest tell in the game; walk away.*
+The trainer trio shipped as sim kinds `cutpurse` / `warden` / `digger`,
+gated floor 2+ — **floor 1 stays pristine** (a spawn-invariant test now
+enforces zero specialists of ANY band there). The cutpurse's lunge draws a
+lane telegraph and STEALS gold into its purse (generic carry-drop refunds
+with interest — the Repo Rat's seam, generalized); the warden's slam leaves
+a `shards` hazard zone (new lingering-zone kind, physical, no poison soak);
+the digger reuses the punch resolve with a bigger, gentler launch —
+knockback in training dosage, three floors before hazards make it hurt.
 
 ### THE SEWERS (floors 4–6) — packs learn teamwork
 
@@ -91,23 +86,18 @@ new problems. Format: **Name** (model · rig · brain) — the move, *the counte
   drops the purse on death, escapes for good after `filcherEscapeSeconds`
   safely away; Hoarder model).
 
-### THE GARDEN (floors 7–9) — the floor fights back
+### THE GARDEN (floors 7–9) — ~~the floor fights back~~ SHIPPED 2026-07-08
 
-- **The Moon-Cursed Understudy** (Werewolf_Man → Werewolf_Wolf · medium ·
-  new: second stage) — shuffling extra in man-form; at half HP it
-  TRANSFORMS (announced, 1s vulnerable morph) into a full charger with
-  restored HP. *Counter: burst through the threshold or stagger the morph —
-  or fight the wolf you made.* Two models, one mob, pure drama.
-- **The Briar Witch** (Tiefling · medium · caster) — curses one crawler:
-  a vine MARK (+30% damage taken, 6s, visible ring). The pack suddenly cares
-  about the marked player. *Counter: break line of sight to interrupt the
-  cast; in co-op, peel for the marked.* First target-priority mechanic
-  pointed at the PARTY.
-- **The Vine Lasher** (PlantWarrior alt-texture · medium · new: pull) — cone
-  sweep, then a whip-HOOK along a thin lane that drags you to it — into
-  whatever the Garden has underfoot. *Counter: the hook telegraphs longest of
-  any lane; dash breaks the drag.* The Blitzcrank moment, and roots/pools make
-  every landing spot matter.
+The whole band shipped as sim kinds `understudy` / `hexer` / `lasher` (floor
+7+ spawn weights). The understudy morphs into a fresh CHARGER via the
+second-stage verb (kind swap + renderer mesh rebuild + KayKit's
+EXPERIMENTAL_Medium_Transform clip); the hexer's mark is `Player.cursedT`
+(+30% damage taken, spinning purple hexagon under the marked crawler); the
+lasher's hook DRAGS along a rendered lane telegraph (uncapped pull through
+the knockback verb), and it never brawls — crowd it and it slinks back to
+whip range. Bonus from the lane work: CHARGER rushes now draw their actual
+lane too, not a circle. Still open: hook targeting bias toward allies (the
+Hook Squad glue) and Briar-Witch line-of-sight interrupt.
 
 ### THE RUINS (floors 10–12) — the dead civilization drills you
 
