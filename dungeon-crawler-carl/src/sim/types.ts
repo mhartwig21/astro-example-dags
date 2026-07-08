@@ -56,7 +56,7 @@ export interface Player {
   // (stacks capped by rank; the timer resets on every hit, stacks drop on expiry).
   meleeCombo: number;
   meleeComboT: number; // seconds left before the combo drops
-  // MATCH CUT (Cut To capstone): the marked target + the reset window left.
+  // REPEAT OFFENDER (Blindside capstone): the marked target + the reset window left.
   cutMark?: { monsterId: number; t: number } | null;
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)

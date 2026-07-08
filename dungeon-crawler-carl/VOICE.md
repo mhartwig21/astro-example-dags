@@ -83,20 +83,30 @@ the System presents the Show.
   RINGSIDE INTRODUCTION freeze stays as the System's sanctioned showman
   moment. (Owner may overrule; flagged as the one deliberate exception.)
 
-## Ability names: grandfather, then default System
+## Ability names: System register by default (renamed 2026-07-08)
 
-The shipped fun-kit names (Cut To, Crowd Surf, Stunt Double) and their
-production-voiced nodes (MATCH CUT, STAGE DIVE, AWARD SEASON, ENCORE,
-SPONSOR LOYALTY) are **grandfathered under carve-out #1**: they read as the
-Show's branding of your signature moves, which is plausible in-universe and
-they're good names. No renames.
+Owner direction: rename production-voiced abilities wherever a System-register
+name is as good or better; keep the ones too apt to lose. The executed slate:
 
-Going forward the default flips: new abilities and nodes get neutral or
-System-register names unless the ability is *mechanically* entangled with the
-show economy (a Crowd Work that literally spends hype has earned a showbiz
-name; a teleport hasn't). The pending ABILITY-CONCEPTS.md slate should be
-re-titled through this filter when implemented — e.g. milestone class offers
-are a System menu event ("CLASS REVISION AVAILABLE"), not a CASTING CALL.
+| Was | Now |
+|---|---|
+| Cut To | **Blindside** (Long Reach / Short Notice / Sucker Punch / REPEAT OFFENDER) |
+| Crowd Surf | **Extradition** (Long Arm / Contempt / Gavel Drop / CLASS ACTION) |
+| Bullet Time's ENCORE capstone | **EXTENSION** ("Extensions are granted automatically.") |
+
+Kept: **Stunt Double** and its whole tree (the name IS the mechanic),
+**Sponsor Airstrike** + SPONSOR LOYALTY (mechanically sponsor-entangled —
+carve-out #1 earned, not borrowed), **Bullet Time** itself (established
+gaming term, tagged neutral).
+
+The rule going forward: new abilities and nodes get neutral or System-register
+names (the legal/civic-satire lane — Extradition, CLASS ACTION, REPEAT
+OFFENDER — is the sanctioned flavor) unless the ability is *mechanically*
+entangled with the show economy (a Crowd Work that literally spends hype has
+earned a showbiz name; a teleport hasn't). The pending ABILITY-CONCEPTS.md
+slate should be re-titled through this filter when implemented — e.g.
+milestone class offers are a System menu event ("CLASS REVISION AVAILABLE"),
+not a CASTING CALL.
 
 ## The worklist
 
