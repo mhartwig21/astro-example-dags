@@ -42,7 +42,7 @@ host-agnostic addition — feedback flows out as data like everything else.
 | ~~**Knockback**~~ | **SHIPPED 2026-07-08**: `applyPlayerKnockback` (game.ts) — queued shove consumed at `knockbackSpeed` through moveWithCollision; brute/boss slams shove survivors | — | Pit Digger, Line Worker, Vine Lasher (pull variant still open) |
 | ~~**Beam telegraph**~~ | **SHIPPED 2026-07-08**: `Hazard.kind: "beam"` (pos→`end`, arm → fire once → fade), rendered in both hosts; lock-on tracking (`trackId`) shipped with the sentinel | — | Archivist, Boom Operator reuse the seam |
 | ~~**Generalized auras**~~ | **SHIPPED 2026-07-08**: `Monster.aura: "frenzy"` radiates in ai.ts (drum* knobs); cooldown-decay haste + move speed | — | Last Rites zone, The Darling (new aura kinds on the same seam) |
-| **Second stage** | Swap `kind`/model/stats at an HP or timer threshold, announced | small branch in `damageMonster` + `MonsterKind` morph map | Understudy Wolf, Suit Actor, enrage variants |
+| ~~**Second stage**~~ | **SHIPPED 2026-07-08**: "morph" windup swaps kind/stats (understudy → charger); renderer rebuilds the mesh on kind change | — | Suit Actor, enrage variants reuse the seam |
 | **Directional guard** | Frontal arc damage reduction while guarding | angle check in `damageMonster` vs `Monster.facing` | Shieldbearer Husk, late-band elites |
 | **Burrow/relocate** | Untargetable traverse, moving ground ripple telegraph, eruption | monster phase flag + a traveling `Hazard` marker | The Thing in the Pipes, phantom variants |
 | ~~**Synced pack windup**~~ | **SHIPPED 2026-07-08**: `Monster.squadId` + leader-cadenced squad windups (toysoldier brain) | — | any future squad mob reuses the seam |
@@ -91,23 +91,18 @@ new problems. Format: **Name** (model · rig · brain) — the move, *the counte
   drops the purse on death, escapes for good after `filcherEscapeSeconds`
   safely away; Hoarder model).
 
-### THE GARDEN (floors 7–9) — the floor fights back
+### THE GARDEN (floors 7–9) — ~~the floor fights back~~ SHIPPED 2026-07-08
 
-- **The Moon-Cursed Understudy** (Werewolf_Man → Werewolf_Wolf · medium ·
-  new: second stage) — shuffling extra in man-form; at half HP it
-  TRANSFORMS (announced, 1s vulnerable morph) into a full charger with
-  restored HP. *Counter: burst through the threshold or stagger the morph —
-  or fight the wolf you made.* Two models, one mob, pure drama.
-- **The Briar Witch** (Tiefling · medium · caster) — curses one crawler:
-  a vine MARK (+30% damage taken, 6s, visible ring). The pack suddenly cares
-  about the marked player. *Counter: break line of sight to interrupt the
-  cast; in co-op, peel for the marked.* First target-priority mechanic
-  pointed at the PARTY.
-- **The Vine Lasher** (PlantWarrior alt-texture · medium · new: pull) — cone
-  sweep, then a whip-HOOK along a thin lane that drags you to it — into
-  whatever the Garden has underfoot. *Counter: the hook telegraphs longest of
-  any lane; dash breaks the drag.* The Blitzcrank moment, and roots/pools make
-  every landing spot matter.
+The whole band shipped as sim kinds `understudy` / `hexer` / `lasher` (floor
+7+ spawn weights). The understudy morphs into a fresh CHARGER via the
+second-stage verb (kind swap + renderer mesh rebuild + KayKit's
+EXPERIMENTAL_Medium_Transform clip); the hexer's mark is `Player.cursedT`
+(+30% damage taken, spinning purple hexagon under the marked crawler); the
+lasher's hook DRAGS along a rendered lane telegraph (uncapped pull through
+the knockback verb), and it never brawls — crowd it and it slinks back to
+whip range. Bonus from the lane work: CHARGER rushes now draw their actual
+lane too, not a circle. Still open: hook targeting bias toward allies (the
+Hook Squad glue) and Briar-Witch line-of-sight interrupt.
 
 ### THE RUINS (floors 10–12) — the dead civilization drills you
 
