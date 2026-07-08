@@ -140,6 +140,10 @@ export class Renderer3D {
   private prevMonsterCount = -1;
   private prevStatus = "playing";
   private loadoutKeys = new Map<number, string>(); // player id -> applied weapon/shield key
+  // Extradition stow: hands go to the chain, the weapon vanishes 'til the cast
+  // is done (seconds left, per player). Restored explicitly — applyLoadout's
+  // same-key early-return means nothing else would flip visibility back.
+  private weaponStow = new Map<number, number>();
   private prevTime = 0;
   // Trauma-based screen shake: hits add trauma (clamped 0..1), the applied
   // amplitude is trauma SQUARED — chip damage barely whispers, boss slams and
@@ -157,6 +161,9 @@ export class Renderer3D {
   // Additive glow sprites (projectile trails, magic bursts). The texture is a
   // canvas radial gradient — procedural, so the FX layer needs no image assets.
   private fxSprites: { sprite: THREE.Sprite; life: number; max: number; grow: number }[] = [];
+  // Extradition chains: a run of iron links strung caster -> anchor, fading fast.
+  private chainFx: { group: THREE.Group; mat: THREE.MeshBasicMaterial; life: number; max: number }[] = [];
+  private sharedLinkGeo = new THREE.BoxGeometry(0.22, 0.05, 0.1);
   private glowTex: THREE.Texture | null = null;
   private strikeMeshes: THREE.Object3D[] = []; // falling airstrike shells (pooled)
   private prevStrikeCount = 0;
@@ -336,9 +343,12 @@ export class Renderer3D {
       awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i, /^Skeletons_Spawn_Ground$/i), // rise on first reveal
       taunt: pick(/Taunt_Longer/i, /^Taunt$/i, /Skeletons_Taunt$/i), // ringside introductions
       cheer: pick(/^Cheer/i), // floor clear / victory lap
+      // The Drum Sergeant's beat: General's Interact reads as pounding the
+      // wardrum when looped (Use_Item is the fallback gesture).
+      drum: pick(/^Interact$/i, /^Use_Item$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
-    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right"]);
+    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right", "drum"]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
@@ -414,6 +424,7 @@ export class Renderer3D {
         // Extradition: one chain, two verbs. Checked before the dash branch —
         // the heavy-target verb bumps dashTime too and would read as a dodge.
         playFirst("extradition", "throw", "attack");
+        this.weaponStow.set(pl.id, 0.55); // both hands on the chain
       } else if (pl.dashTime > prev.dash + 1e-6) {
         playFirst("dodge");
       } else if (pl.attackSwing > prev.swing + 1e-6) {
@@ -651,6 +662,7 @@ export class Renderer3D {
     if (shield) this.showAttachment(mesh, "player", shield, "l");
     // Weapon: native to this skin's rig, or a cached cross-model graft.
     const weaponObj = this.showAttachment(mesh, weapon.srcKey, weapon.node, "r");
+    mesh.userData.weaponObj = weaponObj; // stow/restore handle (Extradition)
 
     // Rarity flair: emissive tint on the weapon's materials.
     if (weaponObj) {
@@ -682,6 +694,14 @@ export class Renderer3D {
       this.modelInstance("monster");
     const g = model ?? new THREE.Group();
     if (model) this.normalizeHeight(model, 1.1);
+    // The Drum Sergeant carries its actual instrument: wardrum in the off
+    // hand, stick in the main — the same handslot graft the player armory
+    // uses, so both props ride the Interact "drumming" loop.
+    if (model && kind === "drummer") {
+      const drum = this.showAttachment(g, "orc_wardrum", "*", "l");
+      if (drum) drum.scale.setScalar(0.8);
+      this.showAttachment(g, "orc_wardrum_stick", "*", "r");
+    }
     if (!model) {
       const isBoss = kind === "boss";
       const body = new THREE.Mesh(
@@ -1629,12 +1649,27 @@ export class Renderer3D {
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
+      // Extradition stow timer: hide the held weapon while the hands work the
+      // chain, restore it the moment the cast is done.
+      const stow = this.weaponStow.get(pl.id);
+      if (stow !== undefined) {
+        const left = stow - dt;
+        const weaponObj = mesh.userData.weaponObj as THREE.Object3D | null | undefined;
+        if (left <= 0) {
+          this.weaponStow.delete(pl.id);
+          if (weaponObj) weaponObj.visible = true;
+        } else {
+          this.weaponStow.set(pl.id, left);
+          if (weaponObj) weaponObj.visible = false;
+        }
+      }
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
         this.scene.remove(mesh);
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
+        this.weaponStow.delete(id);
       }
     }
 
@@ -1734,7 +1769,15 @@ export class Renderer3D {
           } else if ((ud.animBusy as () => number)() <= 0) {
             // Same hysteresis as players: enter walking decisively, leave lazily.
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
-            playM(ud.locoMoving ? "walk" : "idle");
+            const hasClipM = ud.hasClip as (n: string) => boolean;
+            if (ud.locoMoving) {
+              // Fast movers (fleeing filcher, frenzied/deep-tempo chasers)
+              // RUN — a sprint on a walk cycle reads as ice-skating.
+              playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
+            } else {
+              // A parked Drum Sergeant performs: it beats the wardrum.
+              playM(mon.kind === "drummer" && hasClipM("drum") ? "drum" : "idle");
+            }
           }
         }
         ud.prevStagger = mon.stagger;
@@ -2237,6 +2280,12 @@ export class Renderer3D {
   /** Spawn particle bursts + camera shake for a batch of combat events (host-buffered). */
   emitHits(hits: HitEvent[]): void {
     for (const h of hits) {
+      if (h.kind === "chain") {
+        // The link line IS the effect (arrival flashes come as separate
+        // "weapon"/"crit" hits), so no burst here.
+        if (h.to) this.spawnChain(h.pos, h.to);
+        continue;
+      }
       const color =
         h.kind === "crit" ? 0xffe066 :
         h.kind === "enemy" ? 0xffb347 :
@@ -2270,6 +2319,33 @@ export class Renderer3D {
         life: 0, max: 0.5 + Math.random() * 0.3,
       });
     }
+  }
+
+  /** Extradition's chain: alternating iron links between two world points,
+   * hung at torso height with a light sag. One shared material per chain so
+   * the whole run fades as one. */
+  private spawnChain(from: Vec2, to: Vec2): void {
+    if (this.chainFx.length > 8) return; // cap simultaneous chains
+    const len = Math.hypot(to.x - from.x, to.y - from.y);
+    if (len < 0.3) return;
+    const mat = new THREE.MeshBasicMaterial({ color: 0xaab2bd, transparent: true });
+    const group = new THREE.Group();
+    const links = Math.min(40, Math.max(3, Math.round(len / 0.24)));
+    const yaw = -Math.atan2(to.y - from.y, to.x - from.x);
+    for (let i = 0; i < links; i++) {
+      const t = (i + 0.5) / links;
+      const link = new THREE.Mesh(this.sharedLinkGeo, mat);
+      link.position.set(
+        from.x + (to.x - from.x) * t,
+        0.55 - Math.sin(t * Math.PI) * 0.12, // sag toward the middle
+        from.y + (to.y - from.y) * t,
+      );
+      link.rotation.y = yaw;
+      link.rotation.x = (i % 2) * (Math.PI / 2); // alternate links twist: reads as interlocked
+      group.add(link);
+    }
+    this.scene.add(group);
+    this.chainFx.push({ group, mat, life: 0, max: 0.35 });
   }
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
@@ -2316,6 +2392,16 @@ export class Renderer3D {
       fxAlive.push(fx);
     }
     this.fxSprites = fxAlive;
+
+    // Chains: fade the shared material, then drop the whole link run.
+    const chainAlive: typeof this.chainFx = [];
+    for (const cf of this.chainFx) {
+      cf.life += dt;
+      if (cf.life >= cf.max) { this.scene.remove(cf.group); cf.mat.dispose(); continue; }
+      cf.mat.opacity = 1 - cf.life / cf.max;
+      chainAlive.push(cf);
+    }
+    this.chainFx = chainAlive;
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */

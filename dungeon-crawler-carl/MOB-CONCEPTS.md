@@ -79,8 +79,9 @@ new problems. Format: **Name** (model · rig · brain) — the move, *the counte
 ### THE SEWERS (floors 4–6) — packs learn teamwork
 
 - ~~**The Drum Sergeant**~~ — **SHIPPED 2026-07-08** (`drummer` kind: escort
-  slot from floor 4+, frenzy aura, weak cornered swing; OrcRaider model).
-  Still open from the concept: the war-drum held prop + a visible aura ring.
+  slot from floor 4+, frenzy aura, weak cornered swing; OrcRaider model with
+  the wardrum + stick grafted, drumming loop while parked). Still open from
+  the concept: a visible aura ring on the buffed pack.
 - **The Thing in the Pipes** (Monster · medium · new: burrow) — submerges,
   becomes an untargetable ripple that stalks you, erupts in an armed AoE.
   *Counter: the ripple is slower than you; keep moving, punish the eruption
