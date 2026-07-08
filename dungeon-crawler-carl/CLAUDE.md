@@ -47,6 +47,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
 | `BIOMES.md` | Art direction notes for floor/room visual variety |
 | `BACKLOG.md` | Open play-driven items with code pointers. Delete entries when they ship |
+| `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
 
 ## Commands
 
