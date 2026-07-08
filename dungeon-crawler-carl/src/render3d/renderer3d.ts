@@ -1933,10 +1933,12 @@ export class Renderer3D {
               else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
               // A parked Drum Sergeant performs; a parked Shieldbearer holds
-              // the wall behind its tower shield (the guard READS).
+              // the wall behind its tower shield; a flourishing Duelist puts
+              // the blade UP (the riposte window has to READ).
               playM(
                 mon.kind === "drummer" && hasClipM("drum") ? "drum" :
-                mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" : "idle",
+                mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" :
+                mon.kind === "duelist" && (mon.riposteT ?? 0) > 0 && hasClipM("idle_brawler") ? "idle_brawler" : "idle",
               );
             }
           }

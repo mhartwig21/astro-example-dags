@@ -660,3 +660,121 @@ describe("RUINS: band gating", () => {
     expect(seen).toBe(true);
   });
 });
+
+describe("APPROACH: stagehand smoke-out", () => {
+  it("after two swings it vanishes, marks a re-entry blast, and pops back AT the mark", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const hand = mkMon(g, {
+      kind: "stagehand", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      damage: 5, attackRange: 1, heat: CONFIG.stagehandStrikes, speed: CONFIG.monsterSpeed,
+    });
+    run(g, 0.2); // the smoke pops
+    expect(hand.vanishT ?? 0).toBeGreaterThan(0);
+    expect(dist(hand.pos, p.pos)).toBeGreaterThan(3); // it smoked AWAY
+    const mark = g.hazards.find((h) => (h.kind ?? "blast") === "blast");
+    expect(mark).toBeDefined();
+    const markPos = { ...mark!.pos };
+    run(g, CONFIG.stagehandVanish + 0.2); // the smoke clears
+    expect(hand.vanishT ?? 0).toBe(0);
+    expect(dist(hand.pos, markPos)).toBeLessThan(0.5); // it re-entered AT the mark
+  });
+});
+
+describe("APPROACH: sniper", () => {
+  it("locks a long lane at cast (no tracking) and relocates after", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const sn = mkMon(g, {
+      kind: "sniper", pos: { x: p.pos.x + 4, y: p.pos.y }, damage: 20, attackRange: 10, speed: CONFIG.monsterSpeed,
+    });
+    run(g, 0.2);
+    const lane = g.hazards.find((h) => h.kind === "beam");
+    expect(lane).toBeDefined();
+    expect(lane!.trackId).toBeUndefined(); // a pure position test
+    const before = { ...sn.pos };
+    run(g, CONFIG.sniperArm + 1.0); // fires, then spends the cooldown moving
+    expect(dist(before, sn.pos)).toBeGreaterThan(0.5); // never the same spot twice
+  });
+});
+
+describe("APPROACH: duelist riposte", () => {
+  it("melee into the flourish is parried and REFLECTED; bolts ignore it", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const extra = mkMon(g, {
+      kind: "duelist", pos: { x: p.pos.x + 1, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 10, riposteT: CONFIG.riposteWindow,
+    });
+    const hpBefore = p.hp;
+    damageMonster(g, p, extra, 100, { allowCrit: false, melee: true });
+    const meleeDmg = 500 - extra.hp;
+    expect(p.hp).toBeLessThan(hpBefore); // the riposte came BACK
+    // Ranged ignores the flourish: full damage, no reflection.
+    extra.hp = 500;
+    extra.riposteT = CONFIG.riposteWindow;
+    const hpBeforeBolt = p.hp;
+    damageMonster(g, p, extra, 100, { allowCrit: false });
+    expect(500 - extra.hp).toBeGreaterThan(meleeDmg * 2); // parry only reads steel
+    expect(p.hp).toBe(hpBeforeBolt);
+  });
+});
+
+describe("APPROACH: the darling's stardust", () => {
+  it("her entourage takes half while SHE takes half again more", () => {
+    const g = stage();
+    const p = g.players[0];
+    const star = mkMon(g, { kind: "darling", pos: { x: p.pos.x + 20, y: p.pos.y }, aura: "shield", hp: 400, maxHp: 400, speed: 0 });
+    const toy = mkMon(g, { kind: "toysoldier", pos: { x: star.pos.x + 1, y: star.pos.y }, hp: 400, maxHp: 400, speed: 0, attackRange: 0, squadId: 1 });
+    const plain = mkMon(g, { kind: "grunt", pos: { x: star.pos.x + 25, y: star.pos.y }, hp: 400, maxHp: 400, speed: 0 });
+    run(g, 0.3); // aura radiates
+    expect(toy.shieldT ?? 0).toBeGreaterThan(0);
+    damageMonster(g, p, toy, 100, { allowCrit: false });
+    damageMonster(g, p, plain, 100, { allowCrit: false });
+    damageMonster(g, p, star, 100, { allowCrit: false });
+    const toyDmg = 400 - toy.hp, plainDmg = 400 - plain.hp, starDmg = 400 - star.hp;
+    expect(toyDmg).toBeLessThan(plainDmg * 0.7); // sheltered
+    expect(starDmg).toBeGreaterThan(plainDmg * 1.2); // the glass idol pays extra
+  });
+});
+
+describe("APPROACH: the suit actor gag", () => {
+  it("dies, unzips, and the guy inside runs; sparing him pays hype", () => {
+    const g = stage();
+    const p = g.players[0];
+    const beast = mkMon(g, { kind: "suitactor", pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 10, maxHp: 100, damage: 10 });
+    beast.hp = 0;
+    run(g, 0.2);
+    const guy = g.monsters.find((m) => m.kind === "suitguy");
+    expect(guy).toBeDefined();
+    expect(guy!.noticed).toBe(true); // running immediately
+    // Put him safely away and let the mercy clock run. Zero the meter just
+    // before the escape lands so decay can't mask the payout burst.
+    guy!.pos = { x: p.pos.x + CONFIG.filcherEscapeDist + 4, y: p.pos.y };
+    guy!.speed = 0;
+    run(g, CONFIG.filcherEscapeSeconds - 0.5);
+    p.hype = 0;
+    run(g, 1.5);
+    expect(g.monsters.includes(guy!)).toBe(false); // he made it out
+    expect(p.hype).toBeGreaterThan(CONFIG.suitguyEscapeHype * 0.5); // mercy pays
+  });
+});
+
+describe("APPROACH: band gating", () => {
+  it("the finale cast stays off floors below 16; present by floor 17", () => {
+    const APPROACH = new Set(["stagehand", "sniper", "duelist", "darling", "canceled", "suitactor", "suitguy"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g14 = createTestGame({ seed, floor: 14 });
+      expect(g14.monsters.some((m) => APPROACH.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g17 = createTestGame({ seed, floor: 17 });
+      seen = g17.monsters.some((m) => APPROACH.has(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});

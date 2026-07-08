@@ -62,6 +62,16 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_archivist: "/assets/characters/lorekeeper.glb",
   monster_colossus: "/assets/characters/4gtn.glb",
   monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
+  // THE APPROACH cast (MOB-CONCEPTS.md): the season-finale roster — Ninja,
+  // Marksman, AvianSwordsman, MagicalGirl, Superhero, and the Monster/
+  // MonsterCostume pair (the beast + the guy who was inside it).
+  monster_stagehand: "/assets/characters/ninja.glb",
+  monster_sniper: "/assets/characters/marksman.glb",
+  monster_duelist: "/assets/characters/avian_swordsman.glb",
+  monster_darling: "/assets/characters/magical_girl.glb",
+  monster_canceled: "/assets/characters/superhero.glb",
+  monster_suitactor: "/assets/characters/beast.glb",
+  monster_suitguy: "/assets/characters/beast_costume.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -184,6 +194,13 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_archivist: "medium", // Lorekeeper
   monster_colossus: "large", // 4GTN — animate masonry
   monster_colossus_elite: "large", // 4GTN_Forgotten
+  monster_stagehand: "medium", // Ninja
+  monster_sniper: "medium", // Marksman
+  monster_duelist: "medium", // AvianSwordsman
+  monster_darling: "medium", // MagicalGirl
+  monster_canceled: "medium", // Superhero
+  monster_suitactor: "medium", // Monster (the suit)
+  monster_suitguy: "medium", // MonsterCostume (the guy)
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)

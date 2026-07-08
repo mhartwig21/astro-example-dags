@@ -208,7 +208,16 @@ export type MonsterKind =
   // around). cleric: consecrates ground that heals monsters and burns you.
   // archivist: channels a SWEEPING beam — dodge continuously or stagger it.
   // colossus: its slam sends a fissure travelling down a lane.
-  | "shieldbearer" | "cleric" | "archivist" | "colossus";
+  | "shieldbearer" | "cleric" | "archivist" | "colossus"
+  // THE APPROACH (floors 16+): the System fields its own. stagehand: blinks
+  // in, two hits, smoke-bombs out to a MARKED re-entry. sniper: cross-room
+  // lanes, relocates after every shot. duelist: riposte flourish — hold your
+  // swing or shoot it. darling: shields her entourage while SHE takes extra
+  // (the kill order is stated; execution is the exam). canceled: a former
+  // favorite running player verbs. suitactor: dies and UNZIPS — the suitguy
+  // flees; sparing him pays more hype than the kill.
+  | "stagehand" | "sniper" | "duelist" | "darling" | "canceled"
+  | "suitactor" | "suitguy";
 
 export interface Monster {
   id: number;
@@ -306,8 +315,18 @@ export interface Monster {
   // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
   // (allies move + attack faster while the beat holds). Chilling remains its
   // own elite affix — auras here are ally-facing.
-  aura?: "frenzy";
+  // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
+  // (her entourage takes less while SHE takes more — kill-order pressure).
+  aura?: "frenzy" | "shield";
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  shieldT?: number; // seconds of Darling stardust remaining on THIS monster
+  // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
+  // into it reflects; wait it out or answer with ranged/magic.
+  riposteT?: number;
+  // Stagehand: mid-vanish bookkeeping — seconds until the marked re-entry,
+  // and where the smoke clears.
+  vanishT?: number;
+  reentryAt?: Vec2;
   // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
   // drops the rest on death, and leaves with ALL of it if the rat escapes.
   carry?: number;

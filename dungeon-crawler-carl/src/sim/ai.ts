@@ -405,6 +405,8 @@ function resolveStrike(state: GameState, m: Monster): void {
   resolveMeleeStrike(state, m);
   // The Slagbreaker's swings BUILD HEAT; the third forces the vent (ai loop).
   if (m.kind === "slagbreaker") m.heat = (m.heat ?? 0) + 1;
+  // The Stagehand counts its combo; the second swing cues the smoke bomb.
+  if (m.kind === "stagehand") m.heat = (m.heat ?? 0) + 1;
 }
 
 /** Charger mid-rush: barrel along the locked line, clipping anyone on it once. */
@@ -458,6 +460,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // come sooner while the windups stay full-length (tells remain readable).
   const frenzied = (m.frenzyT ?? 0) > 0;
   if (frenzied) m.frenzyT = Math.max(0, (m.frenzyT ?? 0) - dt);
+  if ((m.shieldT ?? 0) > 0) m.shieldT = Math.max(0, (m.shieldT ?? 0) - dt);
+  if ((m.riposteT ?? 0) > 0) m.riposteT = Math.max(0, (m.riposteT ?? 0) - dt);
   if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt * (frenzied ? CONFIG.drumFrenzyHaste : 1));
   if (m.shootCd > 0) m.shootCd = Math.max(0, m.shootCd - dt);
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
@@ -506,6 +510,25 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     }
   }
 
+  // The Darling's stardust (shield aura): her entourage takes half while she
+  // lives — she takes MORE (see damageMonster). The kill order, stated aloud.
+  if (m.aura === "shield") {
+    let sheltered = false;
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0 || ally.aura) continue;
+      if (dist(m.pos, ally.pos) > CONFIG.darlingAuraRadius) continue;
+      ally.shieldT = CONFIG.darlingAuraLinger;
+      sheltered = true;
+    }
+    if (sheltered && !m.noticed) {
+      const prey = nearestPlayer(state, m.pos);
+      if (prey && dist(m.pos, prey.pos) <= CONFIG.monsterAggroRange * 1.5) {
+        m.noticed = true;
+        state.events.push("The DARLING shields her entourage — and takes the spotlight's price herself. You know the kill order.");
+      }
+    }
+  }
+
   // CHILLING elites (5.11) radiate cold: any crawler inside the aura is
   // slowed (short duration, re-applied every step in range — it fades a beat
   // after you break away). Passive frost: it radiates even mid-windup/stagger.
@@ -527,6 +550,18 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.chargeT ?? 0) > 0) {
     stepCharge(state, m, dt);
     return;
+  }
+
+  // Stagehand mid-vanish: the smoke holds until the marked re-entry pops —
+  // then it appears AT the mark (the arrival blast is the payoff/punish).
+  if ((m.vanishT ?? 0) > 0) {
+    m.vanishT = Math.max(0, (m.vanishT ?? 0) - dt);
+    if (m.vanishT === 0 && m.reentryAt) {
+      m.pos = { x: m.reentryAt.x, y: m.reentryAt.y };
+      m.reentryAt = undefined;
+      m.surgeT = 0.5; // arrives HOT for a beat
+    }
+    return; // gone — no moving, no swinging, until the smoke clears
   }
 
   // Committed to an attack: rooted until the windup expires, then it resolves.
@@ -681,10 +716,11 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
-  if (m.kind === "filcher") {
+  if (m.kind === "filcher" || m.kind === "suitguy") {
     // Repo Rat: never fights. Unnoticed it just scurries its rounds; spotted,
     // it BOLTS away from the nearest crawler, and if it stays clear long
     // enough it ESCAPES with everything it carries. Chase it or write it off.
+    // The suitguy runs the same brain — except sparing HIM pays (reapDead).
     if (!m.noticed) {
       if (d <= CONFIG.monsterAggroRange) {
         m.noticed = true;
@@ -708,6 +744,132 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     } else {
       wander(state, m, dt);
+    }
+    return;
+  }
+
+  if (m.kind === "stagehand") {
+    // Stagehand: blink in, two fast hits, SMOKE OUT — leaving a marked
+    // re-entry blast where you were standing. Hold the mark, punish the pop.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if ((m.heat ?? 0) >= CONFIG.stagehandStrikes) {
+      m.heat = 0;
+      // Smoke away from the fight...
+      const away = { x: -toPlayer.x, y: -toPlayer.y };
+      moveWithCollision(state.map, m.pos, away, CONFIG.stagehandRetreat, isWalkable);
+      // ...and MARK the re-entry where the prey is standing right now.
+      const mark = { x: hunt.pos.x, y: hunt.pos.y };
+      m.reentryAt = mark;
+      m.vanishT = CONFIG.stagehandVanish;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: mark,
+        t: CONFIG.stagehandVanish,
+        total: CONFIG.stagehandVanish,
+        radius: CONFIG.stagehandArriveRadius,
+        damage: m.damage * CONFIG.stagehandArriveDmgMult,
+        kind: "blast",
+      });
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The stagehand SMOKES OUT — the mark is where it comes BACK. Hold the spot, meet the entrance.");
+      }
+      return;
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else if (m.blinkCd === 0 && d > m.attackRange + 1) {
+      m.blinkCd = 2.5;
+      moveWithCollision(state.map, m.pos, toPlayer, Math.min(CONFIG.phantomBlinkDistance, d - 0.6), isWalkable);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "sniper") {
+    // Boom Operator: a cross-room lane, locked at cast (a pure position
+    // test), then it RELOCATES — the lane never fires twice from one spot.
+    if (d > CONFIG.monsterAggroRange * 2) { wander(state, m, dt); return; }
+    // Spend the stretch right after the shot displacing — perpendicular by
+    // parity, blended with AWAY so a walled flank still slides somewhere
+    // (the aim windup eats the first sniperArm seconds of cooldown).
+    if (m.shootCd > CONFIG.sniperCooldown - CONFIG.sniperArm - CONFIG.sniperRelocateSecs) {
+      const side = m.id % 2 === 0 ? 1 : -1;
+      const dirMove = normalize({
+        x: -toPlayer.y * side - toPlayer.x * 0.6,
+        y: toPlayer.x * side - toPlayer.y * 0.6,
+      });
+      moveWithCollision(state.map, m.pos, dirMove, m.speed * dt, isWalkable);
+      return;
+    }
+    if (m.shootCd === 0 && d <= CONFIG.sniperLength) {
+      m.shootCd = CONFIG.sniperCooldown;
+      const arm = CONFIG.sniperArm;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        end: {
+          x: m.pos.x + toPlayer.x * CONFIG.sniperLength,
+          y: m.pos.y + toPlayer.y * CONFIG.sniperLength,
+        },
+        t: arm + CONFIG.beamFadeSeconds,
+        total: arm + CONFIG.beamFadeSeconds,
+        arm,
+        radius: CONFIG.sniperWidth,
+        damage: m.damage * CONFIG.sniperDmgMult,
+        kind: "beam",
+      });
+      beginWindup(m, "aim", arm);
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("A sniper lane CROSSES THE ROOM — it's locked from the start. You have until the flash.");
+      }
+      return;
+    }
+    return;
+  }
+
+  if (m.kind === "duelist") {
+    // Featured Extra: a fencer with a FLOURISH — periodically the blade goes
+    // up (riposteT), and melee into it gets parried AND returned. Hold the
+    // swing, or answer with ranged/magic; the flourish only reads steel.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if ((m.riposteT ?? 0) <= 0 && m.healCd === 0 && d <= m.attackRange + 2) {
+      m.healCd = CONFIG.riposteCooldown; // healCd is free on melee kinds
+      m.riposteT = CONFIG.riposteWindow;
+      return; // the flourish itself is the beat — it stands its ground
+    }
+    if ((m.riposteT ?? 0) > 0) return; // holding the pose, daring you
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "darling" || m.kind === "canceled") {
+    // Darling: her stardust aura (above) is the mechanic; up close she slaps.
+    // Canceled: a former favorite running PLAYER verbs — lateral dash
+    // sidesteps on a cadence, a nova-slam on a longer one, swings between.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (m.kind === "canceled") {
+      if (m.blinkCd === 0 && d <= CONFIG.monsterAggroRange) {
+        m.blinkCd = CONFIG.canceledDashCooldown;
+        const side = m.id % 2 === 0 ? 1 : -1;
+        moveWithCollision(state.map, m.pos, { x: -toPlayer.y * side, y: toPlayer.x * side }, CONFIG.canceledDashDist, isWalkable);
+      }
+      if ((m.slamCd ?? 0) === 0 && d <= CONFIG.bruteSlamRadius + 0.5) {
+        m.slamCd = CONFIG.canceledNovaCooldown;
+        beginWindup(m, "slam", windup * 1.3); // its "nova" — shove included
+        return;
+      }
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
     return;
   }
