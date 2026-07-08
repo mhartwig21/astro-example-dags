@@ -325,6 +325,7 @@ export class Renderer3D {
       block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield (both gens contain this)
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
       throw: pick(/^Throw$/i), // melee-class sidearm bolt
+      extradition: pick(/^Extradition$/i), // crowdsurf cast: crouch, grab the chain, heave (AI-retargeted clip)
       spellshoot: pick(/^Spellcast_Shoot$/i, /^Ranged_Magic_Shoot$/i), // arcane bolt (magic missiles)
       // Reactions + exits (one-shot)
       hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
@@ -341,7 +342,7 @@ export class Renderer3D {
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
-      spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35,
+      spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35, extradition: 0.55,
       cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
       block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
@@ -409,7 +410,11 @@ export class Renderer3D {
     } else {
       if (!prev.alive) play("idle", true); // revived on descent: stand back up
       const spentCharge = prev.overcharged && !pl.overcharged;
-      if (pl.dashTime > prev.dash + 1e-6) {
+      if (cdRose("crowdsurf")) {
+        // Extradition: one chain, two verbs. Checked before the dash branch —
+        // the heavy-target verb bumps dashTime too and would read as a dodge.
+        playFirst("extradition", "throw", "attack");
+      } else if (pl.dashTime > prev.dash + 1e-6) {
         playFirst("dodge");
       } else if (pl.attackSwing > prev.swing + 1e-6) {
         if (spentCharge && hasClip("spin")) {
