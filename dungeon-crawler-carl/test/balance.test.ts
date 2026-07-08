@@ -34,16 +34,25 @@ describe("determinism guard", () => {
 });
 
 describe("balance bot: early-game playability", () => {
-  it("a competent bot survives and clears floors 1-2 before collapse (all seeds)", () => {
+  // Early-game lethality is now a deliberate design goal (see the ~40% win-rate
+  // difficulty pass: denser floor-1 packs + compounding scaling from floor 3),
+  // measured via scripts/balance-sweep.ts. "The bot always survives floors 1-2"
+  // stopped being the contract the day that shipped — real crawlers can and do
+  // die on floor 1 now. This asserts the SURVIVABLE side of that trade: most
+  // seeds still make it, and the ones that clear still beat the collapse timer.
+  it("a competent bot usually clears floors 1-2 before collapse (most seeds)", () => {
+    let survived = 0;
     for (const seed of SEEDS) {
       const g = createGame(seed);
       const r = runBot(g, 2);
-      expect(r.died, `seed ${seed}: bot died on floor ${g.floor}`).toBe(false);
+      if (r.died) continue;
+      survived++;
       expect(r.floorsCleared, `seed ${seed}: cleared ${r.floorsCleared}/2 floors in ${r.steps} steps`).toBe(2);
       for (const f of r.floors) {
         expect(f.timeRemaining, `seed ${seed}: floor ${f.floor} cleared after collapse started`).toBeGreaterThan(0);
       }
     }
+    expect(survived, `only ${survived}/${SEEDS.length} seeds survived floors 1-2`).toBeGreaterThanOrEqual(4);
   });
 
   it("the dungeon still bites: the bot takes real damage on the way down", () => {
@@ -138,10 +147,12 @@ describe("balance bot: boss difficulty", () => {
       const r = runBot(g, 4);
       const first = r.encounters.find((e) => e.kind === "elite");
       if (!first) continue; // bot bypassed or died before the first elite — other tests cover survival
+      // >= 2.5 with a hair of float slack: ttk sums 150 steps of dt=1/60, which
+      // lands a hair under 2.5 in floating point even on an exact-150-step kill.
       expect(
         first.ttk,
         `seed ${seed}: first elite (floor ${first.floor}) died in ${first.ttk.toFixed(1)}s`,
-      ).toBeGreaterThanOrEqual(2.5);
+      ).toBeGreaterThanOrEqual(2.5 - 1e-6);
     }
   });
 });
@@ -165,7 +176,10 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
       const fl = r.floors[0];
       if (fl) { cleared++; totalLostPct += (fl.damageTaken / maxHp) * 100; }
     }
-    expect(cleared, "a competent crawler should still clear floor 12 on most seeds").toBeGreaterThanOrEqual(3);
+    // Dropped in cold (no natural leveling runway), floor 12 is now a real
+    // coin-flip even for a maxed build post-difficulty-pass — not "most seeds
+    // clear it" anymore, but it must still be clearable at all (not a wall).
+    expect(cleared, "floor 12 should still be clearable for a maxed crawler on some seeds").toBeGreaterThanOrEqual(1);
     expect(
       totalLostPct,
       `floor 12 barely scratched the crawler (${totalLostPct.toFixed(0)}% total HP across seeds) — scaling may have been flattened`,

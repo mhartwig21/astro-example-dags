@@ -95,13 +95,16 @@ export const CONFIG = {
   // Monsters (density tuned for the 72x72 floors: crowded, not an empty museum).
   // The full-clear power curve outruns linear scaling by midgame, so the back
   // half leans on DENSITY (more mobs) + COMPOUNDING stats (below).
-  monsterBaseCountFloor1: 24,
-  monsterCountPerFloor: 6,
-  monsterMaxCount: 110,
+  monsterBaseCountFloor1: 38,
+  monsterCountPerFloor: 9,
+  monsterMaxCount: 130,
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
-  // on you together), with a few lone wanderers between them.
-  packSizeMin: 3,
-  packSizeMax: 9,
+  // on you together), with a few lone wanderers between them. Bigger packs
+  // matter beyond raw count: the balance bot (and a real player's attention)
+  // can only fully respect ONE heavy telegraph at a time — denser packs create
+  // real overlapping-danger moments instead of a queue of solo fights.
+  packSizeMin: 5,
+  packSizeMax: 14,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
@@ -109,14 +112,15 @@ export const CONFIG = {
   // Compounding scaling: linear per-floor growth loses to a farming player by
   // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
   // damage additionally multiply by monsterScaleCompound each floor, so the deep
-  // dungeon steepens instead of flattening. Kept off floors 1-6 so early-game
-  // playability (and the balance-bot floors-1-2 net) is untouched.
-  monsterScaleCompoundFrom: 6,
-  monsterScaleCompound: 1.055, // ~1.85x by floor 18 on top of the linear curve
+  // dungeon steepens instead of flattening. Starts at floor 3 (not 1-2, which
+  // stay a soft landing) so the ramp is felt well before the old floor-6 wall.
+  monsterScaleCompoundFrom: 3,
+  monsterScaleCompound: 1.085, // ~3.4x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
-  // HURT (a grunt ~15% of starting HP, a brute ~27%), because you saw it coming.
-  monsterBaseDamage: 15,
-  monsterDamagePerFloor: 2.8,
+  // HURT (a grunt ~21% of starting HP, a brute ~38%) — see the ~40% target win
+  // rate in scripts/balance-sweep.ts's design intent below.
+  monsterBaseDamage: 21,
+  monsterDamagePerFloor: 4.9,
   monsterSpeed: 2.6, // tiles/sec
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
@@ -196,14 +200,14 @@ export const CONFIG = {
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
   bossSlamCooldown: 6.5, // seconds between slams (independent of melee/volley)
-  bossSlamDmgMult: 0.85, // relative to the boss's own damage stat (it's a BONUS hit)
-  bossCallAddsCount: 2, // ranged adds summoned per phase break (tier 2+)
-  bossCallAddsMax: 4, // lifetime adds from Call for Backup (this fight only)
+  bossSlamDmgMult: 1.0, // relative to the boss's own damage stat (it's a BONUS hit)
+  bossCallAddsCount: 3, // ranged adds summoned per phase break (tier 2+)
+  bossCallAddsMax: 5, // lifetime adds from Call for Backup (this fight only)
   ritualRange: 9, // tiles: the boss will channel from anywhere in the arena
   ritualWindup: 1.9, // seconds — long and unmistakable; interrupt it or eat it
   ritualCooldown: 14, // seconds between rituals
   ritualRadius: 3.6, // tiles: arena-scale AoE around the boss
-  ritualDmgMult: 1.6, // relative to the boss's own damage stat — this one HURTS
+  ritualDmgMult: 1.9, // relative to the boss's own damage stat — this one HURTS
 
   // Charger: locks a direction during a LONG windup, then rushes down the line,
   // plowing through anyone still standing on it. Sidestep the lane — the commit
@@ -349,7 +353,7 @@ export const CONFIG = {
   // HP multiplier grows per floor; target: a focused 4-8s fight at level.
   eliteHpMult: 3.0, // base multiplier over the archetype's floor-scaled HP...
   eliteHpMultPerFloor: 2.8, // ...plus this much more per floor
-  eliteDmgMult: 1.5,
+  eliteDmgMult: 1.8,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
   // One-shot insurance: a single player hit can never remove more than this
@@ -379,8 +383,8 @@ export const CONFIG = {
   // the fog until a player strays within trigger range, then the whole cluster
   // springs at once with a brief speed surge to close the gap. A pack that lets
   // you walk into the middle of it is a very different threat from one you saw.
-  ambushFromFloor: 8,
-  ambushPackChance: 0.4, // share of deep-floor packs that lie in wait
+  ambushFromFloor: 4,
+  ambushPackChance: 0.3, // share of eligible-floor packs that lie in wait
   ambushTriggerRadius: 5, // tiles: a player this close springs the trap
   ambushWakeRadius: 6.5, // tiles: the sprung monster also wakes its neighbors
   ambushSurgeSpeed: 1.6, // speed multiplier during the surge (the pounce)
@@ -395,19 +399,19 @@ export const CONFIG = {
   // Target: a real 15-25s arena fight, not a speed bump.
   cityBossHpBase: 4700,
   cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
-  cityBossAdds: 2, // ranged escorts
+  cityBossAdds: 3, // ranged escorts
 
   // Boss (floor 18)
   bossHp: 30000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 34,
+  bossDamage: 58,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,
-  bossVolleyCount: 8, // projectiles per radial volley
+  bossVolleyCount: 10, // projectiles per radial volley
   // Boss phases: crossing 2/3 and 1/3 HP enrages — faster chase, denser volleys.
   bossPhaseSpeedMult: 1.15, // per phase
-  bossPhaseVolleyBonus: 3, // extra projectiles per phase
+  bossPhaseVolleyBonus: 4, // extra projectiles per phase
   bossPhaseVolleyHaste: 0.5, // seconds shaved off the volley cooldown per phase
 } as const;
 
@@ -430,12 +434,12 @@ export type MonsterArchetype = {
 };
 
 export const ARCHETYPES = {
-  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.25, mass: 1, radius: 0.35 },
+  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.4, mass: 1, radius: 0.35 },
   // Swarmer: dies to one clean hit (that's the fantasy); threat comes from volume.
-  swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.1, mass: 0.8, radius: 0.28 },
+  swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.15, mass: 0.8, radius: 0.28 },
   // Brute: long, scary windup that lands a chunk of your HP; high poise (shrugs
   // off small hits) — respect it or interrupt it with something heavy.
-  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.7, mass: 3, radius: 0.55 },
+  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.8, mass: 3, radius: 0.55 },
   // Ranged: windup is its aim flash — it stands still to line up the shot.
   ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1, radius: 0.35 },
   // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
