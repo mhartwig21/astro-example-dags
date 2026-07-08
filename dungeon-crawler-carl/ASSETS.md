@@ -30,7 +30,7 @@ appreciated).
 | KayKit Forest Nature Pack — Hill_Cliff kit (open-air Garden walls: `cliff_side_*.glb`, `cliff_inner_*.glb`, `cliff_outer_*.glb` + `forest_tree_3/4_a`, `forest_rock_5_a/c`; Color1, converted via gltf-pipeline) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Halloween Bits — `fence_gate.glb` (open-air gate dressing) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
 | KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves; `weapon_arrow_a.glb` flies as the ballistic bolt) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
-| KayKit Skeletons 1.1 — `skeleton_arrow.glb` (ranged-archetype projectile) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
+| KayKit Skeletons 1.1 — `skeleton_arrow.glb` (currently unused — the ranged archetype is a mage and casts glowing bolts; kept for a future archer mob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
 | KayKit Mystery Monthly: Plant Warrior — `plant_warrior_arrow.glb` (spitter windup lob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Orc Raider — `orc_wardrum.glb` + `orc_wardrum_stick.glb` (the Drum Sergeant's grafted instrument) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |

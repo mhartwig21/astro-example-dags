@@ -409,7 +409,6 @@ export interface Projectile {
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
   chill?: number; // FROST BOLTS node: slow fraction applied on impact
-  srcKind?: string; // firing monster's archetype (hosts pick the projectile mesh)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
