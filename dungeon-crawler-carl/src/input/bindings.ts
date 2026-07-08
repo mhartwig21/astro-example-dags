@@ -131,6 +131,27 @@ export function saveMouseAim(on: boolean): void {
   }
 }
 
+// Mouse-move preference (Diablo-style): when on, LMB on ground walks (hold to
+// steer, tap to walk-to-point) and LMB on a monster attacks. Default off —
+// existing muscle memory (LMB = slot 1 everywhere) stays untouched.
+const MOVE_KEY = "dcc:mousemove:v1";
+
+export function loadMouseMove(): boolean {
+  try {
+    return localStorage.getItem(MOVE_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function saveMouseMove(on: boolean): void {
+  try {
+    localStorage.setItem(MOVE_KEY, on ? "on" : "off");
+  } catch {
+    /* best-effort */
+  }
+}
+
 // Announcer verbosity: how much System chatter reaches the side ticker.
 // Headline banners always show; the HUD log always keeps everything.
 export type NotifyLevel = "all" | "normal" | "critical";
