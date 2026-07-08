@@ -46,6 +46,9 @@ const WINDUP_CLIP: Record<string, string> = {
   ritual: "cast_long", // channelled cast — the long wind-up IS the interrupt window
   spit: "throw",
   raise: "cast_raise",
+  punch: "punch", // lineworker piston — the unarmed haymaker
+  aim: "idle_deadeye", // sentinel lock-on: sighting down the barrel (looping)
+  vent: "spin", // slagbreaker heat dump: the big 2H wind-out
 };
 
 export class Renderer3D {
@@ -346,9 +349,18 @@ export class Renderer3D {
       // The Drum Sergeant's beat: General's Interact reads as pounding the
       // wardrum when looped (Use_Item is the fallback gesture).
       drum: pick(/^Interact$/i, /^Use_Item$/i),
+      // Lineworker/greeter piston punch (unarmed haymaker; kick as variety).
+      punch: pick(/Unarmed_Attack_Punch/i, /Unarmed_Attack_Kick/i),
+      // Dormancy poses (Special library): ambush packs LIE on the floor among
+      // the bones; greeters STAND perfectly still among the props.
+      dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
+      dormant_stand: pick(/Skeletons_Inactive_Standing_Pose/i, /^T-Pose$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
-    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right", "drum"]);
+    const LOOPING = new Set([
+      "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
+      "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
+    ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
@@ -683,12 +695,14 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean): THREE.Group {
     const spec = THEME.archetype[kind];
-    // Prefer a floor-named menace (city bosses + the finale), then the
+    // Prefer a floor-named menace (city bosses + the finale), then an elite
+    // skin variant when one exists (the Creepy animatronic), then the
     // archetype-specific model, then the generic skeleton/monster.
     const model =
       (kind === "boss" ? this.modelInstance(`monster_boss_${floor}`) : null) ??
+      (elite ? this.modelInstance(`monster_${kind}_elite`) : null) ??
       this.modelInstance(`monster_${kind}`) ??
       this.modelInstance("skeleton") ??
       this.modelInstance("monster");
@@ -1721,7 +1735,7 @@ export class Renderer3D {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
       if (!mesh) {
-        mesh = this.buildMonsterMesh(mon.kind, state.floor);
+        mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite);
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
@@ -1743,6 +1757,19 @@ export class Renderer3D {
         const ud = mesh.userData;
         const playM = ud.play as (n: string, force?: boolean) => void;
         const playFirstM = ud.playFirst as (...n: string[]) => void;
+        // DORMANCY (ambush packs + greeters): hold the Inactive pose — bones
+        // on the crypt floor, or a showroom unit standing among the props.
+        // The awaken clip fires on the SPRING edge, not on fog reveal, so the
+        // trap stays a trap until it isn't.
+        if (mon.dormant) {
+          ud.revealed = true; // don't double-awaken on the reveal that follows
+          ud.wasDormant = true;
+          playM(mon.kind === "greeter" ? "dormant_stand" : "dormant_floor");
+        } else {
+        if (ud.wasDormant) {
+          ud.wasDormant = false;
+          playFirstM("awaken", "hit"); // SPRUNG: rise/jolt out of the pose
+        }
         // Theater: skeletons RISE the first time the fog reveals them, and the
         // introduced menace performs through its ringside freeze.
         if (mesh.visible && !ud.revealed) {
@@ -1780,6 +1807,7 @@ export class Renderer3D {
             }
           }
         }
+        } // end non-dormant branch
         ud.prevStagger = mon.stagger;
         (ud.animTick as (dt: number) => void)(dt);
         mesh.position.y = mon.hitFlash > 0 ? 0.12 : 0;
@@ -1795,8 +1823,9 @@ export class Renderer3D {
       }
       // Attack telegraph: a ground ring that brightens as the strike approaches.
       // Radius = what the attack will actually cover (fuse blast / melee reach).
+      // The sentinel's "aim" gets NO ring — its tracking beam IS the telegraph.
       let tel = this.telegraphs.get(mon.id);
-      if (mon.windup > 0) {
+      if (mon.windup > 0 && mon.windupKind !== "aim") {
         if (!tel) {
           tel = new THREE.Mesh(
             new THREE.RingGeometry(0.8, 1, 28),
@@ -1814,6 +1843,7 @@ export class Renderer3D {
           mon.windupKind === "charge" ? 0.9 :
           mon.windupKind === "slam" ? (mon.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius) :
           mon.windupKind === "ritual" ? CONFIG.ritualRadius :
+          mon.windupKind === "vent" ? CONFIG.slagVentRadius :
           mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
@@ -1935,6 +1965,9 @@ export class Renderer3D {
               color: 0xff5a3c, transparent: true, side: THREE.DoubleSide, depthWrite: false,
             }),
           );
+          // Yaw about world Y FIRST (rotation order), then pitch flat onto the
+          // ground — the default XYZ order warps the strip into a skewed sail.
+          strip.rotation.order = "YXZ";
           strip.rotation.x = -Math.PI / 2;
           this.scene.add(strip);
           this.hazardRings.set(hz.id, strip);
@@ -1943,7 +1976,7 @@ export class Renderer3D {
         const len = Math.hypot(hz.end.x - hz.pos.x, hz.end.y - hz.pos.y);
         strip.position.set(mx, 0.07, my);
         strip.scale.set(Math.max(len, 1e-3), hz.radius * 2, 1);
-        strip.rotation.z = -Math.atan2(hz.end.y - hz.pos.y, hz.end.x - hz.pos.x);
+        strip.rotation.y = -Math.atan2(hz.end.y - hz.pos.y, hz.end.x - hz.pos.x);
         (strip.material as THREE.MeshBasicMaterial).opacity = hz.fired
           ? 0.9 * (hz.t / Math.max(hz.total, 1e-3) + 0.4) // firing flash, fading out
           : 0.12 + 0.3 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)); // telegraph brightens

@@ -83,13 +83,13 @@ soldiers are absolutely on-theme).
 | AvianSwordsman | Mystery S6 | medium | APPROACH — duelist |
 | Marksman | Mystery S6 | medium | APPROACH — sniper (long-range telegraph) |
 | MagicalGirl | Mystery S6 | medium | APPROACH — System darling mini-boss |
-| Animatronic_Normal | Mystery S4 | medium | IRONWORKS — walking machine |
-| Animatronic_Creepy | Mystery S4 | medium | IRONWORKS — its broken elite affix skin |
-| Robot_One | Mystery S4 | medium | IRONWORKS — bot grunt |
-| Robot_Two | Mystery S4 | medium | IRONWORKS — bot ranged |
-| Clanker | Mystery S5 | **large** | IRONWORKS — heavy walker brute |
-| CombatMech | Mystery S5 | medium | IRONWORKS — band boss material |
-| ToySoldier | Mystery S6 | medium | IRONWORKS — wind-up squad mob |
+| ~~Animatronic_Normal~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Greeter (dormant ambusher) |
+| ~~Animatronic_Creepy~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Greeter's elite skin |
+| ~~Robot_One~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Lineworker (piston punch) |
+| ~~Robot_Two~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Sentinel (lock-on beam) |
+| ~~Clanker~~ | Mystery S5 | **large** | **SHIPPED 2026-07-08** as the Slagbreaker (vent rhythm) |
+| CombatMech | Mystery S5 | medium | IRONWORKS — band boss material (The Foreman champion) |
+| ~~ToySoldier~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Wind-Up Battalion (synced volleys) |
 | ActionFigure | Mystery S4 | medium | THE SHOW — merchandising tie-in mob |
 | Monstrosity | Mystery S6 | **custom rig** | APPROACH — horror boss (no Rig_Medium/Large nodes; verify clips before committing) |
 | 4GTN | Mystery S6 | **large** | APPROACH — golem sentinel |

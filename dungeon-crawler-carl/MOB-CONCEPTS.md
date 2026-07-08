@@ -40,12 +40,12 @@ host-agnostic addition — feedback flows out as data like everything else.
 | Verb | What it is | Seam | Unlocks |
 |---|---|---|---|
 | ~~**Knockback**~~ | **SHIPPED 2026-07-08**: `applyPlayerKnockback` (game.ts) — queued shove consumed at `knockbackSpeed` through moveWithCollision; brute/boss slams shove survivors | — | Pit Digger, Line Worker, Vine Lasher (pull variant still open) |
-| ~~**Beam telegraph**~~ | **SHIPPED 2026-07-08**: `Hazard.kind: "beam"` (pos→`end`, arm → fire once → fade), rendered in both hosts. No spawner in the cast yet | — | Quality Control, Archivist, Boom Operator |
+| ~~**Beam telegraph**~~ | **SHIPPED 2026-07-08**: `Hazard.kind: "beam"` (pos→`end`, arm → fire once → fade), rendered in both hosts; lock-on tracking (`trackId`) shipped with the sentinel | — | Archivist, Boom Operator reuse the seam |
 | ~~**Generalized auras**~~ | **SHIPPED 2026-07-08**: `Monster.aura: "frenzy"` radiates in ai.ts (drum* knobs); cooldown-decay haste + move speed | — | Last Rites zone, The Darling (new aura kinds on the same seam) |
 | **Second stage** | Swap `kind`/model/stats at an HP or timer threshold, announced | small branch in `damageMonster` + `MonsterKind` morph map | Understudy Wolf, Suit Actor, enrage variants |
 | **Directional guard** | Frontal arc damage reduction while guarding | angle check in `damageMonster` vs `Monster.facing` | Shieldbearer Husk, late-band elites |
 | **Burrow/relocate** | Untargetable traverse, moving ground ripple telegraph, eruption | monster phase flag + a traveling `Hazard` marker | The Thing in the Pipes, phantom variants |
-| **Synced pack windup** | Squad members hold fire until all are wound up, release together | pack id already exists (spawn packs); gate `beginWindup` release | Wind-Up Battalion |
+| ~~**Synced pack windup**~~ | **SHIPPED 2026-07-08**: `Monster.squadId` + leader-cadenced squad windups (toysoldier brain) | — | any future squad mob reuses the seam |
 | **Riposte stance** | Timed window: melee hits during it reflect + stagger the attacker | flag checked in `damageMonster`, reuses thorns math | Featured Extra, duelist elites |
 | ~~**Flee brain**~~ | **SHIPPED 2026-07-08**: filcher brain in ai.ts — flees on notice, escape timer past `filcherEscapeDist` | — | gag mobs reuse the brain |
 
@@ -129,31 +129,17 @@ new problems. Format: **Name** (model · rig · brain) — the move, *the counte
   sequentially, like flame sweep at mob scale). 4GTN_Forgotten is its ruined
   elite skin. *Counter: perpendicular movement; the crack can't turn.*
 
-### THE IRONWORKS (floors 13–15) — the machine learns your timing
+### THE IRONWORKS (floors 13–15) — ~~the machine learns your timing~~ SHIPPED 2026-07-08
 
-- **The Line Worker** (Robot_One · medium · grunt+knockback) — piston punch
-  with a hydraulic hiss tell; the punch LAUNCHES you meaningfully now, and
-  Ironworks floors carry grate/spike dressing worth being launched into.
-  *Counter: never fight with your back to the set dressing.*
-- **Quality Control** (Robot_Two · medium · new: lock-on beam) — paints you
-  with a thin tracking laser (1.2s, lags your movement), then fires a
-  piercing railshot along the locked line. *Counter: juke at the lock click,
-  not before — a timing test, not a position test.* The Caitlyn-ult dodge,
-  every pack fight.
-- **The Slagbreaker** (Clanker · **large** · new: rhythm brute) — steam brute
-  with a heat gauge: three swings, then it MUST vent — a scalding burn cone
-  followed by 1.5s of staggered cooldown. *Counter: count to three, dodge the
-  vent, unload into the window. Vulnerability rhythm as a core loop.*
-- **The Greeter** (Animatronic_Normal, _Creepy as elite skin · medium ·
-  ambusher+) — stands among the props, perfectly still (ambush dormancy
-  exists), activates with a doo-doo-doo jingle when flanked or approached. On
-  death: sparks — three quick arc zaps at short range (on-death punctuation).
-  *Counter: notice it (fog + prop literacy), pull it from range.*
-- **The Wind-Up Battalion** (ToySoldier · medium · new: synced volley) —
-  spawns only in squads of 4–6; all members hold their musket windup until
-  the squad is ready, then FIRE AS ONE announced volley. *Counter: one dash
-  beats six bullets — the game's most cinematic single dodge; break the squad
-  and survivors fire ragged and weak.*
+The whole band shipped as sim kinds `lineworker` / `sentinel` / `slagbreaker`
+/ `toysoldier` / `greeter` (floor 13+ spawn weights; toysoldiers muster as
+squads with a shared `squadId`; greeters ALWAYS spawn dormant and play the
+Inactive standing pose — dormant ambush packs everywhere now lie on the floor
+in the Inactive floor pose). Animatronic_Creepy rides the new elite-skin seam
+(`monster_<kind>_elite` in MODEL_MANIFEST). Punch/aim/vent windups map to the
+unarmed-punch, aiming-idle, and 2H-spin clips. Still open from the concepts:
+the Greeter's activation jingle (audio seam) and Ironworks grate/spike floor
+dressing for the punch to launch people into.
 
 ### THE APPROACH (floors 16–18) — the System fields its own
 
