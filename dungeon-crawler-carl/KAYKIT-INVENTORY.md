@@ -148,6 +148,9 @@ counted — noted where that inflates things).
 | Block Bits | 58 | Voxel cubes: dirt/grass/lava/glass, TNT, anvil | **Untapped.** Prototype/greybox only; off-style for shipped floors |
 | Prototype Bits 1.1 | 88 (1 char) | Greybox primitives, guns, lockers, pallets, Dummy character | **Untapped.** Test-range dressing; Dummy = training target |
 
+> **Update 2026-07-08:** the mob designs built on this census live in
+> `MOB-CONCEPTS.md` (36-mob roster, band casts, new sim verbs, boss layers).
+
 ## The 30–45 mob-types question (answered 2026-07-08)
 
 Current cast uses **13 distinct monster models** (12 sim archetypes + band
