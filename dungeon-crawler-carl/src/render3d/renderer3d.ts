@@ -336,9 +336,12 @@ export class Renderer3D {
       awaken: pick(/Skeletons_Awaken_Floor$/i, /^Spawn_Ground$/i, /^Skeletons_Spawn_Ground$/i), // rise on first reveal
       taunt: pick(/Taunt_Longer/i, /^Taunt$/i, /Skeletons_Taunt$/i), // ringside introductions
       cheer: pick(/^Cheer/i), // floor clear / victory lap
+      // The Drum Sergeant's beat: General's Interact reads as pounding the
+      // wardrum when looped (Use_Item is the fallback gesture).
+      drum: pick(/^Interact$/i, /^Use_Item$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
-    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right"]);
+    const LOOPING = new Set(["idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back", "strafe_left", "strafe_right", "drum"]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
@@ -682,6 +685,14 @@ export class Renderer3D {
       this.modelInstance("monster");
     const g = model ?? new THREE.Group();
     if (model) this.normalizeHeight(model, 1.1);
+    // The Drum Sergeant carries its actual instrument: wardrum in the off
+    // hand, stick in the main — the same handslot graft the player armory
+    // uses, so both props ride the Interact "drumming" loop.
+    if (model && kind === "drummer") {
+      const drum = this.showAttachment(g, "orc_wardrum", "*", "l");
+      if (drum) drum.scale.setScalar(0.8);
+      this.showAttachment(g, "orc_wardrum_stick", "*", "r");
+    }
     if (!model) {
       const isBoss = kind === "boss";
       const body = new THREE.Mesh(
@@ -1733,7 +1744,15 @@ export class Renderer3D {
           } else if ((ud.animBusy as () => number)() <= 0) {
             // Same hysteresis as players: enter walking decisively, leave lazily.
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
-            playM(ud.locoMoving ? "walk" : "idle");
+            const hasClipM = ud.hasClip as (n: string) => boolean;
+            if (ud.locoMoving) {
+              // Fast movers (fleeing filcher, frenzied/deep-tempo chasers)
+              // RUN — a sprint on a walk cycle reads as ice-skating.
+              playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
+            } else {
+              // A parked Drum Sergeant performs: it beats the wardrum.
+              playM(mon.kind === "drummer" && hasClipM("drum") ? "drum" : "idle");
+            }
           }
         }
         ud.prevStagger = mon.stagger;
