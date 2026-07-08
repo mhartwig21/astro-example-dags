@@ -53,6 +53,11 @@ export const THEME = {
     broodmother: { color: 0xd45db8, scale: 1.4 }, // magenta: the nest — kill it first
     drummer: { color: 0xc9822e, scale: 1.05 }, // war-drum bronze: silence the band
     filcher: { color: 0xf2c14e, scale: 0.8 }, // gold: it IS the loot — chase it
+    lineworker: { color: 0x8fa3ad, scale: 1.1 }, // industrial steel: the piston
+    sentinel: { color: 0xff4d6d, scale: 1.0 }, // targeting-laser red: watch the lock
+    slagbreaker: { color: 0xd96b2b, scale: 1.5 }, // furnace orange: count to three
+    toysoldier: { color: 0xc94f4f, scale: 0.85 }, // parade red: the volley line
+    greeter: { color: 0x9a7fb8, scale: 1.05 }, // showroom mauve: it was a prop
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,
