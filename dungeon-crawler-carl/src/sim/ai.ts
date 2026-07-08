@@ -185,7 +185,111 @@ function resolveStrike(state: GameState, m: Monster): void {
     resolveRitualStrike(state, m);
     return;
   }
+  if (kind === "punch") {
+    // Lineworker piston punch: an ordinary melee hit that also LAUNCHES the
+    // survivor (knockback verb) — the set dressing behind you is the threat.
+    m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+    const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+    if (decoySoak(state, m.pos, reach, m.damage)) return;
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      if (dist(m.pos, player.pos) > reach) continue;
+      const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+      if (damagePlayerHit(state, player, m.damage, { dir })) {
+        handlePlayerDeath(state, player, `${player.name} met the piston. Quality control approves.`);
+      } else {
+        applyPlayerKnockback(player, dir, CONFIG.punchKnockback);
+      }
+    }
+    return;
+  }
+  if (kind === "aim") {
+    // Sentinel: the lock-on beam hazard does the damage — the windup only
+    // held the aiming pose. Nothing to resolve; the cooldown was paid at cast.
+    return;
+  }
+  if (kind === "vent") {
+    // Slagbreaker heat dump: a scalding cloud (burn soaks in), then the
+    // machine stalls — the punish window the whole rhythm builds toward.
+    const dmg = m.damage * CONFIG.slagVentDmgMult;
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      if (dist(m.pos, player.pos) > CONFIG.slagVentRadius) continue;
+      const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+      if (damagePlayerHit(state, player, dmg, { dir, effect: "burn" })) {
+        handlePlayerDeath(state, player, `${player.name} stood in the exhaust. The Ironworks does not do refunds.`);
+      } else {
+        applyStatus(player, {
+          kind: "burn", duration: CONFIG.burnDuration, school: "magic",
+          magnitude: Math.max(1, Math.round((dmg * CONFIG.slagVentBurnFraction) / (CONFIG.burnDuration / CONFIG.burnTickSeconds))),
+        });
+        applyPlayerKnockback(player, dir, 0.6);
+      }
+    }
+    m.heat = 0;
+    m.stagger = CONFIG.slagVentSelfStagger; // vented and helpless — unload
+    return;
+  }
+  if (kind === "hook") {
+    // Vine Lasher: the whip snaps down the locked lane — anyone snagged is
+    // damaged and DRAGGED to the lasher's feet, into whatever the Garden
+    // (or the pack) has waiting there. Dash i-frames beat the snag.
+    m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+    const dir = m.chargeDir ?? { x: 1, y: 0 };
+    m.chargeDir = undefined;
+    const tip = { x: m.pos.x + dir.x * CONFIG.lasherHookRange, y: m.pos.y + dir.y * CONFIG.lasherHookRange };
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      // Distance from the player to the whip segment (same math as beams).
+      const abx = tip.x - m.pos.x, aby = tip.y - m.pos.y;
+      const lenSq = abx * abx + aby * aby;
+      const t = lenSq < 1e-8 ? 0 : Math.max(0, Math.min(1, ((player.pos.x - m.pos.x) * abx + (player.pos.y - m.pos.y) * aby) / lenSq));
+      const distToLane = Math.hypot(player.pos.x - (m.pos.x + abx * t), player.pos.y - (m.pos.y + aby * t));
+      if (distToLane > CONFIG.lasherHookWidth) continue;
+      const toLasher = normalize({ x: m.pos.x - player.pos.x, y: m.pos.y - player.pos.y });
+      if (damagePlayerHit(state, player, m.damage * CONFIG.lasherHookDmgMult, { dir: { x: -toLasher.x, y: -toLasher.y } })) {
+        handlePlayerDeath(state, player, `${player.name} took the vine express. No return service.`);
+      } else {
+        const gap = dist(m.pos, player.pos);
+        const drag = Math.max(0, gap - CONFIG.lasherHookLandGap);
+        applyPlayerKnockback(player, toLasher, drag, drag); // a PULL: full-length, uncapped
+      }
+    }
+    return;
+  }
+  if (kind === "morph") {
+    // The Understudy's transformation clause: it BECOMES a charger — healed,
+    // faster, meaner, plated. (Stagger interrupts the windup like anything
+    // else; the clause just re-triggers while it's still bleeding.)
+    const from = ARCHETYPES.understudy;
+    const to = ARCHETYPES.charger;
+    m.kind = "charger";
+    m.maxHp = Math.round((m.maxHp / from.hpMult) * to.hpMult);
+    m.hp = m.maxHp; // the wolf arrives FRESH
+    m.damage = (m.damage / from.dmgMult) * to.dmgMult;
+    m.speed = (m.speed / from.speedMult) * to.speedMult;
+    m.attackRange = to.attackRange;
+    m.poiseDmg = 0;
+    state.announcements.push({
+      text: "The extra's contract has a TRANSFORMATION CLAUSE. The crowd goes feral.",
+      kind: "flavor", priority: "normal",
+    });
+    state.events.push("An understudy transforms — the wolf takes the role.");
+    return;
+  }
+  if (kind === "hex") {
+    // Briar Witch: mark the nearest crawler still in reach — +damage taken
+    // while it holds. Whiffs if everyone slipped out of range mid-cast.
+    const target = nearestPlayer(state, m.pos);
+    if (target && dist(m.pos, target.pos) <= CONFIG.hexRange + 1) {
+      target.cursedT = CONFIG.hexDuration;
+      state.events.push(`${target.name} is MARKED by a briar witch — everything hits harder. Kill her or outlast it.`);
+    }
+    return;
+  }
   resolveMeleeStrike(state, m);
+  // The Slagbreaker's swings BUILD HEAT; the third forces the vent (ai loop).
+  if (m.kind === "slagbreaker") m.heat = (m.heat ?? 0) + 1;
 }
 
 /** Charger mid-rush: barrel along the locked line, clipping anyone on it once. */
@@ -481,6 +585,175 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     } else {
       wander(state, m, dt);
+    }
+    return;
+  }
+
+  if (m.kind === "understudy") {
+    // Understudy: a weak shuffler with a TRANSFORMATION CLAUSE — bleeding
+    // below half HP commits the morph (interruptible; it re-arms while hurt).
+    if ((m.hp < m.maxHp * CONFIG.morphHpFraction) && m.windup <= 0) {
+      beginWindup(m, "morph", CONFIG.morphWindup);
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The understudy is TRANSFORMING — stagger it or meet the wolf.");
+      }
+      return;
+    }
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "lasher") {
+    // Vine Lasher: mid-range whip. In its band it locks the HOOK lane (the
+    // longest telegraph in the game) and drags whoever's still standing in
+    // it. It NEVER brawls — crowd it and it slinks back to whip range,
+    // which is exactly how you want to fight it (and how it wants you not to).
+    if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
+    if (m.shootCd === 0 && d >= 1.6 && d <= CONFIG.lasherHookRange) {
+      m.shootCd = CONFIG.lasherHookCooldown;
+      m.chargeDir = toPlayer; // the lane is frozen NOW; the windup is the dodge
+      beginWindup(m, "hook", windup);
+      return;
+    }
+    if (d < 1.6) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > m.attackRange + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "hexer") {
+    // Briar Witch: shaman-style standoff, but her cast MARKS a crawler with
+    // a vulnerability curse the whole pack cashes in. Kill-order pressure
+    // pointed at the PARTY, not the monsters.
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    const standoff = m.attackRange;
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    if (m.healCd === 0 && d <= CONFIG.hexRange && (player.cursedT ?? 0) <= 0) {
+      m.healCd = CONFIG.hexCooldown;
+      beginWindup(m, "hex", windup);
+    }
+    return;
+  }
+
+  if (m.kind === "lineworker" || m.kind === "greeter") {
+    // Lineworker: grunt chase, but the swing is a PISTON PUNCH (launches the
+    // survivor — see resolveStrike "punch"). Greeter: same chassis, same
+    // punch, but it spawned dormant among the props (ambush plumbing) and
+    // discharges sparks on death (see reapDead).
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "punch", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "sentinel") {
+    // Sentinel: turret-bot. Holds a long standoff and paints you with a
+    // LOCK-ON beam — the line tracks while arming, freezes for the final
+    // lock window, then fires the railshot (updateHazards owns the beam).
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    if (m.shootCd === 0 && d <= m.attackRange + 2) {
+      m.shootCd = CONFIG.sentinelBeamCooldown;
+      const dir = toPlayer;
+      const arm = CONFIG.sentinelBeamArm;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        end: {
+          x: m.pos.x + dir.x * CONFIG.sentinelBeamLength,
+          y: m.pos.y + dir.y * CONFIG.sentinelBeamLength,
+        },
+        t: arm + CONFIG.beamFadeSeconds,
+        total: arm + CONFIG.beamFadeSeconds,
+        arm,
+        radius: CONFIG.sentinelBeamWidth,
+        damage: m.damage * CONFIG.sentinelBeamDmgMult,
+        kind: "beam",
+        trackId: hunt === player ? player.id : undefined, // decoys break the lock
+      });
+      beginWindup(m, "aim", arm); // hold the aiming pose through the paint
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("A sentinel paints you with a targeting beam. Move when it LOCKS, not before.");
+      }
+      return;
+    }
+    const standoff = m.attackRange;
+    if (d < standoff - 2) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "slagbreaker") {
+    // Slagbreaker: brute rhythm with a heat gauge — three swings, then it
+    // MUST vent (scalding cloud + self-stagger). Count, dodge, unload.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if ((m.heat ?? 0) >= CONFIG.slagVentAfterSwings) {
+      beginWindup(m, "vent", CONFIG.slagVentWindup);
+      return;
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "toysoldier") {
+    // Wind-Up Battalion: the squad presents muskets TOGETHER and fires as
+    // one announced volley — one big dodge, not six points of chip. The
+    // lowest-id living member is the squad leader and keeps the cadence;
+    // a broken squad (under toysquadSyncMin) degrades to ragged solo shots.
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    const squad = m.squadId !== undefined
+      ? state.monsters.filter((s) => s.squadId === m.squadId && s.hp > 0)
+      : [m];
+    const leader = squad.reduce((a, b) => (a.id < b.id ? a : b));
+    if (squad.length >= CONFIG.toysquadSyncMin) {
+      if (m === leader && m.shootCd === 0 && d <= m.attackRange + 2) {
+        // The whole line presents at once (synced pack windup verb).
+        for (const s of squad) {
+          if (s.windup <= 0 && s.stagger <= 0) beginWindup(s, "shot", CONFIG.toysquadWindup);
+          s.shootCd = CONFIG.toysquadVolleyCooldown;
+        }
+        if (!m.noticed) {
+          m.noticed = true;
+          state.announcements.push({
+            text: "The Battalion PRESENTS ARMS. One volley, one dodge — make it count.",
+            kind: "flavor", priority: "normal",
+          });
+        }
+        return;
+      }
+    } else if (m.shootCd === 0 && d <= m.attackRange + 1.5) {
+      // Ragged survivors: slower, lonelier shots (the squad was the threat).
+      m.shootCd = CONFIG.toysquadVolleyCooldown * 1.4;
+      beginWindup(m, "shot", CONFIG.toysquadWindup * 0.7);
+      return;
+    }
+    const standoff = m.attackRange;
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
     }
     return;
   }

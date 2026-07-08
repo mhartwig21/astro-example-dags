@@ -34,6 +34,21 @@ export const MODEL_MANIFEST: Record<string, string> = {
   // a frenzy; Hoarder is the fleeing Repo Rat (KayKit Mystery Monthly, CC0).
   monster_drummer: "/assets/characters/orc_raider.glb",
   monster_filcher: "/assets/characters/hoarder.glb",
+  // IRONWORKS cast (MOB-CONCEPTS.md): the robot faction clocks in — Robots
+  // One/Two, Clanker, ToySoldier, the Animatronics (all Mystery Monthly, CC0).
+  monster_lineworker: "/assets/characters/robot_one.glb",
+  monster_sentinel: "/assets/characters/robot_two.glb",
+  monster_slagbreaker: "/assets/characters/clanker.glb",
+  monster_toysoldier: "/assets/characters/toy_soldier.glb",
+  monster_greeter: "/assets/characters/animatronic.glb",
+  monster_greeter_elite: "/assets/characters/animatronic_creepy.glb", // the broken one
+  // GARDEN cast (MOB-CONCEPTS.md): the lasher shares the PlantWarrior body
+  // (same species, different job); Werewolf_Man is the pre-morph understudy
+  // (the morph swaps its kind to charger = the werewolf model); Tiefling
+  // is the Briar Witch.
+  monster_lasher: "/assets/characters/plant_warrior.glb",
+  monster_understudy: "/assets/characters/werewolf_man.glb",
+  monster_hexer: "/assets/characters/tiefling.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -135,6 +150,15 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_necromancer: "medium", // Necromancer
   monster_drummer: "medium", // OrcRaider
   monster_filcher: "medium", // Hoarder
+  monster_lineworker: "medium", // Robot_One
+  monster_sentinel: "medium", // Robot_Two
+  monster_slagbreaker: "large", // Clanker — the big walker
+  monster_toysoldier: "medium", // ToySoldier
+  monster_greeter: "medium", // Animatronic_Normal
+  monster_greeter_elite: "medium", // Animatronic_Creepy
+  monster_lasher: "medium", // PlantWarrior (shared body, different job)
+  monster_understudy: "medium", // Werewolf_Man (pre-morph)
+  monster_hexer: "medium", // Tiefling
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)

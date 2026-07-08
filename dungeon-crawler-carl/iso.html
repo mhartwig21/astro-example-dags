@@ -92,6 +92,7 @@
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            right rail:          #ticker — normal-priority System chatter
            bottom strip:        #hud-log left · #cockpit center · #minimap right
+                                · #draft-badge pinned just above #cockpit (banked drafts)
            modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing in-run outranks it)
                                 · #menu 28 (RINGSIDE CHECK-IN — pre-run only, owns the screen)
@@ -198,6 +199,17 @@
       /* Action bar (D4/WoW cockpit): globe + slots + XP strip */
       #cockpit { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
         display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
+      /* Banked-draft badge: level-ups no longer hijack the screen mid-fight —
+         they wait here until the crawler claims them (see draft flow, main3d). */
+      #draft-badge { position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%);
+        display: none; align-items: center; gap: 7px; padding: 5px 12px; cursor: pointer;
+        background: rgba(14,11,20,0.88); border: 1px solid #8a6d3b; border-radius: 999px;
+        color: #e0c37a; font-size: 11px; letter-spacing: 1.5px; font-weight: 700;
+        box-shadow: 0 0 14px rgba(201,162,75,0.25); animation: draftpulse 1.6s ease-in-out infinite; }
+      #draft-badge kbd { background: #221b15; border: 1px solid #6e5533; border-radius: 4px;
+        padding: 0 5px; font-size: 10px; color: #c9a24b; }
+      @keyframes draftpulse { 0%, 100% { box-shadow: 0 0 8px rgba(201,162,75,0.18); }
+        50% { box-shadow: 0 0 18px rgba(201,162,75,0.45); } }
       #skills { display: flex; gap: 8px; }
       .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
         border: 2px solid #6e5533; border-radius: 8px; font-size: 10px; color: #cfcfe0;
@@ -1071,6 +1083,7 @@
         </div>
       </div>
     </div>
+    <div id="draft-badge"></div>
     <div id="cockpit">
       <div id="skills"></div>
       <div id="xpbar"><i></i></div>

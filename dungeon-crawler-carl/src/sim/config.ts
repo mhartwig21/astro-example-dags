@@ -211,9 +211,57 @@ export const CONFIG = {
   bossSlamKnockback: 2.0, // tiles: the boss slam hits like a truck
 
   // Beam hazards (MOB-CONCEPTS verb): a line telegraph that fires ONCE along
-  // its whole length. No spawner in the base cast yet — the Ironworks/Approach
-  // mobs (Quality Control, Boom Operator, the Archivist) arrive on this seam.
+  // its whole length. The sentinel is the first spawner (below); the Approach
+  // mobs (Boom Operator, the Archivist) arrive on the same seam.
   beamFadeSeconds: 0.25, // visible flash after firing
+
+  // IRONWORKS cast (floors 13-15) — the machine learns your timing.
+  ironworksFromFloor: 13,
+  // Lineworker piston punch: melee that also LAUNCHES the survivor.
+  punchKnockback: 1.4, // tiles
+  // Sentinel lock-on: the beam TRACKS you while arming, freezes at the lock,
+  // then fires. Dodge when the tracking stops — a timing test, not position.
+  sentinelBeamCooldown: 5,
+  sentinelBeamArm: 1.15, // seconds of telegraph (tracking + locked)
+  sentinelBeamLock: 0.4, // final seconds when the line stops tracking
+  sentinelBeamLength: 9, // tiles the railshot pierces
+  sentinelBeamWidth: 0.38, // half-width
+  sentinelBeamDmgMult: 1.4, // × monster damage
+  // Slagbreaker heat rhythm: swings until it MUST vent, then pays for it.
+  slagVentAfterSwings: 3,
+  slagVentWindup: 0.8, // the vent telegraph
+  slagVentRadius: 2.3, // scalding cloud around it
+  slagVentDmgMult: 1.2, // × monster damage
+  slagVentBurnFraction: 0.5, // burn total = this × the vent hit
+  slagVentSelfStagger: 1.5, // seconds helpless after venting — the punish window
+  // Wind-Up Battalion: squads volley as one; broken squads fire ragged.
+  toysquadMin: 4,
+  toysquadMax: 6,
+  toysquadVolleyCooldown: 4.5,
+  toysquadWindup: 1.0, // the whole line presents muskets — one big dodge
+  toysquadSyncMin: 3, // members alive to keep volleying in sync
+  // Greeter: sparks on death — three short-fused zaps around the chassis.
+  greeterSparkCount: 3,
+  greeterSparkDelay: 0.45, // fuse on each spark (dodgeable, tight)
+  greeterSparkRadius: 0.95,
+  greeterSparkDmgMult: 0.5, // × monster damage per spark
+
+  // GARDEN cast (floors 7+) — the floor fights back.
+  gardenFromFloor: 7,
+  // Vine Lasher hook: the longest lane telegraph in the game, then the DRAG.
+  lasherHookRange: 5.5, // tiles the whip reaches
+  lasherHookWidth: 0.75, // lane half-width
+  lasherHookCooldown: 6,
+  lasherHookDmgMult: 0.8, // × monster damage on the snag
+  lasherHookLandGap: 1.2, // you land this far from the lasher (in the pack)
+  // Understudy morph: the vulnerable window before the wolf.
+  morphWindup: 1.0, // interruptible — stagger it to stay ahead of the curve
+  morphHpFraction: 0.5, // transforms when damaged below this
+  // Briar Witch hex: a vulnerability mark the whole pack exploits.
+  hexRange: 6,
+  hexDuration: 6, // seconds marked
+  hexVulnerability: 0.3, // +30% damage taken while marked
+  hexCooldown: 8,
 
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
@@ -559,6 +607,14 @@ export const CONFIG = {
     hypeBroodmother: 9, // ending the nest = the whole arena exhales
     hypeDrummer: 6, // silencing the band = the pack deflates on camera
     hypeFilcher: 8, // running down the rat is a highlight-reel chase
+    hypeLineworker: 5,
+    hypeSentinel: 7, // dodging the lock then dropping the turret = television
+    hypeSlagbreaker: 9, // the vent-window execution is a highlight
+    hypeToysoldier: 3, // chaff — the VOLLEY dodge is where the hype lives
+    hypeGreeter: 6, // it was a prop until it wasn't
+    hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
+    hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
+    hypeHexer: 7, // dispelling the mark by ending the witch
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -795,6 +851,31 @@ export const ARCHETYPES = {
   // Filcher (Repo Rat): never attacks (dmgMult unused); a fast loot-goblin that
   // FLEES on sight, bleeds gold as it's hurt, and ESCAPES if ignored (filcher*).
   filcher: { hpMult: 0.6, dmgMult: 0, speedMult: 1.55, attackRange: 1.0, xpMult: 0.5, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.32 },
+  // IRONWORKS cast (floors 13-15). Lineworker: a sturdy grunt whose piston
+  // punch LAUNCHES you — never fight with your back to the set dressing.
+  lineworker: { hpMult: 1.3, dmgMult: 1.1, speedMult: 0.9, attackRange: 1.1, xpMult: 1.4, ranged: false, windup: 0.55, poise: 0.45, mass: 1.8, radius: 0.42, resist: "physical" },
+  // Sentinel: standoff turret-bot — its lock-on beam is the threat (sentinel*
+  // knobs); dmgMult scales the railshot. Innately warded (energy shielding).
+  sentinel: { hpMult: 0.85, dmgMult: 1.5, speedMult: 0.8, attackRange: 7, xpMult: 1.6, ranged: true, windup: 0.35, poise: 0.3, mass: 1.2, radius: 0.38, resist: "magic" },
+  // Slagbreaker: a LARGE steam brute on a heat rhythm — three swings, then a
+  // forced scalding vent + self-stagger (slag* knobs). Count to three.
+  slagbreaker: { hpMult: 3.0, dmgMult: 1.5, speedMult: 0.6, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.7, poise: 0.75, mass: 3.2, radius: 0.58, resist: "physical" },
+  // Toysoldier: musket squads that volley AS ONE (squad sync in ai.ts);
+  // individually chaff — the synchronized volley is the encounter.
+  toysoldier: { hpMult: 0.5, dmgMult: 0.9, speedMult: 0.9, attackRange: 6, xpMult: 0.9, ranged: true, windup: 1.0, poise: 0.2, mass: 0.9, radius: 0.32 },
+  // Greeter: stands dormant among the props (always spawns in ambush), then
+  // swings like a grunt; on death it discharges spark blasts (greeterSpark*).
+  greeter: { hpMult: 1.1, dmgMult: 1.2, speedMult: 1.05, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.3, radius: 0.4 },
+  // GARDEN cast (floors 7+). Lasher: mid-range whip — its HOOK drags you down
+  // the lane to the pack (lasher* knobs). attackRange = preferred standoff.
+  lasher: { hpMult: 0.95, dmgMult: 1.0, speedMult: 0.9, attackRange: 4, xpMult: 1.5, ranged: true, windup: 0.95, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Understudy: a shuffling extra — weak on purpose. At half HP it TRANSFORMS
+  // into a full charger (morph* knobs): burst it through the threshold or
+  // stagger the morph, or fight the wolf you made.
+  understudy: { hpMult: 0.75, dmgMult: 0.6, speedMult: 0.8, attackRange: 1.0, xpMult: 1.3, ranged: false, windup: 0.5, poise: 0.25, mass: 1, radius: 0.36 },
+  // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
+  // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
+  hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

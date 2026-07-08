@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPlayerKnockback, createGame, createTestGame, damageMonster, step } from "../src/sim/game";
+import { applyPlayerKnockback, createGame, createTestGame, damageMonster, damagePlayerHit, step } from "../src/sim/game";
 import { CONFIG } from "../src/sim/config";
 import { dist } from "../src/sim/combat";
 import type { GameState, Intent, Monster, Vec2 } from "../src/sim/types";
@@ -214,5 +214,256 @@ describe("determinism with the new cast", () => {
     expect(g1.monsters.map((m) => ({ k: m.kind, x: m.pos.x, y: m.pos.y })))
       .toEqual(g2.monsters.map((m) => ({ k: m.kind, x: m.pos.x, y: m.pos.y })));
     expect(a.rng.state).toBe(b.rng.state);
+  });
+});
+
+describe("IRONWORKS: lineworker piston punch", () => {
+  it("a surviving punch target gets launched", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const bot = mkMon(g, { kind: "lineworker", pos: { x: p.pos.x + 0.8, y: p.pos.y }, damage: 5 });
+    bot.windup = bot.windupTotal = 0.05;
+    bot.windupKind = "punch";
+    run(g, 0.15);
+    // Shove queued or already consumed into movement — either way it landed.
+    const shoved = !!p.knock || dist(p.pos, { x: bot.pos.x, y: bot.pos.y }) > 0.8;
+    expect(shoved).toBe(true);
+  });
+});
+
+describe("IRONWORKS: sentinel lock-on beam", () => {
+  it("paints a tracking beam that follows, locks, then fires once", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 5000;
+    mkMon(g, { kind: "sentinel", pos: { x: p.pos.x + 5, y: p.pos.y }, damage: 20, attackRange: 7, speed: 0 });
+    run(g, 0.2);
+    const beam = g.hazards.find((h) => h.kind === "beam");
+    expect(beam).toBeDefined();
+    expect(beam!.trackId).toBe(p.id);
+    // Move the player; while arming (before the lock) the line follows.
+    p.pos = { x: p.pos.x, y: p.pos.y + 2 };
+    run(g, 0.2);
+    const dy = beam!.end!.y - beam!.pos.y;
+    expect(dy).toBeGreaterThan(0.5); // the beam bent toward the new position
+    // Let it lock + fire.
+    run(g, CONFIG.sentinelBeamArm);
+    expect(beam!.trackId).toBeUndefined(); // locked before firing
+    expect(beam!.fired).toBe(true);
+    expect(p.hp).toBeLessThan(5000); // stood on the line, ate the railshot
+  });
+});
+
+describe("IRONWORKS: slagbreaker vent rhythm", () => {
+  it("at full heat it vents: burn + self-stagger (the punish window)", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const slag = mkMon(g, {
+      kind: "slagbreaker", pos: { x: p.pos.x + 0.9, y: p.pos.y },
+      damage: 20, attackRange: 1.2, heat: CONFIG.slagVentAfterSwings,
+    });
+    run(g, 0.1);
+    expect(slag.windupKind).toBe("vent"); // full heat forces the dump
+    run(g, CONFIG.slagVentWindup + 0.2);
+    expect(p.hp).toBeLessThan(10_000); // scalded
+    expect(p.statuses?.some((s) => s.kind === "burn")).toBe(true);
+    expect(slag.stagger).toBeGreaterThan(0.5); // helpless — unload
+    expect(slag.heat).toBe(0);
+  });
+
+  it("melee swings build heat toward the vent", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const slag = mkMon(g, {
+      kind: "slagbreaker", pos: { x: p.pos.x + 0.9, y: p.pos.y },
+      damage: 5, attackRange: 1.2, heat: 0,
+    });
+    run(g, 3); // enough for at least one full swing cycle
+    expect(slag.heat ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe("IRONWORKS: wind-up battalion", () => {
+  it("a full squad presents muskets together — synced windups", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const squadId = 9999;
+    const troops = [0, 1, 2, 3].map((i) =>
+      mkMon(g, {
+        kind: "toysoldier", pos: { x: p.pos.x + 4 + (i % 2), y: p.pos.y + (i - 1.5) },
+        damage: 10, attackRange: 6, speed: 0, squadId,
+      }));
+    let synced = false;
+    for (let t = 0; t < 3 && !synced; t += DT) {
+      step(g, idle(), DT);
+      synced = troops.every((s) => s.windup > 0);
+    }
+    expect(synced).toBe(true); // the whole line wound up in the same instant
+  });
+
+  it("a broken squad (under sync minimum) fires ragged, not synced", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const squadId = 9998;
+    const a = mkMon(g, { kind: "toysoldier", pos: { x: p.pos.x + 4, y: p.pos.y }, damage: 10, attackRange: 6, speed: 0, squadId });
+    const b = mkMon(g, { kind: "toysoldier", pos: { x: p.pos.x + 4, y: p.pos.y + 1 }, damage: 10, attackRange: 6, speed: 0, squadId });
+    run(g, 2);
+    // They still shoot (individually), just never as a squad announcement.
+    expect((a.windup > 0 || a.shootCd > 0) || (b.windup > 0 || b.shootCd > 0)).toBe(true);
+  });
+});
+
+describe("IRONWORKS: greeter", () => {
+  it("discharges spark blasts on death", () => {
+    const g = stage();
+    const p = g.players[0];
+    const bot = mkMon(g, { kind: "greeter", pos: { x: p.pos.x + 3, y: p.pos.y }, damage: 20 });
+    bot.hp = 0;
+    run(g, 0.1);
+    const sparks = g.hazards.filter((h) => h.kind === "blast");
+    expect(sparks.length).toBe(CONFIG.greeterSparkCount);
+  });
+});
+
+describe("IRONWORKS: band gating", () => {
+  it("no machines above the Ironworks; the shift clocks in at 13", () => {
+    const IRON = new Set(["lineworker", "sentinel", "slagbreaker", "toysoldier", "greeter"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g11 = createTestGame({ seed, floor: 11 });
+      expect(g11.monsters.some((m) => IRON.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g14 = createTestGame({ seed, floor: 14 });
+      seen = g14.monsters.some((m) => IRON.has(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+
+  it("toy soldiers always muster with a squadId; greeters spawn dormant", () => {
+    let squads = 0, greeters = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = createTestGame({ seed, floor: 14 });
+      for (const m of g.monsters) {
+        if (m.kind === "toysoldier") { expect(m.squadId).toBeDefined(); squads++; }
+        if (m.kind === "greeter") { expect(m.dormant).toBe(true); greeters++; }
+      }
+    }
+    expect(squads).toBeGreaterThan(0);
+    expect(greeters).toBeGreaterThan(0);
+  });
+});
+
+describe("GARDEN: vine lasher hook", () => {
+  it("drags a snagged player down the lane to the lasher's feet", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const lasher = mkMon(g, {
+      kind: "lasher", pos: { x: p.pos.x + 4.5, y: p.pos.y }, damage: 10, attackRange: 4,
+    });
+    lasher.chargeDir = { x: -1, y: 0 }; // lane locked straight at the player
+    lasher.windup = lasher.windupTotal = 0.05;
+    lasher.windupKind = "hook";
+    const before = dist(p.pos, lasher.pos);
+    run(g, 1.0); // resolve + the drag plays out through knockback
+    const after = dist(p.pos, lasher.pos);
+    expect(after).toBeLessThan(before - 1.5); // hauled most of the way in
+    expect(after).toBeLessThan(CONFIG.lasherHookLandGap + 1.2);
+  });
+
+  it("misses a player who sidestepped the lane", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const lasher = mkMon(g, {
+      kind: "lasher", pos: { x: p.pos.x + 4.5, y: p.pos.y + 3 }, damage: 10, attackRange: 4,
+    });
+    lasher.chargeDir = { x: -1, y: 0 }; // lane goes PAST the player, 3 tiles off
+    lasher.windup = lasher.windupTotal = 0.05;
+    lasher.windupKind = "hook";
+    const hpBefore = p.hp;
+    run(g, 0.5);
+    expect(p.hp).toBe(hpBefore);
+    expect(p.knock).toBeUndefined();
+  });
+});
+
+describe("GARDEN: understudy transformation", () => {
+  it("morphs into a fresh charger when bled below half", () => {
+    const g = stage();
+    const p = g.players[0];
+    const extra = mkMon(g, {
+      kind: "understudy", pos: { x: p.pos.x + 6, y: p.pos.y },
+      hp: 100, maxHp: 100, damage: 6, speed: 0,
+    });
+    extra.hp = 40; // below the morph threshold
+    run(g, 0.2);
+    expect(extra.windupKind).toBe("morph"); // the clause triggers
+    run(g, CONFIG.morphWindup + 0.3);
+    expect(extra.kind).toBe("charger"); // the wolf takes the role
+    expect(extra.hp).toBe(extra.maxHp); // and arrives FRESH
+    expect(extra.maxHp).toBeGreaterThan(100); // charger pool > understudy pool
+  });
+
+  it("staggering the morph delays it (the interrupt is real)", () => {
+    const g = stage();
+    const p = g.players[0];
+    const extra = mkMon(g, {
+      kind: "understudy", pos: { x: p.pos.x + 6, y: p.pos.y },
+      hp: 40, maxHp: 100, damage: 6, speed: 0,
+    });
+    run(g, 0.2);
+    expect(extra.windupKind).toBe("morph");
+    extra.stagger = CONFIG.staggerDuration; // poise break mid-clause
+    extra.windup = 0;
+    extra.windupKind = undefined;
+    step(g, idle(), DT);
+    expect(extra.kind).toBe("understudy"); // still the extra, for now
+  });
+});
+
+describe("GARDEN: briar witch hex", () => {
+  it("marks a crawler; marked crawlers take amplified damage", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const witch = mkMon(g, {
+      kind: "hexer", pos: { x: p.pos.x + 4, y: p.pos.y }, damage: 0, attackRange: 5.5, speed: 0,
+    });
+    run(g, 2.5); // cast + resolve
+    expect(p.cursedT ?? 0).toBeGreaterThan(0);
+    expect(witch.hp).toBe(100); // she never attacks directly
+    // Amplification: same flat hit, cursed vs not (deterministic, no roll).
+    const hpA = p.hp;
+    damagePlayerHit(g, p, 100, { roll: false });
+    const cursedHit = hpA - p.hp;
+    p.cursedT = 0;
+    const hpB = p.hp;
+    damagePlayerHit(g, p, 100, { roll: false });
+    const plainHit = hpB - p.hp;
+    expect(cursedHit).toBeGreaterThan(plainHit);
+    expect(cursedHit / plainHit).toBeCloseTo(1 + CONFIG.hexVulnerability, 1);
+  });
+});
+
+describe("GARDEN: band gating", () => {
+  it("no garden cast above floor 7; present by floor 8", () => {
+    const GARDEN = new Set(["lasher", "understudy", "hexer"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g6 = createTestGame({ seed, floor: 6 });
+      expect(g6.monsters.some((m) => GARDEN.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g8 = createTestGame({ seed, floor: 8 });
+      seen = g8.monsters.some((m) => GARDEN.has(m.kind));
+    }
+    expect(seen).toBe(true);
   });
 });

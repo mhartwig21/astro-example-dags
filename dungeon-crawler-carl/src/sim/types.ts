@@ -37,6 +37,9 @@ export interface Player {
   // direction, consumed at knockbackSpeed through moveWithCollision (walls
   // stop it). Set via applyPlayerKnockback; big slams shove.
   knock?: { dir: Vec2; left: number };
+  // The Briar Witch's mark (curse verb): seconds of +hexVulnerability damage
+  // taken remaining. The pack suddenly cares about the marked crawler.
+  cursedT?: number;
   // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
   // (only ticking while below max), so dashes can be woven into offense.
   dashCharges: number;
@@ -183,7 +186,18 @@ export type MonsterKind =
   | "broodmother"
   // SEWERS specialists (MOB-CONCEPTS.md): the Drum Sergeant frenzies its pack
   // (kill-order lesson); the Repo Rat is a fleeing loot-goblin (chase lesson).
-  | "drummer" | "filcher";
+  | "drummer" | "filcher"
+  // IRONWORKS specialists (floors 13-15): the machine learns your timing.
+  // lineworker: piston punch that LAUNCHES you. sentinel: lock-on tracking
+  // beam (juke at the click, not before). slagbreaker: three swings then a
+  // forced scalding vent + self-stagger (count, dodge, punish). toysoldier:
+  // squads that volley AS ONE. greeter: dormant among the props, sparks on death.
+  | "lineworker" | "sentinel" | "slagbreaker" | "toysoldier" | "greeter"
+  // GARDEN specialists (floors 7+): the floor fights back. lasher: whip-HOOK
+  // along a lane that DRAGS you to it. understudy: a weak shuffler that
+  // TRANSFORMS into a full charger at half HP (stagger the morph or burst it).
+  // hexer: curses a crawler with a vulnerability mark the pack exploits.
+  | "lasher" | "understudy" | "hexer";
 
 export interface Monster {
   id: number;
@@ -206,9 +220,17 @@ export interface Monster {
   windupTotal: number; // full length of the pending windup (render progress)
   // "slam": self-centered ground AoE (brute's signature hit, also a boss ability).
   // "ritual": boss-tier-3 channelled cast — the game's one real interrupt-or-hurt stake.
-  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"; // what resolves when windup expires
+  // "punch": lineworker melee that also LAUNCHES the target (knockback verb).
+  // "aim": sentinel's lock-on — the beam hazard does the damage; the windup
+  // just holds the aiming pose. "vent": slagbreaker's forced heat dump.
+  // "hook": lasher whip along the chargeDir lane — hits get DRAGGED in.
+  // "morph": understudy transformation (interruptible; it becomes a charger).
+  // "hex": the Briar Witch's vulnerability curse on the nearest crawler.
+  windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
+    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex"; // what resolves when windup expires
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
+  // (The lasher's hook also locks its lane here — one dir field, two verbs.)
   chargeDir?: Vec2;
   chargeT?: number; // seconds of rush remaining
   chargeHits?: number[]; // player ids already hit by this charge
@@ -274,6 +296,11 @@ export interface Monster {
   fleeT?: number; // seconds spent safely away from every crawler (escape timer)
   escaped?: boolean; // reap as an escape, not a kill (no XP, no corpse, no loot)
   noticed?: boolean; // the "a rat!" event already fired
+  // Slagbreaker: swings landed since the last vent (3 forces the heat dump).
+  heat?: number;
+  // Wind-Up Battalion: members sharing a squadId hold their musket windups
+  // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
+  squadId?: number;
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
@@ -529,6 +556,10 @@ export interface Hazard {
   // fires ONCE (piercing — the whole segment hits), then fades out.
   end?: Vec2;
   fired?: boolean;
+  // Lock-on beams (the sentinel): while arming, `end` TRACKS this player —
+  // lagging their movement — until beamLockSeconds before the shot, when the
+  // line freezes. Juke at the click, not before.
+  trackId?: number;
 }
 
 // A party ping: a crawler marks a spot for the team ("loot here", "danger",

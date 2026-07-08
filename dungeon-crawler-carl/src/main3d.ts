@@ -415,8 +415,30 @@ const hypeTick = document.getElementById("hype-tick") as HTMLElement;
 hypeTick.style.left = `${(CONFIG.show.frenzyEnter / CONFIG.show.hypeMax) * 100}%`;
 const draftEl = document.getElementById("draft")!;
 const draftCards = document.getElementById("draft-cards")!;
+const draftBadge = document.getElementById("draft-badge")!;
+// Claim-when-ready draft flow: level-up drafts BANK behind the badge instead
+// of hijacking the screen mid-fight (in multiplayer the world can't pause;
+// in solo it now pauses only while the modal is actually OPEN). Reward drafts
+// still auto-open — they fire in safe contexts (the descent entrance room, a
+// shrine you chose to touch), and so does anything pending in a safe room.
+let draftChain = false; // player is actively claiming: queued drafts flow without re-prompting
+let draftIdleSec = 0; // how long picks have sat unclaimed (drives the one nag)
+let draftNagged = false; // the System reminds exactly once per run
+let prevRewardN = 0;
+let prevUpgradeN = 0;
+let prevInSafe = false;
 let shownSponsors = 0;
 let shownViewers = 0;
+
+function openDraftModal(): void {
+  renderDraft(state);
+  draftEl.style.display = "flex";
+}
+
+function dismissDraftModal(): void {
+  draftEl.style.display = "none";
+  draftChain = false;
+}
 
 function bump(el: HTMLElement): void {
   const chip = el.closest(".stat") as HTMLElement | null;
@@ -590,12 +612,22 @@ function chooseDraft(idx: number): void {
     persistRun(state);
   }
   draftEl.style.display = "none";
+  draftChain = true; // mid-claim: any queued draft opens right behind this one
 }
 
 draftCards.addEventListener("click", (e) => {
   const card = (e.target as HTMLElement).closest(".reward") as HTMLElement | null;
   if (!card || card.dataset.idx === undefined) return;
   chooseDraft(Number(card.dataset.idx));
+});
+
+// Clicking the banked-draft badge claims, same as the key.
+draftBadge.addEventListener("click", () => {
+  const p = me(state);
+  if (p.pendingRewards.length > 0 || p.pendingUpgrades.length > 0) {
+    draftChain = true;
+    openDraftModal();
+  }
 });
 
 // Number keys pick an offer while the draft is up. Capture phase + stop so the
@@ -1078,7 +1110,8 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (k === "escape") {
-    if (invOpen) toggleInventory();
+    if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
+    else if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
     else if (sheetOpen) toggleSheet();
     else if (kbOpen) toggleKeybinds();
@@ -1090,6 +1123,13 @@ input.onAction = (a) => {
   else if (a === "abilities") toggleAbilities();
   else if (a === "character") toggleSheet();
   else if (a === "keybinds") toggleKeybinds();
+  else if (a === "draft") {
+    if (draftEl.style.display === "flex") dismissDraftModal(); // toggle off = dismiss
+    else if (me(state).pendingRewards.length > 0 || me(state).pendingUpgrades.length > 0) {
+      draftChain = true;
+      openDraftModal();
+    }
+  }
   else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
 };
 applyBindings();
@@ -2178,13 +2218,39 @@ async function main(): Promise<void> {
       }
     }
 
-    const draftPending = me(state).pendingRewards.length > 0 || me(state).pendingUpgrades.length > 0;
-    if (draftEl.style.display !== "flex" && draftPending) {
-      renderDraft(state);
-      draftEl.style.display = "flex";
-    }
-    if (draftEl.style.display === "flex" && !draftPending) draftEl.style.display = "none";
+    // Claim-when-ready draft flow. Edge-triggered so an Esc dismissal sticks:
+    // reward drafts (sponsor/shrine/revision) auto-open — they fire in safe
+    // contexts; level-up drafts auto-open only in a safe room or while the
+    // player is mid-claim (draftChain); otherwise they bank behind the badge.
+    const lp = me(state);
+    const rewardN = lp.pendingRewards.length;
+    const upgradeN = lp.pendingUpgrades.length;
+    const draftPending = rewardN > 0 || upgradeN > 0;
     const inSafeRoom = state.safeRoom !== null;
+    const inSafe = inSafeRoom || !!lp.safeRoom;
+    if (rewardN > prevRewardN) { draftChain = true; openDraftModal(); }
+    else if (upgradeN > 0 && prevUpgradeN === 0 && (inSafe || draftChain)) openDraftModal();
+    else if (inSafe && !prevInSafe && draftPending) { draftChain = true; openDraftModal(); }
+    prevRewardN = rewardN;
+    prevUpgradeN = upgradeN;
+    prevInSafe = inSafe;
+    if (draftEl.style.display === "flex" && !draftPending) draftEl.style.display = "none";
+    if (!draftPending) draftChain = false;
+    // The badge: something is banked and the modal is closed → pulse the claim key.
+    if (draftPending && draftEl.style.display !== "flex") {
+      // Count DRAFTS, not cards: one open pick per pending set + the owed queue.
+      const banked = (rewardN > 0 ? 1 : 0) + (upgradeN > 0 ? 1 : 0) + lp.upgradeDraftsOwed;
+      draftBadge.style.display = "flex";
+      draftBadge.innerHTML = `◆ DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
+      draftIdleSec += dt;
+      if (draftIdleSec > 45 && !draftNagged) {
+        draftNagged = true; // once per run: banked power is still YOUR power to claim
+        showAnnouncement({ text: "NOTICE: you have unclaimed evolutions. They do not accrue interest.", kind: "levelup", priority: "normal" });
+      }
+    } else {
+      draftBadge.style.display = "none";
+      draftIdleSec = 0;
+    }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
       srTab = "shop"; // every safe room opens on today's shelf
       shopView = "stock";
@@ -2195,9 +2261,11 @@ async function main(): Promise<void> {
     if (srEl.style.display === "flex" && !inSafeRoom) srEl.style.display = "none";
 
     if (!net) {
-      // Local sim. Panels/drafts/safe room pause it (a host UX choice — the
-      // networked world never pauses for drafts); drop accumulated time.
-      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftPending || inSafeRoom) acc = 0;
+      // Local sim. Panels, an OPEN draft modal, and the safe room pause it (a
+      // host UX choice — the networked world never pauses); drop accumulated
+      // time. Banked drafts deliberately do NOT pause: the badge flow means
+      // the world keeps running until the crawler chooses their moment.
+      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom) acc = 0;
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(SIM_DT), SIM_DT);
