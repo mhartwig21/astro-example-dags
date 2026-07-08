@@ -134,6 +134,7 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   };
   // Kind-intrinsic extras (not elite rolls): the drum IS the drummer.
   if (kind === "drummer") m.aura = "frenzy";
+  if (kind === "darling") m.aura = "shield";
   if (kind === "filcher") {
     m.carry = Math.round(CONFIG.filcherGoldBase + CONFIG.filcherGoldPerFloor * floor);
     m.bleedStage = 3;
@@ -185,9 +186,19 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const slagW = iron ? floor * 0.12 : 0;
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
+  // THE APPROACH (16+): the System fields its own. (The suitguy never rolls —
+  // he only ever crawls out of a dead suitactor.)
+  const approach = floor >= CONFIG.approachFromFloor;
+  const stageW = approach ? floor * 0.25 : 0;
+  const snipW = approach ? floor * 0.2 : 0;
+  const duelW = approach ? floor * 0.25 : 0;
+  const darlW = approach ? floor * 0.12 : 0;
+  const cancW = approach ? floor * 0.1 : 0;
+  const suitW = approach ? floor * 0.18 : 0;
   const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW + broodW
     + cutW + wardW + digW + lashW + understudyW + hexW + bearW + clericW + archW + colW
-    + lineW + sentW + slagW + greetW + toyW;
+    + lineW + sentW + slagW + greetW + toyW
+    + stageW + snipW + duelW + darlW + cancW + suitW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -214,6 +225,12 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= slagW) < 0) return "slagbreaker";
   if ((r -= greetW) < 0) return "greeter";
   if ((r -= toyW) < 0) return "toysoldier";
+  if ((r -= stageW) < 0) return "stagehand";
+  if ((r -= snipW) < 0) return "sniper";
+  if ((r -= duelW) < 0) return "duelist";
+  if ((r -= darlW) < 0) return "darling";
+  if ((r -= cancW) < 0) return "canceled";
+  if ((r -= suitW) < 0) return "suitactor";
   return "brute";
 }
 
@@ -1906,6 +1923,7 @@ export function damageMonster(
     poiseMult?: number; school?: School; dir?: Vec2; knockback?: number;
     chained?: boolean; // a conduit arc — never arcs again (no chains of chains)
     effect?: StatusKind; // a DoT tick — hosts tint the number per effect
+    melee?: boolean; // a SWING (not a bolt): the duelist's flourish answers these
   } = {},
 ): void {
   // Signature Choreography: the post-swap surge window carries bonus crit.
@@ -1939,6 +1957,29 @@ export function damageMonster(
           state.events.push("The husk takes it ON THE SHIELD. Make it swing, or go around.");
         }
       }
+    }
+  }
+  // The Darling's stardust (shield-aura verb): her entourage takes half
+  // while she lives — and SHE takes half again more. The kill order is
+  // stated out loud; execution inside her entourage's screen is the exam.
+  if ((m.shieldT ?? 0) > 0) {
+    dmg = Math.max(1, Math.round(dmg * CONFIG.darlingShieldMult));
+    guarded = true; // dim numbers: the shield is doing the work
+  }
+  if (m.kind === "darling") dmg = Math.round(dmg * CONFIG.darlingTakenMult);
+  // Featured Extra's FLOURISH (riposte verb): melee into the raised blade is
+  // parried AND returned. Hold the swing — hardest lesson in the game — or
+  // answer with ranged/magic; the flourish only reads steel.
+  if (m.kind === "duelist" && (m.riposteT ?? 0) > 0 && opts.melee) {
+    dmg = Math.max(1, Math.round(dmg * CONFIG.riposteDamageTakenMult));
+    guarded = true;
+    const reflect = Math.max(1, Math.round(base * CONFIG.riposteReflectFraction));
+    if (damagePlayerHit(state, p, reflect, { dir: normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y }) })) {
+      handlePlayerDeath(state, p, `${p.name} swung into the flourish. The riposte was the whole show.`);
+    }
+    if (!m.noticed) {
+      m.noticed = true;
+      state.events.push("RIPOSTED! The Extra's flourish answers steel with steel. Wait it out, or shoot it.");
     }
   }
   // School resists (5.8 phase 3): armored shrugs physical, warded shrugs magic
@@ -2127,7 +2168,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
     const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
     damageMonster(state, p, m, dmg, {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical",
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical", melee: true,
       forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
     });
     // Echo Strike: the overcharged swing lands a second, softer hit.
@@ -2204,6 +2245,13 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   cleric: CONFIG.show.hypeCleric,
   archivist: CONFIG.show.hypeArchivist,
   colossus: CONFIG.show.hypeColossus,
+  stagehand: CONFIG.show.hypeStagehand,
+  sniper: CONFIG.show.hypeSniper,
+  duelist: CONFIG.show.hypeDuelist,
+  darling: CONFIG.show.hypeDarling,
+  canceled: CONFIG.show.hypeCanceled,
+  suitactor: CONFIG.show.hypeSuitactor,
+  suitguy: CONFIG.show.hypeSuitguy,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -2244,10 +2292,16 @@ function reapDead(state: GameState): void {
       survivors.push(m);
       continue;
     }
-    // A Repo Rat that made it out isn't a kill — it's a segment. No corpse,
-    // no XP, no loot; the payroll leaves the show with it.
+    // An escape isn't a kill — it's a segment. No corpse, no XP, no loot.
     if (m.escaped) {
-      announce(state, "show", `THE REPO RAT ESCAPES with ${m.carry ?? 0} gold of the System's petty cash. The accountants are FURIOUS. Great television.`);
+      if (m.kind === "suitguy") {
+        // The MERCY TEST: letting the guy in the suit go pays the whole
+        // party in hype. The crowd loves a spared civilian.
+        announce(state, "show", "THE SUIT ACTOR GETS AWAY. The crowd is ON ITS FEET — mercy plays HUGE in the overnights.");
+        for (const pl of state.players) if (pl.alive) addHype(state, pl, CONFIG.suitguyEscapeHype);
+      } else {
+        announce(state, "show", `THE REPO RAT ESCAPES with ${m.carry ?? 0} gold of the System's petty cash. The accountants are FURIOUS. Great television.`);
+      }
       continue;
     }
     // Every fallen regular leaves a raisable corpse (necromancer fuel).
@@ -2326,6 +2380,14 @@ function reapDead(state: GameState): void {
         damage: m.damage * CONFIG.volatileDmgMult,
       });
       announce(state, "boss", `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+    }
+    // The Suit Actor UNZIPS: a terrified extra crawls out and runs for it.
+    // Killing him is worth ~nothing; letting him reach the exit pays hype.
+    if (m.kind === "suitactor") {
+      const guy = makeMonster(state, "suitguy", { x: m.pos.x, y: m.pos.y });
+      guy.noticed = true; // he starts running IMMEDIATELY
+      spawned.push(guy);
+      announce(state, "show", "WAIT — it unzips. IT WAS A GUY IN A SUIT. He's making a run for it. Your move, Crawler.");
     }
     // Splitter elites burst into a swarm — the fight isn't over, it multiplied.
     if (m.affix === "splitter") {
@@ -3469,7 +3531,7 @@ function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   hit(state, p.pos, 0, "weapon"); // arrival flash for the juice layer
   // Sucker Punch: the arrival strike shatters poise (non-bosses arrive staggered).
   damageMonster(state, p, target, power(p, "cutto") * cp.dmgMult, {
-    dir, school: "physical", shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback,
+    dir, school: "physical", shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback, melee: true,
   });
   // REPEAT OFFENDER: finish them inside the window and the camera resets (reapDead).
   if (cp.match) p.cutMark = { monsterId: target.id, t: CONFIG.cutToMatchWindow };

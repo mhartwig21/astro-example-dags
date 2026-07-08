@@ -125,38 +125,25 @@ unarmed-punch, aiming-idle, and 2H-spin clips. Still open from the concepts:
 the Greeter's activation jingle (audio seam) and Ironworks grate/spike floor
 dressing for the punch to launch people into.
 
-### THE APPROACH (floors 16–18) — the System fields its own
+### THE APPROACH (floors 16–18) — ~~the System fields its own~~ SHIPPED 2026-07-09
 
-- **The Stagehand** (Ninja · medium · phantom++) — blinks in, two fast hits,
-  smoke-bombs OUT to a marked re-entry point (the mark is your telegraph).
-  *Counter: hold the re-entry, make it land into your nova.* Hit-and-run that
-  teaches prediction instead of reaction.
-- **The Boom Operator** (Marksman · medium · new: cross-room lane) — sniper:
-  laser-thin lane across half the arena, heavy hit, long re-aim during which
-  it relocates. The whole room becomes cover-and-angles. *Counter: use the
-  relocate window; the lane never fires twice from one spot.*
-- **The Featured Extra** (AvianSwordsman · medium · new: riposte) — duelist
-  that periodically takes a FLOURISH stance (blade up, 0.8s): melee into it
-  gets riposted (reflect + brief self-stagger). *Counter: hold the swing —
-  hardest thing to teach an ARPG player — or shoot it; flourish only answers
-  melee.*
-- **The Darling** (MagicalGirl · medium · new: aura, kill-order boss-let) —
-  the System's current favorite. Projects a stardust shield over her
-  entourage (they take −50% while she lives); she takes +50% (glass idol).
-  *Counter: the game states the kill order and dares you to execute it inside
-  her entourage's screen.*
-- **The Canceled Crawler** (Superhero · medium · player-verb elite) — a
-  former favorite, kept as security. Runs the RIVALS bot brain: dashes with
-  i-frames, bolts, novas on YOUR cooldown grammar. *Counter: everything you'd
-  do to a player — bait the dash, punish the nova recovery.* PoE's rogue
-  exiles; the mirror-match spike the endgame deserves.
-- **The Suit Actor** (Monster → MonsterCostume · medium · gag splitter) — a
-  monster that, on death, unzips: a terrified guy in a costume crawls out
-  (weak, flees, worth hype not XP; letting him go is worth MORE hype).
-  *Counter: none needed — it's a mercy test on camera.* Pure DCC.
+The finale cast shipped as sim kinds `stagehand` / `sniper` / `duelist` /
+`darling` / `canceled` / `suitactor` (+ the spawned-only `suitguy`), floor
+16+ weights. The stagehand smoke-bombs after two swings to a marked re-entry
+blast; the sniper's lane is locked at cast and it relocates before it can
+fire again; the duelist's riposte reads ONLY melee (a `melee` flag on the
+swing choke points) and holds the blade-up pose; the darling's shield aura +
+glass-idol multipliers live in damageMonster (dim numbers on sheltered
+hits); the canceled runs sidestep dashes + a nova-slam on player-ish
+cadences; and the suit actor unzips in reapDead — the fleeing suitguy pays
+the whole party hype if he escapes (killing him pays 0 hype; the crowd
+boos). Still open from the concepts: the canceled using the full RIVALS bot
+brain (today it's an idiomatic imitation, not the real intent pipeline).
 
-**Count: 24 new + 12 shipped archetypes = 36 distinct mobs**, before elite
-affixes multiply looks (most models ship 2+ alternate textures for recolors).
+**ROSTER COMPLETE: all 24 concept mobs + 12 original archetypes = 36
+distinct monster kinds are now LIVE**, before elite affixes and skins
+multiply looks. What remains from this doc is composition: elite affix
+six-pack, the pack playbook, champions, and the boss layers.
 
 ## Elite affix expansion (PoE soul, Diablo grammar)
 

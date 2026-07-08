@@ -308,6 +308,38 @@ export const CONFIG = {
   fissureRadius: 0.9,
   fissureDmgMult: 0.8, // × monster damage per eruption
 
+  // THE APPROACH cast (floors 16+) — the System fields its own.
+  approachFromFloor: 16,
+  // Stagehand: two hits, smoke out, marked re-entry. The mark IS the tell.
+  stagehandStrikes: 2, // swings before it vanishes
+  stagehandVanish: 1.4, // seconds gone (= the re-entry mark's fuse)
+  stagehandRetreat: 5, // tiles it smokes away
+  stagehandArriveDmgMult: 0.6, // × damage on the re-entry pop (dodge the mark)
+  stagehandArriveRadius: 1.0,
+  // Sniper: the lane never fires twice from one spot.
+  sniperCooldown: 6,
+  sniperArm: 1.5, // no tracking — a pure position test at extreme length
+  sniperLength: 12,
+  sniperWidth: 0.35,
+  sniperDmgMult: 2.2,
+  sniperRelocateSecs: 1.5, // it spends the first part of the cooldown moving
+  // Duelist: the flourish answers MELEE only.
+  riposteWindow: 1.0, // seconds the blade is up
+  riposteCooldown: 4,
+  riposteReflectFraction: 0.7, // of the attempted hit, returned to the attacker
+  riposteDamageTakenMult: 0.2, // the flourish also parries most of the hit
+  // Darling: the stated kill order.
+  darlingAuraRadius: 4,
+  darlingAuraLinger: 0.6,
+  darlingShieldMult: 0.5, // entourage takes half while she lives...
+  darlingTakenMult: 1.5, // ...and SHE takes half again more (glass idol)
+  // Canceled: player verbs on a monster chassis.
+  canceledDashCooldown: 3, // lateral sidestep cadence
+  canceledDashDist: 2.2,
+  canceledNovaCooldown: 6, // its slam-nova (windup "slam", brute radius)
+  // Suitguy: the mercy test — sparing him pays the whole party.
+  suitguyEscapeHype: 12,
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -668,6 +700,13 @@ export const CONFIG = {
     hypeCleric: 7, // deconsecration, live on camera
     hypeArchivist: 8, // interrupting the beam mid-sweep is a clip
     hypeColossus: 9, // felling the furniture of a dead civilization
+    hypeStagehand: 8, // catching it AT the re-entry mark is prediction on film
+    hypeSniper: 8, // closing on the lane-shooter across the room
+    hypeDuelist: 8, // out-fencing the fencer
+    hypeDarling: 10, // ending the System's favorite, live
+    hypeCanceled: 12, // the mirror match — beating a former favorite
+    hypeSuitactor: 6, // the beast was fine television
+    hypeSuitguy: 0, // killing the guy in the suit is BAD television
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -951,6 +990,24 @@ export const ARCHETYPES = {
   // Colossus (The Foundation): animate masonry, LARGE — its slam sends a
   // FISSURE travelling down a lane (fissure* knobs). Move perpendicular.
   colossus: { hpMult: 2.8, dmgMult: 1.4, speedMult: 0.55, attackRange: 1.2, xpMult: 2.3, ranged: false, windup: 0.85, poise: 0.75, mass: 3.4, radius: 0.58, resist: "physical" },
+  // THE APPROACH cast (floors 16+). Stagehand: fast, fragile hit-and-run —
+  // two swings, then it smoke-bombs to a MARKED re-entry (stagehand* knobs).
+  stagehand: { hpMult: 0.6, dmgMult: 1.2, speedMult: 1.5, attackRange: 1.0, xpMult: 1.7, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.32, resist: "magic" },
+  // Sniper: cross-room lane, heavy hit, relocates after every shot (sniper*).
+  sniper: { hpMult: 0.7, dmgMult: 2.0, speedMult: 1.0, attackRange: 10, xpMult: 1.9, ranged: true, windup: 0.4, poise: 0.25, mass: 1, radius: 0.36 },
+  // Duelist: melee fencer with a riposte FLOURISH (riposte* knobs) — melee
+  // into the flourish reflects; hold the swing or answer at range.
+  duelist: { hpMult: 1.1, dmgMult: 1.3, speedMult: 1.15, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.45, poise: 0.4, mass: 1.2, radius: 0.4 },
+  // Darling: the System's favorite — shields her entourage while SHE takes
+  // extra (darling* knobs). dmgMult is her token slap; the toys do the work.
+  darling: { hpMult: 1.0, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 2.2, ranged: false, windup: 0.5, poise: 0.3, mass: 1, radius: 0.36 },
+  // Canceled: a former favorite kept as security — player verbs (dash
+  // sidesteps, nova slams) on a monster chassis (canceled* knobs).
+  canceled: { hpMult: 1.5, dmgMult: 1.3, speedMult: 1.2, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.4, poise: 0.5, mass: 1.4, radius: 0.4 },
+  // Suit Actor: a classic beast right up until it dies and UNZIPS (reapDead
+  // spawns the suitguy). Suitguy: never fights, flees, and sparing him pays.
+  suitactor: { hpMult: 1.3, dmgMult: 1.1, speedMult: 1.0, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.2, radius: 0.42 },
+  suitguy: { hpMult: 0.25, dmgMult: 0, speedMult: 1.3, attackRange: 1.0, xpMult: 0.2, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.3 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
