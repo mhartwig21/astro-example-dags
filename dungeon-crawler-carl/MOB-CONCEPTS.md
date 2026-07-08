@@ -99,25 +99,19 @@ whip range. Bonus from the lane work: CHARGER rushes now draw their actual
 lane too, not a circle. Still open: hook targeting bias toward allies (the
 Hook Squad glue) and Briar-Witch line-of-sight interrupt.
 
-### THE RUINS (floors 10–12) — the dead civilization drills you
+### THE RUINS (floors 10–12) — ~~the dead civilization drills you~~ SHIPPED 2026-07-08
 
-- **The Shieldbearer Husk** (Paladin, helmeted variant as elite skin · medium ·
-  new: directional guard) — tower-shield zealot: near-immune from the front,
-  normal from behind. Advances in a slow phalanx step. *Counter: flank it,
-  displace it, or put a wall of your own pack-mates between you — footwork
-  as damage multiplier.*
-- **The Last Rites Cleric** (Cleric · medium · shaman++) — consecrates ground:
-  a zone that HEALS monsters and burns crawlers, contested-space chess.
-  *Counter: fight outside it, kill the cleric, or stand in it anyway and
-  race the math.*
-- **The Archivist** (Lorekeeper · medium · new: beam) — channels a sweeping
-  beam that rotates toward you with audible pace; the first monster whose
-  attack you dodge CONTINUOUSLY rather than once. *Counter: walk the sweep's
-  speed, or stagger the channel (poise) — the interrupt button finally sings.*
-- **The Foundation** (4GTN · **large** · brute++) — animate masonry. Ground-
-  slam sends a traveling CRACK down a lane (fissure hazard that erupts
-  sequentially, like flame sweep at mob scale). 4GTN_Forgotten is its ruined
-  elite skin. *Counter: perpendicular movement; the crack can't turn.*
+The whole band shipped as sim kinds `shieldbearer` / `cleric` / `archivist` /
+`colossus` (floor 10+ weights). The shieldbearer's frontal guard lives in
+damageMonster (guard drops mid-swing/stagger; guarded hits render dim like
+resists; it carries a grafted tower shield and holds the Blocking loop while
+parked). The cleric's consecration is a `consecrate` hazard zone (heals
+monsters, burns crawlers). The archivist's sweep is a rotating `beam` hazard
+bound to its caster — stagger or kill the Archivist and the beam dies
+mid-arc. The colossus fissure is a lane of staggered blast eruptions locked
+at slam commit. Paladin_with_Helmet and 4GTN_Forgotten ride the elite-skin
+seam. Still open: displacement interacting with the phalanx (knockback on
+monsters is player-ability-side today).
 
 ### THE IRONWORKS (floors 13–15) — ~~the machine learns your timing~~ SHIPPED 2026-07-08
 

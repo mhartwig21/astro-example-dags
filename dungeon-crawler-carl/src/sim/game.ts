@@ -165,6 +165,13 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
   const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
   const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
+  // THE RUINS (10+): the dead civilization drills you — walls, blessings,
+  // beams, and the furniture itself.
+  const ruins = floor >= CONFIG.ruinsFromFloor;
+  const bearW = ruins ? floor * 0.3 : 0;
+  const clericW = ruins ? floor * 0.2 : 0;
+  const archW = ruins ? floor * 0.22 : 0;
+  const colW = ruins ? floor * 0.12 : 0;
   // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
   const garden = floor >= CONFIG.gardenFromFloor;
   const lashW = garden ? floor * 0.25 : 0;
@@ -179,7 +186,8 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW + broodW
-    + cutW + wardW + digW + lashW + understudyW + hexW + lineW + sentW + slagW + greetW + toyW;
+    + cutW + wardW + digW + lashW + understudyW + hexW + bearW + clericW + archW + colW
+    + lineW + sentW + slagW + greetW + toyW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -197,6 +205,10 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= lashW) < 0) return "lasher";
   if ((r -= understudyW) < 0) return "understudy";
   if ((r -= hexW) < 0) return "hexer";
+  if ((r -= bearW) < 0) return "shieldbearer";
+  if ((r -= clericW) < 0) return "cleric";
+  if ((r -= archW) < 0) return "archivist";
+  if ((r -= colW) < 0) return "colossus";
   if ((r -= lineW) < 0) return "lineworker";
   if ((r -= sentW) < 0) return "sentinel";
   if ((r -= slagW) < 0) return "slagbreaker";
@@ -1909,6 +1921,26 @@ export function damageMonster(
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
+  // Shieldbearer's FRONTAL GUARD (directional-guard verb): while it is
+  // neither swinging nor staggered, hits from inside its facing arc (it
+  // faces its prey) are mostly eaten by the tower shield. Make it swing,
+  // stagger it, or hit it from behind — footwork as a damage multiplier.
+  let guarded = false;
+  if (m.kind === "shieldbearer" && m.windup <= 0 && m.stagger <= 0) {
+    const prey = nearestPlayer(state, m.pos);
+    if (prey) {
+      const facing = normalize({ x: prey.pos.x - m.pos.x, y: prey.pos.y - m.pos.y });
+      const toAttacker = normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y });
+      if (facing.x * toAttacker.x + facing.y * toAttacker.y > CONFIG.guardArcCos) {
+        dmg = Math.max(1, Math.round(dmg * CONFIG.guardDamageTakenMult));
+        guarded = true;
+        if (!m.noticed) {
+          m.noticed = true;
+          state.events.push("The husk takes it ON THE SHIELD. Make it swing, or go around.");
+        }
+      }
+    }
+  }
   // School resists (5.8 phase 3): armored shrugs physical, warded shrugs magic
   // — from the elite affix roll or the archetype's innate tag. The party's
   // damage MIX is the counterplay, so the reduction reads loud (dim numbers).
@@ -1959,7 +1991,8 @@ export function damageMonster(
     }
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
-    dir: opts.dir, killed: m.hp <= 0, school: opts.school, resisted: resisted || undefined,
+    dir: opts.dir, killed: m.hp <= 0, school: opts.school,
+    resisted: (resisted || guarded) || undefined, // guarded hits read dim too
     effect: opts.effect,
   });
   p.damageDealt += dmg;
@@ -2164,6 +2197,10 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   cutpurse: CONFIG.show.hypeCutpurse,
   warden: CONFIG.show.hypeWarden,
   digger: CONFIG.show.hypeDigger,
+  shieldbearer: CONFIG.show.hypeShieldbearer,
+  cleric: CONFIG.show.hypeCleric,
+  archivist: CONFIG.show.hypeArchivist,
+  colossus: CONFIG.show.hypeColossus,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -3626,9 +3663,10 @@ function updateHazards(state: GameState, dt: number): void {
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
-    if (hz.kind === "beam" && hz.end) {
+    if (hz.kind === "beam" && hz.end && hz.sweep === undefined) {
       // Beam: telegraph for `arm` seconds, fire ONCE along the whole segment
       // (piercing — cover doesn't help, sidestepping does), fade briefly.
+      // (Sweeping beams — the Archivist — are handled in their own branch.)
       if (hz.t <= 0) continue; // flash spent
       // Lock-on (the sentinel): while arming, the line TRACKS its player —
       // until the final lock window, when it freezes. Juke at the click.
@@ -3685,6 +3723,57 @@ function updateHazards(state: GameState, dt: number): void {
             if (damagePlayerHit(state, p, hz.damage)) {
               handlePlayerDeath(state, p, `${p.name} tried to swim the surge. The sludge won. Smell-o-vision regrets everything.`);
             }
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
+    if (hz.kind === "beam" && hz.sweep !== undefined && hz.end) {
+      // SWEEPING beam (the Archivist): the segment rotates around its caster,
+      // ticking anyone it crosses, for as long as the channel holds — the
+      // caster staggering or dying cuts it off instantly.
+      const src = state.monsters.find((mm) => mm.id === hz.srcId);
+      if (hz.t <= 0 || !src || src.hp <= 0 || src.stagger > 0 || src.windupKind !== "sweep") continue;
+      hz.fired = true; // renders HOT from the first frame — it is live
+      const dx = hz.end.x - hz.pos.x, dy = hz.end.y - hz.pos.y;
+      const dth = hz.sweep * dt;
+      const cos = Math.cos(dth), sin = Math.sin(dth);
+      hz.end = { x: hz.pos.x + dx * cos - dy * sin, y: hz.pos.y + dx * sin + dy * cos };
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds * 0.5; // the beam bites fast
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (distToSegment(p.pos, hz.pos, hz.end) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} read along with the Archivist. The text was a beam.`);
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
+    if (hz.kind === "consecrate") {
+      // Contested ground (the Ruins cleric): monsters standing in the light
+      // are MENDED; crawlers standing in it BURN. Fight outside it, kill the
+      // cleric, or stand in it anyway and race the math.
+      if (hz.t <= 0) continue; // the blessing fades
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds;
+        for (const mm of state.monsters) {
+          if (mm.hp <= 0 || mm.hp >= mm.maxHp) continue;
+          if (dist(hz.pos, mm.pos) > hz.radius) continue;
+          const heal = Math.min(CONFIG.consecrateHealPerTick, mm.maxHp - mm.hp);
+          mm.hp += heal;
+          hit(state, mm.pos, heal, "heal");
+        }
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} stood on holy ground uninvited. The congregation objected.`);
           }
         }
       }

@@ -278,6 +278,31 @@ export const CONFIG = {
   // Pit Digger: the launch is the lesson, not the damage.
   diggerKnockback: 1.8, // tiles — bigger than the piston, gentler hit
 
+  // RUINS cast (floors 10+) — the dead civilization drills you.
+  ruinsFromFloor: 10,
+  // Shieldbearer: the frontal guard (drops while it swings or staggers).
+  guardArcCos: 0.5, // attacker within ±60° of its facing = blocked
+  guardDamageTakenMult: 0.25, // the shield eats 75% of frontal damage
+  // Cleric consecration: contested ground.
+  consecrateDuration: 6,
+  consecrateRadius: 2.0,
+  consecrateHealPerTick: 6, // monster HP per puddle-cadence tick inside
+  consecrateDmgMult: 0.35, // × monster damage per tick to crawlers inside
+  consecrateCooldown: 9,
+  // Archivist sweep: the beam that rotates.
+  sweepDuration: 2.6, // seconds of channel (windup holds this long too)
+  sweepRate: 1.1, // radians/sec toward the target
+  sweepLength: 7, // tiles
+  sweepWidth: 0.4, // half-width
+  sweepDmgMult: 0.35, // × monster damage per tick on the line
+  sweepCooldown: 8,
+  // Colossus fissure: a crack that travels — perpendicular movement beats it.
+  fissureSteps: 5, // eruptions along the lane
+  fissureStepGap: 1.15, // tiles between eruptions
+  fissureStepDelay: 0.16, // seconds between eruptions (the travel)
+  fissureRadius: 0.9,
+  fissureDmgMult: 0.8, // × monster damage per eruption
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -634,6 +659,10 @@ export const CONFIG = {
     hypeCutpurse: 6, // getting the purse BACK (with interest) plays great
     hypeWarden: 6, // toppling the vault's furniture
     hypeDigger: 4, // the launch was the show; the kill is a footnote
+    hypeShieldbearer: 7, // cracking the phalanx from behind is choreography
+    hypeCleric: 7, // deconsecration, live on camera
+    hypeArchivist: 8, // interrupting the beam mid-sweep is a clip
+    hypeColossus: 9, // felling the furniture of a dead civilization
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -905,6 +934,18 @@ export const ARCHETYPES = {
   // Pit Digger: the knockback TUTOR — the slowest tell in the game, a gentle
   // hit, and a real launch. Three floors before knockback appears near hazards.
   digger: { hpMult: 1.1, dmgMult: 0.35, speedMult: 0.8, attackRange: 1.1, xpMult: 1.2, ranged: false, windup: 0.9, poise: 0.4, mass: 1.6, radius: 0.42 },
+  // RUINS cast (floors 10+). Shieldbearer: tower-shield zealot — near-immune
+  // from the FRONT while its guard holds; the guard drops mid-swing/stagger.
+  shieldbearer: { hpMult: 1.6, dmgMult: 1.2, speedMult: 0.7, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.6, poise: 0.6, mass: 2.4, radius: 0.45, resist: "physical" },
+  // Cleric: never attacks (dmgMult unused) — consecrates CONTESTED ground
+  // that heals monsters and burns crawlers (consecrate* knobs).
+  cleric: { hpMult: 0.9, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.7, ranged: true, windup: 0.9, poise: 0.3, mass: 1, radius: 0.38 },
+  // Archivist: standoff channeler — its SWEEPING beam (sweep* knobs) is the
+  // first attack you dodge continuously. Stagger the channel to cut it short.
+  archivist: { hpMult: 0.85, dmgMult: 1.0, speedMult: 0.8, attackRange: 6, xpMult: 1.8, ranged: true, windup: 0.5, poise: 0.25, mass: 1, radius: 0.38, resist: "magic" },
+  // Colossus (The Foundation): animate masonry, LARGE — its slam sends a
+  // FISSURE travelling down a lane (fissure* knobs). Move perpendicular.
+  colossus: { hpMult: 2.8, dmgMult: 1.4, speedMult: 0.55, attackRange: 1.2, xpMult: 2.3, ranged: false, windup: 0.85, poise: 0.75, mass: 3.4, radius: 0.58, resist: "physical" },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

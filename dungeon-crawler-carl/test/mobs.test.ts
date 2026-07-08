@@ -555,3 +555,108 @@ describe("UNDERCROFT: the contract floor stays pristine", () => {
     expect(seen).toBe(true);
   });
 });
+
+describe("RUINS: shieldbearer frontal guard", () => {
+  it("frontal hits are mostly eaten; the guard drops mid-swing", () => {
+    const g = stage();
+    const p = g.players[0];
+    const husk = mkMon(g, {
+      kind: "shieldbearer", pos: { x: p.pos.x + 2, y: p.pos.y },
+      hp: 1000, maxHp: 1000, damage: 10, attackRange: 1.1,
+    });
+    // Frontal (it faces the nearest player = the attacker): guarded.
+    damageMonster(g, p, husk, 100, { allowCrit: false });
+    const guardedDmg = 1000 - husk.hp;
+    // Mid-swing the shield drops: same hit, full price.
+    husk.hp = 1000;
+    husk.windup = husk.windupTotal = 0.5;
+    husk.windupKind = "melee";
+    damageMonster(g, p, husk, 100, { allowCrit: false });
+    const openDmg = 1000 - husk.hp;
+    expect(guardedDmg).toBeLessThan(openDmg * 0.5); // the shield is REAL
+  });
+});
+
+describe("RUINS: cleric consecration", () => {
+  it("the zone heals wounded monsters and burns crawlers standing in it", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const wounded = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 1, y: p.pos.y }, hp: 50, maxHp: 200, speed: 0, attackCooldown: 99,
+    });
+    g.hazards.push({
+      id: g.nextEntityId++,
+      pos: { x: p.pos.x, y: p.pos.y },
+      t: 4, total: 4, radius: CONFIG.consecrateRadius, damage: 8,
+      kind: "consecrate", tick: 0.1,
+    });
+    run(g, 2);
+    expect(wounded.hp).toBeGreaterThan(50); // mended by the light
+    expect(p.hp).toBeLessThan(10_000); // burned by the same light
+  });
+});
+
+describe("RUINS: archivist sweep", () => {
+  it("the beam rotates while the channel holds and dies with a stagger", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const arch = mkMon(g, {
+      kind: "archivist", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 300, maxHp: 300, damage: 20, attackRange: 6, speed: 0,
+    });
+    run(g, 1.0); // it should commit the channel and spawn the sweep
+    const beam = g.hazards.find((h) => h.kind === "beam" && h.sweep !== undefined);
+    expect(beam).toBeDefined();
+    expect(arch.windupKind).toBe("sweep");
+    const angle0 = Math.atan2(beam!.end!.y - beam!.pos.y, beam!.end!.x - beam!.pos.x);
+    run(g, 0.5);
+    const angle1 = Math.atan2(beam!.end!.y - beam!.pos.y, beam!.end!.x - beam!.pos.x);
+    expect(Math.abs(angle1 - angle0)).toBeGreaterThan(0.2); // it SWEEPS
+    // Stagger the channel: the beam dies with it.
+    arch.stagger = CONFIG.staggerDuration;
+    arch.windup = 0;
+    arch.windupKind = undefined;
+    run(g, 0.2);
+    expect(g.hazards.some((h) => h.kind === "beam" && h.sweep !== undefined)).toBe(false);
+  });
+});
+
+describe("RUINS: colossus fissure", () => {
+  it("the slam sends staggered eruptions travelling down the lane", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const col = mkMon(g, {
+      kind: "colossus", pos: { x: p.pos.x + 1, y: p.pos.y },
+      hp: 1000, maxHp: 1000, damage: 20, attackRange: 1.2,
+    });
+    col.chargeDir = { x: 1, y: 0 };
+    col.windup = col.windupTotal = 0.05;
+    col.windupKind = "slam";
+    run(g, 0.1);
+    const blasts = g.hazards.filter((h) => (h.kind ?? "blast") === "blast");
+    expect(blasts.length).toBeGreaterThanOrEqual(CONFIG.fissureSteps);
+    // The eruptions are STAGGERED (travel) and laid out along +x.
+    const fuses = blasts.map((b) => b.t).sort((a, b) => a - b);
+    expect(fuses[fuses.length - 1]).toBeGreaterThan(fuses[0]);
+    expect(Math.max(...blasts.map((b) => b.pos.x))).toBeGreaterThan(col.pos.x + 3);
+  });
+});
+
+describe("RUINS: band gating", () => {
+  it("nothing from the Ruins above floor 10; present by floor 11", () => {
+    const RUINS = new Set(["shieldbearer", "cleric", "archivist", "colossus"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g9 = createTestGame({ seed, floor: 8 });
+      expect(g9.monsters.some((m) => RUINS.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g11 = createTestGame({ seed, floor: 11 });
+      seen = g11.monsters.some((m) => RUINS.has(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});

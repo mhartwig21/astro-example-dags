@@ -55,6 +55,8 @@ const WINDUP_CLIP: Record<string, string> = {
   lunge: "melee_d", // cutpurse: the 1H stab IS a lunge
   heal: "cast_raise", // shaman channel — arms up, interrupt the medic
   summon: "cast_raise", // summoner elite / broodmother calling the add down
+  consecrate: "cast_summon", // ruins cleric: call the light down
+  sweep: "cast_long", // archivist: the channel holds while the beam sweeps
 };
 
 // Elite affix body glow. The affix is gameplay-critical (warded vs armored
@@ -357,6 +359,7 @@ export class Renderer3D {
       cast_long: pick(/Spellcast_Long/i, /Spellcasting/i, /Ranged_Magic_Shooting/i), // overcharge: banking power
       cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i, /Ranged_Magic_Raise/i), // ultimates: call it down
       block: pick(/^Block$/i, /^Blocking$/i, /^Melee_Block$/i, /^Melee_Blocking$/i), // stance-swap flourish
+      blocking: pick(/^Melee_Blocking$/i, /^Blocking$/i), // shieldbearer's held guard (looping)
       block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield (both gens contain this)
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
       throw: pick(/^Throw$/i), // melee-class sidearm bolt
@@ -390,7 +393,7 @@ export class Renderer3D {
     const LOOPING = new Set([
       "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
-      "sneak",
+      "sneak", "blocking",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
@@ -781,6 +784,12 @@ export class Renderer3D {
       const drum = this.showAttachment(g, "orc_wardrum", "*", "l");
       if (drum) drum.scale.setScalar(0.8);
       this.showAttachment(g, "orc_wardrum_stick", "*", "r");
+    }
+    // The Shieldbearer carries an actual tower shield + blade (player armory
+    // grafts) — the frontal guard has to LOOK like a wall.
+    if (model && kind === "shieldbearer") {
+      this.showAttachment(g, "player", "Rectangle_Shield", "l");
+      this.showAttachment(g, "weapon_sword_a", "*", "r");
     }
     // The Repo Rat carries the goods (Resource Bits pile, off hand); shown
     // only while mon.carry > 0 — the per-frame toggle lives in the update loop.
@@ -1911,8 +1920,12 @@ export class Renderer3D {
               if (mon.kind === "filcher" && !mon.noticed && hasClipM("sneak")) playM("sneak");
               else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
-              // A parked Drum Sergeant performs: it beats the wardrum.
-              playM(mon.kind === "drummer" && hasClipM("drum") ? "drum" : "idle");
+              // A parked Drum Sergeant performs; a parked Shieldbearer holds
+              // the wall behind its tower shield (the guard READS).
+              playM(
+                mon.kind === "drummer" && hasClipM("drum") ? "drum" :
+                mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" : "idle",
+              );
             }
           }
         }
@@ -2141,7 +2154,8 @@ export class Renderer3D {
         strip.visible = inVision({ x: mx, y: my });
         continue;
       }
-      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards";
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards"
+        || hz.kind === "consecrate";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
@@ -2151,6 +2165,7 @@ export class Renderer3D {
               hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
               hz.kind === "roots" ? 0x2e8b57 : // grasping green
               hz.kind === "shards" ? 0xb8b0a0 : // ossuary debris: pale bone scatter
+              hz.kind === "consecrate" ? 0xe8c96a : // holy ground: theirs, not yours
               pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),

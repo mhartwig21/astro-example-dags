@@ -64,6 +64,10 @@ export const THEME = {
     cutpurse: { color: 0xcfd45d, scale: 0.85 }, // coin-glint yellow: guard the purse
     warden: { color: 0xd8d0c0, scale: 1.5 }, // ossuary bone: the vault furniture
     digger: { color: 0xb08968, scale: 1.15 }, // pit-clay brown: respect the club
+    shieldbearer: { color: 0xc0c8d8, scale: 1.15 }, // temple steel: go around
+    cleric: { color: 0xe8c96a, scale: 1.0 }, // consecration gold: kill it first
+    archivist: { color: 0x6a8fd8, scale: 1.0 }, // manuscript blue: shut the book
+    colossus: { color: 0x9a948a, scale: 1.55 }, // masonry grey: the furniture fights
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

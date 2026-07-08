@@ -202,7 +202,13 @@ export type MonsterKind =
   // down a short lane and STEALS gold (killing it refunds with interest).
   // warden: a slow bone golem whose slam leaves a shard zone. digger: a huge
   // club tell that LAUNCHES you gently — knockback in training dosage.
-  | "cutpurse" | "warden" | "digger";
+  | "cutpurse" | "warden" | "digger"
+  // RUINS cast (floors 10+): the dead civilization drills you. shieldbearer:
+  // near-immune from the FRONT while its guard holds (make it swing, or go
+  // around). cleric: consecrates ground that heals monsters and burns you.
+  // archivist: channels a SWEEPING beam — dodge continuously or stagger it.
+  // colossus: its slam sends a fissure travelling down a lane.
+  | "shieldbearer" | "cleric" | "archivist" | "colossus";
 
 export interface Monster {
   id: number;
@@ -232,9 +238,11 @@ export interface Monster {
   // "morph": understudy transformation (interruptible; it becomes a charger).
   // "hex": the Briar Witch's vulnerability curse on the nearest crawler.
   // "lunge": cutpurse dash-stab down the chargeDir lane; a hit STEALS gold.
+  // "consecrate": cleric ground-blessing (heals monsters, burns crawlers).
+  // "sweep": archivist beam channel — the hazard rotates while this holds.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
     | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
-    | "heal" | "summon"; // what resolves when windup expires
+    | "heal" | "summon" | "consecrate" | "sweep"; // what resolves when windup expires
   healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
@@ -306,6 +314,8 @@ export interface Monster {
   noticed?: boolean; // the "a rat!" event already fired
   // Slagbreaker: swings landed since the last vent (3 forces the heat dump).
   heat?: number;
+  // Ruins cleric: where the committed consecration will land (locked at cast).
+  consecrateAt?: Vec2;
   // Wind-Up Battalion: members sharing a squadId hold their musket windups
   // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
   squadId?: number;
@@ -558,7 +568,9 @@ export interface Hazard {
   damage: number; // blast: the hit; puddle/sludge: damage per tick
   // "shards": the Ossuary Warden's slam debris — a lingering ticking zone
   // like a puddle, but bone-physical (no poison soak).
-  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards"; // absent = blast (older saves/snapshots)
+  // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
+  // standing in it and burns crawlers (contested ground).
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as
@@ -570,6 +582,11 @@ export interface Hazard {
   // lagging their movement — until beamLockSeconds before the shot, when the
   // line freezes. Juke at the click, not before.
   trackId?: number;
+  // Sweeping beams (the Archivist): the segment ROTATES around `pos` at this
+  // rate (radians/sec), ticking anyone it crosses, for as long as the caster
+  // (`srcId`) keeps channeling — stagger or kill the caster and it dies.
+  sweep?: number;
+  srcId?: number;
 }
 
 // A party ping: a crawler marks a spot for the team ("loot here", "danger",
