@@ -130,6 +130,7 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
     windupTotal: 0,
     stagger: 0,
     poiseDmg: 0,
+    staggerGraceT: 0,
     hitFlash: 0,
   };
   // Kind-intrinsic extras (not elite rolls): the drum IS the drummer.
@@ -1891,11 +1892,24 @@ export function damageMonster(
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
-    m.poiseDmg += dmg * (opts.poiseMult ?? 1); // heavy weapons stagger harder
+    // Interrupts are EARNED, not free: poise drains over time (stepMonster),
+    // and a freshly-staggered boss/elite keeps its composure for a grace
+    // window where poise doesn't build at all — raw DPS can't stun-lock a
+    // headliner. The advertised exception: an interruptible CHANNEL (Dark
+    // Ritual) always listens, and poise counts double while it runs.
+    const channeling = m.windupKind === "ritual";
+    const graced = (m.staggerGraceT ?? 0) > 0 && !channeling;
+    if (!graced) {
+      m.poiseDmg += dmg * (opts.poiseMult ?? 1) * (channeling ? CONFIG.channelPoiseTakenMult : 1);
+    }
     // SYSTEM SHOCK (overcharge capstone): the hit itself is a poise break.
-    if ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult) {
+    if (!graced && ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult)) {
       m.poiseDmg = 0;
       m.stagger = CONFIG.staggerDuration;
+      if (m.kind === "boss" || m.elite) {
+        m.staggerGraceT = m.kind === "boss" ? CONFIG.bossStaggerGrace : CONFIG.eliteStaggerGrace;
+        if (m.kind === "boss") systemTip(state, p, "staggerGrace");
+      }
       systemTip(state, p, "stagger");
       m.windup = 0; // interrupted — the committed attack never lands
       m.windupKind = undefined;

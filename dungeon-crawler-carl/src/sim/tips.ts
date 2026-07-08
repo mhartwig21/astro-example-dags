@@ -16,7 +16,9 @@ export const TIPS: Record<string, string> = {
   favorites:
     "COURTESY EXPLANATION: the crowd has FAVORITES now — fans who keep watching after the excitement fades. They accumulate while your hype runs hot. They are the ones sponsors count.",
   stagger:
-    "COURTESY EXPLANATION: you STAGGERED it. Damage builds hidden POISE; enough poise interrupts whatever it was doing. Heavier creatures have more poise. This was not designed to be fair.",
+    "COURTESY EXPLANATION: you STAGGERED it. Damage builds hidden POISE; enough poise interrupts whatever it was doing. Poise fades fast, so interrupts take a BURST. Heavier creatures have more poise. This was not designed to be fair.",
+  staggerGrace:
+    "COURTESY EXPLANATION: headliners are professionals. After a stagger, this one keeps its COMPOSURE for a few seconds — poise will not build again until the window passes. Reruns bore the audience.",
   bolt:
     "COURTESY EXPLANATION: your BOLT is thrown by your WEAPON. Crossbows loose physical bolts; wands and staffs cast magic ones. Same button, different physics, different resists.",
   extradition:

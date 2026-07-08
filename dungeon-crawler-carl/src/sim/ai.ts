@@ -248,6 +248,14 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - dt);
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
+  // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
+  // an interrupt takes a concentrated burst — chip damage banks nothing. The
+  // post-stagger grace window on bosses/elites ticks down here too.
+  if (m.poiseDmg > 0) {
+    const threshold = m.maxHp * ARCHETYPES[m.kind].poise * (m.elite ? CONFIG.elitePoiseMult : 1);
+    m.poiseDmg = Math.max(0, m.poiseDmg - threshold * CONFIG.poiseDecayPerSec * dt);
+  }
+  if ((m.staggerGraceT ?? 0) > 0) m.staggerGraceT = Math.max(0, (m.staggerGraceT ?? 0) - dt);
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
   // AMBUSH: a dormant monster lies inert until a player strays within trigger

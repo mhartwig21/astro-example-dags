@@ -4724,3 +4724,77 @@ describe("first-contact System tips", () => {
     expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("COURTESY EXPLANATION"))).toBe(true);
   });
 });
+
+describe("boss poise: interrupts are earned (decay + stagger grace)", () => {
+  /** A fabricated arena: the crawler and one named menace, out of swing range. */
+  function bossGame(seed: number, over: Partial<import("../src/sim/types").Monster> = {}) {
+    const g = createGame(seed);
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const m = mkMon({
+      id: 1, kind: "boss", hp: 10000, maxHp: 10000, attackCooldown: 99,
+      pos: { x: g.players[0].pos.x + 15, y: g.players[0].pos.y },
+      introduced: true, ...over,
+    });
+    g.monsters.push(m);
+    return { g, p: g.players[0], m };
+  }
+
+  it("a real burst still staggers a boss and cancels the committed swing", () => {
+    const { g, p, m } = bossGame(4101);
+    m.windup = 0.5;
+    m.windupKind = "slam";
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 }); // well past the 5000 threshold
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(m.windup).toBe(0);
+    expect(m.windupKind).toBeUndefined();
+  });
+
+  it("the grace window denies the encore: no poise builds, no second stagger", () => {
+    const { g, p, m } = bossGame(4102);
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 });
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(m.staggerGraceT).toBe(CONFIG.bossStaggerGrace);
+    m.stagger = 0; // the helpless beat ticks out...
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 }); // ...and the same burst repeats
+    expect(m.stagger).toBe(0); // composure holds
+    expect(m.poiseDmg).toBe(0); // nothing banks during the window either
+  });
+
+  it("poise DRAINS: chip damage never banks a free interrupt", () => {
+    const { g, m } = bossGame(4103);
+    m.poiseDmg = m.maxHp * 0.5 * 0.9; // one hit shy of the threshold
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 60); // four idle seconds
+    expect(m.poiseDmg).toBe(0); // the bank is gone
+    expect(m.stagger).toBe(0);
+  });
+
+  it("the Dark Ritual channel ignores grace and takes double poise", () => {
+    const { g, p, m } = bossGame(4104);
+    m.staggerGraceT = 5; // freshly staggered...
+    m.windup = 1.5;
+    m.windupTotal = CONFIG.ritualWindup;
+    m.windupKind = "ritual"; // ...and already channeling the big one
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 40 }); // ~4000 raw -> ~8000 channel poise
+    expect(m.stagger).toBeGreaterThan(0); // the advertised interrupt still works
+    expect(m.windupKind).toBeUndefined();
+  });
+
+  it("named elites get a shorter composure window; trash gets none", () => {
+    const g = createGame(4105);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const elite = mkMon({ id: 1, hp: 2000, maxHp: 2000, elite: true, introduced: true });
+    const grunt = mkMon({ id: 2, hp: 2000, maxHp: 2000 });
+    g.monsters.push(elite, grunt);
+    damageMonster(g, p, elite, 100, { allowCrit: false, poiseMult: 100 });
+    expect(elite.stagger).toBeGreaterThan(0);
+    expect(elite.staggerGraceT).toBe(CONFIG.eliteStaggerGrace);
+    damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
+    expect(grunt.stagger).toBeGreaterThan(0);
+    expect(grunt.staggerGraceT ?? 0).toBe(0); // chaff stays flinchy
+    grunt.stagger = 0;
+    damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
+    expect(grunt.stagger).toBeGreaterThan(0); // and re-staggers immediately
+  });
+});

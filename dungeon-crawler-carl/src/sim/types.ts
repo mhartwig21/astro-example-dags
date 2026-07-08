@@ -218,8 +218,11 @@ export interface Monster {
   raiseId?: number;
   // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
   // archetype's poise threshold interrupts the windup and freezes the monster.
+  // Poise DRAINS over time (interrupts take a burst, not banked chip damage),
+  // and bosses/elites gain a post-stagger grace window (no stun-locking).
   stagger: number; // seconds of stagger remaining (helpless while > 0)
   poiseDmg: number; // damage accumulated toward the next stagger
+  staggerGraceT?: number; // seconds of post-stagger composure left (bosses/elites; optional for save compat)
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
