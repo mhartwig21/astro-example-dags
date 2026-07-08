@@ -76,9 +76,9 @@ soldiers are absolutely on-theme).
 | MonsterCostume | Mystery S4 | medium | THE SHOW twist — "it was a guy in a suit" |
 | ~~Werewolf_Man~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Understudy (morphs into the charger wolf) |
 | ~~Tiefling~~ | Mystery S5 | medium | **SHIPPED 2026-07-08** as the Briar Witch (vulnerability hex) |
-| Cleric | Mystery S6 | medium | RUINS — enemy healer (shaman variant) |
-| Paladin (+ helmeted variant) | Mystery S4 | medium | RUINS — armored zealot, shielded elite |
-| Lorekeeper | Mystery S6 | medium | RUINS — spellbook caster |
+| ~~Cleric~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Ruins Cleric (consecration zones) |
+| ~~Paladin (+ helmeted variant)~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Shieldbearer (+ elite skin) |
+| ~~Lorekeeper~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Archivist (sweeping beam) |
 | Ninja | Mystery S4 | medium | APPROACH — blink assassin (phantom variant) |
 | AvianSwordsman | Mystery S6 | medium | APPROACH — duelist |
 | Marksman | Mystery S6 | medium | APPROACH — sniper (long-range telegraph) |
@@ -92,8 +92,8 @@ soldiers are absolutely on-theme).
 | ~~ToySoldier~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Wind-Up Battalion (synced volleys) |
 | ActionFigure | Mystery S4 | medium | THE SHOW — merchandising tie-in mob |
 | Monstrosity | Mystery S6 | **custom rig** | APPROACH — horror boss (no Rig_Medium/Large nodes; verify clips before committing) |
-| 4GTN | Mystery S6 | **large** | APPROACH — golem sentinel |
-| 4GTN_Forgotten | Mystery S6 | **large** | its ruined/corrupted variant |
+| ~~4GTN~~ | Mystery S6 | **large** | **SHIPPED 2026-07-08** as the Colossus / The Foundation (travelling fissure) |
+| ~~4GTN_Forgotten~~ | Mystery S6 | **large** | **SHIPPED 2026-07-08** as the Colossus elite skin |
 | ~~Hoarder~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Repo Rat (fleeing loot-goblin) |
 | Superhero | Mystery S5 | medium | THE SHOW — fallen "former favorite" rival |
 

@@ -54,6 +54,14 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_cutpurse: "/assets/characters/skeleton_rogue.glb",
   monster_warden: "/assets/characters/skeleton_golem.glb",
   monster_digger: "/assets/characters/caveman.glb",
+  // RUINS cast (MOB-CONCEPTS.md): the dead civilization's staff — Paladin
+  // (helmeted variant = elite skin), Cleric, Lorekeeper, and the 4GTN golems.
+  monster_shieldbearer: "/assets/characters/paladin.glb",
+  monster_shieldbearer_elite: "/assets/characters/paladin_helmet.glb",
+  monster_cleric: "/assets/characters/cleric.glb",
+  monster_archivist: "/assets/characters/lorekeeper.glb",
+  monster_colossus: "/assets/characters/4gtn.glb",
+  monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -170,6 +178,12 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_cutpurse: "medium", // Skeleton_Rogue
   monster_warden: "large", // Skeleton_Golem — the big bone furniture
   monster_digger: "medium", // Caveman
+  monster_shieldbearer: "medium", // Paladin
+  monster_shieldbearer_elite: "medium", // Paladin_with_Helmet
+  monster_cleric: "medium", // Cleric
+  monster_archivist: "medium", // Lorekeeper
+  monster_colossus: "large", // 4GTN — animate masonry
+  monster_colossus_elite: "large", // 4GTN_Forgotten
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)

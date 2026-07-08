@@ -199,6 +199,27 @@ function resolveStrike(state: GameState, m: Monster): void {
     const radius = m.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius;
     const dmg = m.kind === "boss" ? m.damage * CONFIG.bossSlamDmgMult : m.damage;
     resolveSlamStrike(state, m, radius, dmg);
+    // The Foundation's slam CRACKS the floor: a fissure travels down the
+    // locked lane as staggered eruptions — perpendicular movement beats it.
+    if (m.kind === "colossus") {
+      const dir = m.chargeDir ?? { x: 1, y: 0 };
+      m.chargeDir = undefined;
+      for (let i = 1; i <= CONFIG.fissureSteps; i++) {
+        state.hazards.push({
+          id: state.nextEntityId++,
+          pos: { x: m.pos.x + dir.x * CONFIG.fissureStepGap * i, y: m.pos.y + dir.y * CONFIG.fissureStepGap * i },
+          t: CONFIG.fissureStepDelay * i,
+          total: CONFIG.fissureStepDelay * i,
+          radius: CONFIG.fissureRadius,
+          damage: m.damage * CONFIG.fissureDmgMult,
+          kind: "blast",
+        });
+      }
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The Foundation CRACKS the floor — the fissure travels. Step OUT of its line, not along it.");
+      }
+    }
     // The Ossuary Warden's slam SHATTERS: a lingering bone-shard zone —
     // every swing reshapes the room, doorway by doorway.
     if (m.kind === "warden") {
@@ -352,6 +373,33 @@ function resolveStrike(state: GameState, m: Monster): void {
       target.cursedT = CONFIG.hexDuration;
       state.events.push(`${target.name} is MARKED by a briar witch — everything hits harder. Kill her or outlast it.`);
     }
+    return;
+  }
+  if (kind === "consecrate") {
+    // The Ruins cleric blesses the ground under its pack: contested ground
+    // that mends monsters and burns crawlers (updateHazards owns the zone).
+    const anchor = m.consecrateAt ?? m.pos;
+    m.consecrateAt = undefined;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: anchor.x, y: anchor.y },
+      t: CONFIG.consecrateDuration,
+      total: CONFIG.consecrateDuration,
+      radius: CONFIG.consecrateRadius,
+      damage: Math.max(1, m.damage * CONFIG.consecrateDmgMult) || 4,
+      kind: "consecrate",
+      tick: CONFIG.puddleTickSeconds,
+    });
+    if (!m.noticed) {
+      m.noticed = true;
+      state.events.push("A cleric CONSECRATES the ground — it heals them and burns you. Fight outside the light.");
+    }
+    return;
+  }
+  if (kind === "sweep") {
+    // The channel ended on its own; the sweeping hazard dies with the windup
+    // (updateHazards watches windupKind). Nothing lands here — the beam
+    // already did its work, tick by tick.
     return;
   }
   resolveMeleeStrike(state, m);
@@ -652,6 +700,92 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     } else {
       wander(state, m, dt);
+    }
+    return;
+  }
+
+  if (m.kind === "shieldbearer" || m.kind === "colossus") {
+    // Shieldbearer: a slow phalanx step behind the tower shield (the guard
+    // lives in damageMonster) with an ordinary swing. Colossus: the same
+    // patient advance, but its slam sends a FISSURE down a locked lane.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) {
+        if (m.kind === "colossus") m.chargeDir = toPlayer; // the crack's lane, frozen NOW
+        beginWindup(m, m.kind === "colossus" ? "slam" : "melee", windup);
+      }
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "cleric") {
+    // Ruins cleric: shaman standoff; blesses the ground under its most
+    // wounded packmate (or itself, holding the line) — contested ground.
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    const standoff = m.attackRange;
+    if (d < standoff - 1.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    if (m.healCd === 0 && d <= CONFIG.monsterAggroRange * 1.5) {
+      let anchor: Vec2 = m.pos;
+      let worst = 1;
+      for (const ally of state.monsters) {
+        if (ally.hp <= 0 || ally === m) continue;
+        if (dist(m.pos, ally.pos) > CONFIG.hexRange) continue;
+        const frac = ally.hp / ally.maxHp;
+        if (frac < worst) { worst = frac; anchor = ally.pos; }
+      }
+      m.healCd = CONFIG.consecrateCooldown;
+      m.consecrateAt = { x: anchor.x, y: anchor.y };
+      beginWindup(m, "consecrate", windup);
+    }
+    return;
+  }
+
+  if (m.kind === "archivist") {
+    // The Archivist: standoff channeler. Its SWEEPING beam starts aimed away
+    // from you and rotates toward you for the whole channel — walk its pace
+    // or stagger the channel (the beam dies with it).
+    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    const standoff = m.attackRange;
+    if (d < standoff - 2) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    if (m.shootCd === 0 && d <= CONFIG.sweepLength) {
+      m.shootCd = CONFIG.sweepCooldown;
+      // Start the beam ~90° off the target and sweep TOWARD them; the sign
+      // picks the shorter arc so the pace reads immediately.
+      const targetAngle = Math.atan2(toPlayer.y, toPlayer.x);
+      const offset = Math.PI / 2;
+      const sign = nextFloat(state.rng) < 0.5 ? 1 : -1;
+      const startAngle = targetAngle - sign * offset;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        end: {
+          x: m.pos.x + Math.cos(startAngle) * CONFIG.sweepLength,
+          y: m.pos.y + Math.sin(startAngle) * CONFIG.sweepLength,
+        },
+        t: CONFIG.sweepDuration,
+        total: CONFIG.sweepDuration,
+        radius: CONFIG.sweepWidth,
+        damage: Math.max(1, m.damage * CONFIG.sweepDmgMult),
+        kind: "beam",
+        sweep: sign * CONFIG.sweepRate,
+        srcId: m.id,
+      });
+      beginWindup(m, "sweep", CONFIG.sweepDuration); // rooted for the channel
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The Archivist OPENS THE TEXT — the beam sweeps. Walk its pace, or shut the book with a stagger.");
+      }
+      return;
     }
     return;
   }
