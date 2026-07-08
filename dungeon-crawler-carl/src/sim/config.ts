@@ -24,6 +24,11 @@ export const CONFIG = {
   // Player
   playerMaxHp: 100,
   playerSpeed: 4.2, // tiles/sec
+  // Facing sweeps toward the move direction at this rate (rad/s) instead of
+  // teleporting between the 8 WASD headings — mixing keys can hold every
+  // in-between angle (playtest ask: 16+ facing directions). Movement itself
+  // is never rate-limited; only the body's heading (and keyboard-aim) sweeps.
+  playerTurnRate: 16,
   playerAttackRange: 1.3, // tiles
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,

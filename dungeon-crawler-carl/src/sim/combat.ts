@@ -11,6 +11,19 @@ export function normalize(v: Vec2): Vec2 {
   return { x: v.x / m, y: v.y / m };
 }
 
+/** Rotate unit vector `from` toward `to` by at most `maxRad` (shortest arc).
+ * Reaches `to` exactly once within range — no asymptotic almost-there drift. */
+export function turnToward(from: Vec2, to: Vec2, maxRad: number): Vec2 {
+  const a0 = Math.atan2(from.y, from.x);
+  const a1 = Math.atan2(to.y, to.x);
+  let d = a1 - a0;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  if (Math.abs(d) <= maxRad) return { x: to.x, y: to.y };
+  const a = a0 + Math.sign(d) * maxRad;
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+
 /** Signed angle between two vectors, in radians [0, PI]. */
 export function angleBetween(a: Vec2, b: Vec2): number {
   const am = Math.hypot(a.x, a.y);
