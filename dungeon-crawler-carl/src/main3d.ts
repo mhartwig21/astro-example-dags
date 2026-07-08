@@ -143,7 +143,7 @@ let state = net ? createGame(0) : boot(); // net: placeholder until the welcome 
 // Test-mode debug hook: lets headless verification (CDP-driven) inspect the
 // live sim instead of guessing from pixels. Never set outside ?test.
 if (testMode) Object.defineProperty(window, "__dcc", { configurable: true, get: () => ({ state }) });
-const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
+const log: string[] = [];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
 function startRun(mode: RunMode): void {
@@ -155,7 +155,8 @@ function startRun(mode: RunMode): void {
   state.players[0].name = crawlerName();
   saveRun(state, runMode);
   log.length = 0;
-  log.push(mode.kind === "daily"
+  clearLogFeed();
+  pushLogLine(mode.kind === "daily"
     ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon. Only the board remembers.`
     : `New run. Descend to floor ${CONFIG.finalFloor}.`);
 }
@@ -169,7 +170,8 @@ input.onReset = () => {
     if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
     state = createTestGame(s);
     log.length = 0;
-    log.push(`New run. Descend to floor ${CONFIG.finalFloor}.`);
+    clearLogFeed();
+    pushLogLine(`New run. Descend to floor ${CONFIG.finalFloor}.`);
   } else {
     startRun(runMode); // rerun keeps the mode: a daily rerun replays today's dungeon
   }
@@ -237,7 +239,7 @@ function submitDaily(s: GameState): void {
   }).then(async (r) => {
     if (!r.ok) return;
     const { rank } = (await r.json()) as { rank: number };
-    log.push(`DAILY CRAWL: rank #${rank} on today's board.`);
+    pushLogLine(`DAILY CRAWL: rank #${rank} on today's board.`);
     const note = document.getElementById("recap-note")!;
     note.textContent = `daily board: rank #${rank} today${note.textContent ? ` · ${note.textContent}` : ""}`;
   }).catch(() => { /* offline is fine */ });
@@ -359,6 +361,40 @@ if (!net && !testMode) openMenu();
 const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
 const hudLog = document.getElementById("hud-log")!;
+const hudLogFeed = document.getElementById("hud-log-feed")!;
+const hudLogStatus = document.getElementById("hud-log-status")!;
+
+// HUD log feed: each line gets its own fade lifecycle (was a blunt innerHTML
+// overwrite every frame — a burst of 2+ events could evict an unread line
+// with zero visual cue). Pops brighter on arrival (.fresh, eased by the
+// `color` transition on .log-line), holds, then fades out on its way out;
+// overflow past LOG_MAX fades the oldest instead of yanking it.
+const LOG_MAX = 5;
+const LOG_HOLD_MS = 7000;
+
+function fadeOutLogLine(el: HTMLElement): void {
+  el.classList.remove("show");
+  setTimeout(() => el.remove(), 350);
+}
+
+function pushLogLine(text: string): void {
+  log.push(text);
+  const el = document.createElement("div");
+  el.className = "log-line fresh";
+  el.textContent = text;
+  hudLogFeed.appendChild(el);
+  if (hudLogFeed.children.length > LOG_MAX) fadeOutLogLine(hudLogFeed.firstElementChild as HTMLElement);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => el.classList.remove("fresh"), 900);
+  setTimeout(() => fadeOutLogLine(el), LOG_HOLD_MS);
+}
+
+function clearLogFeed(): void {
+  hudLogFeed.innerHTML = "";
+}
+
+pushLogLine(`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`);
+
 const fxLayer = document.getElementById("fx")!;
 const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
@@ -1054,7 +1090,7 @@ input.onAction = (a) => {
   else if (a === "abilities") toggleAbilities();
   else if (a === "character") toggleSheet();
   else if (a === "keybinds") toggleKeybinds();
-  else if (a === "mute") log.push(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
+  else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
 };
 applyBindings();
 
@@ -1409,7 +1445,7 @@ function renderShopPage(s: GameState): void {
 // surface them immediately.
 function flushFeedback(s: GameState): void {
   for (const a of s.announcements) showAnnouncement(a);
-  for (const e of s.events) log.push(e);
+  for (const e of s.events) pushLogLine(e);
   s.announcements = [];
   s.events = [];
 }
@@ -1769,7 +1805,7 @@ function spawnDamageNumber(h: HitEvent): void {
 // right-rail ticker, filtered by the player's verbosity setting. Every line is
 // also in the HUD log, so filtering loses nothing.
 const TICKER_MAX = 6; // visible ticker lines before the oldest is evicted
-const TICKER_HOLD_MS = 4200;
+const TICKER_HOLD_MS = 6000; // was 4200 — play feedback: nearly impossible to catch
 const BANNER_HOLD_MS = 3400;
 
 // What each verbosity tier lets through to the ticker (banners are unaffected).
@@ -1788,7 +1824,15 @@ function showAnnouncement(a: Announcement): void {
   el.className = `tk tk-${a.kind}`;
   el.textContent = a.text;
   tickerLayer.appendChild(el);
-  while (tickerLayer.children.length > TICKER_MAX) tickerLayer.firstElementChild!.remove();
+  // Fade the oldest out instead of yanking it instantly — a burst of
+  // announcements (kill + loot + level-up) shouldn't cut one off mid-read.
+  // `if`, not `while`: each call adds exactly one child, and the evicted
+  // element lingers (mid-fade) for 350ms before actually leaving the DOM.
+  if (tickerLayer.children.length > TICKER_MAX) {
+    const oldest = tickerLayer.firstElementChild as HTMLElement;
+    oldest.classList.remove("show");
+    setTimeout(() => oldest.remove(), 350);
+  }
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => {
     el.classList.remove("show");
@@ -1966,20 +2010,23 @@ function updateHud(s: GameState): void {
     `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#5a87c6"></i></div>` +
     // Debuff row (5.11): active statuses read right under the health bar.
     ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
-  hudLog.innerHTML = log.slice(-5).join("<br>");
+  // The feed itself (hudLogFeed) is driven event-by-event via pushLogLine, not
+  // re-rendered every frame — only this persistent status blurb gets redrawn.
+  let status = "";
   if (s.status === "playing" && !p.alive) {
-    hudLog.innerHTML += `<br><b style="color:#c0392f">DOWNED</b> — ` +
+    status += `<b style="color:#c0392f">DOWNED</b> — ` +
       (p.reviveProgress > 0
         ? `stabilizing… ${Math.round(p.reviveProgress * 100)}%`
         : "a teammate standing close can stabilize you (or you rejoin on descent)");
   }
   if (s.status !== "playing") {
-    hudLog.innerHTML +=
-      `<br><b style="color:${s.status === "won" ? "#6da356" : "#c0392f"}">` +
+    status +=
+      `<b style="color:${s.status === "won" ? "#6da356" : "#c0392f"}">` +
       `${s.status === "won" ? "YOU ESCAPED" : "YOU DIED"} — press R for a new run</b>` +
       `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
       `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
   }
+  hudLogStatus.innerHTML = status;
 }
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
@@ -2072,14 +2119,14 @@ async function main(): Promise<void> {
     }
     localId = net.playerId;
     renderer.localPlayerId = localId;
-    log.push(`Joined party ${joinCode} as ${playerName}.`);
+    pushLogLine(`Joined party ${joinCode} as ${playerName}.`);
     net.onEvents = (batch) => {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
-      for (const e of batch.events) log.push(e);
+      for (const e of batch.events) pushLogLine(e);
     };
     net.onDisconnect = () => {
-      log.push("Disconnected from the server.");
+      pushLogLine("Disconnected from the server.");
       showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
@@ -2154,7 +2201,7 @@ async function main(): Promise<void> {
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(SIM_DT), SIM_DT);
-        for (const e of state.events) log.push(e);
+        for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
         acc -= SIM_DT;
