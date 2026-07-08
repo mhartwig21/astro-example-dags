@@ -2204,6 +2204,46 @@ describe("attack telegraphs + hit reactions", () => {
     expect(p.pos.x).toBeGreaterThan(x0);
   });
 
+  it("facing sweeps toward a new heading through the in-between angles", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    p.facing = { x: 1, y: 0 };
+    // Request a 90° flip: one tick at playerTurnRate turns ~15°, not the
+    // whole way — WASD's 8 headings stop being the only reachable facings.
+    step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    const a = Math.atan2(p.facing.y, p.facing.x);
+    expect(a).toBeGreaterThan(0.1);
+    expect(a).toBeLessThan(Math.PI / 2 - 0.1);
+    expect(Math.hypot(p.facing.x, p.facing.y)).toBeCloseTo(1);
+    for (let i = 0; i < 10; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1); // and it converges, exactly
+  });
+
+  it("attacking while running never shoves the runner off their line", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Running due south while swinging due east: the lunge must not add +x.
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeCloseTo(x0, 6);
+  });
+
+  it("a swing commits facing to the aim, then movement reclaims it", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1); // the attack tick aims the body
+    // While the swing is in flight, running doesn't whip the body back...
+    for (let i = 0; i < 5; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1);
+    // ...but once it lands, facing follows the feet again.
+    for (let i = 0; i < 15; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1);
+  });
+
   it("killing blows are flagged on the hit event (with a direction)", () => {
     const g = createGame(917);
     const p = g.players[0];

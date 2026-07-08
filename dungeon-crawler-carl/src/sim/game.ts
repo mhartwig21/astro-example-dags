@@ -1,7 +1,7 @@
 import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
-import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage } from "./combat";
+import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
 import { moveWithCollision } from "./movement";
 import { springAmbush, stepMonster } from "./ai";
 import { generateItem, hasPassive, itemScore } from "./items";
@@ -2033,7 +2033,7 @@ function inSwing(pos: Vec2, facing: Vec2, m: Monster, range: number, arc: number
   return angleBetween(facing, toMon) <= halfArc;
 }
 
-function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
+function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): void {
   const mp = meleeParams(p);
   let facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
@@ -2043,6 +2043,9 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
   // The swing lunges a short step toward the aim — but never THROUGH a target
   // already in reach. Overshooting point-blank enemies (which puts them BEHIND
   // the swing arc) was the classic "that should have hit" melee whiff.
+  // Only while standing still: a swing must never shove a RUNNING crawler off
+  // their line (playtest feedback — attacks and movement stay independent).
+  const steering = move.x !== 0 || move.y !== 0;
   let nearestAhead = Infinity;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
@@ -2052,7 +2055,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2): void {
     if (edge < nearestAhead) nearestAhead = edge;
   }
   const lunge = Math.min(CONFIG.meleeLungeDistance, Math.max(0, nearestAhead - 0.55));
-  if (lunge > 0) moveWithCollision(state.map, p.pos, facing, lunge, isWalkable);
+  if (lunge > 0 && !steering) moveWithCollision(state.map, p.pos, facing, lunge, isWalkable);
 
   // Aim assist: if the swing as aimed would hit nothing but SOMETHING is in
   // arm's reach, snap the swing to the nearest such target — at melee range
@@ -3850,7 +3853,7 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
   }
   if ((p.cd[ability] ?? 0) > 0) return;
   switch (ability) {
-    case "melee": doPlayerAttack(state, p, aim); break;
+    case "melee": doPlayerAttack(state, p, aim, move); break;
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
     case "stance": doStance(state, p); break;
@@ -4158,7 +4161,13 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     const move = pi.move;
     if ((move.x !== 0 || move.y !== 0) && p.alive) {
       const dir = normalize(move);
-      p.facing = dir;
+      // While a swing is in flight (~0.15s) the body stays committed to the
+      // attack aim — movement stealing facing back the very next tick made the
+      // model whip cursor→run-dir→cursor on every swing (the "attack jitter").
+      // Otherwise facing SWEEPS toward the feet at playerTurnRate: WASD only
+      // offers 8 headings, but the sweep passes through (and key-mixing can
+      // hold) every angle between them. Movement itself is never rate-limited.
+      if (p.attackSwing <= 0) p.facing = turnToward(p.facing, dir, CONFIG.playerTurnRate * dt);
       // Root snare (boss roots zones): a heavy slow — dashing is unaffected.
       // Chill (ptime) and roots stack multiplicatively; both are escape tests.
       const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);

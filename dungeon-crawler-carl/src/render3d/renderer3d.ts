@@ -102,6 +102,18 @@ export class Renderer3D {
     mesh.position.z += dz * a;
   }
 
+  // Facing gets the same treatment: the sim flips `facing` instantly, and a
+  // hero who snaps 180° in one frame reads as jitter, not agility (playtest
+  // feedback asked for turn rate 16). Shortest arc, exponential chase.
+  private static TURN_RATE = 16;
+  private turnTo(mesh: THREE.Object3D, target: number, dt: number): void {
+    let d = target - mesh.rotation.y;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const a = 1 - Math.exp(-Renderer3D.TURN_RATE * Math.min(dt, 0.1));
+    mesh.rotation.set(0, mesh.rotation.y + d * a, 0);
+  }
+
   // Torch LIGHT POOL: torch meshes are everywhere, but only a handful of real
   // point lights exist — reassigned each frame to the anchors nearest the
   // player. Constant lighting cost regardless of floor size (forward-renderer
@@ -1719,7 +1731,7 @@ export class Renderer3D {
       }
       if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
-      mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
+      this.turnTo(mesh, Math.atan2(pl.facing.x, pl.facing.y), dt);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
       // Animation velocity comes from the SMOOTHED mesh (which moves every
