@@ -95,7 +95,11 @@ class MeshyClient:
     ) -> str:
         body: dict = {"mode": "preview", "prompt": prompt, "art_style": art_style}
         if target_polycount:
+            # target_polycount is silently ignored unless should_remesh is set
+            # (verified live 2026-07-08: without it a 3k-target crate came back
+            # with 924k triangles).
             body["target_polycount"] = target_polycount
+            body["should_remesh"] = True
         if topology:
             body["topology"] = topology
         if seed is not None:
@@ -125,6 +129,7 @@ class MeshyClient:
         body: dict = {"image_url": image, "enable_pbr": enable_pbr}
         if target_polycount:
             body["target_polycount"] = target_polycount
+            body["should_remesh"] = True
         if topology:
             body["topology"] = topology
         return self._request("POST", IMAGE_TO_3D, body)["result"]
