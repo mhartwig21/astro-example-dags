@@ -74,8 +74,8 @@ soldiers are absolutely on-theme).
 | Caveman | Mystery S5 | medium | UNDERCROFT — club grunt |
 | Monster | Mystery S4 | medium | any — classic beast |
 | MonsterCostume | Mystery S4 | medium | THE SHOW twist — "it was a guy in a suit" |
-| Werewolf_Man | Mystery S4 | medium | GARDEN — pre-transform werewolf (pairs with charger) |
-| Tiefling | Mystery S5 | medium | RUINS — warlock caster |
+| ~~Werewolf_Man~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Understudy (morphs into the charger wolf) |
+| ~~Tiefling~~ | Mystery S5 | medium | **SHIPPED 2026-07-08** as the Briar Witch (vulnerability hex) |
 | Cleric | Mystery S6 | medium | RUINS — enemy healer (shaman variant) |
 | Paladin (+ helmeted variant) | Mystery S4 | medium | RUINS — armored zealot, shielded elite |
 | Lorekeeper | Mystery S6 | medium | RUINS — spellbook caster |

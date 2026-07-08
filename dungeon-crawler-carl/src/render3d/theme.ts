@@ -58,6 +58,9 @@ export const THEME = {
     slagbreaker: { color: 0xd96b2b, scale: 1.5 }, // furnace orange: count to three
     toysoldier: { color: 0xc94f4f, scale: 0.85 }, // parade red: the volley line
     greeter: { color: 0x9a7fb8, scale: 1.05 }, // showroom mauve: it was a prop
+    lasher: { color: 0x3f9142, scale: 1.05 }, // vine green: watch the lane
+    understudy: { color: 0x8d7a6a, scale: 0.95 }, // understudy beige: for now
+    hexer: { color: 0xa64ca6, scale: 1.0 }, // briar purple: kill the witch
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

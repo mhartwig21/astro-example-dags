@@ -246,6 +246,23 @@ export const CONFIG = {
   greeterSparkRadius: 0.95,
   greeterSparkDmgMult: 0.5, // × monster damage per spark
 
+  // GARDEN cast (floors 7+) — the floor fights back.
+  gardenFromFloor: 7,
+  // Vine Lasher hook: the longest lane telegraph in the game, then the DRAG.
+  lasherHookRange: 5.5, // tiles the whip reaches
+  lasherHookWidth: 0.75, // lane half-width
+  lasherHookCooldown: 6,
+  lasherHookDmgMult: 0.8, // × monster damage on the snag
+  lasherHookLandGap: 1.2, // you land this far from the lasher (in the pack)
+  // Understudy morph: the vulnerable window before the wolf.
+  morphWindup: 1.0, // interruptible — stagger it to stay ahead of the curve
+  morphHpFraction: 0.5, // transforms when damaged below this
+  // Briar Witch hex: a vulnerability mark the whole pack exploits.
+  hexRange: 6,
+  hexDuration: 6, // seconds marked
+  hexVulnerability: 0.3, // +30% damage taken while marked
+  hexCooldown: 8,
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -595,6 +612,9 @@ export const CONFIG = {
     hypeSlagbreaker: 9, // the vent-window execution is a highlight
     hypeToysoldier: 3, // chaff — the VOLLEY dodge is where the hype lives
     hypeGreeter: 6, // it was a prop until it wasn't
+    hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
+    hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
+    hypeHexer: 7, // dispelling the mark by ending the witch
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -846,6 +866,16 @@ export const ARCHETYPES = {
   // Greeter: stands dormant among the props (always spawns in ambush), then
   // swings like a grunt; on death it discharges spark blasts (greeterSpark*).
   greeter: { hpMult: 1.1, dmgMult: 1.2, speedMult: 1.05, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.3, radius: 0.4 },
+  // GARDEN cast (floors 7+). Lasher: mid-range whip — its HOOK drags you down
+  // the lane to the pack (lasher* knobs). attackRange = preferred standoff.
+  lasher: { hpMult: 0.95, dmgMult: 1.0, speedMult: 0.9, attackRange: 4, xpMult: 1.5, ranged: true, windup: 0.95, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Understudy: a shuffling extra — weak on purpose. At half HP it TRANSFORMS
+  // into a full charger (morph* knobs): burst it through the threshold or
+  // stagger the morph, or fight the wolf you made.
+  understudy: { hpMult: 0.75, dmgMult: 0.6, speedMult: 0.8, attackRange: 1.0, xpMult: 1.3, ranged: false, windup: 0.5, poise: 0.25, mass: 1, radius: 0.36 },
+  // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
+  // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
+  hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

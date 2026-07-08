@@ -42,6 +42,13 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_toysoldier: "/assets/characters/toy_soldier.glb",
   monster_greeter: "/assets/characters/animatronic.glb",
   monster_greeter_elite: "/assets/characters/animatronic_creepy.glb", // the broken one
+  // GARDEN cast (MOB-CONCEPTS.md): the lasher shares the PlantWarrior body
+  // (same species, different job); Werewolf_Man is the pre-morph understudy
+  // (the morph swaps its kind to charger = the werewolf model); Tiefling
+  // is the Briar Witch.
+  monster_lasher: "/assets/characters/plant_warrior.glb",
+  monster_understudy: "/assets/characters/werewolf_man.glb",
+  monster_hexer: "/assets/characters/tiefling.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -149,6 +156,9 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_toysoldier: "medium", // ToySoldier
   monster_greeter: "medium", // Animatronic_Normal
   monster_greeter_elite: "medium", // Animatronic_Creepy
+  monster_lasher: "medium", // PlantWarrior (shared body, different job)
+  monster_understudy: "medium", // Werewolf_Man (pre-morph)
+  monster_hexer: "medium", // Tiefling
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
