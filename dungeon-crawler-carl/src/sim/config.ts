@@ -46,6 +46,9 @@ export const CONFIG = {
   // Hit reactions: player damage shoves monsters (divided by archetype mass) and
   // builds poise damage; crossing maxHp * poise staggers them (interrupting any
   // windup and freezing them briefly). Chaff flinches constantly; brutes shrug.
+  // Poise is a BUILDUP, not a bank: it drains over time, so an interrupt takes
+  // a concentrated burst — and headliners (bosses/elites) gain a grace window
+  // after each stagger so raw DPS can never stun-lock them.
   meleeKnockback: 0.3, // tiles
   boltKnockback: 0.15,
   novaKnockback: 0.7,
@@ -56,6 +59,12 @@ export const CONFIG = {
   shockstepPathRadius: 1.0,
   staggerDuration: 0.22, // seconds a staggered monster is helpless
   elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
+  poiseDecayPerSec: 0.35, // poise drains at this fraction of the stagger threshold per second
+  bossStaggerGrace: 6, // seconds after a boss stagger during which poise cannot build
+  eliteStaggerGrace: 2.5, // same composure for named elites, shorter
+  // The advertised exception: an interruptible CHANNEL (Dark Ritual) ignores
+  // grace and takes double poise — burst it down mid-channel or brace.
+  channelPoiseTakenMult: 2,
 
   // Enemy attack telegraphs: every monster attack winds up (per-archetype, see
   // ARCHETYPES.windup) before the strike resolves. The strike re-checks range
