@@ -136,6 +136,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Drum Sergeant's kit (Orc Raider pack props, CC0): grafted onto the
       // drummer's handslots in buildMonsterMesh so the band LOOKS like a band.
       "orc_wardrum", "orc_wardrum_stick",
+      // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
+      // the flask's bottle and the blink smokebomb anchor.
+      "potion_medium_red", "smokebomb",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
@@ -184,11 +187,22 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
     "/assets/characters/rig_medium_combatmelee.glb",
     "/assets/characters/rig_medium_combatranged.glb",
     "/assets/characters/rig_medium_special.glb",
+    // 2026-07-08 (GENERATION-BACKLOG): the previously-untapped packs. New
+    // verbs for the animator: Sneaking/Crawling (filcher stealth), the full
+    // dodge set, Lockpicking, sit/lie/wave (future safe-room NPCs).
+    "/assets/characters/rig_medium_movementadvanced.glb",
+    "/assets/characters/rig_medium_simulation.glb",
+    "/assets/characters/rig_medium_tools.glb",
   ],
   large: [
     "/assets/characters/rig_large_general.glb",
     "/assets/characters/rig_large_movementbasic.glb",
     "/assets/characters/rig_large_combatmelee.glb",
+    // 2026-07-08: dodge set, Flexing, and EXPERIMENTAL_Large_Transform —
+    // the natural boss phase-transition act (see the presentation audit).
+    "/assets/characters/rig_large_movementadvanced.glb",
+    "/assets/characters/rig_large_simulation.glb",
+    "/assets/characters/rig_large_special.glb",
   ],
 };
 

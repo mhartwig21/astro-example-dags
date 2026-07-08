@@ -41,7 +41,7 @@ export class InputController {
       if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
       if (this.is("ping", k) && !wasDown) this.pingEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
-      for (const a of ["inventory", "abilities", "character", "keybinds", "mute"] as const) {
+      for (const a of ["inventory", "abilities", "character", "keybinds", "mute", "draft"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
       }
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();

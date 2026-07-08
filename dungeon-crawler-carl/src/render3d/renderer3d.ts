@@ -55,6 +55,23 @@ const WINDUP_CLIP: Record<string, string> = {
   lunge: "melee_d", // cutpurse: the 1H stab IS a lunge
 };
 
+// Elite affix body glow. The affix is gameplay-critical (warded vs armored
+// decides which build hurts it), so each gets a semantic emissive color per
+// STYLEGUIDE.md — arcane for magic-resist, ember for physical-resist,
+// lore-blue for frost, blood for reflect. Size alone said "elite"; the tint
+// says WHICH elite before the intro card ever shows.
+const AFFIX_TINT: Record<string, number> = {
+  swift: 0xffe066, // crit-yellow: speed reads as urgency
+  shielded: 0xaab2bd, // iron: it blocks
+  volatile: 0xff5a2e, // about-to-explode orange (matches the bomber's read)
+  summoner: 0x8a5cff, // necromancer violet: it makes more of them
+  splitter: 0x8bd450, // swarmer green: it becomes more of them
+  thorns: 0xc0392f, // blood: touching it hurts you back
+  armored: 0xd98e4a, // ember: the physical school bounces off
+  warded: 0x9a6bd0, // arcane: the magic school bounces off
+  chilling: 0x5a87c6, // lore-blue frost (+ aura ring at the true slow radius)
+};
+
 export class Renderer3D {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -357,6 +374,10 @@ export class Renderer3D {
       drum: pick(/^Interact$/i, /^Use_Item$/i),
       // Lineworker/greeter piston punch (unarmed haymaker; kick as variety).
       punch: pick(/Unarmed_Attack_Punch/i, /Unarmed_Attack_Kick/i),
+      // MovementAdvanced pack: the unnoticed Repo Rat creeps, it doesn't stroll.
+      sneak: pick(/^Sneaking$/i),
+      // Special (large rig): the boss phase-up gets an actual transformation act.
+      transform: pick(/Large_Transform/i),
       // Dormancy poses (Special library): ambush packs LIE on the floor among
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
@@ -368,6 +389,7 @@ export class Renderer3D {
     const LOOPING = new Set([
       "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
+      "sneak",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
@@ -703,6 +725,41 @@ export class Renderer3D {
     }
   }
 
+  /** Elite affix read: emissive body tint in the affix's semantic color, plus
+   * the chilling aura's TRUE slow radius as a faint ring. Materials are cloned
+   * per elite — model clones share materials, and trash mobs must stay unlit. */
+  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined): void {
+    const tint = affix ? AFFIX_TINT[affix] : undefined;
+    if (tint === undefined) return;
+    mesh.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.material) return;
+      const mats = (Array.isArray(m.material) ? m.material : [m.material]).map((mat) => {
+        const c = (mat as THREE.MeshStandardMaterial).clone();
+        c.emissive = new THREE.Color(tint);
+        c.emissiveIntensity = 0.32;
+        return c;
+      });
+      m.material = Array.isArray(m.material) ? mats : mats[0];
+    });
+    if (affix === "chilling") {
+      // The aura is spatial gameplay (you are slowed INSIDE it) — show the
+      // actual radius, compensating for the parent's elite scale.
+      const bs = mesh.scale.x || 1;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(CONFIG.chillingAuraRadius - 0.14, CONFIG.chillingAuraRadius, 40),
+        new THREE.MeshBasicMaterial({
+          color: 0x5a87c6, transparent: true, opacity: 0.22,
+          side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.05;
+      ring.scale.setScalar(1 / bs);
+      mesh.add(ring);
+    }
+  }
+
   private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean): THREE.Group {
     const spec = THEME.archetype[kind];
     // Prefer a floor-named menace (city bosses + the finale), then an elite
@@ -723,6 +780,13 @@ export class Renderer3D {
       const drum = this.showAttachment(g, "orc_wardrum", "*", "l");
       if (drum) drum.scale.setScalar(0.8);
       this.showAttachment(g, "orc_wardrum_stick", "*", "r");
+    }
+    // The Repo Rat carries the goods (Resource Bits pile, off hand); shown
+    // only while mon.carry > 0 — the per-frame toggle lives in the update loop.
+    if (model && kind === "filcher") {
+      const loot = this.showAttachment(g, "money_pile_medium", "*", "l");
+      if (loot) { loot.scale.setScalar(0.45); loot.visible = false; }
+      g.userData.lootProp = loot;
     }
     if (!model) {
       const isBoss = kind === "boss";
@@ -1757,6 +1821,7 @@ export class Renderer3D {
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
           mesh.userData.baseScale = bs;
           mesh.scale.setScalar(bs);
+          this.applyAffixVisual(mesh, mon.affix);
         }
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
@@ -1767,6 +1832,24 @@ export class Renderer3D {
       const mVel = this.smoothedVel(mesh, dt);
       const mSpeed = Math.hypot(mVel.x, mVel.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
+      const ud0 = mesh.userData;
+      if (mon.kind === "phantom") {
+        // A blink is not a sprint: the sim moves it instantly, but smoothTo
+        // would glide the mesh across the gap. On the blink edge (cooldown
+        // jumps up), poof both ends and SNAP the body to the far one.
+        const prevB = ud0.prevBlinkCd as number | undefined;
+        if (prevB !== undefined && mon.blinkCd > prevB + 1e-6) {
+          this.spawnGlow(mesh.position.x, 0.7, mesh.position.z, 0xbfe4ff, 0.9, 0.4, 2);
+          this.spawnGlow(mon.pos.x, 0.7, mon.pos.y, 0xbfe4ff, 0.9, 0.4, 2);
+          mesh.position.set(mon.pos.x, mesh.position.y, mon.pos.y);
+        }
+        ud0.prevBlinkCd = mon.blinkCd;
+      }
+      if (mon.kind === "filcher" && ud0.lootProp) {
+        // The Repo Rat shows its work: the repossessed pile only rides along
+        // while it is actually carrying stolen gold.
+        (ud0.lootProp as THREE.Object3D).visible = (mon.carry ?? 0) > 0;
+      }
       if (mesh.userData.mixer) {
         // Rigged model: clip by combat state. No squash (it would deform the
         // skinned mesh instead of reading as a hit).
@@ -1798,7 +1881,13 @@ export class Renderer3D {
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
         } else {
           ud.taunting = false;
-          if (staggerRose) {
+          // Boss phase-up is a MOMENT: the large rig transforms; medium bosses
+          // fall back to a taunt. Edge-detected so it plays exactly once.
+          const phaseRose = (mon.phase ?? 0) > ((ud.prevPhase as number) ?? 0);
+          ud.prevPhase = mon.phase ?? 0;
+          if (phaseRose) {
+            playFirstM("transform", "taunt", "hit");
+          } else if (staggerRose) {
             // Shielded elites soak it on the shield (explains the damage reduction);
             // everyone else alternates the two hit reactions.
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
@@ -1814,9 +1903,12 @@ export class Renderer3D {
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
             const hasClipM = ud.hasClip as (n: string) => boolean;
             if (ud.locoMoving) {
-              // Fast movers (fleeing filcher, frenzied/deep-tempo chasers)
-              // RUN — a sprint on a walk cycle reads as ice-skating.
-              playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
+              // The unnoticed Repo Rat CREEPS between hoards; once the "a rat!"
+              // event fires it drops the act. Fast movers (fleeing filcher,
+              // frenzied/deep-tempo chasers) RUN — a sprint on a walk cycle
+              // reads as ice-skating.
+              if (mon.kind === "filcher" && !mon.noticed && hasClipM("sneak")) playM("sneak");
+              else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
               // A parked Drum Sergeant performs: it beats the wardrum.
               playM(mon.kind === "drummer" && hasClipM("drum") ? "drum" : "idle");
