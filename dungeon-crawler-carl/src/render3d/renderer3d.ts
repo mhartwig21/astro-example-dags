@@ -54,6 +54,23 @@ const WINDUP_CLIP: Record<string, string> = {
   hex: "cast_long", // briar witch: the long channelled curse
 };
 
+// Elite affix body glow. The affix is gameplay-critical (warded vs armored
+// decides which build hurts it), so each gets a semantic emissive color per
+// STYLEGUIDE.md — arcane for magic-resist, ember for physical-resist,
+// lore-blue for frost, blood for reflect. Size alone said "elite"; the tint
+// says WHICH elite before the intro card ever shows.
+const AFFIX_TINT: Record<string, number> = {
+  swift: 0xffe066, // crit-yellow: speed reads as urgency
+  shielded: 0xaab2bd, // iron: it blocks
+  volatile: 0xff5a2e, // about-to-explode orange (matches the bomber's read)
+  summoner: 0x8a5cff, // necromancer violet: it makes more of them
+  splitter: 0x8bd450, // swarmer green: it becomes more of them
+  thorns: 0xc0392f, // blood: touching it hurts you back
+  armored: 0xd98e4a, // ember: the physical school bounces off
+  warded: 0x9a6bd0, // arcane: the magic school bounces off
+  chilling: 0x5a87c6, // lore-blue frost (+ aura ring at the true slow radius)
+};
+
 export class Renderer3D {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -699,6 +716,41 @@ export class Renderer3D {
         }
         m.material = mat;
       });
+    }
+  }
+
+  /** Elite affix read: emissive body tint in the affix's semantic color, plus
+   * the chilling aura's TRUE slow radius as a faint ring. Materials are cloned
+   * per elite — model clones share materials, and trash mobs must stay unlit. */
+  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined): void {
+    const tint = affix ? AFFIX_TINT[affix] : undefined;
+    if (tint === undefined) return;
+    mesh.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.material) return;
+      const mats = (Array.isArray(m.material) ? m.material : [m.material]).map((mat) => {
+        const c = (mat as THREE.MeshStandardMaterial).clone();
+        c.emissive = new THREE.Color(tint);
+        c.emissiveIntensity = 0.32;
+        return c;
+      });
+      m.material = Array.isArray(m.material) ? mats : mats[0];
+    });
+    if (affix === "chilling") {
+      // The aura is spatial gameplay (you are slowed INSIDE it) — show the
+      // actual radius, compensating for the parent's elite scale.
+      const bs = mesh.scale.x || 1;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(CONFIG.chillingAuraRadius - 0.14, CONFIG.chillingAuraRadius, 40),
+        new THREE.MeshBasicMaterial({
+          color: 0x5a87c6, transparent: true, opacity: 0.22,
+          side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.05;
+      ring.scale.setScalar(1 / bs);
+      mesh.add(ring);
     }
   }
 
@@ -1756,6 +1808,7 @@ export class Renderer3D {
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
           mesh.userData.baseScale = bs;
           mesh.scale.setScalar(bs);
+          this.applyAffixVisual(mesh, mon.affix);
         }
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
