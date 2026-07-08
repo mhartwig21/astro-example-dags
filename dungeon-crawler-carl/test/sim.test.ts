@@ -669,10 +669,16 @@ describe("safe room + System Shop", () => {
   });
 
   it("the tome teaches today's ability, once", () => {
-    const g = reachSafeRoom(304);
+    // Tome pacing (abilities.ts: tomeSchedule) gates discovery by LEVEL, so a
+    // fresh level-1 crawler has nothing eligible yet — level up first, same as
+    // a real floor-1 clear would.
+    const g = createGame(304);
+    g.players[0].level = 10;
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     const p = g.players[0];
     const ability = g.safeRoom!.tomeAbility!;
-    expect(ability).toBeTruthy(); // plenty undiscovered on floor 1
+    expect(ability).toBeTruthy(); // plenty undiscovered once leveled up
     p.gold = 10_000;
     buyCatalogItem(g, 0, "tome");
     expect(knows(p, ability)).toBe(true);
@@ -1525,10 +1531,37 @@ describe("new archetypes", () => {
     });
     g.monsters.push(shaman, wounded, healthier);
     step(g, idle(), 1 / 60);
+    // The heal is a CHANNEL now (the interrupt window): committed, not landed.
+    expect(shaman.windupKind).toBe("heal");
+    expect(shaman.healCd).toBeGreaterThan(0); // paid up front
+    expect(wounded.hp).toBe(10);
+    // Step to the resolve frame and stop THERE — hits clear every step.
+    let healed = false;
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.2 && !healed; t += 1 / 60) {
+      step(g, idle(), 1 / 60);
+      healed = wounded.hp > 10;
+    }
     expect(wounded.hp).toBe(10 + CONFIG.shamanHeal); // picked the most wounded ally
     expect(healthier.hp).toBe(30);
-    expect(shaman.healCd).toBeGreaterThan(0);
     expect(g.hits.some((h) => h.kind === "heal" && h.amount === CONFIG.shamanHeal)).toBe(true);
+  });
+
+  it("killing the shaman mid-channel cancels the heal", () => {
+    const g = createGame(903);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const wounded = mkMon({ id: 2, pos: { x: p.pos.x + 5, y: p.pos.y + 1 }, hp: 10, maxHp: 50 });
+    const shaman = mkMon({
+      id: 1, kind: "shaman", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 40, attackRange: 5.5,
+    });
+    g.monsters.push(shaman, wounded);
+    step(g, idle(), 1 / 60);
+    expect(shaman.windupKind).toBe("heal");
+    shaman.hp = 0; // focused down inside the window
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
+    expect(wounded.hp).toBe(10); // the medic never finished
   });
 
   it("phantom blinks toward the player, closing far more than a walk step", () => {
@@ -2171,6 +2204,46 @@ describe("attack telegraphs + hit reactions", () => {
     expect(p.pos.x).toBeGreaterThan(x0);
   });
 
+  it("facing sweeps toward a new heading through the in-between angles", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    p.facing = { x: 1, y: 0 };
+    // Request a 90° flip: one tick at playerTurnRate turns ~15°, not the
+    // whole way — WASD's 8 headings stop being the only reachable facings.
+    step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    const a = Math.atan2(p.facing.y, p.facing.x);
+    expect(a).toBeGreaterThan(0.1);
+    expect(a).toBeLessThan(Math.PI / 2 - 0.1);
+    expect(Math.hypot(p.facing.x, p.facing.y)).toBeCloseTo(1);
+    for (let i = 0; i < 10; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1); // and it converges, exactly
+  });
+
+  it("attacking while running never shoves the runner off their line", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Running due south while swinging due east: the lunge must not add +x.
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeCloseTo(x0, 6);
+  });
+
+  it("a swing commits facing to the aim, then movement reclaims it", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1); // the attack tick aims the body
+    // While the swing is in flight, running doesn't whip the body back...
+    for (let i = 0; i < 5; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1);
+    // ...but once it lands, facing follows the feet again.
+    for (let i = 0; i < 15; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1);
+  });
+
   it("killing blows are flagged on the hit event (with a direction)", () => {
     const g = createGame(917);
     const p = g.players[0];
@@ -2420,14 +2493,17 @@ describe("elite affixes", () => {
     });
     g.monsters.push(m);
     step(g, idle(), 1 / 60);
+    // The summon is a telegraphed channel now: committed, cd paid, no add yet.
+    expect(m.windupKind).toBe("summon");
+    expect(m.affixCd).toBeGreaterThan(0);
+    for (let t = 0; t < CONFIG.summonWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.filter((mm) => mm.kind === "swarmer").length).toBe(1);
     expect(m.summons).toBe(1);
-    expect(m.affixCd).toBeGreaterThan(0);
     expect(g.monsters.find((mm) => mm.kind === "swarmer")!.xp).toBe(1); // not an XP farm
     m.summons = CONFIG.summonMax; // cap reached
     m.affixCd = 0;
     const count = g.monsters.length;
-    step(g, idle(), 1 / 60);
+    for (let t = 0; t < CONFIG.summonWindup + 0.2; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.length).toBeLessThanOrEqual(count); // no further summons
   });
 });

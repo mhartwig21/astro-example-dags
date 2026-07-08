@@ -34,6 +34,8 @@ appreciated).
 | KayKit Mystery Monthly: Plant Warrior — `plant_warrior_arrow.glb` (spitter windup lob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Orc Raider — `orc_wardrum.glb` + `orc_wardrum_stick.glb` (the Drum Sergeant's grafted instrument) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| KayKit Adventurers 2.0 — `potion_medium_red.glb` (flask act prop, staged) + `smokebomb.glb` (Blindside poof anchor, staged); converted via gltf-pipeline | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
+| KayKit Character Animations 1.1 — the previously-untapped clip packs: `rig_medium_movementadvanced/simulation/tools.glb`, `rig_large_movementadvanced/simulation/special.glb` (Sneaking, Lockpicking, dodge sets, sit/lie/wave, EXPERIMENTAL_Large_Transform) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
 
@@ -47,7 +49,7 @@ mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
 |---|---|---|---|
 | KayKit Character Pack: Adventurers | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Pack: Skeletons | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
-| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat], Robot_One [Lineworker], Robot_Two [Sentinel], Clanker [Slagbreaker], ToySoldier [Wind-Up Battalion], Animatronic_Normal/_Creepy [Greeter + elite skin], Werewolf_Man [Understudy], Tiefling [Briar Witch], Skeleton_Rogue [Cutpurse], Skeleton_Golem [Ossuary Warden], Caveman [Pit Digger], Paladin/_with_Helmet [Shieldbearer + elite skin], Cleric [Ruins Cleric], Lorekeeper [Archivist], 4GTN/_Forgotten [Colossus + elite skin] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Monthly Mystery Character: Demon Lord (July 2026; + SummoningCircle prop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 
 Collection characters were copied from the purchased Complete Collection zip

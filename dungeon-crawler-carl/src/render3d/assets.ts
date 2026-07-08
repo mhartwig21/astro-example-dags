@@ -34,6 +34,34 @@ export const MODEL_MANIFEST: Record<string, string> = {
   // a frenzy; Hoarder is the fleeing Repo Rat (KayKit Mystery Monthly, CC0).
   monster_drummer: "/assets/characters/orc_raider.glb",
   monster_filcher: "/assets/characters/hoarder.glb",
+  // IRONWORKS cast (MOB-CONCEPTS.md): the robot faction clocks in — Robots
+  // One/Two, Clanker, ToySoldier, the Animatronics (all Mystery Monthly, CC0).
+  monster_lineworker: "/assets/characters/robot_one.glb",
+  monster_sentinel: "/assets/characters/robot_two.glb",
+  monster_slagbreaker: "/assets/characters/clanker.glb",
+  monster_toysoldier: "/assets/characters/toy_soldier.glb",
+  monster_greeter: "/assets/characters/animatronic.glb",
+  monster_greeter_elite: "/assets/characters/animatronic_creepy.glb", // the broken one
+  // GARDEN cast (MOB-CONCEPTS.md): the lasher shares the PlantWarrior body
+  // (same species, different job); Werewolf_Man is the pre-morph understudy
+  // (the morph swaps its kind to charger = the werewolf model); Tiefling
+  // is the Briar Witch.
+  monster_lasher: "/assets/characters/plant_warrior.glb",
+  monster_understudy: "/assets/characters/werewolf_man.glb",
+  monster_hexer: "/assets/characters/tiefling.glb",
+  // UNDERCROFT trainers (MOB-CONCEPTS.md): the last two Skeletons 1.1
+  // characters + the Caveman join the crypt shift.
+  monster_cutpurse: "/assets/characters/skeleton_rogue.glb",
+  monster_warden: "/assets/characters/skeleton_golem.glb",
+  monster_digger: "/assets/characters/caveman.glb",
+  // RUINS cast (MOB-CONCEPTS.md): the dead civilization's staff — Paladin
+  // (helmeted variant = elite skin), Cleric, Lorekeeper, and the 4GTN golems.
+  monster_shieldbearer: "/assets/characters/paladin.glb",
+  monster_shieldbearer_elite: "/assets/characters/paladin_helmet.glb",
+  monster_cleric: "/assets/characters/cleric.glb",
+  monster_archivist: "/assets/characters/lorekeeper.glb",
+  monster_colossus: "/assets/characters/4gtn.glb",
+  monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -116,6 +144,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Drum Sergeant's kit (Orc Raider pack props, CC0): grafted onto the
       // drummer's handslots in buildMonsterMesh so the band LOOKS like a band.
       "orc_wardrum", "orc_wardrum_stick",
+      // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
+      // the flask's bottle and the blink smokebomb anchor.
+      "potion_medium_red", "smokebomb",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
@@ -135,6 +166,24 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_necromancer: "medium", // Necromancer
   monster_drummer: "medium", // OrcRaider
   monster_filcher: "medium", // Hoarder
+  monster_lineworker: "medium", // Robot_One
+  monster_sentinel: "medium", // Robot_Two
+  monster_slagbreaker: "large", // Clanker — the big walker
+  monster_toysoldier: "medium", // ToySoldier
+  monster_greeter: "medium", // Animatronic_Normal
+  monster_greeter_elite: "medium", // Animatronic_Creepy
+  monster_lasher: "medium", // PlantWarrior (shared body, different job)
+  monster_understudy: "medium", // Werewolf_Man (pre-morph)
+  monster_hexer: "medium", // Tiefling
+  monster_cutpurse: "medium", // Skeleton_Rogue
+  monster_warden: "large", // Skeleton_Golem — the big bone furniture
+  monster_digger: "medium", // Caveman
+  monster_shieldbearer: "medium", // Paladin
+  monster_shieldbearer_elite: "medium", // Paladin_with_Helmet
+  monster_cleric: "medium", // Cleric
+  monster_archivist: "medium", // Lorekeeper
+  monster_colossus: "large", // 4GTN — animate masonry
+  monster_colossus_elite: "large", // 4GTN_Forgotten
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
@@ -152,11 +201,22 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
     "/assets/characters/rig_medium_combatmelee.glb",
     "/assets/characters/rig_medium_combatranged.glb",
     "/assets/characters/rig_medium_special.glb",
+    // 2026-07-08 (GENERATION-BACKLOG): the previously-untapped packs. New
+    // verbs for the animator: Sneaking/Crawling (filcher stealth), the full
+    // dodge set, Lockpicking, sit/lie/wave (future safe-room NPCs).
+    "/assets/characters/rig_medium_movementadvanced.glb",
+    "/assets/characters/rig_medium_simulation.glb",
+    "/assets/characters/rig_medium_tools.glb",
   ],
   large: [
     "/assets/characters/rig_large_general.glb",
     "/assets/characters/rig_large_movementbasic.glb",
     "/assets/characters/rig_large_combatmelee.glb",
+    // 2026-07-08: dodge set, Flexing, and EXPERIMENTAL_Large_Transform —
+    // the natural boss phase-transition act (see the presentation audit).
+    "/assets/characters/rig_large_movementadvanced.glb",
+    "/assets/characters/rig_large_simulation.glb",
+    "/assets/characters/rig_large_special.glb",
   ],
 };
 

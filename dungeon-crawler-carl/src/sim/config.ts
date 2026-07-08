@@ -24,6 +24,11 @@ export const CONFIG = {
   // Player
   playerMaxHp: 100,
   playerSpeed: 4.2, // tiles/sec
+  // Facing sweeps toward the move direction at this rate (rad/s) instead of
+  // teleporting between the 8 WASD headings — mixing keys can hold every
+  // in-between angle (playtest ask: 16+ facing directions). Movement itself
+  // is never rate-limited; only the body's heading (and keyboard-aim) sweeps.
+  playerTurnRate: 16,
   playerAttackRange: 1.3, // tiles
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,
@@ -220,9 +225,97 @@ export const CONFIG = {
   bossSlamKnockback: 2.0, // tiles: the boss slam hits like a truck
 
   // Beam hazards (MOB-CONCEPTS verb): a line telegraph that fires ONCE along
-  // its whole length. No spawner in the base cast yet — the Ironworks/Approach
-  // mobs (Quality Control, Boom Operator, the Archivist) arrive on this seam.
+  // its whole length. The sentinel is the first spawner (below); the Approach
+  // mobs (Boom Operator, the Archivist) arrive on the same seam.
   beamFadeSeconds: 0.25, // visible flash after firing
+
+  // IRONWORKS cast (floors 13-15) — the machine learns your timing.
+  ironworksFromFloor: 13,
+  // Lineworker piston punch: melee that also LAUNCHES the survivor.
+  punchKnockback: 1.4, // tiles
+  // Sentinel lock-on: the beam TRACKS you while arming, freezes at the lock,
+  // then fires. Dodge when the tracking stops — a timing test, not position.
+  sentinelBeamCooldown: 5,
+  sentinelBeamArm: 1.15, // seconds of telegraph (tracking + locked)
+  sentinelBeamLock: 0.4, // final seconds when the line stops tracking
+  sentinelBeamLength: 9, // tiles the railshot pierces
+  sentinelBeamWidth: 0.38, // half-width
+  sentinelBeamDmgMult: 1.4, // × monster damage
+  // Slagbreaker heat rhythm: swings until it MUST vent, then pays for it.
+  slagVentAfterSwings: 3,
+  slagVentWindup: 0.8, // the vent telegraph
+  slagVentRadius: 2.3, // scalding cloud around it
+  slagVentDmgMult: 1.2, // × monster damage
+  slagVentBurnFraction: 0.5, // burn total = this × the vent hit
+  slagVentSelfStagger: 1.5, // seconds helpless after venting — the punish window
+  // Wind-Up Battalion: squads volley as one; broken squads fire ragged.
+  toysquadMin: 4,
+  toysquadMax: 6,
+  toysquadVolleyCooldown: 4.5,
+  toysquadWindup: 1.0, // the whole line presents muskets — one big dodge
+  toysquadSyncMin: 3, // members alive to keep volleying in sync
+  // Greeter: sparks on death — three short-fused zaps around the chassis.
+  greeterSparkCount: 3,
+  greeterSparkDelay: 0.45, // fuse on each spark (dodgeable, tight)
+  greeterSparkRadius: 0.95,
+  greeterSparkDmgMult: 0.5, // × monster damage per spark
+
+  // GARDEN cast (floors 7+) — the floor fights back.
+  gardenFromFloor: 7,
+  // Vine Lasher hook: the longest lane telegraph in the game, then the DRAG.
+  lasherHookRange: 5.5, // tiles the whip reaches
+  lasherHookWidth: 0.75, // lane half-width
+  lasherHookCooldown: 6,
+  lasherHookDmgMult: 0.8, // × monster damage on the snag
+  lasherHookLandGap: 1.2, // you land this far from the lasher (in the pack)
+  // Understudy morph: the vulnerable window before the wolf.
+  morphWindup: 1.0, // interruptible — stagger it to stay ahead of the curve
+  morphHpFraction: 0.5, // transforms when damaged below this
+  // Briar Witch hex: a vulnerability mark the whole pack exploits.
+  hexRange: 6,
+  hexDuration: 6, // seconds marked
+  hexVulnerability: 0.3, // +30% damage taken while marked
+  hexCooldown: 8,
+
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine for the contract).
+  undercroftFromFloor: 2,
+  // Cutpurse: the lunge-stab that goes for the purse.
+  cutpurseLungeRange: 2.6, // tiles the dash-stab covers
+  cutpurseLungeCooldown: 4,
+  cutpurseStealBase: 6, // gold stolen: base + perFloor * floor
+  cutpurseStealPerFloor: 2,
+  cutpurseInterest: 1.25, // the refund multiplier when you catch it
+  // Ossuary Warden: slam debris — a lingering bone-shard zone.
+  wardenShardDuration: 5, // seconds the shards stay dangerous
+  wardenShardRadius: 1.6,
+  wardenShardDmgMult: 0.25, // × monster damage per tick (puddle cadence)
+  // Pit Digger: the launch is the lesson, not the damage.
+  diggerKnockback: 1.8, // tiles — bigger than the piston, gentler hit
+
+  // RUINS cast (floors 10+) — the dead civilization drills you.
+  ruinsFromFloor: 10,
+  // Shieldbearer: the frontal guard (drops while it swings or staggers).
+  guardArcCos: 0.5, // attacker within ±60° of its facing = blocked
+  guardDamageTakenMult: 0.25, // the shield eats 75% of frontal damage
+  // Cleric consecration: contested ground.
+  consecrateDuration: 6,
+  consecrateRadius: 2.0,
+  consecrateHealPerTick: 6, // monster HP per puddle-cadence tick inside
+  consecrateDmgMult: 0.35, // × monster damage per tick to crawlers inside
+  consecrateCooldown: 9,
+  // Archivist sweep: the beam that rotates.
+  sweepDuration: 2.6, // seconds of channel (windup holds this long too)
+  sweepRate: 1.1, // radians/sec toward the target
+  sweepLength: 7, // tiles
+  sweepWidth: 0.4, // half-width
+  sweepDmgMult: 0.35, // × monster damage per tick on the line
+  sweepCooldown: 8,
+  // Colossus fissure: a crack that travels — perpendicular movement beats it.
+  fissureSteps: 5, // eruptions along the lane
+  fissureStepGap: 1.15, // tiles between eruptions
+  fissureStepDelay: 0.16, // seconds between eruptions (the travel)
+  fissureRadius: 0.9,
+  fissureDmgMult: 0.8, // × monster damage per eruption
 
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
@@ -319,6 +412,7 @@ export const CONFIG = {
   shamanHeal: 16, // hp restored to the lowest-HP wounded monster per cast
   shamanHealCooldown: 2.5, // seconds between casts
   shamanHealRange: 6, // tiles: allies it can reach
+  shamanHealWindup: 0.8, // channel before the heal lands — the interrupt window
 
   // Phantom: fast, fragile skirmisher that blinks toward its prey.
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
@@ -568,6 +662,21 @@ export const CONFIG = {
     hypeBroodmother: 9, // ending the nest = the whole arena exhales
     hypeDrummer: 6, // silencing the band = the pack deflates on camera
     hypeFilcher: 8, // running down the rat is a highlight-reel chase
+    hypeLineworker: 5,
+    hypeSentinel: 7, // dodging the lock then dropping the turret = television
+    hypeSlagbreaker: 9, // the vent-window execution is a highlight
+    hypeToysoldier: 3, // chaff — the VOLLEY dodge is where the hype lives
+    hypeGreeter: 6, // it was a prop until it wasn't
+    hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
+    hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
+    hypeHexer: 7, // dispelling the mark by ending the witch
+    hypeCutpurse: 6, // getting the purse BACK (with interest) plays great
+    hypeWarden: 6, // toppling the vault's furniture
+    hypeDigger: 4, // the launch was the show; the kill is a footnote
+    hypeShieldbearer: 7, // cracking the phalanx from behind is choreography
+    hypeCleric: 7, // deconsecration, live on camera
+    hypeArchivist: 8, // interrupting the beam mid-sweep is a clip
+    hypeColossus: 9, // felling the furniture of a dead civilization
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -635,6 +744,7 @@ export const CONFIG = {
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  summonWindup: 0.7, // channel before the add arrives (summoner elites + broodmother)
   // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
   // the fog until a player strays within trigger range, then the whole cluster
   // springs at once with a brief speed surge to close the gap. A pack that lets
@@ -804,6 +914,52 @@ export const ARCHETYPES = {
   // Filcher (Repo Rat): never attacks (dmgMult unused); a fast loot-goblin that
   // FLEES on sight, bleeds gold as it's hurt, and ESCAPES if ignored (filcher*).
   filcher: { hpMult: 0.6, dmgMult: 0, speedMult: 1.55, attackRange: 1.0, xpMult: 0.5, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.32 },
+  // IRONWORKS cast (floors 13-15). Lineworker: a sturdy grunt whose piston
+  // punch LAUNCHES you — never fight with your back to the set dressing.
+  lineworker: { hpMult: 1.3, dmgMult: 1.1, speedMult: 0.9, attackRange: 1.1, xpMult: 1.4, ranged: false, windup: 0.55, poise: 0.45, mass: 1.8, radius: 0.42, resist: "physical" },
+  // Sentinel: standoff turret-bot — its lock-on beam is the threat (sentinel*
+  // knobs); dmgMult scales the railshot. Innately warded (energy shielding).
+  sentinel: { hpMult: 0.85, dmgMult: 1.5, speedMult: 0.8, attackRange: 7, xpMult: 1.6, ranged: true, windup: 0.35, poise: 0.3, mass: 1.2, radius: 0.38, resist: "magic" },
+  // Slagbreaker: a LARGE steam brute on a heat rhythm — three swings, then a
+  // forced scalding vent + self-stagger (slag* knobs). Count to three.
+  slagbreaker: { hpMult: 3.0, dmgMult: 1.5, speedMult: 0.6, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.7, poise: 0.75, mass: 3.2, radius: 0.58, resist: "physical" },
+  // Toysoldier: musket squads that volley AS ONE (squad sync in ai.ts);
+  // individually chaff — the synchronized volley is the encounter.
+  toysoldier: { hpMult: 0.5, dmgMult: 0.9, speedMult: 0.9, attackRange: 6, xpMult: 0.9, ranged: true, windup: 1.0, poise: 0.2, mass: 0.9, radius: 0.32 },
+  // Greeter: stands dormant among the props (always spawns in ambush), then
+  // swings like a grunt; on death it discharges spark blasts (greeterSpark*).
+  greeter: { hpMult: 1.1, dmgMult: 1.2, speedMult: 1.05, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.3, radius: 0.4 },
+  // GARDEN cast (floors 7+). Lasher: mid-range whip — its HOOK drags you down
+  // the lane to the pack (lasher* knobs). attackRange = preferred standoff.
+  lasher: { hpMult: 0.95, dmgMult: 1.0, speedMult: 0.9, attackRange: 4, xpMult: 1.5, ranged: true, windup: 0.95, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Understudy: a shuffling extra — weak on purpose. At half HP it TRANSFORMS
+  // into a full charger (morph* knobs): burst it through the threshold or
+  // stagger the morph, or fight the wolf you made.
+  understudy: { hpMult: 0.75, dmgMult: 0.6, speedMult: 0.8, attackRange: 1.0, xpMult: 1.3, ranged: false, windup: 0.5, poise: 0.25, mass: 1, radius: 0.36 },
+  // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
+  // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
+  hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
+  // UNDERCROFT trainers (floor 2+). Cutpurse: fast, fragile, and after your
+  // PURSE, not your HP — its lunge-stab steals gold (cutpurse* knobs).
+  cutpurse: { hpMult: 0.5, dmgMult: 0.5, speedMult: 1.35, attackRange: 1.0, xpMult: 1.1, ranged: false, windup: 0.55, poise: 0.15, mass: 0.8, radius: 0.32 },
+  // Ossuary Warden: a slow bone golem — its slam leaves a shard zone that
+  // reshapes the room (warden* knobs). High mass: it body-blocks doorways.
+  warden: { hpMult: 2.2, dmgMult: 1.3, speedMult: 0.55, attackRange: 1.15, xpMult: 1.9, ranged: false, windup: 0.8, poise: 0.7, mass: 3, radius: 0.55 },
+  // Pit Digger: the knockback TUTOR — the slowest tell in the game, a gentle
+  // hit, and a real launch. Three floors before knockback appears near hazards.
+  digger: { hpMult: 1.1, dmgMult: 0.35, speedMult: 0.8, attackRange: 1.1, xpMult: 1.2, ranged: false, windup: 0.9, poise: 0.4, mass: 1.6, radius: 0.42 },
+  // RUINS cast (floors 10+). Shieldbearer: tower-shield zealot — near-immune
+  // from the FRONT while its guard holds; the guard drops mid-swing/stagger.
+  shieldbearer: { hpMult: 1.6, dmgMult: 1.2, speedMult: 0.7, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.6, poise: 0.6, mass: 2.4, radius: 0.45, resist: "physical" },
+  // Cleric: never attacks (dmgMult unused) — consecrates CONTESTED ground
+  // that heals monsters and burns crawlers (consecrate* knobs).
+  cleric: { hpMult: 0.9, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.7, ranged: true, windup: 0.9, poise: 0.3, mass: 1, radius: 0.38 },
+  // Archivist: standoff channeler — its SWEEPING beam (sweep* knobs) is the
+  // first attack you dodge continuously. Stagger the channel to cut it short.
+  archivist: { hpMult: 0.85, dmgMult: 1.0, speedMult: 0.8, attackRange: 6, xpMult: 1.8, ranged: true, windup: 0.5, poise: 0.25, mass: 1, radius: 0.38, resist: "magic" },
+  // Colossus (The Foundation): animate masonry, LARGE — its slam sends a
+  // FISSURE travelling down a lane (fissure* knobs). Move perpendicular.
+  colossus: { hpMult: 2.8, dmgMult: 1.4, speedMult: 0.55, attackRange: 1.2, xpMult: 2.3, ranged: false, windup: 0.85, poise: 0.75, mass: 3.4, radius: 0.58, resist: "physical" },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

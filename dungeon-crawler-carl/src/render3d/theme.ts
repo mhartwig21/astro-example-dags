@@ -53,6 +53,21 @@ export const THEME = {
     broodmother: { color: 0xd45db8, scale: 1.4 }, // magenta: the nest — kill it first
     drummer: { color: 0xc9822e, scale: 1.05 }, // war-drum bronze: silence the band
     filcher: { color: 0xf2c14e, scale: 0.8 }, // gold: it IS the loot — chase it
+    lineworker: { color: 0x8fa3ad, scale: 1.1 }, // industrial steel: the piston
+    sentinel: { color: 0xff4d6d, scale: 1.0 }, // targeting-laser red: watch the lock
+    slagbreaker: { color: 0xd96b2b, scale: 1.5 }, // furnace orange: count to three
+    toysoldier: { color: 0xc94f4f, scale: 0.85 }, // parade red: the volley line
+    greeter: { color: 0x9a7fb8, scale: 1.05 }, // showroom mauve: it was a prop
+    lasher: { color: 0x3f9142, scale: 1.05 }, // vine green: watch the lane
+    understudy: { color: 0x8d7a6a, scale: 0.95 }, // understudy beige: for now
+    hexer: { color: 0xa64ca6, scale: 1.0 }, // briar purple: kill the witch
+    cutpurse: { color: 0xcfd45d, scale: 0.85 }, // coin-glint yellow: guard the purse
+    warden: { color: 0xd8d0c0, scale: 1.5 }, // ossuary bone: the vault furniture
+    digger: { color: 0xb08968, scale: 1.15 }, // pit-clay brown: respect the club
+    shieldbearer: { color: 0xc0c8d8, scale: 1.15 }, // temple steel: go around
+    cleric: { color: 0xe8c96a, scale: 1.0 }, // consecration gold: kill it first
+    archivist: { color: 0x6a8fd8, scale: 1.0 }, // manuscript blue: shut the book
+    colossus: { color: 0x9a948a, scale: 1.55 }, // masonry grey: the furniture fights
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,
