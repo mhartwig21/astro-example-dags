@@ -113,6 +113,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // all CC0; see ASSETS.md)
       "skeleton_arrow", "plant_warrior_arrow", "clown_bomb",
       "weapon_arrow_a", "gem_medium",
+      // Drum Sergeant's kit (Orc Raider pack props, CC0): grafted onto the
+      // drummer's handslots in buildMonsterMesh so the band LOOKS like a band.
+      "orc_wardrum", "orc_wardrum_stick",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

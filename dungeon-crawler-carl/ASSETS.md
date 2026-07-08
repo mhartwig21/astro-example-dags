@@ -33,6 +33,7 @@ appreciated).
 | KayKit Skeletons 1.1 — `skeleton_arrow.glb` (ranged-archetype projectile) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
 | KayKit Mystery Monthly: Plant Warrior — `plant_warrior_arrow.glb` (spitter windup lob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| KayKit Mystery Monthly: Orc Raider — `orc_wardrum.glb` + `orc_wardrum_stick.glb` (the Drum Sergeant's grafted instrument) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
 
