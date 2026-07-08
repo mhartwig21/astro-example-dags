@@ -34,8 +34,16 @@ called **the Show**. The register it uses depends on where you're standing:
 
 ### Inside the run → SYSTEM register
 Deadpan bureaucratic game-admin. Patch notes, liability waivers, audits,
-fine print, refunds not offered. The System reports even show metrics as
-bureaucracy — engagement numbers, not applause:
+fine print, refunds not offered.
+
+**Owner correction (2026-07-08): the System is show-AWARE, not show-blind.**
+In the books the System calls everyone "Crawler(s)" constantly and mentions
+ratings, the audience, and the cameras when it suits it — it hosts the show.
+So the tell for this register is **enthusiasm, not vocabulary**: the System
+mentions ratings the way an accountant mentions a deadline; a production
+announcer celebrates them. "The exit is SEALED. Ratings, Crawlers." passes —
+terse, bored, ratings-as-justification. A line only fails when the narrator
+sounds like a hype-man: breathless, cheering, selling.
 
 > "Viewership in your sector has declined 34%. Corrective content has been
 > scheduled."
@@ -47,6 +55,7 @@ audits), death lines, collapse warnings.
 Reference exemplars (already shipped, this is the target tone):
 - "The floor key is GONE. The System audits the ledger and WAIVES the door fee."
 - "…let the ritual finish. The System does not offer refunds."
+- "…AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings."
 - "CONNECTION LOST. The System apologizes for the technical difficulties."
 - Every achievement name in `achievements.ts`.
 
@@ -110,52 +119,34 @@ not a CASTING CALL.
 
 ## The worklist
 
-### 1. Rewrite the blended in-run announcement lines (~35 in game.ts + ai.ts)
-The pattern to kill: System sentence + showbiz tag welded on. Representative
-rewrites (current → proposed):
+### 1. ~~Rewrite the blended in-run announcement lines~~ — RETIRED (2026-07-08)
+The original audit flagged ~35 "blended" lines for rewrite. The owner
+correction above dissolves this: "Crawlers" as address and deadpan ratings
+mentions ARE the System's canon register, so the shipped lines pass. The
+enduring rule for NEW announcement lines: write them show-aware but bored —
+if a line reads breathless or cheering, cool it down. No retro-rewrite pass.
 
-| Current (verbatim) | Proposed |
-|---|---|
-| "CITY BOSS: {name} holds floor {n}. The exit is SEALED. Ratings, Crawlers." | "CITY BOSS: {name} holds floor {n}. The exit is SEALED. This is a compliance mechanism." |
-| "Descending to floor {n}. The cameras are rolling, Crawlers." | "Descending to floor {n}. The System has prepared it. It is not sorry." |
-| "{name} drops into the dungeon. The audience loves fresh meat." | "{name} has entered the dungeon. Liability waiver: accepted by default." |
-| "{p}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings." | "SPONSOR ACTION: airstrike authorized. The System recommends not standing in the delivery area." |
-| "PARTY WIPE. The season finale nobody wanted. The crowd goes wild." | "PARTY WIPE. Survival was optional. All crawlers have opted out." |
-| "The boss is DESPERATE. Everything is a projectile. RATINGS." (ai.ts) | "The boss is DESPERATE. Everything is a projectile. The System disclaims all of it." |
-| "…CRACKS THE FLOOR. Everything airborne is a highlight." | "…CRACKS THE FLOOR. Airborne objects are now your problem." |
-
-Method: grep `announce(` in `src/sim/game.ts` and `src/sim/ai.ts`, rewrite
-every line whose voice is production or blended into pure System register.
-Show-*subject* lines (sponsor gifts, frenzy, viewer milestones) keep their
-subject but switch narrator: metrics administered, not celebrated. Boss
-signature telegraphs ("THE SLUICES OPEN…") lean System-deadpan while keeping
-the mechanical instruction intact — the telegraph text is UX, don't bury it.
-
-### 2. Tag voice on the announce rail (small code change)
-`announce()` already takes a `kind`. Add `voice: "system" | "show"` (default
-"system") so hosts can style the rare Show-voiced line differently later
-(e.g. the recap feed). Cheap now, enables per-voice styling forever.
-
-### 3. Catalog desc pass (names stay)
+### 2. Catalog desc pass (names stay)
 Item *names* are fine under the merch carve-out. Sweep `catalog.ts`
 descriptions so every one lands System-register (most already do: "Warranty
 void.", "Auto-renews. Cancellation is difficult."). Rewrite the handful of
 pure-hype descs ("Ratings never sleep.") only if they read as narrator rather
 than ad copy — ad copy on a sponsor product is diegetic and may stay.
 
-### 4. Docs to update when #1 ships
-- `DESIGN.md` §5.5–5.6: name the two-register rule (currently asserts a
-  single "System announcer" with no register split).
-- `CLAUDE.md` tone line: "the System's game-show announcer voice" → the
-  two-register formulation.
+### 3. Doc touch-ups (low priority — the existing docs are mostly right)
+- `DESIGN.md` §5.5–5.6 and `CLAUDE.md`'s "game-show announcer voice" line
+  turned out to be accurate as written (the System IS the announcer, show-
+  aware and deadpan); optionally link them here.
 - `STYLEGUIDE.md`: the "stone is for SETS, glass is for the fight" rule
-  already draws this exact boundary visually — add the voice sentence to it:
-  **stone speaks Show, glass speaks System.**
+  already draws the surface boundary visually — optionally add: **stone may
+  go full showbiz (SEASON RATINGS, RINGSIDE CHECK-IN); glass stays terse
+  and bored.**
 
 ### What does NOT change
 Show economy mechanics and data (hype/viewers/favorites/sponsors), the show
-bar, ability names and constellation node names, achievement names, monster/
-boss names, item names, the safe-room manager, the menu/recap production
-voice, RINGSIDE INTRODUCTION, "THE SYSTEM PRESENTS".
+bar, the in-run announcement corpus (see retired item #1), ability names and
+constellation node names, achievement names, monster/boss names, item names,
+the safe-room manager, the menu/recap production voice, RINGSIDE
+INTRODUCTION, "THE SYSTEM PRESENTS".
 
 Delete sections from this doc as they ship (BACKLOG.md convention).
