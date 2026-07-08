@@ -2220,7 +2220,7 @@ describe("attack telegraphs + hit reactions", () => {
     expect(p.facing.y).toBeCloseTo(1); // and it converges, exactly
   });
 
-  it("attacking while running never shoves the runner off their line", () => {
+  it("a sideways swing never shoves the runner off their line", () => {
     const g = createGame(916);
     const p = g.players[0];
     g.monsters.length = 0;
@@ -2228,6 +2228,27 @@ describe("attack telegraphs + hit reactions", () => {
     // Running due south while swinging due east: the lunge must not add +x.
     step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(p.pos.x).toBeCloseTo(x0, 6);
+  });
+
+  it("swinging WITH the run keeps the forward lunge (aggression intact)", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    // One tick of run alone is ~0.07 tiles; run + lunge clears it by a margin.
+    expect(p.pos.x - x0).toBeGreaterThan(CONFIG.playerSpeed / 60 + 0.2);
+  });
+
+  it("swinging AGAINST the run never yanks the runner backward", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Sprinting east, mouse-swinging west behind you: keep sprinting east.
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: -1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x - x0).toBeGreaterThan(0);
+    expect(p.pos.x - x0).toBeLessThan(0.2); // the run step only — no lunge either way
   });
 
   it("a swing commits facing to the aim, then movement reclaims it", () => {
