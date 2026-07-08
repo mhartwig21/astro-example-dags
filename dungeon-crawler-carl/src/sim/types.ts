@@ -233,7 +233,9 @@ export interface Monster {
   // "hex": the Briar Witch's vulnerability curse on the nearest crawler.
   // "lunge": cutpurse dash-stab down the chargeDir lane; a hit STEALS gold.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
-    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"; // what resolves when windup expires
+    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
+    | "heal" | "summon"; // what resolves when windup expires
+  healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
   // (The lasher's hook also locks its lane here — one dir field, two verbs.)

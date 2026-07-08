@@ -20,7 +20,7 @@ audit. Delete rows as they ship.
 | Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion prop staged** (`potion_medium_red.glb` in the manifest); no drink clip exists in ANY clip pack (inventoried 2026-07-08) → the clip moved to the Meshy queue | graft prop on cast + generated clip |
 | ~~Filcher gold token~~ **SHIPPED 2026-07-08** (money-pile graft, visible while `carry > 0`) + Sneaking clip while unnoticed | — | — |
 | Blindside poof anchor (player half; ~~phantom blink~~ **SHIPPED 2026-07-08** with procedural poofs + mesh snap) | Adventurers 2.0 **smokebomb prop staged** (`smokebomb.glb`); the poof stays procedural | FX code |
-| Shaman heal / summoner birth caster tells | Art already exists — `cast_raise`/`Ranged_Magic_Raise` in the loaded rig libraries. The gap is **sim-side** (these casts have no windup, so no clip/ring fires) | small sim change, zero assets |
+| ~~Shaman heal / summoner + broodmother caster tells~~ **SHIPPED 2026-07-08** (windup channels "heal"/"summon" → cast_raise clip + telegraph ring; interruptible by killing the caster) | — | — |
 | ~~Clip packs~~ **LOADED 2026-07-08** (all 14); ~~boss enrage act~~ **SHIPPED** via EXPERIMENTAL_Large_Transform on the phase edge | — | — |
 | APPROACH mob cast (MOB-CONCEPTS roster; IRONWORKS robots shipped 2026-07-08) | Still-unused characters: Ninja, Marksman, AvianSwordsman, MagicalGirl, 4GTN golems, Monstrosity (custom rig — verify), CombatMech, Tiefling, Cleric, Paladin… | CHARACTER_RIGS + manifest |
 | Floor traps (if they ship) | Platformer Pack: saws, spikes, swipers, hammers, conveyors (525 models) | future |

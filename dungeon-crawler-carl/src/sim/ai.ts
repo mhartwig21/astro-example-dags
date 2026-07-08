@@ -173,6 +173,26 @@ function resolveStrike(state: GameState, m: Monster): void {
     else raiseCorpse(state, m);
     return;
   }
+  if (kind === "heal") {
+    // The committed patient may have died or topped up mid-channel — whiff.
+    const target = state.monsters.find((a) => a.id === m.healId);
+    m.healId = undefined;
+    if (!target || target.hp <= 0 || target.hp >= target.maxHp) return;
+    const amount = Math.min(CONFIG.shamanHeal, target.maxHp - target.hp);
+    target.hp += amount;
+    state.hits.push({ pos: { x: target.pos.x, y: target.pos.y }, amount, kind: "heal" });
+    return;
+  }
+  if (kind === "summon") {
+    // Summoner elites + broodmother: the add arrives when the channel ends —
+    // kill or stagger the caster inside the window and it never does.
+    m.summons = (m.summons ?? 0) + 1;
+    summonMinion(state, m);
+    if (m.kind === "broodmother" && m.summons === 1) {
+      state.events.push("A broodmother births another mouth. Kill the nest first.");
+    }
+    return;
+  }
   if (kind === "slam") {
     // Brute's own attack uses its stat damage as-is; a boss's Ground Slam is an
     // extra ability layered on top of its melee+volley kit, so it's discounted.
@@ -481,9 +501,9 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     m.affix === "summoner" && (m.affixCd ?? 0) === 0 &&
     d <= CONFIG.monsterAggroRange && (m.summons ?? 0) < CONFIG.summonMax
   ) {
+    // Telegraphed like everything else: the cast is a channel, not a blink.
     m.affixCd = CONFIG.summonCooldown;
-    m.summons = (m.summons ?? 0) + 1;
-    summonMinion(state, m);
+    beginWindup(m, "summon", CONFIG.summonWindup);
   }
 
   if (m.kind === "boss") {
@@ -880,10 +900,11 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         if (!target || ally.hp < target.hp) target = ally;
       }
       if (target) {
+        // Paid up front — a whiff still costs. The channel is the party's
+        // "focus the shaman" window (same shape as the necromancer's raise).
         m.healCd = CONFIG.shamanHealCooldown;
-        const amount = Math.min(CONFIG.shamanHeal, target.maxHp - target.hp);
-        target.hp += amount;
-        state.hits.push({ pos: { x: target.pos.x, y: target.pos.y }, amount, kind: "heal" });
+        m.healId = target.id;
+        beginWindup(m, "heal", CONFIG.shamanHealWindup);
       }
     }
     return;
@@ -962,12 +983,9 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       (m.affixCd ?? 0) === 0 && (m.summons ?? 0) < CONFIG.broodSpawnMax &&
       state.monsters.length < CONFIG.monsterMaxCount * CONFIG.broodPopulationCap
     ) {
+      // The birth is a channel — the first-summon event moved to the resolve.
       m.affixCd = CONFIG.broodSpawnCooldown;
-      m.summons = (m.summons ?? 0) + 1;
-      summonMinion(state, m);
-      if (m.summons === 1) {
-        state.events.push("A broodmother births another mouth. Kill the nest first.");
-      }
+      beginWindup(m, "summon", CONFIG.summonWindup);
     }
     return;
   }
