@@ -244,15 +244,115 @@ fight. Seam: a per-arena tick hook next to the signature dispatch.
   re-arm) and the ticker sells ad time. A breather that re-deals the board —
   and pure DCC television.
 
-## Pack composition — spawn templates
+## The pack playbook — abilities that set each other up
 
-Singles-with-weights can't express "drummer + three raiders." Add seeded
-**pack templates** per band to `spawnMonsters` (config-driven, like
-FLOOR_BANDS): e.g. UNDERCROFT `[warden + 2 minions]`, SEWERS
-`[sergeant + 3 raiders]`, IRONWORKS `[2 workers + QC]`, APPROACH
-`[darling + 4 toys]`. Each template is a composed encounter with a built-in
-kill-order question. Solo specialists (Repo Rat, Thing in the Pipes) keep
-spawning as singles.
+Singles-with-weights can't express "drummer + three raiders." The deeper
+point: the mobs above are solo acts; PACKS are where their abilities become
+combos — the monster-side mirror of the owner's stated player-kit taste
+("press multiple buttons to set up attacks"). One mob creates the condition,
+another cashes it in.
+
+**Design rules for packs:**
+- **One question per pack.** Kill order, positioning, OR timing — never all
+  three. A pack that asks two questions is two packs.
+- **Setup telegraphs before payoff lands.** The hook winds up before the
+  brute's axe does; readable combos, or it's just noise.
+- **Two answers minimum.** Every pack must be beatable by at least two build
+  archetypes (melee answer + ranged answer), or it's a gear check.
+- **Budget-neutral.** A template SPENDS the floor's existing monster budget
+  (density/count knobs unchanged) — packs recompose difficulty, they don't
+  add it.
+- **Synergy is mostly spatial, not coded.** Formation offsets + facing at
+  spawn (shields front, drummer center, sniper rear) produce 80% of the
+  combo. Only two designs need explicit AI glue, flagged below.
+
+Seam: a per-band template table in config (like FLOOR_BANDS), consumed by
+`spawnMonsters`; each template lists members with formation offsets. Seeded
+pick per pack site. Solo specialists (Repo Rat, Thing in the Pipes) stay
+singles.
+
+### The playbook (2 per band, flagship first)
+
+**THE UNDERCROFT — training combos (the tutorial teaches teamwork too)**
+- **The Reception** `[Ossuary Warden + 2 Skeleton Minions + Cutpurse]` — the
+  Warden plugs the doorway, minions harass, the Cutpurse lunges for your
+  purse while you're wedged. *Question: positioning — back out, fight in the
+  open you chose.*
+- **Grave Shift** `[Pit Digger + Skeleton Mage]` — the club launches you into
+  the mage's bolt line. Training-dosage displacement-into-projectile: the
+  combo every later band escalates. *Question: positioning.*
+
+**THE SEWERS — kill-order kindergarten**
+- **The Drumline** `[Drum Sergeant + 3 Orc Raiders]` — frenzied raiders are
+  scary; the drummer making them frenzied is worth nothing himself.
+  *Question: kill order — the game's first "shoot the healer" moment.*
+- **Ambush Plumbing** `[Thing in the Pipes + 2 Spitters]` — acid puddles
+  herd you onto the only clean ground; the ripple is already stalking it.
+  Zone denial hands the burrower its eruption spot. *Question: positioning —
+  stand IN old puddle edges, take the tick, deny the ambush.*
+
+**THE GARDEN — the hook squad band**
+- **The Hook Squad** `[Vine Lasher + Briar Witch + Brute]` — the flagship
+  LoL pack: Witch marks you (+damage taken), Lasher hooks you into the
+  Brute's already-winding axe. Full Blitzcrank-Morgana-Darius. Needs one
+  line of AI glue: *the Lasher prefers hook angles that land you near
+  allies* (targeting bias, not choreography). *Question: timing — break LoS
+  on the witch, dash the hook's long telegraph.*
+- **Moonlit Understudies** `[2 Werewolf_Man + Shaman]` — a weak-looking pack,
+  but the shaman heals the shufflers back ABOVE their transform threshold.
+  Burst them through it, or kill the shaman, or fight two wolves.
+  *Question: kill order, with a countdown.*
+
+**THE RUINS — formation warfare**
+- **The Procession** `[2 Shieldbearer Husks + Last Rites Cleric + Archivist]`
+  — the raid-lite flagship: shields advance in phalanx, cleric consecrates
+  the ground UNDER them, Archivist beams over their heads. Frontal assault
+  fails three ways; flanking collapses all of it at once. *Question:
+  positioning — the pack is a fortress with exactly one blind side.*
+- **Falling Masonry** `[The Foundation + Necromancer]` — fissure lanes crack
+  the room while the necromancer raises everything that dies in them. Your
+  own kills feed the second wave. *Question: kill order — necro first, or
+  drown in your own efficiency.*
+
+**THE IRONWORKS — timing collision**
+- **The Assembly Line** `[2 Line Workers + Quality Control]` — the signature
+  Ironworks combo: piston punches launch you mid-juke, and QC's lock-on
+  punishes exactly the movement the punch forced. Needs the second line of
+  AI glue: *QC's lock decays slower against recently-displaced targets*.
+  *Question: positioning — never let a worker stand between you and the
+  laser.*
+- **Shift Change** `[Slagbreaker + Wind-Up Battalion]` — the battalion syncs
+  its volley to the Slagbreaker's vent window: the moment you want to unload
+  into the stagger is the moment six muskets fire. Punish the vent OR dodge
+  the volley — the fight asks you to choose every cycle. *Question: timing.*
+
+**THE APPROACH — finals week**
+- **The Entourage** `[The Darling + 4 ToySoldiers + Featured Extra]` — 
+  shielded toys volley in sync, a riposte duelist bodyguards the idol, and
+  the only correct target takes +50% damage if you can reach her.
+  Kill-order finals: the answer is stated, the execution is the exam.
+  *Question: kill order.*
+- **The Crew** `[Boom Operator + Stagehand]` — the sniper lane forces you to
+  move; the assassin punishes movement. Hammer and anvil at range — hold the
+  Stagehand's re-entry mark while walking the lane's re-aim window.
+  *Question: timing.*
+
+### Late-run remixes (floors 16–18)
+
+The System airs RERUNS: Approach floors seed one cross-band remix pack per
+floor, pulling earlier specialists into new pairings — *Drum Sergeant +
+Wind-Up Battalion* (frenzied synced volleys), *Vine Lasher + Slagbreaker*
+(hooked into the vent cone), *Briar Witch + Boom Operator* (marked for the
+lane). Familiar mobs, new questions — the endgame reads as a season finale
+clip show that fights back.
+
+### Elite affixes × packs (the multiplication table)
+
+Affixes roll on pack LEADERS and recolor the whole question: a **mortar**
+Drum Sergeant shells you from behind his raiders; a **linked** Darling makes
+the stated kill order a lie until the link breaks; a **juggernaut**
+Shieldbearer can't be displaced out of the phalanx. One seeded affix per
+pack leader, floor 8+, never two auras in one pack (readability rule).
 
 ## Shipping order (each wave is one PR-sized bite)
 
@@ -260,8 +360,9 @@ spawning as singles.
    fully unit-testable, zero models needed).
 2. **Sewers + Ironworks casts** (6 mobs) — they exercise all four verbs and
    those bands are the most visually starved today.
-3. **Elite affix six-pack + pack templates** — multiplies the existing AND
-   new cast at zero model cost.
+3. **Elite affix six-pack + the pack playbook** (templates land with the
+   bands whose members have shipped; The Drumline and The Assembly Line
+   first) — multiplies the existing AND new cast at zero model cost.
 4. **Undercroft/Garden/Ruins/Approach casts** in band order (the remaining
    18), champions landing with their band.
 5. **Boss layers 2–3** (signature stacking + arena directors), then ONE new

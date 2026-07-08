@@ -39,7 +39,7 @@ export const SCALING: Partial<Record<AbilityId, { ap?: number; sp?: number }>> =
   melee: { ap: 1 },
   orbit: { ap: 1 },
   cutto: { ap: 1 }, // the arrival strike is steel
-  crowdsurf: { ap: 1 }, // the chain is hardware (Stage Dive's blast stays arcane)
+  crowdsurf: { ap: 1 }, // the chain is hardware (Gavel Drop's blast stays arcane)
   stuntdouble: { ap: 1 }, // mirrors swings; the farewell blast is pyrotechnics
   airstrike: { ap: 1 }, // sponsor ordnance is extremely physical
   dash: { sp: 1 }, // shockstep/aftershock detonations are arcane
@@ -90,8 +90,8 @@ export const ABILITY_INFO: Record<AbilityId, { name: string; blurb: string; tier
   orbit: { name: "Orbit", blurb: "Auto blades circle you", tier: "active", passive: true },
   stance: { name: "Battle Stance", blurb: "Toggle Brawler/Deadeye: matching attacks hit harder, mismatched softer", tier: "active" },
   overcharge: { name: "Overcharge", blurb: "Bank power: your next attack hits much harder", tier: "active" },
-  cutto: { name: "Cut To", blurb: "The camera cuts: teleport onto an enemy and strike", tier: "active" },
-  crowdsurf: { name: "Crowd Surf", blurb: "Chain: yank the light to you, yank yourself to the heavy", tier: "active" },
+  cutto: { name: "Blindside", blurb: "Teleport onto an enemy, already swinging", tier: "active" },
+  crowdsurf: { name: "Extradition", blurb: "One chain: the light are transferred to you, you to the heavy", tier: "active" },
   stuntdouble: { name: "Stunt Double", blurb: "A taunting double soaks hits, mirrors your swings, exits with a bang", tier: "active" },
   airstrike: { name: "Sponsor Airstrike", blurb: "Your sponsors deliver ordnance at the cursor", tier: "ultimate" },
   cataclysm: { name: "Cataclysm", blurb: "A floor-shaking blast that hurls enemies back", tier: "ultimate" },
@@ -180,16 +180,16 @@ export const UPGRADES: UpgradeDef[] = [
     requires: ["orbit.blade"], excludes: ["orbit.razor"], pos: { x: 75, y: 48 },
   },
   { id: "orbit.guillotine", ability: "orbit", title: "GUILLOTINE", maxRank: 1, desc: () => `Blades CANCEL non-elites below ${Math.round(CONFIG.orbitGuillotineThreshold * 100)}% HP`, requires: ["orbit.blade"], capstone: true, pos: { x: 50, y: 86 } },
-  // Cut To: range -> (jump XOR smash) -> MATCH CUT
-  { id: "cut.range", ability: "cutto", title: "Rolling Take", maxRank: 2, over: 2, desc: (r) => `Cut range +${r * 15}%`, pos: { x: 50, y: 12 } },
-  { id: "cut.jump", ability: "cutto", title: "Jump Cut", maxRank: 2, over: 1, desc: (r) => `Cut To cooldown -${r * 15}%`, requires: ["cut.range"], excludes: ["cut.smash"], pos: { x: 22, y: 48 } },
-  { id: "cut.smash", ability: "cutto", title: "Smash Cut", maxRank: 2, over: 1, desc: (r) => `Arrival strike +${r * 30}%; non-elites arrive STAGGERED`, requires: ["cut.range"], excludes: ["cut.jump"], pos: { x: 78, y: 48 } },
-  { id: "cut.match", ability: "cutto", title: "MATCH CUT", maxRank: 1, desc: () => `Kill the target within ${CONFIG.cutToMatchWindow}s of arriving: Cut To resets`, requires: ["cut.range"], capstone: true, pos: { x: 50, y: 86 } },
-  // Crowd Surf: chain -> (grip XOR dive) -> THE WAVE
-  { id: "surf.chain", ability: "crowdsurf", title: "Long Chain", maxRank: 2, over: 2, desc: (r) => `Chain range +${r * 20}%`, pos: { x: 50, y: 12 } },
-  { id: "surf.grip", ability: "crowdsurf", title: "Headliner's Grip", maxRank: 2, over: 1, desc: (r) => `Pulled enemies land staggered +${(r * CONFIG.surfStaggerPerRank).toFixed(1)}s longer`, requires: ["surf.chain"], excludes: ["surf.dive"], pos: { x: 22, y: 48 } },
-  { id: "surf.dive", ability: "crowdsurf", title: "Stage Dive", maxRank: 2, over: 1, desc: (r) => `Pulling YOURSELF detonates on arrival (${Math.round(r * CONFIG.surfDiveFracPerRank * 100)}% power)`, requires: ["surf.chain"], excludes: ["surf.grip"], pos: { x: 78, y: 48 } },
-  { id: "surf.wave", ability: "crowdsurf", title: "THE WAVE", maxRank: 1, desc: () => "The chain drags EVERYTHING it passes through", requires: ["surf.chain"], capstone: true, pos: { x: 50, y: 86 } },
+  // Blindside: range -> (jump XOR smash) -> REPEAT OFFENDER
+  { id: "cut.range", ability: "cutto", title: "Long Reach", maxRank: 2, over: 2, desc: (r) => `Blindside range +${r * 15}%`, pos: { x: 50, y: 12 } },
+  { id: "cut.jump", ability: "cutto", title: "Short Notice", maxRank: 2, over: 1, desc: (r) => `Blindside cooldown -${r * 15}%`, requires: ["cut.range"], excludes: ["cut.smash"], pos: { x: 22, y: 48 } },
+  { id: "cut.smash", ability: "cutto", title: "Sucker Punch", maxRank: 2, over: 1, desc: (r) => `Arrival strike +${r * 30}%; non-elites arrive STAGGERED`, requires: ["cut.range"], excludes: ["cut.jump"], pos: { x: 78, y: 48 } },
+  { id: "cut.match", ability: "cutto", title: "REPEAT OFFENDER", maxRank: 1, desc: () => `Kill the target within ${CONFIG.cutToMatchWindow}s of arriving: Blindside resets`, requires: ["cut.range"], capstone: true, pos: { x: 50, y: 86 } },
+  // Extradition: chain -> (grip XOR dive) -> CLASS ACTION
+  { id: "surf.chain", ability: "crowdsurf", title: "Long Arm", maxRank: 2, over: 2, desc: (r) => `Chain range +${r * 20}%`, pos: { x: 50, y: 12 } },
+  { id: "surf.grip", ability: "crowdsurf", title: "Contempt", maxRank: 2, over: 1, desc: (r) => `Pulled enemies land staggered +${(r * CONFIG.surfStaggerPerRank).toFixed(1)}s longer`, requires: ["surf.chain"], excludes: ["surf.dive"], pos: { x: 22, y: 48 } },
+  { id: "surf.dive", ability: "crowdsurf", title: "Gavel Drop", maxRank: 2, over: 1, desc: (r) => `Pulling YOURSELF detonates on arrival (${Math.round(r * CONFIG.surfDiveFracPerRank * 100)}% power)`, requires: ["surf.chain"], excludes: ["surf.grip"], pos: { x: 78, y: 48 } },
+  { id: "surf.wave", ability: "crowdsurf", title: "CLASS ACTION", maxRank: 1, desc: () => "The chain drags EVERYTHING it passes through", requires: ["surf.chain"], capstone: true, pos: { x: 50, y: 86 } },
   // Stunt Double: contract -> (method XOR pyro) -> AWARD SEASON
   { id: "double.break", ability: "stuntdouble", title: "Big Break", maxRank: 2, over: 2, desc: (r) => `Contract +${r}s`, pos: { x: 50, y: 12 } },
   { id: "double.method", ability: "stuntdouble", title: "Method Actor", maxRank: 2, over: 1, desc: (r) => `Taunt radius +${r * 25}%`, requires: ["double.break"], excludes: ["double.pyro"], pos: { x: 22, y: 48 } },
@@ -205,11 +205,11 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "cata.aftermath", ability: "cataclysm", title: "Aftermath", maxRank: 2, over: 1, desc: (r) => `An echo shock ${CONFIG.ultCataclysmAftermathDelay}s later at ${Math.round((CONFIG.ultCataclysmAftermathBase + r * CONFIG.ultCataclysmAftermathPerRank) * 100)}% power`, requires: ["cata.epicenter"], excludes: ["cata.upheaval"], pos: { x: 22, y: 48 } },
   { id: "cata.upheaval", ability: "cataclysm", title: "Upheaval", maxRank: 2, over: 1, desc: (r) => `Hurl +${Math.round(r * CONFIG.ultCataclysmUpheavalKnock * 100)}%; the blast crushes poise`, requires: ["cata.epicenter"], excludes: ["cata.aftermath"], pos: { x: 78, y: 48 } },
   { id: "cata.extinction", ability: "cataclysm", title: "EXTINCTION EVENT", maxRank: 1, desc: () => "Enemies killed by Cataclysm DETONATE, chaining the blast outward", requires: ["cata.epicenter"], capstone: true, pos: { x: 50, y: 86 } },
-  // Bullet Time: focus -> (adrenaline XOR dead eye) -> ENCORE
+  // Bullet Time: focus -> (adrenaline XOR dead eye) -> EXTENSION
   { id: "bt.focus", ability: "bullettime", title: "Deep Focus", maxRank: 2, over: 2, desc: (r) => `Bullet time lasts +${r * CONFIG.ultBulletTimeFocusSeconds}s`, pos: { x: 50, y: 12 } },
   { id: "bt.adrenaline", ability: "bullettime", title: "Adrenaline", maxRank: 2, over: 1, desc: (r) => `YOUR cooldowns tick ${Math.round(r * CONFIG.ultBulletTimeAdrenaline * 100)}% faster inside`, requires: ["bt.focus"], excludes: ["bt.deadeye"], pos: { x: 22, y: 48 } },
   { id: "bt.deadeye", ability: "bullettime", title: "Dead Eye", maxRank: 2, over: 1, desc: (r) => `+${Math.round(r * CONFIG.ultBulletTimeDeadeyeCrit * 100)}% crit chance inside`, requires: ["bt.focus"], excludes: ["bt.adrenaline"], pos: { x: 78, y: 48 } },
-  { id: "bt.encore", ability: "bullettime", title: "ENCORE", maxRank: 1, desc: () => `Kills inside extend bullet time ${CONFIG.ultBulletTimeEncoreExtend}s. The show must go on.`, requires: ["bt.focus"], capstone: true, pos: { x: 50, y: 86 } },
+  { id: "bt.encore", ability: "bullettime", title: "EXTENSION", maxRank: 1, desc: () => `Kills inside extend bullet time ${CONFIG.ultBulletTimeEncoreExtend}s. Extensions are granted automatically.`, requires: ["bt.focus"], capstone: true, pos: { x: 50, y: 86 } },
 ];
 
 const BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));

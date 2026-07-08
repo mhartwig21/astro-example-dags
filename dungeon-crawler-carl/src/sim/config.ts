@@ -359,24 +359,24 @@ export const CONFIG = {
   ultBulletTimeFocusSeconds: 1, // duration per Deep Focus rank
   ultBulletTimeAdrenaline: 0.5, // extra cooldown tick speed per Adrenaline rank, inside
   ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
-  ultBulletTimeEncoreExtend: 0.5, // ENCORE: seconds added per kill inside
+  ultBulletTimeEncoreExtend: 0.5, // EXTENSION: seconds added per kill inside
   ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
 
-  // Fun-kit wave (ABILITY-CONCEPTS.md): Cut To / Crowd Surf / Stunt Double.
+  // Fun-kit wave (ABILITY-CONCEPTS.md): Blindside / Extradition / Stunt Double.
   cutToRange: 6, // tiles the camera can cut
   cutToCooldown: 6, // long enough that each cut is a decision, not a spam
   cutToDmgMult: 1.2, // arrival strike, off attackPower
-  cutToStagger: 0.35, // Smash Cut: non-elite arrival stagger (seconds)
-  cutToMatchWindow: 1, // MATCH CUT: kill inside this window resets the cooldown
+  cutToStagger: 0.35, // Sucker Punch: non-elite arrival stagger (seconds)
+  cutToMatchWindow: 1, // REPEAT OFFENDER: kill inside this window resets the cooldown
   surfRange: 7, // chain reach (tiles)
   surfCooldown: 7,
   surfMassLimit: 1.5, // heavier than this (or elite/boss) pulls YOU instead
   surfStagger: 0.5, // pulled enemies land staggered this long
-  surfStaggerPerRank: 0.3, // Headliner's Grip: extra stagger per rank
-  surfDiveFracPerRank: 0.6, // Stage Dive: arrival blast fraction of power per rank
+  surfStaggerPerRank: 0.3, // Contempt: extra stagger per rank
+  surfDiveFracPerRank: 0.6, // Gavel Drop: arrival blast fraction of power per rank
   surfDiveRadius: 1.6,
   surfArriveGap: 1.0, // both pull modes stop this far from the target
-  surfPathRadius: 1.0, // THE WAVE: drag capsule half-width along the chain
+  surfPathRadius: 1.0, // CLASS ACTION: drag capsule half-width along the chain
   doubleContract: 5, // seconds the stunt performer works
   doubleCooldown: 18,
   doubleTauntRadius: 5, // monsters inside hunt the double instead of players
