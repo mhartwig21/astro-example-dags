@@ -157,12 +157,21 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
   ],
 };
 
+// Hero-skin model keys (Adventurers 1.0, baked clips) and extra ability clips
+// appended to them. The extra clips are AI-generated via the asset pipeline
+// (Meshy preset clip retargeted onto the Adventurers rig by
+// tools/asset-pipeline/blender/retarget_clip.py — provenance in ASSETS.md);
+// they bind to each skin's skeleton by bone name, same as the rig libraries.
+const HERO_SKIN_KEYS = ["player", "armory_axes", "armory_arcana", "armory_knives", "hero_hooded"];
+const HERO_CLIP_MANIFEST = ["/assets/characters/extradition.glb"];
+
 export async function loadModels(): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();
   const out: Record<string, LoadedModel> = {};
   // Rig clip libraries load alongside the models; each library GLB carries a
   // mannequin we discard — only its AnimationClips matter.
   const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
+  const heroClips: import("three").AnimationClip[] = [];
   await Promise.all([
     ...Object.entries(MODEL_MANIFEST).map(async ([key, url]) => {
       try {
@@ -187,6 +196,13 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       );
       rigClips[rig] = slots.flat();
     }),
+    ...HERO_CLIP_MANIFEST.map(async (url) => {
+      try {
+        heroClips.push(...(await loader.loadAsync(url)).animations);
+      } catch {
+        // Missing ability clip: the animator's playFirst fallbacks cover it.
+      }
+    }),
   ]);
   // Attach the shared library to every animation-less rig-based character.
   // Clips bind to each model's own skeleton by node name at mixer time, so
@@ -194,6 +210,14 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
   for (const [key, rig] of Object.entries(CHARACTER_RIGS)) {
     const m = out[key];
     if (m && m.animations.length === 0) m.animations = rigClips[rig];
+  }
+  // Hero skins already have baked clips (the merge above skips them), so the
+  // extra ability clips are APPENDED rather than gated on animations.length.
+  if (heroClips.length > 0) {
+    for (const key of HERO_SKIN_KEYS) {
+      const m = out[key];
+      if (m) m.animations = [...m.animations, ...heroClips];
+    }
   }
   return out;
 }

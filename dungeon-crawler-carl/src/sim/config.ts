@@ -425,6 +425,50 @@ export const CONFIG = {
   doubleExplodeCap: 3, // ...capped at owner attackPower x this (no infinite banks)
   doubleExplodeRadius: 2,
 
+  // ---- The System intervenes (low ratings = corrective content) ----
+  // A crawler whose hype flatlines gets escalating attention: a posted bounty,
+  // then a spawned wave, then an engagement review (telegraphed impacts).
+  // Keeping hype above the floor suppresses all of it — hype is cover.
+  interferenceHypeFloor: 25, // hype at/above this resets the flatline clock AND the escalation
+  interferenceBoredom: 40, // seconds of flatline before the System acts
+  interferenceGraceFloors: 2, // floors 1-2 are never interfered with (the pilot airs itself)
+  interferenceBountyWindow: 15, // seconds to collect a posted bounty
+  interferenceBountyGold: 15, // purse base + per-floor scaling below
+  interferenceBountyGoldPerFloor: 2,
+  interferenceBountyHype: 25, // collecting on camera pays hype too
+  interferenceBountySpeedMult: 1.3, // the crowned monster is agitated (and stays that way)
+  interferenceAmbushCount: 4, // corrective-content wave: swarmers + one ranged flanker
+  interferenceAmbushRadius: 4, // ring distance (tiles) around the boring crawler
+  interferenceHazardCount: 6, // engagement review: telegraphed impact circles
+  interferenceHazardDelay: 1.4, // telegraph seconds before the first impact
+  interferenceHazardRadius: 1.4,
+  interferenceHazardDmgFrac: 0.18, // each impact hits for this fraction of max HP (pre-armor)
+
+  // ---- CLASS REVISION (milestone castings — the menu lives in revisions.ts) ----
+  revisionFloors: [4, 7, 10], // arrival floors (the band bosses at 3/6/9 earn the offer)
+  revisionUnderdogThreshold: 0.35, // "below this HP fraction" gate for both bonuses
+  revisionUnderdogDamage: 1.25,
+  revisionUnderdogHypeMult: 2,
+  revisionUnderdogHpMult: 0.9,
+  revisionHeavyHpMult: 1.2,
+  revisionHeavyArmor: 10,
+  revisionHeavyDashCdMult: 1.5,
+  revisionParkourCharges: 1, // extra dash charges in the tank
+  revisionParkourSpeedMult: 1.1,
+  revisionParkourHpMult: 0.85,
+  revisionSelloutThresholdMult: 0.75, // sponsor favorite-thresholds scale down
+  revisionSelloutGoldMult: 0.85, // the network's cut of gold pickups
+  revisionTypecastCdMult: 0.85,
+  revisionScavengerRadius: 2, // tiles: corpses inside crumble to gold
+  revisionScavengerGold: 2, // gold per crumbled corpse (+1 per 4 floors)
+  revisionPetIframes: 2, // seconds of untouchable camera-cut after the save
+  revisionPetBoredomMult: 1.5, // the flatline clock runs faster on the star
+  revisionCanceledHypeMult: 0.5,
+  revisionCanceledFirstStrike: 1.5, // damage mult vs undamaged monsters
+  revisionRegularExtraCards: 1, // extra card per level-up draft
+  revisionRegularTimeMult: 0.85, // every remaining floor's time budget scales by this
+  revisionUncastHype: 0.1, // permanent hype-gain bonus per REMAIN UNCAST
+
   // Orbit capstone + melee fork identities (abilities.ts constellation pass).
   orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this
   meleeOverkillRadius: 1.4, // Heavy Blows: killing-swing overkill splashes this far

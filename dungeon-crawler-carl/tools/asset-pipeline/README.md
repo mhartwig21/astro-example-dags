@@ -81,7 +81,11 @@ Meshy — note the Meshy plan/license used; the atlas itself is CC0 KayKit).
 | `blender/palette_snap.py` | the quality gate (see diagram) |
 | `blender/render_preview.py` | render GLBs side-by-side to PNG for review |
 | `orchestrator/run.py` | manifest runner (generate → snap → preview) |
+| `orchestrator/animate.py` | rig a humanoid + apply a Meshy preset clip (Phase-3 spike) |
 | `orchestrator/meshy.py` | stdlib Meshy API client (async tasks, polling) |
+| `blender/retarget_clip.py` | bake a Meshy-skeleton clip onto a KayKit rig (bone auto-map + rest-delta) |
+| `blender/render_clip_frames.py` | render sampled frames of a clip playing on a model |
+| `blender/print_bones.py` | dump bone hierarchies/clips of GLBs (retarget debugging) |
 | `tests/synthetic_snap_test.py` | self-test: off-palette model must come out 100% on-atlas |
 
 ## Testing
@@ -108,6 +112,12 @@ validation (2,791 tris against a 3,000 target, 48 swatches, single material).
 One find: `target_polycount` is silently ignored unless `should_remesh: true`
 is also sent (without it the same prompt returned 924k triangles); the client
 now sets it whenever a polycount target is given.
-Next per `docs/plan-v2.md`: character path (auto-rig + shared animation
-retargeting), 2D concept stage for style anchoring, batch runs + contact-sheet
-review, cost/reject-rate measurement.
+**Animation path spiked** (2026-07-08): Meshy auto-rig (5 credits) + preset
+clip (3 credits) on the KayKit adventurer, retargeted onto the Adventurers 1.0
+rig with `blender/retarget_clip.py` and shipped in-game as the Extradition
+cast clip. Two finds: the animate result exposes `animation_glb_url` (not
+`model_urls`), and animated GLBs bake the clip's first frame as the bind pose
+— always pass the rig task's T-pose output as `--rest-source`.
+Next per `docs/plan-v2.md`: generated-character path end-to-end (generate →
+snap → rig → retarget), 2D concept stage for style anchoring, batch runs +
+contact-sheet review, cost/reject-rate measurement.

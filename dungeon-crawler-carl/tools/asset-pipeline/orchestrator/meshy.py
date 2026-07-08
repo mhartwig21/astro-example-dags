@@ -13,8 +13,12 @@ Endpoints (per Meshy OpenAPI docs as of mid-2026):
     GET  /openapi/v2/text-to-3d/{id}
     POST /openapi/v1/image-to-3d
     GET  /openapi/v1/image-to-3d/{id}
-Rigging/animation endpoints exist on paid tiers but are not wired up yet
-(Phase 3) — see docs.meshy.ai/en/api/rigging-and-animation.
+    POST /openapi/v1/rigging             {"model_url"|"input_task_id", "height_meters"}
+    GET  /openapi/v1/rigging/{id}
+    POST /openapi/v1/animations          {"rig_task_id", "action_id"}
+    GET  /openapi/v1/animations/{id}
+Rigging is humanoid-only and needs the character facing +Z; action_id comes
+from the ~595-clip preset library (docs.meshy.ai/en/api/animation-library).
 """
 
 from __future__ import annotations
@@ -32,6 +36,8 @@ TEST_MODE_KEY = "msy_dummy_api_key_for_test_mode_12345678"
 
 TEXT_TO_3D = "/openapi/v2/text-to-3d"
 IMAGE_TO_3D = "/openapi/v1/image-to-3d"
+RIGGING = "/openapi/v1/rigging"
+ANIMATIONS = "/openapi/v1/animations"
 
 
 class MeshyError(RuntimeError):
@@ -133,6 +139,38 @@ class MeshyClient:
         if topology:
             body["topology"] = topology
         return self._request("POST", IMAGE_TO_3D, body)["result"]
+
+    def rig(
+        self,
+        model: str,
+        height_meters: float = 1.7,
+        texture_image_url: str | None = None,
+    ) -> str:
+        """model: a Meshy task id, an https URL, or a local .glb path (data URI).
+
+        Humanoid-only; the character must face +Z. height_meters aids bone
+        placement accuracy.
+        """
+        body: dict = {"height_meters": height_meters}
+        if model.startswith(("http://", "https://", "data:")):
+            body["model_url"] = model
+        elif os.path.exists(model):
+            with open(model, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode()
+            body["model_url"] = f"data:model/gltf-binary;base64,{encoded}"
+        else:
+            body["input_task_id"] = model
+        if texture_image_url:
+            body["texture_image_url"] = texture_image_url
+        return self._request("POST", RIGGING, body)["result"]
+
+    def animate(self, rig_task_id: str, action_id: int, fps: int | None = None) -> str:
+        """Apply a preset animation (action_id from the animation library) to a
+        completed rigging task."""
+        body: dict = {"rig_task_id": rig_task_id, "action_id": action_id}
+        if fps:
+            body["post_process"] = {"operation_type": "change_fps", "fps": fps}
+        return self._request("POST", ANIMATIONS, body)["result"]
 
     # -- polling & download ----------------------------------------------------
 

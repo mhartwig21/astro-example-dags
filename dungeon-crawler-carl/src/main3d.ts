@@ -479,6 +479,7 @@ const REWARD_GLYPHS: Record<string, string> = {
   healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
   bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
   shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
+  revision: "☰", revisionDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -488,11 +489,14 @@ function renderDraft(s: GameState): void {
   const lp = me(s);
   if (lp.pendingRewards.length > 0) {
     const shrine = lp.pendingRewards.some((r) => r.kind.startsWith("shrine"));
+    const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = shrine ? "❖ SYSTEM SHRINE" : "◆ SPONSOR DRAFT";
-    draftHint.textContent = shrine
-      ? "The shrine offers a bargain. Every deal has fine print — pick one, or walk."
-      : "Your sponsors reward a good show. Take one gift down — press its number or click.";
+    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE" : "◆ SPONSOR DRAFT";
+    draftHint.textContent = revision
+      ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
+      : shrine
+        ? "The shrine offers a bargain. Every deal has fine print — pick one, or walk."
+        : "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
         const tint = r.item ? ` style="--oc:${RARITY_TEXT[r.item.rarity]}"` : "";
@@ -857,7 +861,8 @@ function renderSheet(s: GameState): void {
   const id = sh.identity;
   const a = sh.attributes;
   const d = sh.defense;
-  sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}`;
+  sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}` +
+    (id.revisions.length > 0 ? ` · RECAST: ${id.revisions.join(", ")}` : "");
   sheetGear.innerHTML = EQUIP_SLOTS
     .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
   const tiles: [string, string, string, string, string][] = [

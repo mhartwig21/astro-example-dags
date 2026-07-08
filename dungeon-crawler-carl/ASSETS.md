@@ -357,6 +357,10 @@ above. Provenance rules for anything it produces:
   paid tiers grant commercial rights. When committing a generated model to
   `public/assets/`, add it to a table here with `Meshy (<plan>)` as the origin.
 
+| Our file | What | Origin |
+|---|---|---|
+| characters/extradition.glb | "Extradition" cast clip (armature + animation only, no mesh) for the hero skins | Meshy (paid tier) auto-rig of the CC0 KayKit adventurer + preset clip 239 "Crouch_Pull_and_Throw", retargeted onto the Adventurers 1.0 rig via `tools/asset-pipeline/blender/retarget_clip.py` |
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.

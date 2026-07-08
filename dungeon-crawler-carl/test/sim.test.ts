@@ -3,7 +3,7 @@ import {
   createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation, monsterResist, rewardDr,
+  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
@@ -4493,5 +4493,165 @@ describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
     g.decoys[0].t = 0.01;
     for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
     expect(p.cd.stuntdouble!).toBeLessThan(cdAfterCast * 0.6);
+  });
+});
+
+describe("the System intervenes (corrective content)", () => {
+  // Floor 4: past the grace floors, not a band-boss arena.
+  const bored = (seed: number) => {
+    const g = createTestGame({ seed, floor: 4, level: 5 });
+    const p = g.players[0];
+    p.hype = 0;
+    p.boredT = CONFIG.interferenceBoredom; // the clock lapses on the next tick
+    return { g, p };
+  };
+
+  it("a flatlined broadcast gets a bounty posted on the nearest chaff", () => {
+    const { g, p } = bored(41);
+    step(g, idle(), 1 / 60);
+    const crowned = g.monsters.filter((m) => (m.bountyT ?? 0) > 0);
+    expect(crowned.length).toBe(1);
+    expect(crowned[0].bountyGold).toBe(CONFIG.interferenceBountyGold + g.floor * CONFIG.interferenceBountyGoldPerFloor);
+    expect(p.boredTier).toBe(1);
+    expect(g.announcements.some((a) => a.text.includes("bounty has been posted"))).toBe(true);
+  });
+
+  it("collecting the bounty inside the window pays gold and hype", () => {
+    const { g, p } = bored(42);
+    step(g, idle(), 1 / 60);
+    const m = g.monsters.find((mm) => (mm.bountyT ?? 0) > 0)!;
+    const gold0 = p.gold;
+    m.lastHitBy = p.id;
+    m.hp = 0;
+    step(g, idle(), 1 / 60);
+    expect(p.gold).toBeGreaterThanOrEqual(gold0 + CONFIG.interferenceBountyGold);
+    expect(p.hype).toBeGreaterThanOrEqual(CONFIG.interferenceBountyHype - 1);
+  });
+
+  it("hype above the floor is cover: both clocks reset, nothing fires", () => {
+    const { g, p } = bored(43);
+    p.hype = CONFIG.interferenceHypeFloor + 10;
+    p.boredTier = 2;
+    step(g, idle(), 1 / 60);
+    expect(p.boredT).toBe(0);
+    expect(p.boredTier).toBe(0);
+    expect(g.monsters.every((m) => (m.bountyT ?? 0) === 0)).toBe(true);
+  });
+
+  it("a repeat offender gets corrective content spawned around them", () => {
+    const { g, p } = bored(44);
+    p.boredTier = 1; // the bounty already aired; this time it's a wave
+    const n0 = g.monsters.length;
+    step(g, idle(), 1 / 60);
+    expect(g.monsters.length).toBeGreaterThanOrEqual(n0 + CONFIG.interferenceAmbushCount);
+    expect(g.announcements.some((a) => a.text.includes("Corrective content"))).toBe(true);
+  });
+
+  it("chronic boredom escalates to the engagement review (telegraphed impacts)", () => {
+    const { g, p } = bored(45);
+    p.boredTier = 2;
+    step(g, idle(), 1 / 60);
+    expect(g.hazards.length).toBeGreaterThan(0);
+    expect(g.announcements.some((a) => a.text.includes("engagement review"))).toBe(true);
+  });
+
+  it("floors 1-2 are grace floors: the System never interferes", () => {
+    const g = createTestGame({ seed: 46, floor: 2, level: 3 });
+    const p = g.players[0];
+    p.hype = 0;
+    p.boredT = CONFIG.interferenceBoredom * 3;
+    step(g, idle(), 1 / 60);
+    expect(g.monsters.every((m) => (m.bountyT ?? 0) === 0)).toBe(true);
+    expect(p.boredTier ?? 0).toBe(0);
+  });
+});
+
+describe("CLASS REVISION (milestone castings)", () => {
+  const mkRoom = (nextFloor: number) => ({ nextFloor, available: [], tip: "", ready: [], purchased: {} });
+  const offer = (seed: number, from: number, to: number) => {
+    const g = createTestGame({ seed, floor: from, level: 6 });
+    g.safeRoom = mkRoom(to);
+    leaveSafeRoom(g);
+    return { g, p: g.players[0] };
+  };
+  const pickCard = (g: GameState, pid: number, match: (r: { kind: string; revisionId?: string }) => boolean) => {
+    const p = g.players.find((pl) => pl.id === pid)!;
+    const idx = p.pendingRewards.findIndex(match);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    chooseReward(g, pid, idx);
+  };
+
+  it("descending past a band boss offers the milestone draft: 3 castings + REMAIN UNCAST", () => {
+    const { g, p } = offer(51, 3, 4);
+    expect(g.floor).toBe(4);
+    expect(p.pendingRewards.filter((r) => r.kind === "revision").length).toBe(3);
+    expect(p.pendingRewards.filter((r) => r.kind === "revisionDecline").length).toBe(1);
+  });
+
+  it("THE UNDERDOG: smaller pool, double hype while hurt", () => {
+    const { g, p } = offer(52, 3, 4);
+    const hp0 = p.maxHp;
+    pickCard(g, p.id, (r) => r.revisionId === "underdog");
+    expect(hasRevision(p, "underdog")).toBe(true);
+    expect(p.maxHp).toBeLessThan(hp0);
+    p.hp = Math.max(1, Math.floor(p.maxHp * 0.2));
+    p.hype = 0;
+    addHype(g, p, 10);
+    expect(p.hype).toBeCloseTo(10 * CONFIG.revisionUnderdogHypeMult, 5);
+  });
+
+  it("PARKOUR ARTIST: a third dash charge, on the sheet too", () => {
+    const { g, p } = offer(53, 3, 4);
+    pickCard(g, p.id, (r) => r.revisionId === "parkour");
+    expect(p.dashCharges).toBe(CONFIG.dashCharges + CONFIG.revisionParkourCharges);
+    expect(buildCharacterSheet(g, p).defense.dashCharges).toBe(CONFIG.dashCharges + CONFIG.revisionParkourCharges);
+  });
+
+  it("REMAIN UNCAST pays the defiance dividend on every hype gain", () => {
+    const { g, p } = offer(54, 3, 4);
+    pickCard(g, p.id, (r) => r.kind === "revisionDecline");
+    expect(hasRevision(p, "uncast")).toBe(true);
+    p.hype = 0;
+    addHype(g, p, 10);
+    expect(p.hype).toBeCloseTo(10 * (1 + CONFIG.revisionUncastHype), 5);
+  });
+
+  it("TYPECAST locks THE FIVE", () => {
+    const g = createTestGame({ seed: 55, floor: 5, level: 6 });
+    const p = g.players[0];
+    (p.revisions ??= []).push("typecast");
+    g.safeRoom = mkRoom(6);
+    const slots0 = [...p.abilities.slots];
+    slotAbility(g, p.id, 0, null);
+    expect(p.abilities.slots).toEqual(slots0);
+  });
+
+  it("CORPORATE SELLOUT signs sponsors early and the network skims gold", () => {
+    const g = createTestGame({ seed: 56, floor: 5, level: 6 });
+    const p = g.players[0];
+    (p.revisions ??= []).push("sellout");
+    p.favorites = CONFIG.show.sponsorThresholds[0] * CONFIG.revisionSelloutThresholdMult + 0.1;
+    const gold0 = p.gold;
+    g.loot.push({ id: 999999, pos: { x: p.pos.x, y: p.pos.y }, kind: "gold", amount: 100 });
+    step(g, idle(), 1 / 60);
+    expect(p.sponsors).toBe(1);
+    expect(p.gold - gold0).toBe(Math.round(100 * CONFIG.revisionSelloutGoldMult));
+  });
+
+  it("SERIES REGULAR trims every remaining floor's clock", () => {
+    const g = createTestGame({ seed: 57, floor: 4, level: 6 });
+    (g.players[0].revisions ??= []).push("regular");
+    g.safeRoom = mkRoom(5);
+    leaveSafeRoom(g);
+    expect(g.timeBudget).toBe(Math.round(floorTimeBudget(5) * CONFIG.revisionRegularTimeMult));
+  });
+
+  it("CANCELED: signing zeroes the meter and halves every gain after", () => {
+    const { g, p } = offer(58, 9, 10);
+    p.hype = 50;
+    pickCard(g, p.id, (r) => r.revisionId === "canceled");
+    expect(p.hype).toBe(0);
+    addHype(g, p, 10);
+    expect(p.hype).toBeCloseTo(10 * CONFIG.revisionCanceledHypeMult, 5);
   });
 });

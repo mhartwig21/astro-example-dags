@@ -42,6 +42,7 @@ export interface SaveData {
     damageDealt?: number;
     damageTaken?: number;
     materials?: Player["materials"];
+    revisions?: string[]; // CLASS REVISIONS taken (optional: pre-revision saves)
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -76,6 +77,7 @@ export function saveRun(state: GameState, mode?: RunMode): void {
         damageDealt: p.damageDealt,
         damageTaken: p.damageTaken,
         materials: p.materials,
+        revisions: p.revisions,
       },
       show: {
         hype: p.hype,

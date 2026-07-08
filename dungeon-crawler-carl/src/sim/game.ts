@@ -18,6 +18,7 @@ import {
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
+import { REVISIONS, revisionPool } from "./revisions";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
@@ -47,9 +48,15 @@ export function recomputeStats(p: Player): void {
     crit += it.affixes.crit ?? 0;
     arm += it.affixes.armor ?? 0;
   }
+  // CLASS REVISIONS (permanent castings) reshape the sheet multiplicatively,
+  // so they keep scaling with levels and gear instead of aging out.
+  const rv = p.revisions ?? [];
+  if (rv.includes("heavy")) { hp *= CONFIG.revisionHeavyHpMult; arm += CONFIG.revisionHeavyArmor; }
+  if (rv.includes("parkour")) { hp *= CONFIG.revisionParkourHpMult; spd *= CONFIG.revisionParkourSpeedMult; }
+  if (rv.includes("underdog")) hp *= CONFIG.revisionUnderdogHpMult;
   p.attackPower = atk;
   p.spellPower = mag;
-  p.maxHp = hp;
+  p.maxHp = Math.round(hp);
   p.speed = spd;
   p.critChance = crit;
   p.armor = arm;
@@ -712,9 +719,20 @@ function makePlayer(id: number, name: string): Player {
     viewers: CONFIG.show.baseViewers,
     favorites: 0,
     sponsors: 0,
+    revisions: [],
   };
   recomputeStats(p);
   return p;
+}
+
+/** Has this crawler taken the given CLASS REVISION? (revisions.ts ids). */
+export function hasRevision(p: Player, id: string): boolean {
+  return (p.revisions ?? []).includes(id);
+}
+
+/** Max dash charges: base + PARKOUR ARTIST's extra. */
+function maxDashCharges(p: Player): number {
+  return CONFIG.dashCharges + (hasRevision(p, "parkour") ? CONFIG.revisionParkourCharges : 0);
 }
 
 /** Reset a player's transient combat state for a fresh floor (progression carries). */
@@ -726,7 +744,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.cd = {};
   p.dashTime = 0;
   p.rootT = 0;
-  p.dashCharges = CONFIG.dashCharges;
+  p.dashCharges = maxDashCharges(p);
   p.flaskCharges = CONFIG.flaskMaxCharges; // safe-room rest tops the Slurps back up
   p.flaskKillProgress = 0;
   p.novaFlash = 0;
@@ -736,6 +754,7 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.stanceCritReady = false;
   p.overcharged = false;
   p.plotArmorUsed = false; // the writers grant one save per floor
+  p.petUsed = false; // the producers grant one save per floor too
   p.statuses = []; // the stairwell air burns the poison right out
   p.reviveProgress = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
@@ -816,6 +835,10 @@ function buildFloor(state: GameState, floor: number): void {
   state.goldSurge = false;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = floorTimeBudget(floor);
+  // SERIES REGULAR's debt: the network trims every remaining floor's runtime.
+  if (state.players.some((p) => hasRevision(p, "regular"))) {
+    state.timeBudget = Math.round(state.timeBudget * CONFIG.revisionRegularTimeMult);
+  }
   state.timeRemaining = state.timeBudget;
   state.phase = "safe";
   state.collapseElapsed = 0;
@@ -849,6 +872,7 @@ export interface SavedProgress {
     damageDealt?: number;
     damageTaken?: number;
     materials?: Record<MaterialId, number>;
+    revisions?: string[]; // CLASS REVISIONS taken (pre-revision saves: absent)
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -903,6 +927,7 @@ export function restoreGame(save: SavedProgress): GameState {
     }
   }
   if (s.achievements) p.achievements = s.achievements;
+  p.revisions = s.revisions ?? []; // CLASS REVISIONS survive the reload
   p.goldSpent = s.goldSpent ?? 0;
   p.kills = s.kills ?? 0;
   if (save.show) {
@@ -1049,6 +1074,18 @@ export function createGame(seed: number, mode: GameState["mode"] = "coop"): Game
 
 /** Add excitement to ONE crawler's broadcast. Hype → viewers → favorites → sponsors. */
 export function addHype(_state: GameState, p: Player, amount: number): void {
+  // CLASS REVISIONS bend the gain: CANCELED halves it, THE UNDERDOG doubles it
+  // while hurt, and every REMAIN UNCAST pays its small defiance dividend.
+  if (amount > 0) {
+    let mult = 1;
+    if (hasRevision(p, "canceled")) mult *= CONFIG.revisionCanceledHypeMult;
+    if (hasRevision(p, "underdog") && p.hp < p.maxHp * CONFIG.revisionUnderdogThreshold) {
+      mult *= CONFIG.revisionUnderdogHypeMult;
+    }
+    const uncast = (p.revisions ?? []).filter((r) => r === "uncast").length;
+    if (uncast > 0) mult *= 1 + uncast * CONFIG.revisionUncastHype;
+    amount *= mult;
+  }
   p.hype = Math.min(CONFIG.show.hypeMax, p.hype + amount);
 }
 
@@ -1068,8 +1105,9 @@ function updateShow(state: GameState, dt: number): void {
     if (p.hype > s.favConvertThreshold) {
       p.favorites += Math.sqrt(p.hype - s.favConvertThreshold) * s.favPerHypePerSec * dt;
     }
-    // Crossing a favorite threshold earns a sponsor.
-    while (p.sponsors < s.sponsorThresholds.length && p.favorites >= s.sponsorThresholds[p.sponsors]) {
+    // Crossing a favorite threshold earns a sponsor (CORPORATE SELLOUT signs early).
+    const thMult = hasRevision(p, "sellout") ? CONFIG.revisionSelloutThresholdMult : 1;
+    while (p.sponsors < s.sponsorThresholds.length && p.favorites >= s.sponsorThresholds[p.sponsors] * thMult) {
       p.sponsors++;
       announce(state, "show", `NEW SPONSOR for ${p.name}! ${p.sponsors} now bankroll the run. They expect a show.`);
     }
@@ -1090,7 +1128,98 @@ function cdMult(p: Player): number {
   // Tempo (legendary caster staff): every ACTIVE cooldown runs faster —
   // ultimates have their own clause (see the "overtime" hook in step()).
   if (hasPassive(p, "tempo")) mult *= CONFIG.tempoCooldownMult;
+  if (hasRevision(p, "typecast")) mult *= CONFIG.revisionTypecastCdMult;
   return mult;
+}
+
+// ---- The System intervenes (VOICE.md) ----
+// A flatlined broadcast is a business problem, and the System administers
+// engagement. Per-crawler: hype below the floor accrues boredom; each trip
+// past the threshold fires an intervention one tier meaner than the last.
+// Hype above the floor resets BOTH clocks — hype is cover. Suppressed in
+// safe rooms, during ringside intros, during collapse, and on floors 1-2.
+
+/** Tier 1: crown the nearest chaff with a bounty — an offer, not a punishment. */
+function postBounty(state: GameState, p: Player): void {
+  let best: Monster | null = null;
+  let bestD = Infinity;
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.kind === "boss" || m.elite || (m.bountyT ?? 0) > 0 || m.dormant) continue;
+    const d = dist(p.pos, m.pos);
+    if (d < bestD) { bestD = d; best = m; }
+  }
+  if (!best) { correctiveAmbush(state, p); return; } // nothing to crown: straight to content
+  const gold = CONFIG.interferenceBountyGold + state.floor * CONFIG.interferenceBountyGoldPerFloor;
+  best.bountyT = CONFIG.interferenceBountyWindow;
+  best.bountyGold = gold;
+  best.speed *= CONFIG.interferenceBountySpeedMult; // agitated, permanently
+  hit(state, best.pos, 0, "weapon"); // crowning ping for the juice layer
+  announce(state, "show", `NOTICE: ${p.name}'s viewership is declining. A bounty has been posted: ${gold} gold, ${CONFIG.interferenceBountyWindow} seconds. Make it interesting.`);
+}
+
+/** Tier 2: corrective content — a spawned wave, telegraph-free but chaff-tier. */
+function correctiveAmbush(state: GameState, p: Player): void {
+  const count = CONFIG.interferenceAmbushCount;
+  for (let i = 0; i < count; i++) {
+    const kind: MonsterKind = i === count - 1 ? "ranged" : "swarmer";
+    const a = (i / count) * Math.PI * 2 + nextFloat(state.rng) * 0.5;
+    const d = CONFIG.interferenceAmbushRadius * (0.75 + nextFloat(state.rng) * 0.5);
+    let pos = { x: p.pos.x + Math.cos(a) * d, y: p.pos.y + Math.sin(a) * d };
+    if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: p.pos.x, y: p.pos.y };
+    const add = makeMonster(state, kind, pos);
+    add.xp = 1; // corrective content is not a farm
+    state.monsters.push(add);
+    hit(state, add.pos, 0, "weapon"); // arrival poof
+  }
+  announce(state, "show", `NOTICE: engagement in ${p.name}'s sector remains unacceptable. Corrective content has been scheduled. Delivery: immediate.`);
+}
+
+/** Tier 3: the engagement review — telegraphed impact circles on the offender. */
+function hazardReview(state: GameState, p: Player): void {
+  const dmg = Math.max(1, Math.round(p.maxHp * CONFIG.interferenceHazardDmgFrac));
+  for (let i = 0; i < CONFIG.interferenceHazardCount; i++) {
+    const a = nextFloat(state.rng) * Math.PI * 2;
+    const d = nextFloat(state.rng) * 2.5;
+    const pos = { x: p.pos.x + Math.cos(a) * d, y: p.pos.y + Math.sin(a) * d };
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    const delay = CONFIG.interferenceHazardDelay + i * 0.35;
+    state.hazards.push({
+      id: state.nextEntityId++, pos, t: delay, total: delay,
+      radius: CONFIG.interferenceHazardRadius, damage: dmg, // kind absent = blast
+    });
+  }
+  announce(state, "show", `NOTICE: ${p.name}'s sector has failed its engagement review. Environmental corrections are incoming. The System recommends movement.`);
+}
+
+/** Tick the boredom clocks and any live bounties (per mounted world). */
+function updateInterference(state: GameState, dt: number): void {
+  // Bounty windows tick down; a lapsed purse is quietly repossessed.
+  for (const m of state.monsters) {
+    if ((m.bountyT ?? 0) > 0) {
+      m.bountyT = Math.max(0, m.bountyT! - dt);
+      if (m.bountyT === 0) state.events.push("The bounty lapses. The System repossesses the purse.");
+    }
+  }
+  if (state.status !== "playing") return;
+  if (state.floor <= CONFIG.interferenceGraceFloors) return;
+  if (state.safeRoom || state.encounter || state.phase === "collapse") return;
+  for (const p of state.players) {
+    if (!p.alive || p.safeRoom) { p.boredT = 0; continue; }
+    if (p.hype >= CONFIG.interferenceHypeFloor) {
+      p.boredT = 0;
+      p.boredTier = 0; // a recovered broadcast is forgiven everything
+      continue;
+    }
+    const rate = hasRevision(p, "pet") ? CONFIG.revisionPetBoredomMult : 1;
+    p.boredT = (p.boredT ?? 0) + dt * rate;
+    if (p.boredT < CONFIG.interferenceBoredom) continue;
+    p.boredT = 0;
+    const tier = Math.min(p.boredTier ?? 0, 2);
+    p.boredTier = (p.boredTier ?? 0) + 1;
+    if (tier === 0) postBounty(state, p);
+    else if (tier === 1) correctiveAmbush(state, p);
+    else hazardReview(state, p);
+  }
 }
 
 /** Drink the flask: charge-gated heal; a full-HP chug is not consumed. */
@@ -1437,6 +1566,15 @@ export function damagePlayerHit(
     announce(state, "show", `${p.name} should be DEAD — but the writers disagree. PLOT ARMOR. The crowd is furious and delighted.`);
     addHype(state, p, CONFIG.show.hypeLowHpHit * 2);
   }
+  // PRODUCER'S PET (class revision): once per floor, the production saves its
+  // star in post — 1 HP and a brief untouchable camera cut (dash i-frames).
+  if (p.hp <= 0 && !p.petUsed && hasRevision(p, "pet")) {
+    p.petUsed = true;
+    p.hp = 1;
+    p.dashTime = Math.max(p.dashTime, CONFIG.revisionPetIframes);
+    announce(state, "show", `${p.name} is SAVED IN POST. The producers protect their star. Once per floor.`);
+    addHype(state, p, CONFIG.show.hypeLowHpHit * 2);
+  }
   hit(state, p.pos, dmg, "player", { dir: opts.dir, killed: p.hp <= 0, effect: opts.effect });
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
@@ -1524,6 +1662,11 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
 export function slotAbility(state: GameState, playerId: number, slotIdx: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
   if (!p || !state.safeRoom) return;
+  // TYPECAST (class revision): the billing is locked. THE FIVE are final.
+  if (hasRevision(p, "typecast")) {
+    state.events.push("TYPECAST: the System has locked your billing. THE FIVE are final.");
+    return;
+  }
   if (slotIdx < 0 || slotIdx >= ABILITY_SLOTS) return;
   if (ability !== null && (!knows(p, ability) || ABILITY_INFO[ability].tier !== "active")) return;
   const L = p.abilities;
@@ -1547,6 +1690,11 @@ export function slotAbility(state: GameState, playerId: number, slotIdx: number,
 export function setUltimate(state: GameState, playerId: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
   if (!p || !state.safeRoom) return;
+  // TYPECAST (class revision): the billing is locked, ultimate included.
+  if (hasRevision(p, "typecast")) {
+    state.events.push("TYPECAST: the System has locked your billing. THE FIVE are final.");
+    return;
+  }
   if (ability !== null && (!knows(p, ability) || ABILITY_INFO[ability].tier !== "ultimate")) return;
   const L = p.abilities;
   if (ability !== null) L.bench = L.bench.filter((a) => a !== ability);
@@ -1683,6 +1831,10 @@ export function damageMonster(
     (p.stanceSwapWindow > 0 && hasPassive(p, "choreography") ? CONFIG.choreographyCritBonus : 0) +
     (state.bulletTimeLeft > 0 ? bulletTimeParams(p).critBonus : 0);
   const isCrit = opts.forceCrit === true || ((opts.allowCrit ?? true) && chance(state.rng, p.critChance + critBonus));
+  // CLASS REVISIONS: CANCELED's first strike (nobody sees a dead crawler
+  // coming) and THE UNDERDOG's desperation bonus scale the incoming base.
+  if (hasRevision(p, "canceled") && m.hp >= m.maxHp) base *= CONFIG.revisionCanceledFirstStrike;
+  if (hasRevision(p, "underdog") && p.hp < p.maxHp * CONFIG.revisionUnderdogThreshold) base *= CONFIG.revisionUnderdogDamage;
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
@@ -2008,6 +2160,12 @@ function reapDead(state: GameState): void {
     }
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
+    // A posted bounty collected inside its window pays out, on camera.
+    if ((m.bountyT ?? 0) > 0 && (m.bountyGold ?? 0) > 0) {
+      killer.gold += m.bountyGold!;
+      addHype(state, killer, CONFIG.interferenceBountyHype);
+      announce(state, "show", `BOUNTY COLLECTED: ${killer.name} banks ${m.bountyGold} gold. The System considers it money well spent.`);
+    }
     // Kills refill the flask (only while a charge is missing): aggression = sustain.
     if (CONFIG.flaskEnabled && killer.flaskCharges < CONFIG.flaskMaxCharges) {
       killer.flaskKillProgress++;
@@ -2097,10 +2255,15 @@ function collectLoot(state: GameState): void {
       continue;
     }
     switch (l.kind) {
-      case "gold":
-        p.gold += l.amount;
-        hit(state, p.pos, l.amount, "gold");
+      case "gold": {
+        // CORPORATE SELLOUT: the network deducts its cut at pickup.
+        const take = hasRevision(p, "sellout")
+          ? Math.max(1, Math.round(l.amount * CONFIG.revisionSelloutGoldMult))
+          : l.amount;
+        p.gold += take;
+        hit(state, p.pos, take, "gold");
         break;
+      }
       case "heal":
         p.hp = Math.min(p.maxHp, p.hp + l.amount);
         hit(state, p.pos, l.amount, "heal");
@@ -2501,12 +2664,35 @@ export function leaveSafeRoom(state: GameState): void {
     state.timeRemaining += room.bonusTime;
   }
   // Between floors, sponsors gift each crawler individually (non-blocking).
+  // Milestone floors override the gifts: the System offers a CLASS REVISION.
+  const milestone = (CONFIG.revisionFloors as readonly number[]).includes(room.nextFloor);
   let any = false;
   for (const p of state.players) {
-    p.pendingRewards = generateRewards(state, p.id);
+    p.pendingRewards = milestone ? revisionChoices(state, p, room.nextFloor) : generateRewards(state, p.id);
     if (p.pendingRewards.length > 0) any = true;
   }
-  if (any) announce(state, "show", "Your sponsors have gifts. Choose, Crawlers.");
+  if (any) {
+    announce(state, "show", milestone
+      ? "LEVEL MILESTONE. A CLASS REVISION is available. This offer will not be repeated. Choose wisely — statistically, you won't."
+      : "Your sponsors have gifts. Choose, Crawlers.");
+  }
+}
+
+/** The CLASS REVISION draft: the milestone pool plus REMAIN UNCAST. */
+function revisionChoices(state: GameState, p: Player, arrivalFloor: number): Reward[] {
+  const pool = revisionPool(arrivalFloor, CONFIG.revisionFloors as unknown as number[])
+    .filter((id) => !hasRevision(p, id));
+  if (pool.length === 0) return [];
+  const cards: Reward[] = pool.map((id) => ({
+    id: state.nextEntityId++, kind: "revision" as const,
+    title: REVISIONS[id].title, desc: REVISIONS[id].desc, amount: 0, revisionId: id,
+  }));
+  cards.push({
+    id: state.nextEntityId++, kind: "revisionDecline", title: "REMAIN UNCAST",
+    desc: `Refuse the revision. The System notes the defiance: +${Math.round(CONFIG.revisionUncastHype * 100)}% hype gains, permanently`,
+    amount: 0,
+  });
+  return cards;
 }
 
 function shuffle<T>(rng: Rng, arr: T[]): T[] {
@@ -2526,7 +2712,7 @@ export function rewardDr(owned: number, k: number): number {
 }
 
 /** Gift kinds sponsors can roll — shrine bargains are built by shrineChoices only. */
-type SponsorRewardKind = Exclude<Reward["kind"], "shrineBlood" | "shrineGreed" | "shrineDecline">;
+type SponsorRewardKind = Exclude<Reward["kind"], "shrineBlood" | "shrineGreed" | "shrineDecline" | "revision" | "revisionDecline">;
 
 /** Roll one sponsor gift of the given kind. `q` scales with backing; permanent
  * stat gifts additionally diminish against what `p` has already banked. */
@@ -2641,7 +2827,9 @@ function rewardFitScore(p: Player, r: Reward): number {
     case "shrineBlood":
     case "shrineGreed":
     case "shrineDecline":
-      return 0; // shrine bargains never enter the sponsor pool
+    case "revision":
+    case "revisionDecline":
+      return 0; // shrine bargains and castings never enter the sponsor pool
   }
 }
 
@@ -2758,6 +2946,21 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       break;
     case "shrineDecline":
       break; // the shrine dims, unimpressed
+    // CLASS REVISION (milestone castings — revisions.ts):
+    case "revision": {
+      if (!r.revisionId || hasRevision(p, r.revisionId)) break;
+      (p.revisions ??= []).push(r.revisionId);
+      recomputeStats(p); // hp/speed/armor castings apply immediately
+      if (p.hp > p.maxHp) p.hp = p.maxHp;
+      if (r.revisionId === "parkour") p.dashCharges = Math.min(p.dashCharges + CONFIG.revisionParkourCharges, maxDashCharges(p));
+      if (r.revisionId === "canceled") p.hype = 0; // the System pretends you're dead
+      announce(state, "show", `CLASS REVISION: ${p.name} is recast as ${r.title}. The change is permanent. The file has been updated.`);
+      break;
+    }
+    case "revisionDecline":
+      (p.revisions ??= []).push("uncast");
+      announce(state, "show", `${p.name} REMAINS UNCAST. The System notes the defiance. The crowd respects it.`);
+      break;
   }
 }
 
@@ -2772,7 +2975,9 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
   state.events.push(
     r.kind.startsWith("shrine")
       ? `${p.name} answers the shrine: ${r.title}.`
-      : `${p.name} accepts a sponsor gift: ${r.title}.`,
+      : r.kind.startsWith("revision")
+        ? `${p.name} answers the casting call: ${r.title}.`
+        : `${p.name} accepts a sponsor gift: ${r.title}.`,
   );
 }
 
@@ -3406,6 +3611,20 @@ function updateHazards(state: GameState, dt: number): void {
 function updateCorpses(state: GameState, dt: number): void {
   if (state.corpses.length === 0) return;
   for (const c of state.corpses) c.t -= dt;
+  // SCAVENGER ROYALTY (class revision): corpses near the crowned crawler
+  // crumble into gold — and out of every necromancer's reach.
+  const scavs = state.players.filter((p) => p.alive && hasRevision(p, "scavenger"));
+  if (scavs.length > 0) {
+    for (const c of state.corpses) {
+      if (c.t <= 0) continue;
+      const p = scavs.find((s) => dist(s.pos, c.pos) <= CONFIG.revisionScavengerRadius);
+      if (!p) continue;
+      c.t = 0;
+      const gold = CONFIG.revisionScavengerGold + Math.floor(state.floor / 4);
+      p.gold += gold;
+      hit(state, c.pos, gold, "gold");
+    }
+  }
   state.corpses = state.corpses.filter((c) => c.t > 0);
 }
 
@@ -3773,9 +3992,9 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     }
     // Dash recharge: an expired timer banks a charge and, while still below
     // max, immediately starts refilling the next one.
-    if (p.dashCharges < CONFIG.dashCharges && (p.cd.dash ?? 0) <= 0) {
+    if (p.dashCharges < maxDashCharges(p) && (p.cd.dash ?? 0) <= 0) {
       p.dashCharges++;
-      if (p.dashCharges < CONFIG.dashCharges) p.cd.dash = dashParams(p).cooldown * cdMult(p);
+      if (p.dashCharges < maxDashCharges(p)) p.cd.dash = dashParams(p).cooldown * cdMult(p);
     }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
@@ -3871,6 +4090,9 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   // The Show: convert this step's hype into viewers / favorites / sponsors.
   updateShow(state, dt);
 
+  // The System gets bored: flatlined broadcasts earn corrective content.
+  updateInterference(state, dt);
+
   // Fog of war: reveal tiles around every living player.
   revealAround(state);
 
@@ -3878,7 +4100,9 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   if (state.status === "playing") {
     for (const p of ordered) {
       if (p.upgradeDraftsOwed > 0 && p.pendingUpgrades.length === 0) {
-        const offers = rollUpgradeDraft(state.rng, p, CONFIG.upgradeDraftSize, state.floor);
+        // SERIES REGULAR deals an extra card into every level-up draft.
+        const size = CONFIG.upgradeDraftSize + (hasRevision(p, "regular") ? CONFIG.revisionRegularExtraCards : 0);
+        const offers = rollUpgradeDraft(state.rng, p, size, state.floor);
         if (offers.length > 0) {
           p.upgradeDraftsOwed--;
           p.pendingUpgrades = offers;
@@ -4026,7 +4250,7 @@ function leaveRivalSafeRoom(state: GameState, p: Player): void {
   p.facing = { x: 0, y: 1 };
   p.cd = {};
   p.dashTime = 0;
-  p.dashCharges = CONFIG.dashCharges;
+  p.dashCharges = maxDashCharges(p);
   p.flaskCharges = CONFIG.flaskMaxCharges;
   p.flaskKillProgress = 0;
   p.novaFlash = 0;
@@ -4036,10 +4260,19 @@ function leaveRivalSafeRoom(state: GameState, p: Player): void {
   p.stanceCritReady = false;
   p.overcharged = false;
   p.plotArmorUsed = false;
+  p.petUsed = false;
   p.statuses = [];
   announce(state, "progress", `${p.name} descends to floor ${next}. The standings shift.`);
-  // Sponsor draft between floors, same as co-op's leaveSafeRoom rhythm.
-  if (p.sponsors > 0 && p.pendingRewards.length === 0) {
+  // Sponsor draft between floors, same as co-op's leaveSafeRoom rhythm —
+  // milestone floors offer the CLASS REVISION instead.
+  if ((CONFIG.revisionFloors as readonly number[]).includes(next)) {
+    if (p.pendingRewards.length === 0) {
+      p.pendingRewards = revisionChoices(state, p, next);
+      if (p.pendingRewards.length > 0) {
+        announce(state, "show", `LEVEL MILESTONE. A CLASS REVISION is available for ${p.name}. This offer will not be repeated.`);
+      }
+    }
+  } else if (p.sponsors > 0 && p.pendingRewards.length === 0) {
     p.pendingRewards = generateRewards(state, p.id);
   }
 }
