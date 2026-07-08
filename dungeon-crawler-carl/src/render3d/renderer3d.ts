@@ -1425,11 +1425,12 @@ export class Renderer3D {
     }
   }
 
-  /** Which real mesh a projectile flies as, or null for the glow orb: the
-   * skeleton archer's shot is a bone arrow, a ballistic crawler's bolt is a
-   * fletched arrow. Magic (and anything unmodeled) stays a glowing missile. */
+  /** Which real mesh a projectile flies as, or null for the glow orb: a
+   * ballistic crawler's shot is a fletched arrow. Monster shots are all
+   * casts — the "ranged" archetype is a skeleton MAGE — so every enemy
+   * bolt stays a glowing missile, as does the players' magic. */
   private projectileModelKey(pr: GameState["projectiles"][number], state: GameState): string | null {
-    if (pr.from === "enemy") return pr.srcKind === "ranged" ? "skeleton_arrow" : null;
+    if (pr.from === "enemy") return null;
     if (pr.school === "magic") return null;
     const owner = state.players.find((p) => p.id === pr.ownerId);
     return owner && weaponClassOf(owner.equipment.weapon) === "ballistic" ? "weapon_arrow_a" : null;
@@ -2043,10 +2044,7 @@ export class Renderer3D {
         const key = this.projectileModelKey(pr, state);
         const model = key ? this.modelInstance(key) : null;
         if (model) {
-          // Normalize each mesh's rest pose to nose-forward (+Z): the skeleton
-          // arrow is modeled along Y tip-down; the fletched arrows already lie
-          // along +Z. (Measured from the glTF vertex data — don't guess.)
-          if (key === "skeleton_arrow") model.rotation.x = -Math.PI / 2;
+          // The fletched arrows' rest pose already lies nose-forward (+Z).
           model.scale.setScalar(0.9);
           group.add(model); // no glow billboard — the mesh IS the projectile
           group.userData.aim = true;
