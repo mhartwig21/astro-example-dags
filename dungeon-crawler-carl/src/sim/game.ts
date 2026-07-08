@@ -1708,7 +1708,7 @@ export function setUltimate(state: GameState, playerId: number, ability: Ability
 /** Award a loot box to one player: an immediate randomized buff, DCC-style. */
 function awardLootBox(state: GameState, p: Player): void {
   state.lootBoxes++;
-  const undiscovered = unknownAbilities(p, state.floor);
+  const undiscovered = unknownAbilities(p, state.floor, state.seed);
   const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
   if (roll === 3) {
     const ability = undiscovered[nextInt(state.rng, 0, undiscovered.length - 1)];
@@ -1764,7 +1764,7 @@ function makeCatalogItem(state: GameState, entry: CatalogEntry, floor: number): 
 function dropLoot(state: GameState, pos: Vec2): void {
   const { rng, floor } = state;
   // Ability tomes: rare, and only while someone in the party has left to learn.
-  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p, floor)))];
+  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p, floor, state.seed)))];
   if (undiscovered.length > 0 && chance(rng, CONFIG.tomeDropChance)) {
     const ability = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "tome", amount: 0, ability });
@@ -2436,7 +2436,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
   // Today's tome teaches ONE seeded ability someone still lacks; no tome once
   // the party knows everything.
   // The NEXT floor's shop: gate ultimate tomes by the floor being entered.
-  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p, nextFloor)))];
+  const undiscovered = [...new Set(state.players.flatMap((p) => unknownAbilities(p, nextFloor, state.seed)))];
   let tomeAbility: SafeRoom["tomeAbility"];
   if (undiscovered.length > 0) {
     tomeAbility = undiscovered[nextInt(rng, 0, undiscovered.length - 1)];

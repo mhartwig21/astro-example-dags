@@ -669,10 +669,16 @@ describe("safe room + System Shop", () => {
   });
 
   it("the tome teaches today's ability, once", () => {
-    const g = reachSafeRoom(304);
+    // Tome pacing (abilities.ts: tomeSchedule) gates discovery by LEVEL, so a
+    // fresh level-1 crawler has nothing eligible yet — level up first, same as
+    // a real floor-1 clear would.
+    const g = createGame(304);
+    g.players[0].level = 10;
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     const p = g.players[0];
     const ability = g.safeRoom!.tomeAbility!;
-    expect(ability).toBeTruthy(); // plenty undiscovered on floor 1
+    expect(ability).toBeTruthy(); // plenty undiscovered once leveled up
     p.gold = 10_000;
     buyCatalogItem(g, 0, "tome");
     expect(knows(p, ability)).toBe(true);

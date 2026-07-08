@@ -1,6 +1,6 @@
 import { CONFIG } from "./config";
 import { hasPassive, weaponClassOf } from "./items";
-import { chance, nextInt, pick, type Rng } from "./rng";
+import { chance, createRng, nextFloat, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
 
 // Ability system (DESIGN.md 5.7 "The Five"): a build is exactly 4 active slots
@@ -237,14 +237,43 @@ export function slotted(p: Player, ability: AbilityId): boolean {
 }
 
 /**
- * Abilities not yet discovered (tomes can drop for these). Ultimates are
- * late-run power: they stay out of EVERY discovery pool (tome drops, safe-room
- * tomes, loot-box skill chips) until `CONFIG.ultimateMinFloor` — finding one
- * should feel like an act break, not a floor-3 lottery ticket.
+ * Deterministic per-run pacing: the player LEVEL each discoverable ability
+ * unlocks at (every discovery pool — tome drops, safe-room tomes, loot-box
+ * skill chips — reads this via unknownAbilities). Order is shuffled and
+ * spacing jittered 1-3 levels (~2 avg) per seed, so a crawler doesn't just
+ * vacuum up the whole constellation in the first few floors, and no two runs
+ * feel identically paced. Pure function of the run seed — nothing to persist
+ * or sync in multiplayer, just recomputed on demand.
  */
-export function unknownAbilities(p: Player, floor: number): AbilityId[] {
+export function tomeSchedule(seed: number): Partial<Record<AbilityId, number>> {
+  const rng = createRng((seed ^ 0x7ab1e77) >>> 0);
+  const order = [...DISCOVERABLE_ABILITIES];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = nextInt(rng, 0, i);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const schedule: Partial<Record<AbilityId, number>> = {};
+  let level = 1;
+  for (const a of order) {
+    level += 1 + nextFloat(rng) * 2; // 1-3 levels since the last unlock
+    schedule[a] = Math.max(2, Math.round(level));
+  }
+  return schedule;
+}
+
+/**
+ * Abilities not yet discovered (tomes can drop for these). Gated two ways:
+ * the level pacing above (tomeSchedule), and — on top of that — ultimates
+ * stay out of EVERY discovery pool until `CONFIG.ultimateMinFloor` regardless
+ * of level; finding one should feel like an act break, not an early lottery.
+ */
+export function unknownAbilities(p: Player, floor: number, seed: number): AbilityId[] {
+  const schedule = tomeSchedule(seed);
   return DISCOVERABLE_ABILITIES.filter(
-    (a) => !knows(p, a) && (ABILITY_INFO[a].tier !== "ultimate" || floor >= CONFIG.ultimateMinFloor),
+    (a) =>
+      !knows(p, a) &&
+      p.level >= (schedule[a] ?? 0) &&
+      (ABILITY_INFO[a].tier !== "ultimate" || floor >= CONFIG.ultimateMinFloor),
   );
 }
 
