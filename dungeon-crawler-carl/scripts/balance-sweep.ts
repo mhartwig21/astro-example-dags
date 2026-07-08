@@ -3,10 +3,18 @@
 // rate + where runs die. Not a test (no assertions) — a measurement tool for
 // "how often does a competent bot clear the whole dungeon right now."
 //
+// Also logs each run's FINAL build (weapon class + ability loadout) and
+// correlates it with the outcome. The bot follows one fixed shop ladder and
+// always takes the first draft offer, so builds aren't deliberately varied —
+// this is passive correlation over the incidental RNG variance (loot rolls,
+// which draft options come up first) across seeds, not a controlled A/B.
+//
 // Usage: npx tsx scripts/balance-sweep.ts [count] [startSeed]
 import { createGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
+import { weaponClassOf, type WeaponClass } from "../src/sim/items";
+import type { AbilityId } from "../src/sim/abilities";
 
 const COUNT = Number(process.argv[2] ?? 100);
 const START_SEED = Number(process.argv[3] ?? 1);
@@ -22,12 +30,16 @@ interface RunSummary {
   damageTaken: number;
   kills: number;
   hitStepBudget: boolean;
+  weaponClass: WeaponClass | null;
+  loadout: AbilityId[]; // final 4 slots + ultimate, whatever was equipped at run end
 }
 
 function runOne(seed: number): RunSummary {
   const g = createGame(seed);
   const r = runBot(g, CONFIG.finalFloor + 2, MAX_STEPS);
   const hitStepBudget = !r.won && !r.died && r.steps >= MAX_STEPS;
+  const p = g.players[0];
+  const loadout = [...p.abilities.slots, p.abilities.ultimate].filter((a): a is AbilityId => a != null);
   return {
     seed,
     won: r.won,
@@ -38,6 +50,8 @@ function runOne(seed: number): RunSummary {
     damageTaken: r.totalDamageTaken,
     kills: r.totalKills,
     hitStepBudget,
+    weaponClass: weaponClassOf(p.equipment.weapon),
+    loadout,
   };
 }
 
@@ -83,3 +97,33 @@ if (stuck > 0) {
   console.log(`\n${stuck} run(s) hit the step budget without winning or dying — likely a bot pathing wedge, not a real balance signal.`);
   for (const r of results.filter((x) => x.hitStepBudget)) console.log(`  seed ${r.seed}: stalled on floor ${r.floorsCleared + 1}`);
 }
+
+// Passive build correlation: NOT a controlled experiment (see header comment)
+// — small groups (few seeds landed on a given weapon class) are noise, not signal.
+function winRateTable(groups: Map<string, RunSummary[]>): void {
+  const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  for (const [key, runs] of rows) {
+    const w = runs.filter((r) => r.won).length;
+    const pct = ((w / runs.length) * 100).toFixed(0);
+    console.log(`  ${key.padEnd(14)} n=${String(runs.length).padStart(4)}  win rate ${pct.padStart(3)}%`);
+  }
+}
+
+const byWeapon = new Map<string, RunSummary[]>();
+for (const r of results) {
+  const key = r.weaponClass ?? "(none)";
+  if (!byWeapon.has(key)) byWeapon.set(key, []);
+  byWeapon.get(key)!.push(r);
+}
+console.log("\nwin rate by final weapon class (passive correlation, not a controlled A/B):");
+winRateTable(byWeapon);
+
+const byAbility = new Map<string, RunSummary[]>();
+for (const r of results) {
+  for (const a of r.loadout) {
+    if (!byAbility.has(a)) byAbility.set(a, []);
+    byAbility.get(a)!.push(r);
+  }
+}
+console.log("\nwin rate by ability present in final loadout (a run counts toward every ability it had equipped):");
+winRateTable(byAbility);
