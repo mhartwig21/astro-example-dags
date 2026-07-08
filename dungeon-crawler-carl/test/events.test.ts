@@ -133,7 +133,11 @@ describe("floor events: System Shrine", () => {
 
 describe("floor events: timed vault", () => {
   it("seals the vault room; approach springs it; the timer re-seals it", () => {
-    const g = findEvent("vault");
+    // Excludes floors that ALSO rolled an independent stairs-lock: if that
+    // lock's key carrier happens to spawn unreachable, the very first step
+    // fires the locked-door self-heal audit (correctly) in the SAME tick the
+    // vault springs open, double-bumping mapVersion and muddying this assert.
+    const g = findEvent("vault", (g) => !g.map.locked);
     const ev = g.floorEvent as Extract<FloorEvent, { type: "vault" }>;
     const room = g.map.rooms[ev.roomIdx];
     expect(ev.phase).toBe("sealed");

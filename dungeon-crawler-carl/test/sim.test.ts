@@ -382,6 +382,7 @@ describe("the show (viewers / favorites / sponsors)", () => {
   it("sustained hype grows favorites and earns sponsors", () => {
     const g = createGame(1);
     const p = g.players[0];
+    g.monsters = []; // this test is pure hype-economy math (addHype below), not combat survival
     expect(p.sponsors).toBe(0);
     // ~15s of pinned hype: sqrt conversion means sustained excitement earns
     // favorites steadily, not explosively (see CONFIG.show).
@@ -1750,12 +1751,15 @@ describe("locked-door self-healing (auditKeyReachability)", () => {
   // unreachable (or seals a crawler in), the System concedes the door within
   // one audit interval instead of ending the run.
 
-  /** A locked floor with a living key carrier, deterministically. */
+  /** A locked floor with a living key carrier, deterministically. Skips floors
+   * that ALSO rolled an independent timed-vault event: unlockDoors() correctly
+   * leaves a sealed vault's own doors locked (that's a separate mechanic), but
+   * these tests assert no DoorLocked tiles remain anywhere on the map. */
   function lockedGame(): { g: GameState; carrier: import("../src/sim/types").Monster } {
     for (let seed = 1; seed <= 30; seed++) {
       const g = createTestGame({ seed, floor: 10, level: 20, gear: false });
       const carrier = g.monsters.find((m) => m.hasKey);
-      if (g.map.locked && carrier) return { g, carrier };
+      if (g.map.locked && carrier && g.floorEvent?.type !== "vault") return { g, carrier };
     }
     throw new Error("no locked floor with a carrier found in 30 seeds");
   }
@@ -3093,7 +3097,12 @@ describe("ability constellation (prereqs, forks, capstones)", () => {
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const wounded = 25 - g.monsters.find((m) => m.id === 1)!.hp;
     const healthy = 90 - g.monsters.find((m) => m.id === 2)!.hp;
-    expect(wounded).toBeGreaterThan(healthy * 1.3);
+    // Each hit rolls independent ±15% weapon-variance damage (crit is zeroed
+    // above, but variance isn't) — with a true 1.6x capstone multiplier, worst-
+    // case unlucky/lucky variance draws still bound the ratio to roughly
+    // [1.18, 2.16]. 1.3 sat inside that band and went flaky when the merge
+    // shifted the RNG draw sequence; 1.15 stays a real signal without the coin-flip.
+    expect(wounded).toBeGreaterThan(healthy * 1.15);
   });
 
   it("AFTERSHOCK: dash arrival detonates", () => {
