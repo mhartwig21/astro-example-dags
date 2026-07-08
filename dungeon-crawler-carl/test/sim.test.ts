@@ -4427,6 +4427,23 @@ describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
     expect(Math.abs(brute.pos.x - bx)).toBeLessThan(0.2); // the anchor held
   });
 
+  it("Extradition emits the chain itself as data: caster -> pre-drag anchor", () => {
+    const g = createGame(966);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    g.monsters.length = 0;
+    const m = mkMon({ id: 26, pos: { x: p.pos.x + 4, y: p.pos.y }, hp: 100, maxHp: 100 });
+    g.monsters.push(m);
+    const px = p.pos.x, py = p.pos.y, mx = m.pos.x, my = m.pos.y;
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    const chain = g.hits.find((h) => h.kind === "chain");
+    expect(chain).toBeDefined();
+    // Endpoints are the PRE-yank positions: hosts draw the link where the
+    // chain was thrown, even though the target lands in your arms this step.
+    expect(gap(chain!.pos, { x: px, y: py })).toBeLessThan(0.2);
+    expect(gap(chain!.to!, { x: mx, y: my })).toBeLessThan(0.2);
+  });
+
   it("CLASS ACTION drags everything the chain passed through", () => {
     const g = createGame(964);
     const p = g.players[0];

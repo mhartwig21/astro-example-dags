@@ -253,6 +253,20 @@ export function render(
     ctx.stroke();
   }
 
+  // Extradition chains: this frame's "chain" hits as one-frame truth lines
+  // (the 2D host draws no other hit feedback; this view is for debugging).
+  for (const h of state.hits) {
+    if (h.kind !== "chain" || !h.to) continue;
+    ctx.strokeStyle = "rgba(170,178,189,0.9)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]); // dashed = links
+    ctx.beginPath();
+    ctx.moveTo(offX + h.pos.x * T, offY + h.pos.y * T);
+    ctx.lineTo(offX + h.to.x * T, offY + h.to.y * T);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   // Projectiles.
   for (const pr of state.projectiles) {
     if (!inVision(pr.pos.x, pr.pos.y)) continue;

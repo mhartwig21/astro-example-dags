@@ -556,7 +556,7 @@ export interface Corpse {
 // into floating damage numbers, particles, camera shake, and announcer lines. They
 // are derived deterministically from the sim (the RNG that rolls a crit is the same
 // seeded stream), so replays reproduce them exactly.
-export type HitKind = "enemy" | "crit" | "player" | "heal" | "gold" | "weapon";
+export type HitKind = "enemy" | "crit" | "player" | "heal" | "gold" | "weapon" | "chain";
 
 export interface HitEvent {
   pos: Vec2;
@@ -567,6 +567,7 @@ export interface HitEvent {
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
   effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)
+  to?: Vec2; // kind "chain": far endpoint — hosts draw a link from pos to here
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation

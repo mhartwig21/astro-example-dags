@@ -1529,12 +1529,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind },
+  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
 ): void {
   state.hits.push({
     pos: { x: pos.x, y: pos.y }, amount, kind,
     dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
-    effect: extra?.effect,
+    effect: extra?.effect, to: extra?.to ? { x: extra.to.x, y: extra.to.y } : undefined,
   });
 }
 
@@ -3383,6 +3383,9 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
   const d = dist(p.pos, anchor);
   const dir = d > 1e-4 ? { x: (anchor.x - p.pos.x) / d, y: (anchor.y - p.pos.y) / d } : p.facing;
   p.facing = { x: dir.x, y: dir.y };
+  // The chain itself, as data: caster's pre-flight position -> the anchor.
+  // Hosts draw the link; which end travels is theirs to observe.
+  hit(state, p.pos, 0, "chain", { dir, to: anchor });
   const heavy = target.kind === "boss" || target.elite || ARCHETYPES[target.kind].mass > CONFIG.surfMassLimit;
   if (heavy) {
     // The anchor holds: you ride the chain. Brief i-frames cover the flight.
