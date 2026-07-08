@@ -68,23 +68,28 @@ def build_synthetic() -> None:
 
 
 def run_snap() -> dict:
-    result = subprocess.run(
-        [
-            sys.executable,
-            os.path.join(ROOT, "blender", "palette_snap.py"),
-            "--input", SYNTHETIC,
-            "--output", SNAPPED,
-            "--palette", PALETTE,
-            "--atlas", ATLAS,
-            "--target-height", "1.0",
-            "--report", os.path.join(OUT, "synthetic_report.json"),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    script = os.path.join(ROOT, "blender", "palette_snap.py")
+    report_path = os.path.join(OUT, "synthetic_report.json")
+    script_args = [
+        "--input", SYNTHETIC,
+        "--output", SNAPPED,
+        "--palette", PALETTE,
+        "--atlas", ATLAS,
+        "--target-height", "1.0",
+        "--report", report_path,
+    ]
+    # Same dual mode as orchestrator/run.py: external Blender via BLENDER_BIN,
+    # else this Python (needs the bpy pip module).
+    blender_bin = os.environ.get("BLENDER_BIN")
+    if blender_bin:
+        cmd = [blender_bin, "--background", "--python", script, "--", *script_args]
+    else:
+        cmd = [sys.executable, script, *script_args]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"palette_snap failed:\n{result.stdout}\n{result.stderr}")
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    with open(report_path) as f:
+        return json.load(f)
 
 
 def read_accessor_vec2(gltf: dict, binary: bytes, accessor_index: int) -> list[tuple]:
