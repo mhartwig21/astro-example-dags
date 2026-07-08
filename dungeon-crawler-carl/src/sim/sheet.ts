@@ -1,8 +1,8 @@
 import { CONFIG } from "./config";
 import { rollBounds } from "./combat";
 import {
-  ABILITY_INFO, boltParams, damageVariance, dashParams, meleeParams, novaParams,
-  orbitParams, overchargeParams, power, rank,
+  ABILITY_INFO, boltParams, crowdSurfParams, cutToParams, damageVariance, dashParams, meleeParams, novaParams,
+  orbitParams, overchargeParams, power, rank, stuntDoubleParams,
   type AbilityId, type School,
 } from "./abilities";
 import { hasPassive, playerMitigation } from "./game";
@@ -156,6 +156,28 @@ function abilityRow(p: Player, id: AbilityId): SheetAbilityRow {
     case "overcharge": {
       const oc = overchargeParams(p);
       return { ...base, school: "physical", note: `next attack ×${oc.mult.toFixed(2)}${oc.shatter ? " · shatters poise" : ""}` };
+    }
+    case "cutto": {
+      const cp = cutToParams(p);
+      return {
+        ...base, school: "physical",
+        hit: makeHit(p, power(p, "cutto") * cp.dmgMult, cp.cooldown),
+        note: `${cp.range.toFixed(1)}-tile cut${cp.smash ? " · staggers non-elites" : ""}${cp.match ? " · kill in 1s resets" : ""}`,
+      };
+    }
+    case "crowdsurf": {
+      const sp = crowdSurfParams(p);
+      return {
+        ...base, school: "physical",
+        note: `${sp.range.toFixed(1)}-tile chain · light: pulled in (${sp.stagger.toFixed(1)}s stagger) · heavy: pulls YOU${sp.diveFrac > 0 ? " · dive blast" : ""}`,
+      };
+    }
+    case "stuntdouble": {
+      const dp2 = stuntDoubleParams(p);
+      return {
+        ...base, school: "physical",
+        note: `${dp2.contract}s contract · taunts ${dp2.tauntRadius.toFixed(1)} tiles · mirrors swings at ${Math.round(dp2.mirrorFrac * 100)}%`,
+      };
     }
     case "airstrike":
       return {

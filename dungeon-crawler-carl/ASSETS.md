@@ -1,5 +1,9 @@
 # Art & audio assets — open-source sourcing
 
+> This file tracks assets **in use** (origin + license). For what's *available*
+> in the owner's KayKit Complete Collection zip but not yet used — including the
+> full rigged-character census — see `KAYKIT-INVENTORY.md`.
+
 The 3D isometric renderer (`src/render3d/`) currently draws **procedural low-poly
 placeholder meshes** so we can confirm art direction without any downloads. It's
 built to load real **glTF/GLB** models the moment they're present under
@@ -25,9 +29,12 @@ appreciated).
 | KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Forest Nature Pack — Hill_Cliff kit (open-air Garden walls: `cliff_side_*.glb`, `cliff_inner_*.glb`, `cliff_outer_*.glb` + `forest_tree_3/4_a`, `forest_rock_5_a/c`; Color1, converted via gltf-pipeline) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
 | KayKit Halloween Bits — `fence_gate.glb` (open-air gate dressing) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
-| KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves; `weapon_arrow_a.glb` flies as the ballistic bolt) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
+| KayKit Skeletons 1.1 — `skeleton_arrow.glb` (ranged-archetype projectile) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
+| KayKit Mystery Monthly: Plant Warrior — `plant_warrior_arrow.glb` (spitter windup lob) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
-| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
+| KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
 
 Halloween Bits GLBs were converted from the gltf sources in the pack's GitHub
 mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
@@ -39,7 +46,7 @@ mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
 |---|---|---|---|
 | KayKit Character Pack: Adventurers | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Pack: Skeletons | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
-| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Monthly Mystery Character: Demon Lord (July 2026; + SummoningCircle prop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 
 Collection characters were copied from the purchased Complete Collection zip
@@ -193,6 +200,7 @@ attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
 | carpet-bombing | airstrike | Skoll |
 | quake-stomp | cataclysm | Lorc |
 | stopwatch | bullettime | Lorc |
+| flask *(original)* | Sponsor Slurp™ flask chip | drawn for this repo, CC0 — NOT game-icons |
 
 Convention: `/icons/<abilityId>.svg`, background rect stripped so the white
 glyph works as a CSS mask (tinted gold for actives, purple for ultimates).
@@ -306,9 +314,48 @@ attribution requirement (covered by the same in-game credits line).
 | blood_subscription | heart-drop | Lorc |
 | cancellation_axe | battered-axe | Lorc |
 | live_feed | tv | Delapouite |
+| backstage_pass | magic-portal | Lorc |
+| location_scout | treasure-map | Lorc |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |
+
+### UI icons — `public/icons/ui/` (same source, license, and convention)
+
+Chrome icons that replaced the emoji glyphs (STYLEGUIDE.md rule three:
+icons are drawn, never typed). CSS-mask tinted via `.uic`.
+
+| Our file | game-icons.net icon | Author |
+|---|---|---|
+| party | crossed-swords | Lorc |
+| skull | skull-crossed-bones | Lorc |
+| race | laurels | Lorc |
+| shopping | shopping-cart | Delapouite |
+| marker | position-marker | Delapouite |
+
+### Fonts — `public/fonts/` (SIL Open Font License 1.1)
+
+The Torchlit Broadcast type system (STYLEGUIDE.md). OFL license texts ship
+alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
+
+| File | Family | Role | Source |
+|---|---|---|---|
+| Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
+| AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+
+## AI-generated assets — `tools/asset-pipeline/`
+
+The asset pipeline (`tools/asset-pipeline/`) generates new models with Meshy AI
+and re-textures them onto the KayKit gradient atlas so they match the packs
+above. Provenance rules for anything it produces:
+
+- `tools/asset-pipeline/palette/*.png` are atlas textures **extracted from the
+  KayKit GLBs already recorded above** (CC0, Kay Lousberg) — same license,
+  same origin.
+- Meshy-generated models are governed by the **Meshy plan's license at
+  generation time**, not CC0 — free-tier output is CC-BY/non-commercial;
+  paid tiers grant commercial rights. When committing a generated model to
+  `public/assets/`, add it to a table here with `Meshy (<plan>)` as the origin.
 
 ## Licensing hygiene
 

@@ -59,9 +59,8 @@ export const CONFIG = {
   monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
   bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
-  // Feature switches (disabled by request until the designs are reworked; the
-  // code paths stay intact so flipping these back on re-enables everything).
-  flaskEnabled: false, // Sponsor Slurp™ flask: drink no-ops, no refill events, chip hidden
+  // Feature switches (code paths stay intact so these can toggle cleanly).
+  flaskEnabled: true, // Sponsor Slurp™ flask: kill-credit sustain loop (re-enabled with the status pass)
   achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
   // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
@@ -75,11 +74,44 @@ export const CONFIG = {
   frenzyMoveMult: 1.12,
   frenzyCooldownMult: 0.85, // melee/bolt/nova cooldowns + dash recharge
 
+  // Status effects (DESIGN 5.13; framework in status.ts). Exactly three:
+  // burn (fast magic DoT, refreshes), poison (slow physical DoT, stacks to 3),
+  // chill (no damage — the afflicted entity's clock runs slower).
+  burnDuration: 3, // seconds a burn lasts (re-applying restarts it)
+  burnTickSeconds: 0.5, // fast ticks — burn is the bursty DoT
+  poisonDuration: 5, // seconds a poison lasts (re-applying refreshes + stacks)
+  poisonTickSeconds: 1, // slow ticks — poison is the lingering DoT
+  poisonMaxStacks: 3, // each stack adds a full tick's damage
+  chillDuration: 2.5, // seconds a chill lasts (refresh-on-reapply)
+  chillBossMult: 0.5, // bosses shrug off half the slow (never immune)
+  chillSlowPerRank: 0.3, // FROST BOLTS: slow fraction per node rank (r1 = -30%)
+  chillSlowMax: 0.45, // hard cap, whatever overranks roll
+  novaScorchFracPerRank: 0.35, // AFTERBURN: burn total = this × nova hit per rank
+  venomTickFraction: 0.12, // Venom Clause: poison tick (per stack) = this × the crit
+  puddlePoisonFraction: 0.6, // spitter acid: poison tick = this × the puddle tick
+  chillingAuraRadius: 3.2, // "chilling" elite: crawlers inside are slowed...
+  chillingAuraSlow: 0.3, // ...by this fraction (fades ~a beat after you break away)
+
+  // Party pings: a marked spot the whole party sees (world pulse + minimap).
+  pingTtl: 6, // seconds a ping lives
+  pingMaxPerPlayer: 3, // oldest ping is replaced beyond this
+
+  // Co-op revives: stand close to a downed crawler to stabilize them. No
+  // button — proximity IS the channel (the reviver pays in exposure, not APM).
+  // Walking away lets the wound reopen (progress decays). Descending still
+  // revives everyone at 50% as before; this is the mid-floor rescue.
+  reviveRadius: 1.7, // tiles from the downed body
+  reviveChannelSec: 3.5, // seconds of continuous proximity to stabilize
+  reviveHpFraction: 0.35, // of max HP on revive
+  reviveDecayMult: 1.5, // progress decays this much faster than it builds
+
   // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
   lootBoxEveryKills: 8,
 
-  // Leveling
-  xpBase: 20, // xp to reach level 2
+  // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
+  // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
+  // shifts the whole curve down ~half a level early, less later.
+  xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
   damagePerLevel: 3,
@@ -95,8 +127,8 @@ export const CONFIG = {
   // Monsters (density tuned for the 72x72 floors: crowded, not an empty museum).
   // The full-clear power curve outruns linear scaling by midgame, so the back
   // half leans on DENSITY (more mobs) + COMPOUNDING stats (below).
-  monsterBaseCountFloor1: 38,
-  monsterCountPerFloor: 9,
+  monsterBaseCountFloor1: 25,
+  monsterCountPerFloor: 11,
   monsterMaxCount: 130,
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
   // on you together), with a few lone wanderers between them. Bigger packs
@@ -104,7 +136,7 @@ export const CONFIG = {
   // can only fully respect ONE heavy telegraph at a time — denser packs create
   // real overlapping-danger moments instead of a queue of solo fights.
   packSizeMin: 5,
-  packSizeMax: 14,
+  packSizeMax: 13,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
@@ -115,25 +147,101 @@ export const CONFIG = {
   // dungeon steepens instead of flattening. Starts at floor 3 (not 1-2, which
   // stay a soft landing) so the ramp is felt well before the old floor-6 wall —
   // 1.055 pre-#10; nudged up for the six-slot gear budget, then again for the
-  // ~40% win-rate difficulty pass (scripts/balance-sweep.ts).
+  // ~40% win-rate difficulty pass. Backed off after merging the band-boss
+  // rework (bosses every 3 floors, not 6) + monster TEMPO scaling (below) —
+  // those stack with this, so this alone doesn't need to carry as much.
   monsterScaleCompoundFrom: 3,
-  monsterScaleCompound: 1.085, // ~3.4x by floor 18 on top of the linear curve
+  monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
-  // HURT (a grunt ~21% of starting HP, a brute ~38%) — see the ~40% target win
-  // rate in scripts/balance-sweep.ts's design intent below.
+  // HURT, because you saw it coming — see the ~40% target win rate in
+  // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
+  // rather than raw density for lethality: density also inflates kill-driven
+  // XP pace and can swarm even a stationary player near spawn, which collided
+  // with the leveling-curve and hype-economy test fixtures.
   monsterBaseDamage: 21,
-  monsterDamagePerFloor: 4.9,
+  monsterDamagePerFloor: 4.2,
   monsterSpeed: 2.6, // tiles/sec
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
   monsterXp: 10,
   monsterXpPerFloor: 4,
+  // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
+  // Past the ramp floor, monsters get quicker on every axis — faster chase,
+  // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
+  // the caps keep the deep dungeon fast but still READABLE and dodgeable.
+  monsterTempoFrom: 4,
+  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
+  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
+  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+
+  // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
+  // mob that makes ignoring a pack the wrong call. Kill the mother first.
+  broodSpawnCooldown: 6, // seconds between births
+  broodSpawnMax: 10, // lifetime births per mother
+  broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
+
+  // Drum Sergeant (SEWERS, floor 4+): pack escort that beats a frenzy aura.
+  // Worth ~nothing itself; the buffed pack is the problem. Kill-order 101.
+  drumFromFloor: 4,
+  drumEscortChance: 0.4, // share of escort rolls that pick a drummer over a shaman
+  drumAuraRadius: 4, // tiles: pack-mates inside get the beat
+  drumAuraLinger: 0.6, // seconds the frenzy holds after leaving the radius
+  drumFrenzySpeed: 1.3, // frenzied move-speed multiplier
+  drumFrenzyHaste: 1.4, // frenzied attack-cooldown decay multiplier
+
+  // Repo Rat / filcher (SEWERS, floor 4+): a fleeing loot-goblin. It spawns
+  // clutching gold, bleeds a coin each HP quarter lost, drops the rest on
+  // death — and if it stays safely away long enough, it ESCAPES with all of it.
+  filcherFromFloor: 4,
+  filcherChance: 0.55, // per ordinary floor: one rat scurries somewhere on it
+  filcherGoldBase: 30, // carried gold: base + perFloor * floor
+  filcherGoldPerFloor: 8,
+  filcherBleedFraction: 0.15, // carry share dropped per HP quarter lost
+  filcherEscapeDist: 8, // tiles from every crawler to count as "getting away"
+  filcherEscapeSeconds: 9, // safe seconds before it vanishes for good
+
+  // Knockback (MOB-CONCEPTS verb): shove distance is consumed at this speed
+  // through moveWithCollision, so walls stop it. Slams shove players.
+  knockbackSpeed: 12, // tiles/sec while a shove is in flight
+  slamKnockback: 1.3, // tiles: brute/boss Ground Slam shove
+  bossSlamKnockback: 2.0, // tiles: the boss slam hits like a truck
+
+  // Beam hazards (MOB-CONCEPTS verb): a line telegraph that fires ONCE along
+  // its whole length. No spawner in the base cast yet — the Ironworks/Approach
+  // mobs (Quality Control, Boom Operator, the Archivist) arrive on this seam.
+  beamFadeSeconds: 0.25, // visible flash after firing
+
+  // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
+  // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
+  // Rival kills pay XP, not loot (no naked-respawn snowball).
+  rivalsReviveSeconds: 15, // downed timer before auto-revive at the floor entry
+  rivalsReviveHpFraction: 0.5, // revive at half HP
+  rivalsReviveGraceSeconds: 2.5, // post-revive immunity (no spawn-camping the timer)
+  pvpDamageMult: 0.4, // builds are tuned vs telegraphed monsters; PvP is instant
+  pkXpBase: 60, // XP for dropping a rival...
+  pkXpPerLevel: 30, // ...plus this per victim level — killing the LEADER pays most
+
+  // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
+  // the point. Lone wanderers always roam, packPatrolChance of packs patrol
+  // together, the rest are sentries holding their post; dormant ambushers lie
+  // perfectly still, the vault guardian never leaves its treasure, and bosses
+  // hold their arena. Leashed so encounters stay roughly where placed.
+  packPatrolChance: 0.4, // share of (non-ambush) packs that patrol
+  wanderSpeedMult: 0.55, // stroll speed, relative to combat speed
+  wanderLegSeconds: 2.2, // seconds per wander leg (randomized 0.5-1.5x)
+  wanderPauseChance: 0.35, // legs spent just standing around
+  wanderLeash: 7, // tiles from the patrol post before the stroll drifts back
 
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
   // catalog COMPONENTS — random loot that advances the build you planned.
-  lootDropChance: 0.36,
+  // 0.36 when 40% of drops were health potions; potions are gone (health
+  // should be scary — see dropLoot), so this holds gear rates steady.
+  lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
   goldDropChance: 0.8,
   goldMin: 3,
@@ -177,6 +285,11 @@ export const CONFIG = {
   cancellationThreshold: 0.15, // "cancellation": execute non-elites below this HP fraction
   conduitFraction: 0.3, // "conduit": crits arc this fraction of the hit...
   conduitRadius: 3, // ...to the nearest other enemy within this many tiles
+  choreographyCritBonus: 0.2, // "choreography": +crit during the post-swap surge window
+  ledgerKillGold: 6, // "ledger": gold per kill credit...
+  ledgerInterestFraction: 0.1, // ...plus interest on banked gold each safe room...
+  ledgerInterestCap: 120, // ...capped per shop (greed compounds, but politely)
+  // "phase": dash passes through walls when it reaches the far side (binary)
   // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
   // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
@@ -207,12 +320,13 @@ export const CONFIG = {
   // windup as before; the long telegraph is the dodge window either way.
   bruteSlamRadius: 1.5, // tiles from the brute's own position
 
-  // Boss kit escalation (DESIGN: three boss-tier fights should feel like
-  // escalating KITS, not just bigger numbers on one script). Adds waves at
-  // phase breaks + hazard rain are UNIVERSAL boss behavior (backlog #11);
-  // the tiers layer on top of that:
-  //   tier 1 (floor 6 city boss)  — melee+volley + Ground Slam
-  //   tier 2 (floor 12 city boss) — Ground Slam cycles faster
+  // Boss kit escalation (DESIGN: boss-tier fights should feel like escalating
+  // KITS, not just bigger numbers on one script). Adds waves at phase breaks +
+  // hazard rain are UNIVERSAL boss behavior (backlog #11); the tiers layer on
+  // top of that (band-end bosses ALSO carry a per-band signature — see below):
+  //   tier 0 (floor 3)            — melee+volley only (early-game, gentle)
+  //   tier 1 (floors 6, 9)        — + Ground Slam
+  //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
@@ -268,6 +382,56 @@ export const CONFIG = {
   ultBulletTimeDuration: 4, // seconds
   ultBulletTimeFactor: 0.35, // monster/enemy-projectile time scale while active
 
+  // Ultimate constellations (abilities.ts): rank-scaled knobs per node.
+  ultAirstrikePayloadDmg: 0.25, // shell damage per Bigger Payload rank
+  ultAirstrikeSaturationShells: 2, // extra shells per Saturation Barrage rank
+  ultAirstrikeSaturationSpread: 0.18, // extra scatter per Saturation rank (the cost)
+  ultAirstrikePrecisionSpread: 0.3, // scatter removed per Precision Strike rank
+  ultAirstrikeLoyaltyRefund: 0.08, // SPONSOR LOYALTY: cooldown fraction per barrage kill
+  ultCataclysmEpicenterRadius: 0.15, // radius per Epicenter rank
+  ultCataclysmAftermathBase: 0.25, // Aftermath echo fraction at rank 0...
+  ultCataclysmAftermathPerRank: 0.15, // ...plus this per rank (rank 1 = 40%, 2 = 55%)
+  ultCataclysmAftermathDelay: 1.2, // seconds until the echo shock lands
+  ultCataclysmUpheavalKnock: 0.45, // extra hurl per Upheaval rank
+  ultCataclysmUpheavalPoise: 2, // Upheaval hits crush poise this much harder (any rank)
+  ultCataclysmExtinctionFrac: 0.6, // EXTINCTION corpse blast, fraction of cataclysm power
+  ultCataclysmExtinctionRadius: 1.8, // tiles around each detonating corpse
+  ultBulletTimeFocusSeconds: 1, // duration per Deep Focus rank
+  ultBulletTimeAdrenaline: 0.5, // extra cooldown tick speed per Adrenaline rank, inside
+  ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
+  ultBulletTimeEncoreExtend: 0.5, // EXTENSION: seconds added per kill inside
+  ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
+
+  // Fun-kit wave (ABILITY-CONCEPTS.md): Blindside / Extradition / Stunt Double.
+  cutToRange: 6, // tiles the camera can cut
+  cutToCooldown: 6, // long enough that each cut is a decision, not a spam
+  cutToDmgMult: 1.2, // arrival strike, off attackPower
+  cutToStagger: 0.35, // Sucker Punch: non-elite arrival stagger (seconds)
+  cutToMatchWindow: 1, // REPEAT OFFENDER: kill inside this window resets the cooldown
+  surfRange: 7, // chain reach (tiles)
+  surfCooldown: 7,
+  surfMassLimit: 1.5, // heavier than this (or elite/boss) pulls YOU instead
+  surfStagger: 0.5, // pulled enemies land staggered this long
+  surfStaggerPerRank: 0.3, // Contempt: extra stagger per rank
+  surfDiveFracPerRank: 0.6, // Gavel Drop: arrival blast fraction of power per rank
+  surfDiveRadius: 1.6,
+  surfArriveGap: 1.0, // both pull modes stop this far from the target
+  surfPathRadius: 1.0, // CLASS ACTION: drag capsule half-width along the chain
+  doubleContract: 5, // seconds the stunt performer works
+  doubleCooldown: 18,
+  doubleTauntRadius: 5, // monsters inside hunt the double instead of players
+  doubleMirrorFrac: 0.3, // mirrored swing damage, of the owner's swing
+  doubleExplodeFrac: 0.5, // farewell blast = absorbed damage x this...
+  doubleExplodeCap: 3, // ...capped at owner attackPower x this (no infinite banks)
+  doubleExplodeRadius: 2,
+
+  // Orbit capstone + melee fork identities (abilities.ts constellation pass).
+  orbitGuillotineThreshold: 0.12, // GUILLOTINE: blades cancel non-elites below this
+  meleeOverkillRadius: 1.4, // Heavy Blows: killing-swing overkill splashes this far
+  meleeMomentumPerStack: 0.06, // Swift Strikes: damage per momentum stack
+  meleeMomentumStacksPerRank: 2, // stack cap per Swift Strikes rank
+  meleeMomentumWindow: 2.5, // seconds between connecting swings before momentum drops
+
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   novaCooldown: 5.0,
   novaRadius: 2.6,
@@ -298,6 +462,10 @@ export const CONFIG = {
   overchargeDamageMult: 1.5, // the banked attack's base multiplier
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
+  // Ultimates are the late-run power spike: no discovery pool (tomes, chips)
+  // offers one before this floor. Landing right after the Sump King falls,
+  // so the second act opens with the big toys.
+  ultimateMinFloor: 7,
   upgradeDraftSize: 3, // cards offered per level-up
   // Overranks: lottery ranks past a node's printed max (see rollUpgradeDraft).
   overrankChanceBase: 0.05, // draft chance to dangle one on floor 0
@@ -310,16 +478,28 @@ export const CONFIG = {
   // The Show: viewers / favorites / sponsors economy. Exciting + challenging play
   // generates "hype" (which decays); hype drives viewers, a slice of whom convert to
   // sticky favorites, and favorite thresholds earn sponsors.
+  //
+  // Tuned against the balance bot (a full winning run earns exactly 5 sponsors;
+  // thresholds 6-7 sit 35-90% above the bot's best and are reserved for
+  // exceptional play). Two shape choices keep it honest:
+  //   - decay is PROPORTIONAL (base + hype*frac): the hotter the crowd, the
+  //     faster it cools. Sustained good play holds an equilibrium instead of
+  //     pinning the cap, so +hype gear raises WHERE you sit, not a dead stat;
+  //   - favorite conversion is sqrt(hype - threshold): spikes convert, camping
+  //     at high hype doesn't run away (cuts seed variance ~2.4x -> ~7%).
   show: {
     baseViewers: 180,
     viewersPerFloor: 90,
     viewersPerHype: 55,
     viewerEase: 0.9, // how fast the live count chases its target (per sec)
-    hypeDecay: 4, // hype lost per second
+    hypeDecay: 3, // base hype lost per second
+    hypeDecayFrac: 0.12, // + this fraction of current hype per second (soft cap)
     hypeMax: 140,
-    favConvertThreshold: 14, // favorites only accrue while hype is above this
-    favPerHypePerSec: 0.7, // favorite gain = (hype-threshold)*this*dt
-    sponsorThresholds: [40, 120, 260, 480, 800, 1300, 2000], // favorites needed per sponsor
+    favConvertThreshold: 10, // favorites only accrue while hype is above this
+    favPerHypePerSec: 0.12, // favorite gain = sqrt(hype-threshold)*this*dt
+    // Favorites needed per sponsor: #1 lands ~floor 3, #2 ~floor 7, #3 ~floor
+    // 10-11, a winning run ends on 5; 6-7 are legend tier (measured, see above).
+    sponsorThresholds: [15, 85, 155, 235, 325, 520, 750],
     // Hype awarded per exciting event:
     hypeCrit: 2.5,
     hypeKill: 3,
@@ -332,6 +512,9 @@ export const CONFIG = {
     hypeCharger: 6, // dodging the freight train, then dropping it
     hypeSpitter: 4,
     hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
+    hypeBroodmother: 9, // ending the nest = the whole arena exhales
+    hypeDrummer: 6, // silencing the band = the pack deflates on camera
+    hypeFilcher: 8, // running down the rat is a highlight-reel chase
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -342,6 +525,7 @@ export const CONFIG = {
     // Crowd Frenzy hysteresis: enter hot, drop out only when the hype fades.
     frenzyEnter: 60,
     frenzyExit: 40,
+    hypeRevive: 22, // pulling a teammate off the mat is GREAT television
   },
 
   // Sponsor rewards (end-of-floor draft): one option per sponsor, capped here.
@@ -361,7 +545,9 @@ export const CONFIG = {
   // Boss hierarchy (DCC-style):
   // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
   //   archetype with a name, guaranteed loot, and an announcer moment.
-  // - CITY BOSS: every 6th floor (6, 12) is a sealed arena with a real boss.
+  // - BAND BOSS: every band-END floor (3, 6, 9, 12, 15) is a sealed arena with
+  //   a real boss carrying its band's SIGNATURE mechanic (see the signature
+  //   knobs below + ai.ts).
   // - Floor 18 remains the final boss.
   eliteFromFloor: 2,
   // Elite durability tracks the player power curve (measured by the balance
@@ -370,7 +556,7 @@ export const CONFIG = {
   // HP multiplier grows per floor; target: a focused 4-8s fight at level.
   eliteHpMult: 3.0, // base multiplier over the archetype's floor-scaled HP...
   eliteHpMultPerFloor: 2.8, // ...plus this much more per floor
-  eliteDmgMult: 1.8,
+  eliteDmgMult: 1.7,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
   // One-shot insurance: a single player hit can never remove more than this
@@ -409,19 +595,89 @@ export const CONFIG = {
   splitterCount: 3, // swarmers a splitter elite bursts into on death
   thornsReflectFraction: 0.25, // slice of each hit reflected back at the attacker...
   thornsReflectCapFraction: 0.04, // ...capped at this fraction of the attacker's maxHp per hit
-  cityBossEvery: 6, // floors 6 and 12 (18 is the final boss)
-  // City-boss pools sized against measured shopping-player DPS, which roughly
-  // DOUBLES between arenas (~300 at floor 6, ~1100 at floor 12) — so pools
-  // grow per ARENA, not per floor: hp = base * (1 + (arena-1) * growth).
+  bossFloorEvery: 3, // floors 3, 6, 9, 12, 15 (18 is the final boss)
+  // Band-boss pools per arena (floors 3/6/9/12/15), sized against measured
+  // shopping-player DPS, which roughly DOUBLES between the floor-6 and
+  // floor-12 arenas (~300 -> ~1100); floors 6 and 12 keep their pre-band
+  // values (5400 / 18360). Floor 3 is early-game and deliberately GENTLE.
   // Target: a real 15-25s arena fight, not a speed bump.
-  cityBossHpBase: 5400,
-  cityBossHpArenaGrowth: 2.4, // arena 1 (floor 6) = base; arena 2 (floor 12) = 3.4x
-  cityBossAdds: 3, // ranged escorts
+  bandBossHp: [1500, 5400, 10500, 18360, 27000],
+  bandBossDmgMult: [0.5, 0.7, 0.7, 0.7, 0.7], // x bossDamage per arena
+  bandBossXpMult: [0.2, 0.4, 0.4, 0.4, 0.4], // x bossXp per arena
+  cityBossAdds: 2, // ranged escorts
+  // Ordinary-crowd share on a boss floor: thinner mid-run so the arena fight
+  // stays the show; the final band keeps the deep-dungeon density story.
+  bossFloorCrowd: 0.5,
+  bossFloorCrowdDeep: 0.8,
+  bossFloorCrowdDeepFrom: 13,
+
+  // SIGNATURE boss mechanics — one themed ability per band-end arena, layered
+  // on the shared melee+volley+phase kit (dispatch in ai.ts, helpers in
+  // game.ts). Every one of them telegraphs: pools ARM before they bite,
+  // impact circles ring before they land, the raise is an interruptible
+  // channel. Floor 18's crown stays the tier-3 Dark Ritual (above).
+  // UNDERCROFT (floor 3): Grave Rising — raises fresh corpses as weakened adds.
+  graveRaiseCooldown: 10, // seconds between raise channels
+  graveRaiseWindup: 1.1, // channel length (staggering it cancels the raise)
+  graveRaiseRange: 7, // tiles: corpses it can reach
+  graveRaiseCount: 3, // corpses raised per channel (freshest first)
+  // SEWERS (floor 6): Flood Surge — sludge pools blanket a seeded half of the
+  // arena; they arm (telegraph), then tick like acid until they drain.
+  floodCooldown: 12, // seconds between surges
+  floodTelegraph: 1.6, // seconds a pool arms before it goes live (the dodge window)
+  floodDuration: 3.5, // seconds a live pool keeps ticking
+  floodPools: 12, // pools per surge
+  floodPoolRadius: 1.6, // tiles
+  floodDmgMult: 0.4, // per-tick damage relative to the boss's damage stat
+  // GARDEN (floor 9): Entangling Roots — root zones SNARE (heavy slow, no
+  // damage) players who stay; dashing out is the escape.
+  rootsCooldown: 9, // seconds between casts
+  rootsTelegraph: 1.1, // seconds a zone arms before it grips
+  rootsDuration: 2.6, // seconds a live zone keeps gripping
+  rootsRadius: 1.5, // tiles
+  rootsSnare: 0.7, // seconds of snare refreshed while standing in a live zone
+  rootsSlowMult: 0.35, // move-speed multiplier while snared
+  rootsExtra: 2, // extra seeded zones beyond one per crawler
+  // RUINS (floor 12): Collapsing Masonry — telegraphed debris impact circles
+  // rain all fight (one per crawler + seeded scatter), not just from phase 1.
+  debrisCooldown: 6.5, // seconds between volleys
+  debrisDelay: 1.3, // seconds from telegraph to impact
+  debrisRadius: 1.6, // tiles
+  debrisCount: 6, // circles per volley (players targeted first, rest scatter)
+  debrisDmgMult: 0.9, // relative to the boss's damage stat
+  // IRONWORKS (floor 15): Flame Sweep — an advancing wall of fire, row by
+  // row toward the boss's target; each row detonates later than the last, so
+  // the wave READS and the play is "pick a gap and commit".
+  flameCooldown: 13, // seconds between sweeps
+  flameTelegraph: 1.4, // seconds before the FIRST row erupts
+  flameStepDelay: 0.35, // extra seconds per row (the advance speed)
+  flameRows: 6, // rows the wall advances through
+  flameRowSpacing: 1.4, // tiles between rows
+  flameSpacing: 1.8, // tiles between circles across a row
+  flameHalfWidth: 2, // circles each side of a row's center (5 across)
+  flameRadius: 1.1, // tiles per fire circle
+  flameDmgMult: 1.0, // relative to the boss's damage stat
+
+  // FLOOR EVENTS (floors 2+, never on boss floors): a seeded roll gives most
+  // floors ONE of — a System Shrine (pick-1 bargain), a timed vault (sealed
+  // treasure that opens on approach and re-seals on a timer), or a sponsor
+  // challenge (clear a room's pack untouched for a purse). Pure sim data;
+  // hosts only render and announce.
+  eventChance: 0.7, // share of eligible floors that roll an event at all
+  shrineBloodCostFraction: 0.2, // Blood Price: HP offered (of max, floored at 1)
+  shrineBloodCrit: 0.03, // ...for this much permanent crit
+  shrineGreedSpeedMult: 1.15, // Greed Clause: this floor's monsters speed up...
+  shrineGreedGoldMult: 2, // ...and its gold drops pay double
+  vaultOpenSeconds: 45, // how long a sprung timed vault stays open
+  vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
+  challengeGoldBase: 40, // sponsor-challenge purse...
+  challengeGoldPerFloor: 15, // ...plus this per floor
+  challengeHype: 25, // hype paid alongside the purse
 
   // Boss (floor 18)
   bossHp: 34000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 58,
+  bossDamage: 52,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,
@@ -464,12 +720,12 @@ export type MonsterArchetype = {
 };
 
 export const ARCHETYPES = {
-  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.4, mass: 1, radius: 0.35 },
+  grunt: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.0, xpMult: 1, ranged: false, windup: 0.4, poise: 0.36, mass: 1, radius: 0.35 },
   // Swarmer: dies to one clean hit (that's the fantasy); threat comes from volume.
   swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.15, mass: 0.8, radius: 0.28 },
   // Brute: long, scary windup that lands a chunk of your HP; high poise (shrugs
   // off small hits) — respect it or interrupt it with something heavy.
-  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.8, mass: 3, radius: 0.55 },
+  brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.76, mass: 3, radius: 0.55 },
   // Ranged: windup is its aim flash — it stands still to line up the shot.
   ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1, radius: 0.35 },
   // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
@@ -486,8 +742,28 @@ export const ARCHETYPES = {
   spitter: { hpMult: 0.7, dmgMult: 0.9, speedMult: 0.95, attackRange: 5.5, xpMult: 1.4, ranged: true, windup: 0.6, poise: 0.25, mass: 1, radius: 0.38 },
   // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
   necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
+  // Broodmother: never attacks (dmgMult unused); a slow walking nest that
+  // births swarmers on a timer (see brood* knobs) — the pack GROWS if ignored.
+  broodmother: { hpMult: 2.2, dmgMult: 0, speedMult: 0.5, attackRange: 6, xpMult: 2.5, ranged: true, windup: 0.8, poise: 0.6, mass: 2.5, radius: 0.55 },
+  // Drummer (Drum Sergeant): a support mob worth ~nothing itself — its war-drum
+  // FRENZIES the pack (see drum* knobs). Kill-order lesson one: shoot the band.
+  drummer: { hpMult: 0.85, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.4, poise: 0.3, mass: 1, radius: 0.38 },
+  // Filcher (Repo Rat): never attacks (dmgMult unused); a fast loot-goblin that
+  // FLEES on sight, bleeds gold as it's hurt, and ESCAPES if ignored (filcher*).
+  filcher: { hpMult: 0.6, dmgMult: 0, speedMult: 1.55, attackRange: 1.0, xpMult: 0.5, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.32 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
+
+/** Depth tempo multipliers: how much quicker monsters move, swing, and
+ * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
+  const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
+  return {
+    speed: Math.min(CONFIG.monsterTempoSpeedMax, 1 + past * CONFIG.monsterTempoSpeedPerFloor),
+    cooldown: Math.max(CONFIG.monsterTempoCdMin, 1 - past * CONFIG.monsterTempoCdPerFloor),
+    windup: Math.max(CONFIG.monsterTempoWindupMin, 1 - past * CONFIG.monsterTempoWindupPerFloor),
+  };
+}
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
 // were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a

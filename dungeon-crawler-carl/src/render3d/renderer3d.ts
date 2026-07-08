@@ -3,7 +3,7 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+import { novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
@@ -24,6 +24,18 @@ import { AmbientParticles } from "./ambient";
 
 function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}) {
   return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.85, metalness: 0.05, ...opts });
+}
+
+// One open-air cluster piece (tree/rock) registered for camera courtesy:
+// where it stands, which instanced-mesh slot draws it, and its shrink easing.
+interface CanopyEntry {
+  mesh: THREE.InstancedMesh;
+  index: number;
+  base: THREE.Matrix4;
+  x: number;
+  z: number;
+  f: number; // current scale factor (eased)
+  target: number; // 1 = full size, 0.12 = stepped aside for the camera
 }
 
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
@@ -75,11 +87,16 @@ export class Renderer3D {
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
+  private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Mesh>(); // ground rings under winding-up monsters
+  private statusRings = new Map<number, THREE.Mesh>(); // faint ring under statused monsters (5.11)
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
+  private pingRings = new Map<number, THREE.Mesh>(); // party pings: gold ground pulses
+  private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
+  private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -93,6 +110,10 @@ export class Renderer3D {
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
   // hidden). `tiles[i]` is the map tile index behind instance i of `mesh`.
   private fogTargets: { mesh: THREE.InstancedMesh; tiles: number[]; lit: THREE.Color }[] = [];
+  // Camera courtesy (open-air): tree/rock instances between the camera and an
+  // entity shrink away so the shot stays clear. Grid-keyed by ground tile.
+  private canopy: Map<number, CanopyEntry[]> | null = null;
+  private canopyGridW = 0;
   // The visible fog bank over unexplored space (drifting planes; see fogOfWar.ts).
   private fogBank = new FogOfWar();
   // Band-themed atmosphere (dust/spores/embers/sparks/ash; see ambient.ts).
@@ -103,7 +124,9 @@ export class Renderer3D {
   private lastExploredVersion = -1;
 
   // Ability visuals, per player id.
-  private orbitBlades = new Map<number, THREE.Mesh[]>();
+  private orbitBlades = new Map<number, THREE.Group[]>();
+  private hazardBombs = new Map<number, THREE.Group>(); // blast-hazard bomb, by hazard id
+  private windupFx = new Map<number, THREE.Group>(); // spit lob / fuse bomb, by monster id
   private novaRings = new Map<number, THREE.Mesh>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
@@ -216,6 +239,8 @@ export class Renderer3D {
     // rebuilds with real models on the next update.
     for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
     this.playerMeshes.clear();
+    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+    this.decoyMeshes.clear();
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
@@ -502,6 +527,26 @@ export class Renderer3D {
     return { x: hit.x, y: hit.z };
   }
 
+  /** Show/hide the click-to-move destination chip (null hides it). */
+  setMoveMarker(pos: Vec2 | null): void {
+    if (!pos) {
+      if (this.moveMarker) this.moveMarker.visible = false;
+      return;
+    }
+    if (!this.moveMarker) {
+      this.moveMarker = new THREE.Mesh(
+        new THREE.RingGeometry(0.16, 0.3, 24),
+        new THREE.MeshBasicMaterial({
+          color: 0x5a87c6, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      this.moveMarker.rotation.x = -Math.PI / 2;
+      this.scene.add(this.moveMarker);
+    }
+    this.moveMarker.visible = true;
+    this.moveMarker.position.set(pos.x, 0.06, pos.y);
+  }
+
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
     this.aspect = w / h;
@@ -678,6 +723,11 @@ export class Renderer3D {
     } else if (l.kind === "tome") {
       const book = this.models["armory_arcana"]?.scene.getObjectByName("Spellbook");
       if (book) { obj = book.clone(true); scale = 0.8; }
+    } else if (l.kind === "shrine") {
+      // System Shrine (floor event): a standing lantern reads as a fixture,
+      // not a pickup — the purple halo below marks it as a System offer.
+      obj = this.modelInstance("lantern_standing");
+      scale = 0.85;
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
       const node = vis
@@ -686,6 +736,12 @@ export class Renderer3D {
       if (node) {
         obj = node.clone(true);
         scale = 0.8;
+      } else if (l.item.slot === "trinket" || l.item.slot === "charm") {
+        // No wearable mesh for these — they drop as a cut gem (Resource Bits).
+        obj = this.modelInstance("gem_medium");
+        scale = 0.55;
+      }
+      if (obj) {
         // Rarity tint on CLONED materials (the source scene keeps its own).
         const glow = rarityGlow(l.item.rarity);
         obj.traverse((c) => {
@@ -714,6 +770,7 @@ export class Renderer3D {
   private lootColor(kind: string): number {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
     if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
+    if (kind === "shrine") return 0xc58cff; // System Shrine: bargain purple
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
   }
 
@@ -775,6 +832,7 @@ export class Renderer3D {
     const notNull = (s: Src | null): s is Src => !!s;
     const cliffSrcs = (oa?.cliffSides ?? []).map((k) => this.tileSource(k)).filter(notNull);
     const clusterSrcs = (oa?.clusterKeys ?? []).map((k) => this.tileSource(k)).filter(notNull);
+    const accentSrcs = (oa?.accentKeys ?? []).map((k) => this.tileSource(k)).filter(notNull);
     const pathSrc = oa ? this.tileSource(oa.pathKey) : null;
     const openAir = !!oa && cliffSrcs.length > 0 && clusterSrcs.length > 0;
     this.hemi.intensity = openAir ? oa!.hemiIntensity : THEME.hemiIntensity;
@@ -860,24 +918,36 @@ export class Renderer3D {
       scl.set(s, sy, s);
       m.compose(pos, quat, scl);
     };
-    // Open-air wall tile rendered as WOODS: a couple of jittered trees/rocks
-    // (instanced like everything else; cluster pieces are near-origin-centered).
+    // Open-air wall tile rendered as WOODS. Piece 0 is ALWAYS a tall tree
+    // planted near the tile center — blocked ground must read blocked even
+    // before its companions fill in; extras mix in low accents for texture.
     const placeCluster = (x: number, y: number, tile: number, count: number, baseY: number) => {
       for (let i = 0; i < count; i++) {
         const h = tileHash(x * 5 + i * 13 + 1, y * 3 + i * 7 + 2, state.floor);
-        const src = clusterSrcs[h % clusterSrcs.length];
-        const s = src.scale * oa!.clusterScale * (0.8 + ((h >> 3) % 100) / 250);
+        const accent = i > 0 && accentSrcs.length > 0 && h % 3 === 0;
+        const srcs = accent ? accentSrcs : clusterSrcs;
+        const v = h % srcs.length;
+        const src = srcs[v];
+        const jitter = i === 0 ? 0.24 : 0.62; // anchor tree stays centered
+        const sMin = i === 0 ? 1.0 : 0.8;
+        const s = src.scale * oa!.clusterScale * (sMin + ((h >> 3) % 100) / 300);
         quat.setFromAxisAngle(UP, ((h >> 1) % 628) / 100);
         pos.set(
-          x + 0.5 + (((h >> 2) % 100) / 100 - 0.5) * 0.5,
+          x + 0.5 + (((h >> 2) % 100) / 100 - 0.5) * jitter,
           baseY - src.box.min.y * s,
-          y + 0.5 + (((h >> 5) % 100) / 100 - 0.5) * 0.5,
+          y + 0.5 + (((h >> 5) % 100) / 100 - 0.5) * jitter,
         );
         scl.set(s, s, s);
         m.compose(pos, quat, scl);
-        push(`cluster${h % clusterSrcs.length}`, x, y, tile, m);
+        push(`${accent ? "accent" : "cluster"}${v}`, x, y, tile, m);
       }
     };
+
+    // Landmark set-piece tiles (sim-blocked pillars/pedestal): drawn as their
+    // MODEL standing on ordinary ground — the generic rock fill would swallow
+    // it. The props themselves are placed with the dressing below.
+    const pillarSet = new Set<number>(map.pillars ?? []);
+    if ((map.pedestal ?? -1) >= 0) pillarSet.add(map.pedestal);
 
     // Track which map tile sits behind each instance so fog of war can tint it.
     // Wall instances key off the tile itself; panels key off the floor tile they
@@ -886,6 +956,16 @@ export class Renderer3D {
       for (let x = 0; x < map.w; x++) {
         const idx = y * map.w + x;
         const t = map.tiles[idx];
+        if (t === Tile.Wall && pillarSet.has(idx)) {
+          // Ground under the set piece, no fill box, no wall panels.
+          if (openAir) {
+            m.makeTranslation(x + 0.5, 0.001, y + 0.5);
+          } else {
+            placeFloor(floorSrc, x, y);
+          }
+          push("floor", x, y, idx, m);
+          continue;
+        }
         if (t === Tile.DoorLocked) {
           // The door block sits over its tile; opening triggers a full rebuild
           // (mapVersion bump), so just draw floor + door now.
@@ -893,11 +973,12 @@ export class Renderer3D {
           push("door", x, y, idx, m);
         }
         if (t === Tile.Wall && openAir) {
-          // Terrain, not masonry: grass runs under everything, edge tiles are
-          // cliff facades or tree masses, deep tiles are grass-topped hill
-          // mass with the odd canopy poking over it.
+          // Terrain, not masonry: UNDERBRUSH ground (clearly darker than the
+          // walkable meadow, so blocked ground never reads as path even where
+          // the pieces on it are sparse), edge tiles are cliff facades or tree
+          // masses, deep tiles are grass-topped hill mass with the odd canopy.
           m.makeTranslation(x + 0.5, 0.001, y + 0.5);
-          push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
+          push("brush", x, y, idx, m);
           const facing = DIRS.filter((d) => isFloorAt(x + d.dx, y + d.dz));
           const h = tileHash(x, y, state.floor + 101);
           if (facing.length === 0) {
@@ -907,7 +988,7 @@ export class Renderer3D {
           } else if (h < oa!.clusterRatio * 1000 || facing.length >= 3) {
             // Woods hem this stretch (thin walls and outcrops always go woods —
             // a cliff facade can't sell a 1-tile-thick ridge).
-            placeCluster(x, y, idx, 2 + (h % 2), 0);
+            placeCluster(x, y, idx, 3, 0);
           } else {
             m.makeTranslation(x + 0.5, fillHeight / 2, y + 0.5);
             push("fill", x, y, idx, m);
@@ -980,11 +1061,16 @@ export class Renderer3D {
       // Warm earth, brighter than the grass around it — the trail must pop.
       if (pathSrc) kindSpec.path = { geo: pathSrc.geo, mat: pathSrc.mat, lit: new THREE.Color(0xdcc49e).multiplyScalar(tintJitter), cast: false };
       kindSpec.fill = { geo: fillGeo, mat: flat(0xffffff), lit: new THREE.Color(oa!.grass).multiplyScalar(0.5 * tintJitter), cast: true };
+      // Underbrush: the ground beneath wall tiles, darker than any meadow.
+      kindSpec.brush = { geo: grassGeo, mat: grassMat, lit: new THREE.Color(oa!.grass).multiplyScalar(0.55 * tintJitter), cast: false };
       cliffSrcs.forEach((src, i) => { kindSpec[`cliff${i}`] = { geo: src.geo, mat: src.mat, lit: wallLitColor, cast: true }; });
       clusterSrcs.forEach((src, i) => { kindSpec[`cluster${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
+      accentSrcs.forEach((src, i) => { kindSpec[`accent${i}`] = { geo: src.geo, mat: src.mat, lit: new THREE.Color(tintJitter, tintJitter, tintJitter), cast: true }; });
     }
 
     this.fogTargets = [];
+    this.canopy = openAir ? new Map() : null;
+    this.canopyGridW = map.w;
     for (const bucket of buckets.values()) {
       for (const [kind, list] of bucket) {
         const spec = kindSpec[kind];
@@ -997,6 +1083,17 @@ export class Renderer3D {
         mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
         this.floorGroup.add(mesh);
         this.fogTargets.push({ mesh, tiles: list.map((e) => e.tile), lit: spec.lit });
+        if (this.canopy && (kind.startsWith("cluster") || kind.startsWith("accent"))) {
+          // Register cluster pieces for camera courtesy (world pos from matrix).
+          for (let i = 0; i < list.length; i++) {
+            const e = list[i].m.elements;
+            const gx = Math.floor(e[12]), gz = Math.floor(e[14]);
+            const key = gz * map.w + gx;
+            let cell = this.canopy.get(key);
+            if (!cell) { cell = []; this.canopy.set(key, cell); }
+            cell.push({ mesh, index: i, base: list[i].m.clone(), x: e[12], z: e[14], f: 1, target: 1 });
+          }
+        }
       }
     }
     this.lastExploredVersion = -1; // force a fog re-tint on the new floor
@@ -1088,8 +1185,10 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number } = {}): boolean => {
-      if (this.propEntries.length > 150 || !clear(x, y)) return false;
+    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean } = {}): boolean => {
+      // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
+      // one case where a prop belongs on a non-Floor tile (looks = collision).
+      if (this.propEntries.length > 150 || (!opts.onWall && !clear(x, y))) return false;
       const obj = this.modelInstance(key);
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
@@ -1120,12 +1219,17 @@ export class Renderer3D {
         if (steps++ % 4 !== 0) return;
         const i = Math.floor(y) * map.w + Math.floor(x);
         if (map.tiles[i] !== Tile.Floor) return;
-        const nearWall = [i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.Wall);
-        if (!nearWall || !clear(x, y)) return;
+        // Which neighbor is the wall? The torch HUGS that face instead of
+        // standing mid-lane (a walk-through torch in the walking lane was
+        // part of the "props lie about the path" complaint).
+        const wallDir = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+          .find(([dx, dy]) => map.tiles[i + dy * map.w + dx] === Tile.Wall);
+        if (!wallDir || !clear(x, y)) return;
         // Open-air districts light their paths with standing lanterns, not
         // wall torches — there is no masonry to mount a torch on.
         const torchKey = openAir ? "lantern_standing" : "torch_lit";
-        if (place(torchKey, x, y, { scale: openAir ? 0.7 : 0.55, jitter: 0.05 })) torchAnchors.push({ x, y });
+        const tx = x + wallDir[0] * 0.33, ty = y + wallDir[1] * 0.33;
+        if (place(torchKey, tx, ty, { scale: openAir ? 0.7 : 0.55, jitter: 0.05 })) torchAnchors.push({ x: tx, y: ty });
       };
       for (let x = r.x; x < r.x + r.w; x++) { tryTorch(x + 0.5, r.y + 0.5); tryTorch(x + 0.5, r.y + r.h - 0.5); }
       for (let y = r.y + 1; y < r.y + r.h - 1; y++) { tryTorch(r.x + 0.5, y + 0.5); tryTorch(r.x + r.w - 0.5, y + 0.5); }
@@ -1171,23 +1275,24 @@ export class Renderer3D {
       }
     }
 
-    // 4) LANDMARK hall: a colonnade + centered set-piece, both band-flavored
-    //    (library table in the Undercroft, crypt among dead trees in the Garden,
-    //    war monument on the Approach — see FLOOR_THEMES.landmark).
-    const landmarkIdx = map.roles.indexOf("landmark");
-    if (landmarkIdx >= 0) {
-      const r = map.rooms[landmarkIdx];
+    // 4) LANDMARK hall: colonnade + centerpiece on the SIM's set-piece tiles
+    //    (map.pillars / map.pedestal — real Wall tiles the player cannot walk
+    //    through; the mapgen owns the layout so looks and collision agree).
+    //    Band-flavored models: bookcases in the Undercroft library, columns in
+    //    the cistern, dead trees at the Garden crypt (FLOOR_THEMES.landmark).
+    //    Centerpiece note: table_small_decorated_A stays out — its model has
+    //    candles baked in, and candles are banned from the floors.
+    {
       const lm = theme.landmark;
-      for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
-        for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
-          // Colonnade along the room edges of the interior grid, not the middle.
-          if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
-          place(lm.pillarKey, px + 0.5, py + 0.5, { scale: lm.pillarScale, rot: 0, jitter: 0 });
-        }
+      for (const ti of map.pillars ?? []) {
+        const px = (ti % map.w) + 0.5, py = Math.floor(ti / map.w) + 0.5;
+        // Fill the tile: the visual footprint should MATCH the blocked tile.
+        place(lm.pillarKey, px, py, { scale: Math.max(0.9, lm.pillarScale), rot: 0, jitter: 0, onWall: true });
       }
-      // Centerpiece note: table_small_decorated_A stays out — its model has
-      // candles baked in, and candles are banned from the floors.
-      place(lm.centerpieceKey, r.x + r.w / 2, r.y + r.h / 2, { scale: lm.centerpieceScale, rot: 0, jitter: 0 });
+      if ((map.pedestal ?? -1) >= 0) {
+        const px = (map.pedestal % map.w) + 0.5, py = Math.floor(map.pedestal / map.w) + 0.5;
+        place(lm.centerpieceKey, px, py, { scale: Math.max(0.95, lm.centerpieceScale), rot: 0, jitter: 0, onWall: true });
+      }
     }
 
     // 5) VAULT: the hoard around the guardian's treasure. One vault in four
@@ -1315,20 +1420,110 @@ export class Renderer3D {
     }
   }
 
-  private updateAbilityFx(state: GameState, dt: number): void {
+  /** Which real mesh a projectile flies as, or null for the glow orb: the
+   * skeleton archer's shot is a bone arrow, a ballistic crawler's bolt is a
+   * fletched arrow. Magic (and anything unmodeled) stays a glowing missile. */
+  private projectileModelKey(pr: GameState["projectiles"][number], state: GameState): string | null {
+    if (pr.from === "enemy") return pr.srcKind === "ranged" ? "skeleton_arrow" : null;
+    if (pr.school === "magic") return null;
+    const owner = state.players.find((p) => p.id === pr.ownerId);
+    return owner && weaponClassOf(owner.equipment.weapon) === "ballistic" ? "weapon_arrow_a" : null;
+  }
+
+  /** FX that live inside a monster's tell: the spitter's thorn arcs toward its
+   * committed splash point, the bomber hoists its bomb overhead. Both vanish
+   * the moment the windup resolves or is interrupted; damage never lives here. */
+  private updateWindupFx(state: GameState): void {
+    const seen = new Set<number>();
+    for (const m of state.monsters) {
+      const total = m.windupTotal ?? 0;
+      if (!m.windupKind || m.windup === undefined || total <= 0) continue;
+      const k = Math.min(1, Math.max(0, 1 - m.windup / total)); // 0 at commit -> 1 at resolve
+      if (m.windupKind === "spit" && m.spitTarget) {
+        const fx = this.windupFxFor(m.id, "plant_warrior_arrow", 0.8);
+        if (fx) {
+          seen.add(m.id);
+          const x = m.pos.x + (m.spitTarget.x - m.pos.x) * k;
+          const z = m.pos.y + (m.spitTarget.y - m.pos.y) * k;
+          fx.position.set(x, 0.9 + Math.sin(k * Math.PI) * 1.1, z);
+          fx.rotation.y = Math.atan2(m.spitTarget.x - m.pos.x, m.spitTarget.y - m.pos.y);
+          // The thorn's rest pose already lies nose-forward (+Z); just pitch
+          // it over the arc as it flies.
+          (fx.children[0] as THREE.Object3D).rotation.x = (k - 0.5) * 1.1;
+          fx.visible = true;
+        }
+      } else if (m.windupKind === "fuse") {
+        const fx = this.windupFxFor(m.id, "clown_bomb", 0.5);
+        if (fx) {
+          seen.add(m.id);
+          fx.position.set(m.pos.x, 1.9 + 0.1 * Math.sin(k * 24), m.pos.y);
+          fx.rotation.y = k * 9; // frantic little spin as the fuse runs down
+          fx.visible = true;
+        }
+      }
+    }
+    for (const [id, fx] of this.windupFx) {
+      if (!seen.has(id)) { this.scene.remove(fx); this.windupFx.delete(id); }
+    }
+  }
+
+  /** Get-or-build the windup FX group for a monster; null if the model pack
+   * is absent (the telegraph ring still tells the story on its own). */
+  private windupFxFor(monsterId: number, key: string, scale: number): THREE.Group | null {
+    let fx = this.windupFx.get(monsterId) ?? null;
+    if (!fx) {
+      const model = this.modelInstance(key);
+      if (!model) return null;
+      model.scale.setScalar(scale);
+      fx = new THREE.Group();
+      fx.add(model);
+      this.scene.add(fx);
+      this.windupFx.set(monsterId, fx);
+    }
+    return fx;
+  }
+
+  /** Orbit blade: a real knife (the Fantasy Weapons dagger) laid flat so the
+   * yaw set each frame noses it along its orbit; gem fallback if no model. */
+  private buildOrbitBlade(): THREE.Group {
+    const group = new THREE.Group();
+    const dagger = this.models["weapon_dagger_a"]?.scene.clone(true);
+    if (dagger) {
+      dagger.traverse((c) => {
+        const mesh = c as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        // Emissive tint on CLONED materials (the source scene keeps its own).
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0x2f7d99);
+        mat.emissiveIntensity = 0.7;
+        mesh.material = mat;
+      });
+      dagger.rotation.x = Math.PI / 2; // grip-up rest pose -> blade forward (+Z)
+      dagger.scale.setScalar(0.7);
+      group.add(dagger);
+    } else {
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.16, 0),
+        flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
+      );
+      gem.castShadow = true;
+      group.add(gem);
+    }
+    return group;
+  }
+
+  private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
     for (const p of state.players) {
-      // Orbit blades: reconcile each player's pool with their learned blade count.
-      const op = knows(p, "orbit") && p.alive ? orbitParams(p) : null;
+      // Orbit blades: only while SLOTTED (matches updateOrbit in the sim —
+      // a benched orbit spins no steel).
+      const op = slotted(p, "orbit") && p.alive ? orbitParams(p) : null;
       const want = op ? op.blades : 0;
       let blades = this.orbitBlades.get(p.id);
       if (!blades) { blades = []; this.orbitBlades.set(p.id, blades); }
       while (blades.length < want) {
-        const blade = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.16, 0),
-          flat(0x9fe8ff, { emissive: 0x2f7d99, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 }),
-        );
-        blade.castShadow = true;
+        const blade = this.buildOrbitBlade();
         this.scene.add(blade);
         blades.push(blade);
       }
@@ -1338,7 +1533,8 @@ export class Renderer3D {
           // Shared with the sim's hit test (incl. Corkscrew spiral radii).
           const bp = orbitBladePos(p, i);
           blades[i].position.set(bp.x, 0.75, bp.y);
-          blades[i].rotation.y += dt * 10;
+          // Nose along the direction of travel (tangent to the ring).
+          blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
         }
       }
       // Nova ring: expands over the flash window, fading out.
@@ -1434,6 +1630,37 @@ export class Renderer3D {
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
       }
+    }
+
+    // STUNT DOUBLES: a ghost-faded copy of the owner's body, idling in place.
+    // (The sim moves nothing here — the contract is a statue that soaks.)
+    const dSeen = new Set<number>();
+    for (const dc of state.decoys ?? []) {
+      dSeen.add(dc.id);
+      let mesh = this.decoyMeshes.get(dc.id);
+      if (!mesh) {
+        mesh = this.buildPlayerMesh(heroSkin(state.seed, dc.ownerId));
+        mesh.traverse((o) => {
+          const mm = o as THREE.Mesh;
+          if (!mm.isMesh || !mm.material) return;
+          const mats = (Array.isArray(mm.material) ? mm.material : [mm.material]).map((mat) => {
+            const g = mat.clone();
+            g.transparent = true;
+            g.opacity = 0.55;
+            return g;
+          });
+          mm.material = Array.isArray(mm.material) ? mats : mats[0];
+        });
+        (mesh.userData.play as ((n: string) => void) | undefined)?.("idle");
+        this.scene.add(mesh);
+        this.decoyMeshes.set(dc.id, mesh);
+      }
+      mesh.position.set(dc.pos.x, 0, dc.pos.y);
+      mesh.rotation.set(0, Math.atan2(dc.facing.x, dc.facing.y), 0);
+      (mesh.userData.animTick as ((d: number) => void) | undefined)?.(dt);
+    }
+    for (const [id, mesh] of this.decoyMeshes) {
+      if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
     }
 
     // Fog of war: entities render inside ANY living player's vision (shared show).
@@ -1576,6 +1803,32 @@ export class Renderer3D {
         marker.rotation.y = time * 2.2;
         marker.visible = mesh.visible;
       }
+      // Status ring (5.11): a faint pulsing halo colored by the dominant
+      // effect (burn > poison > chill) — one cheap mesh, sim decides, we tint.
+      const st = mon.statuses;
+      let ring = this.statusRings.get(mon.id);
+      if (st && st.length > 0 && mon.hp > 0) {
+        if (!ring) {
+          ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.78, 1, 24),
+            new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          ring.rotation.x = -Math.PI / 2;
+          this.scene.add(ring);
+          this.statusRings.set(mon.id, ring);
+        }
+        const kind = st.find((e) => e.kind === "burn") ? "burn"
+          : st.find((e) => e.kind === "poison") ? "poison" : "chill";
+        const mat = ring.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(kind === "burn" ? 0xff7a2f : kind === "poison" ? 0x7ed957 : 0x7fd4ff);
+        mat.opacity = 0.22 + 0.1 * Math.sin(time * 6 + mon.id);
+        ring.position.set(mon.pos.x, 0.04, mon.pos.y);
+        ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : 1));
+        ring.visible = mesh.visible;
+      } else if (ring) {
+        this.scene.remove(ring);
+        this.statusRings.delete(mon.id);
+      }
     }
     for (const [id, mesh] of this.monsters) {
       if (!seen.has(id)) {
@@ -1584,6 +1837,8 @@ export class Renderer3D {
         if (marker) { this.scene.remove(marker); this.keyMarkers.delete(id); }
         const tel = this.telegraphs.get(id);
         if (tel) { this.scene.remove(tel); this.telegraphs.delete(id); }
+        const ring = this.statusRings.get(id);
+        if (ring) { this.scene.remove(ring); this.statusRings.delete(id); }
         if (rebuilt) {
           // Floor change: the whole population turned over — no corpses.
           this.scene.remove(mesh);
@@ -1614,17 +1869,48 @@ export class Renderer3D {
     this.prevStatus = state.status;
 
     // Ground hazards, reconciled by id: volatile blasts are rings that brighten
-    // toward detonation; spitter puddles are filled acid pools that fade out.
+    // toward detonation; spitter puddles are filled acid pools that fade out;
+    // boss sludge/roots zones are filled pools that GHOST through their arming
+    // telegraph, then snap solid when they go live.
     const hazSeen = new Set<number>();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
-      const puddle = hz.kind === "puddle";
+      // BEAM (line) hazards: a thin plane stretched pos->end. Ghostly while
+      // arming, blinding for the firing flash. Reuses the hazardRings pool.
+      if (hz.kind === "beam" && hz.end) {
+        let strip = this.hazardRings.get(hz.id);
+        if (!strip) {
+          strip = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({
+              color: 0xff5a3c, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+            }),
+          );
+          strip.rotation.x = -Math.PI / 2;
+          this.scene.add(strip);
+          this.hazardRings.set(hz.id, strip);
+        }
+        const mx = (hz.pos.x + hz.end.x) / 2, my = (hz.pos.y + hz.end.y) / 2;
+        const len = Math.hypot(hz.end.x - hz.pos.x, hz.end.y - hz.pos.y);
+        strip.position.set(mx, 0.07, my);
+        strip.scale.set(Math.max(len, 1e-3), hz.radius * 2, 1);
+        strip.rotation.z = -Math.atan2(hz.end.y - hz.pos.y, hz.end.x - hz.pos.x);
+        (strip.material as THREE.MeshBasicMaterial).opacity = hz.fired
+          ? 0.9 * (hz.t / Math.max(hz.total, 1e-3) + 0.4) // firing flash, fading out
+          : 0.12 + 0.3 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)); // telegraph brightens
+        strip.visible = inVision({ x: mx, y: my });
+        continue;
+      }
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
-          puddle ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
+          pool ? new THREE.CircleGeometry(1, 28) : new THREE.RingGeometry(0.8, 1, 28),
           new THREE.MeshBasicMaterial({
-            color: puddle ? 0x7fb832 : 0xff4628,
+            color:
+              hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
+              hz.kind === "roots" ? 0x2e8b57 : // grasping green
+              pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),
         );
@@ -1634,13 +1920,107 @@ export class Renderer3D {
       }
       ring.position.set(hz.pos.x, 0.06, hz.pos.y);
       ring.scale.setScalar(hz.radius);
-      (ring.material as THREE.MeshBasicMaterial).opacity = puddle
-        ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
-        : 0.3 + 0.6 * (1 - hz.t / Math.max(hz.total, 1e-3));
+      const arming = pool && (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
+      const urgency = 1 - hz.t / Math.max(hz.total, 1e-3);
+      (ring.material as THREE.MeshBasicMaterial).opacity = arming
+        ? 0.1 + 0.2 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)) // telegraph fades in
+        : pool
+          ? 0.28 + 0.22 * Math.min(1, hz.t / Math.max(hz.total, 1e-3)) // fades as it dries
+          : 0.3 + 0.6 * urgency;
       ring.visible = inVision(hz.pos);
+      // Blast hazards get a ticking bomb at the epicenter (clown ordnance —
+      // the System loves its clowns); the ring alone stays the fallback.
+      if (!pool) {
+        let bomb = this.hazardBombs.get(hz.id);
+        if (!bomb) {
+          const model = this.modelInstance("clown_bomb");
+          if (model) {
+            bomb = new THREE.Group();
+            model.scale.setScalar(0.55);
+            bomb.add(model);
+            this.scene.add(bomb);
+            this.hazardBombs.set(hz.id, bomb);
+          }
+        }
+        if (bomb) {
+          // Ticking wobble that accelerates toward the boom.
+          bomb.position.set(hz.pos.x, 0, hz.pos.y);
+          bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          bomb.visible = ring.visible;
+        }
+      }
     }
     for (const [id, ring] of this.hazardRings) {
       if (!hazSeen.has(id)) { this.scene.remove(ring); this.hazardRings.delete(id); }
+    }
+    for (const [id, bomb] of this.hazardBombs) {
+      if (!hazSeen.has(id)) { this.scene.remove(bomb); this.hazardBombs.delete(id); }
+    }
+
+    // Windup-bound FX: the spitter's lobbed thorn and the bomber's held bomb
+    // exist only while the tell runs — pure presentation over sim windup state.
+    this.updateWindupFx(state);
+
+    // Party pings: an expanding gold pulse on the marked spot. The pulse cycle
+    // derives from the ping's remaining life (sim time), so replays match.
+    // Pings pierce the fog on purpose — "over THERE" must work unseen.
+    const pingSeen = new Set<number>();
+    for (const pg of state.pings) {
+      pingSeen.add(pg.id);
+      let ring = this.pingRings.get(pg.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.72, 1, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd23e, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.pingRings.set(pg.id, ring);
+      }
+      const cycle = 1 - ((pg.t * 1.6) % 1); // 0 -> 1 expanding pulse
+      ring.position.set(pg.pos.x, 0.07, pg.pos.y);
+      ring.scale.setScalar(0.35 + cycle * 0.85);
+      (ring.material as THREE.MeshBasicMaterial).opacity =
+        (0.85 - cycle * 0.55) * Math.min(1, pg.t / 1.2); // and fades as it dies
+    }
+    for (const [id, ring] of this.pingRings) {
+      if (!pingSeen.has(id)) { this.scene.remove(ring); this.pingRings.delete(id); }
+    }
+
+    // Click-to-move destination: a quiet steel-blue chip, host-local (not sim
+    // state, unlike pings — nobody else sees where you told yourself to walk).
+    if (this.moveMarker?.visible) {
+      const mm = this.moveMarker.material as THREE.MeshBasicMaterial;
+      mm.opacity = 0.4 + 0.15 * Math.sin(performance.now() / 180);
+    }
+
+    // Revive channel: a green ring tightening around a downed crawler as a
+    // teammate stabilizes them (radius shows the stand-here zone).
+    const revSeen = new Set<number>();
+    for (const pl of state.players) {
+      if (pl.alive || pl.reviveProgress <= 0) continue;
+      revSeen.add(pl.id);
+      let ring = this.reviveRings.get(pl.id);
+      if (!ring) {
+        ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.78, 0.95, 28),
+          new THREE.MeshBasicMaterial({
+            color: 0x5fd08a, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+          }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        this.scene.add(ring);
+        this.reviveRings.set(pl.id, ring);
+      }
+      ring.position.set(pl.pos.x, 0.07, pl.pos.y);
+      ring.scale.setScalar(CONFIG.reviveRadius * (1.05 - pl.reviveProgress * 0.55));
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.55 * pl.reviveProgress;
+      ring.visible = inVision(pl.pos);
+    }
+    for (const [id, ring] of this.reviveRings) {
+      if (!revSeen.has(id)) { this.scene.remove(ring); this.reviveRings.delete(id); }
     }
 
     // Projectiles: reconcile a mesh pool by id.
@@ -1653,21 +2033,37 @@ export class Renderer3D {
         const color = pr.from !== "player" ? THEME.projectileEnemy
           : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
-        const core = new THREE.Mesh(
-          new THREE.SphereGeometry(0.11, 8, 8),
-          flat(color, { emissive: color, emissiveIntensity: 1.4 }),
-        );
-        group.add(core, this.makeGlow(color, 0.85));
+        // Ammo with a real mesh flies as that mesh (arrows nose along their
+        // velocity); magic and everything unmodeled stays the classic glow orb.
+        const key = this.projectileModelKey(pr, state);
+        const model = key ? this.modelInstance(key) : null;
+        if (model) {
+          // Normalize each mesh's rest pose to nose-forward (+Z): the skeleton
+          // arrow is modeled along Y tip-down; the fletched arrows already lie
+          // along +Z. (Measured from the glTF vertex data — don't guess.)
+          if (key === "skeleton_arrow") model.rotation.x = -Math.PI / 2;
+          model.scale.setScalar(0.9);
+          group.add(model); // no glow billboard — the mesh IS the projectile
+          group.userData.aim = true;
+        } else {
+          const core = new THREE.Mesh(
+            new THREE.SphereGeometry(0.11, 8, 8),
+            flat(color, { emissive: color, emissiveIntensity: 1.4 }),
+          );
+          group.add(core, this.makeGlow(color, 0.85));
+        }
         group.userData.color = color;
         group.userData.lastTrail = 0;
         mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
       }
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
+      if (mesh.userData.aim) mesh.rotation.y = Math.atan2(pr.vel.x, pr.vel.y);
       mesh.visible = inVision(pr.pos);
-      // Comet trail: a fading glow puff every few ms of flight.
+      // Comet trail: a fading glow puff every few ms of flight (orbs only —
+      // arrows read as arrows, not comets).
       mesh.userData.lastTrail += dt;
-      if (mesh.visible && mesh.userData.lastTrail > 0.035) {
+      if (mesh.visible && !mesh.userData.aim && mesh.userData.lastTrail > 0.035) {
         mesh.userData.lastTrail = 0;
         this.spawnGlow(mesh.position.x, mesh.position.y, mesh.position.z, mesh.userData.color, 0.5, 0.22, -0.8);
       }
@@ -1714,7 +2110,7 @@ export class Renderer3D {
 
     this.updateParticles(dt);
     this.updateDying(dt);
-    this.updateAbilityFx(state, dt);
+    this.updateAbilityFx(state);
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
@@ -1738,6 +2134,66 @@ export class Renderer3D {
 
     // Band atmosphere rides in a wrap-around box centered on the player.
     this.ambientFx.update(ax, az, dt, time);
+
+    // Camera courtesy: shrink foliage that hides the action (open-air only).
+    this.updateCanopy(state, ax, az, dt);
+  }
+
+  /**
+   * Open-air occlusion courtesy: the camera looks along (+1,+1) on the ground
+   * plane, so a tall cluster piece hides an entity when it sits a short way
+   * down that diagonal from them. Such pieces shrink toward their root until
+   * the shot is clear, then grow back — the System's cameras get their shot.
+   */
+  private updateCanopy(state: GameState, ax: number, az: number, dt: number): void {
+    if (!this.canopy) return;
+    const SQ2 = Math.SQRT1_2;
+    const wantHidden = (px: number, pz: number, ex: number, ez: number): boolean => {
+      const vx = px - ex, vz = pz - ez;
+      const u = (vx + vz) * SQ2; // along the camera diagonal
+      const w = (vx - vz) * SQ2; // across it
+      return u > -0.7 && u < 2.6 && Math.abs(w) < 1.15;
+    };
+    // Entities that deserve a clear shot: living players + monsters near the
+    // local player (the ones actually in frame and in the fight).
+    const ents: { x: number; y: number }[] = [];
+    for (const p of state.players) if (p.alive) ents.push(p.pos);
+    for (const mo of state.monsters) {
+      if (Math.abs(mo.pos.x - ax) < 14 && Math.abs(mo.pos.y - az) < 10) ents.push(mo.pos);
+    }
+    // Mark targets around each entity (candidate cells: the diagonal cone).
+    const marked = new Set<CanopyEntry>();
+    for (const e of ents) {
+      const bx = Math.floor(e.x), bz = Math.floor(e.y);
+      for (let dzz = -2; dzz <= 3; dzz++) {
+        for (let dxx = -2; dxx <= 3; dxx++) {
+          const cell = this.canopy.get((bz + dzz) * this.canopyGridW + (bx + dxx));
+          if (!cell) continue;
+          for (const c of cell) {
+            if (wantHidden(c.x, c.z, e.x, e.y)) marked.add(c);
+          }
+        }
+      }
+    }
+    // Ease every registered piece toward its target; write matrices on change.
+    const k = Math.min(1, dt * 9);
+    const dirty = new Set<THREE.InstancedMesh>();
+    const scratchM = new THREE.Matrix4();
+    const scratchV = new THREE.Vector3();
+    for (const cell of this.canopy.values()) {
+      for (const c of cell) {
+        c.target = marked.has(c) ? 0.12 : 1;
+        if (Math.abs(c.f - c.target) < 0.01) {
+          if (c.f === c.target) continue;
+          c.f = c.target;
+        } else {
+          c.f += (c.target - c.f) * k;
+        }
+        dirty.add(c.mesh);
+        c.mesh.setMatrixAt(c.index, scratchM.copy(c.base).scale(scratchV.set(c.f, c.f, c.f)));
+      }
+    }
+    for (const mesh of dirty) mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */

@@ -7,6 +7,8 @@ import { CATALOG_BY_ID } from "./sim/catalog";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
+import { createClickMove, stepClickMove } from "./input/clickMove";
+import { loadMouseMove } from "./input/bindings";
 import { render, updateCamera, type Camera } from "./render/renderer";
 import { clearRun, loadRun, saveRun } from "./persist/save";
 
@@ -86,6 +88,10 @@ const cam: Camera = { x: state.players[0].pos.x, y: state.players[0].pos.y };
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 const input = new InputController(canvas);
+// Diablo-style mouse movement shares the 3D host's preference (K panel there).
+const mouseClickMove = loadMouseMove();
+input.mouseMoveMode = mouseClickMove;
+const clickMove = createClickMove();
 input.onReset = () => {
   state = startFresh();
   log.length = 0;
@@ -157,6 +163,24 @@ function frame(now: number): void {
   // Fixed-timestep sim updates; render interpolation is not needed at 60 Hz here.
   while (acc >= SIM_DT) {
     const intent = input.sample(playerScreen);
+    // Click-to-move (opt-in, toggled in the 3D host's K panel): map the cursor
+    // through the camera to world tiles, then steer like the 3D host does.
+    if (mouseClickMove && input.mouse) {
+      const g = {
+        x: cam.x + (input.mouse.x - viewW / 2) / CONFIG.tile,
+        y: cam.y + (input.mouse.y - viewH / 2) / CONFIG.tile,
+      };
+      const p = state.players[0];
+      const hover = state.monsters.some(
+        (m) => m.hp > 0 && (m.pos.x - g.x) ** 2 + (m.pos.y - g.y) ** 2 <= 0.55 * 0.55,
+      );
+      const out = stepClickMove(clickMove, {
+        playerPos: p.pos, cursorWorld: g, lmbHeld: input.lmbHeld, hoverMonster: hover,
+        keyboardMove: intent.move.x !== 0 || intent.move.y !== 0, dt: SIM_DT,
+      });
+      if (out.move) intent.move = out.move;
+      if (out.attack && intent.cast) intent.cast[0] = true;
+    }
     step(state, intent, SIM_DT);
     for (const e of state.events) log.push(e);
     acc -= SIM_DT;

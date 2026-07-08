@@ -26,12 +26,13 @@ export class NetClient {
   private snapAt = 0;
   private snapInterval = 67; // ms between snapshots; refined from arrivals
 
-  /** Connect, join a party, resolve on the welcome snapshot. */
-  connect(url: string, code: string, name: string): Promise<GameState> {
+  /** Connect, join a party, resolve on the welcome snapshot.
+   * `rivals` opts the instance into the competitive race (first joiner decides). */
+  connect(url: string, code: string, name: string, rivals = false): Promise<GameState> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
-      ws.onopen = () => ws.send(JSON.stringify({ t: "join", code, name }));
+      ws.onopen = () => ws.send(JSON.stringify({ t: "join", code, name, rivals: rivals || undefined }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
         this.connected = false;

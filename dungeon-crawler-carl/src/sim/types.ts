@@ -32,6 +32,11 @@ export interface Player {
   // scales to any number of abilities without new fields.
   cd: Partial<Record<AbilityId, number>>;
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
+  rootT: number; // seconds of root snare remaining (heavy slow; boss roots zones)
+  // Knockback (MOB-CONCEPTS.md verb): remaining shove distance along a fixed
+  // direction, consumed at knockbackSpeed through moveWithCollision (walls
+  // stop it). Set via applyPlayerKnockback; big slams shove.
+  knock?: { dir: Vec2; left: number };
   // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
   // (only ticking while below max), so dashes can be woven into offense.
   dashCharges: number;
@@ -51,8 +56,20 @@ export interface Player {
   stanceTime: number; // seconds since the last swap (drives Discipline's "settled")
   stanceSwapWindow: number; // seconds left of Flow's post-swap surge
   stanceCritReady: boolean; // MOMENTUM capstone: next matching attack crits
+  // Swift Strikes momentum: consecutive connecting swings stack a damage bonus
+  // (stacks capped by rank; the timer resets on every hit, stacks drop on expiry).
+  meleeCombo: number;
+  meleeComboT: number; // seconds left before the combo drops
+  // REPEAT OFFENDER (Blindside capstone): the marked target + the reset window left.
+  cutMark?: { monsterId: number; t: number } | null;
   overcharged: boolean; // Overcharge banked: the next attack spends it
   plotArmorUsed: boolean; // Plot Armor's once-per-floor cheat death spent (resets each floor)
+  reviveProgress: number; // 0..1: teammates standing close stabilize a downed crawler
+  // RIVALS mode (all no-ops in co-op):
+  floorNo: number; // which floor world this crawler is on (mirrors state.floor in co-op)
+  safeRoom?: SafeRoom | null; // PERSONAL shop between floors — the race keeps running
+  downedT?: number; // seconds until auto-revive after going down
+  reviveGraceT?: number; // brief post-revive immunity (no spawn-camping the timer)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
   abilities: {
@@ -102,6 +119,10 @@ export interface Player {
   damageDealt: number;
   damageTaken: number;
 
+  // Active status effects on this crawler (poison from acid, chill auras).
+  // Optional for old-save/snapshot compat; reset every floor.
+  statuses?: StatusEffect[];
+
   // The Show, PER CRAWLER: everyone runs their own broadcast. Your crits and
   // kills grow YOUR audience; your near-death moments are your ratings gold.
   hype: number; // excitement meter (decays)
@@ -116,13 +137,41 @@ export type EliteAffix =
   // School resists (DESIGN 5.8 phase 3): the party's damage MIX starts
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
-  | "warded"; // takes reduced MAGIC damage
+  | "warded" // takes reduced MAGIC damage
+  | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
+
+// ---- Status effects (burn / poison / chill) ----
+// Deterministic, dt-ticked entries living on the afflicted entity (monster or
+// player). Apply/stack/tick rules live in status.ts; DoT damage flows back
+// through the damageMonster/damagePlayerHit choke points in game.ts so
+// schools, resists, armor, and hit events compose for free.
+export type StatusKind = "burn" | "poison" | "chill";
+
+export interface StatusEffect {
+  kind: StatusKind;
+  remaining: number; // seconds until the effect fades
+  // burn/poison: damage per tick PER STACK; chill: fraction of speed removed
+  // (move + attack/windup — a chilled entity experiences slowed time).
+  magnitude: number;
+  stacks: number; // poison stacks up to poisonMaxStacks (each adds); others stay 1
+  tick: number; // DoT only: seconds until the next damage tick
+  school: School; // DoT school (burn = magic, poison = physical) — resists apply
+  sourceId?: number; // player id credited with monster-side DoT kills
+}
+
+// Band-end boss signature mechanics: ONE themed ability per arena, layered on
+// the shared boss kit (set at spawn from the floor's band — see spawnMonsters).
+export type BossSignature = "graverising" | "flood" | "roots" | "debris" | "flamewall";
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
   | "bomber" | "shaman" | "phantom"
-  | "charger" | "spitter" | "necromancer";
+  | "charger" | "spitter" | "necromancer"
+  | "broodmother"
+  // SEWERS specialists (MOB-CONCEPTS.md): the Drum Sergeant frenzies its pack
+  // (kill-order lesson); the Repo Rat is a fleeing loot-goblin (chase lesson).
+  | "drummer" | "filcher";
 
 export interface Monster {
   id: number;
@@ -176,6 +225,10 @@ export interface Monster {
   bossTier?: 1 | 2 | 3;
   slamCd?: number; // boss only: seconds until Ground Slam can commit again
   ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
+  // Band-end boss signature mechanic (one per arena, themed to the band).
+  signature?: BossSignature;
+  sigCd?: number; // seconds until the signature can fire again
+  sigUsed?: boolean; // the first-cast announcer line already played
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -183,9 +236,32 @@ export interface Monster {
   // near, then springs — the whole cluster wakes together with a speed surge.
   dormant?: boolean; // waiting in ambush: no move, no attack, until sprung
   surgeT?: number; // seconds of ambush speed-surge remaining (the pounce)
+  // Active status effects (optional so old snapshots/tests stay valid).
+  statuses?: StatusEffect[];
+  // Roaming (see wander in ai.ts): off-duty patrol around a leashed post.
+  // VARIETY is the point: lone wanderers always roam, some packs patrol
+  // together, the rest are sentries that hold their post (and ambushers lie
+  // perfectly still). Rolled at spawn.
+  roams?: boolean; // this monster patrols when off-duty (absent = sentry)
+  home?: Vec2; // patrol post (set the first time the monster goes off-duty)
+  wanderDir?: Vec2; // current stroll heading (undefined = standing a beat)
+  wanderT?: number; // seconds left on the current wander leg
+  // Generalized monster auras (MOB-CONCEPTS.md verb): a carrier buffs every
+  // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
+  // (allies move + attack faster while the beat holds). Chilling remains its
+  // own elite affix — auras here are ally-facing.
+  aura?: "frenzy";
+  frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
+  // drops the rest on death, and leaves with ALL of it if the rat escapes.
+  carry?: number;
+  bleedStage?: number; // HP quarters already bled (3 -> 2 -> 1)
+  fleeT?: number; // seconds spent safely away from every crawler (escape timer)
+  escaped?: boolean; // reap as an escape, not a kill (no XP, no corpse, no loot)
+  noticed?: boolean; // the "a rat!" event already fired
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
 // on legendary signature gear (see catalog.ts).
@@ -217,19 +293,22 @@ export interface Affixes {
 export type PassiveId =
   | "showrunner" // kills feed the broadcast: bonus hype per kill
   | "blastplate" // your dash detonates at the launch point
-  | "ledger" // every kill credit pays bonus gold
+  | "ledger" // kills pay bonus gold + banked gold earns interest each safe room
   | "overtime" // ultimate cooldowns reduced
   | "tempo" // active-ability cooldowns reduced (legendary caster staff)
   // CHASE passives (store-only legendaries): each one warps a specific build
   // around itself — the reason you planned three shops ahead.
   | "encore" // +1 orbit blade; blades tick faster
   | "skewer" // bolts pierce +2
-  | "choreography" // swapping Battle Stance resets swing + bolt cooldowns
+  | "choreography" // swapping Battle Stance grants bonus crit for the surge window
   | "plot_armor" // once per floor, a killing blow leaves you at 1 HP
   // Novel mechanics that ONLY exist on these items — no tree, no drop:
   | "leech" // lifesteal: heal a fraction of the damage you deal
   | "cancellation" // executes: non-elite monsters below a threshold just die
-  | "conduit"; // crits arc a fraction of the hit to a nearby enemy (magic)
+  | "conduit" // crits arc a fraction of the hit to a nearby enemy (magic)
+  | "phase" // your dash passes through walls when it can reach the far side
+  | "pathfinder" // the stairs are marked on your minimap, explored or not
+  | "venom"; // crits inject a poison stack (the only lootless poison source)
 
 export interface Item {
   id: number;
@@ -277,7 +356,12 @@ export interface SafeRoom {
 export type RewardKind =
   | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
   | "materials" // crafting material toward signature (legendary) gear
-  | "favor"; // an owed ability-upgrade draft (advances the constellation build)
+  | "favor" // an owed ability-upgrade draft (advances the constellation build)
+  | "retrain" // unlearn one fork-side node; its ranks return as fresh drafts
+  // System Shrine bargains (floor events — never in the sponsor pool):
+  | "shrineBlood" // pay a slice of max HP now for permanent crit
+  | "shrineGreed" // this floor's monsters speed up; its gold drops double
+  | "shrineDecline"; // walk away (the System notes the cowardice)
 
 export interface Reward {
   id: number;
@@ -287,6 +371,7 @@ export interface Reward {
   amount: number;
   item?: Item; // present when kind === "item"
   material?: MaterialId; // present when kind === "materials"
+  nodeId?: string; // present when kind === "retrain": the node being refunded
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -304,6 +389,8 @@ export interface Projectile {
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
+  chill?: number; // FROST BOLTS node: slow fraction applied on impact
+  srcKind?: string; // firing monster's archetype (hosts pick the projectile mesh)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
@@ -335,15 +422,56 @@ export interface FloorMap {
   cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
+  // Landmark set pieces carved into the GRID (tile indices; the tiles are
+  // Wall): pillars/pedestal used to be walk-through renderer dressing —
+  // "solid" props players clipped through. Now the sim blocks them and
+  // renderers draw pillar/centerpiece models ON these tiles, so what the
+  // floor SHOWS and what it BLOCKS agree.
+  pillars: number[];
+  pedestal: number; // centerpiece tile (-1 = none); OFF-center so the room center stays walkable
 }
 
 export type RunStatus = "playing" | "dead" | "won";
 
-// A scheduled ultimate impact (Sponsor Airstrike shells in flight).
+// Seeded per-floor event (floors 2+, never on boss floors): at most ONE per
+// floor, rolled at build time. Pure sim data — hosts only render/announce.
+export type FloorEvent =
+  // A shrine prop (carried in `loot` as kind "shrine"): touching it opens a
+  // pick-1 bargain via the same pendingRewards plumbing as sponsor drafts.
+  | { type: "shrine" }
+  // The vault room is sealed at build; proximity springs it open for
+  // `openT` seconds of sprint-for-loot, then it seals forever. `doors` are
+  // the tile indices this event owns (the floor KEY never opens them).
+  | { type: "vault"; roomIdx: number; doors: number[]; phase: "sealed" | "open" | "resealed"; openT: number }
+  // A room-scoped dare: clear the tracked pack without ANY crawler taking a
+  // hit. Activates when someone enters the room; pays gold + hype on success.
+  | { type: "challenge"; roomIdx: number; phase: "offered" | "active" | "failed" | "cleared"; ids: number[]; gold: number; dmg0?: number };
+
+// A scheduled ultimate impact: Sponsor Airstrike shells in flight, or
+// Cataclysm's Aftermath echo. Absent fields fall back to airstrike-shell
+// defaults in updateStrikes (echoes pre-compute their blast at schedule time).
 export interface Strike {
   pos: Vec2;
   t: number; // seconds until impact
   ownerId: number; // caster (kill credit)
+  kind?: "shell" | "echo";
+  radius?: number;
+  dmg?: number;
+  knockback?: number;
+  school?: School;
+}
+
+// STUNT DOUBLE: a taunting copy of a crawler. Monsters in taunt range hunt it
+// instead of players, their hits are ABSORBED (banked, never lethal — it's a
+// professional), and the contract's end is an explosion proportional to what
+// it soaked. The game's first friendly entity.
+export interface Decoy {
+  id: number;
+  ownerId: number;
+  pos: Vec2;
+  facing: Vec2; // mirrored swings + rendering read this
+  t: number; // seconds left on the contract
+  absorbed: number; // damage soaked so far (feeds the farewell blast)
 }
 
 // A ringside introduction: set when the party first closes with a boss/elite.
@@ -359,20 +487,41 @@ export interface Encounter {
   total: number; // full intro length (render progress)
 }
 
-// Enemy-side ground danger. Two shapes share the struct:
+// Enemy-side ground danger. Four shapes share the struct:
 // - "blast" (default): a delayed one-shot — t counts down to detonation,
 //   damage lands once on players still in radius (volatile elite corpses).
 // - "puddle": a lingering zone (spitter lobs) — active for its whole life,
 //   dealing `damage` to players inside every tick until t runs out.
+// - "sludge": an ARMED pool (boss Flood Surge) — inert for the first `arm`
+//   seconds (the telegraph), then ticks like a puddle until t runs out.
+// - "roots": an armed zone (boss Entangling Roots) — after arming it SNARES
+//   (heavy slow) players inside instead of damaging them.
 export interface Hazard {
   id: number;
   pos: Vec2;
-  t: number; // blast: seconds until detonation; puddle: seconds of life left
+  t: number; // blast: seconds until detonation; zones: seconds of life left
   total: number; // full delay/duration (render progress)
   radius: number; // tiles
-  damage: number; // blast: the hit; puddle: damage per tick
-  kind?: "blast" | "puddle"; // absent = blast (older saves/snapshots)
-  tick?: number; // puddle: seconds until the next damage tick
+  damage: number; // blast: the hit; puddle/sludge: damage per tick
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam"; // absent = blast (older saves/snapshots)
+  tick?: number; // puddle/sludge: seconds until the next damage tick
+  arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
+  // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as
+  // the half-width. It telegraphs for `arm` seconds (thin tracking line),
+  // fires ONCE (piercing — the whole segment hits), then fades out.
+  end?: Vec2;
+  fired?: boolean;
+}
+
+// A party ping: a crawler marks a spot for the team ("loot here", "danger",
+// "this way"). Pure sim data with a TTL — hosts render the pulse on the world
+// and minimap; multiplayer gets it for free via snapshots.
+export interface Ping {
+  id: number;
+  pos: Vec2;
+  byId: number; // player who pinged (hosts color/label by party member)
+  t: number; // seconds of life left
+  total: number; // full lifetime (render progress)
 }
 
 // A fallen monster the necromancer can raise. Purely positional — the fresh
@@ -398,6 +547,7 @@ export interface HitEvent {
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
+  effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)
 }
 
 // Semantic source of an announcer line. Hosts use this to route presentation
@@ -419,7 +569,52 @@ export interface Announcement {
   priority: "high" | "normal";
 }
 
+/**
+ * RIVALS mode: everything that belongs to ONE floor, so several floors can
+ * run concurrently while rivals race at their own pace. The sim still executes
+ * through the classic GameState slots — stepRivals MOUNTS a world into them,
+ * runs the ordinary floor logic for that floor's residents, and captures the
+ * fields back. Co-op never allocates worlds; nothing changes for it.
+ */
+export interface FloorWorld {
+  floor: number;
+  rng: Rng;
+  map: FloorMap;
+  explored: Uint8Array;
+  exploredVersion: number;
+  mapVersion: number;
+  monsters: Monster[];
+  loot: Loot[];
+  projectiles: Projectile[];
+  strikes: Strike[];
+  bulletTimeLeft: number;
+  decoys: Decoy[]; // active Stunt Doubles (friendly entities)
+  hazards: Hazard[];
+  corpses: Corpse[];
+  pings: Ping[];
+  encounter: Encounter | null;
+  floorEvent: FloorEvent | null;
+  goldSurge: boolean;
+  timeBudget: number;
+  timeRemaining: number;
+  phase: TimerPhase;
+  collapseElapsed: number;
+}
+
 export interface GameState {
+  // "coop" is the classic run (default). "rivals" is the competitive race:
+  // up to 4 hostile crawlers, individual descent through concurrent floor
+  // worlds, 15s revives, rival kills pay XP, first FINAL-BOSS kill wins.
+  mode: "coop" | "rivals";
+  // Rivals only: the concurrent floor instances, keyed by floor number.
+  worlds?: Record<number, FloorWorld>;
+  winnerId?: number; // rivals: who secured the contract (status "won")
+  // Rivals only, CLIENT-side: standings meta from the personal snapshot
+  // (see serializeFor in snapshot.ts). The server never reads this.
+  rivals?: {
+    id: number; name: string; floor: number; level: number;
+    alive: boolean; downedT: number; shopping: boolean;
+  }[];
   rng: Rng;
   seed: number;
   floor: number; // 1-indexed current floor
@@ -460,14 +655,29 @@ export interface GameState {
   strikes: Strike[];
   bulletTimeLeft: number;
 
+  // Friendly entities: active Stunt Doubles (see Decoy).
+  decoys: Decoy[];
+
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
 
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];
 
+  // Active party pings (TTL-capped, few per player).
+  pings: Ping[];
+
   // Ringside introduction in progress (world frozen while non-null).
   encounter: Encounter | null;
+
+  // Seeded per-floor event (see FloorEvent). Reset every floor build.
+  floorEvent: FloorEvent | null;
+  // Shrine Greed Clause accepted on this floor: gold drops pay double.
+  goldSurge: boolean;
+
+  // Softlock self-healing: seconds until the next locked-door key audit
+  // (auditKeyReachability in game.ts). Optional for snapshot/save compat.
+  keyAuditT?: number;
 
   // Safe room between floors (null while crawling). The whole instance is "between
   // floors" while non-null: the sim idles until every player readies up.
@@ -495,6 +705,9 @@ export interface Intent {
   dash?: boolean;
   bolt?: boolean;
   nova?: boolean;
+  // Drop a party ping at this WORLD position (edge-triggered). Downed players
+  // may ping too — calling for help is content.
+  ping?: Vec2;
 }
 
 export const NO_INTENT: Intent = {

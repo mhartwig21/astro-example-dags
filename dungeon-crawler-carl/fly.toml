@@ -8,6 +8,15 @@ primary_region = "ord"  # pick the region closest to your party
 [build]
   dockerfile = "Dockerfile"
 
+# Persistent disk: the daily-crawl leaderboard lives here so a deploy no longer
+# wipes the boards (volume `dcc_data`, created in ord; Fly snapshots it daily).
+[mounts]
+  source = "dcc_data"
+  destination = "/data"
+
+[env]
+  LEADERBOARD_FILE = "/data/leaderboard.json"
+
 [http_service]
   internal_port = 8080
   force_https = true

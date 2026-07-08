@@ -208,14 +208,15 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
       farthestIdx = i;
     }
   }
-  // BOSS ARENAS (backlog #11): city-boss floors (6, 12) and the final floor
-  // trade the ordinary stairs room for a dedicated OVERSIZED arena — sized so
-  // charge lanes, radial volleys, and hazard rain have room to be dodged
-  // rather than facetanked. The arena replaces the farthest room in place;
-  // any room whose center it swallows merges into it (their corridors stay).
+  // BOSS ARENAS (backlog #11): band-end floors (3, 6, 9, 12, 15) and the
+  // final floor trade the ordinary stairs room for a dedicated OVERSIZED
+  // arena — sized so charge lanes, radial volleys, and hazard rain have room
+  // to be dodged rather than facetanked. The arena replaces the farthest room
+  // in place; any room whose center it swallows merges into it (their
+  // corridors stay).
   const bossFloor =
     floor >= CONFIG.finalFloor ||
-    (floor >= CONFIG.cityBossEvery && floor % CONFIG.cityBossEvery === 0);
+    (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0);
   if (bossFloor) {
     const size = CONFIG.bossArenaSize;
     const c = center(rooms[farthestIdx]);
@@ -272,6 +273,46 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     farthestIdx === 0 ? 1 : Math.min(1, i / farthestIdx),
   );
 
+  // LANDMARK SET PIECES carved into the grid: the colonnade + centerpiece
+  // used to be walk-through renderer dressing — "solid" pillars the player
+  // clipped straight through (and paths that lied). Now they are real Wall
+  // tiles the sim blocks; renderers draw the models ON them. The ring keeps
+  // 2-tile gaps (never seals anything) and the pedestal sits OFF-center so
+  // the room center — elite spawn, reachability probes — stays walkable.
+  const pillars: number[] = [];
+  let pedestal = -1;
+  if (landmarkIdx >= 0) {
+    const r = rooms[landmarkIdx];
+    if (r.w >= 7 && r.h >= 7) {
+      for (let px = r.x + 2; px < r.x + r.w - 2; px += 3) {
+        for (let py = r.y + 2; py < r.y + r.h - 2; py += 3) {
+          // Colonnade along the interior grid's edge ring, not the middle.
+          if (px > r.x + 2 && px < r.x + r.w - 3 && py > r.y + 2 && py < r.y + r.h - 3) continue;
+          const i = idx(w, px, py);
+          if (tiles[i] !== Tile.Floor) continue; // never overwrite stairs/doors
+          tiles[i] = Tile.Wall;
+          pillars.push(i);
+        }
+      }
+      // Pedestal: one tile off-center (the center stays open), and ONLY where
+      // it keeps 2-wide clearance from every pillar and the room walls — the
+      // floor-wide "no 1-wide chokepoints" invariant holds around set pieces.
+      const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+      const py2 = cy - 1;
+      const insideMargin =
+        cx >= r.x + 3 && cx < r.x + r.w - 3 && py2 >= r.y + 3 && py2 < r.y + r.h - 3;
+      const clearOfPillars = pillars.every((ti) => {
+        const tx = ti % w, ty = Math.floor(ti / w);
+        return Math.max(Math.abs(tx - cx), Math.abs(ty - py2)) >= 3;
+      });
+      const pi = idx(w, cx, py2);
+      if (insideMargin && clearOfPillars && tiles[pi] === Tile.Floor) {
+        tiles[pi] = Tile.Wall;
+        pedestal = pi;
+      }
+    }
+  }
+
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
   const locked =
     floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
@@ -288,7 +329,50 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     cycles,
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
+    pillars,
+    pedestal,
   };
+}
+
+/**
+ * Seal an arbitrary room on a BUILT map (the timed-vault event): every
+ * walkable tile just outside its perimeter becomes a locked door. Returns the
+ * sealed tile indices, or null (with the tiles reverted) if sealing would cut
+ * off any other reachable room — the locked stairs district, already sealed
+ * by its own doors, is exempt from the check.
+ */
+export function sealRoomOnMap(map: FloorMap, roomIdx: number): number[] | null {
+  const { tiles, w, h, rooms } = map;
+  const room = rooms[roomIdx];
+  const doors: number[] = [];
+  const trySeal = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const i = idx(w, x, y);
+    if (tiles[i] === Tile.Floor) {
+      tiles[i] = Tile.DoorLocked;
+      doors.push(i);
+    }
+  };
+  for (let x = room.x; x < room.x + room.w; x++) {
+    trySeal(x, room.y - 1);
+    trySeal(x, room.y + room.h);
+  }
+  for (let y = room.y; y < room.y + room.h; y++) {
+    trySeal(room.x - 1, y);
+    trySeal(room.x + room.w, y);
+  }
+  if (doors.length === 0) return null;
+  const seen = reachableFrom(tiles, w, h, map.spawn);
+  const ok = rooms.every((r, i) => {
+    if (i === roomIdx || i === map.lockedRoomIdx) return true;
+    const c = center(r);
+    return !!seen[idx(w, c.x, c.y)];
+  });
+  if (!ok) {
+    for (const i of doors) tiles[i] = Tile.Floor;
+    return null;
+  }
+  return doors;
 }
 
 export function tileAt(map: FloorMap, x: number, y: number): Tile {

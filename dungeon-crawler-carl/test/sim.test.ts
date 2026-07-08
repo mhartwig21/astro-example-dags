@@ -1,25 +1,27 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
+  createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
-import { armorReduction, rollDamage } from "../src/sim/combat";
-import { generateFloor } from "../src/sim/floor";
+import { armorReduction, dist, rollDamage } from "../src/sim/combat";
+import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
+import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
-  DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
+  DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
+  damageVariance, effectiveMaxRank, knows, meleeParams,
   novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
 function idle(): Intent {
@@ -76,6 +78,7 @@ describe("floor generation", () => {
 describe("collapse timer", () => {
   it("advances only through dt and transitions phases", () => {
     const g = createGame(42);
+    g.monsters.length = 0; // isolate the timer (roaming packs now find idlers!)
     expect(g.phase).toBe("safe");
     const budget = floorTimeBudget(1);
     expect(g.timeBudget).toBeCloseTo(budget);
@@ -379,8 +382,11 @@ describe("the show (viewers / favorites / sponsors)", () => {
   it("sustained hype grows favorites and earns sponsors", () => {
     const g = createGame(1);
     const p = g.players[0];
+    g.monsters = []; // this test is pure hype-economy math (addHype below), not combat survival
     expect(p.sponsors).toBe(0);
-    for (let i = 0; i < 200; i++) {
+    // ~15s of pinned hype: sqrt conversion means sustained excitement earns
+    // favorites steadily, not explosively (see CONFIG.show).
+    for (let i = 0; i < 900; i++) {
       addHype(g, p, 60); // exciting play every step
       step(g, idle(), 1 / 60);
     }
@@ -1336,6 +1342,9 @@ describe("per-player show economy", () => {
     carl.facing = { x: 1, y: 0 };
     carl.attackPower = 9999;
     g.monsters.length = 0;
+    // Park the bystander away from the corpse: loot-pickup hype (rare drops)
+    // belongs to whoever grabs the drop, which isn't what this test measures.
+    donut.pos = { x: carl.pos.x - 4, y: carl.pos.y };
     g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: carl.pos.x + 0.8, y: carl.pos.y } }));
     step(g, { [carl.id]: { ...idle(), attack: true, aim: { x: 1, y: 0 } } }, 1 / 60);
     expect(carl.hype).toBeGreaterThan(0);
@@ -1346,8 +1355,10 @@ describe("per-player show economy", () => {
     const g = createGame(506);
     addPlayer(g, "Donut");
     const [carl, donut] = g.players;
-    // Carl sustains a hyped broadcast; Donut idles.
-    for (let i = 0; i < 200; i++) {
+    g.monsters.length = 0; // roaming patrols would find (and end) the idle pair
+    // Carl sustains a hyped broadcast (~15s — sqrt conversion pays out
+    // steadily, not explosively); Donut idles.
+    for (let i = 0; i < 900; i++) {
       addHype(g, carl, 60);
       step(g, idle(), 1 / 60);
     }
@@ -1394,16 +1405,16 @@ describe("boss hierarchy", () => {
   }
 
   it("ordinary floors (2+) spawn one named neighborhood boss with boosted stats", () => {
-    const g = onFloor(3);
+    const g = onFloor(4); // floor 3 is a band-boss arena now — no elite there
     const elites = g.monsters.filter((m) => m.elite);
     expect(elites.length).toBe(1);
     expect(elites[0].eliteName).toBeTruthy();
     expect(elites[0].kind).not.toBe("boss");
   });
 
-  it("floor 1 has no elite; city-boss floors (6, 12) spawn a sealed city boss", () => {
+  it("floor 1 has no elite; band-boss floors (3, 6, 9, 12, 15) spawn a sealed boss", () => {
     expect(onFloor(1).monsters.some((m) => m.elite)).toBe(false);
-    for (const f of [6, 12]) {
+    for (const f of [3, 6, 9, 12, 15]) {
       const g = onFloor(f);
       const boss = g.monsters.find((m) => m.kind === "boss");
       expect(boss).toBeDefined();
@@ -1731,6 +1742,122 @@ describe("brute Ground Slam + boss kit escalation", () => {
     const hp0 = p.hp;
     stepPastWindup(g, boss);
     expect(p.hp).toBeLessThan(hp0 - 20); // a real, serious hit — not a chip
+  });
+});
+
+describe("locked-door self-healing (auditKeyReachability)", () => {
+  // The runtime backstop behind the spawn-time carrier guard and swept
+  // movement: if ANY vector — present or future — makes the stairs key
+  // unreachable (or seals a crawler in), the System concedes the door within
+  // one audit interval instead of ending the run.
+
+  /** A locked floor with a living key carrier, deterministically. Skips floors
+   * that ALSO rolled an independent timed-vault event: unlockDoors() correctly
+   * leaves a sealed vault's own doors locked (that's a separate mechanic), but
+   * these tests assert no DoorLocked tiles remain anywhere on the map. */
+  function lockedGame(): { g: GameState; carrier: import("../src/sim/types").Monster } {
+    for (let seed = 1; seed <= 30; seed++) {
+      const g = createTestGame({ seed, floor: 10, level: 20, gear: false });
+      const carrier = g.monsters.find((m) => m.hasKey);
+      if (g.map.locked && carrier && g.floorEvent?.type !== "vault") return { g, carrier };
+    }
+    throw new Error("no locked floor with a carrier found in 30 seeds");
+  }
+
+  const stepSeconds = (g: GameState, secs: number): string[] => {
+    const lines: string[] = [];
+    for (let i = 0; i < secs * 60; i++) {
+      step(g, idle(), 1 / 60);
+      for (const a of g.announcements) lines.push(a.text);
+    }
+    return lines;
+  };
+
+  it("concedes the door when the key carrier ends up sealed in with the stairs", () => {
+    const { g, carrier } = lockedGame();
+    const room = g.map.rooms[g.map.lockedRoomIdx];
+    carrier.pos = { x: room.x + room.w / 2, y: room.y + room.h / 2 }; // forced violation
+    carrier.dormant = false;
+    const lines = stepSeconds(g, 4); // > one audit interval
+    expect(g.map.locked).toBe(false);
+    expect(g.map.tiles.includes(Tile.DoorLocked)).toBe(false);
+    expect(lines.some((t) => t.includes("CONCEDES"))).toBe(true);
+  });
+
+  it("waives the door when the key vanishes outright", () => {
+    const { g, carrier } = lockedGame();
+    g.monsters = g.monsters.filter((m) => m !== carrier); // key gone, no loot
+    const lines = stepSeconds(g, 4);
+    expect(g.map.locked).toBe(false);
+    expect(lines.some((t) => t.includes("WAIVES"))).toBe(true);
+  });
+
+  it("never fires on a lawful locked floor (no false positives)", () => {
+    const { g } = lockedGame();
+    stepSeconds(g, 4);
+    expect(g.map.locked).toBe(true);
+    expect(g.map.tiles.includes(Tile.DoorLocked)).toBe(true);
+  });
+});
+
+describe("swept movement — nothing tunnels through thin walls or door rings", () => {
+  // moveWithCollision used to check only each axis ENDPOINT, so any single call
+  // longer than a tile (phantom blink 3.0, cataclysm knockback 2.5) tunneled
+  // through 1-tile wall bands — including the locked stairs district's door
+  // ring, where a blinking KEY CARRIER could seal itself in with the stairs.
+
+  it("a large single move stops at a one-tile wall band instead of crossing it", () => {
+    const g = createGame(930);
+    const m = g.map;
+    const sx = Math.floor(m.spawn.x), sy = Math.floor(m.spawn.y);
+    const wallX = sx + 2;
+    for (let y = 0; y < m.h; y++) m.tiles[y * m.w + wallX] = Tile.Wall;
+    const pos = { x: sx + 0.5, y: sy + 0.5 };
+    moveWithCollision(m, pos, { x: 1, y: 0 }, 4, isWalkable);
+    expect(pos.x).toBeLessThan(wallX - 0.29); // stopped short, entity radius respected
+  });
+
+  it("a phantom-length blink cannot cross a locked-door line (the key softlock)", () => {
+    const g = createGame(931);
+    const m = g.map;
+    const sx = Math.floor(m.spawn.x), sy = Math.floor(m.spawn.y);
+    const doorX = sx + 2;
+    for (let y = 0; y < m.h; y++) m.tiles[y * m.w + doorX] = Tile.DoorLocked;
+    const pos = { x: sx + 0.5, y: sy + 0.5 };
+    moveWithCollision(m, pos, { x: 1, y: 0 }, CONFIG.phantomBlinkDistance, isWalkable);
+    expect(pos.x).toBeLessThan(doorX - 0.29);
+  });
+
+  it("the key carrier always spawns reachable from the party spawn", () => {
+    const reachable = (map: FloorMap, from: Vec2): Uint8Array => {
+      const seen = new Uint8Array(map.w * map.h);
+      const q = [Math.floor(from.y) * map.w + Math.floor(from.x)];
+      seen[q[0]] = 1;
+      for (let qi = 0; qi < q.length; qi++) {
+        const x = q[qi] % map.w, y = (q[qi] / map.w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+          const ni = ny * map.w + nx;
+          const t = map.tiles[ni];
+          if (seen[ni] || t === Tile.Wall || t === Tile.DoorLocked) continue;
+          seen[ni] = 1;
+          q.push(ni);
+        }
+      }
+      return seen;
+    };
+    for (let seed = 1; seed <= 12; seed++) {
+      for (const floor of [10, 14, 17]) {
+        const g = createTestGame({ seed, floor, gear: false });
+        if (!g.map.locked) continue;
+        const carrier = g.monsters.find((mm) => mm.hasKey);
+        if (!carrier) continue; // softlock guard opened the doors instead
+        const seen = reachable(g.map, g.map.spawn);
+        const ci = Math.floor(carrier.pos.y) * g.map.w + Math.floor(carrier.pos.x);
+        expect(seen[ci], `seed ${seed} floor ${floor}: key carrier sealed in with the stairs`).toBe(1);
+      }
+    }
   });
 });
 
@@ -2171,11 +2298,8 @@ describe("crowd frenzy", () => {
 });
 
 describe("sponsor slurp flask", () => {
-  // Ships disabled (CONFIG.flaskEnabled); mechanics stay tested for its return.
-  const flags = CONFIG as { flaskEnabled: boolean };
-  beforeAll(() => { flags.flaskEnabled = true; });
-  afterAll(() => { flags.flaskEnabled = false; });
-
+  // Re-enabled (CONFIG.flaskEnabled: true) with the status-effect pass —
+  // aggression is the sustain loop again.
   it("drinking heals a fraction of max HP and consumes a charge", () => {
     const g = createGame(940);
     const p = g.players[0];
@@ -2493,6 +2617,7 @@ describe("theme bands", () => {
       player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
     });
     g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    g.monsters.length = 0; // floor 3 is a band-boss floor; the boss seals the stairs
     step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
     leaveSafeRoom(g);
     expect(g.floor).toBe(4);
@@ -2574,7 +2699,7 @@ describe("intentional floors (mission-lite)", () => {
     let clustered = 0, total = 0;
     for (const seed of [77, 1234, 5555]) {
       const g = restoreGame({
-        seed, floor: 3,
+        seed, floor: 4, // 3 is a band-boss arena (its crowd spawns unclustered)
         player: { hp: 100, level: 5, xp: 0, xpToNext: 99, gold: 0 },
       });
       for (const m of g.monsters) {
@@ -2972,7 +3097,12 @@ describe("ability constellation (prereqs, forks, capstones)", () => {
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     const wounded = 25 - g.monsters.find((m) => m.id === 1)!.hp;
     const healthy = 90 - g.monsters.find((m) => m.id === 2)!.hp;
-    expect(wounded).toBeGreaterThan(healthy * 1.3);
+    // Each hit rolls independent ±15% weapon-variance damage (crit is zeroed
+    // above, but variance isn't) — with a true 1.6x capstone multiplier, worst-
+    // case unlucky/lucky variance draws still bound the ratio to roughly
+    // [1.18, 2.16]. 1.3 sat inside that band and went flaky when the merge
+    // shifted the RNG draw sequence; 1.15 stays a real signal without the coin-flip.
+    expect(wounded).toBeGreaterThan(healthy * 1.15);
   });
 
   it("AFTERSHOCK: dash arrival detonates", () => {
@@ -3397,13 +3527,19 @@ describe("locked floors", () => {
     expect(g.players[0].hype).toBeGreaterThan(hype0);
   });
 
-  it("floors 1-2 have no locked doors and no key carrier", () => {
+  it("floors 1-2 have no stairs-district doors and no key carrier", () => {
     for (const seed of [1, 2, 3, 9]) {
       for (const floor of [1, 2]) {
         const g = floor === 1 ? createGame(seed) : atFloor(seed, 2);
         expect(g.map.locked).toBe(false);
         expect(g.map.lockedRoomIdx).toBe(-1);
-        expect(doorCount(g.map)).toBe(0);
+        // A floor-2 timed-vault EVENT may seal its own room; only doors that
+        // aren't the vault's would betray a stairs lock leaking early.
+        const vaultDoors = new Set(g.floorEvent?.type === "vault" ? g.floorEvent.doors : []);
+        const strayDoors = Array.from(g.map.tiles).filter(
+          (t, i) => t === Tile.DoorLocked && !vaultDoors.has(i),
+        ).length;
+        expect(strayDoors).toBe(0);
         expect(g.monsters.some((m) => m.hasKey)).toBe(false);
         expect(canReach(g.map, g.map.spawn, g.map.stairs)).toBe(true);
       }
@@ -3453,18 +3589,76 @@ describe("chase legendaries (store-only uniques)", () => {
     expect(boltParams(p).pierce).toBe(1 + CONFIG.skewerBonusPierce);
   });
 
-  it("Signature Choreography: stance swap resets swing + bolt cooldowns", () => {
+  it("Signature Choreography: the post-swap surge window carries bonus crit", () => {
     const g = createGame(992);
     const p = g.players[0];
-    learnAbility(g, p, "stance"); // auto-slots into slot 4
-    g.monsters.length = 0;
+    learnAbility(g, p, "stance");
     wear(g, { slot: "boots", name: "Signature Choreography", passive: "choreography", catalogId: "signature_choreography" });
-    p.cd.melee = 0.4;
-    p.cd.bolt = 0.6;
-    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] }, 1 / 60);
-    expect(p.stance).toBe("ranged"); // the swap happened
-    expect(p.cd.melee ?? 0).toBe(0);
-    expect(p.cd.bolt ?? 0).toBe(0);
+    p.critChance = 0; // every crit below comes from the choreography window
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 999999, maxHp: 999999 }));
+    const swingCrits = (window: number, swings: number): number => {
+      let crits = 0;
+      for (let i = 0; i < swings; i++) {
+        p.stanceSwapWindow = window;
+        p.cd.melee = 0;
+        step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+        crits += g.hits.filter((h) => h.kind === "crit").length;
+      }
+      return crits;
+    };
+    // Inside the surge window: 20% crit over 60 swings — a full miss run is ~1e-6.
+    expect(swingCrits(3, 60)).toBeGreaterThan(0);
+    // Window closed: zero base crit means zero crits.
+    expect(swingCrits(0, 30)).toBe(0);
+  });
+
+  it("Landlord's Ledger: kills pay gold and banked gold earns safe-room interest", () => {
+    const g = createGame(9920);
+    const p = g.players[0];
+    wear(g, { slot: "trinket", name: "Landlord's Ledger", passive: "ledger", catalogId: "landlords_ledger" });
+    p.attackPower = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 1 }));
+    const gold0 = p.gold;
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.gold - gold0).toBeGreaterThanOrEqual(CONFIG.ledgerKillGold);
+    // Interest at the safe room: 10% of banked gold, capped.
+    p.gold = 500;
+    g.monsters.length = 0;
+    p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    expect(g.safeRoom).toBeTruthy();
+    expect(p.gold).toBe(500 + 50);
+    expect(g.announcements.some((a) => a.text.includes("interest"))).toBe(true);
+  });
+
+  it("Backstage Pass: the dash phases through walls it can clear — but never locked doors", () => {
+    const g = createGame(9921);
+    const p = g.players[0];
+    const px = Math.floor(p.pos.x), py = Math.floor(p.pos.y);
+    const set = (x: number, y: number, t: number) => { g.map.tiles[y * g.map.w + x] = t; };
+    // A 3-tall wall column one tile ahead, clear floor beyond it.
+    for (const dy of [-1, 0, 1]) set(px + 1, py + dy, Tile.Wall);
+    for (const dx of [2, 3, 4]) set(px + dx, py, Tile.Floor);
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.facing = { x: 1, y: 0 };
+    // WITHOUT the passive: the slide stops at the wall.
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px + 1);
+    // WITH it: the same dash exits on the far side.
+    wear(g, { slot: "armor", name: "Backstage Pass", passive: "phase", catalogId: "backstage_pass" });
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.dashCharges = 2;
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeGreaterThan(px + 2);
+    // A LOCKED DOOR in the wall refuses the phase (keys stay load-bearing).
+    set(px + 1, py, Tile.DoorLocked);
+    p.pos = { x: px + 0.5, y: py + 0.5 };
+    p.dashCharges = 2;
+    step(g, { move: { x: 1, y: 0 }, dash: true, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px + 1);
   });
 
   it("Plot Armor: one killing blow per floor leaves you at 1 HP", () => {
@@ -3544,6 +3738,15 @@ describe("chase legendaries (store-only uniques)", () => {
     expect(g.hits.some((h) => h.school === "magic")).toBe(true); // arcs read arcane
   });
 
+  it("Location Scout: pathfinder passive, sharing the VIP Pass rung with Blood Subscription", () => {
+    // The minimap marker itself is host-side; the sim guarantees the passive
+    // and the build fork (two charm legendaries off one advanced component).
+    expect(CATALOG_BY_ID.location_scout.passive).toBe("pathfinder");
+    expect(CATALOG_BY_ID.location_scout.slot).toBe("charm");
+    expect(CATALOG_BY_ID.location_scout.buildsFrom).toEqual(["vip_pass"]);
+    expect(CATALOG_BY_ID.blood_subscription.buildsFrom).toEqual(["vip_pass"]);
+  });
+
   it("the full chase path: components -> advanced -> sponsor-gated unique", () => {
     const g = reachShop(994);
     const p = g.players[0];
@@ -3605,5 +3808,690 @@ describe("planning-first drops", () => {
     p.inventory.push({ id: 3, slot: "trinket", rarity: "epic", name: "Idol", affixes: { crit: 0.1 } });
     sellAllItems(g, 0);
     expect(p.inventory.length).toBe(1);
+  });
+});
+
+describe("ultimate constellations", () => {
+  it("Deep Focus stretches bullet time; EXTENSION extends it on kills inside", () => {
+    const g = createGame(940);
+    const p = g.players[0];
+    learnAbility(g, p, "bullettime"); // the empty ultimate slot auto-fills
+    p.abilities.ranks["bt.focus"] = 2;
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    const expected = CONFIG.ultBulletTimeDuration + 2 * CONFIG.ultBulletTimeFocusSeconds;
+    expect(g.bulletTimeLeft).toBeGreaterThan(expected - 0.1);
+    // EXTENSION: a kill while the world is slow buys more slow.
+    p.abilities.ranks["bt.encore"] = 1;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 9, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1, maxHp: 10 }));
+    p.facing = { x: 1, y: 0 };
+    p.attackPower = 9999;
+    const before = g.bulletTimeLeft;
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(g.bulletTimeLeft).toBeGreaterThan(before);
+  });
+
+  it("Adrenaline ticks the crawler's cooldowns faster inside the slow", () => {
+    const g = createGame(941);
+    const p = g.players[0];
+    p.abilities.ranks["bt.adrenaline"] = 2; // cdTickMult = 2
+    g.bulletTimeLeft = 3;
+    p.cd.nova = 1.0;
+    step(g, idle(), 1 / 60);
+    expect(p.cd.nova!).toBeCloseTo(1.0 - (1 / 60) * 2, 3);
+    // Outside the slow, cooldowns tick at normal speed again.
+    g.bulletTimeLeft = 0;
+    const cd = p.cd.nova!;
+    step(g, idle(), 1 / 60);
+    expect(p.cd.nova!).toBeCloseTo(cd - 1 / 60, 3);
+  });
+
+  it("airstrike nodes shape the barrage: payload hardens, saturation adds, precision tightens", () => {
+    const g = createGame(942);
+    const p = g.players[0];
+    const base = airstrikeParams(p);
+    expect(base.shells).toBe(CONFIG.ultAirstrikeShells);
+    p.abilities.ranks["air.payload"] = 2;
+    p.abilities.ranks["air.saturation"] = 2;
+    const sat = airstrikeParams(p);
+    expect(sat.shells).toBe(CONFIG.ultAirstrikeShells + 2 * CONFIG.ultAirstrikeSaturationShells);
+    expect(sat.spread).toBeGreaterThan(base.spread);
+    expect(sat.dmgMult).toBeGreaterThan(base.dmgMult);
+    delete p.abilities.ranks["air.saturation"];
+    p.abilities.ranks["air.precision"] = 2;
+    expect(airstrikeParams(p).spread).toBeLessThan(base.spread * 0.5);
+  });
+
+  it("Aftermath schedules an echo shock that lands where you stood", () => {
+    const g = createGame(943);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.abilities.ranks["cata.aftermath"] = 1;
+    p.spellPower = 100;
+    g.monsters.length = 0;
+    const m = mkMon({ id: 5, pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 1e6, maxHp: 1e6 });
+    g.monsters.push(m);
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    expect(g.strikes.some((s) => s.kind === "echo")).toBe(true);
+    const afterBlast = m.hp; // took the primary hit
+    expect(afterBlast).toBeLessThan(1e6);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // 1.5s: the echo lands
+    expect(m.hp).toBeLessThan(afterBlast);
+    expect(g.strikes.length).toBe(0);
+  });
+
+  it("EXTINCTION EVENT chains cataclysm kills outward", () => {
+    const g = createGame(944);
+    const p = g.players[0];
+    learnAbility(g, p, "cataclysm");
+    p.abilities.ranks["cata.extinction"] = 1;
+    p.spellPower = 100;
+    g.monsters.length = 0;
+    const radius = cataclysmParams(p).radius;
+    // The victim dies inside the blast; the bystander stands beyond it,
+    // reachable only through the victim's detonation.
+    const victim = mkMon({ id: 6, pos: { x: p.pos.x + radius - 0.5, y: p.pos.y }, hp: 1, maxHp: 10 });
+    const bystander = mkMon({
+      id: 7, pos: { x: p.pos.x + radius + 0.8, y: p.pos.y }, hp: 1e6, maxHp: 1e6,
+    });
+    g.monsters.push(victim, bystander);
+    step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
+    expect(victim.hp).toBeLessThanOrEqual(0);
+    expect(bystander.hp).toBeLessThan(1e6);
+  });
+
+  it("GUILLOTINE finishes worn-down chaff; elites are exempt", () => {
+    const g = createGame(945);
+    const p = g.players[0];
+    learnAbility(g, p, "orbit"); // slot 4 is open
+    p.abilities.ranks["orbit.guillotine"] = 1;
+    p.attackPower = 1; // blades chip, they don't kill on their own
+    g.monsters.length = 0;
+    const chaff = mkMon({ id: 8, pos: { x: p.pos.x + CONFIG.orbitRadius, y: p.pos.y }, hp: 100, maxHp: 1000 });
+    g.monsters.push(chaff);
+    for (let i = 0; i < 240 && chaff.hp > 0; i++) step(g, idle(), 1 / 60);
+    expect(chaff.hp).toBeLessThanOrEqual(0);
+    const elite = mkMon({
+      id: 9, pos: { x: p.pos.x + CONFIG.orbitRadius, y: p.pos.y }, hp: 100, maxHp: 1000,
+      elite: true, introduced: true,
+    });
+    g.monsters.push(elite);
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 60);
+    expect(elite.hp).toBeGreaterThan(0);
+  });
+
+  it("Heavy Blows: a killing swing's overkill splashes to a neighbor", () => {
+    const g = createGame(946);
+    const p = g.players[0];
+    p.abilities.ranks["melee.heavy"] = 1;
+    p.attackPower = 500;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    const victim = mkMon({ id: 10, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1, maxHp: 10 });
+    // Out of the swing's reach, but inside the overkill splash radius of the victim.
+    const bystander = mkMon({ id: 11, pos: { x: p.pos.x + 2.0, y: p.pos.y }, hp: 500, maxHp: 500 });
+    g.monsters.push(victim, bystander);
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(victim.hp).toBeLessThanOrEqual(0);
+    expect(bystander.hp).toBeLessThan(500);
+  });
+
+  it("Swift Strikes: connecting swings build momentum; pausing drops it", () => {
+    const g = createGame(947);
+    const p = g.players[0];
+    p.abilities.ranks["melee.swift"] = 2;
+    p.attackPower = 1;
+    p.facing = { x: 1, y: 0 };
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 12, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1e6, maxHp: 1e6, introduced: true }));
+    const swing = { ...idle(), attack: true, aim: { x: 1, y: 0 } };
+    step(g, swing, 1 / 60);
+    expect(p.meleeCombo).toBe(1);
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // wait out the cooldown
+    step(g, swing, 1 / 60);
+    expect(p.meleeCombo).toBe(2);
+    // The flurry pauses past the window: momentum drops.
+    for (let i = 0; i < Math.ceil(CONFIG.meleeMomentumWindow * 60) + 5; i++) step(g, idle(), 1 / 60);
+    expect(p.meleeCombo).toBe(0);
+  });
+
+  it("Retraining Arc refunds a fork side as fresh drafts", () => {
+    const g = createGame(948);
+    const p = g.players[0];
+    p.abilities.ranks["melee.heavy"] = 2;
+    p.pendingRewards = [{
+      id: 1, kind: "retrain", title: "Retraining Arc",
+      desc: "Unlearn Heavy Blows (2 ranks) — 2 fresh drafts", amount: 2, nodeId: "melee.heavy",
+    }];
+    chooseReward(g, p.id, 0);
+    expect(rank(p, "melee.heavy")).toBe(0);
+    expect(p.upgradeDraftsOwed).toBeGreaterThanOrEqual(2);
+    // The road not taken reopens: Swift Strikes is draftable again.
+    p.abilities.ranks["melee.arc"] = 1;
+    expect(availableUpgrades(p).some((u) => u.id === "melee.swift")).toBe(true);
+  });
+
+  it("orbit's razor and corkscrew are a real fork now", () => {
+    const g = createGame(949);
+    const p = g.players[0];
+    learnAbility(g, p, "orbit");
+    p.abilities.ranks["orbit.blade"] = 1;
+    p.abilities.ranks["orbit.razor"] = 1;
+    const open = availableUpgrades(p).map((u) => u.id);
+    expect(open).not.toContain("orbit.wide");
+    expect(open).toContain("orbit.guillotine"); // the capstone stays reachable
+  });
+});
+
+describe("depth tempo (monsters get quicker, not just fatter)", () => {
+  it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
+    // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
+    for (const f of [1, 2, 3, 4]) {
+      expect(monsterTempo(f)).toEqual({ speed: 1, cooldown: 1, windup: 1 });
+    }
+    const mid = monsterTempo(10);
+    expect(mid.speed).toBeGreaterThan(1);
+    expect(mid.cooldown).toBeLessThan(1);
+    expect(mid.windup).toBeLessThan(1);
+    // Deep floors hit the caps and stay there (fast but still readable).
+    const deep = monsterTempo(30);
+    expect(deep.speed).toBe(CONFIG.monsterTempoSpeedMax);
+    expect(deep.cooldown).toBe(CONFIG.monsterTempoCdMin);
+    expect(deep.windup).toBe(CONFIG.monsterTempoWindupMin);
+  });
+
+  it("a floor-12 grunt genuinely moves faster than a floor-1 grunt", () => {
+    const find = (g: GameState) => g.monsters.find((m) => m.kind === "grunt");
+    let early: number | null = null, late: number | null = null;
+    for (let seed = 1; seed < 30 && (!early || !late); seed++) {
+      early ??= find(createGame(seed))?.speed ?? null;
+      late ??= find(restoreGame({
+        seed, floor: 12, player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+      }))?.speed ?? null;
+    }
+    expect(early).not.toBeNull();
+    expect(late).not.toBeNull();
+    expect(late! / early!).toBeCloseTo(monsterTempo(12).speed, 5);
+  });
+});
+
+describe("broodmother (the pack grows if you ignore it)", () => {
+  it("births swarmers on a timer, capped per mother, and never attacks", () => {
+    const g = createGame(7100);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const mother = mkMon({
+      id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 500, maxHp: 500, attackRange: 6,
+    });
+    g.monsters.push(mother);
+    // Run long enough for several birth cycles.
+    const seconds = CONFIG.broodSpawnCooldown * 3 + 1;
+    for (let i = 0; i < 60 * seconds; i++) step(g, idle(), 1 / 60);
+    const brood = g.monsters.filter((m) => m.kind === "swarmer" && m.hp > 0);
+    expect(mother.summons).toBeGreaterThanOrEqual(3);
+    expect(brood.length).toBeGreaterThan(0); // the floor got MORE crowded
+    expect(mother.windup).toBe(0); // she never commits to an attack
+    // Lifetime cap: run far past the cap and she stops.
+    for (let i = 0; i < 60 * CONFIG.broodSpawnCooldown * CONFIG.broodSpawnMax; i++) step(g, idle(), 1 / 60);
+    expect(mother.summons).toBeLessThanOrEqual(CONFIG.broodSpawnMax);
+  });
+
+  it("respects the global population guard", () => {
+    const g = createGame(7101);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Flood the floor to the guard line with inert chaff.
+    const cap = Math.ceil(CONFIG.monsterMaxCount * CONFIG.broodPopulationCap);
+    for (let i = 0; i < cap; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: 1.5, y: 1.5 }, hp: 1, maxHp: 1 }));
+    }
+    const mother = mkMon({
+      id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 500, maxHp: 500, attackRange: 6,
+    });
+    g.monsters.push(mother);
+    for (let i = 0; i < 60 * (CONFIG.broodSpawnCooldown + 1); i++) step(g, idle(), 1 / 60);
+    expect(mother.summons ?? 0).toBe(0); // guard held: no births past the cap
+  });
+
+  it("spawns in the deep-floor archetype mix but never takes the elite crown", () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const g = restoreGame({
+        seed, floor: 9, player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+      });
+      seen += g.monsters.filter((m) => m.kind === "broodmother").length;
+      const crowned = g.monsters.find((m) => m.elite);
+      expect(crowned?.kind).not.toBe("broodmother");
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
+describe("roaming (behavior variety: patrols, sentries, ambushers)", () => {
+  it("a patrolling monster strolls around its post, leashed; a sentry holds it", () => {
+    const g = createGame(7200);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Both placed well outside aggro range on open floor near the stairs.
+    const roamer = mkMon({ id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6, roams: true });
+    const sentry = mkMon({ id: 2, pos: { x: g.map.stairs.x + 1, y: g.map.stairs.y }, hp: 50, maxHp: 50, speed: 2.6 });
+    if (dist(roamer.pos, p.pos) <= CONFIG.monsterAggroRange * 2) return; // seed guard
+    g.monsters.push(roamer, sentry);
+    const roamStart = { x: roamer.pos.x, y: roamer.pos.y };
+    const sentryStart = { x: sentry.pos.x, y: sentry.pos.y };
+    let maxFromPost = 0;
+    for (let i = 0; i < 60 * 12; i++) {
+      step(g, idle(), 1 / 60);
+      maxFromPost = Math.max(maxFromPost, dist(roamer.pos, roamStart));
+    }
+    expect(maxFromPost).toBeGreaterThan(1); // the patroller went somewhere...
+    expect(maxFromPost).toBeLessThan(CONFIG.wanderLeash + 4); // ...but stayed leashed
+    expect(dist(sentry.pos, sentryStart)).toBeLessThan(0.01); // the sentry held its post
+  });
+
+  it("floors spawn a MIX: lone wanderers always roam, some packs patrol, some hold", () => {
+    let roamers = 0, sentries = 0;
+    for (let seed = 1; seed <= 5; seed++) {
+      const g = restoreGame({
+        seed, floor: 5, player: { hp: 100, level: 6, xp: 0, xpToNext: 999, gold: 0 },
+      });
+      for (const m of g.monsters) {
+        if (m.kind === "boss") continue;
+        if (m.roams) roamers++;
+        else sentries++;
+      }
+    }
+    expect(roamers).toBeGreaterThan(0);
+    expect(sentries).toBeGreaterThan(0);
+  });
+
+  it("dormant ambushers do NOT roam — they lie in wait", () => {
+    const g = restoreGame({
+      seed: 3, floor: 9, player: { hp: 200, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const dormant = g.monsters.filter((m) => m.dormant &&
+      dist(m.pos, g.players[0].pos) > CONFIG.ambushTriggerRadius + 3);
+    if (dormant.length === 0) return; // seed rolled no distant ambush pack
+    const starts = dormant.map((m) => ({ m, x: m.pos.x, y: m.pos.y }));
+    for (let i = 0; i < 60 * 5; i++) step(g, idle(), 1 / 60);
+    for (const s of starts) {
+      if (!s.m.dormant) continue; // something else sprang it (damage etc.)
+      expect(dist(s.m.pos, { x: s.x, y: s.y })).toBeLessThan(0.01);
+    }
+  });
+
+  it("a roamer that spots you drops the stroll and attacks", () => {
+    const g = createGame(7201);
+    g.monsters.length = 0;
+    const p = g.players[0];
+    // Real walkable ground for everyone: the roamer patrols the stairs room,
+    // the player steps onto a walkable tile a few tiles away from it.
+    const roamer = mkMon({
+      id: 1, pos: { x: g.map.stairs.x, y: g.map.stairs.y },
+      hp: 100, maxHp: 100, speed: 2.6, damage: 10, attackRange: 1, roams: true,
+    });
+    g.monsters.push(roamer);
+    for (let i = 0; i < 10; i++) step(g, idle(), 1 / 60); // a brief off-duty stroll
+    const spot = walkableTiles(g.map).find(
+      (t) => dist(t, roamer.pos) > 4 && dist(t, roamer.pos) < 6,
+    );
+    expect(spot).toBeTruthy();
+    p.pos = { x: spot!.x, y: spot!.y };
+    const d0 = dist(roamer.pos, p.pos);
+    let engaged = false;
+    for (let i = 0; i < 60 * 3 && !engaged; i++) {
+      step(g, idle(), 1 / 60);
+      engaged = roamer.windup > 0 || dist(roamer.pos, p.pos) < d0 - 1.5;
+    }
+    expect(engaged).toBe(true);
+  });
+});
+
+describe("landmark set pieces are REAL (looks = collision)", () => {
+  it("carves the colonnade + pedestal as wall tiles inside the landmark hall", () => {
+    let sawPillars = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const map = generateFloor(createRng(seed), 2);
+      const li = map.roles.indexOf("landmark");
+      if (li < 0) continue;
+      const r = map.rooms[li];
+      if (r.w < 7 || r.h < 7) continue;
+      expect(map.pillars.length).toBeGreaterThan(0);
+      sawPillars++;
+      for (const ti of map.pillars) {
+        expect(map.tiles[ti]).toBe(Tile.Wall);
+        const x = ti % map.w, y = Math.floor(ti / map.w);
+        expect(x).toBeGreaterThanOrEqual(r.x + 2);
+        expect(x).toBeLessThan(r.x + r.w - 2);
+        expect(y).toBeGreaterThanOrEqual(r.y + 2);
+        expect(y).toBeLessThan(r.y + r.h - 2);
+      }
+      // The pedestal is blocked but the room CENTER stays walkable (elite
+      // spawns there; reachability probes use it).
+      const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+      expect(map.tiles[cy * map.w + cx]).toBe(Tile.Floor);
+      if (map.pedestal >= 0) expect(map.tiles[map.pedestal]).toBe(Tile.Wall);
+    }
+    expect(sawPillars).toBeGreaterThan(0);
+  });
+
+  it("the sim blocks movement through a pillar tile", () => {
+    const g = createGame(31);
+    const map = g.map;
+    if (map.pillars.length === 0) return; // seed guard (tiny landmark)
+    const ti = map.pillars[0];
+    const px = ti % map.w, py = Math.floor(ti / map.w);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Stand just west of the pillar and push east THROUGH it for 2 seconds.
+    p.pos = { x: px - 0.5, y: py + 0.5 };
+    for (let i = 0; i < 120; i++) step(g, { move: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeLessThan(px); // the bookcase is a bookcase now
+  });
+
+  it("FULL-GAME SWEEP: every room on floors 1-18 stays reachable from spawn", () => {
+    // Doors count as walkable here: a key always exists for locked districts.
+    const reachable = (map: FloorMap): Uint8Array => {
+      const seen = new Uint8Array(map.w * map.h);
+      const q = [Math.floor(map.spawn.y) * map.w + Math.floor(map.spawn.x)];
+      seen[q[0]] = 1;
+      while (q.length) {
+        const i = q.shift()!;
+        const x = i % map.w, y = Math.floor(i / map.w);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+          const ni = ny * map.w + nx;
+          if (seen[ni] || map.tiles[ni] === Tile.Wall) continue;
+          seen[ni] = 1;
+          q.push(ni);
+        }
+      }
+      return seen;
+    };
+    for (const seed of [11, 22, 33]) {
+      for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+        const map = generateFloor(createRng(seed * 1000 + floor), floor);
+        const seen = reachable(map);
+        expect(seen[Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x)]).toBe(1);
+        map.rooms.forEach((r) => {
+          const cx = Math.floor(r.x + r.w / 2), cy = Math.floor(r.y + r.h / 2);
+          expect(seen[cy * map.w + cx]).toBe(1);
+        });
+      }
+    }
+  });
+});
+
+describe("RIVALS mode (competitive race)", () => {
+  const rivalsGame = (seed: number, n = 2) => {
+    const g = createGame(seed, "rivals");
+    for (let i = 1; i < n; i++) addPlayer(g, `Rival${i}`);
+    return g;
+  };
+  const intentsFor = (g: GameState, per: Record<number, Partial<Intent>>): Record<number, Intent> => {
+    const out: Record<number, Intent> = {};
+    for (const p of g.players) out[p.id] = { move: { x: 0, y: 0 }, useStairs: false, ...(per[p.id] ?? {}) };
+    return out;
+  };
+
+  it("rivals descend INDIVIDUALLY through concurrent floor worlds", () => {
+    const g = rivalsGame(8100, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    // A reaches the stairs and descends; B stays on floor 1.
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy(); // personal shop — the world keeps running
+    expect(g.status).toBe("playing");
+    expect(b.floorNo).toBe(1);
+    // A leaves the shop: floor 2 world spins up, floor 1 keeps existing (B is on it).
+    setReady(g, a.id);
+    expect(a.floorNo).toBe(2);
+    expect(g.worlds![2]).toBeTruthy();
+    expect(g.worlds![1]).toBeTruthy();
+    // Both worlds STEP: their monsters live independently.
+    const f1Monsters = g.worlds![1].monsters.length;
+    const f2Monsters = g.worlds![2].monsters.length;
+    expect(f2Monsters).toBeGreaterThan(0);
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1].monsters.length).toBe(f1Monsters);
+    expect(g.worlds![2].monsters.length).toBeGreaterThanOrEqual(f2Monsters);
+  });
+
+  it("personal shops work mid-race (buy while a rival keeps fighting)", () => {
+    const g = rivalsGame(8101, 2);
+    const [a] = g.players;
+    g.worlds![1].monsters = [];
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy();
+    a.gold = 1000;
+    buyCatalogItem(g, a.id, "boxcutter");
+    expect(a.equipment.weapon?.catalogId).toBe("boxcutter");
+    // The OTHER rival can't shop from the dungeon floor.
+    const b = g.players[1];
+    b.gold = 1000;
+    buyCatalogItem(g, b.id, "boxcutter");
+    expect(b.equipment.weapon?.catalogId).not.toBe("boxcutter");
+  });
+
+  it("PvP: rivals damage each other at reduced tune; a kill pays level-scaled XP", () => {
+    const g = rivalsGame(8102, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    b.level = 5;
+    b.hp = 10;
+    a.attackPower = 9999;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    a.facing = { x: 1, y: 0 };
+    const level0 = a.level;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.alive).toBe(false);
+    expect(b.downedT).toBeCloseTo(CONFIG.rivalsReviveSeconds, 1);
+    // 60 + 5*30 = 210 XP at level 1 = several instant level-ups: the bounty is BIG.
+    expect(a.level).toBeGreaterThan(level0 + 1);
+    expect(g.status).toBe("playing"); // no wipe in rivals
+    expect(g.announcements.some((an) => an.text.includes("CONTRACT DISPUTE"))).toBe(true);
+  });
+
+  it("PvP damage is tuned down by pvpDamageMult", () => {
+    const g = rivalsGame(8103, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.attackPower = 100;
+    b.armor = 0;
+    b.hp = b.maxHp = 1000;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    const dealt = 1000 - b.hp;
+    expect(dealt).toBeGreaterThan(0);
+    expect(dealt).toBeLessThan(100); // a 100-power swing lands well under full
+  });
+
+  it("the 15-second timer revives at the floor entry with grace", () => {
+    const g = rivalsGame(8104, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    b.hp = 5;
+    a.attackPower = 9999;
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.alive).toBe(false);
+    for (let i = 0; i < 60 * (CONFIG.rivalsReviveSeconds + 1); i++) step(g, intentsFor(g, {}), 1 / 60);
+    expect(b.alive).toBe(true);
+    expect(b.hp).toBe(Math.round(b.maxHp * CONFIG.rivalsReviveHpFraction));
+    expect(dist(b.pos, g.worlds![1].map.spawn)).toBeLessThan(1.5);
+    // Grace: an immediate follow-up swing does nothing.
+    a.pos = { x: b.pos.x - 1.0, y: b.pos.y };
+    const hp0 = b.hp;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(b.hp).toBe(hp0);
+  });
+
+  it("first FINAL-BOSS killing blow wins the race", () => {
+    const g = rivalsGame(8105, 2);
+    const [a] = g.players;
+    // Fast-forward A to the final floor world.
+    const w = ensureWorld(g, CONFIG.finalFloor);
+    a.floorNo = CONFIG.finalFloor;
+    a.pos = { x: w.map.spawn.x, y: w.map.spawn.y };
+    const boss = w.monsters.find((m: import("../src/sim/types").Monster) => m.kind === "boss")!;
+    boss.introduced = true;
+    boss.hp = 1;
+    a.attackPower = 99999;
+    a.pos = { x: boss.pos.x - 1.0, y: boss.pos.y };
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(g.status).toBe("won");
+    expect(g.winnerId).toBe(a.id);
+    expect(g.announcements.some((an) => an.text.includes("CONTRACT SECURED"))).toBe(true);
+  });
+
+  it("kill XP is NOT split between rivals sharing a floor", () => {
+    const g = rivalsGame(8106, 2);
+    const [a, b] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.attackPower = 9999;
+    b.pos = { x: a.pos.x + 0.3, y: a.pos.y }; // standing right there
+    g.worlds![1].monsters.push(mkMon({ id: 900, pos: { x: a.pos.x + 0.9, y: a.pos.y }, hp: 1, xp: 50 }));
+    const bXp = b.xp;
+    const bLevel = b.level;
+    step(g, intentsFor(g, { [a.id]: { attack: true, aim: { x: 1, y: 0 } } }), 1 / 60);
+    expect(a.level).toBeGreaterThan(1); // 50 XP at level 1: full bounty levels A up
+    expect(b.xp).toBe(bXp); // the bystander rival gets NOTHING
+    expect(b.level).toBe(bLevel);
+  });
+});
+
+describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
+  const CAST4: boolean[] = [false, false, false, true, false]; // slot 4 = the learned active
+  const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it("Blindside teleports onto the aimed enemy and strikes it", () => {
+    const g = createGame(960);
+    const p = g.players[0];
+    learnAbility(g, p, "cutto"); // slot 4 is open
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    const m = mkMon({ id: 20, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1e5, maxHp: 1e5 });
+    g.monsters.push(m);
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, m.pos)).toBeLessThan(2);
+    expect(m.hp).toBeLessThan(1e5);
+    expect(p.cd.cutto!).toBeGreaterThan(0);
+  });
+
+  it("REPEAT OFFENDER: killing the target inside the window resets the cooldown", () => {
+    const g = createGame(961);
+    const p = g.players[0];
+    learnAbility(g, p, "cutto");
+    p.abilities.ranks["cut.match"] = 1;
+    p.attackPower = 500;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 21, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1, maxHp: 10 }));
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(p.cd.cutto ?? 0).toBe(0); // the camera resets
+  });
+
+  it("Extradition yanks light enemies into your arms, staggered", () => {
+    const g = createGame(962);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    g.monsters.length = 0;
+    const m = mkMon({ id: 22, pos: { x: p.pos.x + 4, y: p.pos.y }, hp: 100, maxHp: 100 });
+    g.monsters.push(m);
+    const px = p.pos.x;
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, m.pos)).toBeLessThan(1.6);
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(Math.abs(p.pos.x - px)).toBeLessThan(0.2); // YOU did not move
+  });
+
+  it("Extradition yanks YOU to the heavy ones", () => {
+    const g = createGame(963);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    g.monsters.length = 0;
+    const brute = mkMon({ id: 23, kind: "brute", pos: { x: p.pos.x + 4, y: p.pos.y }, hp: 500, maxHp: 500 });
+    g.monsters.push(brute);
+    const bx = brute.pos.x;
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, brute.pos)).toBeLessThan(1.6); // you rode the chain
+    expect(Math.abs(brute.pos.x - bx)).toBeLessThan(0.2); // the anchor held
+  });
+
+  it("CLASS ACTION drags everything the chain passed through", () => {
+    const g = createGame(964);
+    const p = g.players[0];
+    learnAbility(g, p, "crowdsurf");
+    p.abilities.ranks["surf.wave"] = 1;
+    g.monsters.length = 0;
+    const far = mkMon({ id: 24, pos: { x: p.pos.x + 4.5, y: p.pos.y }, hp: 100, maxHp: 100 });
+    const onPath = mkMon({ id: 25, pos: { x: p.pos.x + 2.5, y: p.pos.y + 0.4 }, hp: 100, maxHp: 100 });
+    g.monsters.push(far, onPath);
+    step(g, { ...idle(), cast: CAST4, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(gap(p.pos, far.pos)).toBeLessThan(1.6);
+    expect(gap(p.pos, onPath.pos)).toBeLessThan(1.6);
+  });
+
+  it("Stunt Double taunts: monsters hunt the decoy, and it soaks their hits", () => {
+    const g = createGame(965);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60); // hire the double at your feet
+    expect(g.decoys.length).toBe(1);
+    const dc = g.decoys[0];
+    // A biter arrives next to the double; the owner retreats across the room.
+    g.monsters.push(mkMon({ id: 26, pos: { x: dc.pos.x + 0.8, y: dc.pos.y }, hp: 100, maxHp: 100, damage: 20, speed: 2 }));
+    p.pos = { x: dc.pos.x + 9, y: dc.pos.y };
+    const hpBefore = p.hp;
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // 1.5s: windup + strike
+    expect(dc.absorbed).toBeGreaterThan(0); // the professional took the hit
+    expect(p.hp).toBe(hpBefore); // and you did not
+  });
+
+  it("the double mirrors your swings and exits with a bang", () => {
+    const g = createGame(966);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    p.attackPower = 100;
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60);
+    const dc = g.decoys[0];
+    // A monster in the DOUBLE's reach but far from the owner.
+    const nearDouble = mkMon({ id: 27, pos: { x: dc.pos.x + 0.8, y: dc.pos.y }, hp: 1e5, maxHp: 1e5 });
+    g.monsters.push(nearDouble);
+    p.pos = { x: dc.pos.x + 6, y: dc.pos.y };
+    p.facing = { x: 1, y: 0 };
+    step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    expect(nearDouble.hp).toBeLessThan(1e5); // the mirror connected
+    // Bank a beating, run out the contract: the farewell blast lands.
+    dc.absorbed = 200;
+    dc.t = 0.01;
+    const before = nearDouble.hp;
+    for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
+    expect(g.decoys.length).toBe(0);
+    expect(nearDouble.hp).toBeLessThan(before);
+  });
+
+  it("AWARD SEASON: a finished contract refunds half the booking", () => {
+    const g = createGame(967);
+    const p = g.players[0];
+    learnAbility(g, p, "stuntdouble");
+    p.abilities.ranks["double.award"] = 1;
+    g.monsters.length = 0;
+    step(g, { ...idle(), cast: CAST4 }, 1 / 60);
+    const cdAfterCast = p.cd.stuntdouble!;
+    g.decoys[0].t = 0.01;
+    for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
+    expect(p.cd.stuntdouble!).toBeLessThan(cdAfterCast * 0.6);
   });
 });

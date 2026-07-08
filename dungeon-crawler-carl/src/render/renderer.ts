@@ -217,12 +217,29 @@ export function render(
   }
 
   // Ground hazards: volatile blast rings brighten toward detonation; spitter
-  // acid puddles render filled and fade as they dry.
+  // acid puddles render filled and fade as they dry; boss sludge/roots zones
+  // ghost through their arming telegraph, then snap solid when live.
   for (const hz of state.hazards) {
     if (!inVision(hz.pos.x, hz.pos.y)) continue;
-    if (hz.kind === "puddle") {
+    if (hz.kind === "beam" && hz.end) {
+      // Beam: a line pos->end — faint while arming, hot for the firing flash.
+      const alpha = hz.fired
+        ? Math.min(1, 0.4 + hz.t / Math.max(hz.total, 1e-3))
+        : 0.15 + 0.35 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3));
+      ctx.strokeStyle = `rgba(255,90,60,${alpha})`;
+      ctx.lineWidth = Math.max(2, hz.radius * 2 * T * (hz.fired ? 1 : 0.4));
+      ctx.beginPath();
+      ctx.moveTo(offX + hz.pos.x * T, offY + hz.pos.y * T);
+      ctx.lineTo(offX + hz.end.x * T, offY + hz.end.y * T);
+      ctx.stroke();
+      continue;
+    }
+    if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots") {
+      const arming = (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
       const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
-      ctx.fillStyle = `rgba(127,184,50,${0.18 + life * 0.2})`;
+      const alpha = arming ? 0.08 + 0.14 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)) : 0.18 + life * 0.2;
+      const rgb = hz.kind === "sludge" ? "95,112,32" : hz.kind === "roots" ? "46,139,87" : "127,184,50";
+      ctx.fillStyle = `rgba(${rgb},${alpha})`;
       ctx.beginPath();
       ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);
       ctx.fill();
@@ -253,6 +270,7 @@ export function render(
     ctx.fillStyle =
       l.kind === "tome" ? "#66f0c8" :
       l.kind === "key" ? "#ffd23e" :
+      l.kind === "shrine" ? "#c58cff" :
       l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
     ctx.beginPath();
     ctx.arc(px, py, 5, 0, Math.PI * 2);
@@ -292,6 +310,21 @@ export function render(
     ctx.fillRect(px - 12, py - T * 0.5, 24, 4);
     ctx.fillStyle = COLORS.monster;
     ctx.fillRect(px - 12, py - T * 0.5, 24 * frac, 4);
+  }
+
+  // Stunt doubles: a ghost outline of a crawler holding its mark.
+  for (const dc of state.decoys ?? []) {
+    const dpx = offX + dc.pos.x * T;
+    const dpy = offY + dc.pos.y * T;
+    ctx.strokeStyle = "rgba(234,246,255,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(234,246,255,0.2)";
+    ctx.beginPath();
+    ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // Players (whole party; players[0] is the local one).

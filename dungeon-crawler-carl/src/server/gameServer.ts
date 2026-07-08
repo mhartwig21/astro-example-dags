@@ -1,10 +1,11 @@
-import { createServer, type Server as HttpServer } from "node:http";
+import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
-import { serialize } from "../sim/snapshot";
+import { serialize, serializeFor } from "../sim/snapshot";
+import { Leaderboard } from "./leaderboard";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
 // Authoritative multiplayer server (DESIGN.md milestone). One deterministic sim
@@ -32,6 +33,7 @@ export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
 export const MAX_PARTY_SIZE = 6;
+export const MAX_RIVALS = 4; // the competitive race seats exactly four contracts
 export const MAX_INSTANCES = 200;
 export const MAX_WS_PAYLOAD = 16 * 1024; // bytes; intents/choices are tiny
 export const MAX_CODE_LEN = 32;
@@ -62,6 +64,7 @@ export function sanitizeIntent(raw: unknown): Intent {
     dash: o.dash === true,
     bolt: o.bolt === true,
     nova: o.nova === true,
+    ping: o.ping === undefined ? undefined : vec(o.ping),
     cast,
   };
 }
@@ -107,6 +110,7 @@ export class GameServer {
   private wss: WebSocketServer;
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
+  readonly leaderboard: Leaderboard;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
   private tickMsMax = 0;
@@ -117,15 +121,21 @@ export class GameServer {
    * /health endpoint) and the game WebSocket on the same port. Plain Node —
    * no platform-specific APIs, so the container runs anywhere (Fly, GCP, a VPS).
    */
-  constructor(port: number, staticDir?: string) {
+  constructor(port: number, staticDir?: string, leaderboardFile?: string) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
-    this.http = createServer((req, res) => this.onRequest(req.url ?? "/", res));
+    this.leaderboard = new Leaderboard(leaderboardFile);
+    this.http = createServer((req, res) => this.onRequest(req, res));
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
   }
 
-  private onRequest(url: string, res: import("node:http").ServerResponse): void {
+  private onRequest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const url = req.url ?? "/";
+    if (url.split("?")[0] === "/leaderboard") {
+      this.onLeaderboard(req, res);
+      return;
+    }
     if (url === "/health") {
       // Capacity telemetry: budget per tick at 30Hz is 33ms ACROSS ALL
       // instances (one Node thread). tickMsEma is per-instance cost; total
@@ -178,6 +188,53 @@ export class GameServer {
     createReadStream(file).pipe(res);
   }
 
+  /**
+   * Daily Crawl board: GET /leaderboard?day=YYYY-MM-DD (today if omitted),
+   * POST /leaderboard {day, name, floor, won, timeSec, kills}. CORS is open —
+   * the board is public data, and the Vite dev client lives on another port.
+   */
+  private onLeaderboard(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method === "GET") {
+      const day = new URL(req.url ?? "/", "http://x").searchParams.get("day")
+        ?? new Date().toISOString().slice(0, 10);
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+      res.end(JSON.stringify({ day, entries: this.leaderboard.get(day).slice(0, 100) }));
+      return;
+    }
+    if (req.method === "POST") {
+      let body = "";
+      let overflow = false;
+      req.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 4096) { overflow = true; req.destroy(); }
+      });
+      req.on("end", () => {
+        if (overflow) return;
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(body);
+        } catch {
+          res.writeHead(400, cors).end();
+          return;
+        }
+        const rank = this.leaderboard.submit(String(msg.day ?? ""), msg, Date.now());
+        res.writeHead(rank === null ? 400 : 200, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify(rank === null ? { ok: false } : { ok: true, rank }));
+      });
+      return;
+    }
+    res.writeHead(405, cors).end();
+  }
+
   get port(): number {
     return (this.http.address() as { port: number }).port;
   }
@@ -191,6 +248,7 @@ export class GameServer {
   }
 
   close(): void {
+    this.leaderboard.flush();
     for (const inst of this.instances.values()) clearInterval(inst.timer);
     for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();
@@ -216,12 +274,14 @@ export class GameServer {
           ws.close();
           return;
         }
-        const inst = this.getOrCreateInstance(code);
+        // RIVALS: the first joiner's flag decides the instance's mode.
+        const inst = this.getOrCreateInstance(code, msg.rivals === true);
         // First joiner takes the pre-made players[0] seat; later joiners drop in.
         const seatless = inst.state.players.filter(
           (p) => !inst.clients.some((c) => c.playerId === p.id),
         );
-        if (!seatless[0] && inst.state.players.length >= MAX_PARTY_SIZE) {
+        const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
+        if (!seatless[0] && inst.state.players.length >= cap) {
           ws.send(JSON.stringify({ t: "error", reason: "party full" }));
           ws.close();
           return;
@@ -230,7 +290,10 @@ export class GameServer {
         player.name = name;
         inst.clients.push({ ws, playerId: player.id });
         joined = { inst, playerId: player.id };
-        ws.send(JSON.stringify({ t: "welcome", playerId: player.id, snapshot: serialize(inst.state) }));
+        ws.send(JSON.stringify({
+          t: "welcome", playerId: player.id,
+          snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
+        }));
         return;
       }
 
@@ -300,10 +363,10 @@ export class GameServer {
     });
   }
 
-  private getOrCreateInstance(code: string): Instance {
+  private getOrCreateInstance(code: string, rivals = false): Instance {
     let inst = this.instances.get(code);
     if (inst) return inst;
-    const state = createGame(seedFromCode(code));
+    const state = createGame(seedFromCode(code), rivals ? "rivals" : "coop");
     inst = {
       code,
       state,
@@ -324,7 +387,7 @@ export class GameServer {
     // Edge-triggered intent flags (dash/nova/useStairs) must not repeat next tick.
     for (const id of Object.keys(inst.intents)) {
       const i = inst.intents[Number(id)];
-      inst.intents[Number(id)] = { ...i, dash: false, nova: false, useStairs: false };
+      inst.intents[Number(id)] = { ...i, dash: false, nova: false, useStairs: false, ping: undefined };
     }
 
     const s = inst.state;
@@ -332,7 +395,16 @@ export class GameServer {
       this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
     }
     if (inst.tick % SNAPSHOT_EVERY === 0) {
-      this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+      if (s.mode === "rivals") {
+        // Personal snapshots: each rival sees THEIR floor + the standings.
+        for (const c of inst.clients) {
+          if (c.ws.readyState === WebSocket.OPEN) {
+            c.ws.send(JSON.stringify({ t: "snap", tick: inst.tick, snapshot: serializeFor(s, c.playerId) }));
+          }
+        }
+      } else {
+        this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+      }
     }
     const ms = performance.now() - t0;
     this.tickMsEma = this.tickMsEma * 0.98 + ms * 0.02;
@@ -354,7 +426,8 @@ const isMain = process.argv[1]?.replace(/\\/g, "/").endsWith("gameServer.ts");
 if (isMain) {
   const port = Number(process.env.PORT ?? 5281);
   const staticDir = process.env.STATIC_DIR; // e.g. "dist" in the container
-  const server = new GameServer(port, staticDir);
+  const lbFile = process.env.LEADERBOARD_FILE ?? "leaderboard.json";
+  const server = new GameServer(port, staticDir, lbFile);
   void server.ready().then(() => {
     console.log(`Dungeon Crawler Claude server on :${port} (ws + ${staticDir ? `static from ${staticDir}` : "no static"})`);
     console.log(`Party instances tick at ${TICK_HZ}Hz, snapshots every ${SNAPSHOT_EVERY} ticks.`);

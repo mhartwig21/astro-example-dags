@@ -16,9 +16,16 @@ export class InputController {
   private mouseBolt = false; // RMB -> slot 3
   private useStairsEdge = false;
   private flaskEdge = false;
+  /** Edge-triggered ping request. The HOST consumes this (it owns the mouse ->
+   *  world mapping) and attaches the world position to the sampled intent. */
+  pingEdge = false;
   private bindings: Bindings = { ...DEFAULT_BINDINGS };
   /** Latest mouse position in canvas coordinates (for aim mapping by the host). */
   mouse: Vec2 | null = null;
+  /** Diablo-style mouse movement (see clickMove.ts). When on, LMB stops
+   *  aliasing slot 1 — the host routes it through stepClickMove instead,
+   *  which re-emits the attack only when the press lands on a monster. */
+  mouseMoveMode = false;
   /** Suppress gameplay key handling (e.g. while capturing a rebind). */
   captureMode = false;
   onReset: (() => void) | null = null;
@@ -32,6 +39,7 @@ export class InputController {
       this.keys.add(k);
       if (this.is("stairs", k)) this.useStairsEdge = true;
       if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
+      if (this.is("ping", k) && !wasDown) this.pingEdge = true;
       if (this.is("newRun", k)) this.onReset?.();
       for (const a of ["inventory", "abilities", "character", "keybinds", "mute"] as const) {
         if (this.is(a, k) && !wasDown) this.onAction?.(a);
@@ -58,6 +66,11 @@ export class InputController {
 
   setBindings(b: Bindings): void {
     this.bindings = b;
+  }
+
+  /** Raw LMB state for the click-move host wiring. */
+  get lmbHeld(): boolean {
+    return this.mouseAttack;
   }
 
   private is(action: BindableAction, key: string): boolean {
@@ -95,7 +108,7 @@ export class InputController {
     // Slot casts: indices 0-3 = ability slots, 4 = ultimate. Mouse buttons are
     // fixed aliases (LMB = slot 1, RMB = slot 3) on top of the keyboard binds.
     const cast = [
-      this.held("slot1") || this.mouseAttack,
+      this.held("slot1") || (this.mouseAttack && !this.mouseMoveMode),
       this.held("slot2"),
       this.held("slot3") || this.mouseBolt,
       this.held("slot4"),
