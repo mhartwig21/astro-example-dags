@@ -30,6 +30,10 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_charger: "/assets/characters/werewolf.glb",
   monster_spitter: "/assets/characters/plant_warrior.glb",
   monster_necromancer: "/assets/characters/necromancer.glb",
+  // SEWERS specialists (MOB-CONCEPTS.md wave 2): OrcRaider drums the pack into
+  // a frenzy; Hoarder is the fleeing Repo Rat (KayKit Mystery Monthly, CC0).
+  monster_drummer: "/assets/characters/orc_raider.glb",
+  monster_filcher: "/assets/characters/hoarder.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -126,6 +130,8 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_charger: "medium", // Werewolf
   monster_spitter: "medium", // PlantWarrior
   monster_necromancer: "medium", // Necromancer
+  monster_drummer: "medium", // OrcRaider
+  monster_filcher: "medium", // Hoarder
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)

@@ -1875,6 +1875,32 @@ export class Renderer3D {
     const hazSeen = new Set<number>();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
+      // BEAM (line) hazards: a thin plane stretched pos->end. Ghostly while
+      // arming, blinding for the firing flash. Reuses the hazardRings pool.
+      if (hz.kind === "beam" && hz.end) {
+        let strip = this.hazardRings.get(hz.id);
+        if (!strip) {
+          strip = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({
+              color: 0xff5a3c, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+            }),
+          );
+          strip.rotation.x = -Math.PI / 2;
+          this.scene.add(strip);
+          this.hazardRings.set(hz.id, strip);
+        }
+        const mx = (hz.pos.x + hz.end.x) / 2, my = (hz.pos.y + hz.end.y) / 2;
+        const len = Math.hypot(hz.end.x - hz.pos.x, hz.end.y - hz.pos.y);
+        strip.position.set(mx, 0.07, my);
+        strip.scale.set(Math.max(len, 1e-3), hz.radius * 2, 1);
+        strip.rotation.z = -Math.atan2(hz.end.y - hz.pos.y, hz.end.x - hz.pos.x);
+        (strip.material as THREE.MeshBasicMaterial).opacity = hz.fired
+          ? 0.9 * (hz.t / Math.max(hz.total, 1e-3) + 0.4) // firing flash, fading out
+          : 0.12 + 0.3 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)); // telegraph brightens
+        strip.visible = inVision({ x: mx, y: my });
+        continue;
+      }
       const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {

@@ -51,6 +51,8 @@ export const THEME = {
     spitter: { color: 0xa4c93f, scale: 0.95 }, // acid green: don't stand in it
     necromancer: { color: 0x8a5cff, scale: 1.05 }, // violet: kill the caster first
     broodmother: { color: 0xd45db8, scale: 1.4 }, // magenta: the nest — kill it first
+    drummer: { color: 0xc9822e, scale: 1.05 }, // war-drum bronze: silence the band
+    filcher: { color: 0xf2c14e, scale: 0.8 }, // gold: it IS the loot — chase it
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

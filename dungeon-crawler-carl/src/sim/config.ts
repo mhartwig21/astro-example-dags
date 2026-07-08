@@ -175,6 +175,37 @@ export const CONFIG = {
   broodSpawnMax: 10, // lifetime births per mother
   broodPopulationCap: 1.4, // no births past monsterMaxCount * this (runaway guard)
 
+  // Drum Sergeant (SEWERS, floor 4+): pack escort that beats a frenzy aura.
+  // Worth ~nothing itself; the buffed pack is the problem. Kill-order 101.
+  drumFromFloor: 4,
+  drumEscortChance: 0.4, // share of escort rolls that pick a drummer over a shaman
+  drumAuraRadius: 4, // tiles: pack-mates inside get the beat
+  drumAuraLinger: 0.6, // seconds the frenzy holds after leaving the radius
+  drumFrenzySpeed: 1.3, // frenzied move-speed multiplier
+  drumFrenzyHaste: 1.4, // frenzied attack-cooldown decay multiplier
+
+  // Repo Rat / filcher (SEWERS, floor 4+): a fleeing loot-goblin. It spawns
+  // clutching gold, bleeds a coin each HP quarter lost, drops the rest on
+  // death — and if it stays safely away long enough, it ESCAPES with all of it.
+  filcherFromFloor: 4,
+  filcherChance: 0.55, // per ordinary floor: one rat scurries somewhere on it
+  filcherGoldBase: 30, // carried gold: base + perFloor * floor
+  filcherGoldPerFloor: 8,
+  filcherBleedFraction: 0.15, // carry share dropped per HP quarter lost
+  filcherEscapeDist: 8, // tiles from every crawler to count as "getting away"
+  filcherEscapeSeconds: 9, // safe seconds before it vanishes for good
+
+  // Knockback (MOB-CONCEPTS verb): shove distance is consumed at this speed
+  // through moveWithCollision, so walls stop it. Slams shove players.
+  knockbackSpeed: 12, // tiles/sec while a shove is in flight
+  slamKnockback: 1.3, // tiles: brute/boss Ground Slam shove
+  bossSlamKnockback: 2.0, // tiles: the boss slam hits like a truck
+
+  // Beam hazards (MOB-CONCEPTS verb): a line telegraph that fires ONCE along
+  // its whole length. No spawner in the base cast yet — the Ironworks/Approach
+  // mobs (Quality Control, Boom Operator, the Archivist) arrive on this seam.
+  beamFadeSeconds: 0.25, // visible flash after firing
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -473,6 +504,8 @@ export const CONFIG = {
     hypeSpitter: 4,
     hypeNecromancer: 8, // the crowd HATES reruns; ending them pays
     hypeBroodmother: 9, // ending the nest = the whole arena exhales
+    hypeDrummer: 6, // silencing the band = the pack deflates on camera
+    hypeFilcher: 8, // running down the rat is a highlight-reel chase
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -703,6 +736,12 @@ export const ARCHETYPES = {
   // Broodmother: never attacks (dmgMult unused); a slow walking nest that
   // births swarmers on a timer (see brood* knobs) — the pack GROWS if ignored.
   broodmother: { hpMult: 2.2, dmgMult: 0, speedMult: 0.5, attackRange: 6, xpMult: 2.5, ranged: true, windup: 0.8, poise: 0.6, mass: 2.5, radius: 0.55 },
+  // Drummer (Drum Sergeant): a support mob worth ~nothing itself — its war-drum
+  // FRENZIES the pack (see drum* knobs). Kill-order lesson one: shoot the band.
+  drummer: { hpMult: 0.85, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.4, poise: 0.3, mass: 1, radius: 0.38 },
+  // Filcher (Repo Rat): never attacks (dmgMult unused); a fast loot-goblin that
+  // FLEES on sight, bleeds gold as it's hurt, and ESCAPES if ignored (filcher*).
+  filcher: { hpMult: 0.6, dmgMult: 0, speedMult: 1.55, attackRange: 1.0, xpMult: 0.5, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.32 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

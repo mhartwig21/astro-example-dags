@@ -221,6 +221,19 @@ export function render(
   // ghost through their arming telegraph, then snap solid when live.
   for (const hz of state.hazards) {
     if (!inVision(hz.pos.x, hz.pos.y)) continue;
+    if (hz.kind === "beam" && hz.end) {
+      // Beam: a line pos->end — faint while arming, hot for the firing flash.
+      const alpha = hz.fired
+        ? Math.min(1, 0.4 + hz.t / Math.max(hz.total, 1e-3))
+        : 0.15 + 0.35 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3));
+      ctx.strokeStyle = `rgba(255,90,60,${alpha})`;
+      ctx.lineWidth = Math.max(2, hz.radius * 2 * T * (hz.fired ? 1 : 0.4));
+      ctx.beginPath();
+      ctx.moveTo(offX + hz.pos.x * T, offY + hz.pos.y * T);
+      ctx.lineTo(offX + hz.end.x * T, offY + hz.end.y * T);
+      ctx.stroke();
+      continue;
+    }
     if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots") {
       const arming = (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
       const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));

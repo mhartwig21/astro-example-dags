@@ -39,15 +39,15 @@ host-agnostic addition — feedback flows out as data like everything else.
 
 | Verb | What it is | Seam | Unlocks |
 |---|---|---|---|
-| **Knockback/pull** | Impulse on players/monsters, `mass`-scaled, wall-clipped | new `applyImpulse` next to `moveWithCollision` (game.ts) | Pit Digger, Line Worker, Vine Lasher, boss slams |
-| **Beam telegraph** | Line hazard: arm (thin tracking line) → fire (piercing) | `Hazard` gets a line shape (`a`,`b` endpoints) alongside circles | Quality Control, Archivist, Boom Operator |
-| **Generalized auras** | Radius buff/debuff carried by a monster (chilling is the hardcoded prototype) | `Monster.aura?: AuraKind`, ticked where chilling ticks (ai.ts) | Drum Sergeant, Last Rites zone, The Darling |
+| ~~**Knockback**~~ | **SHIPPED 2026-07-08**: `applyPlayerKnockback` (game.ts) — queued shove consumed at `knockbackSpeed` through moveWithCollision; brute/boss slams shove survivors | — | Pit Digger, Line Worker, Vine Lasher (pull variant still open) |
+| ~~**Beam telegraph**~~ | **SHIPPED 2026-07-08**: `Hazard.kind: "beam"` (pos→`end`, arm → fire once → fade), rendered in both hosts. No spawner in the cast yet | — | Quality Control, Archivist, Boom Operator |
+| ~~**Generalized auras**~~ | **SHIPPED 2026-07-08**: `Monster.aura: "frenzy"` radiates in ai.ts (drum* knobs); cooldown-decay haste + move speed | — | Last Rites zone, The Darling (new aura kinds on the same seam) |
 | **Second stage** | Swap `kind`/model/stats at an HP or timer threshold, announced | small branch in `damageMonster` + `MonsterKind` morph map | Understudy Wolf, Suit Actor, enrage variants |
 | **Directional guard** | Frontal arc damage reduction while guarding | angle check in `damageMonster` vs `Monster.facing` | Shieldbearer Husk, late-band elites |
 | **Burrow/relocate** | Untargetable traverse, moving ground ripple telegraph, eruption | monster phase flag + a traveling `Hazard` marker | The Thing in the Pipes, phantom variants |
 | **Synced pack windup** | Squad members hold fire until all are wound up, release together | pack id already exists (spawn packs); gate `beginWindup` release | Wind-Up Battalion |
 | **Riposte stance** | Timed window: melee hits during it reflect + stagger the attacker | flag checked in `damageMonster`, reuses thorns math | Featured Extra, duelist elites |
-| **Flee brain** | Path AWAY from players toward a door; despawn (with consequences) on exit | inverse of chase steering (ai.ts) | The Repo Rat, gag mobs |
+| ~~**Flee brain**~~ | **SHIPPED 2026-07-08**: filcher brain in ai.ts — flees on notice, escape timer past `filcherEscapeDist` | — | gag mobs reuse the brain |
 
 The tenth verb is free: **player-verb monsters**. RIVALS mode already runs
 hostile bot crawlers with dash/bolt/nova through the same intent pipeline —
@@ -78,19 +78,17 @@ new problems. Format: **Name** (model · rig · brain) — the move, *the counte
 
 ### THE SEWERS (floors 4–6) — packs learn teamwork
 
-- **The Drum Sergeant** (OrcRaider + wardrum prop · medium · new: aura) —
-  support mob: beats a war-drum that FRENZIES its pack (attack speed + move
-  speed aura, visible ring). Worth ~nothing itself. *Counter: kill the drummer
-  first — the game's first kill-order test.*
+- ~~**The Drum Sergeant**~~ — **SHIPPED 2026-07-08** (`drummer` kind: escort
+  slot from floor 4+, frenzy aura, weak cornered swing; OrcRaider model).
+  Still open from the concept: the war-drum held prop + a visible aura ring.
 - **The Thing in the Pipes** (Monster · medium · new: burrow) — submerges,
   becomes an untargetable ripple that stalks you, erupts in an armed AoE.
   *Counter: the ripple is slower than you; keep moving, punish the eruption
   recovery.* The Rek'Sai fantasy, sewer-flavored.
-- **The Repo Rat** (Hoarder · medium · new: flee brain) — spawns clutching a
-  loot sack, runs the moment it's seen, drops a gold trail as it bleeds. If it
-  reaches a door it ESCAPES with the floor's vault bonus. *Counter: burst it —
-  mobility skills finally have a chase.* The Diablo treasure-goblin dopamine,
-  and it makes the owner's beloved mobility kit the right tool.
+- ~~**The Repo Rat**~~ — **SHIPPED 2026-07-08** (`filcher` kind: one per most
+  ordinary floors 4+, carries floor-scaled gold, bleeds a coin per HP quarter,
+  drops the purse on death, escapes for good after `filcherEscapeSeconds`
+  safely away; Hoarder model).
 
 ### THE GARDEN (floors 7–9) — the floor fights back
 
