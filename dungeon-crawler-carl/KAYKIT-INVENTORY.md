@@ -68,10 +68,10 @@ soldiers are absolutely on-theme).
 
 | Character | Pack | Rig | Band/role suggestion |
 |---|---|---|---|
-| Skeleton_Rogue | Skeletons 1.1 | medium | UNDERCROFT — fast stabby variant |
-| Skeleton_Golem | Skeletons 1.1 | **large** | UNDERCROFT/SEWERS — second brute silhouette |
+| ~~Skeleton_Rogue~~ | Skeletons 1.1 | medium | **SHIPPED 2026-07-08** as the Cutpurse (lunge-stab gold thief) |
+| ~~Skeleton_Golem~~ | Skeletons 1.1 | **large** | **SHIPPED 2026-07-08** as the Ossuary Warden (shard-zone slam) |
 | ~~OrcRaider~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Drum Sergeant (SEWERS support mob) |
-| Caveman | Mystery S5 | medium | UNDERCROFT — club grunt |
+| ~~Caveman~~ | Mystery S5 | medium | **SHIPPED 2026-07-08** as the Pit Digger (knockback tutor) |
 | Monster | Mystery S4 | medium | any — classic beast |
 | MonsterCostume | Mystery S4 | medium | THE SHOW twist — "it was a guy in a suit" |
 | ~~Werewolf_Man~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Understudy (morphs into the charger wolf) |

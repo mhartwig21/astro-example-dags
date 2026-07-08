@@ -197,7 +197,12 @@ export type MonsterKind =
   // along a lane that DRAGS you to it. understudy: a weak shuffler that
   // TRANSFORMS into a full charger at half HP (stagger the morph or burst it).
   // hexer: curses a crawler with a vulnerability mark the pack exploits.
-  | "lasher" | "understudy" | "hexer";
+  | "lasher" | "understudy" | "hexer"
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine): cutpurse lunges
+  // down a short lane and STEALS gold (killing it refunds with interest).
+  // warden: a slow bone golem whose slam leaves a shard zone. digger: a huge
+  // club tell that LAUNCHES you gently — knockback in training dosage.
+  | "cutpurse" | "warden" | "digger";
 
 export interface Monster {
   id: number;
@@ -226,8 +231,9 @@ export interface Monster {
   // "hook": lasher whip along the chargeDir lane — hits get DRAGGED in.
   // "morph": understudy transformation (interruptible; it becomes a charger).
   // "hex": the Briar Witch's vulnerability curse on the nearest crawler.
+  // "lunge": cutpurse dash-stab down the chargeDir lane; a hit STEALS gold.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
-    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex"; // what resolves when windup expires
+    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"; // what resolves when windup expires
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
   // (The lasher's hook also locks its lane here — one dir field, two verbs.)
@@ -548,7 +554,9 @@ export interface Hazard {
   total: number; // full delay/duration (render progress)
   radius: number; // tiles
   damage: number; // blast: the hit; puddle/sludge: damage per tick
-  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam"; // absent = blast (older saves/snapshots)
+  // "shards": the Ossuary Warden's slam debris — a lingering ticking zone
+  // like a puddle, but bone-physical (no poison soak).
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards"; // absent = blast (older saves/snapshots)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as

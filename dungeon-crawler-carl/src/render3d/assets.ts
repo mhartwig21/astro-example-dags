@@ -49,6 +49,11 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_lasher: "/assets/characters/plant_warrior.glb",
   monster_understudy: "/assets/characters/werewolf_man.glb",
   monster_hexer: "/assets/characters/tiefling.glb",
+  // UNDERCROFT trainers (MOB-CONCEPTS.md): the last two Skeletons 1.1
+  // characters + the Caveman join the crypt shift.
+  monster_cutpurse: "/assets/characters/skeleton_rogue.glb",
+  monster_warden: "/assets/characters/skeleton_golem.glb",
+  monster_digger: "/assets/characters/caveman.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -162,6 +167,9 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_lasher: "medium", // PlantWarrior (shared body, different job)
   monster_understudy: "medium", // Werewolf_Man (pre-morph)
   monster_hexer: "medium", // Tiefling
+  monster_cutpurse: "medium", // Skeleton_Rogue
+  monster_warden: "large", // Skeleton_Golem — the big bone furniture
+  monster_digger: "medium", // Caveman
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)

@@ -467,3 +467,91 @@ describe("GARDEN: band gating", () => {
     expect(seen).toBe(true);
   });
 });
+
+describe("UNDERCROFT: cutpurse", () => {
+  it("the lunge stabs and STEALS gold; the kill refunds with interest", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    p.gold = 100;
+    const thief = mkMon(g, {
+      kind: "cutpurse", pos: { x: p.pos.x + 2, y: p.pos.y }, damage: 5, attackRange: 1,
+    });
+    thief.chargeDir = { x: -1, y: 0 };
+    thief.windup = thief.windupTotal = 0.05;
+    thief.windupKind = "lunge";
+    run(g, 0.2);
+    // The purse only grows by stealing (achievement payouts inflate p.gold
+    // mid-test, so assert on the thief's carry, not the player's balance).
+    const carry = thief.carry ?? 0;
+    const expectedSteal = Math.round(CONFIG.cutpurseStealBase + CONFIG.cutpurseStealPerFloor * g.floor);
+    expect(carry).toBe(Math.round(expectedSteal * CONFIG.cutpurseInterest));
+    // Catch it: the purse hits the floor with interest (the thief died at
+    // the player's feet, so the drop may be vacuumed up the same step —
+    // count the floor AND the pocket).
+    g.loot = [];
+    const goldBefore = p.gold;
+    thief.hp = 0;
+    run(g, 0.1);
+    const onFloor = g.loot.filter((l) => l.kind === "gold").reduce((s, l) => s + (l.amount ?? 0), 0);
+    const pocketed = p.gold - goldBefore;
+    expect(onFloor + pocketed).toBeGreaterThanOrEqual(carry);
+  });
+});
+
+describe("UNDERCROFT: ossuary warden", () => {
+  it("its slam leaves a lingering bone-shard zone that ticks", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const golem = mkMon(g, {
+      kind: "warden", pos: { x: p.pos.x + 0.9, y: p.pos.y }, damage: 20, attackRange: 1.15,
+    });
+    golem.windup = golem.windupTotal = 0.05;
+    golem.windupKind = "slam";
+    run(g, 0.2);
+    const shards = g.hazards.find((h) => h.kind === "shards");
+    expect(shards).toBeDefined();
+    const hpAfterSlam = p.hp;
+    run(g, 2.5); // stand in the debris like a rookie
+    expect(p.hp).toBeLessThan(hpAfterSlam); // the zone bites on the tick
+  });
+});
+
+describe("UNDERCROFT: pit digger", () => {
+  it("launches farther than the piston, hits gentler", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const dig = mkMon(g, {
+      kind: "digger", pos: { x: p.pos.x + 0.8, y: p.pos.y }, damage: 4, attackRange: 1.1,
+    });
+    dig.windup = dig.windupTotal = 0.05;
+    dig.windupKind = "punch";
+    const start = { ...p.pos };
+    run(g, 0.5);
+    const launched = dist(start, p.pos);
+    expect(launched).toBeGreaterThan(1.0); // a REAL launch...
+    expect(p.hp).toBeGreaterThan(10_000 - 30); // ...from a gentle hit
+  });
+});
+
+describe("UNDERCROFT: the contract floor stays pristine", () => {
+  it("floor 1 has ZERO specialists of any band; floor 2 meets the trainers", () => {
+    const SPECIALS = new Set([
+      "cutpurse", "warden", "digger", "drummer", "filcher",
+      "lasher", "understudy", "hexer",
+      "lineworker", "sentinel", "slagbreaker", "toysoldier", "greeter",
+    ]);
+    for (let seed = 1; seed <= 30; seed++) {
+      const g1 = createTestGame({ seed, floor: 1 });
+      expect(g1.monsters.some((m) => SPECIALS.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g2 = createTestGame({ seed, floor: 2 });
+      seen = g2.monsters.some((m) => ["cutpurse", "warden", "digger"].includes(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});
