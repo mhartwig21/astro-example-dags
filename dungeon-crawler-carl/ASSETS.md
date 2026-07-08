@@ -1,5 +1,9 @@
 # Art & audio assets — open-source sourcing
 
+> This file tracks assets **in use** (origin + license). For what's *available*
+> in the owner's KayKit Complete Collection zip but not yet used — including the
+> full rigged-character census — see `KAYKIT-INVENTORY.md`.
+
 The 3D isometric renderer (`src/render3d/`) currently draws **procedural low-poly
 placeholder meshes** so we can confirm art direction without any downloads. It's
 built to load real **glTF/GLB** models the moment they're present under
