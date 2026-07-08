@@ -1,6 +1,6 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
-  buyCatalogItem, sellItem, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
   type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
@@ -11,7 +11,8 @@ import {
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
 import {
-  Tile, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type Player,
+  EQUIP_SLOTS, Tile,
+  type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
 } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -140,6 +141,7 @@ input.onReset = () => {
   if (abilOpen) toggleAbilities();
   document.getElementById("saferoom")!.style.display = "none";
   document.getElementById("draft")!.style.display = "none";
+  document.getElementById("recap")!.style.display = "none"; // last season's report card
 };
 
 // HUD elements.
@@ -353,7 +355,7 @@ function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): strin
 
 function renderInventory(s: GameState): void {
   const p = me(s);
-  invEquipped.innerHTML = (["weapon", "armor", "trinket"] as const)
+  invEquipped.innerHTML = EQUIP_SLOTS
     .map((slot) => {
       const it = p.equipment[slot];
       return it
@@ -574,7 +576,7 @@ const statIcon = (id: string): string =>
 const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
-function gearRowHtml(slot: "weapon" | "armor" | "trinket", it: Item | null): string {
+function gearRowHtml(slot: ItemSlot, it: Item | null): string {
   if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const icon = it.catalogId
@@ -616,7 +618,7 @@ function renderSheet(s: GameState): void {
   const a = sh.attributes;
   const d = sh.defense;
   sheetSub.textContent = `${id.name} · LEVEL ${id.level} · FLOOR ${id.floor}`;
-  sheetGear.innerHTML = (["weapon", "armor", "trinket"] as const)
+  sheetGear.innerHTML = EQUIP_SLOTS
     .map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
   const tiles: [string, string, string, string, string][] = [
     ["attack", "#ff9a5c", String(a.attackPower), "ATTACK PWR",
@@ -830,7 +832,7 @@ let shopView: "stock" | "all" = "stock";
 type ShopSel =
   | { kind: "catalog"; id: string }
   | { kind: "bag"; idx: number }
-  | { kind: "equipped"; slot: "weapon" | "armor" | "trinket" };
+  | { kind: "equipped"; slot: ItemSlot };
 let shopSel: ShopSel | null = null;
 
 // Icons by convention: /icons/items/<catalogId>.svg (game-icons.net, CSS-mask tinted).
@@ -846,9 +848,7 @@ function ownedCatalogCounts(p: Player): Record<string, number> {
     if (it?.catalogId) counts[it.catalogId] = (counts[it.catalogId] ?? 0) + 1;
   };
   p.inventory.forEach((it) => add(it));
-  add(p.equipment.weapon);
-  add(p.equipment.armor);
-  add(p.equipment.trinket);
+  for (const slot of EQUIP_SLOTS) add(p.equipment[slot]);
   return counts;
 }
 
@@ -1115,7 +1115,7 @@ function renderShopPage(s: GameState): void {
   }
   srShelf.innerHTML = shelf;
   // Equipped + bag.
-  srEquipped.innerHTML = (["weapon", "armor", "trinket"] as const).map((slot) => {
+  srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
     if (!it) return `<div class="itile" style="--tc:#2c3a31"><div class="ibox"><span class="iglyph" style="color:#2c3a31">·</span></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
@@ -1208,7 +1208,7 @@ srDetail.addEventListener("click", (e) => {
 srEquipped.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-slot]") as HTMLElement | null;
   if (!tile) return;
-  shopSel = { kind: "equipped", slot: tile.dataset.slot as "weapon" | "armor" | "trinket" };
+  shopSel = { kind: "equipped", slot: tile.dataset.slot as ItemSlot };
   renderSafeRoom(state);
 });
 
@@ -1218,6 +1218,72 @@ srBag.addEventListener("click", (e) => {
   shopSel = { kind: "bag", idx: Number(tile.dataset.bag) };
   renderSafeRoom(state);
 });
+
+// SELL ALL: liquidate the bag in one click (equipped gear is safe by design).
+document.getElementById("sr-sellall")!.addEventListener("click", () => {
+  if (me(state).inventory.length === 0) return;
+  audio.play("buy");
+  if (net) net.sellAll();
+  else {
+    sellAllItems(state, me(state).id);
+    flushFeedback(state);
+    persistRun(state);
+  }
+  if (shopSel?.kind === "bag") shopSel = null; // the selected tile just sold
+  renderSafeRoom(state);
+});
+
+// ---- Item hover tooltip (store bag/equipped tiles are icon-only) ----
+const itemTipEl = document.getElementById("itemtip")!;
+
+function itemTipHtml(it: Item): string {
+  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const wclass = weaponClassOf(it);
+  const into = it.catalogId ? buildsInto(it.catalogId) : [];
+  return (
+    `<div class="tname" style="color:${tc}">${it.name}</div>` +
+    `<div class="tmeta">${it.rarity} ${it.slot}${wclass ? ` · ${wclass}` : ""}</div>` +
+    (affixLines(it).map((l) => `<div class="taff">${l}</div>`).join("") || `<div class="taff">—</div>`) +
+    (it.passive && it.catalogId ? `<div class="tpass">${CATALOG_BY_ID[it.catalogId].desc}</div>` : "") +
+    (into.length ? `<div class="tbuild">component of: ${into.map((e) => e.name).join(", ")}</div>` : "") +
+    `<div class="tsell">sells for ${sellValue(it)} gold</div>`
+  );
+}
+
+function moveItemTip(e: MouseEvent): void {
+  const pad = 14;
+  const w = itemTipEl.offsetWidth, h = itemTipEl.offsetHeight;
+  itemTipEl.style.left = `${Math.min(e.clientX + pad, window.innerWidth - w - 8)}px`;
+  itemTipEl.style.top = `${Math.min(e.clientY + pad, window.innerHeight - h - 8)}px`;
+}
+
+/** Resolve the Item under a hovered tile in the shop panel, if any. */
+function tipItemFor(el: HTMLElement): Item | null {
+  const p = me(state);
+  const bagTile = el.closest(".itile[data-bag]") as HTMLElement | null;
+  if (bagTile) return p.inventory[Number(bagTile.dataset.bag)] ?? null;
+  const slotTile = el.closest(".itile[data-slot]") as HTMLElement | null;
+  if (slotTile) return p.equipment[slotTile.dataset.slot as ItemSlot];
+  return null;
+}
+
+for (const container of [srBag, srEquipped]) {
+  container.addEventListener("mouseover", (e) => {
+    const it = tipItemFor(e.target as HTMLElement);
+    if (!it) { itemTipEl.style.display = "none"; return; }
+    itemTipEl.innerHTML = itemTipHtml(it);
+    itemTipEl.style.display = "block";
+    moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mousemove", (e) => {
+    if (itemTipEl.style.display === "block") moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mouseleave", () => { itemTipEl.style.display = "none"; });
+}
+// The tooltip must never outlive the shop screen.
+new MutationObserver(() => {
+  if (srEl.style.display === "none") itemTipEl.style.display = "none";
+}).observe(srEl, { attributes: true, attributeFilter: ["style"] });
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
@@ -1370,6 +1436,11 @@ function spawnDamageNumber(h: HitEvent): void {
   el.style.top = `${s.y}px`;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
+  // can SEE which school each number came from (physical keeps the defaults).
+  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
+    el.style.color = h.kind === "crit" ? "#d3b6ff" : "#b998ff";
+  }
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
@@ -1439,6 +1510,81 @@ function showBanner(a: Announcement): void {
     if (next) showBanner(next);
   }, BANNER_HOLD_MS);
 }
+
+// ---- Run recap (backlog #12): the season report card ----
+// Shown once per status edge: won = SEASON FINALE, wipe = IN MEMORIAM. All the
+// data already lives on Player/GameState; this only formats it.
+const recapEl = document.getElementById("recap")!;
+let recapFor: GameState["status"] | null = null;
+
+function renderRecap(s: GameState): void {
+  const p = me(s);
+  const won = s.status === "won";
+  const title = document.getElementById("recap-title")!;
+  title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
+  title.className = won ? "win" : "wipe";
+  document.getElementById("recap-sub")!.textContent = won
+    ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
+    : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+  const stats: [string, string][] = [
+    [String(p.level), "LEVEL"],
+    [p.kills.toLocaleString(), "KILLS"],
+    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
+    [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
+    [`◈ ${p.gold.toLocaleString()}`, "GOLD BANKED"],
+    [`◈ ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
+  ];
+  document.getElementById("recap-stats")!.innerHTML =
+    stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
+  document.getElementById("recap-show")!.innerHTML =
+    `<div class="rstat viewers"><b>${Math.round(p.viewers).toLocaleString()}</b><small>VIEWERS</small></div>` +
+    `<div class="rstat favorites"><b>${Math.floor(p.favorites).toLocaleString()}</b><small>FAVORITES</small></div>` +
+    `<div class="rstat sponsors"><b>${p.sponsors}</b><small>SPONSORS</small></div>`;
+  const ach = p.achievements
+    .map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.title)
+    .filter((t): t is string => !!t);
+  document.getElementById("recap-ach")!.textContent = ach.length
+    ? `★ ${ach.join(" · ★ ")}`
+    : "None recorded. The System pretends not to judge.";
+  document.getElementById("recap-gear")!.innerHTML =
+    EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
+  const held: { id: AbilityId; ult: boolean }[] = [
+    ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ({ id, ult: false })),
+    ...(p.abilities.ultimate ? [{ id: p.abilities.ultimate, ult: true }] : []),
+  ];
+  document.getElementById("recap-abils")!.innerHTML = held.length
+    ? held.map(({ id, ult }) => {
+        const ranks = UPGRADES.filter((u) => u.ability === id).reduce((sum, u) => sum + rank(p, u.id), 0);
+        return (
+          `<div class="rabil${ult ? " ultimate" : ""}">` +
+          `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+          `${ABILITY_INFO[id].name}${ult ? " · ULTIMATE" : ""}` +
+          `<span class="rk">${ranks ? `${ranks} rank${ranks === 1 ? "" : "s"}` : "base"}</span></div>`
+        );
+      }).join("")
+    : `<div class="rabil">bare hands and bad intentions</div>`;
+  document.getElementById("recap-note")!.textContent = net
+    ? "the server hosts the next season"
+    : won ? "season two is contractually obligated" : "";
+  document.getElementById("recap-again")!.style.display = net ? "none" : "";
+}
+
+/** Show the recap when the run ends; re-arm when a new run starts. */
+function maybeShowRecap(s: GameState): void {
+  if (s.status === "playing") { recapFor = null; return; }
+  if (recapFor === s.status) return;
+  recapFor = s.status;
+  renderRecap(s);
+  recapEl.style.display = "flex";
+}
+
+document.getElementById("recap-dismiss")!.addEventListener("click", () => {
+  recapEl.style.display = "none"; // spectate the arena; R still restarts
+});
+document.getElementById("recap-again")!.addEventListener("click", () => {
+  recapEl.style.display = "none";
+  input.onReset?.();
+});
 
 function phaseColor(s: GameState): string {
   return s.phase === "safe" ? "#5fd08a" : s.phase === "warning" ? "#f2c14e" : "#e2574c";
@@ -1623,6 +1769,7 @@ async function main(): Promise<void> {
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
+    maybeShowRecap(state);
     updateSkills(state);
     updateShowHud(state);
     updateBossBar(state);

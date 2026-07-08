@@ -1,20 +1,24 @@
 ﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createGame, createTestGame, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
-  chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellValue, effectivePrice,
+  chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr,
 } from "../src/sim/game";
 import { armorReduction, rollDamage } from "../src/sim/combat";
+import { generateFloor } from "../src/sim/floor";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, weaponClassOf } from "../src/sim/items";
 import {
   DISCOVERABLE_ABILITIES, availableUpgrades, boltParams, damageVariance, effectiveMaxRank, knows, meleeParams,
-  novaParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
+  novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
 } from "../src/sim/abilities";
-import { NO_INTENT, Tile, type FloorMap, type GameState, type Intent, type Vec2 } from "../src/sim/types";
+import {
+  EQUIP_SLOTS, NO_INTENT, Tile,
+  type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
+} from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
@@ -267,7 +271,9 @@ describe("itemization", () => {
     const a = generateItem(rng1, 5, () => ++id1);
     const b = generateItem(rng2, 5, () => ++id2);
     expect(a).toEqual(b);
-    const primaryBySlot = { weapon: "damage", armor: "armor", trinket: "crit" } as const;
+    const primaryBySlot = {
+      weapon: "damage", armor: "armor", helm: "maxHp", boots: "speed", trinket: "crit", charm: "crit",
+    } as const;
     expect(a.affixes[primaryBySlot[a.slot]]).toBeGreaterThan(0);
   });
 
@@ -297,6 +303,64 @@ describe("itemization", () => {
     step(g, idle(), 1 / 60);
     expect(p.equipment.weapon?.id).toBe(1);
     expect(p.inventory.some((i) => i.id === 2)).toBe(true);
+  });
+
+  it("rolls items for all six equipment slots (backlog #10)", () => {
+    const rng = createRng(777);
+    let id = 0;
+    const seen = new Set<ItemSlot>();
+    for (let i = 0; i < 400; i++) seen.add(generateItem(rng, 5, () => ++id).slot);
+    for (const slot of EQUIP_SLOTS) expect(seen.has(slot)).toBe(true);
+  });
+
+  it("support slots (helm/boots/charm) roll on a reduced budget", () => {
+    // Same rarity + floor: an armor piece's HP rolls must outbudget a helm's.
+    const rng = createRng(123);
+    let id = 0;
+    let armorHp = 0, armorN = 0, helmHp = 0, helmN = 0;
+    for (let i = 0; i < 3000; i++) {
+      const it = generateItem(rng, 8, () => ++id);
+      if (it.rarity !== "rare") continue;
+      if (it.slot === "armor" && it.affixes.maxHp) { armorHp += it.affixes.maxHp; armorN++; }
+      if (it.slot === "helm" && it.affixes.maxHp) { helmHp += it.affixes.maxHp; helmN++; }
+    }
+    expect(armorN).toBeGreaterThan(0);
+    expect(helmN).toBeGreaterThan(0);
+    expect(helmHp / helmN).toBeLessThan(armorHp / armorN);
+  });
+
+  it("all six slots feed recomputeStats and hasPassive stays slot-agnostic", () => {
+    const g = createGame(9);
+    const p = g.players[0];
+    const base = { atk: p.attackPower, hp: p.maxHp, crit: p.critChance };
+    equipItem(p, { id: 1, slot: "helm", rarity: "magic", name: "Test Helm", affixes: { maxHp: 20 } });
+    equipItem(p, { id: 2, slot: "boots", rarity: "magic", name: "Test Treads", affixes: { speed: 0.3 } });
+    equipItem(p, { id: 3, slot: "charm", rarity: "epic", name: "Test Locket", affixes: { crit: 0.05, damage: 4 } });
+    expect(p.maxHp).toBe(base.hp + 20);
+    expect(p.speed).toBeCloseTo(CONFIG.playerSpeed + 0.3);
+    expect(p.critChance).toBeCloseTo(base.crit + 0.05);
+    expect(p.attackPower).toBe(base.atk + 4);
+  });
+
+  it("migrates a pre-#10 three-slot save into the six-socket shape", () => {
+    const oldEquipment = {
+      weapon: { id: 1, slot: "weapon", rarity: "rare", name: "Old Blade", affixes: { damage: 10 } },
+      armor: null,
+      trinket: { id: 2, slot: "trinket", rarity: "magic", name: "Old Band", affixes: { crit: 0.03 } },
+    };
+    const g = restoreGame({
+      seed: 42, floor: 3,
+      player: {
+        hp: 80, level: 4, xp: 0, xpToNext: 50, gold: 10,
+        equipment: oldEquipment as unknown as import("../src/sim/types").Player["equipment"],
+      },
+    });
+    const p = g.players[0];
+    expect(p.equipment.weapon?.name).toBe("Old Blade");
+    expect(p.equipment.trinket?.name).toBe("Old Band");
+    for (const slot of ["helm", "boots", "charm"] as const) expect(p.equipment[slot]).toBeNull();
+    // Recompute walked all six sockets without tripping on the empty ones.
+    expect(p.attackPower).toBeGreaterThan(0);
   });
 
   it("equipFromInventory swaps the equipped item back to the bag", () => {
@@ -556,13 +620,13 @@ describe("safe room + System Shop", () => {
     // Shop index 3 (descending from floor 3): advanced yes, legendary not yet.
     const room3 = reachDeepSafeRoom(306, 3).safeRoom!;
     const tiers3 = room3.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers3.filter((t) => t === "advanced").length).toBe(4); // 3 + (3-2)
+    expect(tiers3.filter((t) => t === "advanced").length).toBe(5); // 4 + (3-2)
     expect(tiers3).not.toContain("legendary");
-    // Shop index 5: one more advanced pick, and the first legendary appears.
+    // Shop index 5: one more advanced pick, and the first legendaries appear.
     const room5 = reachDeepSafeRoom(306, 5).safeRoom!;
     const tiers5 = room5.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers5.filter((t) => t === "advanced").length).toBe(6);
-    expect(tiers5.filter((t) => t === "legendary").length).toBe(1);
+    expect(tiers5.filter((t) => t === "advanced").length).toBe(7);
+    expect(tiers5.filter((t) => t === "legendary").length).toBe(2);
   });
 
   it("buying a Field Ration heals, deducts gold, and tracks goldSpent", () => {
@@ -715,6 +779,48 @@ describe("safe room + System Shop", () => {
     buyCatalogItem(g, 0, "showstopper_plate");
     expect(p.equipment.armor?.catalogId).toBe("showstopper_plate");
     expect(p.inventory.some((it) => it.catalogId === "iron_plating")).toBe(false); // both consumed
+  });
+
+  it("the caster branch shops spell power: wand + amplifier build the Stormcall Staff", () => {
+    const g = reachSafeRoom(314);
+    const p = g.players[0];
+    g.safeRoom!.available.push("ozone_wand", "cursed_amplifier", "stormcall_staff");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "ozone_wand"); // auto-equips the weapon socket
+    expect(p.equipment.weapon?.catalogId).toBe("ozone_wand");
+    expect(weaponClassOf(p.equipment.weapon)).toBe("arcane"); // real bolt-profile change
+    const sp0 = p.spellPower;
+    buyCatalogItem(g, 0, "cursed_amplifier"); // the charm socket carries SP too
+    expect(p.equipment.charm?.catalogId).toBe("cursed_amplifier");
+    expect(p.spellPower).toBeGreaterThan(sp0);
+    buyCatalogItem(g, 0, "stormcall_staff"); // consumes both components
+    expect(p.equipment.weapon?.catalogId).toBe("stormcall_staff");
+    expect(weaponClassOf(p.equipment.weapon)).toBe("arcane");
+    expect(p.equipment.charm).toBeNull(); // amplifier was consumed by the build
+  });
+
+  it("tempo (Sweeps Week Staff) speeds every active cooldown", () => {
+    const with_ = createGame(660);
+    const without = createGame(660);
+    for (const [g, tempo] of [[with_, true], [without, false]] as const) {
+      const p = g.players[0];
+      equipItem(p, {
+        id: 1, slot: "weapon", rarity: "epic", name: "Sweeps Week Staff",
+        affixes: { spell: 20 }, passive: tempo ? "tempo" : undefined, catalogId: "sweeps_week_staff",
+      });
+      step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
+    }
+    const cdWith = with_.players[0].cd.bolt!;
+    const cdWithout = without.players[0].cd.bolt!;
+    expect(cdWith).toBeCloseTo(cdWithout * CONFIG.tempoCooldownMult, 5);
+  });
+
+  it("catalog spell affixes scale with the floor ahead like the physical school", () => {
+    const early = gearAffixes(CATALOG_BY_ID.stormcall_staff, 2).spell!;
+    const late = gearAffixes(CATALOG_BY_ID.stormcall_staff, 10).spell!;
+    expect(late).toBeGreaterThan(early);
+    // Rare-tier parity vs a worst-case floor-10 drop primary (same rule as ATK).
+    expect(late).toBeGreaterThanOrEqual(Math.round((2 + 10) * 2.4) * 0.4);
   });
 
   it("catalog gear keeps tier parity with same-rarity drops deep in the run (backlog #5)", () => {
@@ -1581,22 +1687,28 @@ describe("brute Ground Slam + boss kit escalation", () => {
     expect(p.hp).toBeLessThan(hp0);
   });
 
-  it("boss tier 2 (floor-12 city boss) calls for backup when it crosses a phase break", () => {
-    const g = createGame(922);
-    const p = g.players[0];
-    g.monsters.length = 0;
-    g.projectiles.length = 0;
-    const boss = mkMon({
-      id: 1, kind: "boss", pos: { x: p.pos.x + 5, y: p.pos.y }, // out of slam/melee range: isolates the phase logic
-      hp: 90, maxHp: 300, damage: 30, attackRange: 1.4, speed: 0, bossTier: 2,
-    });
-    boss.introduced = true;
-    g.monsters.push(boss);
-    step(g, idle(), 1 / 60); // hp/maxHp = 0.3 -> crosses both phase breaks this step
-    expect(boss.phase).toBe(2);
-    expect(boss.addsSpawned).toBeGreaterThan(0);
-    expect(g.monsters.some((m) => m.kind === "ranged")).toBe(true);
-    expect(g.announcements.some((a) => a.text.includes("BACKUP"))).toBe(true);
+  it("boss tier 2 (floor-12 city boss) cycles its Ground Slam faster than tier 1", () => {
+    // Call for Backup was folded into the universal phase adds waves (backlog
+    // #11) during integration — tier 2's escalation is slam HASTE instead.
+    const slamCdAfterCommit = (tier: 1 | 2) => {
+      const g = createGame(922);
+      const p = g.players[0];
+      g.monsters.length = 0;
+      g.projectiles.length = 0;
+      const boss = mkMon({
+        id: 1, kind: "boss", pos: { x: p.pos.x + 2.0, y: p.pos.y },
+        hp: 500, maxHp: 500, damage: 30, attackRange: 1.4, speed: 0, bossTier: tier,
+      });
+      boss.introduced = true;
+      g.monsters.push(boss);
+      step(g, idle(), 1 / 60); // within slam commit range -> winds up, sets slamCd
+      expect(boss.windupKind).toBe("slam");
+      return boss.slamCd!;
+    };
+    const t1 = slamCdAfterCommit(1);
+    const t2 = slamCdAfterCommit(2);
+    expect(t2).toBeLessThan(t1);
+    expect(t2).toBeCloseTo(t1 * CONFIG.bossSlamHasteT2, 5);
   });
 
   it("boss tier 3 (final boss) channels a Dark Ritual — the one real interrupt-or-hurt attack in the game", () => {
@@ -2280,6 +2392,92 @@ describe("boss phases", () => {
     step(g, idle(), 1 / 60);
     expect(boss.phase).toBe(2);
     expect(boss.speed).toBeGreaterThan(speed0 * CONFIG.bossPhaseSpeedMult);
+  });
+
+  it("phase transitions call an adds wave (backlog #11)", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5);
+    step(g, idle(), 1 / 60);
+    expect(boss.phase).toBe(1);
+    // The wave arrived around the boss and is worth almost nothing.
+    const adds = g.monsters.filter((m) => m !== boss);
+    expect(adds.length).toBeGreaterThanOrEqual(CONFIG.bossWaveAdds + CONFIG.bossWaveAddsPerPhase);
+    expect(adds.every((m) => m.xp <= 1)).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("BACKUP"))).toBe(true);
+  });
+
+  it("phase 1+ rains telegraphed hazards on crawler positions (backlog #11)", () => {
+    const g = restoreGame({
+      seed: 99, floor: CONFIG.finalFloor,
+      player: { hp: 100, level: 10, xp: 0, xpToNext: 999, gold: 0 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    g.hazards.length = 0;
+    boss.introduced = true;
+    boss.bossTier = undefined; // no ritual/slam windup eating the step; this test is about hazard rain
+    const p = g.players[0];
+    p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
+    step(g, idle(), 1 / 60);
+    const rain = g.hazards.filter((h) => h.kind === "blast");
+    expect(rain.length).toBeGreaterThanOrEqual(1);
+    // Aimed at where the crawler WAS standing — moving out is the dodge.
+    expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);
+    // Spawned this step, so it has already ticked down by one dt.
+    expect(rain[0].t).toBeGreaterThan(CONFIG.bossHazardDelay - 0.1);
+    expect(rain[0].total).toBeCloseTo(CONFIG.bossHazardDelay, 3);
+  });
+
+  it("boss floors host the fight in a dedicated oversized arena (backlog #11)", () => {
+    for (const floor of [6, 12, CONFIG.finalFloor]) {
+      const map = generateFloor(createRng(1234 + floor), floor);
+      const stairsRoom = map.rooms[map.roles.indexOf("stairs")];
+      expect(stairsRoom.w).toBe(CONFIG.bossArenaSize);
+      expect(stairsRoom.h).toBe(CONFIG.bossArenaSize);
+      // The stairs (= boss spawn) sit inside the arena.
+      expect(map.stairs.x).toBeGreaterThanOrEqual(stairsRoom.x);
+      expect(map.stairs.x).toBeLessThan(stairsRoom.x + stairsRoom.w);
+    }
+    // Ordinary floors keep ordinary rooms (max side 12).
+    const plain = generateFloor(createRng(555), 7);
+    const plainStairs = plain.rooms[plain.roles.indexOf("stairs")];
+    expect(Math.max(plainStairs.w, plainStairs.h)).toBeLessThanOrEqual(12);
+  });
+
+  it("corridors are at least two tiles wide (pathways must read on sight)", () => {
+    // A 1-wide corridor tile has exactly 2 walkable neighbors; 2-wide carving
+    // gives every corridor tile its lateral partner (3+). Allow a tiny
+    // remainder for map-border clamps, but a 1-wide system fails massively.
+    for (const seed of [11, 77, 555]) {
+      for (const floor of [2, 7, 13]) {
+        const map = generateFloor(createRng(seed), floor);
+        const inRoom = (x: number, y: number) =>
+          map.rooms.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        const walkable = (x: number, y: number) =>
+          x >= 0 && y >= 0 && x < map.w && y < map.h && map.tiles[y * map.w + x] !== Tile.Wall;
+        let corridor = 0;
+        let narrow = 0;
+        for (let y = 0; y < map.h; y++) {
+          for (let x = 0; x < map.w; x++) {
+            if (!walkable(x, y) || inRoom(x, y)) continue;
+            corridor++;
+            const n = [walkable(x + 1, y), walkable(x - 1, y), walkable(x, y + 1), walkable(x, y - 1)]
+              .filter(Boolean).length;
+            if (n < 3) narrow++;
+          }
+        }
+        expect(corridor).toBeGreaterThan(0);
+        expect(narrow / corridor).toBeLessThan(0.02);
+      }
+    }
   });
 });
 
@@ -3217,5 +3415,195 @@ describe("locked floors", () => {
     const b = atFloor(2, 3);
     expect(Array.from(a.map.tiles)).toEqual(Array.from(b.map.tiles));
     expect(a.monsters.find((m) => m.hasKey)?.id).toBe(b.monsters.find((m) => m.hasKey)?.id);
+  });
+});
+
+/** Walk seed's floor-1 stairs into the first safe room (shared by the new suites). */
+function reachShop(seed: number) {
+  const g = createGame(seed);
+  g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+  step(g, { move: { x: 0, y: 0 }, attack: false, useStairs: true }, 1 / 60);
+  return g;
+}
+
+describe("chase legendaries (store-only uniques)", () => {
+  const wear = (g: GameState, item: Partial<import("../src/sim/types").Item> & { slot: import("../src/sim/types").ItemSlot }) => {
+    const p = g.players[0];
+    equipItem(p, { id: 900, rarity: "epic", name: "X", affixes: {}, ...item } as import("../src/sim/types").Item);
+    return p;
+  };
+
+  it("Perpetual Encore: +1 orbit blade, faster damage ticks", () => {
+    const g = createGame(990);
+    const p = g.players[0];
+    const before = orbitParams(p);
+    wear(g, { slot: "trinket", name: "Perpetual Encore", passive: "encore", catalogId: "perpetual_encore" });
+    const after = orbitParams(p);
+    expect(after.blades).toBe(before.blades + 1);
+    expect(after.tickSeconds).toBeCloseTo(before.tickSeconds * CONFIG.encoreOrbitTickMult, 5);
+  });
+
+  it("Standing Ovation: bolts pierce +2 on top of the weapon profile", () => {
+    const g = createGame(991);
+    const p = g.players[0];
+    // Epic crossbow WITHOUT the passive: ballistic rare+ pierce = 1.
+    wear(g, { slot: "weapon", name: "Box Seat Crossbow", catalogId: "box_seat_crossbow" });
+    expect(boltParams(p).pierce).toBe(1);
+    wear(g, { slot: "weapon", name: "Standing Ovation Crossbow", passive: "skewer", catalogId: "standing_ovation" });
+    expect(boltParams(p).pierce).toBe(1 + CONFIG.skewerBonusPierce);
+  });
+
+  it("Signature Choreography: stance swap resets swing + bolt cooldowns", () => {
+    const g = createGame(992);
+    const p = g.players[0];
+    learnAbility(g, p, "stance"); // auto-slots into slot 4
+    g.monsters.length = 0;
+    wear(g, { slot: "boots", name: "Signature Choreography", passive: "choreography", catalogId: "signature_choreography" });
+    p.cd.melee = 0.4;
+    p.cd.bolt = 0.6;
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, true, false] }, 1 / 60);
+    expect(p.stance).toBe("ranged"); // the swap happened
+    expect(p.cd.melee ?? 0).toBe(0);
+    expect(p.cd.bolt ?? 0).toBe(0);
+  });
+
+  it("Plot Armor: one killing blow per floor leaves you at 1 HP", () => {
+    const g = createGame(993);
+    const p = g.players[0];
+    wear(g, { slot: "helm", name: "Plot Armor", passive: "plot_armor", catalogId: "plot_armor" });
+    p.hp = 5;
+    expect(damagePlayerHit(g, p, 10_000, { roll: false })).toBe(false); // survived
+    expect(p.hp).toBe(1);
+    expect(p.plotArmorUsed).toBe(true);
+    expect(g.announcements.some((a) => a.text.includes("PLOT ARMOR"))).toBe(true);
+    // The writers only save you once per floor.
+    expect(damagePlayerHit(g, p, 10_000, { roll: false })).toBe(true);
+    // A fresh floor re-arms it.
+    p.hp = p.maxHp;
+    p.alive = true;
+    g.players[0].pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    for (const m of g.monsters) m.hp = 0;
+    step(g, { move: { x: 0, y: 0 }, useStairs: true }, 1 / 60);
+    if (g.safeRoom) leaveSafeRoom(g);
+    expect(p.plotArmorUsed).toBe(false);
+  });
+
+  it("Blood Subscription: heal a capped slice of damage dealt (lifesteal)", () => {
+    const g = createGame(996);
+    const p = g.players[0];
+    wear(g, { slot: "charm", name: "Blood Subscription", passive: "leech", catalogId: "blood_subscription" });
+    p.attackPower = 500; // big hit -> the per-hit CAP is what heals
+    p.hp = 10;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, kind: "brute", pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 99999, maxHp: 99999 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.hp).toBeGreaterThan(10);
+    expect(p.hp - 10).toBeLessThanOrEqual(Math.round(p.maxHp * CONFIG.leechCapFraction) + 1);
+    // Full HP: no overheal.
+    p.hp = p.maxHp;
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.hp).toBe(p.maxHp);
+  });
+
+  it("Cancellation Axe: executes non-elites in the threshold; named menaces are immune", () => {
+    const g = createGame(997);
+    const p = g.players[0];
+    wear(g, { slot: "weapon", name: "Cancellation Axe", passive: "cancellation", catalogId: "cancellation_axe" });
+    p.attackPower = 2; // a tap: normally nowhere near lethal
+    g.monsters.length = 0;
+    const chaff = mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 14, maxHp: 100 });
+    g.monsters.push(chaff);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(chaff.hp).toBeLessThanOrEqual(0); // 14/100 HP -> CANCELED
+    // An elite in the same band shrugs it off.
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+    const named = mkMon({ id: 2, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 14, maxHp: 100, elite: true, introduced: true });
+    g.monsters.push(named);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(named.hp).toBeGreaterThan(0);
+  });
+
+  it("Live Feed: crits arc a magic echo to the nearest other enemy, one bounce only", () => {
+    const g = createGame(998);
+    const p = g.players[0];
+    wear(g, { slot: "trinket", name: "Live Feed", passive: "conduit", catalogId: "live_feed" });
+    p.critChance = 1; // every hit crits
+    p.attackPower = 50;
+    g.monsters.length = 0;
+    const primary = mkMon({ id: 1, pos: { x: p.pos.x + 0.9, y: p.pos.y }, hp: 9999, maxHp: 9999 });
+    // BEHIND the player: outside the 90-degree swing arc, inside the conduit radius.
+    const bystander = mkMon({ id: 2, pos: { x: p.pos.x - 1.5, y: p.pos.y }, hp: 9999, maxHp: 9999 });
+    g.monsters.push(primary, bystander);
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(primary.hp).toBeLessThan(9999);
+    expect(bystander.hp).toBeLessThan(9999); // the arc reached around the swing
+    const arcDmg = 9999 - bystander.hp;
+    const mainDmg = 9999 - primary.hp;
+    expect(arcDmg).toBeLessThan(mainDmg); // an echo, not a second hit
+    expect(g.hits.some((h) => h.school === "magic")).toBe(true); // arcs read arcane
+  });
+
+  it("the full chase path: components -> advanced -> sponsor-gated unique", () => {
+    const g = reachShop(994);
+    const p = g.players[0];
+    g.safeRoom!.available.push("box_seat_crossbow", "standing_ovation");
+    p.gold = 10_000;
+    buyCatalogItem(g, 0, "honed_edge");
+    buyCatalogItem(g, 0, "glass_charm");
+    buyCatalogItem(g, 0, "box_seat_crossbow");
+    expect(p.equipment.weapon?.catalogId).toBe("box_seat_crossbow");
+    // The unique needs sponsors + trophies on top of the build path.
+    buyCatalogItem(g, 0, "standing_ovation");
+    expect(p.equipment.weapon?.catalogId).toBe("box_seat_crossbow"); // refused
+    p.sponsors = 1;
+    p.materials.elite_trophy = 2;
+    buyCatalogItem(g, 0, "standing_ovation");
+    expect(p.equipment.weapon?.passive).toBe("skewer");
+    expect(boltParams(p).pierce).toBeGreaterThanOrEqual(1 + CONFIG.skewerBonusPierce);
+  });
+});
+
+describe("planning-first drops", () => {
+  it("a slice of equipment drops are catalog components (they feed build paths)", () => {
+    const g = createGame(995);
+    const p = g.players[0];
+    p.attackPower = 99_999;
+    g.monsters.length = 0;
+    let component = 0, rolled = 0;
+    for (let i = 0; i < 400; i++) {
+      g.loot.length = 0;
+      g.monsters.push(mkMon({ id: 10_000 + i, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1 }));
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+      for (const l of g.loot) {
+        if (l.kind !== "item" || !l.item) continue;
+        if (l.item.catalogId) component++;
+        else rolled++;
+      }
+      // let the melee cooldown clear between kills
+      for (let k = 0; k < 30; k++) step(g, idle(), 1 / 60);
+    }
+    expect(component).toBeGreaterThan(0); // drops now advance planned builds...
+    expect(rolled).toBeGreaterThan(component); // ...but rolled gear still leads
+    // Dropped components are REAL components: they satisfy build gating.
+    const entry = CATALOG_BY_ID.honed_edge;
+    expect(entry.tier).toBe("basic");
+  });
+
+  it("sell all liquidates the bag at per-item sell value (safe-room only)", () => {
+    const g = reachShop(996);
+    const p = g.players[0];
+    p.inventory.push({ id: 1, slot: "weapon", rarity: "magic", name: "Honed Edge", affixes: { damage: 6 }, catalogId: "honed_edge" });
+    p.inventory.push({ id: 2, slot: "armor", rarity: "rare", name: "Runed Plate", affixes: { maxHp: 30 } });
+    const expected = sellValue(p.inventory[0]) + sellValue(p.inventory[1]);
+    const gold0 = p.gold;
+    sellAllItems(g, 0);
+    expect(p.inventory.length).toBe(0);
+    expect(p.gold).toBe(gold0 + expected);
+    // Outside the safe room: no-op.
+    leaveSafeRoom(g);
+    p.inventory.push({ id: 3, slot: "trinket", rarity: "epic", name: "Idol", affixes: { crit: 0.1 } });
+    sellAllItems(g, 0);
+    expect(p.inventory.length).toBe(1);
   });
 });

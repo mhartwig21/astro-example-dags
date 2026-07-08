@@ -23,6 +23,8 @@ appreciated).
 | KayKit Dungeon Remastered | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Halloween Bits (THE GARDEN band: dead trees, graves, crypt, lanterns) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
 | KayKit Forest Nature Pack (THE GARDEN goes green: live trees, bushes, rocks, grass — `forest_*.glb`, Color1 variant from the Complete Collection) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
+| KayKit Forest Nature Pack — Hill_Cliff kit (open-air Garden walls: `cliff_side_*.glb`, `cliff_inner_*.glb`, `cliff_outer_*.glb` + `forest_tree_3/4_a`, `forest_rock_5_a/c`; Color1, converted via gltf-pipeline) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-forest |
+| KayKit Halloween Bits — `fence_gate.glb` (open-air gate dressing) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/halloween-bits |
 | KayKit Fantasy Weapons Bits (equippable weapon meshes — `weapon_*.glb`: swords, axes, hammer, spear, halberd, dagger, wand, staves) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-fantasy-weapons |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
@@ -224,6 +226,18 @@ One file per noun, lowercase: `/icons/nouns/<noun>.svg`.
 | idol | totem-head | Lorc |
 | band | diamond-ring | Delapouite |
 | totem | totem-mask | Lorc |
+| helm | visored-helm | Lorc |
+| visor | heavy-helm | Lorc |
+| hood | hood | Lorc |
+| crown | crown | Lorc |
+| boots | leather-boot | Lorc |
+| greaves | greaves | Delapouite |
+| treads | footprint | Lorc |
+| striders | running-shoe | Delapouite |
+| pendant | pearl-necklace | Delapouite |
+| talisman | ankh | Lorc |
+| locket | heart-necklace | Delapouite |
+| fetish | voodoo-doll | Lorc |
 
 ### Stat icons — `public/icons/stats/` (same source, license, and convention)
 
@@ -274,6 +288,24 @@ attribution requirement (covered by the same in-game credits line).
 | blastplate_harness | explosive-materials | Lorc |
 | landlords_ledger | notebook | Delapouite |
 | overtime_clause | time-trap | Lorc |
+| ozone_wand | crystal-wand | Lorc |
+| cursed_amplifier | sonic-shout | Lorc |
+| stormcall_staff | lightning-storm | Lorc |
+| sweeps_week_staff | lightning-branches | Lorc |
+| crash_helmet | full-motorcycle-helmet | Delapouite |
+| tour_treads | converse-shoe | Delapouite |
+| box_seat_crossbow | crossbow | Carl Olsen |
+| gyro_stabilizer | vortex | Lorc |
+| mosh_pit_helm | horned-helm | Lorc |
+| encore_treads | wingfoot | Lorc |
+| perpetual_encore | orbital | Lorc |
+| standing_ovation | theater-curtains | Delapouite |
+| signature_choreography | ballerina-shoes | Delapouite |
+| plot_armor | drama-masks | Lorc |
+| vip_pass | ticket | Delapouite |
+| blood_subscription | heart-drop | Lorc |
+| cancellation_axe | battered-axe | Lorc |
+| live_feed | tv | Delapouite |
 | elite_trophy | trophy-cup | Delapouite |
 | boss_sigil | crowned-skull | Lorc |
 | gold | two-coins | Delapouite |

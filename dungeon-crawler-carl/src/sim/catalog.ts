@@ -122,6 +122,26 @@ export const CATALOG: CatalogEntry[] = [
     id: "focus_bead", name: "Focus Bead", tier: "basic", slot: "trinket",
     desc: "Click it and the world slows down. (It doesn't.)", cost: 55, affixes: { speed: 0.25 },
   },
+  // Support-slot components (backlog #10 slots get build paths too).
+  {
+    id: "crash_helmet", name: "Crash Helmet", tier: "basic", slot: "helm",
+    desc: "OSHA-approved for dungeon work. OSHA no longer exists.", cost: 60, affixes: { maxHp: 10, armor: 3 },
+  },
+  {
+    id: "tour_treads", name: "Tour Treads", tier: "basic", slot: "boots",
+    desc: "Broken in by someone who did not survive the tour.", cost: 60, affixes: { speed: 0.2 },
+  },
+  // The CASTER branch (DESIGN 5.8 phase 3): spell-power components so SP
+  // builds can SHOP instead of praying to the drop gods. Names end in their
+  // weapon-class noun, so buying one genuinely changes your bolt profile.
+  {
+    id: "ozone_wand", name: "Ozone Wand", tier: "basic", slot: "weapon",
+    desc: "Smells like a thunderstorm filing a complaint.", cost: 65, affixes: { spell: 6 },
+  },
+  {
+    id: "cursed_amplifier", name: "Cursed Amplifier", tier: "basic", slot: "charm",
+    desc: "Turns it up to eleven. The eleven is cursed.", cost: 60, affixes: { spell: 3, crit: 0.03 },
+  },
 
   // ---- Advanced (two components + combine gold; floor-gated, shop-varying) ----
   {
@@ -159,6 +179,38 @@ export const CATALOG: CatalogEntry[] = [
     desc: "Violence tests well in every demographic.", cost: 95,
     buildsFrom: ["glass_charm", "killer_instinct"], affixes: { crit: 0.11 },
   },
+  {
+    id: "stormcall_staff", name: "Stormcall Staff", tier: "advanced", slot: "weapon",
+    desc: "The weather report is you now.", cost: 95,
+    buildsFrom: ["ozone_wand", "cursed_amplifier"], affixes: { spell: 13, crit: 0.05 },
+  },
+  // Chase-path middles: each one is a rung on the ladder to a legendary
+  // unique below — worth wearing on its own, but you bought it for the plan.
+  {
+    id: "box_seat_crossbow", name: "Box Seat Crossbow", tier: "advanced", slot: "weapon",
+    desc: "Premium sightlines. Bring your own bolts.", cost: 95,
+    buildsFrom: ["honed_edge", "glass_charm"], affixes: { damage: 12, crit: 0.06 },
+  },
+  {
+    id: "gyro_stabilizer", name: "Gyro Stabilizer", tier: "advanced", slot: "trinket",
+    desc: "Keeps spinning things spinning. Officially a food-cart part.", cost: 85,
+    buildsFrom: ["focus_bead", "swift_wraps"], affixes: { speed: 0.3, damage: 7 },
+  },
+  {
+    id: "mosh_pit_helm", name: "Mosh Pit Helm", tier: "advanced", slot: "helm",
+    desc: "Rated for elbows, chairs, and modest apocalypses.", cost: 90,
+    buildsFrom: ["crash_helmet", "iron_plating"], affixes: { maxHp: 30, armor: 8 },
+  },
+  {
+    id: "encore_treads", name: "Encore Treads", tier: "advanced", slot: "boots",
+    desc: "The crowd stomps along. You stomp first.", cost: 85,
+    buildsFrom: ["tour_treads", "glass_charm"], affixes: { speed: 0.35, crit: 0.05 },
+  },
+  {
+    id: "vip_pass", name: "VIP Pass", tier: "advanced", slot: "charm",
+    desc: "Backstage access. The blood bar is included.", cost: 85,
+    buildsFrom: ["killer_instinct", "focus_bead"], affixes: { crit: 0.05, speed: 0.25 },
+  },
 
   // ---- Legendary — sponsor-gated signature gear (unique passives) ----
   {
@@ -184,6 +236,58 @@ export const CATALOG: CatalogEntry[] = [
     desc: "Ultimate cooldowns reduced by 25%.", cost: 160,
     buildsFrom: ["ratings_magnet"], affixes: { crit: 0.1 },
     passive: "overtime", sponsors: 2, materials: { elite_trophy: 3, boss_sigil: 1 },
+  },
+  {
+    id: "sweeps_week_staff", name: "Sweeps Week Staff", tier: "legendary", slot: "weapon",
+    desc: "Every ability cooldown runs 15% faster. Ratings never sleep.", cost: 155,
+    buildsFrom: ["stormcall_staff"], affixes: { spell: 20, crit: 0.06 },
+    passive: "tempo", sponsors: 1, materials: { elite_trophy: 2 },
+  },
+  // CHASE UNIQUES: store-only build-definers. You cannot loot these — you
+  // assemble them, shop by shop, and each one warps a build around itself.
+  {
+    id: "perpetual_encore", name: "Perpetual Encore", tier: "legendary", slot: "trinket",
+    desc: "+1 orbit blade, and the blades strike 25% faster. The show must go on.", cost: 150,
+    buildsFrom: ["gyro_stabilizer"], affixes: { speed: 0.3, damage: 8 },
+    passive: "encore", sponsors: 2, materials: { elite_trophy: 2 },
+  },
+  {
+    id: "standing_ovation", name: "Standing Ovation Crossbow", tier: "legendary", slot: "weapon",
+    desc: "Bolts pierce +2 bodies. The back row deserves a show too.", cost: 155,
+    buildsFrom: ["box_seat_crossbow"], affixes: { damage: 18, crit: 0.08 },
+    passive: "skewer", sponsors: 1, materials: { elite_trophy: 2 },
+  },
+  {
+    id: "signature_choreography", name: "Signature Choreography", tier: "legendary", slot: "boots",
+    desc: "Swapping Battle Stance resets swing + bolt cooldowns. The swap IS the rotation.", cost: 150,
+    buildsFrom: ["encore_treads"], affixes: { speed: 0.45, crit: 0.06 },
+    passive: "choreography", sponsors: 2, materials: { elite_trophy: 3 },
+  },
+  {
+    id: "plot_armor", name: "Plot Armor", tier: "legendary", slot: "helm",
+    desc: "Once per floor, a killing blow leaves you at 1 HP. The writers insist.", cost: 180,
+    buildsFrom: ["mosh_pit_helm"], affixes: { maxHp: 45, armor: 12 },
+    passive: "plot_armor", sponsors: 3, materials: { elite_trophy: 2, boss_sigil: 1 },
+  },
+  // Novel mechanics that exist NOWHERE else in the game — no constellation
+  // node, no drop affix. If you want lifesteal, you plan for this charm.
+  {
+    id: "blood_subscription", name: "Blood Subscription", tier: "legendary", slot: "charm",
+    desc: "Heal 6% of the damage you deal. Auto-renews. Cancellation is difficult.", cost: 160,
+    buildsFrom: ["vip_pass"], affixes: { crit: 0.06, maxHp: 25 },
+    passive: "leech", sponsors: 2, materials: { elite_trophy: 2 },
+  },
+  {
+    id: "cancellation_axe", name: "Cancellation Axe", tier: "legendary", slot: "weapon",
+    desc: "Strikes CANCEL non-elite monsters below 15% HP. No appeals.", cost: 160,
+    buildsFrom: ["bloodsport_maul"], affixes: { damage: 19, maxHp: 30 },
+    passive: "cancellation", sponsors: 2, materials: { elite_trophy: 3 },
+  },
+  {
+    id: "live_feed", name: "Live Feed", tier: "legendary", slot: "trinket",
+    desc: "Crits arc 30% of the hit to a nearby enemy, as magic. Share the moment.", cost: 150,
+    buildsFrom: ["ratings_magnet"], affixes: { crit: 0.09 },
+    passive: "conduit", sponsors: 1, materials: { elite_trophy: 2 },
   },
 ];
 
@@ -229,7 +333,9 @@ export function gearAffixes(e: CatalogEntry, floor: number): Affixes {
   const a = e.affixes ?? {};
   const out: Affixes = {};
   if (a.damage) out.damage = Math.round(a.damage * mult);
+  if (a.spell) out.spell = Math.round(a.spell * mult); // the schools scale together
   if (a.maxHp) out.maxHp = Math.round(a.maxHp * mult);
+  if (a.armor) out.armor = Math.round(a.armor * mult);
   if (a.speed) out.speed = +(a.speed * Math.min(mult, 2)).toFixed(2);
   if (a.crit) out.crit = +(a.crit * Math.min(mult, 2.4)).toFixed(3);
   return out;
@@ -252,7 +358,9 @@ export function tierStockCount(tier: CatalogTier, shopIndex: number): number {
   const all = CATALOG.filter((e) => e.tier === tier).length;
   const unlock = TIER_UNLOCK_SHOP[tier];
   if (shopIndex < unlock) return 0;
-  if (tier === "advanced") return Math.min(all, 3 + (shopIndex - unlock));
-  if (tier === "legendary") return Math.min(all, 1 + Math.floor((shopIndex - unlock) / 2));
+  // Deeper shelves for the planning game: the store is the build engine now,
+  // so the higher tiers stock more per shop than they used to.
+  if (tier === "advanced") return Math.min(all, 4 + (shopIndex - unlock));
+  if (tier === "legendary") return Math.min(all, 2 + Math.floor((shopIndex - unlock) / 2));
   return all; // consumables/starter/basic: full shelf, always
 }
