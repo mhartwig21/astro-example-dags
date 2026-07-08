@@ -3803,7 +3803,7 @@ describe("planning-first drops", () => {
 });
 
 describe("ultimate constellations", () => {
-  it("Deep Focus stretches bullet time; ENCORE extends it on kills inside", () => {
+  it("Deep Focus stretches bullet time; EXTENSION extends it on kills inside", () => {
     const g = createGame(940);
     const p = g.players[0];
     learnAbility(g, p, "bullettime"); // the empty ultimate slot auto-fills
@@ -3811,7 +3811,7 @@ describe("ultimate constellations", () => {
     step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
     const expected = CONFIG.ultBulletTimeDuration + 2 * CONFIG.ultBulletTimeFocusSeconds;
     expect(g.bulletTimeLeft).toBeGreaterThan(expected - 0.1);
-    // ENCORE: a kill while the world is slow buys more slow.
+    // EXTENSION: a kill while the world is slow buys more slow.
     p.abilities.ranks["bt.encore"] = 1;
     g.monsters.length = 0;
     g.monsters.push(mkMon({ id: 9, pos: { x: p.pos.x + 0.8, y: p.pos.y }, hp: 1, maxHp: 10 }));
@@ -4361,11 +4361,11 @@ describe("RIVALS mode (competitive race)", () => {
   });
 });
 
-describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
+describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
   const CAST4: boolean[] = [false, false, false, true, false]; // slot 4 = the learned active
   const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 
-  it("Cut To teleports onto the aimed enemy and strikes it", () => {
+  it("Blindside teleports onto the aimed enemy and strikes it", () => {
     const g = createGame(960);
     const p = g.players[0];
     learnAbility(g, p, "cutto"); // slot 4 is open
@@ -4379,7 +4379,7 @@ describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
     expect(p.cd.cutto!).toBeGreaterThan(0);
   });
 
-  it("MATCH CUT: killing the target inside the window resets the cooldown", () => {
+  it("REPEAT OFFENDER: killing the target inside the window resets the cooldown", () => {
     const g = createGame(961);
     const p = g.players[0];
     learnAbility(g, p, "cutto");
@@ -4391,7 +4391,7 @@ describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
     expect(p.cd.cutto ?? 0).toBe(0); // the camera resets
   });
 
-  it("Crowd Surf yanks light enemies into your arms, staggered", () => {
+  it("Extradition yanks light enemies into your arms, staggered", () => {
     const g = createGame(962);
     const p = g.players[0];
     learnAbility(g, p, "crowdsurf");
@@ -4405,7 +4405,7 @@ describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
     expect(Math.abs(p.pos.x - px)).toBeLessThan(0.2); // YOU did not move
   });
 
-  it("Crowd Surf yanks YOU to the heavy ones", () => {
+  it("Extradition yanks YOU to the heavy ones", () => {
     const g = createGame(963);
     const p = g.players[0];
     learnAbility(g, p, "crowdsurf");
@@ -4418,7 +4418,7 @@ describe("the fun-kit wave (Cut To / Crowd Surf / Stunt Double)", () => {
     expect(Math.abs(brute.pos.x - bx)).toBeLessThan(0.2); // the anchor held
   });
 
-  it("THE WAVE drags everything the chain passed through", () => {
+  it("CLASS ACTION drags everything the chain passed through", () => {
     const g = createGame(964);
     const p = g.players[0];
     learnAbility(g, p, "crowdsurf");

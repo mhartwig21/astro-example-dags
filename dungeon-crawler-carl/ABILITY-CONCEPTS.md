@@ -39,7 +39,9 @@ Priorities that fall out of that:
 **SHIPPED (PR #60):** Crowd Surf, Stunt Double (as a regular active), and
 CUT TO from the mined list — the friendly-entity surface is live
 (state.decoys + the ai.ts taunt seam), so the summon designs below are
-unblocked.
+unblocked. **Renamed per VOICE.md (2026-07-08):** Cut To → Blindside,
+Crowd Surf → Extradition (Stunt Double kept). New names default to the
+System register — see VOICE.md before naming anything below.
 
 ## Actives
 

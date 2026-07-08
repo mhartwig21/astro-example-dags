@@ -1995,14 +1995,14 @@ function reapDead(state: GameState): void {
     killer.killsThisStep++;
     if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
-    // MATCH CUT: the marked target died inside the window; the camera resets.
+    // REPEAT OFFENDER: the marked target died inside the window; the camera resets.
     for (const pl of state.players) {
       if (pl.cutMark && pl.cutMark.monsterId === m.id) {
         pl.cutMark = null;
         pl.cd.cutto = 0;
       }
     }
-    // ENCORE (Bullet Time capstone): kills inside the slow stretch it out.
+    // EXTENSION (Bullet Time capstone): kills inside the slow stretch it out.
     if (state.bulletTimeLeft > 0 && bulletTimeParams(killer).encore) {
       state.bulletTimeLeft = Math.min(CONFIG.ultBulletTimeEncoreCap, state.bulletTimeLeft + CONFIG.ultBulletTimeEncoreExtend);
     }
@@ -3087,7 +3087,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
   }
 }
 
-// ---- The fun-kit wave: Cut To / Crowd Surf / Stunt Double ----
+// ---- The fun-kit wave: Blindside / Extradition / Stunt Double ----
 
 /** The monster the aim ray points at: closest to the ray within `range`, no
  * more than ~a body off the line. Zero aim falls back to facing. */
@@ -3107,7 +3107,7 @@ function pickAlongAim(state: GameState, p: Player, aim: Vec2, range: number): Mo
   return best;
 }
 
-/** Cut To: the broadcast cuts to the action. Teleport onto the aimed enemy
+/** Blindside: the broadcast cuts to the action. Teleport onto the aimed enemy
  * and strike as you arrive. No target, no cut (the cooldown is not spent). */
 function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   const cp = cutToParams(p);
@@ -3121,11 +3121,11 @@ function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   p.facing = { x: dir.x, y: dir.y };
   p.attackSwing = 0.15;
   hit(state, p.pos, 0, "weapon"); // arrival flash for the juice layer
-  // Smash Cut: the arrival strike shatters poise (non-bosses arrive staggered).
+  // Sucker Punch: the arrival strike shatters poise (non-bosses arrive staggered).
   damageMonster(state, p, target, power(p, "cutto") * cp.dmgMult, {
     dir, school: "physical", shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback,
   });
-  // MATCH CUT: finish them inside the window and the camera resets (reapDead).
+  // REPEAT OFFENDER: finish them inside the window and the camera resets (reapDead).
   if (cp.match) p.cutMark = { monsterId: target.id, t: CONFIG.cutToMatchWindow };
 }
 
@@ -3145,7 +3145,7 @@ function dragToPlayer(state: GameState, p: Player, m: Monster, stagger: number):
   hit(state, m.pos, 0, "weapon"); // chain-yank flash
 }
 
-/** Crowd Surf: one chain, two verbs decided by weight. Light enemies land in
+/** Extradition: one chain, two verbs decided by weight. Light enemies land in
  * your arms staggered; heavy ones (elites, bosses, the truly massive) hold
  * fast and the chain yanks YOU across the gap instead, i-frames included. */
 function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
@@ -3163,7 +3163,7 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
     p.dashTime = Math.max(p.dashTime, 0.15);
     moveWithCollision(state.map, p.pos, dir, Math.max(0, d - CONFIG.surfArriveGap), isWalkable);
     hit(state, p.pos, 0, "weapon");
-    // Stage Dive: arriving IS the attack.
+    // Gavel Drop: arriving IS the attack.
     if (sp.diveFrac > 0) {
       radialDamage(state, p, p.pos, CONFIG.surfDiveRadius, power(p, "crowdsurf") * sp.diveFrac, CONFIG.shockstepKnockback, "magic");
       hit(state, p.pos, 0, "crit");
@@ -3171,7 +3171,7 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
   } else {
     dragToPlayer(state, p, target, sp.stagger);
   }
-  // THE WAVE: everything the chain passed through comes along (light bodies only).
+  // CLASS ACTION: everything the chain passed through comes along (light bodies only).
   if (sp.wave) {
     const len2 = d * d;
     for (const m of state.monsters) {
@@ -3766,7 +3766,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       p.meleeComboT = Math.max(0, p.meleeComboT - dt);
       if (p.meleeComboT === 0) p.meleeCombo = 0;
     }
-    // MATCH CUT window closes on its own.
+    // REPEAT OFFENDER window closes on its own.
     if (p.cutMark) {
       p.cutMark.t -= dt;
       if (p.cutMark.t <= 0) p.cutMark = null;
