@@ -112,11 +112,14 @@ Most characters ship 2+ alternate texture PNGs in their pack folder (e.g.
 
 ## Animation clip libraries (Character Animations 1.1)
 
-Loaded today (see `RIG_CLIP_MANIFEST` in `src/render3d/assets.ts`): medium
-General, MovementBasic, CombatMelee, CombatRanged, Special; large General,
-MovementBasic, CombatMelee. **Untapped clip packs**: medium MovementAdvanced /
-Simulation / Tools; large MovementAdvanced / Simulation / Special. Worth
-loading if mobs need crawls, climbs, tool use, or more boss flourishes.
+Loaded today (see `RIG_CLIP_MANIFEST` in `src/render3d/assets.ts`): **all 14
+packs** as of 2026-07-08 — medium General, MovementBasic, CombatMelee,
+CombatRanged, Special, MovementAdvanced, Simulation, Tools; large General,
+MovementBasic, CombatMelee, MovementAdvanced, Simulation, Special. Notables
+from the last batch: Sneaking/Crawling (filcher stealth), Lockpicking, full
+dodge sets, sit/lie/wave (safe-room NPCs someday), and
+EXPERIMENTAL_Large_Transform (the boss phase-up act). No drink clip exists in
+any pack — the flask act needs a generated clip (GENERATION-BACKLOG.md).
 
 ## Pack-by-pack inventory
 

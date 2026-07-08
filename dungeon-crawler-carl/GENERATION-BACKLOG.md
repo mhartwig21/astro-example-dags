@@ -16,12 +16,12 @@ audit. Delete rows as they ship.
 
 | Gap / need | KayKit answer | Seam |
 |---|---|---|
-| Elite affix differentiation (7 of 9 affixes invisible; the audit's #1 readability hole) | Alternate texture PNGs shipped with most characters (`orc_texture_A/B`, …) for recolored elite skins, **plus** the existing emissive-tint mechanism (`weaponry.ts rarityGlow` pattern) for per-affix body glow — semantic colors per STYLEGUIDE (warded=arcane, armored=ember, chilling=lore-blue…) | texture swap in `buildMonsterMesh`; tint code-only |
-| Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion props** (67 held props in the pack); check untapped clip packs (medium **Simulation/Tools**) for a drink/use clip before generating one | graft prop on cast + clip |
-| Filcher "it's carrying your gold" token | Resource Bits **money pile / gold bars** mini-prop grafted to the Hoarder (same pattern as the key-carrier octahedron, `renderer3d.ts:1836`) | graft in `buildMonsterMesh` |
-| Blindside / phantom-blink poof anchor | Adventurers 2.0 **smokebomb prop**; the poof itself stays procedural (spawnGlow) | prop + FX code |
+| ~~Elite affix emissive tints~~ **SHIPPED 2026-07-08** (semantic body glow + chilling aura ring); alternate-texture recolor skins still open as a richer second pass | Alternate texture PNGs shipped with most characters (`orc_texture_A/B`, …) | texture swap in `buildMonsterMesh` |
+| Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion prop staged** (`potion_medium_red.glb` in the manifest); no drink clip exists in ANY clip pack (inventoried 2026-07-08) → the clip moved to the Meshy queue | graft prop on cast + generated clip |
+| ~~Filcher gold token~~ **SHIPPED 2026-07-08** (money-pile graft, visible while `carry > 0`) + Sneaking clip while unnoticed | — | — |
+| Blindside poof anchor (player half; ~~phantom blink~~ **SHIPPED 2026-07-08** with procedural poofs + mesh snap) | Adventurers 2.0 **smokebomb prop staged** (`smokebomb.glb`); the poof stays procedural | FX code |
 | Shaman heal / summoner birth caster tells | Art already exists — `cast_raise`/`Ranged_Magic_Raise` in the loaded rig libraries. The gap is **sim-side** (these casts have no windup, so no clip/ring fires) | small sim change, zero assets |
-| More boss/mob flourishes (enrage roar, crawls, tool use) | **Untapped clip packs**: medium MovementAdvanced / Simulation / Tools; large MovementAdvanced / Simulation / Special — load into `RIG_CLIP_MANIFEST` and inventory the clip names before generating ANY monster clip | assets.ts manifest row |
+| ~~Clip packs~~ **LOADED 2026-07-08** (all 14); ~~boss enrage act~~ **SHIPPED** via EXPERIMENTAL_Large_Transform on the phase edge | — | — |
 | APPROACH mob cast (MOB-CONCEPTS roster; IRONWORKS robots shipped 2026-07-08) | Still-unused characters: Ninja, Marksman, AvianSwordsman, MagicalGirl, 4GTN golems, Monstrosity (custom rig — verify), CombatMech, Tiefling, Cleric, Paladin… | CHARACTER_RIGS + manifest |
 | Floor traps (if they ship) | Platformer Pack: saws, spikes, swipers, hammers, conveyors (525 models) | future |
 | Show set dressing / safe rooms / crafting | Board Game Bits (cards/dice), RPG Tools (anvil, lockpicks), Furniture + Restaurant Bits | future |
@@ -42,8 +42,7 @@ each batch** — and check the untapped KayKit clip packs first (row above).
 | Clip | Target rig | Why | Notes |
 |---|---|---|---|
 | Stunt Double cast — a showman "presenting / beckon" gesture | Adventurers 1.0 (hero skins) | Audit: the cast plays NOTHING today | Library has an Acting category; 421 Over_Shoulder_Throw is a known fallback donor family |
-| Flask drink | Adventurers 1.0 | Only if Simulation/Tools packs lack one | |
-| Boss enrage roar / chest-beat | Rig_Large | Phase transitions have no body act | Check large Special pack first |
+| Flask drink | Adventurers 1.0 | Confirmed 2026-07-08: no drink/use clip in any KayKit pack | Pair with the staged `potion_medium_red.glb` prop |
 | Extradition alternate take | Adventurers 1.0 | Taste option vs shipped 239 | 421 Over_Shoulder_Throw or 398 Crouch_Charge_and_Throw; two-command re-bake |
 | Filcher gloating scurry / loot-clutch run | Rig_Medium | Sells the theft while fleeing | Only after the gold-pile prop ships |
 
