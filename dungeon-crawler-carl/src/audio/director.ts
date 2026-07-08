@@ -17,6 +17,7 @@ const HIT_SOUNDS: Record<HitKind, SoundId> = {
   heal: "heal",
   gold: "gold",
   weapon: "item",
+  chain: "dash", // the chain whips out; the arrival's weapon flash adds the clink
 };
 
 /** Hits farther than this (in tiles) from the local player are inaudible. */

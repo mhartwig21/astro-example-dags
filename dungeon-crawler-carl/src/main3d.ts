@@ -1724,6 +1724,7 @@ function drawMinimap(s: GameState): void {
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
   enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
   heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
+  chain: "#aab2bd", // iron links; zero-amount events never become numbers anyway
 };
 
 // Floating combat numbers: project a world hit to screen and float it upward.
