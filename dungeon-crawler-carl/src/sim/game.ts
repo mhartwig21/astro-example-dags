@@ -104,7 +104,7 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
   const hp = Math.round(baseHp * a.hpMult);
-  return {
+  const m: Monster = {
     id: state.nextEntityId++,
     kind,
     pos: { x: pos.x, y: pos.y },
@@ -124,6 +124,13 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
     poiseDmg: 0,
     hitFlash: 0,
   };
+  // Kind-intrinsic extras (not elite rolls): the drum IS the drummer.
+  if (kind === "drummer") m.aura = "frenzy";
+  if (kind === "filcher") {
+    m.carry = Math.round(CONFIG.filcherGoldBase + CONFIG.filcherGoldPerFloor * floor);
+    m.bleedStage = 3;
+  }
+  return m;
 }
 
 /** Pick an archetype mix that gets nastier with depth. */
@@ -314,8 +321,14 @@ function spawnMonsters(state: GameState): void {
       const d = 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      // The escort slot carries the pack's support: a shaman healer, or (from
+      // the SEWERS down) a Drum Sergeant beating the pack into a frenzy — the
+      // playbook's "The Drumline". Same kill-order lesson, different verb.
+      const escortKind: MonsterKind =
+        floor >= CONFIG.drumFromFloor && kind !== "drummer" && chance(rng, CONFIG.drumEscortChance)
+          ? "drummer" : "shaman";
       const memberKind =
-        escort && k === size - 1 ? "shaman"
+        escort && k === size - 1 ? escortKind
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
@@ -323,6 +336,18 @@ function spawnMonsters(state: GameState): void {
       if (patrol) m.roams = true;
       state.monsters.push(m);
       budget--;
+    }
+  }
+
+  // REPO RAT: from the SEWERS down, most ordinary floors hide one filcher —
+  // a fleeing loot-goblin clutching the System's petty cash. Spot it, chase
+  // it, or watch the payroll scurry off the show. Always a lone roamer.
+  if (floor >= CONFIG.filcherFromFloor && chance(rng, CONFIG.filcherChance) && totalW > 0) {
+    const pos = inRoom(pickRoom());
+    if (pos) {
+      const rat = makeMonster(state, "filcher", pos);
+      rat.roams = true;
+      state.monsters.push(rat);
     }
   }
 
@@ -1381,6 +1406,18 @@ export function playerMitigation(p: Player): number {
  * (The collapse timer bypasses this on purpose: the dungeon itself deals
  * fractional true damage no armor can argue with.)
  */
+/**
+ * Shove a player (MOB-CONCEPTS verb): queues a knockback that plays out over
+ * the next steps at knockbackSpeed through moveWithCollision — walls stop it,
+ * and being shoved INTO a hazard is the design, not a bug. Distances stack up
+ * to one slam's worth so chain-shoves don't launch anyone across the floor.
+ */
+export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number): void {
+  if (!p.alive || tiles <= 0 || (dir.x === 0 && dir.y === 0)) return;
+  const d = normalize(dir);
+  p.knock = { dir: d, left: Math.min(Math.max(p.knock?.left ?? 0, 0) + tiles, CONFIG.bossSlamKnockback) };
+}
+
 export function damagePlayerHit(
   state: GameState, p: Player, base: number,
   opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind } = {},
@@ -1631,7 +1668,7 @@ export function monsterResist(m: Monster): School | null {
  * monster, interrupting any windup in progress. That interrupt is the reward
  * for answering a telegraph with damage instead of a dodge.
  */
-function damageMonster(
+export function damageMonster(
   state: GameState, p: Player, m: Monster, base: number,
   opts: {
     allowCrit?: boolean; forceCrit?: boolean; shatterPoise?: boolean;
@@ -1670,6 +1707,16 @@ function damageMonster(
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
   if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
+  // Repo Rat: every HP quarter beaten out of it SPILLS a coin of its carry —
+  // the chase pays out as it runs, and the kill drops whatever's left.
+  if (m.kind === "filcher" && (m.carry ?? 0) > 0) {
+    while ((m.bleedStage ?? 0) > 0 && m.hp <= m.maxHp * ((m.bleedStage ?? 0) / 4)) {
+      m.bleedStage = (m.bleedStage ?? 0) - 1;
+      const coin = Math.max(1, Math.round((m.carry ?? 0) * CONFIG.filcherBleedFraction));
+      m.carry = Math.max(0, (m.carry ?? 0) - coin);
+      state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: coin });
+    }
+  }
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
@@ -1880,6 +1927,8 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   spitter: CONFIG.show.hypeSpitter,
   necromancer: CONFIG.show.hypeNecromancer,
   broodmother: CONFIG.show.hypeBroodmother,
+  drummer: CONFIG.show.hypeDrummer,
+  filcher: CONFIG.show.hypeFilcher,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -1920,6 +1969,12 @@ function reapDead(state: GameState): void {
       survivors.push(m);
       continue;
     }
+    // A Repo Rat that made it out isn't a kill — it's a segment. No corpse,
+    // no XP, no loot; the payroll leaves the show with it.
+    if (m.escaped) {
+      announce(state, "show", `THE REPO RAT ESCAPES with ${m.carry ?? 0} gold of the System's petty cash. The accountants are FURIOUS. Great television.`);
+      continue;
+    }
     // Every fallen regular leaves a raisable corpse (necromancer fuel).
     if (m.kind !== "boss") {
       state.corpses.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: m.kind, t: CONFIG.corpseTtl });
@@ -1927,6 +1982,11 @@ function reapDead(state: GameState): void {
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
+    // A caught Repo Rat spills the whole remaining purse.
+    if (m.kind === "filcher" && (m.carry ?? 0) > 0) {
+      state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: m.carry! });
+      m.carry = 0;
+    }
     state.killCount++;
     killsThisStep++;
     // Kill credit to the last hitter (loot box milestones + per-player achievements).
@@ -3243,11 +3303,38 @@ function updateMonsterStatuses(state: GameState, dt: number): void {
  * they dry up; armed zones (boss sludge/roots) telegraph for `arm` seconds,
  * then bite or grip until they expire. Dash i-frames dodge all of it.
  */
+/** Distance from a point to the segment a-b (beam hazards hit by half-width). */
+function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x, aby = b.y - a.y;
+  const lenSq = abx * abx + aby * aby;
+  const t = lenSq < 1e-8 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq));
+  return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
+}
+
 function updateHazards(state: GameState, dt: number): void {
   if (state.hazards.length === 0) return;
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
+    if (hz.kind === "beam" && hz.end) {
+      // Beam: telegraph for `arm` seconds, fire ONCE along the whole segment
+      // (piercing — cover doesn't help, sidestepping does), fade briefly.
+      if (hz.t <= 0) continue; // flash spent
+      const live = hz.total - hz.t >= (hz.arm ?? 0);
+      if (live && !hz.fired) {
+        hz.fired = true;
+        hz.t = Math.min(hz.t, CONFIG.beamFadeSeconds); // whatever remains is the flash
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue; // dash i-frames beat the shot
+          if (distToSegment(p.pos, hz.pos, hz.end) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} stood on the dotted line. The System appreciates the composition.`);
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.kind === "sludge" || hz.kind === "roots") {
       if (hz.t <= 0) continue; // drained / withered
       const live = hz.total - hz.t >= (hz.arm ?? 0); // past the telegraph
@@ -3696,6 +3783,15 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
     p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
     if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
+
+    // Knockback in flight: the shove consumes its distance first — it doesn't
+    // cancel input, it just moves the ground under the argument.
+    if (p.knock && p.alive) {
+      const stepLen = Math.min(p.knock.left, CONFIG.knockbackSpeed * dt);
+      moveWithCollision(state.map, p.pos, p.knock.dir, stepLen, isWalkable);
+      p.knock.left -= stepLen;
+      if (p.knock.left <= 1e-4) p.knock = undefined;
+    }
 
     const move = pi.move;
     if ((move.x !== 0 || move.y !== 0) && p.alive) {

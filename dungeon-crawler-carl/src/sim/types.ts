@@ -33,6 +33,10 @@ export interface Player {
   cd: Partial<Record<AbilityId, number>>;
   dashTime: number; // seconds of active dash remaining (i-frames + speed)
   rootT: number; // seconds of root snare remaining (heavy slow; boss roots zones)
+  // Knockback (MOB-CONCEPTS.md verb): remaining shove distance along a fixed
+  // direction, consumed at knockbackSpeed through moveWithCollision (walls
+  // stop it). Set via applyPlayerKnockback; big slams shove.
+  knock?: { dir: Vec2; left: number };
   // Dash runs on charges: cd.dash is the recharge timer for the NEXT charge
   // (only ticking while below max), so dashes can be woven into offense.
   dashCharges: number;
@@ -164,7 +168,10 @@ export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
   | "bomber" | "shaman" | "phantom"
   | "charger" | "spitter" | "necromancer"
-  | "broodmother";
+  | "broodmother"
+  // SEWERS specialists (MOB-CONCEPTS.md): the Drum Sergeant frenzies its pack
+  // (kill-order lesson); the Repo Rat is a fleeing loot-goblin (chase lesson).
+  | "drummer" | "filcher";
 
 export interface Monster {
   id: number;
@@ -239,6 +246,19 @@ export interface Monster {
   home?: Vec2; // patrol post (set the first time the monster goes off-duty)
   wanderDir?: Vec2; // current stroll heading (undefined = standing a beat)
   wanderT?: number; // seconds left on the current wander leg
+  // Generalized monster auras (MOB-CONCEPTS.md verb): a carrier buffs every
+  // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
+  // (allies move + attack faster while the beat holds). Chilling remains its
+  // own elite affix — auras here are ally-facing.
+  aura?: "frenzy";
+  frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
+  // drops the rest on death, and leaves with ALL of it if the rat escapes.
+  carry?: number;
+  bleedStage?: number; // HP quarters already bled (3 -> 2 -> 1)
+  fleeT?: number; // seconds spent safely away from every crawler (escape timer)
+  escaped?: boolean; // reap as an escape, not a kill (no XP, no corpse, no loot)
+  noticed?: boolean; // the "a rat!" event already fired
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
@@ -483,9 +503,14 @@ export interface Hazard {
   total: number; // full delay/duration (render progress)
   radius: number; // tiles
   damage: number; // blast: the hit; puddle/sludge: damage per tick
-  kind?: "blast" | "puddle" | "sludge" | "roots"; // absent = blast (older saves/snapshots)
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam"; // absent = blast (older saves/snapshots)
   tick?: number; // puddle/sludge: seconds until the next damage tick
-  arm?: number; // sludge/roots: telegraph seconds before the zone goes live
+  arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
+  // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as
+  // the half-width. It telegraphs for `arm` seconds (thin tracking line),
+  // fires ONCE (piercing — the whole segment hits), then fades out.
+  end?: Vec2;
+  fired?: boolean;
 }
 
 // A party ping: a crawler marks a spot for the team ("loot here", "danger",

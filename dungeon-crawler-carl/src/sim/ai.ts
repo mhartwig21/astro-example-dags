@@ -6,7 +6,7 @@ import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
 import { applyStatus } from "./status";
 import {
-  bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
+  applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
   damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
   tauntingDecoy,
 } from "./game";
@@ -99,6 +99,10 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
     if (damagePlayerHit(state, player, dmg, { dir })) {
       handlePlayerDeath(state, player, `${player.name} stood in the blast radius. The System rolls the replay.`);
+    } else {
+      // Slams SHOVE (MOB-CONCEPTS knockback verb): surviving one still costs
+      // you your footing — and whatever ground the shove lands you on.
+      applyPlayerKnockback(player, dir, m.kind === "boss" ? CONFIG.bossSlamKnockback : CONFIG.slamKnockback);
     }
   }
 }
@@ -232,7 +236,11 @@ export function springAmbush(state: GameState, trigger: Monster): void {
 
 export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.hitFlash > 0) m.hitFlash = Math.max(0, m.hitFlash - dt);
-  if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt);
+  // Drum frenzy (aura verb): the beat makes cooldowns DECAY faster — swings
+  // come sooner while the windups stay full-length (tells remain readable).
+  const frenzied = (m.frenzyT ?? 0) > 0;
+  if (frenzied) m.frenzyT = Math.max(0, (m.frenzyT ?? 0) - dt);
+  if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt * (frenzied ? CONFIG.drumFrenzyHaste : 1));
   if (m.shootCd > 0) m.shootCd = Math.max(0, m.shootCd - dt);
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
@@ -250,6 +258,26 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     const prey = nearestPlayer(state, m.pos);
     if (!prey || dist(m.pos, prey.pos) > CONFIG.ambushTriggerRadius) return; // still waiting
     springAmbush(state, m);
+  }
+
+  // FRENZY aura (MOB-CONCEPTS verb): a carrier (Drum Sergeant) keeps the beat
+  // on every pack-mate in radius. The drum radiates even mid-windup — only
+  // death stops the band. Kill-order lesson: the buffED aren't the problem.
+  if (m.aura === "frenzy") {
+    let bolstered = false;
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0 || ally.aura) continue;
+      if (dist(m.pos, ally.pos) > CONFIG.drumAuraRadius) continue;
+      ally.frenzyT = CONFIG.drumAuraLinger;
+      bolstered = true;
+    }
+    if (bolstered && !m.noticed) {
+      const prey = nearestPlayer(state, m.pos);
+      if (prey && dist(m.pos, prey.pos) <= CONFIG.monsterAggroRange * 1.5) {
+        m.noticed = true;
+        state.events.push("A Drum Sergeant beats the advance — the pack is FRENZIED. Silence the band.");
+      }
+    }
   }
 
   // CHILLING elites (5.11) radiate cold: any crawler inside the aura is
@@ -294,7 +322,9 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
   const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;
   // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
-  const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1);
+  // Drum frenzy stacks on top — a frenzied pack CLOSES.
+  const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1) *
+    (frenzied ? CONFIG.drumFrenzySpeed : 1);
 
   // Summoner elites call swarmer adds while a player is near (lifetime-capped).
   if (
@@ -404,6 +434,54 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         const a = (i / count) * Math.PI * 2;
         spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6, m.kind);
       }
+    }
+    return;
+  }
+
+  if (m.kind === "drummer") {
+    // Drum Sergeant: hangs a few tiles back and keeps the beat (the aura above
+    // radiates passively). Worth ~nothing alone; cornered, it swings weakly.
+    if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
+    if (d <= m.attackRange && m.attackCooldown === 0) {
+      beginWindup(m, "melee", windup);
+      return;
+    }
+    const standoff = 3.5;
+    if (d < standoff - 1) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+    } else if (d > standoff + 1) {
+      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "filcher") {
+    // Repo Rat: never fights. Unnoticed it just scurries its rounds; spotted,
+    // it BOLTS away from the nearest crawler, and if it stays clear long
+    // enough it ESCAPES with everything it carries. Chase it or write it off.
+    if (!m.noticed) {
+      if (d <= CONFIG.monsterAggroRange) {
+        m.noticed = true;
+        state.events.push(`A REPO RAT scurries off with ${m.carry ?? 0} gold of the System's petty cash! Run it down!`);
+      } else {
+        wander(state, m, dt);
+        return;
+      }
+    }
+    if (d > CONFIG.filcherEscapeDist) {
+      m.fleeT = (m.fleeT ?? 0) + dt;
+      if (m.fleeT >= CONFIG.filcherEscapeSeconds) {
+        m.escaped = true;
+        m.hp = 0; // reapDead turns this into the escape segment, not a kill
+        return;
+      }
+    } else {
+      m.fleeT = 0;
+    }
+    if (d < CONFIG.monsterAggroRange * 2.5) {
+      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
+    } else {
+      wander(state, m, dt);
     }
     return;
   }
