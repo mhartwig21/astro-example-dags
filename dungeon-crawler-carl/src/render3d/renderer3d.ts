@@ -376,14 +376,13 @@ export class Renderer3D {
       punch: pick(/Unarmed_Attack_Punch/i, /Unarmed_Attack_Kick/i),
       // MovementAdvanced pack: the unnoticed Repo Rat creeps, it doesn't stroll.
       sneak: pick(/^Sneaking$/i),
-      // Special (large rig): the boss phase-up gets an actual transformation act.
-      transform: pick(/Large_Transform/i),
+      // The transformation act, both rigs: the understudy's morph (medium)
+      // and the boss phase-up (large) — clips bind by rig, so one key serves.
+      transform: pick(/EXPERIMENTAL_Medium_Transform/i, /Large_Transform/i),
       // Dormancy poses (Special library): ambush packs LIE on the floor among
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
       dormant_stand: pick(/Skeletons_Inactive_Standing_Pose/i, /^T-Pose$/i),
-      // The understudy's whole moment (Special library, medium rig only).
-      transform: pick(/EXPERIMENTAL_Medium_Transform/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
     const LOOPING = new Set([
