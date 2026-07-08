@@ -160,6 +160,11 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
   const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  // THE UNDERCROFT trainers (2+): floor 1 stays pristine — the contract floor.
+  const crypt = floor >= CONFIG.undercroftFromFloor;
+  const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
+  const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
+  const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
   // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
   const garden = floor >= CONFIG.gardenFromFloor;
   const lashW = garden ? floor * 0.25 : 0;
@@ -174,7 +179,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   const total = gruntW + swarmW + rangedW + bruteW + bomberW + shamanW + phantomW + chargerW + spitterW + necroW + broodW
-    + lashW + understudyW + hexW + lineW + sentW + slagW + greetW + toyW;
+    + cutW + wardW + digW + lashW + understudyW + hexW + lineW + sentW + slagW + greetW + toyW;
   let r = nextFloat(rng) * total;
   if ((r -= gruntW) < 0) return "grunt";
   if ((r -= swarmW) < 0) return "swarmer";
@@ -186,6 +191,9 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   if ((r -= spitterW) < 0) return "spitter";
   if ((r -= necroW) < 0) return "necromancer";
   if ((r -= broodW) < 0) return "broodmother";
+  if ((r -= cutW) < 0) return "cutpurse";
+  if ((r -= wardW) < 0) return "warden";
+  if ((r -= digW) < 0) return "digger";
   if ((r -= lashW) < 0) return "lasher";
   if ((r -= understudyW) < 0) return "understudy";
   if ((r -= hexW) < 0) return "hexer";
@@ -2153,6 +2161,9 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   lasher: CONFIG.show.hypeLasher,
   understudy: CONFIG.show.hypeUnderstudy,
   hexer: CONFIG.show.hypeHexer,
+  cutpurse: CONFIG.show.hypeCutpurse,
+  warden: CONFIG.show.hypeWarden,
+  digger: CONFIG.show.hypeDigger,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -2206,8 +2217,9 @@ function reapDead(state: GameState): void {
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
-    // A caught Repo Rat spills the whole remaining purse.
-    if (m.kind === "filcher" && (m.carry ?? 0) > 0) {
+    // Any purse-carrier spills what it holds: the caught Repo Rat drops its
+    // whole remaining haul; a cutpurse refunds your gold WITH interest.
+    if ((m.carry ?? 0) > 0) {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: m.carry! });
       m.carry = 0;
     }
@@ -3673,6 +3685,24 @@ function updateHazards(state: GameState, dt: number): void {
             if (damagePlayerHit(state, p, hz.damage)) {
               handlePlayerDeath(state, p, `${p.name} tried to swim the surge. The sludge won. Smell-o-vision regrets everything.`);
             }
+          }
+        }
+      }
+      remaining.push(hz);
+      continue;
+    }
+    if (hz.kind === "shards") {
+      // The Ossuary Warden's slam debris: puddle cadence, physical bite,
+      // no poison soak — the room just got smaller.
+      if (hz.t <= 0) continue; // the shards crumble
+      hz.tick = (hz.tick ?? 0) - dt;
+      if (hz.tick <= 0) {
+        hz.tick = CONFIG.puddleTickSeconds;
+        for (const p of state.players) {
+          if (!p.alive || p.dashTime > 0) continue;
+          if (dist(hz.pos, p.pos) > hz.radius) continue;
+          if (damagePlayerHit(state, p, hz.damage)) {
+            handlePlayerDeath(state, p, `${p.name} lay down on the bone pile. The ossuary accepts the donation.`);
           }
         }
       }

@@ -263,6 +263,21 @@ export const CONFIG = {
   hexVulnerability: 0.3, // +30% damage taken while marked
   hexCooldown: 8,
 
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine for the contract).
+  undercroftFromFloor: 2,
+  // Cutpurse: the lunge-stab that goes for the purse.
+  cutpurseLungeRange: 2.6, // tiles the dash-stab covers
+  cutpurseLungeCooldown: 4,
+  cutpurseStealBase: 6, // gold stolen: base + perFloor * floor
+  cutpurseStealPerFloor: 2,
+  cutpurseInterest: 1.25, // the refund multiplier when you catch it
+  // Ossuary Warden: slam debris — a lingering bone-shard zone.
+  wardenShardDuration: 5, // seconds the shards stay dangerous
+  wardenShardRadius: 1.6,
+  wardenShardDmgMult: 0.25, // × monster damage per tick (puddle cadence)
+  // Pit Digger: the launch is the lesson, not the damage.
+  diggerKnockback: 1.8, // tiles — bigger than the piston, gentler hit
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -615,6 +630,9 @@ export const CONFIG = {
     hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
     hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
     hypeHexer: 7, // dispelling the mark by ending the witch
+    hypeCutpurse: 6, // getting the purse BACK (with interest) plays great
+    hypeWarden: 6, // toppling the vault's furniture
+    hypeDigger: 4, // the launch was the show; the kill is a footnote
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -876,6 +894,15 @@ export const ARCHETYPES = {
   // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
   // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
   hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
+  // UNDERCROFT trainers (floor 2+). Cutpurse: fast, fragile, and after your
+  // PURSE, not your HP — its lunge-stab steals gold (cutpurse* knobs).
+  cutpurse: { hpMult: 0.5, dmgMult: 0.5, speedMult: 1.35, attackRange: 1.0, xpMult: 1.1, ranged: false, windup: 0.55, poise: 0.15, mass: 0.8, radius: 0.32 },
+  // Ossuary Warden: a slow bone golem — its slam leaves a shard zone that
+  // reshapes the room (warden* knobs). High mass: it body-blocks doorways.
+  warden: { hpMult: 2.2, dmgMult: 1.3, speedMult: 0.55, attackRange: 1.15, xpMult: 1.9, ranged: false, windup: 0.8, poise: 0.7, mass: 3, radius: 0.55 },
+  // Pit Digger: the knockback TUTOR — the slowest tell in the game, a gentle
+  // hit, and a real launch. Three floors before knockback appears near hazards.
+  digger: { hpMult: 1.1, dmgMult: 0.35, speedMult: 0.8, attackRange: 1.1, xpMult: 1.2, ranged: false, windup: 0.9, poise: 0.4, mass: 1.6, radius: 0.42 },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

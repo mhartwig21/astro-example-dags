@@ -179,6 +179,20 @@ function resolveStrike(state: GameState, m: Monster): void {
     const radius = m.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius;
     const dmg = m.kind === "boss" ? m.damage * CONFIG.bossSlamDmgMult : m.damage;
     resolveSlamStrike(state, m, radius, dmg);
+    // The Ossuary Warden's slam SHATTERS: a lingering bone-shard zone —
+    // every swing reshapes the room, doorway by doorway.
+    if (m.kind === "warden") {
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: m.pos.x, y: m.pos.y },
+        t: CONFIG.wardenShardDuration,
+        total: CONFIG.wardenShardDuration,
+        radius: CONFIG.wardenShardRadius,
+        damage: Math.max(1, m.damage * CONFIG.wardenShardDmgMult),
+        kind: "shards",
+        tick: CONFIG.puddleTickSeconds, // the slam itself was the first hit
+      });
+    }
     return;
   }
   if (kind === "ritual") {
@@ -198,8 +212,41 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (damagePlayerHit(state, player, m.damage, { dir })) {
         handlePlayerDeath(state, player, `${player.name} met the piston. Quality control approves.`);
       } else {
-        applyPlayerKnockback(player, dir, CONFIG.punchKnockback);
+        // The Pit Digger's club launches FARTHER but hits gentler — it is
+        // the knockback tutor, three floors before hazards make it hurt.
+        applyPlayerKnockback(player, dir, m.kind === "digger" ? CONFIG.diggerKnockback : CONFIG.punchKnockback);
       }
+    }
+    return;
+  }
+  if (kind === "lunge") {
+    // Cutpurse: dash down the locked lane, stab whoever it reaches, and go
+    // for the PURSE — a hit steals gold into its carry (killing it refunds
+    // everything with interest via the generic purse drop in reapDead).
+    m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+    const dir = m.chargeDir ?? { x: 1, y: 0 };
+    m.chargeDir = undefined;
+    moveWithCollision(state.map, m.pos, dir, CONFIG.cutpurseLungeRange, isWalkable);
+    const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+    for (const player of state.players) {
+      if (!player.alive || player.dashTime > 0) continue;
+      if (dist(m.pos, player.pos) > reach) continue;
+      const hitDir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+      if (damagePlayerHit(state, player, m.damage, { dir: hitDir })) {
+        handlePlayerDeath(state, player, `${player.name} was mugged to death. The System bills the estate.`);
+        break;
+      }
+      const steal = Math.min(player.gold, Math.round(CONFIG.cutpurseStealBase + CONFIG.cutpurseStealPerFloor * state.floor));
+      if (steal > 0) {
+        player.gold -= steal;
+        m.carry = (m.carry ?? 0) + Math.round(steal * CONFIG.cutpurseInterest);
+        if (!m.noticed) {
+          m.noticed = true;
+          m.speed *= 1.2; // flush with your money and FASTER for it
+          state.events.push(`A cutpurse lifts ${steal} gold from ${player.name}! Catch it — it pays back with interest.`);
+        }
+      }
+      break; // one stab per lunge
     }
     return;
   }
@@ -585,6 +632,37 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, moveSpeed * dt, isWalkable);
     } else {
       wander(state, m, dt);
+    }
+    return;
+  }
+
+  if (m.kind === "cutpurse") {
+    // Cutpurse: circles for a LUNGE (short lane, real telegraph) and goes
+    // for the purse. Point-blank it jabs weakly. First skillshot lesson.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (m.shootCd === 0 && d >= 1.2 && d <= CONFIG.cutpurseLungeRange && m.attackCooldown === 0) {
+      m.shootCd = CONFIG.cutpurseLungeCooldown;
+      m.chargeDir = toPlayer; // lane locked NOW — sidestep the stab
+      beginWindup(m, "lunge", windup);
+      return;
+    }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, "melee", windup * 0.7);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "warden" || m.kind === "digger") {
+    // Ossuary Warden: a slow bone golem whose slam SHATTERS into a lingering
+    // shard zone (see the slam resolve). Pit Digger: the knockback tutor —
+    // the game's slowest tell ends in a launch, not a wound.
+    if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+    if (d <= m.attackRange) {
+      if (m.attackCooldown === 0) beginWindup(m, m.kind === "warden" ? "slam" : "punch", windup);
+    } else {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
     return;
   }

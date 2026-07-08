@@ -60,21 +60,16 @@ bomber, shaman, phantom, charger, spitter, necromancer, broodmother, boss).
 Each band adds 3–6 **band-locked specialists** so descent keeps introducing
 new problems. Format: **Name** (model · rig · brain) — the move, *the counter*.
 
-### THE UNDERCROFT (floors 1–3) — the tutorial gets teeth
+### THE UNDERCROFT (floors 1–3) — ~~the tutorial gets teeth~~ SHIPPED 2026-07-08
 
-- **The Cutpurse** (Skeleton_Rogue · medium · new: lunge-stab) — short
-  telegraphed dash-strike that STEALS gold on hit; it pockets the purse and
-  gets +speed. Killing it refunds everything with interest. *Counter: sidestep
-  the thin lunge lane; never let it disengage.* First taste of skillshot
-  dodging, stakes in show-economy currency, floor-1 safe (steals, never spikes).
-- **The Ossuary Warden** (Skeleton_Golem · **large** · brute+) — slow vault
-  guardian; its slam leaves a lingering bone-shard ring (hazard) so each swing
-  reshapes the room. High mass: it body-blocks doorways. *Counter: fight it in
-  the open, never in the corridor it wants.*
-- **The Pit Digger** (Caveman · medium · new: knockback debut) — huge club
-  windup (0.9s, longest in the band) that LAUNCHES you on hit. Near-zero damage
-  on floor 1–3 — the knockback IS the lesson, before deeper bands combine it
-  with hazards. *Counter: it's the slowest tell in the game; walk away.*
+The trainer trio shipped as sim kinds `cutpurse` / `warden` / `digger`,
+gated floor 2+ — **floor 1 stays pristine** (a spawn-invariant test now
+enforces zero specialists of ANY band there). The cutpurse's lunge draws a
+lane telegraph and STEALS gold into its purse (generic carry-drop refunds
+with interest — the Repo Rat's seam, generalized); the warden's slam leaves
+a `shards` hazard zone (new lingering-zone kind, physical, no poison soak);
+the digger reuses the punch resolve with a bigger, gentler launch —
+knockback in training dosage, three floors before hazards make it hurt.
 
 ### THE SEWERS (floors 4–6) — packs learn teamwork
 

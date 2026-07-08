@@ -52,6 +52,7 @@ const WINDUP_CLIP: Record<string, string> = {
   hook: "attack", // lasher whip: the 1H slash sells the snap
   morph: "transform", // understudy: KayKit's EXPERIMENTAL transform clip, at last
   hex: "cast_long", // briar witch: the long channelled curse
+  lunge: "melee_d", // cutpurse: the 1H stab IS a lunge
 };
 
 export class Renderer3D {
@@ -1838,7 +1839,8 @@ export class Renderer3D {
       }
       // LANE telegraphs: the charger's rush and the lasher's hook are LINES,
       // not circles — draw the actual lane so the sidestep reads instantly.
-      const laneDir = (mon.windupKind === "hook" || mon.windupKind === "charge") ? mon.chargeDir : undefined;
+      const laneDir = (mon.windupKind === "hook" || mon.windupKind === "charge" || mon.windupKind === "lunge")
+        ? mon.chargeDir : undefined;
       let strip = this.laneStrips.get(mon.id);
       if (mon.windup > 0 && laneDir) {
         if (!strip) {
@@ -1851,14 +1853,23 @@ export class Renderer3D {
           this.scene.add(strip);
           this.laneStrips.set(mon.id, strip);
         }
-        const len = mon.windupKind === "hook" ? CONFIG.lasherHookRange : CONFIG.chargerRange;
-        const width = mon.windupKind === "hook" ? CONFIG.lasherHookWidth * 2 : CONFIG.chargerHitRadius * 2;
+        const len =
+          mon.windupKind === "hook" ? CONFIG.lasherHookRange :
+          mon.windupKind === "lunge" ? CONFIG.cutpurseLungeRange + 0.8 :
+          CONFIG.chargerRange;
+        const width =
+          mon.windupKind === "hook" ? CONFIG.lasherHookWidth * 2 :
+          mon.windupKind === "lunge" ? 0.7 :
+          CONFIG.chargerHitRadius * 2;
         strip.position.set(mon.pos.x + laneDir.x * len / 2, 0.065, mon.pos.y + laneDir.y * len / 2);
         strip.scale.set(len, width, 1);
         strip.rotation.y = -Math.atan2(laneDir.y, laneDir.x);
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
         const mat = strip.material as THREE.MeshBasicMaterial;
-        mat.color.setHex(mon.windupKind === "hook" ? 0x7cc95a : 0xff9a2e);
+        mat.color.setHex(
+          mon.windupKind === "hook" ? 0x7cc95a :
+          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e,
+        );
         mat.opacity = 0.16 + prog * 0.4;
         strip.visible = mesh.visible;
       } else if (strip) {
@@ -2034,7 +2045,7 @@ export class Renderer3D {
         strip.visible = inVision({ x: mx, y: my });
         continue;
       }
-      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
@@ -2043,6 +2054,7 @@ export class Renderer3D {
             color:
               hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
               hz.kind === "roots" ? 0x2e8b57 : // grasping green
+              hz.kind === "shards" ? 0xb8b0a0 : // ossuary debris: pale bone scatter
               pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),
