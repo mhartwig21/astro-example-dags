@@ -102,6 +102,12 @@ off-palette synthetic model comes out with every face on the atlas.
 poll → SUCCEEDED with GLB URLs. One find: the v2 endpoint now accepts only
 `art_style: "realistic"` — defaults updated; house style comes from the
 prompt suffix + palette snap, so nothing else changes.
+**First paid generation verified** (2026-07-08, Blender 5.1.2 headless on
+Windows): a crate prompt ran generate → snap → preview end-to-end and passed
+validation (2,791 tris against a 3,000 target, 48 swatches, single material).
+One find: `target_polycount` is silently ignored unless `should_remesh: true`
+is also sent (without it the same prompt returned 924k triangles); the client
+now sets it whenever a polycount target is given.
 Next per `docs/plan-v2.md`: character path (auto-rig + shared animation
 retargeting), 2D concept stage for style anchoring, batch runs + contact-sheet
 review, cost/reject-rate measurement.
