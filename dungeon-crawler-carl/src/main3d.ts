@@ -1724,6 +1724,7 @@ function drawMinimap(s: GameState): void {
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
   enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
   heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
+  chain: "#aab2bd", // iron links; zero-amount events never become numbers anyway
 };
 
 // Floating combat numbers: project a world hit to screen and float it upward.
@@ -1773,9 +1774,11 @@ const BANNER_HOLD_MS = 3400;
 
 // What each verbosity tier lets through to the ticker (banners are unaffected).
 const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
-  all: ["boss", "progress", "levelup", "loot", "achievement", "show", "flavor"],
-  normal: ["boss", "progress", "levelup", "loot", "achievement", "show"],
-  critical: ["boss", "progress", "achievement"],
+  all: ["boss", "progress", "levelup", "loot", "achievement", "show", "tip", "flavor"],
+  normal: ["boss", "progress", "levelup", "loot", "achievement", "show", "tip"],
+  // First-contact tips fire once per crawler EVER — they survive even the
+  // terse setting, because a rule you never see explained never gets explained.
+  critical: ["boss", "progress", "achievement", "tip"],
 };
 
 function showAnnouncement(a: Announcement): void {

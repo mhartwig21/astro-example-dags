@@ -108,11 +108,14 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "cliff_inner_a", "cliff_inner_c", "cliff_inner_g", "cliff_inner_i",
       "cliff_outer_a", "cliff_outer_c", "cliff_outer_g", "cliff_outer_i",
       "forest_tree_4_a", "forest_rock_5_a", "forest_rock_5_c", "fence_gate",
-      // Typed projectiles + trinket loot (Skeletons 1.1, Mystery Monthly
-      // Clown / Plant Warrior, Fantasy Weapons arrow, Resource Bits gem —
-      // all CC0; see ASSETS.md)
-      "skeleton_arrow", "plant_warrior_arrow", "clown_bomb",
+      // Typed projectiles + trinket loot (Mystery Monthly Clown / Plant
+      // Warrior, Fantasy Weapons arrow, Resource Bits gem — all CC0; see
+      // ASSETS.md)
+      "plant_warrior_arrow", "clown_bomb",
       "weapon_arrow_a", "gem_medium",
+      // Drum Sergeant's kit (Orc Raider pack props, CC0): grafted onto the
+      // drummer's handslots in buildMonsterMesh so the band LOOKS like a band.
+      "orc_wardrum", "orc_wardrum_stick",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
