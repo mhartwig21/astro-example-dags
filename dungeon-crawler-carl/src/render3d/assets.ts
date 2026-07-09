@@ -130,6 +130,14 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "bookcase_single", "bookcase_double_decorateda", "shelf_small_books", "book_single",
       "bartop_a_medium", "keg_decorated", "stool_round", "plate_stack",
       "chest_large_gold", "chest_mimic", "table_round_medium",
+      // Room purposes wave 2 (vignette grammar): barracks / kitchen / forge /
+      // apothecary furniture. Dungeon Remastered + Restaurant Bits + Resource
+      // Bits + Block Bits + Adventurers 2.0 (all CC0 — see ASSETS.md).
+      "bed_a_single", "bed_b_single", "bed_floor", "bed_decorated", "chair",
+      "plate_food_a", "plate_food_b", "crate_large_decorated", "barrel_small_stack",
+      "pot_a_stew", "pot_large", "crate_potatoes", "food_barrel_fish",
+      "fuel_a_barrels", "gems_sack", "anvil",
+      "potion_huge_green", "potion_large_blue", "potion_medium_red",
       "banner_green", "banner_blue", "banner_brown", "banner_white",
       "gold_bars_stack_medium", "gems_pile_large", "money_pile_medium", "gems_chest",
       // Equippable weapon meshes (KayKit Fantasy Weapons Bits, CC0). Grafted
