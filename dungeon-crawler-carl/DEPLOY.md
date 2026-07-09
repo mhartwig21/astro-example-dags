@@ -22,8 +22,9 @@ browser ──wss───▶  │  static dist/ + /health + ws  │
   SQLite** at `/data/dcc.sqlite` (PERSISTENCE.md): characters per account, and
   the full world snapshot for coop/roam parties. A restart/deploy checkpoints
   on SIGTERM; clients auto-reconnect and resume the same run.
-- Hardening in `gameServer.ts`: sanitized intents, party cap 6, instance cap
-  200, 16KB WebSocket payload cap, path-traversal-safe static serving.
+- Hardening in `gameServer.ts`: sanitized intents, party cap 6 (Roam: 10),
+  instance cap 200, 16KB WebSocket payload cap, path-traversal-safe static
+  serving.
 
 ## Try the production build locally
 

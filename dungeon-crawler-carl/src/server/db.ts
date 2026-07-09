@@ -148,6 +148,11 @@ export class PersistDb {
     this.db.prepare("DELETE FROM parties WHERE code = ?").run(code);
   }
 
+  /** False once close() has run — writes after that would throw. */
+  isOpen(): boolean {
+    return this.db.open;
+  }
+
   /** A checkpoint is one transaction: the party row plus every member's save. */
   checkpoint(fn: () => void): void {
     this.db.transaction(fn)();
