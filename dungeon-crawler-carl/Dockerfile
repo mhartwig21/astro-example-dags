@@ -18,8 +18,13 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 # Litestream: continuous SQLite replication to Tigris (PERSISTENCE.md).
 # Pinned to the stable 0.3 line on purpose — backups should be boring.
+# ca-certificates is REQUIRED: node ships its own CA store but slim images
+# have no system bundle, and litestream (Go) can't verify Tigris's TLS
+# without it (observed in prod: "certificate signed by unknown authority").
 ADD https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.deb /tmp/litestream.deb
-RUN dpkg -i /tmp/litestream.deb && rm /tmp/litestream.deb
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && dpkg -i /tmp/litestream.deb && rm /tmp/litestream.deb
 COPY litestream.yml /etc/litestream.yml
 COPY --from=build /app/dist ./dist
 COPY src ./src
