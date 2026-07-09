@@ -173,6 +173,9 @@ export class Renderer3D {
   // Which ult a player's live novaFlash belongs to (nova vs cataclysm share
   // the flag; the cd EDGE at fresh-cast time disambiguates).
   private fxPrevCata = new Map<number, number>();
+  private fxPrevCutto = new Map<number, number>(); // Blindside teleport edge
+  // Short-lived props that fade and vanish (the Blindside smokebomb).
+  private fadeProps: { obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   // Last-frame combat state per player: the clip machine fires on EDGES
@@ -1816,6 +1819,22 @@ export class Renderer3D {
         mesh = undefined;
       }
       if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
+      // Blindside: a teleport, not a sprint. On the cutto cd edge (BEFORE
+      // smoothTo runs), smoke both ends, drop the smokebomb where the crawler
+      // WAS, and snap the mesh to the strike.
+      {
+        const prevCut = this.fxPrevCutto.get(pl.id);
+        if (prevCut !== undefined && (pl.cd.cutto ?? 0) > prevCut + 1e-6) {
+          const ox = mesh.position.x, oz = mesh.position.z;
+          for (let i = 0; i < 3; i++) {
+            this.spawnGlow(ox + (i - 1) * 0.2, 0.5 + i * 0.25, oz, 0xcfd6dd, 0.8, 0.45, 1.5);
+            this.spawnGlow(pl.pos.x + (i - 1) * 0.2, 0.5 + i * 0.25, pl.pos.y, 0xcfd6dd, 0.8, 0.45, 1.5);
+          }
+          this.spawnFadeProp("smokebomb", ox, 0.15, oz, 0.7, 0.5);
+          mesh.position.set(pl.pos.x, mesh.position.y, pl.pos.y);
+        }
+        this.fxPrevCutto.set(pl.id, pl.cd.cutto ?? 0);
+      }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       this.turnTo(mesh, Math.atan2(pl.facing.x, pl.facing.y), dt);
       mesh.visible = true;
@@ -2674,6 +2693,26 @@ export class Renderer3D {
     this.chainFx.push({ group, mat, life: 0, max: 0.35 });
   }
 
+  /** Drop a model prop that fades out and vanishes (Blindside's smokebomb). */
+  private spawnFadeProp(key: string, x: number, y: number, z: number, scale: number, max: number): void {
+    if (this.fadeProps.length > 12) return; // cap
+    const obj = this.modelInstance(key);
+    if (!obj) return; // asset absent: the glow puffs carry the moment alone
+    obj.scale.setScalar(scale);
+    obj.position.set(x, y, z);
+    const mats: THREE.Material[] = [];
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      mat.transparent = true;
+      m.material = mat;
+      mats.push(mat);
+    });
+    this.scene.add(obj);
+    this.fadeProps.push({ obj, mats, life: 0, max });
+  }
+
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
   private updateDying(dt: number): void {
     const alive: typeof this.dying = [];
@@ -2728,6 +2767,18 @@ export class Renderer3D {
       chainAlive.push(cf);
     }
     this.chainFx = chainAlive;
+
+    // Fade props (smokebomb): sink slightly, spin, fade, vanish.
+    const propsAlive: typeof this.fadeProps = [];
+    for (const fp of this.fadeProps) {
+      fp.life += dt;
+      if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
+      fp.obj.rotation.y += dt * 4;
+      const t = fp.life / fp.max;
+      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t;
+      propsAlive.push(fp);
+    }
+    this.fadeProps = propsAlive;
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */
