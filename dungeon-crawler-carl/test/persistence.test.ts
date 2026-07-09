@@ -1,17 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { GameServer } from "../src/server/gameServer";
 import { openDb, type PersistDb } from "../src/server/db";
-import { deserialize } from "../src/sim/snapshot";
+import { deserialize, serialize, SNAPSHOT_VERSION } from "../src/sim/snapshot";
+import { step } from "../src/sim/game";
 import type { GameState } from "../src/sim/types";
 
-// PERSISTENCE.md P1: accounts + character saves in SQLite. The DB layer is
-// unit-tested against a temp file; the server tests drive the real protocol
-// (join with a token, disconnect until the instance drops, rejoin) and assert
-// the character comes back.
+// PERSISTENCE.md P1+P2: accounts, character saves, and world hibernate/restore
+// in SQLite. The DB layer is unit-tested against a temp file; the server tests
+// drive the real protocol (join with a token, disconnect until the instance
+// drops, rejoin) and assert the character AND the world come back.
 
 const DAY = 24 * 3600 * 1000;
 
@@ -154,6 +155,52 @@ describe("server persistence (accounts + character saves)", () => {
     await waitFor(() => instances().size === 0);
   });
 
+  it("the WORLD survives: a hibernated instance restores, not regenerates", async () => {
+    const a = await connect(port, "WORLD-1", "Carl", "carl-token-00001");
+    const inst = instances().get("WORLD-1")!;
+    expect(inst.state.monsters.length).toBeGreaterThan(0);
+    inst.state.monsters.length = 0; // stage a distinctive world: floor cleared
+    a.close();
+    await waitFor(() => instances().size === 0); // hibernate
+
+    const b = await connect(port, "WORLD-1", "Carl", "carl-token-00001");
+    expect(b.lastSnap!.monsters.length).toBe(0); // a regenerated floor would be full
+    b.close();
+    await waitFor(() => instances().size === 0);
+  });
+
+  it("a version-mismatched snapshot falls back: fresh world, characters kept", async () => {
+    const a = await connect(port, "WORLD-2", "Carl", "carl-token-00001");
+    const inst = instances().get("WORLD-2")!;
+    inst.state.players.find((pl) => pl.id === a.playerId)!.gold = 555;
+    inst.state.monsters.length = 0;
+    a.close();
+    await waitFor(() => instances().size === 0);
+    // Sabotage: pretend the world snapshot came from an incompatible old sim.
+    server.db!.saveSnapshot("WORLD-2", SNAPSHOT_VERSION + 999, "{corrupt", Date.now());
+
+    const b = await connect(port, "WORLD-2", "Carl", "carl-token-00001");
+    expect(b.lastSnap!.monsters.length).toBeGreaterThan(0); // regenerated world
+    expect(b.lastSnap!.players.find((pl) => pl.id === b.playerId)!.gold).toBe(555); // save survived
+    b.close();
+    await waitFor(() => instances().size === 0);
+  });
+
+  it("a finished run clears the campaign: the next join starts fresh", async () => {
+    const a = await connect(port, "WORLD-3", "Carl", "carl-token-00001");
+    const inst = instances().get("WORLD-3")!;
+    inst.state.players.find((pl) => pl.id === a.playerId)!.gold = 999;
+    inst.state.status = "won";
+    a.close();
+    await waitFor(() => instances().size === 0);
+
+    const b = await connect(port, "WORLD-3", "Carl", "carl-token-00001");
+    expect(b.lastSnap!.status).toBe("playing"); // a new dungeon, not the finished one
+    expect(b.lastSnap!.players.find((pl) => pl.id === b.playerId)!.gold).not.toBe(999);
+    b.close();
+    await waitFor(() => instances().size === 0);
+  });
+
   it("the party's floor and run kind survive the drop", async () => {
     const a = await connect(port, "CAMP-9", "Carl", "carl-token-00001", true);
     expect(a.lastSnap!.runKind).toBe("roam"); // first joiner's flag decides
@@ -167,5 +214,33 @@ describe("server persistence (accounts + character saves)", () => {
     expect(b.lastSnap!.floor).toBe(3);
     b.close();
     await waitFor(() => instances().size === 0);
+  });
+});
+
+// ---- Golden fixture: a checked-in persisted world must stay loadable ----
+//
+// A Roam campaign snapshot written in week 1 must load in week 4 after the sim
+// changed under it. If this test fails, the PR either needs optional-with-
+// default treatment for its new GameState fields, or a SNAPSHOT_VERSION bump —
+// then regenerate the fixture: npx tsx scripts/makeSnapshotFixture.ts
+
+describe("persisted world snapshot (golden fixture)", () => {
+  const fixture = JSON.parse(
+    readFileSync(join(__dirname, "fixtures", "world-snapshot.json"), "utf8"),
+  ) as { version: number; snapshot: string };
+
+  it("matches the current SNAPSHOT_VERSION", () => {
+    expect(fixture.version).toBe(SNAPSHOT_VERSION);
+  });
+
+  it("deserializes and steps deterministically under today's sim", () => {
+    const a = deserialize(fixture.snapshot);
+    const b = deserialize(fixture.snapshot);
+    const intent = { move: { x: 1, y: 0 }, attack: true, useStairs: false };
+    for (let i = 0; i < 100; i++) {
+      step(a, intent, 1 / 30);
+      step(b, intent, 1 / 30);
+    }
+    expect(serialize(a)).toBe(serialize(b));
   });
 });

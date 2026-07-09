@@ -2487,8 +2487,15 @@ async function main(): Promise<void> {
       for (const e of batch.events) pushLogLine(e);
     };
     net.onDisconnect = () => {
-      pushLogLine("Disconnected from the server.");
-      showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties.", kind: "flavor", priority: "high" });
+      pushLogLine("Disconnected from the server. Attempting to reconnect…");
+      showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties. Reconnecting…", kind: "flavor", priority: "high" });
+    };
+    net.onReconnect = () => {
+      // The seat may be a restored instance: re-read the id, resume rendering.
+      localId = net.playerId;
+      renderer.localPlayerId = localId;
+      pushLogLine("Reconnected. Your run resumes.");
+      showAnnouncement({ text: "SIGNAL RESTORED. The audience missed you.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
   }

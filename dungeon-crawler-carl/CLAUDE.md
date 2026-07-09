@@ -140,8 +140,10 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
 - **Deploy runbook** (after merging to main):
   1. `git checkout origin/main` and run `npm test` + `npm run typecheck` on
      the exact commit you'll ship.
-  2. Check https://dungeon-crawler-claude.fly.dev/health is idle
-     (`instances: 0, players: 0`) — deploys drop live runs.
+  2. Deploys are SURVIVABLE (PERSISTENCE.md): live worlds checkpoint to
+     SQLite on SIGTERM and clients auto-reconnect (~a few seconds of pause).
+     Still glance at https://dungeon-crawler-claude.fly.dev/health — deploying
+     while someone's mid-boss is rude, just no longer destructive.
   3. `fly deploy --yes` from `dungeon-crawler-carl/` (flyctl:
      `$USERPROFILE/.fly/bin/fly.exe` on the dev box).
   4. Verify `/health` shows fresh `uptimeMin` and `/iso.html` returns 200.

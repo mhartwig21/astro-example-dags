@@ -106,6 +106,15 @@ export class PersistDb {
     return row ? { playerId: row.player_id, saveJson: row.save_json } : null;
   }
 
+  /** Every account's seat in a party — the join handler keeps other members'
+   *  (possibly offline) characters off-limits to drop-in strangers. */
+  memberSeats(code: string): { accountId: string; playerId: number }[] {
+    const rows = this.db.prepare(
+      "SELECT account_id, player_id FROM party_members WHERE party_code = ?",
+    ).all(code) as { account_id: string; player_id: number }[];
+    return rows.map((r) => ({ accountId: r.account_id, playerId: r.player_id }));
+  }
+
   upsertMember(code: string, accountId: string, playerId: number, saveJson: string, now: number): void {
     this.db.prepare(
       `INSERT INTO party_members (party_code, account_id, player_id, save_json, updated_at)
@@ -113,6 +122,30 @@ export class PersistDb {
        ON CONFLICT(party_code, account_id) DO UPDATE SET player_id = excluded.player_id,
          save_json = excluded.save_json, updated_at = excluded.updated_at`,
     ).run(code, accountId, playerId, saveJson, now);
+  }
+
+  getSnapshot(code: string): { version: number; snapshot: string } | null {
+    const row = this.db.prepare(
+      "SELECT version, snapshot FROM instance_snapshots WHERE party_code = ?",
+    ).get(code) as { version: number; snapshot: string } | undefined;
+    return row ?? null;
+  }
+
+  saveSnapshot(code: string, version: number, snapshot: string, now: number): void {
+    this.db.prepare(
+      `INSERT INTO instance_snapshots (party_code, version, snapshot, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(party_code) DO UPDATE SET version = excluded.version,
+         snapshot = excluded.snapshot, updated_at = excluded.updated_at`,
+    ).run(code, version, snapshot, now);
+  }
+
+  /** The run ended (won/wiped): forget the campaign so the next join under
+   *  this code starts a fresh dungeon instead of resuming a finished one. */
+  clearParty(code: string): void {
+    this.db.prepare("DELETE FROM party_members WHERE party_code = ?").run(code);
+    this.db.prepare("DELETE FROM instance_snapshots WHERE party_code = ?").run(code);
+    this.db.prepare("DELETE FROM parties WHERE code = ?").run(code);
   }
 
   /** A checkpoint is one transaction: the party row plus every member's save. */

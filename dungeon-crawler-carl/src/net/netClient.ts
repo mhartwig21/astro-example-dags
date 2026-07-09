@@ -32,23 +32,43 @@ function storeToken(token: string): void {
   }
 }
 
+// Reconnect cadence: fast at first (a deploy restart is seconds), then backed
+// off, giving up after ~3 minutes of dead air. The server persists the world
+// on shutdown, so riding this out means resuming the same run.
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000];
+const RECONNECT_MAX_ATTEMPTS = 20;
+const RECONNECT_CAP_MS = 10_000;
+
 export class NetClient {
   private ws: WebSocket | null = null;
   playerId = -1;
   connected = false;
   onEvents: ((batch: NetEventBatch) => void) | null = null;
   onDisconnect: (() => void) | null = null;
+  /** Fired when an automatic rejoin lands: playerId may have changed (the
+   *  world can be a restored instance) — hosts must re-read it. */
+  onReconnect: ((snapshot: GameState) => void) | null = null;
 
   private prev: GameState | null = null;
   private curr: GameState | null = null;
   private display_: GameState | null = null;
   private snapAt = 0;
   private snapInterval = 67; // ms between snapshots; refined from arrivals
+  // Auto-reconnect state: the original join args, replayed on unexpected close.
+  private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean } | null = null;
+  private retryN = 0;
+  private everConnected = false; // never auto-retry a join that failed outright
 
   /** Connect, join a party, resolve on the welcome snapshot.
    * `rivals` opts the instance into the competitive race (first joiner decides);
    * `roam` starts the party as a Roam campaign the same way. */
   connect(url: string, code: string, name: string, rivals = false, roam = false): Promise<GameState> {
+    this.args = { url, code, name, rivals, roam };
+    return this.open();
+  }
+
+  private open(): Promise<GameState> {
+    const { url, code, name, rivals, roam } = this.args!;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
@@ -60,18 +80,25 @@ export class NetClient {
       }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
+        const hadSeat = this.connected;
         this.connected = false;
-        this.onDisconnect?.();
+        if (hadSeat) this.onDisconnect?.();
+        // Unexpected drop mid-run (deploy, network blip): quietly rejoin with
+        // the same code/token — the server gives this account its seat back.
+        if (hadSeat && this.everConnected) this.scheduleReconnect();
       };
       ws.onmessage = (e) => {
         const msg = JSON.parse(String(e.data));
         if (msg.t === "welcome") {
           this.playerId = msg.playerId;
           if (typeof msg.token === "string") storeToken(msg.token);
+          this.prev = null; // never lerp across a (re)join boundary
           this.curr = deserialize(msg.snapshot);
           this.display_ = deserialize(msg.snapshot);
           this.snapAt = performance.now();
           this.connected = true;
+          this.everConnected = true;
+          this.retryN = 0;
           resolve(this.curr);
         } else if (msg.t === "snap") {
           const now = performance.now();
@@ -87,6 +114,19 @@ export class NetClient {
         }
       };
     });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.retryN >= RECONNECT_MAX_ATTEMPTS) return; // the System gave up on us
+    const delay = RECONNECT_DELAYS_MS[this.retryN] ?? RECONNECT_CAP_MS;
+    this.retryN++;
+    setTimeout(() => {
+      if (this.connected) return; // a manual reconnect beat us to it
+      this.open().then(
+        (snap) => this.onReconnect?.(snap),
+        () => this.scheduleReconnect(), // dial failed; keep trying on the backoff
+      );
+    }, delay);
   }
 
   /**

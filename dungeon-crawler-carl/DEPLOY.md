@@ -18,9 +18,10 @@ browser ──wss───▶  │  static dist/ + /health + ws  │
 
 - The client infers the server URL from its own origin (`wss://` on HTTPS), so
   a shared link is just `https://<app>/iso.html?join=CODE&name=You`.
-- Party state is **in-memory** in this single process; **characters persist**
-  to SQLite at `/data/dcc.sqlite` (PERSISTENCE.md) — a restart/deploy drops the
-  live world, but every character (and the party's floor) reloads on rejoin.
+- Party state ticks **in-memory** in this single process and **persists to
+  SQLite** at `/data/dcc.sqlite` (PERSISTENCE.md): characters per account, and
+  the full world snapshot for coop/roam parties. A restart/deploy checkpoints
+  on SIGTERM; clients auto-reconnect and resume the same run.
 - Hardening in `gameServer.ts`: sanitized intents, party cap 6, instance cap
   200, 16KB WebSocket payload cap, path-traversal-safe static serving.
 
@@ -69,7 +70,8 @@ Notes:
 - `fly.toml` pins **one always-on machine** (`min_machines_running = 1`,
   `auto_stop_machines = false`) — a game server must not scale to zero mid-run.
 - 512MB shared-cpu-1x is generous; the sim is a few KB per party.
-- Deploys restart the process → live runs drop. Deploy when nobody's crawling.
+- Deploys restart the process → runs checkpoint on SIGTERM and clients
+  auto-reconnect (a few seconds of pause). Deploying mid-boss is rude, not fatal.
 - Custom domain later: `fly certs add game.yourdomain.com` + a CNAME.
 
 ## Capacity & sizing (measured 2026-07-03)
