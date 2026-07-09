@@ -285,6 +285,7 @@ export interface Monster {
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
   eliteName?: string; // announcer name for elites and city bosses
+  defId?: string; // crafted enemy (src/content/mobs): stats applied at spawn; hosts resolve skin/tint from the def
   // System bounty (interference tier 1): seconds left to collect + the purse.
   bountyT?: number;
   bountyGold?: number;
@@ -531,6 +532,10 @@ export interface FloorMap {
   // floor SHOWS and what it BLOCKS agree.
   pillars: number[];
   pedestal: number; // centerpiece tile (-1 = none); OFF-center so the room center stays walkable
+  // Crafted-room stamps (builder.html templates): where each template's
+  // origin landed. Tiles are already merged into `tiles`; hosts use these to
+  // place the template's cosmetic props (src/content/rooms).
+  stamps?: { id: string; x: number; y: number }[];
 }
 
 export type RunStatus = "playing" | "dead" | "won";

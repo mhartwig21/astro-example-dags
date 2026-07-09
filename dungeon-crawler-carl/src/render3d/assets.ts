@@ -330,5 +330,21 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       if (m) m.animations = [...m.animations, ...heroClips];
     }
   }
+  // GENERATED assets (the builder's Meshy bridge writes these at dev time;
+  // committed ones ship like any other file). index.json maps key -> {url,
+  // clips?}: props are plain models; creature entries carry armature-only
+  // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
+  try {
+    const ix = await (await fetch("/assets/generated/index.json")).json() as
+      Record<string, { url: string; clips?: string[] }>;
+    await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
+      try {
+        const gltf = await loader.loadAsync(entry.url);
+        const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
+          (await loader.loadAsync(c)).animations));
+        out[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
+      } catch { /* one bad generated asset never blocks the rest */ }
+    }));
+  } catch { /* no generated index: nothing crafted yet */ }
   return out;
 }
