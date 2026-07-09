@@ -371,6 +371,9 @@ above. Provenance rules for anything it produces:
 | dungeon/fx_blast_star.glb | Airstrike impact debris ring | Meshy (paid tier) text-to-3D, palette-snapped |
 | characters/flask_drink.glb | Sponsor Slurp™ drink act (clip only) | Meshy (paid tier) preset 342 "Stand_and_Drink", retargeted onto the Adventurers 1.0 rig |
 | characters/stuntdouble_cast.glb | Stunt Double cast — a gentleman's bow (clip only) | Meshy (paid tier) preset 42 "Gentlemans_Bow", retargeted onto the Adventurers 1.0 rig |
+| dungeon/system_loot_box.glb | Loot-box delivery moment (dropped at the crawler's feet on grant) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/sponsor_shell.glb | Airstrike ordnance (retires the repurposed `keg.glb`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/gavel_anchor.glb | Extradition chain's far-end gavel (CLASS ACTION / Gavel Drop lane) | Meshy (paid tier) text-to-3D, palette-snapped |
 
 ## Licensing hygiene
 

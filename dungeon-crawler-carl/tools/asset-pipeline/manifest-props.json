@@ -1,0 +1,28 @@
+{
+  "defaults": {
+    "art_style": "realistic",
+    "target_polycount": 2500,
+    "topology": "triangle",
+    "max_tris": 8000
+  },
+  "assets": [
+    {
+      "id": "system_loot_box",
+      "type": "prop",
+      "prompt": "low poly ornate mystery loot box with glowing seams and a question mark emblem, closed treasure chest shape, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.7
+    },
+    {
+      "id": "sponsor_shell",
+      "type": "prop",
+      "prompt": "low poly cartoon aerial bomb with tail fins and a flat rectangular logo panel on the side, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.8
+    },
+    {
+      "id": "gavel_anchor",
+      "type": "prop",
+      "prompt": "low poly oversized wooden judge gavel head with metal bands, no handle, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.5
+    }
+  ]
+}
