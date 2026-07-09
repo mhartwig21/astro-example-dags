@@ -3,7 +3,7 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
+import { cataclysmParams, novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
@@ -175,7 +175,10 @@ export class Renderer3D {
   private orbitBlades = new Map<number, THREE.Group[]>();
   private hazardBombs = new Map<number, THREE.Group>(); // blast-hazard bomb, by hazard id
   private windupFx = new Map<number, THREE.Group>(); // spit lob / fuse bomb, by monster id
-  private novaRings = new Map<number, THREE.Mesh>();
+  private novaRings = new Map<number, THREE.Object3D>();
+  // Which ult a player's live novaFlash belongs to (nova vs cataclysm share
+  // the flag; the cd EDGE at fresh-cast time disambiguates).
+  private fxPrevCata = new Map<number, number>();
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   // Last-frame combat state per player: the clip machine fires on EDGES
@@ -1541,21 +1544,43 @@ export class Renderer3D {
     }
     this.prevStrikeCount = strikes.length;
     this.prevStrikePos = strikes.map((s) => ({ x: s.pos.x, y: s.pos.y }));
-    while (this.strikeMeshes.length < strikes.length) {
-      const keg = this.modelInstance("keg") ?? new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
-      keg.scale.multiplyScalar(0.5);
-      this.scene.add(keg);
-      this.strikeMeshes.push(keg);
-    }
-    for (let i = 0; i < this.strikeMeshes.length; i++) {
-      const mesh = this.strikeMeshes[i];
+    for (let i = 0; i < Math.max(this.strikeMeshes.length, strikes.length); i++) {
       const s = strikes[i];
-      if (!s) { mesh.visible = false; continue; }
+      let mesh = this.strikeMeshes[i];
+      if (!s) { if (mesh) mesh.visible = false; continue; }
+      const kind = s.kind ?? "shell";
+      if (!mesh || mesh.userData.strikeKind !== kind) {
+        // Kind-aware pool: an Aftermath echo is a ground pulse, not falling
+        // sponsor ordnance — it must never render as the airstrike keg.
+        if (mesh) this.scene.remove(mesh);
+        if (kind === "echo") {
+          mesh = this.buildFxRing("cataclysm");
+          this.scene.remove(mesh); // buildFxRing adds; re-add via the pool below
+        } else {
+          mesh = this.modelInstance("keg") ?? new THREE.Mesh(
+            new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
+          mesh.scale.multiplyScalar(0.5);
+        }
+        mesh.userData.strikeKind = kind;
+        this.scene.add(mesh);
+        this.strikeMeshes[i] = mesh;
+      }
       mesh.visible = true;
-      mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
-      mesh.rotation.x += 0.2;
-      mesh.rotation.z += 0.13;
+      if (kind === "echo") {
+        // The ground remembers where you stood: the crown tightens in place,
+        // spinning slowly until the echo detonates.
+        const r = (s.radius ?? 2) * 0.85;
+        mesh.position.set(s.pos.x, 0.02, s.pos.y);
+        mesh.scale.setScalar(((mesh.userData.baseScale as number) ?? 1) * r);
+        if (mesh.userData.model) mesh.rotation.y += 0.03;
+        for (const mat of (mesh.userData.mats as THREE.Material[]) ?? []) {
+          (mat as THREE.MeshBasicMaterial).opacity = 0.75;
+        }
+      } else {
+        mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
+        mesh.rotation.x += 0.2;
+        mesh.rotation.z += 0.13;
+      }
     }
   }
 
@@ -1677,32 +1702,84 @@ export class Renderer3D {
           blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
         }
       }
-      // Nova ring: expands over the flash window, fading out.
+      // Nova/Cataclysm ring: the two ults SHARE the novaFlash flag; the
+      // cataclysm cd edge at cast time decides which effect (and radius)
+      // this flash is — previously cataclysm reused nova's ring at nova's
+      // radius and was indistinguishable from a common nova.
+      const cataRose = (p.cd.cataclysm ?? 0) > (this.fxPrevCata.get(p.id) ?? 0) + 1e-6;
+      this.fxPrevCata.set(p.id, p.cd.cataclysm ?? 0);
       let ring = this.novaRings.get(p.id) ?? null;
       if (p.novaFlash > 0) {
-        if (!ring) {
-          ring = new THREE.Mesh(
-            new THREE.TorusGeometry(1, 0.07, 8, 40),
-            new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true }),
-          );
-          ring.rotation.x = -Math.PI / 2;
-          this.scene.add(ring);
-          this.novaRings.set(p.id, ring);
+        const fresh = !ring || !ring.visible;
+        if (fresh) {
+          const kind = cataRose ? "cataclysm" : "nova";
+          if (!ring || ring.userData.kind !== kind) {
+            if (ring) this.scene.remove(ring);
+            ring = this.buildFxRing(kind);
+            this.novaRings.set(p.id, ring);
+          }
+          ring.userData.radius = kind === "cataclysm" ? cataclysmParams(p).radius : novaParams(p).radius;
+          ring.userData.flashTotal = p.novaFlash;
+          const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
+          // Additive puffs stack hot over a big radius — cataclysm gets more
+          // of them but SMALLER, or the whole arena washes to white.
+          this.burst(p.pos.x, p.pos.y, color, kind === "cataclysm" ? 22 : 18,
+            kind === "cataclysm" ? 0.65 : 0.7, ring.userData.radius as number);
+          this.addTrauma(kind === "cataclysm" ? 0.45 : 0.3);
         }
-        const np = novaParams(p);
-        const prog = 1 - p.novaFlash / 0.3;
-        if (!ring.visible) {
-          this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
-          this.addTrauma(0.3);
+        const total = (ring!.userData.flashTotal as number) || 0.3;
+        const prog = Math.min(1, Math.max(0, 1 - p.novaFlash / total));
+        const radius = (ring!.userData.radius as number) ?? novaParams(p).radius;
+        ring!.visible = true;
+        ring!.position.set(p.pos.x, ring!.userData.kind === "cataclysm" ? 0.02 : 0.15, p.pos.y);
+        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * prog));
+        if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
+        for (const mat of ring!.userData.mats as THREE.Material[]) {
+          (mat as THREE.MeshBasicMaterial).opacity = 1 - prog;
         }
-        ring.visible = true;
-        ring.position.set(p.pos.x, 0.15, p.pos.y);
-        ring.scale.setScalar(Math.max(0.05, np.radius * prog));
-        (ring.material as THREE.MeshBasicMaterial).opacity = 1 - prog;
       } else if (ring) {
         ring.visible = false;
       }
     }
+  }
+
+  /** Spell-FX ring (GENERATION-BACKLOG 3b): the generated effect mesh with an
+   * emissive fade treatment, or the classic bare torus when the file is
+   * absent. Normalized so scale.setScalar(r) puts the rim at world radius r. */
+  private buildFxRing(kind: "nova" | "cataclysm"): THREE.Object3D {
+    const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
+    const model = this.modelInstance(kind === "cataclysm" ? "fx_cataclysm_crown" : "fx_nova_ring");
+    const mats: THREE.Material[] = [];
+    let obj: THREE.Object3D;
+    let baseScale = 1;
+    if (model) {
+      const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      baseScale = 2 / Math.max(size.x, size.z, 1e-3); // unit-radius footprint
+      model.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.transparent = true;
+        mat.depthWrite = false;
+        mat.emissive = new THREE.Color(color);
+        mat.emissiveIntensity = 0.55;
+        m.material = mat;
+        mats.push(mat);
+      });
+      obj = model;
+      obj.userData.model = true;
+    } else {
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true });
+      const torus = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 40), mat);
+      torus.rotation.x = -Math.PI / 2;
+      mats.push(mat);
+      obj = torus;
+    }
+    obj.userData.kind = kind;
+    obj.userData.mats = mats;
+    obj.userData.baseScale = baseScale;
+    this.scene.add(obj);
+    return obj;
   }
 
   // ---- Per-frame sync ----

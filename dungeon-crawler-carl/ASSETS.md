@@ -363,6 +363,8 @@ above. Provenance rules for anything it produces:
 | Our file | What | Origin |
 |---|---|---|
 | characters/extradition.glb | "Extradition" cast clip (armature + animation only, no mesh) for the hero skins | Meshy (paid tier) auto-rig of the CC0 KayKit adventurer + preset clip 239 "Crouch_Pull_and_Throw", retargeted onto the Adventurers 1.0 rig via `tools/asset-pipeline/blender/retarget_clip.py` |
+| dungeon/fx_nova_ring.glb | Nova's shockwave ring (spell-FX mesh kit; emissive/fade treatment applied at load in `buildFxRing`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_cataclysm_crown.glb | Cataclysm's eruption crown + the Aftermath echo's ground marker | Meshy (paid tier) text-to-3D, palette-snapped |
 
 ## Licensing hygiene
 
