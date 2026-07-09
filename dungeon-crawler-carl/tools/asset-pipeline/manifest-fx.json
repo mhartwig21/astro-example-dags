@@ -1,0 +1,22 @@
+{
+  "defaults": {
+    "art_style": "realistic",
+    "target_polycount": 2000,
+    "topology": "triangle",
+    "max_tris": 8000
+  },
+  "assets": [
+    {
+      "id": "fx_nova_ring",
+      "type": "prop",
+      "prompt": "low poly circular magic shockwave ring with engraved runes and swirling wave ridges, flat disc with an open center, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.3
+    },
+    {
+      "id": "fx_cataclysm_crown",
+      "type": "prop",
+      "prompt": "low poly ring of jagged cracked stone shards bursting upward from a circular crater rim, open center, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.7
+    }
+  ]
+}
