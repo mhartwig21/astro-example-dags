@@ -12,6 +12,28 @@ export const CONFIG = {
   floorGridW: 72,
   floorGridH: 72,
 
+  // Roam mode (v1 — SETTLEMENTS.md): one big, low-pressure floor per
+  // stairway instead of 18 tight ones. Numbers below are starting guesses,
+  // not tuned balance — expect to revisit after playtesting.
+  roamFloorGridW: 128,
+  roamFloorGridH: 128,
+  roamFloorMinRooms: 20,
+  roamFloorMaxRooms: 28,
+  // A large but FINITE budget — never Infinity. GameState round-trips through
+  // JSON.stringify in snapshot.ts, and Infinity serializes to null, silently
+  // corrupting timeBudget/timeRemaining on the first snapshot.
+  roamTimeBudget: 1800, // 30 minutes
+  roamMonsterDensity: 0.012, // monsters per walkable tile
+  // The tribe's base raider archetype; the existing drumFromFloor escort
+  // logic (game.ts spawnMonsters) naturally promotes one pack member per
+  // pack to "drummer" from floor 4+ — Roam's pinned Sewers theme means every
+  // pack reads as MOB-CONCEPTS.md's "Drumline" (raiders + a Drum Sergeant)
+  // with zero new spawn logic.
+  roamTribeKind: "grunt",
+  roamTribeId: "drumline",
+  roamQuestTarget: 10, // kills required to complete the settlement's quest
+  roamThemeFloor: 5, // pins Roam's band visuals (Sewers) regardless of floor count
+
   // Collapse timer (seconds). Floor 1 is generous; deeper floors tighten.
   // Budgets account for the larger floors (longer traversal to the stairs).
   timerBaseSeconds: 120,

@@ -120,6 +120,9 @@ function persistRun(g: GameState): void {
 
 // ---- Run mode (set by the check-in menu; daily runs share one seed per day) ----
 let runMode: RunMode = { kind: "random" };
+// Race (today's 18-floor descent) vs Roam (SETTLEMENTS.md v1). Orthogonal to
+// RunMode: daily/random only ever apply to Race in the menu today.
+let currentRunKind: GameState["runKind"] = "race";
 let dailySubmitted = false; // one board submission per run end
 let hasContinue = false; // a mid-run save was restored; the menu offers CONTINUE
 
@@ -149,17 +152,20 @@ if (testMode) Object.defineProperty(window, "__dcc", { configurable: true, get: 
 const log: string[] = [];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
-function startRun(mode: RunMode): void {
+function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   clearRun();
   runMode = mode;
+  currentRunKind = runKind;
   dailySubmitted = false;
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
-  state = createGame(seed);
+  state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
-  pushLogLine(mode.kind === "daily"
+  pushLogLine(runKind === "roam"
+    ? "Roam mode. No clock, no floor 18 — just the next settlement over."
+    : mode.kind === "daily"
     ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon. Only the board remembers.`
     : `New run. Descend to floor ${CONFIG.finalFloor}.`);
 }
@@ -223,7 +229,7 @@ input.onReset = () => {
     clearLogFeed();
     pushLogLine(`New run. Descend to floor ${CONFIG.finalFloor}.`);
   } else {
-    startRun(runMode); // rerun keeps the mode: a daily rerun replays today's dungeon
+    startRun(runMode, currentRunKind); // rerun keeps the mode: a daily rerun replays today's dungeon
   }
   if (invOpen) toggleInventory(); // close stale panels from the old run
   if (abilOpen) toggleAbilities();
@@ -348,6 +354,26 @@ document.getElementById("m-daily")!.addEventListener("click", () => {
 });
 document.getElementById("m-solo")!.addEventListener("click", () => {
   startRun({ kind: "random" });
+  closeMenu();
+});
+
+// RACE / ROAM top-level split. RACE shows today's full card set unchanged;
+// ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
+// settlement, one tribe, one quest, no daily/party/rivals/test yet.
+document.getElementById("m-mode-race")!.addEventListener("click", () => {
+  document.getElementById("m-race-cards")!.style.display = "";
+  document.getElementById("m-roam-cards")!.style.display = "none";
+  document.getElementById("m-mode-race")!.classList.add("active");
+  document.getElementById("m-mode-roam")!.classList.remove("active");
+});
+document.getElementById("m-mode-roam")!.addEventListener("click", () => {
+  document.getElementById("m-race-cards")!.style.display = "none";
+  document.getElementById("m-roam-cards")!.style.display = "";
+  document.getElementById("m-mode-roam")!.classList.add("active");
+  document.getElementById("m-mode-race")!.classList.remove("active");
+});
+document.getElementById("m-roam-solo")!.addEventListener("click", () => {
+  startRun({ kind: "random" }, "roam");
   closeMenu();
 });
 
@@ -635,12 +661,16 @@ function renderDraft(s: GameState): void {
   if (lp.pendingRewards.length > 0) {
     const shrine = lp.pendingRewards.some((r) => r.kind.startsWith("shrine"));
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
+    const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE" : "◆ SPONSOR DRAFT";
+    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE"
+      : quest ? "⚑ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
         ? "The shrine offers a bargain. Every deal has fine print — pick one, or walk."
+        : quest
+        ? "The settlement pays what it promised. Take one."
         : "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {

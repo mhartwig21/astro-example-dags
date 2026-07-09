@@ -423,6 +423,16 @@
       #menu .m-name-row input { width: 180px; text-align: center; font-weight: 700;
         letter-spacing: 1px; color: #f5e6bf; }
       #menu .m-cols { display: grid; grid-template-columns: 1fr 285px; gap: 22px; }
+      .m-mode-row { display: flex; gap: 10px; margin-bottom: 14px; }
+      .m-mode { flex: 1; cursor: pointer; font: inherit; text-align: center;
+        background: #171310; border: 1px solid #6e5533; border-radius: 6px; padding: 10px 8px;
+        color: #a99f8c; letter-spacing: 3px; font-size: 13px; font-weight: 700;
+        transition: border-color 0.12s ease, color 0.12s ease; }
+      .m-mode small { display: block; color: #6f6757; font-size: 10px; letter-spacing: 0.5px;
+        font-weight: 400; margin-top: 4px; }
+      .m-mode:hover { border-color: #a8854f; color: #e8ddc8; }
+      .m-mode.active { border-color: #c9a24b; color: #f2c14e; background: #221b15; }
+      .m-mode.active small { color: #a99f8c; }
       .m-card { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
         background: #221b15; border: 1px solid #6e5533; border-left: 3px solid #3f5f6f;
         border-radius: 6px; padding: 11px 15px; margin-bottom: 9px; color: #e8ddc8;
@@ -1237,41 +1247,52 @@
         <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
         <div class="m-cols">
           <div>
-            <button class="m-card green" id="m-continue" style="display:none">
-              <b>CONTINUE RUN</b><small id="m-continue-sub"></small>
-            </button>
-            <button class="m-card gold" id="m-daily">
-              <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
-            </button>
-            <button class="m-card" id="m-solo">
-              <b>NEW RUN</b><small>a fresh seed and a full camera crew</small>
-            </button>
-            <button class="m-card" id="m-party">
-              <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
-            </button>
-            <div class="m-form" id="m-party-form" style="display:none">
-              <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
-              <button class="m-mini" id="m-roll">NEW CODE</button>
-              <button class="m-go" id="m-join">CO-OP ▶</button>
+            <div class="m-mode-row">
+              <button class="m-mode active" id="m-mode-race">RACE<small>one sitting, 18 floors, the clock is the enemy</small></button>
+              <button class="m-mode" id="m-mode-roam">ROAM<small>no clock, a settlement, a tribe, a quest</small></button>
             </div>
-            <button class="m-card red" id="m-rivals-card">
-              <b>RIVALS</b><small>up to four HOSTILE crawlers, one contract &mdash; first boss kill wins</small>
-            </button>
-            <div class="m-form" id="m-rivals-form" style="display:none">
-              <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
-              <button class="m-mini" id="m-rroll">NEW CODE</button>
-              <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
+            <div id="m-race-cards">
+              <button class="m-card green" id="m-continue" style="display:none">
+                <b>CONTINUE RUN</b><small id="m-continue-sub"></small>
+              </button>
+              <button class="m-card gold" id="m-daily">
+                <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
+              </button>
+              <button class="m-card" id="m-solo">
+                <b>NEW RUN</b><small>a fresh seed and a full camera crew</small>
+              </button>
+              <button class="m-card" id="m-party">
+                <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
+              </button>
+              <div class="m-form" id="m-party-form" style="display:none">
+                <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
+                <button class="m-mini" id="m-roll">NEW CODE</button>
+                <button class="m-go" id="m-join">CO-OP ▶</button>
+              </div>
+              <button class="m-card red" id="m-rivals-card">
+                <b>RIVALS</b><small>up to four HOSTILE crawlers, one contract &mdash; first boss kill wins</small>
+              </button>
+              <div class="m-form" id="m-rivals-form" style="display:none">
+                <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
+                <button class="m-mini" id="m-rroll">NEW CODE</button>
+                <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
+              </div>
+              <button class="m-card dim" id="m-test">
+                <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
+              </button>
+              <div class="m-form" id="m-test-form" style="display:none">
+                <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>
+                <label>LEVEL <input id="m-t-level" type="number" min="1" max="40" value="1" /></label>
+                <label>GOLD <input id="m-t-gold" type="number" min="0" value="0" /></label>
+                <label>SEED <input id="m-t-seed" type="number" placeholder="random" /></label>
+                <label><input id="m-t-all" type="checkbox" /> ALL ABILITIES</label>
+                <button class="m-go" id="m-t-go">ENTER ▶</button>
+              </div>
             </div>
-            <button class="m-card dim" id="m-test">
-              <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
-            </button>
-            <div class="m-form" id="m-test-form" style="display:none">
-              <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>
-              <label>LEVEL <input id="m-t-level" type="number" min="1" max="40" value="1" /></label>
-              <label>GOLD <input id="m-t-gold" type="number" min="0" value="0" /></label>
-              <label>SEED <input id="m-t-seed" type="number" placeholder="random" /></label>
-              <label><input id="m-t-all" type="checkbox" /> ALL ABILITIES</label>
-              <button class="m-go" id="m-t-go">ENTER ▶</button>
+            <div id="m-roam-cards" style="display:none">
+              <button class="m-card" id="m-roam-solo">
+                <b>BEGIN ROAM</b><small>one big floor, a settlement, a tribe to thin out — v1, solo only for now</small>
+              </button>
             </div>
           </div>
           <div class="m-side">

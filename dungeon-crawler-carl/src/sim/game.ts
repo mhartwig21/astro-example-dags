@@ -5,6 +5,7 @@ import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, tu
 import { moveWithCollision } from "./movement";
 import { springAmbush, stepMonster } from "./ai";
 import { generateItem, hasPassive, itemScore } from "./items";
+import { creditQuestKill, spawnSettlement, talkToNpc } from "./npc";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
   type CatalogEntry,
@@ -93,6 +94,11 @@ function extraPlayers(state: GameState): number {
 
 function monsterCount(state: GameState, floor: number): number {
   const mpMult = 1 + extraPlayers(state) * CONFIG.mpCountPerExtraPlayer;
+  if (state.runKind === "roam") {
+    // Density scales with the floor's actual walkable area instead of a flat
+    // per-floor formula — Roam floors are much bigger than Race's.
+    return Math.round(walkableTiles(state.map).length * CONFIG.roamMonsterDensity * mpMult);
+  }
   return Math.min(
     CONFIG.monsterMaxCount * 2, // party floors may exceed the solo cap
     Math.round((CONFIG.monsterBaseCountFloor1 + (floor - 1) * CONFIG.monsterCountPerFloor) * mpMult),
@@ -270,8 +276,11 @@ function spawnMonsters(state: GameState): void {
     (t) => dist(t, map.spawn) > 6 && dist(t, map.stairs) > 2,
   );
 
-  // Floor 18 is the FINAL boss arena: one boss + a few ranged adds.
-  if (floor >= CONFIG.finalFloor) {
+  // Floor 18 is the FINAL boss arena: one boss + a few ranged adds. Roam
+  // floors regenerate open-endedly past 18 with no boss roster to draw from
+  // out there, and floor.ts never carves a boss arena for them — this check
+  // must agree, or a "boss" spawns into an ordinary room with no sealed exit.
+  if (state.runKind !== "roam" && floor >= CONFIG.finalFloor) {
     const bossPos = { x: map.stairs.x, y: map.stairs.y };
     const boss = makeMonster(state, "boss", bossPos);
     boss.hp = boss.maxHp = Math.round(CONFIG.bossHp * (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer));
@@ -292,7 +301,7 @@ function spawnMonsters(state: GameState): void {
   // band's SIGNATURE mechanic on top of the shared kit; the tier ladder
   // (Ground Slam and its haste) climbs with depth, and the floor-3 opener
   // stays tier-0 gentle. The stairs stay sealed until the boss falls.
-  if (isCityBossFloor(floor)) {
+  if (state.runKind !== "roam" && isCityBossFloor(floor)) {
     const boss = makeMonster(state, "boss", { x: map.stairs.x, y: map.stairs.y });
     const arena = Math.floor(floor / CONFIG.bossFloorEvery); // 1..5
     const hp = CONFIG.bandBossHp[arena - 1] *
@@ -326,6 +335,11 @@ function spawnMonsters(state: GameState): void {
   // safe, encounter density ramps along the critical path, the landmark hall is
   // the hottest room and hosts the neighborhood boss, and the vault detour holds
   // a lone guardian standing over guaranteed treasure.
+  const roam = state.runKind === "roam";
+  // Roam v1: one tribe only — every pack rolls the tribe's raider archetype
+  // (the existing drumFromFloor escort logic still promotes one member per
+  // pack to a Drum Sergeant; see CONFIG.roamTribeKind).
+  const rollKind = (): MonsterKind => (roam ? (CONFIG.roamTribeKind as MonsterKind) : rollArchetype(rng, floor));
   const count = monsterCount(state, floor);
   const inRoom = (i: number): Vec2 | null => {
     const r = map.rooms[i];
@@ -340,7 +354,7 @@ function spawnMonsters(state: GameState): void {
   };
   const weights = map.rooms.map((r, i) => {
     const role = map.roles[i];
-    if (role === "entrance" || role === "vault") return 0;
+    if (role === "entrance" || role === "vault" || role === "settlement") return 0;
     const area = r.w * r.h;
     // Ramp toward the stairs, but early rooms stay genuinely dangerous — the
     // pacing is a tilt, not a safety corridor.
@@ -365,7 +379,8 @@ function spawnMonsters(state: GameState): void {
   for (let i = 0; i < singles && totalW > 0; i++) {
     const pos = inRoom(pickRoom());
     if (pos) {
-      const lone = makeMonster(state, rollArchetype(rng, floor), pos);
+      const lone = makeMonster(state, rollKind(), pos);
+      if (roam) lone.tribe = CONFIG.roamTribeId;
       // Lone WANDERERS live up to the name — except greeters, whose whole act
       // is standing perfectly still among the props until you get close.
       if (lone.kind === "greeter") lone.dormant = true;
@@ -402,7 +417,7 @@ function spawnMonsters(state: GameState): void {
       }
     }
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
-    const kind = rollArchetype(rng, floor);
+    const kind = rollKind();
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
     // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
     // one when a player wanders in (see stepMonster). A ranged/support pack
@@ -441,6 +456,7 @@ function spawnMonsters(state: GameState): void {
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
+      if (roam) m.tribe = CONFIG.roamTribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
@@ -448,6 +464,10 @@ function spawnMonsters(state: GameState): void {
       budget--;
     }
   }
+
+  // Roam v1 keeps the encounter to "the one tribe" — no loot-goblin, vault
+  // guardian, or neighborhood-boss dressing yet.
+  if (roam) return;
 
   // REPO RAT: from the SEWERS down, most ordinary floors hide one filcher —
   // a fleeing loot-goblin clutching the System's petty cash. Spot it, chase
@@ -961,7 +981,7 @@ function buildFloor(state: GameState, floor: number): void {
   const rng: Rng = createRng(floorSeed(state.seed, floor));
   state.rng = rng;
   state.floor = floor;
-  state.map = generateFloor(rng, floor);
+  state.map = generateFloor(rng, floor, state.runKind);
   state.explored = new Uint8Array(state.map.w * state.map.h);
   state.exploredVersion++;
   state.monsters = [];
@@ -975,7 +995,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.floorEvent = null;
   state.goldSurge = false;
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
-  state.timeBudget = floorTimeBudget(floor);
+  state.timeBudget = state.runKind === "roam" ? CONFIG.roamTimeBudget : floorTimeBudget(floor);
   // SERIES REGULAR's debt: the network trims every remaining floor's runtime.
   if (state.players.some((p) => hasRevision(p, "regular"))) {
     state.timeBudget = Math.round(state.timeBudget * CONFIG.revisionRegularTimeMult);
@@ -985,8 +1005,12 @@ function buildFloor(state: GameState, floor: number): void {
   state.collapseElapsed = 0;
   state.mapVersion++;
   spawnMonsters(state);
-  maybeSpawnFloorEvent(state); // before the key roll: a sealed vault never holds the key
-  assignKeyCarrier(state);
+  if (state.runKind === "roam") {
+    spawnSettlement(state);
+  } else {
+    maybeSpawnFloorEvent(state); // before the key roll: a sealed vault never holds the key
+    assignKeyCarrier(state);
+  }
 }
 
 export interface SavedProgress {
@@ -1169,9 +1193,16 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   return state;
 }
 
-export function createGame(seed: number, mode: GameState["mode"] = "coop"): GameState {
+export function createGame(
+  seed: number,
+  mode: GameState["mode"] = "coop",
+  runKind: GameState["runKind"] = "race",
+): GameState {
   const state: GameState = {
     mode,
+    runKind,
+    npc: null,
+    quest: null,
     rng: createRng(seed),
     seed: seed >>> 0,
     floor: 1,
@@ -2436,6 +2467,7 @@ function reapDead(state: GameState): void {
     const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
     killer.kills++;
     killer.killsThisStep++;
+    creditQuestKill(state, m);
     if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
     // REPEAT OFFENDER: the marked target died inside the window; the camera resets.
@@ -2687,7 +2719,8 @@ function tryDescend(state: GameState, p: Player): void {
     state.events.push("The boss seals the only way out. Put it down.");
     return;
   }
-  if (state.floor >= CONFIG.finalFloor) {
+  // Roam has no finish line — it regenerates open-endedly past floor 18.
+  if (state.runKind !== "roam" && state.floor >= CONFIG.finalFloor) {
     state.status = "won";
     announce(state, "progress", `FLOOR ${CONFIG.finalFloor} CLEARED. You escaped the dungeon. LEGENDARY.`, "high");
     return;
@@ -4570,6 +4603,13 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     for (const p of ordered) {
       const pi = intents[p.id] ?? NO_INTENT;
       if (pi.useStairs && p.alive) {
+        // Roam only: the same interact key talks to the settlement NPC when
+        // in range, instead of trying the stairs — the two are never in
+        // proximity range at once, so no new Intent field is needed.
+        if (state.runKind === "roam" && state.npc && dist(p.pos, state.npc.pos) <= 1.5) {
+          talkToNpc(state, p);
+          continue;
+        }
         if (state.mode === "rivals") {
           tryDescendRival(state, p);
           continue;

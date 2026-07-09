@@ -93,6 +93,10 @@ export const MODEL_MANIFEST: Record<string, string> = {
   armory_knives: "/assets/characters/rogue.glb",
   // Extra hero skin: the one adventurer nothing else wears.
   hero_hooded: "/assets/characters/rogue_hooded.glb",
+  // Roam mode (SETTLEMENTS.md v1): the settlement's one resident. Reuses a
+  // skeleton-family model unwired to any monster or hero skin — a v1 rough
+  // edge (it reads skeleton-like) rather than new asset work.
+  npc_settlement: "/assets/characters/skeleton_rogue.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",

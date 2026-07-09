@@ -63,3 +63,11 @@ pick one up cold. Delete items when they ship (git history remembers).
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
     Tools packs — extract via the established pipeline.
+11. **Roam mode isn't saved/resumable yet.** `createGame`'s new `runKind`
+    param (`"race" | "roam"`) never round-trips through `SavedProgress`
+    (`src/persist/save.ts`) — closing the tab mid-Roam and hitting CONTINUE
+    RUN silently rebuilds as Race. `SaveData` needs an optional `runKind?`
+    field (the codebase's existing optional-field + load-time-default
+    convention, e.g. `revisions?`/`tipsSeen?`) once Roam is worth resuming.
+    Not a blocker for v1 (SETTLEMENTS.md scoped v1 as no-persistence), but
+    easy to forget once real persistence work starts.
