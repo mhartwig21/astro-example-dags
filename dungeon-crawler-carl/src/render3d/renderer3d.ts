@@ -1589,7 +1589,13 @@ export class Renderer3D {
         for (let y = r.y + 1; y < r.y + r.h - 1; y++) { check(r.x + 0.5, y + 0.5); check(r.x + r.w - 0.5, y + 0.5); }
         return faces;
       };
-      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, p: RoomPurpose) => {
+      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, base: RoomPurpose) => {
+        // Variant roll (~55%): the same job dressed a different way — an
+        // officer's barracks vs a flophouse. Variant fields REPLACE the base's.
+        const variant = base.variants && base.variants.length > 0 && frng() < 0.55
+          ? base.variants[Math.floor(frng() * base.variants.length)]
+          : null;
+        const p: RoomPurpose = variant ? { ...base, ...variant, id: base.id, variants: undefined } : base;
         const faces = wallFaces(r);
         if (faces.length < 3) return;
         // The iso camera sees the INNER face of north walls (normal +y) and
@@ -1643,6 +1649,12 @@ export class Renderer3D {
         if (p.tableSet && r.w >= 6 && r.h >= 6) {
           const tcx = r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68);
           const tcy = r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68);
+          // A rug under the table sells the whole room (flat: no path lies).
+          if (p.rug && p.rug.length > 0) {
+            place(p.rug[Math.floor(frng() * p.rug.length)], tcx, tcy, {
+              scale: 1.9, jitter: 0.05, rot: Math.floor(frng() * 2) * (Math.PI / 2),
+            });
+          }
           if (place(p.tableSet.table, tcx, tcy, { scale: 0.85, jitter: 0.1 })) {
             const tableObj = this.propEntries[this.propEntries.length - 1].obj;
             const top = new THREE.Box3().setFromObject(tableObj).max.y;
@@ -1685,7 +1697,7 @@ export class Renderer3D {
           }
         }
       };
-      // Dress up to 4 sizeable combat rooms, each with a DISTINCT purpose so a
+      // Dress up to 5 sizeable combat rooms, each with a DISTINCT purpose so a
       // floor reads as a settlement of jobs, not four copies of one idea.
       const candidates: number[] = [];
       for (let ri = 0; ri < map.rooms.length; ri++) {
@@ -1696,9 +1708,15 @@ export class Renderer3D {
         const j = Math.floor(frng() * (i + 1));
         [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
       }
-      const purposeBase = Math.floor(frng() * ROOM_PURPOSES.length);
-      candidates.slice(0, 4).forEach((ri, k) => {
-        dressPurpose(map.rooms[ri], ROOM_PURPOSES[(purposeBase + k) % ROOM_PURPOSES.length]);
+      // Seeded shuffle over the WHOLE purpose table (consecutive-from-a-base
+      // never let late entries co-occur with early ones).
+      const order = ROOM_PURPOSES.map((_, i) => i);
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(frng() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      candidates.slice(0, 5).forEach((ri, k) => {
+        dressPurpose(map.rooms[ri], ROOM_PURPOSES[order[k % order.length]]);
       });
     }
 

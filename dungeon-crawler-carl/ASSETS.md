@@ -387,6 +387,20 @@ above. Provenance rules for anything it produces:
 | dungeon/anvil.glb | forge centerpiece | KayKit Block Bits 1.0, CC0 |
 | dungeon/potion_{huge_green,large_blue,medium_red}.glb | apothecary glassware | KayKit Adventurers 2.0, CC0 |
 
+### Room-purpose wave 3 props (2026-07-09, variants)
+
+| File(s) | Use | Source + license |
+|---|---|---|
+| dungeon/dummy_base.glb, weaponrack.glb, weaponrack_decorated.glb | training hall / armory variants | KayKit Prototype Bits 1.1, CC0 |
+| dungeon/trainingdummy_base.glb | training hall centerpiece | KayKit Mystery Monthly S6 (Avian Swordsman), CC0 |
+| dungeon/card_*.glb, coin_gold.glb, coin_10_gold.glb, coin_silver.glb | gambling den | KayKit Board Game Bits 1.0, CC0 |
+| dungeon/rug_*.glb, mug_a.glb, mug_b.glb | rugs + tavern variants | KayKit Furniture Bits 1.0, CC0 |
+| dungeon/vampire_goblet.glb, basket_mushrooms.glb, mushroom.glb | den / witch-pantry variants | KayKit Mystery Monthly S5 (Vampire, Witch), CC0 |
+| dungeon/crate_mushrooms.glb, dishrack_plates.glb | kitchen variants | KayKit Restaurant Bits 1.0, CC0 |
+| dungeon/skull.glb, lantern_hanging.glb | ossuary / hanging lights | KayKit Halloween Bits 1.0, CC0 |
+| dungeon/map.glb, map_rolled.glb | war room table | KayKit RPG Tools Bits 1.0, CC0 |
+| dungeon/bottle_a_labeled_green.glb, bottle_b_brown.glb | wine cellar / flophouse | KayKit Dungeon Remastered 1.1, CC0 |
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.

@@ -142,6 +142,18 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "pot_a_stew", "pot_large", "crate_potatoes", "food_barrel_fish",
       "fuel_a_barrels", "gems_sack", "anvil",
       "potion_huge_green", "potion_large_blue", "potion_medium_red",
+      // Room purposes wave 3 (variants): training hall, gambling den, war
+      // room, ossuary + variant dressing (rugs, mugs, maps, mushrooms).
+      // Prototype/Board Game/Furniture/RPG Tools/Halloween/Restaurant/
+      // Mystery Monthly bits, all CC0 — see ASSETS.md.
+      "dummy_base", "weaponrack", "weaponrack_decorated", "trainingdummy_base",
+      "card_base", "card_spades_ace", "card_hearts_king",
+      "coin_gold", "coin_10_gold", "coin_silver",
+      "rug_rectangle_a", "rug_rectangle_b", "rug_oval_a",
+      "mug_a", "mug_b", "vampire_goblet",
+      "basket_mushrooms", "mushroom", "crate_mushrooms", "dishrack_plates",
+      "skull", "lantern_hanging", "map", "map_rolled",
+      "bottle_a_labeled_green", "bottle_b_brown",
       "banner_green", "banner_blue", "banner_brown", "banner_white",
       "gold_bars_stack_medium", "gems_pile_large", "money_pile_medium", "gems_chest",
       // Equippable weapon meshes (KayKit Fantasy Weapons Bits, CC0). Grafted
