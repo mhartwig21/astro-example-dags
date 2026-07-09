@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import { serialize, serializeFor } from "../sim/snapshot";
+import { toSaveData } from "../persist/save";
 import { Leaderboard } from "./leaderboard";
+import { openDb, type PersistDb } from "./db";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
 // Authoritative multiplayer server (DESIGN.md milestone). One deterministic sim
@@ -15,7 +18,8 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //
 // Protocol (JSON messages):
 //   client -> server:
-//     { t: "join", code: string, name: string }        join/create a party
+//     { t: "join", code, name, token?, rivals?, roam? } join/create a party;
+//       token is the account id from a previous welcome (saves key off it)
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
@@ -23,12 +27,13 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //     { t: "sellAll" }                                 liquidate the whole bag
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
-//     { t: "welcome", playerId, snapshot }             join accepted
+//     { t: "welcome", playerId, token, snapshot }      join accepted; keep token
 //     { t: "snap", tick, snapshot }                    full state (interval below)
 //     { t: "events", events, announcements, hits }     this tick's transients
 
 export const TICK_HZ = 30;
 export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
+export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60s)
 
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
@@ -72,6 +77,10 @@ export function sanitizeIntent(raw: unknown): Intent {
 interface Client {
   ws: WebSocket;
   playerId: number;
+  accountId: string;
+  // False only when this account is already seated by another live connection
+  // (second tab): the extra seat plays as a guest and never writes the save.
+  bound: boolean;
 }
 
 interface Instance {
@@ -80,7 +89,18 @@ interface Instance {
   clients: Client[];
   intents: PartyIntents;
   tick: number;
+  lastFloor: number; // floor transitions trigger a checkpoint
+  // Player ids seated by any connection since this instance was created. A
+  // member rejoining a LIVE instance keeps their in-sim character (which may
+  // have progressed past the save); on a regenerated instance the seat is
+  // fresh, so the saved progression is applied instead.
+  seated: Set<number>;
   timer: NodeJS.Timeout;
+}
+
+/** Accept a well-formed client token; anything else gets a fresh identity. */
+function validToken(v: unknown): string | null {
+  return typeof v === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null;
 }
 
 /** Deterministic seed from an invite code (djb2), so a party code IS the dungeon. */
@@ -111,6 +131,7 @@ export class GameServer {
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
   readonly leaderboard: Leaderboard;
+  readonly db: PersistDb | null;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
   private tickMsMax = 0;
@@ -121,9 +142,13 @@ export class GameServer {
    * /health endpoint) and the game WebSocket on the same port. Plain Node —
    * no platform-specific APIs, so the container runs anywhere (Fly, GCP, a VPS).
    */
-  constructor(port: number, staticDir?: string, leaderboardFile?: string) {
+  constructor(port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
+    // Account + save persistence (PERSISTENCE.md P1). No dbFile (tests, bare
+    // dev runs) means no persistence — everything else behaves as before.
+    this.db = dbFile ? openDb(dbFile) : null;
+    this.db?.sweepExpired(Date.now());
     this.http = createServer((req, res) => this.onRequest(req, res));
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
@@ -248,7 +273,11 @@ export class GameServer {
   }
 
   close(): void {
+    // Flush every live run before the process goes away — this is what makes
+    // a deploy restart survivable for characters (SIGTERM handler below).
+    for (const inst of this.instances.values()) this.checkpoint(inst);
     this.leaderboard.flush();
+    this.db?.close();
     for (const inst of this.instances.values()) clearInterval(inst.timer);
     for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();
@@ -274,24 +303,58 @@ export class GameServer {
           ws.close();
           return;
         }
-        // RIVALS: the first joiner's flag decides the instance's mode.
-        const inst = this.getOrCreateInstance(code, msg.rivals === true);
-        // First joiner takes the pre-made players[0] seat; later joiners drop in.
-        const seatless = inst.state.players.filter(
-          (p) => !inst.clients.some((c) => c.playerId === p.id),
-        );
-        const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
-        if (!seatless[0] && inst.state.players.length >= cap) {
-          ws.send(JSON.stringify({ t: "error", reason: "party full" }));
-          ws.close();
-          return;
+        // Identity: an anonymous bearer token keys the account's saves. The
+        // server mints one for tokenless (or malformed) joins and echoes it
+        // back in the welcome; the client keeps it for next time.
+        const token = validToken(msg.token) ?? randomUUID();
+        const now = Date.now();
+        this.db?.touchAccount(token, name, now);
+        // RIVALS/ROAM: the first joiner's flags decide the instance's shape.
+        const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true);
+        const held = new Set(inst.clients.map((c) => c.playerId));
+        const member = this.db?.getMember(code, token) ?? null;
+        let player: (typeof inst.state.players)[number] | undefined;
+        let bound = true;
+        if (member) {
+          const own = inst.state.players.find((p) => p.id === member.playerId);
+          if (own && held.has(own.id)) bound = false; // same account, second tab: guest seat
+          else if (own) player = own; // their seat, live or regenerated — theirs to reclaim
         }
-        const player = seatless[0] ?? addPlayer(inst.state, name);
+        if (!player) {
+          // Drop-in: prefer a seat no other account owns; the pre-made
+          // players[0] seat goes to the first joiner as before.
+          const owned = new Set<number>();
+          if (this.db) {
+            for (const c of inst.clients) if (c.bound && c.accountId !== token) owned.add(c.playerId);
+          }
+          const seatless = inst.state.players.filter((p) => !held.has(p.id) && !owned.has(p.id));
+          const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
+          if (!seatless[0] && inst.state.players.length >= cap) {
+            ws.send(JSON.stringify({ t: "error", reason: "party full" }));
+            ws.close();
+            return;
+          }
+          player = seatless[0] ?? addPlayer(inst.state, name);
+        }
+        // A member returning to a REGENERATED instance finds a fresh sim seat:
+        // reload their character from the save. On a live instance the in-sim
+        // character has kept playing (or idling) past the save — keep it.
+        if (member && bound && !inst.seated.has(player.id)) {
+          try {
+            applySavedPlayer(player, JSON.parse(member.saveJson) as SavedProgress);
+          } catch {
+            // Corrupt/incompatible save: the crawler restarts, the party doesn't crash.
+          }
+        }
+        inst.seated.add(player.id);
         player.name = name;
-        inst.clients.push({ ws, playerId: player.id });
+        inst.clients.push({ ws, playerId: player.id, accountId: token, bound });
+        if (bound && this.db) {
+          this.db.upsertMember(code, token, player.id, JSON.stringify(toSaveData(inst.state, player)), now);
+        }
         joined = { inst, playerId: player.id };
         ws.send(JSON.stringify({
-          t: "welcome", playerId: player.id,
+          t: "welcome", playerId: player.id, token,
           snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
         }));
         return;
@@ -353,30 +416,61 @@ export class GameServer {
     ws.on("close", () => {
       if (!joined) return;
       const { inst, playerId } = joined;
+      this.checkpoint(inst); // final save while the leaving client is still bound
       inst.clients = inst.clients.filter((c) => c.ws !== ws);
       inst.intents[playerId] = NO_INTENT; // seat stays; character idles until rejoin
       if (inst.clients.length === 0) {
-        // Empty instance: stop ticking and drop it (persistence comes later).
+        // Empty instance: stop ticking and drop it from memory. Characters
+        // (and the party's floor) are checkpointed above; the world itself is
+        // regenerated from seed on the next join. World snapshots are P2.
         clearInterval(inst.timer);
         this.instances.delete(inst.code);
       }
     });
   }
 
-  private getOrCreateInstance(code: string, rivals = false): Instance {
+  private getOrCreateInstance(code: string, rivals = false, roam = false): Instance {
     let inst = this.instances.get(code);
     if (inst) return inst;
-    const state = createGame(seedFromCode(code), rivals ? "rivals" : "coop");
+    // A known party outranks the joiner's flags: the party code committed to a
+    // mode/run kind when it was first created, and it resumes as that.
+    const stored = this.db?.getParty(code) ?? null;
+    const mode: GameState["mode"] = stored ? (stored.mode === "rivals" ? "rivals" : "coop") : rivals ? "rivals" : "coop";
+    const runKind: GameState["runKind"] = stored ? (stored.runKind === "roam" ? "roam" : "race") : roam ? "roam" : "race";
+    const state = createGame(seedFromCode(code), mode, runKind);
+    // P1 world fallback (PERSISTENCE.md): regenerate the party's floor from
+    // seed; characters reload from their saves as members rejoin. Rivals track
+    // per-player floors, so only shared-world parties fast-forward.
+    if (stored && mode === "coop" && stored.floor > state.floor) buildFloor(state, stored.floor);
     inst = {
       code,
       state,
       clients: [],
       intents: {},
       tick: 0,
+      lastFloor: state.floor,
+      seated: new Set(),
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
     };
     this.instances.set(code, inst);
+    if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
     return inst;
+  }
+
+  /** One transaction: the party's floor plus every bound, connected member's
+   *  character save. Disconnected members were checkpointed as they left. */
+  private checkpoint(inst: Instance): void {
+    if (!this.db) return;
+    const now = Date.now();
+    this.db.checkpoint(() => {
+      this.db!.upsertParty(inst.code, inst.state.mode, inst.state.runKind, inst.state.floor, now);
+      for (const c of inst.clients) {
+        if (!c.bound) continue;
+        const p = inst.state.players.find((pl) => pl.id === c.playerId);
+        if (!p) continue;
+        this.db!.upsertMember(inst.code, c.accountId, p.id, JSON.stringify(toSaveData(inst.state, p)), now);
+      }
+    });
   }
 
   private tickInstance(inst: Instance): void {
@@ -388,6 +482,15 @@ export class GameServer {
     for (const id of Object.keys(inst.intents)) {
       const i = inst.intents[Number(id)];
       inst.intents[Number(id)] = { ...i, dash: false, nova: false, useStairs: false, ping: undefined };
+    }
+
+    // Checkpoint on floor transitions (the progression beat worth never losing)
+    // and every ~60s of active play as a backstop.
+    if (inst.state.floor !== inst.lastFloor) {
+      inst.lastFloor = inst.state.floor;
+      this.checkpoint(inst);
+    } else if (inst.tick % CHECKPOINT_EVERY === 0) {
+      this.checkpoint(inst);
     }
 
     const s = inst.state;
@@ -427,7 +530,16 @@ if (isMain) {
   const port = Number(process.env.PORT ?? 5281);
   const staticDir = process.env.STATIC_DIR; // e.g. "dist" in the container
   const lbFile = process.env.LEADERBOARD_FILE ?? "leaderboard.json";
-  const server = new GameServer(port, staticDir, lbFile);
+  const dbFile = process.env.DB_FILE ?? "dcc.sqlite"; // prod: /data/dcc.sqlite (fly.toml)
+  const server = new GameServer(port, staticDir, lbFile, dbFile);
+  // Fly sends SIGINT (then SIGKILL after kill_timeout) on deploy/stop: flush
+  // every character save before the process dies so restarts lose nothing.
+  const shutdown = (): void => {
+    server.close();
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
   void server.ready().then(() => {
     console.log(`Dungeon Crawler Claude server on :${port} (ws + ${staticDir ? `static from ${staticDir}` : "no static"})`);
     console.log(`Party instances tick at ${TICK_HZ}Hz, snapshots every ${SNAPSHOT_EVERY} ticks.`);
