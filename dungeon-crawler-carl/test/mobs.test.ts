@@ -898,3 +898,81 @@ describe("the pack playbook", () => {
   // contract is the real guard — it caught a floor-2 Reception killing the
   // bot before this gate existed, which is exactly why the gate exists.)
 });
+
+describe("boss layers", () => {
+  it("layer 2: the finale gains borrowed signatures at phase edges (the greatest-hits reel)", () => {
+    const g = createTestGame({ seed: 7, floor: 18, level: 18 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.bossTier = undefined; // no ritual windup swallowing the brain steps
+    expect(boss.signature).toBeUndefined(); // clean kit at full HP
+    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    run(g, 0.1);
+    expect(boss.signature).toBe("debris"); // the Architect's set
+    boss.hp = Math.floor(boss.maxHp * 0.2); // phase 2
+    boss.windup = 0; // clear any committed swing so the brain runs
+    boss.windupKind = undefined;
+    run(g, 0.1);
+    expect(boss.signature).toBe("flamewall"); // the Marshal's encore
+  });
+
+  it("layer 2: band bosses alternate own/borrowed signatures from phase 1", () => {
+    const g = createTestGame({ seed: 7, floor: 15, level: 16 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    const alts: boolean[] = [];
+    for (let i = 0; i < 3; i++) {
+      boss.sigCd = 0;
+      run(g, 0.1);
+      alts.push(!!boss.sigAlt);
+    }
+    // The toggle flips every cast: own -> borrowed -> own...
+    expect(alts[0]).not.toBe(alts[1]);
+    expect(alts[1]).not.toBe(alts[2]);
+  });
+
+  it("layer 3: the arena director acts while the boss lives, stops when it falls", () => {
+    const g = createTestGame({ seed: 7, floor: 6, level: 8 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    boss.sigCd = 9999; // the SIGNATURE can't fire — anything that appears is the ROOM
+    boss.healCd = 9999;
+    boss.phase = 0;
+    g.players[0].pos = { x: boss.pos.x + 6, y: boss.pos.y };
+    g.hazards = [];
+    for (let t = 0; t < CONFIG.directorFloodInterval + 1; t += DT) {
+      boss.sigCd = 9999; // hold it every step
+      boss.hp = boss.maxHp; // no phases
+      step(g, idle(), DT);
+    }
+    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(true); // the sump ROSE
+    // Kill the boss: the director's clock stops with the show.
+    boss.hp = 0;
+    run(g, 0.2);
+    g.hazards = [];
+    const t0 = g.arenaT ?? 0;
+    run(g, 2);
+    expect(g.arenaT ?? 0).toBe(t0); // no boss, no director
+    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(false);
+  });
+
+  it("layer 1: The Foreman clocks in on floor 14 with elite plumbing", () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const g = createTestGame({ seed, floor: 14 });
+      const champ = g.monsters.find((m) => m.kind === "foreman");
+      if (!champ) continue;
+      seen++;
+      expect(champ.elite).toBe(true);
+      expect(champ.eliteName).toBe("The Foreman");
+      expect(champ.maxHp).toBeGreaterThan(1500); // a checkpoint fight, not a pack
+    }
+    expect(seen).toBe(8); // every floor 14 has its champion
+  });
+});

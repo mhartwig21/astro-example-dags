@@ -369,6 +369,20 @@ export const CONFIG = {
   // floor's monster budget. Formation offsets do most of the choreography.
   packTemplateChance: 0.35, // share of pack rolls that use a band template
 
+  // BOSS LAYERS (MOB-CONCEPTS.md).
+  // Layer 1 — champions: The Foreman pilots the tier (floor 14 mini-boss).
+  foremanFloor: 14,
+  foremanHpMult: 2.2, // × its archetype pool (mini-boss, not arena boss)
+  foremanVolleyCooldown: 5,
+  foremanVolleyCount: 6,
+  foremanSlamCooldown: 6,
+  // Layer 3 — arena directors: the ROOM acts on a rhythm while the boss
+  // lives, reusing the signature helpers on the arena's own metronome
+  // (deliberately slower than the boss's sigCd — layered, not doubled).
+  directorFloodInterval: 14, // floor 6: the sump RISES on its own schedule
+  directorRegrowInterval: 16, // floor 9: the garden REGROWS
+  directorVentInterval: 12, // floor 15: the wall vents EXHALE flame rows
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -736,6 +750,7 @@ export const CONFIG = {
     hypeCanceled: 12, // the mirror match — beating a former favorite
     hypeSuitactor: 6, // the beast was fine television
     hypeSuitguy: 0, // killing the guy in the suit is BAD television
+    hypeForeman: 25, // a champion falls — almost boss-grade ratings
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -1037,6 +1052,10 @@ export const ARCHETYPES = {
   // spawns the suitguy). Suitguy: never fights, flees, and sparing him pays.
   suitactor: { hpMult: 1.3, dmgMult: 1.1, speedMult: 1.0, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.2, radius: 0.42 },
   suitguy: { hpMult: 0.25, dmgMult: 0, speedMult: 1.3, attackRange: 1.0, xpMult: 0.2, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.3 },
+  // CHAMPION tier (boss layer 1). The Foreman: a mini-boss kit — slam +
+  // radial volley — without the arena, the seal, or the boss-kill fanfare.
+  // hpMult is a floor here; spawnMonsters scales it up (foremanHpMult).
+  foreman: { hpMult: 4, dmgMult: 1.5, speedMult: 0.75, attackRange: 1.3, xpMult: 6, ranged: false, windup: 0.7, poise: 0.85, mass: 4, radius: 0.6, resist: "physical" },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 

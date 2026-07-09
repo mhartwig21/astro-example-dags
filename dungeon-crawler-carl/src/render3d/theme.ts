@@ -75,6 +75,7 @@ export const THEME = {
     canceled: { color: 0x3c6e8f, scale: 1.1 }, // faded-hero teal: the mirror match
     suitactor: { color: 0x7a5c8f, scale: 1.2 }, // costume violet: fine television
     suitguy: { color: 0xd8c8a8, scale: 0.85 }, // office beige: LET HIM GO
+    foreman: { color: 0xd94f2e, scale: 1.7 }, // champion vermilion: the checkpoint fight
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,

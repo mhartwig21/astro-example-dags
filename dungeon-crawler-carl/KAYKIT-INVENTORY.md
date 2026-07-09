@@ -88,7 +88,7 @@ soldiers are absolutely on-theme).
 | ~~Robot_One~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Lineworker (piston punch) |
 | ~~Robot_Two~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Sentinel (lock-on beam) |
 | ~~Clanker~~ | Mystery S5 | **large** | **SHIPPED 2026-07-08** as the Slagbreaker (vent rhythm) |
-| CombatMech | Mystery S5 | medium | IRONWORKS — band boss material (The Foreman champion) |
+| ~~CombatMech~~ | Mystery S5 | medium | **SHIPPED 2026-07-09** as The Foreman (floor-14 champion) |
 | ~~ToySoldier~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Wind-Up Battalion (synced volleys) |
 | ActionFigure | Mystery S4 | medium | THE SHOW — merchandising tie-in mob |
 | Monstrosity | Mystery S6 | **custom rig** | APPROACH — horror boss (no Rig_Medium/Large nodes; verify clips before committing) |

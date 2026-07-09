@@ -170,28 +170,29 @@ sketch, for the record:
 
 ## Boss variety — four layers
 
-**Layer 1: Champions (the missing tier).** Between named elites and band
-bosses: one seeded CHAMPION per non-boss floor, a band-themed mini-arena
-fight with a signature-lite and a guaranteed reward (material/component).
-Candidates from the untapped pool: **The Foreman** (CombatMech, Ironworks),
-**The Ratings Grab** (Monstrosity — custom rig, verify clips first; Approach),
-**The Pack Alpha** (Werewolf_Wolf oversized, Garden), **The Debt Collector**
-(Skeleton_Golem named, Undercroft). Diablo's purple-name dopamine, and a
+**Layer 1: Champions (the missing tier).** ~~SHIPPED (pilot) 2026-07-09~~:
+**The Foreman** (CombatMech, kind `foreman`) holds floor 14 — a mini-boss
+kit (slam + radial volley) on elite plumbing (ringside intro + guaranteed
+drops), champion-scaled HP, excluded from the neighborhood-boss re-crowning.
+Still open: the rest of the tier — **The Ratings Grab** (Monstrosity —
+custom rig, verify clips first; Approach), **The Pack Alpha** (Werewolf_Wolf
+oversized, Garden), **The Debt Collector** (Skeleton_Golem named,
+Undercroft) — and per-floor seeding beyond the pilot. The original sketch:
+one seeded champion per non-boss floor. Diablo's purple-name dopamine, and a
 pacing beat between band bosses. Seam: the elite spawn path + a small arena
 carve like vaults.
 
-**Layer 2: Signature stacking (backlog #1, generalized).** Band bosses
-currently run ONE signature for the whole fight. Give every boss a phase
-SCRIPT: phase 2 adds a second signature borrowed from an earlier band, phase 3
-overlaps both. The finale runs the greatest-hits reel (backlog already wants
-this — same dispatch, extended). Fights escalate in mechanics, not just stats.
+**Layer 2: Signature stacking.** ~~SHIPPED 2026-07-09~~ (closed old backlog
+#1): from phase 1, band bosses ALTERNATE their own signature with the
+PREVIOUS band's (flood↔graverising, roots↔flood, debris↔roots,
+flamewall↔debris); the finale gains the greatest-hits reel — debris at
+phase 1, flamewall at phase 2, on top of its tier-3 kit.
 
-**Layer 3: Arena directors.** Each boss arena gets ONE environmental script
-that runs independent of the boss — the Sump King's arena FLOODS from the
-edges as the fight runs (shrinking safe ground, collapse-clock in miniature);
-the Furnace Marshal's wall vents exhale flame rows on a rhythm; the Topiary
-Warden's arena regrows a root maze every 45s. The boss + the room is the
-fight. Seam: a per-arena tick hook next to the signature dispatch.
+**Layer 3: Arena directors.** ~~SHIPPED 2026-07-09~~ for floors 6/9/15:
+`arenaDirector` in game.ts reuses the signature helpers on the arena's own
+slower metronome while the boss lives (flood rises, garden regrows, vents
+exhale) — announced once, stops the moment the boss falls. Floors 3/12 have
+no director by design (trainer arena; debris is already arena-wide).
 
 **Layer 4: New boss FORMATS (pick 2–3, don't ship all):**
 - **The Duo** — two mid-HP bosses with complementary kits (QA Team:

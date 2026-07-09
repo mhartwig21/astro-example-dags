@@ -224,7 +224,10 @@ export type MonsterKind =
   // favorite running player verbs. suitactor: dies and UNZIPS — the suitguy
   // flees; sparing him pays more hype than the kill.
   | "stagehand" | "sniper" | "duelist" | "darling" | "canceled"
-  | "suitactor" | "suitguy";
+  | "suitactor" | "suitguy"
+  // CHAMPION tier (MOB-CONCEPTS boss layer 1): mini-boss fights between the
+  // named elites and the band bosses. The Foreman pilots the tier.
+  | "foreman";
 
 export interface Monster {
   id: number;
@@ -301,6 +304,9 @@ export interface Monster {
   signature?: BossSignature;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
+  // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
+  // own signature with the PREVIOUS band's — fights escalate in mechanics.
+  sigAlt?: boolean;
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -768,6 +774,10 @@ export interface GameState {
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
+
+  // ARENA DIRECTOR (boss layer 3): seconds the current band-boss arena has
+  // been cooking — the room itself acts on a rhythm while the boss lives.
+  arenaT?: number;
 
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];
