@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "art_style": "realistic",
+    "target_polycount": 2000,
+    "topology": "triangle",
+    "max_tris": 8000
+  },
+  "assets": [
+    {
+      "id": "nova_c1",
+      "type": "prop",
+      "prompt": "low poly circular ring of overlapping crescent wave blades sweeping outward, open center, flat, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.35
+    },
+    {
+      "id": "nova_c2",
+      "type": "prop",
+      "prompt": "low poly swirling energy ring with bold thick spiral ridges, circular disc with a large open center hole, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.3
+    },
+    {
+      "id": "nova_c3",
+      "type": "prop",
+      "prompt": "low poly circular ring of chunky arcane crystal shards pointing outward from an open center, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.4
+    },
+    {
+      "id": "detstar_c1",
+      "type": "prop",
+      "prompt": "low poly wide flat starburst shape, eight thick spikes radiating outward from the center like a splash, very flat and low, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.2
+    },
+    {
+      "id": "detstar_c2",
+      "type": "prop",
+      "prompt": "low poly cartoon comic explosion splat, thick flat sunburst with pointed tips, lying flat, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.25
+    },
+    {
+      "id": "detstar_c3",
+      "type": "prop",
+      "prompt": "low poly cracked ground impact with radiating jagged fissure spikes spreading outward flat from a center point, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.2
+    }
+  ]
+}
