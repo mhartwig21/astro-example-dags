@@ -184,7 +184,7 @@ export class Renderer3D {
   // stars, the implosion cone). grow scales per second (negative = collapse).
   private fadeProps: {
     obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
-    spin: number; grow: number;
+    spin: number; grow: number; s0: number; pop: boolean;
   }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
@@ -1625,7 +1625,7 @@ export class Renderer3D {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
         // Debris ring under the impact: the crater the keg leaves behind.
         this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
-          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true });
+          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true, pop: true });
         this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
@@ -1827,17 +1827,29 @@ export class Renderer3D {
           // of them but SMALLER, or the whole arena washes to white.
           this.burst(p.pos.x, p.pos.y, color, kind === "cataclysm" ? 22 : 18,
             kind === "cataclysm" ? 0.65 : 0.7, ring.userData.radius as number);
+          // Layered secondary: the crown's blast kicks up a debris ring too.
+          if (kind === "cataclysm") {
+            this.spawnFadeProp("fx_blast_star", p.pos.x, 0.03, p.pos.y,
+              (ring.userData.radius as number) * 0.55, 0.45,
+              { tint: 0xff8a3c, spin: 0.8, grow: 1.4, footprint: true });
+          }
           this.addTrauma(kind === "cataclysm" ? 0.45 : 0.3);
         }
         const total = (ring!.userData.flashTotal as number) || 0.3;
         const prog = Math.min(1, Math.max(0, 1 - p.novaFlash / total));
+        // Ease-out expansion: a shockwave moves fastest at birth and lands
+        // soft — linear reads mechanical. Opacity holds through the front
+        // half so the shape is SEEN, then drops away.
+        const eased = 1 - Math.pow(1 - prog, 2.4);
         const radius = (ring!.userData.radius as number) ?? novaParams(p).radius;
         ring!.visible = true;
-        ring!.position.set(p.pos.x, ring!.userData.kind === "cataclysm" ? 0.02 : 0.15, p.pos.y);
-        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * prog));
+        const cata = ring!.userData.kind === "cataclysm";
+        // The crown ERUPTS: it rises out of the floor over the first beats.
+        ring!.position.set(p.pos.x, cata ? -0.3 + 0.32 * Math.min(1, prog * 2.5) : 0.15, p.pos.y);
+        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * eased));
         if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
         for (const mat of ring!.userData.mats as THREE.Material[]) {
-          (mat as THREE.MeshBasicMaterial).opacity = 1 - prog;
+          (mat as THREE.MeshBasicMaterial).opacity = 1 - Math.pow(prog, 2.2);
         }
       } else if (ring) {
         ring.visible = false;
@@ -2829,7 +2841,7 @@ export class Renderer3D {
       // bursts outward under the usual particle spray.
       if (h.kind === "crit" && h.amount === 0) {
         this.spawnFadeProp("fx_detonation_star", h.pos.x, 0.05, h.pos.y, 1.1, 0.35,
-          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true });
+          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true, pop: true });
       }
       const color =
         h.kind === "crit" ? 0xffe066 :
@@ -2917,7 +2929,7 @@ export class Renderer3D {
    * `scale` means world radius; `tint` applies the semantic emissive color. */
   private spawnFadeProp(
     key: string, x: number, y: number, z: number, scale: number, max: number,
-    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean },
+    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean; pop?: boolean },
   ): void {
     if (this.fadeProps.length > 16) return; // cap
     const obj = this.modelInstance(key);
@@ -2944,7 +2956,10 @@ export class Renderer3D {
       mats.push(mat);
     });
     this.scene.add(obj);
-    this.fadeProps.push({ obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0 });
+    this.fadeProps.push({
+      obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0,
+      s0: base * scale, pop: opts?.pop ?? false,
+    });
   }
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
@@ -3007,17 +3022,21 @@ export class Renderer3D {
     this.chainFx = chainAlive;
 
     // Fade props (smokebomb, stars, cones): spin, grow/collapse, fade, vanish.
+    // Growth is a deterministic curve off the spawn scale (no per-frame
+    // compounding); `pop` adds an anticipation overshoot on the way in.
     const propsAlive: typeof this.fadeProps = [];
     for (const fp of this.fadeProps) {
       fp.life += dt;
       if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
       fp.obj.rotation.y += dt * fp.spin;
-      if (fp.grow !== 0) {
-        const s = Math.max(0.05, fp.obj.scale.x * (1 + fp.grow * dt));
-        fp.obj.scale.setScalar(s);
+      let s = fp.s0 * Math.max(0.05, 1 + fp.grow * fp.life);
+      if (fp.pop) {
+        const k = Math.min(1, fp.life / (fp.max * 0.4));
+        s *= 0.6 + 0.4 * k + 0.28 * Math.sin(k * Math.PI); // punch past, settle back
       }
+      fp.obj.scale.setScalar(s);
       const t = fp.life / fp.max;
-      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t;
+      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
       propsAlive.push(fp);
     }
     this.fadeProps = propsAlive;
