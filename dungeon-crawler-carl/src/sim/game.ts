@@ -1031,7 +1031,7 @@ function floorSeed(seed: number, floor: number): number {
   return (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
 }
 
-function buildFloor(state: GameState, floor: number): void {
+export function buildFloor(state: GameState, floor: number): void {
   // Announce a tonal shift when the party crosses into a new 4-floor band.
   const prevBand = floorBand(state.floor);
   const newBand = floorBand(floor);
@@ -1117,14 +1117,13 @@ export interface SavedProgress {
 }
 
 /**
- * Rebuild a game from saved character progression. The floor is regenerated
- * deterministically from (seed, floor), then the persisted player stats +
- * equipment are applied and effective stats recomputed. This is the
- * single-player stand-in for "log back in and resume."
+ * Apply saved character progression to a live player: stats, equipment,
+ * abilities, Show standing — then recompute effective stats and clamp hp.
+ * Shared by the single-player resume (restoreGame) and the server's
+ * per-account persistence (a rejoining crawler gets their character back
+ * even after the instance was dropped and regenerated from seed).
  */
-export function restoreGame(save: SavedProgress): GameState {
-  const state = createGame(save.seed);
-  const p = state.players[0];
+export function applySavedPlayer(p: Player, save: SavedProgress): void {
   const s = save.player;
   p.level = s.level;
   p.xp = s.xp;
@@ -1195,6 +1194,17 @@ export function restoreGame(save: SavedProgress): GameState {
   }
   recomputeStats(p);
   p.hp = Math.min(s.hp, p.maxHp);
+}
+
+/**
+ * Rebuild a game from saved character progression. The floor is regenerated
+ * deterministically from (seed, floor), then the persisted player stats +
+ * equipment are applied and effective stats recomputed. This is the
+ * single-player stand-in for "log back in and resume."
+ */
+export function restoreGame(save: SavedProgress): GameState {
+  const state = createGame(save.seed);
+  applySavedPlayer(state.players[0], save);
   buildFloor(state, save.floor);
   return state;
 }

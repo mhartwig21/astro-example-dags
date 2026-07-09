@@ -18,9 +18,9 @@ browser ──wss───▶  │  static dist/ + /health + ws  │
 
 - The client infers the server URL from its own origin (`wss://` on HTTPS), so
   a shared link is just `https://<app>/iso.html?join=CODE&name=You`.
-- Party state is **in-memory** in this single process. That is fine (and cheap)
-  at friends-scale; a restart/deploy drops live runs. Character persistence is
-  the next milestone (see GCP notes below).
+- Party state is **in-memory** in this single process; **characters persist**
+  to SQLite at `/data/dcc.sqlite` (PERSISTENCE.md) — a restart/deploy drops the
+  live world, but every character (and the party's floor) reloads on rejoin.
 - Hardening in `gameServer.ts`: sanitized intents, party cap 6, instance cap
   200, 16KB WebSocket payload cap, path-traversal-safe static serving.
 
@@ -39,9 +39,10 @@ persistent volume `dcc_data` mounted at `/data` (`LEADERBOARD_FILE=
 restarts; Fly snapshots the volume daily (5 kept). The volume was created with
 `fly volumes create dcc_data --region ord --size 1` — one volume, one machine,
 same region; if the machine is ever recreated from scratch, make sure a
-`dcc_data` volume exists in its region first. Run history / personal bests are
-browser-local (`dcc:history:v1`); real cross-device persistence is planned as
-SQLite on this same volume — see PERSISTENCE.md for the full design.
+`dcc_data` volume exists in its region first. The same volume holds
+`/data/dcc.sqlite` (`DB_FILE`): per-account character saves for multiplayer
+parties — see PERSISTENCE.md. Run history / personal bests remain
+browser-local (`dcc:history:v1`).
 
 Or the actual container, if Docker is installed:
 

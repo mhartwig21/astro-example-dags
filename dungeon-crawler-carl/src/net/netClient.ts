@@ -13,6 +13,25 @@ export interface NetEventBatch {
   hits: HitEvent[];
 }
 
+// Account token (PERSISTENCE.md P1): an anonymous bearer id the server keys
+// character saves off. Minted server-side on first join, echoed in the
+// welcome, kept here so the same browser gets the same character back.
+const TOKEN_KEY = "dcc:token:v1";
+function loadToken(): string | undefined {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? undefined;
+  } catch {
+    return undefined; // no storage (private mode / non-browser): session-only identity
+  }
+}
+function storeToken(token: string): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Best-effort, like the run save.
+  }
+}
+
 export class NetClient {
   private ws: WebSocket | null = null;
   playerId = -1;
@@ -27,12 +46,18 @@ export class NetClient {
   private snapInterval = 67; // ms between snapshots; refined from arrivals
 
   /** Connect, join a party, resolve on the welcome snapshot.
-   * `rivals` opts the instance into the competitive race (first joiner decides). */
-  connect(url: string, code: string, name: string, rivals = false): Promise<GameState> {
+   * `rivals` opts the instance into the competitive race (first joiner decides);
+   * `roam` starts the party as a Roam campaign the same way. */
+  connect(url: string, code: string, name: string, rivals = false, roam = false): Promise<GameState> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
-      ws.onopen = () => ws.send(JSON.stringify({ t: "join", code, name, rivals: rivals || undefined }));
+      ws.onopen = () => ws.send(JSON.stringify({
+        t: "join", code, name,
+        rivals: rivals || undefined,
+        roam: roam || undefined,
+        token: loadToken(),
+      }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
         this.connected = false;
@@ -42,6 +67,7 @@ export class NetClient {
         const msg = JSON.parse(String(e.data));
         if (msg.t === "welcome") {
           this.playerId = msg.playerId;
+          if (typeof msg.token === "string") storeToken(msg.token);
           this.curr = deserialize(msg.snapshot);
           this.display_ = deserialize(msg.snapshot);
           this.snapAt = performance.now();
