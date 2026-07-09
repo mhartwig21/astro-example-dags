@@ -6,7 +6,7 @@ import {
   damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
-import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
+import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
 import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
@@ -3433,6 +3433,75 @@ describe("no-op safety", () => {
     const before = JSON.stringify(g.players[0].pos);
     step(g, NO_INTENT, 1 / 60);
     expect(JSON.stringify(g.players[0].pos)).toBe(before);
+  });
+});
+
+describe("Roam mode (v1 — SETTLEMENTS.md)", () => {
+  it("generates a bigger grid with a settlement room, one tribe, and a quest", () => {
+    const g = createGame(42, "coop", "roam");
+    expect(g.map.w).toBe(CONFIG.roamFloorGridW);
+    expect(g.map.h).toBe(CONFIG.roamFloorGridH);
+    expect(g.map.settlementRoomIdx).toBeGreaterThanOrEqual(0);
+    expect(g.map.roles[g.map.settlementRoomIdx]).toBe("settlement");
+    expect(g.npc).not.toBeNull();
+    expect(g.quest).not.toBeNull();
+    expect(g.quest!.tribe).toBe(CONFIG.roamTribeId);
+    expect(g.monsters.length).toBeGreaterThan(0);
+    expect(g.monsters.every((m) => m.tribe === CONFIG.roamTribeId)).toBe(true);
+  });
+
+  it("isWalkableForMonster blocks the settlement room; isWalkable does not", () => {
+    const g = createGame(42, "coop", "roam");
+    const r = g.map.rooms[g.map.settlementRoomIdx];
+    const x = r.x + 1, y = r.y + 1;
+    expect(isWalkable(g.map, x, y)).toBe(true);
+    expect(isWalkableForMonster(g.map, x, y)).toBe(false);
+  });
+
+  it("no monster ever occupies a settlement tile", () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const g = createGame(seed, "coop", "roam");
+      const r = g.map.rooms[g.map.settlementRoomIdx];
+      for (const m of g.monsters) {
+        const inside = m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
+        expect(inside).toBe(false);
+      }
+    }
+  });
+
+  it("matches isWalkable everywhere on a Race floor (no settlement)", () => {
+    const g = createGame(42, "coop", "race");
+    expect(g.map.settlementRoomIdx).toBe(-1);
+    for (let y = 0; y < g.map.h; y += 5) {
+      for (let x = 0; x < g.map.w; x += 5) {
+        expect(isWalkableForMonster(g.map, x, y)).toBe(isWalkable(g.map, x, y));
+      }
+    }
+  });
+
+  it("talking to the NPC offers, then completes and pays out through pendingRewards", () => {
+    const g = createGame(7, "coop", "roam");
+    const p = g.players[0];
+    p.pos = { x: g.npc!.pos.x, y: g.npc!.pos.y };
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    expect(g.quest!.state).toBe("active");
+    g.quest!.killed = g.quest!.target;
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    expect(g.quest!.state).toBe("complete");
+    expect(p.pendingRewards.length).toBeGreaterThan(0);
+  });
+
+  it("mapgen never trades the stairs room for a boss arena, even past floor 18 or on a bossFloorEvery multiple", () => {
+    // floor.ts's own boss-arena/lockStairsRoom branches must stay disabled for
+    // "roam" regardless of floor number — this is the structural half of the
+    // guard; game.ts's spawnMonsters carries a matching runKind check so no
+    // "boss" kind monster is ever placed to go with it.
+    for (const floor of [3, 18, 21]) {
+      const rng = createRng(9001 + floor);
+      const map = generateFloor(rng, floor, "roam");
+      expect(map.roles.includes("stairs")).toBe(true);
+      expect(map.locked).toBe(false);
+    }
   });
 });
 

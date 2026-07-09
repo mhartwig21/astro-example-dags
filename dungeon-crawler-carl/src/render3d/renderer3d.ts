@@ -111,6 +111,7 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
+  private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
@@ -793,6 +794,22 @@ export class Renderer3D {
     return g;
   }
 
+  /** Roam mode (SETTLEMENTS.md v1): the settlement's one static resident. */
+  private buildNpcMesh(): THREE.Group {
+    const model = this.modelInstance("npc_settlement");
+    const g = model ?? new THREE.Group();
+    if (model) this.normalizeHeight(model, 1.1);
+    if (!model) {
+      const body = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.35, 0.7, 4, 8),
+        flat(0x6da356, {}), // verdant: the STYLEGUIDE's "friendly" semantic hue
+      );
+      body.position.y = 0.55; body.castShadow = true;
+      g.add(body);
+    }
+    return g;
+  }
+
   /**
    * Ground-drop visuals: REAL models per loot kind — a coin (or stack) for
    * gold, a potion bottle for heals, the dungeon key, the mage's spellbook for
@@ -916,7 +933,10 @@ export class Renderer3D {
 
     // Theme band for this depth (art set + palette), plus a cosmetic per-floor
     // rng so floors within a band differ (mix ratio, props, tint jitter).
-    const theme: FloorTheme = themeForFloor(state.floor);
+    // Roam floor numbers grow open-endedly; pin the visual band instead of
+    // reskinning forever past what the theme table was designed for.
+    const themeFloor = state.runKind === "roam" ? CONFIG.roamThemeFloor : state.floor;
+    const theme: FloorTheme = themeForFloor(themeFloor);
     const frng = cosmeticRng((state.seed ^ Math.imul(state.floor, 0x9e3779b1)) >>> 0);
     const altPct = Math.round(theme.altRatio * (0.6 + frng() * 0.9) * 1000); // vs tileHash % 1000
     const tintJitter = 0.93 + frng() * 0.12;
@@ -1355,6 +1375,7 @@ export class Renderer3D {
       const role = map.roles[ri];
       const pool = role === "entrance" ? theme.entranceProps
         : role === "landmark" ? theme.landmark.props
+        : role === "settlement" ? theme.entranceProps // reuse the "soft camp" dressing
         : theme.props;
       if (pool.length === 0) continue;
       const r = map.rooms[ri];
@@ -1787,6 +1808,20 @@ export class Renderer3D {
       }
       return false;
     };
+
+    // Roam settlement NPC: at most one at a time, so no id-keyed mesh pool —
+    // just toggle/reposition the single mesh.
+    if (state.npc) {
+      if (!this.npcMesh) {
+        this.npcMesh = this.buildNpcMesh();
+        this.scene.add(this.npcMesh);
+      }
+      this.npcMesh.position.set(state.npc.pos.x, 0, state.npc.pos.y);
+      this.npcMesh.visible = inVision(state.npc.pos);
+    } else if (this.npcMesh) {
+      this.scene.remove(this.npcMesh);
+      this.npcMesh = null;
+    }
 
     // Monsters: reconcile mesh pool with live monster set + animate.
     const seen = new Set<number>();

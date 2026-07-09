@@ -132,12 +132,17 @@ function lockStairsRoom(
  * >= LOCKED_FLOOR_MIN the stairs room is sealed behind locked doors (a key
  * carrier is assigned when monsters spawn; see game.ts).
  */
-export function generateFloor(rng: Rng, floor: number): FloorMap {
-  const w = CONFIG.floorGridW;
-  const h = CONFIG.floorGridH;
+export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" = "race"): FloorMap {
+  const roam = runKind === "roam";
+  const w = roam ? CONFIG.roamFloorGridW : CONFIG.floorGridW;
+  const h = roam ? CONFIG.roamFloorGridH : CONFIG.floorGridH;
   const tiles = new Uint8Array(w * h); // all Wall (0) initially
 
-  const targetRooms = nextInt(rng, CONFIG.floorMinRooms, CONFIG.floorMaxRooms);
+  const targetRooms = nextInt(
+    rng,
+    roam ? CONFIG.roamFloorMinRooms : CONFIG.floorMinRooms,
+    roam ? CONFIG.roamFloorMaxRooms : CONFIG.floorMaxRooms,
+  );
   const rooms: Room[] = [];
   let attempts = 0;
 
@@ -214,9 +219,12 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   // to be dodged rather than facetanked. The arena replaces the farthest room
   // in place; any room whose center it swallows merges into it (their
   // corridors stay).
+  // Roam floors regenerate open-endedly past floor 18 with no boss roster to
+  // draw from beyond it — never trade the stairs room for a boss arena there.
   const bossFloor =
-    floor >= CONFIG.finalFloor ||
-    (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0);
+    !roam &&
+    (floor >= CONFIG.finalFloor ||
+      (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0));
   if (bossFloor) {
     const size = CONFIG.bossArenaSize;
     const c = center(rooms[farthestIdx]);
@@ -267,6 +275,20 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   }
   if (vaultIdx >= 0) roles[vaultIdx] = "vault";
 
+  // SETTLEMENT (Roam only): one more room, sized like a landmark candidate,
+  // left uncarved (no pillar-style set piece needed for v1) and later
+  // spawn-blocked + patrol-blocked so it reads as a sanctuary.
+  let settlementIdx = -1;
+  if (roam) {
+    let bestSettleArea = -1;
+    for (let i = 1; i < rooms.length; i++) {
+      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx) continue;
+      const area = rooms[i].w * rooms[i].h;
+      if (area > bestSettleArea) { bestSettleArea = area; settlementIdx = i; }
+    }
+    if (settlementIdx >= 0) roles[settlementIdx] = "settlement";
+  }
+
   // PACING: 0..1 progress along the critical chain toward the stairs. Branch
   // rooms past the exit inherit near-full depth (they're deep detours).
   const depths = rooms.map((_r, i) =>
@@ -314,8 +336,9 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   }
 
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
+  // Roam has no key-carrier story in v1 — stairs always stay open.
   const locked =
-    floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
+    !roam && floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
 
   return {
     w,
@@ -329,6 +352,7 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     cycles,
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
+    settlementRoomIdx: settlementIdx,
     pillars,
     pedestal,
   };
@@ -385,6 +409,21 @@ export function tileAt(map: FloorMap, x: number, y: number): Tile {
 export function isWalkable(map: FloorMap, x: number, y: number): boolean {
   const t = tileAt(map, x, y);
   return t !== Tile.Wall && t !== Tile.DoorLocked;
+}
+
+/**
+ * Monster-only walkability: everything isWalkable allows, minus the Roam
+ * settlement room's tiles (a sanctuary — monsters wander/chase everywhere
+ * else on the floor, but won't path into it). Player movement always uses
+ * isWalkable directly, never this.
+ */
+export function isWalkableForMonster(map: FloorMap, x: number, y: number): boolean {
+  if (!isWalkable(map, x, y)) return false;
+  const si = map.settlementRoomIdx;
+  if (si < 0) return true;
+  const r = map.rooms[si];
+  const tx = Math.floor(x), ty = Math.floor(y);
+  return !(tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
 }
 
 /** Collect all walkable tile centers, for spawning monsters/loot. */

@@ -1,6 +1,9 @@
 import { ARCHETYPES, CONFIG, monsterTempo } from "./config";
 import { dist, normalize } from "./combat";
-import { isWalkable } from "./floor";
+// Monster movement always uses the settlement-aware check: on Race floors
+// (settlementRoomIdx -1) this is identical to isWalkable; on Roam floors it
+// additionally blocks monsters from wandering/chasing into the sanctuary.
+import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";

@@ -301,6 +301,24 @@ export interface Monster {
   // Wind-Up Battalion: members sharing a squadId hold their musket windups
   // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
   squadId?: number;
+  tribe?: string; // Roam-only: which TribeId this monster belongs to, for quest kill-credit
+}
+
+// Roam-only: the settlement's single resident. Static, unarmed, no AI.
+export interface Npc {
+  id: number;
+  pos: Vec2;
+  name: string;
+  kind: "settlement";
+}
+
+// Roam-only: one quest per floor, offered by the settlement NPC.
+export interface Quest {
+  id: number;
+  tribe: string; // TribeId to kill
+  target: number; // kills needed
+  killed: number;
+  state: "offered" | "active" | "complete";
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
@@ -418,6 +436,7 @@ export interface Reward {
   material?: MaterialId; // present when kind === "materials"
   nodeId?: string; // present when kind === "retrain": the node being refunded
   revisionId?: string; // present when kind === "revision": the casting on offer
+  source?: "quest"; // Roam only: a settlement quest payout, not a sponsor gift (draft header)
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -453,6 +472,7 @@ export type RoomRole =
   | "stairs" // exit room (sealed by doors on deep floors)
   | "landmark" // the floor's big set-piece hall: pillars, the neighborhood boss
   | "vault" // off-path treasure detour: guaranteed loot + a guardian
+  | "settlement" // Roam-only: a sanctuary room monsters won't enter, holds the NPC
   | "combat"; // everything else
 
 export interface FloorMap {
@@ -467,6 +487,7 @@ export interface FloorMap {
   cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
+  settlementRoomIdx: number; // index into rooms of the Roam settlement; -1 when not a Roam floor
   // Landmark set pieces carved into the GRID (tile indices; the tiles are
   // Wall): pillars/pedestal used to be walk-through renderer dressing —
   // "solid" props players clipped through. Now the sim blocks them and
@@ -657,6 +678,15 @@ export interface GameState {
   // up to 4 hostile crawlers, individual descent through concurrent floor
   // worlds, 15s revives, rival kills pay XP, first FINAL-BOSS kill wins.
   mode: "coop" | "rivals";
+  // "race" is the classic 18-floor descent (default). "roam" is the v1
+  // Expedition seed: one big, low-pressure floor per stairway with a
+  // settlement/tribe/quest, regenerating open-endedly instead of ending at
+  // floor 18. See SETTLEMENTS.md.
+  runKind: "race" | "roam";
+  // Roam only: the floor's single settlement resident and its one quest.
+  // Both null on Race floors and rebuilt fresh by buildFloor each Roam floor.
+  npc: Npc | null;
+  quest: Quest | null;
   // Rivals only: the concurrent floor instances, keyed by floor number.
   worlds?: Record<number, FloorWorld>;
   winnerId?: number; // rivals: who secured the contract (status "won")
