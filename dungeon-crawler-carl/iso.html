@@ -117,6 +117,7 @@
            modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing in-run outranks it)
                                 · #menu 28 (RINGSIDE CHECK-IN — pre-run only, owns the screen)
+                                · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
          New overlays must pick a zone here first. */
 
@@ -380,6 +381,25 @@
       #recap .rfoot button:hover { background: #3a2f22; }
       #recap .rfoot .dismiss { background: #221b15; color: #a99f8c; border-color: #6e5533; }
       #recap .rfoot .note { color: #6f6757; font-size: 11px; }
+
+      /* SIGNAL ACQUISITION — the boot loading screen (z 29). Visible from the
+         very first paint (static markup, no JS needed) until the model
+         manifest lands, then fades out into the check-in. Opaque: there is
+         nothing behind it yet but a black canvas. */
+      #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 10px; z-index: 29; transition: opacity 0.45s ease;
+        background: radial-gradient(ellipse at 50% 32%, rgba(22,17,36,0.9), rgba(4,4,8,0.99) 75%), #040408; }
+      #loading.done { opacity: 0; pointer-events: none; }
+      #loading .l-kicker { color: #c9a24b; font-size: 12px; letter-spacing: 4px; }
+      #loading .l-title { color: #f5e6bf; font-size: 30px; font-weight: 700; letter-spacing: 3px;
+        text-shadow: 0 2px 22px rgba(201,162,75,0.35); }
+      #loading .l-flavor { color: #a99f8c; font-size: 13px; letter-spacing: 0.6px;
+        min-height: 18px; margin-top: 10px; }
+      #loading .l-bar { width: min(420px, 70vw); height: 10px; background: #1b1510;
+        border: 1px solid #3a2f22; border-radius: 6px; overflow: hidden; }
+      #loading .l-bar i { display: block; height: 100%; width: 0%;
+        background: linear-gradient(90deg, #8a6a2f, #c9a24b); transition: width 0.25s ease; }
+      #loading .l-count { color: #6f6757; font-size: 11px; letter-spacing: 1px; }
 
       /* RINGSIDE CHECK-IN — the entry menu (z 28: pre-run, it owns the screen).
          Continue / daily crawl / fresh seed / party code / test chamber, with
@@ -1201,6 +1221,13 @@
           <span class="note" id="recap-note"></span>
         </div>
       </div>
+    </div>
+    <div id="loading">
+      <div class="l-kicker">◆ INCOMING TRANSMISSION ◆</div>
+      <div class="l-title">DUNGEON CRAWLER CLAUDE</div>
+      <div class="l-flavor" id="loading-flavor">ACQUIRING SIGNAL…</div>
+      <div class="l-bar"><i id="loading-fill"></i></div>
+      <div class="l-count" id="loading-count"></div>
     </div>
     <div id="menu">
       <div class="panel">

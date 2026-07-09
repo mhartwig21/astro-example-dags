@@ -2407,7 +2407,35 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
 }
 
 async function main(): Promise<void> {
-  await renderer.init();
+  // SIGNAL ACQUISITION: the loading screen is baked into iso.html (visible
+  // from the first paint); here we just feed it real progress while the model
+  // manifest streams in, then fade it out. The System narrates its own load —
+  // the rotating line is flavor on a timer, the bar is the information.
+  const loadingEl = document.getElementById("loading") as HTMLDivElement;
+  const loadingFill = document.getElementById("loading-fill") as HTMLElement;
+  const loadingCount = document.getElementById("loading-count") as HTMLElement;
+  const loadingFlavor = document.getElementById("loading-flavor") as HTMLElement;
+  const LOAD_LINES = [
+    "DECORATING YOUR DEATHTRAP…",
+    "REHEARSING THE MONSTERS…",
+    "POLISHING THE LOOT BOXES…",
+    "BRIBING THE CAMERA CREW…",
+    "SELLING YOUR AD SLOTS…",
+    "WARMING UP THE ANNOUNCER…",
+  ];
+  let loadLine = 0;
+  loadingFlavor.textContent = LOAD_LINES[0];
+  const flavorTimer = window.setInterval(() => {
+    loadLine = (loadLine + 1) % LOAD_LINES.length;
+    loadingFlavor.textContent = LOAD_LINES[loadLine];
+  }, 1400);
+  await renderer.init((loaded, total) => {
+    loadingFill.style.width = `${Math.round((loaded / total) * 100)}%`;
+    loadingCount.textContent = `${loaded} / ${total} ASSETS`;
+  });
+  window.clearInterval(flavorTimer);
+  loadingEl.classList.add("done");
+  window.setTimeout(() => { loadingEl.style.display = "none"; }, 500);
 
   if (net) {
     try {

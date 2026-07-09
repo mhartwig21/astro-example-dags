@@ -276,9 +276,21 @@ const HERO_CLIP_MANIFEST = [
   "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
 ];
 
-export async function loadModels(): Promise<Record<string, LoadedModel>> {
+export async function loadModels(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();
   const out: Record<string, LoadedModel> = {};
+  // Progress = files SETTLED (loaded or missing-and-skipped) over total — the
+  // boot loading screen reads this. A 404'd optional pack still advances the
+  // bar; the screen must never stall on an asset we'd gracefully skip anyway.
+  const total =
+    Object.keys(MODEL_MANIFEST).length +
+    RIG_CLIP_MANIFEST.medium.length +
+    RIG_CLIP_MANIFEST.large.length +
+    HERO_CLIP_MANIFEST.length;
+  let settled = 0;
+  const tick = () => onProgress?.(++settled, total);
   // Rig clip libraries load alongside the models; each library GLB carries a
   // mannequin we discard — only its AnimationClips matter.
   const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
@@ -291,6 +303,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // File absent or failed to parse — leave it out; renderer falls back.
       }
+      tick();
     }),
     ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).map(async (rig) => {
       // Per-pack slots keep the clip order stable regardless of which fetch
@@ -302,6 +315,8 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
           } catch {
             // Missing clip pack: rig-based characters just animate with less variety.
             return [];
+          } finally {
+            tick();
           }
         }),
       );
@@ -313,6 +328,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // Missing ability clip: the animator's playFirst fallbacks cover it.
       }
+      tick();
     }),
   ]);
   // Attach the shared library to every animation-less rig-based character.
