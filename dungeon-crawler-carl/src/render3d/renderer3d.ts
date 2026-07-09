@@ -308,8 +308,8 @@ export class Renderer3D {
     this.scene.add(this.ambientFx.group);
   }
 
-  async init(): Promise<void> {
-    this.models = await loadModels();
+  async init(onProgress?: (loaded: number, total: number) => void): Promise<void> {
+    this.models = await loadModels(onProgress);
     // Drop any procedural stand-ins built before the models arrived; the pool
     // rebuilds with real models on the next update.
     for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);

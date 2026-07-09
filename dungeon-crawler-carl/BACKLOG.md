@@ -39,6 +39,18 @@ pick one up cold. Delete items when they ship (git history remembers).
    target stays out of reach N seconds. Code: boss branch of `src/sim/ai.ts`,
    `boss*` knobs in `src/sim/config.ts`.
 
+7. **Streaming asset load (kill the boot wait for real).** The boot loading
+   screen (2026-07-09) reports progress but `main()` still blocks on the FULL
+   model manifest — ~211 GLBs / 67MB — before the menu appears. The renderer
+   already tolerates late models: it builds procedural stand-ins and
+   `renderer3d.init` even drops stand-ins when real models arrive
+   (`renderer3d.ts` init). Options: boot into the Ringside Check-in
+   immediately and load behind the menu, or split `MODEL_MANIFEST`
+   (`src/render3d/assets.ts`) into a critical set (hero skins, band-1
+   theme, common mobs) awaited at boot + a deferred rest. Watch the
+   loadout-graft and clip-library attach paths — they assume models exist
+   at build time.
+
 10. **Room vignette grammar, phases 2-3** — phase 1 shipped (2026-07-09):
     `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in
     `renderer3d.buildFloor` dress up to 4 combat rooms per interior floor as
