@@ -139,6 +139,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
       // the flask's bottle and the blink smokebomb anchor.
       "potion_medium_red", "smokebomb",
+      // Spell-FX mesh kit (Meshy-generated, GENERATION-BACKLOG 3b): sculpted
+      // effect meshes the juice layer animates; procedural fallbacks remain.
+      "fx_nova_ring", "fx_cataclysm_crown",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };

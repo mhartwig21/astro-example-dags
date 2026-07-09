@@ -72,15 +72,48 @@ Batch note: run these as ONE manifest (`manifest.json`, resumable) — this
 doubles as plan-v2 **Phase 2's** batch: measure the real reject rate and
 cost per accepted asset while producing useful props.
 
+## 3b. Spell-FX mesh kit (the "Diablo layer")
+
+A Diablo-style ability effect is three layers: an authored effect MESH, motion
+curves, and material tricks (additive/emissive). Meshy supplies only the mesh —
+motion stays in the renderer's existing juice code (the nova ring already
+scales/fades; it just scales a bare torus), and materials get an
+emissive/additive treatment at load rather than the prop pipeline's plain
+atlas material. KayKit ships zero VFX meshes (sole exception: the DemonLord
+SummoningCircle — reuse/retint it for raise/summon channels before generating
+a magic circle).
+
+**Test SHIPPED 2026-07-09**: Nova ring + Cataclysm crown generated, emissive
+treatment in `renderer3d.buildFxRing`, verified in-app. Findings: fine surface
+detail (runes) does NOT survive generation — prompt for chunky silhouettes,
+not engravings; dark albedo + strong emissive reads as saturated glow (a
+feature); the palette snap is fine for effect meshes since the tint comes
+from the emissive layer. Cataclysm also got its correct radius and the
+Aftermath echo stopped rendering as an airstrike keg (crown ground marker).
+
+| Effect mesh | Replaces | Prompt sketch |
+|---|---|---|
+| ~~Nova rune shockwave ring~~ **SHIPPED** | the bare blue torus | — |
+| ~~Cataclysm eruption crown~~ **SHIPPED** | Nova's reused torus | — |
+| Implosion swirl cone (nova fork) | nothing | inward spiral cone, played reversed |
+| Flame-wall segment (F15 Flame Sweep) | generic blast circles | tiled along the sweep rows; the "wall of fire" fiction finally rendered |
+| Gavel shock star (Gavel Drop) | generic crit burst | pairs with the gavel chain anchor above |
+| Airstrike blast star / debris ring | glow puffs only | under each keg impact |
+
+Not a mesh job: Bullet Time (screen-space), status auras (procedural rings
+already read well).
+
 ## 4. Flagship: the full character path (plan-v2 Phase 0 exit)
 
 One bespoke character through the ENTIRE pipeline: text-to-3D (T-pose prompt)
 → palette snap → Meshy auto-rig → shared-clip retarget onto its own skeleton →
 in-game with the standard animation state machine. Candidate with no KayKit
-answer: **a System announcer/host avatar** (the Show's on-floor presence — a
-floating tuxedo'd AI mannequin fits the fiction and tolerates rig jank better
-than a combat mob). This is the pipeline milestone, not a quick win; do it
-after the prop batch proves reject rates.
+answer: **a sponsor mascot** ("The Brand Ambassador" — a big plush-costume
+humanoid enforcer; boss/elite material, on-tone for the Show, forgiving of
+first-attempt rig jank). The System itself stays disembodied by design (it's
+an AI — the camera drone above is its embodiment). Alternatives: a "former
+favorite" rival crawler, or an APPROACH band boss. This is the pipeline
+milestone, not a quick win; do it after the prop batch proves reject rates.
 
 ## Keeping this honest
 
