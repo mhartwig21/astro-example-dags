@@ -186,20 +186,26 @@ What's actually new is quest **state**, which nothing today tracks:
 ## Phasing (each phase ships playable, testable via `?test&floor=N` today —
 none of this is gated on the Expedition mode's persistence work)
 
-**P1 — One tribe, one settlement, one quest.** A single friendly
-settlement room role, one tribe with a pack template and territory posture,
-sanctuary no-path logic (the one real new engineering piece), one
-quest-giver NPC offering the kill-N-of-tribe-X quest via the existing
-reward-draft seam, a `state.dialogue` field + VOICE.md amendment. Proves
-every seam above in the *existing* 18-floor game — no persistence, no
-Expedition mode required yet.
+**P1 — SHIPPED (Roam mode v1).** A single friendly settlement room role
+(sanctuary, `isWalkableForMonster` — the one real new engineering piece),
+one quest-giver NPC offering a kill-N-of-tribe-X quest via the existing
+reward-draft seam. Simplified from the original plan: dialogue rides
+`state.events` rather than a new `state.dialogue` field — `VOICE.md`'s
+System-only constraint only covers `state.announcements`, so no amendment
+was needed. Ships alongside a new Race/Roam main-menu split.
 
-**P2 — Multiple tribes, hostile settlements.** Roll out the rest of
-MOB-CONCEPTS.md's pack templates as tribe identities, add hostile
-settlements (tribal strongholds, raidable, no shop), wire the rumor-monger's
-stairway-ping (ties directly into `MEGAFLOORS.md`'s stairway-scarcity
-design). Still no persistence — a hostile settlement's "razed" state resets
-with the floor, same as everything else today.
+**P2 — SHIPPED (band tribes, hostile strongholds, a second quest).**
+Simplified further from the original plan: rather than a bespoke Roam-only
+tribe roster, a Roam floor's tribe IS its band — `roamTribeId(floor)` tracks
+the same `floorBand` Race already uses, so all 12 `PACK_TEMPLATES` packs
+(which shipped as real code between P1 and P2, not just design prose) are
+in play "for free," properly tagged. Hostile settlements ship as a new
+`"stronghold"` room role — a guaranteed garrison + one named leader (reusing
+the neighborhood-boss elite-scaling formula) — clearing it (killing the
+leader) is a new `clearStronghold` quest, appended once the settlement's
+`killTribe` quest turns in. Still not done: the rumor-monger's
+stairway-ping, and hostile-settlement "razed" state still resets with the
+floor (same persistence gap as everything else — P3).
 
 **P3 — Persistence.** Settlement/quest/reputation state survives log-off —
 this is the phase that actually needs the Expedition-mode world-persistence

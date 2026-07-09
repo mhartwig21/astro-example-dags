@@ -24,15 +24,7 @@ export const CONFIG = {
   // corrupting timeBudget/timeRemaining on the first snapshot.
   roamTimeBudget: 1800, // 30 minutes
   roamMonsterDensity: 0.012, // monsters per walkable tile
-  // The tribe's base raider archetype; the existing drumFromFloor escort
-  // logic (game.ts spawnMonsters) naturally promotes one pack member per
-  // pack to "drummer" from floor 4+ — Roam's pinned Sewers theme means every
-  // pack reads as MOB-CONCEPTS.md's "Drumline" (raiders + a Drum Sergeant)
-  // with zero new spawn logic.
-  roamTribeKind: "grunt",
-  roamTribeId: "drumline",
-  roamQuestTarget: 10, // kills required to complete the settlement's quest
-  roamThemeFloor: 5, // pins Roam's band visuals (Sewers) regardless of floor count
+  roamQuestTarget: 10, // kills required to complete the settlement's killTribe quest
 
   // Collapse timer (seconds). Floor 1 is generous; deeper floors tighten.
   // Budgets account for the larger floors (longer traversal to the stairs).
@@ -1118,6 +1110,17 @@ export const FLOOR_BANDS = [
 /** Band index (0-5) for a floor: 1-3, 4-6, 7-9, 10-12, 13-15, 16-18. */
 export function floorBand(floor: number): number {
   return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
+}
+
+// Roam mode: a floor's tribe IS its band — the existing cast + PACK_TEMPLATES
+// for that band, just wearing a tribe id (see spawnMonsters/roamTribeId
+// call sites in game.ts). No separate Roam-only tribe roster. Floors deep
+// past the final band (floorBand clamps) keep reading as "the Approach" —
+// same clamp themeForFloor already relies on for Race, so visuals and tribe
+// identity always agree.
+export const ROAM_TRIBE_IDS = ["undercroft", "sewers", "garden", "ruins", "ironworks", "approach"] as const;
+export function roamTribeId(floor: number): string {
+  return ROAM_TRIBE_IDS[floorBand(floor)];
 }
 
 // The PACK PLAYBOOK (MOB-CONCEPTS.md): designed encounters, keyed by band.

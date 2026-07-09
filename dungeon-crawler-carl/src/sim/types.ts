@@ -369,12 +369,16 @@ export interface Npc {
   kind: "settlement";
 }
 
-// Roam-only: one quest per floor, offered by the settlement NPC.
+// Roam-only: quests offered by the settlement NPC. killTribe is offered
+// first; clearStronghold is appended once killTribe completes (only on
+// floors with a stronghold) — see talkToNpc in npc.ts.
+export type QuestObjective =
+  | { kind: "killTribe"; tribe: string; target: number; killed: number }
+  | { kind: "clearStronghold"; leaderName: string };
+
 export interface Quest {
   id: number;
-  tribe: string; // TribeId to kill
-  target: number; // kills needed
-  killed: number;
+  objective: QuestObjective;
   state: "offered" | "active" | "complete";
 }
 
@@ -530,6 +534,7 @@ export type RoomRole =
   | "landmark" // the floor's big set-piece hall: pillars, the neighborhood boss
   | "vault" // off-path treasure detour: guaranteed loot + a guardian
   | "settlement" // Roam-only: a sanctuary room monsters won't enter, holds the NPC
+  | "stronghold" // Roam-only: a hostile tribe garrison + named leader, not sanctuary
   | "combat"; // everything else
 
 export interface FloorMap {
@@ -545,6 +550,7 @@ export interface FloorMap {
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
   settlementRoomIdx: number; // index into rooms of the Roam settlement; -1 when not a Roam floor
+  strongholdRoomIdx: number; // index into rooms of the Roam hostile stronghold; -1 when none
   // Landmark set pieces carved into the GRID (tile indices; the tiles are
   // Wall): pillars/pedestal used to be walk-through renderer dressing —
   // "solid" props players clipped through. Now the sim blocks them and
@@ -750,10 +756,16 @@ export interface GameState {
   // settlement/tribe/quest, regenerating open-endedly instead of ending at
   // floor 18. See SETTLEMENTS.md.
   runKind: "race" | "roam";
-  // Roam only: the floor's single settlement resident and its one quest.
-  // Both null on Race floors and rebuilt fresh by buildFloor each Roam floor.
+  // Roam only: the floor's single settlement resident and its quest board.
+  // Rebuilt fresh by buildFloor each Roam floor; both empty on Race floors.
   npc: Npc | null;
-  quest: Quest | null;
+  quests: Quest[];
+  // Roam only: the current floor's hostile stronghold, if any. The leader id
+  // is tracked so reapDead can flip strongholdCleared on its death even if no
+  // clearStronghold quest exists yet (killing it "early" is a valid outcome).
+  strongholdLeaderId: number;
+  strongholdLeaderName: string; // captured at spawn so it outlives the leader's death
+  strongholdCleared: boolean;
   // Rivals only: the concurrent floor instances, keyed by floor number.
   worlds?: Record<number, FloorWorld>;
   winnerId?: number; // rivals: who secured the contract (status "won")
