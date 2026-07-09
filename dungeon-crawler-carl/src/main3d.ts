@@ -13,6 +13,7 @@ import {
 import {
   EQUIP_SLOTS, Tile,
   type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
+  type Vec2,
 } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -20,6 +21,7 @@ import {
   knows, nodeOpen, rank, upgradeDef, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
+import { GamepadController, isoRotate } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
   ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadMouseMove, loadNotify,
@@ -163,6 +165,21 @@ function startRun(mode: RunMode): void {
 
 const input = new InputController(canvas);
 input.mouseMoveMode = mouseClickMove;
+
+// Controller (Gamepad API): a second Intent producer merged in sampleIntent.
+// The most recent device wins AIM; movement and casts simply OR together.
+const gamepad = new GamepadController();
+let lastMouseAt = 0; // host clock (s) of the last mouse touch — device arbitration
+canvas.addEventListener("mousemove", () => { lastMouseAt = performance.now() / 1000; });
+canvas.addEventListener("mousedown", () => { lastMouseAt = performance.now() / 1000; });
+gamepad.onConnect = (id) => {
+  pushLogLine(`Controller connected: <b>${esc(id.slice(0, 40))}</b> — sticks move/aim, A·X·B·Y cast.`);
+  if (kbOpen) renderKeybinds(); // the K panel grows its controller legend
+};
+gamepad.onDisconnect = () => {
+  pushLogLine("Controller disconnected.");
+  if (kbOpen) renderKeybinds();
+};
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -1048,6 +1065,11 @@ function renderKeybinds(): void {
         `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
       );
     })
+    .concat(gamepad.connected ? [
+      `<div class="kb-row kb-pad">Controller — sticks: move / aim · A X B Y: slots 1-4 · ` +
+      `RT: ultimate · LB: flask · RB: stairs · LT: ping · Start: inventory · ` +
+      `Back: profile · D-pad: draft / abilities</div>`,
+    ] : [])
     .join("");
 }
 
@@ -1151,6 +1173,11 @@ input.onAction = (a) => {
     }
   }
   else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
+};
+// Controller panel buttons route through the same handler; captureMode (menu
+// name field, key rebinding) gates them exactly like keyboard binds.
+gamepad.onAction = (a) => {
+  if (!input.captureMode) input.onAction?.(a);
 };
 applyBindings();
 
@@ -2126,16 +2153,55 @@ let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
+/** Direction to the nearest living monster in reach — controller quick-cast. */
+function autoAimDir(range = 8): Vec2 | null {
+  const p = me(state);
+  let best: Vec2 | null = null;
+  let bestD = range * range;
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const dx = m.pos.x - p.pos.x, dy = m.pos.y - p.pos.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD && d > 1e-4) { bestD = d; best = { x: dx, y: dy }; }
+  }
+  return best;
+}
+
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
-  if (mouseAim && input.mouse) {
+  // Controller merge: sticks arrive in screen space and take one iso rotation
+  // into world axes; buttons OR over keyboard state. Edges behave like keys.
+  const pad = gamepad.poll(performance.now() / 1000);
+  if (pad) {
+    if (pad.move) intent.move = isoRotate(pad.move);
+    if (intent.cast) for (let i = 0; i < pad.cast.length; i++) if (pad.cast[i]) intent.cast[i] = true;
+    if (pad.flaskEdge) intent.flask = true;
+    if (pad.stairsEdge) intent.useStairs = true;
+    if (pad.pingEdge) {
+      const p = me(state);
+      intent.ping = { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
+    }
+  }
+  // AIM is exclusive: the right stick wins outright; otherwise the mouse aims
+  // only if it was touched more recently than the pad (device arbitration —
+  // a parked cursor must not pin the aim while someone plays on the sticks).
+  const padRecent = gamepad.lastInputAt > lastMouseAt;
+  if (pad?.aim) {
+    intent.aim = isoRotate(pad.aim);
+  } else if (mouseAim && input.mouse && !padRecent) {
     const g = renderer.screenToGround(input.mouse.x, input.mouse.y);
     if (g) {
       const p = me(state);
       const dx = g.x - p.pos.x, dy = g.y - p.pos.y;
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
+  }
+  // Controller quick-cast: casting with the right stick centered snaps to the
+  // nearest living monster (Wild Rift-style). Facing still covers whiffs.
+  if (padRecent && !intent.aim && intent.cast?.some(Boolean)) {
+    const snap = autoAimDir();
+    if (snap) intent.aim = snap;
   }
   // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
   if (input.pingEdge) {
@@ -2312,6 +2378,25 @@ async function main(): Promise<void> {
 
       saveAcc += dt;
       if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
+    }
+
+    // Controller rumble rides the same hit stream as particles/shake: damage
+    // TAKEN thumps the heavy motor (scaled by how much of your health it was);
+    // kill confirms tick the light one. Everything else stays still — rumble
+    // is punctuation, not weather.
+    if (gamepad.connected && frameHits.length > 0) {
+      const p = me(state);
+      let strong = 0, weak = 0;
+      for (const h of frameHits) {
+        if (h.kind === "player") {
+          const dx = h.pos.x - p.pos.x, dy = h.pos.y - p.pos.y;
+          if (dx * dx + dy * dy < 1.5) strong = Math.max(strong, 0.35 + (h.amount / Math.max(1, p.maxHp)) * 2);
+        } else if (h.killed) {
+          weak = Math.max(weak, h.kind === "crit" ? 0.5 : 0.3);
+        }
+      }
+      if (strong > 0) gamepad.rumble(strong, 0.2, 130);
+      else if (weak > 0) gamepad.rumble(0, weak, 60);
     }
 
     // Particles + shake use world space, so they can fire before the camera moves.

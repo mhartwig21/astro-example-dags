@@ -7,6 +7,7 @@ import { CATALOG_BY_ID } from "./sim/catalog";
 import type { GameState } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
+import { GamepadController } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import { loadMouseMove } from "./input/bindings";
 import { render, updateCamera, type Camera } from "./render/renderer";
@@ -88,6 +89,10 @@ const cam: Camera = { x: state.players[0].pos.x, y: state.players[0].pos.y };
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
 const input = new InputController(canvas);
+// Controller: minimal parity wiring (move/aim/cast). Top-down 2D is axis-
+// aligned, so sticks map straight to world — no iso rotation. The full
+// experience (auto-aim, rumble, legend) lives in the 3D host.
+const gamepad = new GamepadController();
 // Diablo-style mouse movement shares the 3D host's preference (K panel there).
 const mouseClickMove = loadMouseMove();
 input.mouseMoveMode = mouseClickMove;
@@ -163,6 +168,14 @@ function frame(now: number): void {
   // Fixed-timestep sim updates; render interpolation is not needed at 60 Hz here.
   while (acc >= SIM_DT) {
     const intent = input.sample(playerScreen);
+    const pad = gamepad.poll(performance.now() / 1000);
+    if (pad) {
+      if (pad.move) intent.move = pad.move;
+      if (pad.aim) intent.aim = pad.aim;
+      if (intent.cast) for (let i = 0; i < pad.cast.length; i++) if (pad.cast[i]) intent.cast[i] = true;
+      if (pad.flaskEdge) intent.flask = true;
+      if (pad.stairsEdge) intent.useStairs = true;
+    }
     // Click-to-move (opt-in, toggled in the 3D host's K panel): map the cursor
     // through the camera to world tiles, then steer like the 3D host does.
     if (mouseClickMove && input.mouse) {
