@@ -1,16 +1,30 @@
-import { deserialize } from "../sim/snapshot";
-import type { Announcement, GameState, HitEvent, Intent } from "../sim/types";
+import { deserialize, deserializeDynamic } from "../sim/snapshot";
+import { revealExplored } from "../sim/game";
+import type { Announcement, GameState, HitEvent, Intent, Vec2 } from "../sim/types";
 
-// Browser-side network client for the authoritative server. Receives full
-// snapshots (15/s) + per-tick transient events, and produces a smooth display
-// state by lerping entity positions between the last two snapshots. Sends the
-// local intent on a fixed pump and forwards UI actions (draft picks, shop buys,
-// ready-up, equips) as protocol messages — no game logic runs locally.
+// Browser-side network client for the authoritative server. Receives snapshots
+// (15/s; FULL carries map + fog, the recurring DYNAMIC ones don't — we keep the
+// cached world and reveal fog locally with the sim's own revealExplored) plus
+// per-tick transient events, and produces a smooth display state by lerping
+// entity positions between the last two snapshots. Each snapshot is parsed
+// exactly ONCE; lerp endpoints live in small id-keyed maps captured at arrival,
+// so smoothing mutates the snapshot's positions without corrupting endpoints.
+// Sends the local intent on a fixed pump and forwards UI actions (draft picks,
+// shop buys, ready-up, equips) as protocol messages — no game logic runs locally.
 
 export interface NetEventBatch {
   events: string[];
   announcements: Announcement[];
   hits: HitEvent[];
+}
+
+/** Endpoint positions of everything that moves, keyed p<id>/m<id>/r<id>. */
+function capturePositions(s: GameState): Map<string, Vec2> {
+  const out = new Map<string, Vec2>();
+  for (const p of s.players) out.set(`p${p.id}`, { x: p.pos.x, y: p.pos.y });
+  for (const m of s.monsters) out.set(`m${m.id}`, { x: m.pos.x, y: m.pos.y });
+  for (const pr of s.projectiles) out.set(`r${pr.id}`, { x: pr.pos.x, y: pr.pos.y });
+  return out;
 }
 
 // Account token (PERSISTENCE.md P1): an anonymous bearer id the server keys
@@ -49,15 +63,37 @@ export class NetClient {
    *  world can be a restored instance) — hosts must re-read it. */
   onReconnect: ((snapshot: GameState) => void) | null = null;
 
-  private prev: GameState | null = null;
   private curr: GameState | null = null;
-  private display_: GameState | null = null;
+  private world: { map: GameState["map"]; explored: Uint8Array } | null = null;
+  private exploredVersion = 0; // client-side fog version (renderer diffing)
+  private prevPos = new Map<string, Vec2>();
+  private currPos = new Map<string, Vec2>();
+  private prevFloor = -1;
   private snapAt = 0;
   private snapInterval = 67; // ms between snapshots; refined from arrivals
   // Auto-reconnect state: the original join args, replayed on unexpected close.
   private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean } | null = null;
   private retryN = 0;
   private everConnected = false; // never auto-retry a join that failed outright
+
+  /** Absorb a snapshot: full replaces the cached world; dynamic rides on it. */
+  private absorb(snapshot: string, full: boolean): GameState | null {
+    if (full) {
+      const s = deserialize(snapshot);
+      this.world = { map: s.map, explored: s.explored };
+      this.exploredVersion = Math.max(this.exploredVersion + 1, s.exploredVersion);
+      s.exploredVersion = this.exploredVersion;
+      return s;
+    }
+    if (!this.world) return null; // dynamic before any full — drop it
+    const s = deserializeDynamic(snapshot, this.world.map, this.world.explored);
+    // Fog is OURS now: reveal around this snapshot's crawlers, same math
+    // as the sim (the mask is monotonic, so local and server never disagree
+    // about anything the player has seen).
+    if (revealExplored(this.world.map, this.world.explored, s.players)) this.exploredVersion++;
+    s.exploredVersion = this.exploredVersion;
+    return s;
+  }
 
   /** Connect, join a party, resolve on the welcome snapshot.
    * `rivals` opts the instance into the competitive race (first joiner decides);
@@ -92,22 +128,26 @@ export class NetClient {
         if (msg.t === "welcome") {
           this.playerId = msg.playerId;
           if (typeof msg.token === "string") storeToken(msg.token);
-          this.prev = null; // never lerp across a (re)join boundary
-          this.curr = deserialize(msg.snapshot);
-          this.display_ = deserialize(msg.snapshot);
+          this.prevPos = new Map(); // never lerp across a (re)join boundary
+          this.prevFloor = -1;
+          this.curr = this.absorb(msg.snapshot, true);
+          this.currPos = capturePositions(this.curr!);
           this.snapAt = performance.now();
           this.connected = true;
           this.everConnected = true;
           this.retryN = 0;
-          resolve(this.curr);
+          resolve(this.curr!);
         } else if (msg.t === "snap") {
+          const s = this.absorb(msg.snapshot, msg.full === true);
+          if (!s) return;
           const now = performance.now();
           if (this.curr) {
-            this.prev = this.curr;
+            this.prevPos = this.currPos;
+            this.prevFloor = this.curr.floor;
             this.snapInterval = this.snapInterval * 0.8 + Math.min(200, now - this.snapAt) * 0.2;
           }
-          this.curr = deserialize(msg.snapshot);
-          this.display_ = deserialize(msg.snapshot);
+          this.curr = s;
+          this.currPos = capturePositions(s);
           this.snapAt = now;
         } else if (msg.t === "events") {
           this.onEvents?.(msg as NetEventBatch);
@@ -135,28 +175,22 @@ export class NetClient {
    * rate up to render rate). Same-floor snapshots only — floor changes teleport.
    */
   display(now: number): GameState | null {
-    const { prev, curr, display_ } = this;
-    if (!curr || !display_) return null;
-    if (!prev || prev.floor !== curr.floor) return curr;
+    const { curr, prevPos, currPos } = this;
+    if (!curr) return null;
+    if (this.prevFloor !== curr.floor || prevPos.size === 0) return curr;
     const t = Math.max(0, Math.min(1, (now - this.snapAt) / this.snapInterval));
 
-    const lerp = (a: number, b: number) => a + (b - a) * t;
-    for (const dp of display_.players) {
-      const a = prev.players.find((p) => p.id === dp.id);
-      const b = curr.players.find((p) => p.id === dp.id);
-      if (a && b) { dp.pos.x = lerp(a.pos.x, b.pos.x); dp.pos.y = lerp(a.pos.y, b.pos.y); }
-    }
-    for (const dm of display_.monsters) {
-      const a = prev.monsters.find((m) => m.id === dm.id);
-      const b = curr.monsters.find((m) => m.id === dm.id);
-      if (a && b) { dm.pos.x = lerp(a.pos.x, b.pos.x); dm.pos.y = lerp(a.pos.y, b.pos.y); }
-    }
-    for (const dpr of display_.projectiles) {
-      const a = prev.projectiles.find((p) => p.id === dpr.id);
-      const b = curr.projectiles.find((p) => p.id === dpr.id);
-      if (a && b) { dpr.pos.x = lerp(a.pos.x, b.pos.x); dpr.pos.y = lerp(a.pos.y, b.pos.y); }
-    }
-    return display_;
+    const smooth = (key: string, pos: Vec2) => {
+      const a = prevPos.get(key);
+      const b = currPos.get(key);
+      if (!a || !b) return;
+      pos.x = a.x + (b.x - a.x) * t;
+      pos.y = a.y + (b.y - a.y) * t;
+    };
+    for (const p of curr.players) smooth(`p${p.id}`, p.pos);
+    for (const m of curr.monsters) smooth(`m${m.id}`, m.pos);
+    for (const pr of curr.projectiles) smooth(`r${pr.id}`, pr.pos);
+    return curr;
   }
 
   /** Latest authoritative snapshot (no interpolation) — for UI reads. */

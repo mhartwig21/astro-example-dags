@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
-import { serialize, serializeFor, deserialize, SNAPSHOT_VERSION } from "../sim/snapshot";
+import {
+  serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey,
+  deserialize, SNAPSHOT_VERSION,
+} from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
 import { Leaderboard } from "./leaderboard";
 import { openDb, type PersistDb } from "./db";
@@ -27,8 +30,12 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //     { t: "sellAll" }                                 liquidate the whole bag
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
-//     { t: "welcome", playerId, token, snapshot }      join accepted; keep token
-//     { t: "snap", tick, snapshot }                    full state (interval below)
+//     { t: "welcome", playerId, token, snapshot }      join accepted (full state;
+//       keep the token — it is the account id saves key off)
+//     { t: "snap", tick, full?, snapshot }             state (interval below).
+//         full=true carries map + fog (join/floor change/doors unlocking);
+//         otherwise DYNAMIC — no map/fog, the client keeps its cached world
+//         and reveals fog locally (see snapshot.ts). Halves the payload.
 //     { t: "events", events, announcements, hits }     this tick's transients
 
 export const TICK_HZ = 30;
@@ -77,6 +84,7 @@ export function sanitizeIntent(raw: unknown): Intent {
 interface Client {
   ws: WebSocket;
   playerId: number;
+  worldKey?: string; // rivals: the world this client last got in FULL
   accountId: string;
   // False only when this account is already seated by another live connection
   // (second tab): the extra seat plays as a guest and never writes the save.
@@ -96,6 +104,7 @@ interface Instance {
   // fresh, so the saved progression is applied instead.
   seated: Set<number>;
   timer: NodeJS.Timeout;
+  worldKey: string; // co-op: the world last broadcast in FULL ("" = never)
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -353,7 +362,10 @@ export class GameServer {
         }
         inst.seated.add(player.id);
         player.name = name;
-        inst.clients.push({ ws, playerId: player.id, accountId: token, bound });
+        const client: Client = { ws, playerId: player.id, accountId: token, bound };
+        // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.
+        if (inst.state.mode === "rivals") client.worldKey = rivalWorldKey(inst.state, player.id);
+        inst.clients.push(client);
         if (bound && this.db) {
           this.db.upsertMember(code, token, player.id, JSON.stringify(toSaveData(inst.state, player)), now);
         }
@@ -485,6 +497,7 @@ export class GameServer {
       lastFloor: state.floor,
       seated,
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
+      worldKey: "", // first snapshot tick broadcasts FULL
     };
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
@@ -541,15 +554,29 @@ export class GameServer {
       this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
     }
     if (inst.tick % SNAPSHOT_EVERY === 0) {
+      // FULL (map + fog) only when the client's world identity changes —
+      // floor descent or a mapVersion bump (doors unlocking). Every other
+      // snapshot is DYNAMIC: the client keeps its cached world.
       if (s.mode === "rivals") {
         // Personal snapshots: each rival sees THEIR floor + the standings.
         for (const c of inst.clients) {
-          if (c.ws.readyState === WebSocket.OPEN) {
-            c.ws.send(JSON.stringify({ t: "snap", tick: inst.tick, snapshot: serializeFor(s, c.playerId) }));
-          }
+          if (c.ws.readyState !== WebSocket.OPEN) continue;
+          const key = rivalWorldKey(s, c.playerId);
+          const full = key !== c.worldKey;
+          c.worldKey = key;
+          c.ws.send(JSON.stringify({
+            t: "snap", tick: inst.tick, full: full || undefined,
+            snapshot: full ? serializeFor(s, c.playerId) : serializeForDynamic(s, c.playerId),
+          }));
         }
       } else {
-        this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+        const key = `${s.floor}:${s.mapVersion}`;
+        const full = key !== inst.worldKey;
+        inst.worldKey = key;
+        this.broadcast(inst, {
+          t: "snap", tick: inst.tick, full: full || undefined,
+          snapshot: full ? serialize(s) : serializeDynamic(s),
+        });
       }
     }
     const ms = performance.now() - t0;
