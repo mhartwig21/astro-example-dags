@@ -153,6 +153,13 @@ export type EliteAffix =
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
   | "warded" // takes reduced MAGIC damage
+  // The six-pack (MOB-CONCEPTS.md) — each is one sentence of counterplay:
+  | "linked" // its pack SOAKS its damage while any ally stands — thin the pack
+  | "vampiric" // heals off landed hits — don't get hit and it starves
+  | "juggernaut" // immune to stagger + knockback, slower — kite, don't CC
+  | "mortar" // lobs arcing shells over walls — cover stops being safe
+  | "berserking" // below half HP: faster everything — finish what you start
+  | "executioner" // hits crawlers under 40% HP harder — retreat thresholds are real
   | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
 
 // ---- Status effects (burn / poison / chill) ----
@@ -208,7 +215,16 @@ export type MonsterKind =
   // around). cleric: consecrates ground that heals monsters and burns you.
   // archivist: channels a SWEEPING beam — dodge continuously or stagger it.
   // colossus: its slam sends a fissure travelling down a lane.
-  | "shieldbearer" | "cleric" | "archivist" | "colossus";
+  | "shieldbearer" | "cleric" | "archivist" | "colossus"
+  // THE APPROACH (floors 16+): the System fields its own. stagehand: blinks
+  // in, two hits, smoke-bombs out to a MARKED re-entry. sniper: cross-room
+  // lanes, relocates after every shot. duelist: riposte flourish — hold your
+  // swing or shoot it. darling: shields her entourage while SHE takes extra
+  // (the kill order is stated; execution is the exam). canceled: a former
+  // favorite running player verbs. suitactor: dies and UNZIPS — the suitguy
+  // flees; sparing him pays more hype than the kill.
+  | "stagehand" | "sniper" | "duelist" | "darling" | "canceled"
+  | "suitactor" | "suitguy";
 
 export interface Monster {
   id: number;
@@ -256,8 +272,11 @@ export interface Monster {
   raiseId?: number;
   // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
   // archetype's poise threshold interrupts the windup and freezes the monster.
+  // Poise DRAINS over time (interrupts take a burst, not banked chip damage),
+  // and bosses/elites gain a post-stagger grace window (no stun-locking).
   stagger: number; // seconds of stagger remaining (helpless while > 0)
   poiseDmg: number; // damage accumulated toward the next stagger
+  staggerGraceT?: number; // seconds of post-stagger composure left (bosses/elites; optional for save compat)
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
@@ -303,8 +322,18 @@ export interface Monster {
   // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
   // (allies move + attack faster while the beat holds). Chilling remains its
   // own elite affix — auras here are ally-facing.
-  aura?: "frenzy";
+  // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
+  // (her entourage takes less while SHE takes more — kill-order pressure).
+  aura?: "frenzy" | "shield";
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  shieldT?: number; // seconds of Darling stardust remaining on THIS monster
+  // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
+  // into it reflects; wait it out or answer with ranged/magic.
+  riposteT?: number;
+  // Stagehand: mid-vanish bookkeeping — seconds until the marked re-entry,
+  // and where the smoke clears.
+  vanishT?: number;
+  reentryAt?: Vec2;
   // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
   // drops the rest on death, and leaves with ALL of it if the rat escapes.
   carry?: number;
@@ -571,6 +600,7 @@ export interface Hazard {
   // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
   // standing in it and burns crawlers (contested ground).
   kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
+  flavor?: "flame"; // blast dressing: Flame Sweep rows render as FIRE, not falling ordnance
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as

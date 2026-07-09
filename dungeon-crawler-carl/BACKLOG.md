@@ -64,3 +64,12 @@ pick one up cold. Delete items when they ship (git history remembers).
      aimless anyway; bolt/dash/slam care). Headless CDP harness can drive
      Phase 1 via `Input.dispatchTouchEvent`; feel-tuning (dead zone, aim
      sensitivity) wants a real iPad.
+7. **Boss kiting trivializes fights** (play feedback 2026-07-08). Bosses can
+   be walked in circles forever: melee bosses have no gap-closer and nothing
+   punishes a crawler who never lets the windup start. The stagger half of the
+   same feedback shipped (poise decay + post-stagger grace in
+   `damageMonster`/`stepMonster`); the movement half remains. Ideas: a leash
+   lunge on the boss kit (tier-gated like slam/ritual), move-speed ramp when
+   the target stays out of reach N seconds, or arena hazards that shrink safe
+   orbit paths. Code: boss branch of `src/sim/ai.ts`, `boss*` knobs in
+   `src/sim/config.ts`.

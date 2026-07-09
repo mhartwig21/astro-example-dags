@@ -41,8 +41,8 @@ each batch** — and check the untapped KayKit clip packs first (row above).
 
 | Clip | Target rig | Why | Notes |
 |---|---|---|---|
-| Stunt Double cast — a showman "presenting / beckon" gesture | Adventurers 1.0 (hero skins) | Audit: the cast plays NOTHING today | Library has an Acting category; 421 Over_Shoulder_Throw is a known fallback donor family |
-| Flask drink | Adventurers 1.0 | Confirmed 2026-07-08: no drink/use clip in any KayKit pack | Pair with the staged `potion_medium_red.glb` prop |
+| ~~Stunt Double cast~~ **SHIPPED 2026-07-09** (preset 42 Gentlemans_Bow — the professional takes the stage) | — | — | — |
+| ~~Flask drink~~ **SHIPPED 2026-07-09** (preset 342 Stand_and_Drink + the potion prop in the off hand, weapon stowed) | — | — | — |
 | Extradition alternate take | Adventurers 1.0 | Taste option vs shipped 239 | 421 Over_Shoulder_Throw or 398 Crouch_Charge_and_Throw; two-command re-bake |
 | Filcher gloating scurry / loot-clutch run | Rig_Medium | Sells the theft while fleeing | Only after the gold-pile prop ships |
 
@@ -72,15 +72,48 @@ Batch note: run these as ONE manifest (`manifest.json`, resumable) — this
 doubles as plan-v2 **Phase 2's** batch: measure the real reject rate and
 cost per accepted asset while producing useful props.
 
+## 3b. Spell-FX mesh kit (the "Diablo layer")
+
+A Diablo-style ability effect is three layers: an authored effect MESH, motion
+curves, and material tricks (additive/emissive). Meshy supplies only the mesh —
+motion stays in the renderer's existing juice code (the nova ring already
+scales/fades; it just scales a bare torus), and materials get an
+emissive/additive treatment at load rather than the prop pipeline's plain
+atlas material. KayKit ships zero VFX meshes (sole exception: the DemonLord
+SummoningCircle — reuse/retint it for raise/summon channels before generating
+a magic circle).
+
+**Test SHIPPED 2026-07-09**: Nova ring + Cataclysm crown generated, emissive
+treatment in `renderer3d.buildFxRing`, verified in-app. Findings: fine surface
+detail (runes) does NOT survive generation — prompt for chunky silhouettes,
+not engravings; dark albedo + strong emissive reads as saturated glow (a
+feature); the palette snap is fine for effect meshes since the tint comes
+from the emissive layer. Cataclysm also got its correct radius and the
+Aftermath echo stopped rendering as an airstrike keg (crown ground marker).
+
+| Effect mesh | Replaces | Prompt sketch |
+|---|---|---|
+| ~~Nova rune shockwave ring~~ **SHIPPED** | the bare blue torus | — |
+| ~~Cataclysm eruption crown~~ **SHIPPED** | Nova's reused torus | — |
+| ~~Implosion swirl cone~~ **SHIPPED 2026-07-09** | collapsing vortex on the nova.implode cast | — |
+| ~~Flame wall~~ **SHIPPED 2026-07-09** | flame clusters per Flame Sweep cell (`Hazard.flavor: "flame"`); kills BACKLOG #5's clown-bomb overreach for this signature | — |
+| ~~Detonation star~~ **SHIPPED 2026-07-09** | zero-amount crit flashes (Gavel Drop, EXTINCTION pops, Stunt Double exit) burst a spiked star | — |
+| ~~Airstrike blast star~~ **SHIPPED 2026-07-09** | debris ring under each keg impact | — |
+
+Not a mesh job: Bullet Time (screen-space), status auras (procedural rings
+already read well).
+
 ## 4. Flagship: the full character path (plan-v2 Phase 0 exit)
 
 One bespoke character through the ENTIRE pipeline: text-to-3D (T-pose prompt)
 → palette snap → Meshy auto-rig → shared-clip retarget onto its own skeleton →
 in-game with the standard animation state machine. Candidate with no KayKit
-answer: **a System announcer/host avatar** (the Show's on-floor presence — a
-floating tuxedo'd AI mannequin fits the fiction and tolerates rig jank better
-than a combat mob). This is the pipeline milestone, not a quick win; do it
-after the prop batch proves reject rates.
+answer: **a sponsor mascot** ("The Brand Ambassador" — a big plush-costume
+humanoid enforcer; boss/elite material, on-tone for the Show, forgiving of
+first-attempt rig jank). The System itself stays disembodied by design (it's
+an AI — the camera drone above is its embodiment). Alternatives: a "former
+favorite" rival crawler, or an APPROACH band boss. This is the pipeline
+milestone, not a quick win; do it after the prop batch proves reject rates.
 
 ## Keeping this honest
 

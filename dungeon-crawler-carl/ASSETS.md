@@ -49,7 +49,7 @@ mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
 |---|---|---|---|
 | KayKit Character Pack: Adventurers | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Pack: Skeletons | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
-| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat], Robot_One [Lineworker], Robot_Two [Sentinel], Clanker [Slagbreaker], ToySoldier [Wind-Up Battalion], Animatronic_Normal/_Creepy [Greeter + elite skin], Werewolf_Man [Understudy], Tiefling [Briar Witch], Skeleton_Rogue [Cutpurse], Skeleton_Golem [Ossuary Warden], Caveman [Pit Digger], Paladin/_with_Helmet [Shieldbearer + elite skin], Cleric [Ruins Cleric], Lorekeeper [Archivist], 4GTN/_Forgotten [Colossus + elite skin] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat], Robot_One [Lineworker], Robot_Two [Sentinel], Clanker [Slagbreaker], ToySoldier [Wind-Up Battalion], Animatronic_Normal/_Creepy [Greeter + elite skin], Werewolf_Man [Understudy], Tiefling [Briar Witch], Skeleton_Rogue [Cutpurse], Skeleton_Golem [Ossuary Warden], Caveman [Pit Digger], Paladin/_with_Helmet [Shieldbearer + elite skin], Cleric [Ruins Cleric], Lorekeeper [Archivist], 4GTN/_Forgotten [Colossus + elite skin], Ninja [Stagehand], Marksman [Sniper], AvianSwordsman [Duelist], MagicalGirl [Darling], Superhero [Canceled], Monster/MonsterCostume [Suit Actor + the guy inside] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Monthly Mystery Character: Demon Lord (July 2026; + SummoningCircle prop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 
 Collection characters were copied from the purchased Complete Collection zip
@@ -363,6 +363,14 @@ above. Provenance rules for anything it produces:
 | Our file | What | Origin |
 |---|---|---|
 | characters/extradition.glb | "Extradition" cast clip (armature + animation only, no mesh) for the hero skins | Meshy (paid tier) auto-rig of the CC0 KayKit adventurer + preset clip 239 "Crouch_Pull_and_Throw", retargeted onto the Adventurers 1.0 rig via `tools/asset-pipeline/blender/retarget_clip.py` |
+| dungeon/fx_nova_ring.glb | Nova's shockwave ring (spell-FX mesh kit; emissive/fade treatment applied at load in `buildFxRing`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_cataclysm_crown.glb | Cataclysm's eruption crown + the Aftermath echo's ground marker | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_implosion_cone.glb | IMPLOSION capstone's collapsing vortex | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_flame_wall.glb | Flame Sweep's fire (per hazard cell; `flavor: "flame"`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_detonation_star.glb | Zero-amount crit detonation marker (Gavel Drop, EXTINCTION, Stunt Double exit) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_blast_star.glb | Airstrike impact debris ring | Meshy (paid tier) text-to-3D, palette-snapped |
+| characters/flask_drink.glb | Sponsor Slurp™ drink act (clip only) | Meshy (paid tier) preset 342 "Stand_and_Drink", retargeted onto the Adventurers 1.0 rig |
+| characters/stuntdouble_cast.glb | Stunt Double cast — a gentleman's bow (clip only) | Meshy (paid tier) preset 42 "Gentlemans_Bow", retargeted onto the Adventurers 1.0 rig |
 
 ## Licensing hygiene
 

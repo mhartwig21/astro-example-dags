@@ -17,6 +17,9 @@ export interface PlayOpts {
 export interface AudioSink {
   play(id: SoundId, opts?: PlayOpts): void;
   music(id: SoundId | null): void;
+  // BULLET TIME: sweep a master low-pass so the whole mix goes underwater
+  // while the world is slowed. Optional — test fakes and simple sinks skip it.
+  muffle?(on: boolean): void;
 }
 
 const STORE_KEY = "dcc:audio:v1";
@@ -45,6 +48,7 @@ function loadPrefs(): AudioPrefs {
 export class AudioEngine implements AudioSink {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private muffleNode: BiquadFilterNode | null = null;
   private buses: Partial<Record<"sfx" | "music" | "ui", GainNode>> = {};
   private buffers = new Map<SoundId, AudioBuffer>();
   private lastPlayed = new Map<SoundId, number>();
@@ -159,6 +163,13 @@ export class AudioEngine implements AudioSink {
     this.current = { id, gain, src };
   }
 
+  /** BULLET TIME underwater sweep: low-pass the whole mix down to ~700Hz,
+   * back to inaudible (20kHz) when the world speeds up again. */
+  muffle(on: boolean): void {
+    if (!this.ctx || !this.muffleNode) return;
+    this.muffleNode.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, 0.08);
+  }
+
   // ---- internals ----
 
   private ensureContext(): AudioContext | null {
@@ -171,8 +182,14 @@ export class AudioEngine implements AudioSink {
     const ctx = new Ctor();
     const compressor = ctx.createDynamicsCompressor();
     compressor.connect(ctx.destination);
+    // Master low-pass sits open (20kHz = inaudible) until Bullet Time sweeps
+    // it down; a filter in the chain is cheaper than re-patching the graph.
+    this.muffleNode = ctx.createBiquadFilter();
+    this.muffleNode.type = "lowpass";
+    this.muffleNode.frequency.value = 20000;
+    this.muffleNode.connect(compressor);
     this.master = ctx.createGain();
-    this.master.connect(compressor);
+    this.master.connect(this.muffleNode);
     for (const bus of ["sfx", "music", "ui"] as const) {
       const g = ctx.createGain();
       g.connect(this.master);

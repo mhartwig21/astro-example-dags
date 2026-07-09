@@ -62,6 +62,16 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_archivist: "/assets/characters/lorekeeper.glb",
   monster_colossus: "/assets/characters/4gtn.glb",
   monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
+  // THE APPROACH cast (MOB-CONCEPTS.md): the season-finale roster — Ninja,
+  // Marksman, AvianSwordsman, MagicalGirl, Superhero, and the Monster/
+  // MonsterCostume pair (the beast + the guy who was inside it).
+  monster_stagehand: "/assets/characters/ninja.glb",
+  monster_sniper: "/assets/characters/marksman.glb",
+  monster_duelist: "/assets/characters/avian_swordsman.glb",
+  monster_darling: "/assets/characters/magical_girl.glb",
+  monster_canceled: "/assets/characters/superhero.glb",
+  monster_suitactor: "/assets/characters/beast.glb",
+  monster_suitguy: "/assets/characters/beast_costume.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -147,6 +157,10 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
       // the flask's bottle and the blink smokebomb anchor.
       "potion_medium_red", "smokebomb",
+      // Spell-FX mesh kit (Meshy-generated, GENERATION-BACKLOG 3b): sculpted
+      // effect meshes the juice layer animates; procedural fallbacks remain.
+      "fx_nova_ring", "fx_cataclysm_crown",
+      "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
@@ -184,6 +198,13 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_archivist: "medium", // Lorekeeper
   monster_colossus: "large", // 4GTN — animate masonry
   monster_colossus_elite: "large", // 4GTN_Forgotten
+  monster_stagehand: "medium", // Ninja
+  monster_sniper: "medium", // Marksman
+  monster_duelist: "medium", // AvianSwordsman
+  monster_darling: "medium", // MagicalGirl
+  monster_canceled: "medium", // Superhero
+  monster_suitactor: "medium", // Monster (the suit)
+  monster_suitguy: "medium", // MonsterCostume (the guy)
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
@@ -226,7 +247,11 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
 // tools/asset-pipeline/blender/retarget_clip.py — provenance in ASSETS.md);
 // they bind to each skin's skeleton by bone name, same as the rig libraries.
 const HERO_SKIN_KEYS = ["player", "armory_axes", "armory_arcana", "armory_knives", "hero_hooded"];
-const HERO_CLIP_MANIFEST = ["/assets/characters/extradition.glb"];
+const HERO_CLIP_MANIFEST = [
+  "/assets/characters/extradition.glb",
+  "/assets/characters/flask_drink.glb", // Meshy 342 Stand_and_Drink, retargeted
+  "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
+];
 
 export async function loadModels(): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();

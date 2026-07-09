@@ -72,17 +72,17 @@ soldiers are absolutely on-theme).
 | ~~Skeleton_Golem~~ | Skeletons 1.1 | **large** | **SHIPPED 2026-07-08** as the Ossuary Warden (shard-zone slam) |
 | ~~OrcRaider~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Drum Sergeant (SEWERS support mob) |
 | ~~Caveman~~ | Mystery S5 | medium | **SHIPPED 2026-07-08** as the Pit Digger (knockback tutor) |
-| Monster | Mystery S4 | medium | any — classic beast |
-| MonsterCostume | Mystery S4 | medium | THE SHOW twist — "it was a guy in a suit" |
+| ~~Monster~~ | Mystery S4 | medium | **SHIPPED 2026-07-09** as the Suit Actor (death-gag beast) |
+| ~~MonsterCostume~~ | Mystery S4 | medium | **SHIPPED 2026-07-09** as the suitguy (the mercy test) |
 | ~~Werewolf_Man~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Understudy (morphs into the charger wolf) |
 | ~~Tiefling~~ | Mystery S5 | medium | **SHIPPED 2026-07-08** as the Briar Witch (vulnerability hex) |
 | ~~Cleric~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Ruins Cleric (consecration zones) |
 | ~~Paladin (+ helmeted variant)~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Shieldbearer (+ elite skin) |
 | ~~Lorekeeper~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Archivist (sweeping beam) |
-| Ninja | Mystery S4 | medium | APPROACH — blink assassin (phantom variant) |
-| AvianSwordsman | Mystery S6 | medium | APPROACH — duelist |
-| Marksman | Mystery S6 | medium | APPROACH — sniper (long-range telegraph) |
-| MagicalGirl | Mystery S6 | medium | APPROACH — System darling mini-boss |
+| ~~Ninja~~ | Mystery S4 | medium | **SHIPPED 2026-07-09** as the Stagehand (smoke-out + marked re-entry) |
+| ~~AvianSwordsman~~ | Mystery S6 | medium | **SHIPPED 2026-07-09** as the Duelist (riposte flourish) |
+| ~~Marksman~~ | Mystery S6 | medium | **SHIPPED 2026-07-09** as the Sniper (relocating cross-room lanes) |
+| ~~MagicalGirl~~ | Mystery S6 | medium | **SHIPPED 2026-07-09** as the Darling (shield aura, stated kill order) |
 | ~~Animatronic_Normal~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Greeter (dormant ambusher) |
 | ~~Animatronic_Creepy~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Greeter's elite skin |
 | ~~Robot_One~~ | Mystery S4 | medium | **SHIPPED 2026-07-08** as the Lineworker (piston punch) |
@@ -95,7 +95,7 @@ soldiers are absolutely on-theme).
 | ~~4GTN~~ | Mystery S6 | **large** | **SHIPPED 2026-07-08** as the Colossus / The Foundation (travelling fissure) |
 | ~~4GTN_Forgotten~~ | Mystery S6 | **large** | **SHIPPED 2026-07-08** as the Colossus elite skin |
 | ~~Hoarder~~ | Mystery S6 | medium | **SHIPPED 2026-07-08** as the Repo Rat (fleeing loot-goblin) |
-| Superhero | Mystery S5 | medium | THE SHOW — fallen "former favorite" rival |
+| ~~Superhero~~ | Mystery S5 | medium | **SHIPPED 2026-07-09** as the Canceled (player-verb former favorite) |
 
 **NPC / crawler / flavor candidates (20):** Adventurers 2.0 Barbarian,
 Barbarian_Large (large rig), Druid, Engineer, Knight, Mage, Ranger, Rogue,

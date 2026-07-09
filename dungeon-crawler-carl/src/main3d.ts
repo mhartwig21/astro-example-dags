@@ -395,6 +395,26 @@ function clearLogFeed(): void {
 
 pushLogLine(`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`);
 
+// BULLET TIME screen grade: the System dims the house lights. A CSS filter
+// desaturates the canvas and a radial vignette closes in; both fade over
+// ~220ms so entry/exit feel like a lens, not a light switch. (The audio
+// director muffles the mix in parallel — see AudioEngine.muffle.)
+const btVignette = document.createElement("div");
+btVignette.style.cssText =
+  "position:fixed;inset:0;pointer-events:none;z-index:1;opacity:0;" +
+  "transition:opacity 220ms ease-out;" +
+  "background:radial-gradient(ellipse at center, rgba(20,30,50,0) 52%, rgba(8,12,24,0.6) 100%)";
+document.body.appendChild(btVignette);
+canvas.style.transition = "filter 220ms ease-out";
+let btGradeOn = false;
+function updateBulletTimeGrade(s: GameState): void {
+  const on = s.bulletTimeLeft > 0;
+  if (on === btGradeOn) return;
+  btGradeOn = on;
+  canvas.style.filter = on ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
+  btVignette.style.opacity = on ? "1" : "0";
+}
+
 const fxLayer = document.getElementById("fx")!;
 const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
@@ -2297,6 +2317,7 @@ async function main(): Promise<void> {
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);
     audioDirector.frame(state, frameHits, frameAnns, localId);
+    updateBulletTimeGrade(state);
     renderer.update(state, now / 1000);
     renderer.render();
     // Damage numbers need the camera positioned (done in update) to project.
