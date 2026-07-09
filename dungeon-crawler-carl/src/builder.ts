@@ -6,6 +6,7 @@
 // exactly what the game can render.
 
 import * as THREE from "three";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { loadModels, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
 import type { RoomTemplate, RoomProp, CustomMobDef } from "./content/types";
 
@@ -359,7 +360,9 @@ function showMobPreview(): void {
   mobMixer = null;
   const m = models[mob.skin];
   if (!m) return;
-  mobPreview = m.scene.clone(true) as THREE.Group;
+  // SkeletonUtils.clone, not .clone(): a plain clone leaves skinned meshes
+  // bound to the source scene's bones, so clips play but the mesh never moves.
+  mobPreview = cloneSkinned(m.scene) as THREE.Group;
   // Normalize to a readable size, apply scale + tint like the game would.
   const size = new THREE.Box3().setFromObject(mobPreview).getSize(new THREE.Vector3());
   mobPreview.scale.setScalar((2.2 / Math.max(size.y, 1e-3)) * (mob.scale ?? 1));
@@ -617,3 +620,9 @@ void loadModels().then(async (m) => {
   rebuildProps();
   if (mode === "mobs") showMobPreview();
 });
+
+// Headless-verify hook: lets a driver assert the preview's skinned meshes are
+// bound to the clone's own skeleton (the SkeletonUtils.clone contract).
+(window as unknown as { __builderDebug: unknown }).__builderDebug = {
+  preview: () => mobPreview,
+};

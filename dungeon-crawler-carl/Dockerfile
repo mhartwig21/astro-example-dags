@@ -24,4 +24,7 @@ ENV PORT=8080
 ENV STATIC_DIR=dist
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s CMD node -e "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["npx", "tsx", "src/server/gameServer.ts"]
+# node receives Fly's stop signal DIRECTLY — an `npx tsx` wrapper swallows
+# SIGINT, so the server's graceful checkpoint-and-exit handler never ran and
+# Fly hard-killed after the grace period. `--import tsx` keeps TS-at-runtime.
+CMD ["node", "--import", "tsx", "src/server/gameServer.ts"]
