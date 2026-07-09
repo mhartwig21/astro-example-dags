@@ -160,6 +160,7 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Spell-FX mesh kit (Meshy-generated, GENERATION-BACKLOG 3b): sculpted
       // effect meshes the juice layer animates; procedural fallbacks remain.
       "fx_nova_ring", "fx_cataclysm_crown",
+      "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
@@ -246,7 +247,11 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
 // tools/asset-pipeline/blender/retarget_clip.py — provenance in ASSETS.md);
 // they bind to each skin's skeleton by bone name, same as the rig libraries.
 const HERO_SKIN_KEYS = ["player", "armory_axes", "armory_arcana", "armory_knives", "hero_hooded"];
-const HERO_CLIP_MANIFEST = ["/assets/characters/extradition.glb"];
+const HERO_CLIP_MANIFEST = [
+  "/assets/characters/extradition.glb",
+  "/assets/characters/flask_drink.glb", // Meshy 342 Stand_and_Drink, retargeted
+  "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
+];
 
 export async function loadModels(): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();

@@ -1585,6 +1585,7 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
         radius: CONFIG.flameRadius,
         damage: m.damage * CONFIG.flameDmgMult,
         kind: "blast",
+        flavor: "flame", // hosts draw fire, not falling ordnance (BACKLOG #5)
       });
     }
   }
