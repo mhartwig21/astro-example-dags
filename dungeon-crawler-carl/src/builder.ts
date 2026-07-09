@@ -148,9 +148,18 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
   rebuildTiles();
 });
 renderer.domElement.addEventListener("pointermove", (ev) => {
-  if (!painting || mode !== "rooms") return;
+  if (mode !== "rooms") return;
   const t = pointerTile(ev);
-  if (!t) return;
+  // Ghost tracks the cursor while a prop is armed.
+  if (ghost) {
+    if (tool === "prop" && activeProp && t) {
+      ghost.visible = true;
+      ghost.position.set(t.fx, 0, t.fy);
+    } else {
+      ghost.visible = false;
+    }
+  }
+  if (!painting || !t) return;
   room.tiles[t.y * room.w + t.x] = tool === "wall" ? WALL : FLOOR;
   rebuildTiles();
 });
@@ -162,26 +171,80 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// ---- Prop palette ----
+// ---- Prop palette (categorized) ----
 const PROP_KEYS = Object.entries(MODEL_MANIFEST)
   .filter(([k, url]) => url.includes("/dungeon/") && !k.startsWith("fx_"))
   .map(([k]) => k)
   .sort();
+const CATEGORIES: [string, RegExp][] = [
+  ["all", /./],
+  ["structure", /^(wall|floor|stairs)/],
+  ["containers", /barrel|crate|box|keg|chest|trunk/],
+  ["treasure", /coin|gold|gem|money|^key$|trophy|loot_box/],
+  ["furniture", /table|shelf|bench|bookcase|stool|bartop|plate|book/],
+  ["light & banners", /torch|lantern|banner/],
+  ["nature", /forest|cliff|tree|bush|rock|grass|fence/],
+  ["graveyard", /grave|crypt|pumpkin|bone|ribcage/],
+  ["weapons & war", /weapon|sword|drum|cage|shell/],
+  ["imported", /::generated::/], // replaced dynamically below
+];
+const generatedKeys = new Set<string>();
+let activeCategory = "all";
+const catSel = $("propCategory") as HTMLSelectElement;
+for (const [name] of CATEGORIES) {
+  const o = document.createElement("option");
+  o.value = name; o.textContent = name;
+  catSel.appendChild(o);
+}
+catSel.onchange = () => { activeCategory = catSel.value; renderPropList(propFilter); };
+
+let propFilter = "";
+function inCategory(k: string): boolean {
+  if (activeCategory === "all") return true;
+  if (activeCategory === "imported") return generatedKeys.has(k);
+  const re = CATEGORIES.find(([n]) => n === activeCategory)?.[1];
+  return re ? re.test(k) : true;
+}
 function renderPropList(filter = ""): void {
+  propFilter = filter;
   const list = $("propList");
   list.innerHTML = "";
-  for (const k of PROP_KEYS.filter((k) => k.includes(filter))) {
+  for (const k of PROP_KEYS.filter((k) => k.includes(filter) && inCategory(k))) {
     const b = document.createElement("button");
     b.textContent = k;
+    if (k === activeProp) b.classList.add("active");
     b.onclick = () => {
       tool = "prop"; activeProp = k;
       document.querySelectorAll("#tileTools button, #propList button").forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
+      refreshGhost();
     };
     list.appendChild(b);
   }
 }
 ($("propSearch") as HTMLInputElement).oninput = (e) => renderPropList((e.target as HTMLInputElement).value);
+
+// Ghost preview: the selected prop rides the cursor, half-transparent, so you
+// SEE it (size, orientation, look) before committing a click.
+let ghost: THREE.Group | null = null;
+function refreshGhost(): void {
+  if (ghost) { scene.remove(ghost); ghost = null; }
+  if (!activeProp) return;
+  const obj = instance(activeProp);
+  if (!obj) return;
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.material) return;
+    const mat = (m.material as THREE.MeshStandardMaterial).clone();
+    mat.transparent = true;
+    mat.opacity = 0.55;
+    mat.depthWrite = false;
+    m.material = mat;
+  });
+  obj.visible = false;
+  ghost = obj;
+  scene.add(ghost);
+}
 
 // ---- Room save / export / import ----
 const ROOMS_KEY = "dcc:builder:rooms";
@@ -239,6 +302,27 @@ $("resize").onclick = () => {
   room.h = Math.max(4, Math.min(14, Number(($("roomH") as HTMLInputElement).value)));
   resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); frame();
 };
+$("rotateRoom").onclick = () => {
+  // Rotate the whole design 90° clockwise: tiles transpose, props follow.
+  const { w, h } = room;
+  const next = new Array(w * h).fill(FLOOR);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // (x, y) -> (x' = h-1-y, y' = x) in the rotated (w'=h, h'=w) grid.
+      next[x * h + (h - 1 - y)] = room.tiles[y * w + x];
+    }
+  }
+  room.tiles = next;
+  for (const p of room.props) {
+    const nx = h - p.y, ny = p.x;
+    p.x = nx; p.y = ny;
+    p.rot = ((p.rot ?? 0) - Math.PI / 2) % (Math.PI * 2);
+  }
+  room.w = h; room.h = w;
+  ($("roomW") as HTMLInputElement).value = String(room.w);
+  ($("roomH") as HTMLInputElement).value = String(room.h);
+  rebuildTiles(); rebuildProps(); frame();
+};
 
 // ---- Enemy crafter ----
 const BEHAVIORS: [string, string][] = [
@@ -291,12 +375,26 @@ function showMobPreview(): void {
   }
   mobPreview.position.set(room.w / 2, 0, room.h / 2);
   scene.add(mobPreview);
+  // Clip preview dropdown: every animation this body can play, selectable.
+  const clipSel = $("mobClip") as HTMLSelectElement;
+  const prevChoice = clipSel.value;
+  clipSel.innerHTML = "";
+  for (const c of m.animations.slice(0, 60)) {
+    const o = document.createElement("option");
+    o.value = c.name; o.textContent = c.name;
+    clipSel.appendChild(o);
+  }
   if (m.animations.length) {
     mobMixer = new THREE.AnimationMixer(mobPreview);
-    const idle = m.animations.find((c) => /idle/i.test(c.name)) ?? m.animations[0];
-    mobMixer.clipAction(idle).play();
+    const chosen =
+      m.animations.find((c) => c.name === prevChoice) ??
+      m.animations.find((c) => /idle/i.test(c.name)) ??
+      m.animations[0];
+    clipSel.value = chosen.name;
+    mobMixer.clipAction(chosen).play();
   }
 }
+($("mobClip") as HTMLSelectElement).onchange = () => showMobPreview();
 
 function renderMobModels(filter = ""): void {
   const list = $("mobModelList");
@@ -434,6 +532,33 @@ async function initBridge(): Promise<void> {
     if (!r.ok) return;
   } catch { return; }
   $("bridgeBox").style.display = "";
+  $("zipBox").style.display = "";
+  // Zip import: search the owner's KayKit collection zip, extract + convert
+  // props on demand (they land in the generated palette).
+  $("zipGo").onclick = async () => {
+    const q = ($("zipSearch") as HTMLInputElement).value.trim();
+    if (!q) return;
+    $("zipResults").textContent = "searching…";
+    const hits = await (await fetch(`/__builder/zip-search?q=${encodeURIComponent(q)}`)).json() as string[];
+    const box = $("zipResults");
+    box.innerHTML = "";
+    for (const path of hits) {
+      const b = document.createElement("button");
+      b.style.cssText = "display:block;text-align:left;background:none;border:none;color:var(--ink);cursor:pointer;padding:2px 4px;font-size:11px";
+      b.textContent = path.split("/").slice(-1)[0] + "  (" + path.split("/").slice(1, 2)[0] + ")";
+      b.title = path;
+      b.onclick = async () => {
+        $("zipMsg").textContent = "extracting + converting…";
+        const r = await fetch("/__builder/zip-extract", { method: "POST", body: JSON.stringify({ path }) });
+        const body = await r.json();
+        $("zipMsg").textContent = r.ok
+          ? `imported as "${body.key}" — reload the page to place it`
+          : `failed: ${body.error}`;
+      };
+      box.appendChild(b);
+    }
+    if (hits.length === 0) box.textContent = "no matches";
+  };
   const renderJobs = async () => {
     try {
       const jobs = await (await fetch("/__builder/jobs")).json() as
@@ -484,7 +609,7 @@ void loadModels().then(async (m) => {
       Record<string, { url: string; clips?: string[] }>;
     for (const [k, e] of Object.entries(ix)) {
       if (e.clips?.length) CHARACTER_KEYS.push(k);
-      else PROP_KEYS.push(k);
+      else { PROP_KEYS.push(k); generatedKeys.add(k); }
     }
     PROP_KEYS.sort(); CHARACTER_KEYS.sort();
     renderPropList(); renderMobModels();

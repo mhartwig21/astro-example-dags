@@ -41,7 +41,6 @@
       .warn { color: var(--danger); font-size: 11px; }
       .ok { color: #6da356; font-size: 11px; }
       .pill { font-size: 10px; border: 1px solid var(--edge); color: var(--dim); padding: 1px 6px; }
-      #mobPane { display: none; }
       .slider-row { display: grid; grid-template-columns: 80px 1fr 36px; gap: 6px; align-items: center; }
       .slider-row output { font-size: 11px; color: var(--gold); text-align: right; }
     </style>
@@ -68,15 +67,30 @@
           </div>
           <div class="group">
             <h2>Props</h2>
-            <input id="propSearch" placeholder="search props…" />
+            <select id="propCategory"></select>
+            <input id="propSearch" placeholder="search props…" style="margin-top:4px" />
             <div id="propList"></div>
           </div>
+          <div class="group" id="zipBox" style="display:none">
+            <h2>Import from collection zip</h2>
+            <input id="zipSearch" placeholder="search the KayKit zip…" />
+            <div class="row"><button id="zipGo">Search</button></div>
+            <div id="zipResults" style="max-height:180px;overflow-y:auto;font-size:11px"></div>
+            <div id="zipMsg" style="font-size:11px;color:var(--dim)"></div>
+          </div>
         </div>
-        <div id="mobPane">
+        <div id="mobPane" style="display:none">
           <div class="group">
             <h2>Body</h2>
             <input id="mobModelSearch" placeholder="search characters…" />
             <div id="mobModelList"></div>
+          </div>
+          <div class="group">
+            <h2>Preview animation</h2>
+            <select id="mobClip"></select>
+            <div style="color:var(--dim);font-size:11px;margin-top:4px">
+              preview only — in-game clips come from the chosen behavior
+            </div>
           </div>
         </div>
         <div class="group" id="bridgeBox" style="display:none">
@@ -97,7 +111,7 @@
             <label>role</label>
             <select id="roomRole"><option value="any">any</option><option value="landmark">landmark</option><option value="vault">vault</option></select>
             <label>size (w × h, incl. floor border)</label>
-            <div class="row"><input id="roomW" type="number" value="9" min="4" max="18" style="width:70px" /><input id="roomH" type="number" value="7" min="4" max="14" style="width:70px" /><button id="resize">Resize</button></div>
+            <div class="row"><input id="roomW" type="number" value="9" min="4" max="18" style="width:70px" /><input id="roomH" type="number" value="7" min="4" max="14" style="width:70px" /><button id="resize">Resize</button><button id="rotateRoom">Rotate 90°</button></div>
             <div id="borderWarn" class="warn"></div>
           </div>
           <div class="group">

@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { resolve, join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
 
 /**
@@ -83,6 +83,46 @@ function builderBridge(): Plugin {
         res.setHeader("content-type", "application/json");
         if (req.method === "GET" && url.startsWith("/ping")) { res.end('{"ok":true}'); return; }
         if (req.method === "GET" && url.startsWith("/jobs")) { res.end(JSON.stringify([...jobs.values()])); return; }
+        // Zip import: search + extract props from the owner's collection zip.
+        if (req.method === "GET" && url.startsWith("/zip-search")) {
+          const q = new URL(url, "http://x").searchParams.get("q") ?? "";
+          const r = spawnSync("python", [join(pipeline, "zip_tool.py"), "search", q], { encoding: "utf8", env: process.env });
+          if (r.status !== 0) { res.statusCode = 500; res.end(JSON.stringify({ error: r.stderr.slice(0, 300) })); return; }
+          res.end(r.stdout.trim());
+          return;
+        }
+        if (req.method === "POST" && url.startsWith("/zip-extract")) {
+          let body = "";
+          req.on("data", (c) => (body += c));
+          req.on("end", () => {
+            try {
+              const { path } = JSON.parse(body) as { path: string };
+              if (typeof path !== "string" || path.includes("..")) throw new Error("bad path");
+              const key = path.split("/").pop()!.replace(/\.(gltf|glb)$/i, "")
+                .toLowerCase().replace(/[^a-z0-9]+/g, "_");
+              const tmp = join(pipeline, "out", `__zip_${key}`);
+              const ex = spawnSync("python", [join(pipeline, "zip_tool.py"), "extract", path, tmp], { encoding: "utf8", env: process.env });
+              if (ex.status !== 0) throw new Error(ex.stderr.slice(0, 300));
+              const main = (JSON.parse(ex.stdout.trim()) as { main: string }).main;
+              mkdirSync(genDir, { recursive: true });
+              const dest = join(genDir, `${key}.glb`);
+              if (main.toLowerCase().endsWith(".glb")) {
+                copyFileSync(main, dest);
+              } else {
+                const cv = spawnSync("npx", ["-y", "gltf-pipeline", "-i", main, "-o", dest], { encoding: "utf8", shell: true, env: process.env });
+                if (cv.status !== 0) throw new Error(cv.stderr.slice(0, 300));
+              }
+              const ix = readIndex();
+              ix[key] = { url: `/assets/generated/${key}.glb` };
+              writeIndex(ix);
+              res.end(JSON.stringify({ ok: true, key }));
+            } catch (e) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: String(e) }));
+            }
+          });
+          return;
+        }
         if (req.method === "POST" && url.startsWith("/generate")) {
           let body = "";
           req.on("data", (c) => (body += c));
