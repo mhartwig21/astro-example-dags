@@ -133,6 +133,28 @@ export function saveMouseAim(on: boolean): void {
   }
 }
 
+// Controller preference: when on (default), a connected gamepad plays twin-
+// stick — sticks move/aim, buttons cast, hits rumble. Off = the pad is
+// ignored entirely (no polling, no toasts), for players whose parked pad
+// drifts or who share a desk with one.
+const GAMEPAD_KEY = "dcc:gamepad:v1";
+
+export function loadGamepad(): boolean {
+  try {
+    return localStorage.getItem(GAMEPAD_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveGamepad(on: boolean): void {
+  try {
+    localStorage.setItem(GAMEPAD_KEY, on ? "on" : "off");
+  } catch {
+    /* best-effort */
+  }
+}
+
 // Mouse-move preference (Diablo-style): when on, LMB on ground walks (hold to
 // steer, tap to walk-to-point) and LMB on a monster attacks. Default off —
 // existing muscle memory (LMB = slot 1 everywhere) stays untouched.

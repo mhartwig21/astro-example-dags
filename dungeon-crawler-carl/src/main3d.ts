@@ -24,8 +24,8 @@ import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadMouseMove, loadNotify,
-  rebind, saveBindings, saveMouseAim, saveMouseMove, saveNotify,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
+  rebind, saveBindings, saveGamepad, saveMouseAim, saveMouseMove, saveNotify,
   type BindableAction, type Bindings, type NotifyLevel,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
@@ -137,7 +137,7 @@ function boot(): GameState {
   return createGame(freshSeed());
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#c0392f">TEST MODE</b> · ');
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>TEST MODE</b>");
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -168,15 +168,20 @@ input.mouseMoveMode = mouseClickMove;
 
 // Controller (Gamepad API): a second Intent producer merged in sampleIntent.
 // The most recent device wins AIM; movement and casts simply OR together.
+// The K panel's Controller toggle turns the whole thing off (no polling,
+// no toasts) for players whose parked pad drifts.
 const gamepad = new GamepadController();
+let gamepadEnabled = loadGamepad();
 let lastMouseAt = 0; // host clock (s) of the last mouse touch — device arbitration
 canvas.addEventListener("mousemove", () => { lastMouseAt = performance.now() / 1000; });
 canvas.addEventListener("mousedown", () => { lastMouseAt = performance.now() / 1000; });
 gamepad.onConnect = (id) => {
+  if (!gamepadEnabled) return;
   pushLogLine(`Controller connected: ${id.slice(0, 40)} — sticks move/aim, A·X·B·Y cast.`);
   if (kbOpen) renderKeybinds(); // the K panel grows its controller legend
 };
 gamepad.onDisconnect = () => {
+  if (!gamepadEnabled) return;
   pushLogLine("Controller disconnected.");
   if (kbOpen) renderKeybinds();
 };
@@ -1033,21 +1038,20 @@ let listening: BindableAction | null = null;
 function applyBindings(): void {
   input.setBindings(bindings);
   const first = (a: BindableAction) => bindingLabel(bindings, a).split(" / ")[0];
-  // Banner + panel hints render from the live bindings (the skill bar renders
-  // per-frame from the loadout in updateSkills).
-  const wasd = [first("moveUp"), first("moveLeft"), first("moveDown"), first("moveRight")].join("");
-  document.getElementById("banner-keys")!.innerHTML =
-    `<kbd>${wasd === "WASD" ? "WASD" : wasd}</kbd> move · ` +
-    `<kbd>${first("slot1")}</kbd>/LMB·<kbd>${first("slot2")}</kbd>·<kbd>${first("slot3")}</kbd>/RMB·<kbd>${first("slot4")}</kbd> abilities · ` +
-    `<kbd>${first("ultimate")}</kbd> ultimate · ` +
-    `<kbd>${first("inventory")}</kbd> inv · ` +
-    `<kbd>${first("abilities")}</kbd> loadout · ` +
-    `<kbd>${first("character")}</kbd> profile · ` +
-    `<kbd>${first("keybinds")}</kbd> keys · ` +
-    `<kbd>${first("stairs")}</kbd> stairs · ` +
-    `<kbd>${first("newRun")}</kbd> new run · ` +
-    `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "") +
-    (mouseClickMove ? " · click to move" : "");
+  // The two top-bar menus render from the live bindings so rebinds refresh
+  // their key hints (the skill bar renders per-frame in updateSkills; full
+  // movement/combat reference lives in the K panel).
+  const row = (act: BindableAction, label: string) =>
+    `<div class="tm-row" data-act="${act}"><span>${label}</span><kbd>${esc(first(act))}</kbd></div>`;
+  document.getElementById("tm-system")!.innerHTML =
+    row("keybinds", "Key Bindings & Options") +
+    row("mute", "Mute / Unmute Sound") +
+    (net ? "" : row("newRun", "New Run"));
+  document.getElementById("tm-crawler")!.innerHTML =
+    row("inventory", "Inventory") +
+    row("abilities", "Loadout & Achievements") +
+    row("character", "Crawler Profile") +
+    row("draft", "Claim Banked Drafts");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
@@ -1065,7 +1069,7 @@ function renderKeybinds(): void {
         `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
       );
     })
-    .concat(gamepad.connected ? [
+    .concat(gamepadEnabled && gamepad.connected ? [
       `<div class="kb-row kb-pad">Controller — sticks: move / aim · A X B Y: slots 1-4 · ` +
       `RT: ultimate · LB: flask · RB: stairs · LT: ping · Start: inventory · ` +
       `Back: profile · D-pad: draft / abilities</div>`,
@@ -1130,6 +1134,20 @@ kbNotify.addEventListener("click", () => {
 });
 renderNotify();
 
+// Controller on/off (see GamepadController). Toggling ON with a pad already
+// plugged in adopts it on the next frame's poll — no reconnect needed.
+const kbGamepad = document.getElementById("kb-gamepad")!;
+function renderGamepadToggle(): void {
+  kbGamepad.textContent = gamepadEnabled ? "ON" : "OFF";
+}
+kbGamepad.addEventListener("click", () => {
+  gamepadEnabled = !gamepadEnabled;
+  saveGamepad(gamepadEnabled);
+  renderGamepadToggle();
+  renderKeybinds(); // legend row appears/disappears with the toggle
+});
+renderGamepadToggle();
+
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
   saveBindings(bindings);
@@ -1152,7 +1170,8 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (k === "escape") {
-    if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
+    if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
+    else if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
     else if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
     else if (sheetOpen) toggleSheet();
@@ -1160,7 +1179,9 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-input.onAction = (a) => {
+// One dispatcher for panel/utility actions — keyboard binds, controller
+// buttons, and the top-bar menus all land here.
+function fireAction(a: BindableAction): void {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
   else if (a === "character") toggleSheet();
@@ -1173,12 +1194,37 @@ input.onAction = (a) => {
     }
   }
   else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
-};
+  else if (a === "newRun") input.onReset?.();
+}
+input.onAction = fireAction;
 // Controller panel buttons route through the same handler; captureMode (menu
 // name field, key rebinding) gates them exactly like keyboard binds.
 gamepad.onAction = (a) => {
-  if (!input.captureMode) input.onAction?.(a);
+  if (!input.captureMode) fireAction(a);
 };
+
+// The two top-bar menus (SYSTEM / CRAWLER). One open at a time; any click
+// outside, an action, or Esc closes.
+const topBars = [...document.querySelectorAll<HTMLElement>("#banner .tb")];
+function closeTopMenus(): void {
+  for (const tb of topBars) tb.classList.remove("open");
+}
+for (const tb of topBars) {
+  tb.querySelector(".topbtn")!.addEventListener("click", () => {
+    const was = tb.classList.contains("open");
+    closeTopMenus();
+    if (!was) tb.classList.add("open");
+  });
+  tb.querySelector(".topmenu")!.addEventListener("click", (e) => {
+    const r = (e.target as HTMLElement).closest<HTMLElement>(".tm-row");
+    if (!r?.dataset.act) return;
+    closeTopMenus();
+    fireAction(r.dataset.act as BindableAction);
+  });
+}
+document.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest("#banner")) closeTopMenus();
+});
 applyBindings();
 
 // ---- The System Shop (safe room between floors; pauses the sim until DESCEND) ----
@@ -2174,7 +2220,7 @@ function autoAimDir(range = 8): Vec2 | null {
 let padHeld: ReturnType<GamepadController["poll"]> = null;
 const padEdges = { flask: false, stairs: false, ping: false };
 function pollPad(): void {
-  padHeld = gamepad.poll(performance.now() / 1000);
+  padHeld = gamepadEnabled ? gamepad.poll(performance.now() / 1000) : null;
   if (padHeld) {
     padEdges.flask ||= padHeld.flaskEdge;
     padEdges.stairs ||= padHeld.stairsEdge;
@@ -2401,7 +2447,7 @@ async function main(): Promise<void> {
     // TAKEN thumps the heavy motor (scaled by how much of your health it was);
     // kill confirms tick the light one. Everything else stays still — rumble
     // is punctuation, not weather.
-    if (gamepad.connected && frameHits.length > 0) {
+    if (gamepadEnabled && gamepad.connected && frameHits.length > 0) {
       const p = me(state);
       let strong = 0, weak = 0;
       for (const h of frameHits) {

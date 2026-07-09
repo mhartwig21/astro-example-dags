@@ -67,9 +67,27 @@
       .log-line.show { opacity: 1; transform: translateX(0); }
       .log-line.fresh { color: #f5e6bf; }
       #hud-log-status { margin-top: 4px; }
-      #banner { top: 12px; left: 50%; transform: translateX(-50%); font-size: 12px;
-        color: var(--ink-dim); text-align: center; }
-      #banner b { color: var(--gold); }
+      /* Top-center: two buttons replace the old keycap strip (play feedback
+         2026-07-09) — SYSTEM (configuration) and CRAWLER (in-run panels).
+         On the fight screen, so glass chips + glass dropdowns (rule four);
+         key hints live on the dropdown rows and in the K panel. */
+      #banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 8px; align-items: center; z-index: 6; }
+      #banner b { color: #c0392f; font-size: 11px; letter-spacing: 0.08em; margin-right: 4px; }
+      .tb { position: relative; }
+      .topbtn { cursor: pointer; background: rgba(0,0,0,0.5); color: var(--ink-dim);
+        border: 1px solid #2a2a34; border-radius: 6px; padding: 6px 18px;
+        font-family: "Cinzel", serif; font-size: 12px; font-weight: 600;
+        letter-spacing: 0.12em; text-transform: uppercase; }
+      .topbtn:hover, .tb.open .topbtn { color: var(--gold-hi); border-color: #3a3a46; }
+      .topmenu { display: none; position: absolute; top: calc(100% + 6px); left: 0;
+        min-width: 250px; background: rgba(12,10,20,0.92); border: 1px solid #2a2a34;
+        border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); }
+      .tb.open .topmenu { display: block; }
+      .tm-row { display: flex; justify-content: space-between; align-items: center;
+        gap: 18px; padding: 7px 10px; border-radius: 4px; cursor: pointer;
+        color: var(--ink); font-size: 13px; white-space: nowrap; }
+      .tm-row:hover { background: rgba(255,255,255,0.07); color: var(--gold-hi); }
       .bar { height: 8px; border-radius: 2px; background: #0a0805; margin-top: 4px; overflow: hidden;
         box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 0 0 1px rgba(110,85,51,0.4); }
       .bar > i { display: block; height: 100%; }
@@ -86,7 +104,7 @@
 
       /* ---- Screen zones (backlog #8): every overlay claims exactly ONE zone,
          so no two systems ever fight for the same pixels.
-           top strip (12px):    #hud-tl left · #banner center · #hud-tr right
+           top strip (12px):    #hud-tl left · #banner center (SYSTEM/CRAWLER menus) · #hud-tr right
            upper chips:         #bossbar 44px · #show 84px · #party 118px (center)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
@@ -100,8 +118,8 @@
          New overlays must pick a zone here first. */
 
       /* DCC "System" announcer — headline banners (high priority only).
-         NOTE: #banner is taken (the keybinds strip up top) — this layer is
-         #headline. max() keeps it clear of the upper chips on short viewports. */
+         NOTE: #banner is taken (the SYSTEM/CRAWLER menu buttons up top) — this
+         layer is #headline. max() keeps it clear of the upper chips on short viewports. */
       #headline { position: fixed; top: max(19%, 152px); left: 50%; transform: translateX(-50%);
         pointer-events: none; display: flex; flex-direction: column; align-items: center; }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
@@ -928,8 +946,11 @@
   </head>
   <body>
     <canvas id="game"></canvas>
-    <div id="banner" class="hud">
-      <b>DUNGEON CRAWLER CLAUDE</b> · 3D isometric · <span id="banner-keys"></span>
+    <div id="banner">
+      <div class="tb"><button class="topbtn" id="tb-system">System</button>
+        <div class="topmenu" id="tm-system"></div></div>
+      <div class="tb"><button class="topbtn" id="tb-crawler">Crawler</button>
+        <div class="topmenu" id="tm-crawler"></div></div>
     </div>
     <div id="keys">
       <div class="panel">
@@ -943,6 +964,8 @@
           <span class="kb-key" id="kb-mousemove">OFF</span></div>
         <div class="kb-row"><span class="kb-name">System chatter<small>side-ticker verbosity — headlines always show</small></span>
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
+        <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
+          <span class="kb-key" id="kb-gamepad">ON</span></div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>

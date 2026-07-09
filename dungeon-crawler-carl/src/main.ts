@@ -9,7 +9,7 @@ import { CONFIG } from "./sim/config";
 import { InputController } from "./input/input";
 import { GamepadController } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
-import { loadMouseMove } from "./input/bindings";
+import { loadGamepad, loadMouseMove } from "./input/bindings";
 import { render, updateCamera, type Camera } from "./render/renderer";
 import { clearRun, loadRun, saveRun } from "./persist/save";
 
@@ -91,8 +91,9 @@ const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.
 const input = new InputController(canvas);
 // Controller: minimal parity wiring (move/aim/cast). Top-down 2D is axis-
 // aligned, so sticks map straight to world — no iso rotation. The full
-// experience (auto-aim, rumble, legend) lives in the 3D host.
-const gamepad = new GamepadController();
+// experience (auto-aim, rumble, legend) lives in the 3D host, and the
+// on/off preference is shared from its K panel (read at boot).
+const gamepad = loadGamepad() ? new GamepadController() : null;
 // Diablo-style mouse movement shares the 3D host's preference (K panel there).
 const mouseClickMove = loadMouseMove();
 input.mouseMoveMode = mouseClickMove;
@@ -168,7 +169,7 @@ function frame(now: number): void {
   // Fixed-timestep sim updates; render interpolation is not needed at 60 Hz here.
   while (acc >= SIM_DT) {
     const intent = input.sample(playerScreen);
-    const pad = gamepad.poll(performance.now() / 1000);
+    const pad = gamepad?.poll(performance.now() / 1000) ?? null;
     if (pad) {
       if (pad.move) intent.move = pad.move;
       if (pad.aim) intent.aim = pad.aim;
