@@ -53,20 +53,20 @@ Extradition job can be reused while it hasn't expired (task ids in
 
 ## 3. Meshy model queue (text-to-3D + palette snap, ~20 credits each)
 
-Things KayKit will never ship: **Dungeon Crawler Carl's game-show layer.** All
-props, all static — no rigging. House-style prompt suffix + palette snap keep
-them on-atlas by construction.
+Things KayKit will never ship — but **diegetic dungeon objects only**. The
+Show is a META layer (announcer, HUD, tickers — the "Torchlit Broadcast"
+chrome); the world itself is a dungeon run by the System AI. Objects the
+System *provides* (loot boxes, sponsor-branded ordnance, branded gates) are
+fine; studio hardware (camera drones, jumbotrons, spotlights) is not —
+rejected 2026-07-09, owner ruling.
 
 | Asset | Use | Prompt sketch |
 |---|---|---|
-| **Hovering broadcast camera drone** | The Show made visible: idles over the player during high-hype moments, orbits ringside intros | "low poly hovering camera drone with a single large lens, boxy sci-fi body, small rotors, stylized game asset, chunky proportions, flat colors" |
-| **System loot box** | Loot-box moments currently have no prop; the novels' signature object | "low poly ornate mystery loot box with glowing seams and a question mark emblem, closed, stylized game asset, chunky proportions, flat colors" |
-| **Sponsor ordnance shell** | Replaces the repurposed `keg.glb` airstrike prop (and BACKLOG #5's clown-bomb overreach) with real branded ordnance | "low poly cartoon aerial bomb with fins and a sponsor logo panel, stylized game asset, chunky proportions, flat colors" |
-| **Gavel head chain anchor** | Extradition capstone is CLASS ACTION / Gavel Drop — a gavel-head weight on the chain's far end sells the legal-satire lane | "low poly wooden judge gavel head, oversized, stylized game asset, chunky proportions, flat colors" |
-| **Jumbotron / hype screen** | Boss-arena set piece; The Show's presence in-world | "low poly stadium jumbotron screen on a riveted metal frame, slightly tilted, stylized game asset, chunky proportions, flat colors" |
-| **Spotlight rig** | Ringside-intro moment dressing | "low poly stage spotlight on a metal truss mount, stylized game asset, chunky proportions, flat colors" |
+| ~~System loot box~~ **SHIPPED 2026-07-09** | dropped at the crawler's feet on the grant edge | — |
+| ~~Sponsor ordnance shell~~ **SHIPPED 2026-07-09** | airstrike strikes fly as real ordnance; keg retired | — |
+| ~~Gavel head chain anchor~~ **SHIPPED 2026-07-09** | rides the Extradition chain's far end, fading with the links | — |
 | **Extraction stairwell portal frame** | Stairs-down currently reuses dungeon stairs; a System-branded descent gate reads as "next episode" | "low poly ornate archway portal frame with hazard stripes and small lights, stylized game asset, chunky proportions, flat colors" |
-| **Achievement trophy set** (small/medium/large) | Cash-payout achievement moments; vault dressing variety | "low poly golden trophy cup on a stone base, stylized game asset, chunky proportions, flat colors" |
+| **Achievement trophy set** (small/medium/large) | Vault dressing variety (diegetic: the System mints them) | "low poly golden trophy cup on a stone base, stylized game asset, chunky proportions, flat colors" |
 
 Batch note: run these as ONE manifest (`manifest.json`, resumable) — this
 doubles as plan-v2 **Phase 2's** batch: measure the real reject rate and
