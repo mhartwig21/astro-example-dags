@@ -196,6 +196,12 @@ export class Renderer3D {
   }>();
   // Sponsor Slurp™: seconds the potion prop stays in the off hand.
   private potionShow = new Map<number, number>();
+  // Continuous body-FX emitters (banked states + status effects), per player:
+  // seconds until the next glow puff.
+  private playerFxTick = new Map<number, number>();
+  // The Briar Witch's mark: a violet sigil over the cursed crawler.
+  private hexMarks = new Map<number, THREE.Mesh>();
+  private prevLootBoxes = -1; // loot-box grant edge (-1 = first frame, no drop)
   // Floor-clear celebration edge (monster count > 0 -> 0 while still playing).
   private prevMonsterCount = -1;
   private prevStatus = "playing";
@@ -221,8 +227,9 @@ export class Renderer3D {
   // Additive glow sprites (projectile trails, magic bursts). The texture is a
   // canvas radial gradient — procedural, so the FX layer needs no image assets.
   private fxSprites: { sprite: THREE.Sprite; life: number; max: number; grow: number }[] = [];
-  // Extradition chains: a run of iron links strung caster -> anchor, fading fast.
-  private chainFx: { group: THREE.Group; mat: THREE.MeshBasicMaterial; life: number; max: number }[] = [];
+  // Extradition chains: a run of iron links strung caster -> anchor (plus the
+  // gavel head at the far end), fading fast as one.
+  private chainFx: { group: THREE.Group; mats: THREE.Material[]; life: number; max: number }[] = [];
   private sharedLinkGeo = new THREE.BoxGeometry(0.22, 0.05, 0.1);
   private glowTex: THREE.Texture | null = null;
   private strikeMeshes: THREE.Object3D[] = []; // falling airstrike shells (pooled)
@@ -928,6 +935,21 @@ export class Renderer3D {
     const halo = this.makeGlow(col, 0.9);
     halo.position.y = -0.2;
     group.add(halo);
+    // The ARPG loot beam: worthwhile drops throw a light pillar you can spot
+    // across the room. Gear above common + ability tomes; commons stay quiet
+    // so the beam keeps meaning.
+    const beams = (l.kind === "item" && l.rarity && l.rarity !== "common") || l.kind === "tome";
+    if (beams) {
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.13, 2.8, 8, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: col, transparent: true, opacity: 0.38,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        }),
+      );
+      beam.position.y = 1.4;
+      group.add(beam);
+    }
     return group;
   }
 
@@ -1582,7 +1604,8 @@ export class Renderer3D {
           mesh = this.buildFxRing("cataclysm");
           this.scene.remove(mesh); // buildFxRing adds; re-add via the pool below
         } else {
-          mesh = this.modelInstance("keg") ?? new THREE.Mesh(
+          // Real sponsor ordnance at last; the tavern keg was always a loaner.
+          mesh = this.modelInstance("sponsor_shell") ?? this.modelInstance("keg") ?? new THREE.Mesh(
             new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
           mesh.scale.multiplyScalar(0.5);
         }
@@ -1705,6 +1728,13 @@ export class Renderer3D {
 
   private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
+    // A loot box GRANTED is a delivery: the System sets the box down at the
+    // crawler's feet for a beat. (Opening it stays in the menu — meta layer.)
+    if (state.lootBoxes > this.prevLootBoxes && this.prevLootBoxes >= 0) {
+      const pb = state.players.find((pl) => pl.alive) ?? state.players[0];
+      if (pb) this.spawnFadeProp("system_loot_box", pb.pos.x, 0.08, pb.pos.y, 0.6, 1.2, { spin: 1.6 });
+    }
+    this.prevLootBoxes = state.lootBoxes;
     for (const p of state.players) {
       // Orbit blades: only while SLOTTED (matches updateOrbit in the sim —
       // a benched orbit spins no steel).
@@ -1902,6 +1932,46 @@ export class Renderer3D {
           if (weaponObj) weaponObj.visible = false;
         }
       }
+      // Banked states + statuses live on the BODY, not just HUD chips:
+      // Overcharge crackles ember, MOMENTUM's primed crit sparks yellow, and
+      // burn/poison/chill wear their own motes (semantic colors throughout).
+      const nextPuff = (this.playerFxTick.get(pl.id) ?? 0) - dt;
+      if (nextPuff <= 0 && pl.alive) {
+        this.playerFxTick.set(pl.id, 0.16);
+        const jx = () => (Math.random() - 0.5) * 0.55;
+        if (pl.overcharged) {
+          this.spawnGlow(mesh.position.x + jx(), 0.9 + Math.random() * 0.6, mesh.position.z + jx(), 0xd98e4a, 0.45, 0.3, 1.2);
+        }
+        if (pl.stanceCritReady) {
+          this.spawnGlow(mesh.position.x + jx(), 0.9 + Math.random() * 0.6, mesh.position.z + jx(), 0xffe066, 0.4, 0.3, 1.2);
+        }
+        for (const st of pl.statuses ?? []) {
+          const c = st.kind === "burn" ? 0xff7a2f : st.kind === "poison" ? 0x7ed957 : 0x7fd4ff;
+          this.spawnGlow(mesh.position.x + jx(), 0.25 + Math.random() * 0.9, mesh.position.z + jx(),
+            c, 0.38, 0.5, st.kind === "chill" ? 0 : 1.1);
+        }
+      } else {
+        this.playerFxTick.set(pl.id, nextPuff);
+      }
+      // Briar Witch's mark: while cursedT runs, a violet sigil spins overhead
+      // (the pack suddenly cares about you — now you can SEE why).
+      let hexm = this.hexMarks.get(pl.id);
+      if ((pl.cursedT ?? 0) > 0 && pl.alive) {
+        if (!hexm) {
+          hexm = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.16, 0),
+            new THREE.MeshBasicMaterial({ color: 0x8a5cff, transparent: true, opacity: 0.9 }),
+          );
+          this.scene.add(hexm);
+          this.hexMarks.set(pl.id, hexm);
+        }
+        hexm.position.set(mesh.position.x, 2.2, mesh.position.z);
+        hexm.rotation.y += dt * 3;
+        hexm.visible = mesh.visible;
+      } else if (hexm) {
+        this.scene.remove(hexm);
+        this.hexMarks.delete(pl.id);
+      }
       // The Slurp bottle: grafted once, shown only while the drink act runs.
       const sip = this.potionShow.get(pl.id);
       if (sip !== undefined) {
@@ -1927,6 +1997,10 @@ export class Renderer3D {
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
         this.weaponStow.delete(id);
+        this.potionShow.delete(id);
+        this.playerFxTick.delete(id);
+        const hexm = this.hexMarks.get(id);
+        if (hexm) { this.scene.remove(hexm); this.hexMarks.delete(id); }
       }
     }
 
@@ -2499,8 +2573,11 @@ export class Renderer3D {
       projSeen.add(pr.id);
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
-        // Magic missiles read arcane-violet; physical bolts keep the player hue.
+        // Magic missiles read arcane-violet; physical bolts keep the player
+        // hue — and FROST BOLTS read lore-blue (STYLEGUIDE: frost's color),
+        // so the build-defining chill rider is visible in flight.
         const color = pr.from !== "player" ? THEME.projectileEnemy
+          : (pr.chill ?? 0) > 0 ? 0x5a87c6
           : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
         // Ammo with a real mesh flies as that mesh (arrows nose along their
@@ -2772,8 +2849,27 @@ export class Renderer3D {
       link.rotation.x = (i % 2) * (Math.PI / 2); // alternate links twist: reads as interlocked
       group.add(link);
     }
+    // The far end carries the gavel head (CLASS ACTION's legal-satire lane),
+    // keeping its own wood texture but fading in step with the links.
+    const mats: THREE.Material[] = [mat];
+    const gavel = this.modelInstance("gavel_anchor");
+    if (gavel) {
+      gavel.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const gm = (m.material as THREE.MeshStandardMaterial).clone();
+        gm.transparent = true;
+        gm.depthWrite = false;
+        m.material = gm;
+        mats.push(gm);
+      });
+      gavel.scale.setScalar(0.55);
+      gavel.position.set(to.x, 0.5, to.y);
+      gavel.rotation.y = yaw;
+      group.add(gavel);
+    }
     this.scene.add(group);
-    this.chainFx.push({ group, mat, life: 0, max: 0.35 });
+    this.chainFx.push({ group, mats, life: 0, max: 0.35 });
   }
 
   /** Drop a model that fades out and vanishes (Blindside's smokebomb, the
@@ -2856,12 +2952,16 @@ export class Renderer3D {
     }
     this.fxSprites = fxAlive;
 
-    // Chains: fade the shared material, then drop the whole link run.
+    // Chains: fade every material in the run, then drop it whole.
     const chainAlive: typeof this.chainFx = [];
     for (const cf of this.chainFx) {
       cf.life += dt;
-      if (cf.life >= cf.max) { this.scene.remove(cf.group); cf.mat.dispose(); continue; }
-      cf.mat.opacity = 1 - cf.life / cf.max;
+      if (cf.life >= cf.max) {
+        this.scene.remove(cf.group);
+        for (const m of cf.mats) m.dispose();
+        continue;
+      }
+      for (const m of cf.mats) (m as THREE.MeshBasicMaterial).opacity = 1 - cf.life / cf.max;
       chainAlive.push(cf);
     }
     this.chainFx = chainAlive;

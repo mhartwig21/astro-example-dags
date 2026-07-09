@@ -161,6 +161,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // effect meshes the juice layer animates; procedural fallbacks remain.
       "fx_nova_ring", "fx_cataclysm_crown",
       "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
+      // Diegetic System objects (Meshy-generated): the loot-box delivery, the
+      // airstrike's real sponsor ordnance, Extradition's gavel chain anchor.
+      "system_loot_box", "sponsor_shell", "gavel_anchor",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
 };
