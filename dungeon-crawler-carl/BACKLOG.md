@@ -70,3 +70,16 @@ pick one up cold. Delete items when they ship (git history remembers).
    boss kit (tier-gated like slam/ritual) or a move-speed ramp when the
    target stays out of reach N seconds. Code: boss branch of `src/sim/ai.ts`,
    `boss*` knobs in `src/sim/config.ts`.
+
+10. **Room vignette grammar, phases 2-3** — phase 1 shipped (2026-07-09):
+    `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in
+    `renderer3d.buildFloor` dress up to 4 combat rooms per interior floor as
+    storage/mess/archive/guardpost (wall runs, wall-mounted decor, table
+    sets, a sconce per room). Phase 2: band-specific purpose skins, condition
+    modifiers (looted/battle-scarred/overgrown), zoning by graph distance
+    (living quarters near entrance, sacred near boss), corridor connective
+    tissue. Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    kennel spawns beasts, the mess pack sits AT the table) + one seeded
+    story-event per floor applying conditions along a path. Prop gaps (beds,
+    food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
+    Tools packs — extract via the established pipeline.

@@ -230,3 +230,49 @@ export function cosmeticRng(seed: number): () => number {
 export function tileHash(x: number, y: number, floor: number): number {
   return ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(floor, 83492791)) >>> 0) % 1000;
 }
+
+// ---- Room purposes (vignette grammar, phase 1) ----
+// A seeded slice of ordinary combat rooms gets dressed as a PLACE — the
+// KayKit sample renders' trick: furniture in purposeful arrangements hugging
+// walls and corners, not scatter. Each purpose is pure data; the placement
+// primitives (wall runs, wall-mounted decor, table sets, corner stacks) live
+// in renderer3d.buildFloor. Cosmetic only — the sim never sees any of it.
+// Phase 2 (BACKLOG): band-specific skins, condition modifiers (looted/
+// battle-scarred), zoning by graph distance, occupancy-coupled spawns.
+export interface RoomPurpose {
+  id: string;
+  wallRun: string[]; // props lined shoulder-to-shoulder along one wall
+  wallMount: string[]; // decor hung ON wall faces (banners, shelves, sconces)
+  cornerStack?: string[]; // a tight hoard in one corner
+  tableSet?: { table: string; seat: string; tabletop: string[] }; // furnished table + seating
+  centerpiece?: { key: string; spill: string[] }; // one anchor prop + debris around it
+}
+
+export const ROOM_PURPOSES: RoomPurpose[] = [
+  {
+    id: "storage", // the quartermaster's floor: kegs and crates against the walls
+    wallRun: ["keg", "barrel_large", "crates_stacked", "box_large", "keg_decorated"],
+    wallMount: ["shelf_small"],
+    cornerStack: ["box_small", "barrel_small", "trunk_small_A"],
+  },
+  {
+    id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
+    wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
+    wallMount: ["banner_red", "shelf_small"],
+    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_stack", "bottle_A_green"] },
+  },
+  {
+    id: "archive", // the dungeon keeps records: bookcase runs and a reading table
+    wallRun: ["bookcase_single", "bookcase_double_decorateda", "bookcase_single"],
+    wallMount: ["shelf_small_books"],
+    cornerStack: ["book_single", "box_small"],
+    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["book_single"] },
+  },
+  {
+    id: "guardpost", // a watch was stationed here; the shift ended badly
+    wallRun: ["bench", "box_large", "barrel_small"],
+    wallMount: ["banner_shield_red", "torch_mounted"],
+    cornerStack: ["barrel_small", "bottle_A_green"],
+    centerpiece: { key: "table_medium_broken", spill: ["sword_shield_broken", "bottle_A_green"] },
+  },
+];
