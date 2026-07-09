@@ -349,6 +349,26 @@ export const CONFIG = {
   // Suitguy: the mercy test — sparing him pays the whole party.
   suitguyEscapeHype: 12,
 
+  // Elite affix six-pack (MOB-CONCEPTS.md) — the multiplication table.
+  linkedRadius: 5, // allies inside soak the linked elite's damage
+  linkedSoakFraction: 0.5, // share of each hit redistributed to the pack
+  vampiricHealFraction: 0.5, // of damage dealt, drunk back
+  juggernautSpeedMult: 0.75, // slower — your kiting still works; your CC doesn't
+  mortarCooldown: 3.5,
+  mortarMinRange: 3, // too close and it can't arc
+  mortarMaxRange: 9,
+  mortarDelay: 1.1, // shell hang-time (the dodge window)
+  mortarRadius: 1.2,
+  mortarDmgMult: 0.9, // × monster damage per shell
+  berserkThreshold: 0.5, // below this HP fraction the frenzy self-sustains
+  executionerThreshold: 0.4, // crawlers below this HP fraction...
+  executionerDmgMult: 1.5, // ...take this much more from it
+
+  // Pack playbook (MOB-CONCEPTS.md): designed encounters — one mob's ability
+  // is the setup for another's payoff. Budget-neutral: a template SPENDS the
+  // floor's monster budget. Formation offsets do most of the choreography.
+  packTemplateChance: 0.35, // share of pack rolls that use a band template
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -1056,6 +1076,93 @@ export const FLOOR_BANDS = [
 export function floorBand(floor: number): number {
   return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
 }
+
+// The PACK PLAYBOOK (MOB-CONCEPTS.md): designed encounters, keyed by band.
+// One mob's ability is the SETUP for another's payoff; formation offsets do
+// most of the choreography (support center/rear, threats front). Each pack
+// asks exactly ONE question — kill order, positioning, or timing.
+export interface PackTemplateMember {
+  kind: import("./types").MonsterKind;
+  dx: number;
+  dy: number;
+}
+export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][] = [
+  // THE UNDERCROFT (2+; spawnMonsters gates templates off floor 1)
+  [
+    { name: "The Reception", members: [
+      { kind: "warden", dx: 0, dy: 0 }, { kind: "swarmer", dx: -1, dy: 0.8 },
+      { kind: "swarmer", dx: 1, dy: 0.8 }, { kind: "cutpurse", dx: 0, dy: 1.6 },
+    ] },
+    { name: "Grave Shift", members: [
+      { kind: "digger", dx: 0, dy: 0.8 }, { kind: "ranged", dx: 0.6, dy: -1.2 },
+    ] },
+  ],
+  // THE SEWERS — kill-order kindergarten
+  [
+    { name: "The Drumline", members: [
+      { kind: "drummer", dx: 0, dy: -1.2 }, { kind: "grunt", dx: -1.2, dy: 0.6 },
+      { kind: "grunt", dx: 0, dy: 0.9 }, { kind: "grunt", dx: 1.2, dy: 0.6 },
+    ] },
+    { name: "The Acid Choir", members: [
+      { kind: "spitter", dx: -1, dy: -0.8 }, { kind: "spitter", dx: 1, dy: -0.8 },
+      { kind: "shaman", dx: 0, dy: -1.8 }, { kind: "bomber", dx: 0, dy: 1 },
+    ] },
+  ],
+  // THE GARDEN — the hook squad band
+  [
+    { name: "The Hook Squad", members: [
+      { kind: "lasher", dx: 0, dy: -1 }, { kind: "hexer", dx: -1.4, dy: -1.6 },
+      { kind: "brute", dx: 0.8, dy: 0.8 },
+    ] },
+    { name: "Moonlit Understudies", members: [
+      { kind: "understudy", dx: -1, dy: 0.5 }, { kind: "understudy", dx: 1, dy: 0.5 },
+      { kind: "understudy", dx: 0, dy: 1.2 }, { kind: "shaman", dx: 0, dy: -1.5 },
+    ] },
+  ],
+  // THE RUINS — formation warfare
+  [
+    { name: "The Procession", members: [
+      { kind: "shieldbearer", dx: -0.8, dy: 0.9 }, { kind: "shieldbearer", dx: 0.8, dy: 0.9 },
+      { kind: "cleric", dx: 0, dy: -0.4 }, { kind: "archivist", dx: 0, dy: -1.8 },
+    ] },
+    { name: "Falling Masonry", members: [
+      { kind: "colossus", dx: 0, dy: 0.5 }, { kind: "necromancer", dx: 0, dy: -1.8 },
+    ] },
+  ],
+  // THE IRONWORKS — timing collision
+  [
+    { name: "The Assembly Line", members: [
+      { kind: "lineworker", dx: -1, dy: 0.8 }, { kind: "lineworker", dx: 1, dy: 0.8 },
+      { kind: "sentinel", dx: 0, dy: -1.6 },
+    ] },
+    { name: "Shift Change", members: [
+      { kind: "slagbreaker", dx: 0, dy: 0.8 }, { kind: "toysoldier", dx: -1.5, dy: -1 },
+      { kind: "toysoldier", dx: -0.5, dy: -1.4 }, { kind: "toysoldier", dx: 0.5, dy: -1.4 },
+      { kind: "toysoldier", dx: 1.5, dy: -1 },
+    ] },
+  ],
+  // THE APPROACH — finals week (+ the reruns: cross-band remixes)
+  [
+    { name: "The Entourage", members: [
+      { kind: "darling", dx: 0, dy: -1 }, { kind: "toysoldier", dx: -1.4, dy: 0.4 },
+      { kind: "toysoldier", dx: -0.5, dy: 0.8 }, { kind: "toysoldier", dx: 0.5, dy: 0.8 },
+      { kind: "toysoldier", dx: 1.4, dy: 0.4 }, { kind: "duelist", dx: 0, dy: 0 },
+    ] },
+    { name: "The Crew", members: [
+      { kind: "sniper", dx: 0, dy: -2 }, { kind: "stagehand", dx: 0.5, dy: 1 },
+    ] },
+    { name: "Rerun: Frenzied Volleys", members: [
+      { kind: "drummer", dx: 0, dy: -1 }, { kind: "toysoldier", dx: -1, dy: 0.5 },
+      { kind: "toysoldier", dx: 0, dy: 0.9 }, { kind: "toysoldier", dx: 1, dy: 0.5 },
+    ] },
+    { name: "Rerun: Into the Vent", members: [
+      { kind: "lasher", dx: 0, dy: -1.5 }, { kind: "slagbreaker", dx: 0, dy: 0.8 },
+    ] },
+    { name: "Rerun: Marked for the Lane", members: [
+      { kind: "hexer", dx: -1, dy: -1.5 }, { kind: "sniper", dx: 1, dy: -2 },
+    ] },
+  ],
+];
 
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */
 export function floorTimeBudget(floor: number): number {

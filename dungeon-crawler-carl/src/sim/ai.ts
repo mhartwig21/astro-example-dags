@@ -79,8 +79,21 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc — whiff
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    if (damagePlayerHit(state, player, m.damage, { dir })) {
+    // EXECUTIONER elites (six-pack) hit wounded crawlers harder — the retreat
+    // threshold becomes a real decision, not a vibe.
+    const execute = m.affix === "executioner" && player.hp < player.maxHp * CONFIG.executionerThreshold
+      ? CONFIG.executionerDmgMult : 1;
+    const before = player.hp;
+    if (damagePlayerHit(state, player, m.damage * execute, { dir })) {
       handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
+    }
+    // VAMPIRIC elites (six-pack) drink what they hit — starve it by dodging.
+    if (m.affix === "vampiric" && before > player.hp && m.hp < m.maxHp) {
+      const heal = Math.min(m.maxHp - m.hp, Math.round((before - player.hp) * CONFIG.vampiricHealFraction));
+      if (heal > 0) {
+        m.hp += heal;
+        state.hits.push({ pos: { x: m.pos.x, y: m.pos.y }, amount: heal, kind: "heal" });
+      }
     }
   }
 }
@@ -595,6 +608,35 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Telegraphed like everything else: the cast is a channel, not a blink.
     m.affixCd = CONFIG.summonCooldown;
     beginWindup(m, "summon", CONFIG.summonWindup);
+  }
+
+  // MORTAR elites (six-pack) lob arcing shells at your position — the shell
+  // ignores walls (it goes OVER them), so cover stops being safe. Too close
+  // and it can't arc: getting IN its face is the counterplay.
+  if (
+    m.affix === "mortar" && (m.affixCd ?? 0) === 0 &&
+    d >= CONFIG.mortarMinRange && d <= CONFIG.mortarMaxRange
+  ) {
+    m.affixCd = CONFIG.mortarCooldown;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: hunt.pos.x, y: hunt.pos.y },
+      t: CONFIG.mortarDelay,
+      total: CONFIG.mortarDelay,
+      radius: CONFIG.mortarRadius,
+      damage: m.damage * CONFIG.mortarDmgMult,
+      kind: "blast",
+    });
+  }
+
+  // BERSERKING elites (six-pack): below half HP the frenzy self-sustains —
+  // the drum-frenzy plumbing, fed by its own wounds. Finish what you start.
+  if (m.affix === "berserking" && m.hp < m.maxHp * CONFIG.berserkThreshold) {
+    m.frenzyT = Math.max(m.frenzyT ?? 0, 0.5);
+    if (!m.noticed) {
+      m.noticed = true;
+      state.events.push(`${m.eliteName ?? "The elite"} goes BERSERK — wounded and faster for it. Finish what you started.`);
+    }
   }
 
   if (m.kind === "boss") {

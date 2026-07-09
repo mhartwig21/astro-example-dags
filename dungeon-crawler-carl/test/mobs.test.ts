@@ -778,3 +778,123 @@ describe("APPROACH: band gating", () => {
     expect(seen).toBe(true);
   });
 });
+
+describe("elite affix six-pack", () => {
+  it("linked: the pack soaks half of every hit while allies stand", () => {
+    const g = stage();
+    const p = g.players[0];
+    const elite = mkMon(g, { kind: "brute", pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1000, maxHp: 1000, elite: true, affix: "linked" });
+    const ally = mkMon(g, { kind: "grunt", pos: { x: elite.pos.x + 1, y: elite.pos.y }, hp: 200, maxHp: 200 });
+    damageMonster(g, p, elite, 200, { allowCrit: false });
+    const eliteDmg = 1000 - elite.hp;
+    expect(ally.hp).toBeLessThan(200); // the link paid it forward
+    // Alone, the same hit lands in full.
+    const loner = mkMon(g, { kind: "brute", pos: { x: p.pos.x + 30, y: p.pos.y }, hp: 1000, maxHp: 1000, elite: true, affix: "linked" });
+    damageMonster(g, p, loner, 200, { allowCrit: false });
+    expect(1000 - loner.hp).toBeGreaterThan(eliteDmg * 1.5);
+  });
+
+  it("juggernaut: no stagger, no knockback", () => {
+    const g = stage();
+    const p = g.players[0];
+    const jug = mkMon(g, { kind: "grunt", pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 5000, maxHp: 5000, elite: true, affix: "juggernaut" });
+    const start = { ...jug.pos };
+    jug.windup = jug.windupTotal = 1.0;
+    jug.windupKind = "melee";
+    damageMonster(g, p, jug, 3000, { allowCrit: false, dir: { x: 1, y: 0 }, knockback: 2, poiseMult: 10 });
+    expect(jug.stagger).toBe(0); // the poise meter never fills
+    expect(jug.windup).toBeGreaterThan(0); // the committed swing survives
+    expect(dist(start, jug.pos)).toBeLessThan(0.01); // the shove bounced off
+  });
+
+  it("vampiric: it drinks what it hits", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const vamp = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      hp: 100, maxHp: 500, damage: 100, elite: true, affix: "vampiric", introduced: true,
+    });
+    vamp.windup = vamp.windupTotal = 0.05;
+    vamp.windupKind = "melee";
+    run(g, 0.2);
+    expect(vamp.hp).toBeGreaterThan(100); // the hit fed it
+  });
+
+  it("mortar: shells arc onto the crawler's position on a cadence", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    mkMon(g, {
+      kind: "ranged", pos: { x: p.pos.x + 6, y: p.pos.y },
+      damage: 20, attackRange: 6.5, elite: true, affix: "mortar", introduced: true, speed: 0, attackCooldown: 99, shootCd: 99,
+    });
+    run(g, 0.3);
+    expect(g.hazards.some((h) => (h.kind ?? "blast") === "blast")).toBe(true); // a shell is in the air
+  });
+
+  it("berserking: below half HP the frenzy self-sustains", () => {
+    const g = stage();
+    const p = g.players[0];
+    const zerk = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 100, elite: true, affix: "berserking", introduced: true, speed: 0,
+    });
+    run(g, 0.3);
+    expect(zerk.frenzyT ?? 0).toBeGreaterThan(0); // rage from its own wounds
+  });
+
+  it("executioner: wounded crawlers take extra", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = 1000;
+    const axe = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      damage: 50, elite: true, affix: "executioner", introduced: true,
+    });
+    // Healthy hit.
+    p.hp = 1000;
+    axe.windup = axe.windupTotal = 0.05;
+    axe.windupKind = "melee";
+    run(g, 0.15);
+    const healthyDmg = 1000 - p.hp;
+    // Wounded hit (below the threshold).
+    p.hp = Math.floor(p.maxHp * CONFIG.executionerThreshold) - 50;
+    const woundedBefore = p.hp;
+    axe.attackCooldown = 0;
+    axe.windup = axe.windupTotal = 0.05;
+    axe.windupKind = "melee";
+    run(g, 0.15);
+    const woundedDmg = woundedBefore - p.hp;
+    expect(woundedDmg).toBeGreaterThan(healthyDmg * 1.2); // the threshold is REAL
+  });
+});
+
+describe("the pack playbook", () => {
+  it("band templates spawn as coherent clusters (the Hook Squad exists)", () => {
+    let hookSquads = 0;
+    for (let seed = 1; seed <= 50; seed++) {
+      const g = createTestGame({ seed, floor: 8 });
+      for (const lasher of g.monsters.filter((m) => m.kind === "lasher")) {
+        const hexNear = g.monsters.some((m) => m.kind === "hexer" && dist(m.pos, lasher.pos) < 3);
+        const bruteNear = g.monsters.some((m) => m.kind === "brute" && dist(m.pos, lasher.pos) < 3);
+        if (hexNear && bruteNear) hookSquads++;
+      }
+    }
+    expect(hookSquads).toBeGreaterThan(0); // the flagship combo musters
+  });
+
+  it("templates are budget-neutral: floor population stays in its band", () => {
+    for (const seed of [3, 7, 11]) {
+      const g = createTestGame({ seed, floor: 8 });
+      // monsterCount for floor 8 = base + perFloor * 7, capped; template packs
+      // must not inflate it (they SPEND the same budget).
+      const expected = Math.min(CONFIG.monsterMaxCount, CONFIG.monsterBaseCountFloor1 + CONFIG.monsterCountPerFloor * 7);
+      expect(g.monsters.length).toBeLessThanOrEqual(expected + 12); // vault/elite/rat extras only
+    }
+  });
+
+  // (Floors 1-2 template gating is a one-line floor check; the balance
+  // contract is the real guard — it caught a floor-2 Reception killing the
+  // bot before this gate existed, which is exactly why the gate exists.)
+});
