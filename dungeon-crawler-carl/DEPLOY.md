@@ -40,8 +40,8 @@ restarts; Fly snapshots the volume daily (5 kept). The volume was created with
 `fly volumes create dcc_data --region ord --size 1` — one volume, one machine,
 same region; if the machine is ever recreated from scratch, make sure a
 `dcc_data` volume exists in its region first. Run history / personal bests are
-browser-local (`dcc:history:v1`); real cross-device persistence (Postgres)
-arrives with accounts.
+browser-local (`dcc:history:v1`); real cross-device persistence is planned as
+SQLite on this same volume — see PERSISTENCE.md for the full design.
 
 Or the actual container, if Docker is installed:
 
@@ -130,10 +130,10 @@ Migration steps (~an afternoon):
 - Deploy per the above; verify `/health`; point DNS at it. Done — no code changes.
 
 What to do **before** GCP makes sense:
-- **Persistence** (the real reason to migrate): move character saves +
-  instance snapshots into **Cloud SQL (Postgres)** or Firestore, so deploys and
-  restarts stop dropping runs and drop-in/drop-out survives the process. The
-  save shape already exists (`SavedProgress` / `serialize()`).
+- **Persistence is NOT a reason to migrate** — it lands on Fly as SQLite on
+  the existing volume (PERSISTENCE.md). GCP only enters the picture if
+  parties ever shard across machines, and even then Fly Postgres is the
+  nearer step.
 - **Reconnect logic** in `netClient.ts` (auto-rejoin with the same seat) — also
   what makes Cloud Run's 60-minute stream cap a non-issue.
 - If parties ever outgrow one process: shard instances across machines by party
