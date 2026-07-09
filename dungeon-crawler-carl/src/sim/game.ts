@@ -21,6 +21,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
 import { TIPS } from "./tips";
+import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
@@ -149,6 +150,28 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   // Every toy soldier belongs to SOME squad — a stray gets a squad of one
   // (ragged solo shots); pack spawning overwrites with the shared squadId.
   if (kind === "toysoldier") m.squadId = state.nextEntityId++;
+  // CRAFTED ENEMIES (builder.html → src/content/mobs): a def registered for
+  // this behavior + band may substitute — same brain, different body and
+  // numbers. The roll is data-gated (no rng draw when no def applies), so
+  // floors without matching defs replay exactly as before.
+  const candidates = defsFor(kind, floorBand(floor));
+  if (candidates.length > 0) {
+    const vanillaWeight = 2; // the stock archetype stays the common sight
+    const total = vanillaWeight + candidates.reduce((s, d) => s + (d.weight ?? 1), 0);
+    let roll = nextFloat(state.rng) * total - vanillaWeight;
+    for (const d of candidates) {
+      roll -= d.weight ?? 1;
+      if (roll < 0) {
+        m.defId = d.id;
+        m.hp = m.maxHp = Math.round(m.hp * (d.hpMult ?? 1));
+        m.damage *= d.damageMult ?? 1;
+        m.speed *= d.speedMult ?? 1;
+        m.xp = Math.round(m.xp * (d.xpMult ?? 1));
+        if (d.name) m.eliteName = d.name;
+        break;
+      }
+    }
+  }
   return m;
 }
 

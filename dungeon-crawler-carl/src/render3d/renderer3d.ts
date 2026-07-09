@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
 import { ELITE_TEXTURES, loadModels, type LoadedModel } from "./assets";
+import { roomTemplateById } from "../content/rooms";
+import { mobDefById } from "../content/mobs";
+import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
@@ -877,12 +880,13 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef): THREE.Group {
     const spec = THEME.archetype[kind];
-    // Prefer a floor-named menace (city bosses + the finale), then an elite
-    // skin variant when one exists (the Creepy animatronic), then the
-    // archetype-specific model, then the generic skeleton/monster.
+    // A crafted def's chosen body wins; then a floor-named menace (city
+    // bosses + the finale), then an elite skin variant when one exists (the
+    // Creepy animatronic), then the archetype model, then the fallbacks.
     const model =
+      (def?.skin ? this.modelInstance(def.skin) : null) ??
       (kind === "boss" ? this.modelInstance(`monster_boss_${floor}`) : null) ??
       (elite ? this.modelInstance(`monster_${kind}_elite`) : null) ??
       this.modelInstance(`monster_${kind}`) ??
@@ -922,10 +926,22 @@ export class Renderer3D {
       eye.position.set(0, 0.5, 0.32);
       g.add(body, eye);
     }
-    // Fold the archetype size onto whatever scale the model normalization set.
-    const base = (model ? g.scale.x : 1) * spec.scale;
+    // Fold the archetype size onto whatever scale the model normalization set
+    // (a crafted def's scale multiplies on top).
+    const base = (model ? g.scale.x : 1) * spec.scale * (def?.scale ?? 1);
     g.scale.setScalar(base);
     g.userData.baseScale = base;
+    // Crafted tint: the def's emissive accent on cloned materials.
+    if (def?.tint !== undefined && model) {
+      g.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || !m.material) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(def.tint!);
+        mat.emissiveIntensity = 0.3;
+        m.material = mat;
+      });
+    }
     return g;
   }
 
@@ -1440,6 +1456,22 @@ export class Renderer3D {
       this.stairsObj = stairs;
     }
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
+    // CRAFTED ROOM props: each stamp the mapgen recorded places its
+    // template's cosmetic dressing (the WALLS are already real tiles; these
+    // are the barrels and clutter that make the design read).
+    for (const stamp of map.stamps ?? []) {
+      const t = roomTemplateById(stamp.id);
+      if (!t) continue;
+      for (const p of t.props) {
+        const obj = this.modelInstance(p.key);
+        if (!obj) continue;
+        obj.position.set(stamp.x + p.x, 0, stamp.y + p.y);
+        obj.rotation.y = p.rot ?? 0;
+        obj.scale.setScalar(p.scale ?? 1);
+        this.floorGroup.add(obj);
+      }
+    }
+
     // The System's descent gate frames the stairs: "next episode" is an
     // archway, not a hole in the floor. Diegetic — a dungeon object the
     // System installed, not studio dressing.
@@ -2363,7 +2395,8 @@ export class Renderer3D {
         mesh = undefined;
       }
       if (!mesh) {
-        mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite);
+        mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite,
+          mon.defId ? mobDefById(mon.defId) : undefined);
         mesh.userData.simKind = mon.kind;
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.

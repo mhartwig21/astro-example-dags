@@ -1,0 +1,22 @@
+{
+  "id": "crate-cache",
+  "name": "Crate Cache",
+  "role": "any",
+  "w": 7,
+  "h": 5,
+  "tiles": [
+    1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1,
+    1, 0, 1, 1, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1
+  ],
+  "props": [
+    { "key": "crates_stacked", "x": 1.5, "y": 1.5, "rot": 0.4 },
+    { "key": "barrel_large", "x": 5.5, "y": 1.5 },
+    { "key": "box_large", "x": 1.5, "y": 3.5, "rot": 1.1 },
+    { "key": "keg", "x": 5.5, "y": 3.5 },
+    { "key": "coin_stack_small", "x": 3.5, "y": 2.5 },
+    { "key": "bottle_A_green", "x": 4.1, "y": 1.3 }
+  ]
+}
