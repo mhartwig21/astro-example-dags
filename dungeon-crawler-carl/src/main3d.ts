@@ -62,6 +62,9 @@ const params = new URLSearchParams(location.search);
 const joinCode = params.get("join");
 // RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
 const rivalsMode = params.has("rivals");
+// ROAM (multiplayer): ?roam=1&join=CODE — the party campaigns across sessions;
+// the server persists characters per account (see PERSISTENCE.md).
+const roamMode = params.has("roam");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
@@ -2469,7 +2472,7 @@ async function main(): Promise<void> {
 
   if (net) {
     try {
-      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode);
+      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode, roamMode);
     } catch (err) {
       hudLog.innerHTML = `<b style="color:#c0392f">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;

@@ -49,11 +49,13 @@ export interface SaveData {
   status: GameState["status"];
 }
 
-export function saveRun(state: GameState, mode?: RunMode): void {
-  try {
-    // Single-player persistence: the local player's progression (players[0]).
-    const p = state.players[0];
-    const data: SaveData = {
+/**
+ * Build the persisted shape for one player. Pure (no DOM) — shared by the
+ * localStorage save below and the server's per-account SQLite saves, which is
+ * exactly the dual use the comment at the top of this file promised.
+ */
+export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveData {
+  return {
       seed: state.seed,
       floor: state.floor,
       mode,
@@ -88,7 +90,13 @@ export function saveRun(state: GameState, mode?: RunMode): void {
         sponsors: p.sponsors,
       },
       status: state.status,
-    };
+  };
+}
+
+export function saveRun(state: GameState, mode?: RunMode): void {
+  try {
+    // Single-player persistence: the local player's progression (players[0]).
+    const data = toSaveData(state, state.players[0], mode);
     localStorage.setItem(KEY, JSON.stringify(data));
   } catch {
     // Persistence is best-effort in the slice; ignore quota/availability errors.

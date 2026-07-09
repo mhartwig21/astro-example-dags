@@ -1,4 +1,4 @@
-import { ARCHETYPES, CHAMPIONS, CONFIG, FLOOR_BANDS, PACK_TEMPLATES, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
+import { ARCHETYPES, CHAMPIONS, CONFIG, FLOOR_BANDS, PACK_TEMPLATES, floorBand, floorTimeBudget, monsterTempo, roamTribeId, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
@@ -359,10 +359,11 @@ function spawnMonsters(state: GameState): void {
   // the hottest room and hosts the neighborhood boss, and the vault detour holds
   // a lone guardian standing over guaranteed treasure.
   const roam = state.runKind === "roam";
-  // Roam v1: one tribe only — every pack rolls the tribe's raider archetype
-  // (the existing drumFromFloor escort logic still promotes one member per
-  // pack to a Drum Sergeant; see CONFIG.roamTribeKind).
-  const rollKind = (): MonsterKind => (roam ? (CONFIG.roamTribeKind as MonsterKind) : rollArchetype(rng, floor));
+  // Roam: the floor's tribe IS its band (roamTribeId tracks floorBand, same
+  // clamp themeForFloor uses) — ordinary spawns roll the SAME archetypes
+  // Race would for this band; every monster created below just additionally
+  // gets tagged with the tribe id for quest kill-credit.
+  const tribeId = roam ? roamTribeId(floor) : undefined;
   const count = monsterCount(state, floor);
   const inRoom = (i: number): Vec2 | null => {
     const r = map.rooms[i];
@@ -377,7 +378,7 @@ function spawnMonsters(state: GameState): void {
   };
   const weights = map.rooms.map((r, i) => {
     const role = map.roles[i];
-    if (role === "entrance" || role === "vault" || role === "settlement") return 0;
+    if (role === "entrance" || role === "vault" || role === "settlement" || role === "stronghold") return 0;
     const area = r.w * r.h;
     // Ramp toward the stairs, but early rooms stay genuinely dangerous — the
     // pacing is a tilt, not a safety corridor.
@@ -402,8 +403,8 @@ function spawnMonsters(state: GameState): void {
   for (let i = 0; i < singles && totalW > 0; i++) {
     const pos = inRoom(pickRoom());
     if (pos) {
-      const lone = makeMonster(state, rollKind(), pos);
-      if (roam) lone.tribe = CONFIG.roamTribeId;
+      const lone = makeMonster(state, rollArchetype(rng, floor), pos);
+      if (roam) lone.tribe = tribeId;
       // Lone WANDERERS live up to the name — except greeters, whose whole act
       // is standing perfectly still among the props until you get close.
       if (lone.kind === "greeter") lone.dormant = true;
@@ -431,6 +432,7 @@ function spawnMonsters(state: GameState): void {
           let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
           if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
           const m = makeMonster(state, member.kind, pos);
+          if (roam) m.tribe = tribeId;
           if (member.kind === "toysoldier") m.squadId = squadId;
           if (member.kind === "greeter") m.dormant = true;
           state.monsters.push(m);
@@ -440,7 +442,7 @@ function spawnMonsters(state: GameState): void {
       }
     }
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
-    const kind = rollKind();
+    const kind = rollArchetype(rng, floor);
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
     // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
     // one when a player wanders in (see stepMonster). A ranged/support pack
@@ -479,7 +481,7 @@ function spawnMonsters(state: GameState): void {
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
-      if (roam) m.tribe = CONFIG.roamTribeId;
+      if (roam) m.tribe = tribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
@@ -488,8 +490,44 @@ function spawnMonsters(state: GameState): void {
     }
   }
 
-  // Roam v1 keeps the encounter to "the one tribe" — no loot-goblin, vault
-  // guardian, or neighborhood-boss dressing yet.
+  // STRONGHOLD (Roam only): a guaranteed garrison + a named leader, spawned
+  // directly rather than left to the weighted picker (which already zero-
+  // weights this room, same reason vault/entrance/settlement are). Clearing
+  // it — killing the leader — is the settlement's second quest.
+  if (roam && map.strongholdRoomIdx >= 0) {
+    const r = map.rooms[map.strongholdRoomIdx];
+    const anchor = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    const bandTemplates = PACK_TEMPLATES[floorBand(floor)];
+    const template = bandTemplates[nextInt(rng, 0, bandTemplates.length - 1)];
+    const squadId = state.nextEntityId++;
+    for (const member of template.members) {
+      let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
+      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      const m = makeMonster(state, member.kind, pos);
+      m.tribe = tribeId;
+      if (member.kind === "toysoldier") m.squadId = squadId;
+      if (member.kind === "greeter") m.dormant = true;
+      state.monsters.push(m);
+    }
+    // The leader uses the same elite-scaling formula as the neighborhood
+    // boss above, so it tracks the player power curve instead of being a
+    // one-shot or a pushover depending on floor depth.
+    const leader = makeMonster(state, rollArchetype(rng, floor), { x: anchor.x, y: anchor.y - 1 });
+    leader.tribe = tribeId;
+    leader.elite = true;
+    leader.eliteName = pick(rng, ELITE_NAMES);
+    leader.hp = leader.maxHp = Math.round(leader.maxHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
+    leader.damage *= CONFIG.eliteDmgMult;
+    leader.xp = Math.round(leader.xp * CONFIG.eliteXpMult);
+    if (floor >= CONFIG.eliteAffixFromFloor) leader.affix = pick(rng, ELITE_AFFIXES);
+    state.monsters.push(leader);
+    state.strongholdLeaderId = leader.id;
+    state.strongholdLeaderName = leader.eliteName;
+    announce(state, "boss", `HOSTILE CAMP: ${leader.eliteName} holds ground nearby. Someone should deal with that.`);
+  }
+
+  // Roam v1 keeps the rest of the encounter to the settlement/stronghold —
+  // no loot-goblin, vault guardian, or neighborhood-boss dressing yet.
   if (roam) return;
 
   // REPO RAT: from the SEWERS down, most ordinary floors hide one filcher —
@@ -993,7 +1031,7 @@ function floorSeed(seed: number, floor: number): number {
   return (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
 }
 
-function buildFloor(state: GameState, floor: number): void {
+export function buildFloor(state: GameState, floor: number): void {
   // Announce a tonal shift when the party crosses into a new 4-floor band.
   const prevBand = floorBand(state.floor);
   const newBand = floorBand(floor);
@@ -1033,6 +1071,9 @@ function buildFloor(state: GameState, floor: number): void {
   state.phase = "safe";
   state.collapseElapsed = 0;
   state.mapVersion++;
+  state.strongholdLeaderId = -1;
+  state.strongholdLeaderName = "";
+  state.strongholdCleared = false;
   spawnMonsters(state);
   if (state.runKind === "roam") {
     spawnSettlement(state);
@@ -1076,14 +1117,13 @@ export interface SavedProgress {
 }
 
 /**
- * Rebuild a game from saved character progression. The floor is regenerated
- * deterministically from (seed, floor), then the persisted player stats +
- * equipment are applied and effective stats recomputed. This is the
- * single-player stand-in for "log back in and resume."
+ * Apply saved character progression to a live player: stats, equipment,
+ * abilities, Show standing — then recompute effective stats and clamp hp.
+ * Shared by the single-player resume (restoreGame) and the server's
+ * per-account persistence (a rejoining crawler gets their character back
+ * even after the instance was dropped and regenerated from seed).
  */
-export function restoreGame(save: SavedProgress): GameState {
-  const state = createGame(save.seed);
-  const p = state.players[0];
+export function applySavedPlayer(p: Player, save: SavedProgress): void {
   const s = save.player;
   p.level = s.level;
   p.xp = s.xp;
@@ -1154,6 +1194,17 @@ export function restoreGame(save: SavedProgress): GameState {
   }
   recomputeStats(p);
   p.hp = Math.min(s.hp, p.maxHp);
+}
+
+/**
+ * Rebuild a game from saved character progression. The floor is regenerated
+ * deterministically from (seed, floor), then the persisted player stats +
+ * equipment are applied and effective stats recomputed. This is the
+ * single-player stand-in for "log back in and resume."
+ */
+export function restoreGame(save: SavedProgress): GameState {
+  const state = createGame(save.seed);
+  applySavedPlayer(state.players[0], save);
   buildFloor(state, save.floor);
   return state;
 }
@@ -1231,7 +1282,10 @@ export function createGame(
     mode,
     runKind,
     npc: null,
-    quest: null,
+    quests: [],
+    strongholdLeaderId: -1,
+    strongholdLeaderName: "",
+    strongholdCleared: false,
     rng: createRng(seed),
     seed: seed >>> 0,
     floor: 1,
@@ -2499,6 +2553,12 @@ function reapDead(state: GameState): void {
     killer.kills++;
     killer.killsThisStep++;
     creditQuestKill(state, m);
+    // Killing the tracked stronghold leader clears it — even before any
+    // clearStronghold quest exists to track it (talkToNpc reads this flag).
+    if (state.strongholdLeaderId >= 0 && m.id === state.strongholdLeaderId && !state.strongholdCleared) {
+      state.strongholdCleared = true;
+      state.events.push(`${m.eliteName ?? "The stronghold's leader"} falls. The camp scatters.`);
+    }
     if (hasPassive(killer, "ledger")) killer.gold += CONFIG.ledgerKillGold; // Landlord's Ledger
     if (hasPassive(killer, "showrunner")) addHype(state, killer, 4); // Headliner
     // REPEAT OFFENDER: the marked target died inside the window; the camera resets.

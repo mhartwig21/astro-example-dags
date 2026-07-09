@@ -1099,10 +1099,10 @@ export class Renderer3D {
 
     // Theme band for this depth (art set + palette), plus a cosmetic per-floor
     // rng so floors within a band differ (mix ratio, props, tint jitter).
-    // Roam floor numbers grow open-endedly; pin the visual band instead of
-    // reskinning forever past what the theme table was designed for.
-    const themeFloor = state.runKind === "roam" ? CONFIG.roamThemeFloor : state.floor;
-    const theme: FloorTheme = themeForFloor(themeFloor);
+    // Roam floor numbers grow open-endedly, but themeForFloor already clamps
+    // via floorBand (same as Race) — and now that Roam's tribe identity also
+    // tracks floorBand (roamTribeId), visuals and tribe always agree.
+    const theme: FloorTheme = themeForFloor(state.floor);
     const frng = cosmeticRng((state.seed ^ Math.imul(state.floor, 0x9e3779b1)) >>> 0);
     const altPct = Math.round(theme.altRatio * (0.6 + frng() * 0.9) * 1000); // vs tileHash % 1000
     const tintJitter = 0.93 + frng() * 0.12;

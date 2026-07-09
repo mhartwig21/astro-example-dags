@@ -290,6 +290,20 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     if (settlementIdx >= 0) roles[settlementIdx] = "settlement";
   }
 
+  // STRONGHOLD (Roam only): a second distinct room, hostile — unlike the
+  // settlement it stays uncarved AND unblocked (isWalkableForMonster only
+  // checks settlementRoomIdx), since a garrison is meant to live there.
+  let strongholdIdx = -1;
+  if (roam) {
+    let bestStrongholdArea = -1;
+    for (let i = 1; i < rooms.length; i++) {
+      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx || i === settlementIdx) continue;
+      const area = rooms[i].w * rooms[i].h;
+      if (area > bestStrongholdArea) { bestStrongholdArea = area; strongholdIdx = i; }
+    }
+    if (strongholdIdx >= 0) roles[strongholdIdx] = "stronghold";
+  }
+
   // PACING: 0..1 progress along the critical chain toward the stairs. Branch
   // rooms past the exit inherit near-full depth (they're deep detours).
   const depths = rooms.map((_r, i) =>
@@ -409,6 +423,7 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
     settlementRoomIdx: settlementIdx,
+    strongholdRoomIdx: strongholdIdx,
     pillars,
     pedestal,
     stamps,

@@ -4,6 +4,9 @@
 
 app = "dungeon-crawler-claude"
 primary_region = "ord"  # pick the region closest to your party
+# Stop grace: the server checkpoints every live character save on SIGINT
+# before exiting (gameServer.ts shutdown handler) — give it room to finish.
+kill_timeout = "30s"
 
 [build]
   dockerfile = "Dockerfile"
@@ -16,6 +19,7 @@ primary_region = "ord"  # pick the region closest to your party
 
 [env]
   LEADERBOARD_FILE = "/data/leaderboard.json"
+  DB_FILE = "/data/dcc.sqlite"
 
 [http_service]
   internal_port = 8080
