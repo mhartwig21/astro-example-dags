@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
-import { serialize, serializeFor } from "../sim/snapshot";
+import { serialize, serializeFor, deserialize, SNAPSHOT_VERSION } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
 import { Leaderboard } from "./leaderboard";
 import { openDb, type PersistDb } from "./db";
@@ -321,11 +321,13 @@ export class GameServer {
           else if (own) player = own; // their seat, live or regenerated — theirs to reclaim
         }
         if (!player) {
-          // Drop-in: prefer a seat no other account owns; the pre-made
-          // players[0] seat goes to the first joiner as before.
+          // Drop-in: never seat someone in a character another account owns —
+          // on a RESTORED world the idle seats are members' live characters,
+          // parked until they return. The pre-made players[0] seat still goes
+          // to the first unclaimed joiner.
           const owned = new Set<number>();
           if (this.db) {
-            for (const c of inst.clients) if (c.bound && c.accountId !== token) owned.add(c.playerId);
+            for (const m of this.db.memberSeats(code)) if (m.accountId !== token) owned.add(m.playerId);
           }
           const seatless = inst.state.players.filter((p) => !held.has(p.id) && !owned.has(p.id));
           const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
@@ -342,6 +344,9 @@ export class GameServer {
         if (member && bound && !inst.seated.has(player.id)) {
           try {
             applySavedPlayer(player, JSON.parse(member.saveJson) as SavedProgress);
+            // A checkpoint can catch a crawler downed (hp 0). Nobody reloads
+            // into a corpse in a fresh world — the System pities them a sliver.
+            if (player.hp <= 0) player.hp = 1;
           } catch {
             // Corrupt/incompatible save: the crawler restarts, the party doesn't crash.
           }
@@ -357,6 +362,9 @@ export class GameServer {
           t: "welcome", playerId: player.id, token,
           snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
         }));
+        // Joining can announce too (drop-in lines, the restore-fallback
+        // "renovated" notice) — flush before the next tick clears them.
+        this.flushTransients(inst);
         return;
       }
 
@@ -404,13 +412,7 @@ export class GameServer {
       // Actions above can announce (purchases, unlocks, band transitions on
       // descend). The next tick clears those channels before broadcasting, so
       // flush them to the party now.
-      const s = inst.state;
-      if (s.events.length || s.announcements.length || s.hits.length) {
-        this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
-        s.events = [];
-        s.announcements = [];
-        s.hits = [];
-      }
+      this.flushTransients(inst);
     });
 
     ws.on("close", () => {
@@ -437,11 +439,43 @@ export class GameServer {
     const stored = this.db?.getParty(code) ?? null;
     const mode: GameState["mode"] = stored ? (stored.mode === "rivals" ? "rivals" : "coop") : rivals ? "rivals" : "coop";
     const runKind: GameState["runKind"] = stored ? (stored.runKind === "roam" ? "roam" : "race") : roam ? "roam" : "race";
-    const state = createGame(seedFromCode(code), mode, runKind);
-    // P1 world fallback (PERSISTENCE.md): regenerate the party's floor from
-    // seed; characters reload from their saves as members rejoin. Rivals track
-    // per-player floors, so only shared-world parties fast-forward.
-    if (stored && mode === "coop" && stored.floor > state.floor) buildFloor(state, stored.floor);
+    // P2 hibernate/restore: a stored world snapshot resumes the sim exactly
+    // where the party left it — monsters, loot, timers, everyone's character.
+    // Rivals states nest per-floor worlds whose typed arrays don't survive
+    // serialize(), so only shared-world (coop/roam) parties hibernate.
+    let state: GameState | null = null;
+    let renovated = false; // a snapshot existed but couldn't be used
+    if (stored && mode === "coop" && this.db) {
+      const snap = this.db.getSnapshot(code);
+      if (snap) {
+        if (snap.version === SNAPSHOT_VERSION) {
+          try {
+            state = deserialize(snap.snapshot);
+          } catch {
+            state = null;
+          }
+        }
+        renovated = state === null;
+      }
+    }
+    // Everyone in a restored world is a live character, not a stale save —
+    // rejoiners must reclaim them as-is rather than re-applying save_json.
+    const seated = new Set<number>(state ? state.players.map((p) => p.id) : []);
+    if (!state) {
+      state = createGame(seedFromCode(code), mode, runKind);
+      // Fallback (PERSISTENCE.md): regenerate the party's floor from seed;
+      // characters reload from their saves as members rejoin. Rivals track
+      // per-player floors, so only shared-world parties fast-forward.
+      if (stored && mode === "coop" && stored.floor > state.floor) buildFloor(state, stored.floor);
+      if (renovated) {
+        // The world snapshot outlived the sim that wrote it. Progression is
+        // intact via character saves; own the reset in the System's voice.
+        state.announcements.push({
+          text: "SCHEDULED MAINTENANCE COMPLETE. This floor has been renovated. Your progression survived; the furniture did not.",
+          kind: "progress", priority: "normal",
+        });
+      }
+    }
     inst = {
       code,
       state,
@@ -449,7 +483,7 @@ export class GameServer {
       intents: {},
       tick: 0,
       lastFloor: state.floor,
-      seated: new Set(),
+      seated,
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
     };
     this.instances.set(code, inst);
@@ -457,10 +491,16 @@ export class GameServer {
     return inst;
   }
 
-  /** One transaction: the party's floor plus every bound, connected member's
-   *  character save. Disconnected members were checkpointed as they left. */
+  /** One transaction: the party's floor, every bound connected member's
+   *  character save, and (coop/roam) the full world snapshot. Disconnected
+   *  members were checkpointed as they left. A finished run instead clears
+   *  the party so the next join under this code starts fresh. */
   private checkpoint(inst: Instance): void {
     if (!this.db) return;
+    if (inst.state.status !== "playing") {
+      this.db.clearParty(inst.code);
+      return;
+    }
     const now = Date.now();
     this.db.checkpoint(() => {
       this.db!.upsertParty(inst.code, inst.state.mode, inst.state.runKind, inst.state.floor, now);
@@ -469,6 +509,9 @@ export class GameServer {
         const p = inst.state.players.find((pl) => pl.id === c.playerId);
         if (!p) continue;
         this.db!.upsertMember(inst.code, c.accountId, p.id, JSON.stringify(toSaveData(inst.state, p)), now);
+      }
+      if (inst.state.mode === "coop") {
+        this.db!.saveSnapshot(inst.code, SNAPSHOT_VERSION, serialize(inst.state), now);
       }
     });
   }
@@ -512,6 +555,18 @@ export class GameServer {
     const ms = performance.now() - t0;
     this.tickMsEma = this.tickMsEma * 0.98 + ms * 0.02;
     if (ms > this.tickMsMax) this.tickMsMax = ms;
+  }
+
+  /** Ship pending transients (events/announcements/hits) to the party and
+   *  clear the channels — the next step() would silently wipe them. */
+  private flushTransients(inst: Instance): void {
+    const s = inst.state;
+    if (s.events.length || s.announcements.length || s.hits.length) {
+      this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
+      s.events = [];
+      s.announcements = [];
+      s.hits = [];
+    }
   }
 
   private broadcast(inst: Instance, msg: unknown): void {

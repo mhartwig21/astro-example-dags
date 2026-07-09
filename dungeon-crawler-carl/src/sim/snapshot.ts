@@ -7,6 +7,17 @@ import type { GameState } from "./types";
 // guarantee: stepping a deserialized snapshot produces exactly the same states as
 // stepping the original (covered by a golden test).
 
+/**
+ * Version stamp for PERSISTED world snapshots (instance_snapshots in the
+ * server DB). Bump ONLY when a stored snapshot can no longer be deserialized
+ * and stepped safely — a removed/retyped GameState field, or a mapgen change
+ * that invalidates stored tiles. New OPTIONAL fields with load-time defaults
+ * do NOT need a bump (the codebase convention). A version-mismatched store
+ * falls back to seed + floor + character saves, never corruption. After a
+ * bump, regenerate the golden fixture: npx tsx scripts/makeSnapshotFixture.ts
+ */
+export const SNAPSHOT_VERSION = 1;
+
 interface WireState extends Omit<GameState, "explored" | "map"> {
   explored: number[];
   map: Omit<GameState["map"], "tiles"> & { tiles: number[] };
