@@ -16,12 +16,12 @@ audit. Delete rows as they ship.
 
 | Gap / need | KayKit answer | Seam |
 |---|---|---|
-| Elite affix differentiation (7 of 9 affixes invisible; the audit's #1 readability hole) | Alternate texture PNGs shipped with most characters (`orc_texture_A/B`, …) for recolored elite skins, **plus** the existing emissive-tint mechanism (`weaponry.ts rarityGlow` pattern) for per-affix body glow — semantic colors per STYLEGUIDE (warded=arcane, armored=ember, chilling=lore-blue…) | texture swap in `buildMonsterMesh`; tint code-only |
-| Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion props** (67 held props in the pack); check untapped clip packs (medium **Simulation/Tools**) for a drink/use clip before generating one | graft prop on cast + clip |
-| Filcher "it's carrying your gold" token | Resource Bits **money pile / gold bars** mini-prop grafted to the Hoarder (same pattern as the key-carrier octahedron, `renderer3d.ts:1836`) | graft in `buildMonsterMesh` |
-| Blindside / phantom-blink poof anchor | Adventurers 2.0 **smokebomb prop**; the poof itself stays procedural (spawnGlow) | prop + FX code |
-| Shaman heal / summoner birth caster tells | Art already exists — `cast_raise`/`Ranged_Magic_Raise` in the loaded rig libraries. The gap is **sim-side** (these casts have no windup, so no clip/ring fires) | small sim change, zero assets |
-| More boss/mob flourishes (enrage roar, crawls, tool use) | **Untapped clip packs**: medium MovementAdvanced / Simulation / Tools; large MovementAdvanced / Simulation / Special — load into `RIG_CLIP_MANIFEST` and inventory the clip names before generating ANY monster clip | assets.ts manifest row |
+| ~~Elite affix differentiation~~ **SHIPPED** (tints + chilling ring 2026-07-08; B-variant recolor skins 2026-07-09 via `ELITE_TEXTURES` — skeleton family, werewolf, witch, orcbrute, plantwarrior, orc; clown/vampire are single-texture packs, tint-only) | — | — |
+| Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion prop staged** (`potion_medium_red.glb` in the manifest); no drink clip exists in ANY clip pack (inventoried 2026-07-08) → the clip moved to the Meshy queue | graft prop on cast + generated clip |
+| ~~Filcher gold token~~ **SHIPPED 2026-07-08** (money-pile graft, visible while `carry > 0`) + Sneaking clip while unnoticed | — | — |
+| Blindside poof anchor (player half; ~~phantom blink~~ **SHIPPED 2026-07-08** with procedural poofs + mesh snap) | Adventurers 2.0 **smokebomb prop staged** (`smokebomb.glb`); the poof stays procedural | FX code |
+| ~~Shaman heal / summoner + broodmother caster tells~~ **SHIPPED 2026-07-08** (windup channels "heal"/"summon" → cast_raise clip + telegraph ring; interruptible by killing the caster) | — | — |
+| ~~Clip packs~~ **LOADED 2026-07-08** (all 14); ~~boss enrage act~~ **SHIPPED** via EXPERIMENTAL_Large_Transform on the phase edge | — | — |
 | APPROACH mob cast (MOB-CONCEPTS roster; IRONWORKS robots shipped 2026-07-08) | Still-unused characters: Ninja, Marksman, AvianSwordsman, MagicalGirl, 4GTN golems, Monstrosity (custom rig — verify), CombatMech, Tiefling, Cleric, Paladin… | CHARACTER_RIGS + manifest |
 | Floor traps (if they ship) | Platformer Pack: saws, spikes, swipers, hammers, conveyors (525 models) | future |
 | Show set dressing / safe rooms / crafting | Board Game Bits (cards/dice), RPG Tools (anvil, lockpicks), Furniture + Restaurant Bits | future |
@@ -41,9 +41,8 @@ each batch** — and check the untapped KayKit clip packs first (row above).
 
 | Clip | Target rig | Why | Notes |
 |---|---|---|---|
-| Stunt Double cast — a showman "presenting / beckon" gesture | Adventurers 1.0 (hero skins) | Audit: the cast plays NOTHING today | Library has an Acting category; 421 Over_Shoulder_Throw is a known fallback donor family |
-| Flask drink | Adventurers 1.0 | Only if Simulation/Tools packs lack one | |
-| Boss enrage roar / chest-beat | Rig_Large | Phase transitions have no body act | Check large Special pack first |
+| ~~Stunt Double cast~~ **SHIPPED 2026-07-09** (preset 42 Gentlemans_Bow — the professional takes the stage) | — | — | — |
+| ~~Flask drink~~ **SHIPPED 2026-07-09** (preset 342 Stand_and_Drink + the potion prop in the off hand, weapon stowed) | — | — | — |
 | Extradition alternate take | Adventurers 1.0 | Taste option vs shipped 239 | 421 Over_Shoulder_Throw or 398 Crouch_Charge_and_Throw; two-command re-bake |
 | Filcher gloating scurry / loot-clutch run | Rig_Medium | Sells the theft while fleeing | Only after the gold-pile prop ships |
 
@@ -54,34 +53,76 @@ Extradition job can be reused while it hasn't expired (task ids in
 
 ## 3. Meshy model queue (text-to-3D + palette snap, ~20 credits each)
 
-Things KayKit will never ship: **Dungeon Crawler Carl's game-show layer.** All
-props, all static — no rigging. House-style prompt suffix + palette snap keep
-them on-atlas by construction.
+Things KayKit will never ship — but **diegetic dungeon objects only**. The
+Show is a META layer (announcer, HUD, tickers — the "Torchlit Broadcast"
+chrome); the world itself is a dungeon run by the System AI. Objects the
+System *provides* (loot boxes, sponsor-branded ordnance, branded gates) are
+fine; studio hardware (camera drones, jumbotrons, spotlights) is not —
+rejected 2026-07-09, owner ruling.
 
 | Asset | Use | Prompt sketch |
 |---|---|---|
-| **Hovering broadcast camera drone** | The Show made visible: idles over the player during high-hype moments, orbits ringside intros | "low poly hovering camera drone with a single large lens, boxy sci-fi body, small rotors, stylized game asset, chunky proportions, flat colors" |
-| **System loot box** | Loot-box moments currently have no prop; the novels' signature object | "low poly ornate mystery loot box with glowing seams and a question mark emblem, closed, stylized game asset, chunky proportions, flat colors" |
-| **Sponsor ordnance shell** | Replaces the repurposed `keg.glb` airstrike prop (and BACKLOG #5's clown-bomb overreach) with real branded ordnance | "low poly cartoon aerial bomb with fins and a sponsor logo panel, stylized game asset, chunky proportions, flat colors" |
-| **Gavel head chain anchor** | Extradition capstone is CLASS ACTION / Gavel Drop — a gavel-head weight on the chain's far end sells the legal-satire lane | "low poly wooden judge gavel head, oversized, stylized game asset, chunky proportions, flat colors" |
-| **Jumbotron / hype screen** | Boss-arena set piece; The Show's presence in-world | "low poly stadium jumbotron screen on a riveted metal frame, slightly tilted, stylized game asset, chunky proportions, flat colors" |
-| **Spotlight rig** | Ringside-intro moment dressing | "low poly stage spotlight on a metal truss mount, stylized game asset, chunky proportions, flat colors" |
-| **Extraction stairwell portal frame** | Stairs-down currently reuses dungeon stairs; a System-branded descent gate reads as "next episode" | "low poly ornate archway portal frame with hazard stripes and small lights, stylized game asset, chunky proportions, flat colors" |
-| **Achievement trophy set** (small/medium/large) | Cash-payout achievement moments; vault dressing variety | "low poly golden trophy cup on a stone base, stylized game asset, chunky proportions, flat colors" |
+| ~~System loot box~~ **SHIPPED 2026-07-09** | dropped at the crawler's feet on the grant edge | — |
+| ~~Sponsor ordnance shell~~ **SHIPPED 2026-07-09** | airstrike strikes fly as real ordnance; keg retired | — |
+| ~~Gavel head chain anchor~~ **SHIPPED 2026-07-09** | rides the Extradition chain's far end, fading with the links | — |
+| ~~Extraction stairwell portal frame~~ **SHIPPED 2026-07-09** | the System's gold-lit arch frames every stairs tile | — |
+| **Achievement trophy set** (small/medium/large) | Vault dressing variety (diegetic: the System mints them) | "low poly golden trophy cup on a stone base, stylized game asset, chunky proportions, flat colors" |
 
 Batch note: run these as ONE manifest (`manifest.json`, resumable) — this
 doubles as plan-v2 **Phase 2's** batch: measure the real reject rate and
 cost per accepted asset while producing useful props.
+
+## 3b. Spell-FX mesh kit (the "Diablo layer")
+
+A Diablo-style ability effect is three layers: an authored effect MESH, motion
+curves, and material tricks (additive/emissive). Meshy supplies only the mesh —
+motion stays in the renderer's existing juice code (the nova ring already
+scales/fades; it just scales a bare torus), and materials get an
+emissive/additive treatment at load rather than the prop pipeline's plain
+atlas material. KayKit ships zero VFX meshes (sole exception: the DemonLord
+SummoningCircle — reuse/retint it for raise/summon channels before generating
+a magic circle).
+
+**Test SHIPPED 2026-07-09**: Nova ring + Cataclysm crown generated, emissive
+treatment in `renderer3d.buildFxRing`, verified in-app. Findings: fine surface
+detail (runes) does NOT survive generation — prompt for chunky silhouettes,
+not engravings; dark albedo + strong emissive reads as saturated glow (a
+feature); the palette snap is fine for effect meshes since the tint comes
+from the emissive layer.
+
+**Candidates-per-slot validated 2026-07-09** (plan-v2's process, now the
+DEFAULT for effect meshes): regenerated the two weakest kit meshes with 3
+prompt-varied candidates each. Result: 2 clear winners out of 6 (crystal-shard
+nova ring, flat comic-splat detonation star) — variance between candidates on
+the same intent is enormous, and single-shot accepts leave quality on the
+table. Losers included disconnected geometry and a re-roll of the original
+failure mode. Budget ~20 credits per candidate; pick only what beats the
+incumbent. Cataclysm also got its correct radius and the
+Aftermath echo stopped rendering as an airstrike keg (crown ground marker).
+
+| Effect mesh | Replaces | Prompt sketch |
+|---|---|---|
+| ~~Nova rune shockwave ring~~ **SHIPPED** | the bare blue torus | — |
+| ~~Cataclysm eruption crown~~ **SHIPPED** | Nova's reused torus | — |
+| ~~Implosion swirl cone~~ **SHIPPED 2026-07-09** | collapsing vortex on the nova.implode cast | — |
+| ~~Flame wall~~ **SHIPPED 2026-07-09** | flame clusters per Flame Sweep cell (`Hazard.flavor: "flame"`); kills BACKLOG #5's clown-bomb overreach for this signature | — |
+| ~~Detonation star~~ **SHIPPED 2026-07-09** | zero-amount crit flashes (Gavel Drop, EXTINCTION pops, Stunt Double exit) burst a spiked star | — |
+| ~~Airstrike blast star~~ **SHIPPED 2026-07-09** | debris ring under each keg impact | — |
+
+Not a mesh job: Bullet Time (screen-space), status auras (procedural rings
+already read well).
 
 ## 4. Flagship: the full character path (plan-v2 Phase 0 exit)
 
 One bespoke character through the ENTIRE pipeline: text-to-3D (T-pose prompt)
 → palette snap → Meshy auto-rig → shared-clip retarget onto its own skeleton →
 in-game with the standard animation state machine. Candidate with no KayKit
-answer: **a System announcer/host avatar** (the Show's on-floor presence — a
-floating tuxedo'd AI mannequin fits the fiction and tolerates rig jank better
-than a combat mob). This is the pipeline milestone, not a quick win; do it
-after the prop batch proves reject rates.
+answer: **a sponsor mascot** ("The Brand Ambassador" — a big plush-costume
+humanoid enforcer; boss/elite material, on-tone for the Show, forgiving of
+first-attempt rig jank). The System itself stays disembodied by design (it's
+an AI — the camera drone above is its embodiment). Alternatives: a "former
+favorite" rival crawler, or an APPROACH band boss. This is the pipeline
+milestone, not a quick win; do it after the prop batch proves reject rates.
 
 ## Keeping this honest
 

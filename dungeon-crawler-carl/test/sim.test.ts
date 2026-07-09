@@ -1531,10 +1531,37 @@ describe("new archetypes", () => {
     });
     g.monsters.push(shaman, wounded, healthier);
     step(g, idle(), 1 / 60);
+    // The heal is a CHANNEL now (the interrupt window): committed, not landed.
+    expect(shaman.windupKind).toBe("heal");
+    expect(shaman.healCd).toBeGreaterThan(0); // paid up front
+    expect(wounded.hp).toBe(10);
+    // Step to the resolve frame and stop THERE — hits clear every step.
+    let healed = false;
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.2 && !healed; t += 1 / 60) {
+      step(g, idle(), 1 / 60);
+      healed = wounded.hp > 10;
+    }
     expect(wounded.hp).toBe(10 + CONFIG.shamanHeal); // picked the most wounded ally
     expect(healthier.hp).toBe(30);
-    expect(shaman.healCd).toBeGreaterThan(0);
     expect(g.hits.some((h) => h.kind === "heal" && h.amount === CONFIG.shamanHeal)).toBe(true);
+  });
+
+  it("killing the shaman mid-channel cancels the heal", () => {
+    const g = createGame(903);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const wounded = mkMon({ id: 2, pos: { x: p.pos.x + 5, y: p.pos.y + 1 }, hp: 10, maxHp: 50 });
+    const shaman = mkMon({
+      id: 1, kind: "shaman", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 40, attackRange: 5.5,
+    });
+    g.monsters.push(shaman, wounded);
+    step(g, idle(), 1 / 60);
+    expect(shaman.windupKind).toBe("heal");
+    shaman.hp = 0; // focused down inside the window
+    for (let t = 0; t < CONFIG.shamanHealWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
+    expect(wounded.hp).toBe(10); // the medic never finished
   });
 
   it("phantom blinks toward the player, closing far more than a walk step", () => {
@@ -2177,6 +2204,67 @@ describe("attack telegraphs + hit reactions", () => {
     expect(p.pos.x).toBeGreaterThan(x0);
   });
 
+  it("facing sweeps toward a new heading through the in-between angles", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    p.facing = { x: 1, y: 0 };
+    // Request a 90° flip: one tick at playerTurnRate turns ~15°, not the
+    // whole way — WASD's 8 headings stop being the only reachable facings.
+    step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    const a = Math.atan2(p.facing.y, p.facing.x);
+    expect(a).toBeGreaterThan(0.1);
+    expect(a).toBeLessThan(Math.PI / 2 - 0.1);
+    expect(Math.hypot(p.facing.x, p.facing.y)).toBeCloseTo(1);
+    for (let i = 0; i < 10; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1); // and it converges, exactly
+  });
+
+  it("a sideways swing never shoves the runner off their line", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Running due south while swinging due east: the lunge must not add +x.
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x).toBeCloseTo(x0, 6);
+  });
+
+  it("swinging WITH the run keeps the forward lunge (aggression intact)", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    // One tick of run alone is ~0.07 tiles; run + lunge clears it by a margin.
+    expect(p.pos.x - x0).toBeGreaterThan(CONFIG.playerSpeed / 60 + 0.2);
+  });
+
+  it("swinging AGAINST the run never yanks the runner backward", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Sprinting east, mouse-swinging west behind you: keep sprinting east.
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: -1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x - x0).toBeGreaterThan(0);
+    expect(p.pos.x - x0).toBeLessThan(0.2); // the run step only — no lunge either way
+  });
+
+  it("a swing commits facing to the aim, then movement reclaims it", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1); // the attack tick aims the body
+    // While the swing is in flight, running doesn't whip the body back...
+    for (let i = 0; i < 5; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.x).toBeCloseTo(1);
+    // ...but once it lands, facing follows the feet again.
+    for (let i = 0; i < 15; i++) step(g, { move: { x: 0, y: 1 }, useStairs: false }, 1 / 60);
+    expect(p.facing.y).toBeCloseTo(1);
+  });
+
   it("killing blows are flagged on the hit event (with a direction)", () => {
     const g = createGame(917);
     const p = g.players[0];
@@ -2426,14 +2514,17 @@ describe("elite affixes", () => {
     });
     g.monsters.push(m);
     step(g, idle(), 1 / 60);
+    // The summon is a telegraphed channel now: committed, cd paid, no add yet.
+    expect(m.windupKind).toBe("summon");
+    expect(m.affixCd).toBeGreaterThan(0);
+    for (let t = 0; t < CONFIG.summonWindup + 0.1; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.filter((mm) => mm.kind === "swarmer").length).toBe(1);
     expect(m.summons).toBe(1);
-    expect(m.affixCd).toBeGreaterThan(0);
     expect(g.monsters.find((mm) => mm.kind === "swarmer")!.xp).toBe(1); // not an XP farm
     m.summons = CONFIG.summonMax; // cap reached
     m.affixCd = 0;
     const count = g.monsters.length;
-    step(g, idle(), 1 / 60);
+    for (let t = 0; t < CONFIG.summonWindup + 0.2; t += 1 / 60) step(g, idle(), 1 / 60);
     expect(g.monsters.length).toBeLessThanOrEqual(count); // no further summons
   });
 });
@@ -2557,13 +2648,14 @@ describe("boss phases", () => {
     p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
     boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
     step(g, idle(), 1 / 60);
-    const rain = g.hazards.filter((h) => h.kind === "blast");
+    // Phase 1 ALSO starts the finale's greatest-hits reel (borrowed debris,
+    // boss layer 2) — filter the RAIN by its distinctive fuse length.
+    const rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
     expect(rain.length).toBeGreaterThanOrEqual(1);
     // Aimed at where the crawler WAS standing — moving out is the dodge.
     expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);
     // Spawned this step, so it has already ticked down by one dt.
     expect(rain[0].t).toBeGreaterThan(CONFIG.bossHazardDelay - 0.1);
-    expect(rain[0].total).toBeCloseTo(CONFIG.bossHazardDelay, 3);
   });
 
   it("boss floors host the fight in a dedicated oversized arena (backlog #11)", () => {
@@ -4797,5 +4889,79 @@ describe("first-contact System tips", () => {
     step(g, idle(), 1 / 60);
     expect(p.tipsSeen).toContain("interference");
     expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("COURTESY EXPLANATION"))).toBe(true);
+  });
+});
+
+describe("boss poise: interrupts are earned (decay + stagger grace)", () => {
+  /** A fabricated arena: the crawler and one named menace, out of swing range. */
+  function bossGame(seed: number, over: Partial<import("../src/sim/types").Monster> = {}) {
+    const g = createGame(seed);
+    g.monsters.length = 0;
+    g.projectiles.length = 0;
+    const m = mkMon({
+      id: 1, kind: "boss", hp: 10000, maxHp: 10000, attackCooldown: 99,
+      pos: { x: g.players[0].pos.x + 15, y: g.players[0].pos.y },
+      introduced: true, ...over,
+    });
+    g.monsters.push(m);
+    return { g, p: g.players[0], m };
+  }
+
+  it("a real burst still staggers a boss and cancels the committed swing", () => {
+    const { g, p, m } = bossGame(4101);
+    m.windup = 0.5;
+    m.windupKind = "slam";
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 }); // well past the 5000 threshold
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(m.windup).toBe(0);
+    expect(m.windupKind).toBeUndefined();
+  });
+
+  it("the grace window denies the encore: no poise builds, no second stagger", () => {
+    const { g, p, m } = bossGame(4102);
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 });
+    expect(m.stagger).toBeGreaterThan(0);
+    expect(m.staggerGraceT).toBe(CONFIG.bossStaggerGrace);
+    m.stagger = 0; // the helpless beat ticks out...
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 100 }); // ...and the same burst repeats
+    expect(m.stagger).toBe(0); // composure holds
+    expect(m.poiseDmg).toBe(0); // nothing banks during the window either
+  });
+
+  it("poise DRAINS: chip damage never banks a free interrupt", () => {
+    const { g, m } = bossGame(4103);
+    m.poiseDmg = m.maxHp * 0.5 * 0.9; // one hit shy of the threshold
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 60); // four idle seconds
+    expect(m.poiseDmg).toBe(0); // the bank is gone
+    expect(m.stagger).toBe(0);
+  });
+
+  it("the Dark Ritual channel ignores grace and takes double poise", () => {
+    const { g, p, m } = bossGame(4104);
+    m.staggerGraceT = 5; // freshly staggered...
+    m.windup = 1.5;
+    m.windupTotal = CONFIG.ritualWindup;
+    m.windupKind = "ritual"; // ...and already channeling the big one
+    damageMonster(g, p, m, 100, { allowCrit: false, poiseMult: 40 }); // ~4000 raw -> ~8000 channel poise
+    expect(m.stagger).toBeGreaterThan(0); // the advertised interrupt still works
+    expect(m.windupKind).toBeUndefined();
+  });
+
+  it("named elites get a shorter composure window; trash gets none", () => {
+    const g = createGame(4105);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const elite = mkMon({ id: 1, hp: 2000, maxHp: 2000, elite: true, introduced: true });
+    const grunt = mkMon({ id: 2, hp: 2000, maxHp: 2000 });
+    g.monsters.push(elite, grunt);
+    damageMonster(g, p, elite, 100, { allowCrit: false, poiseMult: 100 });
+    expect(elite.stagger).toBeGreaterThan(0);
+    expect(elite.staggerGraceT).toBe(CONFIG.eliteStaggerGrace);
+    damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
+    expect(grunt.stagger).toBeGreaterThan(0);
+    expect(grunt.staggerGraceT ?? 0).toBe(0); // chaff stays flinchy
+    grunt.stagger = 0;
+    damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
+    expect(grunt.stagger).toBeGreaterThan(0); // and re-staggers immediately
   });
 });

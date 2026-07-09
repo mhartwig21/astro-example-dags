@@ -58,6 +58,10 @@ interface Prev {
   attackSwing: number;
   frenzy: boolean;
   encounter: boolean;
+  bulletTime: boolean;
+  cataCd: number;
+  flask: number;
+  doubleCd: number;
 }
 
 export class AudioDirector {
@@ -66,6 +70,8 @@ export class AudioDirector {
   private winding = new Set<number>();
   // Pings already chimed (same pattern as winding: a new id is a fresh mark).
   private pinged = new Set<number>();
+  // Loot drops already chimed (worthy drops ring once; cleared on descent).
+  private chimed = new Set<number>();
   private battleUntil = 0; // state.elapsed until which the battle bed persists
 
   constructor(private sink: AudioSink) {}
@@ -147,11 +153,17 @@ export class AudioDirector {
       attackSwing: p.attackSwing,
       frenzy: p.frenzy,
       encounter: state.encounter !== null,
+      bulletTime: state.bulletTimeLeft > 0,
+      cataCd: p.cd.cataclysm ?? 0,
+      flask: p.flaskCharges,
+      doubleCd: p.cd.stuntdouble ?? 0,
     };
 
     const prev = this.prev;
     this.prev = cur;
     if (prev) {
+      // BULLET TIME: the mix goes underwater while the world is slowed.
+      if (cur.bulletTime !== prev.bulletTime) this.sink.muffle?.(cur.bulletTime);
       // World beats (state edges the hit channel doesn't carry).
       if (prev.phase === "safe" && cur.phase === "warning") this.sink.play("warning");
       if (cur.floor !== prev.floor) this.sink.play("descend");
@@ -173,6 +185,30 @@ export class AudioDirector {
       if (cur.dashTime > 0 && prev.dashTime <= 0) this.sink.play("dash");
       if (cur.novaFlash > 0 && prev.novaFlash <= 0) this.sink.play("nova");
       if (cur.boltCd > prev.boltCd) this.sink.play("bolt"); // cooldown jumps on cast
+      // Ability-specific layers over the shared cues (all existing clips —
+      // semantic reuse, no new files): Cataclysm's earth-crack layers the
+      // heavy crit impact under its nova whoosh; the flask gets the bottle
+      // clink under the heal; the Stunt Double's bow gets the equip flourish
+      // (the professional clocks in); Bullet Time enters on a whoosh beneath
+      // the low-pass sweep.
+      if (cur.cataCd > prev.cataCd) this.sink.play("crit", { gain: 0.85 });
+      if (cur.flask < prev.flask) this.sink.play("item");
+      if (cur.doubleCd > prev.doubleCd) this.sink.play("equip");
+      if (cur.bulletTime && !prev.bulletTime) this.sink.play("dash", { gain: 0.8 });
+    }
+
+    // Worthwhile drops CHIME as they hit the floor (the loot-beam moment):
+    // gear above common + tomes, positioned like combat hits; commons stay
+    // quiet so the chime keeps meaning. Seen-set clears on descent.
+    if (prev && state.floor !== prev.floor) this.chimed.clear();
+    for (const l of state.loot) {
+      if (this.chimed.has(l.id)) continue;
+      const worthy = (l.kind === "item" && l.rarity && l.rarity !== "common") || l.kind === "tome";
+      if (!worthy) continue;
+      this.chimed.add(l.id);
+      const dx = l.pos.x - p.pos.x, dy = l.pos.y - p.pos.y;
+      if (Math.hypot(dx, dy) > EARSHOT) continue;
+      this.sink.play("equip", { gain: 0.8, pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)) });
     }
 
     // Battle/boss detection. Blows landing in earshot (or a pack closing in)

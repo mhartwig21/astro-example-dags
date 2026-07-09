@@ -49,6 +49,32 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_lasher: "/assets/characters/plant_warrior.glb",
   monster_understudy: "/assets/characters/werewolf_man.glb",
   monster_hexer: "/assets/characters/tiefling.glb",
+  // UNDERCROFT trainers (MOB-CONCEPTS.md): the last two Skeletons 1.1
+  // characters + the Caveman join the crypt shift.
+  monster_cutpurse: "/assets/characters/skeleton_rogue.glb",
+  monster_warden: "/assets/characters/skeleton_golem.glb",
+  monster_digger: "/assets/characters/caveman.glb",
+  // RUINS cast (MOB-CONCEPTS.md): the dead civilization's staff — Paladin
+  // (helmeted variant = elite skin), Cleric, Lorekeeper, and the 4GTN golems.
+  monster_shieldbearer: "/assets/characters/paladin.glb",
+  monster_shieldbearer_elite: "/assets/characters/paladin_helmet.glb",
+  monster_cleric: "/assets/characters/cleric.glb",
+  monster_archivist: "/assets/characters/lorekeeper.glb",
+  monster_colossus: "/assets/characters/4gtn.glb",
+  monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
+  // THE APPROACH cast (MOB-CONCEPTS.md): the season-finale roster — Ninja,
+  // Marksman, AvianSwordsman, MagicalGirl, Superhero, and the Monster/
+  // MonsterCostume pair (the beast + the guy who was inside it).
+  monster_stagehand: "/assets/characters/ninja.glb",
+  monster_sniper: "/assets/characters/marksman.glb",
+  monster_duelist: "/assets/characters/avian_swordsman.glb",
+  monster_darling: "/assets/characters/magical_girl.glb",
+  monster_canceled: "/assets/characters/superhero.glb",
+  monster_suitactor: "/assets/characters/beast.glb",
+  monster_suitguy: "/assets/characters/beast_costume.glb",
+  // CHAMPION tier (boss layer 1): The Foreman is the CombatMech — the last
+  // Mystery Monthly mob-grade character in the collection takes the stage.
+  monster_foreman: "/assets/characters/combat_mech.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -135,8 +161,34 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Drum Sergeant's kit (Orc Raider pack props, CC0): grafted onto the
       // drummer's handslots in buildMonsterMesh so the band LOOKS like a band.
       "orc_wardrum", "orc_wardrum_stick",
+      // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
+      // the flask's bottle and the blink smokebomb anchor.
+      "potion_medium_red", "smokebomb",
+      // Spell-FX mesh kit (Meshy-generated, GENERATION-BACKLOG 3b): sculpted
+      // effect meshes the juice layer animates; procedural fallbacks remain.
+      "fx_nova_ring", "fx_cataclysm_crown",
+      "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
+      // Diegetic System objects (Meshy-generated): the loot-box delivery, the
+      // airstrike's real sponsor ordnance, Extradition's gavel chain anchor.
+      "system_loot_box", "sponsor_shell", "gavel_anchor", "descent_portal",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
+};
+
+// Elite skins: KayKit's alternate texture PNGs (same UV atlas, recolored) —
+// an elite wears its pack's B-variant so it reads as a DIFFERENT individual,
+// on top of the per-affix emissive tint. Keyed by monster KIND; kinds absent
+// here (clown, vampire — single-texture packs) stay tint-only.
+export const ELITE_TEXTURES: Record<string, string> = {
+  swarmer: "/assets/characters/skeleton_texture_b.png",
+  ranged: "/assets/characters/skeleton_texture_b.png",
+  necromancer: "/assets/characters/skeleton_texture_b.png",
+  boss: "/assets/characters/skeleton_texture_b.png", // generic Skeleton_Warrior boss
+  charger: "/assets/characters/werewolf_texture_b.png",
+  shaman: "/assets/characters/witch_texture_b.png",
+  brute: "/assets/characters/orcbrute_texture_b.png",
+  spitter: "/assets/characters/plantcreatures_texture_b.png",
+  drummer: "/assets/characters/orc_texture_b.png",
 };
 
 // Animation-less characters and the rig whose shared clip library animates
@@ -163,6 +215,23 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_lasher: "medium", // PlantWarrior (shared body, different job)
   monster_understudy: "medium", // Werewolf_Man (pre-morph)
   monster_hexer: "medium", // Tiefling
+  monster_cutpurse: "medium", // Skeleton_Rogue
+  monster_warden: "large", // Skeleton_Golem — the big bone furniture
+  monster_digger: "medium", // Caveman
+  monster_shieldbearer: "medium", // Paladin
+  monster_shieldbearer_elite: "medium", // Paladin_with_Helmet
+  monster_cleric: "medium", // Cleric
+  monster_archivist: "medium", // Lorekeeper
+  monster_colossus: "large", // 4GTN — animate masonry
+  monster_colossus_elite: "large", // 4GTN_Forgotten
+  monster_stagehand: "medium", // Ninja
+  monster_sniper: "medium", // Marksman
+  monster_duelist: "medium", // AvianSwordsman
+  monster_darling: "medium", // MagicalGirl
+  monster_canceled: "medium", // Superhero
+  monster_suitactor: "medium", // Monster (the suit)
+  monster_suitguy: "medium", // MonsterCostume (the guy)
+  monster_foreman: "medium", // CombatMech — the champion's chassis
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
@@ -180,11 +249,22 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
     "/assets/characters/rig_medium_combatmelee.glb",
     "/assets/characters/rig_medium_combatranged.glb",
     "/assets/characters/rig_medium_special.glb",
+    // 2026-07-08 (GENERATION-BACKLOG): the previously-untapped packs. New
+    // verbs for the animator: Sneaking/Crawling (filcher stealth), the full
+    // dodge set, Lockpicking, sit/lie/wave (future safe-room NPCs).
+    "/assets/characters/rig_medium_movementadvanced.glb",
+    "/assets/characters/rig_medium_simulation.glb",
+    "/assets/characters/rig_medium_tools.glb",
   ],
   large: [
     "/assets/characters/rig_large_general.glb",
     "/assets/characters/rig_large_movementbasic.glb",
     "/assets/characters/rig_large_combatmelee.glb",
+    // 2026-07-08: dodge set, Flexing, and EXPERIMENTAL_Large_Transform —
+    // the natural boss phase-transition act (see the presentation audit).
+    "/assets/characters/rig_large_movementadvanced.glb",
+    "/assets/characters/rig_large_simulation.glb",
+    "/assets/characters/rig_large_special.glb",
   ],
 };
 
@@ -194,11 +274,27 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
 // tools/asset-pipeline/blender/retarget_clip.py — provenance in ASSETS.md);
 // they bind to each skin's skeleton by bone name, same as the rig libraries.
 const HERO_SKIN_KEYS = ["player", "armory_axes", "armory_arcana", "armory_knives", "hero_hooded"];
-const HERO_CLIP_MANIFEST = ["/assets/characters/extradition.glb"];
+const HERO_CLIP_MANIFEST = [
+  "/assets/characters/extradition.glb",
+  "/assets/characters/flask_drink.glb", // Meshy 342 Stand_and_Drink, retargeted
+  "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
+];
 
-export async function loadModels(): Promise<Record<string, LoadedModel>> {
+export async function loadModels(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();
   const out: Record<string, LoadedModel> = {};
+  // Progress = files SETTLED (loaded or missing-and-skipped) over total — the
+  // boot loading screen reads this. A 404'd optional pack still advances the
+  // bar; the screen must never stall on an asset we'd gracefully skip anyway.
+  const total =
+    Object.keys(MODEL_MANIFEST).length +
+    RIG_CLIP_MANIFEST.medium.length +
+    RIG_CLIP_MANIFEST.large.length +
+    HERO_CLIP_MANIFEST.length;
+  let settled = 0;
+  const tick = () => onProgress?.(++settled, total);
   // Rig clip libraries load alongside the models; each library GLB carries a
   // mannequin we discard — only its AnimationClips matter.
   const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
@@ -211,6 +307,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // File absent or failed to parse — leave it out; renderer falls back.
       }
+      tick();
     }),
     ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).map(async (rig) => {
       // Per-pack slots keep the clip order stable regardless of which fetch
@@ -222,6 +319,8 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
           } catch {
             // Missing clip pack: rig-based characters just animate with less variety.
             return [];
+          } finally {
+            tick();
           }
         }),
       );
@@ -233,6 +332,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // Missing ability clip: the animator's playFirst fallbacks cover it.
       }
+      tick();
     }),
   ]);
   // Attach the shared library to every animation-less rig-based character.

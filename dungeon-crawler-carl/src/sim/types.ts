@@ -153,6 +153,13 @@ export type EliteAffix =
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
   | "warded" // takes reduced MAGIC damage
+  // The six-pack (MOB-CONCEPTS.md) — each is one sentence of counterplay:
+  | "linked" // its pack SOAKS its damage while any ally stands — thin the pack
+  | "vampiric" // heals off landed hits — don't get hit and it starves
+  | "juggernaut" // immune to stagger + knockback, slower — kite, don't CC
+  | "mortar" // lobs arcing shells over walls — cover stops being safe
+  | "berserking" // below half HP: faster everything — finish what you start
+  | "executioner" // hits crawlers under 40% HP harder — retreat thresholds are real
   | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
 
 // ---- Status effects (burn / poison / chill) ----
@@ -197,7 +204,30 @@ export type MonsterKind =
   // along a lane that DRAGS you to it. understudy: a weak shuffler that
   // TRANSFORMS into a full charger at half HP (stagger the morph or burst it).
   // hexer: curses a crawler with a vulnerability mark the pack exploits.
-  | "lasher" | "understudy" | "hexer";
+  | "lasher" | "understudy" | "hexer"
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine): cutpurse lunges
+  // down a short lane and STEALS gold (killing it refunds with interest).
+  // warden: a slow bone golem whose slam leaves a shard zone. digger: a huge
+  // club tell that LAUNCHES you gently — knockback in training dosage.
+  | "cutpurse" | "warden" | "digger"
+  // RUINS cast (floors 10+): the dead civilization drills you. shieldbearer:
+  // near-immune from the FRONT while its guard holds (make it swing, or go
+  // around). cleric: consecrates ground that heals monsters and burns you.
+  // archivist: channels a SWEEPING beam — dodge continuously or stagger it.
+  // colossus: its slam sends a fissure travelling down a lane.
+  | "shieldbearer" | "cleric" | "archivist" | "colossus"
+  // THE APPROACH (floors 16+): the System fields its own. stagehand: blinks
+  // in, two hits, smoke-bombs out to a MARKED re-entry. sniper: cross-room
+  // lanes, relocates after every shot. duelist: riposte flourish — hold your
+  // swing or shoot it. darling: shields her entourage while SHE takes extra
+  // (the kill order is stated; execution is the exam). canceled: a former
+  // favorite running player verbs. suitactor: dies and UNZIPS — the suitguy
+  // flees; sparing him pays more hype than the kill.
+  | "stagehand" | "sniper" | "duelist" | "darling" | "canceled"
+  | "suitactor" | "suitguy"
+  // CHAMPION tier (MOB-CONCEPTS boss layer 1): mini-boss fights between the
+  // named elites and the band bosses. The Foreman pilots the tier.
+  | "foreman";
 
 export interface Monster {
   id: number;
@@ -226,8 +256,13 @@ export interface Monster {
   // "hook": lasher whip along the chargeDir lane — hits get DRAGGED in.
   // "morph": understudy transformation (interruptible; it becomes a charger).
   // "hex": the Briar Witch's vulnerability curse on the nearest crawler.
+  // "lunge": cutpurse dash-stab down the chargeDir lane; a hit STEALS gold.
+  // "consecrate": cleric ground-blessing (heals monsters, burns crawlers).
+  // "sweep": archivist beam channel — the hazard rotates while this holds.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
-    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex"; // what resolves when windup expires
+    | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
+    | "heal" | "summon" | "consecrate" | "sweep"; // what resolves when windup expires
+  healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
   // (The lasher's hook also locks its lane here — one dir field, two verbs.)
@@ -240,8 +275,11 @@ export interface Monster {
   raiseId?: number;
   // Stagger: hit reactions. Damage accumulates as poise damage; crossing the
   // archetype's poise threshold interrupts the windup and freezes the monster.
+  // Poise DRAINS over time (interrupts take a burst, not banked chip damage),
+  // and bosses/elites gain a post-stagger grace window (no stun-locking).
   stagger: number; // seconds of stagger remaining (helpless while > 0)
   poiseDmg: number; // damage accumulated toward the next stagger
+  staggerGraceT?: number; // seconds of post-stagger composure left (bosses/elites; optional for save compat)
   // transient render flag: seconds remaining to show a hit flash
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
@@ -266,6 +304,13 @@ export interface Monster {
   signature?: BossSignature;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
+  // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
+  // own signature with the PREVIOUS band's — fights escalate in mechanics.
+  sigAlt?: boolean;
+  // THE DUO (boss layer 4): members share a duoId; when one dies the
+  // survivor ENRAGES — permanent frenzy, hotter hits, and a grudge.
+  duoId?: number;
+  enraged?: boolean;
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -287,8 +332,18 @@ export interface Monster {
   // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
   // (allies move + attack faster while the beat holds). Chilling remains its
   // own elite affix — auras here are ally-facing.
-  aura?: "frenzy";
+  // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
+  // (her entourage takes less while SHE takes more — kill-order pressure).
+  aura?: "frenzy" | "shield";
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  shieldT?: number; // seconds of Darling stardust remaining on THIS monster
+  // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
+  // into it reflects; wait it out or answer with ranged/magic.
+  riposteT?: number;
+  // Stagehand: mid-vanish bookkeeping — seconds until the marked re-entry,
+  // and where the smoke clears.
+  vanishT?: number;
+  reentryAt?: Vec2;
   // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
   // drops the rest on death, and leaves with ALL of it if the rat escapes.
   carry?: number;
@@ -298,6 +353,8 @@ export interface Monster {
   noticed?: boolean; // the "a rat!" event already fired
   // Slagbreaker: swings landed since the last vent (3 forces the heat dump).
   heat?: number;
+  // Ruins cleric: where the committed consecration will land (locked at cast).
+  consecrateAt?: Vec2;
   // Wind-Up Battalion: members sharing a squadId hold their musket windups
   // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
   squadId?: number;
@@ -569,7 +626,12 @@ export interface Hazard {
   total: number; // full delay/duration (render progress)
   radius: number; // tiles
   damage: number; // blast: the hit; puddle/sludge: damage per tick
-  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam"; // absent = blast (older saves/snapshots)
+  // "shards": the Ossuary Warden's slam debris — a lingering ticking zone
+  // like a puddle, but bone-physical (no poison soak).
+  // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
+  // standing in it and burns crawlers (contested ground).
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
+  flavor?: "flame"; // blast dressing: Flame Sweep rows render as FIRE, not falling ordnance
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as
@@ -581,6 +643,11 @@ export interface Hazard {
   // lagging their movement — until beamLockSeconds before the shot, when the
   // line freezes. Juke at the click, not before.
   trackId?: number;
+  // Sweeping beams (the Archivist): the segment ROTATES around `pos` at this
+  // rate (radians/sec), ticking anyone it crosses, for as long as the caster
+  // (`srcId`) keeps channeling — stagger or kill the caster and it dies.
+  sweep?: number;
+  srcId?: number;
 }
 
 // A party ping: a crawler marks a spot for the team ("loot here", "danger",
@@ -741,6 +808,10 @@ export interface GameState {
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
+
+  // ARENA DIRECTOR (boss layer 3): seconds the current band-boss arena has
+  // been cooking — the room itself acts on a rhythm while the boss lives.
+  arenaT?: number;
 
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];

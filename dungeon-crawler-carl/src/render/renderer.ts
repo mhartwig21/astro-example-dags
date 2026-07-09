@@ -234,11 +234,15 @@ export function render(
       ctx.stroke();
       continue;
     }
-    if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots") {
+    if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards" || hz.kind === "consecrate") {
       const arming = (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
       const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
       const alpha = arming ? 0.08 + 0.14 * ((hz.total - hz.t) / Math.max(hz.arm ?? 1, 1e-3)) : 0.18 + life * 0.2;
-      const rgb = hz.kind === "sludge" ? "95,112,32" : hz.kind === "roots" ? "46,139,87" : "127,184,50";
+      const rgb =
+        hz.kind === "sludge" ? "95,112,32" :
+        hz.kind === "roots" ? "46,139,87" :
+        hz.kind === "shards" ? "184,176,160" :
+        hz.kind === "consecrate" ? "232,201,106" : "127,184,50";
       ctx.fillStyle = `rgba(${rgb},${alpha})`;
       ctx.beginPath();
       ctx.arc(offX + hz.pos.x * T, offY + hz.pos.y * T, hz.radius * T, 0, Math.PI * 2);

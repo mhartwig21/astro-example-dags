@@ -1,13 +1,13 @@
 import * as THREE from "three";
 import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
-import { loadModels, type LoadedModel } from "./assets";
+import { ELITE_TEXTURES, loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
+import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
-import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { ROOM_PURPOSES, cosmeticRng, themeForFloor, tileHash, type FloorTheme, type RoomPurpose } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
@@ -52,6 +52,11 @@ const WINDUP_CLIP: Record<string, string> = {
   hook: "attack", // lasher whip: the 1H slash sells the snap
   morph: "transform", // understudy: KayKit's EXPERIMENTAL transform clip, at last
   hex: "cast_long", // briar witch: the long channelled curse
+  lunge: "melee_d", // cutpurse: the 1H stab IS a lunge
+  heal: "cast_raise", // shaman channel — arms up, interrupt the medic
+  summon: "cast_raise", // summoner elite / broodmother calling the add down
+  consecrate: "cast_summon", // ruins cleric: call the light down
+  sweep: "cast_long", // archivist: the channel holds while the beam sweeps
 };
 
 // Elite affix body glow. The affix is gameplay-critical (warded vs armored
@@ -69,6 +74,12 @@ const AFFIX_TINT: Record<string, number> = {
   armored: 0xd98e4a, // ember: the physical school bounces off
   warded: 0x9a6bd0, // arcane: the magic school bounces off
   chilling: 0x5a87c6, // lore-blue frost (+ aura ring at the true slow radius)
+  linked: 0x50d4c0, // soul-teal: the pack is one pool — thin it first
+  vampiric: 0xa01830, // deep blood: it drinks what it hits
+  juggernaut: 0x6e6e78, // dead iron: your CC bounces off
+  mortar: 0xe07830, // shellfire orange: cover stops being safe
+  berserking: 0xff4040, // rage red: it gets WORSE as it dies
+  executioner: 0x902020, // headsman crimson: don't fight it wounded
 };
 
 export class Renderer3D {
@@ -99,6 +110,18 @@ export class Renderer3D {
     mesh.position.z += dz * a;
   }
 
+  // Facing gets the same treatment: the sim flips `facing` instantly, and a
+  // hero who snaps 180° in one frame reads as jitter, not agility (playtest
+  // feedback asked for turn rate 16). Shortest arc, exponential chase.
+  private static TURN_RATE = 16;
+  private turnTo(mesh: THREE.Object3D, target: number, dt: number): void {
+    let d = target - mesh.rotation.y;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const a = 1 - Math.exp(-Renderer3D.TURN_RATE * Math.min(dt, 0.1));
+    mesh.rotation.set(0, mesh.rotation.y + d * a, 0);
+  }
+
   // Torch LIGHT POOL: torch meshes are everywhere, but only a handful of real
   // point lights exist — reassigned each frame to the anchors nearest the
   // player. Constant lighting cost regardless of floor size (forward-renderer
@@ -123,6 +146,7 @@ export class Renderer3D {
   private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
   private curseRings = new Map<number, THREE.Mesh>(); // briar-witch mark under cursed crawlers
   private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
+  private aimIndicator: THREE.Group | null = null; // drag-to-aim telegraph (touch/pad)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -153,15 +177,33 @@ export class Renderer3D {
   private orbitBlades = new Map<number, THREE.Group[]>();
   private hazardBombs = new Map<number, THREE.Group>(); // blast-hazard bomb, by hazard id
   private windupFx = new Map<number, THREE.Group>(); // spit lob / fuse bomb, by monster id
-  private novaRings = new Map<number, THREE.Mesh>();
+  private novaRings = new Map<number, THREE.Object3D>();
+  // Which ult a player's live novaFlash belongs to (nova vs cataclysm share
+  // the flag; the cd EDGE at fresh-cast time disambiguates).
+  private fxPrevCata = new Map<number, number>();
+  private fxPrevCutto = new Map<number, number>(); // Blindside teleport edge
+  // Short-lived props that fade and vanish (Blindside smokebomb, detonation
+  // stars, the implosion cone). grow scales per second (negative = collapse).
+  private fadeProps: {
+    obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
+    spin: number; grow: number; s0: number; pop: boolean;
+  }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   // Last-frame combat state per player: the clip machine fires on EDGES
   // (cooldowns jumping up = a cast; overcharge falling = the spend; etc.).
   private animPrev = new Map<number, {
     swing: number; dash: number; alive: boolean; overcharged: boolean;
-    cd: Partial<Record<string, number>>;
+    cd: Partial<Record<string, number>>; flask?: number;
   }>();
+  // Sponsor Slurp™: seconds the potion prop stays in the off hand.
+  private potionShow = new Map<number, number>();
+  // Continuous body-FX emitters (banked states + status effects), per player:
+  // seconds until the next glow puff.
+  private playerFxTick = new Map<number, number>();
+  // The Briar Witch's mark: a violet sigil over the cursed crawler.
+  private hexMarks = new Map<number, THREE.Mesh>();
+  private prevLootBoxes = -1; // loot-box grant edge (-1 = first frame, no drop)
   // Floor-clear celebration edge (monster count > 0 -> 0 while still playing).
   private prevMonsterCount = -1;
   private prevStatus = "playing";
@@ -187,8 +229,9 @@ export class Renderer3D {
   // Additive glow sprites (projectile trails, magic bursts). The texture is a
   // canvas radial gradient — procedural, so the FX layer needs no image assets.
   private fxSprites: { sprite: THREE.Sprite; life: number; max: number; grow: number }[] = [];
-  // Extradition chains: a run of iron links strung caster -> anchor, fading fast.
-  private chainFx: { group: THREE.Group; mat: THREE.MeshBasicMaterial; life: number; max: number }[] = [];
+  // Extradition chains: a run of iron links strung caster -> anchor (plus the
+  // gavel head at the far end), fading fast as one.
+  private chainFx: { group: THREE.Group; mats: THREE.Material[]; life: number; max: number }[] = [];
   private sharedLinkGeo = new THREE.BoxGeometry(0.22, 0.05, 0.1);
   private glowTex: THREE.Texture | null = null;
   private strikeMeshes: THREE.Object3D[] = []; // falling airstrike shells (pooled)
@@ -266,8 +309,8 @@ export class Renderer3D {
     this.scene.add(this.ambientFx.group);
   }
 
-  async init(): Promise<void> {
-    this.models = await loadModels();
+  async init(onProgress?: (loaded: number, total: number) => void): Promise<void> {
+    this.models = await loadModels(onProgress);
     // Drop any procedural stand-ins built before the models arrived; the pool
     // rebuilds with real models on the next update.
     for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
@@ -355,10 +398,13 @@ export class Renderer3D {
       cast_long: pick(/Spellcast_Long/i, /Spellcasting/i, /Ranged_Magic_Shooting/i), // overcharge: banking power
       cast_summon: pick(/Spellcast_Summon/i, /Spellcast_Raise/i, /Ranged_Magic_Raise/i), // ultimates: call it down
       block: pick(/^Block$/i, /^Blocking$/i, /^Melee_Block$/i, /^Melee_Blocking$/i), // stance-swap flourish
+      blocking: pick(/^Melee_Blocking$/i, /^Blocking$/i), // shieldbearer's held guard (looping)
       block_hit: pick(/Block_Hit/i), // shielded elites soak hits on the shield (both gens contain this)
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
       throw: pick(/^Throw$/i), // melee-class sidearm bolt
       extradition: pick(/^Extradition$/i), // crowdsurf cast: crouch, grab the chain, heave (AI-retargeted clip)
+      drink: pick(/^Flask_Drink$/i), // Sponsor Slurp™: the crawler actually drinks
+      summon_double: pick(/^Stunt_Double_Cast$/i), // a gentleman's bow as the professional takes the stage
       spellshoot: pick(/^Spellcast_Shoot$/i, /^Ranged_Magic_Shoot$/i), // arcane bolt (magic missiles)
       // Reactions + exits (one-shot)
       hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
@@ -374,22 +420,27 @@ export class Renderer3D {
       drum: pick(/^Interact$/i, /^Use_Item$/i),
       // Lineworker/greeter piston punch (unarmed haymaker; kick as variety).
       punch: pick(/Unarmed_Attack_Punch/i, /Unarmed_Attack_Kick/i),
+      // MovementAdvanced pack: the unnoticed Repo Rat creeps, it doesn't stroll.
+      sneak: pick(/^Sneaking$/i),
+      // The transformation act, both rigs: the understudy's morph (medium)
+      // and the boss phase-up (large) — clips bind by rig, so one key serves.
+      transform: pick(/EXPERIMENTAL_Medium_Transform/i, /Large_Transform/i),
       // Dormancy poses (Special library): ambush packs LIE on the floor among
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
       dormant_stand: pick(/Skeletons_Inactive_Standing_Pose/i, /^T-Pose$/i),
-      // The understudy's whole moment (Special library, medium rig only).
-      transform: pick(/EXPERIMENTAL_Medium_Transform/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
     const LOOPING = new Set([
       "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
+      "sneak", "blocking",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
       spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35, extradition: 0.55,
+      drink: 0.8, summon_double: 0.9,
       cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
       block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
@@ -445,7 +496,7 @@ export class Renderer3D {
     const play = ud.play as (n: string, force?: boolean) => void;
     const playFirst = ud.playFirst as (...n: string[]) => void;
     const hasClip = ud.hasClip as (n: string) => boolean;
-    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {} };
+    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
     const cds = pl.cd as Partial<Record<string, number>>;
     const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
 
@@ -462,6 +513,16 @@ export class Renderer3D {
         // the heavy-target verb bumps dashTime too and would read as a dodge.
         playFirst("extradition", "throw", "attack");
         this.weaponStow.set(pl.id, 0.55); // both hands on the chain
+      } else if (pl.flaskCharges < (prev.flask ?? pl.flaskCharges)) {
+        // Sponsor Slurp™: weapon away, bottle up. The potion prop rides the
+        // off hand for the sip (toggled by the same stow-style timer).
+        playFirst("drink", "cast_raise");
+        this.weaponStow.set(pl.id, 0.8);
+        this.potionShow.set(pl.id, 0.8);
+      } else if (cdRose("stuntdouble")) {
+        // The production hires a professional: a gentleman's bow as the
+        // double takes the stage.
+        playFirst("summon_double", "cast_summon", "taunt");
       } else if (pl.dashTime > prev.dash + 1e-6) {
         playFirst("dodge");
       } else if (pl.attackSwing > prev.swing + 1e-6) {
@@ -491,7 +552,7 @@ export class Renderer3D {
     }
     this.animPrev.set(pl.id, {
       swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
-      overcharged: pl.overcharged, cd: { ...cds },
+      overcharged: pl.overcharged, cd: { ...cds }, flask: pl.flaskCharges,
     });
     (ud.animTick as (dt: number) => void)(dt);
   }
@@ -598,6 +659,48 @@ export class Renderer3D {
     }
     this.moveMarker.visible = true;
     this.moveMarker.position.set(pos.x, 0.06, pos.y);
+  }
+
+  /**
+   * Drag-to-aim ground telegraph (touch/controller): a gold line, ring, or
+   * arrow from the player. kind null hides it. dir need not be normalized.
+   */
+  setAimIndicator(kind: "line" | "ring" | "arrow" | null, from?: Vec2, dir?: Vec2): void {
+    if (!kind || !from) {
+      if (this.aimIndicator) this.aimIndicator.visible = false;
+      return;
+    }
+    if (!this.aimIndicator) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xc9a24b, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
+      });
+      const g = new THREE.Group();
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.2), mat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(2.1, 0, 0); // extends along +x from the player
+      line.name = "line";
+      const ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.2, 40), mat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.name = "ring";
+      const arrow = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.22), mat);
+      shaft.rotation.x = -Math.PI / 2;
+      shaft.position.set(1.1, 0, 0);
+      const tip = new THREE.Mesh(new THREE.CircleGeometry(0.34, 3), mat);
+      tip.rotation.x = -Math.PI / 2;
+      tip.position.set(2.35, 0, 0);
+      arrow.add(shaft, tip);
+      arrow.name = "arrow";
+      g.add(line, ring, arrow);
+      g.position.y = 0.07;
+      this.aimIndicator = g;
+      this.scene.add(g);
+    }
+    const ind = this.aimIndicator;
+    ind.visible = true;
+    ind.position.set(from.x, 0.07, from.y);
+    for (const child of ind.children) child.visible = child.name === kind;
+    if (dir && (dir.x !== 0 || dir.y !== 0)) ind.rotation.y = -Math.atan2(dir.y, dir.x);
   }
 
   resize(w: number, h: number): void {
@@ -720,17 +823,36 @@ export class Renderer3D {
     }
   }
 
-  /** Elite affix read: emissive body tint in the affix's semantic color, plus
-   * the chilling aura's TRUE slow radius as a faint ring. Materials are cloned
-   * per elite — model clones share materials, and trash mobs must stay unlit. */
-  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined): void {
+  // Elite B-variant textures, loaded once and shared (same UV atlas as the
+  // embedded texture, recolored — glTF convention: flipY off, sRGB).
+  private eliteTex = new Map<string, THREE.Texture>();
+  private eliteTexFor(kind: string): THREE.Texture | null {
+    const url = ELITE_TEXTURES[kind];
+    if (!url) return null;
+    let t = this.eliteTex.get(kind);
+    if (!t) {
+      t = new THREE.TextureLoader().load(url);
+      t.flipY = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.eliteTex.set(kind, t);
+    }
+    return t;
+  }
+
+  /** Elite affix read: the pack's B-variant skin (a different individual),
+   * an emissive tint in the affix's semantic color, and the chilling aura's
+   * TRUE slow radius as a faint ring. Materials are cloned per elite — model
+   * clones share materials, and trash mobs must stay unchanged. */
+  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined, kind?: string): void {
     const tint = affix ? AFFIX_TINT[affix] : undefined;
     if (tint === undefined) return;
+    const skin = kind ? this.eliteTexFor(kind) : null;
     mesh.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh || !m.material) return;
       const mats = (Array.isArray(m.material) ? m.material : [m.material]).map((mat) => {
         const c = (mat as THREE.MeshStandardMaterial).clone();
+        if (skin && c.map) c.map = skin; // recolor only textured surfaces
         c.emissive = new THREE.Color(tint);
         c.emissiveIntensity = 0.32;
         return c;
@@ -775,6 +897,19 @@ export class Renderer3D {
       const drum = this.showAttachment(g, "orc_wardrum", "*", "l");
       if (drum) drum.scale.setScalar(0.8);
       this.showAttachment(g, "orc_wardrum_stick", "*", "r");
+    }
+    // The Shieldbearer carries an actual tower shield + blade (player armory
+    // grafts) — the frontal guard has to LOOK like a wall.
+    if (model && kind === "shieldbearer") {
+      this.showAttachment(g, "player", "Rectangle_Shield", "l");
+      this.showAttachment(g, "weapon_sword_a", "*", "r");
+    }
+    // The Repo Rat carries the goods (Resource Bits pile, off hand); shown
+    // only while mon.carry > 0 — the per-frame toggle lives in the update loop.
+    if (model && kind === "filcher") {
+      const loot = this.showAttachment(g, "money_pile_medium", "*", "l");
+      if (loot) { loot.scale.setScalar(0.45); loot.visible = false; }
+      g.userData.lootProp = loot;
     }
     if (!model) {
       const isBoss = kind === "boss";
@@ -879,6 +1014,21 @@ export class Renderer3D {
     const halo = this.makeGlow(col, 0.9);
     halo.position.y = -0.2;
     group.add(halo);
+    // The ARPG loot beam: worthwhile drops throw a light pillar you can spot
+    // across the room. Gear above common + ability tomes; commons stay quiet
+    // so the beam keeps meaning.
+    const beams = (l.kind === "item" && l.rarity && l.rarity !== "common") || l.kind === "tome";
+    if (beams) {
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.13, 2.8, 8, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: col, transparent: true, opacity: 0.38,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        }),
+      );
+      beam.position.y = 1.4;
+      group.add(beam);
+    }
     return group;
   }
 
@@ -1290,6 +1440,27 @@ export class Renderer3D {
       this.stairsObj = stairs;
     }
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
+    // The System's descent gate frames the stairs: "next episode" is an
+    // archway, not a hole in the floor. Diegetic — a dungeon object the
+    // System installed, not studio dressing.
+    const portal = this.modelInstance("descent_portal");
+    if (portal) {
+      const box = new THREE.Box3().setFromObject(portal);
+      const size = box.getSize(new THREE.Vector3());
+      portal.scale.multiplyScalar(2.3 / Math.max(size.y, 1e-3)); // arch ~2.3 world units
+      portal.position.set(map.stairs.x, 0, map.stairs.y);
+      // Face the arch across the stairs' approach axis (widest open side).
+      portal.rotation.y = Math.PI / 2;
+      portal.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0xc9a24b); // System gold: the exit sells itself
+        mat.emissiveIntensity = 0.18;
+        m.material = mat;
+      });
+      this.floorGroup.add(portal);
+    }
 
     // RULE-BASED DRESSING (intent over noise): torches line room walls with the
     // lights anchored to the visible meshes; banners flank locked doors; clutter
@@ -1303,10 +1474,12 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean } = {}): boolean => {
+    const PROP_CAP = 185; // vignette rooms raised the budget (was 150)
+    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean; elevate?: number } = {}): boolean => {
       // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
       // one case where a prop belongs on a non-Floor tile (looks = collision).
-      if (this.propEntries.length > 150 || (!opts.onWall && !clear(x, y))) return false;
+      // elevate: lift after the ground snap (wall-mounted decor, tabletop items).
+      if (this.propEntries.length > PROP_CAP || (!opts.onWall && !clear(x, y))) return false;
       const obj = this.modelInstance(key);
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
@@ -1317,7 +1490,7 @@ export class Renderer3D {
       const j = opts.jitter ?? 0.25;
       obj.position.set(
         x + (frng() - 0.5) * j - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
-        -scaled.min.y + 0.004,
+        -scaled.min.y + 0.004 + (opts.elevate ?? 0),
         y + (frng() - 0.5) * j - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
       );
       obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
@@ -1394,6 +1567,141 @@ export class Renderer3D {
       }
     }
 
+    // 3.5) ROOM PURPOSES (vignette grammar phase 1 — see floorThemes.ts):
+    //    a seeded slice of ordinary combat rooms is dressed as a PLACE the
+    //    dungeon's inhabitants use — storage, mess, archive, guard post —
+    //    through anchored arrangements instead of scatter: wall runs, wall-
+    //    mounted decor, a furnished table, a corner hoard. This is the KayKit
+    //    sample-render technique. Cosmetic only; interiors only (the Garden's
+    //    open-air districts have no walls worth furnishing).
+    if (!openAir) {
+      // Every floor face of a room that borders a wall, with its inward normal.
+      const wallFaces = (r: { x: number; y: number; w: number; h: number }) => {
+        const faces: { x: number; y: number; nx: number; ny: number }[] = [];
+        const check = (x: number, y: number) => {
+          const i = Math.floor(y) * map.w + Math.floor(x);
+          if (map.tiles[i] !== Tile.Floor) return;
+          const dir = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+            .find(([dx, dy]) => map.tiles[i + dy * map.w + dx] === Tile.Wall);
+          if (dir && clear(x, y)) faces.push({ x, y, nx: -dir[0], ny: -dir[1] });
+        };
+        for (let x = r.x; x < r.x + r.w; x++) { check(x + 0.5, r.y + 0.5); check(x + 0.5, r.y + r.h - 0.5); }
+        for (let y = r.y + 1; y < r.y + r.h - 1; y++) { check(r.x + 0.5, y + 0.5); check(r.x + r.w - 0.5, y + 0.5); }
+        return faces;
+      };
+      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, p: RoomPurpose) => {
+        const faces = wallFaces(r);
+        if (faces.length < 3) return;
+        // The iso camera sees the INNER face of north walls (normal +y) and
+        // west walls (normal +x); furniture against the other two is occluded
+        // by the wall mass. Dress the visible walls — KayKit's own sample
+        // renders play the same trick (they only ever build N/W walls).
+        const visible = (f: { nx: number; ny: number }) => f.nx > 0 || f.ny > 0;
+        // WALL RUN: consecutive faces along the longest same-normal VISIBLE
+        // wall, furniture shoulder to shoulder, backs to the masonry.
+        const byNormal = new Map<string, typeof faces>();
+        for (const f of faces) {
+          const k = `${f.nx},${f.ny}`;
+          byNormal.set(k, [...(byNormal.get(k) ?? []), f]);
+        }
+        const walls = [...byNormal.values()].sort(
+          (a, b) => (visible(a[0]) ? 1000 : 0) + a.length < (visible(b[0]) ? 1000 : 0) + b.length ? 1 : -1,
+        );
+        const runWall = walls[0];
+        const runLen = Math.min(runWall.length, 3 + Math.floor(frng() * 3));
+        const runStart = Math.floor(frng() * Math.max(1, runWall.length - runLen));
+        for (let i = 0; i < runLen; i++) {
+          const f = runWall[runStart + i];
+          const key = p.wallRun[Math.floor(frng() * p.wallRun.length)];
+          place(key, f.x - f.nx * 0.26, f.y - f.ny * 0.26, {
+            rot: Math.atan2(f.nx, f.ny) + (frng() - 0.5) * 0.12, jitter: 0.08,
+            scale: 0.6 + frng() * 0.15, // chunky enough to read as furniture
+          });
+        }
+        // WALL MOUNTS: decor hung on 2-3 spaced VISIBLE faces off the run wall.
+        const mountable = faces.filter((f) => !runWall.includes(f) && visible(f));
+        for (let m = 0; m < Math.min(3, mountable.length) && p.wallMount.length > 0; m++) {
+          const f = mountable[Math.floor(frng() * mountable.length)];
+          const key = p.wallMount[Math.floor(frng() * p.wallMount.length)];
+          if (place(key, f.x - f.nx * 0.38, f.y - f.ny * 0.38, {
+            rot: Math.atan2(f.nx, f.ny), jitter: 0, scale: 0.45, elevate: 0.5,
+          }) && key === "torch_mounted" && this.torchAnchors.length < 20) {
+            // A mounted sconce is also a light anchor — the room glows lived-in.
+            this.torchAnchors.push({ x: f.x, y: f.y, seed: this.torchAnchors.length * 1.7 });
+          }
+        }
+        // Every dressed room earns a sconce of its own: the vignette should be
+        // SEEN. One standing torch at a leftover visible face, light attached.
+        const lightFace = mountable[Math.floor(frng() * Math.max(1, mountable.length))] ?? runWall[0];
+        if (lightFace && this.torchAnchors.length < 20) {
+          const tx = lightFace.x - lightFace.nx * 0.33, ty = lightFace.y - lightFace.ny * 0.33;
+          if (place("torch_lit", tx, ty, { scale: 0.55, jitter: 0.05 })) {
+            this.torchAnchors.push({ x: tx, y: ty, seed: this.torchAnchors.length * 1.7 });
+          }
+        }
+        // TABLE SET: a furnished table off-center (the middle stays a fight).
+        if (p.tableSet && r.w >= 6 && r.h >= 6) {
+          const tcx = r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68);
+          const tcy = r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68);
+          if (place(p.tableSet.table, tcx, tcy, { scale: 0.85, jitter: 0.1 })) {
+            const tableObj = this.propEntries[this.propEntries.length - 1].obj;
+            const top = new THREE.Box3().setFromObject(tableObj).max.y;
+            const seats = 2 + Math.floor(frng() * 3);
+            for (let s = 0; s < seats; s++) {
+              const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
+              place(p.tableSet.seat, tcx + Math.cos(a) * 0.8, tcy + Math.sin(a) * 0.8, {
+                scale: 0.32, jitter: 0.06, rot: a + Math.PI, // seats face the table
+              });
+            }
+            for (let it = 0, n = 1 + Math.floor(frng() * 2); it < n; it++) {
+              const key = p.tableSet.tabletop[Math.floor(frng() * p.tableSet.tabletop.length)];
+              place(key, tcx + (frng() - 0.5) * 0.45, tcy + (frng() - 0.5) * 0.45, {
+                scale: 0.2, elevate: top + 0.01, jitter: 0,
+              });
+            }
+          }
+        }
+        // CENTERPIECE + SPILL: one anchor prop with its story scattered around.
+        if (p.centerpiece) {
+          const cx = r.x + r.w * 0.5, cy = r.y + r.h * 0.5;
+          if (place(p.centerpiece.key, cx, cy, { scale: 0.8, jitter: 0.3 })) {
+            for (let s = 0, n = 2 + Math.floor(frng() * 2); s < n; s++) {
+              const a = frng() * Math.PI * 2;
+              const key = p.centerpiece.spill[Math.floor(frng() * p.centerpiece.spill.length)];
+              place(key, cx + Math.cos(a) * (0.9 + frng() * 0.5), cy + Math.sin(a) * (0.9 + frng() * 0.5), { scale: 0.35 });
+            }
+          }
+        }
+        // CORNER STACK: a tight hoard in one corner (denser than pass 3's clutter).
+        if (p.cornerStack) {
+          const corners = [
+            { x: r.x + 1.1, y: r.y + 1.1 }, { x: r.x + r.w - 1.1, y: r.y + 1.1 },
+            { x: r.x + 1.1, y: r.y + r.h - 1.1 }, { x: r.x + r.w - 1.1, y: r.y + r.h - 1.1 },
+          ];
+          const c = corners[Math.floor(frng() * 4)];
+          for (let k = 0, n = 2 + Math.floor(frng() * 2); k < n; k++) {
+            const key = p.cornerStack[Math.floor(frng() * p.cornerStack.length)];
+            place(key, c.x + (frng() - 0.5) * 0.7, c.y + (frng() - 0.5) * 0.7, { scale: 0.4 });
+          }
+        }
+      };
+      // Dress up to 4 sizeable combat rooms, each with a DISTINCT purpose so a
+      // floor reads as a settlement of jobs, not four copies of one idea.
+      const candidates: number[] = [];
+      for (let ri = 0; ri < map.rooms.length; ri++) {
+        const r = map.rooms[ri];
+        if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
+      }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(frng() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      const purposeBase = Math.floor(frng() * ROOM_PURPOSES.length);
+      candidates.slice(0, 4).forEach((ri, k) => {
+        dressPurpose(map.rooms[ri], ROOM_PURPOSES[(purposeBase + k) % ROOM_PURPOSES.length]);
+      });
+    }
+
     // 4) LANDMARK hall: colonnade + centerpiece on the SIM's set-piece tiles
     //    (map.pillars / map.pedestal — real Wall tiles the player cannot walk
     //    through; the mapgen owns the layout so looks and collision agree).
@@ -1446,8 +1754,8 @@ export class Renderer3D {
     // 7) A light sprinkle of theme props elsewhere for texture (much sparser
     //    than before — the intentional placements carry the look now).
     const density = theme.propDensity * 0.35 * (0.6 + frng() * 0.9);
-    for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
-      for (let x = 1; x < map.w - 1 && this.propEntries.length < 150; x++) {
+    for (let y = 1; y < map.h - 1 && this.propEntries.length < 185; y++) {
+      for (let x = 1; x < map.w - 1 && this.propEntries.length < 185; x++) {
         if (map.tiles[y * map.w + x] !== Tile.Floor) continue;
         // Open-air: keep scatter off the trodden paths so the tracks stay
         // readable — a bush in the middle of the trail unreads the trail.
@@ -1516,26 +1824,52 @@ export class Renderer3D {
     if (strikes.length < this.prevStrikeCount) {
       for (const pos of this.prevStrikePos.slice(strikes.length)) {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+        // Debris ring under the impact: the crater the keg leaves behind.
+        this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
+          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true, pop: true });
         this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
     this.prevStrikeCount = strikes.length;
     this.prevStrikePos = strikes.map((s) => ({ x: s.pos.x, y: s.pos.y }));
-    while (this.strikeMeshes.length < strikes.length) {
-      const keg = this.modelInstance("keg") ?? new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
-      keg.scale.multiplyScalar(0.5);
-      this.scene.add(keg);
-      this.strikeMeshes.push(keg);
-    }
-    for (let i = 0; i < this.strikeMeshes.length; i++) {
-      const mesh = this.strikeMeshes[i];
+    for (let i = 0; i < Math.max(this.strikeMeshes.length, strikes.length); i++) {
       const s = strikes[i];
-      if (!s) { mesh.visible = false; continue; }
+      let mesh = this.strikeMeshes[i];
+      if (!s) { if (mesh) mesh.visible = false; continue; }
+      const kind = s.kind ?? "shell";
+      if (!mesh || mesh.userData.strikeKind !== kind) {
+        // Kind-aware pool: an Aftermath echo is a ground pulse, not falling
+        // sponsor ordnance — it must never render as the airstrike keg.
+        if (mesh) this.scene.remove(mesh);
+        if (kind === "echo") {
+          mesh = this.buildFxRing("cataclysm");
+          this.scene.remove(mesh); // buildFxRing adds; re-add via the pool below
+        } else {
+          // Real sponsor ordnance at last; the tavern keg was always a loaner.
+          mesh = this.modelInstance("sponsor_shell") ?? this.modelInstance("keg") ?? new THREE.Mesh(
+            new THREE.ConeGeometry(0.18, 0.5, 6), flat(0xb0742c, { emissive: 0x662200, emissiveIntensity: 0.4 }));
+          mesh.scale.multiplyScalar(0.5);
+        }
+        mesh.userData.strikeKind = kind;
+        this.scene.add(mesh);
+        this.strikeMeshes[i] = mesh;
+      }
       mesh.visible = true;
-      mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
-      mesh.rotation.x += 0.2;
-      mesh.rotation.z += 0.13;
+      if (kind === "echo") {
+        // The ground remembers where you stood: the crown tightens in place,
+        // spinning slowly until the echo detonates.
+        const r = (s.radius ?? 2) * 0.85;
+        mesh.position.set(s.pos.x, 0.02, s.pos.y);
+        mesh.scale.setScalar(((mesh.userData.baseScale as number) ?? 1) * r);
+        if (mesh.userData.model) mesh.rotation.y += 0.03;
+        for (const mat of (mesh.userData.mats as THREE.Material[]) ?? []) {
+          (mat as THREE.MeshBasicMaterial).opacity = 0.75;
+        }
+      } else {
+        mesh.position.set(s.pos.x, 0.3 + s.t * 14, s.pos.y); // falls as t runs out
+        mesh.rotation.x += 0.2;
+        mesh.rotation.z += 0.13;
+      }
     }
   }
 
@@ -1635,6 +1969,13 @@ export class Renderer3D {
 
   private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
+    // A loot box GRANTED is a delivery: the System sets the box down at the
+    // crawler's feet for a beat. (Opening it stays in the menu — meta layer.)
+    if (state.lootBoxes > this.prevLootBoxes && this.prevLootBoxes >= 0) {
+      const pb = state.players.find((pl) => pl.alive) ?? state.players[0];
+      if (pb) this.spawnFadeProp("system_loot_box", pb.pos.x, 0.08, pb.pos.y, 0.6, 1.2, { spin: 1.6 });
+    }
+    this.prevLootBoxes = state.lootBoxes;
     for (const p of state.players) {
       // Orbit blades: only while SLOTTED (matches updateOrbit in the sim —
       // a benched orbit spins no steel).
@@ -1657,32 +1998,103 @@ export class Renderer3D {
           blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
         }
       }
-      // Nova ring: expands over the flash window, fading out.
+      // Nova/Cataclysm ring: the two ults SHARE the novaFlash flag; the
+      // cataclysm cd edge at cast time decides which effect (and radius)
+      // this flash is — previously cataclysm reused nova's ring at nova's
+      // radius and was indistinguishable from a common nova.
+      const cataRose = (p.cd.cataclysm ?? 0) > (this.fxPrevCata.get(p.id) ?? 0) + 1e-6;
+      this.fxPrevCata.set(p.id, p.cd.cataclysm ?? 0);
       let ring = this.novaRings.get(p.id) ?? null;
       if (p.novaFlash > 0) {
-        if (!ring) {
-          ring = new THREE.Mesh(
-            new THREE.TorusGeometry(1, 0.07, 8, 40),
-            new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true }),
-          );
-          ring.rotation.x = -Math.PI / 2;
-          this.scene.add(ring);
-          this.novaRings.set(p.id, ring);
+        const fresh = !ring || !ring.visible;
+        if (fresh) {
+          const kind = cataRose ? "cataclysm" : "nova";
+          if (!ring || ring.userData.kind !== kind) {
+            if (ring) this.scene.remove(ring);
+            ring = this.buildFxRing(kind);
+            this.novaRings.set(p.id, ring);
+          }
+          ring.userData.radius = kind === "cataclysm" ? cataclysmParams(p).radius : novaParams(p).radius;
+          ring.userData.flashTotal = p.novaFlash;
+          // IMPLOSION capstone: the drag-inward gets a collapsing vortex cone
+          // a beat before the shockwave reads outward.
+          if (kind === "nova" && rank(p, "nova.implode") > 0) {
+            this.spawnFadeProp("fx_implosion_cone", p.pos.x, 0.05, p.pos.y,
+              (ring.userData.radius as number) * 0.7, 0.3,
+              { tint: 0x8fd8ff, spin: 9, grow: -2.6, footprint: true });
+          }
+          const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
+          // Additive puffs stack hot over a big radius — cataclysm gets more
+          // of them but SMALLER, or the whole arena washes to white.
+          this.burst(p.pos.x, p.pos.y, color, kind === "cataclysm" ? 22 : 18,
+            kind === "cataclysm" ? 0.65 : 0.7, ring.userData.radius as number);
+          // Layered secondary: the crown's blast kicks up a debris ring too.
+          if (kind === "cataclysm") {
+            this.spawnFadeProp("fx_blast_star", p.pos.x, 0.03, p.pos.y,
+              (ring.userData.radius as number) * 0.55, 0.45,
+              { tint: 0xff8a3c, spin: 0.8, grow: 1.4, footprint: true });
+          }
+          this.addTrauma(kind === "cataclysm" ? 0.45 : 0.3);
         }
-        const np = novaParams(p);
-        const prog = 1 - p.novaFlash / 0.3;
-        if (!ring.visible) {
-          this.burst(p.pos.x, p.pos.y, 0x8fd8ff, 18, 0.7, np.radius); // fresh cast
-          this.addTrauma(0.3);
+        const total = (ring!.userData.flashTotal as number) || 0.3;
+        const prog = Math.min(1, Math.max(0, 1 - p.novaFlash / total));
+        // Ease-out expansion: a shockwave moves fastest at birth and lands
+        // soft — linear reads mechanical. Opacity holds through the front
+        // half so the shape is SEEN, then drops away.
+        const eased = 1 - Math.pow(1 - prog, 2.4);
+        const radius = (ring!.userData.radius as number) ?? novaParams(p).radius;
+        ring!.visible = true;
+        const cata = ring!.userData.kind === "cataclysm";
+        // The crown ERUPTS: it rises out of the floor over the first beats.
+        ring!.position.set(p.pos.x, cata ? -0.3 + 0.32 * Math.min(1, prog * 2.5) : 0.15, p.pos.y);
+        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * eased));
+        if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
+        for (const mat of ring!.userData.mats as THREE.Material[]) {
+          (mat as THREE.MeshBasicMaterial).opacity = 1 - Math.pow(prog, 2.2);
         }
-        ring.visible = true;
-        ring.position.set(p.pos.x, 0.15, p.pos.y);
-        ring.scale.setScalar(Math.max(0.05, np.radius * prog));
-        (ring.material as THREE.MeshBasicMaterial).opacity = 1 - prog;
       } else if (ring) {
         ring.visible = false;
       }
     }
+  }
+
+  /** Spell-FX ring (GENERATION-BACKLOG 3b): the generated effect mesh with an
+   * emissive fade treatment, or the classic bare torus when the file is
+   * absent. Normalized so scale.setScalar(r) puts the rim at world radius r. */
+  private buildFxRing(kind: "nova" | "cataclysm"): THREE.Object3D {
+    const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
+    const model = this.modelInstance(kind === "cataclysm" ? "fx_cataclysm_crown" : "fx_nova_ring");
+    const mats: THREE.Material[] = [];
+    let obj: THREE.Object3D;
+    let baseScale = 1;
+    if (model) {
+      const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      baseScale = 2 / Math.max(size.x, size.z, 1e-3); // unit-radius footprint
+      model.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.transparent = true;
+        mat.depthWrite = false;
+        mat.emissive = new THREE.Color(color);
+        mat.emissiveIntensity = 0.55;
+        m.material = mat;
+        mats.push(mat);
+      });
+      obj = model;
+      obj.userData.model = true;
+    } else {
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true });
+      const torus = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 40), mat);
+      torus.rotation.x = -Math.PI / 2;
+      mats.push(mat);
+      obj = torus;
+    }
+    obj.userData.kind = kind;
+    obj.userData.mats = mats;
+    obj.userData.baseScale = baseScale;
+    this.scene.add(obj);
+    return obj;
   }
 
   // ---- Per-frame sync ----
@@ -1725,8 +2137,24 @@ export class Renderer3D {
         mesh = undefined;
       }
       if (!mesh) { mesh = this.buildPlayerMesh(skin); this.scene.add(mesh); this.playerMeshes.set(pl.id, mesh); }
+      // Blindside: a teleport, not a sprint. On the cutto cd edge (BEFORE
+      // smoothTo runs), smoke both ends, drop the smokebomb where the crawler
+      // WAS, and snap the mesh to the strike.
+      {
+        const prevCut = this.fxPrevCutto.get(pl.id);
+        if (prevCut !== undefined && (pl.cd.cutto ?? 0) > prevCut + 1e-6) {
+          const ox = mesh.position.x, oz = mesh.position.z;
+          for (let i = 0; i < 3; i++) {
+            this.spawnGlow(ox + (i - 1) * 0.2, 0.5 + i * 0.25, oz, 0xcfd6dd, 0.8, 0.45, 1.5);
+            this.spawnGlow(pl.pos.x + (i - 1) * 0.2, 0.5 + i * 0.25, pl.pos.y, 0xcfd6dd, 0.8, 0.45, 1.5);
+          }
+          this.spawnFadeProp("smokebomb", ox, 0.15, oz, 0.7, 0.5);
+          mesh.position.set(pl.pos.x, mesh.position.y, pl.pos.y);
+        }
+        this.fxPrevCutto.set(pl.id, pl.cd.cutto ?? 0);
+      }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
-      mesh.rotation.set(0, Math.atan2(pl.facing.x, pl.facing.y), 0);
+      this.turnTo(mesh, Math.atan2(pl.facing.x, pl.facing.y), dt);
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
       // Animation velocity comes from the SMOOTHED mesh (which moves every
@@ -1743,8 +2171,8 @@ export class Renderer3D {
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
-      // Extradition stow timer: hide the held weapon while the hands work the
-      // chain, restore it the moment the cast is done.
+      // Extradition/Slurp stow timer: hide the held weapon while the hands
+      // work the chain or the bottle, restore it the moment the act is done.
       const stow = this.weaponStow.get(pl.id);
       if (stow !== undefined) {
         const left = stow - dt;
@@ -1757,6 +2185,64 @@ export class Renderer3D {
           if (weaponObj) weaponObj.visible = false;
         }
       }
+      // Banked states + statuses live on the BODY, not just HUD chips:
+      // Overcharge crackles ember, MOMENTUM's primed crit sparks yellow, and
+      // burn/poison/chill wear their own motes (semantic colors throughout).
+      const nextPuff = (this.playerFxTick.get(pl.id) ?? 0) - dt;
+      if (nextPuff <= 0 && pl.alive) {
+        this.playerFxTick.set(pl.id, 0.16);
+        const jx = () => (Math.random() - 0.5) * 0.55;
+        if (pl.overcharged) {
+          this.spawnGlow(mesh.position.x + jx(), 0.9 + Math.random() * 0.6, mesh.position.z + jx(), 0xd98e4a, 0.45, 0.3, 1.2);
+        }
+        if (pl.stanceCritReady) {
+          this.spawnGlow(mesh.position.x + jx(), 0.9 + Math.random() * 0.6, mesh.position.z + jx(), 0xffe066, 0.4, 0.3, 1.2);
+        }
+        for (const st of pl.statuses ?? []) {
+          const c = st.kind === "burn" ? 0xff7a2f : st.kind === "poison" ? 0x7ed957 : 0x7fd4ff;
+          this.spawnGlow(mesh.position.x + jx(), 0.25 + Math.random() * 0.9, mesh.position.z + jx(),
+            c, 0.38, 0.5, st.kind === "chill" ? 0 : 1.1);
+        }
+      } else {
+        this.playerFxTick.set(pl.id, nextPuff);
+      }
+      // Briar Witch's mark: while cursedT runs, a violet sigil spins overhead
+      // (the pack suddenly cares about you — now you can SEE why).
+      let hexm = this.hexMarks.get(pl.id);
+      if ((pl.cursedT ?? 0) > 0 && pl.alive) {
+        if (!hexm) {
+          hexm = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.16, 0),
+            new THREE.MeshBasicMaterial({ color: 0x8a5cff, transparent: true, opacity: 0.9 }),
+          );
+          this.scene.add(hexm);
+          this.hexMarks.set(pl.id, hexm);
+        }
+        hexm.position.set(mesh.position.x, 2.2, mesh.position.z);
+        hexm.rotation.y += dt * 3;
+        hexm.visible = mesh.visible;
+      } else if (hexm) {
+        this.scene.remove(hexm);
+        this.hexMarks.delete(pl.id);
+      }
+      // The Slurp bottle: grafted once, shown only while the drink act runs.
+      const sip = this.potionShow.get(pl.id);
+      if (sip !== undefined) {
+        if (mesh.userData.potionProp === undefined) {
+          mesh.userData.potionProp =
+            this.showAttachment(mesh, "potion_medium_red", "*", "l");
+          (mesh.userData.potionProp as THREE.Object3D | null)?.scale.setScalar(0.9);
+        }
+        const potion = mesh.userData.potionProp as THREE.Object3D | null;
+        const left = sip - dt;
+        if (left <= 0) {
+          this.potionShow.delete(pl.id);
+          if (potion) potion.visible = false;
+        } else {
+          this.potionShow.set(pl.id, left);
+          if (potion) potion.visible = true;
+        }
+      }
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
@@ -1764,6 +2250,10 @@ export class Renderer3D {
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
         this.weaponStow.delete(id);
+        this.potionShow.delete(id);
+        this.playerFxTick.delete(id);
+        const hexm = this.hexMarks.get(id);
+        if (hexm) { this.scene.remove(hexm); this.hexMarks.delete(id); }
       }
     }
 
@@ -1843,7 +2333,7 @@ export class Renderer3D {
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
           mesh.userData.baseScale = bs;
           mesh.scale.setScalar(bs);
-          this.applyAffixVisual(mesh, mon.affix);
+          this.applyAffixVisual(mesh, mon.affix, mon.kind);
         }
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
@@ -1854,6 +2344,24 @@ export class Renderer3D {
       const mVel = this.smoothedVel(mesh, dt);
       const mSpeed = Math.hypot(mVel.x, mVel.y);
       mesh.rotation.y = Math.atan2(p.pos.x - mon.pos.x, p.pos.y - mon.pos.y);
+      const ud0 = mesh.userData;
+      if (mon.kind === "phantom") {
+        // A blink is not a sprint: the sim moves it instantly, but smoothTo
+        // would glide the mesh across the gap. On the blink edge (cooldown
+        // jumps up), poof both ends and SNAP the body to the far one.
+        const prevB = ud0.prevBlinkCd as number | undefined;
+        if (prevB !== undefined && mon.blinkCd > prevB + 1e-6) {
+          this.spawnGlow(mesh.position.x, 0.7, mesh.position.z, 0xbfe4ff, 0.9, 0.4, 2);
+          this.spawnGlow(mon.pos.x, 0.7, mon.pos.y, 0xbfe4ff, 0.9, 0.4, 2);
+          mesh.position.set(mon.pos.x, mesh.position.y, mon.pos.y);
+        }
+        ud0.prevBlinkCd = mon.blinkCd;
+      }
+      if (mon.kind === "filcher" && ud0.lootProp) {
+        // The Repo Rat shows its work: the repossessed pile only rides along
+        // while it is actually carrying stolen gold.
+        (ud0.lootProp as THREE.Object3D).visible = (mon.carry ?? 0) > 0;
+      }
       if (mesh.userData.mixer) {
         // Rigged model: clip by combat state. No squash (it would deform the
         // skinned mesh instead of reading as a hit).
@@ -1885,7 +2393,13 @@ export class Renderer3D {
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
         } else {
           ud.taunting = false;
-          if (staggerRose) {
+          // Boss phase-up is a MOMENT: the large rig transforms; medium bosses
+          // fall back to a taunt. Edge-detected so it plays exactly once.
+          const phaseRose = (mon.phase ?? 0) > ((ud.prevPhase as number) ?? 0);
+          ud.prevPhase = mon.phase ?? 0;
+          if (phaseRose) {
+            playFirstM("transform", "taunt", "hit");
+          } else if (staggerRose) {
             // Shielded elites soak it on the shield (explains the damage reduction);
             // everyone else alternates the two hit reactions.
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
@@ -1901,12 +2415,21 @@ export class Renderer3D {
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
             const hasClipM = ud.hasClip as (n: string) => boolean;
             if (ud.locoMoving) {
-              // Fast movers (fleeing filcher, frenzied/deep-tempo chasers)
-              // RUN — a sprint on a walk cycle reads as ice-skating.
-              playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
+              // The unnoticed Repo Rat CREEPS between hoards; once the "a rat!"
+              // event fires it drops the act. Fast movers (fleeing filcher,
+              // frenzied/deep-tempo chasers) RUN — a sprint on a walk cycle
+              // reads as ice-skating.
+              if (mon.kind === "filcher" && !mon.noticed && hasClipM("sneak")) playM("sneak");
+              else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
-              // A parked Drum Sergeant performs: it beats the wardrum.
-              playM(mon.kind === "drummer" && hasClipM("drum") ? "drum" : "idle");
+              // A parked Drum Sergeant performs; a parked Shieldbearer holds
+              // the wall behind its tower shield; a flourishing Duelist puts
+              // the blade UP (the riposte window has to READ).
+              playM(
+                mon.kind === "drummer" && hasClipM("drum") ? "drum" :
+                mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" :
+                mon.kind === "duelist" && (mon.riposteT ?? 0) > 0 && hasClipM("idle_brawler") ? "idle_brawler" : "idle",
+              );
             }
           }
         }
@@ -1926,7 +2449,8 @@ export class Renderer3D {
       }
       // LANE telegraphs: the charger's rush and the lasher's hook are LINES,
       // not circles — draw the actual lane so the sidestep reads instantly.
-      const laneDir = (mon.windupKind === "hook" || mon.windupKind === "charge") ? mon.chargeDir : undefined;
+      const laneDir = (mon.windupKind === "hook" || mon.windupKind === "charge" || mon.windupKind === "lunge")
+        ? mon.chargeDir : undefined;
       let strip = this.laneStrips.get(mon.id);
       if (mon.windup > 0 && laneDir) {
         if (!strip) {
@@ -1939,14 +2463,23 @@ export class Renderer3D {
           this.scene.add(strip);
           this.laneStrips.set(mon.id, strip);
         }
-        const len = mon.windupKind === "hook" ? CONFIG.lasherHookRange : CONFIG.chargerRange;
-        const width = mon.windupKind === "hook" ? CONFIG.lasherHookWidth * 2 : CONFIG.chargerHitRadius * 2;
+        const len =
+          mon.windupKind === "hook" ? CONFIG.lasherHookRange :
+          mon.windupKind === "lunge" ? CONFIG.cutpurseLungeRange + 0.8 :
+          CONFIG.chargerRange;
+        const width =
+          mon.windupKind === "hook" ? CONFIG.lasherHookWidth * 2 :
+          mon.windupKind === "lunge" ? 0.7 :
+          CONFIG.chargerHitRadius * 2;
         strip.position.set(mon.pos.x + laneDir.x * len / 2, 0.065, mon.pos.y + laneDir.y * len / 2);
         strip.scale.set(len, width, 1);
         strip.rotation.y = -Math.atan2(laneDir.y, laneDir.x);
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
         const mat = strip.material as THREE.MeshBasicMaterial;
-        mat.color.setHex(mon.windupKind === "hook" ? 0x7cc95a : 0xff9a2e);
+        mat.color.setHex(
+          mon.windupKind === "hook" ? 0x7cc95a :
+          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e,
+        );
         mat.opacity = 0.16 + prog * 0.4;
         strip.visible = mesh.visible;
       } else if (strip) {
@@ -1973,6 +2506,7 @@ export class Renderer3D {
           mon.windupKind === "fuse" ? CONFIG.bomberExplodeRadius :
           mon.windupKind === "shot" || mon.windupKind === "spit" ? 0.5 :
           mon.windupKind === "raise" ? 0.7 :
+          mon.windupKind === "heal" || mon.windupKind === "summon" ? 0.65 :
           mon.windupKind === "charge" ? 0.9 :
           mon.windupKind === "slam" ? (mon.kind === "boss" ? CONFIG.bossSlamRadius : CONFIG.bruteSlamRadius) :
           mon.windupKind === "ritual" ? CONFIG.ritualRadius :
@@ -1988,6 +2522,8 @@ export class Renderer3D {
           mon.windupKind === "shot" ? 0xffcc44 :
           mon.windupKind === "spit" ? 0xa4c93f :
           mon.windupKind === "raise" ? 0x8a5cff :
+          mon.windupKind === "heal" ? 0x3fbf6f : // shaman green: interrupt the medic
+          mon.windupKind === "summon" ? 0x8a5cff : // violet: more of them incoming
           mon.windupKind === "charge" ? 0xff9a2e :
           mon.windupKind === "slam" ? 0xff2020 :
           mon.windupKind === "ritual" ? 0x8800ee :
@@ -2122,7 +2658,8 @@ export class Renderer3D {
         strip.visible = inVision({ x: mx, y: my });
         continue;
       }
-      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots";
+      const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards"
+        || hz.kind === "consecrate";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         ring = new THREE.Mesh(
@@ -2131,6 +2668,8 @@ export class Renderer3D {
             color:
               hz.kind === "sludge" ? 0x5f7020 : // sewer surge: darker, fouler than acid
               hz.kind === "roots" ? 0x2e8b57 : // grasping green
+              hz.kind === "shards" ? 0xb8b0a0 : // ossuary debris: pale bone scatter
+              hz.kind === "consecrate" ? 0xe8c96a : // holy ground: theirs, not yours
               pool ? 0x7fb832 : 0xff4628,
             transparent: true, side: THREE.DoubleSide, depthWrite: false,
           }),
@@ -2154,19 +2693,42 @@ export class Renderer3D {
       if (!pool) {
         let bomb = this.hazardBombs.get(hz.id);
         if (!bomb) {
-          const model = this.modelInstance("clown_bomb");
+          // Flame Sweep rows are FIRE, not falling ordnance (BACKLOG #5): the
+          // flavor field picks the epicenter dressing.
+          const model = hz.flavor === "flame"
+            ? this.modelInstance("fx_flame_wall") ?? this.modelInstance("clown_bomb")
+            : this.modelInstance("clown_bomb");
           if (model) {
             bomb = new THREE.Group();
-            model.scale.setScalar(0.55);
+            if (hz.flavor === "flame" && this.models["fx_flame_wall"]) {
+              const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+              model.scale.setScalar((2 / Math.max(size.x, size.z, 1e-3)) * hz.radius * 0.9);
+              model.traverse((o) => {
+                const m = o as THREE.Mesh;
+                if (!m.isMesh) return;
+                const mat = (m.material as THREE.MeshStandardMaterial).clone();
+                mat.emissive = new THREE.Color(0xff5a2e);
+                mat.emissiveIntensity = 0.6;
+                m.material = mat;
+              });
+              bomb.userData.flame = true;
+            } else {
+              model.scale.setScalar(0.55);
+            }
             bomb.add(model);
             this.scene.add(bomb);
             this.hazardBombs.set(hz.id, bomb);
           }
         }
         if (bomb) {
-          // Ticking wobble that accelerates toward the boom.
           bomb.position.set(hz.pos.x, 0, hz.pos.y);
-          bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          if (bomb.userData.flame) {
+            // Fire licks upward as the row nears eruption.
+            bomb.scale.setScalar(0.35 + 0.65 * urgency + 0.05 * Math.sin(urgency * 40));
+          } else {
+            // Ticking wobble that accelerates toward the boom.
+            bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          }
           bomb.visible = ring.visible;
         }
       }
@@ -2278,8 +2840,11 @@ export class Renderer3D {
       projSeen.add(pr.id);
       let mesh = this.projectiles.get(pr.id);
       if (!mesh) {
-        // Magic missiles read arcane-violet; physical bolts keep the player hue.
+        // Magic missiles read arcane-violet; physical bolts keep the player
+        // hue — and FROST BOLTS read lore-blue (STYLEGUIDE: frost's color),
+        // so the build-defining chill rider is visible in flight.
         const color = pr.from !== "player" ? THEME.projectileEnemy
+          : (pr.chill ?? 0) > 0 ? 0x5a87c6
           : pr.school === "magic" ? 0xa06bff : THEME.projectilePlayer;
         const group = new THREE.Group();
         // Ammo with a real mesh flies as that mesh (arrows nose along their
@@ -2486,6 +3051,13 @@ export class Renderer3D {
         if (h.to) this.spawnChain(h.pos, h.to);
         continue;
       }
+      // Zero-amount crit flashes are the sim's DETONATION markers (Gavel Drop,
+      // EXTINCTION corpse pops, the Stunt Double's farewell): a spiked star
+      // bursts outward under the usual particle spray.
+      if (h.kind === "crit" && h.amount === 0) {
+        this.spawnFadeProp("fx_detonation_star", h.pos.x, 0.05, h.pos.y, 1.1, 0.35,
+          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true, pop: true });
+      }
       const color =
         h.kind === "crit" ? 0xffe066 :
         h.kind === "enemy" ? 0xffb347 :
@@ -2544,8 +3116,65 @@ export class Renderer3D {
       link.rotation.x = (i % 2) * (Math.PI / 2); // alternate links twist: reads as interlocked
       group.add(link);
     }
+    // The far end carries the gavel head (CLASS ACTION's legal-satire lane),
+    // keeping its own wood texture but fading in step with the links.
+    const mats: THREE.Material[] = [mat];
+    const gavel = this.modelInstance("gavel_anchor");
+    if (gavel) {
+      gavel.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const gm = (m.material as THREE.MeshStandardMaterial).clone();
+        gm.transparent = true;
+        gm.depthWrite = false;
+        m.material = gm;
+        mats.push(gm);
+      });
+      gavel.scale.setScalar(0.55);
+      gavel.position.set(to.x, 0.5, to.y);
+      gavel.rotation.y = yaw;
+      group.add(gavel);
+    }
     this.scene.add(group);
-    this.chainFx.push({ group, mat, life: 0, max: 0.35 });
+    this.chainFx.push({ group, mats, life: 0, max: 0.35 });
+  }
+
+  /** Drop a model that fades out and vanishes (Blindside's smokebomb, the
+   * spell-FX one-shots). `footprint` normalizes the model's XZ extent so
+   * `scale` means world radius; `tint` applies the semantic emissive color. */
+  private spawnFadeProp(
+    key: string, x: number, y: number, z: number, scale: number, max: number,
+    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean; pop?: boolean },
+  ): void {
+    if (this.fadeProps.length > 16) return; // cap
+    const obj = this.modelInstance(key);
+    if (!obj) return; // asset absent: the glow puffs carry the moment alone
+    let base = 1;
+    if (opts?.footprint) {
+      const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+      base = 2 / Math.max(size.x, size.z, 1e-3);
+    }
+    obj.scale.setScalar(base * scale);
+    obj.position.set(x, y, z);
+    const mats: THREE.Material[] = [];
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      mat.transparent = true;
+      mat.depthWrite = false;
+      if (opts?.tint !== undefined) {
+        mat.emissive = new THREE.Color(opts.tint);
+        mat.emissiveIntensity = 0.55;
+      }
+      m.material = mat;
+      mats.push(mat);
+    });
+    this.scene.add(obj);
+    this.fadeProps.push({
+      obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0,
+      s0: base * scale, pop: opts?.pop ?? false,
+    });
   }
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
@@ -2593,15 +3222,39 @@ export class Renderer3D {
     }
     this.fxSprites = fxAlive;
 
-    // Chains: fade the shared material, then drop the whole link run.
+    // Chains: fade every material in the run, then drop it whole.
     const chainAlive: typeof this.chainFx = [];
     for (const cf of this.chainFx) {
       cf.life += dt;
-      if (cf.life >= cf.max) { this.scene.remove(cf.group); cf.mat.dispose(); continue; }
-      cf.mat.opacity = 1 - cf.life / cf.max;
+      if (cf.life >= cf.max) {
+        this.scene.remove(cf.group);
+        for (const m of cf.mats) m.dispose();
+        continue;
+      }
+      for (const m of cf.mats) (m as THREE.MeshBasicMaterial).opacity = 1 - cf.life / cf.max;
       chainAlive.push(cf);
     }
     this.chainFx = chainAlive;
+
+    // Fade props (smokebomb, stars, cones): spin, grow/collapse, fade, vanish.
+    // Growth is a deterministic curve off the spawn scale (no per-frame
+    // compounding); `pop` adds an anticipation overshoot on the way in.
+    const propsAlive: typeof this.fadeProps = [];
+    for (const fp of this.fadeProps) {
+      fp.life += dt;
+      if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
+      fp.obj.rotation.y += dt * fp.spin;
+      let s = fp.s0 * Math.max(0.05, 1 + fp.grow * fp.life);
+      if (fp.pop) {
+        const k = Math.min(1, fp.life / (fp.max * 0.4));
+        s *= 0.6 + 0.4 * k + 0.28 * Math.sin(k * Math.PI); // punch past, settle back
+      }
+      fp.obj.scale.setScalar(s);
+      const t = fp.life / fp.max;
+      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
+      propsAlive.push(fp);
+    }
+    this.fadeProps = propsAlive;
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */

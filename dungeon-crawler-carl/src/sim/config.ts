@@ -46,6 +46,11 @@ export const CONFIG = {
   // Player
   playerMaxHp: 100,
   playerSpeed: 4.2, // tiles/sec
+  // Facing sweeps toward the move direction at this rate (rad/s) instead of
+  // teleporting between the 8 WASD headings — mixing keys can hold every
+  // in-between angle (playtest ask: 16+ facing directions). Movement itself
+  // is never rate-limited; only the body's heading (and keyboard-aim) sweeps.
+  playerTurnRate: 16,
   playerAttackRange: 1.3, // tiles
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,
@@ -63,6 +68,9 @@ export const CONFIG = {
   // Hit reactions: player damage shoves monsters (divided by archetype mass) and
   // builds poise damage; crossing maxHp * poise staggers them (interrupting any
   // windup and freezing them briefly). Chaff flinches constantly; brutes shrug.
+  // Poise is a BUILDUP, not a bank: it drains over time, so an interrupt takes
+  // a concentrated burst — and headliners (bosses/elites) gain a grace window
+  // after each stagger so raw DPS can never stun-lock them.
   meleeKnockback: 0.3, // tiles
   boltKnockback: 0.15,
   novaKnockback: 0.7,
@@ -73,6 +81,12 @@ export const CONFIG = {
   shockstepPathRadius: 1.0,
   staggerDuration: 0.22, // seconds a staggered monster is helpless
   elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
+  poiseDecayPerSec: 0.35, // poise drains at this fraction of the stagger threshold per second
+  bossStaggerGrace: 6, // seconds after a boss stagger during which poise cannot build
+  eliteStaggerGrace: 2.5, // same composure for named elites, shorter
+  // The advertised exception: an interruptible CHANNEL (Dark Ritual) ignores
+  // grace and takes double poise — burst it down mid-channel or brace.
+  channelPoiseTakenMult: 2,
 
   // Enemy attack telegraphs: every monster attack winds up (per-archetype, see
   // ARCHETYPES.windup) before the strike resolves. The strike re-checks range
@@ -285,6 +299,114 @@ export const CONFIG = {
   hexVulnerability: 0.3, // +30% damage taken while marked
   hexCooldown: 8,
 
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine for the contract).
+  undercroftFromFloor: 2,
+  // Cutpurse: the lunge-stab that goes for the purse.
+  cutpurseLungeRange: 2.6, // tiles the dash-stab covers
+  cutpurseLungeCooldown: 4,
+  cutpurseStealBase: 6, // gold stolen: base + perFloor * floor
+  cutpurseStealPerFloor: 2,
+  cutpurseInterest: 1.25, // the refund multiplier when you catch it
+  // Ossuary Warden: slam debris — a lingering bone-shard zone.
+  wardenShardDuration: 5, // seconds the shards stay dangerous
+  wardenShardRadius: 1.6,
+  wardenShardDmgMult: 0.25, // × monster damage per tick (puddle cadence)
+  // Pit Digger: the launch is the lesson, not the damage.
+  diggerKnockback: 1.8, // tiles — bigger than the piston, gentler hit
+
+  // RUINS cast (floors 10+) — the dead civilization drills you.
+  ruinsFromFloor: 10,
+  // Shieldbearer: the frontal guard (drops while it swings or staggers).
+  guardArcCos: 0.5, // attacker within ±60° of its facing = blocked
+  guardDamageTakenMult: 0.25, // the shield eats 75% of frontal damage
+  // Cleric consecration: contested ground.
+  consecrateDuration: 6,
+  consecrateRadius: 2.0,
+  consecrateHealPerTick: 6, // monster HP per puddle-cadence tick inside
+  consecrateDmgMult: 0.35, // × monster damage per tick to crawlers inside
+  consecrateCooldown: 9,
+  // Archivist sweep: the beam that rotates.
+  sweepDuration: 2.6, // seconds of channel (windup holds this long too)
+  sweepRate: 1.1, // radians/sec toward the target
+  sweepLength: 7, // tiles
+  sweepWidth: 0.4, // half-width
+  sweepDmgMult: 0.35, // × monster damage per tick on the line
+  sweepCooldown: 8,
+  // Colossus fissure: a crack that travels — perpendicular movement beats it.
+  fissureSteps: 5, // eruptions along the lane
+  fissureStepGap: 1.15, // tiles between eruptions
+  fissureStepDelay: 0.16, // seconds between eruptions (the travel)
+  fissureRadius: 0.9,
+  fissureDmgMult: 0.8, // × monster damage per eruption
+
+  // THE APPROACH cast (floors 16+) — the System fields its own.
+  approachFromFloor: 16,
+  // Stagehand: two hits, smoke out, marked re-entry. The mark IS the tell.
+  stagehandStrikes: 2, // swings before it vanishes
+  stagehandVanish: 1.4, // seconds gone (= the re-entry mark's fuse)
+  stagehandRetreat: 5, // tiles it smokes away
+  stagehandArriveDmgMult: 0.6, // × damage on the re-entry pop (dodge the mark)
+  stagehandArriveRadius: 1.0,
+  // Sniper: the lane never fires twice from one spot.
+  sniperCooldown: 6,
+  sniperArm: 1.5, // no tracking — a pure position test at extreme length
+  sniperLength: 12,
+  sniperWidth: 0.35,
+  sniperDmgMult: 2.2,
+  sniperRelocateSecs: 1.5, // it spends the first part of the cooldown moving
+  // Duelist: the flourish answers MELEE only.
+  riposteWindow: 1.0, // seconds the blade is up
+  riposteCooldown: 4,
+  riposteReflectFraction: 0.7, // of the attempted hit, returned to the attacker
+  riposteDamageTakenMult: 0.2, // the flourish also parries most of the hit
+  // Darling: the stated kill order.
+  darlingAuraRadius: 4,
+  darlingAuraLinger: 0.6,
+  darlingShieldMult: 0.5, // entourage takes half while she lives...
+  darlingTakenMult: 1.5, // ...and SHE takes half again more (glass idol)
+  // Canceled: player verbs on a monster chassis.
+  canceledDashCooldown: 3, // lateral sidestep cadence
+  canceledDashDist: 2.2,
+  canceledNovaCooldown: 6, // its slam-nova (windup "slam", brute radius)
+  // Suitguy: the mercy test — sparing him pays the whole party.
+  suitguyEscapeHype: 12,
+
+  // Elite affix six-pack (MOB-CONCEPTS.md) — the multiplication table.
+  linkedRadius: 5, // allies inside soak the linked elite's damage
+  linkedSoakFraction: 0.5, // share of each hit redistributed to the pack
+  vampiricHealFraction: 0.5, // of damage dealt, drunk back
+  juggernautSpeedMult: 0.75, // slower — your kiting still works; your CC doesn't
+  mortarCooldown: 3.5,
+  mortarMinRange: 3, // too close and it can't arc
+  mortarMaxRange: 9,
+  mortarDelay: 1.1, // shell hang-time (the dodge window)
+  mortarRadius: 1.2,
+  mortarDmgMult: 0.9, // × monster damage per shell
+  berserkThreshold: 0.5, // below this HP fraction the frenzy self-sustains
+  executionerThreshold: 0.4, // crawlers below this HP fraction...
+  executionerDmgMult: 1.5, // ...take this much more from it
+
+  // Pack playbook (MOB-CONCEPTS.md): designed encounters — one mob's ability
+  // is the setup for another's payoff. Budget-neutral: a template SPENDS the
+  // floor's monster budget. Formation offsets do most of the choreography.
+  packTemplateChance: 0.35, // share of pack rolls that use a band template
+
+  // BOSS LAYERS (MOB-CONCEPTS.md).
+  // Layer 1 — champions (the CHAMPIONS table below drives the spawns).
+  foremanVolleyCooldown: 5,
+  foremanVolleyCount: 6,
+  foremanSlamCooldown: 6,
+  // Layer 4 — THE DUO: when one QA unit dies, the survivor ENRAGES.
+  duoEnrageDamageMult: 1.3,
+  duoEnrageSpeedMult: 1.25,
+  duoEnrageHealFraction: 0.25, // of max HP, patched in by the grief
+  // Layer 3 — arena directors: the ROOM acts on a rhythm while the boss
+  // lives, reusing the signature helpers on the arena's own metronome
+  // (deliberately slower than the boss's sigCd — layered, not doubled).
+  directorFloodInterval: 14, // floor 6: the sump RISES on its own schedule
+  directorRegrowInterval: 16, // floor 9: the garden REGROWS
+  directorVentInterval: 12, // floor 15: the wall vents EXHALE flame rows
+
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
   // Rival kills pay XP, not loot (no naked-respawn snowball).
@@ -380,6 +502,7 @@ export const CONFIG = {
   shamanHeal: 16, // hp restored to the lowest-HP wounded monster per cast
   shamanHealCooldown: 2.5, // seconds between casts
   shamanHealRange: 6, // tiles: allies it can reach
+  shamanHealWindup: 0.8, // channel before the heal lands — the interrupt window
 
   // Phantom: fast, fragile skirmisher that blinks toward its prey.
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
@@ -637,6 +760,21 @@ export const CONFIG = {
     hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
     hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
     hypeHexer: 7, // dispelling the mark by ending the witch
+    hypeCutpurse: 6, // getting the purse BACK (with interest) plays great
+    hypeWarden: 6, // toppling the vault's furniture
+    hypeDigger: 4, // the launch was the show; the kill is a footnote
+    hypeShieldbearer: 7, // cracking the phalanx from behind is choreography
+    hypeCleric: 7, // deconsecration, live on camera
+    hypeArchivist: 8, // interrupting the beam mid-sweep is a clip
+    hypeColossus: 9, // felling the furniture of a dead civilization
+    hypeStagehand: 8, // catching it AT the re-entry mark is prediction on film
+    hypeSniper: 8, // closing on the lane-shooter across the room
+    hypeDuelist: 8, // out-fencing the fencer
+    hypeDarling: 10, // ending the System's favorite, live
+    hypeCanceled: 12, // the mirror match — beating a former favorite
+    hypeSuitactor: 6, // the beast was fine television
+    hypeSuitguy: 0, // killing the guy in the suit is BAD television
+    hypeForeman: 25, // a champion falls — almost boss-grade ratings
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -704,6 +842,7 @@ export const CONFIG = {
   volatileDmgMult: 1.2, // relative to the elite's damage stat
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
+  summonWindup: 0.7, // channel before the add arrives (summoner elites + broodmother)
   // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
   // the fog until a player strays within trigger range, then the whole cluster
   // springs at once with a brief speed surge to close the gap. A pack that lets
@@ -898,6 +1037,49 @@ export const ARCHETYPES = {
   // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
   // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
   hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
+  // UNDERCROFT trainers (floor 2+). Cutpurse: fast, fragile, and after your
+  // PURSE, not your HP — its lunge-stab steals gold (cutpurse* knobs).
+  cutpurse: { hpMult: 0.5, dmgMult: 0.5, speedMult: 1.35, attackRange: 1.0, xpMult: 1.1, ranged: false, windup: 0.55, poise: 0.15, mass: 0.8, radius: 0.32 },
+  // Ossuary Warden: a slow bone golem — its slam leaves a shard zone that
+  // reshapes the room (warden* knobs). High mass: it body-blocks doorways.
+  warden: { hpMult: 2.2, dmgMult: 1.3, speedMult: 0.55, attackRange: 1.15, xpMult: 1.9, ranged: false, windup: 0.8, poise: 0.7, mass: 3, radius: 0.55 },
+  // Pit Digger: the knockback TUTOR — the slowest tell in the game, a gentle
+  // hit, and a real launch. Three floors before knockback appears near hazards.
+  digger: { hpMult: 1.1, dmgMult: 0.35, speedMult: 0.8, attackRange: 1.1, xpMult: 1.2, ranged: false, windup: 0.9, poise: 0.4, mass: 1.6, radius: 0.42 },
+  // RUINS cast (floors 10+). Shieldbearer: tower-shield zealot — near-immune
+  // from the FRONT while its guard holds; the guard drops mid-swing/stagger.
+  shieldbearer: { hpMult: 1.6, dmgMult: 1.2, speedMult: 0.7, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.6, poise: 0.6, mass: 2.4, radius: 0.45, resist: "physical" },
+  // Cleric: never attacks (dmgMult unused) — consecrates CONTESTED ground
+  // that heals monsters and burns crawlers (consecrate* knobs).
+  cleric: { hpMult: 0.9, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.7, ranged: true, windup: 0.9, poise: 0.3, mass: 1, radius: 0.38 },
+  // Archivist: standoff channeler — its SWEEPING beam (sweep* knobs) is the
+  // first attack you dodge continuously. Stagger the channel to cut it short.
+  archivist: { hpMult: 0.85, dmgMult: 1.0, speedMult: 0.8, attackRange: 6, xpMult: 1.8, ranged: true, windup: 0.5, poise: 0.25, mass: 1, radius: 0.38, resist: "magic" },
+  // Colossus (The Foundation): animate masonry, LARGE — its slam sends a
+  // FISSURE travelling down a lane (fissure* knobs). Move perpendicular.
+  colossus: { hpMult: 2.8, dmgMult: 1.4, speedMult: 0.55, attackRange: 1.2, xpMult: 2.3, ranged: false, windup: 0.85, poise: 0.75, mass: 3.4, radius: 0.58, resist: "physical" },
+  // THE APPROACH cast (floors 16+). Stagehand: fast, fragile hit-and-run —
+  // two swings, then it smoke-bombs to a MARKED re-entry (stagehand* knobs).
+  stagehand: { hpMult: 0.6, dmgMult: 1.2, speedMult: 1.5, attackRange: 1.0, xpMult: 1.7, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.32, resist: "magic" },
+  // Sniper: cross-room lane, heavy hit, relocates after every shot (sniper*).
+  sniper: { hpMult: 0.7, dmgMult: 2.0, speedMult: 1.0, attackRange: 10, xpMult: 1.9, ranged: true, windup: 0.4, poise: 0.25, mass: 1, radius: 0.36 },
+  // Duelist: melee fencer with a riposte FLOURISH (riposte* knobs) — melee
+  // into the flourish reflects; hold the swing or answer at range.
+  duelist: { hpMult: 1.1, dmgMult: 1.3, speedMult: 1.15, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.45, poise: 0.4, mass: 1.2, radius: 0.4 },
+  // Darling: the System's favorite — shields her entourage while SHE takes
+  // extra (darling* knobs). dmgMult is her token slap; the toys do the work.
+  darling: { hpMult: 1.0, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 2.2, ranged: false, windup: 0.5, poise: 0.3, mass: 1, radius: 0.36 },
+  // Canceled: a former favorite kept as security — player verbs (dash
+  // sidesteps, nova slams) on a monster chassis (canceled* knobs).
+  canceled: { hpMult: 1.5, dmgMult: 1.3, speedMult: 1.2, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.4, poise: 0.5, mass: 1.4, radius: 0.4 },
+  // Suit Actor: a classic beast right up until it dies and UNZIPS (reapDead
+  // spawns the suitguy). Suitguy: never fights, flees, and sparing him pays.
+  suitactor: { hpMult: 1.3, dmgMult: 1.1, speedMult: 1.0, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.2, radius: 0.42 },
+  suitguy: { hpMult: 0.25, dmgMult: 0, speedMult: 1.3, attackRange: 1.0, xpMult: 0.2, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.3 },
+  // CHAMPION tier (boss layer 1). The Foreman: a mini-boss kit — slam +
+  // radial volley — without the arena, the seal, or the boss-kill fanfare.
+  // hpMult is a floor here; spawnMonsters scales it up (foremanHpMult).
+  foreman: { hpMult: 4, dmgMult: 1.5, speedMult: 0.75, attackRange: 1.3, xpMult: 6, ranged: false, windup: 0.7, poise: 0.85, mass: 4, radius: 0.6, resist: "physical" },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
 } as const satisfies Record<string, MonsterArchetype>;
 
@@ -937,6 +1119,114 @@ export const FLOOR_BANDS = [
 export function floorBand(floor: number): number {
   return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
 }
+
+// The PACK PLAYBOOK (MOB-CONCEPTS.md): designed encounters, keyed by band.
+// One mob's ability is the SETUP for another's payoff; formation offsets do
+// most of the choreography (support center/rear, threats front). Each pack
+// asks exactly ONE question — kill order, positioning, or timing.
+export interface PackTemplateMember {
+  kind: import("./types").MonsterKind;
+  dx: number;
+  dy: number;
+}
+export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][] = [
+  // THE UNDERCROFT (2+; spawnMonsters gates templates off floor 1)
+  [
+    { name: "The Reception", members: [
+      { kind: "warden", dx: 0, dy: 0 }, { kind: "swarmer", dx: -1, dy: 0.8 },
+      { kind: "swarmer", dx: 1, dy: 0.8 }, { kind: "cutpurse", dx: 0, dy: 1.6 },
+    ] },
+    { name: "Grave Shift", members: [
+      { kind: "digger", dx: 0, dy: 0.8 }, { kind: "ranged", dx: 0.6, dy: -1.2 },
+    ] },
+  ],
+  // THE SEWERS — kill-order kindergarten
+  [
+    { name: "The Drumline", members: [
+      { kind: "drummer", dx: 0, dy: -1.2 }, { kind: "grunt", dx: -1.2, dy: 0.6 },
+      { kind: "grunt", dx: 0, dy: 0.9 }, { kind: "grunt", dx: 1.2, dy: 0.6 },
+    ] },
+    { name: "The Acid Choir", members: [
+      { kind: "spitter", dx: -1, dy: -0.8 }, { kind: "spitter", dx: 1, dy: -0.8 },
+      { kind: "shaman", dx: 0, dy: -1.8 }, { kind: "bomber", dx: 0, dy: 1 },
+    ] },
+  ],
+  // THE GARDEN — the hook squad band
+  [
+    { name: "The Hook Squad", members: [
+      { kind: "lasher", dx: 0, dy: -1 }, { kind: "hexer", dx: -1.4, dy: -1.6 },
+      { kind: "brute", dx: 0.8, dy: 0.8 },
+    ] },
+    { name: "Moonlit Understudies", members: [
+      { kind: "understudy", dx: -1, dy: 0.5 }, { kind: "understudy", dx: 1, dy: 0.5 },
+      { kind: "understudy", dx: 0, dy: 1.2 }, { kind: "shaman", dx: 0, dy: -1.5 },
+    ] },
+  ],
+  // THE RUINS — formation warfare
+  [
+    { name: "The Procession", members: [
+      { kind: "shieldbearer", dx: -0.8, dy: 0.9 }, { kind: "shieldbearer", dx: 0.8, dy: 0.9 },
+      { kind: "cleric", dx: 0, dy: -0.4 }, { kind: "archivist", dx: 0, dy: -1.8 },
+    ] },
+    { name: "Falling Masonry", members: [
+      { kind: "colossus", dx: 0, dy: 0.5 }, { kind: "necromancer", dx: 0, dy: -1.8 },
+    ] },
+  ],
+  // THE IRONWORKS — timing collision
+  [
+    { name: "The Assembly Line", members: [
+      { kind: "lineworker", dx: -1, dy: 0.8 }, { kind: "lineworker", dx: 1, dy: 0.8 },
+      { kind: "sentinel", dx: 0, dy: -1.6 },
+    ] },
+    { name: "Shift Change", members: [
+      { kind: "slagbreaker", dx: 0, dy: 0.8 }, { kind: "toysoldier", dx: -1.5, dy: -1 },
+      { kind: "toysoldier", dx: -0.5, dy: -1.4 }, { kind: "toysoldier", dx: 0.5, dy: -1.4 },
+      { kind: "toysoldier", dx: 1.5, dy: -1 },
+    ] },
+  ],
+  // THE APPROACH — finals week (+ the reruns: cross-band remixes)
+  [
+    { name: "The Entourage", members: [
+      { kind: "darling", dx: 0, dy: -1 }, { kind: "toysoldier", dx: -1.4, dy: 0.4 },
+      { kind: "toysoldier", dx: -0.5, dy: 0.8 }, { kind: "toysoldier", dx: 0.5, dy: 0.8 },
+      { kind: "toysoldier", dx: 1.4, dy: 0.4 }, { kind: "duelist", dx: 0, dy: 0 },
+    ] },
+    { name: "The Crew", members: [
+      { kind: "sniper", dx: 0, dy: -2 }, { kind: "stagehand", dx: 0.5, dy: 1 },
+    ] },
+    { name: "Rerun: Frenzied Volleys", members: [
+      { kind: "drummer", dx: 0, dy: -1 }, { kind: "toysoldier", dx: -1, dy: 0.5 },
+      { kind: "toysoldier", dx: 0, dy: 0.9 }, { kind: "toysoldier", dx: 1, dy: 0.5 },
+    ] },
+    { name: "Rerun: Into the Vent", members: [
+      { kind: "lasher", dx: 0, dy: -1.5 }, { kind: "slagbreaker", dx: 0, dy: 0.8 },
+    ] },
+    { name: "Rerun: Marked for the Lane", members: [
+      { kind: "hexer", dx: -1, dy: -1.5 }, { kind: "sniper", dx: 1, dy: -2 },
+    ] },
+  ],
+];
+
+// THE CHAMPION TIER (boss layer 1) + THE DUO (layer 4): named checkpoint
+// fights on mid-band floors, spawned via the elite plumbing (ringside intro,
+// guaranteed drops). Multi-member entries are DUOS: the members share a
+// duoId, and when one dies the survivor ENRAGES (duoEnrage* knobs).
+export const CHAMPIONS: {
+  floor: number;
+  members: { kind: import("./types").MonsterKind; name: string; hpMult: number }[];
+}[] = [
+  // THE GARDEN's apex predator: an oversized alpha on the charger brain —
+  // champion-scale HP behind the locked-lane rushes players already read.
+  { floor: 8, members: [{ kind: "charger", name: "The Pack Alpha", hpMult: 2.6 }] },
+  // THE IRONWORKS' middle manager (the tier's pilot, migrated to the table).
+  { floor: 14, members: [{ kind: "foreman", name: "The Foreman", hpMult: 2.2 }] },
+  // THE APPROACH's pre-finale audit: a DUO — the tank punches, the turret
+  // paints, and whichever one you drop first, the other takes it PERSONALLY.
+  { floor: 17, members: [
+    { kind: "lineworker", name: "QA UNIT ONE", hpMult: 3.2 },
+    { kind: "sentinel", name: "QA UNIT TWO", hpMult: 2.4 },
+  ] },
+];
 
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */
 export function floorTimeBudget(floor: number): number {

@@ -467,3 +467,550 @@ describe("GARDEN: band gating", () => {
     expect(seen).toBe(true);
   });
 });
+
+describe("UNDERCROFT: cutpurse", () => {
+  it("the lunge stabs and STEALS gold; the kill refunds with interest", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    p.gold = 100;
+    const thief = mkMon(g, {
+      kind: "cutpurse", pos: { x: p.pos.x + 2, y: p.pos.y }, damage: 5, attackRange: 1,
+    });
+    thief.chargeDir = { x: -1, y: 0 };
+    thief.windup = thief.windupTotal = 0.05;
+    thief.windupKind = "lunge";
+    run(g, 0.2);
+    // The purse only grows by stealing (achievement payouts inflate p.gold
+    // mid-test, so assert on the thief's carry, not the player's balance).
+    const carry = thief.carry ?? 0;
+    const expectedSteal = Math.round(CONFIG.cutpurseStealBase + CONFIG.cutpurseStealPerFloor * g.floor);
+    expect(carry).toBe(Math.round(expectedSteal * CONFIG.cutpurseInterest));
+    // Catch it: the purse hits the floor with interest (the thief died at
+    // the player's feet, so the drop may be vacuumed up the same step —
+    // count the floor AND the pocket).
+    g.loot = [];
+    const goldBefore = p.gold;
+    thief.hp = 0;
+    run(g, 0.1);
+    const onFloor = g.loot.filter((l) => l.kind === "gold").reduce((s, l) => s + (l.amount ?? 0), 0);
+    const pocketed = p.gold - goldBefore;
+    expect(onFloor + pocketed).toBeGreaterThanOrEqual(carry);
+  });
+});
+
+describe("UNDERCROFT: ossuary warden", () => {
+  it("its slam leaves a lingering bone-shard zone that ticks", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const golem = mkMon(g, {
+      kind: "warden", pos: { x: p.pos.x + 0.9, y: p.pos.y }, damage: 20, attackRange: 1.15,
+    });
+    golem.windup = golem.windupTotal = 0.05;
+    golem.windupKind = "slam";
+    run(g, 0.2);
+    const shards = g.hazards.find((h) => h.kind === "shards");
+    expect(shards).toBeDefined();
+    const hpAfterSlam = p.hp;
+    run(g, 2.5); // stand in the debris like a rookie
+    expect(p.hp).toBeLessThan(hpAfterSlam); // the zone bites on the tick
+  });
+});
+
+describe("UNDERCROFT: pit digger", () => {
+  it("launches farther than the piston, hits gentler", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const dig = mkMon(g, {
+      kind: "digger", pos: { x: p.pos.x + 0.8, y: p.pos.y }, damage: 4, attackRange: 1.1,
+    });
+    dig.windup = dig.windupTotal = 0.05;
+    dig.windupKind = "punch";
+    const start = { ...p.pos };
+    run(g, 0.5);
+    const launched = dist(start, p.pos);
+    expect(launched).toBeGreaterThan(1.0); // a REAL launch...
+    expect(p.hp).toBeGreaterThan(10_000 - 30); // ...from a gentle hit
+  });
+});
+
+describe("UNDERCROFT: the contract floor stays pristine", () => {
+  it("floor 1 has ZERO specialists of any band; floor 2 meets the trainers", () => {
+    const SPECIALS = new Set([
+      "cutpurse", "warden", "digger", "drummer", "filcher",
+      "lasher", "understudy", "hexer",
+      "lineworker", "sentinel", "slagbreaker", "toysoldier", "greeter",
+    ]);
+    for (let seed = 1; seed <= 30; seed++) {
+      const g1 = createTestGame({ seed, floor: 1 });
+      expect(g1.monsters.some((m) => SPECIALS.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g2 = createTestGame({ seed, floor: 2 });
+      seen = g2.monsters.some((m) => ["cutpurse", "warden", "digger"].includes(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});
+
+describe("RUINS: shieldbearer frontal guard", () => {
+  it("frontal hits are mostly eaten; the guard drops mid-swing", () => {
+    const g = stage();
+    const p = g.players[0];
+    const husk = mkMon(g, {
+      kind: "shieldbearer", pos: { x: p.pos.x + 2, y: p.pos.y },
+      hp: 1000, maxHp: 1000, damage: 10, attackRange: 1.1,
+    });
+    // Frontal (it faces the nearest player = the attacker): guarded.
+    damageMonster(g, p, husk, 100, { allowCrit: false });
+    const guardedDmg = 1000 - husk.hp;
+    // Mid-swing the shield drops: same hit, full price.
+    husk.hp = 1000;
+    husk.windup = husk.windupTotal = 0.5;
+    husk.windupKind = "melee";
+    damageMonster(g, p, husk, 100, { allowCrit: false });
+    const openDmg = 1000 - husk.hp;
+    expect(guardedDmg).toBeLessThan(openDmg * 0.5); // the shield is REAL
+  });
+});
+
+describe("RUINS: cleric consecration", () => {
+  it("the zone heals wounded monsters and burns crawlers standing in it", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const wounded = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 1, y: p.pos.y }, hp: 50, maxHp: 200, speed: 0, attackCooldown: 99,
+    });
+    g.hazards.push({
+      id: g.nextEntityId++,
+      pos: { x: p.pos.x, y: p.pos.y },
+      t: 4, total: 4, radius: CONFIG.consecrateRadius, damage: 8,
+      kind: "consecrate", tick: 0.1,
+    });
+    run(g, 2);
+    expect(wounded.hp).toBeGreaterThan(50); // mended by the light
+    expect(p.hp).toBeLessThan(10_000); // burned by the same light
+  });
+});
+
+describe("RUINS: archivist sweep", () => {
+  it("the beam rotates while the channel holds and dies with a stagger", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const arch = mkMon(g, {
+      kind: "archivist", pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 300, maxHp: 300, damage: 20, attackRange: 6, speed: 0,
+    });
+    run(g, 1.0); // it should commit the channel and spawn the sweep
+    const beam = g.hazards.find((h) => h.kind === "beam" && h.sweep !== undefined);
+    expect(beam).toBeDefined();
+    expect(arch.windupKind).toBe("sweep");
+    const angle0 = Math.atan2(beam!.end!.y - beam!.pos.y, beam!.end!.x - beam!.pos.x);
+    run(g, 0.5);
+    const angle1 = Math.atan2(beam!.end!.y - beam!.pos.y, beam!.end!.x - beam!.pos.x);
+    expect(Math.abs(angle1 - angle0)).toBeGreaterThan(0.2); // it SWEEPS
+    // Stagger the channel: the beam dies with it.
+    arch.stagger = CONFIG.staggerDuration;
+    arch.windup = 0;
+    arch.windupKind = undefined;
+    run(g, 0.2);
+    expect(g.hazards.some((h) => h.kind === "beam" && h.sweep !== undefined)).toBe(false);
+  });
+});
+
+describe("RUINS: colossus fissure", () => {
+  it("the slam sends staggered eruptions travelling down the lane", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const col = mkMon(g, {
+      kind: "colossus", pos: { x: p.pos.x + 1, y: p.pos.y },
+      hp: 1000, maxHp: 1000, damage: 20, attackRange: 1.2,
+    });
+    col.chargeDir = { x: 1, y: 0 };
+    col.windup = col.windupTotal = 0.05;
+    col.windupKind = "slam";
+    run(g, 0.1);
+    const blasts = g.hazards.filter((h) => (h.kind ?? "blast") === "blast");
+    expect(blasts.length).toBeGreaterThanOrEqual(CONFIG.fissureSteps);
+    // The eruptions are STAGGERED (travel) and laid out along +x.
+    const fuses = blasts.map((b) => b.t).sort((a, b) => a - b);
+    expect(fuses[fuses.length - 1]).toBeGreaterThan(fuses[0]);
+    expect(Math.max(...blasts.map((b) => b.pos.x))).toBeGreaterThan(col.pos.x + 3);
+  });
+});
+
+describe("RUINS: band gating", () => {
+  it("nothing from the Ruins above floor 10; present by floor 11", () => {
+    const RUINS = new Set(["shieldbearer", "cleric", "archivist", "colossus"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g9 = createTestGame({ seed, floor: 8 });
+      expect(g9.monsters.some((m) => RUINS.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g11 = createTestGame({ seed, floor: 11 });
+      seen = g11.monsters.some((m) => RUINS.has(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});
+
+describe("APPROACH: stagehand smoke-out", () => {
+  it("after two swings it vanishes, marks a re-entry blast, and pops back AT the mark", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const hand = mkMon(g, {
+      kind: "stagehand", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      damage: 5, attackRange: 1, heat: CONFIG.stagehandStrikes, speed: CONFIG.monsterSpeed,
+    });
+    run(g, 0.2); // the smoke pops
+    expect(hand.vanishT ?? 0).toBeGreaterThan(0);
+    expect(dist(hand.pos, p.pos)).toBeGreaterThan(3); // it smoked AWAY
+    const mark = g.hazards.find((h) => (h.kind ?? "blast") === "blast");
+    expect(mark).toBeDefined();
+    const markPos = { ...mark!.pos };
+    run(g, CONFIG.stagehandVanish + 0.2); // the smoke clears
+    expect(hand.vanishT ?? 0).toBe(0);
+    expect(dist(hand.pos, markPos)).toBeLessThan(0.5); // it re-entered AT the mark
+  });
+});
+
+describe("APPROACH: sniper", () => {
+  it("locks a long lane at cast (no tracking) and relocates after", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const sn = mkMon(g, {
+      kind: "sniper", pos: { x: p.pos.x + 4, y: p.pos.y }, damage: 20, attackRange: 10, speed: CONFIG.monsterSpeed,
+    });
+    run(g, 0.2);
+    const lane = g.hazards.find((h) => h.kind === "beam");
+    expect(lane).toBeDefined();
+    expect(lane!.trackId).toBeUndefined(); // a pure position test
+    const before = { ...sn.pos };
+    run(g, CONFIG.sniperArm + 1.0); // fires, then spends the cooldown moving
+    expect(dist(before, sn.pos)).toBeGreaterThan(0.5); // never the same spot twice
+  });
+});
+
+describe("APPROACH: duelist riposte", () => {
+  it("melee into the flourish is parried and REFLECTED; bolts ignore it", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const extra = mkMon(g, {
+      kind: "duelist", pos: { x: p.pos.x + 1, y: p.pos.y },
+      hp: 500, maxHp: 500, damage: 10, riposteT: CONFIG.riposteWindow,
+    });
+    const hpBefore = p.hp;
+    damageMonster(g, p, extra, 100, { allowCrit: false, melee: true });
+    const meleeDmg = 500 - extra.hp;
+    expect(p.hp).toBeLessThan(hpBefore); // the riposte came BACK
+    // Ranged ignores the flourish: full damage, no reflection.
+    extra.hp = 500;
+    extra.riposteT = CONFIG.riposteWindow;
+    const hpBeforeBolt = p.hp;
+    damageMonster(g, p, extra, 100, { allowCrit: false });
+    expect(500 - extra.hp).toBeGreaterThan(meleeDmg * 2); // parry only reads steel
+    expect(p.hp).toBe(hpBeforeBolt);
+  });
+});
+
+describe("APPROACH: the darling's stardust", () => {
+  it("her entourage takes half while SHE takes half again more", () => {
+    const g = stage();
+    const p = g.players[0];
+    const star = mkMon(g, { kind: "darling", pos: { x: p.pos.x + 20, y: p.pos.y }, aura: "shield", hp: 400, maxHp: 400, speed: 0 });
+    const toy = mkMon(g, { kind: "toysoldier", pos: { x: star.pos.x + 1, y: star.pos.y }, hp: 400, maxHp: 400, speed: 0, attackRange: 0, squadId: 1 });
+    const plain = mkMon(g, { kind: "grunt", pos: { x: star.pos.x + 25, y: star.pos.y }, hp: 400, maxHp: 400, speed: 0 });
+    run(g, 0.3); // aura radiates
+    expect(toy.shieldT ?? 0).toBeGreaterThan(0);
+    damageMonster(g, p, toy, 100, { allowCrit: false });
+    damageMonster(g, p, plain, 100, { allowCrit: false });
+    damageMonster(g, p, star, 100, { allowCrit: false });
+    const toyDmg = 400 - toy.hp, plainDmg = 400 - plain.hp, starDmg = 400 - star.hp;
+    expect(toyDmg).toBeLessThan(plainDmg * 0.7); // sheltered
+    expect(starDmg).toBeGreaterThan(plainDmg * 1.2); // the glass idol pays extra
+  });
+});
+
+describe("APPROACH: the suit actor gag", () => {
+  it("dies, unzips, and the guy inside runs; sparing him pays hype", () => {
+    const g = stage();
+    const p = g.players[0];
+    const beast = mkMon(g, { kind: "suitactor", pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 10, maxHp: 100, damage: 10 });
+    beast.hp = 0;
+    run(g, 0.2);
+    const guy = g.monsters.find((m) => m.kind === "suitguy");
+    expect(guy).toBeDefined();
+    expect(guy!.noticed).toBe(true); // running immediately
+    // Put him safely away and let the mercy clock run. Zero the meter just
+    // before the escape lands so decay can't mask the payout burst.
+    guy!.pos = { x: p.pos.x + CONFIG.filcherEscapeDist + 4, y: p.pos.y };
+    guy!.speed = 0;
+    run(g, CONFIG.filcherEscapeSeconds - 0.5);
+    p.hype = 0;
+    run(g, 1.5);
+    expect(g.monsters.includes(guy!)).toBe(false); // he made it out
+    expect(p.hype).toBeGreaterThan(CONFIG.suitguyEscapeHype * 0.5); // mercy pays
+  });
+});
+
+describe("APPROACH: band gating", () => {
+  it("the finale cast stays off floors below 16; present by floor 17", () => {
+    const APPROACH = new Set(["stagehand", "sniper", "duelist", "darling", "canceled", "suitactor", "suitguy"]);
+    for (let seed = 1; seed <= 25; seed++) {
+      const g14 = createTestGame({ seed, floor: 14 });
+      expect(g14.monsters.some((m) => APPROACH.has(m.kind))).toBe(false);
+    }
+    let seen = false;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+      const g17 = createTestGame({ seed, floor: 17 });
+      seen = g17.monsters.some((m) => APPROACH.has(m.kind));
+    }
+    expect(seen).toBe(true);
+  });
+});
+
+describe("elite affix six-pack", () => {
+  it("linked: the pack soaks half of every hit while allies stand", () => {
+    const g = stage();
+    const p = g.players[0];
+    const elite = mkMon(g, { kind: "brute", pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 1000, maxHp: 1000, elite: true, affix: "linked" });
+    const ally = mkMon(g, { kind: "grunt", pos: { x: elite.pos.x + 1, y: elite.pos.y }, hp: 200, maxHp: 200 });
+    damageMonster(g, p, elite, 200, { allowCrit: false });
+    const eliteDmg = 1000 - elite.hp;
+    expect(ally.hp).toBeLessThan(200); // the link paid it forward
+    // Alone, the same hit lands in full.
+    const loner = mkMon(g, { kind: "brute", pos: { x: p.pos.x + 30, y: p.pos.y }, hp: 1000, maxHp: 1000, elite: true, affix: "linked" });
+    damageMonster(g, p, loner, 200, { allowCrit: false });
+    expect(1000 - loner.hp).toBeGreaterThan(eliteDmg * 1.5);
+  });
+
+  it("juggernaut: no stagger, no knockback", () => {
+    const g = stage();
+    const p = g.players[0];
+    const jug = mkMon(g, { kind: "grunt", pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 5000, maxHp: 5000, elite: true, affix: "juggernaut" });
+    const start = { ...jug.pos };
+    jug.windup = jug.windupTotal = 1.0;
+    jug.windupKind = "melee";
+    damageMonster(g, p, jug, 3000, { allowCrit: false, dir: { x: 1, y: 0 }, knockback: 2, poiseMult: 10 });
+    expect(jug.stagger).toBe(0); // the poise meter never fills
+    expect(jug.windup).toBeGreaterThan(0); // the committed swing survives
+    expect(dist(start, jug.pos)).toBeLessThan(0.01); // the shove bounced off
+  });
+
+  it("vampiric: it drinks what it hits", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    const vamp = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      hp: 100, maxHp: 500, damage: 100, elite: true, affix: "vampiric", introduced: true,
+    });
+    vamp.windup = vamp.windupTotal = 0.05;
+    vamp.windupKind = "melee";
+    run(g, 0.2);
+    expect(vamp.hp).toBeGreaterThan(100); // the hit fed it
+  });
+
+  it("mortar: shells arc onto the crawler's position on a cadence", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = p.hp = 10_000;
+    mkMon(g, {
+      kind: "ranged", pos: { x: p.pos.x + 6, y: p.pos.y },
+      damage: 20, attackRange: 6.5, elite: true, affix: "mortar", introduced: true, speed: 0, attackCooldown: 99, shootCd: 99,
+    });
+    run(g, 0.3);
+    expect(g.hazards.some((h) => (h.kind ?? "blast") === "blast")).toBe(true); // a shell is in the air
+  });
+
+  it("berserking: below half HP the frenzy self-sustains", () => {
+    const g = stage();
+    const p = g.players[0];
+    const zerk = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 5, y: p.pos.y },
+      hp: 40, maxHp: 100, elite: true, affix: "berserking", introduced: true, speed: 0,
+    });
+    run(g, 0.3);
+    expect(zerk.frenzyT ?? 0).toBeGreaterThan(0); // rage from its own wounds
+  });
+
+  it("executioner: wounded crawlers take extra", () => {
+    const g = stage();
+    const p = g.players[0];
+    p.maxHp = 1000;
+    const axe = mkMon(g, {
+      kind: "grunt", pos: { x: p.pos.x + 0.8, y: p.pos.y },
+      damage: 50, elite: true, affix: "executioner", introduced: true,
+    });
+    // Healthy hit.
+    p.hp = 1000;
+    axe.windup = axe.windupTotal = 0.05;
+    axe.windupKind = "melee";
+    run(g, 0.15);
+    const healthyDmg = 1000 - p.hp;
+    // Wounded hit (below the threshold).
+    p.hp = Math.floor(p.maxHp * CONFIG.executionerThreshold) - 50;
+    const woundedBefore = p.hp;
+    axe.attackCooldown = 0;
+    axe.windup = axe.windupTotal = 0.05;
+    axe.windupKind = "melee";
+    run(g, 0.15);
+    const woundedDmg = woundedBefore - p.hp;
+    expect(woundedDmg).toBeGreaterThan(healthyDmg * 1.2); // the threshold is REAL
+  });
+});
+
+describe("the pack playbook", () => {
+  it("band templates spawn as coherent clusters (the Hook Squad exists)", () => {
+    let hookSquads = 0;
+    for (let seed = 1; seed <= 50; seed++) {
+      const g = createTestGame({ seed, floor: 8 });
+      for (const lasher of g.monsters.filter((m) => m.kind === "lasher")) {
+        const hexNear = g.monsters.some((m) => m.kind === "hexer" && dist(m.pos, lasher.pos) < 3);
+        const bruteNear = g.monsters.some((m) => m.kind === "brute" && dist(m.pos, lasher.pos) < 3);
+        if (hexNear && bruteNear) hookSquads++;
+      }
+    }
+    expect(hookSquads).toBeGreaterThan(0); // the flagship combo musters
+  });
+
+  it("templates are budget-neutral: floor population stays in its band", () => {
+    for (const seed of [3, 7, 11]) {
+      const g = createTestGame({ seed, floor: 8 });
+      // monsterCount for floor 8 = base + perFloor * 7, capped; template packs
+      // must not inflate it (they SPEND the same budget).
+      const expected = Math.min(CONFIG.monsterMaxCount, CONFIG.monsterBaseCountFloor1 + CONFIG.monsterCountPerFloor * 7);
+      expect(g.monsters.length).toBeLessThanOrEqual(expected + 12); // vault/elite/rat extras only
+    }
+  });
+
+  // (Floors 1-2 template gating is a one-line floor check; the balance
+  // contract is the real guard — it caught a floor-2 Reception killing the
+  // bot before this gate existed, which is exactly why the gate exists.)
+});
+
+describe("boss layers", () => {
+  it("layer 2: the finale gains borrowed signatures at phase edges (the greatest-hits reel)", () => {
+    const g = createTestGame({ seed: 7, floor: 18, level: 18 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.bossTier = undefined; // no ritual windup swallowing the brain steps
+    expect(boss.signature).toBeUndefined(); // clean kit at full HP
+    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    run(g, 0.1);
+    expect(boss.signature).toBe("debris"); // the Architect's set
+    boss.hp = Math.floor(boss.maxHp * 0.2); // phase 2
+    boss.windup = 0; // clear any committed swing so the brain runs
+    boss.windupKind = undefined;
+    run(g, 0.1);
+    expect(boss.signature).toBe("flamewall"); // the Marshal's encore
+  });
+
+  it("layer 2: band bosses alternate own/borrowed signatures from phase 1", () => {
+    const g = createTestGame({ seed: 7, floor: 15, level: 16 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
+    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    const alts: boolean[] = [];
+    for (let i = 0; i < 3; i++) {
+      boss.sigCd = 0;
+      run(g, 0.1);
+      alts.push(!!boss.sigAlt);
+    }
+    // The toggle flips every cast: own -> borrowed -> own...
+    expect(alts[0]).not.toBe(alts[1]);
+    expect(alts[1]).not.toBe(alts[2]);
+  });
+
+  it("layer 3: the arena director acts while the boss lives, stops when it falls", () => {
+    const g = createTestGame({ seed: 7, floor: 6, level: 8 });
+    const boss = g.monsters.find((m) => m.kind === "boss")!;
+    g.monsters = [boss];
+    boss.introduced = true;
+    boss.sigCd = 9999; // the SIGNATURE can't fire — anything that appears is the ROOM
+    boss.healCd = 9999;
+    boss.phase = 0;
+    g.players[0].pos = { x: boss.pos.x + 6, y: boss.pos.y };
+    g.hazards = [];
+    for (let t = 0; t < CONFIG.directorFloodInterval + 1; t += DT) {
+      boss.sigCd = 9999; // hold it every step
+      boss.hp = boss.maxHp; // no phases
+      step(g, idle(), DT);
+    }
+    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(true); // the sump ROSE
+    // Kill the boss: the director's clock stops with the show.
+    boss.hp = 0;
+    run(g, 0.2);
+    g.hazards = [];
+    const t0 = g.arenaT ?? 0;
+    run(g, 2);
+    expect(g.arenaT ?? 0).toBe(t0); // no boss, no director
+    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(false);
+  });
+
+  it("layer 1: The Foreman clocks in on floor 14 with elite plumbing", () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const g = createTestGame({ seed, floor: 14 });
+      const champ = g.monsters.find((m) => m.kind === "foreman");
+      if (!champ) continue;
+      seen++;
+      expect(champ.elite).toBe(true);
+      expect(champ.eliteName).toBe("The Foreman");
+      expect(champ.maxHp).toBeGreaterThan(1500); // a checkpoint fight, not a pack
+    }
+    expect(seen).toBe(8); // every floor 14 has its champion
+  });
+});
+
+describe("champions + the duo", () => {
+  it("The Pack Alpha stalks floor 8; the QA Team holds floor 17 as a duo", () => {
+    const g8 = createTestGame({ seed: 3, floor: 8 });
+    const alpha = g8.monsters.find((m) => m.eliteName === "The Pack Alpha");
+    expect(alpha).toBeDefined();
+    expect(alpha!.kind).toBe("charger");
+    expect(alpha!.elite).toBe(true);
+
+    const g17 = createTestGame({ seed: 3, floor: 17 });
+    const one = g17.monsters.find((m) => m.eliteName === "QA UNIT ONE");
+    const two = g17.monsters.find((m) => m.eliteName === "QA UNIT TWO");
+    expect(one).toBeDefined();
+    expect(two).toBeDefined();
+    expect(one!.duoId).toBeDefined();
+    expect(one!.duoId).toBe(two!.duoId); // linked — the enrage seam
+  });
+
+  it("when one QA unit dies, the survivor ENRAGES: permanent frenzy, hotter, healed", () => {
+    const g = createTestGame({ seed: 3, floor: 17 });
+    const one = g.monsters.find((m) => m.eliteName === "QA UNIT ONE")!;
+    const two = g.monsters.find((m) => m.eliteName === "QA UNIT TWO")!;
+    two.hp = Math.round(two.maxHp * 0.4); // wounded, so the grief-heal shows
+    const dmgBefore = two.damage;
+    const hpBefore = two.hp;
+    one.hp = 0; // drop the tank
+    run(g, 0.2);
+    expect(two.enraged).toBe(true);
+    expect(two.damage).toBeGreaterThan(dmgBefore);
+    expect(two.hp).toBeGreaterThan(hpBefore); // it patched itself in fury
+    // Permanent frenzy: cooldowns decay faster forever, no frenzyT required.
+    two.attackCooldown = 1;
+    const plain = g.monsters.find((m) => m.kind === "grunt" && dist(m.pos, g.players[0].pos) > 12);
+    if (plain) plain.attackCooldown = 1;
+    run(g, 0.5);
+    if (plain) expect(two.attackCooldown).toBeLessThan(plain.attackCooldown);
+  });
+});
