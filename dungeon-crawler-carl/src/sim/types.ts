@@ -479,6 +479,10 @@ export type RewardKind =
   | "shrineBlood" // pay a slice of max HP now for permanent crit
   | "shrineGreed" // this floor's monsters speed up; its gold drops double
   | "shrineDecline" // walk away (the System notes the cowardice)
+  | "shrineDraft" // Overtime Draft: the clock loses seconds, you gain an ability draft
+  | "shrineLoan" // Time Loan: +seconds now; the NEXT floor starts shorter
+  | "shrineLiquidate" // Liquidation Event: the shrine buys the whole bag at a premium
+  | "shrinePremium" // Insurance Premium: a slice of gold for full heal + cleanse
   // CLASS REVISION milestone drafts (revisions.ts — never in the sponsor pool):
   | "revision" // a permanent recasting with a built-in curse
   | "revisionDecline"; // REMAIN UNCAST (defiance pays a small permanent hype bonus)
@@ -788,6 +792,10 @@ export interface GameState {
   timeRemaining: number; // seconds left; can go negative once collapsing
   phase: TimerPhase;
   collapseElapsed: number; // seconds spent in the collapse phase
+  // TIME LOAN (shrine): seconds the NEXT floor's budget owes the System.
+  // Collected (and cleared) by buildFloor. Not persisted — a reload forgives
+  // the debt, which the System would never admit to.
+  pendingTimeDebt?: number;
 
   status: RunStatus;
   // Event messages produced during the last step (consumed by host for the log/HUD).
