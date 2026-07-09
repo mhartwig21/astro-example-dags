@@ -158,6 +158,7 @@ export class Renderer3D {
   private models: Record<string, LoadedModel> = {};
   private builtFloor = -1;
   private builtMapVersion = -1;
+  private builtSeed = -1;
   private aspect = 1;
 
   // Fog of war: instanced meshes tinted per tile (white = explored, near-black =
@@ -1837,6 +1838,7 @@ export class Renderer3D {
 
     this.builtFloor = state.floor;
     this.builtMapVersion = state.mapVersion;
+    this.builtSeed = state.seed;
   }
 
   /** Point lights anchored where torch meshes were placed (light = source). */
@@ -2169,9 +2171,17 @@ export class Renderer3D {
   // ---- Per-frame sync ----
 
   update(state: GameState, time: number): void {
-    // Rebuild cached floor geometry on descent AND on in-place tile mutations
-    // (e.g. locked doors opening when the key is picked up).
-    const rebuilt = state.floor !== this.builtFloor || state.mapVersion !== this.builtMapVersion;
+    // Rebuild cached floor geometry on descent, on in-place tile mutations
+    // (e.g. locked doors opening when the key is picked up) AND on a new run:
+    // every fresh season starts back at floor 1 / mapVersion 1 — exactly what
+    // this cache holds after the previous run's floor 1 — so without the seed
+    // in the key the old dungeon kept rendering over the new layout (players
+    // walking through walls after a restart). Same seed = same generated map,
+    // so a daily rerun keeping its geometry is correct, not a miss.
+    const rebuilt =
+      state.floor !== this.builtFloor ||
+      state.mapVersion !== this.builtMapVersion ||
+      state.seed !== this.builtSeed;
     if (rebuilt) {
       // Corpses belong to the old geometry — never carry them across a rebuild.
       for (const d of this.dying) this.scene.remove(d.mesh);
