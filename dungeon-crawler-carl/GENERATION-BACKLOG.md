@@ -16,7 +16,7 @@ audit. Delete rows as they ship.
 
 | Gap / need | KayKit answer | Seam |
 |---|---|---|
-| ~~Elite affix emissive tints~~ **SHIPPED 2026-07-08** (semantic body glow + chilling aura ring); alternate-texture recolor skins still open as a richer second pass | Alternate texture PNGs shipped with most characters (`orc_texture_A/B`, …) | texture swap in `buildMonsterMesh` |
+| ~~Elite affix differentiation~~ **SHIPPED** (tints + chilling ring 2026-07-08; B-variant recolor skins 2026-07-09 via `ELITE_TEXTURES` — skeleton family, werewolf, witch, orcbrute, plantwarrior, orc; clown/vampire are single-texture packs, tint-only) | — | — |
 | Flask / Sponsor Slurp™ drink act | Adventurers 2.0 **potion prop staged** (`potion_medium_red.glb` in the manifest); no drink clip exists in ANY clip pack (inventoried 2026-07-08) → the clip moved to the Meshy queue | graft prop on cast + generated clip |
 | ~~Filcher gold token~~ **SHIPPED 2026-07-08** (money-pile graft, visible while `carry > 0`) + Sneaking clip while unnoticed | — | — |
 | Blindside poof anchor (player half; ~~phantom blink~~ **SHIPPED 2026-07-08** with procedural poofs + mesh snap) | Adventurers 2.0 **smokebomb prop staged** (`smokebomb.glb`); the poof stays procedural | FX code |
@@ -65,7 +65,7 @@ rejected 2026-07-09, owner ruling.
 | ~~System loot box~~ **SHIPPED 2026-07-09** | dropped at the crawler's feet on the grant edge | — |
 | ~~Sponsor ordnance shell~~ **SHIPPED 2026-07-09** | airstrike strikes fly as real ordnance; keg retired | — |
 | ~~Gavel head chain anchor~~ **SHIPPED 2026-07-09** | rides the Extradition chain's far end, fading with the links | — |
-| **Extraction stairwell portal frame** | Stairs-down currently reuses dungeon stairs; a System-branded descent gate reads as "next episode" | "low poly ornate archway portal frame with hazard stripes and small lights, stylized game asset, chunky proportions, flat colors" |
+| ~~Extraction stairwell portal frame~~ **SHIPPED 2026-07-09** | the System's gold-lit arch frames every stairs tile | — |
 | **Achievement trophy set** (small/medium/large) | Vault dressing variety (diegetic: the System mints them) | "low poly golden trophy cup on a stone base, stylized game asset, chunky proportions, flat colors" |
 
 Batch note: run these as ONE manifest (`manifest.json`, resumable) — this

@@ -23,6 +23,12 @@
       "type": "prop",
       "prompt": "low poly oversized wooden judge gavel head with metal bands, no handle, stylized game asset, chunky proportions, flat colors",
       "target_height": 0.5
+    },
+    {
+      "id": "descent_portal",
+      "type": "prop",
+      "prompt": "low poly ornate stone archway gate frame with hazard stripe markings and small glowing lights on the frame, open in the middle, freestanding, stylized game asset, chunky proportions, flat colors",
+      "target_height": 2.6
     }
   ]
 }

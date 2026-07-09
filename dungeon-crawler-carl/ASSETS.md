@@ -374,6 +374,8 @@ above. Provenance rules for anything it produces:
 | dungeon/system_loot_box.glb | Loot-box delivery moment (dropped at the crawler's feet on grant) | Meshy (paid tier) text-to-3D, palette-snapped |
 | dungeon/sponsor_shell.glb | Airstrike ordnance (retires the repurposed `keg.glb`) | Meshy (paid tier) text-to-3D, palette-snapped |
 | dungeon/gavel_anchor.glb | Extradition chain's far-end gavel (CLASS ACTION / Gavel Drop lane) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/descent_portal.glb | The System's descent gate framing the stairs tile | Meshy (paid tier) text-to-3D, palette-snapped |
+| characters/*_texture_b.png (skeleton, werewolf, witch, orcbrute, plantcreatures, orc) | Elite B-variant skins (ELITE_TEXTURES in assets.ts) | KayKit Complete Collection alternate textures, CC0 |
 
 ## Licensing hygiene
 
