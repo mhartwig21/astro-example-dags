@@ -46,11 +46,15 @@ pick one up cold. Delete items when they ship (git history remembers).
     `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in
     `renderer3d.buildFloor` dress up to 4 combat rooms per interior floor as
     storage/mess/archive/guardpost (wall runs, wall-mounted decor, table
-    sets, a sconce per room). Phase 2 PARTIAL
-    (2026-07-09): band allowlists + entrance-to-depths zoning shipped
-    (`zone`/`bands` on ROOM_PURPOSES, zone-ladder selection in renderer3d);
-    still open: condition modifiers (looted/battle-scarred/overgrown) as a
-    composable layer over variants, corridor connective tissue. Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    sets, a sconce per room). Phases 2-3 LARGELY
+    SHIPPED (2026-07-10): the grammar moved to `src/sim/roomPurposes.ts` as
+    the shared pure truth (`assignRoomPurposes(seed, floor, map)`); band
+    allowlists + zoning, condition modifiers (looted/scarred/overgrown),
+    corridor connective tissue, and occupancy v1 (packs gather at the
+    dressed room's furniture anchor) are all live. Still open: purpose-aware
+    ARCHETYPE bias (skeletons prefer the ossuary), one seeded story-event
+    per floor applying conditions along a path, and settlement/stronghold
+    room dressing for Roam. Phase 3: occupancy coupling — purpose-aware spawn placement (the
     kennel spawns beasts, the mess pack sits AT the table) + one seeded
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
