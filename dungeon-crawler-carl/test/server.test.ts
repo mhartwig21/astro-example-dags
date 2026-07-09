@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
 import { GameServer, seedFromCode } from "../src/server/gameServer";
 import { serialize, deserialize, serializeDynamic, deserializeDynamic } from "../src/sim/snapshot";
-import { createGame, step } from "../src/sim/game";
+import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
 
 // ---- Phase 3: snapshot golden test ----
@@ -30,7 +30,7 @@ describe("snapshot (serialize/deserialize)", () => {
     expect(serialize(a)).toBe(serialize(b));
   });
 
-  it("DYNAMIC snapshots ship no map/fog and ride the cached world losslessly", () => {
+  it("DYNAMIC snapshots ship no map/fog and reattach onto a cached world", () => {
     const a = createGame(31337);
     drive(a, 120);
     const dyn = serializeDynamic(a);
@@ -38,14 +38,51 @@ describe("snapshot (serialize/deserialize)", () => {
     expect(dyn).not.toContain('"explored"');
     // The diet is the point: the recurring snapshot sheds the grid + mask.
     expect(dyn.length).toBeLessThan(serialize(a).length * 0.75);
-    // Reattached to a cached world, it is the SAME state (golden determinism).
-    // Deep equality, not string equality: reattaching moves map/explored to
-    // the end of the key order, which JSON preserves but nobody reads.
-    const world = deserialize(serialize(a)); // an old full snapshot's world
+    // Reattached to a cached world, everything non-monster survives verbatim
+    // and the world arrays are the cached objects themselves.
+    const world = deserialize(serialize(a));
     const b = deserializeDynamic(dyn, world.map, world.explored);
-    drive(a, 120);
-    drive(b, 120);
-    expect(JSON.parse(serialize(b))).toEqual(JSON.parse(serialize(a)));
+    expect(b.map).toBe(world.map);
+    expect(b.explored).toBe(world.explored);
+    expect(b.players).toEqual(JSON.parse(serialize(a)).players);
+    expect(b.rng).toEqual(a.rng);
+  });
+
+  it("interest management: far chaff is trimmed, headliners and the key always ship", () => {
+    const a = createGame(31337);
+    const p = a.players[0];
+    p.alive = true;
+    // A legible cast of four, staged around the crawler.
+    a.monsters = a.monsters.slice(0, 4);
+    const [near, farGrunt, farElite, farCarrier] = a.monsters;
+    near.pos = { x: p.pos.x + 2, y: p.pos.y };
+    farGrunt.pos = { x: p.pos.x + 40, y: p.pos.y + 40 };
+    farElite.pos = { x: p.pos.x + 40, y: p.pos.y - 40 };
+    farElite.elite = true;
+    farElite.eliteName = "THE LANDLORD";
+    farCarrier.pos = { x: p.pos.x - 40, y: p.pos.y + 40 };
+    farCarrier.hasKey = true;
+    const dyn = JSON.parse(serializeDynamic(a)) as GameState;
+    const shipped = dyn.monsters.map((m) => m.id);
+    expect(shipped).toContain(near.id); // in the bubble
+    expect(shipped).toContain(farElite.id); // boss bar / ringside never starve
+    expect(shipped).toContain(farCarrier.id); // the key matters wherever it is
+    expect(shipped).not.toContain(farGrunt.id); // fog-hidden chaff stays home
+    // The authoritative count rides along so hosts can tell "cleared" from "far".
+    expect(dyn.monstersLeft).toBe(4);
+    // Shipped monsters are VERBATIM — the filter trims, never rewrites.
+    expect(dyn.monsters.find((m) => m.id === near.id)).toEqual(JSON.parse(JSON.stringify(near)));
+  });
+
+  it("payload contract: a dense-floor dynamic snapshot is a fraction of the full state", () => {
+    const g = createTestGame({ seed: 42, floor: 15, level: 18 });
+    drive(g, 60);
+    const full = serialize(g);
+    const dyn = serializeDynamic(g);
+    const shipped = (JSON.parse(dyn) as GameState).monsters.length;
+    expect(g.monsters.length).toBeGreaterThan(50); // the floor really is dense
+    expect(shipped).toBeLessThan(g.monsters.length); // and most of it stays home
+    expect(dyn.length).toBeLessThan(full.length * 0.6); // wire cost stays a fraction
   });
 });
 
