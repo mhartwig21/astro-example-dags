@@ -1,4 +1,5 @@
-import type { GameState } from "./types";
+import { CONFIG } from "./config";
+import type { GameState, Monster, Player } from "./types";
 
 // Snapshot layer: GameState <-> JSON. The authoritative server serializes state
 // for WebSocket snapshots (and persistence); clients deserialize and render.
@@ -51,9 +52,34 @@ export function deserialize(json: string): GameState {
   };
 }
 
-/** Encode the recurring DYNAMIC snapshot: everything except map + fog mask. */
+/**
+ * Interest management: the monsters a client could currently perceive. Fog
+ * hides everything beyond vision anyway, and on dense floors the far crowd
+ * was most of the recurring payload. Bosses, named elites, and key carriers
+ * always ship — the boss bar, ringside intros, and the key don't wait on
+ * proximity. Dynamic snapshots carry `monstersLeft` (the authoritative count)
+ * so hosts can tell a cleared floor from a distant one.
+ */
+export function interestMonsters(monsters: readonly Monster[], players: readonly Player[]): Monster[] {
+  const r2 = CONFIG.interestRadius * CONFIG.interestRadius;
+  return monsters.filter((m) =>
+    m.kind === "boss" || m.elite || m.hasKey ||
+    players.some((p) => {
+      if (!p.alive) return false;
+      const dx = p.pos.x - m.pos.x, dy = p.pos.y - m.pos.y;
+      return dx * dx + dy * dy <= r2;
+    }));
+}
+
+/** Encode the recurring DYNAMIC snapshot: everything except map + fog mask,
+ * with the monster list trimmed to the party's interest bubble. */
 export function serializeDynamic(state: GameState): string {
-  const wire = { ...state, explored: undefined, map: undefined, worlds: undefined };
+  const wire = {
+    ...state,
+    monsters: interestMonsters(state.monsters, state.players),
+    monstersLeft: state.monsters.length,
+    explored: undefined, map: undefined, worlds: undefined,
+  };
   return JSON.stringify(wire);
 }
 
@@ -132,9 +158,15 @@ export function serializeFor(state: GameState, playerId: number): string {
   });
 }
 
-/** Recurring DYNAMIC personal rivals snapshot (no map, no fog mask). */
+/** Recurring DYNAMIC personal rivals snapshot (no map, no fog mask, monsters
+ * trimmed to the interest bubble of this floor's crawlers). */
 export function serializeForDynamic(state: GameState, playerId: number): string {
   if (state.mode !== "rivals" || !state.worlds) return serializeDynamic(state);
   const { view } = rivalView(state, playerId);
-  return JSON.stringify({ ...view, explored: undefined, map: undefined });
+  return JSON.stringify({
+    ...view,
+    monsters: interestMonsters(view.monsters, view.players),
+    monstersLeft: view.monsters.length,
+    explored: undefined, map: undefined,
+  });
 }
