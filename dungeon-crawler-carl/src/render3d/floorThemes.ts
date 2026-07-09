@@ -246,6 +246,11 @@ export interface RoomPurpose {
   cornerStack?: string[]; // a tight hoard in one corner
   tableSet?: { table: string; seat: string; tabletop: string[] }; // furnished table + seating
   centerpiece?: { key: string; spill: string[] }; // one anchor prop + debris around it
+  rug?: string[]; // one goes under the table — nothing says "lived in" like a rug
+  // VARIANTS: seeded re-dressings of the same purpose (an officer's barracks
+  // vs a flophouse). Fields REPLACE the base purpose's when a variant rolls
+  // (~55% of the time), so every purpose reads two or three different ways.
+  variants?: (Partial<Omit<RoomPurpose, "variants">> & { id: string })[];
 }
 
 export const ROOM_PURPOSES: RoomPurpose[] = [
@@ -254,12 +259,20 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallRun: ["keg", "barrel_large", "crates_stacked", "box_large", "keg_decorated"],
     wallMount: ["shelf_small"],
     cornerStack: ["box_small", "barrel_small", "trunk_small_A"],
+    variants: [
+      { id: "wine_cellar", wallRun: ["keg_decorated", "barrel_small_stack", "keg", "barrel_large"], cornerStack: ["bottle_a_labeled_green", "bottle_b_brown", "bottle_A_green"], wallMount: ["shelf_small", "lantern_hanging"] },
+      { id: "ransacked", wallRun: ["table_medium_broken", "rubble_half", "box_large"], cornerStack: ["rubble_half", "barrel_small"], wallMount: ["banner_brown"] },
+    ],
   },
   {
     id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
     wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
     wallMount: ["banner_red", "shelf_small"],
     tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
+    variants: [
+      { id: "tavern_night", rug: ["rug_oval_a"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["mug_a", "mug_b", "vampire_goblet", "plate_food_a"] }, wallMount: ["lantern_hanging", "banner_red"] },
+      { id: "washup", wallRun: ["bartop_a_medium", "dishrack_plates", "keg"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_stack"] } },
+    ],
   },
   {
     id: "archive", // the dungeon keeps records: bookcase runs and a reading table
@@ -267,6 +280,9 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["shelf_small_books"],
     cornerStack: ["book_single", "box_small"],
     tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["book_single"] },
+    variants: [
+      { id: "map_annex", tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled", "book_single"] }, cornerStack: ["map_rolled", "box_small"], rug: ["rug_rectangle_a"] },
+    ],
   },
   {
     id: "guardpost", // a watch was stationed here; the shift ended badly
@@ -274,6 +290,10 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["banner_shield_red", "torch_mounted"],
     cornerStack: ["barrel_small", "bottle_A_green"],
     centerpiece: { key: "table_medium_broken", spill: ["sword_shield_broken", "bottle_A_green"] },
+    variants: [
+      { id: "card_watch", tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_hearts_king", "mug_b", "coin_silver"] }, centerpiece: undefined },
+      { id: "armory_rack", wallRun: ["weaponrack", "weaponrack_decorated", "bench"], centerpiece: { key: "dummy_base", spill: ["sword_shield_broken"] } },
+    ],
   },
   // Wave 2 (extracted 2026-07-09: Dungeon Remastered beds/chair/food plates,
   // Restaurant pots, Resource barrels, Block Bits anvil, Adventurers potions).
@@ -283,6 +303,10 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["banner_blue", "shelf_small"],
     cornerStack: ["trunk_small_A", "box_small"],
     tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["bottle_A_green"] },
+    variants: [
+      { id: "officers", wallRun: ["bed_decorated", "bookcase_single", "trunk_small_A"], rug: ["rug_rectangle_a"], tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["vampire_goblet", "book_single"] } },
+      { id: "flophouse", wallRun: ["bed_floor", "bed_floor", "box_small"], wallMount: ["banner_brown"], cornerStack: ["bottle_b_brown", "bottle_A_green", "barrel_small"], tableSet: undefined },
+    ],
   },
   {
     id: "kitchen", // the mess gets fed from somewhere: stew pots and stock
@@ -290,6 +314,10 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["shelf_small", "banner_brown"],
     cornerStack: ["pot_large", "barrel_small"],
     centerpiece: { key: "pot_a_stew", spill: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
+    variants: [
+      { id: "mushroom_prep", wallRun: ["crate_mushrooms", "basket_mushrooms", "barrel_small_stack"], centerpiece: { key: "pot_large", spill: ["mushroom", "mushroom", "plate_food_b"] } },
+      { id: "sculleryard", wallRun: ["dishrack_plates", "bartop_a_medium", "crate_large_decorated"], centerpiece: { key: "pot_a_stew", spill: ["plate_stack", "mug_a"] } },
+    ],
   },
   {
     id: "forge", // a work floor: the anvil is the altar and fuel is the faith
@@ -297,6 +325,9 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["torch_mounted", "shelf_small"],
     cornerStack: ["rubble_half", "barrel_small"],
     centerpiece: { key: "anvil", spill: ["sword_shield_broken", "rubble_half"] },
+    variants: [
+      { id: "cold_forge", wallMount: ["banner_brown", "shelf_small"], centerpiece: { key: "anvil", spill: ["rubble_half", "rubble_large", "skull"] }, cornerStack: ["rubble_large", "fuel_a_barrels"] },
+    ],
   },
   {
     id: "apothecary", // shelves of glassware; the dungeon brews its own
@@ -304,5 +335,42 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["shelf_small_books", "banner_green"],
     cornerStack: ["gems_sack", "box_small"],
     tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["potion_huge_green", "potion_large_blue", "potion_medium_red"] },
+    variants: [
+      { id: "witch_pantry", wallRun: ["shelf_small", "crate_mushrooms", "bookcase_single"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["basket_mushrooms", "potion_medium_red", "mushroom"] }, cornerStack: ["basket_mushrooms", "gems_sack"] },
+    ],
+  },
+  // Wave 3: whole new jobs (Prototype/Board Game/RPG Tools/Halloween bits).
+  {
+    id: "trainhall", // the watch drills here: racks, dummies, and splinters
+    wallRun: ["weaponrack", "weaponrack_decorated", "bench"],
+    wallMount: ["banner_red", "torch_mounted"],
+    cornerStack: ["box_large", "barrel_small"],
+    centerpiece: { key: "trainingdummy_base", spill: ["sword_shield_broken", "rubble_half"] },
+    variants: [
+      { id: "proving_ground", centerpiece: { key: "dummy_base", spill: ["sword_shield_broken", "sword_shield_broken"] }, wallMount: ["banner_white", "torch_mounted"] },
+    ],
+  },
+  {
+    id: "den", // after the shift: cards, coins, and nobody watching the door
+    wallRun: ["keg_decorated", "barrel_large", "bench"],
+    wallMount: ["lantern_hanging", "banner_brown"],
+    cornerStack: ["bottle_b_brown", "box_small", "coin_silver"],
+    rug: ["rug_rectangle_b", "rug_oval_a"],
+    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_spades_ace", "card_hearts_king", "coin_gold", "coin_10_gold", "mug_a", "vampire_goblet"] },
+  },
+  {
+    id: "warroom", // somebody is planning something down here
+    wallRun: ["bookcase_single", "weaponrack", "box_large"],
+    wallMount: ["banner_shield_red", "banner_blue"],
+    cornerStack: ["map_rolled", "trunk_small_A"],
+    rug: ["rug_rectangle_a"],
+    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled"] },
+  },
+  {
+    id: "ossuary", // the dungeon files its dead like everything else
+    wallRun: ["rubble_half", "rubble_large", "crate_large_decorated"],
+    wallMount: ["banner_white", "torch_mounted"],
+    cornerStack: ["skull", "bone_A", "ribcage"],
+    centerpiece: { key: "ribcage", spill: ["skull", "bone_A", "rubble_half"] },
   },
 ];
