@@ -635,7 +635,7 @@ export interface Hazard {
   // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
   // standing in it and burns crawlers (contested ground).
   kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
-  flavor?: "flame"; // blast dressing: Flame Sweep rows render as FIRE, not falling ordnance
+  flavor?: "flame" | "debris"; // blast dressing: fire wall / falling masonry (default: clown ordnance)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as

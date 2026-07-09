@@ -1368,6 +1368,7 @@ function hazardReview(state: GameState, p: Player): void {
     state.hazards.push({
       id: state.nextEntityId++, pos, t: delay, total: delay,
       radius: CONFIG.interferenceHazardRadius, damage: dmg, // kind absent = blast
+      flavor: "debris", // the review drops masonry, not clowns
     });
   }
   announce(state, "show", `NOTICE: ${p.name}'s sector has failed its engagement review. Environmental corrections are incoming. The System recommends movement.`);
@@ -1640,6 +1641,7 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
       radius: CONFIG.debrisRadius,
       damage: m.damage * CONFIG.debrisDmgMult,
       kind: "blast",
+      flavor: "debris", // falling masonry, not falling ordnance (backlog #4)
     });
   }
   announceSignature(state, m, "The ceiling is NEGOTIABLE. Masonry incoming — watch the circles, not the boss.");
