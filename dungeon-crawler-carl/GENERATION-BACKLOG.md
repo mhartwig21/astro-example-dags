@@ -88,7 +88,16 @@ treatment in `renderer3d.buildFxRing`, verified in-app. Findings: fine surface
 detail (runes) does NOT survive generation — prompt for chunky silhouettes,
 not engravings; dark albedo + strong emissive reads as saturated glow (a
 feature); the palette snap is fine for effect meshes since the tint comes
-from the emissive layer. Cataclysm also got its correct radius and the
+from the emissive layer.
+
+**Candidates-per-slot validated 2026-07-09** (plan-v2's process, now the
+DEFAULT for effect meshes): regenerated the two weakest kit meshes with 3
+prompt-varied candidates each. Result: 2 clear winners out of 6 (crystal-shard
+nova ring, flat comic-splat detonation star) — variance between candidates on
+the same intent is enormous, and single-shot accepts leave quality on the
+table. Losers included disconnected geometry and a re-roll of the original
+failure mode. Budget ~20 credits per candidate; pick only what beats the
+incumbent. Cataclysm also got its correct radius and the
 Aftermath echo stopped rendering as an airstrike keg (crown ground marker).
 
 | Effect mesh | Replaces | Prompt sketch |
