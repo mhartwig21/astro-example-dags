@@ -4,7 +4,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
-import { serialize, serializeFor } from "../sim/snapshot";
+import { serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey } from "../sim/snapshot";
 import { Leaderboard } from "./leaderboard";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
 
@@ -23,8 +23,11 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } 
 //     { t: "sellAll" }                                 liquidate the whole bag
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
-//     { t: "welcome", playerId, snapshot }             join accepted
-//     { t: "snap", tick, snapshot }                    full state (interval below)
+//     { t: "welcome", playerId, snapshot }             join accepted (full state)
+//     { t: "snap", tick, full?, snapshot }             state (interval below).
+//         full=true carries map + fog (join/floor change/doors unlocking);
+//         otherwise DYNAMIC — no map/fog, the client keeps its cached world
+//         and reveals fog locally (see snapshot.ts). Halves the payload.
 //     { t: "events", events, announcements, hits }     this tick's transients
 
 export const TICK_HZ = 30;
@@ -72,6 +75,7 @@ export function sanitizeIntent(raw: unknown): Intent {
 interface Client {
   ws: WebSocket;
   playerId: number;
+  worldKey?: string; // rivals: the world this client last got in FULL
 }
 
 interface Instance {
@@ -81,6 +85,7 @@ interface Instance {
   intents: PartyIntents;
   tick: number;
   timer: NodeJS.Timeout;
+  worldKey: string; // co-op: the world last broadcast in FULL ("" = never)
 }
 
 /** Deterministic seed from an invite code (djb2), so a party code IS the dungeon. */
@@ -288,7 +293,9 @@ export class GameServer {
         }
         const player = seatless[0] ?? addPlayer(inst.state, name);
         player.name = name;
-        inst.clients.push({ ws, playerId: player.id });
+        const client: Client = { ws, playerId: player.id };
+        if (inst.state.mode === "rivals") client.worldKey = rivalWorldKey(inst.state, player.id);
+        inst.clients.push(client);
         joined = { inst, playerId: player.id };
         ws.send(JSON.stringify({
           t: "welcome", playerId: player.id,
@@ -374,6 +381,7 @@ export class GameServer {
       intents: {},
       tick: 0,
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
+      worldKey: "", // first snapshot tick broadcasts FULL
     };
     this.instances.set(code, inst);
     return inst;
@@ -395,15 +403,29 @@ export class GameServer {
       this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
     }
     if (inst.tick % SNAPSHOT_EVERY === 0) {
+      // FULL (map + fog) only when the client's world identity changes —
+      // floor descent or a mapVersion bump (doors unlocking). Every other
+      // snapshot is DYNAMIC: the client keeps its cached world.
       if (s.mode === "rivals") {
         // Personal snapshots: each rival sees THEIR floor + the standings.
         for (const c of inst.clients) {
-          if (c.ws.readyState === WebSocket.OPEN) {
-            c.ws.send(JSON.stringify({ t: "snap", tick: inst.tick, snapshot: serializeFor(s, c.playerId) }));
-          }
+          if (c.ws.readyState !== WebSocket.OPEN) continue;
+          const key = rivalWorldKey(s, c.playerId);
+          const full = key !== c.worldKey;
+          c.worldKey = key;
+          c.ws.send(JSON.stringify({
+            t: "snap", tick: inst.tick, full: full || undefined,
+            snapshot: full ? serializeFor(s, c.playerId) : serializeForDynamic(s, c.playerId),
+          }));
         }
       } else {
-        this.broadcast(inst, { t: "snap", tick: inst.tick, snapshot: serialize(s) });
+        const key = `${s.floor}:${s.mapVersion}`;
+        const full = key !== inst.worldKey;
+        inst.worldKey = key;
+        this.broadcast(inst, {
+          t: "snap", tick: inst.tick, full: full || undefined,
+          snapshot: full ? serialize(s) : serializeDynamic(s),
+        });
       }
     }
     const ms = performance.now() - t0;

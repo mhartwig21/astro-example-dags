@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
 import { GameServer, seedFromCode } from "../src/server/gameServer";
-import { serialize, deserialize } from "../src/sim/snapshot";
+import { serialize, deserialize, serializeDynamic, deserializeDynamic } from "../src/sim/snapshot";
 import { createGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
 
@@ -29,6 +29,24 @@ describe("snapshot (serialize/deserialize)", () => {
     drive(b, 120);
     expect(serialize(a)).toBe(serialize(b));
   });
+
+  it("DYNAMIC snapshots ship no map/fog and ride the cached world losslessly", () => {
+    const a = createGame(31337);
+    drive(a, 120);
+    const dyn = serializeDynamic(a);
+    expect(dyn).not.toContain('"tiles"');
+    expect(dyn).not.toContain('"explored"');
+    // The diet is the point: the recurring snapshot sheds the grid + mask.
+    expect(dyn.length).toBeLessThan(serialize(a).length * 0.75);
+    // Reattached to a cached world, it is the SAME state (golden determinism).
+    // Deep equality, not string equality: reattaching moves map/explored to
+    // the end of the key order, which JSON preserves but nobody reads.
+    const world = deserialize(serialize(a)); // an old full snapshot's world
+    const b = deserializeDynamic(dyn, world.map, world.explored);
+    drive(a, 120);
+    drive(b, 120);
+    expect(JSON.parse(serialize(b))).toEqual(JSON.parse(serialize(a)));
+  });
 });
 
 // ---- Phase 4: authoritative server with two simulated clients ----
@@ -37,6 +55,7 @@ interface TestClient {
   ws: WebSocket;
   playerId: number;
   lastSnap: GameState | null;
+  snaps: { full: boolean; bytes: number }[];
   events: string[];
   send: (msg: unknown) => void;
   close: () => void;
@@ -49,19 +68,32 @@ function connect(port: number, code: string, name: string, rivals = false): Prom
       ws,
       playerId: -1,
       lastSnap: null,
+      snaps: [],
       events: [],
       send: (msg) => ws.send(JSON.stringify(msg)),
       close: () => ws.close(),
+    };
+    // Mirrors NetClient: full snapshots refresh the cached world, dynamic
+    // ones (the recurring kind) ride on it.
+    let world: { map: GameState["map"]; explored: Uint8Array } | null = null;
+    const absorb = (snapshot: string, full: boolean): GameState | null => {
+      if (full) {
+        const s = deserialize(snapshot);
+        world = { map: s.map, explored: s.explored };
+        return s;
+      }
+      return world ? deserializeDynamic(snapshot, world.map, world.explored) : null;
     };
     ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined }));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
         client.playerId = msg.playerId;
-        client.lastSnap = deserialize(msg.snapshot);
+        client.lastSnap = absorb(msg.snapshot, true);
         resolve(client);
       } else if (msg.t === "snap") {
-        client.lastSnap = deserialize(msg.snapshot);
+        client.snaps.push({ full: msg.full === true, bytes: msg.snapshot.length });
+        client.lastSnap = absorb(msg.snapshot, msg.full === true) ?? client.lastSnap;
       } else if (msg.t === "events") {
         client.events.push(...msg.events, ...msg.announcements.map((a: { text: string }) => a.text));
       }
@@ -124,6 +156,24 @@ describe("authoritative server", () => {
 
     a.close();
     b.close();
+  });
+
+  it("recurring snapshots are DYNAMIC — the world ships once, not 15 times a second", async () => {
+    const a = await connect(port, "DIET-1", "Carl");
+    await waitFor(() => a.snaps.length >= 6);
+    // At most one full (the fresh instance's first broadcast); the steady
+    // state is dynamic, and dynamic frames are decisively smaller.
+    const fulls = a.snaps.filter((s) => s.full);
+    const dyns = a.snaps.filter((s) => !s.full);
+    expect(fulls.length).toBeLessThanOrEqual(1);
+    expect(dyns.length).toBeGreaterThanOrEqual(5);
+    if (fulls.length > 0) {
+      expect(Math.max(...dyns.map((s) => s.bytes))).toBeLessThan(fulls[0].bytes * 0.75);
+    }
+    // And the merged view still has a world to render.
+    expect(a.lastSnap!.map.tiles.length).toBeGreaterThan(0);
+    expect(a.lastSnap!.explored.length).toBe(a.lastSnap!.map.tiles.length);
+    a.close();
   });
 
   it("different codes get different instances (and different dungeons)", async () => {

@@ -6,13 +6,21 @@ import type { GameState } from "./types";
 // Uint8Arrays (map tiles + fog mask), which round-trip as number[]. Determinism
 // guarantee: stepping a deserialized snapshot produces exactly the same states as
 // stepping the original (covered by a golden test).
+//
+// TWO WIRE SHAPES. A FULL snapshot carries everything, including the tile grid
+// and fog mask — sent on join and whenever the world changes (new floor, doors
+// unlocking bump mapVersion). The recurring 15/s snapshot is DYNAMIC: it omits
+// map + explored, which are static/monotonic and were ~half the payload. The
+// client re-attaches its cached map and maintains fog locally with
+// revealExplored (game.ts) — same math the sim runs, driven by the same
+// player positions, so the mask matches what the server would have sent.
 
 interface WireState extends Omit<GameState, "explored" | "map"> {
   explored: number[];
   map: Omit<GameState["map"], "tiles"> & { tiles: number[] };
 }
 
-/** Encode a game state as a JSON string (safe to send over the wire / persist). */
+/** Encode a FULL game state as a JSON string (join/world-change/persistence). */
 export function serialize(state: GameState): string {
   const wire: WireState = {
     ...state,
@@ -22,7 +30,7 @@ export function serialize(state: GameState): string {
   return JSON.stringify(wire);
 }
 
-/** Decode a serialized game state, reviving typed arrays. */
+/** Decode a serialized FULL game state, reviving typed arrays. */
 export function deserialize(json: string): GameState {
   const wire = JSON.parse(json) as WireState;
   return {
@@ -30,6 +38,20 @@ export function deserialize(json: string): GameState {
     explored: new Uint8Array(wire.explored),
     map: { ...wire.map, tiles: new Uint8Array(wire.map.tiles) },
   };
+}
+
+/** Encode the recurring DYNAMIC snapshot: everything except map + fog mask. */
+export function serializeDynamic(state: GameState): string {
+  const wire = { ...state, explored: undefined, map: undefined, worlds: undefined };
+  return JSON.stringify(wire);
+}
+
+/** Decode a DYNAMIC snapshot onto the client's cached world (map + fog). */
+export function deserializeDynamic(
+  json: string, map: GameState["map"], explored: Uint8Array,
+): GameState {
+  const wire = JSON.parse(json) as Omit<GameState, "explored" | "map">;
+  return { ...wire, map, explored };
 }
 
 /** Race standings shipped to every rivals client (the ticker's data). */
@@ -49,12 +71,11 @@ export interface RivalMeta {
  * state), their own shop as state.safeRoom, only same-floor players, plus
  * the standings meta for everyone. Nobody ships every world every tick.
  */
-export function serializeFor(state: GameState, playerId: number): string {
-  if (state.mode !== "rivals" || !state.worlds) return serialize(state);
+function rivalView(state: GameState, playerId: number) {
   const me = state.players.find((p) => p.id === playerId);
-  const floors = Object.keys(state.worlds).map(Number);
+  const floors = Object.keys(state.worlds!).map(Number);
   const floorNo = me?.floorNo ?? Math.min(...floors);
-  const w = state.worlds[floorNo] ?? state.worlds[Math.min(...floors)];
+  const w = state.worlds![floorNo] ?? state.worlds![Math.min(...floors)];
   const rivals: RivalMeta[] = state.players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -64,17 +85,45 @@ export function serializeFor(state: GameState, playerId: number): string {
     downedT: p.downedT ?? 0,
     shopping: !!p.safeRoom,
   }));
-  const view = {
-    ...state,
-    ...w,
-    worlds: undefined, // never ship the multiverse
-    players: state.players.filter(
-      (p) => p.id === playerId || (p.floorNo === floorNo && !p.safeRoom),
-    ),
-    safeRoom: me?.safeRoom ?? null, // the personal shop rides the classic slot
-    rivals,
-    explored: Array.from(w.explored),
-    map: { ...w.map, tiles: Array.from(w.map.tiles) },
+  return {
+    view: {
+      ...state,
+      ...w,
+      worlds: undefined, // never ship the multiverse
+      players: state.players.filter(
+        (p) => p.id === playerId || (p.floorNo === floorNo && !p.safeRoom),
+      ),
+      safeRoom: me?.safeRoom ?? null, // the personal shop rides the classic slot
+      rivals,
+    },
+    world: w,
   };
-  return JSON.stringify(view);
+}
+
+/** The world identity a rivals client is looking at (drives full-vs-dynamic). */
+export function rivalWorldKey(state: GameState, playerId: number): string {
+  if (state.mode !== "rivals" || !state.worlds) return `${state.floor}:${state.mapVersion}`;
+  const me = state.players.find((p) => p.id === playerId);
+  const floors = Object.keys(state.worlds).map(Number);
+  const floorNo = me?.floorNo ?? Math.min(...floors);
+  const w = state.worlds[floorNo] ?? state.worlds[Math.min(...floors)];
+  return `${floorNo}:${w.mapVersion}`;
+}
+
+/** FULL personal rivals snapshot (join + world changes). */
+export function serializeFor(state: GameState, playerId: number): string {
+  if (state.mode !== "rivals" || !state.worlds) return serialize(state);
+  const { view, world } = rivalView(state, playerId);
+  return JSON.stringify({
+    ...view,
+    explored: Array.from(world.explored),
+    map: { ...world.map, tiles: Array.from(world.map.tiles) },
+  });
+}
+
+/** Recurring DYNAMIC personal rivals snapshot (no map, no fog mask). */
+export function serializeForDynamic(state: GameState, playerId: number): string {
+  if (state.mode !== "rivals" || !state.worlds) return serializeDynamic(state);
+  const { view } = rivalView(state, playerId);
+  return JSON.stringify({ ...view, explored: undefined, map: undefined });
 }

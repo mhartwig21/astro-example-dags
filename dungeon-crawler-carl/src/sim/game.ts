@@ -4606,13 +4606,19 @@ function checkAchievements(state: GameState): void {
   }
 }
 
-/** Mark tiles within any living player's vision radius as explored (shared fog). */
-function revealAround(state: GameState): void {
-  const { map, explored } = state;
+/**
+ * Mark tiles within the given crawlers' vision radius as explored. Pure grid
+ * math, exported because net clients maintain fog LOCALLY: recurring wire
+ * snapshots stopped shipping the (huge, monotonic) mask — see snapshot.ts.
+ */
+export function revealExplored(
+  map: { w: number; h: number }, explored: Uint8Array,
+  players: readonly { alive: boolean; pos: Vec2 }[],
+): boolean {
   const r = CONFIG.fogVisionRadius;
   const r2 = r * r;
   let changed = false;
-  for (const player of state.players) {
+  for (const player of players) {
     if (!player.alive) continue;
     const px = player.pos.x, py = player.pos.y;
     const x0 = Math.max(0, Math.floor(px - r)), x1 = Math.min(map.w - 1, Math.ceil(px + r));
@@ -4628,5 +4634,10 @@ function revealAround(state: GameState): void {
       }
     }
   }
-  if (changed) state.exploredVersion++;
+  return changed;
+}
+
+/** Mark tiles within any living player's vision radius as explored (shared fog). */
+function revealAround(state: GameState): void {
+  if (revealExplored(state.map, state.explored, state.players)) state.exploredVersion++;
 }
