@@ -195,9 +195,14 @@ exhale) — announced once, stops the moment the boss falls. Floors 3/12 have
 no director by design (trainer arena; debris is already arena-wide).
 
 **Layer 4: New boss FORMATS (pick 2–3, don't ship all):**
-- **The Duo** — two mid-HP bosses with complementary kits (QA Team:
-  Robot_One tank + Robot_Two sniper); when one dies the other ENRAGES.
-  Kill-order at boss scale, brutal in the best way.
+- ~~**The Duo**~~ — **SHIPPED 2026-07-09**: THE QA TEAM holds floor 17 — QA
+  UNIT ONE (lineworker tank) + QA UNIT TWO (sentinel turret) share a
+  `duoId`; the survivor ENRAGES (permanent frenzy, +damage, +speed, a
+  grief-heal, and a "flagged as a DEFECT" line). The champion tier also
+  grew: **The Pack Alpha** (oversized charger) stalks floor 8; the
+  `CHAMPIONS` table in config drives all of it. Hook Squad targeting glue
+  turned out to be done-by-design: the hook drags TO the lasher, and the
+  pack formation puts the brute there.
 - **The Council** — three champion-grade elites introduced TOGETHER
   (RINGSIDE handles it — "THE PANEL WILL SEE YOU NOW"). Cheaper than a real
   boss, reads completely different.

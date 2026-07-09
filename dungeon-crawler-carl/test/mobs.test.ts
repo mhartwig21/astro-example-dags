@@ -976,3 +976,41 @@ describe("boss layers", () => {
     expect(seen).toBe(8); // every floor 14 has its champion
   });
 });
+
+describe("champions + the duo", () => {
+  it("The Pack Alpha stalks floor 8; the QA Team holds floor 17 as a duo", () => {
+    const g8 = createTestGame({ seed: 3, floor: 8 });
+    const alpha = g8.monsters.find((m) => m.eliteName === "The Pack Alpha");
+    expect(alpha).toBeDefined();
+    expect(alpha!.kind).toBe("charger");
+    expect(alpha!.elite).toBe(true);
+
+    const g17 = createTestGame({ seed: 3, floor: 17 });
+    const one = g17.monsters.find((m) => m.eliteName === "QA UNIT ONE");
+    const two = g17.monsters.find((m) => m.eliteName === "QA UNIT TWO");
+    expect(one).toBeDefined();
+    expect(two).toBeDefined();
+    expect(one!.duoId).toBeDefined();
+    expect(one!.duoId).toBe(two!.duoId); // linked — the enrage seam
+  });
+
+  it("when one QA unit dies, the survivor ENRAGES: permanent frenzy, hotter, healed", () => {
+    const g = createTestGame({ seed: 3, floor: 17 });
+    const one = g.monsters.find((m) => m.eliteName === "QA UNIT ONE")!;
+    const two = g.monsters.find((m) => m.eliteName === "QA UNIT TWO")!;
+    two.hp = Math.round(two.maxHp * 0.4); // wounded, so the grief-heal shows
+    const dmgBefore = two.damage;
+    const hpBefore = two.hp;
+    one.hp = 0; // drop the tank
+    run(g, 0.2);
+    expect(two.enraged).toBe(true);
+    expect(two.damage).toBeGreaterThan(dmgBefore);
+    expect(two.hp).toBeGreaterThan(hpBefore); // it patched itself in fury
+    // Permanent frenzy: cooldowns decay faster forever, no frenzyT required.
+    two.attackCooldown = 1;
+    const plain = g.monsters.find((m) => m.kind === "grunt" && dist(m.pos, g.players[0].pos) > 12);
+    if (plain) plain.attackCooldown = 1;
+    run(g, 0.5);
+    if (plain) expect(two.attackCooldown).toBeLessThan(plain.attackCooldown);
+  });
+});

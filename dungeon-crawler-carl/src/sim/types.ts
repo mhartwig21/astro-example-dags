@@ -307,6 +307,10 @@ export interface Monster {
   // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
   // own signature with the PREVIOUS band's — fights escalate in mechanics.
   sigAlt?: boolean;
+  // THE DUO (boss layer 4): members share a duoId; when one dies the
+  // survivor ENRAGES — permanent frenzy, hotter hits, and a grudge.
+  duoId?: number;
+  enraged?: boolean;
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)

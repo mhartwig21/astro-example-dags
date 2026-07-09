@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, PACK_TEMPLATES, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
+import { ARCHETYPES, CHAMPIONS, CONFIG, FLOOR_BANDS, PACK_TEMPLATES, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
@@ -461,19 +461,29 @@ function spawnMonsters(state: GameState): void {
     }
   }
 
-  // THE FOREMAN (champion tier pilot, boss layer 1): floor 14's checkpoint
-  // fight — a mini-boss kit without the arena or the seal. Elite plumbing
-  // provides the ringside intro and the guaranteed drops.
-  if (floor === CONFIG.foremanFloor && totalW > 0) {
-    const pos = inRoom(pickRoom());
-    if (pos) {
-      const champ = makeMonster(state, "foreman", pos);
-      champ.hp = champ.maxHp = Math.round(champ.maxHp * CONFIG.foremanHpMult);
+  // THE CHAMPION TIER (boss layer 1) + DUOS (layer 4): named checkpoint
+  // fights from the CHAMPIONS table — mini-bosses without the arena or the
+  // seal. Elite plumbing provides ringside intros and guaranteed drops;
+  // duo members share a duoId (the survivor ENRAGES — see reapDead).
+  for (const entry of CHAMPIONS) {
+    if (entry.floor !== floor || totalW <= 0) continue;
+    const anchor = inRoom(pickRoom());
+    if (!anchor) continue;
+    const duoId = entry.members.length > 1 ? state.nextEntityId++ : undefined;
+    entry.members.forEach((member, i) => {
+      let pos = { x: anchor.x + i * 1.4, y: anchor.y + (i % 2) * 1.1 };
+      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      const champ = makeMonster(state, member.kind, pos);
+      champ.hp = champ.maxHp = Math.round(champ.maxHp * member.hpMult);
       champ.elite = true;
-      champ.eliteName = "The Foreman";
+      champ.eliteName = member.name;
+      champ.duoId = duoId;
       state.monsters.push(champ);
-      announce(state, "boss", "CHAMPION ON THE FLOOR: THE FOREMAN clocks in. The Ironworks' middle manager has a quota, and the quota is you.");
-    }
+    });
+    const names = entry.members.map((m) => m.name).join(" & ");
+    announce(state, "boss", entry.members.length > 1
+      ? `CHAMPIONS ON THE FLOOR: ${names}. A double act — and whichever falls first, the other takes it PERSONALLY.`
+      : `CHAMPION ON THE FLOOR: ${names}. A checkpoint fight with a name and a purse.`);
   }
 
   // VAULT: a lone brute guardian over guaranteed treasure (risk/reward detour).
@@ -2467,6 +2477,18 @@ function reapDead(state: GameState): void {
         damage: m.damage * CONFIG.volatileDmgMult,
       });
       announce(state, "boss", `${m.eliteName ?? "The elite"} is COOKING OFF. Clear the corpse!`);
+    }
+    // THE DUO (boss layer 4): a fallen unit's partner ENRAGES — permanent
+    // frenzy, hotter hits, a grief-heal, and a very personal grudge.
+    if (m.duoId !== undefined) {
+      const partner = state.monsters.find((o) => o !== m && o.duoId === m.duoId && o.hp > 0);
+      if (partner && !partner.enraged) {
+        partner.enraged = true;
+        partner.damage *= CONFIG.duoEnrageDamageMult;
+        partner.speed *= CONFIG.duoEnrageSpeedMult;
+        partner.hp = Math.min(partner.maxHp, partner.hp + Math.round(partner.maxHp * CONFIG.duoEnrageHealFraction));
+        announce(state, "boss", `${partner.eliteName ?? "The survivor"} has flagged your existence as a DEFECT. It took that PERSONALLY.`, "high");
+      }
     }
     // The Suit Actor UNZIPS: a terrified extra crawls out and runs for it.
     // Killing him is worth ~nothing; letting him reach the exit pays hype.

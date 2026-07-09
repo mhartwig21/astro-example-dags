@@ -370,12 +370,14 @@ export const CONFIG = {
   packTemplateChance: 0.35, // share of pack rolls that use a band template
 
   // BOSS LAYERS (MOB-CONCEPTS.md).
-  // Layer 1 — champions: The Foreman pilots the tier (floor 14 mini-boss).
-  foremanFloor: 14,
-  foremanHpMult: 2.2, // × its archetype pool (mini-boss, not arena boss)
+  // Layer 1 — champions (the CHAMPIONS table below drives the spawns).
   foremanVolleyCooldown: 5,
   foremanVolleyCount: 6,
   foremanSlamCooldown: 6,
+  // Layer 4 — THE DUO: when one QA unit dies, the survivor ENRAGES.
+  duoEnrageDamageMult: 1.3,
+  duoEnrageSpeedMult: 1.25,
+  duoEnrageHealFraction: 0.25, // of max HP, patched in by the grief
   // Layer 3 — arena directors: the ROOM acts on a rhythm while the boss
   // lives, reusing the signature helpers on the arena's own metronome
   // (deliberately slower than the boss's sigCd — layered, not doubled).
@@ -1181,6 +1183,27 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "hexer", dx: -1, dy: -1.5 }, { kind: "sniper", dx: 1, dy: -2 },
     ] },
   ],
+];
+
+// THE CHAMPION TIER (boss layer 1) + THE DUO (layer 4): named checkpoint
+// fights on mid-band floors, spawned via the elite plumbing (ringside intro,
+// guaranteed drops). Multi-member entries are DUOS: the members share a
+// duoId, and when one dies the survivor ENRAGES (duoEnrage* knobs).
+export const CHAMPIONS: {
+  floor: number;
+  members: { kind: import("./types").MonsterKind; name: string; hpMult: number }[];
+}[] = [
+  // THE GARDEN's apex predator: an oversized alpha on the charger brain —
+  // champion-scale HP behind the locked-lane rushes players already read.
+  { floor: 8, members: [{ kind: "charger", name: "The Pack Alpha", hpMult: 2.6 }] },
+  // THE IRONWORKS' middle manager (the tier's pilot, migrated to the table).
+  { floor: 14, members: [{ kind: "foreman", name: "The Foreman", hpMult: 2.2 }] },
+  // THE APPROACH's pre-finale audit: a DUO — the tank punches, the turret
+  // paints, and whichever one you drop first, the other takes it PERSONALLY.
+  { floor: 17, members: [
+    { kind: "lineworker", name: "QA UNIT ONE", hpMult: 3.2 },
+    { kind: "sentinel", name: "QA UNIT TWO", hpMult: 2.4 },
+  ] },
 ];
 
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */

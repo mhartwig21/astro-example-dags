@@ -471,8 +471,10 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.hitFlash > 0) m.hitFlash = Math.max(0, m.hitFlash - dt);
   // Drum frenzy (aura verb): the beat makes cooldowns DECAY faster — swings
   // come sooner while the windups stay full-length (tells remain readable).
-  const frenzied = (m.frenzyT ?? 0) > 0;
-  if (frenzied) m.frenzyT = Math.max(0, (m.frenzyT ?? 0) - dt);
+  // An ENRAGED duo survivor runs the same frenzy, permanently — the grudge
+  // does not expire.
+  const frenzied = (m.frenzyT ?? 0) > 0 || !!m.enraged;
+  if ((m.frenzyT ?? 0) > 0) m.frenzyT = Math.max(0, (m.frenzyT ?? 0) - dt);
   if ((m.shieldT ?? 0) > 0) m.shieldT = Math.max(0, (m.shieldT ?? 0) - dt);
   if ((m.riposteT ?? 0) > 0) m.riposteT = Math.max(0, (m.riposteT ?? 0) - dt);
   if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt * (frenzied ? CONFIG.drumFrenzyHaste : 1));
