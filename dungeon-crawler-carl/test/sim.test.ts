@@ -21,7 +21,7 @@ import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, monsterTempo } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
 function idle(): Intent {
@@ -3528,18 +3528,22 @@ describe("no-op safety", () => {
   });
 });
 
-describe("Roam mode (v1 — SETTLEMENTS.md)", () => {
-  it("generates a bigger grid with a settlement room, one tribe, and a quest", () => {
+describe("Roam mode (SETTLEMENTS.md)", () => {
+  it("generates a bigger grid with a settlement, a stronghold, and a tribe-tagged floor", () => {
     const g = createGame(42, "coop", "roam");
     expect(g.map.w).toBe(CONFIG.roamFloorGridW);
     expect(g.map.h).toBe(CONFIG.roamFloorGridH);
     expect(g.map.settlementRoomIdx).toBeGreaterThanOrEqual(0);
     expect(g.map.roles[g.map.settlementRoomIdx]).toBe("settlement");
+    expect(g.map.strongholdRoomIdx).toBeGreaterThanOrEqual(0);
+    expect(g.map.roles[g.map.strongholdRoomIdx]).toBe("stronghold");
+    expect(g.map.strongholdRoomIdx).not.toBe(g.map.settlementRoomIdx);
     expect(g.npc).not.toBeNull();
-    expect(g.quest).not.toBeNull();
-    expect(g.quest!.tribe).toBe(CONFIG.roamTribeId);
+    expect(g.quests).toHaveLength(1);
+    expect(g.quests[0].objective.kind).toBe("killTribe");
     expect(g.monsters.length).toBeGreaterThan(0);
-    expect(g.monsters.every((m) => m.tribe === CONFIG.roamTribeId)).toBe(true);
+    const tribe = roamTribeId(1);
+    expect(g.monsters.every((m) => m.tribe === tribe)).toBe(true);
   });
 
   it("isWalkableForMonster blocks the settlement room; isWalkable does not", () => {
@@ -3550,14 +3554,22 @@ describe("Roam mode (v1 — SETTLEMENTS.md)", () => {
     expect(isWalkableForMonster(g.map, x, y)).toBe(false);
   });
 
-  it("no monster ever occupies a settlement tile", () => {
+  it("no monster ever occupies a settlement tile, but the stronghold has a garrison", () => {
     for (const seed of [1, 2, 3, 4, 5]) {
       const g = createGame(seed, "coop", "roam");
-      const r = g.map.rooms[g.map.settlementRoomIdx];
+      const settlement = g.map.rooms[g.map.settlementRoomIdx];
       for (const m of g.monsters) {
-        const inside = m.pos.x >= r.x && m.pos.x < r.x + r.w && m.pos.y >= r.y && m.pos.y < r.y + r.h;
+        const inside =
+          m.pos.x >= settlement.x && m.pos.x < settlement.x + settlement.w &&
+          m.pos.y >= settlement.y && m.pos.y < settlement.y + settlement.h;
         expect(inside).toBe(false);
       }
+      const stronghold = g.map.rooms[g.map.strongholdRoomIdx];
+      const garrisoned = g.monsters.some((m) =>
+        m.pos.x >= stronghold.x && m.pos.x < stronghold.x + stronghold.w &&
+        m.pos.y >= stronghold.y && m.pos.y < stronghold.y + stronghold.h,
+      );
+      expect(garrisoned).toBe(true);
     }
   });
 
@@ -3571,15 +3583,47 @@ describe("Roam mode (v1 — SETTLEMENTS.md)", () => {
     }
   });
 
-  it("talking to the NPC offers, then completes and pays out through pendingRewards", () => {
+  it("spawns exactly one elite stronghold leader, tagged with the floor's tribe", () => {
+    const g = createGame(42, "coop", "roam");
+    expect(g.strongholdLeaderId).toBeGreaterThanOrEqual(0);
+    expect(g.strongholdLeaderName).not.toBe("");
+    expect(g.strongholdCleared).toBe(false);
+    const elites = g.monsters.filter((m) => m.elite);
+    expect(elites).toHaveLength(1);
+    expect(elites[0].id).toBe(g.strongholdLeaderId);
+    expect(elites[0].tribe).toBe(roamTribeId(1));
+  });
+
+  it("killing the tracked stronghold leader sets strongholdCleared", () => {
+    const g = createGame(42, "coop", "roam");
+    const leader = g.monsters.find((m) => m.id === g.strongholdLeaderId)!;
+    leader.hp = 0;
+    step(g, NO_INTENT, 1 / 60);
+    expect(g.strongholdCleared).toBe(true);
+  });
+
+  it("talking to the NPC offers killTribe, then completes and unlocks clearStronghold", () => {
     const g = createGame(7, "coop", "roam");
     const p = g.players[0];
     p.pos = { x: g.npc!.pos.x, y: g.npc!.pos.y };
     step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
-    expect(g.quest!.state).toBe("active");
-    g.quest!.killed = g.quest!.target;
+    expect(g.quests[0].state).toBe("active");
+    const obj0 = g.quests[0].objective;
+    if (obj0.kind === "killTribe") obj0.killed = obj0.target;
     step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
-    expect(g.quest!.state).toBe("complete");
+    expect(g.quests[0].state).toBe("complete");
+    expect(p.pendingRewards.length).toBeGreaterThan(0);
+    expect(g.quests).toHaveLength(2);
+    expect(g.quests[1].objective.kind).toBe("clearStronghold");
+    expect(g.quests[1].state).toBe("offered");
+
+    // Turn in the second quest.
+    p.pendingRewards = [];
+    g.strongholdCleared = true;
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // offer -> active
+    expect(g.quests[1].state).toBe("active");
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // active -> complete
+    expect(g.quests[1].state).toBe("complete");
     expect(p.pendingRewards.length).toBeGreaterThan(0);
   });
 
@@ -3593,6 +3637,28 @@ describe("Roam mode (v1 — SETTLEMENTS.md)", () => {
       const map = generateFloor(rng, floor, "roam");
       expect(map.roles.includes("stairs")).toBe(true);
       expect(map.locked).toBe(false);
+    }
+  });
+
+  it("tribe identity tracks floorBand, and every Roam monster carries a .tribe (incl. PACK_TEMPLATES packs)", () => {
+    // Regression test: PACK_TEMPLATES packs used to spawn untagged in Roam
+    // (floor >= 3 fired regardless of runKind), silently uncredited by the
+    // quest counter. 100% tagging must hold across every band, including
+    // past floor 18 where floorBand clamps to "approach" — descend a real
+    // game through 20 floors (ready-up at each safe room) and check every
+    // floor's monster set, since spawnMonsters isn't exported.
+    const g = createGame(4200, "coop", "roam");
+    for (let i = 0; i < 20; i++) {
+      expect(g.monsters.length).toBeGreaterThan(0);
+      const tribe = roamTribeId(g.floor);
+      expect(g.monsters.every((m) => m.tribe === tribe)).toBe(true);
+      const p = g.players[0];
+      p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+      step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+      if (g.safeRoom) {
+        setReady(g, p.id);
+        step(g, {}, 1 / 30);
+      }
     }
   });
 });
