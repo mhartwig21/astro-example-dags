@@ -2648,13 +2648,14 @@ describe("boss phases", () => {
     p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
     boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
     step(g, idle(), 1 / 60);
-    const rain = g.hazards.filter((h) => h.kind === "blast");
+    // Phase 1 ALSO starts the finale's greatest-hits reel (borrowed debris,
+    // boss layer 2) — filter the RAIN by its distinctive fuse length.
+    const rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
     expect(rain.length).toBeGreaterThanOrEqual(1);
     // Aimed at where the crawler WAS standing — moving out is the dodge.
     expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);
     // Spawned this step, so it has already ticked down by one dt.
     expect(rain[0].t).toBeGreaterThan(CONFIG.bossHazardDelay - 0.1);
-    expect(rain[0].total).toBeCloseTo(CONFIG.bossHazardDelay, 3);
   });
 
   it("boss floors host the fight in a dedicated oversized arena (backlog #11)", () => {

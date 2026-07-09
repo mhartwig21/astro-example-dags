@@ -461,6 +461,21 @@ function spawnMonsters(state: GameState): void {
     }
   }
 
+  // THE FOREMAN (champion tier pilot, boss layer 1): floor 14's checkpoint
+  // fight — a mini-boss kit without the arena or the seal. Elite plumbing
+  // provides the ringside intro and the guaranteed drops.
+  if (floor === CONFIG.foremanFloor && totalW > 0) {
+    const pos = inRoom(pickRoom());
+    if (pos) {
+      const champ = makeMonster(state, "foreman", pos);
+      champ.hp = champ.maxHp = Math.round(champ.maxHp * CONFIG.foremanHpMult);
+      champ.elite = true;
+      champ.eliteName = "The Foreman";
+      state.monsters.push(champ);
+      announce(state, "boss", "CHAMPION ON THE FLOOR: THE FOREMAN clocks in. The Ironworks' middle manager has a quota, and the quota is you.");
+    }
+  }
+
   // VAULT: a lone brute guardian over guaranteed treasure (risk/reward detour).
   const vaultIdx = map.roles.indexOf("vault");
   if (vaultIdx >= 0) {
@@ -486,7 +501,8 @@ function spawnMonsters(state: GameState): void {
     // landmark pack very often contains one).
     const canBoss = (m: Monster) =>
       m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer" &&
-      m.kind !== "broodmother"; // support castes never take the crown
+      m.kind !== "broodmother" && // support castes never take the crown
+      m.kind !== "foreman"; // the CHAMPION outranks the neighborhood — no re-crowning
     const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
@@ -942,6 +958,7 @@ function buildFloor(state: GameState, floor: number): void {
   state.loot = [];
   state.projectiles = [];
   state.hazards = [];
+  state.arenaT = 0; // the next arena's director starts its clock fresh
   state.corpses = [];
   state.decoys = []; // stunt contracts don't follow you downstairs
   state.encounter = null;
@@ -2321,6 +2338,7 @@ const KILL_HYPE: Record<Monster["kind"], number> = {
   canceled: CONFIG.show.hypeCanceled,
   suitactor: CONFIG.show.hypeSuitactor,
   suitguy: CONFIG.show.hypeSuitguy,
+  foreman: CONFIG.show.hypeForeman,
   boss: CONFIG.show.hypeBoss,
 };
 
@@ -3784,6 +3802,44 @@ function updateMonsterStatuses(state: GameState, dt: number): void {
  * they dry up; armed zones (boss sludge/roots) telegraph for `arm` seconds,
  * then bite or grip until they expire. Dash i-frames dodge all of it.
  */
+/**
+ * ARENA DIRECTOR (boss layer 3): each band-boss arena runs ONE environmental
+ * script independent of the boss — the boss + the ROOM is the fight.
+ * Floor 6: the sump RISES (sludge creeps in). Floor 9: the garden REGROWS
+ * (root zones return). Floor 15: the wall vents EXHALE flame rows. All of it
+ * telegraphed like everything else; all of it stops the moment the boss falls.
+ */
+function arenaDirector(state: GameState, dt: number): void {
+  if (!isCityBossFloor(state.floor)) return;
+  const boss = state.monsters.find((m) => m.kind === "boss");
+  if (!boss || !boss.introduced) return; // the show starts at the intro
+  const arena = Math.floor(state.floor / CONFIG.bossFloorEvery); // 1..5
+  if (arena !== 2 && arena !== 3 && arena !== 5) return; // 6 / 9 / 15 have directors
+  const prev = state.arenaT ?? 0;
+  state.arenaT = prev + dt;
+  const crossed = (interval: number) =>
+    Math.floor((state.arenaT ?? 0) / interval) > Math.floor(prev / interval);
+  if (alivePlayers(state).length === 0) return;
+  // The room reuses the SAME telegraphed helpers the signatures taught — the
+  // grammar players already learned, now on the arena's own metronome.
+  if (arena === 2 && crossed(CONFIG.directorFloodInterval)) {
+    bossFloodSurge(state, boss);
+    if ((state.arenaT ?? 0) < CONFIG.directorFloodInterval * 1.5) {
+      announce(state, "boss", "The sump is RISING on its own schedule. The arena shrinks while the King holds court.");
+    }
+  } else if (arena === 3 && crossed(CONFIG.directorRegrowInterval)) {
+    bossRootGrasp(state, boss);
+    if ((state.arenaT ?? 0) < CONFIG.directorRegrowInterval * 1.5) {
+      announce(state, "boss", "The garden REGROWS as fast as you trample it. Keep your feet moving.");
+    }
+  } else if (arena === 5 && crossed(CONFIG.directorVentInterval)) {
+    bossFlameSweep(state, boss);
+    if ((state.arenaT ?? 0) < CONFIG.directorVentInterval * 1.5) {
+      announce(state, "boss", "The wall vents EXHALE on a rhythm. Learn the room's breathing.");
+    }
+  }
+}
+
 /** Distance from a point to the segment a-b (beam hazards hit by half-width). */
 function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const abx = b.x - a.x, aby = b.y - a.y;
@@ -4436,6 +4492,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt * statusTimeMult(m));
   updateMonsterStatuses(state, mdt); // DoT burns on WORLD time (chill can't slow its own poison)
+  arenaDirector(state, mdt); // boss layer 3: the ROOM fights on its own rhythm
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
   updateCorpses(state, mdt);
   updateStrikes(state, dt);

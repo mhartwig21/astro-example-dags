@@ -656,13 +656,42 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       });
       state.events.push(`Boss phase ${m.phase + 1}.`);
     }
+    // THE FINALE'S GREATEST-HITS REEL (boss layer 2 / old backlog #1): the
+    // floor-18 boss has no band signature of its own — its phase breaks
+    // BORROW earlier bands' instead. Phase 1: the Architect's debris rain.
+    // Phase 2: the Marshal's flame sweep. The season recap fights back.
+    if (state.floor >= CONFIG.finalFloor) {
+      if ((m.phase ?? 0) >= 2 && m.signature !== "flamewall") {
+        m.signature = "flamewall";
+        m.sigUsed = false;
+      } else if ((m.phase ?? 0) === 1 && !m.signature) {
+        m.signature = "debris";
+        state.announcements.push({
+          text: "The boss remembers EVERY FLOOR you cleared. Greatest hits, Crawlers. Duck.",
+          kind: "boss", priority: "normal",
+        });
+      }
+    }
+    // SIGNATURE STACKING (boss layer 2): from phase 1, a band boss ALTERNATES
+    // its own signature with the PREVIOUS band's — the fight escalates in
+    // mechanics, not just numbers.
+    const BORROWED: Partial<Record<NonNullable<Monster["signature"]>, Monster["signature"]>> = {
+      flood: "graverising", roots: "flood", debris: "roots", flamewall: "debris",
+    };
     // SIGNATURE mechanic: each band-end boss layers ONE themed ability on the
     // shared kit (see BAND_BOSSES + the boss* helpers in game.ts). Gated on
     // `introduced` so the arena never starts cooking before the ringside
     // reveal. Grave Rising is a windup (interruptible channel); the rest lay
     // telegraphed ground danger and let the boss keep fighting.
     if (m.signature && m.introduced && (m.sigCd ?? 0) === 0 && d <= CONFIG.monsterAggroRange * 2.5) {
-      if (m.signature === "graverising") {
+      // Past phase 1 the casts alternate own <-> borrowed (finale keeps its
+      // current greatest-hit; it swaps whole signatures at phase edges).
+      let sig = m.signature;
+      if (state.floor < CONFIG.finalFloor && (m.phase ?? 0) >= 1) {
+        const borrowed = BORROWED[m.signature];
+        if (borrowed && (m.sigAlt = !m.sigAlt)) sig = borrowed;
+      }
+      if (sig === "graverising") {
         // Only commit when there is actually a body to raise (necromancer rules).
         if (state.corpses.some((c) => dist(m.pos, c.pos) <= CONFIG.graveRaiseRange)) {
           m.sigCd = CONFIG.graveRaiseCooldown;
@@ -676,16 +705,16 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
           }
           return;
         }
-      } else if (m.signature === "flood") {
+      } else if (sig === "flood") {
         m.sigCd = CONFIG.floodCooldown;
         bossFloodSurge(state, m);
-      } else if (m.signature === "roots") {
+      } else if (sig === "roots") {
         m.sigCd = CONFIG.rootsCooldown;
         bossRootGrasp(state, m);
-      } else if (m.signature === "debris") {
+      } else if (sig === "debris") {
         m.sigCd = CONFIG.debrisCooldown;
         bossDebrisRain(state, m);
-      } else if (m.signature === "flamewall") {
+      } else if (sig === "flamewall") {
         m.sigCd = CONFIG.flameCooldown;
         bossFlameSweep(state, m);
       }
@@ -912,6 +941,31 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
     } else {
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    }
+    return;
+  }
+
+  if (m.kind === "foreman") {
+    // THE FOREMAN (champion tier): a mini-boss kit without the arena — slam
+    // up close, radial volley at range, relentless walk between. A boss
+    // fight's rhythm at a floor-14 checkpoint, purple-name dopamine included.
+    if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
+    if ((m.slamCd ?? 0) === 0 && d <= m.attackRange + 0.5) {
+      m.slamCd = CONFIG.foremanSlamCooldown;
+      beginWindup(m, "slam", windup);
+      return;
+    }
+    if (m.shootCd === 0 && d <= CONFIG.monsterAggroRange * 1.5) {
+      m.shootCd = CONFIG.foremanVolleyCooldown;
+      for (let i = 0; i < CONFIG.foremanVolleyCount; i++) {
+        const a = (i / CONFIG.foremanVolleyCount) * Math.PI * 2;
+        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.5);
+      }
+    }
+    if (d > m.attackRange) {
+      moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    } else if (m.attackCooldown === 0) {
+      beginWindup(m, "melee", windup);
     }
     return;
   }

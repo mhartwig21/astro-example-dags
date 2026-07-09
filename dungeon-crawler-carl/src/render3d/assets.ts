@@ -72,6 +72,9 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_canceled: "/assets/characters/superhero.glb",
   monster_suitactor: "/assets/characters/beast.glb",
   monster_suitguy: "/assets/characters/beast_costume.glb",
+  // CHAMPION tier (boss layer 1): The Foreman is the CombatMech — the last
+  // Mystery Monthly mob-grade character in the collection takes the stage.
+  monster_foreman: "/assets/characters/combat_mech.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -205,6 +208,7 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_canceled: "medium", // Superhero
   monster_suitactor: "medium", // Monster (the suit)
   monster_suitguy: "medium", // MonsterCostume (the guy)
+  monster_foreman: "medium", // CombatMech — the champion's chassis
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
