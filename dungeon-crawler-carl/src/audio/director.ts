@@ -58,6 +58,7 @@ interface Prev {
   attackSwing: number;
   frenzy: boolean;
   encounter: boolean;
+  bulletTime: boolean;
 }
 
 export class AudioDirector {
@@ -147,11 +148,14 @@ export class AudioDirector {
       attackSwing: p.attackSwing,
       frenzy: p.frenzy,
       encounter: state.encounter !== null,
+      bulletTime: state.bulletTimeLeft > 0,
     };
 
     const prev = this.prev;
     this.prev = cur;
     if (prev) {
+      // BULLET TIME: the mix goes underwater while the world is slowed.
+      if (cur.bulletTime !== prev.bulletTime) this.sink.muffle?.(cur.bulletTime);
       // World beats (state edges the hit channel doesn't carry).
       if (prev.phase === "safe" && cur.phase === "warning") this.sink.play("warning");
       if (cur.floor !== prev.floor) this.sink.play("descend");
