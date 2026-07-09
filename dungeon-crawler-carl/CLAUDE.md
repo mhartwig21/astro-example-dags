@@ -42,12 +42,14 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `DESIGN.md` | Full design: pillars, systems (5.x per mechanic), architecture, directory layout, roadmap |
 | `README.md` | Player-facing intro + how to run |
 | `DEPLOY.md` | Production architecture, Fly.io ops, measured capacity, GCP migration plan |
+| `PERSISTENCE.md` | Server-side persistence (SQLite on the Fly volume): accounts + character saves are LIVE; world hibernate/restore is the P2 plan |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
 | `BIOMES.md` | Art direction notes for floor/room visual variety |
 | `BACKLOG.md` | Open play-driven items with code pointers. Delete entries when they ship |
 | `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
+| `BUILDER.md` | The /builder.html crafting bench: room templates, custom enemies, and the dev-only Meshy bridge (prop + creature generation). Content lands in `src/content/` |
 
 ## Commands
 
@@ -138,8 +140,10 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
 - **Deploy runbook** (after merging to main):
   1. `git checkout origin/main` and run `npm test` + `npm run typecheck` on
      the exact commit you'll ship.
-  2. Check https://dungeon-crawler-claude.fly.dev/health is idle
-     (`instances: 0, players: 0`) — deploys drop live runs.
+  2. Deploys are SURVIVABLE (PERSISTENCE.md): live worlds checkpoint to
+     SQLite on SIGTERM and clients auto-reconnect (~a few seconds of pause).
+     Still glance at https://dungeon-crawler-claude.fly.dev/health — deploying
+     while someone's mid-boss is rude, just no longer destructive.
   3. `fly deploy --yes` from `dungeon-crawler-carl/` (flyctl:
      `$USERPROFILE/.fly/bin/fly.exe` on the dev box).
   4. Verify `/health` shows fresh `uptimeMin` and `/iso.html` returns 200.

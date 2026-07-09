@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Dungeon Crawler Claude \u2014 Diablo-like multiplayer dungeon crawler inspired by Dungeon Crawler Carl (deterministic sim, authoritative server).",
+  "description": "Dungeon Crawler Claude — Diablo-like multiplayer dungeon crawler inspired by Dungeon Crawler Carl (deterministic sim, authoritative server).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -13,6 +13,7 @@
     "server": "tsx src/server/gameServer.ts"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/three": "^0.169.0",
     "@types/ws": "^8.18.1",
     "typescript": "^5.5.4",
@@ -20,8 +21,9 @@
     "vitest": "^2.0.5"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "three": "^0.169.0",
-    "ws": "^8.21.0",
-    "tsx": "^4.22.5"
+    "tsx": "^4.22.5",
+    "ws": "^8.21.0"
   }
 }

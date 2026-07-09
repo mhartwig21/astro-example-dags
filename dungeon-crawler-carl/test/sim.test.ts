@@ -3,10 +3,10 @@ import {
   createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster,
+  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster, shrineChoices,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
-import { generateFloor, isWalkable, walkableTiles } from "../src/sim/floor";
+import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
 import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
@@ -21,7 +21,7 @@ import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, monsterTempo } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 
 function idle(): Intent {
@@ -2220,7 +2220,7 @@ describe("attack telegraphs + hit reactions", () => {
     expect(p.facing.y).toBeCloseTo(1); // and it converges, exactly
   });
 
-  it("attacking while running never shoves the runner off their line", () => {
+  it("a sideways swing never shoves the runner off their line", () => {
     const g = createGame(916);
     const p = g.players[0];
     g.monsters.length = 0;
@@ -2228,6 +2228,27 @@ describe("attack telegraphs + hit reactions", () => {
     // Running due south while swinging due east: the lunge must not add +x.
     step(g, { move: { x: 0, y: 1 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(p.pos.x).toBeCloseTo(x0, 6);
+  });
+
+  it("swinging WITH the run keeps the forward lunge (aggression intact)", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    // One tick of run alone is ~0.07 tiles; run + lunge clears it by a margin.
+    expect(p.pos.x - x0).toBeGreaterThan(CONFIG.playerSpeed / 60 + 0.2);
+  });
+
+  it("swinging AGAINST the run never yanks the runner backward", () => {
+    const g = createGame(916);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const x0 = p.pos.x;
+    // Sprinting east, mouse-swinging west behind you: keep sprinting east.
+    step(g, { move: { x: 1, y: 0 }, attack: true, aim: { x: -1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.pos.x - x0).toBeGreaterThan(0);
+    expect(p.pos.x - x0).toBeLessThan(0.2); // the run step only — no lunge either way
   });
 
   it("a swing commits facing to the aim, then movement reclaims it", () => {
@@ -2627,13 +2648,14 @@ describe("boss phases", () => {
     p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
     boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
     step(g, idle(), 1 / 60);
-    const rain = g.hazards.filter((h) => h.kind === "blast");
+    // Phase 1 ALSO starts the finale's greatest-hits reel (borrowed debris,
+    // boss layer 2) — filter the RAIN by its distinctive fuse length.
+    const rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
     expect(rain.length).toBeGreaterThanOrEqual(1);
     // Aimed at where the crawler WAS standing — moving out is the dodge.
     expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);
     // Spawned this step, so it has already ticked down by one dt.
     expect(rain[0].t).toBeGreaterThan(CONFIG.bossHazardDelay - 0.1);
-    expect(rain[0].total).toBeCloseTo(CONFIG.bossHazardDelay, 3);
   });
 
   it("boss floors host the fight in a dedicated oversized arena (backlog #11)", () => {
@@ -3503,6 +3525,141 @@ describe("no-op safety", () => {
     const before = JSON.stringify(g.players[0].pos);
     step(g, NO_INTENT, 1 / 60);
     expect(JSON.stringify(g.players[0].pos)).toBe(before);
+  });
+});
+
+describe("Roam mode (SETTLEMENTS.md)", () => {
+  it("generates a bigger grid with a settlement, a stronghold, and a tribe-tagged floor", () => {
+    const g = createGame(42, "coop", "roam");
+    expect(g.map.w).toBe(CONFIG.roamFloorGridW);
+    expect(g.map.h).toBe(CONFIG.roamFloorGridH);
+    expect(g.map.settlementRoomIdx).toBeGreaterThanOrEqual(0);
+    expect(g.map.roles[g.map.settlementRoomIdx]).toBe("settlement");
+    expect(g.map.strongholdRoomIdx).toBeGreaterThanOrEqual(0);
+    expect(g.map.roles[g.map.strongholdRoomIdx]).toBe("stronghold");
+    expect(g.map.strongholdRoomIdx).not.toBe(g.map.settlementRoomIdx);
+    expect(g.npc).not.toBeNull();
+    expect(g.quests).toHaveLength(1);
+    expect(g.quests[0].objective.kind).toBe("killTribe");
+    expect(g.monsters.length).toBeGreaterThan(0);
+    const tribe = roamTribeId(1);
+    expect(g.monsters.every((m) => m.tribe === tribe)).toBe(true);
+  });
+
+  it("isWalkableForMonster blocks the settlement room; isWalkable does not", () => {
+    const g = createGame(42, "coop", "roam");
+    const r = g.map.rooms[g.map.settlementRoomIdx];
+    const x = r.x + 1, y = r.y + 1;
+    expect(isWalkable(g.map, x, y)).toBe(true);
+    expect(isWalkableForMonster(g.map, x, y)).toBe(false);
+  });
+
+  it("no monster ever occupies a settlement tile, but the stronghold has a garrison", () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const g = createGame(seed, "coop", "roam");
+      const settlement = g.map.rooms[g.map.settlementRoomIdx];
+      for (const m of g.monsters) {
+        const inside =
+          m.pos.x >= settlement.x && m.pos.x < settlement.x + settlement.w &&
+          m.pos.y >= settlement.y && m.pos.y < settlement.y + settlement.h;
+        expect(inside).toBe(false);
+      }
+      const stronghold = g.map.rooms[g.map.strongholdRoomIdx];
+      const garrisoned = g.monsters.some((m) =>
+        m.pos.x >= stronghold.x && m.pos.x < stronghold.x + stronghold.w &&
+        m.pos.y >= stronghold.y && m.pos.y < stronghold.y + stronghold.h,
+      );
+      expect(garrisoned).toBe(true);
+    }
+  });
+
+  it("matches isWalkable everywhere on a Race floor (no settlement)", () => {
+    const g = createGame(42, "coop", "race");
+    expect(g.map.settlementRoomIdx).toBe(-1);
+    for (let y = 0; y < g.map.h; y += 5) {
+      for (let x = 0; x < g.map.w; x += 5) {
+        expect(isWalkableForMonster(g.map, x, y)).toBe(isWalkable(g.map, x, y));
+      }
+    }
+  });
+
+  it("spawns exactly one elite stronghold leader, tagged with the floor's tribe", () => {
+    const g = createGame(42, "coop", "roam");
+    expect(g.strongholdLeaderId).toBeGreaterThanOrEqual(0);
+    expect(g.strongholdLeaderName).not.toBe("");
+    expect(g.strongholdCleared).toBe(false);
+    const elites = g.monsters.filter((m) => m.elite);
+    expect(elites).toHaveLength(1);
+    expect(elites[0].id).toBe(g.strongholdLeaderId);
+    expect(elites[0].tribe).toBe(roamTribeId(1));
+  });
+
+  it("killing the tracked stronghold leader sets strongholdCleared", () => {
+    const g = createGame(42, "coop", "roam");
+    const leader = g.monsters.find((m) => m.id === g.strongholdLeaderId)!;
+    leader.hp = 0;
+    step(g, NO_INTENT, 1 / 60);
+    expect(g.strongholdCleared).toBe(true);
+  });
+
+  it("talking to the NPC offers killTribe, then completes and unlocks clearStronghold", () => {
+    const g = createGame(7, "coop", "roam");
+    const p = g.players[0];
+    p.pos = { x: g.npc!.pos.x, y: g.npc!.pos.y };
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    expect(g.quests[0].state).toBe("active");
+    const obj0 = g.quests[0].objective;
+    if (obj0.kind === "killTribe") obj0.killed = obj0.target;
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    expect(g.quests[0].state).toBe("complete");
+    expect(p.pendingRewards.length).toBeGreaterThan(0);
+    expect(g.quests).toHaveLength(2);
+    expect(g.quests[1].objective.kind).toBe("clearStronghold");
+    expect(g.quests[1].state).toBe("offered");
+
+    // Turn in the second quest.
+    p.pendingRewards = [];
+    g.strongholdCleared = true;
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // offer -> active
+    expect(g.quests[1].state).toBe("active");
+    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // active -> complete
+    expect(g.quests[1].state).toBe("complete");
+    expect(p.pendingRewards.length).toBeGreaterThan(0);
+  });
+
+  it("mapgen never trades the stairs room for a boss arena, even past floor 18 or on a bossFloorEvery multiple", () => {
+    // floor.ts's own boss-arena/lockStairsRoom branches must stay disabled for
+    // "roam" regardless of floor number — this is the structural half of the
+    // guard; game.ts's spawnMonsters carries a matching runKind check so no
+    // "boss" kind monster is ever placed to go with it.
+    for (const floor of [3, 18, 21]) {
+      const rng = createRng(9001 + floor);
+      const map = generateFloor(rng, floor, "roam");
+      expect(map.roles.includes("stairs")).toBe(true);
+      expect(map.locked).toBe(false);
+    }
+  });
+
+  it("tribe identity tracks floorBand, and every Roam monster carries a .tribe (incl. PACK_TEMPLATES packs)", () => {
+    // Regression test: PACK_TEMPLATES packs used to spawn untagged in Roam
+    // (floor >= 3 fired regardless of runKind), silently uncredited by the
+    // quest counter. 100% tagging must hold across every band, including
+    // past floor 18 where floorBand clamps to "approach" — descend a real
+    // game through 20 floors (ready-up at each safe room) and check every
+    // floor's monster set, since spawnMonsters isn't exported.
+    const g = createGame(4200, "coop", "roam");
+    for (let i = 0; i < 20; i++) {
+      expect(g.monsters.length).toBeGreaterThan(0);
+      const tribe = roamTribeId(g.floor);
+      expect(g.monsters.every((m) => m.tribe === tribe)).toBe(true);
+      const p = g.players[0];
+      p.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+      step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+      if (g.safeRoom) {
+        setReady(g, p.id);
+        step(g, {}, 1 / 30);
+      }
+    }
   });
 });
 
@@ -4872,5 +5029,68 @@ describe("boss poise: interrupts are earned (decay + stagger grace)", () => {
     grunt.stagger = 0;
     damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
     expect(grunt.stagger).toBeGreaterThan(0); // and re-staggers immediately
+  });
+});
+
+describe("the shrine deals a varied hand", () => {
+  const card = (kind: import("../src/sim/types").Reward["kind"]) => ({ id: 1, kind, title: kind, desc: "", amount: 0 });
+
+  it("each shrine deals two seeded bargains plus Walk Away", () => {
+    const g = createTestGame({ seed: 81, floor: 5, level: 5 });
+    const deals = shrineChoices(g, g.players[0]);
+    expect(deals.length).toBe(3);
+    expect(deals[2].kind).toBe("shrineDecline");
+    expect(deals[0].kind).not.toBe(deals[1].kind);
+    expect(deals[0].kind.startsWith("shrine")).toBe(true);
+  });
+
+  it("OVERTIME DRAFT trades clock for an evolution", () => {
+    const g = createTestGame({ seed: 82, floor: 5, level: 5 });
+    const p = g.players[0];
+    const t0 = g.timeRemaining;
+    const owed0 = p.upgradeDraftsOwed;
+    p.pendingRewards = [card("shrineDraft")];
+    chooseReward(g, p.id, 0);
+    expect(g.timeRemaining).toBeCloseTo(t0 - CONFIG.shrineDraftTimeCost, 5);
+    expect(p.upgradeDraftsOwed).toBe(owed0 + 1);
+  });
+
+  it("TIME LOAN pays now and the next floor collects", () => {
+    const g = createTestGame({ seed: 83, floor: 5, level: 5 });
+    const p = g.players[0];
+    const t0 = g.timeRemaining;
+    p.pendingRewards = [card("shrineLoan")];
+    chooseReward(g, p.id, 0);
+    expect(g.timeRemaining).toBeCloseTo(t0 + CONFIG.shrineLoanGain, 5);
+    expect(g.pendingTimeDebt).toBe(CONFIG.shrineLoanDebt);
+    g.safeRoom = { nextFloor: 6, available: [], tip: "", ready: [], purchased: {} };
+    leaveSafeRoom(g);
+    expect(g.timeBudget).toBe(Math.max(30, floorTimeBudget(6) - CONFIG.shrineLoanDebt));
+    expect(g.pendingTimeDebt).toBe(0);
+  });
+
+  it("LIQUIDATION EVENT buys the whole bag at a premium", () => {
+    const g = createTestGame({ seed: 84, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.inventory = [generateItem(createRng(1), 5, () => 900001), generateItem(createRng(2), 5, () => 900002)];
+    const expected = Math.round((sellValue(p.inventory[0]) + sellValue(p.inventory[1])) * CONFIG.shrineLiquidateBonus);
+    const gold0 = p.gold;
+    p.pendingRewards = [card("shrineLiquidate")];
+    chooseReward(g, p.id, 0);
+    expect(p.gold - gold0).toBe(expected);
+    expect(p.inventory.length).toBe(0);
+  });
+
+  it("INSURANCE PREMIUM restores in full and cleanses", () => {
+    const g = createTestGame({ seed: 85, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 100;
+    p.hp = Math.floor(p.maxHp / 3);
+    p.statuses = [{ kind: "poison", remaining: 5, magnitude: 2, stacks: 1, tick: 1, school: "physical" }];
+    p.pendingRewards = [card("shrinePremium")];
+    chooseReward(g, p.id, 0);
+    expect(p.gold).toBe(70);
+    expect(p.hp).toBe(p.maxHp);
+    expect(p.statuses.length).toBe(0);
   });
 });

@@ -153,6 +153,13 @@ export type EliteAffix =
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
   | "warded" // takes reduced MAGIC damage
+  // The six-pack (MOB-CONCEPTS.md) — each is one sentence of counterplay:
+  | "linked" // its pack SOAKS its damage while any ally stands — thin the pack
+  | "vampiric" // heals off landed hits — don't get hit and it starves
+  | "juggernaut" // immune to stagger + knockback, slower — kite, don't CC
+  | "mortar" // lobs arcing shells over walls — cover stops being safe
+  | "berserking" // below half HP: faster everything — finish what you start
+  | "executioner" // hits crawlers under 40% HP harder — retreat thresholds are real
   | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
 
 // ---- Status effects (burn / poison / chill) ----
@@ -208,7 +215,19 @@ export type MonsterKind =
   // around). cleric: consecrates ground that heals monsters and burns you.
   // archivist: channels a SWEEPING beam — dodge continuously or stagger it.
   // colossus: its slam sends a fissure travelling down a lane.
-  | "shieldbearer" | "cleric" | "archivist" | "colossus";
+  | "shieldbearer" | "cleric" | "archivist" | "colossus"
+  // THE APPROACH (floors 16+): the System fields its own. stagehand: blinks
+  // in, two hits, smoke-bombs out to a MARKED re-entry. sniper: cross-room
+  // lanes, relocates after every shot. duelist: riposte flourish — hold your
+  // swing or shoot it. darling: shields her entourage while SHE takes extra
+  // (the kill order is stated; execution is the exam). canceled: a former
+  // favorite running player verbs. suitactor: dies and UNZIPS — the suitguy
+  // flees; sparing him pays more hype than the kill.
+  | "stagehand" | "sniper" | "duelist" | "darling" | "canceled"
+  | "suitactor" | "suitguy"
+  // CHAMPION tier (MOB-CONCEPTS boss layer 1): mini-boss fights between the
+  // named elites and the band bosses. The Foreman pilots the tier.
+  | "foreman";
 
 export interface Monster {
   id: number;
@@ -266,6 +285,7 @@ export interface Monster {
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
   eliteName?: string; // announcer name for elites and city bosses
+  defId?: string; // crafted enemy (src/content/mobs): stats applied at spawn; hosts resolve skin/tint from the def
   // System bounty (interference tier 1): seconds left to collect + the purse.
   bountyT?: number;
   bountyGold?: number;
@@ -285,6 +305,13 @@ export interface Monster {
   signature?: BossSignature;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
+  // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
+  // own signature with the PREVIOUS band's — fights escalate in mechanics.
+  sigAlt?: boolean;
+  // THE DUO (boss layer 4): members share a duoId; when one dies the
+  // survivor ENRAGES — permanent frenzy, hotter hits, and a grudge.
+  duoId?: number;
+  enraged?: boolean;
   introduced?: boolean; // ringside introduction already played (bosses/elites)
   exploded?: boolean; // bomber: detonation already fired (prevents a double blast)
   hasKey?: boolean; // carries the key to the locked stairs district (drops it on death)
@@ -306,8 +333,18 @@ export interface Monster {
   // pack-mate in radius each step. "frenzy" = the Drum Sergeant's war-drum
   // (allies move + attack faster while the beat holds). Chilling remains its
   // own elite affix — auras here are ally-facing.
-  aura?: "frenzy";
+  // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
+  // (her entourage takes less while SHE takes more — kill-order pressure).
+  aura?: "frenzy" | "shield";
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  shieldT?: number; // seconds of Darling stardust remaining on THIS monster
+  // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
+  // into it reflects; wait it out or answer with ranged/magic.
+  riposteT?: number;
+  // Stagehand: mid-vanish bookkeeping — seconds until the marked re-entry,
+  // and where the smoke clears.
+  vanishT?: number;
+  reentryAt?: Vec2;
   // Filcher (Repo Rat): the gold it carries — bleeds out as it's damaged,
   // drops the rest on death, and leaves with ALL of it if the rat escapes.
   carry?: number;
@@ -322,6 +359,28 @@ export interface Monster {
   // Wind-Up Battalion: members sharing a squadId hold their musket windups
   // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
   squadId?: number;
+  tribe?: string; // Roam-only: which TribeId this monster belongs to, for quest kill-credit
+}
+
+// Roam-only: the settlement's single resident. Static, unarmed, no AI.
+export interface Npc {
+  id: number;
+  pos: Vec2;
+  name: string;
+  kind: "settlement";
+}
+
+// Roam-only: quests offered by the settlement NPC. killTribe is offered
+// first; clearStronghold is appended once killTribe completes (only on
+// floors with a stronghold) — see talkToNpc in npc.ts.
+export type QuestObjective =
+  | { kind: "killTribe"; tribe: string; target: number; killed: number }
+  | { kind: "clearStronghold"; leaderName: string };
+
+export interface Quest {
+  id: number;
+  objective: QuestObjective;
+  state: "offered" | "active" | "complete";
 }
 
 export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
@@ -425,6 +484,10 @@ export type RewardKind =
   | "shrineBlood" // pay a slice of max HP now for permanent crit
   | "shrineGreed" // this floor's monsters speed up; its gold drops double
   | "shrineDecline" // walk away (the System notes the cowardice)
+  | "shrineDraft" // Overtime Draft: the clock loses seconds, you gain an ability draft
+  | "shrineLoan" // Time Loan: +seconds now; the NEXT floor starts shorter
+  | "shrineLiquidate" // Liquidation Event: the shrine buys the whole bag at a premium
+  | "shrinePremium" // Insurance Premium: a slice of gold for full heal + cleanse
   // CLASS REVISION milestone drafts (revisions.ts — never in the sponsor pool):
   | "revision" // a permanent recasting with a built-in curse
   | "revisionDecline"; // REMAIN UNCAST (defiance pays a small permanent hype bonus)
@@ -439,6 +502,7 @@ export interface Reward {
   material?: MaterialId; // present when kind === "materials"
   nodeId?: string; // present when kind === "retrain": the node being refunded
   revisionId?: string; // present when kind === "revision": the casting on offer
+  source?: "quest"; // Roam only: a settlement quest payout, not a sponsor gift (draft header)
 }
 
 // Projectiles: player bolts and enemy shots share one system.
@@ -474,6 +538,8 @@ export type RoomRole =
   | "stairs" // exit room (sealed by doors on deep floors)
   | "landmark" // the floor's big set-piece hall: pillars, the neighborhood boss
   | "vault" // off-path treasure detour: guaranteed loot + a guardian
+  | "settlement" // Roam-only: a sanctuary room monsters won't enter, holds the NPC
+  | "stronghold" // Roam-only: a hostile tribe garrison + named leader, not sanctuary
   | "combat"; // everything else
 
 export interface FloorMap {
@@ -488,6 +554,8 @@ export interface FloorMap {
   cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
+  settlementRoomIdx: number; // index into rooms of the Roam settlement; -1 when not a Roam floor
+  strongholdRoomIdx: number; // index into rooms of the Roam hostile stronghold; -1 when none
   // Landmark set pieces carved into the GRID (tile indices; the tiles are
   // Wall): pillars/pedestal used to be walk-through renderer dressing —
   // "solid" props players clipped through. Now the sim blocks them and
@@ -495,6 +563,10 @@ export interface FloorMap {
   // floor SHOWS and what it BLOCKS agree.
   pillars: number[];
   pedestal: number; // centerpiece tile (-1 = none); OFF-center so the room center stays walkable
+  // Crafted-room stamps (builder.html templates): where each template's
+  // origin landed. Tiles are already merged into `tiles`; hosts use these to
+  // place the template's cosmetic props (src/content/rooms).
+  stamps?: { id: string; x: number; y: number }[];
 }
 
 export type RunStatus = "playing" | "dead" | "won";
@@ -574,6 +646,7 @@ export interface Hazard {
   // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
   // standing in it and burns crawlers (contested ground).
   kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
+  flavor?: "flame" | "debris"; // blast dressing: fire wall / falling masonry (default: clown ordnance)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as
@@ -687,6 +760,21 @@ export interface GameState {
   // up to 4 hostile crawlers, individual descent through concurrent floor
   // worlds, 15s revives, rival kills pay XP, first FINAL-BOSS kill wins.
   mode: "coop" | "rivals";
+  // "race" is the classic 18-floor descent (default). "roam" is the v1
+  // Expedition seed: one big, low-pressure floor per stairway with a
+  // settlement/tribe/quest, regenerating open-endedly instead of ending at
+  // floor 18. See SETTLEMENTS.md.
+  runKind: "race" | "roam";
+  // Roam only: the floor's single settlement resident and its quest board.
+  // Rebuilt fresh by buildFloor each Roam floor; both empty on Race floors.
+  npc: Npc | null;
+  quests: Quest[];
+  // Roam only: the current floor's hostile stronghold, if any. The leader id
+  // is tracked so reapDead can flip strongholdCleared on its death even if no
+  // clearStronghold quest exists yet (killing it "early" is a valid outcome).
+  strongholdLeaderId: number;
+  strongholdLeaderName: string; // captured at spawn so it outlives the leader's death
+  strongholdCleared: boolean;
   // Rivals only: the concurrent floor instances, keyed by floor number.
   worlds?: Record<number, FloorWorld>;
   winnerId?: number; // rivals: who secured the contract (status "won")
@@ -721,6 +809,10 @@ export interface GameState {
   timeRemaining: number; // seconds left; can go negative once collapsing
   phase: TimerPhase;
   collapseElapsed: number; // seconds spent in the collapse phase
+  // TIME LOAN (shrine): seconds the NEXT floor's budget owes the System.
+  // Collected (and cleared) by buildFloor. Not persisted — a reload forgives
+  // the debt, which the System would never admit to.
+  pendingTimeDebt?: number;
 
   status: RunStatus;
   // Event messages produced during the last step (consumed by host for the log/HUD).
@@ -741,6 +833,10 @@ export interface GameState {
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
+
+  // ARENA DIRECTOR (boss layer 3): seconds the current band-boss arena has
+  // been cooking — the room itself acts on a rhythm while the boss lives.
+  arenaT?: number;
 
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];

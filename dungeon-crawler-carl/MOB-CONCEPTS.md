@@ -125,43 +125,35 @@ unarmed-punch, aiming-idle, and 2H-spin clips. Still open from the concepts:
 the Greeter's activation jingle (audio seam) and Ironworks grate/spike floor
 dressing for the punch to launch people into.
 
-### THE APPROACH (floors 16–18) — the System fields its own
+### THE APPROACH (floors 16–18) — ~~the System fields its own~~ SHIPPED 2026-07-09
 
-- **The Stagehand** (Ninja · medium · phantom++) — blinks in, two fast hits,
-  smoke-bombs OUT to a marked re-entry point (the mark is your telegraph).
-  *Counter: hold the re-entry, make it land into your nova.* Hit-and-run that
-  teaches prediction instead of reaction.
-- **The Boom Operator** (Marksman · medium · new: cross-room lane) — sniper:
-  laser-thin lane across half the arena, heavy hit, long re-aim during which
-  it relocates. The whole room becomes cover-and-angles. *Counter: use the
-  relocate window; the lane never fires twice from one spot.*
-- **The Featured Extra** (AvianSwordsman · medium · new: riposte) — duelist
-  that periodically takes a FLOURISH stance (blade up, 0.8s): melee into it
-  gets riposted (reflect + brief self-stagger). *Counter: hold the swing —
-  hardest thing to teach an ARPG player — or shoot it; flourish only answers
-  melee.*
-- **The Darling** (MagicalGirl · medium · new: aura, kill-order boss-let) —
-  the System's current favorite. Projects a stardust shield over her
-  entourage (they take −50% while she lives); she takes +50% (glass idol).
-  *Counter: the game states the kill order and dares you to execute it inside
-  her entourage's screen.*
-- **The Canceled Crawler** (Superhero · medium · player-verb elite) — a
-  former favorite, kept as security. Runs the RIVALS bot brain: dashes with
-  i-frames, bolts, novas on YOUR cooldown grammar. *Counter: everything you'd
-  do to a player — bait the dash, punish the nova recovery.* PoE's rogue
-  exiles; the mirror-match spike the endgame deserves.
-- **The Suit Actor** (Monster → MonsterCostume · medium · gag splitter) — a
-  monster that, on death, unzips: a terrified guy in a costume crawls out
-  (weak, flees, worth hype not XP; letting him go is worth MORE hype).
-  *Counter: none needed — it's a mercy test on camera.* Pure DCC.
+The finale cast shipped as sim kinds `stagehand` / `sniper` / `duelist` /
+`darling` / `canceled` / `suitactor` (+ the spawned-only `suitguy`), floor
+16+ weights. The stagehand smoke-bombs after two swings to a marked re-entry
+blast; the sniper's lane is locked at cast and it relocates before it can
+fire again; the duelist's riposte reads ONLY melee (a `melee` flag on the
+swing choke points) and holds the blade-up pose; the darling's shield aura +
+glass-idol multipliers live in damageMonster (dim numbers on sheltered
+hits); the canceled runs sidestep dashes + a nova-slam on player-ish
+cadences; and the suit actor unzips in reapDead — the fleeing suitguy pays
+the whole party hype if he escapes (killing him pays 0 hype; the crowd
+boos). Still open from the concepts: the canceled using the full RIVALS bot
+brain (today it's an idiomatic imitation, not the real intent pipeline).
 
-**Count: 24 new + 12 shipped archetypes = 36 distinct mobs**, before elite
-affixes multiply looks (most models ship 2+ alternate textures for recolors).
+**ROSTER COMPLETE: all 24 concept mobs + 12 original archetypes = 36
+distinct monster kinds are now LIVE**, before elite affixes and skins
+multiply looks. What remains from this doc is composition: elite affix
+six-pack, the pack playbook, champions, and the boss layers.
 
-## Elite affix expansion (PoE soul, Diablo grammar)
+## Elite affix expansion (PoE soul, Diablo grammar) — SHIPPED 2026-07-09
 
-Current nine: swift, shielded, volatile, summoner, splitter, thorns, armored,
-warded, chilling. Add six — each one sentence of counterplay:
+All six landed in the elite roll pool (15 affixes total), each with a
+semantic glow tint: linked (pack soaks half of every hit while allies
+stand), vampiric (drinks landed melee), juggernaut (stagger+knockback
+immune, −25% speed), mortar (arcing shells over walls, min-range
+counterplay), berserking (self-sustaining frenzy below half via the drum
+plumbing), executioner (+50% vs crawlers under 40%). The original six-pack
+sketch, for the record:
 
 - **linked** — pack-mates share incoming damage while the linked elite lives
   (kill-order pressure without a support model).
@@ -178,33 +170,39 @@ warded, chilling. Add six — each one sentence of counterplay:
 
 ## Boss variety — four layers
 
-**Layer 1: Champions (the missing tier).** Between named elites and band
-bosses: one seeded CHAMPION per non-boss floor, a band-themed mini-arena
-fight with a signature-lite and a guaranteed reward (material/component).
-Candidates from the untapped pool: **The Foreman** (CombatMech, Ironworks),
-**The Ratings Grab** (Monstrosity — custom rig, verify clips first; Approach),
-**The Pack Alpha** (Werewolf_Wolf oversized, Garden), **The Debt Collector**
-(Skeleton_Golem named, Undercroft). Diablo's purple-name dopamine, and a
+**Layer 1: Champions (the missing tier).** ~~SHIPPED (pilot) 2026-07-09~~:
+**The Foreman** (CombatMech, kind `foreman`) holds floor 14 — a mini-boss
+kit (slam + radial volley) on elite plumbing (ringside intro + guaranteed
+drops), champion-scaled HP, excluded from the neighborhood-boss re-crowning.
+Still open: the rest of the tier — **The Ratings Grab** (Monstrosity —
+custom rig, verify clips first; Approach), **The Pack Alpha** (Werewolf_Wolf
+oversized, Garden), **The Debt Collector** (Skeleton_Golem named,
+Undercroft) — and per-floor seeding beyond the pilot. The original sketch:
+one seeded champion per non-boss floor. Diablo's purple-name dopamine, and a
 pacing beat between band bosses. Seam: the elite spawn path + a small arena
 carve like vaults.
 
-**Layer 2: Signature stacking (backlog #1, generalized).** Band bosses
-currently run ONE signature for the whole fight. Give every boss a phase
-SCRIPT: phase 2 adds a second signature borrowed from an earlier band, phase 3
-overlaps both. The finale runs the greatest-hits reel (backlog already wants
-this — same dispatch, extended). Fights escalate in mechanics, not just stats.
+**Layer 2: Signature stacking.** ~~SHIPPED 2026-07-09~~ (closed old backlog
+#1): from phase 1, band bosses ALTERNATE their own signature with the
+PREVIOUS band's (flood↔graverising, roots↔flood, debris↔roots,
+flamewall↔debris); the finale gains the greatest-hits reel — debris at
+phase 1, flamewall at phase 2, on top of its tier-3 kit.
 
-**Layer 3: Arena directors.** Each boss arena gets ONE environmental script
-that runs independent of the boss — the Sump King's arena FLOODS from the
-edges as the fight runs (shrinking safe ground, collapse-clock in miniature);
-the Furnace Marshal's wall vents exhale flame rows on a rhythm; the Topiary
-Warden's arena regrows a root maze every 45s. The boss + the room is the
-fight. Seam: a per-arena tick hook next to the signature dispatch.
+**Layer 3: Arena directors.** ~~SHIPPED 2026-07-09~~ for floors 6/9/15:
+`arenaDirector` in game.ts reuses the signature helpers on the arena's own
+slower metronome while the boss lives (flood rises, garden regrows, vents
+exhale) — announced once, stops the moment the boss falls. Floors 3/12 have
+no director by design (trainer arena; debris is already arena-wide).
 
 **Layer 4: New boss FORMATS (pick 2–3, don't ship all):**
-- **The Duo** — two mid-HP bosses with complementary kits (QA Team:
-  Robot_One tank + Robot_Two sniper); when one dies the other ENRAGES.
-  Kill-order at boss scale, brutal in the best way.
+- ~~**The Duo**~~ — **SHIPPED 2026-07-09**: THE QA TEAM holds floor 17 — QA
+  UNIT ONE (lineworker tank) + QA UNIT TWO (sentinel turret) share a
+  `duoId`; the survivor ENRAGES (permanent frenzy, +damage, +speed, a
+  grief-heal, and a "flagged as a DEFECT" line). The champion tier also
+  grew: **The Pack Alpha** (oversized charger) stalks floor 8; the
+  `CHAMPIONS` table in config drives all of it. Hook Squad targeting glue
+  turned out to be done-by-design: the hook drags TO the lasher, and the
+  pack formation puts the brute there.
 - **The Council** — three champion-grade elites introduced TOGETHER
   (RINGSIDE handles it — "THE PANEL WILL SEE YOU NOW"). Cheaper than a real
   boss, reads completely different.
@@ -240,7 +238,15 @@ Seam: a per-band template table in config (like FLOOR_BANDS), consumed by
 pick per pack site. Solo specialists (Repo Rat, Thing in the Pipes) stay
 singles.
 
-### The playbook (2 per band, flagship first)
+### The playbook (2 per band, flagship first) — SHIPPED 2026-07-09
+
+Live as `PACK_TEMPLATES` in config.ts, consumed by spawnMonsters: 35% of
+pack rolls muster a band template (floor 3+ — the contract floors stay
+loose; a clustered floor-2 Reception provably killed the bot). Formation
+offsets place supports rear/center; toysoldier members share a squadId,
+greeters spawn dormant. Substitutions from the concepts: Ambush Plumbing
+(needs the unshipped Thing in the Pipes) became The Acid Choir; three
+late-run Reruns shipped as Approach templates. The original designs:
 
 **THE UNDERCROFT — training combos (the tutorial teaches teamwork too)**
 - **The Reception** `[Ossuary Warden + 2 Skeleton Minions + Cutpurse]` — the

@@ -13,6 +13,7 @@ import {
 import {
   EQUIP_SLOTS, Tile,
   type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
+  type Vec2,
 } from "./sim/types";
 import { CONFIG } from "./sim/config";
 import {
@@ -20,11 +21,13 @@ import {
   knows, nodeOpen, rank, upgradeDef, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
+import { GamepadController, isoRotate } from "./input/gamepad";
+import { TouchController } from "./input/touch";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadMouseAim, loadMouseMove, loadNotify,
-  rebind, saveBindings, saveMouseAim, saveMouseMove, saveNotify,
-  type BindableAction, type Bindings, type NotifyLevel,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
+  loadTouch, rebind, saveBindings, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
+  type BindableAction, type Bindings, type NotifyLevel, type TouchPref,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -59,6 +62,9 @@ const params = new URLSearchParams(location.search);
 const joinCode = params.get("join");
 // RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
 const rivalsMode = params.has("rivals");
+// ROAM (multiplayer): ?roam=1&join=CODE — the party campaigns across sessions;
+// the server persists characters per account (see PERSISTENCE.md).
+const roamMode = params.has("roam");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
@@ -117,6 +123,9 @@ function persistRun(g: GameState): void {
 
 // ---- Run mode (set by the check-in menu; daily runs share one seed per day) ----
 let runMode: RunMode = { kind: "random" };
+// Race (today's 18-floor descent) vs Roam (SETTLEMENTS.md v1). Orthogonal to
+// RunMode: daily/random only ever apply to Race in the menu today.
+let currentRunKind: GameState["runKind"] = "race";
 let dailySubmitted = false; // one board submission per run end
 let hasContinue = false; // a mid-run save was restored; the menu offers CONTINUE
 
@@ -135,7 +144,7 @@ function boot(): GameState {
   return createGame(freshSeed());
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", '<b style="color:#c0392f">TEST MODE</b> · ');
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>TEST MODE</b>");
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -146,23 +155,73 @@ if (testMode) Object.defineProperty(window, "__dcc", { configurable: true, get: 
 const log: string[] = [];
 
 /** Start a fresh local run in the given mode (menu choice or R-key rerun). */
-function startRun(mode: RunMode): void {
+function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   clearRun();
   runMode = mode;
+  currentRunKind = runKind;
   dailySubmitted = false;
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
-  state = createGame(seed);
+  state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
-  pushLogLine(mode.kind === "daily"
+  pushLogLine(runKind === "roam"
+    ? "Roam mode. No clock, no floor 18 — just the next settlement over."
+    : mode.kind === "daily"
     ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon. Only the board remembers.`
     : `New run. Descend to floor ${CONFIG.finalFloor}.`);
 }
 
 const input = new InputController(canvas);
 input.mouseMoveMode = mouseClickMove;
+
+// Controller (Gamepad API): a second Intent producer merged in sampleIntent.
+// The most recent device wins AIM; movement and casts simply OR together.
+// The K panel's Controller toggle turns the whole thing off (no polling,
+// no toasts) for players whose parked pad drifts.
+const gamepad = new GamepadController();
+let gamepadEnabled = loadGamepad();
+let lastMouseAt = 0; // host clock (s) of the last mouse touch — device arbitration
+canvas.addEventListener("mousemove", () => { lastMouseAt = performance.now() / 1000; });
+canvas.addEventListener("mousedown", () => { lastMouseAt = performance.now() / 1000; });
+gamepad.onConnect = (id) => {
+  if (!gamepadEnabled) return;
+  pushLogLine(`Controller connected: ${id.slice(0, 40)} — sticks move/aim, A·X·B·Y cast.`);
+  if (kbOpen) renderKeybinds(); // the K panel grows its controller legend
+};
+gamepad.onDisconnect = () => {
+  if (!gamepadEnabled) return;
+  pushLogLine("Controller disconnected.");
+  if (kbOpen) renderKeybinds();
+};
+
+// Touch controls (Wild Rift-style, see input/touch.ts): AUTO on coarse-pointer
+// devices, forceable via ?touch=1 (headless verify) or the K panel. The skill
+// chips double as the ability cluster; body.touch drives all layout.
+let touchPref: TouchPref = loadTouch();
+const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+function touchWanted(): boolean {
+  if (params.has("touch")) return params.get("touch") !== "0";
+  return touchPref === "on" || (touchPref === "auto" && coarsePointer);
+}
+let touchMode = touchWanted();
+const touch = new TouchController();
+const tStickEl = document.getElementById("t-stick")!;
+const tStairsEl = document.getElementById("t-stairs")!;
+touch.bind(document.getElementById("t-stickzone")!, document.getElementById("skills")!, tStairsEl);
+touch.onStick = (origin, nub) => {
+  if (!origin) { tStickEl.style.display = "none"; return; }
+  tStickEl.style.display = "block";
+  tStickEl.style.left = `${origin.x}px`;
+  tStickEl.style.top = `${origin.y}px`;
+  (tStickEl.firstElementChild as HTMLElement).style.transform = `translate(${nub.x}px, ${nub.y}px)`;
+};
+function applyTouchMode(): void {
+  touchMode = touchWanted();
+  document.body.classList.toggle("touch", touchMode);
+}
+applyTouchMode();
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -173,7 +232,7 @@ input.onReset = () => {
     clearLogFeed();
     pushLogLine(`New run. Descend to floor ${CONFIG.finalFloor}.`);
   } else {
-    startRun(runMode); // rerun keeps the mode: a daily rerun replays today's dungeon
+    startRun(runMode, currentRunKind); // rerun keeps the mode: a daily rerun replays today's dungeon
   }
   if (invOpen) toggleInventory(); // close stale panels from the old run
   if (abilOpen) toggleAbilities();
@@ -301,6 +360,26 @@ document.getElementById("m-solo")!.addEventListener("click", () => {
   closeMenu();
 });
 
+// RACE / ROAM top-level split. RACE shows today's full card set unchanged;
+// ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
+// settlement, one tribe, one quest, no daily/party/rivals/test yet.
+document.getElementById("m-mode-race")!.addEventListener("click", () => {
+  document.getElementById("m-race-cards")!.style.display = "";
+  document.getElementById("m-roam-cards")!.style.display = "none";
+  document.getElementById("m-mode-race")!.classList.add("active");
+  document.getElementById("m-mode-roam")!.classList.remove("active");
+});
+document.getElementById("m-mode-roam")!.addEventListener("click", () => {
+  document.getElementById("m-race-cards")!.style.display = "none";
+  document.getElementById("m-roam-cards")!.style.display = "";
+  document.getElementById("m-mode-roam")!.classList.add("active");
+  document.getElementById("m-mode-race")!.classList.remove("active");
+});
+document.getElementById("m-roam-solo")!.addEventListener("click", () => {
+  startRun({ kind: "random" }, "roam");
+  closeMenu();
+});
+
 // Party crawl: the invite code IS the dungeon seed; the URL is the invite.
 const codeInput = document.getElementById("m-code") as HTMLInputElement;
 function rollCode(): string {
@@ -395,10 +474,47 @@ function clearLogFeed(): void {
 
 pushLogLine(`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`);
 
+// BULLET TIME screen grade: the System dims the house lights. A CSS filter
+// desaturates the canvas and a radial vignette closes in; both fade over
+// ~220ms so entry/exit feel like a lens, not a light switch. (The audio
+// director muffles the mix in parallel — see AudioEngine.muffle.)
+const btVignette = document.createElement("div");
+btVignette.style.cssText =
+  "position:fixed;inset:0;pointer-events:none;z-index:1;opacity:0;" +
+  "transition:opacity 220ms ease-out;" +
+  "background:radial-gradient(ellipse at center, rgba(20,30,50,0) 52%, rgba(8,12,24,0.6) 100%)";
+document.body.appendChild(btVignette);
+canvas.style.transition = "filter 220ms ease-out";
+let btGradeOn = false;
+function updateBulletTimeGrade(s: GameState): void {
+  const on = s.bulletTimeLeft > 0;
+  if (on === btGradeOn) return;
+  btGradeOn = on;
+  canvas.style.filter = on ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
+  btVignette.style.opacity = on ? "1" : "0";
+}
+
 const fxLayer = document.getElementById("fx")!;
 const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
+// Touch: tapping the minimap drops a party ping there (inverse of the
+// drawMinimap transform: pad 6, uniform tile scale).
+minimap.addEventListener("pointerdown", (e) => {
+  if (!touchMode) return;
+  const r = minimap.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return;
+  const cx = (e.clientX - r.left) * (minimap.width / r.width);
+  const cy = (e.clientY - r.top) * (minimap.height / r.height);
+  const pad = 6;
+  const sx = (minimap.width - pad * 2) / state.map.w;
+  const sy = (minimap.height - pad * 2) / state.map.h;
+  touchEdges.ping = {
+    x: Math.max(0, Math.min(state.map.w - 1, (cx - pad) / sx)),
+    y: Math.max(0, Math.min(state.map.h - 1, (cy - pad) / sy)),
+  };
+  e.preventDefault();
+});
 
 const RARITY_COLORS: Record<string, string> = {
   common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
@@ -548,12 +664,16 @@ function renderDraft(s: GameState): void {
   if (lp.pendingRewards.length > 0) {
     const shrine = lp.pendingRewards.some((r) => r.kind.startsWith("shrine"));
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
+    const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE" : "◆ SPONSOR DRAFT";
+    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE"
+      : quest ? "⚑ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
         ? "The shrine offers a bargain. Every deal has fine print — pick one, or walk."
+        : quest
+        ? "The settlement pays what it promised. Take one."
         : "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
@@ -996,21 +1116,20 @@ let listening: BindableAction | null = null;
 function applyBindings(): void {
   input.setBindings(bindings);
   const first = (a: BindableAction) => bindingLabel(bindings, a).split(" / ")[0];
-  // Banner + panel hints render from the live bindings (the skill bar renders
-  // per-frame from the loadout in updateSkills).
-  const wasd = [first("moveUp"), first("moveLeft"), first("moveDown"), first("moveRight")].join("");
-  document.getElementById("banner-keys")!.innerHTML =
-    `<kbd>${wasd === "WASD" ? "WASD" : wasd}</kbd> move · ` +
-    `<kbd>${first("slot1")}</kbd>/LMB·<kbd>${first("slot2")}</kbd>·<kbd>${first("slot3")}</kbd>/RMB·<kbd>${first("slot4")}</kbd> abilities · ` +
-    `<kbd>${first("ultimate")}</kbd> ultimate · ` +
-    `<kbd>${first("inventory")}</kbd> inv · ` +
-    `<kbd>${first("abilities")}</kbd> loadout · ` +
-    `<kbd>${first("character")}</kbd> profile · ` +
-    `<kbd>${first("keybinds")}</kbd> keys · ` +
-    `<kbd>${first("stairs")}</kbd> stairs · ` +
-    `<kbd>${first("newRun")}</kbd> new run · ` +
-    `<kbd>${first("mute")}</kbd> mute` + (mouseAim ? " · aim with mouse" : "") +
-    (mouseClickMove ? " · click to move" : "");
+  // The two top-bar menus render from the live bindings so rebinds refresh
+  // their key hints (the skill bar renders per-frame in updateSkills; full
+  // movement/combat reference lives in the K panel).
+  const row = (act: BindableAction, label: string) =>
+    `<div class="tm-row" data-act="${act}"><span>${label}</span><kbd>${esc(first(act))}</kbd></div>`;
+  document.getElementById("tm-system")!.innerHTML =
+    row("keybinds", "Key Bindings & Options") +
+    row("mute", "Mute / Unmute Sound") +
+    (net ? "" : row("newRun", "New Run"));
+  document.getElementById("tm-crawler")!.innerHTML =
+    row("inventory", "Inventory") +
+    row("abilities", "Loadout & Achievements") +
+    row("character", "Crawler Profile") +
+    row("draft", "Claim Banked Drafts");
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
@@ -1028,6 +1147,11 @@ function renderKeybinds(): void {
         `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
       );
     })
+    .concat(gamepadEnabled && gamepad.connected ? [
+      `<div class="kb-row kb-pad">Controller — sticks: move / aim · A X B Y: slots 1-4 · ` +
+      `RT: ultimate · LB: flask · RB: stairs · LT: ping · Start: inventory · ` +
+      `Back: profile · D-pad: draft / abilities</div>`,
+    ] : [])
     .join("");
 }
 
@@ -1088,6 +1212,34 @@ kbNotify.addEventListener("click", () => {
 });
 renderNotify();
 
+// Controller on/off (see GamepadController). Toggling ON with a pad already
+// plugged in adopts it on the next frame's poll — no reconnect needed.
+const kbGamepad = document.getElementById("kb-gamepad")!;
+function renderGamepadToggle(): void {
+  kbGamepad.textContent = gamepadEnabled ? "ON" : "OFF";
+}
+kbGamepad.addEventListener("click", () => {
+  gamepadEnabled = !gamepadEnabled;
+  saveGamepad(gamepadEnabled);
+  renderGamepadToggle();
+  renderKeybinds(); // legend row appears/disappears with the toggle
+});
+renderGamepadToggle();
+
+// Touch controls: AUTO (coarse-pointer devices) -> ON -> OFF. Applies live.
+const TOUCH_CYCLE: TouchPref[] = ["auto", "on", "off"];
+const kbTouch = document.getElementById("kb-touch")!;
+function renderTouchToggle(): void {
+  kbTouch.textContent = touchPref.toUpperCase();
+}
+kbTouch.addEventListener("click", () => {
+  touchPref = TOUCH_CYCLE[(TOUCH_CYCLE.indexOf(touchPref) + 1) % TOUCH_CYCLE.length];
+  saveTouch(touchPref);
+  applyTouchMode();
+  renderTouchToggle();
+});
+renderTouchToggle();
+
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
   saveBindings(bindings);
@@ -1110,7 +1262,8 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (k === "escape") {
-    if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
+    if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
+    else if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
     else if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
     else if (sheetOpen) toggleSheet();
@@ -1118,7 +1271,9 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-input.onAction = (a) => {
+// One dispatcher for panel/utility actions — keyboard binds, controller
+// buttons, and the top-bar menus all land here.
+function fireAction(a: BindableAction): void {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
   else if (a === "character") toggleSheet();
@@ -1131,7 +1286,37 @@ input.onAction = (a) => {
     }
   }
   else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
+  else if (a === "newRun") input.onReset?.();
+}
+input.onAction = fireAction;
+// Controller panel buttons route through the same handler; captureMode (menu
+// name field, key rebinding) gates them exactly like keyboard binds.
+gamepad.onAction = (a) => {
+  if (!input.captureMode) fireAction(a);
 };
+
+// The two top-bar menus (SYSTEM / CRAWLER). One open at a time; any click
+// outside, an action, or Esc closes.
+const topBars = [...document.querySelectorAll<HTMLElement>("#banner .tb")];
+function closeTopMenus(): void {
+  for (const tb of topBars) tb.classList.remove("open");
+}
+for (const tb of topBars) {
+  tb.querySelector(".topbtn")!.addEventListener("click", () => {
+    const was = tb.classList.contains("open");
+    closeTopMenus();
+    if (!was) tb.classList.add("open");
+  });
+  tb.querySelector(".topmenu")!.addEventListener("click", (e) => {
+    const r = (e.target as HTMLElement).closest<HTMLElement>(".tm-row");
+    if (!r?.dataset.act) return;
+    closeTopMenus();
+    fireAction(r.dataset.act as BindableAction);
+  });
+}
+document.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest("#banner")) closeTopMenus();
+});
 applyBindings();
 
 // ---- The System Shop (safe room between floors; pauses the sim until DESCEND) ----
@@ -1627,6 +1812,12 @@ for (const container of [srBag, srEquipped]) {
 new MutationObserver(() => {
   if (srEl.style.display === "none") itemTipEl.style.display = "none";
 }).observe(srEl, { attributes: true, attributeFilter: ["style"] });
+// Touch: taps have no mouseleave — tapping a tile shows the tooltip (via the
+// emulated mouseover above); tapping anywhere that isn't an item hides it.
+document.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse") return;
+  if (!tipItemFor(e.target as HTMLElement)) itemTipEl.style.display = "none";
+});
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
@@ -2106,16 +2297,118 @@ let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
+/** Drag-aim telegraph shape by ability: dashes arrow, AoEs ring, else a line. */
+const TELEGRAPH_RING = new Set<AbilityId>(["nova", "cataclysm", "crowdsurf", "airstrike"]);
+function telegraphShape(a: AbilityId | null): "line" | "ring" | "arrow" {
+  if (a === "dash") return "arrow";
+  if (a && TELEGRAPH_RING.has(a)) return "ring";
+  return "line";
+}
+
+/** Direction to the nearest living monster in reach — controller quick-cast. */
+function autoAimDir(range = 8): Vec2 | null {
+  const p = me(state);
+  let best: Vec2 | null = null;
+  let bestD = range * range;
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const dx = m.pos.x - p.pos.x, dy = m.pos.y - p.pos.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD && d > 1e-4) { bestD = d; best = { x: dx, y: dy }; }
+  }
+  return best;
+}
+
+// Controller poll runs at FRAME level, not per sim step: panel buttons must
+// keep working while an open panel has the local sim paused, and in net mode
+// intents sample at 20Hz while we poll at frame rate. Held state is simply
+// the latest poll; press edges ACCUMULATE here until sampleIntent eats them.
+let padHeld: ReturnType<GamepadController["poll"]> = null;
+const padEdges = { flask: false, stairs: false, ping: false };
+function pollPad(): void {
+  padHeld = gamepadEnabled ? gamepad.poll(performance.now() / 1000) : null;
+  if (padHeld) {
+    padEdges.flask ||= padHeld.flaskEdge;
+    padEdges.stairs ||= padHeld.stairsEdge;
+    padEdges.ping ||= padHeld.pingEdge;
+  }
+}
+
+// Touch runs the same frame-level rhythm as the pad; one-shot drag casts and
+// button taps accumulate here until the next sampleIntent consumes them.
+let touchHeld: ReturnType<TouchController["sample"]> = null;
+const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
+  casts: [], flask: false, stairs: false, ping: null,
+};
+function pollTouch(): void {
+  touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
+  if (touchHeld) {
+    touchEdges.casts.push(...touchHeld.castEdges);
+    touchEdges.flask ||= touchHeld.flaskEdge;
+    touchEdges.stairs ||= touchHeld.stairsEdge;
+  }
+}
+
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
-  if (mouseAim && input.mouse) {
+  // Controller merge: sticks arrive in screen space and take one iso rotation
+  // into world axes; buttons OR over keyboard state. Edges behave like keys.
+  const pad = padHeld;
+  if (pad) {
+    if (pad.move) intent.move = isoRotate(pad.move);
+    if (intent.cast) for (let i = 0; i < pad.cast.length; i++) if (pad.cast[i]) intent.cast[i] = true;
+    if (padEdges.flask) intent.flask = true;
+    if (padEdges.stairs) intent.useStairs = true;
+    if (padEdges.ping) {
+      const p = me(state);
+      intent.ping = { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
+    }
+    padEdges.flask = padEdges.stairs = padEdges.ping = false;
+  }
+  // Touch merge: stick moves (same iso rotation), the attack chip holds
+  // cast[0], and released taps/drag-casts land as one-shot edges. A drag
+  // brings its own aim; a tap leaves aim null for the auto-aim below.
+  let touchCastAim = false;
+  if (touchHeld) {
+    if (touchHeld.move) intent.move = isoRotate(touchHeld.move);
+    if (intent.cast) {
+      if (touchHeld.castHeld[0]) intent.cast[0] = true;
+      for (const c of touchEdges.casts) {
+        intent.cast[c.slot] = true;
+        if (c.aim) { intent.aim = isoRotate(c.aim); touchCastAim = true; }
+      }
+    }
+    if (touchEdges.flask) intent.flask = true;
+    if (touchEdges.stairs) intent.useStairs = true;
+    if (touchEdges.ping) intent.ping = touchEdges.ping;
+    touchEdges.casts.length = 0;
+    touchEdges.flask = touchEdges.stairs = false;
+    touchEdges.ping = null;
+  }
+  // AIM is exclusive: an explicit source (touch drag, pad right stick) wins
+  // outright; otherwise the mouse aims only if it was touched more recently
+  // than pad/touch (device arbitration — a parked cursor must not pin the
+  // aim while someone plays on sticks or glass).
+  const padRecent = gamepad.lastInputAt > lastMouseAt;
+  const touchRecent = touch.lastInputAt > lastMouseAt;
+  if (touchCastAim) {
+    // drag-cast aim already applied above
+  } else if (pad?.aim) {
+    intent.aim = isoRotate(pad.aim);
+  } else if (mouseAim && input.mouse && !padRecent && !touchRecent) {
     const g = renderer.screenToGround(input.mouse.x, input.mouse.y);
     if (g) {
       const p = me(state);
       const dx = g.x - p.pos.x, dy = g.y - p.pos.y;
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
+  }
+  // Quick-cast: casting without an explicit aim on pad/touch snaps to the
+  // nearest living monster (Wild Rift-style). Facing still covers whiffs.
+  if ((padRecent || touchRecent) && !intent.aim && intent.cast?.some(Boolean)) {
+    const snap = autoAimDir();
+    if (snap) intent.aim = snap;
   }
   // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
   if (input.pingEdge) {
@@ -2147,11 +2440,39 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
 }
 
 async function main(): Promise<void> {
-  await renderer.init();
+  // SIGNAL ACQUISITION: the loading screen is baked into iso.html (visible
+  // from the first paint); here we just feed it real progress while the model
+  // manifest streams in, then fade it out. The System narrates its own load —
+  // the rotating line is flavor on a timer, the bar is the information.
+  const loadingEl = document.getElementById("loading") as HTMLDivElement;
+  const loadingFill = document.getElementById("loading-fill") as HTMLElement;
+  const loadingCount = document.getElementById("loading-count") as HTMLElement;
+  const loadingFlavor = document.getElementById("loading-flavor") as HTMLElement;
+  const LOAD_LINES = [
+    "DECORATING YOUR DEATHTRAP…",
+    "REHEARSING THE MONSTERS…",
+    "POLISHING THE LOOT BOXES…",
+    "BRIBING THE CAMERA CREW…",
+    "SELLING YOUR AD SLOTS…",
+    "WARMING UP THE ANNOUNCER…",
+  ];
+  let loadLine = 0;
+  loadingFlavor.textContent = LOAD_LINES[0];
+  const flavorTimer = window.setInterval(() => {
+    loadLine = (loadLine + 1) % LOAD_LINES.length;
+    loadingFlavor.textContent = LOAD_LINES[loadLine];
+  }, 1400);
+  await renderer.init((loaded, total) => {
+    loadingFill.style.width = `${Math.round((loaded / total) * 100)}%`;
+    loadingCount.textContent = `${loaded} / ${total} ASSETS`;
+  });
+  window.clearInterval(flavorTimer);
+  loadingEl.classList.add("done");
+  window.setTimeout(() => { loadingEl.style.display = "none"; }, 500);
 
   if (net) {
     try {
-      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode);
+      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode, roamMode);
     } catch (err) {
       hudLog.innerHTML = `<b style="color:#c0392f">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;
@@ -2166,8 +2487,15 @@ async function main(): Promise<void> {
       for (const e of batch.events) pushLogLine(e);
     };
     net.onDisconnect = () => {
-      pushLogLine("Disconnected from the server.");
-      showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties.", kind: "flavor", priority: "high" });
+      pushLogLine("Disconnected from the server. Attempting to reconnect…");
+      showAnnouncement({ text: "CONNECTION LOST. The System apologizes for the technical difficulties. Reconnecting…", kind: "flavor", priority: "high" });
+    };
+    net.onReconnect = () => {
+      // The seat may be a restored instance: re-read the id, resume rendering.
+      localId = net.playerId;
+      renderer.localPlayerId = localId;
+      pushLogLine("Reconnected. Your run resumes.");
+      showAnnouncement({ text: "SIGNAL RESTORED. The audience missed you.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
   }
@@ -2177,6 +2505,8 @@ async function main(): Promise<void> {
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;
     acc += dt;
+    pollPad(); // frame-level: panel buttons stay live while a panel pauses the sim
+    pollTouch();
 
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
@@ -2294,9 +2624,45 @@ async function main(): Promise<void> {
       if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
     }
 
+    // Touch feedback: the drag-aim ground telegraph + the contextual descend
+    // chip (shown only while standing on the stairs tile).
+    if (touchMode) {
+      const p = me(state);
+      if (touchHeld && touchHeld.aimingSlot >= 0 && touchHeld.aimDir) {
+        const ab = touchHeld.aimingSlot < 4
+          ? p.abilities.slots[touchHeld.aimingSlot]
+          : p.abilities.ultimate;
+        renderer.setAimIndicator(telegraphShape(ab), p.pos, isoRotate(touchHeld.aimDir));
+      } else {
+        renderer.setAimIndicator(null);
+      }
+      const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
+      tStairsEl.classList.toggle("on", state.map.tiles[ti] === Tile.StairsDown);
+    }
+
+    // Controller rumble rides the same hit stream as particles/shake: damage
+    // TAKEN thumps the heavy motor (scaled by how much of your health it was);
+    // kill confirms tick the light one. Everything else stays still — rumble
+    // is punctuation, not weather.
+    if (gamepadEnabled && gamepad.connected && frameHits.length > 0) {
+      const p = me(state);
+      let strong = 0, weak = 0;
+      for (const h of frameHits) {
+        if (h.kind === "player") {
+          const dx = h.pos.x - p.pos.x, dy = h.pos.y - p.pos.y;
+          if (dx * dx + dy * dy < 1.5) strong = Math.max(strong, 0.35 + (h.amount / Math.max(1, p.maxHp)) * 2);
+        } else if (h.killed) {
+          weak = Math.max(weak, h.kind === "crit" ? 0.5 : 0.3);
+        }
+      }
+      if (strong > 0) gamepad.rumble(strong, 0.2, 130);
+      else if (weak > 0) gamepad.rumble(0, weak, 60);
+    }
+
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);
     audioDirector.frame(state, frameHits, frameAnns, localId);
+    updateBulletTimeGrade(state);
     renderer.update(state, now / 1000);
     renderer.render();
     // Damage numbers need the camera positioned (done in update) to project.

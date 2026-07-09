@@ -1,6 +1,7 @@
 import { CONFIG } from "./config";
 import { Tile, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
 import { nextInt, type Rng } from "./rng";
+import { ROOM_TEMPLATES, validateTemplate } from "../content/rooms";
 
 type Room = RoomRect;
 
@@ -132,12 +133,17 @@ function lockStairsRoom(
  * >= LOCKED_FLOOR_MIN the stairs room is sealed behind locked doors (a key
  * carrier is assigned when monsters spawn; see game.ts).
  */
-export function generateFloor(rng: Rng, floor: number): FloorMap {
-  const w = CONFIG.floorGridW;
-  const h = CONFIG.floorGridH;
+export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" = "race"): FloorMap {
+  const roam = runKind === "roam";
+  const w = roam ? CONFIG.roamFloorGridW : CONFIG.floorGridW;
+  const h = roam ? CONFIG.roamFloorGridH : CONFIG.floorGridH;
   const tiles = new Uint8Array(w * h); // all Wall (0) initially
 
-  const targetRooms = nextInt(rng, CONFIG.floorMinRooms, CONFIG.floorMaxRooms);
+  const targetRooms = nextInt(
+    rng,
+    roam ? CONFIG.roamFloorMinRooms : CONFIG.floorMinRooms,
+    roam ? CONFIG.roamFloorMaxRooms : CONFIG.floorMaxRooms,
+  );
   const rooms: Room[] = [];
   let attempts = 0;
 
@@ -214,9 +220,12 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   // to be dodged rather than facetanked. The arena replaces the farthest room
   // in place; any room whose center it swallows merges into it (their
   // corridors stay).
+  // Roam floors regenerate open-endedly past floor 18 with no boss roster to
+  // draw from beyond it — never trade the stairs room for a boss arena there.
   const bossFloor =
-    floor >= CONFIG.finalFloor ||
-    (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0);
+    !roam &&
+    (floor >= CONFIG.finalFloor ||
+      (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0));
   if (bossFloor) {
     const size = CONFIG.bossArenaSize;
     const c = center(rooms[farthestIdx]);
@@ -267,6 +276,34 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
   }
   if (vaultIdx >= 0) roles[vaultIdx] = "vault";
 
+  // SETTLEMENT (Roam only): one more room, sized like a landmark candidate,
+  // left uncarved (no pillar-style set piece needed for v1) and later
+  // spawn-blocked + patrol-blocked so it reads as a sanctuary.
+  let settlementIdx = -1;
+  if (roam) {
+    let bestSettleArea = -1;
+    for (let i = 1; i < rooms.length; i++) {
+      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx) continue;
+      const area = rooms[i].w * rooms[i].h;
+      if (area > bestSettleArea) { bestSettleArea = area; settlementIdx = i; }
+    }
+    if (settlementIdx >= 0) roles[settlementIdx] = "settlement";
+  }
+
+  // STRONGHOLD (Roam only): a second distinct room, hostile — unlike the
+  // settlement it stays uncarved AND unblocked (isWalkableForMonster only
+  // checks settlementRoomIdx), since a garrison is meant to live there.
+  let strongholdIdx = -1;
+  if (roam) {
+    let bestStrongholdArea = -1;
+    for (let i = 1; i < rooms.length; i++) {
+      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx || i === settlementIdx) continue;
+      const area = rooms[i].w * rooms[i].h;
+      if (area > bestStrongholdArea) { bestStrongholdArea = area; strongholdIdx = i; }
+    }
+    if (strongholdIdx >= 0) roles[strongholdIdx] = "stronghold";
+  }
+
   // PACING: 0..1 progress along the critical chain toward the stairs. Branch
   // rooms past the exit inherit near-full depth (they're deep detours).
   const depths = rooms.map((_r, i) =>
@@ -313,9 +350,65 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     }
   }
 
+  // CRAFTED ROOMS (builder.html → src/content/rooms): stamp hand-designed
+  // templates into eligible rooms. Contract: the template's border ring and
+  // center are floor (validateTemplate), stamped walls only ever overwrite
+  // plain Floor, and the entrance/stairs rooms are never stamped — so
+  // doorways, spawn, stairs, and center-of-room probes all stay safe.
+  const stamps: { id: string; x: number; y: number }[] = [];
+  for (let i = 1; i < rooms.length && stamps.length < 2; i++) {
+    if (i === farthestIdx) continue;
+    if (nextInt(rng, 0, 99) >= 40) continue;
+    const r = rooms[i];
+    // Strict fit: a 1-tile ROOM margin around the template on top of the
+    // template's own floor border, so stamped walls never sit 1 tile from
+    // the room's walls (the floor-wide 2x2-walkable invariant).
+    const fits = ROOM_TEMPLATES.filter((t) =>
+      validateTemplate(t) && t.w <= r.w - 2 && t.h <= r.h - 2 &&
+      (!t.role || t.role === "any" || t.role === roles[i]));
+    if (fits.length === 0) continue;
+    const t = fits[nextInt(rng, 0, fits.length - 1)];
+    const ox = r.x + Math.floor((r.w - t.w) / 2);
+    const oy = r.y + Math.floor((r.h - t.h) / 2);
+    const changed: number[] = [];
+    for (let ty = 0; ty < t.h; ty++) {
+      for (let tx = 0; tx < t.w; tx++) {
+        if (t.tiles[ty * t.w + tx] !== Tile.Wall) continue;
+        const ti = idx(w, ox + tx, oy + ty);
+        if (tiles[ti] === Tile.Floor) { tiles[ti] = Tile.Wall; changed.push(ti); }
+      }
+    }
+    // Belt AND suspenders: verify the 2x2-walkable invariant around the
+    // stamped region; a design that creates a chokepoint reverts silently.
+    let ok = true;
+    outer: for (let y = oy - 1; y <= oy + t.h && ok; y++) {
+      for (let x = ox - 1; x <= ox + t.w; x++) {
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        if (tiles[idx(w, x, y)] === Tile.Wall) continue;
+        let inBlock = false;
+        for (const [bx, by] of [[x - 1, y - 1], [x, y - 1], [x - 1, y], [x, y]]) {
+          let all = true;
+          for (let yy = by; yy <= by + 1 && all; yy++) {
+            for (let xx = bx; xx <= bx + 1; xx++) {
+              if (xx < 0 || yy < 0 || xx >= w || yy >= h || tiles[idx(w, xx, yy)] === Tile.Wall) { all = false; break; }
+            }
+          }
+          if (all) { inBlock = true; break; }
+        }
+        if (!inBlock) { ok = false; break outer; }
+      }
+    }
+    if (!ok) {
+      for (const ti of changed) tiles[ti] = Tile.Floor;
+      continue;
+    }
+    stamps.push({ id: t.id, x: ox, y: oy });
+  }
+
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
+  // Roam has no key-carrier story in v1 — stairs always stay open.
   const locked =
-    floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
+    !roam && floor >= LOCKED_FLOOR_MIN && lockStairsRoom(tiles, w, h, rooms, farthestIdx, spawn);
 
   return {
     w,
@@ -329,8 +422,11 @@ export function generateFloor(rng: Rng, floor: number): FloorMap {
     cycles,
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
+    settlementRoomIdx: settlementIdx,
+    strongholdRoomIdx: strongholdIdx,
     pillars,
     pedestal,
+    stamps,
   };
 }
 
@@ -385,6 +481,21 @@ export function tileAt(map: FloorMap, x: number, y: number): Tile {
 export function isWalkable(map: FloorMap, x: number, y: number): boolean {
   const t = tileAt(map, x, y);
   return t !== Tile.Wall && t !== Tile.DoorLocked;
+}
+
+/**
+ * Monster-only walkability: everything isWalkable allows, minus the Roam
+ * settlement room's tiles (a sanctuary — monsters wander/chase everywhere
+ * else on the floor, but won't path into it). Player movement always uses
+ * isWalkable directly, never this.
+ */
+export function isWalkableForMonster(map: FloorMap, x: number, y: number): boolean {
+  if (!isWalkable(map, x, y)) return false;
+  const si = map.settlementRoomIdx;
+  if (si < 0) return true;
+  const r = map.rooms[si];
+  const tx = Math.floor(x), ty = Math.floor(y);
+  return !(tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
 }
 
 /** Collect all walkable tile centers, for spawning monsters/loot. */

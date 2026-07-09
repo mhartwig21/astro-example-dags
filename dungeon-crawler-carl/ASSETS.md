@@ -49,7 +49,7 @@ mirror (github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0) via
 |---|---|---|---|
 | KayKit Character Pack: Adventurers | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Pack: Skeletons | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-skeletons |
-| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat], Robot_One [Lineworker], Robot_Two [Sentinel], Clanker [Slagbreaker], ToySoldier [Wind-Up Battalion], Animatronic_Normal/_Creepy [Greeter + elite skin], Werewolf_Man [Understudy], Tiefling [Briar Witch], Skeleton_Rogue [Cutpurse], Skeleton_Golem [Ossuary Warden], Caveman [Pit Digger], Paladin/_with_Helmet [Shieldbearer + elite skin], Cleric [Ruins Cleric], Lorekeeper [Archivist], 4GTN/_Forgotten [Colossus + elite skin] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
+| The Complete KayKit Collection v6 (monster cast: Skeleton_Minion, Necromancer, OrcBrute, Clown, Witch, Vampire, Werewolf, PlantWarrior, BlackKnight, FrostGolem, OrcRaider [Drum Sergeant], Hoarder [Repo Rat], Robot_One [Lineworker], Robot_Two [Sentinel], Clanker [Slagbreaker], ToySoldier [Wind-Up Battalion], Animatronic_Normal/_Creepy [Greeter + elite skin], Werewolf_Man [Understudy], Tiefling [Briar Witch], Skeleton_Rogue [Cutpurse], Skeleton_Golem [Ossuary Warden], Caveman [Pit Digger], Paladin/_with_Helmet [Shieldbearer + elite skin], Cleric [Ruins Cleric], Lorekeeper [Archivist], 4GTN/_Forgotten [Colossus + elite skin], Ninja [Stagehand], Marksman [Sniper], AvianSwordsman [Duelist], MagicalGirl [Darling], Superhero [Canceled], Monster/MonsterCostume [Suit Actor + the guy inside], CombatMech [The Foreman champion] + Rig_Medium/Rig_Large animation libraries from Character Animations 1.1) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Monthly Mystery Character: Demon Lord (July 2026; + SummoningCircle prop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 
 Collection characters were copied from the purchased Complete Collection zip
@@ -363,6 +363,43 @@ above. Provenance rules for anything it produces:
 | Our file | What | Origin |
 |---|---|---|
 | characters/extradition.glb | "Extradition" cast clip (armature + animation only, no mesh) for the hero skins | Meshy (paid tier) auto-rig of the CC0 KayKit adventurer + preset clip 239 "Crouch_Pull_and_Throw", retargeted onto the Adventurers 1.0 rig via `tools/asset-pipeline/blender/retarget_clip.py` |
+| dungeon/fx_nova_ring.glb | Nova's shockwave ring (spell-FX mesh kit; emissive/fade treatment applied at load in `buildFxRing`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_cataclysm_crown.glb | Cataclysm's eruption crown + the Aftermath echo's ground marker | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_implosion_cone.glb | IMPLOSION capstone's collapsing vortex | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_flame_wall.glb | Flame Sweep's fire (per hazard cell; `flavor: "flame"`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_detonation_star.glb | Zero-amount crit detonation marker (Gavel Drop, EXTINCTION, Stunt Double exit) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/fx_blast_star.glb | Airstrike impact debris ring | Meshy (paid tier) text-to-3D, palette-snapped |
+| characters/flask_drink.glb | Sponsor Slurp™ drink act (clip only) | Meshy (paid tier) preset 342 "Stand_and_Drink", retargeted onto the Adventurers 1.0 rig |
+| characters/stuntdouble_cast.glb | Stunt Double cast — a gentleman's bow (clip only) | Meshy (paid tier) preset 42 "Gentlemans_Bow", retargeted onto the Adventurers 1.0 rig |
+| dungeon/system_loot_box.glb | Loot-box delivery moment (dropped at the crawler's feet on grant) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/sponsor_shell.glb | Airstrike ordnance (retires the repurposed `keg.glb`) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/gavel_anchor.glb | Extradition chain's far-end gavel (CLASS ACTION / Gavel Drop lane) | Meshy (paid tier) text-to-3D, palette-snapped |
+| dungeon/descent_portal.glb | The System's descent gate framing the stairs tile | Meshy (paid tier) text-to-3D, palette-snapped |
+| characters/*_texture_b.png (skeleton, werewolf, witch, orcbrute, plantcreatures, orc) | Elite B-variant skins (ELITE_TEXTURES in assets.ts) | KayKit Complete Collection alternate textures, CC0 |
+
+### Room-purpose wave 2 props (2026-07-09, vignette grammar)
+
+| File(s) | Use | Source + license |
+|---|---|---|
+| dungeon/bed_{a,b}_single.glb, bed_floor.glb, bed_decorated.glb, chair.glb, plate_food_{a,b}.glb, crate_large_decorated.glb, barrel_small_stack.glb | barracks/kitchen purposes | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
+| dungeon/pot_a_stew.glb, pot_large.glb, crate_potatoes.glb | kitchen purpose | KayKit Restaurant Bits 1.0, CC0 |
+| dungeon/food_barrel_fish.glb, fuel_a_barrels.glb, gems_sack.glb | kitchen/forge/apothecary | KayKit Resource Bits 1.0, CC0 |
+| dungeon/anvil.glb | forge centerpiece | KayKit Block Bits 1.0, CC0 |
+| dungeon/potion_{huge_green,large_blue,medium_red}.glb | apothecary glassware | KayKit Adventurers 2.0, CC0 |
+
+### Room-purpose wave 3 props (2026-07-09, variants)
+
+| File(s) | Use | Source + license |
+|---|---|---|
+| dungeon/dummy_base.glb, weaponrack.glb, weaponrack_decorated.glb | training hall / armory variants | KayKit Prototype Bits 1.1, CC0 |
+| dungeon/trainingdummy_base.glb | training hall centerpiece | KayKit Mystery Monthly S6 (Avian Swordsman), CC0 |
+| dungeon/card_*.glb, coin_gold.glb, coin_10_gold.glb, coin_silver.glb | gambling den | KayKit Board Game Bits 1.0, CC0 |
+| dungeon/rug_*.glb, mug_a.glb, mug_b.glb | rugs + tavern variants | KayKit Furniture Bits 1.0, CC0 |
+| dungeon/vampire_goblet.glb, basket_mushrooms.glb, mushroom.glb | den / witch-pantry variants | KayKit Mystery Monthly S5 (Vampire, Witch), CC0 |
+| dungeon/crate_mushrooms.glb, dishrack_plates.glb | kitchen variants | KayKit Restaurant Bits 1.0, CC0 |
+| dungeon/skull.glb, lantern_hanging.glb | ossuary / hanging lights | KayKit Halloween Bits 1.0, CC0 |
+| dungeon/map.glb, map_rolled.glb | war room table | KayKit RPG Tools Bits 1.0, CC0 |
+| dungeon/bottle_a_labeled_green.glb, bottle_b_brown.glb | wine cellar / flophouse | KayKit Dungeon Remastered 1.1, CC0 |
 
 ## Licensing hygiene
 

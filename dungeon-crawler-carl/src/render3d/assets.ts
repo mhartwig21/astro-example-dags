@@ -62,6 +62,19 @@ export const MODEL_MANIFEST: Record<string, string> = {
   monster_archivist: "/assets/characters/lorekeeper.glb",
   monster_colossus: "/assets/characters/4gtn.glb",
   monster_colossus_elite: "/assets/characters/4gtn_forgotten.glb",
+  // THE APPROACH cast (MOB-CONCEPTS.md): the season-finale roster — Ninja,
+  // Marksman, AvianSwordsman, MagicalGirl, Superhero, and the Monster/
+  // MonsterCostume pair (the beast + the guy who was inside it).
+  monster_stagehand: "/assets/characters/ninja.glb",
+  monster_sniper: "/assets/characters/marksman.glb",
+  monster_duelist: "/assets/characters/avian_swordsman.glb",
+  monster_darling: "/assets/characters/magical_girl.glb",
+  monster_canceled: "/assets/characters/superhero.glb",
+  monster_suitactor: "/assets/characters/beast.glb",
+  monster_suitguy: "/assets/characters/beast_costume.glb",
+  // CHAMPION tier (boss layer 1): The Foreman is the CombatMech — the last
+  // Mystery Monthly mob-grade character in the collection takes the stage.
+  monster_foreman: "/assets/characters/combat_mech.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
   // Band-boss arenas + the finale get named menaces (keyed by floor). All are
   // reuses of characters already in the cast — no new asset files.
@@ -80,6 +93,10 @@ export const MODEL_MANIFEST: Record<string, string> = {
   armory_knives: "/assets/characters/rogue.glb",
   // Extra hero skin: the one adventurer nothing else wears.
   hero_hooded: "/assets/characters/rogue_hooded.glb",
+  // Roam mode (SETTLEMENTS.md v1): the settlement's one resident. Reuses a
+  // skeleton-family model unwired to any monster or hero skin — a v1 rough
+  // edge (it reads skeleton-like) rather than new asset work.
+  npc_settlement: "/assets/characters/skeleton_rogue.glb",
   wall: "/assets/dungeon/wall.glb",
   floor: "/assets/dungeon/floor.glb",
   stairs: "/assets/dungeon/stairs.glb",
@@ -117,6 +134,26 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "bookcase_single", "bookcase_double_decorateda", "shelf_small_books", "book_single",
       "bartop_a_medium", "keg_decorated", "stool_round", "plate_stack",
       "chest_large_gold", "chest_mimic", "table_round_medium",
+      // Room purposes wave 2 (vignette grammar): barracks / kitchen / forge /
+      // apothecary furniture. Dungeon Remastered + Restaurant Bits + Resource
+      // Bits + Block Bits + Adventurers 2.0 (all CC0 — see ASSETS.md).
+      "bed_a_single", "bed_b_single", "bed_floor", "bed_decorated", "chair",
+      "plate_food_a", "plate_food_b", "crate_large_decorated", "barrel_small_stack",
+      "pot_a_stew", "pot_large", "crate_potatoes", "food_barrel_fish",
+      "fuel_a_barrels", "gems_sack", "anvil",
+      "potion_huge_green", "potion_large_blue", "potion_medium_red",
+      // Room purposes wave 3 (variants): training hall, gambling den, war
+      // room, ossuary + variant dressing (rugs, mugs, maps, mushrooms).
+      // Prototype/Board Game/Furniture/RPG Tools/Halloween/Restaurant/
+      // Mystery Monthly bits, all CC0 — see ASSETS.md.
+      "dummy_base", "weaponrack", "weaponrack_decorated", "trainingdummy_base",
+      "card_base", "card_spades_ace", "card_hearts_king",
+      "coin_gold", "coin_10_gold", "coin_silver",
+      "rug_rectangle_a", "rug_rectangle_b", "rug_oval_a",
+      "mug_a", "mug_b", "vampire_goblet",
+      "basket_mushrooms", "mushroom", "crate_mushrooms", "dishrack_plates",
+      "skull", "lantern_hanging", "map", "map_rolled",
+      "bottle_a_labeled_green", "bottle_b_brown",
       "banner_green", "banner_blue", "banner_brown", "banner_white",
       "gold_bars_stack_medium", "gems_pile_large", "money_pile_medium", "gems_chest",
       // Equippable weapon meshes (KayKit Fantasy Weapons Bits, CC0). Grafted
@@ -147,8 +184,31 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // Ability-presentation props (Adventurers 2.0, CC0; GENERATION-BACKLOG):
       // the flask's bottle and the blink smokebomb anchor.
       "potion_medium_red", "smokebomb",
+      // Spell-FX mesh kit (Meshy-generated, GENERATION-BACKLOG 3b): sculpted
+      // effect meshes the juice layer animates; procedural fallbacks remain.
+      "fx_nova_ring", "fx_cataclysm_crown",
+      "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
+      // Diegetic System objects (Meshy-generated): the loot-box delivery, the
+      // airstrike's real sponsor ordnance, Extradition's gavel chain anchor.
+      "system_loot_box", "sponsor_shell", "gavel_anchor", "descent_portal",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
+};
+
+// Elite skins: KayKit's alternate texture PNGs (same UV atlas, recolored) —
+// an elite wears its pack's B-variant so it reads as a DIFFERENT individual,
+// on top of the per-affix emissive tint. Keyed by monster KIND; kinds absent
+// here (clown, vampire — single-texture packs) stay tint-only.
+export const ELITE_TEXTURES: Record<string, string> = {
+  swarmer: "/assets/characters/skeleton_texture_b.png",
+  ranged: "/assets/characters/skeleton_texture_b.png",
+  necromancer: "/assets/characters/skeleton_texture_b.png",
+  boss: "/assets/characters/skeleton_texture_b.png", // generic Skeleton_Warrior boss
+  charger: "/assets/characters/werewolf_texture_b.png",
+  shaman: "/assets/characters/witch_texture_b.png",
+  brute: "/assets/characters/orcbrute_texture_b.png",
+  spitter: "/assets/characters/plantcreatures_texture_b.png",
+  drummer: "/assets/characters/orc_texture_b.png",
 };
 
 // Animation-less characters and the rig whose shared clip library animates
@@ -184,6 +244,14 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_archivist: "medium", // Lorekeeper
   monster_colossus: "large", // 4GTN — animate masonry
   monster_colossus_elite: "large", // 4GTN_Forgotten
+  monster_stagehand: "medium", // Ninja
+  monster_sniper: "medium", // Marksman
+  monster_duelist: "medium", // AvianSwordsman
+  monster_darling: "medium", // MagicalGirl
+  monster_canceled: "medium", // Superhero
+  monster_suitactor: "medium", // Monster (the suit)
+  monster_suitguy: "medium", // MonsterCostume (the guy)
+  monster_foreman: "medium", // CombatMech — the champion's chassis
   monster_boss_3: "medium", // Necromancer (as The Crypt Concierge)
   monster_boss_6: "large", // BlackKnight
   monster_boss_9: "medium", // PlantWarrior (as The Topiary Warden)
@@ -226,11 +294,27 @@ const RIG_CLIP_MANIFEST: Record<"medium" | "large", string[]> = {
 // tools/asset-pipeline/blender/retarget_clip.py — provenance in ASSETS.md);
 // they bind to each skin's skeleton by bone name, same as the rig libraries.
 const HERO_SKIN_KEYS = ["player", "armory_axes", "armory_arcana", "armory_knives", "hero_hooded"];
-const HERO_CLIP_MANIFEST = ["/assets/characters/extradition.glb"];
+const HERO_CLIP_MANIFEST = [
+  "/assets/characters/extradition.glb",
+  "/assets/characters/flask_drink.glb", // Meshy 342 Stand_and_Drink, retargeted
+  "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
+];
 
-export async function loadModels(): Promise<Record<string, LoadedModel>> {
+export async function loadModels(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Record<string, LoadedModel>> {
   const loader = new GLTFLoader();
   const out: Record<string, LoadedModel> = {};
+  // Progress = files SETTLED (loaded or missing-and-skipped) over total — the
+  // boot loading screen reads this. A 404'd optional pack still advances the
+  // bar; the screen must never stall on an asset we'd gracefully skip anyway.
+  const total =
+    Object.keys(MODEL_MANIFEST).length +
+    RIG_CLIP_MANIFEST.medium.length +
+    RIG_CLIP_MANIFEST.large.length +
+    HERO_CLIP_MANIFEST.length;
+  let settled = 0;
+  const tick = () => onProgress?.(++settled, total);
   // Rig clip libraries load alongside the models; each library GLB carries a
   // mannequin we discard — only its AnimationClips matter.
   const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
@@ -243,6 +327,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // File absent or failed to parse — leave it out; renderer falls back.
       }
+      tick();
     }),
     ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).map(async (rig) => {
       // Per-pack slots keep the clip order stable regardless of which fetch
@@ -254,6 +339,8 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
           } catch {
             // Missing clip pack: rig-based characters just animate with less variety.
             return [];
+          } finally {
+            tick();
           }
         }),
       );
@@ -265,6 +352,7 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       } catch {
         // Missing ability clip: the animator's playFirst fallbacks cover it.
       }
+      tick();
     }),
   ]);
   // Attach the shared library to every animation-less rig-based character.
@@ -282,5 +370,21 @@ export async function loadModels(): Promise<Record<string, LoadedModel>> {
       if (m) m.animations = [...m.animations, ...heroClips];
     }
   }
+  // GENERATED assets (the builder's Meshy bridge writes these at dev time;
+  // committed ones ship like any other file). index.json maps key -> {url,
+  // clips?}: props are plain models; creature entries carry armature-only
+  // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
+  try {
+    const ix = await (await fetch("/assets/generated/index.json")).json() as
+      Record<string, { url: string; clips?: string[] }>;
+    await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
+      try {
+        const gltf = await loader.loadAsync(entry.url);
+        const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
+          (await loader.loadAsync(c)).animations));
+        out[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
+      } catch { /* one bad generated asset never blocks the rest */ }
+    }));
+  } catch { /* no generated index: nothing crafted yet */ }
   return out;
 }

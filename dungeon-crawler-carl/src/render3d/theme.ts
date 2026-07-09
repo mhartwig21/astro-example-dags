@@ -68,6 +68,14 @@ export const THEME = {
     cleric: { color: 0xe8c96a, scale: 1.0 }, // consecration gold: kill it first
     archivist: { color: 0x6a8fd8, scale: 1.0 }, // manuscript blue: shut the book
     colossus: { color: 0x9a948a, scale: 1.55 }, // masonry grey: the furniture fights
+    stagehand: { color: 0x4a4a5c, scale: 0.9 }, // backstage black: watch the mark
+    sniper: { color: 0x8f6a3c, scale: 0.95 }, // long-lens brown: never the same spot
+    duelist: { color: 0xd8b8e8, scale: 1.0 }, // stage-light lilac: hold your swing
+    darling: { color: 0xff9ad5, scale: 0.95 }, // spotlight pink: the stated kill order
+    canceled: { color: 0x3c6e8f, scale: 1.1 }, // faded-hero teal: the mirror match
+    suitactor: { color: 0x7a5c8f, scale: 1.2 }, // costume violet: fine television
+    suitguy: { color: 0xd8c8a8, scale: 0.85 }, // office beige: LET HIM GO
+    foreman: { color: 0xd94f2e, scale: 1.7 }, // champion vermilion: the checkpoint fight
     boss: { color: 0xff3b3b, scale: 2.7 },
   },
   projectilePlayer: 0x6fe3ff,
