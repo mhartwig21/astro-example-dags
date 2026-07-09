@@ -173,7 +173,7 @@ let lastMouseAt = 0; // host clock (s) of the last mouse touch — device arbitr
 canvas.addEventListener("mousemove", () => { lastMouseAt = performance.now() / 1000; });
 canvas.addEventListener("mousedown", () => { lastMouseAt = performance.now() / 1000; });
 gamepad.onConnect = (id) => {
-  pushLogLine(`Controller connected: <b>${esc(id.slice(0, 40))}</b> — sticks move/aim, A·X·B·Y cast.`);
+  pushLogLine(`Controller connected: ${id.slice(0, 40)} — sticks move/aim, A·X·B·Y cast.`);
   if (kbOpen) renderKeybinds(); // the K panel grows its controller legend
 };
 gamepad.onDisconnect = () => {
@@ -2167,21 +2167,37 @@ function autoAimDir(range = 8): Vec2 | null {
   return best;
 }
 
+// Controller poll runs at FRAME level, not per sim step: panel buttons must
+// keep working while an open panel has the local sim paused, and in net mode
+// intents sample at 20Hz while we poll at frame rate. Held state is simply
+// the latest poll; press edges ACCUMULATE here until sampleIntent eats them.
+let padHeld: ReturnType<GamepadController["poll"]> = null;
+const padEdges = { flask: false, stairs: false, ping: false };
+function pollPad(): void {
+  padHeld = gamepad.poll(performance.now() / 1000);
+  if (padHeld) {
+    padEdges.flask ||= padHeld.flaskEdge;
+    padEdges.stairs ||= padHeld.stairsEdge;
+    padEdges.ping ||= padHeld.pingEdge;
+  }
+}
+
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
   // Controller merge: sticks arrive in screen space and take one iso rotation
   // into world axes; buttons OR over keyboard state. Edges behave like keys.
-  const pad = gamepad.poll(performance.now() / 1000);
+  const pad = padHeld;
   if (pad) {
     if (pad.move) intent.move = isoRotate(pad.move);
     if (intent.cast) for (let i = 0; i < pad.cast.length; i++) if (pad.cast[i]) intent.cast[i] = true;
-    if (pad.flaskEdge) intent.flask = true;
-    if (pad.stairsEdge) intent.useStairs = true;
-    if (pad.pingEdge) {
+    if (padEdges.flask) intent.flask = true;
+    if (padEdges.stairs) intent.useStairs = true;
+    if (padEdges.ping) {
       const p = me(state);
       intent.ping = { x: p.pos.x + p.facing.x, y: p.pos.y + p.facing.y };
     }
+    padEdges.flask = padEdges.stairs = padEdges.ping = false;
   }
   // AIM is exclusive: the right stick wins outright; otherwise the mouse aims
   // only if it was touched more recently than the pad (device arbitration —
@@ -2263,6 +2279,7 @@ async function main(): Promise<void> {
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;
     acc += dt;
+    pollPad(); // frame-level: panel buttons stay live while a panel pauses the sim
 
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
