@@ -2182,9 +2182,13 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   // The swing lunges a short step toward the aim — but never THROUGH a target
   // already in reach. Overshooting point-blank enemies (which puts them BEHIND
   // the swing arc) was the classic "that should have hit" melee whiff.
-  // Only while standing still: a swing must never shove a RUNNING crawler off
-  // their line (playtest feedback — attacks and movement stay independent).
-  const steering = move.x !== 0 || move.y !== 0;
+  // And never AGAINST the run: mouse aim lets you swing behind yourself
+  // mid-sprint, and a backward yank while sprinting forward read as pure
+  // jitter (playtest). Planted crawlers lunge anywhere; runners only when
+  // the swing agrees with their heading.
+  const moveDir = normalize(move);
+  const withTheRun =
+    (moveDir.x === 0 && moveDir.y === 0) || facing.x * moveDir.x + facing.y * moveDir.y > 0;
   let nearestAhead = Infinity;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
@@ -2194,7 +2198,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
     if (edge < nearestAhead) nearestAhead = edge;
   }
   const lunge = Math.min(CONFIG.meleeLungeDistance, Math.max(0, nearestAhead - 0.55));
-  if (lunge > 0 && !steering) moveWithCollision(state.map, p.pos, facing, lunge, isWalkable);
+  if (lunge > 0 && withTheRun) moveWithCollision(state.map, p.pos, facing, lunge, isWalkable);
 
   // Aim assist: if the swing as aimed would hit nothing but SOMETHING is in
   // arm's reach, snap the swing to the nearest such target — at melee range
