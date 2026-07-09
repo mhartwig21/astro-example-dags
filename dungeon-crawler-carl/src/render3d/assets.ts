@@ -166,9 +166,25 @@ export const MODEL_MANIFEST: Record<string, string> = {
       "fx_implosion_cone", "fx_flame_wall", "fx_detonation_star", "fx_blast_star",
       // Diegetic System objects (Meshy-generated): the loot-box delivery, the
       // airstrike's real sponsor ordnance, Extradition's gavel chain anchor.
-      "system_loot_box", "sponsor_shell", "gavel_anchor",
+      "system_loot_box", "sponsor_shell", "gavel_anchor", "descent_portal",
     ].map((name) => [name, `/assets/dungeon/${name}.glb`]),
   ),
+};
+
+// Elite skins: KayKit's alternate texture PNGs (same UV atlas, recolored) —
+// an elite wears its pack's B-variant so it reads as a DIFFERENT individual,
+// on top of the per-affix emissive tint. Keyed by monster KIND; kinds absent
+// here (clown, vampire — single-texture packs) stay tint-only.
+export const ELITE_TEXTURES: Record<string, string> = {
+  swarmer: "/assets/characters/skeleton_texture_b.png",
+  ranged: "/assets/characters/skeleton_texture_b.png",
+  necromancer: "/assets/characters/skeleton_texture_b.png",
+  boss: "/assets/characters/skeleton_texture_b.png", // generic Skeleton_Warrior boss
+  charger: "/assets/characters/werewolf_texture_b.png",
+  shaman: "/assets/characters/witch_texture_b.png",
+  brute: "/assets/characters/orcbrute_texture_b.png",
+  spitter: "/assets/characters/plantcreatures_texture_b.png",
+  drummer: "/assets/characters/orc_texture_b.png",
 };
 
 // Animation-less characters and the rig whose shared clip library animates

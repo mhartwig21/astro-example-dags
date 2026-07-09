@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
-import { loadModels, type LoadedModel } from "./assets";
+import { ELITE_TEXTURES, loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
@@ -779,17 +779,36 @@ export class Renderer3D {
     }
   }
 
-  /** Elite affix read: emissive body tint in the affix's semantic color, plus
-   * the chilling aura's TRUE slow radius as a faint ring. Materials are cloned
-   * per elite — model clones share materials, and trash mobs must stay unlit. */
-  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined): void {
+  // Elite B-variant textures, loaded once and shared (same UV atlas as the
+  // embedded texture, recolored — glTF convention: flipY off, sRGB).
+  private eliteTex = new Map<string, THREE.Texture>();
+  private eliteTexFor(kind: string): THREE.Texture | null {
+    const url = ELITE_TEXTURES[kind];
+    if (!url) return null;
+    let t = this.eliteTex.get(kind);
+    if (!t) {
+      t = new THREE.TextureLoader().load(url);
+      t.flipY = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.eliteTex.set(kind, t);
+    }
+    return t;
+  }
+
+  /** Elite affix read: the pack's B-variant skin (a different individual),
+   * an emissive tint in the affix's semantic color, and the chilling aura's
+   * TRUE slow radius as a faint ring. Materials are cloned per elite — model
+   * clones share materials, and trash mobs must stay unchanged. */
+  private applyAffixVisual(mesh: THREE.Group, affix: string | undefined, kind?: string): void {
     const tint = affix ? AFFIX_TINT[affix] : undefined;
     if (tint === undefined) return;
+    const skin = kind ? this.eliteTexFor(kind) : null;
     mesh.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh || !m.material) return;
       const mats = (Array.isArray(m.material) ? m.material : [m.material]).map((mat) => {
         const c = (mat as THREE.MeshStandardMaterial).clone();
+        if (skin && c.map) c.map = skin; // recolor only textured surfaces
         c.emissive = new THREE.Color(tint);
         c.emissiveIntensity = 0.32;
         return c;
@@ -1358,6 +1377,27 @@ export class Renderer3D {
       this.stairsObj = stairs;
     }
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
+    // The System's descent gate frames the stairs: "next episode" is an
+    // archway, not a hole in the floor. Diegetic — a dungeon object the
+    // System installed, not studio dressing.
+    const portal = this.modelInstance("descent_portal");
+    if (portal) {
+      const box = new THREE.Box3().setFromObject(portal);
+      const size = box.getSize(new THREE.Vector3());
+      portal.scale.multiplyScalar(2.3 / Math.max(size.y, 1e-3)); // arch ~2.3 world units
+      portal.position.set(map.stairs.x, 0, map.stairs.y);
+      // Face the arch across the stairs' approach axis (widest open side).
+      portal.rotation.y = Math.PI / 2;
+      portal.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0xc9a24b); // System gold: the exit sells itself
+        mat.emissiveIntensity = 0.18;
+        m.material = mat;
+      });
+      this.floorGroup.add(portal);
+    }
 
     // RULE-BASED DRESSING (intent over noise): torches line room walls with the
     // lights anchored to the visible meshes; banners flank locked doors; clutter
@@ -2066,7 +2106,7 @@ export class Renderer3D {
           const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.eliteScale;
           mesh.userData.baseScale = bs;
           mesh.scale.setScalar(bs);
-          this.applyAffixVisual(mesh, mon.affix);
+          this.applyAffixVisual(mesh, mon.affix, mon.kind);
         }
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
