@@ -45,6 +45,10 @@ export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
 export const MAX_PARTY_SIZE = 6;
+// Roam campaigns seat a bigger band: month-long, drop-in/drop-out, and rarely
+// all online at once. Wire cost is covered by the dynamic-snapshot diet
+// (~half payload); parked members cost nothing between sessions.
+export const MAX_PARTY_SIZE_ROAM = 10;
 export const MAX_RIVALS = 4; // the competitive race seats exactly four contracts
 export const MAX_INSTANCES = 200;
 export const MAX_WS_PAYLOAD = 16 * 1024; // bytes; intents/choices are tiny
@@ -283,11 +287,16 @@ export class GameServer {
 
   close(): void {
     // Flush every live run before the process goes away — this is what makes
-    // a deploy restart survivable for characters (SIGTERM handler below).
-    for (const inst of this.instances.values()) this.checkpoint(inst);
+    // a deploy restart survivable (SIGINT handler below). Untrack instances
+    // BEFORE terminating sockets: each terminate fires a close handler that
+    // must not re-checkpoint an already-flushed instance against a closed DB.
+    for (const inst of this.instances.values()) {
+      this.checkpoint(inst);
+      clearInterval(inst.timer);
+    }
+    this.instances.clear();
     this.leaderboard.flush();
     this.db?.close();
-    for (const inst of this.instances.values()) clearInterval(inst.timer);
     for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();
     this.http.close();
@@ -339,7 +348,9 @@ export class GameServer {
             for (const m of this.db.memberSeats(code)) if (m.accountId !== token) owned.add(m.playerId);
           }
           const seatless = inst.state.players.filter((p) => !held.has(p.id) && !owned.has(p.id));
-          const cap = inst.state.mode === "rivals" ? MAX_RIVALS : MAX_PARTY_SIZE;
+          const cap = inst.state.mode === "rivals" ? MAX_RIVALS
+            : inst.state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
+            : MAX_PARTY_SIZE;
           if (!seatless[0] && inst.state.players.length >= cap) {
             ws.send(JSON.stringify({ t: "error", reason: "party full" }));
             ws.close();
@@ -430,6 +441,10 @@ export class GameServer {
     ws.on("close", () => {
       if (!joined) return;
       const { inst, playerId } = joined;
+      // Server shutdown terminates sockets AFTER close() already flushed
+      // every instance and closed the DB — those late close events must not
+      // re-checkpoint (an untracked instance is already saved and gone).
+      if (this.instances.get(inst.code) !== inst) return;
       this.checkpoint(inst); // final save while the leaving client is still bound
       inst.clients = inst.clients.filter((c) => c.ws !== ws);
       inst.intents[playerId] = NO_INTENT; // seat stays; character idles until rejoin
@@ -513,7 +528,7 @@ export class GameServer {
    *  members were checkpointed as they left. A finished run instead clears
    *  the party so the next join under this code starts fresh. */
   private checkpoint(inst: Instance): void {
-    if (!this.db) return;
+    if (!this.db || !this.db.isOpen()) return;
     if (inst.state.status !== "playing") {
       this.db.clearParty(inst.code);
       return;

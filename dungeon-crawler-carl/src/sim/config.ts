@@ -703,6 +703,13 @@ export const CONFIG = {
 
   // Fog of war
   fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player
+  // Interest management (net snapshots): ordinary monsters farther than this
+  // from every living player are omitted from DYNAMIC snapshots — they are
+  // hidden by fog anyway, and on dense floors they were most of the payload.
+  // Bosses, named elites, and key carriers always ship (boss bar scans to 16
+  // tiles; the key matters wherever it is). Must comfortably exceed both
+  // fogVisionRadius and the hosts' widest monster scan (controller auto-aim, 8).
+  interestRadius: 12.5,
 
   // The Show: viewers / favorites / sponsors economy. Exciting + challenging play
   // generates "hype" (which decays); hype drives viewers, a slice of whom convert to

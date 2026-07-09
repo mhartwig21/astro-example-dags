@@ -800,6 +800,11 @@ export interface GameState {
   // the RNG stream stays reproducible.
   players: Player[];
   monsters: Monster[];
+  // Wire-only (set by the interest-filtered DYNAMIC net snapshots): the
+  // AUTHORITATIVE living-monster count when `monsters` above is trimmed to
+  // what the client can perceive — hosts tell "cleared" from "far away" with
+  // it. Absent in local play and in full snapshots (monsters is complete).
+  monstersLeft?: number;
   loot: Loot[];
   projectiles: Projectile[];
   nextEntityId: number;

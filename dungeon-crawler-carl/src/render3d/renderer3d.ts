@@ -2708,7 +2708,9 @@ export class Renderer3D {
 
     // Floor cleared (or run won): the crawlers play to the camera. A rebuild
     // also empties the count, so gate the edge on NOT having changed floors.
-    const monsterCount = state.monsters.length;
+    // Net snapshots are interest-filtered — monstersLeft is the real count
+    // (an empty LIST may just mean the survivors are far away).
+    const monsterCount = state.monstersLeft ?? state.monsters.length;
     const cleared = !rebuilt && this.prevMonsterCount > 0 && monsterCount === 0 && state.status === "playing";
     const won = state.status === "won" && this.prevStatus !== "won";
     if (cleared || won) {
