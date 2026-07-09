@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Dungeon Crawler Claude — 3D isometric</title>
     <style>
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
@@ -105,7 +108,7 @@
       /* ---- Screen zones (backlog #8): every overlay claims exactly ONE zone,
          so no two systems ever fight for the same pixels.
            top strip (12px):    #hud-tl left · #banner center (SYSTEM/CRAWLER menus) · #hud-tr right
-           upper chips:         #bossbar 44px · #show 84px · #party 118px (center)
+           upper chips:         #show 48px (under the buttons) · #bossbar 92px · #party 118px (center)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            right rail:          #ticker — normal-priority System chatter
@@ -194,7 +197,7 @@
         from { opacity: 0; transform: translateX(-50%) scale(1.4); }
         to { opacity: 1; transform: translateX(-50%) scale(1); }
       }
-      #bossbar { position: fixed; top: 44px; left: 50%; transform: translateX(-50%);
+      #bossbar { position: fixed; top: 92px; left: 50%; transform: translateX(-50%);
         width: min(520px, 60vw); display: none; pointer-events: none; z-index: 12;
         background: rgba(10,8,16,0.72); border: 1px solid #4a2a30; border-radius: 8px;
         padding: 6px 14px 9px; }
@@ -231,6 +234,53 @@
       @keyframes draftpulse { 0%, 100% { box-shadow: 0 0 8px rgba(201,162,75,0.18); }
         50% { box-shadow: 0 0 18px rgba(201,162,75,0.45); } }
       #skills { display: flex; gap: 8px; }
+
+      /* ---- Touch controls (Wild Rift-style) — body.touch gates all of it.
+         Glass, not stone (rule four): everything here overlays the fight.
+         The EXISTING skill chips become the ability cluster (bottom-right
+         arc, attack enlarged in the corner); pointer handlers delegate on
+         the container so per-frame chip rebuilds never orphan a press. ---- */
+      #game { touch-action: none; }
+      #touch { display: none; }
+      body.touch #touch { display: block; }
+      #t-stickzone { position: fixed; left: 0; top: 15%; bottom: 0; width: 44%;
+        touch-action: none; z-index: 4; }
+      #t-stick { position: fixed; width: 124px; height: 124px; margin: -62px 0 0 -62px;
+        border: 2px solid rgba(255,255,255,0.22); border-radius: 50%;
+        background: rgba(0,0,0,0.28); display: none; pointer-events: none; z-index: 5; }
+      #t-stick .t-nub { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
+        margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(201,162,75,0.45);
+        border: 1px solid rgba(242,193,78,0.7); }
+      #t-stairs { position: fixed; right: 252px; bottom: 130px; display: none;
+        background: rgba(0,0,0,0.55); color: var(--gold-hi); border: 1px solid var(--gold);
+        border-radius: 12px; padding: 14px 22px; font-family: "Cinzel", serif;
+        font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+        z-index: 5; touch-action: none; box-shadow: 0 0 18px rgba(201,162,75,0.25); }
+      body.touch #t-stairs.on { display: block; }
+      body.touch #cockpit { left: auto; right: 10px; bottom: 10px; transform: none;
+        flex-direction: column; align-items: flex-end; }
+      body.touch #skills { position: relative; display: block; width: 320px; height: 256px; }
+      body.touch #skills .skill { position: absolute; pointer-events: auto; touch-action: none;
+        width: 62px; height: 62px; border-radius: 50%; }
+      body.touch #skills .skill[data-i="0"] { width: 94px; height: 94px; right: 0; bottom: 0; }
+      body.touch #skills .skill[data-i="1"] { right: 156px; bottom: 8px; }
+      body.touch #skills .skill[data-i="2"] { right: 132px; bottom: 92px; }
+      body.touch #skills .skill[data-i="3"] { right: 72px; bottom: 152px; }
+      body.touch #skills .skill[data-i="4"] { width: 70px; height: 70px; right: 0; bottom: 178px; }
+      body.touch #skills #flask-chip { right: 244px; bottom: 0; }
+      body.touch #skills .skill .key { display: none; } /* no keycaps under thumbs */
+      /* Above the stick zone (z 4) — tapping the minimap pings, not walks. */
+      body.touch #minimap { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5; }
+      /* Fat-finger insurance on menus + safe-area breathing room. */
+      @media (pointer: coarse) {
+        .tm-row { padding: 12px 12px; }
+        .topbtn { padding: 10px 22px; }
+        #banner { top: max(12px, env(safe-area-inset-top)); }
+        #hud-tl { left: max(12px, env(safe-area-inset-left)); }
+        #hud-tr { right: max(12px, env(safe-area-inset-right)); }
+        body.touch #cockpit { right: max(10px, env(safe-area-inset-right));
+          bottom: max(10px, env(safe-area-inset-bottom)); }
+      }
       .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
         border: 2px solid #6e5533; border-radius: 8px; font-size: 10px; color: #cfcfe0;
         display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -410,7 +460,9 @@
         letter-spacing: 0.5px; }
 
       /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
-      #show { position: fixed; top: 84px; left: 50%; transform: translateX(-50%);
+      /* Tucked under the SYSTEM/CRAWLER buttons (play feedback 2026-07-09:
+         it floated once the keycap strip left). Boss bar takes the old slot. */
+      #show { position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
         display: flex; flex-direction: column; align-items: center; gap: 5px;
         pointer-events: none; font-size: 13px; }
       #show .chips { display: flex; gap: 10px; }
@@ -966,6 +1018,8 @@
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
           <span class="kb-key" id="kb-gamepad">ON</span></div>
+        <div class="kb-row"><span class="kb-name">Touch controls<small>AUTO shows them on tablets; ON forces them anywhere</small></span>
+          <span class="kb-key" id="kb-touch">AUTO</span></div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>
@@ -1112,6 +1166,14 @@
     <div id="cockpit">
       <div id="skills"></div>
       <div id="xpbar"><i></i></div>
+    </div>
+    <!-- Touch controls (Wild Rift-style): body.touch gates everything. The
+         skill chips above double as the ability cluster; this adds the
+         floating stick + the contextual descend chip. -->
+    <div id="touch">
+      <div id="t-stickzone"></div>
+      <div id="t-stick"><i class="t-nub"></i></div>
+      <button id="t-stairs">Descend</button>
     </div>
     <div id="recap">
       <div class="panel">

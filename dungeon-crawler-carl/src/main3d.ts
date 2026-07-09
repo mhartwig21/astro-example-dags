@@ -22,11 +22,12 @@ import {
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
+import { TouchController } from "./input/touch";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
   ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
-  rebind, saveBindings, saveGamepad, saveMouseAim, saveMouseMove, saveNotify,
-  type BindableAction, type Bindings, type NotifyLevel,
+  loadTouch, rebind, saveBindings, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
+  type BindableAction, type Bindings, type NotifyLevel, type TouchPref,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -185,6 +186,33 @@ gamepad.onDisconnect = () => {
   pushLogLine("Controller disconnected.");
   if (kbOpen) renderKeybinds();
 };
+
+// Touch controls (Wild Rift-style, see input/touch.ts): AUTO on coarse-pointer
+// devices, forceable via ?touch=1 (headless verify) or the K panel. The skill
+// chips double as the ability cluster; body.touch drives all layout.
+let touchPref: TouchPref = loadTouch();
+const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+function touchWanted(): boolean {
+  if (params.has("touch")) return params.get("touch") !== "0";
+  return touchPref === "on" || (touchPref === "auto" && coarsePointer);
+}
+let touchMode = touchWanted();
+const touch = new TouchController();
+const tStickEl = document.getElementById("t-stick")!;
+const tStairsEl = document.getElementById("t-stairs")!;
+touch.bind(document.getElementById("t-stickzone")!, document.getElementById("skills")!, tStairsEl);
+touch.onStick = (origin, nub) => {
+  if (!origin) { tStickEl.style.display = "none"; return; }
+  tStickEl.style.display = "block";
+  tStickEl.style.left = `${origin.x}px`;
+  tStickEl.style.top = `${origin.y}px`;
+  (tStickEl.firstElementChild as HTMLElement).style.transform = `translate(${nub.x}px, ${nub.y}px)`;
+};
+function applyTouchMode(): void {
+  touchMode = touchWanted();
+  document.body.classList.toggle("touch", touchMode);
+}
+applyTouchMode();
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -441,6 +469,23 @@ const fxLayer = document.getElementById("fx")!;
 const tickerLayer = document.getElementById("ticker")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
+// Touch: tapping the minimap drops a party ping there (inverse of the
+// drawMinimap transform: pad 6, uniform tile scale).
+minimap.addEventListener("pointerdown", (e) => {
+  if (!touchMode) return;
+  const r = minimap.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return;
+  const cx = (e.clientX - r.left) * (minimap.width / r.width);
+  const cy = (e.clientY - r.top) * (minimap.height / r.height);
+  const pad = 6;
+  const sx = (minimap.width - pad * 2) / state.map.w;
+  const sy = (minimap.height - pad * 2) / state.map.h;
+  touchEdges.ping = {
+    x: Math.max(0, Math.min(state.map.w - 1, (cx - pad) / sx)),
+    y: Math.max(0, Math.min(state.map.h - 1, (cy - pad) / sy)),
+  };
+  e.preventDefault();
+});
 
 const RARITY_COLORS: Record<string, string> = {
   common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
@@ -1148,6 +1193,20 @@ kbGamepad.addEventListener("click", () => {
 });
 renderGamepadToggle();
 
+// Touch controls: AUTO (coarse-pointer devices) -> ON -> OFF. Applies live.
+const TOUCH_CYCLE: TouchPref[] = ["auto", "on", "off"];
+const kbTouch = document.getElementById("kb-touch")!;
+function renderTouchToggle(): void {
+  kbTouch.textContent = touchPref.toUpperCase();
+}
+kbTouch.addEventListener("click", () => {
+  touchPref = TOUCH_CYCLE[(TOUCH_CYCLE.indexOf(touchPref) + 1) % TOUCH_CYCLE.length];
+  saveTouch(touchPref);
+  applyTouchMode();
+  renderTouchToggle();
+});
+renderTouchToggle();
+
 document.getElementById("kb-reset")!.addEventListener("click", () => {
   bindings = { ...DEFAULT_BINDINGS };
   saveBindings(bindings);
@@ -1720,6 +1779,12 @@ for (const container of [srBag, srEquipped]) {
 new MutationObserver(() => {
   if (srEl.style.display === "none") itemTipEl.style.display = "none";
 }).observe(srEl, { attributes: true, attributeFilter: ["style"] });
+// Touch: taps have no mouseleave — tapping a tile shows the tooltip (via the
+// emulated mouseover above); tapping anywhere that isn't an item hides it.
+document.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse") return;
+  if (!tipItemFor(e.target as HTMLElement)) itemTipEl.style.display = "none";
+});
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
@@ -2199,6 +2264,14 @@ let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
+/** Drag-aim telegraph shape by ability: dashes arrow, AoEs ring, else a line. */
+const TELEGRAPH_RING = new Set<AbilityId>(["nova", "cataclysm", "crowdsurf", "airstrike"]);
+function telegraphShape(a: AbilityId | null): "line" | "ring" | "arrow" {
+  if (a === "dash") return "arrow";
+  if (a && TELEGRAPH_RING.has(a)) return "ring";
+  return "line";
+}
+
 /** Direction to the nearest living monster in reach — controller quick-cast. */
 function autoAimDir(range = 8): Vec2 | null {
   const p = me(state);
@@ -2228,6 +2301,21 @@ function pollPad(): void {
   }
 }
 
+// Touch runs the same frame-level rhythm as the pad; one-shot drag casts and
+// button taps accumulate here until the next sampleIntent consumes them.
+let touchHeld: ReturnType<TouchController["sample"]> = null;
+const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
+  casts: [], flask: false, stairs: false, ping: null,
+};
+function pollTouch(): void {
+  touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
+  if (touchHeld) {
+    touchEdges.casts.push(...touchHeld.castEdges);
+    touchEdges.flask ||= touchHeld.flaskEdge;
+    touchEdges.stairs ||= touchHeld.stairsEdge;
+  }
+}
+
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const intent = input.sample(center, false);
@@ -2245,13 +2333,37 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
     }
     padEdges.flask = padEdges.stairs = padEdges.ping = false;
   }
-  // AIM is exclusive: the right stick wins outright; otherwise the mouse aims
-  // only if it was touched more recently than the pad (device arbitration —
-  // a parked cursor must not pin the aim while someone plays on the sticks).
+  // Touch merge: stick moves (same iso rotation), the attack chip holds
+  // cast[0], and released taps/drag-casts land as one-shot edges. A drag
+  // brings its own aim; a tap leaves aim null for the auto-aim below.
+  let touchCastAim = false;
+  if (touchHeld) {
+    if (touchHeld.move) intent.move = isoRotate(touchHeld.move);
+    if (intent.cast) {
+      if (touchHeld.castHeld[0]) intent.cast[0] = true;
+      for (const c of touchEdges.casts) {
+        intent.cast[c.slot] = true;
+        if (c.aim) { intent.aim = isoRotate(c.aim); touchCastAim = true; }
+      }
+    }
+    if (touchEdges.flask) intent.flask = true;
+    if (touchEdges.stairs) intent.useStairs = true;
+    if (touchEdges.ping) intent.ping = touchEdges.ping;
+    touchEdges.casts.length = 0;
+    touchEdges.flask = touchEdges.stairs = false;
+    touchEdges.ping = null;
+  }
+  // AIM is exclusive: an explicit source (touch drag, pad right stick) wins
+  // outright; otherwise the mouse aims only if it was touched more recently
+  // than pad/touch (device arbitration — a parked cursor must not pin the
+  // aim while someone plays on sticks or glass).
   const padRecent = gamepad.lastInputAt > lastMouseAt;
-  if (pad?.aim) {
+  const touchRecent = touch.lastInputAt > lastMouseAt;
+  if (touchCastAim) {
+    // drag-cast aim already applied above
+  } else if (pad?.aim) {
     intent.aim = isoRotate(pad.aim);
-  } else if (mouseAim && input.mouse && !padRecent) {
+  } else if (mouseAim && input.mouse && !padRecent && !touchRecent) {
     const g = renderer.screenToGround(input.mouse.x, input.mouse.y);
     if (g) {
       const p = me(state);
@@ -2259,9 +2371,9 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
   }
-  // Controller quick-cast: casting with the right stick centered snaps to the
+  // Quick-cast: casting without an explicit aim on pad/touch snaps to the
   // nearest living monster (Wild Rift-style). Facing still covers whiffs.
-  if (padRecent && !intent.aim && intent.cast?.some(Boolean)) {
+  if ((padRecent || touchRecent) && !intent.aim && intent.cast?.some(Boolean)) {
     const snap = autoAimDir();
     if (snap) intent.aim = snap;
   }
@@ -2326,6 +2438,7 @@ async function main(): Promise<void> {
     if (dt > MAX_FRAME) dt = MAX_FRAME;
     acc += dt;
     pollPad(); // frame-level: panel buttons stay live while a panel pauses the sim
+    pollTouch();
 
     // Buffer feedback across every sub-step (step() clears these each call).
     const frameHits: typeof state.hits = [];
@@ -2441,6 +2554,22 @@ async function main(): Promise<void> {
 
       saveAcc += dt;
       if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
+    }
+
+    // Touch feedback: the drag-aim ground telegraph + the contextual descend
+    // chip (shown only while standing on the stairs tile).
+    if (touchMode) {
+      const p = me(state);
+      if (touchHeld && touchHeld.aimingSlot >= 0 && touchHeld.aimDir) {
+        const ab = touchHeld.aimingSlot < 4
+          ? p.abilities.slots[touchHeld.aimingSlot]
+          : p.abilities.ultimate;
+        renderer.setAimIndicator(telegraphShape(ab), p.pos, isoRotate(touchHeld.aimDir));
+      } else {
+        renderer.setAimIndicator(null);
+      }
+      const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
+      tStairsEl.classList.toggle("on", state.map.tiles[ti] === Tile.StairsDown);
     }
 
     // Controller rumble rides the same hit stream as particles/shake: damage

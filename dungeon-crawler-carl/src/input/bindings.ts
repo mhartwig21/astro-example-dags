@@ -155,6 +155,30 @@ export function saveGamepad(on: boolean): void {
   }
 }
 
+// Touch-controls preference: AUTO shows the touch UI on coarse-pointer
+// devices (tablets/phones), ON forces it (debugging on desktop), OFF hides
+// it even on a tablet (for keyboard-case players).
+export type TouchPref = "auto" | "on" | "off";
+
+const TOUCH_KEY = "dcc:touch:v1";
+
+export function loadTouch(): TouchPref {
+  try {
+    const v = localStorage.getItem(TOUCH_KEY);
+    return v === "on" || v === "off" ? v : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function saveTouch(pref: TouchPref): void {
+  try {
+    localStorage.setItem(TOUCH_KEY, pref);
+  } catch {
+    /* best-effort */
+  }
+}
+
 // Mouse-move preference (Diablo-style): when on, LMB on ground walks (hold to
 // steer, tap to walk-to-point) and LMB on a monster attacks. Default off —
 // existing muscle memory (LMB = slot 1 everywhere) stays untouched.

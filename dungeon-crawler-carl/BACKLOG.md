@@ -23,43 +23,11 @@ pick one up cold. Delete items when they ship (git history remembers).
    Marshal's flame rows (Hazard carries no source tag). Reads as System
    shelling, but if it grates, add a `src` tag to `Hazard` and gate the bomb
    mesh in `renderer3d.ts`.
-5. **iPad touch controls (Wild Rift-style).** Full plan scoped 2026-07-08.
-   Everything funnels through the `Intent` seam (`src/sim/types.ts` — move
-   vector, aim vector, five held `cast` booleans, edge triggers), so this is
-   a second Intent producer beside `InputController` (`src/input/input.ts`):
-   **zero sim changes, multiplayer free** (intents already serialize).
-   - Controller support shipped 2026-07-08 and pre-paid the shared pieces:
-     `isoRotate` (screen-stick → world, `src/input/gamepad.ts`), the
-     `autoAimDir` quick-cast helper, and the frame-level `pollPad`
-     edge-accumulation pattern (both `main3d.ts`). Touch reuses all three.
-   - **Phase 1 — playable slice.** New `TouchController` (~400 lines,
-     `src/input/touch.ts`): floating left-thumb movement stick (rotate the
-     thumb delta with `isoRotate`); right-thumb ability cluster (big attack
-     button + arced slot buttons feeding the same held `cast` array); tap =
-     quick cast with auto-aim at the nearest living monster (`autoAimDir`);
-     flask + stairs buttons (stairs lit only when standing on them); ping =
-     tap the minimap (`intent.ping` takes a world pos). Multi-touch via
-     pointer events keyed by `pointerId` (stick thumb + ability press must
-     coexist); `touch-action: none` on the play area; suppress double-tap
-     zoom. Platform meta: `viewport-fit=cover` + `env(safe-area-inset-*)`
-     HUD padding, `apple-mobile-web-app-capable` for home-screen fullscreen,
-     cap `devicePixelRatio` ~2 in the Three.js renderer (iPad fill rate).
-     Detect via `(pointer: coarse)` + manual settings toggle. Touch HUD is
-     ON the fight screen → glass, not stone (STYLEGUIDE rule four). Click-
-     move mode stays off on touch.
-   - **Phase 2 — drag-to-aim.** Press-and-drag off a slot button shows a
-     ground telegraph (line for bolt-class, ring for novas, arrow for dash);
-     drag direction IS `intent.aim` (no raycast needed); release casts, drag
-     to a cancel zone aborts. Renderer grows `setAimIndicator()`, sibling to
-     `setMoveMarker()`. This is what makes it Wild Rift, not twin-stick.
-   - **Phase 3 — menu touch pass.** Item tooltips are `mouseover`-driven
-     (`main3d.ts` itemTip wiring) → tap-to-inspect, explicit button to act
-     (shop already has a Purchase button); check ≥44px hit targets on
-     constellation nodes + bag tiles; hide the keybinds panel on touch.
-   - Default cast mode: tap = auto-aim, drag = precise (orbit/nova are
-     aimless anyway; bolt/dash/slam care). Headless CDP harness can drive
-     Phase 1 via `Input.dispatchTouchEvent`; feel-tuning (dead zone, aim
-     sensitivity) wants a real iPad.
+5. **Touch feel-tuning on a real iPad.** Touch controls shipped 2026-07-09
+   (`src/input/touch.ts` + body.touch layer in iso.html) — verified headless,
+   but stick dead zone (0.15), drag slop (22px), cancel radius (34px), chip
+   sizes, and the stick-zone extent all want a session on real glass. Knobs
+   are the constants at the top of touch.ts and the body.touch CSS block.
 6. **Boss kiting trivializes fights** (play feedback 2026-07-08). Bosses can
    be walked in circles forever: melee bosses have no gap-closer and nothing
    punishes a crawler who never lets the windup start. The stagger half of the

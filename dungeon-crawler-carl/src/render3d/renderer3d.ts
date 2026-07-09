@@ -145,6 +145,7 @@ export class Renderer3D {
   private reviveRings = new Map<number, THREE.Mesh>(); // revive channel under downed crawlers
   private curseRings = new Map<number, THREE.Mesh>(); // briar-witch mark under cursed crawlers
   private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
+  private aimIndicator: THREE.Group | null = null; // drag-to-aim telegraph (touch/pad)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
   private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
   private loot = new Map<number, THREE.Object3D>();
@@ -657,6 +658,48 @@ export class Renderer3D {
     }
     this.moveMarker.visible = true;
     this.moveMarker.position.set(pos.x, 0.06, pos.y);
+  }
+
+  /**
+   * Drag-to-aim ground telegraph (touch/controller): a gold line, ring, or
+   * arrow from the player. kind null hides it. dir need not be normalized.
+   */
+  setAimIndicator(kind: "line" | "ring" | "arrow" | null, from?: Vec2, dir?: Vec2): void {
+    if (!kind || !from) {
+      if (this.aimIndicator) this.aimIndicator.visible = false;
+      return;
+    }
+    if (!this.aimIndicator) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xc9a24b, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
+      });
+      const g = new THREE.Group();
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.2), mat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(2.1, 0, 0); // extends along +x from the player
+      line.name = "line";
+      const ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.2, 40), mat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.name = "ring";
+      const arrow = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.22), mat);
+      shaft.rotation.x = -Math.PI / 2;
+      shaft.position.set(1.1, 0, 0);
+      const tip = new THREE.Mesh(new THREE.CircleGeometry(0.34, 3), mat);
+      tip.rotation.x = -Math.PI / 2;
+      tip.position.set(2.35, 0, 0);
+      arrow.add(shaft, tip);
+      arrow.name = "arrow";
+      g.add(line, ring, arrow);
+      g.position.y = 0.07;
+      this.aimIndicator = g;
+      this.scene.add(g);
+    }
+    const ind = this.aimIndicator;
+    ind.visible = true;
+    ind.position.set(from.x, 0.07, from.y);
+    for (const child of ind.children) child.visible = child.name === kind;
+    if (dir && (dir.x !== 0 || dir.y !== 0)) ind.rotation.y = -Math.atan2(dir.y, dir.x);
   }
 
   resize(w: number, h: number): void {
