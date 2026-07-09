@@ -247,6 +247,13 @@ export interface RoomPurpose {
   tableSet?: { table: string; seat: string; tabletop: string[] }; // furnished table + seating
   centerpiece?: { key: string; spill: string[] }; // one anchor prop + debris around it
   rug?: string[]; // one goes under the table — nothing says "lived in" like a rug
+  // ZONING (grammar phase 2): where on the floor this job belongs. "living"
+  // clusters near the entrance, "work" holds the middle, "deep" sits closest
+  // to the stairs — so a floor reads as a settlement, not a shuffle.
+  zone?: "living" | "work" | "deep"; // default "work"
+  // Band allowlist (FLOOR_BANDS indices, 0 = UNDERCROFT .. 5 = APPROACH).
+  // Omitted = at home everywhere. A forge belongs in the IRONWORKS.
+  bands?: number[];
   // VARIANTS: seeded re-dressings of the same purpose (an officer's barracks
   // vs a flophouse). Fields REPLACE the base purpose's when a variant rolls
   // (~55% of the time), so every purpose reads two or three different ways.
@@ -256,6 +263,7 @@ export interface RoomPurpose {
 export const ROOM_PURPOSES: RoomPurpose[] = [
   {
     id: "storage", // the quartermaster's floor: kegs and crates against the walls
+    zone: "work",
     wallRun: ["keg", "barrel_large", "crates_stacked", "box_large", "keg_decorated"],
     wallMount: ["shelf_small"],
     cornerStack: ["box_small", "barrel_small", "trunk_small_A"],
@@ -266,6 +274,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
+    zone: "living",
     wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
     wallMount: ["banner_red", "shelf_small"],
     tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
@@ -276,6 +285,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "archive", // the dungeon keeps records: bookcase runs and a reading table
+    zone: "work", bands: [0, 3, 5],
     wallRun: ["bookcase_single", "bookcase_double_decorateda", "bookcase_single"],
     wallMount: ["shelf_small_books"],
     cornerStack: ["book_single", "box_small"],
@@ -286,6 +296,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "guardpost", // a watch was stationed here; the shift ended badly
+    zone: "work",
     wallRun: ["bench", "box_large", "barrel_small"],
     wallMount: ["banner_shield_red", "torch_mounted"],
     cornerStack: ["barrel_small", "bottle_A_green"],
@@ -299,6 +310,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   // Restaurant pots, Resource barrels, Block Bits anvil, Adventurers potions).
   {
     id: "barracks", // rows of cots against the wall; somebody sleeps down here
+    zone: "living",
     wallRun: ["bed_a_single", "bed_b_single", "bed_floor", "bed_decorated"],
     wallMount: ["banner_blue", "shelf_small"],
     cornerStack: ["trunk_small_A", "box_small"],
@@ -310,6 +322,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "kitchen", // the mess gets fed from somewhere: stew pots and stock
+    zone: "living",
     wallRun: ["food_barrel_fish", "crate_potatoes", "barrel_small_stack", "crate_large_decorated"],
     wallMount: ["shelf_small", "banner_brown"],
     cornerStack: ["pot_large", "barrel_small"],
@@ -321,6 +334,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "forge", // a work floor: the anvil is the altar and fuel is the faith
+    zone: "deep", bands: [3, 4],
     wallRun: ["fuel_a_barrels", "crate_large_decorated", "box_large"],
     wallMount: ["torch_mounted", "shelf_small"],
     cornerStack: ["rubble_half", "barrel_small"],
@@ -331,6 +345,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "apothecary", // shelves of glassware; the dungeon brews its own
+    zone: "work", bands: [0, 1, 3],
     wallRun: ["bookcase_single", "shelf_small", "crate_large_decorated"],
     wallMount: ["shelf_small_books", "banner_green"],
     cornerStack: ["gems_sack", "box_small"],
@@ -342,6 +357,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   // Wave 3: whole new jobs (Prototype/Board Game/RPG Tools/Halloween bits).
   {
     id: "trainhall", // the watch drills here: racks, dummies, and splinters
+    zone: "work", bands: [0, 4, 5],
     wallRun: ["weaponrack", "weaponrack_decorated", "bench"],
     wallMount: ["banner_red", "torch_mounted"],
     cornerStack: ["box_large", "barrel_small"],
@@ -352,6 +368,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "den", // after the shift: cards, coins, and nobody watching the door
+    zone: "living", bands: [1, 4, 5],
     wallRun: ["keg_decorated", "barrel_large", "bench"],
     wallMount: ["lantern_hanging", "banner_brown"],
     cornerStack: ["bottle_b_brown", "box_small", "coin_silver"],
@@ -360,6 +377,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "warroom", // somebody is planning something down here
+    zone: "deep", bands: [0, 3, 5],
     wallRun: ["bookcase_single", "weaponrack", "box_large"],
     wallMount: ["banner_shield_red", "banner_blue"],
     cornerStack: ["map_rolled", "trunk_small_A"],
@@ -368,6 +386,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
   },
   {
     id: "ossuary", // the dungeon files its dead like everything else
+    zone: "deep", bands: [0, 3],
     wallRun: ["rubble_half", "rubble_large", "crate_large_decorated"],
     wallMount: ["banner_white", "torch_mounted"],
     cornerStack: ["skull", "bone_A", "ribcage"],

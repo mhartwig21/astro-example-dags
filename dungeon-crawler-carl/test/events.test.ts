@@ -74,13 +74,18 @@ describe("floor events: System Shrine", () => {
     expect(g.loot.some((l) => l.kind === "shrine")).toBe(true);
     const p = touchShrine(g);
     expect(p.pendingRewards).toHaveLength(3);
-    expect(p.pendingRewards.map((r) => r.kind)).toEqual(["shrineBlood", "shrineGreed", "shrineDecline"]);
+    // A seeded hand: two distinct bargains from the pool, Walk Away always last.
+    expect(p.pendingRewards[2].kind).toBe("shrineDecline");
+    expect(p.pendingRewards[0].kind).not.toBe(p.pendingRewards[1].kind);
+    for (const r of p.pendingRewards) expect(r.kind.startsWith("shrine")).toBe(true);
     expect(g.loot.some((l) => l.kind === "shrine")).toBe(false); // consumed
   });
 
   it("Blood Price: pays HP on the spot for permanent crit (never lethal)", () => {
     const g = findEvent("shrine");
     const p = touchShrine(g);
+    // The hand is seeded — deal the blood card directly to test ITS contract.
+    p.pendingRewards = [{ id: 1, kind: "shrineBlood", title: "Blood Price", desc: "", amount: CONFIG.shrineBloodCrit }];
     const hp0 = p.hp;
     const crit0 = p.critChance;
     chooseReward(g, p.id, 0);

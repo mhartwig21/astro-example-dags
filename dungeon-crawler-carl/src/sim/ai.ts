@@ -756,6 +756,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
           t: CONFIG.bossHazardDelay,
           total: CONFIG.bossHazardDelay,
           radius: CONFIG.bossHazardRadius,
+          flavor: "debris", // phase rain is falling rock (backlog #4)
           damage: m.damage * CONFIG.bossHazardDmgMult,
           kind: "blast",
         });

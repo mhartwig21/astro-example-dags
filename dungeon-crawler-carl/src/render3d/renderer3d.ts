@@ -1708,16 +1708,35 @@ export class Renderer3D {
         const j = Math.floor(frng() * (i + 1));
         [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
       }
-      // Seeded shuffle over the WHOLE purpose table (consecutive-from-a-base
-      // never let late entries co-occur with early ones).
-      const order = ROOM_PURPOSES.map((_, i) => i);
-      for (let i = order.length - 1; i > 0; i--) {
+      // Band + zone aware selection (grammar phase 2): only on-band purposes
+      // appear (a forge belongs in the IRONWORKS), and jobs settle where the
+      // inhabitants would put them — living quarters near the entrance, work
+      // in the middle, the strange rooms deepest. Rooms are picked evenly
+      // across the entrance-to-depths span so the whole floor gets dressed.
+      const band = floorBand(state.floor);
+      const pool = ROOM_PURPOSES.filter((pu) => !pu.bands || pu.bands.includes(band));
+      for (let i = pool.length - 1; i > 0; i--) {
         const j = Math.floor(frng() * (i + 1));
-        [order[i], order[j]] = [order[j], order[i]];
+        [pool[i], pool[j]] = [pool[j], pool[i]];
       }
-      candidates.slice(0, 5).forEach((ri, k) => {
-        dressPurpose(map.rooms[ri], ROOM_PURPOSES[order[k % order.length]]);
-      });
+      const byDist = candidates
+        .map((ri) => {
+          const r = map.rooms[ri];
+          return { ri, d: Math.hypot(r.x + r.w / 2 - map.spawn.x, r.y + r.h / 2 - map.spawn.y) };
+        })
+        .sort((a, b) => a.d - b.d);
+      const count = Math.min(5, byDist.length, pool.length);
+      const ZONE_LADDER: ("living" | "work" | "deep")[] = ["living", "living", "work", "work", "deep"];
+      const used = new Set<RoomPurpose>();
+      for (let k = 0; k < count; k++) {
+        const slot = byDist[count === 1 ? 0 : Math.round((k * (byDist.length - 1)) / (count - 1))];
+        const wantZone = ZONE_LADDER[Math.min(k, ZONE_LADDER.length - 1)];
+        const purpose = pool.find((pu) => !used.has(pu) && (pu.zone ?? "work") === wantZone)
+          ?? pool.find((pu) => !used.has(pu));
+        if (!purpose) break;
+        used.add(purpose);
+        dressPurpose(map.rooms[slot.ri], purpose);
+      }
     }
 
     // 4) LANDMARK hall: colonnade + centerpiece on the SIM's set-piece tiles
@@ -2711,11 +2730,15 @@ export class Renderer3D {
       if (!pool) {
         let bomb = this.hazardBombs.get(hz.id);
         if (!bomb) {
-          // Flame Sweep rows are FIRE, not falling ordnance (BACKLOG #5): the
-          // flavor field picks the epicenter dressing.
+          // The flavor field picks the epicenter dressing: Flame Sweep rows
+          // are FIRE, masonry-type blasts (debris rain, the engagement
+          // review) are falling ROCK, and only true ordnance keeps the clown
+          // bomb — the System loves its clowns, but not on the Architect.
           const model = hz.flavor === "flame"
             ? this.modelInstance("fx_flame_wall") ?? this.modelInstance("clown_bomb")
-            : this.modelInstance("clown_bomb");
+            : hz.flavor === "debris"
+              ? this.modelInstance("rubble_half") ?? this.modelInstance("clown_bomb")
+              : this.modelInstance("clown_bomb");
           if (model) {
             bomb = new THREE.Group();
             if (hz.flavor === "flame" && this.models["fx_flame_wall"]) {
@@ -2730,6 +2753,9 @@ export class Renderer3D {
                 m.material = mat;
               });
               bomb.userData.flame = true;
+            } else if (hz.flavor === "debris" && this.models["rubble_half"]) {
+              model.scale.setScalar(0.5);
+              bomb.userData.debris = true; // rocks loom; they do not tick
             } else {
               model.scale.setScalar(0.55);
             }
@@ -2743,6 +2769,10 @@ export class Renderer3D {
           if (bomb.userData.flame) {
             // Fire licks upward as the row nears eruption.
             bomb.scale.setScalar(0.35 + 0.65 * urgency + 0.05 * Math.sin(urgency * 40));
+          } else if (bomb.userData.debris) {
+            // Masonry DESCENDS: the rock sinks toward its shadow as time runs out.
+            bomb.position.y = 2.2 * (1 - urgency);
+            bomb.scale.setScalar(0.8 + 0.2 * urgency);
           } else {
             // Ticking wobble that accelerates toward the boom.
             bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));

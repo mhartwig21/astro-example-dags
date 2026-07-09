@@ -928,6 +928,11 @@ export const CONFIG = {
   shrineBloodCostFraction: 0.2, // Blood Price: HP offered (of max, floored at 1)
   shrineBloodCrit: 0.03, // ...for this much permanent crit
   shrineGreedSpeedMult: 1.15, // Greed Clause: this floor's monsters speed up...
+  shrineDraftTimeCost: 20, // Overtime Draft: seconds the collapse clock loses
+  shrineLoanGain: 45, // Time Loan: seconds granted on THIS floor...
+  shrineLoanDebt: 30, // ...and what the NEXT floor's budget pays back
+  shrineLiquidateBonus: 1.5, // Liquidation Event: bag buyout premium over sell value
+  shrinePremiumCostFraction: 0.3, // Insurance Premium: slice of current gold
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
