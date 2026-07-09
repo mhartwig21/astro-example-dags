@@ -42,6 +42,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `DESIGN.md` | Full design: pillars, systems (5.x per mechanic), architecture, directory layout, roadmap |
 | `README.md` | Player-facing intro + how to run |
 | `DEPLOY.md` | Production architecture, Fly.io ops, measured capacity, GCP migration plan |
+| `PERSISTENCE.md` | Server-side persistence plan: SQLite on the Fly volume — accounts, saves, hibernating instances (Roam's prerequisite) |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
