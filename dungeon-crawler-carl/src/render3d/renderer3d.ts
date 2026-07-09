@@ -10,7 +10,8 @@ import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted 
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
-import { ROOM_PURPOSES, cosmeticRng, themeForFloor, tileHash, type FloorTheme, type RoomPurpose } from "./floorThemes";
+import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { assignRoomPurposes, type RoomDressing, type RoomPurpose } from "../sim/roomPurposes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
@@ -1622,13 +1623,13 @@ export class Renderer3D {
         for (let y = r.y + 1; y < r.y + r.h - 1; y++) { check(r.x + 0.5, y + 0.5); check(r.x + r.w - 0.5, y + 0.5); }
         return faces;
       };
-      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, base: RoomPurpose) => {
-        // Variant roll (~55%): the same job dressed a different way — an
-        // officer's barracks vs a flophouse. Variant fields REPLACE the base's.
-        const variant = base.variants && base.variants.length > 0 && frng() < 0.55
-          ? base.variants[Math.floor(frng() * base.variants.length)]
-          : null;
-        const p: RoomPurpose = variant ? { ...base, ...variant, id: base.id, variants: undefined } : base;
+      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, d: RoomDressing) => {
+        // The dressing arrives RESOLVED from the sim-shared assignment
+        // (assignRoomPurposes): variant already merged, condition and social
+        // anchor decided — so the sim can seat the resident pack at the same
+        // furniture this pass builds. The renderer only adds the cosmetics.
+        const p: RoomPurpose = d.purpose;
+        const cond = d.condition;
         const faces = wallFaces(r);
         if (faces.length < 3) return;
         // The iso camera sees the INNER face of north walls (normal +y) and
@@ -1638,6 +1639,7 @@ export class Renderer3D {
         const visible = (f: { nx: number; ny: number }) => f.nx > 0 || f.ny > 0;
         // WALL RUN: consecutive faces along the longest same-normal VISIBLE
         // wall, furniture shoulder to shoulder, backs to the masonry.
+        // A looted room's run is THINNED — they carried half of it away.
         const byNormal = new Map<string, typeof faces>();
         for (const f of faces) {
           const k = `${f.nx},${f.ny}`;
@@ -1647,68 +1649,77 @@ export class Renderer3D {
           (a, b) => (visible(a[0]) ? 1000 : 0) + a.length < (visible(b[0]) ? 1000 : 0) + b.length ? 1 : -1,
         );
         const runWall = walls[0];
-        const runLen = Math.min(runWall.length, 3 + Math.floor(frng() * 3));
+        let runLen = Math.min(runWall.length, 3 + Math.floor(frng() * 3));
+        if (cond === "looted") runLen = Math.max(1, runLen - 2);
         const runStart = Math.floor(frng() * Math.max(1, runWall.length - runLen));
         for (let i = 0; i < runLen; i++) {
           const f = runWall[runStart + i];
           const key = p.wallRun[Math.floor(frng() * p.wallRun.length)];
           place(key, f.x - f.nx * 0.26, f.y - f.ny * 0.26, {
-            rot: Math.atan2(f.nx, f.ny) + (frng() - 0.5) * 0.12, jitter: 0.08,
+            rot: Math.atan2(f.nx, f.ny) + (frng() - 0.5) * (cond === "scarred" ? 0.6 : 0.12),
+            jitter: cond === "scarred" ? 0.3 : 0.08, // a battle shoved everything
             scale: 0.6 + frng() * 0.15, // chunky enough to read as furniture
           });
         }
-        // WALL MOUNTS: decor hung on 2-3 spaced VISIBLE faces off the run wall.
+        // WALL MOUNTS: decor hung on 2-3 spaced VISIBLE faces off the run
+        // wall. A scarred room's banners were torn down with their owners.
+        const mounts = cond === "scarred" ? p.wallMount.filter((k) => !k.startsWith("banner")) : p.wallMount;
         const mountable = faces.filter((f) => !runWall.includes(f) && visible(f));
-        for (let m = 0; m < Math.min(3, mountable.length) && p.wallMount.length > 0; m++) {
+        for (let m = 0; m < Math.min(3, mountable.length) && mounts.length > 0; m++) {
           const f = mountable[Math.floor(frng() * mountable.length)];
-          const key = p.wallMount[Math.floor(frng() * p.wallMount.length)];
+          const key = mounts[Math.floor(frng() * mounts.length)];
           if (place(key, f.x - f.nx * 0.38, f.y - f.ny * 0.38, {
             rot: Math.atan2(f.nx, f.ny), jitter: 0, scale: 0.45, elevate: 0.5,
-          }) && key === "torch_mounted" && this.torchAnchors.length < 20) {
+          }) && key === "torch_mounted" && cond !== "scarred" && this.torchAnchors.length < 20) {
             // A mounted sconce is also a light anchor — the room glows lived-in.
             this.torchAnchors.push({ x: f.x, y: f.y, seed: this.torchAnchors.length * 1.7 });
           }
         }
-        // Every dressed room earns a sconce of its own: the vignette should be
-        // SEEN. One standing torch at a leftover visible face, light attached.
-        const lightFace = mountable[Math.floor(frng() * Math.max(1, mountable.length))] ?? runWall[0];
-        if (lightFace && this.torchAnchors.length < 20) {
-          const tx = lightFace.x - lightFace.nx * 0.33, ty = lightFace.y - lightFace.ny * 0.33;
-          if (place("torch_lit", tx, ty, { scale: 0.55, jitter: 0.05 })) {
-            this.torchAnchors.push({ x: tx, y: ty, seed: this.torchAnchors.length * 1.7 });
+        // Every dressed room earns a sconce — EXCEPT scarred ones. Whatever
+        // happened here, nobody came back to relight the torches.
+        if (cond !== "scarred") {
+          const lightFace = mountable[Math.floor(frng() * Math.max(1, mountable.length))] ?? runWall[0];
+          if (lightFace && this.torchAnchors.length < 20) {
+            const tx = lightFace.x - lightFace.nx * 0.33, ty = lightFace.y - lightFace.ny * 0.33;
+            if (place("torch_lit", tx, ty, { scale: 0.55, jitter: 0.05 })) {
+              this.torchAnchors.push({ x: tx, y: ty, seed: this.torchAnchors.length * 1.7 });
+            }
           }
         }
-        // TABLE SET: a furnished table off-center (the middle stays a fight).
-        if (p.tableSet && r.w >= 6 && r.h >= 6) {
-          const tcx = r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68);
-          const tcy = r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68);
+        // TABLE SET at the SHARED social anchor (the sim seats packs here).
+        if (p.tableSet && d.anchor && r.w >= 6 && r.h >= 6) {
+          const tcx = d.anchor.x, tcy = d.anchor.y;
           // A rug under the table sells the whole room (flat: no path lies).
-          if (p.rug && p.rug.length > 0) {
+          if (p.rug && p.rug.length > 0 && cond !== "scarred") {
             place(p.rug[Math.floor(frng() * p.rug.length)], tcx, tcy, {
               scale: 1.9, jitter: 0.05, rot: Math.floor(frng() * 2) * (Math.PI / 2),
             });
           }
-          if (place(p.tableSet.table, tcx, tcy, { scale: 0.85, jitter: 0.1 })) {
+          const tableKey = cond === "scarred" ? "table_medium_broken" : p.tableSet.table;
+          if (place(tableKey, tcx, tcy, { scale: 0.85, jitter: 0.1 })) {
             const tableObj = this.propEntries[this.propEntries.length - 1].obj;
             const top = new THREE.Box3().setFromObject(tableObj).max.y;
             const seats = 2 + Math.floor(frng() * 3);
             for (let s = 0; s < seats; s++) {
               const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
               place(p.tableSet.seat, tcx + Math.cos(a) * 0.8, tcy + Math.sin(a) * 0.8, {
-                scale: 0.32, jitter: 0.06, rot: a + Math.PI, // seats face the table
+                scale: 0.32, jitter: cond === "scarred" ? 0.3 : 0.06, rot: a + Math.PI, // seats face the table
               });
             }
-            for (let it = 0, n = 1 + Math.floor(frng() * 2); it < n; it++) {
-              const key = p.tableSet.tabletop[Math.floor(frng() * p.tableSet.tabletop.length)];
-              place(key, tcx + (frng() - 0.5) * 0.45, tcy + (frng() - 0.5) * 0.45, {
-                scale: 0.2, elevate: top + 0.01, jitter: 0,
-              });
+            // Looted rooms serve a BARE table — they took the silverware too.
+            if (cond !== "looted") {
+              for (let it = 0, n = 1 + Math.floor(frng() * 2); it < n; it++) {
+                const key = p.tableSet.tabletop[Math.floor(frng() * p.tableSet.tabletop.length)];
+                place(key, tcx + (frng() - 0.5) * 0.45, tcy + (frng() - 0.5) * 0.45, {
+                  scale: 0.2, elevate: top + 0.01, jitter: 0,
+                });
+              }
             }
           }
         }
-        // CENTERPIECE + SPILL: one anchor prop with its story scattered around.
-        if (p.centerpiece) {
-          const cx = r.x + r.w * 0.5, cy = r.y + r.h * 0.5;
+        // CENTERPIECE + SPILL at the shared anchor.
+        if (p.centerpiece && d.anchor) {
+          const cx = d.anchor.x, cy = d.anchor.y;
           if (place(p.centerpiece.key, cx, cy, { scale: 0.8, jitter: 0.3 })) {
             for (let s = 0, n = 2 + Math.floor(frng() * 2); s < n; s++) {
               const a = frng() * Math.PI * 2;
@@ -1717,8 +1728,8 @@ export class Renderer3D {
             }
           }
         }
-        // CORNER STACK: a tight hoard in one corner (denser than pass 3's clutter).
-        if (p.cornerStack) {
+        // CORNER STACK: a tight hoard in one corner — unless looters found it.
+        if (p.cornerStack && cond !== "looted") {
           const corners = [
             { x: r.x + 1.1, y: r.y + 1.1 }, { x: r.x + r.w - 1.1, y: r.y + 1.1 },
             { x: r.x + 1.1, y: r.y + r.h - 1.1 }, { x: r.x + r.w - 1.1, y: r.y + r.h - 1.1 },
@@ -1729,46 +1740,52 @@ export class Renderer3D {
             place(key, c.x + (frng() - 0.5) * 0.7, c.y + (frng() - 0.5) * 0.7, { scale: 0.4 });
           }
         }
+        // CONDITION DEBRIS: the history layer's physical evidence.
+        const evidence = cond === "looted" ? ["rubble_half", "bottle_b_brown", "box_small"]
+          : cond === "scarred" ? ["rubble_large", "rubble_half", "sword_shield_broken", "skull"]
+          : cond === "overgrown" ? ["mushroom", "forest_grass_1_a", "forest_bush_1_a", "mushroom"]
+          : null;
+        if (evidence) {
+          const n = cond === "overgrown" ? 5 : 3;
+          for (let e = 0; e < n; e++) {
+            const key = evidence[Math.floor(frng() * evidence.length)];
+            place(key, r.x + 1 + frng() * (r.w - 2), r.y + 1 + frng() * (r.h - 2), {
+              scale: cond === "overgrown" ? 0.3 : 0.4, jitter: 0.3,
+            });
+          }
+        }
       };
-      // Dress up to 5 sizeable combat rooms, each with a DISTINCT purpose so a
-      // floor reads as a settlement of jobs, not four copies of one idea.
-      const candidates: number[] = [];
-      for (let ri = 0; ri < map.rooms.length; ri++) {
-        const r = map.rooms[ri];
-        if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
-      }
-      for (let i = candidates.length - 1; i > 0; i--) {
-        const j = Math.floor(frng() * (i + 1));
-        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-      }
-      // Band + zone aware selection (grammar phase 2): only on-band purposes
-      // appear (a forge belongs in the IRONWORKS), and jobs settle where the
-      // inhabitants would put them — living quarters near the entrance, work
-      // in the middle, the strange rooms deepest. Rooms are picked evenly
-      // across the entrance-to-depths span so the whole floor gets dressed.
-      const band = floorBand(state.floor);
-      const pool = ROOM_PURPOSES.filter((pu) => !pu.bands || pu.bands.includes(band));
-      for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(frng() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-      }
-      const byDist = candidates
-        .map((ri) => {
-          const r = map.rooms[ri];
-          return { ri, d: Math.hypot(r.x + r.w / 2 - map.spawn.x, r.y + r.h / 2 - map.spawn.y) };
-        })
-        .sort((a, b) => a.d - b.d);
-      const count = Math.min(5, byDist.length, pool.length);
-      const ZONE_LADDER: ("living" | "work" | "deep")[] = ["living", "living", "work", "work", "deep"];
-      const used = new Set<RoomPurpose>();
-      for (let k = 0; k < count; k++) {
-        const slot = byDist[count === 1 ? 0 : Math.round((k * (byDist.length - 1)) / (count - 1))];
-        const wantZone = ZONE_LADDER[Math.min(k, ZONE_LADDER.length - 1)];
-        const purpose = pool.find((pu) => !used.has(pu) && (pu.zone ?? "work") === wantZone)
-          ?? pool.find((pu) => !used.has(pu));
-        if (!purpose) break;
-        used.add(purpose);
-        dressPurpose(map.rooms[slot.ri], purpose);
+      // The dressing plan comes from the SIM-SHARED assignment: same seed,
+      // same rooms, same purposes for the renderer and for spawnMonsters —
+      // which is what lets the mess pack actually sit at the mess table.
+      const dressings = assignRoomPurposes(state.seed, state.floor, map);
+      for (const d of dressings) dressPurpose(map.rooms[d.roomIdx], d);
+      // CORRIDOR TISSUE: the job leaks out the door — a keg rolled from the
+      // storeroom, a bone dragged from the ossuary — so corridors read as
+      // paths BETWEEN places rather than filler.
+      for (const d of dressings) {
+        const r = map.rooms[d.roomIdx];
+        const spill = d.purpose.cornerStack ?? d.purpose.wallRun;
+        if (!spill || spill.length === 0) continue;
+        const doorways: { x: number; y: number }[] = [];
+        const tryDoor = (inx: number, iny: number, outx: number, outy: number) => {
+          const ii = Math.floor(iny) * map.w + Math.floor(inx);
+          const oi = Math.floor(outy) * map.w + Math.floor(outx);
+          if (map.tiles[ii] === Tile.Floor && map.tiles[oi] === Tile.Floor) doorways.push({ x: outx, y: outy });
+        };
+        for (let x = r.x; x < r.x + r.w; x++) {
+          tryDoor(x + 0.5, r.y + 0.5, x + 0.5, r.y - 0.5);
+          tryDoor(x + 0.5, r.y + r.h - 0.5, x + 0.5, r.y + r.h + 0.5);
+        }
+        for (let y = r.y; y < r.y + r.h; y++) {
+          tryDoor(r.x + 0.5, y + 0.5, r.x - 0.5, y + 0.5);
+          tryDoor(r.x + r.w - 0.5, y + 0.5, r.x + r.w + 0.5, y + 0.5);
+        }
+        for (let k = 0; k < Math.min(2, doorways.length); k++) {
+          const door = doorways[Math.floor(frng() * doorways.length)];
+          const key = spill[Math.floor(frng() * spill.length)];
+          place(key, door.x + (frng() - 0.5) * 0.8, door.y + (frng() - 0.5) * 1.2, { scale: 0.35, jitter: 0.3 });
+        }
       }
     }
 

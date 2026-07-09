@@ -23,6 +23,7 @@ import {
 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
+import { assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -5092,5 +5093,34 @@ describe("the shrine deals a varied hand", () => {
     expect(p.gold).toBe(70);
     expect(p.hp).toBe(p.maxHp);
     expect(p.statuses.length).toBe(0);
+  });
+});
+
+describe("room purposes are sim-visible (occupancy)", () => {
+  it("assignRoomPurposes is deterministic and obeys band law", () => {
+    const g = createTestGame({ seed: 91, floor: 4, level: 4 }); // floor 4 = THE SEWERS (band 1)
+    const a = assignRoomPurposes(g.seed, g.floor, g.map);
+    const b = assignRoomPurposes(g.seed, g.floor, g.map);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(a.length).toBeGreaterThan(0);
+    for (const d of a) {
+      // Band allowlists hold: none of these belong in the SEWERS.
+      expect(["archive", "forge", "trainhall", "warroom", "ossuary"]).not.toContain(d.purposeId);
+    }
+  });
+
+  it("a resident pack gathers at the dressed room's furniture", () => {
+    const g = createTestGame({ seed: 92, floor: 4, level: 4 });
+    const anchored = assignRoomPurposes(g.seed, g.floor, g.map).filter((d) => d.anchor !== null);
+    expect(anchored.length).toBeGreaterThan(0);
+    let seated = 0;
+    for (const d of anchored) {
+      const near = g.monsters.filter(
+        (m) => Math.hypot(m.pos.x - d.anchor!.x, m.pos.y - d.anchor!.y) <= 2.5,
+      ).length;
+      if (near >= 3) seated++;
+    }
+    // Deterministic for this seed: at least one pack sits at dinner.
+    expect(seated).toBeGreaterThanOrEqual(1);
   });
 });

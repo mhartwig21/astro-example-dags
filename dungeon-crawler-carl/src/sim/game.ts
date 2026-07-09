@@ -20,6 +20,7 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
+import { assignRoomPurposes } from "./roomPurposes";
 import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
@@ -394,6 +395,18 @@ function spawnMonsters(state: GameState): void {
     return 0;
   };
 
+  // OCCUPANCY (vignette grammar phase 3): dressed rooms are USED rooms.
+  // The same pure assignment the renderer dresses from tells the sim where
+  // each room's furniture stands — a pack that spawns in the mess hall
+  // gathers AT the table instead of scattering. Spawn-safety rules still
+  // apply (the social anchor is skipped if it sits too near spawn/stairs).
+  const dressings = assignRoomPurposes(state.seed, floor, map);
+  const socialAnchor = new Map(
+    dressings
+      .filter((d) => d.anchor && dist(d.anchor, map.spawn) > 6 && dist(d.anchor, map.stairs) > 2)
+      .map((d) => [d.roomIdx, d.anchor!] as const),
+  );
+
   // Diablo-style encounters: most of the budget spawns as PACKS — a tight
   // cluster sharing an anchor (they aggro together), usually one archetype,
   // sometimes with a shaman healer escort on deeper floors. A small share
@@ -415,8 +428,12 @@ function spawnMonsters(state: GameState): void {
   }
   let guard = 0;
   while (budget > 0 && totalW > 0 && guard++ < 60) {
-    const anchor = inRoom(pickRoom());
+    const roomIdx = pickRoom();
+    let anchor = inRoom(roomIdx);
     if (!anchor) continue;
+    // The resident pack of a dressed room stands where the furniture is.
+    const social = socialAnchor.get(roomIdx);
+    if (social) anchor = { x: social.x, y: social.y };
     // THE PACK PLAYBOOK (MOB-CONCEPTS.md): a share of pack rolls spawn a
     // DESIGNED encounter for this band — one mob's ability set up by
     // another's, choreographed by formation offsets. Budget-neutral: the
