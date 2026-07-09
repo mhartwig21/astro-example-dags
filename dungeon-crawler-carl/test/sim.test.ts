@@ -3,7 +3,7 @@ import {
   createGame, createTestGame, ensureWorld, restoreGame, step, equipItem, equipFromInventory, chooseReward, addHype,
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
-  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster,
+  damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster, shrineChoices,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
@@ -4963,5 +4963,68 @@ describe("boss poise: interrupts are earned (decay + stagger grace)", () => {
     grunt.stagger = 0;
     damageMonster(g, p, grunt, 100, { allowCrit: false, poiseMult: 100 });
     expect(grunt.stagger).toBeGreaterThan(0); // and re-staggers immediately
+  });
+});
+
+describe("the shrine deals a varied hand", () => {
+  const card = (kind: import("../src/sim/types").Reward["kind"]) => ({ id: 1, kind, title: kind, desc: "", amount: 0 });
+
+  it("each shrine deals two seeded bargains plus Walk Away", () => {
+    const g = createTestGame({ seed: 81, floor: 5, level: 5 });
+    const deals = shrineChoices(g, g.players[0]);
+    expect(deals.length).toBe(3);
+    expect(deals[2].kind).toBe("shrineDecline");
+    expect(deals[0].kind).not.toBe(deals[1].kind);
+    expect(deals[0].kind.startsWith("shrine")).toBe(true);
+  });
+
+  it("OVERTIME DRAFT trades clock for an evolution", () => {
+    const g = createTestGame({ seed: 82, floor: 5, level: 5 });
+    const p = g.players[0];
+    const t0 = g.timeRemaining;
+    const owed0 = p.upgradeDraftsOwed;
+    p.pendingRewards = [card("shrineDraft")];
+    chooseReward(g, p.id, 0);
+    expect(g.timeRemaining).toBeCloseTo(t0 - CONFIG.shrineDraftTimeCost, 5);
+    expect(p.upgradeDraftsOwed).toBe(owed0 + 1);
+  });
+
+  it("TIME LOAN pays now and the next floor collects", () => {
+    const g = createTestGame({ seed: 83, floor: 5, level: 5 });
+    const p = g.players[0];
+    const t0 = g.timeRemaining;
+    p.pendingRewards = [card("shrineLoan")];
+    chooseReward(g, p.id, 0);
+    expect(g.timeRemaining).toBeCloseTo(t0 + CONFIG.shrineLoanGain, 5);
+    expect(g.pendingTimeDebt).toBe(CONFIG.shrineLoanDebt);
+    g.safeRoom = { nextFloor: 6, available: [], tip: "", ready: [], purchased: {} };
+    leaveSafeRoom(g);
+    expect(g.timeBudget).toBe(Math.max(30, floorTimeBudget(6) - CONFIG.shrineLoanDebt));
+    expect(g.pendingTimeDebt).toBe(0);
+  });
+
+  it("LIQUIDATION EVENT buys the whole bag at a premium", () => {
+    const g = createTestGame({ seed: 84, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.inventory = [generateItem(createRng(1), 5, () => 900001), generateItem(createRng(2), 5, () => 900002)];
+    const expected = Math.round((sellValue(p.inventory[0]) + sellValue(p.inventory[1])) * CONFIG.shrineLiquidateBonus);
+    const gold0 = p.gold;
+    p.pendingRewards = [card("shrineLiquidate")];
+    chooseReward(g, p.id, 0);
+    expect(p.gold - gold0).toBe(expected);
+    expect(p.inventory.length).toBe(0);
+  });
+
+  it("INSURANCE PREMIUM restores in full and cleanses", () => {
+    const g = createTestGame({ seed: 85, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 100;
+    p.hp = Math.floor(p.maxHp / 3);
+    p.statuses = [{ kind: "poison", remaining: 5, magnitude: 2, stacks: 1, tick: 1, school: "physical" }];
+    p.pendingRewards = [card("shrinePremium")];
+    chooseReward(g, p.id, 0);
+    expect(p.gold).toBe(70);
+    expect(p.hp).toBe(p.maxHp);
+    expect(p.statuses.length).toBe(0);
   });
 });

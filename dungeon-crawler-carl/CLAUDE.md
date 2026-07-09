@@ -49,6 +49,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `BIOMES.md` | Art direction notes for floor/room visual variety |
 | `BACKLOG.md` | Open play-driven items with code pointers. Delete entries when they ship |
 | `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
+| `BUILDER.md` | The /builder.html crafting bench: room templates, custom enemies, and the dev-only Meshy bridge (prop + creature generation). Content lands in `src/content/` |
 
 ## Commands
 

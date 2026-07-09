@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DCC Builder — rooms & enemies</title>
+    <style>
+      :root {
+        --bg: #0a0a12; --panel: #14141f; --edge: #2a2a3a; --ink: #d8d4c8;
+        --dim: #8a879c; --gold: #c9a24b; --accent: #5a87c6; --danger: #c0392f;
+      }
+      * { box-sizing: border-box; margin: 0; }
+      body { background: var(--bg); color: var(--ink); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+      header { padding: 8px 14px; border-bottom: 1px solid var(--edge); display: flex; gap: 14px; align-items: center; }
+      header h1 { font-size: 14px; letter-spacing: 2px; color: var(--gold); font-weight: 600; }
+      header .tabs button { background: none; border: 1px solid var(--edge); color: var(--dim); padding: 4px 12px; cursor: pointer; }
+      header .tabs button.active { color: var(--gold); border-color: var(--gold); }
+      header .hint { color: var(--dim); margin-left: auto; font-size: 12px; }
+      main { flex: 1; display: flex; min-height: 0; }
+      #left, #right { width: 250px; background: var(--panel); border-color: var(--edge); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+      #left { border-right: 1px solid var(--edge); }
+      #right { border-left: 1px solid var(--edge); width: 280px; }
+      #viewport { flex: 1; position: relative; min-width: 0; }
+      #viewport canvas { display: block; }
+      .group { border: 1px solid var(--edge); padding: 8px; }
+      .group h2 { font-size: 11px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; margin-bottom: 6px; }
+      .tools { display: flex; flex-wrap: wrap; gap: 4px; }
+      .tools button, .row button { background: #1c1c2a; border: 1px solid var(--edge); color: var(--ink); padding: 4px 8px; cursor: pointer; font-size: 12px; }
+      .tools button.active { border-color: var(--gold); color: var(--gold); }
+      .row { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+      input, select { background: #1c1c2a; border: 1px solid var(--edge); color: var(--ink); padding: 4px 6px; font-size: 12px; width: 100%; }
+      label { color: var(--dim); font-size: 11px; display: block; margin-top: 6px; }
+      #propList, #savedList, #mobModelList { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+      #propList button, #savedList .saved, #mobModelList button { text-align: left; background: none; border: none; color: var(--ink); padding: 3px 6px; cursor: pointer; font-size: 12px; }
+      #propList button:hover, #mobModelList button:hover { background: #1c1c2a; }
+      #propList button.active, #mobModelList button.active { color: var(--gold); }
+      .saved { display: flex; justify-content: space-between; align-items: center; }
+      .saved:hover { background: #1c1c2a; }
+      .saved .del { color: var(--danger); cursor: pointer; padding: 0 4px; }
+      textarea { width: 100%; height: 90px; background: #1c1c2a; border: 1px solid var(--edge); color: var(--ink); font: 11px monospace; }
+      .warn { color: var(--danger); font-size: 11px; }
+      .ok { color: #6da356; font-size: 11px; }
+      .pill { font-size: 10px; border: 1px solid var(--edge); color: var(--dim); padding: 1px 6px; }
+      #mobPane { display: none; }
+      .slider-row { display: grid; grid-template-columns: 80px 1fr 36px; gap: 6px; align-items: center; }
+      .slider-row output { font-size: 11px; color: var(--gold); text-align: right; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>DCC BUILDER</h1>
+      <div class="tabs">
+        <button id="tabRooms" class="active">Rooms</button>
+        <button id="tabMobs">Enemies</button>
+      </div>
+      <span class="hint" id="hint">paint: LMB · erase: RMB · rotate prop: R · delete prop: click with Erase</span>
+    </header>
+    <main>
+      <div id="left">
+        <div id="roomTools">
+          <div class="group">
+            <h2>Tiles</h2>
+            <div class="tools" id="tileTools">
+              <button data-tool="floor" class="active">Floor</button>
+              <button data-tool="wall">Wall</button>
+              <button data-tool="erase">Erase</button>
+            </div>
+          </div>
+          <div class="group">
+            <h2>Props</h2>
+            <input id="propSearch" placeholder="search props…" />
+            <div id="propList"></div>
+          </div>
+        </div>
+        <div id="mobPane">
+          <div class="group">
+            <h2>Body</h2>
+            <input id="mobModelSearch" placeholder="search characters…" />
+            <div id="mobModelList"></div>
+          </div>
+        </div>
+        <div class="group" id="bridgeBox" style="display:none">
+          <h2>Meshy (local bridge)</h2>
+          <label>asset id (kebab-case)</label><input id="genId" placeholder="rusty-cage" />
+          <label>prompt</label><input id="genPrompt" placeholder="a rusty iron cage…" />
+          <div class="row"><button id="genProp">Generate Prop</button><button id="genCreature">Generate Creature</button></div>
+          <div id="jobList" style="font-size:11px;color:var(--dim);margin-top:6px"></div>
+        </div>
+      </div>
+      <div id="viewport"></div>
+      <div id="right">
+        <div id="roomPane">
+          <div class="group">
+            <h2>Room</h2>
+            <label>id (kebab-case)</label><input id="roomId" value="my-room" />
+            <label>name</label><input id="roomName" value="My Room" />
+            <label>role</label>
+            <select id="roomRole"><option value="any">any</option><option value="landmark">landmark</option><option value="vault">vault</option></select>
+            <label>size (w × h, incl. floor border)</label>
+            <div class="row"><input id="roomW" type="number" value="9" min="4" max="18" style="width:70px" /><input id="roomH" type="number" value="7" min="4" max="14" style="width:70px" /><button id="resize">Resize</button></div>
+            <div id="borderWarn" class="warn"></div>
+          </div>
+          <div class="group">
+            <h2>Save / share</h2>
+            <div class="row"><button id="saveRoom">Save</button><button id="exportRoom">Export JSON</button><button id="clearRoom">Clear</button></div>
+            <label>import / export</label>
+            <textarea id="roomJson" spellcheck="false"></textarea>
+            <div class="row"><button id="importRoom">Import JSON</button></div>
+            <div id="roomMsg"></div>
+          </div>
+          <div class="group">
+            <h2>Saved rooms</h2>
+            <div id="savedList"></div>
+          </div>
+        </div>
+        <div id="mobRight" style="display:none">
+          <div class="group">
+            <h2>Enemy</h2>
+            <label>id</label><input id="mobId" value="my-enemy" />
+            <label>name (ringside)</label><input id="mobName" value="THE NEWCOMER" />
+            <label>behavior</label><select id="mobBehavior"></select>
+            <div id="behaviorBlurb" style="color:var(--dim);font-size:11px;margin-top:4px"></div>
+            <label>stat multipliers</label>
+            <div class="slider-row"><span>HP</span><input id="mHp" type="range" min="0.3" max="4" step="0.1" value="1" /><output id="oHp">1.0</output></div>
+            <div class="slider-row"><span>Damage</span><input id="mDmg" type="range" min="0.3" max="3" step="0.1" value="1" /><output id="oDmg">1.0</output></div>
+            <div class="slider-row"><span>Speed</span><input id="mSpd" type="range" min="0.5" max="2" step="0.05" value="1" /><output id="oSpd">1.0</output></div>
+            <div class="slider-row"><span>Scale</span><input id="mScale" type="range" min="0.6" max="2.2" step="0.05" value="1" /><output id="oScale">1.0</output></div>
+            <label>tint (emissive accent)</label>
+            <select id="mobTint">
+              <option value="">none</option>
+              <option value="0x9a6bd0">arcane violet</option>
+              <option value="0xd98e4a">ember</option>
+              <option value="0x5a87c6">lore blue</option>
+              <option value="0x8bd450">toxic green</option>
+              <option value="0xc0392f">blood</option>
+              <option value="0xffe066">crit gold</option>
+            </select>
+            <label>bands (spawn floors)</label>
+            <div class="row" id="bandChecks"></div>
+            <div class="slider-row"><span>Weight</span><input id="mWeight" type="range" min="0.1" max="3" step="0.1" value="1" /><output id="oWeight">1.0</output></div>
+          </div>
+          <div class="group">
+            <h2>Save / share</h2>
+            <div class="row"><button id="saveMob">Save</button><button id="exportMob">Export JSON</button></div>
+            <textarea id="mobJson" spellcheck="false"></textarea>
+            <div class="row"><button id="importMob">Import JSON</button></div>
+            <div id="mobMsg"></div>
+          </div>
+          <div class="group">
+            <h2>Saved enemies</h2>
+            <div id="savedMobs"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/src/builder.ts"></script>
+  </body>
+</html>

@@ -1,6 +1,7 @@
 import { CONFIG } from "./config";
 import { Tile, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
 import { nextInt, type Rng } from "./rng";
+import { ROOM_TEMPLATES, validateTemplate } from "../content/rooms";
 
 type Room = RoomRect;
 
@@ -335,6 +336,61 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     }
   }
 
+  // CRAFTED ROOMS (builder.html → src/content/rooms): stamp hand-designed
+  // templates into eligible rooms. Contract: the template's border ring and
+  // center are floor (validateTemplate), stamped walls only ever overwrite
+  // plain Floor, and the entrance/stairs rooms are never stamped — so
+  // doorways, spawn, stairs, and center-of-room probes all stay safe.
+  const stamps: { id: string; x: number; y: number }[] = [];
+  for (let i = 1; i < rooms.length && stamps.length < 2; i++) {
+    if (i === farthestIdx) continue;
+    if (nextInt(rng, 0, 99) >= 40) continue;
+    const r = rooms[i];
+    // Strict fit: a 1-tile ROOM margin around the template on top of the
+    // template's own floor border, so stamped walls never sit 1 tile from
+    // the room's walls (the floor-wide 2x2-walkable invariant).
+    const fits = ROOM_TEMPLATES.filter((t) =>
+      validateTemplate(t) && t.w <= r.w - 2 && t.h <= r.h - 2 &&
+      (!t.role || t.role === "any" || t.role === roles[i]));
+    if (fits.length === 0) continue;
+    const t = fits[nextInt(rng, 0, fits.length - 1)];
+    const ox = r.x + Math.floor((r.w - t.w) / 2);
+    const oy = r.y + Math.floor((r.h - t.h) / 2);
+    const changed: number[] = [];
+    for (let ty = 0; ty < t.h; ty++) {
+      for (let tx = 0; tx < t.w; tx++) {
+        if (t.tiles[ty * t.w + tx] !== Tile.Wall) continue;
+        const ti = idx(w, ox + tx, oy + ty);
+        if (tiles[ti] === Tile.Floor) { tiles[ti] = Tile.Wall; changed.push(ti); }
+      }
+    }
+    // Belt AND suspenders: verify the 2x2-walkable invariant around the
+    // stamped region; a design that creates a chokepoint reverts silently.
+    let ok = true;
+    outer: for (let y = oy - 1; y <= oy + t.h && ok; y++) {
+      for (let x = ox - 1; x <= ox + t.w; x++) {
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        if (tiles[idx(w, x, y)] === Tile.Wall) continue;
+        let inBlock = false;
+        for (const [bx, by] of [[x - 1, y - 1], [x, y - 1], [x - 1, y], [x, y]]) {
+          let all = true;
+          for (let yy = by; yy <= by + 1 && all; yy++) {
+            for (let xx = bx; xx <= bx + 1; xx++) {
+              if (xx < 0 || yy < 0 || xx >= w || yy >= h || tiles[idx(w, xx, yy)] === Tile.Wall) { all = false; break; }
+            }
+          }
+          if (all) { inBlock = true; break; }
+        }
+        if (!inBlock) { ok = false; break outer; }
+      }
+    }
+    if (!ok) {
+      for (const ti of changed) tiles[ti] = Tile.Floor;
+      continue;
+    }
+    stamps.push({ id: t.id, x: ox, y: oy });
+  }
+
   // Deep floors: seal the stairs room behind locked doors (softlock-guarded).
   // Roam has no key-carrier story in v1 — stairs always stay open.
   const locked =
@@ -355,6 +411,7 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     settlementRoomIdx: settlementIdx,
     pillars,
     pedestal,
+    stamps,
   };
 }
 

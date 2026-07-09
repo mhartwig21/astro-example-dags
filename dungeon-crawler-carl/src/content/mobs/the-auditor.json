@@ -1,0 +1,12 @@
+{
+  "id": "the-auditor",
+  "name": "THE AUDITOR",
+  "behavior": "filcher",
+  "hpMult": 1.4,
+  "damageMult": 1.0,
+  "speedMult": 1.1,
+  "skin": "monster_hexer",
+  "tint": 39075792,
+  "bands": [3],
+  "weight": 1.2
+}

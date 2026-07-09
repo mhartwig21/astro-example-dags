@@ -21,6 +21,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
 import { TIPS } from "./tips";
+import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
@@ -149,6 +150,28 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   // Every toy soldier belongs to SOME squad — a stray gets a squad of one
   // (ragged solo shots); pack spawning overwrites with the shared squadId.
   if (kind === "toysoldier") m.squadId = state.nextEntityId++;
+  // CRAFTED ENEMIES (builder.html → src/content/mobs): a def registered for
+  // this behavior + band may substitute — same brain, different body and
+  // numbers. The roll is data-gated (no rng draw when no def applies), so
+  // floors without matching defs replay exactly as before.
+  const candidates = defsFor(kind, floorBand(floor));
+  if (candidates.length > 0) {
+    const vanillaWeight = 2; // the stock archetype stays the common sight
+    const total = vanillaWeight + candidates.reduce((s, d) => s + (d.weight ?? 1), 0);
+    let roll = nextFloat(state.rng) * total - vanillaWeight;
+    for (const d of candidates) {
+      roll -= d.weight ?? 1;
+      if (roll < 0) {
+        m.defId = d.id;
+        m.hp = m.maxHp = Math.round(m.hp * (d.hpMult ?? 1));
+        m.damage *= d.damageMult ?? 1;
+        m.speed *= d.speedMult ?? 1;
+        m.xp = Math.round(m.xp * (d.xpMult ?? 1));
+        if (d.name) m.eliteName = d.name;
+        break;
+      }
+    }
+  }
   return m;
 }
 
@@ -1000,6 +1023,12 @@ function buildFloor(state: GameState, floor: number): void {
   if (state.players.some((p) => hasRevision(p, "regular"))) {
     state.timeBudget = Math.round(state.timeBudget * CONFIG.revisionRegularTimeMult);
   }
+  // TIME LOAN (shrine): the System collects on arrival, then closes the book.
+  if ((state.pendingTimeDebt ?? 0) > 0) {
+    state.timeBudget = Math.max(30, state.timeBudget - state.pendingTimeDebt!);
+    announce(state, "progress", `The System collects its TIME LOAN: this floor's clock is ${state.pendingTimeDebt}s shorter.`);
+    state.pendingTimeDebt = 0;
+  }
   state.timeRemaining = state.timeBudget;
   state.phase = "safe";
   state.collapseElapsed = 0;
@@ -1362,6 +1391,7 @@ function hazardReview(state: GameState, p: Player): void {
     state.hazards.push({
       id: state.nextEntityId++, pos, t: delay, total: delay,
       radius: CONFIG.interferenceHazardRadius, damage: dmg, // kind absent = blast
+      flavor: "debris", // the review drops masonry, not clowns
     });
   }
   announce(state, "show", `NOTICE: ${p.name}'s sector has failed its engagement review. Environmental corrections are incoming. The System recommends movement.`);
@@ -1634,6 +1664,7 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
       radius: CONFIG.debrisRadius,
       damage: m.damage * CONFIG.debrisDmgMult,
       kind: "blast",
+      flavor: "debris", // falling masonry, not falling ordnance (backlog #4)
     });
   }
   announceSignature(state, m, "The ceiling is NEGOTIABLE. Masonry incoming — watch the circles, not the boss.");
@@ -3056,7 +3087,12 @@ export function rewardDr(owned: number, k: number): number {
 }
 
 /** Gift kinds sponsors can roll — shrine bargains are built by shrineChoices only. */
-type SponsorRewardKind = Exclude<Reward["kind"], "shrineBlood" | "shrineGreed" | "shrineDecline" | "revision" | "revisionDecline">;
+type SponsorRewardKind = Exclude<
+  Reward["kind"],
+  | "shrineBlood" | "shrineGreed" | "shrineDecline"
+  | "shrineDraft" | "shrineLoan" | "shrineLiquidate" | "shrinePremium"
+  | "revision" | "revisionDecline"
+>;
 
 /** Roll one sponsor gift of the given kind. `q` scales with backing; permanent
  * stat gifts additionally diminish against what `p` has already banked. */
@@ -3171,6 +3207,10 @@ function rewardFitScore(p: Player, r: Reward): number {
     case "shrineBlood":
     case "shrineGreed":
     case "shrineDecline":
+    case "shrineDraft":
+    case "shrineLoan":
+    case "shrineLiquidate":
+    case "shrinePremium":
     case "revision":
     case "revisionDecline":
       return 0; // shrine bargains and castings never enter the sponsor pool
@@ -3288,6 +3328,36 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       for (const m of state.monsters) m.speed *= CONFIG.shrineGreedSpeedMult;
       announce(state, "show", "GREED CLAUSE signed: everything on this floor is faster, and everything it drops pays double.");
       break;
+    case "shrineDraft":
+      state.timeRemaining = Math.max(5, state.timeRemaining - CONFIG.shrineDraftTimeCost);
+      p.upgradeDraftsOwed += 1;
+      announce(state, "show", `${p.name} signs the OVERTIME DRAFT: the floor loses ${CONFIG.shrineDraftTimeCost}s and the System owes an evolution.`);
+      break;
+    case "shrineLoan":
+      state.timeBudget += CONFIG.shrineLoanGain;
+      state.timeRemaining += CONFIG.shrineLoanGain;
+      state.pendingTimeDebt = (state.pendingTimeDebt ?? 0) + CONFIG.shrineLoanDebt;
+      announce(state, "show", `TIME LOAN approved: +${CONFIG.shrineLoanGain}s now. The next floor repays it. The System always collects.`);
+      break;
+    case "shrineLiquidate": {
+      const n = p.inventory.length;
+      let total = 0;
+      for (const it of p.inventory) total += sellValue(it);
+      total = Math.round(total * CONFIG.shrineLiquidateBonus);
+      p.inventory = [];
+      p.gold += total;
+      announce(state, "show", `LIQUIDATION EVENT: the shrine buys ${p.name}'s bag — ${n} item${n === 1 ? "" : "s"}, +${total} gold. All sales final.`);
+      break;
+    }
+    case "shrinePremium": {
+      const cost = Math.max(1, Math.round(p.gold * CONFIG.shrinePremiumCostFraction));
+      p.gold -= cost;
+      p.hp = p.maxHp;
+      p.statuses = [];
+      hit(state, p.pos, p.maxHp, "heal");
+      announce(state, "show", `${p.name} pays the INSURANCE PREMIUM (${cost} gold): fully restored, statuses cleansed. The claims department is now closed.`);
+      break;
+    }
     case "shrineDecline":
       break; // the shrine dims, unimpressed
     // CLASS REVISION (milestone castings — revisions.ts):
@@ -3328,12 +3398,14 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
 /** The System Shrine's pick-1 bargain (floor event). Rides pendingRewards —
  * the same non-blocking personal-draft plumbing sponsor gifts use, so hosts
  * need no new UI. Costs are spelled out in the desc; applyReward collects. */
-function shrineChoices(state: GameState, p: Player): Reward[] {
-  const cost = Math.max(1, Math.round(p.maxHp * CONFIG.shrineBloodCostFraction));
-  return [
+export function shrineChoices(state: GameState, p: Player): Reward[] {
+  const bloodCost = Math.max(1, Math.round(p.maxHp * CONFIG.shrineBloodCostFraction));
+  // The full menu. Each shrine deals a seeded TWO of these (+ Walk Away), so
+  // repeat visits differ; gates keep dead deals off the table.
+  const pool: Reward[] = [
     {
       id: state.nextEntityId++, kind: "shrineBlood", title: "Blood Price",
-      desc: `Offer ${cost} HP on the spot for +${Math.round(CONFIG.shrineBloodCrit * 100)}% crit, permanently`,
+      desc: `Offer ${bloodCost} HP on the spot for +${Math.round(CONFIG.shrineBloodCrit * 100)}% crit, permanently`,
       amount: CONFIG.shrineBloodCrit,
     },
     {
@@ -3342,11 +3414,37 @@ function shrineChoices(state: GameState, p: Player): Reward[] {
       amount: 0,
     },
     {
-      id: state.nextEntityId++, kind: "shrineDecline", title: "Walk Away",
-      desc: "No deal. The System respects cowardice; it just doesn't pay for it",
+      id: state.nextEntityId++, kind: "shrineDraft", title: "Overtime Draft",
+      desc: `The collapse clock loses ${CONFIG.shrineDraftTimeCost}s; the System owes you an ability draft`,
+      amount: 0,
+    },
+    {
+      id: state.nextEntityId++, kind: "shrineLoan", title: "Time Loan",
+      desc: `+${CONFIG.shrineLoanGain}s on THIS floor's clock; the next floor starts ${CONFIG.shrineLoanDebt}s shorter`,
       amount: 0,
     },
   ];
+  if (p.inventory.length >= 2) {
+    pool.push({
+      id: state.nextEntityId++, kind: "shrineLiquidate", title: "Liquidation Event",
+      desc: `The shrine buys your ENTIRE bag (${p.inventory.length} items) at a premium. Non-negotiable`,
+      amount: 0,
+    });
+  }
+  if (p.gold >= 30 && p.hp < p.maxHp) {
+    pool.push({
+      id: state.nextEntityId++, kind: "shrinePremium", title: "Insurance Premium",
+      desc: `Pay ${Math.round(CONFIG.shrinePremiumCostFraction * 100)}% of your gold: full heal, every status cleansed`,
+      amount: 0,
+    });
+  }
+  const dealt = shuffle(state.rng, pool).slice(0, 2);
+  dealt.push({
+    id: state.nextEntityId++, kind: "shrineDecline", title: "Walk Away",
+    desc: "No deal. The System respects cowardice; it just doesn't pay for it",
+    amount: 0,
+  });
+  return dealt;
 }
 
 /**

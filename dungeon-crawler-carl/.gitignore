@@ -6,3 +6,6 @@ leaderboard.json
 
 # 3D assets are COMMITTED (all CC0; provenance in ASSETS.md + bundled LICENSE files)
 # so cloud builds ship real art. scripts/fetch-assets.sh remains for re-sourcing.
+
+# Builder bridge scratch output (promote keepers into assets/ + ASSETS.md)
+public/assets/generated/
