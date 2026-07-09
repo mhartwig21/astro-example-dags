@@ -377,6 +377,16 @@ above. Provenance rules for anything it produces:
 | dungeon/descent_portal.glb | The System's descent gate framing the stairs tile | Meshy (paid tier) text-to-3D, palette-snapped |
 | characters/*_texture_b.png (skeleton, werewolf, witch, orcbrute, plantcreatures, orc) | Elite B-variant skins (ELITE_TEXTURES in assets.ts) | KayKit Complete Collection alternate textures, CC0 |
 
+### Room-purpose wave 2 props (2026-07-09, vignette grammar)
+
+| File(s) | Use | Source + license |
+|---|---|---|
+| dungeon/bed_{a,b}_single.glb, bed_floor.glb, bed_decorated.glb, chair.glb, plate_food_{a,b}.glb, crate_large_decorated.glb, barrel_small_stack.glb | barracks/kitchen purposes | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
+| dungeon/pot_a_stew.glb, pot_large.glb, crate_potatoes.glb | kitchen purpose | KayKit Restaurant Bits 1.0, CC0 |
+| dungeon/food_barrel_fish.glb, fuel_a_barrels.glb, gems_sack.glb | kitchen/forge/apothecary | KayKit Resource Bits 1.0, CC0 |
+| dungeon/anvil.glb | forge centerpiece | KayKit Block Bits 1.0, CC0 |
+| dungeon/potion_{huge_green,large_blue,medium_red}.glb | apothecary glassware | KayKit Adventurers 2.0, CC0 |
+
 ## Licensing hygiene
 
 - Keep this file's table as the source of truth for every asset's origin + license.

@@ -259,7 +259,7 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
     wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
     wallMount: ["banner_red", "shelf_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_stack", "bottle_A_green"] },
+    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
   },
   {
     id: "archive", // the dungeon keeps records: bookcase runs and a reading table
@@ -274,5 +274,35 @@ export const ROOM_PURPOSES: RoomPurpose[] = [
     wallMount: ["banner_shield_red", "torch_mounted"],
     cornerStack: ["barrel_small", "bottle_A_green"],
     centerpiece: { key: "table_medium_broken", spill: ["sword_shield_broken", "bottle_A_green"] },
+  },
+  // Wave 2 (extracted 2026-07-09: Dungeon Remastered beds/chair/food plates,
+  // Restaurant pots, Resource barrels, Block Bits anvil, Adventurers potions).
+  {
+    id: "barracks", // rows of cots against the wall; somebody sleeps down here
+    wallRun: ["bed_a_single", "bed_b_single", "bed_floor", "bed_decorated"],
+    wallMount: ["banner_blue", "shelf_small"],
+    cornerStack: ["trunk_small_A", "box_small"],
+    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["bottle_A_green"] },
+  },
+  {
+    id: "kitchen", // the mess gets fed from somewhere: stew pots and stock
+    wallRun: ["food_barrel_fish", "crate_potatoes", "barrel_small_stack", "crate_large_decorated"],
+    wallMount: ["shelf_small", "banner_brown"],
+    cornerStack: ["pot_large", "barrel_small"],
+    centerpiece: { key: "pot_a_stew", spill: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
+  },
+  {
+    id: "forge", // a work floor: the anvil is the altar and fuel is the faith
+    wallRun: ["fuel_a_barrels", "crate_large_decorated", "box_large"],
+    wallMount: ["torch_mounted", "shelf_small"],
+    cornerStack: ["rubble_half", "barrel_small"],
+    centerpiece: { key: "anvil", spill: ["sword_shield_broken", "rubble_half"] },
+  },
+  {
+    id: "apothecary", // shelves of glassware; the dungeon brews its own
+    wallRun: ["bookcase_single", "shelf_small", "crate_large_decorated"],
+    wallMount: ["shelf_small_books", "banner_green"],
+    cornerStack: ["gems_sack", "box_small"],
+    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["potion_huge_green", "potion_large_blue", "potion_medium_red"] },
   },
 ];
