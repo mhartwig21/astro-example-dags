@@ -7,7 +7,7 @@ import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted 
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
-import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { ROOM_PURPOSES, cosmeticRng, themeForFloor, tileHash, type FloorTheme, type RoomPurpose } from "./floorThemes";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
@@ -185,7 +185,7 @@ export class Renderer3D {
   // stars, the implosion cone). grow scales per second (negative = collapse).
   private fadeProps: {
     obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
-    spin: number; grow: number;
+    spin: number; grow: number; s0: number; pop: boolean;
   }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
@@ -1454,10 +1454,12 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean } = {}): boolean => {
+    const PROP_CAP = 185; // vignette rooms raised the budget (was 150)
+    const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean; elevate?: number } = {}): boolean => {
       // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
       // one case where a prop belongs on a non-Floor tile (looks = collision).
-      if (this.propEntries.length > 150 || (!opts.onWall && !clear(x, y))) return false;
+      // elevate: lift after the ground snap (wall-mounted decor, tabletop items).
+      if (this.propEntries.length > PROP_CAP || (!opts.onWall && !clear(x, y))) return false;
       const obj = this.modelInstance(key);
       if (!obj) return false;
       const box = new THREE.Box3().setFromObject(obj);
@@ -1468,7 +1470,7 @@ export class Renderer3D {
       const j = opts.jitter ?? 0.25;
       obj.position.set(
         x + (frng() - 0.5) * j - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
-        -scaled.min.y + 0.004,
+        -scaled.min.y + 0.004 + (opts.elevate ?? 0),
         y + (frng() - 0.5) * j - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
       );
       obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
@@ -1544,6 +1546,141 @@ export class Renderer3D {
       }
     }
 
+    // 3.5) ROOM PURPOSES (vignette grammar phase 1 — see floorThemes.ts):
+    //    a seeded slice of ordinary combat rooms is dressed as a PLACE the
+    //    dungeon's inhabitants use — storage, mess, archive, guard post —
+    //    through anchored arrangements instead of scatter: wall runs, wall-
+    //    mounted decor, a furnished table, a corner hoard. This is the KayKit
+    //    sample-render technique. Cosmetic only; interiors only (the Garden's
+    //    open-air districts have no walls worth furnishing).
+    if (!openAir) {
+      // Every floor face of a room that borders a wall, with its inward normal.
+      const wallFaces = (r: { x: number; y: number; w: number; h: number }) => {
+        const faces: { x: number; y: number; nx: number; ny: number }[] = [];
+        const check = (x: number, y: number) => {
+          const i = Math.floor(y) * map.w + Math.floor(x);
+          if (map.tiles[i] !== Tile.Floor) return;
+          const dir = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+            .find(([dx, dy]) => map.tiles[i + dy * map.w + dx] === Tile.Wall);
+          if (dir && clear(x, y)) faces.push({ x, y, nx: -dir[0], ny: -dir[1] });
+        };
+        for (let x = r.x; x < r.x + r.w; x++) { check(x + 0.5, r.y + 0.5); check(x + 0.5, r.y + r.h - 0.5); }
+        for (let y = r.y + 1; y < r.y + r.h - 1; y++) { check(r.x + 0.5, y + 0.5); check(r.x + r.w - 0.5, y + 0.5); }
+        return faces;
+      };
+      const dressPurpose = (r: { x: number; y: number; w: number; h: number }, p: RoomPurpose) => {
+        const faces = wallFaces(r);
+        if (faces.length < 3) return;
+        // The iso camera sees the INNER face of north walls (normal +y) and
+        // west walls (normal +x); furniture against the other two is occluded
+        // by the wall mass. Dress the visible walls — KayKit's own sample
+        // renders play the same trick (they only ever build N/W walls).
+        const visible = (f: { nx: number; ny: number }) => f.nx > 0 || f.ny > 0;
+        // WALL RUN: consecutive faces along the longest same-normal VISIBLE
+        // wall, furniture shoulder to shoulder, backs to the masonry.
+        const byNormal = new Map<string, typeof faces>();
+        for (const f of faces) {
+          const k = `${f.nx},${f.ny}`;
+          byNormal.set(k, [...(byNormal.get(k) ?? []), f]);
+        }
+        const walls = [...byNormal.values()].sort(
+          (a, b) => (visible(a[0]) ? 1000 : 0) + a.length < (visible(b[0]) ? 1000 : 0) + b.length ? 1 : -1,
+        );
+        const runWall = walls[0];
+        const runLen = Math.min(runWall.length, 3 + Math.floor(frng() * 3));
+        const runStart = Math.floor(frng() * Math.max(1, runWall.length - runLen));
+        for (let i = 0; i < runLen; i++) {
+          const f = runWall[runStart + i];
+          const key = p.wallRun[Math.floor(frng() * p.wallRun.length)];
+          place(key, f.x - f.nx * 0.26, f.y - f.ny * 0.26, {
+            rot: Math.atan2(f.nx, f.ny) + (frng() - 0.5) * 0.12, jitter: 0.08,
+            scale: 0.6 + frng() * 0.15, // chunky enough to read as furniture
+          });
+        }
+        // WALL MOUNTS: decor hung on 2-3 spaced VISIBLE faces off the run wall.
+        const mountable = faces.filter((f) => !runWall.includes(f) && visible(f));
+        for (let m = 0; m < Math.min(3, mountable.length) && p.wallMount.length > 0; m++) {
+          const f = mountable[Math.floor(frng() * mountable.length)];
+          const key = p.wallMount[Math.floor(frng() * p.wallMount.length)];
+          if (place(key, f.x - f.nx * 0.38, f.y - f.ny * 0.38, {
+            rot: Math.atan2(f.nx, f.ny), jitter: 0, scale: 0.45, elevate: 0.5,
+          }) && key === "torch_mounted" && this.torchAnchors.length < 20) {
+            // A mounted sconce is also a light anchor — the room glows lived-in.
+            this.torchAnchors.push({ x: f.x, y: f.y, seed: this.torchAnchors.length * 1.7 });
+          }
+        }
+        // Every dressed room earns a sconce of its own: the vignette should be
+        // SEEN. One standing torch at a leftover visible face, light attached.
+        const lightFace = mountable[Math.floor(frng() * Math.max(1, mountable.length))] ?? runWall[0];
+        if (lightFace && this.torchAnchors.length < 20) {
+          const tx = lightFace.x - lightFace.nx * 0.33, ty = lightFace.y - lightFace.ny * 0.33;
+          if (place("torch_lit", tx, ty, { scale: 0.55, jitter: 0.05 })) {
+            this.torchAnchors.push({ x: tx, y: ty, seed: this.torchAnchors.length * 1.7 });
+          }
+        }
+        // TABLE SET: a furnished table off-center (the middle stays a fight).
+        if (p.tableSet && r.w >= 6 && r.h >= 6) {
+          const tcx = r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68);
+          const tcy = r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68);
+          if (place(p.tableSet.table, tcx, tcy, { scale: 0.85, jitter: 0.1 })) {
+            const tableObj = this.propEntries[this.propEntries.length - 1].obj;
+            const top = new THREE.Box3().setFromObject(tableObj).max.y;
+            const seats = 2 + Math.floor(frng() * 3);
+            for (let s = 0; s < seats; s++) {
+              const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
+              place(p.tableSet.seat, tcx + Math.cos(a) * 0.8, tcy + Math.sin(a) * 0.8, {
+                scale: 0.32, jitter: 0.06, rot: a + Math.PI, // seats face the table
+              });
+            }
+            for (let it = 0, n = 1 + Math.floor(frng() * 2); it < n; it++) {
+              const key = p.tableSet.tabletop[Math.floor(frng() * p.tableSet.tabletop.length)];
+              place(key, tcx + (frng() - 0.5) * 0.45, tcy + (frng() - 0.5) * 0.45, {
+                scale: 0.2, elevate: top + 0.01, jitter: 0,
+              });
+            }
+          }
+        }
+        // CENTERPIECE + SPILL: one anchor prop with its story scattered around.
+        if (p.centerpiece) {
+          const cx = r.x + r.w * 0.5, cy = r.y + r.h * 0.5;
+          if (place(p.centerpiece.key, cx, cy, { scale: 0.8, jitter: 0.3 })) {
+            for (let s = 0, n = 2 + Math.floor(frng() * 2); s < n; s++) {
+              const a = frng() * Math.PI * 2;
+              const key = p.centerpiece.spill[Math.floor(frng() * p.centerpiece.spill.length)];
+              place(key, cx + Math.cos(a) * (0.9 + frng() * 0.5), cy + Math.sin(a) * (0.9 + frng() * 0.5), { scale: 0.35 });
+            }
+          }
+        }
+        // CORNER STACK: a tight hoard in one corner (denser than pass 3's clutter).
+        if (p.cornerStack) {
+          const corners = [
+            { x: r.x + 1.1, y: r.y + 1.1 }, { x: r.x + r.w - 1.1, y: r.y + 1.1 },
+            { x: r.x + 1.1, y: r.y + r.h - 1.1 }, { x: r.x + r.w - 1.1, y: r.y + r.h - 1.1 },
+          ];
+          const c = corners[Math.floor(frng() * 4)];
+          for (let k = 0, n = 2 + Math.floor(frng() * 2); k < n; k++) {
+            const key = p.cornerStack[Math.floor(frng() * p.cornerStack.length)];
+            place(key, c.x + (frng() - 0.5) * 0.7, c.y + (frng() - 0.5) * 0.7, { scale: 0.4 });
+          }
+        }
+      };
+      // Dress up to 4 sizeable combat rooms, each with a DISTINCT purpose so a
+      // floor reads as a settlement of jobs, not four copies of one idea.
+      const candidates: number[] = [];
+      for (let ri = 0; ri < map.rooms.length; ri++) {
+        const r = map.rooms[ri];
+        if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
+      }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(frng() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      const purposeBase = Math.floor(frng() * ROOM_PURPOSES.length);
+      candidates.slice(0, 4).forEach((ri, k) => {
+        dressPurpose(map.rooms[ri], ROOM_PURPOSES[(purposeBase + k) % ROOM_PURPOSES.length]);
+      });
+    }
+
     // 4) LANDMARK hall: colonnade + centerpiece on the SIM's set-piece tiles
     //    (map.pillars / map.pedestal — real Wall tiles the player cannot walk
     //    through; the mapgen owns the layout so looks and collision agree).
@@ -1596,8 +1733,8 @@ export class Renderer3D {
     // 7) A light sprinkle of theme props elsewhere for texture (much sparser
     //    than before — the intentional placements carry the look now).
     const density = theme.propDensity * 0.35 * (0.6 + frng() * 0.9);
-    for (let y = 1; y < map.h - 1 && this.propEntries.length < 150; y++) {
-      for (let x = 1; x < map.w - 1 && this.propEntries.length < 150; x++) {
+    for (let y = 1; y < map.h - 1 && this.propEntries.length < 185; y++) {
+      for (let x = 1; x < map.w - 1 && this.propEntries.length < 185; x++) {
         if (map.tiles[y * map.w + x] !== Tile.Floor) continue;
         // Open-air: keep scatter off the trodden paths so the tracks stay
         // readable — a bush in the middle of the trail unreads the trail.
@@ -1668,7 +1805,7 @@ export class Renderer3D {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
         // Debris ring under the impact: the crater the keg leaves behind.
         this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
-          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true });
+          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true, pop: true });
         this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
@@ -1870,17 +2007,29 @@ export class Renderer3D {
           // of them but SMALLER, or the whole arena washes to white.
           this.burst(p.pos.x, p.pos.y, color, kind === "cataclysm" ? 22 : 18,
             kind === "cataclysm" ? 0.65 : 0.7, ring.userData.radius as number);
+          // Layered secondary: the crown's blast kicks up a debris ring too.
+          if (kind === "cataclysm") {
+            this.spawnFadeProp("fx_blast_star", p.pos.x, 0.03, p.pos.y,
+              (ring.userData.radius as number) * 0.55, 0.45,
+              { tint: 0xff8a3c, spin: 0.8, grow: 1.4, footprint: true });
+          }
           this.addTrauma(kind === "cataclysm" ? 0.45 : 0.3);
         }
         const total = (ring!.userData.flashTotal as number) || 0.3;
         const prog = Math.min(1, Math.max(0, 1 - p.novaFlash / total));
+        // Ease-out expansion: a shockwave moves fastest at birth and lands
+        // soft — linear reads mechanical. Opacity holds through the front
+        // half so the shape is SEEN, then drops away.
+        const eased = 1 - Math.pow(1 - prog, 2.4);
         const radius = (ring!.userData.radius as number) ?? novaParams(p).radius;
         ring!.visible = true;
-        ring!.position.set(p.pos.x, ring!.userData.kind === "cataclysm" ? 0.02 : 0.15, p.pos.y);
-        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * prog));
+        const cata = ring!.userData.kind === "cataclysm";
+        // The crown ERUPTS: it rises out of the floor over the first beats.
+        ring!.position.set(p.pos.x, cata ? -0.3 + 0.32 * Math.min(1, prog * 2.5) : 0.15, p.pos.y);
+        ring!.scale.setScalar(((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * eased));
         if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
         for (const mat of ring!.userData.mats as THREE.Material[]) {
-          (mat as THREE.MeshBasicMaterial).opacity = 1 - prog;
+          (mat as THREE.MeshBasicMaterial).opacity = 1 - Math.pow(prog, 2.2);
         }
       } else if (ring) {
         ring.visible = false;
@@ -2872,7 +3021,7 @@ export class Renderer3D {
       // bursts outward under the usual particle spray.
       if (h.kind === "crit" && h.amount === 0) {
         this.spawnFadeProp("fx_detonation_star", h.pos.x, 0.05, h.pos.y, 1.1, 0.35,
-          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true });
+          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true, pop: true });
       }
       const color =
         h.kind === "crit" ? 0xffe066 :
@@ -2960,7 +3109,7 @@ export class Renderer3D {
    * `scale` means world radius; `tint` applies the semantic emissive color. */
   private spawnFadeProp(
     key: string, x: number, y: number, z: number, scale: number, max: number,
-    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean },
+    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean; pop?: boolean },
   ): void {
     if (this.fadeProps.length > 16) return; // cap
     const obj = this.modelInstance(key);
@@ -2987,7 +3136,10 @@ export class Renderer3D {
       mats.push(mat);
     });
     this.scene.add(obj);
-    this.fadeProps.push({ obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0 });
+    this.fadeProps.push({
+      obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0,
+      s0: base * scale, pop: opts?.pop ?? false,
+    });
   }
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
@@ -3050,17 +3202,21 @@ export class Renderer3D {
     this.chainFx = chainAlive;
 
     // Fade props (smokebomb, stars, cones): spin, grow/collapse, fade, vanish.
+    // Growth is a deterministic curve off the spawn scale (no per-frame
+    // compounding); `pop` adds an anticipation overshoot on the way in.
     const propsAlive: typeof this.fadeProps = [];
     for (const fp of this.fadeProps) {
       fp.life += dt;
       if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
       fp.obj.rotation.y += dt * fp.spin;
-      if (fp.grow !== 0) {
-        const s = Math.max(0.05, fp.obj.scale.x * (1 + fp.grow * dt));
-        fp.obj.scale.setScalar(s);
+      let s = fp.s0 * Math.max(0.05, 1 + fp.grow * fp.life);
+      if (fp.pop) {
+        const k = Math.min(1, fp.life / (fp.max * 0.4));
+        s *= 0.6 + 0.4 * k + 0.28 * Math.sin(k * Math.PI); // punch past, settle back
       }
+      fp.obj.scale.setScalar(s);
       const t = fp.life / fp.max;
-      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t;
+      for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
       propsAlive.push(fp);
     }
     this.fadeProps = propsAlive;
