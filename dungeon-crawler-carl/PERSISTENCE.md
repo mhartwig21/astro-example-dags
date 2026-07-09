@@ -2,10 +2,10 @@
 
 Server-side persistence: character saves, party instances that survive deploys
 and idle weeks, and the identity needed for Roam campaigns played across many
-sessions over up to a month. **P1 (identity + character saves), P2 (world
-hibernate/restore + client auto-reconnect), and the Roam party cap (10) are
-SHIPPED**; this doc keeps the rationale and what remains. Delete sections as
-they ship.
+sessions over up to a month. **The full roadmap is SHIPPED**: P1 (identity +
+character saves), P2 (world hibernate/restore + client auto-reconnect), the
+Roam party cap (10), and Litestream offsite backup. This doc keeps the
+rationale, the operational notes, and the deliberate non-goals.
 
 ## Why SQLite, and when it stops being the answer
 
@@ -81,12 +81,22 @@ remains a non-event: SQLite-on-volume moves to a GCE persistent disk unchanged
 Deploy note: `better-sqlite3` ships prebuilt binaries; if a container build
 ever fails on it, add `python3 make g++` to the Dockerfile stage as fallback.
 
-## Remaining
+## Offsite backup (live)
 
-- **Litestream replication** of `/data/dcc.sqlite` to Tigris — continuous
-  offsite backup for pennies; Fly's daily volume snapshots already cover the
-  basics. Needs a Tigris bucket + credentials created on the Fly account
-  (an owner action) before the sidecar config is worth writing.
+**Litestream replicates `/data/dcc.sqlite` to Tigris continuously** (bucket
+`dcc-backup`, created via `fly storage create`; credentials are Fly app
+secrets). Litestream v0.3.13 runs as the container's supervisor
+(`litestream replicate -exec`, config in `litestream.yml` → `/etc/`),
+forwarding Fly's stop signal to node so the checkpoint-on-shutdown flow is
+unchanged. On boot with a fresh/replaced volume, `restore -if-db-not-exists`
+pulls the latest replica back down before the server starts — volume loss now
+costs seconds of state, not everything since the last daily snapshot. Without
+the Tigris env vars (local dev, plain `docker run`) the container skips
+litestream and runs node directly. Verify anytime:
+`fly ssh console -C "litestream snapshots /data/dcc.sqlite"`.
+
+## Non-goals (deliberate)
+
 - **Leaderboard stays on its JSON file, deliberately.** It lives on the same
   volume, survives deploys, and rewriting whole-day boards as a unit fits the
   debounced-file model well. Migrate into SQLite only if that model ever
