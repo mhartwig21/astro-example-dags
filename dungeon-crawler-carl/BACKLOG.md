@@ -28,13 +28,15 @@ pick one up cold. Delete items when they ship (git history remembers).
    vector, aim vector, five held `cast` booleans, edge triggers), so this is
    a second Intent producer beside `InputController` (`src/input/input.ts`):
    **zero sim changes, multiplayer free** (intents already serialize).
+   - Controller support shipped 2026-07-08 and pre-paid the shared pieces:
+     `isoRotate` (screen-stick → world, `src/input/gamepad.ts`), the
+     `autoAimDir` quick-cast helper, and the frame-level `pollPad`
+     edge-accumulation pattern (both `main3d.ts`). Touch reuses all three.
    - **Phase 1 — playable slice.** New `TouchController` (~400 lines,
-     `src/input/touch.ts`): floating left-thumb movement stick (screen delta
-     needs one camera-yaw rotation to become a world direction — same math
-     as `renderer.screenToGround`); right-thumb ability cluster (big attack
+     `src/input/touch.ts`): floating left-thumb movement stick (rotate the
+     thumb delta with `isoRotate`); right-thumb ability cluster (big attack
      button + arced slot buttons feeding the same held `cast` array); tap =
-     quick cast with auto-aim at nearest living monster in a facing cone
-     (~15-line host helper, cf. the click-move hover check in `main3d.ts`);
+     quick cast with auto-aim at the nearest living monster (`autoAimDir`);
      flask + stairs buttons (stairs lit only when standing on them); ping =
      tap the minimap (`intent.ping` takes a world pos). Multi-touch via
      pointer events keyed by `pointerId` (stick thumb + ability press must
