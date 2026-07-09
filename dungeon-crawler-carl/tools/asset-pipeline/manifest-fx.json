@@ -17,6 +17,30 @@
       "type": "prop",
       "prompt": "low poly ring of jagged cracked stone shards bursting upward from a circular crater rim, open center, stylized game asset, chunky proportions, flat colors",
       "target_height": 0.7
+    },
+    {
+      "id": "fx_implosion_cone",
+      "type": "prop",
+      "prompt": "low poly swirling vortex funnel of chunky spiral energy ribbons, open cone shape, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.9
+    },
+    {
+      "id": "fx_flame_wall",
+      "type": "prop",
+      "prompt": "low poly cluster of chunky stylized flame tongues rising from the ground, cartoon fire shapes, stylized game asset, chunky proportions, flat colors",
+      "target_height": 1.1
+    },
+    {
+      "id": "fx_detonation_star",
+      "type": "prop",
+      "prompt": "low poly radial impact burst, chunky star of jagged spikes radiating outward flat along the ground from the center, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.35
+    },
+    {
+      "id": "fx_blast_star",
+      "type": "prop",
+      "prompt": "low poly circle of small jagged stone debris chunks scattered radially around an impact point, flat ground burst, stylized game asset, chunky proportions, flat colors",
+      "target_height": 0.3
     }
   ]
 }

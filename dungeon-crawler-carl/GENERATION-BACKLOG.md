@@ -41,8 +41,8 @@ each batch** — and check the untapped KayKit clip packs first (row above).
 
 | Clip | Target rig | Why | Notes |
 |---|---|---|---|
-| Stunt Double cast — a showman "presenting / beckon" gesture | Adventurers 1.0 (hero skins) | Audit: the cast plays NOTHING today | Library has an Acting category; 421 Over_Shoulder_Throw is a known fallback donor family |
-| Flask drink | Adventurers 1.0 | Confirmed 2026-07-08: no drink/use clip in any KayKit pack | Pair with the staged `potion_medium_red.glb` prop |
+| ~~Stunt Double cast~~ **SHIPPED 2026-07-09** (preset 42 Gentlemans_Bow — the professional takes the stage) | — | — | — |
+| ~~Flask drink~~ **SHIPPED 2026-07-09** (preset 342 Stand_and_Drink + the potion prop in the off hand, weapon stowed) | — | — | — |
 | Extradition alternate take | Adventurers 1.0 | Taste option vs shipped 239 | 421 Over_Shoulder_Throw or 398 Crouch_Charge_and_Throw; two-command re-bake |
 | Filcher gloating scurry / loot-clutch run | Rig_Medium | Sells the theft while fleeing | Only after the gold-pile prop ships |
 
@@ -95,10 +95,10 @@ Aftermath echo stopped rendering as an airstrike keg (crown ground marker).
 |---|---|---|
 | ~~Nova rune shockwave ring~~ **SHIPPED** | the bare blue torus | — |
 | ~~Cataclysm eruption crown~~ **SHIPPED** | Nova's reused torus | — |
-| Implosion swirl cone (nova fork) | nothing | inward spiral cone, played reversed |
-| Flame-wall segment (F15 Flame Sweep) | generic blast circles | tiled along the sweep rows; the "wall of fire" fiction finally rendered |
-| Gavel shock star (Gavel Drop) | generic crit burst | pairs with the gavel chain anchor above |
-| Airstrike blast star / debris ring | glow puffs only | under each keg impact |
+| ~~Implosion swirl cone~~ **SHIPPED 2026-07-09** | collapsing vortex on the nova.implode cast | — |
+| ~~Flame wall~~ **SHIPPED 2026-07-09** | flame clusters per Flame Sweep cell (`Hazard.flavor: "flame"`); kills BACKLOG #5's clown-bomb overreach for this signature | — |
+| ~~Detonation star~~ **SHIPPED 2026-07-09** | zero-amount crit flashes (Gavel Drop, EXTINCTION pops, Stunt Double exit) burst a spiked star | — |
+| ~~Airstrike blast star~~ **SHIPPED 2026-07-09** | debris ring under each keg impact | — |
 
 Not a mesh job: Bullet Time (screen-space), status auras (procedural rings
 already read well).

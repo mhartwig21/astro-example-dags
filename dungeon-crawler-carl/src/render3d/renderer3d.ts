@@ -3,7 +3,7 @@ import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../
 import { THEME } from "./theme";
 import { loadModels, type LoadedModel } from "./assets";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { cataclysmParams, novaParams, orbitBladePos, orbitParams, slotted } from "../sim/abilities";
+import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin } from "../sim/game";
 import { CONFIG, floorBand } from "../sim/config";
@@ -180,16 +180,22 @@ export class Renderer3D {
   // the flag; the cd EDGE at fresh-cast time disambiguates).
   private fxPrevCata = new Map<number, number>();
   private fxPrevCutto = new Map<number, number>(); // Blindside teleport edge
-  // Short-lived props that fade and vanish (the Blindside smokebomb).
-  private fadeProps: { obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number }[] = [];
+  // Short-lived props that fade and vanish (Blindside smokebomb, detonation
+  // stars, the implosion cone). grow scales per second (negative = collapse).
+  private fadeProps: {
+    obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
+    spin: number; grow: number;
+  }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   // Last-frame combat state per player: the clip machine fires on EDGES
   // (cooldowns jumping up = a cast; overcharge falling = the spend; etc.).
   private animPrev = new Map<number, {
     swing: number; dash: number; alive: boolean; overcharged: boolean;
-    cd: Partial<Record<string, number>>;
+    cd: Partial<Record<string, number>>; flask?: number;
   }>();
+  // Sponsor Slurp™: seconds the potion prop stays in the off hand.
+  private potionShow = new Map<number, number>();
   // Floor-clear celebration edge (monster count > 0 -> 0 while still playing).
   private prevMonsterCount = -1;
   private prevStatus = "playing";
@@ -388,6 +394,8 @@ export class Renderer3D {
       dodge: pick(/Dodge_Forward/i, /Dodge_Right/i), // dash
       throw: pick(/^Throw$/i), // melee-class sidearm bolt
       extradition: pick(/^Extradition$/i), // crowdsurf cast: crouch, grab the chain, heave (AI-retargeted clip)
+      drink: pick(/^Flask_Drink$/i), // Sponsor Slurp™: the crawler actually drinks
+      summon_double: pick(/^Stunt_Double_Cast$/i), // a gentleman's bow as the professional takes the stage
       spellshoot: pick(/^Spellcast_Shoot$/i, /^Ranged_Magic_Shoot$/i), // arcane bolt (magic missiles)
       // Reactions + exits (one-shot)
       hit: pick(/^hit_a$/i, /^hit/i, /hit|impact|react/i),
@@ -423,6 +431,7 @@ export class Renderer3D {
     const TARGET: Record<string, number> = {
       attack: 0.3, melee_a: 0.32, melee_b: 0.32, melee_c: 0.32, melee_d: 0.32,
       spin: 0.5, shoot: 0.3, throw: 0.3, spellshoot: 0.35, extradition: 0.55,
+      drink: 0.8, summon_double: 0.9,
       cast_raise: 0.5, cast_long: 0.6, cast_summon: 0.6,
       block: 0.35, dodge: 0.35, awaken: 0.9, cheer: 1.4,
     };
@@ -478,7 +487,7 @@ export class Renderer3D {
     const play = ud.play as (n: string, force?: boolean) => void;
     const playFirst = ud.playFirst as (...n: string[]) => void;
     const hasClip = ud.hasClip as (n: string) => boolean;
-    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {} };
+    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
     const cds = pl.cd as Partial<Record<string, number>>;
     const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
 
@@ -495,6 +504,16 @@ export class Renderer3D {
         // the heavy-target verb bumps dashTime too and would read as a dodge.
         playFirst("extradition", "throw", "attack");
         this.weaponStow.set(pl.id, 0.55); // both hands on the chain
+      } else if (pl.flaskCharges < (prev.flask ?? pl.flaskCharges)) {
+        // Sponsor Slurp™: weapon away, bottle up. The potion prop rides the
+        // off hand for the sip (toggled by the same stow-style timer).
+        playFirst("drink", "cast_raise");
+        this.weaponStow.set(pl.id, 0.8);
+        this.potionShow.set(pl.id, 0.8);
+      } else if (cdRose("stuntdouble")) {
+        // The production hires a professional: a gentleman's bow as the
+        // double takes the stage.
+        playFirst("summon_double", "cast_summon", "taunt");
       } else if (pl.dashTime > prev.dash + 1e-6) {
         playFirst("dodge");
       } else if (pl.attackSwing > prev.swing + 1e-6) {
@@ -524,7 +543,7 @@ export class Renderer3D {
     }
     this.animPrev.set(pl.id, {
       swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
-      overcharged: pl.overcharged, cd: { ...cds },
+      overcharged: pl.overcharged, cd: { ...cds }, flask: pl.flaskCharges,
     });
     (ud.animTick as (dt: number) => void)(dt);
   }
@@ -1542,6 +1561,9 @@ export class Renderer3D {
     if (strikes.length < this.prevStrikeCount) {
       for (const pos of this.prevStrikePos.slice(strikes.length)) {
         this.burst(pos.x, pos.y, 0xffa040, 14, 0.9, CONFIG.ultAirstrikeRadius);
+        // Debris ring under the impact: the crater the keg leaves behind.
+        this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
+          { tint: 0xffa040, spin: 0.6, grow: 1.6, footprint: true });
         this.addTrauma(0.45); // sponsor ordnance lands with authority
       }
     }
@@ -1723,6 +1745,13 @@ export class Renderer3D {
           }
           ring.userData.radius = kind === "cataclysm" ? cataclysmParams(p).radius : novaParams(p).radius;
           ring.userData.flashTotal = p.novaFlash;
+          // IMPLOSION capstone: the drag-inward gets a collapsing vortex cone
+          // a beat before the shockwave reads outward.
+          if (kind === "nova" && rank(p, "nova.implode") > 0) {
+            this.spawnFadeProp("fx_implosion_cone", p.pos.x, 0.05, p.pos.y,
+              (ring.userData.radius as number) * 0.7, 0.3,
+              { tint: 0x8fd8ff, spin: 9, grow: -2.6, footprint: true });
+          }
           const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
           // Additive puffs stack hot over a big radius — cataclysm gets more
           // of them but SMALLER, or the whole arena washes to white.
@@ -1859,8 +1888,8 @@ export class Renderer3D {
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
-      // Extradition stow timer: hide the held weapon while the hands work the
-      // chain, restore it the moment the cast is done.
+      // Extradition/Slurp stow timer: hide the held weapon while the hands
+      // work the chain or the bottle, restore it the moment the act is done.
       const stow = this.weaponStow.get(pl.id);
       if (stow !== undefined) {
         const left = stow - dt;
@@ -1871,6 +1900,24 @@ export class Renderer3D {
         } else {
           this.weaponStow.set(pl.id, left);
           if (weaponObj) weaponObj.visible = false;
+        }
+      }
+      // The Slurp bottle: grafted once, shown only while the drink act runs.
+      const sip = this.potionShow.get(pl.id);
+      if (sip !== undefined) {
+        if (mesh.userData.potionProp === undefined) {
+          mesh.userData.potionProp =
+            this.showAttachment(mesh, "potion_medium_red", "*", "l");
+          (mesh.userData.potionProp as THREE.Object3D | null)?.scale.setScalar(0.9);
+        }
+        const potion = mesh.userData.potionProp as THREE.Object3D | null;
+        const left = sip - dt;
+        if (left <= 0) {
+          this.potionShow.delete(pl.id);
+          if (potion) potion.visible = false;
+        } else {
+          this.potionShow.set(pl.id, left);
+          if (potion) potion.visible = true;
         }
       }
     }
@@ -2305,19 +2352,42 @@ export class Renderer3D {
       if (!pool) {
         let bomb = this.hazardBombs.get(hz.id);
         if (!bomb) {
-          const model = this.modelInstance("clown_bomb");
+          // Flame Sweep rows are FIRE, not falling ordnance (BACKLOG #5): the
+          // flavor field picks the epicenter dressing.
+          const model = hz.flavor === "flame"
+            ? this.modelInstance("fx_flame_wall") ?? this.modelInstance("clown_bomb")
+            : this.modelInstance("clown_bomb");
           if (model) {
             bomb = new THREE.Group();
-            model.scale.setScalar(0.55);
+            if (hz.flavor === "flame" && this.models["fx_flame_wall"]) {
+              const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+              model.scale.setScalar((2 / Math.max(size.x, size.z, 1e-3)) * hz.radius * 0.9);
+              model.traverse((o) => {
+                const m = o as THREE.Mesh;
+                if (!m.isMesh) return;
+                const mat = (m.material as THREE.MeshStandardMaterial).clone();
+                mat.emissive = new THREE.Color(0xff5a2e);
+                mat.emissiveIntensity = 0.6;
+                m.material = mat;
+              });
+              bomb.userData.flame = true;
+            } else {
+              model.scale.setScalar(0.55);
+            }
             bomb.add(model);
             this.scene.add(bomb);
             this.hazardBombs.set(hz.id, bomb);
           }
         }
         if (bomb) {
-          // Ticking wobble that accelerates toward the boom.
           bomb.position.set(hz.pos.x, 0, hz.pos.y);
-          bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          if (bomb.userData.flame) {
+            // Fire licks upward as the row nears eruption.
+            bomb.scale.setScalar(0.35 + 0.65 * urgency + 0.05 * Math.sin(urgency * 40));
+          } else {
+            // Ticking wobble that accelerates toward the boom.
+            bomb.scale.setScalar(1 + 0.08 * Math.sin(urgency * urgency * 60));
+          }
           bomb.visible = ring.visible;
         }
       }
@@ -2637,6 +2707,13 @@ export class Renderer3D {
         if (h.to) this.spawnChain(h.pos, h.to);
         continue;
       }
+      // Zero-amount crit flashes are the sim's DETONATION markers (Gavel Drop,
+      // EXTINCTION corpse pops, the Stunt Double's farewell): a spiked star
+      // bursts outward under the usual particle spray.
+      if (h.kind === "crit" && h.amount === 0) {
+        this.spawnFadeProp("fx_detonation_star", h.pos.x, 0.05, h.pos.y, 1.1, 0.35,
+          { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true });
+      }
       const color =
         h.kind === "crit" ? 0xffe066 :
         h.kind === "enemy" ? 0xffb347 :
@@ -2699,12 +2776,22 @@ export class Renderer3D {
     this.chainFx.push({ group, mat, life: 0, max: 0.35 });
   }
 
-  /** Drop a model prop that fades out and vanishes (Blindside's smokebomb). */
-  private spawnFadeProp(key: string, x: number, y: number, z: number, scale: number, max: number): void {
-    if (this.fadeProps.length > 12) return; // cap
+  /** Drop a model that fades out and vanishes (Blindside's smokebomb, the
+   * spell-FX one-shots). `footprint` normalizes the model's XZ extent so
+   * `scale` means world radius; `tint` applies the semantic emissive color. */
+  private spawnFadeProp(
+    key: string, x: number, y: number, z: number, scale: number, max: number,
+    opts?: { tint?: number; spin?: number; grow?: number; footprint?: boolean },
+  ): void {
+    if (this.fadeProps.length > 16) return; // cap
     const obj = this.modelInstance(key);
     if (!obj) return; // asset absent: the glow puffs carry the moment alone
-    obj.scale.setScalar(scale);
+    let base = 1;
+    if (opts?.footprint) {
+      const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+      base = 2 / Math.max(size.x, size.z, 1e-3);
+    }
+    obj.scale.setScalar(base * scale);
     obj.position.set(x, y, z);
     const mats: THREE.Material[] = [];
     obj.traverse((o) => {
@@ -2712,11 +2799,16 @@ export class Renderer3D {
       if (!m.isMesh) return;
       const mat = (m.material as THREE.MeshStandardMaterial).clone();
       mat.transparent = true;
+      mat.depthWrite = false;
+      if (opts?.tint !== undefined) {
+        mat.emissive = new THREE.Color(opts.tint);
+        mat.emissiveIntensity = 0.55;
+      }
       m.material = mat;
       mats.push(mat);
     });
     this.scene.add(obj);
-    this.fadeProps.push({ obj, mats, life: 0, max });
+    this.fadeProps.push({ obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0 });
   }
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
@@ -2774,12 +2866,16 @@ export class Renderer3D {
     }
     this.chainFx = chainAlive;
 
-    // Fade props (smokebomb): sink slightly, spin, fade, vanish.
+    // Fade props (smokebomb, stars, cones): spin, grow/collapse, fade, vanish.
     const propsAlive: typeof this.fadeProps = [];
     for (const fp of this.fadeProps) {
       fp.life += dt;
       if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
-      fp.obj.rotation.y += dt * 4;
+      fp.obj.rotation.y += dt * fp.spin;
+      if (fp.grow !== 0) {
+        const s = Math.max(0.05, fp.obj.scale.x * (1 + fp.grow * dt));
+        fp.obj.scale.setScalar(s);
+      }
       const t = fp.life / fp.max;
       for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t;
       propsAlive.push(fp);
