@@ -145,10 +145,15 @@ distinct monster kinds are now LIVE**, before elite affixes and skins
 multiply looks. What remains from this doc is composition: elite affix
 six-pack, the pack playbook, champions, and the boss layers.
 
-## Elite affix expansion (PoE soul, Diablo grammar)
+## Elite affix expansion (PoE soul, Diablo grammar) — SHIPPED 2026-07-09
 
-Current nine: swift, shielded, volatile, summoner, splitter, thorns, armored,
-warded, chilling. Add six — each one sentence of counterplay:
+All six landed in the elite roll pool (15 affixes total), each with a
+semantic glow tint: linked (pack soaks half of every hit while allies
+stand), vampiric (drinks landed melee), juggernaut (stagger+knockback
+immune, −25% speed), mortar (arcing shells over walls, min-range
+counterplay), berserking (self-sustaining frenzy below half via the drum
+plumbing), executioner (+50% vs crawlers under 40%). The original six-pack
+sketch, for the record:
 
 - **linked** — pack-mates share incoming damage while the linked elite lives
   (kill-order pressure without a support model).
@@ -227,7 +232,15 @@ Seam: a per-band template table in config (like FLOOR_BANDS), consumed by
 pick per pack site. Solo specialists (Repo Rat, Thing in the Pipes) stay
 singles.
 
-### The playbook (2 per band, flagship first)
+### The playbook (2 per band, flagship first) — SHIPPED 2026-07-09
+
+Live as `PACK_TEMPLATES` in config.ts, consumed by spawnMonsters: 35% of
+pack rolls muster a band template (floor 3+ — the contract floors stay
+loose; a clustered floor-2 Reception provably killed the bot). Formation
+offsets place supports rear/center; toysoldier members share a squadId,
+greeters spawn dormant. Substitutions from the concepts: Ambush Plumbing
+(needs the unshipped Thing in the Pipes) became The Acid Choir; three
+late-run Reruns shipped as Approach templates. The original designs:
 
 **THE UNDERCROFT — training combos (the tutorial teaches teamwork too)**
 - **The Reception** `[Ossuary Warden + 2 Skeleton Minions + Cutpurse]` — the

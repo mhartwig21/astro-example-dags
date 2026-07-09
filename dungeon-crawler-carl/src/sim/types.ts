@@ -153,6 +153,13 @@ export type EliteAffix =
   // mattering — a warded elite pack is the crossbow crawler's fight.
   | "armored" // takes reduced PHYSICAL damage
   | "warded" // takes reduced MAGIC damage
+  // The six-pack (MOB-CONCEPTS.md) — each is one sentence of counterplay:
+  | "linked" // its pack SOAKS its damage while any ally stands — thin the pack
+  | "vampiric" // heals off landed hits — don't get hit and it starves
+  | "juggernaut" // immune to stagger + knockback, slower — kite, don't CC
+  | "mortar" // lobs arcing shells over walls — cover stops being safe
+  | "berserking" // below half HP: faster everything — finish what you start
+  | "executioner" // hits crawlers under 40% HP harder — retreat thresholds are real
   | "chilling"; // radiates a cold aura that SLOWS crawlers inside it
 
 // ---- Status effects (burn / poison / chill) ----

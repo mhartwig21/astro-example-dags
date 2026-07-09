@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, FLOOR_BANDS, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
+import { ARCHETYPES, CONFIG, FLOOR_BANDS, PACK_TEMPLATES, floorBand, floorTimeBudget, monsterTempo, xpForLevel, type MonsterArchetype } from "./config";
 import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from "./floor";
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
@@ -255,6 +255,8 @@ const BAND_BOSSES: { name: string; signature: BossSignature }[] = [
 const ELITE_AFFIXES: EliteAffix[] = [
   "swift", "shielded", "volatile", "summoner", "splitter", "thorns",
   "armored", "warded", "chilling",
+  // The six-pack (MOB-CONCEPTS.md): each one sentence of counterplay.
+  "linked", "vampiric", "juggernaut", "mortar", "berserking", "executioner",
 ];
 
 /** A band-end boss arena floor (3, 6, 9, 12, 15 — never the final floor). */
@@ -376,6 +378,29 @@ function spawnMonsters(state: GameState): void {
   while (budget > 0 && totalW > 0 && guard++ < 60) {
     const anchor = inRoom(pickRoom());
     if (!anchor) continue;
+    // THE PACK PLAYBOOK (MOB-CONCEPTS.md): a share of pack rolls spawn a
+    // DESIGNED encounter for this band — one mob's ability set up by
+    // another's, choreographed by formation offsets. Budget-neutral: the
+    // template spends the same monster budget a rolled pack would have.
+    // Floors 1-2 stay template-free: the balance contract clears BOTH, and a
+    // clustered Reception on floor 2 proved hotter than loose trainers.
+    if (floor >= 3 && chance(rng, CONFIG.packTemplateChance)) {
+      const bandTemplates = PACK_TEMPLATES[floorBand(floor)];
+      const template = bandTemplates[nextInt(rng, 0, bandTemplates.length - 1)];
+      if (template.members.length <= budget) {
+        const squadId = state.nextEntityId++; // toysoldier members share it
+        for (const member of template.members) {
+          let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
+          if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+          const m = makeMonster(state, member.kind, pos);
+          if (member.kind === "toysoldier") m.squadId = squadId;
+          if (member.kind === "greeter") m.dormant = true;
+          state.monsters.push(m);
+          budget--;
+        }
+        continue;
+      }
+    }
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
     const kind = rollArchetype(rng, floor);
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
@@ -489,6 +514,7 @@ function spawnMonsters(state: GameState): void {
     if (floor >= CONFIG.eliteAffixFromFloor) {
       m.affix = pick(rng, ELITE_AFFIXES);
       if (m.affix === "swift") m.speed *= CONFIG.swiftSpeedMult;
+      if (m.affix === "juggernaut") m.speed *= CONFIG.juggernautSpeedMult; // your CC is void; your kiting isn't
     }
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
     announce(state, "boss", `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
@@ -2014,6 +2040,27 @@ export function damageMonster(
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: coin });
     }
   }
+  // LINKED elites (six-pack): their pack SOAKS a share of every hit while
+  // any ally stands in the link — thin the pack, then break the elite.
+  if (m.affix === "linked" && dmg > 1) {
+    const allies = state.monsters.filter(
+      (o) => o !== m && o.hp > 0 && dist(m.pos, o.pos) <= CONFIG.linkedRadius,
+    );
+    if (allies.length > 0) {
+      const soaked = Math.round(dmg * CONFIG.linkedSoakFraction);
+      m.hp += soaked; // the elite keeps this share...
+      const share = Math.max(1, Math.round(soaked / allies.length));
+      for (const ally of allies) {
+        ally.hp -= share; // ...the link pays it forward (no re-triggered effects)
+        ally.lastHitBy = p.id;
+        hit(state, ally.pos, share, "enemy", { school: opts.school });
+      }
+      if (!m.noticed) {
+        m.noticed = true;
+        state.events.push("The pack SOAKS the hit — a soul link. Thin the pack, then break the elite.");
+      }
+    }
+  }
   const a = ARCHETYPES[m.kind];
   const eliteMult = m.elite ? CONFIG.elitePoiseMult : 1;
   if (m.hp > 0) {
@@ -2022,8 +2069,11 @@ export function damageMonster(
     // window where poise doesn't build at all — raw DPS can't stun-lock a
     // headliner. The advertised exception: an interruptible CHANNEL (Dark
     // Ritual) always listens, and poise counts double while it runs.
+    // JUGGERNAUT (six-pack): immune to stagger AND knockback — the poise
+    // meter never fills and shoves bounce off. Kite it; don't CC it.
+    const juggernaut = m.affix === "juggernaut";
     const channeling = m.windupKind === "ritual";
-    const graced = (m.staggerGraceT ?? 0) > 0 && !channeling;
+    const graced = (juggernaut || (m.staggerGraceT ?? 0) > 0) && !channeling;
     if (!graced) {
       m.poiseDmg += dmg * (opts.poiseMult ?? 1) * (channeling ? CONFIG.channelPoiseTakenMult : 1);
     }
@@ -2041,7 +2091,7 @@ export function damageMonster(
       m.chargeT = 0; // a poise break also stops a rush cold
       m.chargeDir = undefined;
     }
-    if (opts.dir && opts.knockback) {
+    if (opts.dir && opts.knockback && !juggernaut) {
       moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
     }
   }

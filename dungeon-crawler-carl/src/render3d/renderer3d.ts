@@ -74,6 +74,12 @@ const AFFIX_TINT: Record<string, number> = {
   armored: 0xd98e4a, // ember: the physical school bounces off
   warded: 0x9a6bd0, // arcane: the magic school bounces off
   chilling: 0x5a87c6, // lore-blue frost (+ aura ring at the true slow radius)
+  linked: 0x50d4c0, // soul-teal: the pack is one pool — thin it first
+  vampiric: 0xa01830, // deep blood: it drinks what it hits
+  juggernaut: 0x6e6e78, // dead iron: your CC bounces off
+  mortar: 0xe07830, // shellfire orange: cover stops being safe
+  berserking: 0xff4040, // rage red: it gets WORSE as it dies
+  executioner: 0x902020, // headsman crimson: don't fight it wounded
 };
 
 export class Renderer3D {
