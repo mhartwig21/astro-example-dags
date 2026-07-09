@@ -96,20 +96,35 @@ describe("floor events: System Shrine", () => {
   });
 
   it("Greed Clause: this floor's monsters speed up and its gold pays double", () => {
-    const g = findEvent("shrine");
-    const shrine = g.loot.find((l) => l.kind === "shrine")!;
-    const p = g.players[0];
-    const speed0 = g.monsters[0]?.speed ?? 0;
-    g.projectiles = [];
-    p.pos = { x: shrine.pos.x, y: shrine.pos.y };
-    // Keep the monsters this time — the clause applies to them.
-    for (const m of g.monsters) { m.pos = { x: 1.5, y: 1.5 }; m.dormant = false; }
-    step(g, idle(), 1 / 60);
-    chooseReward(g, p.id, 1);
-    expect(g.goldSurge).toBe(true);
-    if (g.monsters.length > 0) {
-      expect(g.monsters[0].speed).toBeCloseTo(speed0 * CONFIG.shrineGreedSpeedMult, 3);
+    // The shrine deals a seeded TWO of its pool, so the Greed Clause is not
+    // at a fixed index (or in every hand): hunt a seed whose dealt hand
+    // includes it and pick it BY KIND. (The old fixed-index version was
+    // implicitly coupled to the rng stream and broke whenever mapgen/spawn
+    // consumed a different number of draws.)
+    for (let seed = 1; seed <= 120; seed++) {
+      for (const floor of [2, 4, 5, 7, 8]) {
+        const g = atFloor(seed, floor);
+        if (g.floorEvent?.type !== "shrine") continue;
+        const shrine = g.loot.find((l) => l.kind === "shrine");
+        if (!shrine) continue;
+        const p = g.players[0];
+        const speed0 = g.monsters[0]?.speed ?? 0;
+        g.projectiles = [];
+        p.pos = { x: shrine.pos.x, y: shrine.pos.y };
+        // Keep the monsters this time — the clause applies to them.
+        for (const m of g.monsters) { m.pos = { x: 1.5, y: 1.5 }; m.dormant = false; }
+        step(g, idle(), 1 / 60);
+        const idx = p.pendingRewards.findIndex((r) => r.kind === "shrineGreed");
+        if (idx < 0) continue; // this hand didn't deal Greed — keep hunting
+        chooseReward(g, p.id, idx);
+        expect(g.goldSurge).toBe(true);
+        if (g.monsters.length > 0) {
+          expect(g.monsters[0].speed).toBeCloseTo(speed0 * CONFIG.shrineGreedSpeedMult, 3);
+        }
+        return;
+      }
     }
+    throw new Error("no shrine hand dealt the Greed Clause in the scan — seeding broke?");
   });
 
   it("Walk Away: no cost, no gain, shrine spent", () => {
