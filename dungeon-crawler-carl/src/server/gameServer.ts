@@ -463,13 +463,17 @@ export class GameServer {
         if (snap.version === SNAPSHOT_VERSION) {
           try {
             state = deserialize(snap.snapshot);
-          } catch {
+          } catch (err) {
+            console.error(`world restore failed for ${code} (falling back to seed):`, err);
             state = null;
           }
+        } else {
+          console.log(`world snapshot for ${code} is v${snap.version}, want v${SNAPSHOT_VERSION} — regenerating`);
         }
         renovated = state === null;
       }
     }
+    if (state) console.log(`world restored for ${code} (floor ${state.floor}, ${state.players.length} seats)`);
     // Everyone in a restored world is a live character, not a stale save —
     // rejoiners must reclaim them as-is rather than re-applying save_json.
     const seated = new Set<number>(state ? state.players.map((p) => p.id) : []);
@@ -615,13 +619,17 @@ if (isMain) {
   const dbFile = process.env.DB_FILE ?? "dcc.sqlite"; // prod: /data/dcc.sqlite (fly.toml)
   const server = new GameServer(port, staticDir, lbFile, dbFile);
   // Fly sends SIGINT (then SIGKILL after kill_timeout) on deploy/stop: flush
-  // every character save before the process dies so restarts lose nothing.
-  const shutdown = (): void => {
+  // every world + character save before the process dies so restarts lose
+  // nothing. Requires the container CMD to be `node --import tsx ...` — an
+  // `npx tsx` wrapper eats the signal and the flush never runs (observed in
+  // prod: Fly waited out the grace period, then hard-killed).
+  const shutdown = (signal: string): void => {
+    console.log(`${signal}: checkpointing live instances and exiting`);
     server.close();
     process.exit(0);
   };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
   void server.ready().then(() => {
     console.log(`Dungeon Crawler Claude server on :${port} (ws + ${staticDir ? `static from ${staticDir}` : "no static"})`);
     console.log(`Party instances tick at ${TICK_HZ}Hz, snapshots every ${SNAPSHOT_EVERY} ticks.`);
