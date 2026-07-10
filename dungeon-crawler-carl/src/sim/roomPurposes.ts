@@ -184,6 +184,14 @@ export interface RoomDressing {
   anchor: Vec2 | null;
 }
 
+/** Merge a variant over its base purpose (variant fields REPLACE base fields). */
+export function resolvePurpose(
+  base: RoomPurpose,
+  variant: (Partial<Omit<RoomPurpose, "variants">> & { id: string }) | null,
+): RoomPurpose {
+  return variant ? { ...base, ...variant, id: base.id, variants: undefined } : base;
+}
+
 // OCCUPANCY v2: who actually lives in each kind of room. When a pack spawns
 // in a dressed room it usually (70%) draws from these instead of the band
 // table — the ossuary keeps the necromancer's crew, the barracks its
@@ -266,9 +274,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const variant = base.variants && base.variants.length > 0 && nextFloat(rng) < 0.55
       ? base.variants[Math.floor(nextFloat(rng) * base.variants.length)]
       : null;
-    const purpose: RoomPurpose = variant
-      ? { ...base, ...variant, id: base.id, variants: undefined }
-      : base;
+    const purpose = resolvePurpose(base, variant);
     // Condition roll: most rooms are lived-in as authored; the rest carry a
     // history. Overgrowth only takes root in the damp bands.
     const conditions: RoomCondition[] = ["looted", "scarred"];

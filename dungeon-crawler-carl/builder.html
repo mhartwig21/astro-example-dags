@@ -51,6 +51,7 @@
       <div class="tabs">
         <button id="tabRooms" class="active">Rooms</button>
         <button id="tabMobs">Enemies</button>
+        <button id="tabDress">Dressing</button>
       </div>
       <span class="hint" id="hint">paint: LMB · erase: RMB · rotate prop: R · delete prop: click with Erase</span>
     </header>
@@ -77,6 +78,29 @@
             <div class="row"><button id="zipGo">Search</button></div>
             <div id="zipResults" style="max-height:180px;overflow-y:auto;font-size:11px"></div>
             <div id="zipMsg" style="font-size:11px;color:var(--dim)"></div>
+          </div>
+        </div>
+        <div id="dressPane" style="display:none">
+          <div class="group">
+            <h2>Purpose</h2>
+            <div id="purposeList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:2px"></div>
+          </div>
+          <div class="group">
+            <h2>Look</h2>
+            <label>variant</label><select id="dressVariant"></select>
+            <label>condition (room history)</label>
+            <select id="dressCondition">
+              <option value="pristine">pristine</option>
+              <option value="looted">looted</option>
+              <option value="scarred">scarred</option>
+              <option value="overgrown">overgrown</option>
+            </select>
+            <label>placement seed</label>
+            <div class="row"><input id="dressSeed" type="number" value="1" min="0" style="width:90px" /><button id="dressReroll">Reroll</button></div>
+            <div style="color:var(--dim);font-size:11px;margin-top:6px">
+              dresses the Rooms-tab room with the game's own grammar — same
+              code the floor build runs, doorway spill included
+            </div>
           </div>
         </div>
         <div id="mobPane" style="display:none">
@@ -125,6 +149,18 @@
           <div class="group">
             <h2>Saved rooms</h2>
             <div id="savedList"></div>
+          </div>
+        </div>
+        <div id="dressRight" style="display:none">
+          <div class="group">
+            <h2>Resolved dressing (editable)</h2>
+            <textarea id="dressJson" spellcheck="false" style="height:300px"></textarea>
+            <div class="row"><button id="dressApply">Apply JSON</button><button id="dressReset">Reset</button></div>
+            <div id="dressMsg" style="font-size:11px;margin-top:4px"></div>
+            <div style="color:var(--dim);font-size:11px;margin-top:6px">
+              tweak prop keys / sets and Apply to re-dress. To ship a change,
+              paste the block into ROOM_PURPOSES in src/sim/roomPurposes.ts.
+            </div>
           </div>
         </div>
         <div id="mobRight" style="display:none">
