@@ -59,9 +59,12 @@ pick one up cold. Delete items when they ship (git history remembers).
     verb behind a touchable contract (forge tempering, apothecary draught,
     den wager at losing odds, archive floor-map, war-room clock time), and
     looter stories CHASE onto the next floor as fleeing Repo Rats (floor 4+).
-    Still open: settlement/stronghold room dressing for Roam (coordinate
-    with the Roam session's arc); behavioral residents (idle acts) and
-    destructible dressing are the phase-5 candidates. Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    Phase 5 shipped
+    2026-07-10: corner hoards are SMASHABLE sim entities (Breakable[],
+    plan-positioned, popped by melee arcs + all radial AoE for pocket gold)
+    and seated residents HOLD their rooms with a once-per-floor interruption
+    line on first blood (RESIDENT_LINES). Still open: settlement/stronghold
+    room dressing for Roam (coordinate with the Roam session's arc). Phase 3: occupancy coupling — purpose-aware spawn placement (the
     kennel spawns beasts, the mess pack sits AT the table) + one seeded
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG

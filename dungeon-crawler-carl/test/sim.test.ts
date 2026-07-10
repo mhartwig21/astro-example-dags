@@ -5242,3 +5242,63 @@ describe("service rooms (phase 4: rare room verbs)", () => {
     expect(found).toBe(true);
   });
 });
+
+describe("destructible dressing + behavioral residents (phase 5)", () => {
+  it("dressed corner hoards spawn as smashable entities", () => {
+    let sawAny = false;
+    for (let seed = 1; seed <= 20 && !sawAny; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      if ((g.breakables ?? []).length === 0) continue;
+      sawAny = true;
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const planned = plan.dressings.flatMap((d) => d.breakables);
+      expect(g.breakables!.length).toBe(planned.length);
+      // Story-looted rooms keep no hoard.
+      for (const d of plan.dressings) {
+        if (d.condition === "looted") expect(d.breakables.length).toBe(0);
+      }
+    }
+    expect(sawAny).toBe(true);
+  });
+
+  it("a melee swing pops the barrel for pocket gold", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const b = (g.breakables ?? [])[0];
+      if (!b) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: b.pos.x - 0.9, y: b.pos.y };
+      const n0 = g.breakables!.length;
+      const loot0 = g.loot.filter((l) => l.kind === "gold").length;
+      step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+      expect(g.breakables!.length).toBeLessThan(n0);
+      expect(g.loot.filter((l) => l.kind === "gold").length).toBeGreaterThan(loot0);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("interrupting a seated pack gets the room's line, once", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const resident = g.monsters.find((m) => m.residentOf);
+      if (!resident) continue;
+      tested = true;
+      const p = g.players[0];
+      g.announcements = [];
+      damageMonster(g, p, resident, 1, { allowCrit: false });
+      const lines = g.announcements.filter((a) => a.kind === "flavor").length;
+      expect(lines).toBeGreaterThanOrEqual(1);
+      const sibling = g.monsters.find((m) => m.residentOf === resident.residentOf && m !== resident);
+      if (sibling) {
+        g.announcements = [];
+        damageMonster(g, p, sibling, 1, { allowCrit: false });
+        expect(g.announcements.filter((a) => a.kind === "flavor").length).toBe(0);
+      }
+    }
+    expect(tested).toBe(true);
+  });
+});

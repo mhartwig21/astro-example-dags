@@ -139,6 +139,7 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
+  private breakableMeshes = new Map<number, THREE.Object3D>(); // smashable dressing (phase 5)
   private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
@@ -343,6 +344,8 @@ export class Renderer3D {
       this.playerMeshes.clear();
       for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
       this.decoyMeshes.clear();
+      for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
+      this.breakableMeshes.clear();
       for (const mesh of this.monsters.values()) this.scene.remove(mesh);
       this.monsters.clear();
     }, 350);
@@ -2255,6 +2258,35 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.decoyMeshes) {
       if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
+    }
+
+    // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
+    // Meshes are placed once (they don't move); a smashed one vanishes and
+    // the sim's hit event supplies the pop.
+    const bSeen = new Set<number>();
+    for (const b of state.breakables ?? []) {
+      bSeen.add(b.id);
+      if (!this.breakableMeshes.has(b.id)) {
+        const obj = this.modelInstance(b.key);
+        if (obj) {
+          const box = new THREE.Box3().setFromObject(obj);
+          const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+          obj.scale.multiplyScalar(0.45 / fp);
+          const sc = new THREE.Box3().setFromObject(obj);
+          obj.position.set(
+            b.pos.x - (sc.min.x + sc.max.x) / 2 + obj.position.x,
+            -sc.min.y + 0.004,
+            b.pos.y - (sc.min.z + sc.max.z) / 2 + obj.position.z,
+          );
+          this.scene.add(obj);
+          this.breakableMeshes.set(b.id, obj);
+        }
+      }
+      const mesh = this.breakableMeshes.get(b.id);
+      if (mesh) mesh.visible = !!state.explored[Math.floor(b.pos.y) * state.map.w + Math.floor(b.pos.x)];
+    }
+    for (const [id, mesh] of this.breakableMeshes) {
+      if (!bSeen.has(id)) { this.scene.remove(mesh); this.breakableMeshes.delete(id); }
     }
 
     // Fog of war: entities render inside ANY living player's vision (shared show).
