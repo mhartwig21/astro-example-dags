@@ -43,6 +43,11 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 export const TICK_HZ = 30;
 export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
 export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60s)
+// ws heartbeat: bounds how long a connection that never sends a close frame
+// (a hard network drop) can linger before its seat frees up. Long enough to
+// be cheap over a month-long idle Roam party, short enough to reasonably
+// bound a genuinely dead connection.
+export const HEARTBEAT_INTERVAL_MS = 20_000;
 
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
@@ -96,6 +101,11 @@ interface Client {
   // (second tab): the extra seat plays as a guest and never writes the save.
   bound: boolean;
   joinedAt: number; // wall clock — session_end reports the session length
+  // Heartbeat (defense in depth alongside the `held` readyState check above):
+  // true whenever a pong has arrived since the last ping. A connection that
+  // never sends a proper close frame at all (a hard network drop, not just a
+  // slow one) would otherwise linger in inst.clients indefinitely.
+  isAlive: boolean;
 }
 
 interface Instance {
@@ -188,13 +198,20 @@ export class GameServer {
   private startedAt = Date.now();
   // Prometheus registry behind /metrics (Fly scrapes it into Grafana).
   readonly metrics = new Metrics();
+  // ws heartbeat sweep (defense in depth for the `held` readyState check in
+  // onConnection — see HEARTBEAT_INTERVAL_MS). Configurable so tests don't
+  // wait 20 real seconds for a zombie connection to get reaped.
+  private heartbeatTimer: NodeJS.Timeout;
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
    * /health endpoint) and the game WebSocket on the same port. Plain Node —
    * no platform-specific APIs, so the container runs anywhere (Fly, GCP, a VPS).
    */
-  constructor(port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string) {
+  constructor(
+    port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string,
+    heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+  ) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
     // Account + save persistence (PERSISTENCE.md P1). No dbFile (tests, bare
@@ -205,6 +222,7 @@ export class GameServer {
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
+    this.heartbeatTimer = setInterval(() => this.sweepHeartbeat(), heartbeatIntervalMs);
     // Gauges are read lazily at scrape time — zero cost between scrapes.
     this.metrics.gauge("dcc_instances", () => this.instances.size);
     this.metrics.gauge("dcc_players_connected", () => {
@@ -370,11 +388,31 @@ export class GameServer {
     });
   }
 
+  /**
+   * Standard ws heartbeat: a connection that didn't pong since the last ping
+   * gets terminated — this is what bounds a hard network drop (no close frame
+   * ever sent) instead of leaking the seat/instance indefinitely. terminate()
+   * fires the normal close handler synchronously (ws library semantics), so
+   * checkpoint/session_end/cleanup all still run through the one code path;
+   * nothing here duplicates that logic.
+   */
+  private sweepHeartbeat(): void {
+    for (const inst of this.instances.values()) {
+      for (const c of inst.clients) {
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        if (!c.isAlive) { c.ws.terminate(); continue; }
+        c.isAlive = false;
+        c.ws.ping();
+      }
+    }
+  }
+
   close(): void {
     // Flush every live run before the process goes away — this is what makes
     // a deploy restart survivable (SIGINT handler below). Untrack instances
     // BEFORE terminating sockets: each terminate fires a close handler that
     // must not re-checkpoint an already-flushed instance against a closed DB.
+    clearInterval(this.heartbeatTimer);
     for (const inst of this.instances.values()) {
       this.checkpoint(inst);
       clearInterval(inst.timer);
@@ -415,7 +453,17 @@ export class GameServer {
         this.db?.touchAccount(token, name, now);
         // RIVALS/ROAM: the first joiner's flags decide the instance's shape.
         const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true);
-        const held = new Set(inst.clients.map((c) => c.playerId));
+        // `held` must reflect LIVE sockets only — a client whose socket already
+        // closed/is closing, but whose "close" event hasn't fired here yet
+        // (network/proxy propagation lag — observed 3-10s in production), would
+        // otherwise read as a live second tab and shunt a fast reconnect into a
+        // disposable guest seat instead of reclaiming its own character. The
+        // stale entry is left in inst.clients untouched — its own close handler
+        // still runs normally, later, exactly as before; only this computed set
+        // ignores it.
+        const held = new Set(
+          inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).map((c) => c.playerId),
+        );
         const member = this.db?.getMember(code, token) ?? null;
         let player: (typeof inst.state.players)[number] | undefined;
         let bound = true;
@@ -459,7 +507,8 @@ export class GameServer {
         }
         inst.seated.add(player.id);
         player.name = name;
-        const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now };
+        const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now, isAlive: true };
+        ws.on("pong", () => { client.isAlive = true; });
         // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.
         if (inst.state.mode === "rivals") client.worldKey = rivalWorldKey(inst.state, player.id);
         inst.clients.push(client);
