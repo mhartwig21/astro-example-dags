@@ -4893,7 +4893,12 @@ function stepRivals(state: GameState, intents: PartyIntents, dt: number): void {
   if (view) mountWorld(state, view);
 
   // Worlds nobody can ever return to (every rival is past them) get dropped.
-  const lowest = Math.min(...roster.map((p) => (p.safeRoom ? p.safeRoom.nextFloor : p.floorNo)));
+  // A shopper still anchors their CURRENT floor: floorNo doesn't advance until
+  // they leave the safe room, and their client renders (and the server
+  // serializes) that world behind the shop every snapshot. Counting them as
+  // already on nextFloor deleted the last world under a solo rival and
+  // crashed the server.
+  const lowest = Math.min(...roster.map((p) => p.floorNo));
   for (const f of floors) if (f < lowest) delete worlds[f];
 }
 
