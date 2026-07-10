@@ -18,6 +18,10 @@ export type TimerPhase = "safe" | "warning" | "collapse";
 export interface Player {
   id: number; // stable per party member; 0 is the solo/first player
   name: string; // shown in announcer lines and (later) over the head
+  // Chosen crawler look (CRAWLER_SKINS in game.ts), picked at the campfire
+  // check-in. COSMETIC ONLY — kits come from the constellation, not the body.
+  // Absent (old saves / no pick yet): hosts fall back to the seeded heroSkin.
+  skin?: string;
   pos: Vec2;
   facing: Vec2; // unit vector of last movement/attack direction
   hp: number;

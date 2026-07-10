@@ -1,7 +1,7 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
   buyCatalogItem, hasPassive, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
-  type TestSetup,
+  isCrawlerSkin, type CrawlerSkin, type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
@@ -181,6 +181,7 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
+  state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
@@ -265,6 +266,30 @@ input.onReset = () => {
 // dungeon) and owns the keyboard via input.captureMode, like the rebind panel.
 const menuEl = document.getElementById("menu")!;
 let menuOpen = false;
+
+// THE CAMPFIRE: who are you this season? Cosmetic pick, kept per browser and
+// carried into runs, saves, and party joins (netClient reads the same key).
+const SKIN_KEY = "dcc:skin:v1";
+let chosenSkin: CrawlerSkin = "knight";
+try {
+  const stored = localStorage.getItem(SKIN_KEY);
+  if (isCrawlerSkin(stored)) chosenSkin = stored;
+} catch { /* seeded fallback covers it */ }
+let charSelect: ReturnType<Renderer3D["createCharSelect"]> | null = null;
+const skinNameEl = () => document.getElementById("m-skin-name");
+function applySkinPick(skin: CrawlerSkin): void {
+  chosenSkin = skin;
+  try { localStorage.setItem(SKIN_KEY, skin); } catch { /* best-effort */ }
+  const el = skinNameEl();
+  if (el) el.textContent = skin === "hooded" ? "THE HOODED ONE" : `THE ${skin.toUpperCase()}`;
+}
+window.addEventListener("keydown", (e) => {
+  if (!menuOpen || !charSelect) return;
+  if (document.activeElement instanceof HTMLInputElement) return; // typing a name
+  if (e.key === "ArrowLeft") charSelect.cycle(-1);
+  else if (e.key === "ArrowRight") charSelect.cycle(1);
+});
+
 const NAME_KEY = "dcc:name:v1";
 const nameInput = document.getElementById("m-name") as HTMLInputElement;
 try { nameInput.value = localStorage.getItem(NAME_KEY) ?? "Carl"; } catch { nameInput.value = "Carl"; }
@@ -350,6 +375,16 @@ function openMenu(): void {
   menuOpen = true;
   input.captureMode = true; // typing a name must not fire game binds
   menuEl.style.display = "flex";
+  document.body.classList.add("checkin"); // hide the game HUD behind the campfire
+  // The campfire owns the canvas while checked in (frame() renders it).
+  if (!charSelect) {
+    charSelect = renderer.createCharSelect(chosenSkin);
+    charSelect.onSelect = applySkinPick;
+    // Debug/verify hook (harmless in prod: enumerable state only).
+    (window as unknown as Record<string, unknown>).__charSelect = charSelect;
+  }
+  charSelect.enabled = true;
+  applySkinPick(chosenSkin); // seed the label
   const cont = document.getElementById("m-continue")!;
   if (hasContinue) {
     const p = state.players[0];
@@ -366,6 +401,8 @@ function closeMenu(): void {
   menuOpen = false;
   input.captureMode = false;
   menuEl.style.display = "none";
+  document.body.classList.remove("checkin");
+  if (charSelect) charSelect.enabled = false;
 }
 
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
@@ -2681,8 +2718,14 @@ async function main(): Promise<void> {
     renderer.emitHits(frameHits);
     audioDirector.frame(state, frameHits, frameAnns, localId);
     updateBulletTimeGrade(state);
-    renderer.update(state, now / 1000);
-    renderer.render();
+    if (menuOpen && charSelect) {
+      // Checked in at the campfire: the select scene owns the canvas; the
+      // frozen backdrop world stays un-rendered until the menu closes.
+      charSelect.frame(now / 1000);
+    } else {
+      renderer.update(state, now / 1000);
+      renderer.render();
+    }
     // Damage numbers need the camera positioned (done in update) to project.
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);

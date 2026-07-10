@@ -8,7 +8,8 @@ import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
-import { heroSkin } from "../sim/game";
+import { heroSkin, type CrawlerSkin } from "../sim/game";
+import { CharSelectScene } from "./charSelect";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { assignRoomPurposes } from "../sim/roomPurposes";
@@ -349,6 +350,14 @@ export class Renderer3D {
       for (const mesh of this.monsters.values()) this.scene.remove(mesh);
       this.monsters.clear();
     }, 350);
+  }
+
+  /** The campfire check-in scene shares this renderer's GL context + streamed
+   *  models (empty slots fill as GLBs arrive). main3d drives it while the
+   *  menu is open instead of rendering the game world. */
+  createCharSelect(initial: CrawlerSkin): CharSelectScene {
+    // Getter, not snapshot: `this.models` is reassigned when streaming starts.
+    return new CharSelectScene(this.renderer, () => this.models, initial);
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
@@ -750,11 +759,22 @@ export class Renderer3D {
   // Hero skins (heroSkin in sim/game.ts): model key per skin id. Barbarian/
   // mage/rogue ride the armory_* GLBs (the 1.0 adventurers that also source
   // weapon meshes) — monsters wear the newer KayKit cast now, so hero skins
-  // no longer overlap with the menagerie.
+  // no longer overlap with the menagerie. CHOSEN campfire looks (Player.skin,
+  // CRAWLER_SKINS) are namespaced `c:` — same names, different generation of
+  // model — so a knight-by-choice never collides with a knight-by-seed.
   private static readonly SKIN_MODEL: Record<string, string> = {
     knight: "player", barbarian: "armory_axes", mage: "armory_arcana",
     rogue: "armory_knives", hooded: "hero_hooded",
+    "c:knight": "crawler_knight", "c:barbarian": "crawler_barbarian",
+    "c:druid": "crawler_druid", "c:engineer": "crawler_engineer",
+    "c:mage": "crawler_mage", "c:ranger": "crawler_ranger",
+    "c:rogue": "crawler_rogue", "c:hooded": "crawler_hooded",
   };
+
+  /** The render skin id for a player: their campfire pick, else the seeded look. */
+  static skinIdFor(pl: { id: number; skin?: string }, seed: number): string {
+    return pl.skin && `c:${pl.skin}` in Renderer3D.SKIN_MODEL ? `c:${pl.skin}` : heroSkin(seed, pl.id);
+  }
 
   private buildPlayerMesh(skin: string): THREE.Group {
     const model =
@@ -2098,9 +2118,9 @@ export class Renderer3D {
     const pSeen = new Set<number>();
     for (const pl of state.players) {
       pSeen.add(pl.id);
-      // Hero skin: derived from (seed, player id) — a fresh adventurer every
-      // run. A seed change (new game, restore) rebuilds the body + regrafts.
-      const skin = heroSkin(state.seed, pl.id);
+      // Hero skin: the campfire pick when the crawler made one, else derived
+      // from (seed, player id). A change rebuilds the body + regrafts.
+      const skin = Renderer3D.skinIdFor(pl, state.seed);
       let mesh = this.playerMeshes.get(pl.id);
       if (mesh && mesh.userData.skinId !== skin) {
         this.scene.remove(mesh);
@@ -2236,7 +2256,10 @@ export class Renderer3D {
       dSeen.add(dc.id);
       let mesh = this.decoyMeshes.get(dc.id);
       if (!mesh) {
-        mesh = this.buildPlayerMesh(heroSkin(state.seed, dc.ownerId));
+        const owner = state.players.find((p) => p.id === dc.ownerId);
+        mesh = this.buildPlayerMesh(owner
+          ? Renderer3D.skinIdFor(owner, state.seed)
+          : heroSkin(state.seed, dc.ownerId));
         mesh.traverse((o) => {
           const mm = o as THREE.Mesh;
           if (!mm.isMesh || !mm.material) return;

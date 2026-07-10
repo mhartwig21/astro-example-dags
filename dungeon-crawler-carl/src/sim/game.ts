@@ -1024,10 +1024,24 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
 // Cosmetic hero skins: every run you drop in as a random adventurer, and party
 // members never twin (up to the pool size). Purely DERIVED from (seed, player
 // id) — no state, no save field, no rng-stream impact, and every client
-// computes the same answer from the shared seed. Becomes real chosen state
-// when character types/classes land.
+// computes the same answer from the shared seed. The FALLBACK for crawlers
+// who never stood at the campfire (below).
 export const HERO_SKINS = ["knight", "barbarian", "mage", "rogue", "hooded"] as const;
 export type HeroSkin = (typeof HERO_SKINS)[number];
+
+// CHOSEN crawler looks: the campfire check-in lineup (Adventurers 2.0, CC0).
+// Cosmetic only — the constellation stays the build. Stored on Player.skin,
+// persisted per account, validated by the server on join. The books let you
+// change your race at level 3; for now the fire is where you decide who you
+// are.
+export const CRAWLER_SKINS = [
+  "knight", "barbarian", "druid", "engineer", "mage", "ranger", "rogue", "hooded",
+] as const;
+export type CrawlerSkin = (typeof CRAWLER_SKINS)[number];
+
+export function isCrawlerSkin(v: unknown): v is CrawlerSkin {
+  return typeof v === "string" && (CRAWLER_SKINS as readonly string[]).includes(v);
+}
 
 /** Which adventurer this crawler is for this run (hosts map it to a model). */
 export function heroSkin(seed: number, playerId: number): HeroSkin {
@@ -1192,6 +1206,7 @@ export interface SavedProgress {
     goldSpent?: number;
     kills?: number;
     name?: string;
+    skin?: string; // chosen campfire look; absent on pre-select saves
     damageDealt?: number;
     damageTaken?: number;
     materials?: Record<MaterialId, number>;
@@ -1213,6 +1228,7 @@ export interface SavedProgress {
  */
 export function applySavedPlayer(p: Player, save: SavedProgress): void {
   const s = save.player;
+  if (isCrawlerSkin(s.skin)) p.skin = s.skin; // the look follows the character
   p.level = s.level;
   p.xp = s.xp;
   p.xpToNext = s.xpToNext;

@@ -93,6 +93,17 @@ export const MODEL_MANIFEST: Record<string, string> = {
   armory_knives: "/assets/characters/rogue.glb",
   // Extra hero skin: the one adventurer nothing else wears.
   hero_hooded: "/assets/characters/rogue_hooded.glb",
+  // CHOSEN crawler looks (Adventurers 2.0, CC0): the campfire check-in lineup.
+  // New-generation GLBs — no baked clips, they ride the medium rig libraries
+  // via CHARACTER_RIGS like the monster cast does.
+  crawler_knight: "/assets/characters/crawler_knight.glb",
+  crawler_barbarian: "/assets/characters/crawler_barbarian.glb",
+  crawler_druid: "/assets/characters/crawler_druid.glb",
+  crawler_engineer: "/assets/characters/crawler_engineer.glb",
+  crawler_mage: "/assets/characters/crawler_mage.glb",
+  crawler_ranger: "/assets/characters/crawler_ranger.glb",
+  crawler_rogue: "/assets/characters/crawler_rogue.glb",
+  crawler_hooded: "/assets/characters/crawler_rogue_hooded.glb",
   // Roam mode (SETTLEMENTS.md v1): the settlement's one resident. Reuses a
   // skeleton-family model unwired to any monster or hero skin — a v1 rough
   // edge (it reads skeleton-like) rather than new asset work.
@@ -258,6 +269,15 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_boss_12: "large", // FrostGolem
   monster_boss_15: "large", // OrcBrute (as The Furnace Marshal)
   monster_boss_18: "large", // DemonLord
+  // The campfire lineup (Adventurers 2.0) — all medium rig.
+  crawler_knight: "medium",
+  crawler_barbarian: "medium",
+  crawler_druid: "medium",
+  crawler_engineer: "medium",
+  crawler_mage: "medium",
+  crawler_ranger: "medium",
+  crawler_rogue: "medium",
+  crawler_hooded: "medium",
 };
 
 // Shared rig clip libraries (KayKit Character Animations 1.1 + DemonLord pack).

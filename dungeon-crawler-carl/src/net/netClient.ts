@@ -46,6 +46,18 @@ function storeToken(token: string): void {
   }
 }
 
+// Campfire look (character select in main3d): rides the join like the token
+// so a party link carries who you decided to be. Server-validated; absent =
+// the seeded fallback look.
+const SKIN_KEY = "dcc:skin:v1";
+function loadSkin(): string | undefined {
+  try {
+    return localStorage.getItem(SKIN_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Reconnect cadence: fast at first (a deploy restart is seconds), then backed
 // off, giving up after ~3 minutes of dead air. The server persists the world
 // on shutdown, so riding this out means resuming the same run.
@@ -116,6 +128,7 @@ export class NetClient {
         rivals: rivals || undefined,
         roam: roam || undefined,
         token: loadToken(),
+        skin: loadSkin(),
       }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
