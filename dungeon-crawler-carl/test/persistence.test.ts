@@ -5,7 +5,7 @@ import { join } from "node:path";
 import WebSocket from "ws";
 import { GameServer } from "../src/server/gameServer";
 import { openDb, type PersistDb } from "../src/server/db";
-import { deserialize, serialize, SNAPSHOT_VERSION } from "../src/sim/snapshot";
+import { deserialize, deserializeDynamic, mergeColdPlayers, serialize, SNAPSHOT_VERSION } from "../src/sim/snapshot";
 import { step } from "../src/sim/game";
 import type { GameState } from "../src/sim/types";
 
@@ -72,16 +72,30 @@ function connect(port: number, code: string, name: string, token?: string, roam 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const client: TestClient = { ws, playerId: -1, token: "", lastSnap: null, close: () => ws.close() };
+    // Mirrors NetClient: full snapshots carry the world; dynamic ones ride the
+    // cached one and inherit unchanged player cold blocks.
+    let world: { map: GameState["map"]; explored: Uint8Array } | null = null;
+    const absorb = (snapshot: string, full: boolean): GameState | null => {
+      if (full) {
+        const s = deserialize(snapshot);
+        world = { map: s.map, explored: s.explored };
+        return s;
+      }
+      if (!world) return null;
+      const s = deserializeDynamic(snapshot, world.map, world.explored);
+      if (client.lastSnap) mergeColdPlayers(s.players, client.lastSnap.players);
+      return s;
+    };
     ws.on("open", () => ws.send(JSON.stringify({ t: "join", code, name, token, roam: roam || undefined })));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
         client.playerId = msg.playerId;
         client.token = msg.token;
-        client.lastSnap = deserialize(msg.snapshot);
+        client.lastSnap = absorb(msg.snapshot, true);
         resolve(client);
       } else if (msg.t === "snap") {
-        client.lastSnap = deserialize(msg.snapshot);
+        client.lastSnap = absorb(msg.snapshot, msg.full === true) ?? client.lastSnap;
       }
     });
     ws.on("error", reject);
@@ -213,6 +227,88 @@ describe("server persistence (accounts + character saves)", () => {
     expect(b.lastSnap!.runKind).toBe("roam");
     expect(b.lastSnap!.floor).toBe(3);
     b.close();
+    await waitFor(() => instances().size === 0);
+  });
+});
+
+describe("observability: /metrics + usage events", () => {
+  let dir: string;
+  let server: GameServer;
+  let port: number;
+  const instances = () =>
+    (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dcc-obs-"));
+    server = new GameServer(0, undefined, undefined, join(dir, "dcc.sqlite"));
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const metric = (text: string, name: string): number => {
+    const m = text.match(new RegExp(`^${name} (.+)$`, "m"));
+    return m ? Number(m[1]) : NaN;
+  };
+
+  it("/metrics serves Prometheus series that move with real traffic", async () => {
+    const c = await connect(port, "OBS-1", "Carl");
+    await waitFor(() => c.lastSnap !== null);
+    await new Promise((r) => setTimeout(r, 250)); // a few ticks + snapshots
+    const text = await (await fetch(`http://127.0.0.1:${port}/metrics`)).text();
+    expect(text).toContain("# TYPE dcc_ticks_total counter");
+    expect(text).toContain("# TYPE dcc_players_connected gauge");
+    expect(metric(text, "dcc_joins_total")).toBeGreaterThanOrEqual(1);
+    expect(metric(text, "dcc_players_connected")).toBe(1);
+    expect(metric(text, "dcc_ticks_total")).toBeGreaterThan(0);
+    expect(metric(text, "dcc_tick_ms_total")).toBeGreaterThan(0);
+    expect(metric(text, "dcc_snapshot_bytes_total")).toBeGreaterThan(0);
+    c.close();
+    await waitFor(() => instances().size === 0);
+    const after = await (await fetch(`http://127.0.0.1:${port}/metrics`)).text();
+    expect(metric(after, "dcc_leaves_total")).toBeGreaterThanOrEqual(1);
+    expect(metric(after, "dcc_players_connected")).toBe(0);
+  });
+
+  it("sessions and floor transitions land in usage_events with build summaries", async () => {
+    const c = await connect(port, "OBS-2", "Carl", "obs-carl-token-1");
+    // Stage a descent directly; the next tick sees the floor edge and logs it.
+    instances().get("OBS-2")!.state.floor = 2;
+    await waitFor(() => server.db!.listEvents("floor").some((e) => e.partyCode === "OBS-2"));
+    c.close();
+    await waitFor(() => instances().size === 0);
+
+    const start = server.db!.listEvents("session_start").find((e) => e.partyCode === "OBS-2")!;
+    expect(start.accountId).toBe("obs-carl-token-1");
+    expect(start.data).toMatchObject({ name: "Carl", mode: "coop", partySize: 1 });
+
+    const floor = server.db!.listEvents("floor").find((e) => e.partyCode === "OBS-2")!;
+    const fd = floor.data as { floor: number; players: { name: string; level: number; slots: unknown[] }[] };
+    expect(fd.floor).toBe(2);
+    expect(fd.players[0].name).toBe("Carl");
+    expect(fd.players[0].slots.length).toBe(4); // the build rides every row
+
+    const end = server.db!.listEvents("session_end").find((e) => e.partyCode === "OBS-2")!;
+    const ed = end.data as { seconds: number; player: { kills: number } };
+    expect(ed.seconds).toBeGreaterThanOrEqual(0);
+    expect(ed.player.kills).toBeGreaterThanOrEqual(0);
+  });
+
+  it("a run ending writes the outcome and the final builds, exactly once", async () => {
+    const c = await connect(port, "OBS-3", "Donut");
+    instances().get("OBS-3")!.state.status = "dead";
+    await waitFor(() => server.db!.listEvents("run_end").some((e) => e.partyCode === "OBS-3"));
+    await new Promise((r) => setTimeout(r, 150)); // more ticks: the edge must not re-fire
+    const ends = server.db!.listEvents("run_end").filter((e) => e.partyCode === "OBS-3");
+    expect(ends.length).toBe(1);
+    const data = ends[0].data as { status: string; players: { name: string }[] };
+    expect(data.status).toBe("dead");
+    expect(data.players[0].name).toBe("Donut");
+    c.close();
     await waitFor(() => instances().size === 0);
   });
 });

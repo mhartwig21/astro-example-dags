@@ -50,10 +50,11 @@ pick one up cold. Delete items when they ship (git history remembers).
     the shared pure truth (`assignRoomPurposes(seed, floor, map)`); band
     allowlists + zoning, condition modifiers (looted/scarred/overgrown),
     corridor connective tissue, and occupancy v1 (packs gather at the
-    dressed room's furniture anchor) are all live. Still open: purpose-aware
-    ARCHETYPE bias (skeletons prefer the ossuary), one seeded story-event
-    per floor applying conditions along a path, and settlement/stronghold
-    room dressing for Roam. Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    dressed room's furniture anchor) are all live. Residents bias (packs
+    draw from PURPOSE_RESIDENTS, looted/scarred rooms half-empty) and floor
+    STORY seeds (35%: looters/battle/damp sweep a condition path, announced
+    once on arrival) shipped 2026-07-10. Still open: settlement/stronghold
+    room dressing for Roam (coordinate with the Roam session's arc). Phase 3: occupancy coupling — purpose-aware spawn placement (the
     kennel spawns beasts, the mess pack sits AT the table) + one seeded
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
