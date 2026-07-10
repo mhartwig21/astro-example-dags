@@ -61,6 +61,19 @@ CREATE TABLE IF NOT EXISTS instance_snapshots (
   snapshot   TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+-- Usage/balance telemetry: one append-only row per notable moment
+-- (session_start/session_end/floor/run_end), with a JSON payload carrying
+-- build summaries. Litestream replicates the whole file, so this is the
+-- long-term record balance questions get answered from. Never swept.
+CREATE TABLE IF NOT EXISTS usage_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts         INTEGER NOT NULL,
+  kind       TEXT NOT NULL,
+  party_code TEXT NOT NULL,
+  account_id TEXT,
+  data       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_kind_ts ON usage_events (kind, ts);
 `;
 
 export class PersistDb {
@@ -146,6 +159,22 @@ export class PersistDb {
     this.db.prepare("DELETE FROM party_members WHERE party_code = ?").run(code);
     this.db.prepare("DELETE FROM instance_snapshots WHERE party_code = ?").run(code);
     this.db.prepare("DELETE FROM parties WHERE code = ?").run(code);
+  }
+
+  /** Append a usage/balance event (see SCHEMA note). Payload is plain data. */
+  logEvent(kind: string, partyCode: string, accountId: string | null, data: unknown, now: number): void {
+    this.db.prepare(
+      "INSERT INTO usage_events (ts, kind, party_code, account_id, data) VALUES (?, ?, ?, ?, ?)",
+    ).run(now, kind, partyCode, accountId, JSON.stringify(data));
+  }
+
+  /** Read usage events (newest first) — analysis scripts and tests. */
+  listEvents(kind?: string, limit = 100): { ts: number; kind: string; partyCode: string; accountId: string | null; data: unknown }[] {
+    const rows = (kind
+      ? this.db.prepare("SELECT ts, kind, party_code, account_id, data FROM usage_events WHERE kind = ? ORDER BY id DESC LIMIT ?").all(kind, limit)
+      : this.db.prepare("SELECT ts, kind, party_code, account_id, data FROM usage_events ORDER BY id DESC LIMIT ?").all(limit)
+    ) as { ts: number; kind: string; party_code: string; account_id: string | null; data: string }[];
+    return rows.map((r) => ({ ts: r.ts, kind: r.kind, partyCode: r.party_code, accountId: r.account_id, data: JSON.parse(r.data) }));
   }
 
   /** False once close() has run — writes after that would throw. */
