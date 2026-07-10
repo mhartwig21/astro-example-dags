@@ -35,6 +35,7 @@ appreciated).
 | KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Orc Raider — `orc_wardrum.glb` + `orc_wardrum_stick.glb` (the Drum Sergeant's grafted instrument) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Adventurers 2.0 — `potion_medium_red.glb` (flask act prop, staged) + `smokebomb.glb` (Blindside poof anchor, staged); converted via gltf-pipeline | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
+| KayKit Adventurers 2.0 — `crawler_{knight,barbarian,druid,engineer,mage,ranger,rogue,rogue_hooded}.glb`: the campfire check-in lineup (chosen cosmetic looks; medium rig, shared clip libraries) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Animations 1.1 — the previously-untapped clip packs: `rig_medium_movementadvanced/simulation/tools.glb`, `rig_large_movementadvanced/simulation/special.glb` (Sneaking, Lockpicking, dodge sets, sit/lie/wave, EXPERIMENTAL_Large_Transform) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |

@@ -141,6 +141,33 @@ describe("server persistence (accounts + character saves)", () => {
     await waitFor(() => instances().size === 0);
   });
 
+  it("the campfire skin rides the join, persists, and garbage picks are ignored", async () => {
+    const j = (skin?: string) =>
+      new Promise<{ playerId: number; snap: GameState; ws: WebSocket }>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+        ws.on("open", () => ws.send(JSON.stringify({ t: "join", code: "SKIN-1", name: "Carl", token: "skin-test-token-1", skin })));
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(String(raw));
+          if (msg.t === "welcome") resolve({ playerId: msg.playerId, snap: deserialize(msg.snapshot), ws });
+        });
+        ws.on("error", reject);
+      });
+    const a = await j("druid");
+    expect(a.snap.players.find((p) => p.id === a.playerId)!.skin).toBe("druid");
+    a.ws.close();
+    await waitFor(() => instances().size === 0);
+    // Rejoin without a pick: the saved character still wears the druid.
+    const b = await j(undefined);
+    expect(b.snap.players.find((p) => p.id === b.playerId)!.skin).toBe("druid");
+    b.ws.close();
+    await waitFor(() => instances().size === 0);
+    // A hostile/garbage pick never lands on the player.
+    const c = await j("<script>alert(1)</script>");
+    expect(c.snap.players.find((p) => p.id === c.playerId)!.skin).toBe("druid");
+    c.ws.close();
+    await waitFor(() => instances().size === 0);
+  });
+
   it("a character survives the instance being dropped and comes back on rejoin", async () => {
     const a = await connect(port, "SAVE-1", "Carl", "carl-token-00001");
     // Stage progression directly in the live sim, then leave.

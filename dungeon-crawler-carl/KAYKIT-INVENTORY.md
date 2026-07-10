@@ -128,7 +128,7 @@ counted — noted where that inflates things).
 
 | Pack | Models | What's inside | Status / candidate use |
 |---|---|---|---|
-| Adventurers 2.0 | 71 + 9 chars | 9 modular player classes, held weapons (incl. shotgun, turret, smokebomb), shields, potions, spellbooks, quiver, ammo crate | **Untapped.** Class select / hero skins; potions for flask visuals |
+| Adventurers 2.0 | 71 + 9 chars | 9 modular player classes, held weapons (incl. shotgun, turret, smokebomb), shields, potions, spellbooks, quiver, ammo crate | **Partially used** — 8 classes are the campfire check-in lineup (chosen skins, 2026-07-10); Barbarian_Large + the 67 held-weapon props still untapped |
 | Skeletons 1.1 | 29 (6 chars) | Skeleton faction + crypt props (arrows, staffs, shields) | **Partially used** (4 of 6 chars + skeleton_arrow) |
 | Character Animations 1.1 | 16 clip packs | The shared rig libraries + mannequins | **Partially used** (8 of 14 packs loaded) |
 | Mystery Monthly S4 | 80 (18 chars) | Characters + their signature props (Orc wardrum, car, paladin statue/hammer, ninja gear) | **Partially used** (Clown, Werewolf_Wolf) |
