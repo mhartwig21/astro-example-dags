@@ -8,8 +8,12 @@ the Meshy pipeline — all exported as data the game imports.
 ## Rooms tab
 
 Paint tiles (Floor/Wall; RMB or Erase reverts), place props from the palette
-(every `/assets/dungeon/` manifest key; R rotates the last-placed), then
+(every `/assets/dungeon/` manifest key, with lazy-rendered thumbnails), then
 Save (localStorage) / Export JSON.
+
+**Editor controls**: wheel zooms, middle-drag (or Alt+drag) orbits the
+camera; Ctrl+Z undoes (50 deep, one stroke = one undo); on the last-placed
+prop, R rotates, arrow keys nudge a quarter tile, `[`/`]` scale it.
 
 **Contract**: the border ring and center tile must stay FLOOR, and interior
 walls need 2-wide gaps — the stamper validates and silently reverts designs
@@ -61,6 +65,11 @@ base purpose keeps its authored variants unless your JSON brings its own.
 Rooms under 5×5 don't dress (matches the in-game candidate filter). Purpose
 DATA lives in `roomPurposes.data.json` (in variants, `null` = "remove the
 base field"); the grammar/types stay in `roomPurposes.ts`.
+
+**Bake into room props** converts the current dressing into the Rooms tab's
+own prop list — hand-tweak individual pieces, then save/ship as a template.
+Wall mounts, tabletop items, and corridor spill don't convert (templates
+are ground-level, in-room only); the message counts what was skipped.
 
 ## Meshy bridge (dev box only)
 

@@ -31,18 +31,38 @@ const key = new THREE.DirectionalLight(0xfff1d0, 1.6);
 key.position.set(6, 12, 4);
 scene.add(key);
 
+// Orbit + zoom: wheel zooms, middle-drag (or Alt+LMB) orbits yaw — the fixed
+// iso angle hides the far walls, and dressings deserve inspection from all
+// sides. Yaw π/4 reproduces the original (+10, +10) diagonal exactly.
+let camYaw = Math.PI / 4;
+let camZoom = 1;
 function frame(): void {
   const w = viewport.clientWidth, h = viewport.clientHeight;
   renderer.setSize(w, h);
-  const span = Math.max(room.w, room.h) * 0.75 + 2.5;
+  const span = (Math.max(room.w, room.h) * 0.75 + 2.5) / camZoom;
   const aspect = w / Math.max(1, h);
   camera.left = -span * aspect; camera.right = span * aspect;
   camera.top = span; camera.bottom = -span;
-  camera.position.set(room.w / 2 + 10, 14, room.h / 2 + 10);
-  camera.lookAt(room.w / 2, 0, room.h / 2);
+  const cx = room.w / 2, cz = room.h / 2, R = Math.SQRT2 * 10;
+  camera.position.set(cx + Math.sin(camYaw) * R, 14, cz + Math.cos(camYaw) * R);
+  camera.lookAt(cx, 0, cz);
   camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", frame);
+viewport.addEventListener("wheel", (e) => {
+  camZoom = Math.min(3, Math.max(0.4, camZoom * (e.deltaY < 0 ? 1.12 : 0.89)));
+  frame();
+  e.preventDefault();
+}, { passive: false });
+let orbiting = false;
+let orbitX = 0;
+window.addEventListener("pointermove", (ev) => {
+  if (!orbiting) return;
+  camYaw += (ev.clientX - orbitX) * 0.008;
+  orbitX = ev.clientX;
+  frame();
+});
+window.addEventListener("pointerup", () => { orbiting = false; });
 
 // ---- Model library (the game's own loader: rig clips attach themselves) ----
 let models: Record<string, LoadedModel> = {};
@@ -131,14 +151,35 @@ function pointerTile(ev: PointerEvent): { x: number; y: number; fx: number; fy: 
   return { x, y, fx: Math.round(hit.x * 2) / 2, fy: Math.round(hit.z * 2) / 2 };
 }
 
+// Undo: every mutation snapshots first; Ctrl+Z restores (50 deep).
+const undoStack: { w: number; h: number; tiles: number[]; props: RoomProp[] }[] = [];
+function pushUndo(): void {
+  undoStack.push({ w: room.w, h: room.h, tiles: [...room.tiles], props: JSON.parse(JSON.stringify(room.props)) });
+  if (undoStack.length > 50) undoStack.shift();
+}
+function popUndo(): void {
+  const s = undoStack.pop();
+  if (!s) return;
+  room.w = s.w; room.h = s.h; room.tiles = s.tiles; room.props = s.props;
+  lastPlaced = null;
+  ($("roomW") as HTMLInputElement).value = String(room.w);
+  ($("roomH") as HTMLInputElement).value = String(room.h);
+  rebuildTiles(); rebuildProps(); frame();
+}
+
 let painting = false;
 renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
 renderer.domElement.addEventListener("pointerdown", (ev) => {
+  if (ev.button === 1 || (ev.button === 0 && ev.altKey)) {
+    orbiting = true; orbitX = ev.clientX; ev.preventDefault();
+    return;
+  }
   if (mode !== "rooms") return;
   const t = pointerTile(ev);
   if (!t) return;
   if (ev.button === 2 || tool === "erase") {
     // Erase: prop under cursor first, else revert tile to floor.
+    pushUndo();
     const near = room.props.findIndex((p) => Math.hypot(p.x - t.fx, p.y - t.fy) < 0.6);
     if (near >= 0) { room.props.splice(near, 1); rebuildProps(); return; }
     room.tiles[t.y * room.w + t.x] = FLOOR;
@@ -146,11 +187,13 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
     return;
   }
   if (tool === "prop" && activeProp) {
+    pushUndo();
     lastPlaced = { key: activeProp, x: t.fx, y: t.fy, rot: 0 };
     room.props.push(lastPlaced);
     rebuildProps();
     return;
   }
+  pushUndo();
   painting = true;
   room.tiles[t.y * room.w + t.x] = tool === "wall" ? WALL : FLOOR;
   rebuildTiles();
@@ -173,9 +216,76 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
 });
 window.addEventListener("pointerup", () => { painting = false; });
 window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "r" && lastPlaced) {
+  const tag = (e.target as HTMLElement).tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.ctrlKey && e.key.toLowerCase() === "z") { popUndo(); e.preventDefault(); return; }
+  if (mode !== "rooms" || !lastPlaced) return;
+  if (e.key.toLowerCase() === "r") {
     lastPlaced.rot = ((lastPlaced.rot ?? 0) + Math.PI / 4) % (Math.PI * 2);
     rebuildProps();
+    return;
+  }
+  // Nudge the last-placed prop: arrows move a quarter tile, [ ] scale it.
+  const nudge = 0.25;
+  const moves: Record<string, [number, number]> = {
+    ArrowLeft: [-nudge, 0], ArrowRight: [nudge, 0], ArrowUp: [0, -nudge], ArrowDown: [0, nudge],
+  };
+  if (e.key in moves) {
+    lastPlaced.x = Math.max(0, Math.min(room.w, lastPlaced.x + moves[e.key][0]));
+    lastPlaced.y = Math.max(0, Math.min(room.h, lastPlaced.y + moves[e.key][1]));
+    rebuildProps();
+    e.preventDefault();
+  } else if (e.key === "[" || e.key === "]") {
+    lastPlaced.scale = Math.max(0.2, Math.min(4, (lastPlaced.scale ?? 1) * (e.key === "]" ? 1.1 : 0.9)));
+    rebuildProps();
+  }
+});
+
+// ---- Prop thumbnails (lazy offscreen renders, cached per key) ----
+const thumbCache = new Map<string, string>();
+let thumbGL: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.OrthographicCamera } | null = null;
+function thumbFor(key: string): string | null {
+  const cached = thumbCache.get(key);
+  if (cached) return cached;
+  const src = models[key];
+  if (!src) return null;
+  if (!thumbGL) {
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+    r.setSize(56, 56);
+    const s = new THREE.Scene();
+    s.add(new THREE.AmbientLight(0xa0a0c0, 1.6));
+    const d = new THREE.DirectionalLight(0xfff1d0, 1.8);
+    d.position.set(3, 6, 2);
+    s.add(d);
+    thumbGL = { r, scene: s, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60) };
+  }
+  const obj = src.scene.clone(true) as THREE.Group;
+  thumbGL.scene.add(obj);
+  const box = new THREE.Box3().setFromObject(obj);
+  const c = box.getCenter(new THREE.Vector3());
+  const m = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 1e-3) * 0.62;
+  thumbGL.cam.left = -m; thumbGL.cam.right = m; thumbGL.cam.top = m; thumbGL.cam.bottom = -m;
+  thumbGL.cam.position.set(c.x + m * 2, c.y + m * 1.6, c.z + m * 2);
+  thumbGL.cam.lookAt(c);
+  thumbGL.cam.updateProjectionMatrix();
+  thumbGL.r.render(thumbGL.scene, thumbGL.cam);
+  const url = thumbGL.r.domElement.toDataURL();
+  thumbGL.scene.remove(obj);
+  thumbCache.set(key, url);
+  return url;
+}
+// Render only thumbnails that scroll into view — the palette is 100+ keys.
+const thumbObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    const img = e.target as HTMLImageElement;
+    const url = thumbFor(img.dataset.key ?? "");
+    if (url) {
+      img.src = url;
+      thumbObserver.unobserve(img);
+    } else if (Object.keys(models).length > 0) {
+      thumbObserver.unobserve(img); // library loaded but key unknown — leave the placeholder
+    } // else: models still loading; the palette re-renders after loadModels
   }
 });
 
@@ -219,7 +329,13 @@ function renderPropList(filter = ""): void {
   list.innerHTML = "";
   for (const k of PROP_KEYS.filter((k) => k.includes(filter) && inCategory(k))) {
     const b = document.createElement("button");
-    b.textContent = k;
+    const img = document.createElement("img");
+    img.dataset.key = k;
+    img.width = 28; img.height = 28;
+    thumbObserver.observe(img);
+    const label = document.createElement("span");
+    label.textContent = k;
+    b.append(img, label);
     if (k === activeProp) b.classList.add("active");
     b.onclick = () => {
       tool = "prop"; activeProp = k;
@@ -264,6 +380,7 @@ const currentRoom = (): RoomTemplate => ({
   w: room.w, h: room.h, tiles: [...room.tiles], props: JSON.parse(JSON.stringify(room.props)),
 });
 function loadRoom(t: RoomTemplate): void {
+  pushUndo();
   room.w = t.w; room.h = t.h; room.tiles = [...t.tiles]; room.props = JSON.parse(JSON.stringify(t.props));
   ($("roomId") as HTMLInputElement).value = t.id;
   ($("roomName") as HTMLInputElement).value = t.name;
@@ -304,7 +421,7 @@ $("importRoom").onclick = () => {
   try { loadRoom(JSON.parse(($("roomJson") as HTMLTextAreaElement).value)); $("roomMsg").innerHTML = '<span class="ok">imported</span>'; }
   catch { $("roomMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
 };
-$("clearRoom").onclick = () => { resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); };
+$("clearRoom").onclick = () => { pushUndo(); resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); };
 // Shipped game content, loadable for editing (re-ship to update it).
 function renderGameRooms(): void {
   const list = $("gameRooms");
@@ -344,12 +461,14 @@ $("testRoom").onclick = () => {
   }, 30);
 };
 $("resize").onclick = () => {
+  pushUndo();
   room.w = Math.max(4, Math.min(18, Number(($("roomW") as HTMLInputElement).value)));
   room.h = Math.max(4, Math.min(14, Number(($("roomH") as HTMLInputElement).value)));
   resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); frame();
 };
 $("rotateRoom").onclick = () => {
   // Rotate the whole design 90° clockwise: tiles transpose, props follow.
+  pushUndo();
   const { w, h } = room;
   const next = new Array(w * h).fill(FLOOR);
   for (let y = 0; y < h; y++) {
@@ -619,8 +738,13 @@ const fallbackBox = (key: string): THREE.Group => {
 };
 const apronMat = new THREE.MeshStandardMaterial({ color: 0x1a1a28, roughness: 0.95 });
 
+// The latest dressing pass as bake-able template props (see place()).
+const dressBake: { props: RoomProp[]; skipped: number } = { props: [], skipped: 0 };
+
 function refreshDressing(): void {
   dressGroup.clear();
+  dressBake.props = [];
+  dressBake.skipped = 0;
   if (mode !== "dress") return;
   const r = { x: 0, y: 0, w: room.w, h: room.h };
   // Apron under the surroundings so the doorway spill has ground to sit over.
@@ -666,6 +790,16 @@ function refreshDressing(): void {
       );
       obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
       dressGroup.add(obj);
+      // Bake bookkeeping: template props live at y=0 with a scalar scale, so
+      // elevated placements (wall mounts, tabletop items), corridor spill,
+      // and unknown keys can't survive the conversion — count them instead.
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const bx = r2(obj.position.x), by = r2(obj.position.z);
+      if ((opts.elevate ?? 0) > 0 || !models[key] || bx < 0 || by < 0 || bx > room.w || by > room.h) {
+        dressBake.skipped++;
+      } else {
+        dressBake.props.push({ key, x: bx, y: by, rot: r2(obj.rotation.y), scale: r2(obj.scale.x) });
+      }
       return obj;
     },
     canTorch: () => lights < 6,
@@ -777,6 +911,16 @@ $("dressReset").onclick = () => {
   dress.override = null;
   syncDressJson();
   refreshDressing();
+};
+// BAKE: the current dressing becomes the room's own props — hand-tweak each
+// piece in the Rooms tab, then save/ship as a template. Wall mounts, table-
+// top items, and corridor spill can't convert (templates are y=0, in-room).
+$("dressBake").onclick = () => {
+  if (dressBake.props.length === 0) { $("dressMsg").innerHTML = '<span class="warn">nothing to bake — dress a room first</span>'; return; }
+  pushUndo();
+  room.props = JSON.parse(JSON.stringify(dressBake.props));
+  rebuildProps();
+  $("dressMsg").innerHTML = `<span class="ok">baked ${dressBake.props.length} props into the Rooms tab${dressBake.skipped ? ` (${dressBake.skipped} elevated/corridor pieces skipped)` : ""}</span>`;
 };
 
 // ---- Tabs ----
