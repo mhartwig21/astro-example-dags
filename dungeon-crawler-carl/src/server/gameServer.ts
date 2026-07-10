@@ -553,6 +553,28 @@ export class GameServer {
   }
 
   private tickInstance(inst: Instance): void {
+    try {
+      this.tickInstanceBody(inst);
+    } catch (err) {
+      // A throw inside one party's tick (sim bug, serialization hole) must
+      // never escape the interval callback — that kills the whole process and
+      // every party on the box. Drop just this instance: characters are
+      // checkpointed if the state still serializes, sockets close, and the
+      // clients auto-reconnect into a regenerated world.
+      console.error(`instance ${inst.code} tick failed — dropping it:`, err);
+      clearInterval(inst.timer);
+      this.instances.delete(inst.code);
+      try {
+        this.checkpoint(inst);
+      } catch {
+        // The corrupt state is likely what threw; member saves from the last
+        // good checkpoint stand.
+      }
+      for (const c of inst.clients) c.ws.close();
+    }
+  }
+
+  private tickInstanceBody(inst: Instance): void {
     const t0 = performance.now();
     inst.tick++;
     // Fixed dt: sim time advances by exactly one tick regardless of wall clock.

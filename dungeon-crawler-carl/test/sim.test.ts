@@ -23,6 +23,7 @@ import {
 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
+import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
 import { assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
@@ -4585,6 +4586,34 @@ describe("RIVALS mode (competitive race)", () => {
     expect(g.status).toBe("won");
     expect(g.winnerId).toBe(a.id);
     expect(g.announcements.some((an) => an.text.includes("CONTRACT SECURED"))).toBe(true);
+  });
+
+  it("a solo rival shopping at the stairs keeps their world mounted (server crash regression)", () => {
+    // The trailing (or only) rival enters the personal shop: floorNo stays on
+    // the old floor until they leave, so that world must survive — it's what
+    // their client renders behind the shop, and rivalWorldKey/serializeFor
+    // dereference it every snapshot. Dropping it emptied state.worlds and
+    // crashed the whole server process on the next tick.
+    const g = rivalsGame(8107, 1);
+    const [a] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy();
+    // The next step is where the world-GC ran with lowest = nextFloor.
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1]).toBeTruthy();
+    // The exact calls the server makes per snapshot tick must not throw.
+    expect(rivalWorldKey(g, a.id)).toBe(`1:${g.worlds![1].mapVersion}`);
+    expect(() => serializeFor(g, a.id)).not.toThrow();
+    expect(() => serializeForDynamic(g, a.id)).not.toThrow();
+    // Leaving the shop lands on floor 2; only then is floor 1 unreachable.
+    setReady(g, a.id);
+    expect(a.floorNo).toBe(2);
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1]).toBeUndefined();
+    expect(g.worlds![2]).toBeTruthy();
   });
 
   it("kill XP is NOT split between rivals sharing a floor", () => {

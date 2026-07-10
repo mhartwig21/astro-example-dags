@@ -185,7 +185,10 @@ function rivalView(state: GameState, playerId: number) {
   const me = state.players.find((p) => p.id === playerId);
   const floors = Object.keys(state.worlds!).map(Number);
   const floorNo = me?.floorNo ?? Math.min(...floors);
-  const w = state.worlds![floorNo] ?? state.worlds![Math.min(...floors)];
+  // Last resort: the classic slots always hold the most recently mounted
+  // world, so a missing entry degrades to a stale view instead of a crash
+  // that takes the whole server process (and every party on it) down.
+  const w = state.worlds![floorNo] ?? state.worlds![Math.min(...floors)] ?? state;
   const rivals: RivalMeta[] = state.players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -217,7 +220,7 @@ export function rivalWorldKey(state: GameState, playerId: number): string {
   const floors = Object.keys(state.worlds).map(Number);
   const floorNo = me?.floorNo ?? Math.min(...floors);
   const w = state.worlds[floorNo] ?? state.worlds[Math.min(...floors)];
-  return `${floorNo}:${w.mapVersion}`;
+  return `${floorNo}:${w?.mapVersion ?? state.mapVersion}`;
 }
 
 /** FULL personal rivals snapshot (join + world changes). */

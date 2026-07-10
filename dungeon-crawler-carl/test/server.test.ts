@@ -272,6 +272,22 @@ describe("authoritative server", () => {
     b.close();
   });
 
+  it("a tick that throws drops only that instance — other parties keep playing", async () => {
+    const doomed = await connect(port, "CRASH-1", "Carl");
+    const bystander = await connect(port, "SAFE-1", "Donut");
+    const closed = new Promise<void>((r) => doomed.ws.on("close", () => r()));
+    // Corrupt the sim so the next tick throws — stands in for any future
+    // in-sim hole. Before the guard this killed the whole process.
+    const instances = (server as unknown as { instances: Map<string, { state: unknown }> }).instances;
+    instances.get("CRASH-1")!.state = null;
+    await closed; // the doomed party's socket closes...
+    expect(instances.has("CRASH-1")).toBe(false); // ...and its instance is gone
+    // ...but the process lives and the OTHER party still receives snapshots.
+    const n = bystander.snaps.length;
+    await waitFor(() => bystander.snaps.length > n);
+    bystander.close();
+  });
+
   it("RIVALS: personal snapshots carry the race standings and personal shops", async () => {
     const a = await connect(port, "RACE-1", "Carl", true);
     const b = await connect(port, "RACE-1", "Donut");
