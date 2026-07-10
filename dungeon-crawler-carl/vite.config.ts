@@ -26,13 +26,17 @@ function builderBridge(): Plugin {
     writeFileSync(indexPath, JSON.stringify(ix, null, 2));
   };
 
-  const runJob = (kind: string, id: string, prompt: string): void => {
+  const runJob = (kind: string, id: string, prompt: string, extra?: { clips?: string; source?: string }): void => {
     const job: Job = { id, kind, status: "running", detail: "generating (minutes)…" };
     jobs.set(id, job);
     const args = kind === "creature"
-      ? ["orchestrator/creature.py", "--id", id, "--prompt", prompt, "--out", `out/${id}`]
-      : ["orchestrator/run.py", "--manifest", `out/__bridge_${id}.json`];
-    if (kind !== "creature") {
+      ? ["orchestrator/creature.py", "--id", id, "--prompt", prompt, "--out", `out/${id}`,
+        ...(extra?.clips ? ["--clips", extra.clips] : [])]
+      : kind === "retexture"
+        ? ["orchestrator/retexture.py", "--input", join(genDir, `${extra?.source}.glb`),
+          "--prompt", prompt, "--out", `out/${id}/${id}.glb`]
+        : ["orchestrator/run.py", "--manifest", `out/__bridge_${id}.json`];
+    if (kind === "prop") {
       // One-off manifest for the prop runner.
       mkdirSync(join(pipeline, "out"), { recursive: true });
       writeFileSync(join(pipeline, `out/__bridge_${id}.json`), JSON.stringify({
@@ -182,11 +186,22 @@ function builderBridge(): Plugin {
           req.on("data", (c) => (body += c));
           req.on("end", () => {
             try {
-              const { kind, id, prompt } = JSON.parse(body) as { kind: string; id: string; prompt: string };
+              const { kind, id, prompt, clips, source } = JSON.parse(body) as
+                { kind: string; id: string; prompt: string; clips?: string; source?: string };
               if (!/^[a-z0-9-]{2,40}$/.test(id)) throw new Error("id must be kebab-case");
               if (!prompt || prompt.length > 300) throw new Error("prompt required (max 300 chars)");
               if (jobs.get(id)?.status === "running") throw new Error("job already running");
-              runJob(kind === "creature" ? "creature" : "prop", id, prompt);
+              if (clips && !/^[A-Za-z0-9_]+:\d+(,[A-Za-z0-9_]+:\d+)*$/.test(clips)) {
+                throw new Error("clips must be Name:actionId,Name:actionId");
+              }
+              if (kind === "retexture") {
+                if (!source || !/^[a-z0-9_-]{2,60}$/.test(source) || !existsSync(join(genDir, `${source}.glb`))) {
+                  throw new Error("source must name an existing generated .glb");
+                }
+                runJob("retexture", id, prompt, { source });
+              } else {
+                runJob(kind === "creature" ? "creature" : "prop", id, prompt, { clips });
+              }
               res.end('{"ok":true}');
             } catch (e) {
               res.statusCode = 400;

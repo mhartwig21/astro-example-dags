@@ -118,12 +118,32 @@
               preview only — in-game clips come from the chosen behavior
             </div>
           </div>
+          <div class="group">
+            <h2>Kit preview</h2>
+            <label>weapon in hand (preview only)</label>
+            <select id="kitWeapon"></select>
+            <label style="display:inline-flex;gap:5px;align-items:center;margin-top:8px">
+              <input id="kitHero" type="checkbox" style="width:auto" /> show hero for scale
+            </label>
+            <div id="kitMsg" style="color:var(--dim);font-size:11px;margin-top:4px"></div>
+          </div>
         </div>
         <div class="group" id="bridgeBox" style="display:none">
           <h2>Meshy (local bridge)</h2>
           <label>asset id (kebab-case)</label><input id="genId" placeholder="rusty-cage" />
           <label>prompt</label><input id="genPrompt" placeholder="a rusty iron cage…" />
           <div class="row"><button id="genProp">Generate Prop</button><button id="genCreature">Generate Creature</button></div>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--dim)">creature clips (3 credits each)</summary>
+            <div id="clipPicks" style="font-size:11px;display:flex;flex-direction:column;gap:2px;margin-top:4px"></div>
+          </details>
+          <details style="margin-top:6px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--dim)">retexture an existing asset</summary>
+            <label>source (generated key)</label><input id="rtxSource" placeholder="bone-cage" />
+            <label>new id</label><input id="rtxId" placeholder="bone-cage-mossy" />
+            <label>texture prompt</label><input id="rtxPrompt" placeholder="mossy weathered stone…" />
+            <div class="row"><button id="rtxGo">Retexture</button></div>
+          </details>
           <div id="jobList" style="font-size:11px;color:var(--dim);margin-top:6px"></div>
         </div>
       </div>
@@ -193,6 +213,8 @@
               <option value="0xc0392f">blood</option>
               <option value="0xffe066">crit gold</option>
             </select>
+            <label>alternate texture (B-skin)</label>
+            <select id="mobTexture"></select>
             <label>bands (spawn floors)</label>
             <div class="row" id="bandChecks"></div>
             <div class="slider-row"><span>Weight</span><input id="mWeight" type="range" min="0.1" max="3" step="0.1" value="1" /><output id="oWeight">1.0</output></div>

@@ -7,7 +7,8 @@
 
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { loadModels, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
+import { loadModels, ELITE_TEXTURES, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
+import { THEME } from "./render3d/theme";
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./render3d/dressing";
 import { ROOM_PURPOSES, resolvePurpose, type RoomPurpose, type RoomCondition } from "./sim/roomPurposes";
 import { createRng, nextFloat } from "./sim/rng";
@@ -512,6 +513,7 @@ const CHARACTER_KEYS = Object.entries(MODEL_MANIFEST)
   .sort();
 
 let mobPreview: THREE.Group | null = null;
+let mobRef: THREE.Group | null = null; // the hero, for scale
 let mobMixer: THREE.AnimationMixer | null = null;
 const mob: CustomMobDef = {
   id: "my-enemy", name: "THE NEWCOMER", behavior: "swarmer",
@@ -519,29 +521,90 @@ const mob: CustomMobDef = {
   scale: 1, bands: [0], weight: 1,
 };
 
+// Kit preview: weapon graft options (KayKit rigs share handslot bones — a
+// cloned weapon node's local transform carries over 1:1, same trick the game
+// uses for the drummer's drum and the player armory). Preview only; defs
+// have no weapon field.
+const KIT_WEAPONS: [string, [string, string, "l" | "r"] | null][] = [
+  ["none", null],
+  ["sword", ["weapon_sword_a", "*", "r"]],
+  ["greatsword", ["weapon_sword_e", "*", "r"]],
+  ["axe", ["weapon_axe_a", "*", "r"]],
+  ["war axe", ["weapon_axe_c", "*", "r"]],
+  ["maul", ["weapon_hammer_b", "*", "r"]],
+  ["spear", ["weapon_spear_a", "*", "r"]],
+  ["halberd", ["weapon_halberd", "*", "r"]],
+  ["dagger", ["weapon_dagger_a", "*", "r"]],
+  ["wand", ["weapon_wand_a", "*", "r"]],
+  ["staff", ["weapon_staff_b", "*", "r"]],
+  ["crossbow", ["armory_knives", "1H_Crossbow", "r"]],
+  ["tower shield (off hand)", ["player", "Rectangle_Shield", "l"]],
+];
+const kit = { weapon: null as [string, string, "l" | "r"] | null, hero: false };
+const previewTexCache = new Map<string, THREE.Texture>();
+const previewTexFor = (url: string): THREE.Texture => {
+  let t = previewTexCache.get(url);
+  if (!t) {
+    t = new THREE.TextureLoader().load(url);
+    t.flipY = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    previewTexCache.set(url, t);
+  }
+  return t;
+};
+// Game-accurate height: bodies normalize to 1.1 then take the archetype's
+// scale × the def's — so the preview's proportions ARE the game's, just
+// magnified by a constant view factor (hero included, so the ratio holds).
+const KIT_VIEW = 1.8;
+function normalizeForKit(g: THREE.Group, archetypeScale: number, defScale: number): void {
+  const size = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+  g.scale.setScalar((1.1 / Math.max(size.y, 1e-3)) * archetypeScale * defScale * KIT_VIEW);
+}
+
 function showMobPreview(): void {
   if (mobPreview) scene.remove(mobPreview);
+  if (mobRef) { scene.remove(mobRef); mobRef = null; }
   mobMixer = null;
   const m = models[mob.skin];
   if (!m) return;
   // SkeletonUtils.clone, not .clone(): a plain clone leaves skinned meshes
   // bound to the source scene's bones, so clips play but the mesh never moves.
   mobPreview = cloneSkinned(m.scene) as THREE.Group;
-  // Normalize to a readable size, apply scale + tint like the game would.
-  const size = new THREE.Box3().setFromObject(mobPreview).getSize(new THREE.Vector3());
-  mobPreview.scale.setScalar((2.2 / Math.max(size.y, 1e-3)) * (mob.scale ?? 1));
-  if (mob.tint) {
+  normalizeForKit(mobPreview, THEME.archetype[mob.behavior as keyof typeof THEME.archetype]?.scale ?? 1, mob.scale ?? 1);
+  // Tint + alternate texture, cloned like the game's buildMonsterMesh.
+  if (mob.tint !== undefined || mob.texture) {
+    const tex = mob.texture ? previewTexFor(mob.texture) : null;
     mobPreview.traverse((o) => {
       const mm = o as THREE.Mesh;
-      if (!mm.isMesh) return;
+      if (!mm.isMesh || !mm.material) return;
       const mat = (mm.material as THREE.MeshStandardMaterial).clone();
-      mat.emissive = new THREE.Color(mob.tint!);
-      mat.emissiveIntensity = 0.32;
+      if (tex && mat.map) mat.map = tex;
+      if (mob.tint !== undefined) {
+        mat.emissive = new THREE.Color(mob.tint);
+        mat.emissiveIntensity = 0.32;
+      }
       mm.material = mat;
     });
   }
+  // Weapon graft onto the hand slot (KayKit rig convention).
+  $("kitMsg").textContent = "";
+  if (kit.weapon) {
+    const [srcKey, node, hand] = kit.weapon;
+    const src = node === "*" ? models[srcKey]?.scene : models[srcKey]?.scene.getObjectByName(node);
+    const handObj = mobPreview.getObjectByName(`handslot${hand}`) ?? mobPreview.getObjectByName(`handslot.${hand}`);
+    if (src && handObj) handObj.add(src.clone(true));
+    else $("kitMsg").textContent = !src ? "weapon model not loaded" : "this body has no hand slot — no weapon possible";
+  }
   mobPreview.position.set(room.w / 2, 0, room.h / 2);
   scene.add(mobPreview);
+  // Hero for scale: the player model at ITS in-game height, standing beside.
+  if (kit.hero && models.player) {
+    mobRef = cloneSkinned(models.player.scene) as THREE.Group;
+    normalizeForKit(mobRef, 1, 1);
+    mobRef.position.set(room.w / 2 - 1.7, 0, room.h / 2 + 0.6);
+    mobRef.rotation.y = Math.PI / 5;
+    scene.add(mobRef);
+  }
   // Clip preview dropdown: every animation this body can play, selectable.
   const clipSel = $("mobClip") as HTMLSelectElement;
   const prevChoice = clipSel.value;
@@ -621,6 +684,39 @@ bindSlider("mWeight", "oWeight", (v) => (mob.weight = v));
   mob.tint = v ? Number(v) : undefined;
   showMobPreview();
 };
+// Alternate texture: the elites' B-skin urls, def-driven (ships with the def).
+{
+  const texSel = $("mobTexture") as HTMLSelectElement;
+  const urls = [...new Set(Object.values(ELITE_TEXTURES))];
+  const add = (v: string, label: string) => {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = label;
+    texSel.appendChild(o);
+  };
+  add("", "none");
+  for (const u of urls) add(u, u.split("/").pop()!.replace("_texture_b.png", " B"));
+  texSel.onchange = () => {
+    mob.texture = texSel.value || undefined;
+    showMobPreview();
+  };
+}
+// Kit preview controls (weapon graft + hero scale reference).
+{
+  const wSel = $("kitWeapon") as HTMLSelectElement;
+  for (const [label] of KIT_WEAPONS) {
+    const o = document.createElement("option");
+    o.value = label; o.textContent = label;
+    wSel.appendChild(o);
+  }
+  wSel.onchange = () => {
+    kit.weapon = KIT_WEAPONS.find(([l]) => l === wSel.value)?.[1] ?? null;
+    showMobPreview();
+  };
+  ($("kitHero") as HTMLInputElement).onchange = (e) => {
+    kit.hero = (e.target as HTMLInputElement).checked;
+    showMobPreview();
+  };
+}
 
 const MOBS_KEY = "dcc:builder:mobs";
 const savedMobs = (): CustomMobDef[] => JSON.parse(localStorage.getItem(MOBS_KEY) ?? "[]");
@@ -940,7 +1036,10 @@ function setMode(m: typeof mode): void {
   propGroup.visible = m === "rooms"; // manual props hide while previewing dressing
   if (ghost) ghost.visible = false;
   if (m === "mobs") showMobPreview();
-  else if (mobPreview) { scene.remove(mobPreview); mobPreview = null; mobMixer = null; }
+  else {
+    if (mobPreview) { scene.remove(mobPreview); mobPreview = null; mobMixer = null; }
+    if (mobRef) { scene.remove(mobRef); mobRef = null; }
+  }
   refreshDressing();
 }
 $("tabRooms").onclick = () => setMode("rooms");
@@ -1020,18 +1119,53 @@ async function initBridge(): Promise<void> {
   };
   setInterval(renderJobs, 4000);
   void renderJobs();
+  // Creature clip picker: the standard five (the clip-matcher's vocabulary)
+  // plus extras from the Meshy preset library, 3 credits per clip.
+  const CLIP_CHOICES: [string, number, boolean][] = [
+    ["Idle", 89, true], ["Walking_A", 1, true], ["Attack", 96, true],
+    ["Hit_A", 178, true], ["Death_A", 8, true],
+    ["Throw", 239, false], ["Drink", 342, false], ["Bow", 42, false],
+  ];
+  const clipBox = $("clipPicks");
+  for (const [name, action, on] of CLIP_CHOICES) {
+    const l = document.createElement("label");
+    l.style.cssText = "display:inline-flex;gap:5px;align-items:center;margin-top:0";
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.style.width = "auto"; c.checked = on;
+    c.dataset.clip = `${name}:${action}`;
+    l.append(c, document.createTextNode(`${name} (#${action})`));
+    clipBox.appendChild(l);
+  }
+  const pickedClips = (): string =>
+    [...clipBox.querySelectorAll<HTMLInputElement>("input:checked")].map((c) => c.dataset.clip).join(",");
   const kick = async (kind: "prop" | "creature") => {
     const id = ($("genId") as HTMLInputElement).value.trim();
     const prompt = ($("genPrompt") as HTMLInputElement).value.trim();
+    const clips = kind === "creature" ? pickedClips() : undefined;
     const r = await fetch("/__builder/generate", {
       method: "POST",
-      body: JSON.stringify({ kind, id, prompt }),
+      body: JSON.stringify({ kind, id, prompt, clips: clips || undefined }),
     });
     if (!r.ok) $("jobList").innerHTML = `<span class="warn">${(await r.json()).error}</span>`;
     else void renderJobs();
   };
   $("genProp").onclick = () => void kick("prop");
   $("genCreature").onclick = () => void kick("creature");
+  // Retexture: same mesh, new skin (~10 credits) — for palette-matching a
+  // generated asset to a band or aging a prop without regenerating geometry.
+  $("rtxGo").onclick = async () => {
+    const r = await fetch("/__builder/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "retexture",
+        id: ($("rtxId") as HTMLInputElement).value.trim(),
+        prompt: ($("rtxPrompt") as HTMLInputElement).value.trim(),
+        source: ($("rtxSource") as HTMLInputElement).value.trim(),
+      }),
+    });
+    if (!r.ok) $("jobList").innerHTML = `<span class="warn">${(await r.json()).error}</span>`;
+    else void renderJobs();
+  };
 }
 void initBridge();
 
