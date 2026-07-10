@@ -46,6 +46,23 @@ export const ROOM_PURPOSES: RoomPurpose[] = PURPOSES_DATA as unknown as RoomPurp
 // "pristine" is the default and means the variant dresses as authored.
 export type RoomCondition = "pristine" | "looted" | "scarred" | "overgrown";
 
+// What the residents SAY when you interrupt them (phase 5) — announced once
+// per floor, the first time a seated pack takes damage. System voice.
+export const RESIDENT_LINES: Record<string, string> = {
+  storage: "Something was NESTING in the stores. It objects to the audit.",
+  mess: "You interrupted DINNER. The mess hall takes this personally.",
+  archive: "QUIET in the archive. The readers enforce the rule.",
+  guardpost: "The WATCH earns its pay after all.",
+  barracks: "You woke the GARRISON. They were off duty. They are not anymore.",
+  kitchen: "You barged into the KITCHEN mid-service. The staff has knives anyway.",
+  forge: "You disturbed the FORGE. The work order now includes you.",
+  apothecary: "You jostled the GLASSWARE. The brewers bill for breakage.",
+  trainhall: "The SPARRING RING welcomes a volunteer.",
+  den: "You interrupted the HAND. All bets are off.",
+  warroom: "The PLANNERS pencil you in.",
+  ossuary: "The FILING SYSTEM objects to being rearranged.",
+};
+
 export interface RoomDressing {
   roomIdx: number; // index into map.rooms
   purpose: RoomPurpose; // variant-RESOLVED (fields already merged, variants stripped)
@@ -56,6 +73,10 @@ export interface RoomDressing {
   // renderer builds the furniture here; the sim gathers the resident pack
   // around it. Null when the purpose has no focal furniture.
   anchor: Vec2 | null;
+  // Smashable corner hoard (phase 5): the sim spawns Breakable entities here
+  // and the renderer draws THESE instead of a cosmetic corner stack, so what
+  // you see is exactly what you can hit.
+  breakables: { x: number; y: number; key: string }[];
 }
 
 /** Merge a variant over its base purpose (variant fields REPLACE base fields).
@@ -180,7 +201,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     } else if (purpose.centerpiece) {
       anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
     }
-    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor });
+    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [] });
   }
   // The story roll: one event sweeps a coherent path of conditions over the
   // independent per-room rolls above. `out` is ordered entrance-to-depths,
@@ -202,6 +223,26 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
   if (open.length > 0 && nextFloat(rng) < CONFIG.serviceChance) {
     const d = open[Math.floor(nextFloat(rng) * open.length)];
     service = { roomIdx: d.roomIdx, purposeId: d.purposeId };
+  }
+  // SMASHABLE corner hoards (phase 5) — drawn LAST so these rolls never
+  // reshuffle the story/service outcomes above, and computed against the
+  // FINAL condition (a story-looted room has no hoard left to smash).
+  for (const d of out) {
+    if (!d.purpose.cornerStack || d.condition === "looted") continue;
+    const r = map.rooms[d.roomIdx];
+    const corners = [
+      { x: 1.3, y: 1.3 }, { x: r.w - 1.3, y: 1.3 },
+      { x: 1.3, y: r.h - 1.3 }, { x: r.w - 1.3, y: r.h - 1.3 },
+    ];
+    const c = corners[Math.floor(nextFloat(rng) * 4)];
+    const n = CONFIG.breakableCountMin + Math.floor(nextFloat(rng) * (CONFIG.breakableCountMax - CONFIG.breakableCountMin + 1));
+    for (let bi = 0; bi < n; bi++) {
+      d.breakables.push({
+        x: r.x + c.x + (nextFloat(rng) - 0.5) * 0.8,
+        y: r.y + c.y + (nextFloat(rng) - 0.5) * 0.8,
+        key: d.purpose.cornerStack[Math.floor(nextFloat(rng) * d.purpose.cornerStack.length)],
+      });
+    }
   }
   return { dressings: out, story, service };
 }

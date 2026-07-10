@@ -20,13 +20,13 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
-import { PURPOSE_RESIDENTS, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
+import { PURPOSE_RESIDENTS, RESIDENT_LINES, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
 // (service verbs ride the same plan: plan.service marks the open room)
 import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -488,7 +488,9 @@ function spawnMonsters(state: GameState): void {
       (floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance));
     // Behavior VARIETY: a share of (non-ambush) packs PATROL their territory
     // together; the rest are sentries that hold the room they spawned in.
-    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance);
+    // (the chance is still DRAWN for seated packs — overriding the result
+    // instead of skipping the roll keeps the rng stream fixture-stable)
+    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance) && !social;
     // Wind-Up Battalions muster at parade strength — the synced volley IS the
     // encounter, so the squad claims its own size band and a shared squadId.
     const squadId = kind === "toysoldier" ? state.nextEntityId++ : undefined;
@@ -515,6 +517,9 @@ function spawnMonsters(state: GameState): void {
       if (roam) m.tribe = tribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
+      // Seated residents HOLD their room (sentries) and remember whose room
+      // it is — the interruption line fires on first blood (damageMonster).
+      if (social && dressing) m.residentOf = dressing.purposeId;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
       state.monsters.push(m);
       budget--;
@@ -1099,6 +1104,8 @@ export function buildFloor(state: GameState, floor: number): void {
   state.arenaT = 0; // the next arena's director starts its clock fresh
   state.corpses = [];
   state.decoys = []; // stunt contracts don't follow you downstairs
+  state.breakables = []; // the plan below restocks the smashables
+  state.residentAggro = []; // fresh floor, fresh grievances
   state.encounter = null;
   state.floorEvent = null;
   state.goldSurge = false;
@@ -1128,6 +1135,13 @@ export function buildFloor(state: GameState, floor: number): void {
   {
     const plan = assignRoomPurposes(state.seed, floor, state.map);
     if (plan.story) announce(state, "flavor", STORY_LINES[plan.story]);
+    // Destructible dressing (phase 5): the corner hoards the plan marked
+    // become sim entities — one good hit pops them for pocket gold.
+    for (const d of plan.dressings) {
+      for (const b of d.breakables) {
+        state.breakables!.push({ id: state.nextEntityId++, pos: { x: b.x, y: b.y }, key: b.key, hp: 1 });
+      }
+    }
     if (plan.service && state.runKind !== "roam") {
       const d = plan.dressings.find((dd) => dd.roomIdx === plan.service!.roomIdx);
       if (d?.anchor) {
@@ -1402,6 +1416,7 @@ export function createGame(
     strikes: [],
     bulletTimeLeft: 0,
     decoys: [],
+    breakables: [],
     hazards: [],
     corpses: [],
     pings: [],
@@ -2263,6 +2278,13 @@ export function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
+  // Interrupting the residents (phase 5): the first hit on a seated pack
+  // gets the room's line, once per floor. The furniture stays out of it.
+  if (m.residentOf && !(state.residentAggro ?? []).includes(m.residentOf)) {
+    (state.residentAggro ??= []).push(m.residentOf);
+    const line = RESIDENT_LINES[m.residentOf];
+    if (line) announce(state, "flavor", line);
+  }
   if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   // Repo Rat: every HP quarter beaten out of it SPILLS a coin of its carry —
   // the chase pays out as it runs, and the kill drops whatever's left.
@@ -2508,6 +2530,12 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
       p.meleeComboT = CONFIG.meleeMomentumWindow;
     }
   }
+  // The swing pops smashable dressing in the arc (phase 5): the Diablo
+  // barrel, at last. Same reach test the monsters get.
+  smashBreakables(state, (pos) => {
+    const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
+    return Math.hypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
+  });
   // RIVALS: the same swing arc also cuts rivals sharing this floor.
   for (const v of rivalTargets(state, p)) {
     const toV = { x: v.pos.x - p.pos.x, y: v.pos.y - p.pos.y };
@@ -3844,6 +3872,8 @@ function radialDamage(
     damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult });
     if (m.hp <= 0) killed.push(m);
   }
+  // Blasts pop the smashable dressing too — nova through the storeroom.
+  smashBreakables(state, (pos) => dist(center, pos) <= radius);
   // RIVALS: blasts don't check contracts — rivals in the radius eat it too.
   for (const v of rivalTargets(state, p)) {
     const d = dist(center, v.pos);
@@ -4429,6 +4459,23 @@ function updateHazards(state: GameState, dt: number): void {
 }
 
 /** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
+/** Pop every smashable the hit test reaches: pocket gold + a poof. */
+function smashBreakables(state: GameState, hits: (pos: Vec2) => boolean): void {
+  const bs = state.breakables ?? [];
+  if (bs.length === 0) return;
+  const left: Breakable[] = [];
+  for (const b of bs) {
+    if (!hits(b.pos)) {
+      left.push(b);
+      continue;
+    }
+    const gold = CONFIG.breakableGoldBase + Math.floor(nextFloat(state.rng) * (CONFIG.breakableGoldSpread + 1)) + Math.floor(state.floor / 3);
+    state.loot.push({ id: state.nextEntityId++, pos: { x: b.pos.x, y: b.pos.y }, kind: "gold", amount: gold });
+    hit(state, b.pos, 0, "weapon"); // the pop — hosts particle it
+  }
+  state.breakables = left;
+}
+
 function updateCorpses(state: GameState, dt: number): void {
   if (state.corpses.length === 0) return;
   for (const c of state.corpses) c.t -= dt;
@@ -4974,7 +5021,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
 /** Every per-floor GameState slot; mounting a world swaps these wholesale. */
 const WORLD_FIELDS = [
   "floor", "rng", "map", "explored", "exploredVersion", "mapVersion",
-  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys",
+  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys", "breakables",
   "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge",
   "timeBudget", "timeRemaining", "phase", "collapseElapsed",
 ] as const;
