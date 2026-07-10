@@ -302,3 +302,76 @@ describe("authoritative server", () => {
     b.close();
   });
 });
+
+describe("static file serving: caching + compression (the load-time budget)", () => {
+  let server: GameServer;
+  let port: number;
+  let dir: string;
+
+  beforeAll(async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dir = mkdtempSync(join(tmpdir(), "dcc-static-"));
+    mkdirSync(join(dir, "assets"), { recursive: true });
+    // Repetitive bytes so gzip visibly shrinks it (GLBs behave the same way).
+    writeFileSync(join(dir, "assets", "thing.glb"), Buffer.alloc(64 * 1024, 7));
+    writeFileSync(join(dir, "assets", "pic.png"), Buffer.alloc(1024, 9));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>x</title>");
+    server = new GameServer(0, dir);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(async () => {
+    server.close();
+    const { rmSync } = await import("node:fs");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("assets get a day-long TTL and an ETag; HTML always revalidates", async () => {
+    const asset = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toContain("max-age=86400");
+    expect(asset.headers.get("etag")).toMatch(/^W\//);
+    const html = await fetch(`http://127.0.0.1:${port}/index.html`);
+    expect(html.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("If-None-Match returns 304 with no body — a repeat visit never re-downloads", async () => {
+    const first = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`);
+    const etag = first.headers.get("etag")!;
+    const again = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`, {
+      headers: { "if-none-match": etag },
+    });
+    expect(again.status).toBe(304);
+    expect((await again.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("gzips GLBs on the wire (and the bytes round-trip)", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`, {
+      headers: { "accept-encoding": "gzip" },
+    });
+    // fetch transparently decompresses; verify the negotiated encoding + content.
+    const body = Buffer.from(await res.arrayBuffer());
+    expect(body.length).toBe(64 * 1024);
+    expect(body[0]).toBe(7);
+    expect(res.headers.get("vary")).toBe("accept-encoding");
+    // The raw stream must actually be gzip: ask node's http directly.
+    const { get } = await import("node:http");
+    const enc = await new Promise<string>((resolve2) => {
+      get({ host: "127.0.0.1", port, path: "/assets/thing.glb", headers: { "accept-encoding": "gzip" } },
+        (r) => { resolve2(String(r.headers["content-encoding"])); r.resume(); });
+    });
+    expect(enc).toBe("gzip");
+  });
+
+  it("skips recompressing formats that are already compressed (png)", async () => {
+    const { get } = await import("node:http");
+    const enc = await new Promise<string>((resolve2) => {
+      get({ host: "127.0.0.1", port, path: "/assets/pic.png", headers: { "accept-encoding": "gzip" } },
+        (r) => { resolve2(String(r.headers["content-encoding"])); r.resume(); });
+    });
+    expect(enc).toBe("undefined");
+  });
+});

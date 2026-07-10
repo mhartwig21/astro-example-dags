@@ -20,7 +20,7 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
-import { assignRoomPurposes } from "./roomPurposes";
+import { PURPOSE_RESIDENTS, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
 import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
@@ -400,7 +400,8 @@ function spawnMonsters(state: GameState): void {
   // each room's furniture stands — a pack that spawns in the mess hall
   // gathers AT the table instead of scattering. Spawn-safety rules still
   // apply (the social anchor is skipped if it sits too near spawn/stairs).
-  const dressings = assignRoomPurposes(state.seed, floor, map);
+  const dressings = assignRoomPurposes(state.seed, floor, map).dressings;
+  const dressingByRoom = new Map(dressings.map((d) => [d.roomIdx, d] as const));
   const socialAnchor = new Map(
     dressings
       .filter((d) => d.anchor && dist(d.anchor, map.spawn) > 6 && dist(d.anchor, map.stairs) > 2)
@@ -431,6 +432,13 @@ function spawnMonsters(state: GameState): void {
     const roomIdx = pickRoom();
     let anchor = inRoom(roomIdx);
     if (!anchor) continue;
+    const dressing = dressingByRoom.get(roomIdx);
+    // Looted and scarred rooms tell a story of ABSENCE: whatever lived here
+    // is gone or dead, so half the packs that would spawn here live
+    // elsewhere instead (budget unspent — the loop re-rolls another room).
+    if (dressing && (dressing.condition === "looted" || dressing.condition === "scarred") && chance(rng, 0.5)) {
+      continue;
+    }
     // The resident pack of a dressed room stands where the furniture is.
     const social = socialAnchor.get(roomIdx);
     if (social) anchor = { x: social.x, y: social.y };
@@ -459,7 +467,12 @@ function spawnMonsters(state: GameState): void {
       }
     }
     const size = Math.min(budget, nextInt(rng, CONFIG.packSizeMin, CONFIG.packSizeMax));
-    const kind = rollArchetype(rng, floor);
+    // OCCUPANCY v2: a dressed room's pack usually draws from its RESIDENTS —
+    // the ossuary keeps its necromancer, the barracks its garrison.
+    const residents = dressing ? PURPOSE_RESIDENTS[dressing.purposeId] : undefined;
+    const kind = residents && chance(rng, 0.7)
+      ? residents[nextInt(rng, 0, residents.length - 1)]
+      : rollArchetype(rng, floor);
     const escort = floor >= CONFIG.packEscortFromFloor && kind !== "shaman" && chance(rng, 0.3);
     // Deep-floor AMBUSH: a share of packs lie dormant in the fog and spring as
     // one when a player wanders in (see stepMonster). A ranged/support pack
@@ -1092,6 +1105,13 @@ export function buildFloor(state: GameState, floor: number): void {
   state.strongholdLeaderName = "";
   state.strongholdCleared = false;
   spawnMonsters(state);
+  // The floor's STORY (roomPurposes): if a seeded event swept this floor's
+  // dressing, the System mentions it exactly once, on arrival. The rooms
+  // show the rest — looted stores, unlit scars, the spreading damp.
+  {
+    const story = assignRoomPurposes(state.seed, floor, state.map).story;
+    if (story) announce(state, "flavor", STORY_LINES[story]);
+  }
   if (state.runKind === "roam") {
     spawnSettlement(state);
   } else {

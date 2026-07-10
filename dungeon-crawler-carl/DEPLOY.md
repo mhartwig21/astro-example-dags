@@ -78,6 +78,27 @@ Notes:
   auto-reconnect (a few seconds of pause). Deploying mid-boss is rude, not fatal.
 - Custom domain later: `fly certs add game.yourdomain.com` + a CNAME.
 
+## Observability
+
+Two live surfaces, one durable record:
+
+- **`/metrics`** — Prometheus exposition (server/metrics.ts), scraped by Fly
+  (`fly.toml [metrics]`) into the managed Grafana at
+  https://fly-metrics.net (also linked from the app's Monitoring tab).
+  Series: `dcc_tick_ms_total`/`dcc_ticks_total` (rate÷rate = avg tick cost),
+  `dcc_snapshot_bytes_total` (the wire-diet watchdog), `dcc_event_bytes_total`,
+  `dcc_players_connected`, `dcc_instances`, `dcc_joins_total`/`dcc_leaves_total`,
+  `dcc_floors_descended_total`, `dcc_runs_won_total`/`dcc_runs_lost_total`,
+  `dcc_rss_bytes`. Fly's built-in machine dashboards (CPU/mem/net) live in the
+  same Grafana.
+- **`/health`** — the JSON spot-check the deploy runbook curls.
+- **`usage_events`** (SQLite, litestream-replicated — PERSISTENCE.md): one
+  append-only row per session start/end, floor reached, and run end, each
+  carrying per-crawler BUILD summaries (slots/ultimate/weapon/power/kills/
+  damage). This is the balance record: "what builds clear floor 12", "where
+  do parties die", "how long is a session". Query with any sqlite client via
+  `fly ssh console` + `sqlite3 /data/dcc.sqlite`, or `PersistDb.listEvents`.
+
 ## Capacity & sizing (measured 2026-07-03)
 
 Evidence from a bot load test against production (`shared-cpu-1x`, 512MB,

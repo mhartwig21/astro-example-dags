@@ -30,17 +30,16 @@ pick one up cold. Delete items when they ship (git history remembers).
    target stays out of reach N seconds. Code: boss branch of `src/sim/ai.ts`,
    `boss*` knobs in `src/sim/config.ts`.
 
-7. **Streaming asset load (kill the boot wait for real).** The boot loading
-   screen (2026-07-09) reports progress but `main()` still blocks on the FULL
-   model manifest — ~211 GLBs / 67MB — before the menu appears. The renderer
-   already tolerates late models: it builds procedural stand-ins and
-   `renderer3d.init` even drops stand-ins when real models arrive
-   (`renderer3d.ts` init). Options: boot into the Ringside Check-in
-   immediately and load behind the menu, or split `MODEL_MANIFEST`
-   (`src/render3d/assets.ts`) into a critical set (hero skins, band-1
-   theme, common mobs) awaited at boot + a deferred rest. Watch the
-   loadout-graft and clip-library attach paths — they assume models exist
-   at build time.
+7. **Asset payload diet (the 10x-assets path).** Streaming boot + ETag/gzip
+   shipped 2026-07-10 (`startModelLoad` in assets.ts, static caching in
+   gameServer.ts) — boot no longer scales with asset count and repeat visits
+   are free. What still scales with 10x is FIRST-visit bandwidth (~26MB gz
+   today). Levers, in order: (a) deprioritize audio behind the model wave
+   (24MB raw competes with wave 1 on slow pipes — `void audio.load()` in
+   main3d fires at module init); (b) meshopt/Draco-compress the GLBs at
+   import time (tools/asset-pipeline); (c) KTX2 texture transcoding + atlas
+   dedup — the 61MB characters dir repeats the same KayKit atlas per file;
+   (d) per-band manifest chunks that lazy-load on first descent into a band.
 
 10. **Room vignette grammar, phases 2-3** — phase 1 shipped (2026-07-09):
     `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in
@@ -51,10 +50,11 @@ pick one up cold. Delete items when they ship (git history remembers).
     the shared pure truth (`assignRoomPurposes(seed, floor, map)`); band
     allowlists + zoning, condition modifiers (looted/scarred/overgrown),
     corridor connective tissue, and occupancy v1 (packs gather at the
-    dressed room's furniture anchor) are all live. Still open: purpose-aware
-    ARCHETYPE bias (skeletons prefer the ossuary), one seeded story-event
-    per floor applying conditions along a path, and settlement/stronghold
-    room dressing for Roam. Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    dressed room's furniture anchor) are all live. Residents bias (packs
+    draw from PURPOSE_RESIDENTS, looted/scarred rooms half-empty) and floor
+    STORY seeds (35%: looters/battle/damp sweep a condition path, announced
+    once on arrival) shipped 2026-07-10. Still open: settlement/stronghold
+    room dressing for Roam (coordinate with the Roam session's arc). Phase 3: occupancy coupling — purpose-aware spawn placement (the
     kennel spawns beasts, the mess pack sits AT the table) + one seeded
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG

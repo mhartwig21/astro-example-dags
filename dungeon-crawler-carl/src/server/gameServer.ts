@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
@@ -12,7 +13,8 @@ import {
 import { toSaveData } from "../persist/save";
 import { Leaderboard } from "./leaderboard";
 import { openDb, type PersistDb } from "./db";
-import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Vec2 } from "../sim/types";
+import { Metrics } from "./metrics";
+import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player, type Vec2 } from "../sim/types";
 
 // Authoritative multiplayer server (DESIGN.md milestone). One deterministic sim
 // per party instance; clients send intents + choices, the server ticks the sim at
@@ -93,6 +95,7 @@ interface Client {
   // False only when this account is already seated by another live connection
   // (second tab): the extra seat plays as a guest and never writes the save.
   bound: boolean;
+  joinedAt: number; // wall clock — session_end reports the session length
 }
 
 interface Instance {
@@ -108,6 +111,7 @@ interface Instance {
   // fresh, so the saved progression is applied instead.
   seated: Set<number>;
   timer: NodeJS.Timeout;
+  lastStatus: string; // playing -> won/dead edge fires the run_end event
   worldKey: string; // co-op: the world last broadcast in FULL ("" = never)
   // Per-player fingerprints of the SLOW block (equipment/inventory/abilities…)
   // — serializeDynamic omits it while unchanged; see snapshot.ts cold split.
@@ -117,6 +121,31 @@ interface Instance {
 /** Accept a well-formed client token; anything else gets a fresh identity. */
 function validToken(v: unknown): string | null {
   return typeof v === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null;
+}
+
+/** What a crawler IS right now, for the balance record: the build (slots +
+ *  ultimate + gear), the power numbers, and the run stats. Small on purpose —
+ *  one row per floor per crawler must stay cheap forever. */
+function buildSummary(p: Player): Record<string, unknown> {
+  return {
+    name: p.name,
+    level: p.level,
+    slots: p.abilities.slots,
+    ultimate: p.abilities.ultimate,
+    ranks: Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0),
+    weapon: p.equipment.weapon?.name ?? null,
+    maxHp: p.maxHp,
+    armor: p.armor,
+    attackPower: p.attackPower,
+    spellPower: p.spellPower,
+    crit: +p.critChance.toFixed(3),
+    kills: p.kills,
+    damageDealt: Math.round(p.damageDealt),
+    damageTaken: Math.round(p.damageTaken),
+    gold: p.gold,
+    sponsors: p.sponsors,
+    alive: p.alive,
+  };
 }
 
 /** Deterministic seed from an invite code (djb2), so a party code IS the dungeon. */
@@ -139,7 +168,12 @@ const MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
+  ".ttf": "font/ttf",
 };
+
+// Worth gzipping on the wire: text plus GLB (raw geometry shrinks ~60%).
+// PNG/OGG/MP3 are internally compressed already — recompressing wastes CPU.
+const COMPRESSIBLE = new Set([".glb", ".js", ".css", ".html", ".json", ".svg", ".txt", ".ttf", ".wav"]);
 
 export class GameServer {
   private http: HttpServer;
@@ -152,6 +186,8 @@ export class GameServer {
   private tickMsEma = 0;
   private tickMsMax = 0;
   private startedAt = Date.now();
+  // Prometheus registry behind /metrics (Fly scrapes it into Grafana).
+  readonly metrics = new Metrics();
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
@@ -169,12 +205,30 @@ export class GameServer {
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
+    // Gauges are read lazily at scrape time — zero cost between scrapes.
+    this.metrics.gauge("dcc_instances", () => this.instances.size);
+    this.metrics.gauge("dcc_players_connected", () => {
+      let n = 0;
+      for (const inst of this.instances.values()) n += inst.clients.length;
+      return n;
+    });
+    this.metrics.gauge("dcc_tick_ms_ema", () => +this.tickMsEma.toFixed(3));
+    this.metrics.gauge("dcc_tick_ms_max", () => +this.tickMsMax.toFixed(1));
+    this.metrics.gauge("dcc_rss_bytes", () => process.memoryUsage().rss);
+    this.metrics.gauge("dcc_uptime_seconds", () => Math.round((Date.now() - this.startedAt) / 1000));
   }
 
   private onRequest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
     const url = req.url ?? "/";
     if (url.split("?")[0] === "/leaderboard") {
       this.onLeaderboard(req, res);
+      return;
+    }
+    if (url === "/metrics") {
+      // Prometheus exposition — Fly scrapes this (fly.toml [metrics]) into
+      // the managed Grafana at fly-metrics.net.
+      res.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
+      res.end(this.metrics.render());
       return;
     }
     if (url === "/health") {
@@ -214,18 +268,46 @@ export class GameServer {
     // Cache policy: we deploy many times a day, and a browser mixing old HTML
     // with new hashed chunks (or vice versa) renders a dungeon that doesn't
     // match the sim. HTML must always revalidate; Vite's content-hashed bundles
-    // are immutable; everything else (models/audio/icons) gets a short TTL.
+    // are immutable. Assets (models/audio/icons/fonts) are the load-time
+    // budget — ~90MB across 200+ files — so they get a real TTL plus an ETag:
+    // within a day a repeat visit costs ZERO asset requests, after that each
+    // file revalidates to a 304 (no re-download) unless it actually changed.
     const ext = extname(file);
+    const st = statSync(file);
     const hashed = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file);
+    const assetish = /^(assets|audio|icons|fonts)[/\\]/.test(clean);
     const cache = ext === ".html"
       ? "no-cache"
       : hashed
         ? "public, max-age=31536000, immutable"
-        : "public, max-age=300";
-    res.writeHead(200, {
-      "content-type": MIME[ext] ?? "application/octet-stream",
+        : assetish
+          ? "public, max-age=86400, stale-while-revalidate=604800"
+          : "public, max-age=300";
+    // Weak ETag from size+mtime — cheap, and correct for whole-file replaces.
+    const etag = `W/"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"`;
+    const headers: Record<string, string> = {
       "cache-control": cache,
-    });
+      etag,
+      vary: "accept-encoding",
+    };
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    headers["content-type"] = MIME[ext] ?? "application/octet-stream";
+    // On-the-fly gzip for compressible types. GLBs are mostly raw geometry
+    // buffers and shrink ~60%; PNGs/OGGs are already compressed and skipped.
+    // Streaming (no buffering) keeps memory flat on the single Fly machine.
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+      headers["content-encoding"] = "gzip";
+      res.writeHead(200, headers);
+      createReadStream(file).pipe(createGzip({ level: 6 })).pipe(res);
+      return;
+    }
+    headers["content-length"] = String(st.size);
+    res.writeHead(200, headers);
     createReadStream(file).pipe(res);
   }
 
@@ -309,6 +391,7 @@ export class GameServer {
     let joined: { inst: Instance; playerId: number } | null = null;
 
     ws.on("message", (raw) => {
+      this.metrics.count("dcc_ws_messages_in_total");
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(String(raw));
@@ -376,7 +459,7 @@ export class GameServer {
         }
         inst.seated.add(player.id);
         player.name = name;
-        const client: Client = { ws, playerId: player.id, accountId: token, bound };
+        const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now };
         // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.
         if (inst.state.mode === "rivals") client.worldKey = rivalWorldKey(inst.state, player.id);
         inst.clients.push(client);
@@ -384,6 +467,12 @@ export class GameServer {
           this.db.upsertMember(code, token, player.id, JSON.stringify(toSaveData(inst.state, player)), now);
         }
         joined = { inst, playerId: player.id };
+        this.metrics.count("dcc_joins_total");
+        this.db?.logEvent("session_start", code, token, {
+          name, mode: inst.state.mode, runKind: inst.state.runKind,
+          floor: inst.state.floor, partySize: inst.clients.length,
+          returning: !!member,
+        }, now);
         ws.send(JSON.stringify({
           t: "welcome", playerId: player.id, token,
           snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
@@ -449,6 +538,16 @@ export class GameServer {
       // re-checkpoint (an untracked instance is already saved and gone).
       if (this.instances.get(inst.code) !== inst) return;
       this.checkpoint(inst); // final save while the leaving client is still bound
+      this.metrics.count("dcc_leaves_total");
+      const leaving = inst.clients.find((c) => c.ws === ws);
+      if (leaving && this.db?.isOpen()) {
+        const p = inst.state.players.find((pl) => pl.id === playerId);
+        this.db.logEvent("session_end", inst.code, leaving.accountId, {
+          seconds: Math.round((Date.now() - leaving.joinedAt) / 1000),
+          floor: inst.state.floor,
+          ...(p ? { player: buildSummary(p) } : {}),
+        }, Date.now());
+      }
       inst.clients = inst.clients.filter((c) => c.ws !== ws);
       inst.intents[playerId] = NO_INTENT; // seat stays; character idles until rejoin
       if (inst.clients.length === 0) {
@@ -519,6 +618,7 @@ export class GameServer {
       lastFloor: state.floor,
       seated,
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
+      lastStatus: state.status,
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
     };
@@ -589,9 +689,35 @@ export class GameServer {
     // and every ~60s of active play as a backstop.
     if (inst.state.floor !== inst.lastFloor) {
       inst.lastFloor = inst.state.floor;
+      this.metrics.count("dcc_floors_descended_total");
+      // The balance record: who reached this floor, as WHAT build. One row
+      // per floor per party — the future's "what wins floor 12" query.
+      this.db?.logEvent("floor", inst.code, null, {
+        floor: inst.state.floor,
+        mode: inst.state.mode,
+        runKind: inst.state.runKind,
+        elapsed: Math.round(inst.state.elapsed),
+        players: inst.state.players.map(buildSummary),
+      }, Date.now());
       this.checkpoint(inst);
     } else if (inst.tick % CHECKPOINT_EVERY === 0) {
       this.checkpoint(inst);
+    }
+
+    // Run over (win or wipe): the edge fires exactly once per run.
+    if (inst.state.status !== inst.lastStatus) {
+      if (inst.lastStatus === "playing") {
+        this.metrics.count(inst.state.status === "won" ? "dcc_runs_won_total" : "dcc_runs_lost_total");
+        this.db?.logEvent("run_end", inst.code, null, {
+          status: inst.state.status,
+          floor: inst.state.floor,
+          mode: inst.state.mode,
+          runKind: inst.state.runKind,
+          elapsed: Math.round(inst.state.elapsed),
+          players: inst.state.players.map(buildSummary),
+        }, Date.now());
+      }
+      inst.lastStatus = inst.state.status;
     }
 
     const s = inst.state;
@@ -609,10 +735,13 @@ export class GameServer {
           const key = rivalWorldKey(s, c.playerId);
           const full = key !== c.worldKey;
           c.worldKey = key;
-          c.ws.send(JSON.stringify({
+          const data = JSON.stringify({
             t: "snap", tick: inst.tick, full: full || undefined,
             snapshot: full ? serializeFor(s, c.playerId) : serializeForDynamic(s, c.playerId),
-          }));
+          });
+          this.metrics.count("dcc_snapshot_bytes_total", data.length);
+          this.metrics.count("dcc_snapshot_messages_total");
+          c.ws.send(data);
         }
       } else {
         const key = `${s.floor}:${s.mapVersion}`;
@@ -627,6 +756,8 @@ export class GameServer {
     const ms = performance.now() - t0;
     this.tickMsEma = this.tickMsEma * 0.98 + ms * 0.02;
     if (ms > this.tickMsMax) this.tickMsMax = ms;
+    this.metrics.count("dcc_ticks_total");
+    this.metrics.count("dcc_tick_ms_total", ms);
   }
 
   /** Ship pending transients (events/announcements/hits) to the party and
@@ -643,8 +774,16 @@ export class GameServer {
 
   private broadcast(inst: Instance, msg: unknown): void {
     const data = JSON.stringify(msg);
+    const snap = (msg as { t?: string }).t === "snap";
     for (const c of inst.clients) {
-      if (c.ws.readyState === WebSocket.OPEN) c.ws.send(data);
+      if (c.ws.readyState !== WebSocket.OPEN) continue;
+      c.ws.send(data);
+      if (snap) {
+        this.metrics.count("dcc_snapshot_bytes_total", data.length);
+        this.metrics.count("dcc_snapshot_messages_total");
+      } else {
+        this.metrics.count("dcc_event_bytes_total", data.length);
+      }
     }
   }
 }
