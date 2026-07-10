@@ -875,6 +875,20 @@ export class Renderer3D {
     }
   }
 
+  // Crafted-def alternate textures, loaded once per url (glTF convention:
+  // flipY off, sRGB — same as the elite B-variants below).
+  private defTex = new Map<string, THREE.Texture>();
+  private defTexFor(url: string): THREE.Texture {
+    let t = this.defTex.get(url);
+    if (!t) {
+      t = new THREE.TextureLoader().load(url);
+      t.flipY = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.defTex.set(url, t);
+    }
+    return t;
+  }
+
   // Elite B-variant textures, loaded once and shared (same UV atlas as the
   // embedded texture, recolored — glTF convention: flipY off, sRGB).
   private eliteTex = new Map<string, THREE.Texture>();
@@ -980,6 +994,19 @@ export class Renderer3D {
     const base = (model ? g.scale.x : 1) * spec.scale * (def?.scale ?? 1);
     g.scale.setScalar(base);
     g.userData.baseScale = base;
+    // Crafted alternate texture (the elites' B-skin mechanism, def-driven):
+    // swap the map on textured surfaces so the same body reads as a
+    // different individual. Cloned materials — trash mobs stay unchanged.
+    if (def?.texture && model) {
+      const tex = this.defTexFor(def.texture);
+      g.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || !m.material) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        if (mat.map) mat.map = tex;
+        m.material = mat;
+      });
+    }
     // Crafted tint: the def's emissive accent on cloned materials.
     if (def?.tint !== undefined && model) {
       g.traverse((o) => {

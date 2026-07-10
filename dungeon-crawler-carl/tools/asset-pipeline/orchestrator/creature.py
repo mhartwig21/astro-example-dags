@@ -73,7 +73,20 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--height", type=float, default=1.6)
     ap.add_argument("--polycount", type=int, default=6000)
+    ap.add_argument(
+        "--clips",
+        default=None,
+        help='override the clip set: "Idle:89,Walking_A:1,Throw:239" '
+             "(Name:preset-action-id, comma-separated; 3 credits each)",
+    )
     args = ap.parse_args()
+
+    clip_set = CLIP_SET
+    if args.clips:
+        clip_set = [
+            (part.split(":")[0], int(part.split(":")[1]))
+            for part in args.clips.split(",") if part.strip()
+        ]
 
     os.makedirs(args.out, exist_ok=True)
     client = MeshyClient()
@@ -93,7 +106,7 @@ def main() -> None:
         client.download(body_url, body)
 
     clips: list[str] = []
-    for clip_name, action in CLIP_SET:
+    for clip_name, action in clip_set:
         key = f"anim_{clip_name.lower()}"
         print(f"clip {clip_name}:")
         anim = stage(args.out, key, lambda a=action: client.poll(

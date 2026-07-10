@@ -50,6 +50,14 @@ first band's floor; the test-mode host registers it with every band + weight
 99, so most spawns of its behavior become YOUR enemy — fight it before you
 ship it. "Game enemies (shipped)" loads existing defs for editing.
 
+**Kit preview** (left rail): a weapon grafted onto the body's `handslot`
+bone (preview only — defs have no weapon field), and "show hero for scale"
+stands the player model beside the enemy at GAME-accurate proportions (both
+normalize to 1.1 then take the archetype's scale × the def's, magnified by
+one shared view factor). **Alternate texture (B-skin)** is a real def field
+(`texture`) applied in-game by `buildMonsterMesh` — same body, different
+individual.
+
 ## Dressing tab
 
 Previews the **vignette grammar** (`src/sim/roomPurposes.ts` +
@@ -86,7 +94,14 @@ builder page detects the bridge is absent and hides the panel.
   178/8) on the creature's OWN skeleton, renamed to the clip-matcher
   vocabulary (`blender/rename_clip.py`). No cross-skeleton retargeting.
   Creature bodies are NOT palette-snapped (re-UV vs skinning untested) —
-  prompt "flat colors" and let the emissive tint do the rest.
+  prompt "flat colors" and let the emissive tint do the rest. The **creature
+  clips** picker chooses which preset clips to compile (the standard five
+  plus Throw/Drink/Bow extras, 3 credits each; `creature.py --clips`).
+- **Retexture** (~10 credits): new texture on an EXISTING generated asset's
+  mesh — palette-match a prop to a band or age it without regenerating
+  geometry. Source must be a key in `public/assets/generated/`; the result
+  lands as a new key (`orchestrator/retexture.py`, Meshy `/openapi/v1/
+  retexture`).
 
 `public/assets/generated/` is git-ignored scratch space. **Promoting a
 creation to shipped content**: copy the GLB(s) into `public/assets/dungeon/`
