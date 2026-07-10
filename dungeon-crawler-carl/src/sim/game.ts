@@ -21,6 +21,7 @@ import {
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
 import { PURPOSE_RESIDENTS, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
+// (service verbs ride the same plan: plan.service marks the open room)
 import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
@@ -1105,12 +1106,46 @@ export function buildFloor(state: GameState, floor: number): void {
   state.strongholdLeaderName = "";
   state.strongholdCleared = false;
   spawnMonsters(state);
-  // The floor's STORY (roomPurposes): if a seeded event swept this floor's
-  // dressing, the System mentions it exactly once, on arrival. The rooms
-  // show the rest — looted stores, unlit scars, the spreading damp.
+  // The floor's STORY + SERVICES (roomPurposes): if a seeded event swept the
+  // dressing, the System mentions it exactly once; if a room is open for
+  // business (rare — plan.service), its contract sits beside the furniture.
   {
-    const story = assignRoomPurposes(state.seed, floor, state.map).story;
-    if (story) announce(state, "flavor", STORY_LINES[story]);
+    const plan = assignRoomPurposes(state.seed, floor, state.map);
+    if (plan.story) announce(state, "flavor", STORY_LINES[plan.story]);
+    if (plan.service && state.runKind !== "roam") {
+      const d = plan.dressings.find((dd) => dd.roomIdx === plan.service!.roomIdx);
+      if (d?.anchor) {
+        // The contract sits on a walkable tile nudged off the furniture.
+        for (const [dx, dy] of [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9]] as const) {
+          const x = d.anchor.x + dx, y = d.anchor.y + dy;
+          if (state.map.tiles[Math.floor(y) * state.map.w + Math.floor(x)] === Tile.Floor) {
+            state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "service", amount: 0, service: plan.service.purposeId });
+            break;
+          }
+        }
+      }
+    }
+    // THE CHASE: looters who swept the LAST floor are still ahead of you,
+    // as fleeing Repo Rats carrying the haul. Floors regenerate purely from
+    // (seed, floor), so yesterday's story is recomputable today. Floor 4+
+    // only: the Repo Rat is a SEWERS specialist (mobs.test encodes the
+    // roster rule — no filchers prowling the UNDERCROFT).
+    if (floor >= 4 && state.runKind !== "roam") {
+      const prevMap = generateFloor(createRng(floorSeed(state.seed, floor - 1)), floor - 1, state.runKind);
+      if (assignRoomPurposes(state.seed, floor - 1, prevMap).story === "looters") {
+        const carry = CONFIG.chaseFilcherCarry + floor * CONFIG.chaseFilcherCarryPerFloor;
+        const spots = walkableTiles(state.map).filter(
+          (tl) => dist(tl, state.map.spawn) > 7 && dist(tl, state.map.spawn) < 16 && dist(tl, state.map.stairs) > 3,
+        );
+        for (let i = 0; i < CONFIG.chaseFilcherCount && spots.length > 0; i++) {
+          const pos = spots.splice(nextInt(state.rng, 0, spots.length - 1), 1)[0];
+          const m = makeMonster(state, "filcher", pos);
+          m.carry = carry;
+          state.monsters.push(m);
+        }
+        announce(state, "show", "The looters from the last floor are still AHEAD of you, carrying everything they took. The System recommends repossession.");
+      }
+    }
   }
   if (state.runKind === "roam") {
     spawnSettlement(state);
@@ -2755,6 +2790,19 @@ function collectLoot(state: GameState): void {
         }
         break;
       }
+      case "service": {
+        // A room taking customers: same non-blocking pick-1 plumbing as the
+        // shrine; the contract is consumed whether you buy or walk.
+        if (p.pendingRewards.length > 0) {
+          remaining.push(l);
+          break;
+        }
+        p.pendingRewards = serviceChoices(state, l.service ?? "");
+        systemTip(state, p, "service");
+        announce(state, "show", `OPEN FOR BUSINESS: the ${l.service ?? "room"} takes customers. The System takes a cut.`);
+        hit(state, p.pos, 0, "weapon");
+        break;
+      }
       case "shrine": {
         // A bargain, not a pickup: consumed only when the crawler is free to
         // choose (never clobbers a pending sponsor draft — walk by, come back).
@@ -3188,6 +3236,7 @@ type SponsorRewardKind = Exclude<
   Reward["kind"],
   | "shrineBlood" | "shrineGreed" | "shrineDecline"
   | "shrineDraft" | "shrineLoan" | "shrineLiquidate" | "shrinePremium"
+  | "svcTemper" | "svcDraught" | "svcWager" | "svcMap" | "svcPlans"
   | "revision" | "revisionDecline"
 >;
 
@@ -3308,6 +3357,11 @@ function rewardFitScore(p: Player, r: Reward): number {
     case "shrineLoan":
     case "shrineLiquidate":
     case "shrinePremium":
+    case "svcTemper":
+    case "svcDraught":
+    case "svcWager":
+    case "svcMap":
+    case "svcPlans":
     case "revision":
     case "revisionDecline":
       return 0; // shrine bargains and castings never enter the sponsor pool
@@ -3455,6 +3509,62 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       announce(state, "show", `${p.name} pays the INSURANCE PREMIUM (${cost} gold): fully restored, statuses cleansed. The claims department is now closed.`);
       break;
     }
+    // SERVICE ROOMS (roomPurposes phase 4 — every verb costs):
+    case "svcTemper": {
+      const cost = CONFIG.svcTemperCost + Math.round(state.floor * CONFIG.svcTemperCostPerFloor);
+      if (p.gold < cost) {
+        announce(state, "show", `${p.name} cannot afford the tempering. The System does not extend credit.`);
+        break;
+      }
+      p.gold -= cost;
+      const amt = CONFIG.svcTemperDamage + Math.round(state.floor * CONFIG.svcTemperDamagePerFloor);
+      p.bonusDamage += amt;
+      p.bonusSpell += amt;
+      recomputeStats(p);
+      announce(state, "show", `${p.name}'s arms are TEMPERED at the forge: +${amt} damage, both schools, permanent. The receipt is nailed to the anvil.`);
+      break;
+    }
+    case "svcDraught": {
+      const cost = CONFIG.svcDraughtCost + Math.round(state.floor * CONFIG.svcDraughtCostPerFloor);
+      if (p.gold < cost) {
+        announce(state, "show", `${p.name} cannot afford the draught. The apothecary suggests dying cheaper.`);
+        break;
+      }
+      p.gold -= cost;
+      p.hp = p.maxHp;
+      p.statuses = [];
+      hit(state, p.pos, p.maxHp, "heal");
+      announce(state, "show", `${p.name} downs the HOUSE DRAUGHT (${cost} gold): fully restored, chemically forgiven.`);
+      break;
+    }
+    case "svcWager": {
+      const stake = CONFIG.svcWagerStake + state.floor * CONFIG.svcWagerStakePerFloor;
+      if (p.gold < stake) {
+        announce(state, "show", `${p.name} cannot cover the stake. The table has standards.`);
+        break;
+      }
+      p.gold -= stake;
+      if (chance(state.rng, CONFIG.svcWagerWinChance)) {
+        p.gold += stake * 2;
+        addHype(state, p, 15);
+        announce(state, "show", `${p.name} WINS the hand: +${stake} gold. The dealer files a complaint.`);
+      } else {
+        addHype(state, p, 5);
+        announce(state, "show", `${p.name} loses the hand (${stake} gold). The house always wins. The crowd loves it.`);
+      }
+      break;
+    }
+    case "svcMap":
+      state.explored.fill(1);
+      state.exploredVersion++;
+      addHype(state, p, 8);
+      announce(state, "show", `${p.name} reads the LEDGER: the floor's layout, filed and cross-referenced. The System admires thorough paperwork.`);
+      break;
+    case "svcPlans":
+      state.timeBudget += CONFIG.svcPlansTime;
+      state.timeRemaining += CONFIG.svcPlansTime;
+      announce(state, "show", `${p.name} studies the PLANS: the shortcuts are marked. +${CONFIG.svcPlansTime}s on the clock.`);
+      break;
     case "shrineDecline":
       break; // the shrine dims, unimpressed
     // CLASS REVISION (milestone castings — revisions.ts):
@@ -3490,6 +3600,28 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
         ? `${p.name} answers the casting call: ${r.title}.`
         : `${p.name} accepts a sponsor gift: ${r.title}.`,
   );
+}
+
+/** A service room's menu (roomPurposes phase 4): ONE verb + Walk Away.
+ * Rare by design and priced by contract — see CONFIG service knobs. */
+function serviceChoices(state: GameState, purposeId: string): Reward[] {
+  const floor = state.floor;
+  const card = (kind: Reward["kind"], title: string, desc: string): Reward =>
+    ({ id: state.nextEntityId++, kind, title, desc, amount: 0 });
+  const verb =
+    purposeId === "forge"
+      ? card("svcTemper", "Temper Your Arms", `Pay ${CONFIG.svcTemperCost + Math.round(floor * CONFIG.svcTemperCostPerFloor)} gold: +${CONFIG.svcTemperDamage + Math.round(floor * CONFIG.svcTemperDamagePerFloor)} damage, both schools, permanent`)
+      : purposeId === "apothecary"
+        ? card("svcDraught", "Buy the House Draught", `Pay ${CONFIG.svcDraughtCost + Math.round(floor * CONFIG.svcDraughtCostPerFloor)} gold: full heal, every status cleansed`)
+        : purposeId === "den"
+          ? card("svcWager", "Play a Hand", `Stake ${CONFIG.svcWagerStake + floor * CONFIG.svcWagerStakePerFloor} gold: win double or lose it. The house deals`)
+          : purposeId === "warroom"
+            ? card("svcPlans", "Study the Plans", `Free. The shortcuts are marked: +${CONFIG.svcPlansTime}s on the collapse clock`)
+            : card("svcMap", "Read the Ledger", "Free. The floor's layout, filed and cross-referenced");
+  return [
+    verb,
+    { id: state.nextEntityId++, kind: "shrineDecline", title: "Walk Away", desc: "No sale. The proprietor is dead anyway", amount: 0 },
+  ];
 }
 
 /** The System Shrine's pick-1 bargain (floor event). Rides pendingRewards —

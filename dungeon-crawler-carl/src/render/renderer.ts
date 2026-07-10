@@ -289,6 +289,7 @@ export function render(
       l.kind === "tome" ? "#66f0c8" :
       l.kind === "key" ? "#ffd23e" :
       l.kind === "shrine" ? "#c58cff" :
+      l.kind === "service" ? "#c9a24b" :
       l.kind === "gold" ? COLORS.gold : l.kind === "heal" ? COLORS.heal : COLORS.weapon;
     ctx.beginPath();
     ctx.arc(px, py, 5, 0, Math.PI * 2);

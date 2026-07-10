@@ -932,6 +932,27 @@ export const CONFIG = {
   shrineLoanDebt: 30, // ...and what the NEXT floor's budget pays back
   shrineLiquidateBonus: 1.5, // Liquidation Event: bag buyout premium over sell value
   shrinePremiumCostFraction: 0.3, // Insurance Premium: slice of current gold
+
+  // Service rooms (roomPurposes phase 4): RARE room verbs. At most ONE room
+  // per floor is "open for business" (serviceChance, rolled in the pure
+  // assignment), it must be pristine/overgrown, and every verb costs — gold,
+  // a losing-odds stake, or it pays in knowledge/time instead of power.
+  serviceChance: 0.4, // fraction of eligible floors with a service room
+  svcTemperCost: 35, // forge: gold cost base...
+  svcTemperCostPerFloor: 8,
+  svcTemperDamage: 3, // ...for this much permanent damage (both schools)...
+  svcTemperDamagePerFloor: 0.5,
+  svcDraughtCost: 25, // apothecary: full heal + cleanse
+  svcDraughtCostPerFloor: 5,
+  svcWagerStake: 30, // den: double or nothing...
+  svcWagerStakePerFloor: 10,
+  svcWagerWinChance: 0.45, // ...and the house deals
+  svcPlansTime: 20, // war room: seconds added to the collapse clock
+  // THE CHASE (floor stories): looters who swept the last floor are ahead,
+  // as fleeing Repo Rats carrying the haul.
+  chaseFilcherCount: 2,
+  chaseFilcherCarry: 40, // gold each carries base...
+  chaseFilcherCarryPerFloor: 10,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it

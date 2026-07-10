@@ -8,7 +8,7 @@
 // local rng derived from (seed, floor). No GameState, no mutation, no DOM.
 
 import { createRng, nextFloat, type Rng } from "./rng";
-import { floorBand } from "./config";
+import { CONFIG, floorBand } from "./config";
 import type { FloorMap, MonsterKind, Vec2 } from "./types";
 
 export interface RoomPurpose {
@@ -224,9 +224,17 @@ export const STORY_LINES: Record<FloorStoryId, string> = {
   damp: "The damp is winning down here. The System disclaims all fungus.",
 };
 
+// Purposes that can take customers (phase 4). The verb per purpose lives in
+// game.ts (serviceChoices) — this set only gates WHO can hang a shingle.
+export const SERVICE_PURPOSES = new Set(["forge", "apothecary", "den", "archive", "warroom"]);
+
 export interface FloorDressingPlan {
   dressings: RoomDressing[];
   story: FloorStoryId | null;
+  // At most ONE room per floor is OPEN FOR BUSINESS — rare by design (the
+  // owner's constraint: verbs must be a lucky find, not a farming loop),
+  // and never in a looted or scarred room: those have nothing left to sell.
+  service: { roomIdx: number; purposeId: string } | null;
 }
 
 function shuffleInPlace<T>(rng: Rng, a: T[]): T[] {
@@ -250,7 +258,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const r = map.rooms[ri];
     if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
   }
-  if (candidates.length === 0) return { dressings: [], story: null };
+  if (candidates.length === 0) return { dressings: [], story: null, service: null };
   const band = floorBand(floor);
   const pool = shuffleInPlace(rng, ROOM_PURPOSES.filter((pu) => !pu.bands || pu.bands.includes(band)));
   const byDist = candidates
@@ -308,5 +316,13 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const cond: RoomCondition = story === "looters" ? "looted" : story === "battle" ? "scarred" : "overgrown";
     for (let i = 0; i < Math.min(story === "battle" ? 2 : 3, path.length); i++) path[i].condition = cond;
   }
-  return { dressings: out, story };
+  let service: FloorDressingPlan["service"] = null;
+  const open = out.filter(
+    (d) => SERVICE_PURPOSES.has(d.purposeId) && d.anchor && (d.condition === "pristine" || d.condition === "overgrown"),
+  );
+  if (open.length > 0 && nextFloat(rng) < CONFIG.serviceChance) {
+    const d = open[Math.floor(nextFloat(rng) * open.length)];
+    service = { roomIdx: d.roomIdx, purposeId: d.purposeId };
+  }
+  return { dressings: out, story, service };
 }

@@ -25,6 +25,8 @@ export const TIPS: Record<string, string> = {
     "COURTESY EXPLANATION: that one was too heavy to move, so the chain moved YOU. Mass decides the direction of every extradition. The paperwork is identical.",
   afflicted:
     "COURTESY EXPLANATION: you are AFFLICTED. Status effects tick on their own clock — dashing dodges hits, not chemistry. Time cures everything it doesn't kill first.",
+  service:
+    "COURTESY EXPLANATION: this room is OPEN FOR BUSINESS. Some rooms still take customers — rarely, and never for free. Terms are posted. The System takes a cut either way.",
   lowhp:
     "COURTESY EXPLANATION: your near-death experience is EXCELLENT television — surviving below a third of your health pays bonus hype. Dying pays nothing. The distinction matters.",
   overrank:
