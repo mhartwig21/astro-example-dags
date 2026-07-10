@@ -21,6 +21,12 @@ kill_timeout = "30s"
   LEADERBOARD_FILE = "/data/leaderboard.json"
   DB_FILE = "/data/dcc.sqlite"
 
+# Fly scrapes this into its managed Prometheus/Grafana (fly-metrics.net):
+# tick cost, snapshot bytes, players/instances, joins, run outcomes.
+[metrics]
+  port = 8080
+  path = "/metrics"
+
 [http_service]
   internal_port = 8080
   force_https = true
