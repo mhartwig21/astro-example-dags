@@ -52,35 +52,108 @@ export function deserialize(json: string): GameState {
   };
 }
 
+// Server-only Monster fields no host ever reads (audited across main3d,
+// render3d, render, net on 2026-07-10) — stripped from wire monsters in
+// DYNAMIC snapshots. Fails safe: a NEW field simply ships until it's added
+// here; if presentation grows a need for a listed one, delete its entry.
+const MONSTER_WIRE_OMIT = [
+  "damage", "speed", "xp", "attackCooldown", "shootCd", "healCd", "affixCd",
+  "sigCd", "slamCd", "ritualCd", "poiseDmg", "staggerGraceT", "lastHitBy",
+  "roams", "home", "wanderT", "wanderDir", "raiseId", "signature", "sigAlt",
+  "sigUsed", "chargeT", "chargeHits", "surgeT", "bleedStage", "frenzyT",
+  "aura", "bossTier", "bountyT", "bountyGold", "consecrateAt", "duoId",
+  "enraged", "escaped", "exploded", "fleeT", "healId", "heat", "reentryAt",
+  "shieldT", "squadId", "summons", "tribe", "vanishT",
+] as const satisfies readonly (keyof Monster)[];
+
+function wireMonster(m: Monster): Monster {
+  const w = { ...m } as Record<string, unknown>;
+  for (const k of MONSTER_WIRE_OMIT) delete w[k];
+  return w as unknown as Monster;
+}
+
+/** Wire floats: 3 decimals is sub-pixel for positions and invisible for
+ * timers/meters, where a raw double is ~17 digits of JSON. Integers pass
+ * through untouched. DYNAMIC snapshots only — full snapshots feed
+ * persistence and the golden determinism guarantee, and stay exact. */
+function roundFloats(_k: string, v: unknown): unknown {
+  return typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 1000) / 1000 : v;
+}
+
 /**
  * Interest management: the monsters a client could currently perceive. Fog
  * hides everything beyond vision anyway, and on dense floors the far crowd
  * was most of the recurring payload. Bosses, named elites, and key carriers
  * always ship — the boss bar, ringside intros, and the key don't wait on
- * proximity. Dynamic snapshots carry `monstersLeft` (the authoritative count)
- * so hosts can tell a cleared floor from a distant one.
+ * proximity. Shipped monsters are trimmed to their presentation fields
+ * (MONSTER_WIRE_OMIT above). Dynamic snapshots carry `monstersLeft` (the
+ * authoritative count) so hosts can tell a cleared floor from a distant one.
  */
 export function interestMonsters(monsters: readonly Monster[], players: readonly Player[]): Monster[] {
   const r2 = CONFIG.interestRadius * CONFIG.interestRadius;
-  return monsters.filter((m) =>
-    m.kind === "boss" || m.elite || m.hasKey ||
-    players.some((p) => {
-      if (!p.alive) return false;
-      const dx = p.pos.x - m.pos.x, dy = p.pos.y - m.pos.y;
-      return dx * dx + dy * dy <= r2;
-    }));
+  return monsters
+    .filter((m) =>
+      m.kind === "boss" || m.elite || m.hasKey ||
+      players.some((p) => {
+        if (!p.alive) return false;
+        const dx = p.pos.x - m.pos.x, dy = p.pos.y - m.pos.y;
+        return dx * dx + dy * dy <= r2;
+      }))
+    .map(wireMonster);
+}
+
+// A player's SLOW block: fields that change only through explicit actions
+// (equips, shop buys, drafts, achievements) yet weigh ~1 KB per crawler.
+// Co-op dynamic snapshots omit them while unchanged — the server tracks a
+// per-player fingerprint in the instance's coldCache — and the client merges
+// them forward from its previous snapshot (mergeColdPlayers). Welcome and
+// FULL snapshots always carry everything, so every client's baseline
+// predates any stripping. Rivals views are NOT stripped: players enter and
+// leave a personal view by floor, so "previous snapshot" is no baseline.
+export const PLAYER_COLD_FIELDS = [
+  "equipment", "inventory", "abilities", "achievements", "materials",
+  "tipsSeen", "revisions", "pendingUpgrades", "pendingRewards",
+] as const satisfies readonly (keyof Player)[];
+
+/** Fingerprint of the slow block (exact values — not wire-rounded). */
+function coldFingerprint(p: Player): string {
+  return JSON.stringify(PLAYER_COLD_FIELDS.map((k) => p[k] ?? null));
+}
+
+/** Client side of the cold split: a wire player missing its slow block
+ * (equipment is otherwise always an object) inherits it from the previous
+ * snapshot's same-id player. Mutates `next` in place. */
+export function mergeColdPlayers(next: Player[], prev: readonly Player[]): void {
+  for (const p of next) {
+    if ((p as Partial<Player>).equipment !== undefined) continue;
+    const old = prev.find((q) => q.id === p.id);
+    if (!old) continue;
+    for (const k of PLAYER_COLD_FIELDS) (p as unknown as Record<string, unknown>)[k] = old[k];
+  }
 }
 
 /** Encode the recurring DYNAMIC snapshot: everything except map + fog mask,
- * with the monster list trimmed to the party's interest bubble. */
-export function serializeDynamic(state: GameState): string {
+ * with the monster list trimmed to the party's interest bubble and player
+ * slow blocks omitted while unchanged (when a coldCache is provided). */
+export function serializeDynamic(state: GameState, coldCache?: Map<number, string>): string {
+  const players = !coldCache ? state.players : state.players.map((p) => {
+    const fp = coldFingerprint(p);
+    if (coldCache.get(p.id) === fp) {
+      const w = { ...p } as Record<string, unknown>;
+      for (const k of PLAYER_COLD_FIELDS) delete w[k];
+      return w as unknown as Player;
+    }
+    coldCache.set(p.id, fp);
+    return p;
+  });
   const wire = {
     ...state,
+    players,
     monsters: interestMonsters(state.monsters, state.players),
     monstersLeft: state.monsters.length,
     explored: undefined, map: undefined, worlds: undefined,
   };
-  return JSON.stringify(wire);
+  return JSON.stringify(wire, roundFloats);
 }
 
 /** Decode a DYNAMIC snapshot onto the client's cached world (map + fog). */
@@ -168,5 +241,5 @@ export function serializeForDynamic(state: GameState, playerId: number): string 
     monsters: interestMonsters(view.monsters, view.players),
     monstersLeft: view.monsters.length,
     explored: undefined, map: undefined,
-  });
+  }, roundFloats);
 }

@@ -1,0 +1,18 @@
+# Continuous SQLite replication to Tigris (PERSISTENCE.md). Copied to
+# /etc/litestream.yml in the image; litestream reads it by default.
+#
+# The AWS_* credentials, endpoint, and BUCKET_NAME are Fly app secrets set by
+# `fly storage create --name dcc-backup` — nothing sensitive lives here. When
+# those env vars are absent (local dev, plain docker run), the container CMD
+# skips litestream entirely and runs the server directly.
+dbs:
+  - path: /data/dcc.sqlite
+    replicas:
+      - type: s3
+        bucket: ${BUCKET_NAME}
+        path: dcc.sqlite
+        endpoint: ${AWS_ENDPOINT_URL_S3}
+        region: ${AWS_REGION}
+        # Tigris keeps the history; a day of retention on our side is plenty
+        # alongside Fly's daily volume snapshots.
+        retention: 24h

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
 import { GameServer, seedFromCode } from "../src/server/gameServer";
-import { serialize, deserialize, serializeDynamic, deserializeDynamic } from "../src/sim/snapshot";
+import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
 
@@ -38,14 +38,17 @@ describe("snapshot (serialize/deserialize)", () => {
     expect(dyn).not.toContain('"explored"');
     // The diet is the point: the recurring snapshot sheds the grid + mask.
     expect(dyn.length).toBeLessThan(serialize(a).length * 0.75);
-    // Reattached to a cached world, everything non-monster survives verbatim
-    // and the world arrays are the cached objects themselves.
+    // Reattached to a cached world: the world arrays are the cached objects
+    // themselves, identities/integers are exact, floats are wire-rounded.
     const world = deserialize(serialize(a));
     const b = deserializeDynamic(dyn, world.map, world.explored);
     expect(b.map).toBe(world.map);
     expect(b.explored).toBe(world.explored);
-    expect(b.players).toEqual(JSON.parse(serialize(a)).players);
-    expect(b.rng).toEqual(a.rng);
+    expect(b.players.map((p) => [p.id, p.name, p.hp, p.gold])).toEqual(
+      a.players.map((p) => [p.id, p.name, p.hp, p.gold]));
+    expect(b.players[0].pos.x).toBeCloseTo(a.players[0].pos.x, 2);
+    expect(b.players[0].pos.y).toBeCloseTo(a.players[0].pos.y, 2);
+    expect(b.rng).toEqual(a.rng); // integer state — exact
   });
 
   it("interest management: far chaff is trimmed, headliners and the key always ship", () => {
@@ -70,8 +73,51 @@ describe("snapshot (serialize/deserialize)", () => {
     expect(shipped).not.toContain(farGrunt.id); // fog-hidden chaff stays home
     // The authoritative count rides along so hosts can tell "cleared" from "far".
     expect(dyn.monstersLeft).toBe(4);
-    // Shipped monsters are VERBATIM — the filter trims, never rewrites.
-    expect(dyn.monsters.find((m) => m.id === near.id)).toEqual(JSON.parse(JSON.stringify(near)));
+    // Wire monsters keep every field the hosts read and shed the AI bookkeeping.
+    const w = dyn.monsters.find((m) => m.id === near.id)!;
+    expect(w.pos).toEqual({ x: near.pos.x, y: near.pos.y });
+    expect(w.kind).toBe(near.kind);
+    expect(w.hp).toBe(near.hp);
+    expect(w.maxHp).toBe(near.maxHp);
+    expect(w.attackRange).toBe(near.attackRange); // telegraph rings need it
+    expect(w.damage).toBeUndefined(); // server-only stats stay home
+    expect(w.xp).toBeUndefined();
+    expect(w.poiseDmg).toBeUndefined();
+    const we = dyn.monsters.find((m) => m.id === farElite.id)!;
+    expect(we.eliteName).toBe("THE LANDLORD"); // the boss bar's name survives
+  });
+
+  it("cold split: unchanged gear/bags ship once, then stay home until they change", () => {
+    const g = createGame(777);
+    const cache = new Map<number, string>();
+    // First dynamic snapshot with a cache: the slow block ships (baseline).
+    const first = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect(first.players[0].equipment).toBeDefined();
+    expect(first.players[0].inventory).toBeDefined();
+    // Nothing changed: the slow block stays home.
+    const second = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect(second.players[0].equipment).toBeUndefined();
+    expect(second.players[0].inventory).toBeUndefined();
+    expect(second.players[0].hp).toBe(g.players[0].hp); // hot fields still ride
+    // The client merges the block forward from its previous snapshot.
+    mergeColdPlayers(second.players, first.players);
+    expect(second.players[0].equipment).toEqual(first.players[0].equipment);
+    expect(second.players[0].abilities).toEqual(first.players[0].abilities);
+    // A change (loot enters the bag) ships the block again on the next snap.
+    g.players[0].inventory = [...g.players[0].inventory];
+    g.players[0].tipsSeen = [...(g.players[0].tipsSeen ?? []), "bolt"];
+    const third = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect(third.players[0].equipment).toBeDefined();
+    expect(third.players[0].tipsSeen).toContain("bolt");
+  });
+
+  it("wire floats are rounded to sub-pixel precision (dynamic only)", () => {
+    const a = createGame(31337);
+    drive(a, 97); // odd step count: positions land on long doubles
+    const dyn = serializeDynamic(a);
+    expect(dyn).not.toMatch(/\d\.\d{4,}/); // no 17-digit doubles on the wire
+    // Full snapshots stay EXACT — they feed persistence and golden determinism.
+    expect(serialize(a)).toContain(String(a.players[0].pos.x));
   });
 
   it("payload contract: a dense-floor dynamic snapshot is a fraction of the full state", () => {
@@ -111,7 +157,7 @@ function connect(port: number, code: string, name: string, rivals = false): Prom
       close: () => ws.close(),
     };
     // Mirrors NetClient: full snapshots refresh the cached world, dynamic
-    // ones (the recurring kind) ride on it.
+    // ones (the recurring kind) ride on it and inherit unchanged cold blocks.
     let world: { map: GameState["map"]; explored: Uint8Array } | null = null;
     const absorb = (snapshot: string, full: boolean): GameState | null => {
       if (full) {
@@ -119,7 +165,10 @@ function connect(port: number, code: string, name: string, rivals = false): Prom
         world = { map: s.map, explored: s.explored };
         return s;
       }
-      return world ? deserializeDynamic(snapshot, world.map, world.explored) : null;
+      if (!world) return null;
+      const s = deserializeDynamic(snapshot, world.map, world.explored);
+      if (client.lastSnap) mergeColdPlayers(s.players, client.lastSnap.players);
+      return s;
     };
     ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined }));
     ws.on("message", (raw) => {

@@ -42,9 +42,12 @@ restarts; Fly snapshots the volume daily (5 kept). The volume was created with
 `fly volumes create dcc_data --region ord --size 1` — one volume, one machine,
 same region; if the machine is ever recreated from scratch, make sure a
 `dcc_data` volume exists in its region first. The same volume holds
-`/data/dcc.sqlite` (`DB_FILE`): per-account character saves for multiplayer
-parties — see PERSISTENCE.md. Run history / personal bests remain
-browser-local (`dcc:history:v1`).
+`/data/dcc.sqlite` (`DB_FILE`): per-account character saves + hibernated
+worlds for multiplayer parties — see PERSISTENCE.md. That file is ALSO
+replicated offsite continuously by Litestream (Tigris bucket `dcc-backup`;
+config in `litestream.yml`), and restored automatically at boot if the volume
+is ever fresh — so even total volume loss costs seconds, not a day. Run
+history / personal bests remain browser-local (`dcc:history:v1`).
 
 Or the actual container, if Docker is installed:
 
