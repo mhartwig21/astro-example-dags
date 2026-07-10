@@ -953,6 +953,11 @@ export const CONFIG = {
   chaseFilcherCount: 2,
   chaseFilcherCarry: 40, // gold each carries base...
   chaseFilcherCarryPerFloor: 10,
+  // Destructible dressing (phase 5): smashing a hoard pops pocket change.
+  breakableGoldBase: 3,
+  breakableGoldSpread: 4, // + up to this much, seeded
+  breakableCountMin: 2, // per dressed room with an intact corner hoard...
+  breakableCountMax: 3,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
