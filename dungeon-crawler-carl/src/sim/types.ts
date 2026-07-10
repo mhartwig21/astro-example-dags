@@ -383,7 +383,7 @@ export interface Quest {
   state: "offered" | "active" | "complete";
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
 // on legendary signature gear (see catalog.ts).
@@ -453,6 +453,7 @@ export interface Loot {
   rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
   ability?: AbilityId; // present when kind === "tome": the ability it teaches
   material?: MaterialId; // present when kind === "material"
+  service?: string; // present when kind === "service": the purpose taking customers
 }
 
 // The between-floors safe room / System Shop. While non-null, the sim is
@@ -488,6 +489,12 @@ export type RewardKind =
   | "shrineLoan" // Time Loan: +seconds now; the NEXT floor starts shorter
   | "shrineLiquidate" // Liquidation Event: the shrine buys the whole bag at a premium
   | "shrinePremium" // Insurance Premium: a slice of gold for full heal + cleanse
+  // SERVICE ROOMS (roomPurposes phase 4 — rare; at most one per floor):
+  | "svcTemper" // the forge: gold for permanent damage, both schools
+  | "svcDraught" // the apothecary: gold for full heal + cleanse
+  | "svcWager" // the den: stake gold on a hand the house usually wins
+  | "svcMap" // the archive: the floor's layout, filed and cross-referenced
+  | "svcPlans" // the war room: the shortcuts are marked (+collapse time)
   // CLASS REVISION milestone drafts (revisions.ts — never in the sponsor pool):
   | "revision" // a permanent recasting with a built-in curse
   | "revisionDecline"; // REMAIN UNCAST (defiance pays a small permanent hype bonus)

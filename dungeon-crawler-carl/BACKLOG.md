@@ -53,8 +53,15 @@ pick one up cold. Delete items when they ship (git history remembers).
     dressed room's furniture anchor) are all live. Residents bias (packs
     draw from PURPOSE_RESIDENTS, looted/scarred rooms half-empty) and floor
     STORY seeds (35%: looters/battle/damp sweep a condition path, announced
-    once on arrival) shipped 2026-07-10. Still open: settlement/stronghold
-    room dressing for Roam (coordinate with the Roam session's arc). Phase 3: occupancy coupling — purpose-aware spawn placement (the
+    once on arrival) shipped 2026-07-10. Phase 4 shipped
+    2026-07-10: RARE service rooms (at most one per floor, ~40% of floors,
+    pristine/overgrown only — plan.service in roomPurposes.ts) put a priced
+    verb behind a touchable contract (forge tempering, apothecary draught,
+    den wager at losing odds, archive floor-map, war-room clock time), and
+    looter stories CHASE onto the next floor as fleeing Repo Rats (floor 4+).
+    Still open: settlement/stronghold room dressing for Roam (coordinate
+    with the Roam session's arc); behavioral residents (idle acts) and
+    destructible dressing are the phase-5 candidates. Phase 3: occupancy coupling — purpose-aware spawn placement (the
     kennel spawns beasts, the mess pack sits AT the table) + one seeded
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG

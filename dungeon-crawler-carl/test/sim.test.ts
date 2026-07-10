@@ -5175,3 +5175,70 @@ describe("floor stories and residents", () => {
     expect(found).toBeGreaterThanOrEqual(3); // ~35% of 60 seeds should story
   });
 });
+
+describe("service rooms (phase 4: rare room verbs)", () => {
+  const svcCard = (kind: import("../src/sim/types").Reward["kind"]) =>
+    ({ id: 1, kind, title: kind, desc: "", amount: 0 });
+
+  it("a contract appears rarely, at most one, only in businesslike rooms", () => {
+    let sawService = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const svc = g.loot.filter((l) => l.kind === "service");
+      expect(svc.length).toBeLessThanOrEqual(1);
+      if (svc.length === 1) {
+        sawService++;
+        const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+        expect(plan.service?.purposeId).toBe(svc[0].service);
+        const d = plan.dressings.find((dd) => dd.roomIdx === plan.service!.roomIdx)!;
+        expect(["pristine", "overgrown"]).toContain(d.condition);
+      }
+    }
+    expect(sawService).toBeGreaterThan(2); // real...
+    expect(sawService).toBeLessThan(30); // ...but rare
+  });
+
+  it("the forge tempers for gold", () => {
+    const g = createTestGame({ seed: 61, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 500;
+    const dmg0 = p.bonusDamage;
+    p.pendingRewards = [svcCard("svcTemper")];
+    chooseReward(g, p.id, 0);
+    const cost = CONFIG.svcTemperCost + Math.round(g.floor * CONFIG.svcTemperCostPerFloor);
+    const amt = CONFIG.svcTemperDamage + Math.round(g.floor * CONFIG.svcTemperDamagePerFloor);
+    expect(p.gold).toBe(500 - cost);
+    expect(p.bonusDamage).toBe(dmg0 + amt);
+  });
+
+  it("the den's wager is a real stake: double or nothing", () => {
+    const g = createTestGame({ seed: 62, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 500;
+    p.pendingRewards = [svcCard("svcWager")];
+    chooseReward(g, p.id, 0);
+    const stake = CONFIG.svcWagerStake + g.floor * CONFIG.svcWagerStakePerFloor;
+    expect([500 - stake, 500 + stake]).toContain(p.gold);
+  });
+
+  it("the archive's ledger maps the floor", () => {
+    const g = createTestGame({ seed: 63, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.pendingRewards = [svcCard("svcMap")];
+    chooseReward(g, p.id, 0);
+    expect(Array.from(g.explored).every((v) => v === 1)).toBe(true);
+  });
+
+  it("last floor's looters flee ahead of you, haul in hand", () => {
+    let found = false;
+    for (let seed = 1; seed <= 90 && !found; seed++) {
+      const g = createTestGame({ seed, floor: 6, level: 6 });
+      if (!g.announcements.some((a) => a.text.includes("recommends repossession"))) continue;
+      found = true;
+      const carry = CONFIG.chaseFilcherCarry + g.floor * CONFIG.chaseFilcherCarryPerFloor;
+      const chasers = g.monsters.filter((m) => m.kind === "filcher" && (m.carry ?? 0) >= carry);
+      expect(chasers.length).toBeGreaterThanOrEqual(1);
+    }
+    expect(found).toBe(true);
+  });
+});

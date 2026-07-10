@@ -1020,6 +1020,11 @@ export class Renderer3D {
       // not a pickup — the purple halo below marks it as a System offer.
       obj = this.modelInstance("lantern_standing");
       scale = 0.85;
+    } else if (l.kind === "service") {
+      // A rolled System contract beside the furniture: this room takes
+      // customers (roomPurposes phase 4). Gold halo = commerce.
+      obj = this.modelInstance("map_rolled");
+      scale = 0.5;
     } else if (l.kind === "item" && l.item) {
       const vis = groundVisualFor(l.item);
       const node = vis
@@ -1078,6 +1083,7 @@ export class Renderer3D {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
     if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
     if (kind === "shrine") return 0xc58cff; // System Shrine: bargain purple
+    if (kind === "service") return 0xc9a24b; // service contract: System gold
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
   }
 
