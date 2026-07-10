@@ -9,7 +9,7 @@
 
 import { createRng, nextFloat, type Rng } from "./rng";
 import { floorBand } from "./config";
-import type { FloorMap, Vec2 } from "./types";
+import type { FloorMap, MonsterKind, Vec2 } from "./types";
 
 export interface RoomPurpose {
   id: string;
@@ -192,6 +192,43 @@ export function resolvePurpose(
   return variant ? { ...base, ...variant, id: base.id, variants: undefined } : base;
 }
 
+// OCCUPANCY v2: who actually lives in each kind of room. When a pack spawns
+// in a dressed room it usually (70%) draws from these instead of the band
+// table — the ossuary keeps the necromancer's crew, the barracks its
+// garrison, the stores their vermin. Universal kinds only, so every band
+// can staff every room it is allowed to have.
+export const PURPOSE_RESIDENTS: Record<string, MonsterKind[]> = {
+  storage: ["swarmer", "grunt"], // vermin in the stores
+  mess: ["grunt", "brute"], // the off-shift, eating
+  archive: ["shaman", "ranged"], // readers with opinions
+  guardpost: ["ranged", "grunt"], // the watch, watching
+  barracks: ["grunt", "ranged"], // the garrison, off duty
+  kitchen: ["grunt", "swarmer"], // staff and the things staff attract
+  forge: ["brute", "grunt"], // heavy work wants heavy hands
+  apothecary: ["shaman", "ranged"], // the brewers
+  trainhall: ["brute", "grunt"], // sparring partners
+  den: ["grunt", "brute"], // the card game does not stop for you
+  warroom: ["ranged", "shaman"], // planners and their bodyguards
+  ossuary: ["necromancer", "swarmer", "swarmer"], // the filing clerk and the files
+};
+
+// FLOOR STORIES: one seeded event per floor (35%) leaves its mark as a swept
+// PATH of conditions instead of independent rolls — looters came in the same
+// door you did, a battle tore through the middle, the damp claims the deep
+// end. buildFloor announces the line once on arrival; the dressing shows it.
+export type FloorStoryId = "looters" | "battle" | "damp";
+
+export const STORY_LINES: Record<FloorStoryId, string> = {
+  looters: "Someone swept this floor ahead of you. The System reviewed the footage and is saying nothing.",
+  battle: "Something fought through these halls before you arrived. The System does not clean up between takes.",
+  damp: "The damp is winning down here. The System disclaims all fungus.",
+};
+
+export interface FloorDressingPlan {
+  dressings: RoomDressing[];
+  story: FloorStoryId | null;
+}
+
 function shuffleInPlace<T>(rng: Rng, a: T[]): T[] {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(nextFloat(rng) * (i + 1));
@@ -206,14 +243,14 @@ function shuffleInPlace<T>(rng: Rng, a: T[]): T[] {
  * entrance-to-depths span (living by the door, work in the middle, the
  * strange rooms deepest), each with a seeded variant and condition roll.
  */
-export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): RoomDressing[] {
+export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): FloorDressingPlan {
   const rng = createRng(((Math.imul(seed ^ 0x9e3779b1, 0x85ebca6b) >>> 0) ^ Math.imul(floor + 1, 0xc2b2ae35)) >>> 0);
   const candidates: number[] = [];
   for (let ri = 0; ri < map.rooms.length; ri++) {
     const r = map.rooms[ri];
     if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
   }
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { dressings: [], story: null };
   const band = floorBand(floor);
   const pool = shuffleInPlace(rng, ROOM_PURPOSES.filter((pu) => !pu.bands || pu.bands.includes(band)));
   const byDist = candidates
@@ -258,5 +295,18 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     }
     out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor });
   }
-  return out;
+  // The story roll: one event sweeps a coherent path of conditions over the
+  // independent per-room rolls above. `out` is ordered entrance-to-depths,
+  // so "who it hit" is a slice: looters take the front rooms (they came in
+  // the same door you did), the damp takes the deep end, battle the middle.
+  let story: FloorStoryId | null = null;
+  if (out.length >= 2 && nextFloat(rng) < 0.35) {
+    const options: FloorStoryId[] = ["looters", "battle"];
+    if (band === 1 || band === 3) options.push("damp");
+    story = options[Math.floor(nextFloat(rng) * options.length)];
+    const path = story === "damp" ? [...out].reverse() : story === "battle" ? out.slice(1) : out;
+    const cond: RoomCondition = story === "looters" ? "looted" : story === "battle" ? "scarred" : "overgrown";
+    for (let i = 0; i < Math.min(story === "battle" ? 2 : 3, path.length); i++) path[i].condition = cond;
+  }
+  return { dressings: out, story };
 }

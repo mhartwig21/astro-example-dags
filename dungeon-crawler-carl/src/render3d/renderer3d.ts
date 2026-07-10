@@ -1626,7 +1626,7 @@ export class Renderer3D {
       // The dressing plan comes from the SIM-SHARED assignment: same seed,
       // same rooms, same purposes for the renderer and for spawnMonsters —
       // which is what lets the mess pack actually sit at the mess table.
-      const dressings = assignRoomPurposes(state.seed, state.floor, map);
+      const dressings = assignRoomPurposes(state.seed, state.floor, map).dressings;
       for (const d of dressings) dressRoomPurpose(dressEnv, map.rooms[d.roomIdx], d);
       // CORRIDOR TISSUE: the job leaks out the door so corridors read as
       // paths BETWEEN places rather than filler.

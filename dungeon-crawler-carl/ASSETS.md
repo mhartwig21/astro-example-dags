@@ -197,7 +197,7 @@ attribution. It is provided in-game (KEY BINDINGS panel footer) and here:
 | sprint | dash | Lorc |
 | energy-arrow | bolt | Lorc |
 | explosion-rays | nova | Lorc |
-| orbital | orbit | Lorc |
+| orbit *(original)* | orbit | drawn for this repo, CC0 — NOT game-icons (the game-icons "orbital" was all hairline rings and vanished at 30px chip size) |
 | switch-weapon | stance | Delapouite |
 | lightning-arc | overcharge | Lorc |
 | carpet-bombing | airstrike | Skoll |
