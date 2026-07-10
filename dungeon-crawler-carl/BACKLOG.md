@@ -30,17 +30,16 @@ pick one up cold. Delete items when they ship (git history remembers).
    target stays out of reach N seconds. Code: boss branch of `src/sim/ai.ts`,
    `boss*` knobs in `src/sim/config.ts`.
 
-7. **Streaming asset load (kill the boot wait for real).** The boot loading
-   screen (2026-07-09) reports progress but `main()` still blocks on the FULL
-   model manifest — ~211 GLBs / 67MB — before the menu appears. The renderer
-   already tolerates late models: it builds procedural stand-ins and
-   `renderer3d.init` even drops stand-ins when real models arrive
-   (`renderer3d.ts` init). Options: boot into the Ringside Check-in
-   immediately and load behind the menu, or split `MODEL_MANIFEST`
-   (`src/render3d/assets.ts`) into a critical set (hero skins, band-1
-   theme, common mobs) awaited at boot + a deferred rest. Watch the
-   loadout-graft and clip-library attach paths — they assume models exist
-   at build time.
+7. **Asset payload diet (the 10x-assets path).** Streaming boot + ETag/gzip
+   shipped 2026-07-10 (`startModelLoad` in assets.ts, static caching in
+   gameServer.ts) — boot no longer scales with asset count and repeat visits
+   are free. What still scales with 10x is FIRST-visit bandwidth (~26MB gz
+   today). Levers, in order: (a) deprioritize audio behind the model wave
+   (24MB raw competes with wave 1 on slow pipes — `void audio.load()` in
+   main3d fires at module init); (b) meshopt/Draco-compress the GLBs at
+   import time (tools/asset-pipeline); (c) KTX2 texture transcoding + atlas
+   dedup — the 61MB characters dir repeats the same KayKit atlas per file;
+   (d) per-band manifest chunks that lazy-load on first descent into a band.
 
 10. **Room vignette grammar, phases 2-3** — phase 1 shipped (2026-07-09):
     `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in

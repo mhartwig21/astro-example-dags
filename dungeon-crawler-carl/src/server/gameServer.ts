@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
@@ -139,7 +140,12 @@ const MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
+  ".ttf": "font/ttf",
 };
+
+// Worth gzipping on the wire: text plus GLB (raw geometry shrinks ~60%).
+// PNG/OGG/MP3 are internally compressed already — recompressing wastes CPU.
+const COMPRESSIBLE = new Set([".glb", ".js", ".css", ".html", ".json", ".svg", ".txt", ".ttf", ".wav"]);
 
 export class GameServer {
   private http: HttpServer;
@@ -214,18 +220,46 @@ export class GameServer {
     // Cache policy: we deploy many times a day, and a browser mixing old HTML
     // with new hashed chunks (or vice versa) renders a dungeon that doesn't
     // match the sim. HTML must always revalidate; Vite's content-hashed bundles
-    // are immutable; everything else (models/audio/icons) gets a short TTL.
+    // are immutable. Assets (models/audio/icons/fonts) are the load-time
+    // budget — ~90MB across 200+ files — so they get a real TTL plus an ETag:
+    // within a day a repeat visit costs ZERO asset requests, after that each
+    // file revalidates to a 304 (no re-download) unless it actually changed.
     const ext = extname(file);
+    const st = statSync(file);
     const hashed = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file);
+    const assetish = /^(assets|audio|icons|fonts)[/\\]/.test(clean);
     const cache = ext === ".html"
       ? "no-cache"
       : hashed
         ? "public, max-age=31536000, immutable"
-        : "public, max-age=300";
-    res.writeHead(200, {
-      "content-type": MIME[ext] ?? "application/octet-stream",
+        : assetish
+          ? "public, max-age=86400, stale-while-revalidate=604800"
+          : "public, max-age=300";
+    // Weak ETag from size+mtime — cheap, and correct for whole-file replaces.
+    const etag = `W/"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"`;
+    const headers: Record<string, string> = {
       "cache-control": cache,
-    });
+      etag,
+      vary: "accept-encoding",
+    };
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    headers["content-type"] = MIME[ext] ?? "application/octet-stream";
+    // On-the-fly gzip for compressible types. GLBs are mostly raw geometry
+    // buffers and shrink ~60%; PNGs/OGGs are already compressed and skipped.
+    // Streaming (no buffering) keeps memory flat on the single Fly machine.
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+      headers["content-encoding"] = "gzip";
+      res.writeHead(200, headers);
+      createReadStream(file).pipe(createGzip({ level: 6 })).pipe(res);
+      return;
+    }
+    headers["content-length"] = String(st.size);
+    res.writeHead(200, headers);
     createReadStream(file).pipe(res);
   }
 

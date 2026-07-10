@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { THEME } from "./theme";
-import { ELITE_TEXTURES, loadModels, type LoadedModel } from "./assets";
+import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { roomTemplateById } from "../content/rooms";
 import { mobDefById } from "../content/mobs";
 import type { CustomMobDef } from "../content/types";
@@ -315,13 +315,36 @@ export class Renderer3D {
   }
 
   async init(onProgress?: (loaded: number, total: number) => void): Promise<void> {
-    this.models = await loadModels(onProgress);
-    // Drop any procedural stand-ins built before the models arrived; the pool
-    // rebuilds with real models on the next update.
-    for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
-    this.playerMeshes.clear();
-    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
-    this.decoyMeshes.clear();
+    // Streaming load: init resolves after the PRIORITY wave (hero + core
+    // dungeon shell — a few files), so boot is near-instant. The remaining
+    // ~200 GLBs stream behind the running game; each arrival schedules a
+    // debounced refresh that swaps procedural stand-ins for the real thing.
+    const store = startModelLoad(onProgress);
+    this.models = store.models; // LIVE record — fills in as assets land
+    store.onArrive = () => this.scheduleAssetRefresh();
+    await store.ready;
+    this.scheduleAssetRefresh();
+  }
+
+  /**
+   * A background asset landed: drop cached meshes built from stand-ins and
+   * force a floor rebuild, all debounced so a burst of arrivals costs one
+   * refresh. Mirrors the mid-fight morph path — markers/telegraphs keyed by
+   * entity id survive; only the body meshes rebuild on the next update.
+   */
+  private assetRefresh: ReturnType<typeof setTimeout> | null = null;
+  private scheduleAssetRefresh(): void {
+    if (this.assetRefresh !== null) clearTimeout(this.assetRefresh);
+    this.assetRefresh = setTimeout(() => {
+      this.assetRefresh = null;
+      this.builtFloor = -1; // next update() rebuilds the floor with real tiles
+      for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
+      this.playerMeshes.clear();
+      for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+      this.decoyMeshes.clear();
+      for (const mesh of this.monsters.values()) this.scene.remove(mesh);
+      this.monsters.clear();
+    }, 350);
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
