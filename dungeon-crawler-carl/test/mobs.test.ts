@@ -937,7 +937,10 @@ describe("boss layers", () => {
   });
 
   it("layer 3: the arena director acts while the boss lives, stops when it falls", () => {
-    const g = createTestGame({ seed: 7, floor: 6, level: 8 });
+    // Seed 7 stopped flooding when occupancy v2 (roomPurposes residents)
+    // added draws to floor-1's spawn stream ahead of the floor-6 rebuild;
+    // seed 8 floods on schedule under the seated-resident layout.
+    const g = createTestGame({ seed: 8, floor: 6, level: 8 });
     const boss = g.monsters.find((m) => m.kind === "boss")!;
     g.monsters = [boss];
     boss.introduced = true;
