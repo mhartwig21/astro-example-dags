@@ -123,6 +123,60 @@ function builderBridge(): Plugin {
           });
           return;
         }
+        // Ship a builder creation INTO the game source: write the content
+        // file and (rooms/mobs) register it in the explicit index.ts. The
+        // result is a reviewable git diff, not a hidden side channel.
+        if (req.method === "POST" && url.startsWith("/ship")) {
+          let body = "";
+          req.on("data", (c) => (body += c));
+          req.on("end", () => {
+            try {
+              const { kind, data } = JSON.parse(body) as { kind: string; data: { id?: string } };
+              const id = data?.id ?? "";
+              if (!/^[a-z0-9-]{2,40}$/.test(id)) throw new Error("id must be kebab-case (2-40 chars)");
+              const files: string[] = [];
+              const registerInIndex = (indexPath: string, typeName: string): void => {
+                const camel = id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+                let src = readFileSync(indexPath, "utf8");
+                if (src.includes(`"./${id}.json"`)) return; // re-ship = file overwrite only
+                const anchor = src.lastIndexOf('.json";');
+                const lineEnd = src.indexOf("\n", anchor);
+                src = `${src.slice(0, lineEnd + 1)}import ${camel} from "./${id}.json";\n${src.slice(lineEnd + 1)}`;
+                src = src.replace(/^\];/m, `  ${camel} as ${typeName},\n];`);
+                writeFileSync(indexPath, src);
+                files.push(indexPath);
+              };
+              if (kind === "room" || kind === "mob") {
+                const dir = resolve(__dirname, `src/content/${kind === "room" ? "rooms" : "mobs"}`);
+                const file = join(dir, `${id}.json`);
+                writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+                files.push(file);
+                registerInIndex(join(dir, "index.ts"), kind === "room" ? "RoomTemplate" : "CustomMobDef");
+              } else if (kind === "purpose") {
+                const file = resolve(__dirname, "src/sim/roomPurposes.data.json");
+                const list = JSON.parse(readFileSync(file, "utf8")) as { id: string; variants?: unknown }[];
+                const ix = list.findIndex((p) => p.id === id);
+                if (ix >= 0) {
+                  // Upsert keeping authored variants unless the payload brings its own.
+                  const keep = list[ix].variants;
+                  list[ix] = { ...(data as { id: string; variants?: unknown }) };
+                  if (list[ix].variants === undefined && keep !== undefined) list[ix].variants = keep;
+                } else {
+                  list.push(data as { id: string });
+                }
+                writeFileSync(file, JSON.stringify(list, null, 2) + "\n");
+                files.push(file);
+              } else {
+                throw new Error("kind must be room | mob | purpose");
+              }
+              res.end(JSON.stringify({ ok: true, files: files.map((f) => f.replace(/\\/g, "/").split("/dungeon-crawler-carl/")[1] ?? f) }));
+            } catch (e) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: String(e) }));
+            }
+          });
+          return;
+        }
         if (req.method === "POST" && url.startsWith("/generate")) {
           let body = "";
           req.on("data", (c) => (body += c));

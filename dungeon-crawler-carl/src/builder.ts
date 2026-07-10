@@ -11,6 +11,10 @@ import { loadModels, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets"
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./render3d/dressing";
 import { ROOM_PURPOSES, resolvePurpose, type RoomPurpose, type RoomCondition } from "./sim/roomPurposes";
 import { createRng, nextFloat } from "./sim/rng";
+import { ROOM_TEMPLATES, registerRoomTemplate, validateTemplate } from "./content/rooms";
+import { MOB_DEFS } from "./content/mobs";
+import { generateFloor } from "./sim/floor";
+import { floorSeed } from "./sim/game";
 import type { RoomTemplate, RoomProp, CustomMobDef } from "./content/types";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -301,6 +305,44 @@ $("importRoom").onclick = () => {
   catch { $("roomMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
 };
 $("clearRoom").onclick = () => { resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); };
+// Shipped game content, loadable for editing (re-ship to update it).
+function renderGameRooms(): void {
+  const list = $("gameRooms");
+  list.innerHTML = "";
+  for (const t of ROOM_TEMPLATES) {
+    const b = document.createElement("button");
+    b.style.cssText = "display:block;text-align:left;background:none;border:none;color:var(--ink);cursor:pointer;padding:3px 6px;font-size:12px";
+    b.textContent = `${t.name} (${t.w}×${t.h})`;
+    b.onclick = () => { loadRoom(t); $("roomMsg").innerHTML = '<span class="ok">loaded from game — edit and re-ship</span>'; };
+    list.appendChild(b);
+  }
+}
+// TEST WALK: register the WIP template, then hunt (floor, seed) pairs with
+// the game's exact derivation until one actually stamps it, and open that
+// exact dungeon in a test-mode tab (main3d re-registers from localStorage).
+$("testRoom").onclick = () => {
+  const t = currentRoom();
+  if (!t.id || !validateTemplate(t)) {
+    $("roomMsg").innerHTML = '<span class="warn">needs an id + a valid template (floor border ring, open center)</span>';
+    return;
+  }
+  registerRoomTemplate(t);
+  localStorage.setItem("dcc:test:room", JSON.stringify(t));
+  $("roomMsg").textContent = "searching for a floor that stamps it…";
+  setTimeout(() => {
+    for (let floor = 1; floor <= 6; floor++) {
+      for (let seed = 1; seed <= 150; seed++) {
+        const map = generateFloor(createRng(floorSeed(seed, floor)), floor);
+        if (map.stamps?.some((s) => s.id === t.id)) {
+          window.open(`/iso.html?test&floor=${floor}&seed=${seed}&testroom=1`, "_blank");
+          $("roomMsg").innerHTML = `<span class="ok">stamped on floor ${floor}, seed ${seed} — opened. Check the minimap for your room</span>`;
+          return;
+        }
+      }
+    }
+    $("roomMsg").innerHTML = '<span class="warn">no stamp in 900 floors — the template may be too big (rooms are 6-12 tiles; strict fit needs w≤room-2)</span>';
+  }, 30);
+};
 $("resize").onclick = () => {
   room.w = Math.max(4, Math.min(18, Number(($("roomW") as HTMLInputElement).value)));
   room.h = Math.max(4, Math.min(14, Number(($("roomH") as HTMLInputElement).value)));
@@ -505,13 +547,38 @@ $("exportMob").onclick = () => {
 $("importMob").onclick = () => {
   try {
     const d = JSON.parse(($("mobJson") as HTMLTextAreaElement).value) as CustomMobDef;
-    Object.assign(mob, d);
-    ($("mobId") as HTMLInputElement).value = d.id;
-    ($("mobName") as HTMLInputElement).value = d.name;
-    behaviorSel.value = d.behavior;
-    renderMobModels(); showMobPreview();
+    loadMob(d);
     $("mobMsg").innerHTML = '<span class="ok">imported</span>';
   } catch { $("mobMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
+};
+function loadMob(d: CustomMobDef): void {
+  Object.assign(mob, d);
+  ($("mobId") as HTMLInputElement).value = d.id;
+  ($("mobName") as HTMLInputElement).value = d.name;
+  behaviorSel.value = d.behavior;
+  renderMobModels();
+  showMobPreview();
+}
+function renderGameMobs(): void {
+  const list = $("gameMobs");
+  list.innerHTML = "";
+  for (const d of MOB_DEFS) {
+    const b = document.createElement("button");
+    b.style.cssText = "display:block;text-align:left;background:none;border:none;color:var(--ink);cursor:pointer;padding:3px 6px;font-size:12px";
+    b.textContent = `${d.name} (${d.behavior})`;
+    b.onclick = () => { loadMob(d); $("mobMsg").innerHTML = '<span class="ok">loaded from game — edit and re-ship</span>'; };
+    list.appendChild(b);
+  }
+}
+// TEST FIGHT: stash the def; the test-mode host registers it with every band
+// + heavy weight so its behavior's next spawns become YOUR enemy.
+$("testMob").onclick = () => {
+  const d = currentMob();
+  if (!d.id) { $("mobMsg").innerHTML = '<span class="warn">id required</span>'; return; }
+  localStorage.setItem("dcc:test:mob", JSON.stringify(d));
+  const floor = (d.bands?.[0] ?? 0) * 3 + 1;
+  window.open(`/iso.html?test&floor=${floor}&testmob=1`, "_blank");
+  $("mobMsg").innerHTML = `<span class="ok">opened floor ${floor} — most ${d.behavior}s there are now ${d.name}</span>`;
 };
 
 // ---- Dressing preview (the vignette grammar, SHARED with the game) ----
@@ -744,6 +811,35 @@ async function initBridge(): Promise<void> {
   } catch { return; }
   $("bridgeBox").style.display = "";
   $("zipBox").style.display = "";
+  // SHIP TO GAME: the bridge writes the content file + registry entry on this
+  // machine — the result is a git diff to review, not a hidden side channel.
+  $("shipRoom").style.display = $("shipMob").style.display = $("shipPurpose").style.display = "";
+  const ship = async (kind: string, data: unknown, msgEl: string): Promise<void> => {
+    const r = await fetch("/__builder/ship", { method: "POST", body: JSON.stringify({ kind, data }) });
+    const body = await r.json() as { files?: string[]; error?: string };
+    $(msgEl).innerHTML = r.ok
+      ? `<span class="ok">shipped → ${(body.files ?? []).join(", ")} — review the git diff and commit</span>`
+      : `<span class="warn">${body.error}</span>`;
+  };
+  $("shipRoom").onclick = () => {
+    const t = currentRoom();
+    if (!t.id || !validateTemplate(t)) {
+      $("roomMsg").innerHTML = '<span class="warn">needs an id + a valid template (floor border ring, open center)</span>';
+      return;
+    }
+    void ship("room", t, "roomMsg");
+  };
+  $("shipMob").onclick = () => {
+    const d = currentMob();
+    if (!d.id || !d.name) { $("mobMsg").innerHTML = '<span class="warn">id and name required</span>'; return; }
+    void ship("mob", d, "mobMsg");
+  };
+  $("shipPurpose").onclick = () => {
+    try {
+      const p = JSON.parse(($("dressJson") as HTMLTextAreaElement).value) as RoomPurpose;
+      void ship("purpose", p, "dressMsg"); // bridge upsert keeps authored variants unless you send your own
+    } catch { $("dressMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
+  };
   // Zip import: search the owner's KayKit collection zip, extract + convert
   // props on demand (they land in the generated palette).
   $("zipGo").onclick = async () => {
@@ -809,6 +905,8 @@ renderPropList();
 renderSaved();
 renderSavedMobs();
 renderMobModels();
+renderGameRooms();
+renderGameMobs();
 renderPurposeList();
 refreshVariantSelect();
 syncDressJson();

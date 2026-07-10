@@ -10,9 +10,11 @@
 import { createRng, nextFloat, type Rng } from "./rng";
 import { floorBand } from "./config";
 import type { FloorMap, MonsterKind, Vec2 } from "./types";
+import PURPOSES_DATA from "./roomPurposes.data.json";
 
 export interface RoomPurpose {
   id: string;
+  note?: string; // authorial one-liner (was an inline comment pre-JSON)
   wallRun: string[]; // props lined shoulder-to-shoulder along one wall
   wallMount: string[]; // decor hung ON wall faces (banners, shelves, sconces)
   cornerStack?: string[]; // a tight hoard in one corner
@@ -32,139 +34,11 @@ export interface RoomPurpose {
   variants?: (Partial<Omit<RoomPurpose, "variants">> & { id: string })[];
 }
 
-export const ROOM_PURPOSES: RoomPurpose[] = [
-  {
-    id: "storage", // the quartermaster's floor: kegs and crates against the walls
-    zone: "work",
-    wallRun: ["keg", "barrel_large", "crates_stacked", "box_large", "keg_decorated"],
-    wallMount: ["shelf_small"],
-    cornerStack: ["box_small", "barrel_small", "trunk_small_A"],
-    variants: [
-      { id: "wine_cellar", wallRun: ["keg_decorated", "barrel_small_stack", "keg", "barrel_large"], cornerStack: ["bottle_a_labeled_green", "bottle_b_brown", "bottle_A_green"], wallMount: ["shelf_small", "lantern_hanging"] },
-      { id: "ransacked", wallRun: ["table_medium_broken", "rubble_half", "box_large"], cornerStack: ["rubble_half", "barrel_small"], wallMount: ["banner_brown"] },
-    ],
-  },
-  {
-    id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
-    zone: "living",
-    wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
-    wallMount: ["banner_red", "shelf_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
-    variants: [
-      { id: "tavern_night", rug: ["rug_oval_a"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["mug_a", "mug_b", "vampire_goblet", "plate_food_a"] }, wallMount: ["lantern_hanging", "banner_red"] },
-      { id: "washup", wallRun: ["bartop_a_medium", "dishrack_plates", "keg"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_stack"] } },
-    ],
-  },
-  {
-    id: "archive", // the dungeon keeps records: bookcase runs and a reading table
-    zone: "work", bands: [0, 3, 5],
-    wallRun: ["bookcase_single", "bookcase_double_decorateda", "bookcase_single"],
-    wallMount: ["shelf_small_books"],
-    cornerStack: ["book_single", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["book_single"] },
-    variants: [
-      { id: "map_annex", tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled", "book_single"] }, cornerStack: ["map_rolled", "box_small"], rug: ["rug_rectangle_a"] },
-    ],
-  },
-  {
-    id: "guardpost", // a watch was stationed here; the shift ended badly
-    zone: "work",
-    wallRun: ["bench", "box_large", "barrel_small"],
-    wallMount: ["banner_shield_red", "torch_mounted"],
-    cornerStack: ["barrel_small", "bottle_A_green"],
-    centerpiece: { key: "table_medium_broken", spill: ["sword_shield_broken", "bottle_A_green"] },
-    variants: [
-      { id: "card_watch", tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_hearts_king", "mug_b", "coin_silver"] }, centerpiece: undefined },
-      { id: "armory_rack", wallRun: ["weaponrack", "weaponrack_decorated", "bench"], centerpiece: { key: "dummy_base", spill: ["sword_shield_broken"] } },
-    ],
-  },
-  // Wave 2 (extracted 2026-07-09: Dungeon Remastered beds/chair/food plates,
-  // Restaurant pots, Resource barrels, Block Bits anvil, Adventurers potions).
-  {
-    id: "barracks", // rows of cots against the wall; somebody sleeps down here
-    zone: "living",
-    wallRun: ["bed_a_single", "bed_b_single", "bed_floor", "bed_decorated"],
-    wallMount: ["banner_blue", "shelf_small"],
-    cornerStack: ["trunk_small_A", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["bottle_A_green"] },
-    variants: [
-      { id: "officers", wallRun: ["bed_decorated", "bookcase_single", "trunk_small_A"], rug: ["rug_rectangle_a"], tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["vampire_goblet", "book_single"] } },
-      { id: "flophouse", wallRun: ["bed_floor", "bed_floor", "box_small"], wallMount: ["banner_brown"], cornerStack: ["bottle_b_brown", "bottle_A_green", "barrel_small"], tableSet: undefined },
-    ],
-  },
-  {
-    id: "kitchen", // the mess gets fed from somewhere: stew pots and stock
-    zone: "living",
-    wallRun: ["food_barrel_fish", "crate_potatoes", "barrel_small_stack", "crate_large_decorated"],
-    wallMount: ["shelf_small", "banner_brown"],
-    cornerStack: ["pot_large", "barrel_small"],
-    centerpiece: { key: "pot_a_stew", spill: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
-    variants: [
-      { id: "mushroom_prep", wallRun: ["crate_mushrooms", "basket_mushrooms", "barrel_small_stack"], centerpiece: { key: "pot_large", spill: ["mushroom", "mushroom", "plate_food_b"] } },
-      { id: "sculleryard", wallRun: ["dishrack_plates", "bartop_a_medium", "crate_large_decorated"], centerpiece: { key: "pot_a_stew", spill: ["plate_stack", "mug_a"] } },
-    ],
-  },
-  {
-    id: "forge", // a work floor: the anvil is the altar and fuel is the faith
-    zone: "deep", bands: [3, 4],
-    wallRun: ["fuel_a_barrels", "crate_large_decorated", "box_large"],
-    wallMount: ["torch_mounted", "shelf_small"],
-    cornerStack: ["rubble_half", "barrel_small"],
-    centerpiece: { key: "anvil", spill: ["sword_shield_broken", "rubble_half"] },
-    variants: [
-      { id: "cold_forge", wallMount: ["banner_brown", "shelf_small"], centerpiece: { key: "anvil", spill: ["rubble_half", "rubble_large", "skull"] }, cornerStack: ["rubble_large", "fuel_a_barrels"] },
-    ],
-  },
-  {
-    id: "apothecary", // shelves of glassware; the dungeon brews its own
-    zone: "work", bands: [0, 1, 3],
-    wallRun: ["bookcase_single", "shelf_small", "crate_large_decorated"],
-    wallMount: ["shelf_small_books", "banner_green"],
-    cornerStack: ["gems_sack", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["potion_huge_green", "potion_large_blue", "potion_medium_red"] },
-    variants: [
-      { id: "witch_pantry", wallRun: ["shelf_small", "crate_mushrooms", "bookcase_single"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["basket_mushrooms", "potion_medium_red", "mushroom"] }, cornerStack: ["basket_mushrooms", "gems_sack"] },
-    ],
-  },
-  // Wave 3: whole new jobs (Prototype/Board Game/RPG Tools/Halloween bits).
-  {
-    id: "trainhall", // the watch drills here: racks, dummies, and splinters
-    zone: "work", bands: [0, 4, 5],
-    wallRun: ["weaponrack", "weaponrack_decorated", "bench"],
-    wallMount: ["banner_red", "torch_mounted"],
-    cornerStack: ["box_large", "barrel_small"],
-    centerpiece: { key: "trainingdummy_base", spill: ["sword_shield_broken", "rubble_half"] },
-    variants: [
-      { id: "proving_ground", centerpiece: { key: "dummy_base", spill: ["sword_shield_broken", "sword_shield_broken"] }, wallMount: ["banner_white", "torch_mounted"] },
-    ],
-  },
-  {
-    id: "den", // after the shift: cards, coins, and nobody watching the door
-    zone: "living", bands: [1, 4, 5],
-    wallRun: ["keg_decorated", "barrel_large", "bench"],
-    wallMount: ["lantern_hanging", "banner_brown"],
-    cornerStack: ["bottle_b_brown", "box_small", "coin_silver"],
-    rug: ["rug_rectangle_b", "rug_oval_a"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_spades_ace", "card_hearts_king", "coin_gold", "coin_10_gold", "mug_a", "vampire_goblet"] },
-  },
-  {
-    id: "warroom", // somebody is planning something down here
-    zone: "deep", bands: [0, 3, 5],
-    wallRun: ["bookcase_single", "weaponrack", "box_large"],
-    wallMount: ["banner_shield_red", "banner_blue"],
-    cornerStack: ["map_rolled", "trunk_small_A"],
-    rug: ["rug_rectangle_a"],
-    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled"] },
-  },
-  {
-    id: "ossuary", // the dungeon files its dead like everything else
-    zone: "deep", bands: [0, 3],
-    wallRun: ["rubble_half", "rubble_large", "crate_large_decorated"],
-    wallMount: ["banner_white", "torch_mounted"],
-    cornerStack: ["skull", "bone_A", "ribcage"],
-    centerpiece: { key: "ribcage", spill: ["skull", "bone_A", "rubble_half"] },
-  },
-];
+// The purpose DATA lives in roomPurposes.data.json so the builder's dev
+// bridge can ship dressing edits as a clean file write. Convention: in a
+// variant, JSON null means "remove the base field" (JSON cannot say
+// undefined); resolvePurpose normalizes nulls away after the merge.
+export const ROOM_PURPOSES: RoomPurpose[] = PURPOSES_DATA as unknown as RoomPurpose[];
 
 
 // A dressed room's HISTORY, layered over purpose + variant. The renderer
@@ -184,12 +58,17 @@ export interface RoomDressing {
   anchor: Vec2 | null;
 }
 
-/** Merge a variant over its base purpose (variant fields REPLACE base fields). */
+/** Merge a variant over its base purpose (variant fields REPLACE base fields).
+ *  A null field in the variant REMOVES the base's (JSON's stand-in for
+ *  undefined — see roomPurposes.data.json). */
 export function resolvePurpose(
   base: RoomPurpose,
   variant: (Partial<Omit<RoomPurpose, "variants">> & { id: string }) | null,
 ): RoomPurpose {
-  return variant ? { ...base, ...variant, id: base.id, variants: undefined } : base;
+  if (!variant) return base;
+  const merged = { ...base, ...variant, id: base.id, variants: undefined } as Record<string, unknown>;
+  for (const k of Object.keys(merged)) if (merged[k] === null) merged[k] = undefined;
+  return merged as unknown as RoomPurpose;
 }
 
 // OCCUPANCY v2: who actually lives in each kind of room. When a pack spawns
