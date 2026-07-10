@@ -32,6 +32,8 @@
       label { color: var(--dim); font-size: 11px; display: block; margin-top: 6px; }
       #propList, #savedList, #mobModelList { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
       #propList button, #savedList .saved, #mobModelList button { text-align: left; background: none; border: none; color: var(--ink); padding: 3px 6px; cursor: pointer; font-size: 12px; }
+      #propList button { display: flex; align-items: center; gap: 6px; }
+      #propList img { width: 28px; height: 28px; flex: 0 0 auto; background: #10101a; border: 1px solid var(--edge); }
       #propList button:hover, #mobModelList button:hover { background: #1c1c2a; }
       #propList button.active, #mobModelList button.active { color: var(--gold); }
       .saved { display: flex; justify-content: space-between; align-items: center; }
@@ -161,6 +163,7 @@
             <h2>Resolved dressing (editable)</h2>
             <textarea id="dressJson" spellcheck="false" style="height:300px"></textarea>
             <div class="row"><button id="dressApply">Apply JSON</button><button id="dressReset">Reset</button><button id="shipPurpose" style="display:none">Ship to game</button></div>
+            <div class="row"><button id="dressBake">Bake into room props</button></div>
             <div id="dressMsg" style="font-size:11px;margin-top:4px"></div>
             <div style="color:var(--dim);font-size:11px;margin-top:6px">
               tweak prop keys / sets and Apply to re-dress. To ship a change,
