@@ -1,4 +1,4 @@
-import { deserialize, deserializeDynamic } from "../sim/snapshot";
+import { deserialize, deserializeDynamic, mergeColdPlayers } from "../sim/snapshot";
 import { revealExplored } from "../sim/game";
 import type { Announcement, GameState, HitEvent, Intent, Vec2 } from "../sim/types";
 
@@ -87,6 +87,9 @@ export class NetClient {
     }
     if (!this.world) return null; // dynamic before any full — drop it
     const s = deserializeDynamic(snapshot, this.world.map, this.world.explored);
+    // Cold split: players whose slow block (gear/bags/abilities) didn't
+    // change arrive without it — inherit from the previous snapshot.
+    if (this.curr) mergeColdPlayers(s.players, this.curr.players);
     // Fog is OURS now: reveal around this snapshot's crawlers, same math
     // as the sim (the mask is monotonic, so local and server never disagree
     // about anything the player has seen).

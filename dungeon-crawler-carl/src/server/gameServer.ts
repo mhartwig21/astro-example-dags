@@ -105,6 +105,9 @@ interface Instance {
   seated: Set<number>;
   timer: NodeJS.Timeout;
   worldKey: string; // co-op: the world last broadcast in FULL ("" = never)
+  // Per-player fingerprints of the SLOW block (equipment/inventory/abilities…)
+  // — serializeDynamic omits it while unchanged; see snapshot.ts cold split.
+  coldCache: Map<number, string>;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -502,6 +505,7 @@ export class GameServer {
       seated,
       timer: setInterval(() => this.tickInstance(inst!), 1000 / TICK_HZ),
       worldKey: "", // first snapshot tick broadcasts FULL
+      coldCache: new Map(),
     };
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
@@ -579,7 +583,7 @@ export class GameServer {
         inst.worldKey = key;
         this.broadcast(inst, {
           t: "snap", tick: inst.tick, full: full || undefined,
-          snapshot: full ? serialize(s) : serializeDynamic(s),
+          snapshot: full ? serialize(s) : serializeDynamic(s, inst.coldCache),
         });
       }
     }
