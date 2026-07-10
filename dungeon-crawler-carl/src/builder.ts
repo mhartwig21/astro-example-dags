@@ -8,6 +8,9 @@
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { loadModels, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
+import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./render3d/dressing";
+import { ROOM_PURPOSES, resolvePurpose, type RoomPurpose, type RoomCondition } from "./sim/roomPurposes";
+import { createRng, nextFloat } from "./sim/rng";
 import type { RoomTemplate, RoomProp, CustomMobDef } from "./content/types";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -511,22 +514,227 @@ $("importMob").onclick = () => {
   } catch { $("mobMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
 };
 
+// ---- Dressing preview (the vignette grammar, SHARED with the game) ----
+// dressRoomPurpose here is the same function renderer3d runs on real floors:
+// what this tab shows is what the game builds, not a lookalike. The painted
+// Rooms-tab footprint is the room; everything outside it reads as wall mass,
+// with one synthetic doorway so the corridor spill shows too.
+const dressGroup = new THREE.Group();
+scene.add(dressGroup);
+const dress = {
+  purposeId: ROOM_PURPOSES[0].id,
+  variantId: "", // "" = base dressing
+  condition: "pristine" as RoomCondition,
+  seed: 1,
+  override: null as RoomPurpose | null, // Apply JSON edits land here
+};
+const currentBase = (): RoomPurpose =>
+  ROOM_PURPOSES.find((p) => p.id === dress.purposeId) ?? ROOM_PURPOSES[0];
+function resolvedDress(): RoomPurpose {
+  if (dress.override) return dress.override;
+  const base = currentBase();
+  return resolvePurpose(base, base.variants?.find((v) => v.id === dress.variantId) ?? null);
+}
+
+// Unknown keys (typos, un-promoted generated props) still show as a stand-in
+// box so the composition reads while you iterate.
+const fallbackBox = (key: string): THREE.Group => {
+  let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.8, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0x3a3a4f + (h % 0x40), roughness: 0.9 }),
+  );
+  m.position.y = 0.4;
+  g.add(m);
+  return g;
+};
+const apronMat = new THREE.MeshStandardMaterial({ color: 0x1a1a28, roughness: 0.95 });
+
+function refreshDressing(): void {
+  dressGroup.clear();
+  if (mode !== "dress") return;
+  const r = { x: 0, y: 0, w: room.w, h: room.h };
+  // Apron under the surroundings so the doorway spill has ground to sit over.
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(room.w + 6, room.h + 6), apronMat);
+  apron.rotation.x = -Math.PI / 2;
+  apron.position.set(room.w / 2, -0.02, room.h / 2);
+  dressGroup.add(apron);
+  // Synthetic map: the painted footprint, wall mass beyond it, one doorway
+  // corridor off the south edge (so spillPurposeDoorways has a door to leak
+  // out of, exactly like a real floor's corridors).
+  const doorX = Math.floor(room.w / 2);
+  const inRoom = (tx: number, ty: number) => tx >= 0 && ty >= 0 && tx < room.w && ty < room.h;
+  const isCorridor = (tx: number, ty: number) => tx === doorX && ty >= room.h && ty < room.h + 2;
+  const isFloorAt = (x: number, y: number): boolean => {
+    const tx = Math.floor(x), ty = Math.floor(y);
+    return inRoom(tx, ty) ? room.tiles[ty * room.w + tx] === FLOOR : isCorridor(tx, ty);
+  };
+  const rng = createRng((dress.seed ^ 0x9e3779b1) >>> 0);
+  const frng = () => nextFloat(rng);
+  let lights = 0;
+  const env: DressEnv = {
+    frng,
+    isFloor: isFloorAt,
+    isWall: (x, y) => {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      return inRoom(tx, ty) ? room.tiles[ty * room.w + tx] === WALL : !isCorridor(tx, ty);
+    },
+    clear: isFloorAt,
+    place: (key, x, y, opts = {}) => {
+      if (!isFloorAt(x, y)) return null;
+      // Mirror of renderer3d's place(): footprint-normalize, jitter, ground
+      // snap — same rng call order so seeds shuffle layouts the same way.
+      const obj = instance(key) ?? fallbackBox(key);
+      const box = new THREE.Box3().setFromObject(obj);
+      const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+      obj.scale.multiplyScalar((opts.scale ?? 0.55 + frng() * 0.2) / fp);
+      const scaled = new THREE.Box3().setFromObject(obj);
+      const j = opts.jitter ?? 0.25;
+      obj.position.set(
+        x + (frng() - 0.5) * j - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
+        -scaled.min.y + 0.004 + (opts.elevate ?? 0),
+        y + (frng() - 0.5) * j - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
+      );
+      obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
+      dressGroup.add(obj);
+      return obj;
+    },
+    canTorch: () => lights < 6,
+    addTorch: (x, y) => {
+      if (lights++ >= 6) return;
+      const l = new THREE.PointLight(0xffb45e, 2.2, 6);
+      l.position.set(x, 0.9, y);
+      dressGroup.add(l);
+    },
+  };
+  const p = resolvedDress();
+  // Social anchor, rolled like assignRoomPurposes rolls it: a table sits in
+  // an off-center quadrant (the middle stays a fight), a centerpiece centers.
+  let anchor: { x: number; y: number } | null = null;
+  if (p.tableSet) {
+    anchor = {
+      x: r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68),
+      y: r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68),
+    };
+  } else if (p.centerpiece) {
+    anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
+  }
+  dressRoomPurpose(env, r, { purpose: p, condition: dress.condition, anchor });
+  spillPurposeDoorways(env, r, p);
+  $("dressMsg").textContent = "";
+  if (r.w < 5 || r.h < 5) {
+    $("dressMsg").innerHTML = '<span class="warn">room under 5×5 — the game only dresses rooms 5×5 and up</span>';
+  }
+}
+
+function renderPurposeList(): void {
+  const list = $("purposeList");
+  list.innerHTML = "";
+  for (const pu of ROOM_PURPOSES) {
+    const b = document.createElement("button");
+    b.textContent = `${pu.id} · ${pu.zone ?? "work"}`;
+    b.style.cssText = "text-align:left;background:none;border:none;padding:3px 6px;cursor:pointer;font-size:12px";
+    b.style.color = pu.id === dress.purposeId ? "var(--gold)" : "var(--ink)";
+    b.onclick = () => {
+      dress.purposeId = pu.id;
+      dress.variantId = "";
+      dress.override = null;
+      renderPurposeList();
+      refreshVariantSelect();
+      syncDressJson();
+      refreshDressing();
+    };
+    list.appendChild(b);
+  }
+}
+function refreshVariantSelect(): void {
+  const sel = $("dressVariant") as HTMLSelectElement;
+  sel.innerHTML = "";
+  const add = (v: string, t: string) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = t;
+    sel.appendChild(o);
+  };
+  add("", "base");
+  for (const v of currentBase().variants ?? []) add(v.id, v.id);
+  sel.value = dress.variantId;
+}
+function syncDressJson(): void {
+  ($("dressJson") as HTMLTextAreaElement).value = JSON.stringify(resolvedDress(), null, 2);
+}
+($("dressVariant") as HTMLSelectElement).onchange = (e) => {
+  dress.variantId = (e.target as HTMLSelectElement).value;
+  dress.override = null;
+  syncDressJson();
+  refreshDressing();
+};
+($("dressCondition") as HTMLSelectElement).onchange = (e) => {
+  dress.condition = (e.target as HTMLSelectElement).value as RoomCondition;
+  refreshDressing();
+};
+($("dressSeed") as HTMLInputElement).oninput = (e) => {
+  dress.seed = Number((e.target as HTMLInputElement).value) || 0;
+  refreshDressing();
+};
+$("dressReroll").onclick = () => {
+  dress.seed += 1;
+  ($("dressSeed") as HTMLInputElement).value = String(dress.seed);
+  refreshDressing();
+};
+$("dressApply").onclick = () => {
+  try {
+    const p = JSON.parse(($("dressJson") as HTMLTextAreaElement).value) as RoomPurpose;
+    if (!Array.isArray(p.wallRun) || !Array.isArray(p.wallMount)) {
+      throw new Error("wallRun and wallMount must be arrays of prop keys");
+    }
+    dress.override = p;
+    // Warn on keys the model library doesn't know — they render as boxes.
+    const keys = [
+      ...p.wallRun, ...p.wallMount, ...(p.cornerStack ?? []), ...(p.rug ?? []),
+      ...(p.tableSet ? [p.tableSet.table, p.tableSet.seat, ...p.tableSet.tabletop] : []),
+      ...(p.centerpiece ? [p.centerpiece.key, ...p.centerpiece.spill] : []),
+    ];
+    const unknown = [...new Set(keys.filter((k) => !models[k]))];
+    refreshDressing();
+    $("dressMsg").innerHTML = unknown.length
+      ? `<span class="warn">unknown props render as boxes: ${unknown.join(", ")}</span>`
+      : '<span class="ok">applied</span>';
+  } catch (e) {
+    $("dressMsg").innerHTML = `<span class="warn">${String(e).slice(0, 160)}</span>`;
+  }
+};
+$("dressReset").onclick = () => {
+  dress.override = null;
+  syncDressJson();
+  refreshDressing();
+};
+
 // ---- Tabs ----
-let mode: "rooms" | "mobs" = "rooms";
+let mode: "rooms" | "mobs" | "dress" = "rooms";
 function setMode(m: typeof mode): void {
   mode = m;
   $("tabRooms").classList.toggle("active", m === "rooms");
   $("tabMobs").classList.toggle("active", m === "mobs");
+  $("tabDress").classList.toggle("active", m === "dress");
   $("roomTools").style.display = m === "rooms" ? "" : "none";
   $("roomPane").style.display = m === "rooms" ? "" : "none";
   $("mobPane").style.display = m === "mobs" ? "" : "none";
   $("mobRight").style.display = m === "mobs" ? "" : "none";
-  tileGroup.visible = propGroup.visible = m === "rooms";
+  $("dressPane").style.display = m === "dress" ? "" : "none";
+  $("dressRight").style.display = m === "dress" ? "" : "none";
+  tileGroup.visible = m !== "mobs"; // the dressed room keeps its painted walls
+  propGroup.visible = m === "rooms"; // manual props hide while previewing dressing
+  if (ghost) ghost.visible = false;
   if (m === "mobs") showMobPreview();
   else if (mobPreview) { scene.remove(mobPreview); mobPreview = null; mobMixer = null; }
+  refreshDressing();
 }
 $("tabRooms").onclick = () => setMode("rooms");
 $("tabMobs").onclick = () => setMode("mobs");
+$("tabDress").onclick = () => setMode("dress");
 
 // ---- Meshy bridge (dev server only; the deployed page hides this) ----
 async function initBridge(): Promise<void> {
@@ -601,6 +809,9 @@ renderPropList();
 renderSaved();
 renderSavedMobs();
 renderMobModels();
+renderPurposeList();
+refreshVariantSelect();
+syncDressJson();
 frame();
 tick();
 void loadModels().then(async (m) => {
@@ -619,10 +830,14 @@ void loadModels().then(async (m) => {
   } catch { /* nothing generated yet */ }
   rebuildProps();
   if (mode === "mobs") showMobPreview();
+  if (mode === "dress") refreshDressing();
 });
 
 // Headless-verify hook: lets a driver assert the preview's skinned meshes are
 // bound to the clone's own skeleton (the SkeletonUtils.clone contract).
 (window as unknown as { __builderDebug: unknown }).__builderDebug = {
   preview: () => mobPreview,
+  dressCount: () => dressGroup.children.length,
+  dressSnapshot: () =>
+    JSON.stringify(dressGroup.children.map((o) => [Math.round(o.position.x * 100), Math.round(o.position.z * 100)])),
 };

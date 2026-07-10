@@ -32,6 +32,19 @@ spawn bands + weight. Export JSON → `src/content/mobs/<id>.json`, register in
 for its behavior kind in its bands (data-gated: floors with no matching defs
 replay identically). Example shipped: THE AUDITOR (`the-auditor`).
 
+## Dressing tab
+
+Previews the **vignette grammar** (`src/sim/roomPurposes.ts` +
+`src/render3d/dressing.ts`) on the Rooms-tab footprint — the SAME
+`dressRoomPurpose`/`spillPurposeDoorways` code the game's floor build runs,
+so what you see is what a real floor gets. Pick a purpose × variant ×
+condition, reroll the placement seed to shuffle layouts, and a synthetic
+south doorway shows the corridor spill. The right panel holds the RESOLVED
+purpose as editable JSON: tweak prop keys / sets, **Apply** to re-dress
+(unknown keys render as stand-in boxes and are listed), and paste the block
+into `ROOM_PURPOSES` in `src/sim/roomPurposes.ts` to ship it. Rooms under
+5×5 don't dress (matches the in-game candidate filter).
+
 ## Meshy bridge (dev box only)
 
 `npm run dev` hosts `/__builder/*` endpoints that run the asset pipeline
