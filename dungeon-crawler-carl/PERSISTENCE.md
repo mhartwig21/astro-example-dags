@@ -2,9 +2,10 @@
 
 Server-side persistence: character saves, party instances that survive deploys
 and idle weeks, and the identity needed for Roam campaigns played across many
-sessions over up to a month. **P1 (identity + character saves) and P2 (world
-hibernate/restore + client auto-reconnect) are SHIPPED**; this doc keeps the
-rationale and the remaining phase. Delete sections as they ship.
+sessions over up to a month. **The full roadmap is SHIPPED**: P1 (identity +
+character saves), P2 (world hibernate/restore + client auto-reconnect), the
+Roam party cap (10), and Litestream offsite backup. This doc keeps the
+rationale, the operational notes, and the deliberate non-goals.
 
 ## Why SQLite, and when it stops being the answer
 
@@ -80,13 +81,27 @@ remains a non-event: SQLite-on-volume moves to a GCE persistent disk unchanged
 Deploy note: `better-sqlite3` ships prebuilt binaries; if a container build
 ever fails on it, add `python3 make g++` to the Dockerfile stage as fallback.
 
-## P3 — Roam scale + consolidation
+## Offsite backup (live)
 
-- `MAX_PARTY_SIZE_ROAM = 10` (base cap stays 6). Bandwidth: 10 clients × 28KB
-  × 15/s ≈ 4 MB/s for one party — within measured comfort (16 players fine),
-  but two concurrent Roam parties put snapshot deltas + WS compression
-  (DEPLOY.md roadmap) next in line.
-- leaderboard.json → the same SQLite file (same shape, drops the hand-rolled
-  file handling).
-- Litestream replication of `/data/dcc.sqlite` to Tigris — continuous offsite
-  backup for pennies; Fly's daily volume snapshots already cover the basics.
+**Litestream replicates `/data/dcc.sqlite` to Tigris continuously** (bucket
+`dcc-backup`, created via `fly storage create`; credentials are Fly app
+secrets). Litestream v0.3.13 runs as the container's supervisor
+(`litestream replicate -exec`, config in `litestream.yml` → `/etc/`),
+forwarding Fly's stop signal to node so the checkpoint-on-shutdown flow is
+unchanged. On boot with a fresh/replaced volume, `restore -if-db-not-exists`
+pulls the latest replica back down before the server starts — volume loss now
+costs seconds of state, not everything since the last daily snapshot. Without
+the Tigris env vars (local dev, plain `docker run`) the container skips
+litestream and runs node directly. Verify anytime:
+`fly ssh console -C "litestream snapshots /data/dcc.sqlite"`.
+
+## Non-goals (deliberate)
+
+- **Leaderboard stays on its JSON file, deliberately.** It lives on the same
+  volume, survives deploys, and rewriting whole-day boards as a unit fits the
+  debounced-file model well. Migrate into SQLite only if that model ever
+  actually bites (concurrent writers, partial-write corruption) — as churn
+  it's all risk and no player-visible gain.
+- Roam cap sizing note: 10 clients at the post-#102 dynamic-snapshot rate is
+  comfortably inside measured capacity; if two full Roam bands ever play at
+  once, WS compression (DEPLOY.md roadmap) is the next lever.

@@ -217,6 +217,45 @@ describe("server persistence (accounts + character saves)", () => {
   });
 });
 
+describe("roam party cap", () => {
+  let dir: string;
+  let server: GameServer;
+  let port: number;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dcc-roamcap-"));
+    server = new GameServer(0, undefined, undefined, join(dir, "dcc.sqlite"));
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a roam campaign seats 10; the 11th crawler is turned away", async () => {
+    const crawlers: TestClient[] = [];
+    for (let i = 0; i < 10; i++) {
+      crawlers.push(await connect(port, "BIGBAND", `Crawler${i}`, `roam-cap-token-${i}0`, i === 0));
+    }
+    expect(new Set(crawlers.map((c) => c.playerId)).size).toBe(10);
+    // Seat 11: the door is closed.
+    await expect(
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+        ws.on("open", () => ws.send(JSON.stringify({ t: "join", code: "BIGBAND", name: "TooMany" })));
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(String(raw));
+          if (msg.t === "error") reject(new Error(msg.reason));
+          else if (msg.t === "welcome") resolve(msg);
+        });
+      }),
+    ).rejects.toThrow("party full");
+    for (const c of crawlers) c.close();
+  });
+});
+
 // ---- Golden fixture: a checked-in persisted world must stay loadable ----
 //
 // A Roam campaign snapshot written in week 1 must load in week 4 after the sim
