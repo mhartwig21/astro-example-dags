@@ -32,6 +32,8 @@
       label { color: var(--dim); font-size: 11px; display: block; margin-top: 6px; }
       #propList, #savedList, #mobModelList { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
       #propList button, #savedList .saved, #mobModelList button { text-align: left; background: none; border: none; color: var(--ink); padding: 3px 6px; cursor: pointer; font-size: 12px; }
+      #propList button { display: flex; align-items: center; gap: 6px; }
+      #propList img { width: 28px; height: 28px; flex: 0 0 auto; background: #10101a; border: 1px solid var(--edge); }
       #propList button:hover, #mobModelList button:hover { background: #1c1c2a; }
       #propList button.active, #mobModelList button.active { color: var(--gold); }
       .saved { display: flex; justify-content: space-between; align-items: center; }
@@ -141,6 +143,7 @@
           <div class="group">
             <h2>Save / share</h2>
             <div class="row"><button id="saveRoom">Save</button><button id="exportRoom">Export JSON</button><button id="clearRoom">Clear</button></div>
+            <div class="row"><button id="testRoom">Test Walk ▶</button><button id="shipRoom" style="display:none">Ship to game</button></div>
             <label>import / export</label>
             <textarea id="roomJson" spellcheck="false"></textarea>
             <div class="row"><button id="importRoom">Import JSON</button></div>
@@ -150,12 +153,17 @@
             <h2>Saved rooms</h2>
             <div id="savedList"></div>
           </div>
+          <div class="group">
+            <h2>Game rooms (shipped)</h2>
+            <div id="gameRooms"></div>
+          </div>
         </div>
         <div id="dressRight" style="display:none">
           <div class="group">
             <h2>Resolved dressing (editable)</h2>
             <textarea id="dressJson" spellcheck="false" style="height:300px"></textarea>
-            <div class="row"><button id="dressApply">Apply JSON</button><button id="dressReset">Reset</button></div>
+            <div class="row"><button id="dressApply">Apply JSON</button><button id="dressReset">Reset</button><button id="shipPurpose" style="display:none">Ship to game</button></div>
+            <div class="row"><button id="dressBake">Bake into room props</button></div>
             <div id="dressMsg" style="font-size:11px;margin-top:4px"></div>
             <div style="color:var(--dim);font-size:11px;margin-top:6px">
               tweak prop keys / sets and Apply to re-dress. To ship a change,
@@ -192,6 +200,7 @@
           <div class="group">
             <h2>Save / share</h2>
             <div class="row"><button id="saveMob">Save</button><button id="exportMob">Export JSON</button></div>
+            <div class="row"><button id="testMob">Test Fight ▶</button><button id="shipMob" style="display:none">Ship to game</button></div>
             <textarea id="mobJson" spellcheck="false"></textarea>
             <div class="row"><button id="importMob">Import JSON</button></div>
             <div id="mobMsg"></div>
@@ -199,6 +208,10 @@
           <div class="group">
             <h2>Saved enemies</h2>
             <div id="savedMobs"></div>
+          </div>
+          <div class="group">
+            <h2>Game enemies (shipped)</h2>
+            <div id="gameMobs"></div>
           </div>
         </div>
       </div>

@@ -256,6 +256,76 @@ describe("server persistence (accounts + character saves)", () => {
     b.close();
     await waitFor(() => instances().size === 0);
   });
+
+  it("a client whose socket already closed (but whose close event hasn't fired here yet) doesn't block reclaim", async () => {
+    // Regression test for a real production bug: the server's "held" check
+    // used to count ANY entry still physically in inst.clients as a live
+    // second tab, even one whose socket had already closed — a gap that can
+    // last several seconds (network/proxy propagation), well inside the
+    // client's own first auto-reconnect attempt (netClient.ts fires at 1s).
+    // A fast reconnect landed in that gap and got shunted onto a disposable
+    // guest character instead of reclaiming its own. Simulated directly
+    // (rather than raced against real timing, which would be flaky) by
+    // forcing the server's view of the socket to report CLOSED while it's
+    // still sitting in inst.clients — exactly the state during that gap.
+    const a = await connect(port, "STALE-1", "Carl", "stale-token-0001");
+    const inst = instances().get("STALE-1")! as unknown as {
+      clients: { ws: WebSocket; playerId: number }[];
+    };
+    const client = inst.clients.find((c) => c.playerId === a.playerId)!;
+    Object.defineProperty(client.ws, "readyState", { value: WebSocket.CLOSED, configurable: true });
+
+    const b = await connect(port, "STALE-1", "Carl", "stale-token-0001");
+    expect(b.playerId).toBe(a.playerId); // reclaimed, not shunted to a guest seat
+
+    // Cleanup: `a`'s socket has a permanently-mocked readyState now, so its
+    // own close handshake can't be relied on — just drop both raw sockets and
+    // let the next test's fresh party code avoid any collision. afterAll's
+    // server.close() force-terminates anything still open regardless.
+    a.ws.terminate();
+    b.close();
+  });
+});
+
+describe("connection heartbeat", () => {
+  // A separate server with a fast heartbeat interval so the tests don't wait
+  // on the real HEARTBEAT_INTERVAL_MS (20s).
+  let dir: string;
+  let server: GameServer;
+  let port: number;
+  const instances = () =>
+    (server as unknown as { instances: Map<string, { clients: { isAlive: boolean; ws: WebSocket }[] }> }).instances;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dcc-heartbeat-"));
+    server = new GameServer(0, undefined, undefined, join(dir, "dcc.sqlite"), 100);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("terminates a connection that missed its last heartbeat pong", async () => {
+    // A hard network drop never sends a close frame at all — nothing short
+    // of a heartbeat detects it. Force the exact state a missed pong leaves
+    // behind (isAlive already false when the next sweep runs) rather than
+    // fighting the ws library's own automatic ping/pong reply, which a
+    // healthy test client can't easily suppress.
+    const a = await connect(port, "ZOMBIE-1", "Carl", "zombie-token-0001");
+    const client = instances().get("ZOMBIE-1")!.clients[0];
+    client.isAlive = false;
+    await waitFor(() => instances().size === 0, 2000);
+    a.close();
+  });
+
+  it("does not terminate a connection that keeps responding to pings", async () => {
+    await connect(port, "HEALTHY-1", "Carl", "healthy-token-0001");
+    await new Promise((r) => setTimeout(r, 350)); // several heartbeat cycles at 100ms
+    expect(instances().get("HEALTHY-1")?.clients.length).toBe(1);
+  });
 });
 
 describe("observability: /metrics + usage events", () => {
