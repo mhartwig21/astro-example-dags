@@ -36,6 +36,9 @@ import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 import { NetClient } from "./net/netClient";
+import { registerMobDef } from "./content/mobs";
+import { registerRoomTemplate } from "./content/rooms";
+import type { CustomMobDef, RoomTemplate } from "./content/types";
 
 // 3D isometric host: runs the exact same deterministic sim as the 2D slice, but
 // renders it through the Three.js isometric renderer. Proves the art direction and
@@ -99,6 +102,21 @@ function freshSeed(): number {
 // Jump straight to a dungeon stage with a stage-representative crawler. Local
 // only, and nothing is loaded or saved — the real run's save is untouched.
 const testMode = params.has("test") && !net;
+// BUILDER TEST-DRIVE: /builder.html stashes a work-in-progress def in
+// localStorage and deep-links here with &testmob / &testroom. Register it
+// before the game builds so it actually spawns/stamps. Test mode only —
+// nothing persists, and a stale stash just means a plain test run.
+if (testMode && params.has("testmob")) {
+  try {
+    const d = JSON.parse(localStorage.getItem("dcc:test:mob") ?? "") as CustomMobDef;
+    registerMobDef({ ...d, bands: [0, 1, 2, 3, 4, 5], weight: 99 }); // force the encounter
+  } catch { /* fall through to a plain test run */ }
+}
+if (testMode && params.has("testroom")) {
+  try {
+    registerRoomTemplate(JSON.parse(localStorage.getItem("dcc:test:room") ?? "") as RoomTemplate);
+  } catch { /* fall through */ }
+}
 function testSetup(): TestSetup {
   const num = (k: string): number | undefined => {
     const raw = params.get(k);

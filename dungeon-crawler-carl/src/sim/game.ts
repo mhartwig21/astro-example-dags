@@ -1057,8 +1057,10 @@ export function addPlayer(state: GameState, name: string): Player {
   return p;
 }
 
-/** Derive a per-floor sub-seed so each floor is reproducible from the run seed. */
-function floorSeed(seed: number, floor: number): number {
+/** Derive a per-floor sub-seed so each floor is reproducible from the run
+ *  seed. Exported for the builder's test-drive seed search (it hunts a seed
+ *  whose floor actually stamps your template, using the real derivation). */
+export function floorSeed(seed: number, floor: number): number {
   return (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
 }
 
