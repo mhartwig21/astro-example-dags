@@ -23,7 +23,7 @@ import {
 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
-import { assignRoomPurposes } from "../src/sim/roomPurposes";
+import { PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -5102,8 +5102,8 @@ describe("room purposes are sim-visible (occupancy)", () => {
     const a = assignRoomPurposes(g.seed, g.floor, g.map);
     const b = assignRoomPurposes(g.seed, g.floor, g.map);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
-    expect(a.length).toBeGreaterThan(0);
-    for (const d of a) {
+    expect(a.dressings.length).toBeGreaterThan(0);
+    for (const d of a.dressings) {
       // Band allowlists hold: none of these belong in the SEWERS.
       expect(["archive", "forge", "trainhall", "warroom", "ossuary"]).not.toContain(d.purposeId);
     }
@@ -5111,7 +5111,7 @@ describe("room purposes are sim-visible (occupancy)", () => {
 
   it("a resident pack gathers at the dressed room's furniture", () => {
     const g = createTestGame({ seed: 92, floor: 4, level: 4 });
-    const anchored = assignRoomPurposes(g.seed, g.floor, g.map).filter((d) => d.anchor !== null);
+    const anchored = assignRoomPurposes(g.seed, g.floor, g.map).dressings.filter((d) => d.anchor !== null);
     expect(anchored.length).toBeGreaterThan(0);
     let seated = 0;
     for (const d of anchored) {
@@ -5122,5 +5122,27 @@ describe("room purposes are sim-visible (occupancy)", () => {
     }
     // Deterministic for this seed: at least one pack sits at dinner.
     expect(seated).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("floor stories and residents", () => {
+  it("every purpose has residents on file", () => {
+    for (const pu of ROOM_PURPOSES) {
+      expect(PURPOSE_RESIDENTS[pu.id]?.length, pu.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("a floor story sweeps a coherent condition path", () => {
+    let found = 0;
+    for (let seed = 1; seed <= 60 && found < 3; seed++) {
+      const g = createGame(seed);
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      if (!plan.story) continue;
+      found++;
+      const cond = plan.story === "looters" ? "looted" : plan.story === "battle" ? "scarred" : "overgrown";
+      expect(plan.dressings.filter((d) => d.condition === cond).length).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(assignRoomPurposes(g.seed, g.floor, g.map))).toBe(JSON.stringify(plan));
+    }
+    expect(found).toBeGreaterThanOrEqual(3); // ~35% of 60 seeds should story
   });
 });
