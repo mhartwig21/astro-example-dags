@@ -88,6 +88,13 @@ let state = boot();
 const cam: Camera = { x: state.players[0].pos.x, y: state.players[0].pos.y };
 const log: string[] = [`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`];
 
+// Debug hook (mirrors main3d): ?test or ?debug=1 lets headless verification
+// inspect the live sim instead of guessing from canvas pixels — debug=1 also
+// works on a normal boot so the save-restore path is probeable end-to-end.
+if (testMode || params.has("debug")) {
+  Object.defineProperty(window, "__dcc", { configurable: true, get: () => ({ state }) });
+}
+
 const input = new InputController(canvas);
 // Controller: minimal parity wiring (move/aim/cast). Top-down 2D is axis-
 // aligned, so sticks map straight to world — no iso rotation. The full

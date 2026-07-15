@@ -179,6 +179,27 @@ describe("restore (log on/off)", () => {
     const fresh = createGame(123);
     expect(restored.map.stairs).toBeDefined();
     expect(fresh.seed).toBe(restored.seed);
+    // Pre-Roam saves carry no runKind: they resume as race runs.
+    expect(restored.runKind).toBe("race");
+  });
+
+  it("a roam save resumes as roam — the stairs keep descending past the finish line", () => {
+    // Without runKind in the save, a Roam run resumed as race, and at the
+    // stairs on floor 18 the race rule ended the run instead of descending
+    // (the 2D host auto-restores at boot, so it hit this on every refresh).
+    const restored = restoreGame({
+      seed: 9,
+      floor: CONFIG.finalFloor,
+      runKind: "roam",
+      player: { hp: 100, maxHp: 100, baseDamage: 10, level: 3, xp: 0, xpToNext: 50, gold: 0 },
+    });
+    expect(restored.runKind).toBe("roam");
+    const p = restored.players[0];
+    p.pos = { x: restored.map.stairs.x, y: restored.map.stairs.y };
+    restored.monsters.length = 0; // no boss seal in the way
+    step(restored, { move: { x: 0, y: 0 }, aim: { x: 0, y: 1 }, useStairs: true }, 1 / 60);
+    expect(restored.status).toBe("playing"); // race would have flipped to "won"
+    expect(restored.safeRoom).toBeTruthy(); // descent opened the safe room instead
   });
 });
 
