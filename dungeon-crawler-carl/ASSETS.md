@@ -383,6 +383,7 @@ above. Provenance rules for anything it produces:
 | File(s) | Use | Source + license |
 |---|---|---|
 | dungeon/bed_{a,b}_single.glb, bed_floor.glb, bed_decorated.glb, chair.glb, plate_food_{a,b}.glb, crate_large_decorated.glb, barrel_small_stack.glb | barracks/kitchen purposes | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
+| dungeon/wall_doorway.glb, wall_gated.glb, wall_archedwindow_gated.glb, wall_window_open.glb, floor_tile_grate_open.glb, pillar.glb | lived-in look test (doorway arches, gated/window walls, open grates, interior pillars) | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
 | dungeon/pot_a_stew.glb, pot_large.glb, crate_potatoes.glb | kitchen purpose | KayKit Restaurant Bits 1.0, CC0 |
 | dungeon/food_barrel_fish.glb, fuel_a_barrels.glb, gems_sack.glb | kitchen/forge/apothecary | KayKit Resource Bits 1.0, CC0 |
 | dungeon/anvil.glb | forge centerpiece | KayKit Block Bits 1.0, CC0 |
