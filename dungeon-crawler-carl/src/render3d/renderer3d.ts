@@ -288,17 +288,19 @@ export class Renderer3D {
     }
   }
 
-  // LOOK EXPERIMENT (iso.html?look=lived&view=top): "lived" densifies the
+  // LOOK EXPERIMENT (iso.html?look=lived&view=close): "lived" densifies the
   // dungeon with the KayKit Dungeon Remastered modular pieces — doorway
   // arches at room mouths, gated/window wall variants, corridor grates,
-  // interior pillars, Sewers water pools, a higher prop budget. "top" pitches
-  // the camera near-overhead (the pack's own promo view). Cosmetic only.
+  // interior pillars, Sewers water pools, a higher prop budget. "close"
+  // zooms the camera in by a third so the furnishing fills the frame.
+  // (A near-overhead "top" view was tried 2026-07-10 and rejected — the iso
+  // pitch stays.) Cosmetic only.
   private look: "lived" | null = null;
-  private viewTop = false;
+  private viewClose = false;
 
-  constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "top" } = {}) {
+  constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "close" } = {}) {
     this.look = opts.look ?? null;
-    this.viewTop = opts.view === "top";
+    this.viewClose = opts.view === "close";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
@@ -757,7 +759,9 @@ export class Renderer3D {
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
     this.aspect = w / h;
-    const hh = THEME.camOrthoHalfHeight * (this.viewTop ? 1.18 : 1);
+    // "close" view: a third more zoomed in — furnishing and character read
+    // bigger; you see less of the floor at once.
+    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1);
     const hw = hh * this.aspect;
     this.camera.left = -hw; this.camera.right = hw;
     this.camera.top = hh; this.camera.bottom = -hh;
@@ -3105,8 +3109,7 @@ export class Renderer3D {
     const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
     const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
-    // Top view: steep near-overhead pitch (slight lean keeps wall faces readable).
-    const d = this.viewTop ? { x: 0.55, y: 2.6, z: 0.55 } : THEME.camDir;
+    const d = THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
     const anchor = this.playerMeshes.get(p.id)?.position;

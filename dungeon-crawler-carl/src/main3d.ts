@@ -50,12 +50,12 @@ const MAX_FRAME = 0.1;
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 // LOOK EXPERIMENT flags (see renderer3d): ?look=lived densifies the dungeon
-// with Dungeon Remastered modular pieces; ?view=top pitches near-overhead.
+// with Dungeon Remastered modular pieces; ?view=close zooms in by a third.
 // (Reads the URL directly — `params` is declared further down.)
 const lookParams = new URLSearchParams(location.search);
 const renderer = new Renderer3D(canvas, {
   look: lookParams.get("look") === "lived" ? "lived" : undefined,
-  view: lookParams.get("view") === "top" ? "top" : undefined,
+  view: lookParams.get("view") === "close" ? "close" : undefined,
 });
 
 // Audio seam: same consumer pattern as particles/damage numbers, fed from the
