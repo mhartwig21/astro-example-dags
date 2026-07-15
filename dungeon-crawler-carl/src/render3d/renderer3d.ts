@@ -288,7 +288,17 @@ export class Renderer3D {
     }
   }
 
-  constructor(canvas: HTMLCanvasElement) {
+  // LOOK EXPERIMENT (iso.html?look=lived&view=top): "lived" densifies the
+  // dungeon with the KayKit Dungeon Remastered modular pieces — doorway
+  // arches at room mouths, gated/window wall variants, corridor grates,
+  // interior pillars, Sewers water pools, a higher prop budget. "top" pitches
+  // the camera near-overhead (the pack's own promo view). Cosmetic only.
+  private look: "lived" | null = null;
+  private viewTop = false;
+
+  constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "top" } = {}) {
+    this.look = opts.look ?? null;
+    this.viewTop = opts.view === "top";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
@@ -747,7 +757,7 @@ export class Renderer3D {
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
     this.aspect = w / h;
-    const hh = THEME.camOrthoHalfHeight;
+    const hh = THEME.camOrthoHalfHeight * (this.viewTop ? 1.18 : 1);
     const hw = hh * this.aspect;
     this.camera.left = -hw; this.camera.right = hw;
     this.camera.top = hh; this.camera.bottom = -hh;
@@ -1208,6 +1218,13 @@ export class Renderer3D {
     const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
     const altSrc = this.tileSource(theme.floorAltKey);
     const wallSrc = this.tileSource(theme.wallKey) ?? this.tileSource("wall");
+    // LIVED look: extra modular variety mixed into the instanced tile kinds.
+    const lived = this.look === "lived" && !openAir;
+    const winSrc = lived ? this.tileSource("wall_window_open") : null;
+    const winGatedSrc = lived ? this.tileSource("wall_archedwindow_gated") : null;
+    const gatedSrc = lived ? this.tileSource("wall_gated") : null;
+    const grateSrc = lived ? this.tileSource("floor_tile_grate") : null;
+    const grateOpenSrc = lived ? this.tileSource("floor_tile_grate_open") : null;
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
     // The fill box is slightly shorter than the panels so their top/side surfaces
@@ -1370,9 +1387,16 @@ export class Renderer3D {
           if (wallSrc) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
-              placePanel(wallSrc, x, y, d.dx, d.dz);
+              // Lived look: a seeded slice of wall faces carry windows or a
+              // portcullis gate — masonry with a history, not wallpaper.
+              const hv = lived ? tileHash(x * 3 + d.dx, y * 3 + d.dz, state.floor + 55) : 999;
+              const variant = hv < 45 && winSrc ? { src: winSrc, kind: "panelWin" }
+                : hv < 85 && winGatedSrc ? { src: winGatedSrc, kind: "panelWinG" }
+                : hv < 115 && gatedSrc ? { src: gatedSrc, kind: "panelGate" }
+                : null;
+              placePanel(variant ? variant.src : wallSrc, x, y, d.dx, d.dz);
               // Fog keys panels off the floor tile they FACE.
-              push("panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
+              push(variant ? variant.kind : "panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
             }
           }
         } else if (openAir) {
@@ -1385,6 +1409,18 @@ export class Renderer3D {
             push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
           }
         } else {
+          // Lived look: corridors drain through floor grates here and there.
+          const hg = lived && !roomMask[idx] ? tileHash(x, y, state.floor + 77) : 999;
+          if (hg < 40 && grateSrc) {
+            placeFloor(grateSrc, x, y);
+            push("grate", x, y, idx, m);
+            continue;
+          }
+          if (hg < 60 && grateOpenSrc) {
+            placeFloor(grateOpenSrc, x, y);
+            push("grateO", x, y, idx, m);
+            continue;
+          }
           // Mix primary/alt ground per tile (stable hash: same tile, same look).
           const useAlt = altSrc
             ? tileHash(x, y, state.floor) < altPct
@@ -1415,6 +1451,11 @@ export class Renderer3D {
       fill: { geo: fillGeo, mat: fillMat, lit: wallFillLit, cast: true },
       panel: wallSrc ? { geo: wallSrc.geo, mat: wallSrc.mat, lit: wallLitColor, cast: true } : null,
       door: { geo: doorGeo, mat: doorMat, lit: new THREE.Color(1, 1, 1), cast: true },
+      panelWin: winSrc ? { geo: winSrc.geo, mat: winSrc.mat, lit: wallLitColor, cast: true } : null,
+      panelWinG: winGatedSrc ? { geo: winGatedSrc.geo, mat: winGatedSrc.mat, lit: wallLitColor, cast: true } : null,
+      panelGate: gatedSrc ? { geo: gatedSrc.geo, mat: gatedSrc.mat, lit: wallLitColor, cast: true } : null,
+      grate: grateSrc ? { geo: grateSrc.geo, mat: grateSrc.mat, lit: floorLit, cast: false } : null,
+      grateO: grateOpenSrc ? { geo: grateOpenSrc.geo, mat: grateOpenSrc.mat, lit: floorLit, cast: false } : null,
     };
     if (openAir) {
       // Ground is flat grass mats (white material; the LIT color carries the
@@ -1588,7 +1629,7 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const PROP_CAP = 185; // vignette rooms raised the budget (was 150)
+    const PROP_CAP = lived ? 265 : 185; // vignette rooms raised the budget (was 150)
     const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean; elevate?: number } = {}): boolean => {
       // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
       // one case where a prop belongs on a non-Floor tile (looks = collision).
@@ -1671,12 +1712,83 @@ export class Renderer3D {
         { x: r.x + 1.2, y: r.y + r.h - 1.2 }, { x: r.x + r.w - 1.2, y: r.y + r.h - 1.2 },
       ];
       const start = Math.floor(frng() * 4);
-      for (let c = 0; c < 2; c++) {
-        const corner = corners[(start + c * 2) % 4];
-        const n = 1 + Math.floor(frng() * 2);
+      // Lived look: three corners cluttered instead of two, one more piece each.
+      for (let c = 0; c < (lived ? 3 : 2); c++) {
+        const corner = corners[(start + c * (lived ? 1 : 2)) % 4];
+        const n = (lived ? 2 : 1) + Math.floor(frng() * 2);
         for (let k = 0; k < n; k++) {
           const key = pool[Math.floor(frng() * pool.length)];
           place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
+        }
+      }
+    }
+
+    // LIVED look one-offs (few per floor, so not instanced):
+    if (lived) {
+      // 1) DOORWAY ARCHES: a modular wall_doorway piece over corridor tiles at
+      //    room mouths — the walkable gap now reads as a built doorway. The
+      //    piece's opening spans the tile, so the path never lies.
+      let arches = 0;
+      for (let y = 1; y < map.h - 1 && arches < 14; y++) {
+        for (let x = 1; x < map.w - 1 && arches < 14; x++) {
+          const idx = y * map.w + x;
+          if (map.tiles[idx] !== Tile.Floor || roomMask[idx]) continue;
+          const wl = map.tiles[idx - 1] === Tile.Wall, wr = map.tiles[idx + 1] === Tile.Wall;
+          const wu = map.tiles[idx - map.w] === Tile.Wall, wd = map.tiles[idx + map.w] === Tile.Wall;
+          const gateNS = wl && wr && !wu && !wd; // corridor runs north-south
+          const gateEW = wu && wd && !wl && !wr;
+          if (!gateNS && !gateEW) continue;
+          const mouth = gateNS
+            ? roomMask[idx - map.w] || roomMask[idx + map.w]
+            : roomMask[idx - 1] || roomMask[idx + 1];
+          if (!mouth || tileHash(x, y, state.floor + 91) > 700) continue;
+          const arch = this.modelInstance("wall_doorway");
+          if (!arch) break;
+          arch.rotation.y = gateNS ? 0 : Math.PI / 2; // wall plane across travel
+          const box = new THREE.Box3().setFromObject(arch);
+          const across = gateNS ? box.max.x - box.min.x : box.max.z - box.min.z;
+          const s = 1.0 / Math.max(across, 1e-4);
+          const sy = 1.0 / Math.max(box.max.y - box.min.y, 1e-4);
+          arch.scale.set(arch.scale.x * s, arch.scale.y * sy, arch.scale.z * s);
+          const b2 = new THREE.Box3().setFromObject(arch);
+          arch.position.set(
+            x + 0.5 - (b2.min.x + b2.max.x) / 2 + arch.position.x,
+            -b2.min.y,
+            y + 0.5 - (b2.min.z + b2.max.z) / 2 + arch.position.z,
+          );
+          this.floorGroup.add(arch);
+          this.propEntries.push({ obj: arch, tile: idx });
+          arches++;
+        }
+      }
+      // 2) INTERIOR PILLARS: big rooms get a pair inset at opposite corners
+      //    (low-traffic ground; place() still respects clearance + cap).
+      for (const r of map.rooms) {
+        if (r.w < 7 || r.h < 6) continue;
+        const h = tileHash(r.x, r.y, state.floor + 33);
+        if (h > 750) continue;
+        const key = ["pillar", "pillar_decorated", "column"][h % 3];
+        place(key, r.x + 1.6, r.y + 1.6, { scale: 1.5, rot: 0, jitter: 0.05 });
+        place(key, r.x + r.w - 1.6, r.y + r.h - 1.6, { scale: 1.5, rot: 0, jitter: 0.05 });
+      }
+      // 3) WATER POOLS (THE SEWERS band): a translucent standing-water sheet
+      //    inset along a room edge. Cosmetic and walkable — shallow water.
+      if (floorBand(state.floor) === 1) {
+        for (const r of map.rooms) {
+          const h = tileHash(r.x * 3, r.y * 5, state.floor + 13);
+          if (h > 400 || r.w < 6 || r.h < 6) continue;
+          const pw = Math.min(3.5, r.w - 3.5), ph = Math.min(2.5, r.h - 3.5);
+          const pool = new THREE.Mesh(
+            new THREE.PlaneGeometry(pw, ph),
+            new THREE.MeshStandardMaterial({
+              color: 0x2e8b8b, transparent: true, opacity: 0.7, roughness: 0.2,
+              metalness: 0.15, emissive: 0x0f3d3d, emissiveIntensity: 0.4,
+            }),
+          );
+          pool.rotation.x = -Math.PI / 2;
+          pool.position.set(r.x + 1.25 + pw / 2, 0.045, r.y + 1.25 + ph / 2);
+          this.floorGroup.add(pool);
+          this.propEntries.push({ obj: pool, tile: Math.floor(r.y + 1) * map.w + Math.floor(r.x + 1) });
         }
       }
     }
@@ -2993,7 +3105,8 @@ export class Renderer3D {
     const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
     const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
-    const d = THEME.camDir;
+    // Top view: steep near-overhead pitch (slight lean keeps wall faces readable).
+    const d = this.viewTop ? { x: 0.55, y: 2.6, z: 0.55 } : THEME.camDir;
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
     const anchor = this.playerMeshes.get(p.id)?.position;

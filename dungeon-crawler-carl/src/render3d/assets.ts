@@ -157,6 +157,11 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // room, ossuary + variant dressing (rugs, mugs, maps, mushrooms).
       // Prototype/Board Game/Furniture/RPG Tools/Halloween/Restaurant/
       // Mystery Monthly bits, all CC0 — see ASSETS.md.
+      // LIVED-IN LOOK TEST (iso.html?look=lived): doorway arches at room
+      // mouths, gated/window wall variants, open grates, interior pillars.
+      // KayKit Dungeon Remastered 1.1, CC0 — see ASSETS.md.
+      "wall_doorway", "wall_gated", "wall_archedwindow_gated", "wall_window_open",
+      "floor_tile_grate_open", "pillar",
       "dummy_base", "weaponrack", "weaponrack_decorated", "trainingdummy_base",
       "card_base", "card_spades_ace", "card_hearts_king",
       "coin_gold", "coin_10_gold", "coin_silver",
