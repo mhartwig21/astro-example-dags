@@ -124,13 +124,13 @@ and the announcer already sells it ("The System grew you a garden…").
   via `?test&floor=7`).
 - Whether elites/bosses get biome-flavored set-pieces per band/role.
 
-## Lived-in look experiment (iso.html?look=lived&view=top)
+## Lived-in look experiment (iso.html?look=lived&view=close)
 
 A flag-gated variant chasing the KayKit Dungeon Remastered promo look:
 doorway arches over corridor tiles at room mouths, gated/window wall panel
 variants (~11% of faces), corridor floor grates, interior pillar pairs in
 big rooms, translucent standing-water pools in THE SEWERS, denser corner
-clutter and a 265 prop cap. `view=top` pitches the camera near-overhead.
+clutter and a 265 prop cap. `view=close` zooms in by a third (a near-overhead top view was tried and rejected).
 Both flags are independent and cosmetic-only — the sim never changes, and
 the default look is byte-identical without them. Code: renderer3d
 (`look`/`viewTop`), assets wall_doorway / wall_gated /
