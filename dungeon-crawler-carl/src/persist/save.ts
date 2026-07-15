@@ -18,6 +18,7 @@ export interface SaveData {
   seed: number;
   floor: number;
   mode?: RunMode; // absent on pre-menu saves: treated as a random run
+  runKind?: GameState["runKind"]; // absent on pre-Roam saves: a race run
   // Character progression only — the floor itself is regenerated from seed + floor,
   // so we never persist transient monster/loot/timer state. Effective stats
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
@@ -60,6 +61,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
       seed: state.seed,
       floor: state.floor,
       mode,
+      runKind: state.runKind,
       player: {
         name: p.name,
         skin: p.skin,

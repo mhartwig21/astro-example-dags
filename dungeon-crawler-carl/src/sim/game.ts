@@ -1188,6 +1188,10 @@ export function buildFloor(state: GameState, floor: number): void {
 export interface SavedProgress {
   seed: number;
   floor: number;
+  // Absent on pre-Roam saves: treated as a race run. Without this a saved
+  // Roam run resumed as race — and at the stairs on floor 18+ the race rule
+  // ended the run ("won") instead of descending.
+  runKind?: GameState["runKind"];
   player: {
     hp: number;
     level: number;
@@ -1307,7 +1311,7 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
  * single-player stand-in for "log back in and resume."
  */
 export function restoreGame(save: SavedProgress): GameState {
-  const state = createGame(save.seed);
+  const state = createGame(save.seed, "coop", save.runKind ?? "race");
   applySavedPlayer(state.players[0], save);
   buildFloor(state, save.floor);
   return state;
