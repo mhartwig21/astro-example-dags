@@ -290,11 +290,35 @@ function applySkinPick(skin: CrawlerSkin): void {
   const el = skinNameEl();
   if (el) el.textContent = skin === "hooded" ? "THE HOODED ONE" : `THE ${skin.toUpperCase()}`;
 }
+// THE CASTING CALL: stage 2 of check-in. Picking a mode hides the panel and
+// dollies the camera into the full campfire scene; pick a crawler, CHECK IN
+// launches whatever the panel decided, BACK returns to the panel.
+let pendingLaunch: (() => void) | null = null;
+function enterCasting(modeLabel: string, launch: () => void): void {
+  pendingLaunch = launch;
+  document.getElementById("m-cast-mode")!.textContent = modeLabel;
+  menuEl.classList.add("casting");
+  if (charSelect) charSelect.mode = "casting";
+}
+function exitCasting(): void {
+  pendingLaunch = null;
+  menuEl.classList.remove("casting");
+  if (charSelect) charSelect.mode = "backdrop";
+}
+document.getElementById("m-cast-back")!.addEventListener("click", exitCasting);
+document.getElementById("m-cast-go")!.addEventListener("click", () => {
+  const launch = pendingLaunch;
+  exitCasting();
+  closeMenu();
+  launch?.();
+});
 window.addEventListener("keydown", (e) => {
-  if (!menuOpen || !charSelect) return;
+  if (!menuOpen || !charSelect || charSelect.mode !== "casting") return;
   if (document.activeElement instanceof HTMLInputElement) return; // typing a name
   if (e.key === "ArrowLeft") charSelect.cycle(-1);
   else if (e.key === "ArrowRight") charSelect.cycle(1);
+  else if (e.key === "Enter") document.getElementById("m-cast-go")!.click();
+  else if (e.key === "Escape") exitCasting();
 });
 
 const NAME_KEY = "dcc:name:v1";
@@ -408,19 +432,21 @@ function closeMenu(): void {
   menuOpen = false;
   input.captureMode = false;
   menuEl.style.display = "none";
+  menuEl.classList.remove("casting"); // next open starts back at the panel
   document.body.classList.remove("checkin");
-  if (charSelect) charSelect.enabled = false;
+  if (charSelect) {
+    charSelect.enabled = false;
+    charSelect.mode = "backdrop";
+  }
 }
 
+// CONTINUE resumes an existing character — no casting call, they already are
+// somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
-document.getElementById("m-daily")!.addEventListener("click", () => {
-  startRun({ kind: "daily", day: dayFromMs(Date.now()) });
-  closeMenu();
-});
-document.getElementById("m-solo")!.addEventListener("click", () => {
-  startRun({ kind: "random" });
-  closeMenu();
-});
+document.getElementById("m-daily")!.addEventListener("click", () =>
+  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: dayFromMs(Date.now()) })));
+document.getElementById("m-solo")!.addEventListener("click", () =>
+  enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
 // RACE / ROAM top-level split. RACE shows today's full card set unchanged;
 // ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
@@ -437,10 +463,8 @@ document.getElementById("m-mode-roam")!.addEventListener("click", () => {
   document.getElementById("m-mode-roam")!.classList.add("active");
   document.getElementById("m-mode-race")!.classList.remove("active");
 });
-document.getElementById("m-roam-solo")!.addEventListener("click", () => {
-  startRun({ kind: "random" }, "roam");
-  closeMenu();
-});
+document.getElementById("m-roam-solo")!.addEventListener("click", () =>
+  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam")));
 
 // Party crawl: the invite code IS the dungeon seed; the URL is the invite.
 const codeInput = document.getElementById("m-code") as HTMLInputElement;
@@ -461,7 +485,11 @@ document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.v
 document.getElementById("m-join")!.addEventListener("click", () => {
   const code = codeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { codeInput.focus(); return; }
-  location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  // Pick your look BEFORE the page navigates into the party (netClient sends
+  // the stored skin with the join).
+  enterCasting(`PARTY ${code}`, () => {
+    location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  });
 });
 // RIVALS: a first-class home-screen card with its own race code — same code
 // plumbing as co-op, hostile rules. The first joiner arms the race.
@@ -476,7 +504,9 @@ document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeI
 document.getElementById("m-rivals")!.addEventListener("click", () => {
   const code = rivalCodeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { rivalCodeInput.focus(); return; }
-  location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  enterCasting(`RIVALS ${code}`, () => {
+    location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  });
 });
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).

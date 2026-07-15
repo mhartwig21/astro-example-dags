@@ -40,12 +40,25 @@ interface Slot {
   fwd: THREE.Vector3; // unit vector toward the fire (the step direction)
 }
 
+/** Two camera moods, lerped between: the fire burns BEHIND the check-in panel
+ *  while you pick a mode, then the casting call brings the lineup center
+ *  stage for the actual pick. */
+const CAMERA_POSES = {
+  backdrop: { fov: 38, pos: new THREE.Vector3(-4.2, 1.9, 4.6), look: new THREE.Vector3(0.5, 1.0, -1.5) },
+  casting: { fov: 42, pos: new THREE.Vector3(0.15, 2.15, 7.4), look: new THREE.Vector3(0.15, 0.95, -1.3) },
+} as const;
+
 export class CharSelectScene {
   selected: CrawlerSkin;
   onSelect: ((skin: CrawlerSkin) => void) | null = null;
   enabled = false; // main3d flips this with the menu; gates input handlers
+  /** backdrop = ambiance behind the panel (no input); casting = the pick. */
+  mode: keyof typeof CAMERA_POSES = "backdrop";
 
   private readonly gl: THREE.WebGLRenderer;
+  private readonly camPos = CAMERA_POSES.backdrop.pos.clone();
+  private readonly camLook = CAMERA_POSES.backdrop.look.clone();
+  private camFov = CAMERA_POSES.backdrop.fov;
   // A GETTER, not a snapshot: Renderer3D reassigns its live model record when
   // the async asset stream starts, which is usually AFTER the menu opens.
   private readonly modelsOf: () => Record<string, LoadedModel>;
@@ -108,21 +121,23 @@ export class CharSelectScene {
       this.slots.push({ skin, anchor, model: null, mixer: null, idle: null, home: anchor.position.clone(), fwd });
     });
 
-    // Camera: a side-on camp view (D2R energy) — nearest crawler large at
-    // frame-left, the lineup receding toward the fire; the DOM panel owns
-    // the right of the screen.
-    this.camera.fov = 38;
-    this.camera.position.set(-4.2, 1.9, 4.6);
-    this.camera.lookAt(0.5, 1.0, -1.5);
+    // Camera starts in the backdrop pose; frame() glides it toward whichever
+    // pose `mode` asks for (panel check-in vs the full casting call).
+    this.camera.fov = this.camFov;
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camLook);
     this.camera.updateProjectionMatrix();
 
     this.onClick = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || this.mode !== "casting") return;
       const hit = this.pick(e);
       if (hit) this.select(hit);
     };
     this.onMove = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || this.mode !== "casting") {
+        this.gl.domElement.style.cursor = "";
+        return;
+      }
       this.gl.domElement.style.cursor = this.pick(e) ? "pointer" : "";
     };
     this.gl.domElement.addEventListener("click", this.onClick);
@@ -131,14 +146,20 @@ export class CharSelectScene {
 
   /** Campfire: log ring + layered emissive flames + rising sparks. */
   private buildFire(): void {
-    const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
+    // Ember-lit logs: the fire light sits INSIDE the ring, so the faces the
+    // camera sees would otherwise render pitch black — the emissive is the
+    // glow of wood that has been burning a while.
+    const logMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3524, roughness: 0.9,
+      emissive: 0xff5a1f, emissiveIntensity: 0.32,
+    });
     const logs = new THREE.Group();
-    const logGeo = new THREE.CylinderGeometry(0.09, 0.11, 1.1, 6);
+    const logGeo = new THREE.CylinderGeometry(0.06, 0.075, 0.8, 6);
     for (let i = 0; i < 5; i++) {
       const log = new THREE.Mesh(logGeo, logMat);
       const a = (i / 5) * Math.PI * 2;
-      log.position.set(Math.cos(a) * 0.22, 0.14, Math.sin(a) * 0.22);
-      log.rotation.set(Math.PI / 2.4, a, 0);
+      log.position.set(Math.cos(a) * 0.18, 0.12, Math.sin(a) * 0.18);
+      log.rotation.set(Math.PI / 2.35, a, 0);
       log.castShadow = true;
       logs.add(log);
     }
@@ -296,10 +317,21 @@ export class CharSelectScene {
     this.halo.target.position.lerp(sel.anchor.position.clone().setY(1.0), Math.min(1, dt * 6));
     this.halo.position.lerp(sel.anchor.position.clone().add(new THREE.Vector3(0.4, 5.6, 2.2)), Math.min(1, dt * 6));
 
+    // Glide the camera toward the active pose (check-in backdrop vs the
+    // casting call) — a slow dolly, not a cut.
+    const pose = CAMERA_POSES[this.mode];
+    const k = Math.min(1, dt * 3);
+    this.camPos.lerp(pose.pos, k);
+    this.camLook.lerp(pose.look, k);
+    this.camFov += (pose.fov - this.camFov) * k;
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camLook);
+
     const el = this.gl.domElement;
     const aspect = el.clientWidth / Math.max(1, el.clientHeight);
-    if (Math.abs(aspect - this.camera.aspect) > 1e-3) {
+    if (Math.abs(aspect - this.camera.aspect) > 1e-3 || Math.abs(this.camFov - this.camera.fov) > 0.05) {
       this.camera.aspect = aspect;
+      this.camera.fov = this.camFov;
       this.camera.updateProjectionMatrix();
     }
     this.gl.render(this.scene, this.camera);
