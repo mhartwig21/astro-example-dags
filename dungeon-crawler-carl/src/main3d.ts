@@ -421,7 +421,7 @@ function openMenu(): void {
     const p = state.players[0];
     cont.style.display = "";
     document.getElementById("m-continue-sub")!.textContent =
-      `${p.name} · floor ${state.floor} · level ${p.level} — the cameras never stopped rolling`;
+      `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
   document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
@@ -2587,7 +2587,7 @@ async function main(): Promise<void> {
       localId = net.playerId;
       renderer.localPlayerId = localId;
       pushLogLine("Reconnected. Your run resumes.");
-      showAnnouncement({ text: "SIGNAL RESTORED. The audience missed you.", kind: "flavor", priority: "high" });
+      showAnnouncement({ text: "SIGNAL RESTORED. The dungeon kept your seat.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
   }
