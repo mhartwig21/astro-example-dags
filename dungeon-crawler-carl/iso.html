@@ -412,14 +412,13 @@
          only the panel (and the skin label is display-only). The panel docks
          right; the left of the screen belongs to the fire. */
       #menu { position: fixed; inset: 0; display: none; align-items: center;
-        justify-content: flex-end; padding-right: 2.5vw; pointer-events: none;
-        background: linear-gradient(90deg, rgba(4,4,8,0.05) 0%, rgba(4,4,8,0.12) 42%,
-          rgba(6,5,10,0.55) 62%, rgba(6,5,10,0.8) 100%);
+        justify-content: center; pointer-events: none;
+        background: radial-gradient(ellipse at 50% 45%, rgba(4,4,8,0.0) 30%, rgba(4,4,8,0.35) 100%);
         z-index: 28; }
-      #menu .panel { width: min(640px, 46vw); max-height: 92vh; overflow: auto;
+      #menu .panel { width: min(700px, 56vw); max-height: 84vh; overflow: auto;
         pointer-events: auto;
-        background: rgba(23,19,16,0.94); border: 1px solid #6e5533; border-radius: 10px;
-        padding: 22px 26px 20px; box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+        background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: 12px;
+        padding: 22px 26px 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
       /* While checked in, the game HUD behind the campfire goes dark — the
          backdrop world isn't being rendered, only the lineup is. */
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
@@ -1283,17 +1282,17 @@
         <small>CLICK A CRAWLER OR ← → · COSMETIC ONLY — THE CONSTELLATION IS THE BUILD</small>
       </div>
       <div id="m-cast">
-        <div id="m-cast-kicker">◆ RINGSIDE INTRODUCTIONS ◆</div>
+        <div id="m-cast-kicker">◆ THE CAMPFIRE ◆</div>
         <div id="m-cast-mode">NEW RUN</div>
         <div id="m-cast-buttons">
           <button id="m-cast-back">← BACK</button>
-          <button id="m-cast-go">CHECK IN ▶</button>
+          <button id="m-cast-go">DESCEND ▶</button>
         </div>
       </div>
       <div class="panel">
-        <div class="m-kicker">◆ THE SYSTEM PRESENTS ◆</div>
+        <div class="m-kicker">◆ THE WORLD DUNGEON ◆</div>
         <h1>DUNGEON CRAWLER CLAUDE</h1>
-        <div class="m-sub">RINGSIDE CHECK-IN · every floor is a set, every death is content</div>
+        <div class="m-sub">Welcome, Crawler. Eighteen floors. The only way out is down.</div>
         <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
         <div class="m-cols">
           <div>
@@ -1309,7 +1308,7 @@
                 <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
               </button>
               <button class="m-card" id="m-solo">
-                <b>NEW RUN</b><small>a fresh seed and a full camera crew</small>
+                <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
               </button>
               <button class="m-card" id="m-party">
                 <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
@@ -1328,7 +1327,7 @@
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
               <button class="m-card dim" id="m-test">
-                <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
+                <b>TEST CHAMBER</b><small>practice floors — nothing is saved</small>
               </button>
               <div class="m-form" id="m-test-form" style="display:none">
                 <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>

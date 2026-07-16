@@ -22,13 +22,13 @@ const LINEUP_MODEL: Record<CrawlerSkin, string> = {
   rogue: "crawler_rogue", hooded: "crawler_hooded",
 };
 
-const ARC_RADIUS = 2.7;
-const ARC_SPREAD = (Math.PI * 100) / 180; // the lineup's total angular width
+const ARC_RADIUS = 3.4;
+const ARC_SPREAD = (Math.PI * 165) / 180; // the lineup's total angular width
 const STEP_FORWARD = 0.55; // how far the chosen crawler steps toward the camp center
-// The fire sits off-center so it peeks out from behind the docked panel while
-// the lineup owns the left of the frame (composition tuned against 1280x800).
-const FIRE_X = 1.1;
-const FIRE_Z = 0.7;
+// The fire anchors the center of the frame; the wide arc spreads the band
+// around it so the ends flank a centered panel in the backdrop stage.
+const FIRE_X = 0;
+const FIRE_Z = 0.35;
 
 interface Slot {
   skin: CrawlerSkin;
@@ -44,8 +44,8 @@ interface Slot {
  *  while you pick a mode, then the casting call brings the lineup center
  *  stage for the actual pick. */
 const CAMERA_POSES = {
-  backdrop: { fov: 38, pos: new THREE.Vector3(-4.2, 1.9, 4.6), look: new THREE.Vector3(0.5, 1.0, -1.5) },
-  casting: { fov: 42, pos: new THREE.Vector3(0.15, 2.15, 7.4), look: new THREE.Vector3(0.15, 0.95, -1.3) },
+  backdrop: { fov: 46, pos: new THREE.Vector3(0, 2.7, 9.8), look: new THREE.Vector3(0, 1.1, -0.4) },
+  casting: { fov: 45, pos: new THREE.Vector3(0, 2.2, 8.1), look: new THREE.Vector3(0, 0.95, -0.7) },
 } as const;
 
 export class CharSelectScene {
