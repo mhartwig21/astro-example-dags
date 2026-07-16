@@ -23,6 +23,7 @@ export interface SaveData {
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
   player: {
     name?: string; // chosen at the check-in menu; pre-menu saves default to "Carl"
+    skin?: string; // chosen campfire look (CRAWLER_SKINS); absent = seeded fallback
     hp: number;
     level: number;
     xp: number;
@@ -61,6 +62,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
       mode,
       player: {
         name: p.name,
+        skin: p.skin,
         hp: p.hp,
         level: p.level,
         xp: p.xp,

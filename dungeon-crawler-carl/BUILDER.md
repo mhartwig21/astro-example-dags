@@ -8,8 +8,12 @@ the Meshy pipeline — all exported as data the game imports.
 ## Rooms tab
 
 Paint tiles (Floor/Wall; RMB or Erase reverts), place props from the palette
-(every `/assets/dungeon/` manifest key; R rotates the last-placed), then
+(every `/assets/dungeon/` manifest key, with lazy-rendered thumbnails), then
 Save (localStorage) / Export JSON.
+
+**Editor controls**: wheel zooms, middle-drag (or Alt+drag) orbits the
+camera; Ctrl+Z undoes (50 deep, one stroke = one undo); on the last-placed
+prop, R rotates, arrow keys nudge a quarter tile, `[`/`]` scale it.
 
 **Contract**: the border ring and center tile must stay FLOOR, and interior
 walls need 2-wide gaps — the stamper validates and silently reverts designs
@@ -46,6 +50,14 @@ first band's floor; the test-mode host registers it with every band + weight
 99, so most spawns of its behavior become YOUR enemy — fight it before you
 ship it. "Game enemies (shipped)" loads existing defs for editing.
 
+**Kit preview** (left rail): a weapon grafted onto the body's `handslot`
+bone (preview only — defs have no weapon field), and "show hero for scale"
+stands the player model beside the enemy at GAME-accurate proportions (both
+normalize to 1.1 then take the archetype's scale × the def's, magnified by
+one shared view factor). **Alternate texture (B-skin)** is a real def field
+(`texture`) applied in-game by `buildMonsterMesh` — same body, different
+individual.
+
 ## Dressing tab
 
 Previews the **vignette grammar** (`src/sim/roomPurposes.ts` +
@@ -62,6 +74,11 @@ Rooms under 5×5 don't dress (matches the in-game candidate filter). Purpose
 DATA lives in `roomPurposes.data.json` (in variants, `null` = "remove the
 base field"); the grammar/types stay in `roomPurposes.ts`.
 
+**Bake into room props** converts the current dressing into the Rooms tab's
+own prop list — hand-tweak individual pieces, then save/ship as a template.
+Wall mounts, tabletop items, and corridor spill don't convert (templates
+are ground-level, in-room only); the message counts what was skipped.
+
 ## Meshy bridge (dev box only)
 
 `npm run dev` hosts `/__builder/*` endpoints that run the asset pipeline
@@ -77,7 +94,14 @@ builder page detects the bridge is absent and hides the panel.
   178/8) on the creature's OWN skeleton, renamed to the clip-matcher
   vocabulary (`blender/rename_clip.py`). No cross-skeleton retargeting.
   Creature bodies are NOT palette-snapped (re-UV vs skinning untested) —
-  prompt "flat colors" and let the emissive tint do the rest.
+  prompt "flat colors" and let the emissive tint do the rest. The **creature
+  clips** picker chooses which preset clips to compile (the standard five
+  plus Throw/Drink/Bow extras, 3 credits each; `creature.py --clips`).
+- **Retexture** (~10 credits): new texture on an EXISTING generated asset's
+  mesh — palette-match a prop to a band or age it without regenerating
+  geometry. Source must be a key in `public/assets/generated/`; the result
+  lands as a new key (`orchestrator/retexture.py`, Meshy `/openapi/v1/
+  retexture`).
 
 `public/assets/generated/` is git-ignored scratch space. **Promoting a
 creation to shipped content**: copy the GLB(s) into `public/assets/dungeon/`

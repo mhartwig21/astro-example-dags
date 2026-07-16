@@ -1,7 +1,7 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
   buyCatalogItem, hasPassive, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
-  type TestSetup,
+  isCrawlerSkin, type CrawlerSkin, type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
@@ -49,7 +49,14 @@ const SIM_DT = 1 / SIM_HZ;
 const MAX_FRAME = 0.1;
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
-const renderer = new Renderer3D(canvas);
+// LOOK EXPERIMENT flags (see renderer3d): ?look=lived densifies the dungeon
+// with Dungeon Remastered modular pieces; ?view=close zooms in by a third.
+// (Reads the URL directly — `params` is declared further down.)
+const lookParams = new URLSearchParams(location.search);
+const renderer = new Renderer3D(canvas, {
+  look: lookParams.get("look") === "lived" ? "lived" : undefined,
+  view: lookParams.get("view") === "close" ? "close" : undefined,
+});
 
 // Audio seam: same consumer pattern as particles/damage numbers, fed from the
 // per-frame feedback buffers. Silent until clips exist under public/audio/
@@ -181,6 +188,7 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
+  state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
@@ -265,6 +273,54 @@ input.onReset = () => {
 // dungeon) and owns the keyboard via input.captureMode, like the rebind panel.
 const menuEl = document.getElementById("menu")!;
 let menuOpen = false;
+
+// THE CAMPFIRE: who are you this season? Cosmetic pick, kept per browser and
+// carried into runs, saves, and party joins (netClient reads the same key).
+const SKIN_KEY = "dcc:skin:v1";
+let chosenSkin: CrawlerSkin = "knight";
+try {
+  const stored = localStorage.getItem(SKIN_KEY);
+  if (isCrawlerSkin(stored)) chosenSkin = stored;
+} catch { /* seeded fallback covers it */ }
+let charSelect: ReturnType<Renderer3D["createCharSelect"]> | null = null;
+const skinNameEl = () => document.getElementById("m-skin-name");
+function applySkinPick(skin: CrawlerSkin): void {
+  chosenSkin = skin;
+  try { localStorage.setItem(SKIN_KEY, skin); } catch { /* best-effort */ }
+  const el = skinNameEl();
+  if (el) el.textContent = skin === "hooded" ? "THE HOODED ONE" : `THE ${skin.toUpperCase()}`;
+}
+// THE CASTING CALL: stage 2 of check-in. Picking a mode hides the panel and
+// dollies the camera into the full campfire scene; pick a crawler, CHECK IN
+// launches whatever the panel decided, BACK returns to the panel.
+let pendingLaunch: (() => void) | null = null;
+function enterCasting(modeLabel: string, launch: () => void): void {
+  pendingLaunch = launch;
+  document.getElementById("m-cast-mode")!.textContent = modeLabel;
+  menuEl.classList.add("casting");
+  if (charSelect) charSelect.mode = "casting";
+}
+function exitCasting(): void {
+  pendingLaunch = null;
+  menuEl.classList.remove("casting");
+  if (charSelect) charSelect.mode = "backdrop";
+}
+document.getElementById("m-cast-back")!.addEventListener("click", exitCasting);
+document.getElementById("m-cast-go")!.addEventListener("click", () => {
+  const launch = pendingLaunch;
+  exitCasting();
+  closeMenu();
+  launch?.();
+});
+window.addEventListener("keydown", (e) => {
+  if (!menuOpen || !charSelect || charSelect.mode !== "casting") return;
+  if (document.activeElement instanceof HTMLInputElement) return; // typing a name
+  if (e.key === "ArrowLeft") charSelect.cycle(-1);
+  else if (e.key === "ArrowRight") charSelect.cycle(1);
+  else if (e.key === "Enter") document.getElementById("m-cast-go")!.click();
+  else if (e.key === "Escape") exitCasting();
+});
+
 const NAME_KEY = "dcc:name:v1";
 const nameInput = document.getElementById("m-name") as HTMLInputElement;
 try { nameInput.value = localStorage.getItem(NAME_KEY) ?? "Carl"; } catch { nameInput.value = "Carl"; }
@@ -350,12 +406,22 @@ function openMenu(): void {
   menuOpen = true;
   input.captureMode = true; // typing a name must not fire game binds
   menuEl.style.display = "flex";
+  document.body.classList.add("checkin"); // hide the game HUD behind the campfire
+  // The campfire owns the canvas while checked in (frame() renders it).
+  if (!charSelect) {
+    charSelect = renderer.createCharSelect(chosenSkin);
+    charSelect.onSelect = applySkinPick;
+    // Debug/verify hook (harmless in prod: enumerable state only).
+    (window as unknown as Record<string, unknown>).__charSelect = charSelect;
+  }
+  charSelect.enabled = true;
+  applySkinPick(chosenSkin); // seed the label
   const cont = document.getElementById("m-continue")!;
   if (hasContinue) {
     const p = state.players[0];
     cont.style.display = "";
     document.getElementById("m-continue-sub")!.textContent =
-      `${p.name} · floor ${state.floor} · level ${p.level} — the cameras never stopped rolling`;
+      `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
   document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
@@ -366,17 +432,21 @@ function closeMenu(): void {
   menuOpen = false;
   input.captureMode = false;
   menuEl.style.display = "none";
+  menuEl.classList.remove("casting"); // next open starts back at the panel
+  document.body.classList.remove("checkin");
+  if (charSelect) {
+    charSelect.enabled = false;
+    charSelect.mode = "backdrop";
+  }
 }
 
+// CONTINUE resumes an existing character — no casting call, they already are
+// somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
-document.getElementById("m-daily")!.addEventListener("click", () => {
-  startRun({ kind: "daily", day: dayFromMs(Date.now()) });
-  closeMenu();
-});
-document.getElementById("m-solo")!.addEventListener("click", () => {
-  startRun({ kind: "random" });
-  closeMenu();
-});
+document.getElementById("m-daily")!.addEventListener("click", () =>
+  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: dayFromMs(Date.now()) })));
+document.getElementById("m-solo")!.addEventListener("click", () =>
+  enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
 // RACE / ROAM top-level split. RACE shows today's full card set unchanged;
 // ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
@@ -393,10 +463,8 @@ document.getElementById("m-mode-roam")!.addEventListener("click", () => {
   document.getElementById("m-mode-roam")!.classList.add("active");
   document.getElementById("m-mode-race")!.classList.remove("active");
 });
-document.getElementById("m-roam-solo")!.addEventListener("click", () => {
-  startRun({ kind: "random" }, "roam");
-  closeMenu();
-});
+document.getElementById("m-roam-solo")!.addEventListener("click", () =>
+  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam")));
 
 // Party crawl: the invite code IS the dungeon seed; the URL is the invite.
 const codeInput = document.getElementById("m-code") as HTMLInputElement;
@@ -417,7 +485,11 @@ document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.v
 document.getElementById("m-join")!.addEventListener("click", () => {
   const code = codeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { codeInput.focus(); return; }
-  location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  // Pick your look BEFORE the page navigates into the party (netClient sends
+  // the stored skin with the join).
+  enterCasting(`PARTY ${code}`, () => {
+    location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  });
 });
 // RIVALS: a first-class home-screen card with its own race code — same code
 // plumbing as co-op, hostile rules. The first joiner arms the race.
@@ -432,7 +504,9 @@ document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeI
 document.getElementById("m-rivals")!.addEventListener("click", () => {
   const code = rivalCodeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { rivalCodeInput.focus(); return; }
-  location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  enterCasting(`RIVALS ${code}`, () => {
+    location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
+  });
 });
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
@@ -2514,7 +2588,7 @@ async function main(): Promise<void> {
       localId = net.playerId;
       renderer.localPlayerId = localId;
       pushLogLine("Reconnected. Your run resumes.");
-      showAnnouncement({ text: "SIGNAL RESTORED. The audience missed you.", kind: "flavor", priority: "high" });
+      showAnnouncement({ text: "SIGNAL RESTORED. The dungeon kept your seat.", kind: "flavor", priority: "high" });
     };
     partyChip.style.display = "";
   }
@@ -2682,8 +2756,14 @@ async function main(): Promise<void> {
     renderer.emitHits(frameHits);
     audioDirector.frame(state, frameHits, frameAnns, localId);
     updateBulletTimeGrade(state);
-    renderer.update(state, now / 1000);
-    renderer.render();
+    if (menuOpen && charSelect) {
+      // Checked in at the campfire: the select scene owns the canvas; the
+      // frozen backdrop world stays un-rendered until the menu closes.
+      charSelect.frame(now / 1000);
+    } else {
+      renderer.update(state, now / 1000);
+      renderer.render();
+    }
     // Damage numbers need the camera positioned (done in update) to project.
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);

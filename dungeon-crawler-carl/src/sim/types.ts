@@ -18,6 +18,10 @@ export type TimerPhase = "safe" | "warning" | "collapse";
 export interface Player {
   id: number; // stable per party member; 0 is the solo/first player
   name: string; // shown in announcer lines and (later) over the head
+  // Chosen crawler look (CRAWLER_SKINS in game.ts), picked at the campfire
+  // check-in. COSMETIC ONLY — kits come from the constellation, not the body.
+  // Absent (old saves / no pick yet): hosts fall back to the seeded heroSkin.
+  skin?: string;
   pos: Vec2;
   facing: Vec2; // unit vector of last movement/attack direction
   hp: number;
@@ -303,6 +307,9 @@ export interface Monster {
   ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
   // Band-end boss signature mechanic (one per arena, themed to the band).
   signature?: BossSignature;
+  // Seated resident of a dressed room (roomPurposes phase 5): first damage
+  // to the pack announces the purpose's interruption line, once per floor.
+  residentOf?: string;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
   // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
@@ -683,6 +690,17 @@ export interface Ping {
   total: number; // full lifetime (render progress)
 }
 
+// Destructible dressing (roomPurposes phase 5): a corner hoard you can SMASH.
+// Non-blocking like every prop (only hittable); melee arcs and radial blasts
+// pop them for pocket gold. Positions come from the pure dressing plan, so
+// looks and hitboxes agree everywhere.
+export interface Breakable {
+  id: number;
+  pos: Vec2;
+  key: string; // prop model key (hosts render it; the sim only owns the hp)
+  hp: number; // 1 — one good hit
+}
+
 // A fallen monster the necromancer can raise. Purely positional — the fresh
 // minion is rebuilt from the corpse's kind (see raiseCorpse in game.ts).
 export interface Corpse {
@@ -749,7 +767,8 @@ export interface FloorWorld {
   projectiles: Projectile[];
   strikes: Strike[];
   bulletTimeLeft: number;
-  decoys: Decoy[]; // active Stunt Doubles (friendly entities)
+  decoys: Decoy[];
+  breakables?: Breakable[]; // smashable dressing (phase 5; optional: pre-phase-5 snapshots) // active Stunt Doubles (friendly entities)
   hazards: Hazard[];
   corpses: Corpse[];
   pings: Ping[];
@@ -842,6 +861,7 @@ export interface GameState {
 
   // Friendly entities: active Stunt Doubles (see Decoy).
   decoys: Decoy[];
+  breakables?: Breakable[]; // smashable dressing (phase 5; optional: pre-phase-5 snapshots)
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
@@ -875,6 +895,8 @@ export interface GameState {
   // Party-level per-step flags (per-player progress lives on Player).
   killsThisStep: number; // transient: party kills reaped this step (combo hype)
   escapedCollapse: boolean; // transient: descended while the floor was collapsing
+  // Resident interruption lines already delivered this floor (purpose ids).
+  residentAggro?: string[];
 
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }

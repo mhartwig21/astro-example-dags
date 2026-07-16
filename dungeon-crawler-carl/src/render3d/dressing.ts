@@ -63,7 +63,7 @@ function wallFaces(env: DressEnv, r: Rect): { x: number; y: number; nx: number; 
 export function dressRoomPurpose(
   env: DressEnv,
   r: Rect,
-  d: Pick<RoomDressing, "purpose" | "condition" | "anchor">,
+  d: Pick<RoomDressing, "purpose" | "condition" | "anchor" | "breakables">,
 ): void {
   const { frng, place } = env;
   const p: RoomPurpose = d.purpose;
@@ -166,8 +166,10 @@ export function dressRoomPurpose(
       }
     }
   }
-  // CORNER STACK: a tight hoard in one corner — unless looters found it.
-  if (p.cornerStack && cond !== "looted") {
+  // CORNER STACK: a tight hoard in one corner — unless looters found it,
+  // or the plan made it SMASHABLE (phase 5): then the sim's Breakable
+  // entities ARE the hoard and the host renders those instead.
+  if (p.cornerStack && cond !== "looted" && d.breakables.length === 0) {
     const corners = [
       { x: r.x + 1.1, y: r.y + 1.1 }, { x: r.x + r.w - 1.1, y: r.y + 1.1 },
       { x: r.x + 1.1, y: r.y + r.h - 1.1 }, { x: r.x + r.w - 1.1, y: r.y + r.h - 1.1 },

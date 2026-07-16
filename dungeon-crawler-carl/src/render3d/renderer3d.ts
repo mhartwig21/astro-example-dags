@@ -8,7 +8,8 @@ import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
-import { heroSkin } from "../sim/game";
+import { heroSkin, type CrawlerSkin } from "../sim/game";
+import { CharSelectScene } from "./charSelect";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
 import { assignRoomPurposes } from "../sim/roomPurposes";
@@ -139,6 +140,7 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
+  private breakableMeshes = new Map<number, THREE.Object3D>(); // smashable dressing (phase 5)
   private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
@@ -286,7 +288,19 @@ export class Renderer3D {
     }
   }
 
-  constructor(canvas: HTMLCanvasElement) {
+  // LOOK EXPERIMENT (iso.html?look=lived&view=close): "lived" densifies the
+  // dungeon with the KayKit Dungeon Remastered modular pieces — doorway
+  // arches at room mouths, gated/window wall variants, corridor grates,
+  // interior pillars, Sewers water pools, a higher prop budget. "close"
+  // zooms the camera in by a third so the furnishing fills the frame.
+  // (A near-overhead "top" view was tried 2026-07-10 and rejected — the iso
+  // pitch stays.) Cosmetic only.
+  private look: "lived" | null = null;
+  private viewClose = false;
+
+  constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "close" } = {}) {
+    this.look = opts.look ?? null;
+    this.viewClose = opts.view === "close";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
@@ -343,9 +357,19 @@ export class Renderer3D {
       this.playerMeshes.clear();
       for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
       this.decoyMeshes.clear();
+      for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
+      this.breakableMeshes.clear();
       for (const mesh of this.monsters.values()) this.scene.remove(mesh);
       this.monsters.clear();
     }, 350);
+  }
+
+  /** The campfire check-in scene shares this renderer's GL context + streamed
+   *  models (empty slots fill as GLBs arrive). main3d drives it while the
+   *  menu is open instead of rendering the game world. */
+  createCharSelect(initial: CrawlerSkin): CharSelectScene {
+    // Getter, not snapshot: `this.models` is reassigned when streaming starts.
+    return new CharSelectScene(this.renderer, () => this.models, initial);
   }
 
   /** Clone a loaded glTF model if present, else null (caller falls back to primitives). */
@@ -735,7 +759,9 @@ export class Renderer3D {
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
     this.aspect = w / h;
-    const hh = THEME.camOrthoHalfHeight;
+    // "close" view: a third more zoomed in — furnishing and character read
+    // bigger; you see less of the floor at once.
+    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1);
     const hw = hh * this.aspect;
     this.camera.left = -hw; this.camera.right = hw;
     this.camera.top = hh; this.camera.bottom = -hh;
@@ -747,11 +773,22 @@ export class Renderer3D {
   // Hero skins (heroSkin in sim/game.ts): model key per skin id. Barbarian/
   // mage/rogue ride the armory_* GLBs (the 1.0 adventurers that also source
   // weapon meshes) — monsters wear the newer KayKit cast now, so hero skins
-  // no longer overlap with the menagerie.
+  // no longer overlap with the menagerie. CHOSEN campfire looks (Player.skin,
+  // CRAWLER_SKINS) are namespaced `c:` — same names, different generation of
+  // model — so a knight-by-choice never collides with a knight-by-seed.
   private static readonly SKIN_MODEL: Record<string, string> = {
     knight: "player", barbarian: "armory_axes", mage: "armory_arcana",
     rogue: "armory_knives", hooded: "hero_hooded",
+    "c:knight": "crawler_knight", "c:barbarian": "crawler_barbarian",
+    "c:druid": "crawler_druid", "c:engineer": "crawler_engineer",
+    "c:mage": "crawler_mage", "c:ranger": "crawler_ranger",
+    "c:rogue": "crawler_rogue", "c:hooded": "crawler_hooded",
   };
+
+  /** The render skin id for a player: their campfire pick, else the seeded look. */
+  static skinIdFor(pl: { id: number; skin?: string }, seed: number): string {
+    return pl.skin && `c:${pl.skin}` in Renderer3D.SKIN_MODEL ? `c:${pl.skin}` : heroSkin(seed, pl.id);
+  }
 
   private buildPlayerMesh(skin: string): THREE.Group {
     const model =
@@ -850,6 +887,20 @@ export class Renderer3D {
         m.material = mat;
       });
     }
+  }
+
+  // Crafted-def alternate textures, loaded once per url (glTF convention:
+  // flipY off, sRGB — same as the elite B-variants below).
+  private defTex = new Map<string, THREE.Texture>();
+  private defTexFor(url: string): THREE.Texture {
+    let t = this.defTex.get(url);
+    if (!t) {
+      t = new THREE.TextureLoader().load(url);
+      t.flipY = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.defTex.set(url, t);
+    }
+    return t;
   }
 
   // Elite B-variant textures, loaded once and shared (same UV atlas as the
@@ -957,6 +1008,19 @@ export class Renderer3D {
     const base = (model ? g.scale.x : 1) * spec.scale * (def?.scale ?? 1);
     g.scale.setScalar(base);
     g.userData.baseScale = base;
+    // Crafted alternate texture (the elites' B-skin mechanism, def-driven):
+    // swap the map on textured surfaces so the same body reads as a
+    // different individual. Cloned materials — trash mobs stay unchanged.
+    if (def?.texture && model) {
+      const tex = this.defTexFor(def.texture);
+      g.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || !m.material) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        if (mat.map) mat.map = tex;
+        m.material = mat;
+      });
+    }
     // Crafted tint: the def's emissive accent on cloned materials.
     if (def?.tint !== undefined && model) {
       g.traverse((o) => {
@@ -1158,6 +1222,13 @@ export class Renderer3D {
     const floorSrc = this.tileSource(theme.floorKey) ?? this.tileSource("floor");
     const altSrc = this.tileSource(theme.floorAltKey);
     const wallSrc = this.tileSource(theme.wallKey) ?? this.tileSource("wall");
+    // LIVED look: extra modular variety mixed into the instanced tile kinds.
+    const lived = this.look === "lived" && !openAir;
+    const winSrc = lived ? this.tileSource("wall_window_open") : null;
+    const winGatedSrc = lived ? this.tileSource("wall_archedwindow_gated") : null;
+    const gatedSrc = lived ? this.tileSource("wall_gated") : null;
+    const grateSrc = lived ? this.tileSource("floor_tile_grate") : null;
+    const grateOpenSrc = lived ? this.tileSource("floor_tile_grate_open") : null;
     // Solid rock stays a dark box mass. The glTF wall is a thin PANEL meant to
     // dress a wall face, so it only goes on faces that border walkable floor.
     // The fill box is slightly shorter than the panels so their top/side surfaces
@@ -1320,9 +1391,16 @@ export class Renderer3D {
           if (wallSrc) {
             for (const d of DIRS) {
               if (!isFloorAt(x + d.dx, y + d.dz)) continue;
-              placePanel(wallSrc, x, y, d.dx, d.dz);
+              // Lived look: a seeded slice of wall faces carry windows or a
+              // portcullis gate — masonry with a history, not wallpaper.
+              const hv = lived ? tileHash(x * 3 + d.dx, y * 3 + d.dz, state.floor + 55) : 999;
+              const variant = hv < 45 && winSrc ? { src: winSrc, kind: "panelWin" }
+                : hv < 85 && winGatedSrc ? { src: winGatedSrc, kind: "panelWinG" }
+                : hv < 115 && gatedSrc ? { src: gatedSrc, kind: "panelGate" }
+                : null;
+              placePanel(variant ? variant.src : wallSrc, x, y, d.dx, d.dz);
               // Fog keys panels off the floor tile they FACE.
-              push("panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
+              push(variant ? variant.kind : "panel", x, y, (y + d.dz) * map.w + (x + d.dx), m);
             }
           }
         } else if (openAir) {
@@ -1335,6 +1413,18 @@ export class Renderer3D {
             push(tileHash(x, y, state.floor) < 450 ? "alt" : "floor", x, y, idx, m);
           }
         } else {
+          // Lived look: corridors drain through floor grates here and there.
+          const hg = lived && !roomMask[idx] ? tileHash(x, y, state.floor + 77) : 999;
+          if (hg < 40 && grateSrc) {
+            placeFloor(grateSrc, x, y);
+            push("grate", x, y, idx, m);
+            continue;
+          }
+          if (hg < 60 && grateOpenSrc) {
+            placeFloor(grateOpenSrc, x, y);
+            push("grateO", x, y, idx, m);
+            continue;
+          }
           // Mix primary/alt ground per tile (stable hash: same tile, same look).
           const useAlt = altSrc
             ? tileHash(x, y, state.floor) < altPct
@@ -1365,6 +1455,11 @@ export class Renderer3D {
       fill: { geo: fillGeo, mat: fillMat, lit: wallFillLit, cast: true },
       panel: wallSrc ? { geo: wallSrc.geo, mat: wallSrc.mat, lit: wallLitColor, cast: true } : null,
       door: { geo: doorGeo, mat: doorMat, lit: new THREE.Color(1, 1, 1), cast: true },
+      panelWin: winSrc ? { geo: winSrc.geo, mat: winSrc.mat, lit: wallLitColor, cast: true } : null,
+      panelWinG: winGatedSrc ? { geo: winGatedSrc.geo, mat: winGatedSrc.mat, lit: wallLitColor, cast: true } : null,
+      panelGate: gatedSrc ? { geo: gatedSrc.geo, mat: gatedSrc.mat, lit: wallLitColor, cast: true } : null,
+      grate: grateSrc ? { geo: grateSrc.geo, mat: grateSrc.mat, lit: floorLit, cast: false } : null,
+      grateO: grateOpenSrc ? { geo: grateOpenSrc.geo, mat: grateOpenSrc.mat, lit: floorLit, cast: false } : null,
     };
     if (openAir) {
       // Ground is flat grass mats (white material; the LIT color carries the
@@ -1538,7 +1633,7 @@ export class Renderer3D {
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
     };
-    const PROP_CAP = 185; // vignette rooms raised the budget (was 150)
+    const PROP_CAP = lived ? 265 : 185; // vignette rooms raised the budget (was 150)
     const place = (key: string, x: number, y: number, opts: { scale?: number; rot?: number; jitter?: number; onWall?: boolean; elevate?: number } = {}): boolean => {
       // onWall: landmark set pieces stand ON sim-blocked pillar tiles — the
       // one case where a prop belongs on a non-Floor tile (looks = collision).
@@ -1621,12 +1716,83 @@ export class Renderer3D {
         { x: r.x + 1.2, y: r.y + r.h - 1.2 }, { x: r.x + r.w - 1.2, y: r.y + r.h - 1.2 },
       ];
       const start = Math.floor(frng() * 4);
-      for (let c = 0; c < 2; c++) {
-        const corner = corners[(start + c * 2) % 4];
-        const n = 1 + Math.floor(frng() * 2);
+      // Lived look: three corners cluttered instead of two, one more piece each.
+      for (let c = 0; c < (lived ? 3 : 2); c++) {
+        const corner = corners[(start + c * (lived ? 1 : 2)) % 4];
+        const n = (lived ? 2 : 1) + Math.floor(frng() * 2);
         for (let k = 0; k < n; k++) {
           const key = pool[Math.floor(frng() * pool.length)];
           place(key, corner.x + (frng() - 0.5) * 0.8, corner.y + (frng() - 0.5) * 0.8);
+        }
+      }
+    }
+
+    // LIVED look one-offs (few per floor, so not instanced):
+    if (lived) {
+      // 1) DOORWAY ARCHES: a modular wall_doorway piece over corridor tiles at
+      //    room mouths — the walkable gap now reads as a built doorway. The
+      //    piece's opening spans the tile, so the path never lies.
+      let arches = 0;
+      for (let y = 1; y < map.h - 1 && arches < 14; y++) {
+        for (let x = 1; x < map.w - 1 && arches < 14; x++) {
+          const idx = y * map.w + x;
+          if (map.tiles[idx] !== Tile.Floor || roomMask[idx]) continue;
+          const wl = map.tiles[idx - 1] === Tile.Wall, wr = map.tiles[idx + 1] === Tile.Wall;
+          const wu = map.tiles[idx - map.w] === Tile.Wall, wd = map.tiles[idx + map.w] === Tile.Wall;
+          const gateNS = wl && wr && !wu && !wd; // corridor runs north-south
+          const gateEW = wu && wd && !wl && !wr;
+          if (!gateNS && !gateEW) continue;
+          const mouth = gateNS
+            ? roomMask[idx - map.w] || roomMask[idx + map.w]
+            : roomMask[idx - 1] || roomMask[idx + 1];
+          if (!mouth || tileHash(x, y, state.floor + 91) > 700) continue;
+          const arch = this.modelInstance("wall_doorway");
+          if (!arch) break;
+          arch.rotation.y = gateNS ? 0 : Math.PI / 2; // wall plane across travel
+          const box = new THREE.Box3().setFromObject(arch);
+          const across = gateNS ? box.max.x - box.min.x : box.max.z - box.min.z;
+          const s = 1.0 / Math.max(across, 1e-4);
+          const sy = 1.0 / Math.max(box.max.y - box.min.y, 1e-4);
+          arch.scale.set(arch.scale.x * s, arch.scale.y * sy, arch.scale.z * s);
+          const b2 = new THREE.Box3().setFromObject(arch);
+          arch.position.set(
+            x + 0.5 - (b2.min.x + b2.max.x) / 2 + arch.position.x,
+            -b2.min.y,
+            y + 0.5 - (b2.min.z + b2.max.z) / 2 + arch.position.z,
+          );
+          this.floorGroup.add(arch);
+          this.propEntries.push({ obj: arch, tile: idx });
+          arches++;
+        }
+      }
+      // 2) INTERIOR PILLARS: big rooms get a pair inset at opposite corners
+      //    (low-traffic ground; place() still respects clearance + cap).
+      for (const r of map.rooms) {
+        if (r.w < 7 || r.h < 6) continue;
+        const h = tileHash(r.x, r.y, state.floor + 33);
+        if (h > 750) continue;
+        const key = ["pillar", "pillar_decorated", "column"][h % 3];
+        place(key, r.x + 1.6, r.y + 1.6, { scale: 1.5, rot: 0, jitter: 0.05 });
+        place(key, r.x + r.w - 1.6, r.y + r.h - 1.6, { scale: 1.5, rot: 0, jitter: 0.05 });
+      }
+      // 3) WATER POOLS (THE SEWERS band): a translucent standing-water sheet
+      //    inset along a room edge. Cosmetic and walkable — shallow water.
+      if (floorBand(state.floor) === 1) {
+        for (const r of map.rooms) {
+          const h = tileHash(r.x * 3, r.y * 5, state.floor + 13);
+          if (h > 400 || r.w < 6 || r.h < 6) continue;
+          const pw = Math.min(3.5, r.w - 3.5), ph = Math.min(2.5, r.h - 3.5);
+          const pool = new THREE.Mesh(
+            new THREE.PlaneGeometry(pw, ph),
+            new THREE.MeshStandardMaterial({
+              color: 0x2e8b8b, transparent: true, opacity: 0.7, roughness: 0.2,
+              metalness: 0.15, emissive: 0x0f3d3d, emissiveIntensity: 0.4,
+            }),
+          );
+          pool.rotation.x = -Math.PI / 2;
+          pool.position.set(r.x + 1.25 + pw / 2, 0.045, r.y + 1.25 + ph / 2);
+          this.floorGroup.add(pool);
+          this.propEntries.push({ obj: pool, tile: Math.floor(r.y + 1) * map.w + Math.floor(r.x + 1) });
         }
       }
     }
@@ -2095,9 +2261,9 @@ export class Renderer3D {
     const pSeen = new Set<number>();
     for (const pl of state.players) {
       pSeen.add(pl.id);
-      // Hero skin: derived from (seed, player id) — a fresh adventurer every
-      // run. A seed change (new game, restore) rebuilds the body + regrafts.
-      const skin = heroSkin(state.seed, pl.id);
+      // Hero skin: the campfire pick when the crawler made one, else derived
+      // from (seed, player id). A change rebuilds the body + regrafts.
+      const skin = Renderer3D.skinIdFor(pl, state.seed);
       let mesh = this.playerMeshes.get(pl.id);
       if (mesh && mesh.userData.skinId !== skin) {
         this.scene.remove(mesh);
@@ -2233,7 +2399,10 @@ export class Renderer3D {
       dSeen.add(dc.id);
       let mesh = this.decoyMeshes.get(dc.id);
       if (!mesh) {
-        mesh = this.buildPlayerMesh(heroSkin(state.seed, dc.ownerId));
+        const owner = state.players.find((p) => p.id === dc.ownerId);
+        mesh = this.buildPlayerMesh(owner
+          ? Renderer3D.skinIdFor(owner, state.seed)
+          : heroSkin(state.seed, dc.ownerId));
         mesh.traverse((o) => {
           const mm = o as THREE.Mesh;
           if (!mm.isMesh || !mm.material) return;
@@ -2255,6 +2424,35 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.decoyMeshes) {
       if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
+    }
+
+    // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
+    // Meshes are placed once (they don't move); a smashed one vanishes and
+    // the sim's hit event supplies the pop.
+    const bSeen = new Set<number>();
+    for (const b of state.breakables ?? []) {
+      bSeen.add(b.id);
+      if (!this.breakableMeshes.has(b.id)) {
+        const obj = this.modelInstance(b.key);
+        if (obj) {
+          const box = new THREE.Box3().setFromObject(obj);
+          const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+          obj.scale.multiplyScalar(0.45 / fp);
+          const sc = new THREE.Box3().setFromObject(obj);
+          obj.position.set(
+            b.pos.x - (sc.min.x + sc.max.x) / 2 + obj.position.x,
+            -sc.min.y + 0.004,
+            b.pos.y - (sc.min.z + sc.max.z) / 2 + obj.position.z,
+          );
+          this.scene.add(obj);
+          this.breakableMeshes.set(b.id, obj);
+        }
+      }
+      const mesh = this.breakableMeshes.get(b.id);
+      if (mesh) mesh.visible = !!state.explored[Math.floor(b.pos.y) * state.map.w + Math.floor(b.pos.x)];
+    }
+    for (const [id, mesh] of this.breakableMeshes) {
+      if (!bSeen.has(id)) { this.scene.remove(mesh); this.breakableMeshes.delete(id); }
     }
 
     // Fog of war: entities render inside ANY living player's vision (shared show).

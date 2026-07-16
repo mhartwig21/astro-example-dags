@@ -4,7 +4,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
   serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey,
@@ -507,6 +507,9 @@ export class GameServer {
         }
         inst.seated.add(player.id);
         player.name = name;
+        // Campfire look: cosmetic, so the joiner's current pick always wins
+        // (like the name). Invalid/absent values leave the seat as it was.
+        if (isCrawlerSkin(msg.skin)) player.skin = msg.skin;
         const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now, isAlive: true };
         ws.on("pong", () => { client.isAlive = true; });
         // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.

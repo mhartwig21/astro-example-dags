@@ -117,7 +117,9 @@
                                   System chatter)
            modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing in-run outranks it)
-                                · #menu 28 (RINGSIDE CHECK-IN — pre-run only, owns the screen)
+                                · #menu 28 (RINGSIDE CHECK-IN — pre-run only; panel docks right,
+                                  pointer-events off elsewhere so the campfire lineup on the
+                                  canvas beneath stays clickable)
                                 · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
          New overlays must pick a zone here first. */
@@ -407,12 +409,47 @@
          Continue / daily crawl / fresh seed / party code / test chamber, with
          today's daily board riding shotgun. Same gold-document family as the
          other panels; the dungeon idles behind it as a backdrop. */
-      #menu { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: radial-gradient(ellipse at 50% 28%, rgba(22,17,36,0.86), rgba(4,4,8,0.96) 75%);
+      /* The campfire check-in: the canvas behind renders the character-select
+         lineup (render3d/charSelect.ts), so the overlay must NOT eat clicks —
+         only the panel (and the skin label is display-only). The panel docks
+         right; the left of the screen belongs to the fire. */
+      #menu { position: fixed; inset: 0; display: none; align-items: center;
+        justify-content: center; pointer-events: none;
+        background: radial-gradient(ellipse at 50% 45%, rgba(4,4,8,0.0) 30%, rgba(4,4,8,0.35) 100%);
         z-index: 28; }
-      #menu .panel { width: 900px; max-width: 94vw; max-height: 92vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 26px 30px 24px;
-        box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+      #menu .panel { width: min(700px, 56vw); max-height: 84vh; overflow: auto;
+        pointer-events: auto;
+        background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: 12px;
+        padding: 22px 26px 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
+      /* While checked in, the game HUD behind the campfire goes dark — the
+         backdrop world isn't being rendered, only the lineup is. */
+      body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
+      body.checkin #skills, body.checkin #banner, body.checkin #show,
+      body.checkin #minimap, body.checkin #cockpit,
+      body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
+      #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
+        color: #f5e6bf; text-shadow: 0 2px 12px #000; }
+      #m-skin-label b { display: block; font-size: 26px; letter-spacing: 5px; }
+      #m-skin-label small { display: block; margin-top: 5px; color: #a99f8c; font-size: 11px;
+        letter-spacing: 2px; }
+      /* THE CASTING CALL (stage 2): the panel steps aside, the camera dollies
+         to center, and the confirm bar owns the bottom. The skin label only
+         exists in this stage — during check-in the fire is just ambiance. */
+      #menu:not(.casting) #m-skin-label { display: none; }
+      #menu.casting .panel { display: none; }
+      #menu.casting { background: linear-gradient(180deg, rgba(4,4,8,0.0) 55%, rgba(4,4,8,0.6) 100%); }
+      #m-cast { display: none; position: absolute; left: 50%; bottom: 6vh;
+        transform: translateX(-50%); text-align: center; pointer-events: none; }
+      #menu.casting #m-cast { display: block; }
+      #m-cast-kicker { color: #c9a24b; font-size: 11px; letter-spacing: 5px; }
+      #m-cast-mode { margin: 6px 0 12px; color: #f5e6bf; font-size: 22px; letter-spacing: 6px;
+        font-weight: 700; text-shadow: 0 0 24px rgba(201,162,75,0.4), 0 2px 3px #000; }
+      #m-cast-buttons { display: flex; gap: 12px; justify-content: center; pointer-events: auto; }
+      #m-cast-buttons button { cursor: pointer; font: inherit; letter-spacing: 3px; font-weight: 700;
+        background: rgba(23,19,16,0.92); border: 1px solid #6e5533; border-radius: 6px;
+        color: #a99f8c; padding: 10px 22px; transition: border-color 0.12s ease, color 0.12s ease; }
+      #m-cast-buttons button:hover { border-color: #c9a24b; color: #f5e6bf; }
+      #m-cast-go { color: #f5e6bf !important; border-color: #c9a24b !important; }
       #menu .m-kicker { text-align: center; color: #c9a24b; font-size: 11px; letter-spacing: 5px; }
       #menu h1 { margin: 8px 0 4px; text-align: center; font-size: 32px; letter-spacing: 7px;
         color: #f5e6bf; text-shadow: 0 0 34px rgba(201,162,75,0.4), 0 2px 3px #000; }
@@ -1242,10 +1279,22 @@
       <div class="l-count" id="loading-count"></div>
     </div>
     <div id="menu">
+      <div id="m-skin-label">
+        <b id="m-skin-name">THE KNIGHT</b>
+        <small>CLICK A CRAWLER OR ← → · COSMETIC ONLY — THE CONSTELLATION IS THE BUILD</small>
+      </div>
+      <div id="m-cast">
+        <div id="m-cast-kicker">◆ THE CAMPFIRE ◆</div>
+        <div id="m-cast-mode">NEW RUN</div>
+        <div id="m-cast-buttons">
+          <button id="m-cast-back">← BACK</button>
+          <button id="m-cast-go">DESCEND ▶</button>
+        </div>
+      </div>
       <div class="panel">
-        <div class="m-kicker">◆ THE SYSTEM PRESENTS ◆</div>
+        <div class="m-kicker">◆ THE WORLD DUNGEON ◆</div>
         <h1>DUNGEON CRAWLER CLAUDE</h1>
-        <div class="m-sub">RINGSIDE CHECK-IN · every floor is a set, every death is content</div>
+        <div class="m-sub">Welcome, Crawler. Eighteen floors. The only way out is down.</div>
         <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
         <div class="m-cols">
           <div>
@@ -1261,7 +1310,7 @@
                 <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
               </button>
               <button class="m-card" id="m-solo">
-                <b>NEW RUN</b><small>a fresh seed and a full camera crew</small>
+                <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
               </button>
               <button class="m-card" id="m-party">
                 <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
@@ -1280,7 +1329,7 @@
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
               <button class="m-card dim" id="m-test">
-                <b>TEST CHAMBER</b><small>the System's rehearsal floors — nothing is saved</small>
+                <b>TEST CHAMBER</b><small>practice floors — nothing is saved</small>
               </button>
               <div class="m-form" id="m-test-form" style="display:none">
                 <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>

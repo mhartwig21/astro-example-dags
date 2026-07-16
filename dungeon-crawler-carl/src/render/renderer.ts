@@ -280,6 +280,13 @@ export function render(
     ctx.fill();
   }
 
+  // Smashable dressing (phase 5): little brown crates on the truth view.
+  for (const b of state.breakables ?? []) {
+    if (!inVision(b.pos.x, b.pos.y)) continue;
+    ctx.fillStyle = "#a06a3a";
+    ctx.fillRect(offX + b.pos.x * T - 4, offY + b.pos.y * T - 4, 8, 8);
+  }
+
   // Loot.
   for (const l of state.loot) {
     if (!inVision(l.pos.x, l.pos.y)) continue;
