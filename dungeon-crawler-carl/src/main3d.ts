@@ -513,7 +513,7 @@ function updateBulletTimeGrade(s: GameState): void {
 }
 
 const fxLayer = document.getElementById("fx")!;
-const tickerLayer = document.getElementById("ticker")!;
+const toastLayer = document.getElementById("toasts")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
 // Touch: tapping the minimap drops a party ping there (inverse of the
@@ -1217,7 +1217,7 @@ kbMouseMove.addEventListener("click", () => {
 });
 renderMouseMove();
 
-// System-chatter verbosity: cycles the ticker filter (see TICKER_KINDS).
+// System-chatter verbosity: cycles the toast filter (see TICKER_KINDS).
 const NOTIFY_CYCLE: NotifyLevel[] = ["normal", "critical", "all"];
 const kbNotify = document.getElementById("kb-notify")!;
 function renderNotify(): void {
@@ -2050,14 +2050,15 @@ function spawnDamageNumber(h: HitEvent): void {
 }
 
 // DCC "System" announcer, routed by priority + kind (backlog #9). High-priority
-// lines get the exclusive center banner; everything else goes to the compact
-// right-rail ticker, filtered by the player's verbosity setting. Every line is
-// also in the HUD log, so filtering loses nothing.
-const TICKER_MAX = 6; // visible ticker lines before the oldest is evicted
-const TICKER_HOLD_MS = 6000; // was 4200 — play feedback: nearly impossible to catch
+// lines get the exclusive center banner; everything else goes to a compact
+// toast stack anchored just above the action bar, filtered by the player's
+// verbosity setting. Every line is also in the HUD log, so filtering loses
+// nothing.
+const TOAST_MAX = 3; // visible toasts before the oldest is evicted
+const TOAST_HOLD_MS = 3200; // anchored near the action bar — doesn't need as long to catch
 const BANNER_HOLD_MS = 3400;
 
-// What each verbosity tier lets through to the ticker (banners are unaffected).
+// What each verbosity tier lets through to the toast stack (banners are unaffected).
 const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
   all: ["boss", "progress", "levelup", "loot", "achievement", "show", "tip", "flavor"],
   normal: ["boss", "progress", "levelup", "loot", "achievement", "show", "tip"],
@@ -2070,15 +2071,15 @@ function showAnnouncement(a: Announcement): void {
   if (a.priority === "high") { showBanner(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   const el = document.createElement("div");
-  el.className = `tk tk-${a.kind}`;
+  el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
-  tickerLayer.appendChild(el);
+  toastLayer.appendChild(el);
   // Fade the oldest out instead of yanking it instantly — a burst of
   // announcements (kill + loot + level-up) shouldn't cut one off mid-read.
   // `if`, not `while`: each call adds exactly one child, and the evicted
   // element lingers (mid-fade) for 350ms before actually leaving the DOM.
-  if (tickerLayer.children.length > TICKER_MAX) {
-    const oldest = tickerLayer.firstElementChild as HTMLElement;
+  if (toastLayer.children.length > TOAST_MAX) {
+    const oldest = toastLayer.firstElementChild as HTMLElement;
     oldest.classList.remove("show");
     setTimeout(() => oldest.remove(), 350);
   }
@@ -2086,7 +2087,7 @@ function showAnnouncement(a: Announcement): void {
   setTimeout(() => {
     el.classList.remove("show");
     setTimeout(() => el.remove(), 350);
-  }, TICKER_HOLD_MS);
+  }, TOAST_HOLD_MS);
 }
 
 // Headline moments (boss down, new band, wipe): one at a time, front and center.

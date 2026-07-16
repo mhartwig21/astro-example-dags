@@ -111,9 +111,10 @@
            upper chips:         #show 48px (under the buttons) · #bossbar 92px · #party 118px (center)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           right rail:          #ticker — normal-priority System chatter
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
+                                · #toasts pinned just above #draft-badge (normal-priority
+                                  System chatter)
            modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing in-run outranks it)
                                 · #menu 28 (RINGSIDE CHECK-IN — pre-run only, owns the screen)
@@ -135,21 +136,22 @@
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
 
-      /* Right-rail ticker: the System's running commentary (normal priority).
-         Color-tagged by kind, never center-stage — but legible: play feedback
-         was that these were nearly impossible to catch (11.5px, 4.2s hold,
-         instant unfaded eviction past 6 lines). Bumped size + hold, and
-         overflow now fades the oldest line instead of yanking it. */
-      #ticker { position: fixed; top: 148px; right: 12px; pointer-events: none;
-        display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 46ch; }
-      .tk { --tc: #c9a24b; background: rgba(12,10,20,0.78); border-right: 2px solid var(--tc);
+      /* System toasts: the System's running commentary (normal priority),
+         anchored just above the action bar — where the player's eyes already
+         return in combat, not a peripheral rail. Color-tagged by kind. Grows
+         upward (column-reverse) so new arrivals stack toward #cockpit, and
+         overflow fades the oldest line instead of yanking it. */
+      #toasts { position: fixed; bottom: 132px; left: 50%; transform: translateX(-50%);
+        pointer-events: none; display: flex; flex-direction: column-reverse; gap: 4px;
+        align-items: center; max-width: 52ch; }
+      .toast { --tc: #c9a24b; background: rgba(12,10,20,0.8); border-bottom: 2px solid var(--tc);
         color: #d8d4c8; padding: 5px 10px; border-radius: 4px; font-size: 13px;
-        letter-spacing: 0.2px; text-align: right; opacity: 0; transform: translateX(10px);
+        letter-spacing: 0.2px; text-align: center; opacity: 0; transform: translateY(10px);
         transition: opacity 0.3s ease, transform 0.3s ease; }
-      .tk.show { opacity: 1; transform: translateX(0); }
-      .tk-boss { --tc: #c0392f; } .tk-progress { --tc: #c9a24b; } .tk-levelup { --tc: #5a87c6; }
-      .tk-loot { --tc: #9a6bd0; } .tk-achievement { --tc: #f2c14e; } .tk-show { --tc: #a99f8c; }
-      .tk-flavor { --tc: #a99f8c; }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      .toast-boss { --tc: #c0392f; } .toast-progress { --tc: #c9a24b; } .toast-levelup { --tc: #5a87c6; }
+      .toast-loot { --tc: #9a6bd0; } .toast-achievement { --tc: #f2c14e; } .toast-show { --tc: #a99f8c; }
+      .toast-flavor { --tc: #a99f8c; }
 
       /* Minimap */
       #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
@@ -1044,7 +1046,7 @@
           <span class="kb-key" id="kb-mouseaim">ON</span></div>
         <div class="kb-row"><span class="kb-name">Mouse move<small>click/hold ground to walk, click a monster to attack</small></span>
           <span class="kb-key" id="kb-mousemove">OFF</span></div>
-        <div class="kb-row"><span class="kb-name">System chatter<small>side-ticker verbosity — headlines always show</small></span>
+        <div class="kb-row"><span class="kb-name">System chatter<small>toast verbosity — headlines always show</small></span>
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
           <span class="kb-key" id="kb-gamepad">ON</span></div>
@@ -1155,7 +1157,7 @@
     <div id="fx"></div>
     <div id="downed"></div>
     <div id="itemtip"></div>
-    <div id="ticker"></div>
+    <div id="toasts"></div>
     <div id="headline"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
     <div id="inv">
