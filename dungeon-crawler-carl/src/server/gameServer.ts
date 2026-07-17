@@ -4,7 +4,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
   serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey,
@@ -30,6 +30,7 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
 //     { t: "sell", idx: number }                       sell a bag item back
 //     { t: "sellAll" }                                 liquidate the whole bag
+//     { t: "claimAchievement", id: string }             open an earned achievement's loot box
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
 //     { t: "welcome", playerId, token, snapshot }      join accepted (full state;
@@ -553,6 +554,9 @@ export class GameServer {
           break;
         case "sellAll":
           sellAllItems(inst.state, playerId);
+          break;
+        case "claimAchievement":
+          claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
         case "ready":
           setReady(inst.state, playerId);

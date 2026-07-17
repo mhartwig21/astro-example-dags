@@ -1,6 +1,7 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
   buyCatalogItem, hasPassive, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
+  claimAchievementLootBox,
   isCrawlerSkin, type CrawlerSkin, type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
@@ -1686,19 +1687,39 @@ function renderAbilPage(s: GameState): void {
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
 function renderAchPage(s: GameState): void {
   const p = me(s);
+  const unclaimed = p.unclaimedAchievements?.length ?? 0;
   srAchCount.textContent =
-    `THE SYSTEM RECOGNIZES — ${p.achievements.length} / ${ACHIEVEMENTS.length} UNLOCKED`;
+    `THE SYSTEM RECOGNIZES — ${p.achievements.length} / ${ACHIEVEMENTS.length} UNLOCKED` +
+    (unclaimed > 0 ? ` · ${unclaimed} LOOT BOX${unclaimed === 1 ? "" : "ES"} WAITING` : "");
   srAch.innerHTML = ACHIEVEMENTS.map((a) => {
     const got = p.achievements.includes(a.id);
+    const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
     return (
-      `<div class="sr-ach${got ? "" : " locked"}">` +
+      `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
       `<div class="atitle">${got ? "★" : "☆"} ${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
-      `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>` +
+      (unopened
+        ? `<button class="claim-btn" data-claim="${a.id}">◆ OPEN LOOT BOX</button>`
+        : `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>`) +
       `</div>`
     );
   }).join("");
 }
+
+// ACHIEVEMENTS tab: open a claimed-but-unopened achievement's loot box.
+srAch.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("button[data-claim]") as HTMLButtonElement | null;
+  if (!btn) return;
+  const id = btn.dataset.claim!;
+  audio.play("buy");
+  if (net) net.claimAchievement(id);
+  else {
+    claimAchievementLootBox(state, me(state).id, id);
+    flushFeedback(state);
+    persistRun(state);
+  }
+  renderAchPage(state);
+});
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
 // Bag density thresholds: item counts at which the bag grid steps down a tile
@@ -2123,6 +2144,26 @@ function spawnDamageNumber(h: HitEvent): void {
   setTimeout(() => el.remove(), 850);
 }
 
+// D4-style level-up: a floating "LEVEL {n}" over the crawler's head, paired
+// with a world-space ring (renderer.emitLevelUp) instead of a toast — see the
+// lastLevelByPid diff loop. Modeled on spawnDamageNumber but bigger, gold,
+// and held longer (it's a rarer, bigger moment than a hit number).
+function spawnLevelUpText(p: Player): void {
+  const s = renderer.worldToScreen(p.pos.x, 1.7, p.pos.y);
+  if (!s.visible) return;
+  const el = document.createElement("div");
+  el.className = "dmg levelup-text";
+  el.style.left = `${s.x}px`;
+  el.style.top = `${s.y}px`;
+  el.textContent = `LEVEL ${p.level}`;
+  fxLayer.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.transform = "translate(-50%, calc(-50% - 60px))";
+    el.style.opacity = "0";
+  });
+  setTimeout(() => el.remove(), 1400);
+}
+
 // DCC "System" announcer, routed by priority + kind (backlog #9). High-priority
 // lines get the exclusive center banner; everything else goes to a compact
 // toast stack anchored just above the action bar, filtered by the player's
@@ -2143,6 +2184,15 @@ const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
 
 function showAnnouncement(a: Announcement): void {
   if (a.priority === "high") { showBanner(a); return; }
+  // Level-ups get the world-space ring + floating text (see the
+  // lastLevelByPid diff loop) instead of a toast — the line still reaches
+  // the archive log via the separate state.events drain, nothing is lost.
+  if (a.kind === "levelup") return;
+  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
+  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
+  // deserves an explicit acknowledgment rather than an auto-fade a player
+  // could easily miss.
+  if (a.kind === "tip") { showTutorialCard(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
@@ -2185,6 +2235,37 @@ function showBanner(a: Announcement): void {
     const next = bannerQueue.shift();
     if (next) showBanner(next);
   }, BANNER_HOLD_MS);
+}
+
+// Tutorial cards (kind:"tip"): D4-style dismissible explainer, one at a time.
+// Each fires exactly once per crawler ever (Player.tipsSeen, sim-side), so
+// the host needs no "seen" bookkeeping of its own — dismiss just advances
+// the queue. Display-only text tweak: the ribbon header already says
+// "COURTESY EXPLANATION," so the redundant lead-in is stripped from the body
+// (the stored/logged announcement text is untouched — this is presentation).
+const tutorialLayer = document.getElementById("tutorial")!;
+const tutorialQueue: Announcement[] = [];
+let tutorialActive = false;
+
+function showTutorialCard(a: Announcement): void {
+  if (tutorialActive) { tutorialQueue.push(a); return; }
+  tutorialActive = true;
+  const body = a.text.replace(/^COURTESY EXPLANATION:\s*/, "");
+  const el = document.createElement("div");
+  el.className = "tut";
+  el.innerHTML =
+    `<div class="tut-head">◆ SYSTEM — COURTESY EXPLANATION</div>` +
+    `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
+  tutorialLayer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  const dismiss = (): void => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 300);
+    tutorialActive = false;
+    const next = tutorialQueue.shift();
+    if (next) showTutorialCard(next);
+  };
+  el.querySelector(".tut-dismiss")!.addEventListener("click", dismiss);
 }
 
 // ---- Run recap (backlog #12): the season report card ----
@@ -2373,6 +2454,10 @@ if (new URLSearchParams(location.search).has("debug")) {
 
 let lastFloor = state.floor;
 let lastStatus = state.status;
+// Level-up VFX (D4-style ring + floating text, no toast): a per-player level
+// watermark, diffed every frame. Host-local, not sim state — every crawler in
+// the party is watched, so a teammate's level-up is visible too.
+const lastLevelByPid = new Map<number, number>();
 let saveAcc = 0;
 let prev = performance.now();
 let acc = 0;
@@ -2668,7 +2753,7 @@ async function main(): Promise<void> {
       draftIdleSec += dt;
       if (draftIdleSec > 45 && !draftNagged) {
         draftNagged = true; // once per run: banked power is still YOUR power to claim
-        showAnnouncement({ text: "NOTICE: you have unclaimed evolutions. They do not accrue interest.", kind: "levelup", priority: "normal" });
+        showAnnouncement({ text: "NOTICE: you have unclaimed evolutions. They do not accrue interest.", kind: "progress", priority: "normal" });
       }
     } else {
       draftBadge.style.display = "none";
@@ -2715,6 +2800,19 @@ async function main(): Promise<void> {
 
       saveAcc += dt;
       if (saveAcc > 3 && state.status === "playing") { saveAcc = 0; persistRun(state); }
+    }
+
+    // Level-up VFX: every player in the party is watched (not just the local
+    // one), so a teammate's level-up is visible too — matches D4's
+    // shared-world halo. Runs regardless of net/local mode since `state` is
+    // current either way by this point in the frame.
+    for (const p of state.players) {
+      const last = lastLevelByPid.get(p.id);
+      if (last !== undefined && p.level > last) {
+        renderer.emitLevelUp(p.pos.x, p.pos.y);
+        spawnLevelUpText(p);
+      }
+      lastLevelByPid.set(p.id, p.level);
     }
 
     // Touch feedback: the drag-aim ground telegraph + the contextual descend

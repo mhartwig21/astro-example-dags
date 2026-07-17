@@ -4,6 +4,7 @@ import {
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster, shrineChoices,
+  openLootBox, claimAchievementLootBox,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
@@ -195,19 +196,15 @@ describe("combat feedback + loot boxes", () => {
     expect(combat[0].amount).toBeGreaterThan(0);
   });
 
-  it("awards a loot box every N kills and records it", () => {
+  it("opening a loot box grants a randomized buff and records it (achievement-exclusive)", () => {
     const g = createGame(7);
-    // Kill lootBoxEveryKills monsters in one swing by stacking them in-arc at point blank.
-    g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].attackPower = 100000;
-    g.monsters.length = 0;
-    for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
-      g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.players[0].pos.x + 0.6, y: g.players[0].pos.y } }));
-    }
-    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
+    openLootBox(g, g.players[0]);
     expect(g.lootBoxes).toBe(1);
     expect(g.announcements.some((a) => a.text.includes("LOOT BOX"))).toBe(true);
+  });
+
+  it("the shop no longer sells a Mystery Box — loot boxes come from achievements only", () => {
+    expect(CATALOG_BY_ID["mystery_box"]).toBeUndefined();
   });
 
   it("keeps hits/announcements deterministic across identical runs", () => {
@@ -874,7 +871,7 @@ describe("achievements", () => {
   beforeAll(() => { flags.achievementsEnabled = true; });
   afterAll(() => { flags.achievementsEnabled = false; });
 
-  it("FIRST BLOOD unlocks on the first kill with a payout", () => {
+  it("FIRST BLOOD unlocks on the first kill with a payout, and queues a claimable loot box", () => {
     const g = createGame(400);
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
@@ -883,16 +880,24 @@ describe("achievements", () => {
     const gold0 = g.players[0].gold;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.players[0].achievements).toContain("first_blood");
-    expect(g.players[0].gold).toBeGreaterThan(gold0);
+    expect(g.players[0].gold).toBeGreaterThan(gold0); // gold/hype still pay out instantly
     expect(g.announcements.some((a) => a.text.includes("FIRST BLOOD"))).toBe(true);
+    // The loot box waits for a claim, not applied yet.
+    expect(g.players[0].unclaimedAchievements).toContain("first_blood");
+    expect(g.lootBoxes).toBe(0);
     // Never unlocks twice.
     g.monsters.push(mkMon({ id: 2, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.players[0].achievements.filter((a) => a === "first_blood").length).toBe(1);
+    // Claiming opens the loot box and clears the pending entry.
+    claimAchievementLootBox(g, g.players[0].id, "first_blood");
+    expect(g.lootBoxes).toBe(1);
+    expect(g.players[0].unclaimedAchievements).not.toContain("first_blood");
   });
 
-  it("DIRTY FIGHTER unlocks on a 3-kill instant", () => {
+  it("DIRTY FIGHTER unlocks on a 3-kill instant (floor 2+)", () => {
     const g = createGame(401);
+    g.floor = 2;
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
     g.monsters.length = 0;
@@ -912,15 +917,16 @@ describe("achievements", () => {
     expect(g.players[0].achievements).toContain("collector");
   });
 
-  it("achievements persist through save/restore", () => {
+  it("achievements (and unclaimed loot boxes) persist through save/restore", () => {
     const restored = restoreGame({
       seed: 403, floor: 2,
       player: {
         hp: 90, level: 2, xp: 0, xpToNext: 27, gold: 5,
-        achievements: ["first_blood", "crumbs"], goldSpent: 120,
+        achievements: ["first_blood", "crumbs"], unclaimedAchievements: ["crumbs"], goldSpent: 120,
       },
     });
     expect(restored.players[0].achievements).toEqual(["first_blood", "crumbs"]);
+    expect(restored.players[0].unclaimedAchievements).toEqual(["crumbs"]);
     expect(restored.players[0].goldSpent).toBe(120);
   });
 
@@ -931,6 +937,7 @@ describe("achievements", () => {
 
   it("several same-step unlocks combine into one announcer line", () => {
     const g = createGame(404);
+    g.floor = 2; // dirty_fighter needs floor 2+
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
     g.monsters.length = 0;

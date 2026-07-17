@@ -104,6 +104,11 @@
         text-shadow: 0 1px 3px #000; will-change: transform, opacity;
         transition: transform 0.8s ease-out, opacity 0.8s ease-out; }
       .dmg.crit { font-size: 22px; }
+      /* Level-up (D4-style): bigger, gold, held longer than a hit number —
+         paired with the world-space ring (see #fx-levelring in renderer3d). */
+      .dmg.levelup-text { font-size: 26px; color: #f2c14e; letter-spacing: 0.5px;
+        text-shadow: 0 0 10px rgba(242,193,78,0.6), 0 1px 3px #000;
+        transition: transform 1.2s ease-out, opacity 1.2s ease-out; }
 
       /* ---- Screen zones (backlog #8): every overlay claims exactly ONE zone,
          so no two systems ever fight for the same pixels.
@@ -111,6 +116,8 @@
            upper chips:         #show 48px (under the buttons) · #bossbar 92px · #party 118px (center)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
+           tutorial zone:       #tutorial — top-left, below #hud-tl; dismissible
+                                 first-contact tip cards (kind:"tip"), one at a time
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -137,6 +144,24 @@
       .ann::before { content: "◆ SYSTEM "; color: #c9a24b; font-weight: 700; }
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
+
+      /* Tutorial cards (kind:"tip", COURTESY EXPLANATIONs): each one fires
+         exactly once per crawler ever (Player.tipsSeen), so unlike toasts it
+         gets an explicit dismiss instead of an auto-fade — a rule you have
+         to acknowledge, not miss in a blur of chatter. Top-left, clear of
+         the centered headline/toast zones. */
+      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none; }
+      .tut { background: rgba(12,10,20,0.92); border: 1px solid #c9a24b; border-radius: 6px;
+        color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
+        transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
+      .tut.show { opacity: 1; transform: translateY(0); }
+      .tut-head { background: rgba(201,162,75,0.18); border-bottom: 1px solid #c9a24b;
+        padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: #c9a24b; }
+      .tut-body { padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+      .tut-dismiss { display: block; width: 100%; margin-top: 8px; padding: 5px 0;
+        background: rgba(201,162,75,0.15); border: 1px solid #8a6d3b; border-radius: 3px;
+        color: #f2c14e; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; cursor: pointer; }
+      .tut-dismiss:hover { background: rgba(201,162,75,0.28); }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already
@@ -891,6 +916,20 @@
       .sr-ach .areward { font-size: 10px; color: #6da356; margin-top: 5px; }
       .sr-ach.locked { border-style: dashed; opacity: 0.5; }
       .sr-ach.locked .atitle { color: #6f6757; }
+      /* Unclaimed: earned but the loot box sits unopened — the glow is the
+         call to action ("go claim this"), a warm gold pulse distinct from
+         the quiet PAID/PAYS state either side of it. */
+      .sr-ach.unclaimed { border-color: #f2c14e; box-shadow: 0 0 12px rgba(242,193,78,0.35);
+        animation: ach-pulse 1.8s ease-in-out infinite; }
+      @keyframes ach-pulse {
+        0%, 100% { box-shadow: 0 0 8px rgba(242,193,78,0.25); }
+        50% { box-shadow: 0 0 16px rgba(242,193,78,0.55); }
+      }
+      .sr-ach .claim-btn { display: block; width: 100%; margin-top: 6px; padding: 5px 0;
+        background: linear-gradient(180deg, #f2c14e, #c9962c); border: 1px solid #8a6d3b;
+        border-radius: 3px; color: #1a1408; font-size: 10px; font-weight: 700;
+        letter-spacing: 0.4px; cursor: pointer; }
+      .sr-ach .claim-btn:hover { filter: brightness(1.1); }
       #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: 14px;
         margin-top: 12px; padding-top: 11px; border-top: 1px solid #221b15; }
       #saferoom .descend button { cursor: pointer; background: #14231a; color: #6da356;
@@ -1083,7 +1122,7 @@
           <span class="kb-key" id="kb-mouseaim">ON</span></div>
         <div class="kb-row"><span class="kb-name">Mouse move<small>click/hold ground to walk, click a monster to attack</small></span>
           <span class="kb-key" id="kb-mousemove">OFF</span></div>
-        <div class="kb-row"><span class="kb-name">System chatter<small>toast verbosity — headlines always show</small></span>
+        <div class="kb-row"><span class="kb-name">System chatter<small>toast verbosity — headlines and first-contact tips always show</small></span>
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
           <span class="kb-key" id="kb-gamepad">ON</span></div>
@@ -1196,6 +1235,7 @@
     <div id="itemtip"></div>
     <div id="toasts"></div>
     <div id="headline"></div>
+    <div id="tutorial"></div>
     <canvas id="minimap" width="168" height="168"></canvas>
     <div id="inv">
       <div class="panel">

@@ -13,7 +13,7 @@ import type { Affixes, ItemSlot, MaterialId, PassiveId } from "./types";
 export type CatalogTier = "consumable" | "starter" | "basic" | "advanced" | "legendary";
 
 /** What a consumable does when bought (applied immediately in buyCatalogItem). */
-export type ConsumableEffect = "heal" | "time" | "maxHp" | "mystery" | "tome" | "favor";
+export type ConsumableEffect = "heal" | "time" | "maxHp" | "tome" | "favor";
 
 export interface CatalogEntry {
   id: string;
@@ -65,10 +65,6 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "plating_kit", name: "Plating Kit", tier: "consumable", effect: "maxHp",
     desc: "Permanent max-HP graft. Slightly itchy. The System rations these.", cost: 45, perFloor: 9, stock: 2,
-  },
-  {
-    id: "mystery_box", name: "Mystery Box", tier: "consumable", effect: "mystery",
-    desc: "A loot-box roll. The System giggles.", cost: 60, perFloor: 8, stock: 2,
   },
   {
     id: "tome", name: "Ability Tome", tier: "consumable", effect: "tome",

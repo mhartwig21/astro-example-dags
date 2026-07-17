@@ -38,6 +38,7 @@ export interface SaveData {
     inventory: Item[];
     abilities?: Player["abilities"];
     achievements?: string[];
+    unclaimedAchievements?: string[]; // achievement loot boxes not yet opened
     goldSpent?: number;
     kills?: number;
     damageDealt?: number;
@@ -77,6 +78,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
         inventory: p.inventory,
         abilities: p.abilities,
         achievements: p.achievements,
+        unclaimedAchievements: p.unclaimedAchievements,
         goldSpent: p.goldSpent,
         kills: p.kills,
         damageDealt: p.damageDealt,

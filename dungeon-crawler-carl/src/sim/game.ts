@@ -955,6 +955,7 @@ function makePlayer(id: number, name: string): Player {
     upgradeDraftsOwed: 0,
     pendingRewards: [],
     achievements: [],
+    unclaimedAchievements: [],
     goldSpent: 0,
     kills: 0,
     killsThisStep: 0,
@@ -1203,6 +1204,7 @@ export interface SavedProgress {
     inventory?: Item[];
     abilities?: Player["abilities"];
     achievements?: string[];
+    unclaimedAchievements?: string[]; // achievement loot boxes not yet opened
     goldSpent?: number;
     kills?: number;
     name?: string;
@@ -1266,6 +1268,7 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
     }
   }
   if (s.achievements) p.achievements = s.achievements;
+  p.unclaimedAchievements = s.unclaimedAchievements ?? []; // loot boxes wait for a Safe Room
   p.revisions = s.revisions ?? []; // CLASS REVISIONS survive the reload
   p.tipsSeen = s.tipsSeen ?? []; // a rule explained once stays explained
   p.goldSpent = s.goldSpent ?? 0;
@@ -2003,7 +2006,7 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
     return;
   }
   const def = upgradeDef(offer.id);
-  announce(state, "levelup", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+  announce(state, "progress", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
 
 /**
@@ -2026,7 +2029,7 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
     L.bench.push(ability);
     where = "BENCHED (re-slot in a safe room)";
   }
-  announce(state, "levelup", `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
+  announce(state, "progress", `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
   addHype(state, p, CONFIG.show.hypeEpicDrop);
 }
 
@@ -2081,8 +2084,12 @@ export function setUltimate(state: GameState, playerId: number, ability: Ability
   );
 }
 
-/** Award a loot box to one player: an immediate randomized buff, DCC-style. */
-function awardLootBox(state: GameState, p: Player): void {
+/**
+ * Open a loot box for one player: an immediate randomized buff, DCC-style.
+ * Exported so any claim source (achievements today; a future "events" system)
+ * can trigger the same roll — the queueing/claiming lives with the source.
+ */
+export function openLootBox(state: GameState, p: Player): void {
   state.lootBoxes++;
   const undiscovered = unknownAbilities(p, state.floor, state.seed);
   const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
@@ -2759,7 +2766,6 @@ function reapDead(state: GameState): void {
       announce(state, "progress", "The KEYHOLDER is down! That shiny thing it dropped? Take it.");
     }
     dropLoot(state, m.pos);
-    if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
     // Named menaces shower guaranteed rewards (incl. crafting materials).
     if (m.elite) {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "elite_trophy" });
@@ -3115,9 +3121,6 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
         p.hp = Math.min(p.maxHp, p.hp + amt);
         break;
       }
-      case "mystery":
-        awardLootBox(state, p);
-        break;
       case "tome":
         learnAbility(state, p, room.tomeAbility);
         break;
@@ -5213,6 +5216,7 @@ function rivalTargets(state: GameState, attacker: Player): Player[] {
 function checkAchievements(state: GameState): void {
   if (!CONFIG.achievementsEnabled) return;
   for (const p of state.players) {
+    const firstEver = p.achievements.length === 0;
     // Big moments (boss kills, level bursts) unlock several at once — collect
     // them and announce one combined line so the toast layer isn't flooded.
     const unlocked: (typeof ACHIEVEMENTS)[number][] = [];
@@ -5222,6 +5226,7 @@ function checkAchievements(state: GameState): void {
       p.achievements.push(a.id);
       p.gold += a.gold;
       if (a.hype > 0) addHype(state, p, a.hype);
+      (p.unclaimedAchievements ??= []).push(a.id);
       unlocked.push(a);
     }
     if (unlocked.length === 1) {
@@ -5236,7 +5241,18 @@ function checkAchievements(state: GameState): void {
       // The log still gets each unlock's full description.
       for (const a of unlocked) state.events.push(`ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}`);
     }
+    if (firstEver && unlocked.length > 0) systemTip(state, p, "achievementClaim");
   }
+}
+
+/** Claim one player's achievement-earned loot box: verifies, opens, pays out. */
+export function claimAchievementLootBox(state: GameState, playerId: number, achievementId: string): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p) return;
+  const idx = (p.unclaimedAchievements ?? []).indexOf(achievementId);
+  if (idx < 0) return;
+  p.unclaimedAchievements!.splice(idx, 1);
+  openLootBox(state, p);
 }
 
 /**

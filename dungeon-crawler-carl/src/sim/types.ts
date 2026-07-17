@@ -114,6 +114,10 @@ export interface Player {
 
   // Per-player achievement progress + flags its checks read.
   achievements: string[];
+  // Achievement ids whose loot box hasn't been opened yet (see
+  // claimAchievementLootBox) — claimed only from a Safe Room's ACHIEVEMENTS
+  // tab. Optional for old-save/snapshot compat; makePlayer initializes [].
+  unclaimedAchievements?: string[];
   goldSpent: number; // cumulative shop spending this run
   kills: number; // cumulative kill credit (killing blows) this run
   killsThisStep: number; // transient: kills credited to this player this step

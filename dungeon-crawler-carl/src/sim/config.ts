@@ -133,9 +133,6 @@ export const CONFIG = {
   reviveHpFraction: 0.35, // of max HP on revive
   reviveDecayMult: 1.5, // progress decays this much faster than it builds
 
-  // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
-  lootBoxEveryKills: 8,
-
   // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
   // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
   // shifts the whole curve down ~half a level early, less later.
