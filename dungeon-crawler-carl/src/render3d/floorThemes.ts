@@ -52,7 +52,6 @@ export interface FloorTheme {
   floorAltKey: string; // mixed in per-tile for texture
   altRatio: number; // base fraction of alt tiles (jittered per floor)
   wallKey: string;
-  stairsKey: string;
   props: string[]; // scatter set (manifest keys)
   propDensity: number; // base chance per eligible walkable tile
   floorTint: number; // multiplies the tile material when explored
@@ -78,7 +77,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
     // that's why removing the candle PROPS didn't stop candles appearing on
     // every early floor. Cracked tiles vary the floor without the tea lights.
     floorKey: "floor", floorAltKey: "floor_tile_small_broken_A", altRatio: 0.14,
-    wallKey: "wall", stairsKey: "stairs",
+    wallKey: "wall",
     props: ["barrel_small", "box_small", "crates_stacked", "keg", "trunk_small_A"],
     propDensity: 0.018,
     floorTint: 0xffffff, wallTint: 0xffffff,
@@ -95,7 +94,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
   {
     name: "THE SEWERS", // floors 4-6: dirt, weeds, green rot
     floorKey: "floor_dirt_small_A", floorAltKey: "floor_dirt_small_weeds", altRatio: 0.3,
-    wallKey: "wall_cracked", stairsKey: "stairs_narrow",
+    wallKey: "wall_cracked",
     props: ["barrel_large", "bottle_A_green", "rubble_half", "trunk_small_A"],
     propDensity: 0.022,
     floorTint: 0xb9d8a8, wallTint: 0xa8c8a0,
@@ -114,7 +113,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
     // (KayKit Forest Nature Pack: live trees/bushes/rocks/grass; the crypt and
     // a few graves persist as the landmark's memory of what got buried here.)
     floorKey: "floor_dirt", floorAltKey: "floor_dirt_grave", altRatio: 0.07,
-    wallKey: "wall_broken", stairsKey: "stairs_walled",
+    wallKey: "wall_broken",
     props: [
       "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a",
       "forest_tree_5_a", "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
@@ -160,7 +159,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
   {
     name: "THE RUINS", // floors 10-12: broken tile, rubble, ember light
     floorKey: "floor_tile_small_broken_A", floorAltKey: "floor_tile_small_broken_B", altRatio: 0.45,
-    wallKey: "wall_broken", stairsKey: "stairs_walled",
+    wallKey: "wall_broken",
     props: ["rubble_large", "rubble_half", "column", "sword_shield_broken"],
     propDensity: 0.028,
     floorTint: 0xe0b898, wallTint: 0xd0a888,
@@ -177,7 +176,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
   {
     name: "THE IRONWORKS", // floors 13-15: grates, scaffolds, cold steel
     floorKey: "floor_tile_grate", floorAltKey: "floor", altRatio: 0.4,
-    wallKey: "wall_scaffold", stairsKey: "stairs_wide",
+    wallKey: "wall_scaffold",
     props: ["keg", "box_large", "shelf_small", "table_medium_broken"],
     propDensity: 0.02,
     floorTint: 0xa8bcd8, wallTint: 0x98accc,
@@ -194,7 +193,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
   {
     name: "THE APPROACH", // floors 16-18: arched grandeur, banners, blood light
     floorKey: "floor_tile_large", floorAltKey: "floor_tile_big_spikes", altRatio: 0.1,
-    wallKey: "wall_arched", stairsKey: "stairs_wood_decorated",
+    wallKey: "wall_arched",
     props: ["banner_red", "banner_shield_red", "sword_shield_broken", "pillar_decorated", "chest_gold"],
     propDensity: 0.024,
     floorTint: 0xe8d0d0, wallTint: 0xd8b8b8,

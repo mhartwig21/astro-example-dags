@@ -129,6 +129,8 @@ interface PointerRole {
 
 export class TouchController {
   readonly stick = new VirtualStick();
+  /** Gate every handler; the K panel toggle flips this live (see setEnabled). */
+  enabled = true;
   /** Host clock (s) of the last touch — device-switch arbitration. */
   lastInputAt = -Infinity;
   /** Fires when the stick spawns/moves/lifts so the host can draw it. */
@@ -153,7 +155,10 @@ export class TouchController {
     const mark = () => { this.touched = true; };
 
     stickZone.addEventListener("pointerdown", (e) => {
-      if (this.roles.has(e.pointerId)) return;
+      if (!this.enabled || this.roles.has(e.pointerId)) return;
+      // One thumb owns movement: a second finger (or a grazing palm) in the
+      // zone must not re-base the stick under the new touch mid-fight.
+      for (const r of this.roles.values()) if (r.kind === "stick") return;
       this.roles.set(e.pointerId, { kind: "stick" });
       stickZone.setPointerCapture(e.pointerId);
       this.stick.down(e.clientX, e.clientY);
@@ -177,6 +182,7 @@ export class TouchController {
     stickZone.addEventListener("pointercancel", stickEnd);
 
     chips.addEventListener("pointerdown", (e) => {
+      if (!this.enabled) return; // touch OFF: chips are plain cooldown chips
       if (e.pointerType === "mouse") return; // desktop keeps click semantics
       const chip = (e.target as HTMLElement).closest<HTMLElement>(".skill");
       if (!chip) return;
@@ -223,10 +229,26 @@ export class TouchController {
     chips.addEventListener("pointercancel", chipEnd);
 
     stairsBtn.addEventListener("pointerdown", (e) => {
+      if (!this.enabled) return;
       this.stairsPending = true;
       mark();
       e.preventDefault();
     });
+  }
+
+  /** Toggle the whole controller. Disabling clears every in-flight press. */
+  setEnabled(on: boolean): void {
+    if (this.enabled === on) return;
+    this.enabled = on;
+    if (!on) {
+      this.roles.clear();
+      this.stick.up();
+      this.onStick?.(null, { x: 0, y: 0 });
+      this.aimingSlot = -1;
+      this.attackHeld = this.attackLatch = false;
+      this.pending.length = 0;
+      this.flaskPending = this.stairsPending = false;
+    }
   }
 
   /** Poll once per frame (mirrors GamepadController.poll). */
@@ -244,9 +266,6 @@ export class TouchController {
       castEdges.length > 0 || flaskEdge || stairsEdge;
     this.touched = false;
     if (active) this.lastInputAt = now;
-    if (!active && castEdges.length === 0) {
-      return { move, aimingSlot: this.aimingSlot, aimDir, castHeld, castEdges, flaskEdge, stairsEdge, active: false };
-    }
     return { move, aimingSlot: this.aimingSlot, aimDir, castHeld, castEdges, flaskEdge, stairsEdge, active };
   }
 }
