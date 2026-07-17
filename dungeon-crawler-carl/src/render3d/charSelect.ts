@@ -40,6 +40,53 @@ interface Slot {
   fwd: THREE.Vector3; // unit vector toward the fire (the step direction)
 }
 
+// Camp dressing: a clearing at the edge of the forest, the night before the
+// descent. Hand-composed (not scattered) so the treeline frames the lineup,
+// the gap stays open for the camera, and the supplies read as A CAMP —
+// someone hauled these here. Models come from the same streamed store the
+// game world uses (Forest Nature + Dungeon packs, all already shipped);
+// pieces pop in as their GLBs arrive, exactly like the crawlers do.
+interface DressSpec {
+  key: string; // MODEL_MANIFEST key
+  x: number;
+  z: number;
+  h: number; // normalized world height
+  rot?: number; // yaw, radians
+  shadow?: boolean; // only near-fire pieces cast (point-light shadows are pricey)
+}
+const DRESSING: DressSpec[] = [
+  // Back treeline — tallest, framing the band, denser behind the arc.
+  { key: "forest_tree_1_a", x: -8.6, z: -6.8, h: 4.6 },
+  { key: "forest_tree_3_a", x: -5.9, z: -8.4, h: 5.2, rot: 1.1 },
+  { key: "forest_tree_2_a", x: -3.0, z: -9.6, h: 4.2, rot: 2.3 },
+  { key: "forest_tree_5_a", x: 0.4, z: -10.2, h: 5.6, rot: 0.4 },
+  { key: "forest_tree_1_b", x: 3.6, z: -9.2, h: 4.4, rot: 3.6 },
+  { key: "forest_tree_4_a", x: 6.4, z: -8.0, h: 5.0, rot: 5.1 },
+  { key: "forest_tree_2_a", x: 9.0, z: -6.2, h: 4.0, rot: 4.2 },
+  // Flanks — pull the forest around the sides of the frame.
+  { key: "forest_tree_3_a", x: -11.4, z: -2.4, h: 5.4, rot: 2.8 },
+  { key: "forest_tree_1_a", x: 11.8, z: -1.8, h: 4.8, rot: 1.9 },
+  { key: "forest_tree_bare_1_a", x: -10.2, z: 2.6, h: 4.3, rot: 0.7 }, // one dead one — this IS still the dungeon's doorstep
+  { key: "forest_tree_5_a", x: 10.6, z: 3.4, h: 5.0, rot: 5.8 },
+  // Understory between the trunks.
+  { key: "forest_bush_1_a", x: -7.2, z: -5.2, h: 0.9, rot: 1.2 },
+  { key: "forest_bush_2_a", x: 2.0, z: -8.6, h: 0.8, rot: 4.4 },
+  { key: "forest_bush_4_a", x: 7.8, z: -5.6, h: 1.0, rot: 2.1 },
+  { key: "forest_bush_1_a", x: -10.0, z: 0.2, h: 0.85, rot: 3.3 },
+  { key: "forest_rock_1_a", x: -4.6, z: -6.9, h: 0.9, rot: 0.9 },
+  { key: "forest_rock_3_c", x: 5.2, z: -7.0, h: 0.7, rot: 2.6 },
+  { key: "forest_rock_6_a", x: 10.4, z: -4.0, h: 1.2, rot: 4.9 },
+  { key: "forest_grass_1_a", x: -2.6, z: -5.4, h: 0.4 },
+  { key: "forest_grass_2_a", x: 3.4, z: -5.8, h: 0.4, rot: 2.2 },
+  { key: "forest_grass_1_a", x: -6.4, z: -2.2, h: 0.35, rot: 4.1 },
+  { key: "forest_grass_2_a", x: 6.8, z: -2.6, h: 0.4, rot: 1.5 },
+  // The camp itself — a fallen trunk to sit on, supplies for the descent.
+  { key: "trunk_small_A", x: -1.9, z: 2.1, h: 0.55, rot: 1.35, shadow: true },
+  { key: "forest_rock_1_a", x: 2.3, z: 2.0, h: 0.55, rot: 3.8, shadow: true },
+  { key: "barrel_small", x: 3.3, z: 1.4, h: 0.85, rot: 0.6, shadow: true },
+  { key: "crates_stacked", x: 3.9, z: 2.2, h: 1.0, rot: 5.5, shadow: true },
+];
+
 /** Two camera moods, lerped between: the fire burns BEHIND the check-in panel
  *  while you pick a mode, then the casting call brings the lineup center
  *  stage for the actual pick. */
@@ -71,6 +118,7 @@ export class CharSelectScene {
   private flames: THREE.Mesh[] = [];
   private sparks: THREE.Points | null = null;
   private sparkPhase: number[] = [];
+  private readonly dressPlaced: boolean[] = DRESSING.map(() => false);
   private lastT = 0;
   private readonly onClick: (e: MouseEvent) => void;
   private readonly onMove: (e: MouseEvent) => void;
@@ -81,7 +129,9 @@ export class CharSelectScene {
     this.selected = initial;
 
     this.scene.background = new THREE.Color(0x05040a);
-    this.scene.fog = new THREE.FogExp2(0x05040a, 0.052);
+    // Light enough fog that the treeline still reads as shapes, heavy enough
+    // that the forest fades to night instead of ending at a horizon line.
+    this.scene.fog = new THREE.FogExp2(0x05040a, 0.042);
 
     // Night: readable ambient (KayKit palettes want light), a cold rim from
     // behind, and the fire doing the character work.
@@ -251,6 +301,25 @@ export class CharSelectScene {
     mixer.addEventListener("finished", onDone as never);
   }
 
+  /** Place camp dressing as its models stream in (static clones, one each). */
+  private hydrateDressing(): void {
+    const models = this.modelsOf();
+    DRESSING.forEach((d, i) => {
+      if (this.dressPlaced[i]) return;
+      const loaded = models[d.key];
+      if (!loaded) return;
+      const m = loaded.scene.clone(true);
+      const box = new THREE.Box3().setFromObject(m);
+      const h = box.max.y - box.min.y;
+      if (h > 0) m.scale.multiplyScalar(d.h / h);
+      m.position.set(d.x, 0, d.z);
+      m.rotation.y = d.rot ?? 0;
+      if (d.shadow) m.traverse((o) => { (o as THREE.Mesh).castShadow = true; });
+      this.scene.add(m);
+      this.dressPlaced[i] = true;
+    });
+  }
+
   /** Fill empty slots as their GLBs (and the rig clips) stream in. */
   private hydrate(): void {
     const models = this.modelsOf();
@@ -285,6 +354,7 @@ export class CharSelectScene {
     const dt = this.lastT ? Math.min(0.1, tSec - this.lastT) : 0.016;
     this.lastT = tSec;
     this.hydrate();
+    this.hydrateDressing();
 
     // Fire: flicker the light + jitter the flame cones on mixed sines.
     const n = Math.sin(tSec * 11.3) * 0.35 + Math.sin(tSec * 23.7 + 1.7) * 0.2 + Math.sin(tSec * 5.1 + 4.2) * 0.45;
