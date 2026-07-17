@@ -304,7 +304,9 @@
       body.phone #t-stairs { right: 186px; bottom: 88px; padding: 10px 14px; font-size: 11px; }
       body.phone #minimap { transform: scale(0.72); transform-origin: top left; }
       body.phone .topbtn { padding: 7px 12px; font-size: 10px; }
-      body.phone #show { transform: scale(0.85); transform-origin: top center; }
+      /* #show centers itself with translateX(-50%) — the scale must COMPOSE
+         with it, not replace it (a bare scale() shoved the chips right). */
+      body.phone #show { transform: translateX(-50%) scale(0.85); transform-origin: top center; }
       body.phone #hud-tl, body.phone #hud-tr { font-size: 11px; }
       body.phone #hud-log { display: none; } /* the ticker covers it; no room */
       body.phone #ticker { max-width: 30ch; font-size: 11px; }
