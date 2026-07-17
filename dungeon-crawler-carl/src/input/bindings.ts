@@ -230,11 +230,14 @@ export type CamView = "default" | "close";
 
 const CAMVIEW_KEY = "dcc:camview:v1";
 
-export function loadCamView(): CamView {
+export function loadCamView(fallback: CamView = "default"): CamView {
   try {
-    return localStorage.getItem(CAMVIEW_KEY) === "close" ? "close" : "default";
+    // An explicit saved choice (either value) wins; only NEVER-CHOSEN falls
+    // back — phones default to CLOSE for readability without stomping prefs.
+    const v = localStorage.getItem(CAMVIEW_KEY);
+    return v === "close" || v === "default" ? v : fallback;
   } catch {
-    return "default";
+    return fallback;
   }
 }
 

@@ -122,6 +122,7 @@
                                   canvas beneath stays clickable)
                                 · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
+           orientation gate (z 40): #rotate — phone portrait only; outranks everything
          New overlays must pick a zone here first. */
 
       /* DCC "System" announcer — headline banners (high priority only).
@@ -275,7 +276,8 @@
       body.touch #skills #flask-chip { right: 244px; bottom: 0; }
       body.touch #skills .skill .key { display: none; } /* no keycaps under thumbs */
       /* Above the stick zone (z 4) — tapping the minimap pings, not walks. */
-      body.touch #minimap { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5; }
+      body.touch #minimap { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5;
+        touch-action: manipulation; }
       /* Fat-finger insurance on menus + safe-area breathing room. */
       @media (pointer: coarse) {
         .tm-row { padding: 12px 12px; }
@@ -286,6 +288,37 @@
         body.touch #cockpit { right: max(10px, env(safe-area-inset-right));
           bottom: max(10px, env(safe-area-inset-bottom)); }
       }
+      /* ---- PHONE compaction (body.phone: coarse pointer + short edge < 500px).
+         The iPad cluster eats half an iPhone screen — scale it ~0.73, shrink
+         the chrome, and require landscape (#rotate gate below). The camera
+         defaults to CLOSE view on phones (main3d, loadCamView fallback). ---- */
+      body.phone #skills { width: 234px; height: 188px; }
+      body.phone #skills .skill { width: 46px; height: 46px; }
+      body.phone #skills .skill .label { display: none; } /* icons + sweeps only */
+      body.phone #skills .skill[data-i="0"] { width: 70px; height: 70px; }
+      body.phone #skills .skill[data-i="1"] { right: 114px; bottom: 6px; }
+      body.phone #skills .skill[data-i="2"] { right: 97px; bottom: 67px; }
+      body.phone #skills .skill[data-i="3"] { right: 53px; bottom: 111px; }
+      body.phone #skills .skill[data-i="4"] { width: 52px; height: 52px; right: 0; bottom: 130px; }
+      body.phone #skills #flask-chip { right: 180px; bottom: 0; }
+      body.phone #t-stairs { right: 186px; bottom: 88px; padding: 10px 14px; font-size: 11px; }
+      body.phone #minimap { transform: scale(0.72); transform-origin: top left; }
+      body.phone .topbtn { padding: 7px 12px; font-size: 10px; }
+      body.phone #show { transform: scale(0.85); transform-origin: top center; }
+      body.phone #hud-tl, body.phone #hud-tr { font-size: 11px; }
+      body.phone #hud-log { display: none; } /* the ticker covers it; no room */
+      body.phone #ticker { max-width: 30ch; font-size: 11px; }
+      /* Landscape gate: the iso view + twin-thumb layout need width. Glass
+         plate over everything (z 40 — above even the menu at 28). */
+      #rotate { display: none; }
+      @media (orientation: portrait) {
+        body.phone #rotate { display: flex; position: fixed; inset: 0; z-index: 40;
+          background: rgba(10,8,6,0.97); flex-direction: column; align-items: center;
+          justify-content: center; gap: 14px; text-align: center; }
+      }
+      #rotate b { font-family: "Cinzel", serif; font-size: 20px; letter-spacing: 0.14em;
+        color: var(--gold-hi); text-transform: uppercase; }
+      #rotate span { color: var(--ink-dim); font-size: 14px; max-width: 34ch; }
       .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
         border: 2px solid #6e5533; border-radius: 8px; font-size: 10px; color: #cfcfe0;
         display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -1245,6 +1278,11 @@
       <div id="t-stickzone"></div>
       <div id="t-stick"><i class="t-nub"></i></div>
       <button id="t-stairs">Descend</button>
+    </div>
+    <!-- Phone landscape gate (body.phone + portrait orientation, see CSS). -->
+    <div id="rotate">
+      <b>Rotate Your Device</b>
+      <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>
     </div>
     <div id="recap">
       <div class="panel">

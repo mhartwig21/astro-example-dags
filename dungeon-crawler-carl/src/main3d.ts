@@ -54,7 +54,19 @@ const canvas = document.getElementById("game") as HTMLCanvasElement;
 // (K panel, persisted); ?view=close still works as a URL override.
 // (Reads the URL directly — `params` is declared further down.)
 const lookParams = new URLSearchParams(location.search);
-let camView: CamView = lookParams.get("view") === "close" ? "close" : loadCamView();
+// PHONE = coarse pointer + a short edge under 500 CSS px (iPhones are 375-440;
+// iPads start at 744). Compact touch chrome, the landscape gate, and a CLOSE
+// camera default all key off this; ?phone=1 forces it for headless verify.
+const isPhone = lookParams.has("phone")
+  ? lookParams.get("phone") !== "0"
+  : (window.matchMedia?.("(pointer: coarse)").matches ?? false) &&
+    Math.min(screen.width, screen.height) < 500;
+if (isPhone) document.body.classList.add("phone");
+// A small screen defaults to the CLOSE framing (readability) — an explicit
+// saved choice or ?view= override still wins.
+let camView: CamView = lookParams.get("view") === "close"
+  ? "close"
+  : loadCamView(isPhone ? "close" : "default");
 const renderer = new Renderer3D(canvas, {
   look: lookParams.get("look") === "lived" ? "lived" : undefined,
   view: camView === "close" ? "close" : undefined,
@@ -248,8 +260,16 @@ touch.onStick = (origin, nub) => {
 function applyTouchMode(): void {
   touchMode = touchWanted();
   document.body.classList.toggle("touch", touchMode);
+  touch.setEnabled(touchMode); // OFF must not queue casts (touch-screen laptops)
 }
 applyTouchMode();
+// Bare-canvas touches must NOT become compatibility mouse events: the browser
+// would synthesize mousedown (the LMB = slot-1 alias — a phantom attack) and
+// mousemove (pinning stale mouse aim + flipping device arbitration to "mouse").
+// Canceling pointerdown suppresses the whole compat stream, touch only.
+canvas.addEventListener("pointerdown", (e) => {
+  if (touchMode && e.pointerType === "touch") e.preventDefault();
+});
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -2447,13 +2467,16 @@ function pollPad(): void {
 // Touch runs the same frame-level rhythm as the pad; one-shot drag casts and
 // button taps accumulate here until the next sampleIntent consumes them.
 let touchHeld: ReturnType<TouchController["sample"]> = null;
-const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
-  casts: [], flask: false, stairs: false, ping: null,
+const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; attack: boolean; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
+  casts: [], attack: false, flask: false, stairs: false, ping: null,
 };
 function pollTouch(): void {
   touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
   if (touchHeld) {
     touchEdges.casts.push(...touchHeld.castEdges);
+    // Attack accumulates like the other edges so a tap while a panel has the
+    // sim paused still lands on resume (held state keeps re-arming it).
+    touchEdges.attack ||= touchHeld.castHeld[0];
     touchEdges.flask ||= touchHeld.flaskEdge;
     touchEdges.stairs ||= touchHeld.stairsEdge;
   }
@@ -2483,7 +2506,7 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   if (touchHeld) {
     if (touchHeld.move) intent.move = isoRotate(touchHeld.move);
     if (intent.cast) {
-      if (touchHeld.castHeld[0]) intent.cast[0] = true;
+      if (touchEdges.attack) intent.cast[0] = true;
       for (const c of touchEdges.casts) {
         intent.cast[c.slot] = true;
         if (c.aim) { intent.aim = isoRotate(c.aim); touchCastAim = true; }
@@ -2493,7 +2516,7 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
     if (touchEdges.stairs) intent.useStairs = true;
     if (touchEdges.ping) intent.ping = touchEdges.ping;
     touchEdges.casts.length = 0;
-    touchEdges.flask = touchEdges.stairs = false;
+    touchEdges.attack = touchEdges.flask = touchEdges.stairs = false;
     touchEdges.ping = null;
   }
   // AIM is exclusive: an explicit source (touch drag, pad right stick) wins
