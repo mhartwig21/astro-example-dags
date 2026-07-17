@@ -179,6 +179,12 @@ export class Renderer3D {
   private propEntries: { obj: THREE.Object3D; tile: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
+  // The descent gate's live energy surface (animated in update) + the one-shot
+  // portal FX triggers: departure (safe room opens) and arrival (floor+1 built).
+  private portalSwirl: THREE.Mesh | null = null;
+  private portalCore: THREE.Mesh | null = null;
+  private portalPos: Vec2 | null = null;
+  private wasInSafeRoom = false;
   private lastExploredVersion = -1;
 
   // Ability visuals, per player id.
@@ -1568,26 +1574,61 @@ export class Renderer3D {
       }
     }
 
-    // Stairs: the theme's glTF model when present, else a glowing stepped block.
-    const stairsModel = this.modelInstance(theme.stairsKey) ?? this.modelInstance("stairs");
-    if (stairsModel) {
-      const box = new THREE.Box3().setFromObject(stairsModel);
-      const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
-      if (fp > 1e-4) stairsModel.scale.multiplyScalar(1 / fp);
-      const scaled = new THREE.Box3().setFromObject(stairsModel);
-      stairsModel.position.set(
-        map.stairs.x - (scaled.min.x + scaled.max.x) / 2 + stairsModel.position.x,
-        -scaled.min.y + 0.005, // proud of the floor plane so the surfaces don't z-fight
-        map.stairs.y - (scaled.min.z + scaled.max.z) / 2 + stairsModel.position.z,
-      );
-      this.floorGroup.add(stairsModel);
-      this.stairsObj = stairsModel;
+    // The descent gate IS the stairs (playtest: arch + staircase stacked on
+    // one tile read as clutter). One group: the System's portal arch with a
+    // live energy surface filling the opening — the sim tile is still called
+    // "stairs", only the dressing changed. Missing arch model → a gold ring.
+    const gate = new THREE.Group();
+    gate.position.set(map.stairs.x, 0, map.stairs.y);
+    // Face the opening across the stairs' approach axis (widest open side).
+    gate.rotation.y = Math.PI / 2;
+    const arch = this.modelInstance("descent_portal");
+    if (arch) {
+      const box = new THREE.Box3().setFromObject(arch);
+      const size = box.getSize(new THREE.Vector3());
+      arch.scale.multiplyScalar(2.3 / Math.max(size.y, 1e-3)); // arch ~2.3 world units
+      arch.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0xc9a24b); // System gold: the exit sells itself
+        mat.emissiveIntensity = 0.18;
+        m.material = mat;
+      });
+      gate.add(arch);
     } else {
-      const stairs = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), flat(THEME.stairs, { emissive: 0x3a2c00, emissiveIntensity: 0.6 }));
-      stairs.position.set(map.stairs.x, 0.05, map.stairs.y); stairs.receiveShadow = true;
-      this.floorGroup.add(stairs);
-      this.stairsObj = stairs;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.85, 0.08, 8, 28),
+        flat(THEME.stairs, { emissive: 0x3a2c00, emissiveIntensity: 0.6 }),
+      );
+      ring.position.y = 1.05;
+      gate.add(ring);
     }
+    // The energy surface: a full disc + a broken bright ring, counter-rotating
+    // (a broken ring is what makes the spin readable). Additive, no depth
+    // write — same recipe as the loot beams.
+    const swirl = new THREE.Mesh(
+      new THREE.CircleGeometry(0.72, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xc9a24b, transparent: true, opacity: 0.38,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      }),
+    );
+    swirl.position.y = 1.05;
+    const core = new THREE.Mesh(
+      new THREE.RingGeometry(0.14, 0.5, 24, 1, 0, Math.PI * 1.55),
+      new THREE.MeshBasicMaterial({
+        color: 0xf5e6bf, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      }),
+    );
+    core.position.set(0, 1.05, 0.02); // proud of the disc so they never z-fight
+    gate.add(swirl, core);
+    this.portalSwirl = swirl;
+    this.portalCore = core;
+    this.portalPos = { x: map.stairs.x, y: map.stairs.y };
+    this.floorGroup.add(gate);
+    this.stairsObj = gate;
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
     // CRAFTED ROOM props: each stamp the mapgen recorded places its
     // template's cosmetic dressing (the WALLS are already real tiles; these
@@ -1603,28 +1644,6 @@ export class Renderer3D {
         obj.scale.setScalar(p.scale ?? 1);
         this.floorGroup.add(obj);
       }
-    }
-
-    // The System's descent gate frames the stairs: "next episode" is an
-    // archway, not a hole in the floor. Diegetic — a dungeon object the
-    // System installed, not studio dressing.
-    const portal = this.modelInstance("descent_portal");
-    if (portal) {
-      const box = new THREE.Box3().setFromObject(portal);
-      const size = box.getSize(new THREE.Vector3());
-      portal.scale.multiplyScalar(2.3 / Math.max(size.y, 1e-3)); // arch ~2.3 world units
-      portal.position.set(map.stairs.x, 0, map.stairs.y);
-      // Face the arch across the stairs' approach axis (widest open side).
-      portal.rotation.y = Math.PI / 2;
-      portal.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        const mat = (m.material as THREE.MeshStandardMaterial).clone();
-        mat.emissive = new THREE.Color(0xc9a24b); // System gold: the exit sells itself
-        mat.emissiveIntensity = 0.18;
-        m.material = mat;
-      });
-      this.floorGroup.add(portal);
     }
 
     // RULE-BASED DRESSING (intent over noise): torches line room walls with the
@@ -2240,6 +2259,7 @@ export class Renderer3D {
     // in the key the old dungeon kept rendering over the new layout (players
     // walking through walls after a restart). Same seed = same generated map,
     // so a daily rerun keeping its geometry is correct, not a miss.
+    const prevFloor = this.builtFloor; // for the portal arrival FX below
     const rebuilt =
       state.floor !== this.builtFloor ||
       state.mapVersion !== this.builtMapVersion ||
@@ -2262,6 +2282,30 @@ export class Renderer3D {
     // The camera/light anchor: the local player (fall back to the first).
     const p = state.players.find((pl) => pl.id === this.localPlayerId) ?? state.players[0];
     if (!p) return;
+
+    // Descent gate FX. The energy surface swirls whenever the gate is on
+    // screen knowledge (explored); the trip itself gets a gold burst on both
+    // ends — departure when the gate accepts the party (safe room opens),
+    // arrival when the next floor materializes around the spawn.
+    if (this.portalSwirl && this.stairsObj?.visible) {
+      this.portalSwirl.rotation.z = time * 1.7;
+      (this.portalSwirl.material as THREE.MeshBasicMaterial).opacity = 0.32 + 0.1 * Math.sin(time * 2.6);
+      if (this.portalCore) this.portalCore.rotation.z = -time * 2.6;
+    }
+    const inSafeRoom = !!state.safeRoom;
+    if (inSafeRoom && !this.wasInSafeRoom && this.portalPos) {
+      this.burst(this.portalPos.x, this.portalPos.y, 0xc9a24b, 16, 0.85, 1.3);
+      for (let i = 0; i < 5; i++) {
+        this.spawnGlow(this.portalPos.x, 0.4 + i * 0.4, this.portalPos.y, 0xf5e6bf, 0.7, 0.5);
+      }
+    }
+    this.wasInSafeRoom = inSafeRoom;
+    if (rebuilt && state.floor === prevFloor + 1) {
+      this.burst(p.pos.x, p.pos.y, 0xc9a24b, 16, 0.85, 1.2);
+      for (let i = 0; i < 5; i++) {
+        this.spawnGlow(p.pos.x, 0.4 + i * 0.35, p.pos.y, 0xf5e6bf, 0.65, 0.5);
+      }
+    }
 
     // Players: reconcile mesh pool + animate each.
     const pSeen = new Set<number>();
