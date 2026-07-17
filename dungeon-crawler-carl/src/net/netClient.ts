@@ -232,6 +232,10 @@ export class NetClient {
   sell(idx: number): void {
     this.send({ t: "sell", idx });
   }
+  /** Open an achievement's claimable loot box (Safe Room ACHIEVEMENTS tab). */
+  claimAchievement(id: string): void {
+    this.send({ t: "claimAchievement", id });
+  }
   /** Liquidate the whole bag (equipped gear is safe). */
   sellAll(): void {
     this.send({ t: "sellAll" });

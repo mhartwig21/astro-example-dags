@@ -31,4 +31,6 @@ export const TIPS: Record<string, string> = {
     "COURTESY EXPLANATION: your near-death experience is EXCELLENT television — surviving below a third of your health pays bonus hype. Dying pays nothing. The distinction matters.",
   overrank:
     "COURTESY EXPLANATION: an OVERRANK is a rank past the printed maximum. The draft lottery occasionally offers one. This is not a bug; it is a promotional event.",
+  achievementClaim:
+    "COURTESY EXPLANATION: that unlock queued a LOOT BOX. It will not open itself — collect it from a Safe Room's ACHIEVEMENTS tab. The System does not ship rewards to your door.",
 };

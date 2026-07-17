@@ -272,6 +272,20 @@ describe("authoritative server", () => {
     b.close();
   });
 
+  it("claiming an achievement's loot box applies over the network", async () => {
+    const a = await connect(port, "ACH-1", "Carl");
+    const instances = (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+    const inst = instances.get("ACH-1")!;
+    const p = inst.state.players.find((pl) => pl.id === a.playerId)!;
+    p.achievements.push("first_blood");
+    p.unclaimedAchievements = ["first_blood"];
+    const lootBefore = inst.state.lootBoxes;
+    a.send({ t: "claimAchievement", id: "first_blood" });
+    await waitFor(() => inst.state.lootBoxes > lootBefore);
+    expect(p.unclaimedAchievements).not.toContain("first_blood");
+    a.close();
+  });
+
   it("a tick that throws drops only that instance — other parties keep playing", async () => {
     const doomed = await connect(port, "CRASH-1", "Carl");
     const bystander = await connect(port, "SAFE-1", "Donut");

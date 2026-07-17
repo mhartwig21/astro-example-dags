@@ -5,7 +5,10 @@ import type { GameState, Player } from "./types";
 // DCC-style System achievements: absurd names, real rewards. Checked
 // deterministically at the end of every step, per player, against sim state plus
 // cheap per-step flags the sim sets while it works. Unlocks announce in the System
-// voice and pay out gold + hype on the spot.
+// voice and pay out gold + hype on the spot; each unlock also queues a loot
+// box (Player.unclaimedAchievements) that waits for a Safe Room's
+// ACHIEVEMENTS tab — loot boxes are achievement-exclusive, see openLootBox/
+// claimAchievementLootBox in game.ts.
 
 export interface AchievementDef {
   id: string;
@@ -22,16 +25,16 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     gold: 10, hype: 5, test: (_s, p) => p.kills >= 1,
   },
   {
-    id: "dirty_fighter", title: "DIRTY FIGHTER", desc: "Kill 3+ enemies in a single instant.",
-    gold: 40, hype: 15, test: (_s, p) => p.killsThisStep >= 3,
+    id: "dirty_fighter", title: "DIRTY FIGHTER", desc: "Kill 3+ enemies in a single instant (floor 2+).",
+    gold: 40, hype: 15, test: (s, p) => s.floor >= 2 && p.killsThisStep >= 3,
   },
   {
     id: "crumbs", title: "CRUMBS", desc: "Descend from a floor that is actively collapsing.",
     gold: 60, hype: 25, test: (s, p) => s.escapedCollapse && p.alive,
   },
   {
-    id: "glass_cannon", title: "GLASS CANNON", desc: "Kill a monster while below 10% HP.",
-    gold: 50, hype: 20, test: (_s, p) => p.lowHpKill,
+    id: "glass_cannon", title: "GLASS CANNON", desc: "Kill a monster while below 10% HP (floor 3+).",
+    gold: 50, hype: 20, test: (s, p) => s.floor >= 3 && p.lowHpKill,
   },
   {
     id: "collector", title: "COLLECTOR'S EDITION", desc: "Learn every discoverable ability.",
@@ -44,12 +47,12 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     test: (_s, p) => UPGRADES.some((u) => rank(p, u.id) >= u.maxRank),
   },
   {
-    id: "shopping_spree", title: "RETAIL THERAPY", desc: "Spend 200 gold in safe-room shops.",
-    gold: 50, hype: 10, test: (_s, p) => p.goldSpent >= 200,
+    id: "shopping_spree", title: "RETAIL THERAPY", desc: "Spend 350 gold in safe-room shops.",
+    gold: 50, hype: 10, test: (_s, p) => p.goldSpent >= 350,
   },
   {
-    id: "pacifist", title: "CONSCIENTIOUS OBJECTOR", desc: "Reach floor 3 with fewer than 10 kills.",
-    gold: 40, hype: 15, test: (s, p) => s.floor >= 3 && p.kills < 10,
+    id: "pacifist", title: "CONSCIENTIOUS OBJECTOR", desc: "Reach floor 5 with fewer than 15 kills.",
+    gold: 40, hype: 15, test: (s, p) => s.floor >= 5 && p.kills < 15,
   },
   {
     id: "funded", title: "SELLOUT", desc: "Hold 3 sponsors at once.",
@@ -60,13 +63,17 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     gold: 120, hype: 30, test: (s) => s.floor >= Math.floor(CONFIG.finalFloor / 2),
   },
   {
-    id: "hoarder", title: "LIQUIDITY EVENT", desc: "Hold 500 gold at once.",
-    gold: 0, hype: 25, test: (_s, p) => p.gold >= 500,
+    id: "hoarder", title: "LIQUIDITY EVENT", desc: "Hold 900 gold at once.",
+    gold: 0, hype: 25, test: (_s, p) => p.gold >= 900,
   },
   {
-    id: "untouchable", title: "UNTOUCHABLE", desc: "Clear a floor's monsters without dropping below 90% HP.",
+    id: "untouchable", title: "UNTOUCHABLE", desc: "Clear a floor's monsters without dropping below 90% HP (floor 2+).",
     gold: 70, hype: 20,
-    test: (s, p) => s.monsters.length === 0 && p.kills > 0 && p.hp >= p.maxHp * 0.9,
+    test: (s, p) => s.floor >= 2 && s.monsters.length === 0 && p.kills > 0 && p.hp >= p.maxHp * 0.9,
+  },
+  {
+    id: "final_descent", title: "SEASON FINALE", desc: `Escape the dungeon (reach floor ${CONFIG.finalFloor}).`,
+    gold: 250, hype: 60, test: (s) => s.floor >= CONFIG.finalFloor,
   },
 ];
 

@@ -202,6 +202,10 @@ export class Renderer3D {
     obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
     spin: number; grow: number; s0: number; pop: boolean;
   }[] = [];
+  // Level-up ring (D4-style halo): fire-and-forget, host-local — not tied to
+  // sim state, unlike the persistent pingRings/reviveRings pools. One ring
+  // per emitLevelUp call, expanding + fading over its lifetime then dropped.
+  private levelRings: { mesh: THREE.Mesh; life: number; max: number }[] = [];
 
   // Animation / juice state (all host-side cosmetics; sim stays pure).
   // Last-frame combat state per player: the clip machine fires on EDGES
@@ -3486,6 +3490,32 @@ export class Renderer3D {
       propsAlive.push(fp);
     }
     this.fadeProps = propsAlive;
+
+    // Level-up rings: expand + fade, then drop.
+    const ringAlive: typeof this.levelRings = [];
+    for (const r of this.levelRings) {
+      r.life += dt;
+      if (r.life >= r.max) { this.scene.remove(r.mesh); continue; }
+      const t = r.life / r.max;
+      r.mesh.scale.setScalar(0.5 + t * 2.2);
+      (r.mesh.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - t);
+      ringAlive.push(r);
+    }
+    this.levelRings = ringAlive;
+  }
+
+  /** D4-style level-up halo: an expanding gold ring at the crawler's feet. */
+  emitLevelUp(x: number, z: number): void {
+    const mesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.72, 1, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c14e, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.08, z);
+    this.scene.add(mesh);
+    this.levelRings.push({ mesh, life: 0, max: 1.3 });
   }
 
   /** Project a world point to screen pixels (for DOM overlays like damage numbers). */

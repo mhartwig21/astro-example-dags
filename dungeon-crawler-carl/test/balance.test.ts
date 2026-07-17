@@ -211,7 +211,14 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     // for this cold-start fixture much lower than a naturally-progressed run
     // (scripts/balance-sweep.ts: zero floor-12 deaths across full runs) — see
     // the comment above.
-    for (const seed of [7, 5, 13, 17, 42, 101, 11, 99, 2024, 555]) {
+    //
+    // Re-picked again (loot-box overhaul): removing the every-8-kills RNG
+    // draw (loot boxes are achievement-exclusive now) shifts every downstream
+    // roll for a fixed seed — same "old seeds rerolled their build lottery"
+    // effect, not a difficulty change. A 60-seed sweep post-change measured
+    // ~12% clear rate (7/60), consistent with the documented range; seeds
+    // 1-10 land 2 clears, well inside the historical distribution.
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const g = createTestGame({ seed, floor: 12, level: 18, abilities: "all" });
       const maxHp = g.players[0].maxHp;
       const r = runBot(g, 1, 120_000);
