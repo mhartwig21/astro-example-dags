@@ -25,9 +25,9 @@ import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
-  loadTouch, rebind, saveBindings, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
-  type BindableAction, type Bindings, type NotifyLevel, type TouchPref,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
+  loadTouch, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
+  type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -49,13 +49,15 @@ const SIM_DT = 1 / SIM_HZ;
 const MAX_FRAME = 0.1;
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
-// LOOK EXPERIMENT flags (see renderer3d): ?look=lived densifies the dungeon
-// with Dungeon Remastered modular pieces; ?view=close zooms in by a third.
+// LOOK EXPERIMENT flag (see renderer3d): ?look=lived densifies the dungeon
+// with Dungeon Remastered modular pieces. Camera zoom is a real SETTING
+// (K panel, persisted); ?view=close still works as a URL override.
 // (Reads the URL directly — `params` is declared further down.)
 const lookParams = new URLSearchParams(location.search);
+let camView: CamView = lookParams.get("view") === "close" ? "close" : loadCamView();
 const renderer = new Renderer3D(canvas, {
   look: lookParams.get("look") === "lived" ? "lived" : undefined,
-  view: lookParams.get("view") === "close" ? "close" : undefined,
+  view: camView === "close" ? "close" : undefined,
 });
 
 // Audio seam: same consumer pattern as particles/damage numbers, fed from the
@@ -1303,6 +1305,21 @@ kbNotify.addEventListener("click", () => {
   renderNotify();
 });
 renderNotify();
+
+// Camera zoom: STANDARD (classic iso framing) vs CLOSE (a third tighter —
+// promoted from the look experiment). Applies instantly; persisted.
+const kbCamZoom = document.getElementById("kb-camzoom")!;
+function renderCamZoom(): void {
+  kbCamZoom.textContent = camView === "close" ? "CLOSE" : "STANDARD";
+}
+kbCamZoom.addEventListener("click", () => {
+  camView = camView === "close" ? "default" : "close";
+  saveCamView(camView);
+  renderer.setCloseView(camView === "close");
+  renderer.resize(window.innerWidth, window.innerHeight);
+  renderCamZoom();
+});
+renderCamZoom();
 
 // Controller on/off (see GamepadController). Toggling ON with a pad already
 // plugged in adopts it on the next frame's poll — no reconnect needed.
