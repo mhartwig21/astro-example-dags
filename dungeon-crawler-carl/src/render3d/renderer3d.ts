@@ -298,6 +298,12 @@ export class Renderer3D {
   private look: "lived" | null = null;
   private viewClose = false;
 
+  /** Toggle the close (1/3 tighter) framing at runtime — the K-panel setting.
+   *  Callers follow up with resize() so the frustum recomputes. */
+  setCloseView(on: boolean): void {
+    this.viewClose = on;
+  }
+
   constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "close" } = {}) {
     this.look = opts.look ?? null;
     this.viewClose = opts.view === "close";

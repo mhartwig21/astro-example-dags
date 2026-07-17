@@ -222,3 +222,26 @@ export function saveNotify(level: NotifyLevel): void {
     /* best-effort */
   }
 }
+
+// Camera zoom: "close" frames the action a third tighter than the classic
+// iso view (renderer3d camOrthoHalfHeight × 0.67). Promoted from the look
+// experiment after play — some crawlers want the furnishing to fill the frame.
+export type CamView = "default" | "close";
+
+const CAMVIEW_KEY = "dcc:camview:v1";
+
+export function loadCamView(): CamView {
+  try {
+    return localStorage.getItem(CAMVIEW_KEY) === "close" ? "close" : "default";
+  } catch {
+    return "default";
+  }
+}
+
+export function saveCamView(view: CamView): void {
+  try {
+    localStorage.setItem(CAMVIEW_KEY, view);
+  } catch {
+    /* best-effort */
+  }
+}
