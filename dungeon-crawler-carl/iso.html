@@ -45,7 +45,12 @@
       }
       html, body { margin: 0; height: 100%; background: var(--void); color: var(--ink);
         font-family: var(--body); font-size: 14px; overflow: hidden;
-        font-variant-numeric: tabular-nums; }
+        font-variant-numeric: tabular-nums;
+        /* iOS Safari fires double-tap SMART ZOOM on any element without a
+           touch-action (user-scalable=no does NOT stop it). manipulation
+           keeps panning + accessibility pinch but kills the tap zoom —
+           rapid ability/menu taps must never lurch the viewport. */
+        touch-action: manipulation; }
       /* Display voice: engraved small-caps for every title, label, and control. */
       h1, h2, .sec-label, .sec-title, .sheet-sec, .tier-h, .rsec, button, kbd,
       .m-name, .dtitle, .ahname, .gslot, .awhere {
@@ -108,7 +113,8 @@
       /* ---- Screen zones (backlog #8): every overlay claims exactly ONE zone,
          so no two systems ever fight for the same pixels.
            top strip (12px):    #hud-tl left · #banner center (SYSTEM/CRAWLER menus) · #hud-tr right
-           upper chips:         #show 48px (under the buttons) · #bossbar 92px · #party 118px (center)
+           upper chips:         #show 48px (under the buttons) · #bossbar 92px (center)
+                                · #party 96px right rail (roster under YOUR stats chip)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            bottom strip:        #hud-log left · #cockpit center · #minimap right
@@ -184,10 +190,13 @@
         border: 1px solid #6e5533; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 12px; }
       #keys .kb-reset button:hover { color: #e8ddc8; border-color: #5a87c6; }
 
-      /* Party chip (network mode) */
-      #party { position: fixed; top: 118px; left: 50%; transform: translateX(-50%);
+      /* Party chip (network mode): docked under YOUR stats chip on the right
+         rail (play feedback 2026-07-10 — the old centered slot sat in the
+         middle of the action, worst on phones). Above the ticker (148px). */
+      #party { position: fixed; top: 96px; right: 12px; text-align: right;
         background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
         padding: 4px 14px; font-size: 12px; color: #a99f8c; pointer-events: none; }
+      body.phone #party { top: 78px; font-size: 10px; padding: 3px 10px; }
 
       /* Boss encounter: ringside intro splash + persistent top health bar.
          The splash sits BELOW the headline zone (see screen zones above) — a
