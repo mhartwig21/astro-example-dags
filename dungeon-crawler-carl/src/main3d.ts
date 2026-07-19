@@ -271,6 +271,12 @@ applyTouchMode();
 canvas.addEventListener("pointerdown", (e) => {
   if (touchMode && e.pointerType === "touch") e.preventDefault();
 });
+// Safari (iOS + macOS trackpads) pinch-zooms the PAGE through proprietary
+// GestureEvents that ignore touch-action entirely — two-thumb play (stick +
+// ability chip) reads as a pinch and lurches the viewport. Snuff the stream.
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(g, (e) => e.preventDefault(), { passive: false });
+}
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -2295,14 +2301,20 @@ function showTutorialCard(a: Announcement): void {
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
+  // The WHOLE card dismisses, not just the button — a thumb on a phone gets
+  // the full surface. Guarded: button + card both firing must not eat two
+  // queue entries.
+  let dismissed = false;
   const dismiss = (): void => {
+    if (dismissed) return;
+    dismissed = true;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
     const next = tutorialQueue.shift();
     if (next) showTutorialCard(next);
   };
-  el.querySelector(".tut-dismiss")!.addEventListener("click", dismiss);
+  el.addEventListener("click", dismiss);
 }
 
 // ---- Run recap (backlog #12): the season report card ----

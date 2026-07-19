@@ -122,8 +122,9 @@
                                 · #party 96px right rail (roster under YOUR stats chip)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           tutorial zone:       #tutorial — top-left, below #hud-tl; dismissible
-                                 first-contact tip cards (kind:"tip"), one at a time
+           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; dismissible
+                                 first-contact tip cards (kind:"tip"), one at a time;
+                                 touch mode slides it below the relocated minimap
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -157,7 +158,16 @@
          gets an explicit dismiss instead of an auto-fade — a rule you have
          to acknowledge, not miss in a blur of chatter. Top-left, clear of
          the centered headline/toast zones. */
-      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none; }
+      /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
+         mode minimap (z 5) or taps land on movement instead of GOT IT. */
+      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none;
+        z-index: 7; }
+      /* Touch mode parks the minimap in this corner — the iPad slides below
+         it; the phone hasn't the height, so the transient card sits OVER the
+         minimap instead (z 7 beats its z 5; one tap and it's gone). */
+      body.touch #tutorial { top: 284px; }
+      body.phone #tutorial { top: 96px; max-width: 30ch; }
+      body.phone .tut-body { font-size: 12px; }
       .tut { background: rgba(12,10,20,0.92); border: 1px solid #c9a24b; border-radius: 6px;
         color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
@@ -169,6 +179,10 @@
         background: rgba(201,162,75,0.15); border: 1px solid #8a6d3b; border-radius: 3px;
         color: #f2c14e; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; cursor: pointer; }
       .tut-dismiss:hover { background: rgba(201,162,75,0.28); }
+      @media (pointer: coarse) {
+        .tut { touch-action: manipulation; } /* never a double-tap zoom */
+        .tut-dismiss { padding: 12px 0; font-size: 12px; } /* thumb-sized */
+      }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already
