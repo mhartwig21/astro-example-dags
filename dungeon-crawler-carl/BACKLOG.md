@@ -21,12 +21,20 @@ session has a reason not to. Numbers reference the entries below.
 9. Touch tuning on real glass (#5) — blocked on owner hardware
 (2D-host status parity is explicitly deprioritized: debug view, invisible polish.)
 
+Unranked additions (2026-07-17, from the same polish review): #18 stat
+transparency (slots naturally beside #14 — same respect-the-builder energy),
+#19 readability + accessibility (rises fast if playtests hit late-floor
+soup), #20 frame-budget audit (do it BEFORE #12 adds boss FX load).
+
 2. **Status effects in the 2D host + character sheet.** The 5.13 status layer
    ships with 3D-host presentation only (tinted numbers, HUD/boss-bar pips,
    monster ring). The 2D canvas host (`src/render/`, `src/main.ts`) renders
    DoT numbers untinted and shows no pips; the Crawler Profile (`sheet.ts`)
    doesn't yet print burn/poison DPS rows for Afterburn/Frost/Venom builds.
-   Sim data is all there (`statuses`, `HitEvent.effect`).
+   Sim data is all there (`statuses`, `HitEvent.effect`). NOTE the ranking
+   splits this entry: the sheet.ts DPS-rows half is ranked (#7 slot, with
+   #3 — it completes the shipped status system and feeds #18); the 2D-host
+   half is the explicitly deprioritized part.
 3. **Status audio cues.** No sounds for ignite/poison/chill apply or DoT
    ticks — deliberately skipped rather than adding asset files. Seam:
    `src/audio/director.ts` maps sim events to clip ids; would key off
@@ -80,20 +88,24 @@ session has a reason not to. Numbers reference the entries below.
     2026-07-10: corner hoards are SMASHABLE sim entities (Breakable[],
     plan-positioned, popped by melee arcs + all radial AoE for pocket gold)
     and seated residents HOLD their rooms with a once-per-floor interruption
-    line on first blood (RESIDENT_LINES). Still open: settlement/stronghold
-    room dressing for Roam (coordinate with the Roam session's arc). Phase 3: occupancy coupling — purpose-aware spawn placement (the
-    kennel spawns beasts, the mess pack sits AT the table) + one seeded
-    story-event per floor applying conditions along a path. Prop gaps (beds,
-    food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
-    Tools packs — extract via the established pipeline.
+    line on first blood (RESIDENT_LINES). STILL OPEN (everything else above
+    shipped — ignore any older phase framing): (a) settlement/stronghold
+    room dressing for Roam (coordinate with the Roam session's arc);
+    (b) prop gaps — beds, food, anvil, altar live in the untapped KayKit
+    Furniture/Restaurant/RPG Tools packs; extract via the established
+    pipeline (tools/asset-pipeline, record in ASSETS.md) and slot into
+    `PURPOSE` dressing tables in `src/sim/roomPurposes.ts`.
 11. **Roam mode isn't saved/resumable yet.** `createGame`'s new `runKind`
     param (`"race" | "roam"`) never round-trips through `SavedProgress`
     (`src/persist/save.ts`) — closing the tab mid-Roam and hitting CONTINUE
-    RUN silently rebuilds as Race. `SaveData` needs an optional `runKind?`
-    field (the codebase's existing optional-field + load-time-default
-    convention, e.g. `revisions?`/`tipsSeen?`) once Roam is worth resuming.
-    Not a blocker for v1 (SETTLEMENTS.md scoped v1 as no-persistence), but
-    easy to forget once real persistence work starts.
+    RUN silently rebuilds as Race. Worse than a lost preference: at the
+    floor-18 stairs a restored Roam run hits the RACE finish-line rule and
+    ends ("won") instead of descending. **The fix is already written:
+    draft PR #123** (`fix-2d-stairs` branch) adds `runKind?` to both save
+    shapes + `restoreGame`, with a roam-restore regression test, a
+    stairs-reachability sweep (`test/stairs-sweep.test.ts`), and the 2D
+    host's `?test`/`?debug=1` `__dcc` probe hook. Needs a rebase (save.ts
+    gained `unclaimedAchievements` since) and a merge decision.
 
 12. **Boss signature mechanics** (polish ranking #1, with the #6 kiting fix).
     Band bosses are cast reuses with phase layers; none has a mechanic you
@@ -134,10 +146,48 @@ session has a reason not to. Numbers reference the entries below.
     announcer voice" — update both. Register: dry bureaucratic menace,
     deadpan legalese, dark humor (the books), never carnival. Also delete the
     weakest ~20% of lines; fewer, better. Grep `announce(` in `src/sim/` for
-    the full surface; tips.ts and revisions.ts copy too.
+    the full surface; tips.ts and revisions.ts copy too. Second half (same
+    PR or a follow-up): CONTEXTUAL triggers — the System noticing YOU. The
+    sim already knows the moments (clutch sub-10%-HP escapes, kill streaks,
+    dying twice to the same archetype, a shopper who buys nothing); a
+    handful of new `announce()` call sites keyed to them beats fifty more
+    generic lines. The Show already tracks hype/frenzy — reuse those
+    signals rather than adding state.
 17. **Per-band music beds** (polish ranking #8). Six band-themed loops so a
     band transition is a PLACE change, not a palette swap. Seam is ready:
     `audio/manifest.ts` clips + `director.ts` already routes music by
     context (band sting shipped). Sourcing is the work: CC0 loops or the
     Meshy-era generation pipeline's audio equivalent; record provenance in
     ASSETS.md.
+18. **Stat transparency — show the math** (the PoE lesson; unranked, pairs
+    with #14). Build-crafters stay when the game respects their arithmetic.
+    `sheet.ts` already computes every derived number; the polish is making
+    each one TRACEABLE at the surface: (a) P-panel tooltips that decompose a
+    stat (melee 214 = base × rank × stance × affix lines, one row each —
+    sheet.ts already has the factors, the P panel in `main3d.ts` just prints
+    totals); (b) shop/bag item tooltips show the DELTA against equipped
+    (`itemtip` in main3d.ts has both items in hand already); (c) the #2
+    DoT-DPS rows land here too. Pure host/UI work, zero sim changes; do
+    after #13's pruning so tooltips explain affixes that survived.
+19. **Readability at depth + accessibility accents** (the LoL lesson:
+    clarity beats spectacle; unranked, rises if late-floor playtests report
+    soup). #15 ADDS juice — this is the matching restraint pass. (a) An FX
+    budget: when N effects are live (orbit blades + statuses + hazards +
+    strikes), lower-priority glows dim or skip — extend the existing
+    particle/fxSprite caps in renderer3d.ts into a priority scheme instead
+    of first-come-first-served. (b) Silhouette audit per band: player/mob
+    read against each band's floorTint at iso distance (screenshot sweep
+    via the verify skill, one shot per band). (c) Accessibility: status and
+    rarity are currently color-ONLY signals — add a shape/glyph channel
+    (pips already exist; vary their SHAPE per effect), and a K-panel
+    reduced-flash toggle that caps shake amplitude + full-screen flashes
+    (`dcc:*` localStorage convention, juice call sites in renderer3d.ts).
+20. **Frame-budget audit at depth** (unranked; do BEFORE #12 piles boss FX
+    on top). Late floors now carry room dressing, breakables, fog banks,
+    torch lights, and per-frame portal/status animation — nobody has
+    profiled a floor-15 arena fight on weak hardware. Add a ?debug=1 HUD
+    line (frame ms, draw calls from `renderer.info`, live particle/light
+    counts), capture a baseline per band via the verify skill, then attack
+    the top offender only (likely candidates: per-frame Box3 work, light
+    count on dressed floors, transparent overdraw from stacked additive
+    FX). Budget: 60fps on an integrated-GPU laptop at view=close.
