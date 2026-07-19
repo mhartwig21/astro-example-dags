@@ -2564,6 +2564,80 @@ function maybeShowRecap(s: GameState): void {
 document.getElementById("recap-dismiss")!.addEventListener("click", () => {
   recapEl.style.display = "none"; // spectate the arena; R still restarts
 });
+// ---- The run card (launch polish #4): the recap as a shareable artifact ----
+// A 1200x630 canvas (link-preview dims) in the Torchlit palette. Cinzel and
+// Alegreya are document fonts, so the canvas can use them directly.
+function composeRunCard(s: GameState): HTMLCanvasElement {
+  const p = me(s);
+  const won = s.status === "won";
+  const cv = document.createElement("canvas");
+  cv.width = 1200; cv.height = 630;
+  const g = cv.getContext("2d")!;
+  // Slab ground + double frame.
+  g.fillStyle = "#0e0b09"; g.fillRect(0, 0, 1200, 630);
+  g.strokeStyle = "#6e5533"; g.lineWidth = 3; g.strokeRect(14, 14, 1172, 602);
+  g.strokeStyle = "rgba(0,0,0,0.6)"; g.strokeRect(18, 18, 1164, 594);
+  const center = (t: string, y: number, font: string, color: string) => {
+    g.font = font; g.fillStyle = color; g.textAlign = "center"; g.fillText(t, 600, y);
+  };
+  center("◆ DUNGEON CRAWLER CLAUDE ◆", 78, "700 24px Cinzel, serif", "#c9a24b");
+  center(won ? "SEASON FINALE" : "IN MEMORIAM", 168, "700 72px Cinzel, serif", won ? "#f2c14e" : "#c0392f");
+  center(
+    won
+      ? `${p.name} cleared all ${CONFIG.finalFloor} floors in ${fmt(s.elapsed)}`
+      : `${p.name} · season canceled on floor ${s.floor} · ${fmt(s.elapsed)}`,
+    216, "26px 'Alegreya Sans', sans-serif", "#e8ddc8",
+  );
+  // Gold rule.
+  g.strokeStyle = "rgba(201,162,75,0.55)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(180, 252); g.lineTo(1020, 252); g.stroke();
+  // Stat ledger, two rows of three.
+  const stats: [string, string][] = [
+    [String(p.level), "LEVEL"], [p.kills.toLocaleString(), "KILLS"],
+    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE"],
+    [Math.round(p.viewers).toLocaleString(), "VIEWERS"],
+    [Math.floor(p.favorites).toLocaleString(), "FAVORITES"], [String(p.sponsors), "SPONSORS"],
+  ];
+  stats.forEach(([v, l], i) => {
+    const x = 260 + (i % 3) * 340;
+    const y = 330 + Math.floor(i / 3) * 120;
+    g.font = "700 46px Cinzel, serif"; g.fillStyle = "#f2c14e"; g.textAlign = "center";
+    g.fillText(v, x, y);
+    g.font = "16px 'Alegreya Sans', sans-serif"; g.fillStyle = "#6f6757";
+    g.fillText(l, x, y + 28);
+  });
+  // The build: The Five + the weapon in hand.
+  const build = [
+    ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ABILITY_INFO[id].name),
+    ...(p.abilities.ultimate ? [`${ABILITY_INFO[p.abilities.ultimate].name} (ULT)`] : []),
+  ].join(" · ");
+  center(build || "bare hands and bad intentions", 542, "20px 'Alegreya Sans', sans-serif", "#a99f8c");
+  if (p.equipment.weapon) center(`wielding ${p.equipment.weapon.name}`, 572, "italic 18px 'Alegreya Sans', sans-serif", "#9a6bd0");
+  const footer = runMode.kind === "daily" && runMode.day
+    ? `DAILY CRAWL ${runMode.day} · dungeon-crawler-claude.fly.dev`
+    : `dungeon-crawler-claude.fly.dev`;
+  center(footer, 604, "15px 'Alegreya Sans', sans-serif", "#6f6757");
+  return cv;
+}
+
+document.getElementById("recap-card")!.addEventListener("click", () => {
+  const cv = composeRunCard(state);
+  cv.toBlob(async (blob) => {
+    if (!blob) return;
+    const name = `dcc-${state.status === "won" ? "finale" : "memoriam"}-${dayFromMs(Date.now())}.png`;
+    const file = new File([blob], name, { type: "image/png" });
+    // The mobile path is the share sheet; desktop falls back to a download.
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Dungeon Crawler Claude" }); return; } catch { /* fall through */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, "image/png");
+});
+
 document.getElementById("recap-share")!.addEventListener("click", async () => {
   if (runMode.kind !== "daily" || !runMode.day) return;
   const p = me(state);

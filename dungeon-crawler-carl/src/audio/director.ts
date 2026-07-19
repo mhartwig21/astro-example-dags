@@ -1,5 +1,5 @@
 import { CONFIG } from "../sim/config";
-import type { Announcement, GameState, HitEvent, HitKind } from "../sim/types";
+import type { Announcement, GameState, HitEvent, HitKind, StatusKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
 
@@ -18,6 +18,14 @@ const HIT_SOUNDS: Record<HitKind, SoundId> = {
   gold: "gold",
   weapon: "item",
   chain: "dash", // the chain whips out; the arrival's weapon flash adds the clink
+};
+
+// DoT ticks read as their ELEMENT, not as blows — burn crackles, venom
+// bubbles, frost chimes (throttled in the manifest; ticks come fast).
+const STATUS_SOUNDS: Record<StatusKind, SoundId> = {
+  burn: "dot_burn",
+  poison: "dot_poison",
+  chill: "dot_chill",
 };
 
 /** Hits farther than this (in tiles) from the local player are inaudible. */
@@ -90,12 +98,14 @@ export class AudioDirector {
       const dy = h.pos.y - p.pos.y;
       const d = Math.hypot(dx, dy);
       if (d > EARSHOT) continue;
-      if (h.kind === "enemy" || h.kind === "crit" || h.kind === "player") combat = true;
+      // DoT ticks don't count as combat (they linger after a fight and would
+      // pin the battle bed up) and sound as their element instead of a blow.
+      if (!h.effect && (h.kind === "enemy" || h.kind === "crit" || h.kind === "player")) combat = true;
       const opts = {
         gain: 1 / (1 + d / 6),
         pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       };
-      this.sink.play(HIT_SOUNDS[h.kind], opts);
+      this.sink.play(h.effect ? STATUS_SOUNDS[h.effect] : HIT_SOUNDS[h.kind], opts);
       // Killing blows on monsters get a meatier thump layered on top.
       if (h.killed && h.kind !== "player") this.sink.play("kill", opts);
     }
@@ -166,7 +176,13 @@ export class AudioDirector {
       if (cur.bulletTime !== prev.bulletTime) this.sink.muffle?.(cur.bulletTime);
       // World beats (state edges the hit channel doesn't carry).
       if (prev.phase === "safe" && cur.phase === "warning") this.sink.play("warning");
-      if (cur.floor !== prev.floor) this.sink.play("descend");
+      if (cur.floor !== prev.floor) {
+        this.sink.play("descend");
+        // Crossing into a new 3-floor band: the season enters a new act.
+        if (Math.floor((cur.floor - 1) / 3) !== Math.floor((prev.floor - 1) / 3)) {
+          this.sink.play("band_sting");
+        }
+      }
       if (prev.status === "playing" && cur.status === "dead") this.sink.play("death");
       if (prev.status === "playing" && cur.status === "won") this.sink.play("victory");
       if (prev.locked && !cur.locked) this.sink.play("door_unlock");
