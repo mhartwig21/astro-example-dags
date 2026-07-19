@@ -4,6 +4,23 @@ Play-driven backlog from live runs. Items are roughly in the order reported,
 not priority order. Each entry notes the likely code home so any session can
 pick one up cold. Delete items when they ship (git history remembers).
 
+## The polish ranking (owner-approved 2026-07-17)
+
+The base game is where the owner wants it — the current directive is POLISH
+over features. Ranked by elevation-per-effort; pick from the top unless a
+session has a reason not to. Numbers reference the entries below.
+
+1. Boss identity + the kiting fix (#6 + #12) — fights are the memories
+2. Data-driven balance pass (#13) — usage_events is sitting unmined
+3. Itemization depth (#14) — prune dead affixes, named build-benders, drop drama
+4. Combat micro-feel audit (#15) — hit-stop, overkill, per-weapon-class feel
+5. Announcer tone sweep (#16) — the menus went dry-System; the sim should follow
+6. First-visit payload diet (#7) — the invite-link first impression
+7. Status-effect sensory completion (#2 + #3) — close the shipped system
+8. Per-band music beds (#17)
+9. Touch tuning on real glass (#5) — blocked on owner hardware
+(2D-host status parity is explicitly deprioritized: debug view, invisible polish.)
+
 2. **Status effects in the 2D host + character sheet.** The 5.13 status layer
    ships with 3D-host presentation only (tinted numbers, HUD/boss-bar pips,
    monster ring). The 2D canvas host (`src/render/`, `src/main.ts`) renders
@@ -77,3 +94,50 @@ pick one up cold. Delete items when they ship (git history remembers).
     convention, e.g. `revisions?`/`tipsSeen?`) once Roam is worth resuming.
     Not a blocker for v1 (SETTLEMENTS.md scoped v1 as no-persistence), but
     easy to forget once real persistence work starts.
+
+12. **Boss signature mechanics** (polish ranking #1, with the #6 kiting fix).
+    Band bosses are cast reuses with phase layers; none has a mechanic you
+    must LEARN. Give each of the six one signature (the Sump King floods
+    lanes, the Condemned Architect rebuilds walls mid-fight, the Furnace
+    Marshal vents heat rows…) so every band's wall has a different answer.
+    Design per-boss in MOB-CONCEPTS style first; code: boss branch of
+    `src/sim/ai.ts`, `arenaDirector` in `game.ts`, `boss*` knobs in
+    `config.ts`. Ship one boss per PR — each is independently testable via
+    `?test&floor=N`.
+13. **Data-driven balance pass** (polish ranking #2). `usage_events` (SQLite,
+    litestream-replicated — see DEPLOY.md Observability) has logged per-floor
+    build summaries since it shipped and has never been queried. Mine it:
+    where do runs die, which constellation nodes are never picked, which
+    weapon classes dominate, where does the difficulty curve sag. Then tune
+    `config.ts` against evidence and re-run the balance-bot contract. Query
+    via `fly ssh console` + `sqlite3 /data/dcc.sqlite` or
+    `PersistDb.listEvents`; findings worth keeping go in a short
+    BALANCE-NOTES.md so later tuning has a baseline.
+14. **Itemization depth** (polish ranking #3). Three cuts, no new systems:
+    (a) prune dead affixes — anything no build ever wants is noise on every
+    drop (`src/sim/items.ts` affix tables; #13's data names the corpses);
+    (b) a small set of NAMED build-benders — items with one rule-breaking
+    line ("Nova leaves a burning ring", "dash gains a charge, loses
+    i-frames") that create decisions, not bigger numbers (items.ts + hooks in
+    `game.ts`/`abilities.ts`, catalog.ts if purchasable);
+    (c) drop drama — the rare+ drop moment (beam/sound/brief hold) is most of
+    what "good itemization" FEELS like (`render3d` ground-item presentation +
+    `audio/director.ts`).
+15. **Combat micro-feel audit** (polish ranking #4). The last 10% after the
+    combat-feel arc: a few frames of hit-stop on crits/kill blows, overkill
+    corpse launch, distinct swing/impact feel per weapon class. All
+    presentation-layer: `render3d/juice` + `audio/director.ts` keyed off
+    existing `HitEvent` data (no sim changes).
+16. **Announcer tone sweep** (polish ranking #5). The menus went dry-System
+    (2026-07-16, see the campfire PRs); the in-game `announce()` lines still
+    carry game-show barker copy, and CLAUDE.md still SAYS "game-show
+    announcer voice" — update both. Register: dry bureaucratic menace,
+    deadpan legalese, dark humor (the books), never carnival. Also delete the
+    weakest ~20% of lines; fewer, better. Grep `announce(` in `src/sim/` for
+    the full surface; tips.ts and revisions.ts copy too.
+17. **Per-band music beds** (polish ranking #8). Six band-themed loops so a
+    band transition is a PLACE change, not a palette swap. Seam is ready:
+    `audio/manifest.ts` clips + `director.ts` already routes music by
+    context (band sting shipped). Sourcing is the work: CC0 loops or the
+    Meshy-era generation pipeline's audio equivalent; record provenance in
+    ASSETS.md.
