@@ -1417,12 +1417,16 @@
               <button class="m-card" id="m-solo">
                 <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
               </button>
+              <button class="m-card" id="m-rejoin" style="display:none">
+                <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
+              </button>
               <button class="m-card" id="m-party">
                 <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
               </button>
               <div class="m-form" id="m-party-form" style="display:none">
                 <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
                 <button class="m-mini" id="m-roll">NEW CODE</button>
+                <button class="m-mini" id="m-invite">COPY INVITE</button>
                 <button class="m-go" id="m-join">CO-OP ▶</button>
               </div>
               <button class="m-card red" id="m-rivals-card">
@@ -1431,6 +1435,7 @@
               <div class="m-form" id="m-rivals-form" style="display:none">
                 <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
                 <button class="m-mini" id="m-rroll">NEW CODE</button>
+                <button class="m-mini" id="m-rinvite">COPY INVITE</button>
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
               <button class="m-card dim" id="m-test">

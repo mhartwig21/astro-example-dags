@@ -504,6 +504,81 @@ function rollCode(): string {
   for (let i = 0; i < 5; i++) c += chars[Math.floor(Math.random() * chars.length)];
   return c;
 }
+
+// ---- Party friction (launch polish #7): links beat codes ----
+// A join URL carries everything but the NAME (each crawler picks their own at
+// check-in). Clipboard API needs a secure context (prod + localhost are);
+// the legacy path covers anything else.
+function inviteUrl(code: string, rivals: boolean): string {
+  const q = new URLSearchParams({ join: code });
+  if (rivals) q.set("rivals", "1");
+  if (roamMode) q.set("roam", "1");
+  return `${location.origin}${location.pathname}?${q}`;
+}
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+/** Copy an invite and flash the button so the click visibly DID something. */
+function wireInvite(btnId: string, input: HTMLInputElement, rivals: boolean): void {
+  const btn = document.getElementById(btnId)!;
+  btn.addEventListener("click", async () => {
+    if (!input.value.trim()) input.value = rollCode();
+    const code = input.value.trim().toUpperCase().slice(0, 32);
+    const ok = await copyText(inviteUrl(code, rivals));
+    const label = btn.textContent;
+    btn.textContent = ok ? "COPIED" : "COPY FAILED";
+    setTimeout(() => { btn.textContent = label; }, 1400);
+  });
+}
+
+// One-tap rejoin: remember the last party this browser sat in (a week keeps
+// weekend groups alive without resurrecting ancient codes forever).
+const LASTPARTY_KEY = "dcc:lastparty:v1";
+function rememberParty(): void {
+  try {
+    localStorage.setItem(LASTPARTY_KEY, JSON.stringify({ code: joinCode, rivals: rivalsMode, roam: roamMode, at: Date.now() }));
+  } catch { /* best-effort */ }
+}
+function offerRejoin(): void {
+  try {
+    const raw = localStorage.getItem(LASTPARTY_KEY);
+    if (!raw || net) return; // already in a party: nothing to offer
+    const last = JSON.parse(raw) as { code: string; rivals: boolean; roam?: boolean; at: number };
+    if (!last.code || Date.now() - last.at > 7 * 86400_000) return;
+    const btn = document.getElementById("m-rejoin")!;
+    document.getElementById("m-rejoin-code")!.textContent = last.code.slice(0, 12);
+    document.getElementById("m-rejoin-sub")!.textContent = last.rivals
+      ? "the race is still live — your rivals kept descending"
+      : last.roam ? "your Roam campaign kept the campfire lit" : "your party is still out there";
+    btn.style.display = "";
+    btn.addEventListener("click", () => {
+      enterCasting(`${last.rivals ? "RIVALS" : "PARTY"} ${last.code}`, () => {
+        const q = new URLSearchParams({ join: last.code, name: crawlerName() });
+        if (last.rivals) q.set("rivals", "1");
+        if (last.roam) q.set("roam", "1");
+        location.href = `${location.pathname}?${q}`;
+      });
+    });
+  } catch { /* best-effort */ }
+}
+offerRejoin();
 document.getElementById("m-party")!.addEventListener("click", () => {
   const form = document.getElementById("m-party-form")!;
   const opening = form.style.display === "none";
@@ -511,6 +586,7 @@ document.getElementById("m-party")!.addEventListener("click", () => {
   if (opening && !codeInput.value) codeInput.value = rollCode();
 });
 document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.value = rollCode(); });
+wireInvite("m-invite", codeInput, false);
 document.getElementById("m-join")!.addEventListener("click", () => {
   const code = codeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { codeInput.focus(); return; }
@@ -530,6 +606,7 @@ document.getElementById("m-rivals-card")!.addEventListener("click", () => {
   if (opening && !rivalCodeInput.value) rivalCodeInput.value = rollCode();
 });
 document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeInput.value = rollCode(); });
+wireInvite("m-rinvite", rivalCodeInput, true);
 document.getElementById("m-rivals")!.addEventListener("click", () => {
   const code = rivalCodeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { rivalCodeInput.focus(); return; }
@@ -1245,7 +1322,9 @@ function applyBindings(): void {
   document.getElementById("tm-system")!.innerHTML =
     row("keybinds", "Key Bindings & Options") +
     row("mute", "Mute / Unmute Sound") +
-    (net ? "" : row("newRun", "New Run"));
+    // In a party: invites from anywhere, one tap/click (not a bindable
+    // action — the menu dispatch special-cases it).
+    (net ? `<div class="tm-row" data-act="invite"><span>Copy Party Invite Link</span></div>` : row("newRun", "New Run"));
   document.getElementById("tm-crawler")!.innerHTML =
     row("inventory", "Inventory") +
     row("abilities", "Loadout & Achievements") +
@@ -1443,10 +1522,15 @@ for (const tb of topBars) {
     closeTopMenus();
     if (!was) tb.classList.add("open");
   });
-  tb.querySelector(".topmenu")!.addEventListener("click", (e) => {
+  tb.querySelector(".topmenu")!.addEventListener("click", async (e) => {
     const r = (e.target as HTMLElement).closest<HTMLElement>(".tm-row");
     if (!r?.dataset.act) return;
     closeTopMenus();
+    if (r.dataset.act === "invite") {
+      const ok = await copyText(inviteUrl(joinCode!, rivalsMode));
+      pushLogLine(ok ? "Invite link copied — paste it to your crawlers." : "Copy failed — the code is " + joinCode);
+      return;
+    }
     fireAction(r.dataset.act as BindableAction);
   });
 }
@@ -2710,7 +2794,8 @@ async function main(): Promise<void> {
     }
     localId = net.playerId;
     renderer.localPlayerId = localId;
-    pushLogLine(`Joined party ${joinCode} as ${playerName}.`);
+    rememberParty(); // the menu offers one-tap REJOIN next visit
+    pushLogLine(`Joined party ${joinCode} as ${playerName}. SYSTEM menu copies an invite link.`);
     net.onEvents = (batch) => {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
