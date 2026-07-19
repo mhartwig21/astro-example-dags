@@ -608,6 +608,10 @@
       .m-board li .res { margin-left: auto; flex: none; color: #a99f8c; font-size: 11px; }
       .m-board li .res.win { color: #6da356; }
       .m-board li.none { color: #6f6757; font-style: italic; border-top: none; }
+      /* Yesterday's champion header line — context above today's race. */
+      .m-board li.yday { color: #a99f8c; font-size: 11px; letter-spacing: 0.4px;
+        border-top: none; border-bottom: 1px dashed rgba(110,85,51,0.5); padding-bottom: 5px; }
+      .m-board li.yday b { color: #c9a24b; }
       #menu .m-foot { margin-top: 16px; text-align: center; color: #6f6757; font-size: 10.5px;
         letter-spacing: 0.5px; }
 
@@ -1371,6 +1375,7 @@
         </div>
         <div class="rfoot">
           <button id="recap-again">NEW SEASON <kbd>R</kbd></button>
+          <button class="dismiss" id="recap-share" style="display:none">COPY CHALLENGE</button>
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
           <span class="note" id="recap-note"></span>
         </div>

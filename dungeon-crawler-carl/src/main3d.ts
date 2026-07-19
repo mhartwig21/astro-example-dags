@@ -364,10 +364,46 @@ nameInput.addEventListener("change", () => {
 // in dev the Vite client on :5280 talks to the sibling server on :5281.
 const API_BASE = import.meta.env.DEV ? `http://${location.hostname}:5281` : "";
 
+// ---- Daily challenge links (launch polish #2) ----
+// ?daily=YYYY-MM-DD[&by=&floor=&t=&won=1] turns the DAILY CRAWL card into an
+// accepted challenge: same day = same seed = the same dungeon the challenger
+// ran. Everything but the day is display flavor (names go through textContent).
+const challengeDay = /^\d{4}-\d{2}-\d{2}$/.test(params.get("daily") ?? "")
+  ? params.get("daily")!
+  : null;
+
+// Participation streak: finishing a daily (win OR wipe — showing up counts)
+// extends it; a missed day resets. Local to the browser, like the career.
+const STREAK_KEY = "dcc:dailystreak:v1";
+function loadStreak(): { last: string; n: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(STREAK_KEY) ?? "null") as { last: string; n: number } | null;
+    return v && typeof v.last === "string" && typeof v.n === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function dayBefore(day: string): string {
+  return dayFromMs(Date.parse(`${day}T12:00:00Z`) - 86_400_000);
+}
+function bumpStreak(day: string): number {
+  const cur = loadStreak();
+  const n = cur?.last === day ? cur.n : cur?.last === dayBefore(day) ? cur.n + 1 : 1;
+  try { localStorage.setItem(STREAK_KEY, JSON.stringify({ last: day, n })); } catch { /* best-effort */ }
+  return n;
+}
+/** The streak shown on the menu card: alive if it includes today or yesterday. */
+function currentStreak(): number {
+  const cur = loadStreak();
+  const today = dayFromMs(Date.now());
+  return cur && (cur.last === today || cur.last === dayBefore(today)) ? cur.n : 0;
+}
+
 async function refreshBoard(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
   try {
-    const day = dayFromMs(Date.now());
+    // A challenge link shows the CHALLENGER'S board day, not today's.
+    const day = challengeDay ?? dayFromMs(Date.now());
     const r = await fetch(`${API_BASE}/leaderboard?day=${day}`);
     if (!r.ok) throw new Error(String(r.status));
     const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number }[] };
@@ -380,6 +416,26 @@ async function refreshBoard(): Promise<void> {
     // Names are player-supplied: set via textContent, never innerHTML.
     const nms = list.querySelectorAll(".nm");
     data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
+    // Yesterday's champion header (skipped on challenge-day views).
+    if (!challengeDay) {
+      const yr = await fetch(`${API_BASE}/leaderboard?day=${dayBefore(day)}`);
+      if (yr.ok) {
+        const ydata = (await yr.json()) as typeof data;
+        const champ = ydata.entries[0];
+        if (champ) {
+          const li = document.createElement("li");
+          li.className = "yday";
+          const label = document.createElement("span");
+          label.textContent = "YESTERDAY'S CHAMPION: ";
+          const nm = document.createElement("b");
+          nm.textContent = champ.name;
+          const res = document.createElement("span");
+          res.textContent = champ.won ? ` — CLEAR · ${fmt(champ.timeSec)}` : ` — floor ${champ.floor}`;
+          li.append(label, nm, res);
+          list.prepend(li);
+        }
+      }
+    }
   } catch {
     list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
   }
@@ -401,9 +457,10 @@ function submitDaily(s: GameState): void {
   }).then(async (r) => {
     if (!r.ok) return;
     const { rank } = (await r.json()) as { rank: number };
-    pushLogLine(`DAILY CRAWL: rank #${rank} on today's board.`);
+    const streak = bumpStreak(runMode.day!);
+    pushLogLine(`DAILY CRAWL: rank #${rank} on the board${streak > 1 ? ` · ${streak}-day streak` : ""}.`);
     const note = document.getElementById("recap-note")!;
-    note.textContent = `daily board: rank #${rank} today${note.textContent ? ` · ${note.textContent}` : ""}`;
+    note.textContent = `daily board: rank #${rank}${streak > 1 ? ` · streak ${streak}` : ""}${note.textContent ? ` · ${note.textContent}` : ""}`;
   }).catch(() => { /* offline is fine */ });
 }
 
@@ -453,7 +510,7 @@ function openMenu(): void {
       `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
-  document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
+  document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
 }
@@ -473,7 +530,24 @@ function closeMenu(): void {
 // somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
 document.getElementById("m-daily")!.addEventListener("click", () =>
-  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: dayFromMs(Date.now()) })));
+  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: challengeDay ?? dayFromMs(Date.now()) })));
+// Challenge links re-dress the card; a live streak decorates the subtitle.
+{
+  const sub = document.getElementById("m-daily-sub")!;
+  if (challengeDay) {
+    const by = (params.get("by") ?? "a rival crawler").slice(0, 24);
+    const floorN = Math.max(1, Math.min(99, Number(params.get("floor")) || 0));
+    const t = Number(params.get("t")) || 0;
+    const feat = params.get("won") === "1" && t > 0
+      ? `cleared it in ${fmt(t)}`
+      : floorN > 0 ? `reached floor ${floorN}` : "laid down a run";
+    sub.textContent = `${by} ${feat} on ${challengeDay} — same dungeon, beat it`;
+    document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
+  } else {
+    const streak = currentStreak();
+    if (streak > 0) sub.textContent = `${sub.textContent} · your streak: ${streak} day${streak === 1 ? "" : "s"}`;
+  }
+}
 document.getElementById("m-solo")!.addEventListener("click", () =>
   enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
@@ -2473,6 +2547,9 @@ function renderRecap(s: GameState): void {
     ? "the server hosts the next season"
     : won ? "season two is contractually obligated" : "";
   document.getElementById("recap-again")!.style.display = net ? "none" : "";
+  // Daily runs mint a challenge link: same day = same seed = same dungeon.
+  document.getElementById("recap-share")!.style.display =
+    !net && runMode.kind === "daily" && runMode.day ? "" : "none";
 }
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
@@ -2486,6 +2563,17 @@ function maybeShowRecap(s: GameState): void {
 
 document.getElementById("recap-dismiss")!.addEventListener("click", () => {
   recapEl.style.display = "none"; // spectate the arena; R still restarts
+});
+document.getElementById("recap-share")!.addEventListener("click", async () => {
+  if (runMode.kind !== "daily" || !runMode.day) return;
+  const p = me(state);
+  const q = new URLSearchParams({ daily: runMode.day, by: p.name.slice(0, 24), floor: String(state.floor) });
+  if (state.status === "won") { q.set("won", "1"); q.set("t", String(Math.round(state.elapsed))); }
+  const ok = await copyText(`${location.origin}${location.pathname}?${q}`);
+  const btn = document.getElementById("recap-share")!;
+  const label = btn.textContent;
+  btn.textContent = ok ? "COPIED" : "COPY FAILED";
+  setTimeout(() => { btn.textContent = label; }, 1400);
 });
 document.getElementById("recap-again")!.addEventListener("click", () => {
   recapEl.style.display = "none";
