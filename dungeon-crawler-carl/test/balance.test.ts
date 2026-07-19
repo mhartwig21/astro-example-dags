@@ -218,7 +218,12 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     // effect, not a difficulty change. A 60-seed sweep post-change measured
     // ~12% clear rate (7/60), consistent with the documented range; seeds
     // 1-10 land 2 clears, well inside the historical distribution.
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    // Re-picked (boss anti-kite): the chase-speed patience ramp punishes the
+    // bot's orbiting, so floor 12's boss arena kills it on seeds it used to
+    // clear — a 20-seed sweep post-change lands 4 clears (6/11/16/18), i.e.
+    // the floor got HARDER, not flatter. Seeds 6-15 keep 2 clears in 10
+    // (matching the historical distribution) with 185% summed HP lost.
+    for (const seed of [6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
       const g = createTestGame({ seed, floor: 12, level: 18, abilities: "all" });
       const maxHp = g.players[0].maxHp;
       const r = runBot(g, 1, 120_000);

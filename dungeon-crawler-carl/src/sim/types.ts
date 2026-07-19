@@ -347,6 +347,10 @@ export interface Monster {
   // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
   // (her entourage takes less while SHE takes more — kill-order pressure).
   aura?: "frenzy" | "shield";
+  // Boss anti-kite: seconds spent out of melee reach (chase speed ramps past
+  // a patience delay; contact resets — see the boss branch in ai.ts).
+  chaseT?: number;
+  chaseVexed?: boolean; // the one-per-orbit "done chasing politely" line fired
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
   shieldT?: number; // seconds of Darling stardust remaining on THIS monster
   // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee

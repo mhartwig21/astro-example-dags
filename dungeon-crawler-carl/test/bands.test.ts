@@ -239,6 +239,31 @@ describe("band bosses: playability", () => {
     }
   });
 
+  it("anti-kite: a kited boss loses patience, ramps to the cap, and contact resets it", () => {
+    const g = atFloor(3, 909);
+    const boss = isolatedBoss(g);
+    const anchor = { x: boss.pos.x, y: boss.pos.y };
+    // One chase step from a pinned position: teleport boss home + player 6
+    // tiles out, step, measure ground covered (walls never enter the picture).
+    const stride = (): number => {
+      boss.pos.x = anchor.x; boss.pos.y = anchor.y;
+      g.players[0].pos = { x: anchor.x + 6, y: anchor.y };
+      step(g, NO_INTENT, 1 / 30);
+      return Math.hypot(boss.pos.x - anchor.x, boss.pos.y - anchor.y);
+    };
+    const early = stride();
+    for (let i = 0; i < 30 * 10; i++) stride(); // 10 seconds of orbiting
+    const late = stride();
+    expect(boss.chaseT ?? 0).toBeGreaterThan(9);
+    // Ramped well past base speed, but capped — not a runaway.
+    expect(late).toBeGreaterThan(early * 1.35);
+    expect(late).toBeLessThan(early * (CONFIG.bossChaseRampCap + 0.15));
+    // Standing your ground (contact) resets the patience clock.
+    g.players[0].pos = { x: boss.pos.x, y: boss.pos.y };
+    step(g, NO_INTENT, 1 / 30);
+    expect(boss.chaseT ?? 0).toBeLessThanOrEqual(1 / 30 + 1e-6);
+  });
+
   it("signatures stay deterministic: same seed, same surge", () => {
     const run = () => {
       const g = atFloor(6, 4242);

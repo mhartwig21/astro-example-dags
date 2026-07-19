@@ -510,6 +510,13 @@ export const CONFIG = {
   //   tier 1 (floors 6, 9)        — + Ground Slam
   //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
+  // Anti-kite (backlog #6, movement half): a boss that can't REACH you loses
+  // patience — chase speed ramps while you stay out of melee reach, and one
+  // moment of contact resets it. Circling the arena stops being free; the
+  // counterplay becomes standing your ground in windows, which is the fight.
+  bossChaseRampDelay: 3.5, // seconds out of reach before the ramp starts
+  bossChaseRampRate: 0.15, // +chase multiplier per second past the delay
+  bossChaseRampCap: 1.65, // top multiplier — outrunnable only by spending dashes
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
