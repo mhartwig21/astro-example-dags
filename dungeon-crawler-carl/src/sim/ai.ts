@@ -763,8 +763,29 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       }
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
+    // ANTI-KITE (backlog #6, movement half): time out of melee reach builds
+    // impatience — past a patience delay the chase speed ramps toward a cap,
+    // so orbiting the arena forever stops being free. One moment of contact
+    // resets it: the counterplay is standing your ground in windows (dodging
+    // INTO range), not running laps.
+    if (d > m.attackRange) {
+      m.chaseT = (m.chaseT ?? 0) + dt;
+    } else {
+      m.chaseT = 0;
+      m.chaseVexed = false;
+    }
+    const overPatience = Math.max(0, (m.chaseT ?? 0) - CONFIG.bossChaseRampDelay);
+    const chase = Math.min(CONFIG.bossChaseRampCap, 1 + overPatience * CONFIG.bossChaseRampRate);
+    if (chase >= CONFIG.bossChaseRampCap && !m.chaseVexed) {
+      m.chaseVexed = true;
+      state.announcements.push({
+        text: "The boss is done chasing politely. Sponsors, mark the footwork clause.",
+        kind: "boss",
+        priority: "normal",
+      });
+    }
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);
-    else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * chase * dt, isWalkable);
     if (m.shootCd === 0 && d < CONFIG.monsterAggroRange * 2.5) {
       m.shootCd = Math.max(1.2, CONFIG.bossVolleyCooldown - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
       const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;

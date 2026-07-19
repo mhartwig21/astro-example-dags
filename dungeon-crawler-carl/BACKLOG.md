@@ -36,16 +36,41 @@ session has a reason not to. Numbers reference the entries below.
    but stick dead zone (0.15), drag slop (22px), cancel radius (34px), chip
    sizes, and the stick-zone extent all want a session on real glass. Knobs
    are the constants at the top of touch.ts and the body.touch CSS block.
-6. **Boss kiting trivializes fights** (play feedback 2026-07-08). Bosses can
-   be walked in circles forever: melee bosses have no gap-closer and nothing
-   punishes a crawler who never lets the windup start. The stagger half of the
-   same feedback shipped (poise decay + post-stagger grace in
-   `damageMonster`/`stepMonster`); the movement half remains. PARTIAL: the
-   arena directors (2026-07-09, `arenaDirector` in game.ts) now shrink safe
-   orbit paths on floors 6/9/15 on a rhythm. Still open: a leash lunge on the
-   boss kit (tier-gated like slam/ritual) or a move-speed ramp when the
-   target stays out of reach N seconds. Code: boss branch of `src/sim/ai.ts`,
-   `boss*` knobs in `src/sim/config.ts`.
+## Polish program (ranked 2026-07-20 — the owner's "elevate, don't expand" pass)
+
+The ranking principle: runs are remembered by their peaks (bosses) and their
+deaths (fairness), so polish concentrates there before spreading evenly.
+Boss anti-kite (the old item 6) shipped with this ranking's first commit:
+chase-speed patience ramp in the boss branch of `src/sim/ai.ts`
+(`bossChaseRamp*` knobs in config.ts, contact resets, capped, announced once).
+
+P1. **Itemization: decisions, not stat soup.** Every rare+ drop should force
+    a five-second think. (a) Prune overlapping small affixes into fewer,
+    chunkier ones (`src/sim/items.ts` affix tables); (b) a hand-authored set
+    of 8-12 BUILD-AROUND uniques that bend a rule ("Nova leaves burning
+    ground", "flask overheal becomes a shield"), gated to boss kills and
+    vaults so chase exists — new `uniques.ts` beside items.ts, hooks in the
+    boss/vault drop paths of game.ts; (c) drop tooltips show what the shop
+    builds toward (`catalog.ts` buildsInto is already queryable).
+P2. **Death fairness: telegraph + readability consistency pass.** One visual
+    language for windups (same shape = same dodge answer) across
+    monster rings, hazard decals, and boss signatures; enemy silhouette
+    contrast against the denser dressing; a damage-number diet. Target:
+    every death reads "I was greedy", never "what hit me?". Code:
+    renderer3d windup/hazard presentation + THEME semantic colors.
+P3. **Seed-to-seed variance tuning.** The bot tests hold the difficulty
+    FLOOR; outlier seeds still starve drafts or stack early elite affixes.
+    Add a bot-driven variance harness (N seeds x floors, flag outliers) to
+    balance.test.ts's toolkit and tune the flagged tails — this is what makes
+    the Daily fair. Code: `src/sim/bot.ts` harness, drop/draft pacing knobs.
+P4. **First-visit payload diet** — see item 7 below (already scoped).
+P5. **Audio coverage** — status cues + band sting shipped 2026-07-19; still
+    open: per-band boss intro stings, purpose-room ambient layers, and the
+    parked real-audio sourcing (needs the owner's manual Kenney download).
+P6. **Host parity + sheet completeness** — see item 2 below (already scoped).
+
+Deliberately out of scope for the polish pass: new mobs/rooms/modes (breadth
+exists; the roster + vignette systems generate variety already).
 
 7. **Asset payload diet (the 10x-assets path).** Streaming boot + ETag/gzip
    shipped 2026-07-10 (`startModelLoad` in assets.ts, static caching in
