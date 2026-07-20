@@ -608,6 +608,14 @@
       .m-board li .res { margin-left: auto; flex: none; color: #a99f8c; font-size: 11px; }
       .m-board li .res.win { color: #6da356; }
       .m-board li.none { color: #6f6757; font-style: italic; border-top: none; }
+      /* Board tabs (LoL underline, small) + the account row. */
+      .m-board-h .bt { cursor: pointer; color: #6f6757; margin-right: 10px; letter-spacing: 0.06em; }
+      .m-board-h .bt:hover { color: #a99f8c; }
+      .m-board-h .bt.active { color: #f2c14e; border-bottom: 2px solid rgba(201,162,75,0.7); }
+      .m-board-h .m-board-day { float: right; color: #6f6757; }
+      .m-account { margin-top: 10px; display: flex; gap: 8px; align-items: center;
+        justify-content: center; flex-wrap: wrap; font-size: 11.5px; color: #a99f8c; }
+      .m-account #m-acct-status b { color: #c9a24b; }
       /* Yesterday's champion header line — context above today's race. */
       .m-board li.yday { color: #a99f8c; font-size: 11px; letter-spacing: 0.4px;
         border-top: none; border-bottom: 1px dashed rgba(110,85,51,0.5); padding-bottom: 5px; }
@@ -1464,8 +1472,22 @@
           </div>
           <div class="m-side">
             <div class="m-board">
-              <div class="m-board-h">TODAY'S BOARD · <span id="m-board-day"></span></div>
+              <div class="m-board-h">
+                <span class="bt active" data-bt="today">TODAY</span>
+                <span class="bt" data-bt="deepest">DEEPEST</span>
+                <span class="bt" data-bt="fastest">FASTEST</span>
+                <span class="bt" data-bt="kills">KILLS</span>
+                <span class="bt" data-bt="contracts">RIVALS</span>
+                <span class="m-board-day" id="m-board-day"></span>
+              </div>
               <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+            </div>
+            <div class="m-account" id="m-account" style="display:none">
+              <span id="m-acct-status"></span>
+              <button class="m-mini" id="m-signin-discord" style="display:none">SIGN IN · DISCORD</button>
+              <button class="m-mini" id="m-signin-google" style="display:none">SIGN IN · GOOGLE</button>
+              <button class="m-mini" id="m-signout" style="display:none">SIGN OUT</button>
+              <button class="m-mini" id="m-forget" style="display:none" title="deletes your account, identities, and cross-device saves from the server">FORGET ME</button>
             </div>
             <div class="m-board" id="m-career" style="display:none">
               <div class="m-board-h">YOUR CAREER · <span id="m-career-sub"></span></div>

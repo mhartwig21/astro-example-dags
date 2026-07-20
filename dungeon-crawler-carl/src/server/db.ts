@@ -74,6 +74,28 @@ CREATE TABLE IF NOT EXISTS usage_events (
   data       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_usage_kind_ts ON usage_events (kind, ts);
+-- OAuth identities: a provider identity recovers exactly one account (the
+-- anonymous token), which is how sign-in gives cross-device saves. An account
+-- may hold several identities (Discord AND Google).
+CREATE TABLE IF NOT EXISTS account_identities (
+  provider    TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  account_id  TEXT NOT NULL,
+  display     TEXT,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (provider, provider_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identities_account ON account_identities (account_id);
+-- Career aggregates per account (crawler profiles). Bumped on run submits.
+CREATE TABLE IF NOT EXISTS account_stats (
+  account_id TEXT PRIMARY KEY,
+  runs       INTEGER NOT NULL DEFAULT 0,
+  wins       INTEGER NOT NULL DEFAULT 0,
+  deepest    INTEGER NOT NULL DEFAULT 0,
+  kills      INTEGER NOT NULL DEFAULT 0,
+  time_sec   INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 export class PersistDb {
@@ -175,6 +197,67 @@ export class PersistDb {
       : this.db.prepare("SELECT ts, kind, party_code, account_id, data FROM usage_events ORDER BY id DESC LIMIT ?").all(limit)
     ) as { ts: number; kind: string; party_code: string; account_id: string | null; data: string }[];
     return rows.map((r) => ({ ts: r.ts, kind: r.kind, partyCode: r.party_code, accountId: r.account_id, data: JSON.parse(r.data) }));
+  }
+
+  // ---- OAuth identities + career stats (release infra) ----
+
+  /** The account a provider identity recovers, if it was ever linked. */
+  findIdentity(provider: string, providerId: string): string | null {
+    const row = this.db.prepare(
+      "SELECT account_id FROM account_identities WHERE provider = ? AND provider_id = ?",
+    ).get(provider, providerId) as { account_id: string } | undefined;
+    return row?.account_id ?? null;
+  }
+
+  linkIdentity(provider: string, providerId: string, accountId: string, display: string, now: number): void {
+    this.db.prepare(
+      `INSERT INTO account_identities (provider, provider_id, account_id, display, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(provider, provider_id) DO UPDATE SET display = excluded.display`,
+    ).run(provider, providerId, accountId, display, now);
+    this.db.prepare(
+      `INSERT INTO accounts (id, name, created_at, last_seen_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+    ).run(accountId, display, now, now);
+  }
+
+  identitiesOf(accountId: string): { provider: string; display: string | null }[] {
+    return (this.db.prepare(
+      "SELECT provider, display FROM account_identities WHERE account_id = ?",
+    ).all(accountId) as { provider: string; display: string | null }[]);
+  }
+
+  bumpAccountStats(
+    accountId: string,
+    run: { won: boolean; floor: number; kills: number; timeSec: number },
+    now: number,
+  ): void {
+    this.db.prepare(
+      `INSERT INTO account_stats (account_id, runs, wins, deepest, kills, time_sec, updated_at)
+       VALUES (?, 1, ?, ?, ?, ?, ?)
+       ON CONFLICT(account_id) DO UPDATE SET
+         runs = runs + 1,
+         wins = wins + excluded.wins,
+         deepest = MAX(deepest, excluded.deepest),
+         kills = kills + excluded.kills,
+         time_sec = time_sec + excluded.time_sec,
+         updated_at = excluded.updated_at`,
+    ).run(accountId, run.won ? 1 : 0, run.floor, run.kills, run.timeSec, now);
+  }
+
+  getAccountStats(accountId: string): { runs: number; wins: number; deepest: number; kills: number; timeSec: number } | null {
+    const row = this.db.prepare(
+      "SELECT runs, wins, deepest, kills, time_sec FROM account_stats WHERE account_id = ?",
+    ).get(accountId) as { runs: number; wins: number; deepest: number; kills: number; time_sec: number } | undefined;
+    return row ? { runs: row.runs, wins: row.wins, deepest: row.deepest, kills: row.kills, timeSec: row.time_sec } : null;
+  }
+
+  /** Right-to-be-forgotten: the account and everything hanging off it. */
+  deleteAccount(accountId: string): void {
+    this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
+    this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
+    this.db.prepare("DELETE FROM party_members WHERE account_id = ?").run(accountId);
+    this.db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
   }
 
   /** False once close() has run — writes after that would throw. */

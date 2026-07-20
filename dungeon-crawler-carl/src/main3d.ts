@@ -36,7 +36,7 @@ import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
-import { NetClient } from "./net/netClient";
+import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
 import type { CustomMobDef, RoomTemplate } from "./content/types";
@@ -200,6 +200,7 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   runMode = mode;
   currentRunKind = runKind;
   dailySubmitted = false;
+  alltimeSubmitted = false;
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
@@ -399,11 +400,49 @@ function currentStreak(): number {
   return cur && (cur.last === today || cur.last === dayBefore(today)) ? cur.n : 0;
 }
 
+// Board tabs: TODAY (the daily) + the all-time category boards.
+let boardTab = "today";
+document.querySelectorAll<HTMLElement>(".m-board-h .bt").forEach((el) => {
+  el.addEventListener("click", () => {
+    boardTab = el.dataset.bt ?? "today";
+    document.querySelectorAll(".m-board-h .bt").forEach((b) => b.classList.toggle("active", b === el));
+    void refreshBoard();
+  });
+});
+
+/** Result column per all-time category — each board brags differently. */
+function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: number; kills: number }): string {
+  if (cat === "fastest" || cat === "contracts") return `CLEAR · ${fmt(e.timeSec)}`;
+  if (cat === "kills") return `${e.kills.toLocaleString()} kills`;
+  return e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`;
+}
+
 async function refreshBoard(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
+  const dayEl = document.getElementById("m-board-day")!;
+  if (boardTab !== "today") {
+    try {
+      const r = await fetch(`${API_BASE}/leaderboard?cat=${boardTab}`);
+      if (!r.ok) throw new Error(String(r.status));
+      const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number; kills: number }[] };
+      dayEl.textContent = "ALL-TIME";
+      list.innerHTML = data.entries.length
+        ? data.entries.slice(0, 10).map((e, i) =>
+            `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
+            `<span class="res${e.won ? " win" : ""}">${alltimeRes(boardTab, e)}</span></li>`,
+          ).join("")
+        : '<li class="none">nobody has claimed this board yet</li>';
+      const nms = list.querySelectorAll(".nm");
+      data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
+    } catch {
+      list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+    }
+    return;
+  }
   try {
     // A challenge link shows the CHALLENGER'S board day, not today's.
     const day = challengeDay ?? dayFromMs(Date.now());
+    dayEl.textContent = day;
     const r = await fetch(`${API_BASE}/leaderboard?day=${day}`);
     if (!r.ok) throw new Error(String(r.status));
     const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number }[] };
@@ -463,6 +502,126 @@ function submitDaily(s: GameState): void {
     note.textContent = `daily board: rank #${rank}${streak > 1 ? ` · streak ${streak}` : ""}${note.textContent ? ` · ${note.textContent}` : ""}`;
   }).catch(() => { /* offline is fine */ });
 }
+
+/** Every finished solo run reports to the all-time boards (win or wipe). */
+let alltimeSubmitted = false;
+function submitAlltime(s: GameState): void {
+  if (net || testMode || alltimeSubmitted || s.runKind === "roam") return;
+  alltimeSubmitted = true;
+  const p = me(s);
+  void fetch(`${API_BASE}/leaderboard`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      board: "alltime", token: ensureToken(), name: p.name, floor: s.floor,
+      won: s.status === "won", timeSec: Math.round(s.elapsed), kills: p.kills,
+    }),
+  }).then(async (r) => {
+    if (!r.ok) return;
+    const { headlines } = (await r.json()) as { headlines: string[] };
+    if (headlines.length > 0) {
+      pushLogLine(`ALL-TIME BOARD: top ten — ${headlines.join(", ").toUpperCase()}.`);
+    }
+  }).catch(() => { /* offline is fine */ });
+}
+
+// ---- Account (release infra): anonymous token + optional OAuth identity ----
+// The token is the account. Solo players may never have joined a server, so
+// mint one locally when needed — the server accepts any well-formed id.
+function ensureToken(): string {
+  let t = loadToken();
+  if (!t) {
+    t = crypto.randomUUID();
+    storeToken(t);
+  }
+  return t;
+}
+
+const SIGNIN_KEY = "dcc:signin:v1";
+function loadSignin(): { who: string; provider: string } | null {
+  try {
+    return JSON.parse(localStorage.getItem(SIGNIN_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+// Consume the OAuth callback hash BEFORE anything else reads the URL:
+// #auth=<account>&who=<display>&provider=<p> (or #autherr=<why>).
+{
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (h.get("auth")) {
+    storeToken(h.get("auth")!);
+    try {
+      localStorage.setItem(SIGNIN_KEY, JSON.stringify({ who: h.get("who") ?? "Crawler", provider: h.get("provider") ?? "" }));
+    } catch { /* best-effort */ }
+    history.replaceState(null, "", location.pathname + location.search);
+  } else if (h.get("autherr")) {
+    console.warn("sign-in failed:", h.get("autherr"));
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
+
+/** Wire the menu account row: sign-in buttons per enabled provider, the
+ *  signed-in chip with cross-device career stats, sign-out, delete. */
+async function initAccountUi(): Promise<void> {
+  const row = document.getElementById("m-account")!;
+  const status = document.getElementById("m-acct-status")!;
+  let providers: string[] = [];
+  try {
+    const r = await fetch(`${API_BASE}/auth/providers`);
+    providers = r.ok ? ((await r.json()) as { providers: string[] }).providers : [];
+  } catch { /* server unreachable: keep the menu quiet */ }
+  const signin = loadSignin();
+  if (providers.length === 0 && !signin) return; // nothing to offer
+  row.style.display = "flex";
+  const show = (id: string, on: boolean) => { document.getElementById(id)!.style.display = on ? "" : "none"; };
+  if (signin) {
+    status.innerHTML = `◆ <b></b>`;
+    status.querySelector("b")!.textContent = `${signin.who} · ${signin.provider}`;
+    show("m-signin-discord", false);
+    show("m-signin-google", false);
+    show("m-signout", true);
+    show("m-forget", true);
+    // Cross-device career, from the server's aggregate (profiles).
+    try {
+      const r = await fetch(`${API_BASE}/auth/whoami?token=${encodeURIComponent(ensureToken())}`);
+      if (r.ok) {
+        const { stats } = (await r.json()) as { stats: { runs: number; wins: number; deepest: number; kills: number } | null };
+        if (stats && stats.runs > 0) {
+          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${stats.kills.toLocaleString()} kills`);
+        }
+      }
+    } catch { /* stats are garnish */ }
+  } else {
+    status.textContent = "sync your crawler across devices:";
+    show("m-signin-discord", providers.includes("discord"));
+    show("m-signin-google", providers.includes("google"));
+    show("m-signout", false);
+    show("m-forget", false);
+  }
+}
+for (const [btn, prov] of [["m-signin-discord", "discord"], ["m-signin-google", "google"]] as const) {
+  document.getElementById(btn)!.addEventListener("click", () => {
+    location.href = `${API_BASE}/auth/login/${prov}?token=${encodeURIComponent(ensureToken())}`;
+  });
+}
+document.getElementById("m-signout")!.addEventListener("click", () => {
+  // Full sign-out (shared computers): the identity chip AND the token go.
+  try { localStorage.removeItem(SIGNIN_KEY); localStorage.removeItem("dcc:token:v1"); } catch { /* ok */ }
+  void initAccountUi();
+});
+document.getElementById("m-forget")!.addEventListener("click", () => {
+  if (!confirm("Delete your account? Cross-device saves, identities, and career stats are erased from the server. Local progress stays on this device.")) return;
+  void fetch(`${API_BASE}/auth/delete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: ensureToken() }),
+  }).catch(() => { /* best-effort */ });
+  try { localStorage.removeItem(SIGNIN_KEY); localStorage.removeItem("dcc:token:v1"); } catch { /* ok */ }
+  void initAccountUi();
+});
+void initAccountUi();
 
 /** The CAREER panel: personal bests + recent seasons, from the local ledger. */
 function renderCareer(): void {
@@ -3086,6 +3245,7 @@ async function main(): Promise<void> {
           persistRun(state);
           if (state.status !== "playing") {
             submitDaily(state); // daily runs report to the board
+            submitAlltime(state); // every finished run reports all-time
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
           }
         }

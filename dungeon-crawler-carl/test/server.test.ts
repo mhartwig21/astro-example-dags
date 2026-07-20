@@ -389,3 +389,133 @@ describe("static file serving: caching + compression (the load-time budget)", ()
     expect(enc).toBe("undefined");
   });
 });
+
+describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () => {
+  let server: GameServer;
+  let port: number;
+  let dbFile: string;
+  let mock: import("node:http").Server;
+  let mockPort: number;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dbFile = join(mkdtempSync(join(tmpdir(), "dcc-db-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+
+    // A fake OAuth provider: authorize is never fetched by the server (the
+    // browser goes there); token + user endpoints are.
+    const { createServer } = await import("node:http");
+    mock = createServer((req, res) => {
+      if (req.url?.startsWith("/token")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: "mock-access" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "prov-777", global_name: "Mock Crawler" }));
+    });
+    await new Promise<void>((r) => mock.listen(0, () => r()));
+    mockPort = (mock.address() as { port: number }).port;
+    server.auth.registerProvider("mock", {
+      authUrl: `http://127.0.0.1:${mockPort}/authorize`,
+      tokenUrl: `http://127.0.0.1:${mockPort}/token`,
+      userUrl: `http://127.0.0.1:${mockPort}/user`,
+      clientId: "cid", clientSecret: "sec", scope: "identify",
+      identity: (u) => (typeof u.id === "string" ? { id: u.id, display: String(u.global_name) } : null),
+    });
+  });
+
+  afterAll(() => {
+    server.close();
+    mock.close();
+  });
+
+  it("records finished runs on the all-time category boards", async () => {
+    const post = (b: unknown) => fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b),
+    });
+    await post({ board: "alltime", name: "Carl", floor: 18, won: true, timeSec: 1500, kills: 300 });
+    await post({ board: "alltime", name: "Donut", floor: 12, won: false, timeSec: 900, kills: 450 });
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    expect(deepest.entries[0].name).toBe("Carl");
+    const kills = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=kills`)).json();
+    expect(kills.entries[0].name).toBe("Donut");
+    // fastest only ranks full clears.
+    const fastest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=fastest`)).json();
+    expect(fastest.entries.map((e: { name: string }) => e.name)).toEqual(["Carl"]);
+  });
+
+  it("sanitizes names at the board ingress", async () => {
+    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board: "alltime", name: "N1gg4 Slayer", floor: 5, won: false, timeSec: 300, kills: 10 }),
+    });
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    const names = deepest.entries.map((e: { name: string }) => e.name);
+    expect(names).toContain("Crawler");
+    expect(names.join()).not.toContain("N1gg4");
+  });
+
+  it("rate-limits a submission flood from one client", async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const r = await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: "alltime", name: `Flood${i}`, floor: 2, won: false, timeSec: 60, kills: 1 }),
+      });
+      codes.push(r.status);
+    }
+    expect(codes).toContain(429);
+  });
+
+  it("OAuth: login redirects with a signed state; callback links the browser token", async () => {
+    const login = await fetch(`http://127.0.0.1:${port}/auth/login/mock?token=browser-token-1234`, { redirect: "manual" });
+    expect(login.status).toBe(302);
+    const authorize = new URL(login.headers.get("location")!);
+    expect(authorize.origin).toBe(`http://127.0.0.1:${mockPort}`);
+    const state = authorize.searchParams.get("state")!;
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+    expect(cb.status).toBe(302);
+    const dest = new URLSearchParams(new URL(cb.headers.get("location")!).hash.replace(/^#/, ""));
+    expect(dest.get("auth")).toBe("browser-token-1234"); // LINKED, not replaced
+    expect(dest.get("who")).toBe("Mock Crawler");
+  });
+
+  it("OAuth: a known identity RECOVERS its account from any device", async () => {
+    const login = await fetch(`http://127.0.0.1:${port}/auth/login/mock?token=some-other-device-9`, { redirect: "manual" });
+    const state = new URL(login.headers.get("location")!).searchParams.get("state")!;
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+    const dest = new URLSearchParams(new URL(cb.headers.get("location")!).hash.replace(/^#/, ""));
+    expect(dest.get("auth")).toBe("browser-token-1234"); // the ORIGINAL account
+  });
+
+  it("whoami reports identities + career stats; delete forgets everything", async () => {
+    // A fresh client IP (the limiter honors fly-client-ip) — the flood test
+    // above deliberately drained localhost's bucket.
+    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json", "fly-client-ip": "203.0.113.9" },
+      body: JSON.stringify({ board: "alltime", token: "browser-token-1234", name: "Mock Crawler", floor: 9, won: false, timeSec: 700, kills: 55 }),
+    });
+    const who = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
+    expect(who.identities.map((i: { provider: string }) => i.provider)).toContain("mock");
+    expect(who.stats.runs).toBe(1);
+    expect(who.stats.deepest).toBe(9);
+
+    await fetch(`http://127.0.0.1:${port}/auth/delete`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "browser-token-1234" }),
+    });
+    const gone = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
+    expect(gone.identities).toEqual([]);
+    expect(gone.stats).toBeNull();
+  });
+
+  it("tampered OAuth state is rejected", async () => {
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=forged.sig`, { redirect: "manual" });
+    expect(new URL(cb.headers.get("location")!).hash).toContain("autherr");
+  });
+});

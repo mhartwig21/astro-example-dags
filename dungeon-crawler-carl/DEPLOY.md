@@ -99,6 +99,43 @@ Two live surfaces, one durable record:
   do parties die", "how long is a session". Query with any sqlite client via
   `fly ssh console` + `sqlite3 /data/dcc.sqlite`, or `PersistDb.listEvents`.
 
+## OAuth (Discord + Google sign-in)
+
+Sign-in is code-complete and env-gated (`src/server/auth.ts`): providers whose
+secrets aren't set simply don't exist, and the client hides the buttons. The
+flow LINKS a provider identity to the browser's existing anonymous account
+token — signing in never loses a crawler, and a known identity recovers its
+account from any device.
+
+To turn a provider on:
+
+1. **Discord**: https://discord.com/developers/applications → New Application →
+   OAuth2. Add redirect `https://dungeon-crawler-claude.fly.dev/auth/callback/discord`.
+   Copy the Client ID + Client Secret.
+2. **Google**: https://console.cloud.google.com/apis/credentials → Create
+   OAuth client ID (Web application). Add the redirect
+   `https://dungeon-crawler-claude.fly.dev/auth/callback/google`. Scopes used:
+   `openid profile` (no email is requested or stored).
+3. Set the secrets (each `fly secrets set` restarts the machine — deploy-grade
+   disruption, do it once):
+
+   ```
+   fly secrets set \
+     SESSION_SECRET=$(openssl rand -hex 32) \
+     PUBLIC_URL=https://dungeon-crawler-claude.fly.dev \
+     DISCORD_CLIENT_ID=... DISCORD_CLIENT_SECRET=... \
+     GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
+   ```
+
+4. Verify: `curl https://dungeon-crawler-claude.fly.dev/auth/providers` lists
+   the configured providers, and the menu shows the SIGN IN buttons.
+
+Privacy surface: we store the provider's user id + display name (nothing
+else), career aggregates per account, and party saves. FORGET ME in the menu
+calls `/auth/delete`, which erases the account row, identities, stats, and
+party seats. Tokens are stored plain (friends-scale) — hash them before a
+larger audience, as PERSISTENCE.md already notes.
+
 ## Capacity & sizing (measured 2026-07-03)
 
 Evidence from a bot load test against production (`shared-cpu-1x`, 512MB,

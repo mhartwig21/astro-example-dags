@@ -11,7 +11,9 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
-import { Leaderboard } from "./leaderboard";
+import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
+import { sanitizeName } from "./names";
+import { AuthService } from "./auth";
 import { openDb, type PersistDb } from "./db";
 import { Metrics } from "./metrics";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player, type Vec2 } from "../sim/types";
@@ -192,6 +194,7 @@ export class GameServer {
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
   readonly leaderboard: Leaderboard;
+  readonly auth: AuthService;
   readonly db: PersistDb | null;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
@@ -219,6 +222,7 @@ export class GameServer {
     // dev runs) means no persistence — everything else behaves as before.
     this.db = dbFile ? openDb(dbFile) : null;
     this.db?.sweepExpired(Date.now());
+    this.auth = new AuthService(this.db);
     this.http = createServer((req, res) => this.onRequest(req, res));
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
@@ -241,6 +245,10 @@ export class GameServer {
     const url = req.url ?? "/";
     if (url.split("?")[0] === "/leaderboard") {
       this.onLeaderboard(req, res);
+      return;
+    }
+    if (url.startsWith("/auth/")) {
+      void this.auth.handle(req, res);
       return;
     }
     if (url === "/metrics") {
@@ -346,13 +354,24 @@ export class GameServer {
       return;
     }
     if (req.method === "GET") {
-      const day = new URL(req.url ?? "/", "http://x").searchParams.get("day")
-        ?? new Date().toISOString().slice(0, 10);
+      const q = new URL(req.url ?? "/", "http://x").searchParams;
+      const cat = q.get("cat");
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+      if (cat && (ALLTIME_CATS as readonly string[]).includes(cat)) {
+        res.end(JSON.stringify({ cat, entries: this.leaderboard.getAlltime(cat as AlltimeCat).slice(0, 100) }));
+        return;
+      }
+      const day = q.get("day") ?? new Date().toISOString().slice(0, 10);
       res.end(JSON.stringify({ day, entries: this.leaderboard.get(day).slice(0, 100) }));
       return;
     }
     if (req.method === "POST") {
+      // Self-reported scores from an internet-facing endpoint: bound the blast
+      // radius per client (a browser submits at most a few runs a minute).
+      if (!this.allowSubmit(req)) {
+        res.writeHead(429, cors).end();
+        return;
+      }
       let body = "";
       let overflow = false;
       req.on("data", (chunk) => {
@@ -368,6 +387,14 @@ export class GameServer {
           res.writeHead(400, cors).end();
           return;
         }
+        msg.name = sanitizeName(msg.name); // public surface: clean at ingress
+        if (msg.board === "alltime") {
+          const headlines = this.leaderboard.submitAlltime(msg, Date.now());
+          this.recordRunStats(msg); // account-backed career (see profiles)
+          res.writeHead(200, { "content-type": "application/json", ...cors });
+          res.end(JSON.stringify({ ok: true, headlines }));
+          return;
+        }
         const rank = this.leaderboard.submit(String(msg.day ?? ""), msg, Date.now());
         res.writeHead(rank === null ? 400 : 200, { "content-type": "application/json", ...cors });
         res.end(JSON.stringify(rank === null ? { ok: false } : { ok: true, rank }));
@@ -375,6 +402,34 @@ export class GameServer {
       return;
     }
     res.writeHead(405, cors).end();
+  }
+
+  // Token-bucket per client IP: burst of 6, refill 6/min. Fly fronts us, so
+  // the real client address arrives in fly-client-ip.
+  private submitBuckets = new Map<string, { tokens: number; at: number }>();
+  private allowSubmit(req: IncomingMessage): boolean {
+    const ip = String(req.headers["fly-client-ip"] ?? req.socket.remoteAddress ?? "?");
+    const now = Date.now();
+    const b = this.submitBuckets.get(ip) ?? { tokens: 6, at: now };
+    b.tokens = Math.min(6, b.tokens + ((now - b.at) / 60_000) * 6);
+    b.at = now;
+    if (b.tokens < 1) { this.submitBuckets.set(ip, b); return false; }
+    b.tokens -= 1;
+    this.submitBuckets.set(ip, b);
+    if (this.submitBuckets.size > 5000) this.submitBuckets.clear(); // memory backstop
+    return true;
+  }
+
+  /** Roll a finished run into the submitting account's career (profiles). */
+  private recordRunStats(msg: Record<string, unknown>): void {
+    const token = typeof msg.token === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(msg.token) ? msg.token : null;
+    if (!token || !this.db) return;
+    this.db.bumpAccountStats(token, {
+      won: msg.won === true,
+      floor: Math.max(1, Math.min(18, Math.floor(Number(msg.floor)) || 1)),
+      kills: Math.max(0, Math.min(100_000, Math.floor(Number(msg.kills)) || 0)),
+      timeSec: Math.max(0, Math.min(6 * 3600, Math.round(Number(msg.timeSec)) || 0)),
+    }, Date.now());
   }
 
   get port(): number {
@@ -440,7 +495,7 @@ export class GameServer {
 
       if (msg.t === "join" && typeof msg.code === "string" && typeof msg.name === "string" && !joined) {
         const code = msg.code.slice(0, MAX_CODE_LEN);
-        const name = (msg.name.slice(0, MAX_NAME_LEN).trim() || "Crawler");
+        const name = sanitizeName(msg.name.slice(0, MAX_NAME_LEN));
         if (!this.instances.has(code) && this.instances.size >= MAX_INSTANCES) {
           ws.send(JSON.stringify({ t: "error", reason: "server full" }));
           ws.close();
@@ -772,6 +827,17 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
+        // A secured RIVALS contract goes on the all-time board SERVER-SIDE —
+        // the one score the authoritative sim can vouch for itself.
+        if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
+          const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
+          if (winner) {
+            this.leaderboard.submitAlltime({
+              name: sanitizeName(winner.name), floor: inst.state.floor, won: true,
+              timeSec: Math.round(inst.state.elapsed), kills: winner.kills,
+            }, Date.now(), true);
+          }
+        }
       }
       inst.lastStatus = inst.state.status;
     }
