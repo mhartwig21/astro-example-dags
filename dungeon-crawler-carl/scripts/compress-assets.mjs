@@ -7,6 +7,12 @@
 // non-empty, and already-compressed files converge (re-running is a no-op
 // shrink-wise). The client side of this is MeshoptDecoder in
 // src/render3d/assets.ts — a GLB compressed here will NOT load without it.
+//
+// Output layout: gltf-transform writes the meshopt payload as a `<name>.glb.bin`
+// SIDECAR next to each .glb (GLTFLoader fetches it relative to the .glb URL —
+// two requests per model, served/cached by the same static path). Keep the
+// pair together when moving/deleting models; the per-file size log below
+// counts the .glb only, aggregate totals in the summary count everything.
 import { execFileSync } from "node:child_process";
 import { readdirSync, statSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
