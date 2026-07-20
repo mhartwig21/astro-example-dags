@@ -10,10 +10,12 @@ The base game is where the owner wants it — the current directive is POLISH
 over features. Ranked by elevation-per-effort; pick from the top unless a
 session has a reason not to. Numbers reference the entries below.
 
-1. Boss identity + the kiting fix (#6 + #12) — fights are the memories
+1. Boss identity (#12) — fights are the memories. (The #6 kiting half
+   SHIPPED 2026-07-20: chase-speed patience ramp, `bossChaseRamp*` in
+   config.ts — contact resets, capped 1.65x, announced once.)
 2. Data-driven balance pass (#13) — usage_events is sitting unmined
 3. Itemization depth (#14) — prune dead affixes, named build-benders, drop drama
-4. Combat micro-feel audit (#15) — hit-stop, overkill, per-weapon-class feel
+4. Combat micro-feel audit (#15) + telegraph readability pass (#18)
 5. Announcer tone sweep (#16) — the menus went dry-System; the sim should follow
 6. First-visit payload diet (#7) — the invite-link first impression
 7. Status-effect sensory completion (#2 + #3) — close the shipped system
@@ -36,42 +38,6 @@ session has a reason not to. Numbers reference the entries below.
    but stick dead zone (0.15), drag slop (22px), cancel radius (34px), chip
    sizes, and the stick-zone extent all want a session on real glass. Knobs
    are the constants at the top of touch.ts and the body.touch CSS block.
-## Polish program (ranked 2026-07-20 — the owner's "elevate, don't expand" pass)
-
-The ranking principle: runs are remembered by their peaks (bosses) and their
-deaths (fairness), so polish concentrates there before spreading evenly.
-Boss anti-kite (the old item 6) shipped with this ranking's first commit:
-chase-speed patience ramp in the boss branch of `src/sim/ai.ts`
-(`bossChaseRamp*` knobs in config.ts, contact resets, capped, announced once).
-
-P1. **Itemization: decisions, not stat soup.** Every rare+ drop should force
-    a five-second think. (a) Prune overlapping small affixes into fewer,
-    chunkier ones (`src/sim/items.ts` affix tables); (b) a hand-authored set
-    of 8-12 BUILD-AROUND uniques that bend a rule ("Nova leaves burning
-    ground", "flask overheal becomes a shield"), gated to boss kills and
-    vaults so chase exists — new `uniques.ts` beside items.ts, hooks in the
-    boss/vault drop paths of game.ts; (c) drop tooltips show what the shop
-    builds toward (`catalog.ts` buildsInto is already queryable).
-P2. **Death fairness: telegraph + readability consistency pass.** One visual
-    language for windups (same shape = same dodge answer) across
-    monster rings, hazard decals, and boss signatures; enemy silhouette
-    contrast against the denser dressing; a damage-number diet. Target:
-    every death reads "I was greedy", never "what hit me?". Code:
-    renderer3d windup/hazard presentation + THEME semantic colors.
-P3. **Seed-to-seed variance tuning.** The bot tests hold the difficulty
-    FLOOR; outlier seeds still starve drafts or stack early elite affixes.
-    Add a bot-driven variance harness (N seeds x floors, flag outliers) to
-    balance.test.ts's toolkit and tune the flagged tails — this is what makes
-    the Daily fair. Code: `src/sim/bot.ts` harness, drop/draft pacing knobs.
-P4. **First-visit payload diet** — see item 7 below (already scoped).
-P5. **Audio coverage** — status cues + band sting shipped 2026-07-19; still
-    open: per-band boss intro stings, purpose-room ambient layers, and the
-    parked real-audio sourcing (needs the owner's manual Kenney download).
-P6. **Host parity + sheet completeness** — see item 2 below (already scoped).
-
-Deliberately out of scope for the polish pass: new mobs/rooms/modes (breadth
-exists; the roster + vignette systems generate variety already).
-
 7. **Asset payload diet (the 10x-assets path).** Streaming boot + ETag/gzip
    shipped 2026-07-10 (`startModelLoad` in assets.ts, static caching in
    gameServer.ts) — boot no longer scales with asset count and repeat visits
@@ -137,7 +103,10 @@ exists; the roster + vignette systems generate variety already).
     `config.ts` against evidence and re-run the balance-bot contract. Query
     via `fly ssh console` + `sqlite3 /data/dcc.sqlite` or
     `PersistDb.listEvents`; findings worth keeping go in a short
-    BALANCE-NOTES.md so later tuning has a baseline.
+    BALANCE-NOTES.md so later tuning has a baseline. Complement the mined
+    data with a seed-VARIANCE harness (bot over N seeds x floors, flag the
+    outlier tails that starve drafts or stack early elite affixes —
+    `src/sim/bot.ts`); tuning the tails is what makes the Daily fair.
 14. **Itemization depth** (polish ranking #3). Three cuts, no new systems:
     (a) prune dead affixes — anything no build ever wants is noise on every
     drop (`src/sim/items.ts` affix tables; #13's data names the corpses);
@@ -166,3 +135,10 @@ exists; the roster + vignette systems generate variety already).
     context (band sting shipped). Sourcing is the work: CC0 loops or the
     Meshy-era generation pipeline's audio equivalent; record provenance in
     ASSETS.md.
+18. **Telegraph + readability consistency pass** (polish ranking #4, paired
+    with #15). One visual language for windups — same shape = same dodge
+    answer — across monster windup rings, hazard decals, and boss
+    signatures; enemy silhouette contrast against the denser room dressing;
+    a damage-number diet. Target: every death reads "I was greedy", never
+    "what hit me?". Code: renderer3d windup/hazard presentation + THEME
+    semantic colors; audit against the fairness rule in DESIGN.md.
