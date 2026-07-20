@@ -73,15 +73,17 @@ Deliberately out of scope for the polish pass: new mobs/rooms/modes (breadth
 exists; the roster + vignette systems generate variety already).
 
 7. **Asset payload diet (the 10x-assets path).** Streaming boot + ETag/gzip
-   shipped 2026-07-10 (`startModelLoad` in assets.ts, static caching in
-   gameServer.ts) — boot no longer scales with asset count and repeat visits
-   are free. What still scales with 10x is FIRST-visit bandwidth (~26MB gz
-   today). Levers, in order: (a) deprioritize audio behind the model wave
-   (24MB raw competes with wave 1 on slow pipes — `void audio.load()` in
-   main3d fires at module init); (b) meshopt/Draco-compress the GLBs at
-   import time (tools/asset-pipeline); (c) KTX2 texture transcoding + atlas
-   dedup — the 61MB characters dir repeats the same KayKit atlas per file;
-   (d) per-band manifest chunks that lazy-load on first descent into a band.
+   shipped 2026-07-10; levers (a) audio-behind-models and (b)+(c)
+   meshopt + WebP compression shipped 2026-07-20: model payload
+   **26MB → 10.6MB gz** (assets 73→45.5MB raw; dungeon props −76%), audio
+   (23.5MB gz, incompressible) now loads on idle AFTER the game is playable.
+   `scripts/compress-assets.mjs` re-compresses everything in place — RUN IT
+   AFTER IMPORTING NEW GLBs (simplify stays off; only-replace-if-smaller;
+   loader side is MeshoptDecoder in assets.ts, without which compressed GLBs
+   don't parse). Still open if 10x really lands: (d) per-band manifest chunks
+   that lazy-load on first descent, KTX2 GPU textures, and re-encoding the
+   chunky 1.0-generation clip libraries (animation data now dominates the
+   remaining 43MB characters dir).
 
 10. **Room vignette grammar, phases 2-3** — phase 1 shipped (2026-07-09):
     `ROOM_PURPOSES` in `src/render3d/floorThemes.ts` + pass 3.5 in
