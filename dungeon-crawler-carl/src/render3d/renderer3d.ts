@@ -12,6 +12,7 @@ import { heroSkin, type CrawlerSkin } from "../sim/game";
 import { CharSelectScene } from "./charSelect";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { burstPeriod, residentAct } from "./staging";
 import { assignRoomPurposes } from "../sim/roomPurposes";
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressing";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -141,6 +142,7 @@ export class Renderer3D {
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
   private breakableMeshes = new Map<number, THREE.Object3D>(); // smashable dressing (phase 5)
+  private stagingAnchors = new Map<string, Vec2>(); // purpose -> social anchor (resident facing)
   private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
@@ -498,12 +500,28 @@ export class Renderer3D {
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
       dormant_stand: pick(/Skeletons_Inactive_Standing_Pose/i, /^T-Pose$/i),
+      // RESIDENT STAGING (PHYSICALITY.md §2): the simulation + tools
+      // libraries put real verbs in the idle slot — dinner, sleep, the
+      // forge's hammer, kitchen prep, drills. Medium rig only; large-rig
+      // residents (brutes) gracefully fall through to plain idle.
+      stage_sit: pick(/^Sit_Floor_Idle$/i, /^Sit_Chair_Idle$/i),
+      stage_lie: pick(/^Lie_Idle$/i),
+      stage_hammer: pick(/^Hammering$/i, /^Hammer$/i),
+      stage_chop: pick(/^Chopping$/i, /^Chop$/i),
+      stage_work_a: pick(/^Working_A$/i, /^Work_A$/i),
+      stage_work_b: pick(/^Working_B$/i, /^Work_B$/i),
+      stage_hold: pick(/^Holding_B$/i, /^Holding_A$/i),
+      stage_pushups: pick(/^Push_Ups$/i),
+      stage_idle_b: pick(/^Idle_B$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
     const LOOPING = new Set([
       "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
       "sneak", "blocking",
+      // Staged resident verbs hold their loop until the scene breaks.
+      "stage_sit", "stage_lie", "stage_hammer", "stage_chop",
+      "stage_work_a", "stage_work_b", "stage_hold", "stage_pushups", "stage_idle_b",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
@@ -1852,6 +1870,12 @@ export class Renderer3D {
       // same rooms, same purposes for the renderer and for spawnMonsters —
       // which is what lets the mess pack actually sit at the mess table.
       const dressings = assignRoomPurposes(state.seed, state.floor, map).dressings;
+      // Staging (PHYSICALITY.md §2): remember each purpose's social anchor so
+      // seated residents can face the table they were dressed around.
+      this.stagingAnchors.clear();
+      for (const d of dressings) {
+        if (d.anchor) this.stagingAnchors.set(d.purposeId, { x: d.anchor.x, y: d.anchor.y });
+      }
       for (const d of dressings) dressRoomPurpose(dressEnv, map.rooms[d.roomIdx], d);
       // CORRIDOR TISSUE: the job leaks out the door so corridors read as
       // paths BETWEEN places rather than filler.
@@ -2646,6 +2670,30 @@ export class Renderer3D {
               if (mon.kind === "filcher" && !mon.noticed && hasClipM("sneak")) playM("sneak");
               else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
+              // RESIDENT STAGING (PHYSICALITY.md §2): an undisturbed resident
+              // ACTS — dinner, sleep, hammering, push-ups — until the room's
+              // scene breaks (first blood) or anything upstream outranks the
+              // idle slot. Kind-signature performances still win (a parked
+              // Drum Sergeant drums even in a mess hall).
+              const act = residentAct(state, mon);
+              if (act && hasClipM(act.clip) &&
+                  !(mon.kind === "drummer" || mon.kind === "shieldbearer" || mon.kind === "duelist")) {
+                if (act.burst && hasClipM(act.burst)) {
+                  ud.stageT = ((ud.stageT as number) ?? 0) + dt;
+                  if ((ud.stageT as number) >= burstPeriod(act, mon.id)) {
+                    ud.stageT = 0;
+                    playFirstM(act.burst);
+                  } else if ((ud.animBusy as () => number)() <= 0) {
+                    playM(act.clip);
+                  }
+                } else {
+                  playM(act.clip);
+                }
+                if (act.faceAnchor) {
+                  const anchor = this.stagingAnchors.get(mon.residentOf!);
+                  if (anchor) mesh.rotation.y = Math.atan2(anchor.x - mon.pos.x, anchor.y - mon.pos.y);
+                }
+              } else {
               // A parked Drum Sergeant performs; a parked Shieldbearer holds
               // the wall behind its tower shield; a flourishing Duelist puts
               // the blade UP (the riposte window has to READ).
@@ -2654,6 +2702,7 @@ export class Renderer3D {
                 mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" :
                 mon.kind === "duelist" && (mon.riposteT ?? 0) > 0 && hasClipM("idle_brawler") ? "idle_brawler" : "idle",
               );
+              }
             }
           }
         }

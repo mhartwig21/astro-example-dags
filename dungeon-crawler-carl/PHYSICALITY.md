@@ -100,7 +100,20 @@ with breakables a second; fixtures and fuzz a third of the total time.
 
 ---
 
-## 2. The animation pass — residents that act
+## 2. The animation pass — SHIPPED (A1+A2, 2026-07-10)
+
+The A1 audit beat the plan: rig_medium_simulation + rig_medium_tools (both
+already in RIG_CLIP_MANIFEST) carry REAL Sit/Lie/Cheering/Hammering/Chopping/
+Working/Push_Ups clips, so A3 (commissioned clips) is unnecessary and the
+prop-trick fallbacks were never needed. Shipped: canonical `stage_*` keys in
+the animator table + `staging.ts` acts wired into the idle slot of the clip
+state machine (dormancy/stagger/windup/locomotion all outrank it, so the
+interruption transition is free; the room's scene breaks permanently on
+first blood via residentAggro). Large-rig residents fall through to plain
+idle gracefully. Still open: hand-prop grafts (mug/book) as garnish, and
+the same real-browser visual pass furniture is waiting on.
+
+### Original design (for reference)
 
 **Goal:** the seated pack *does something* until you interrupt it.
 
