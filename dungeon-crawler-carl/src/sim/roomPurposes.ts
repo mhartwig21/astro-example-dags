@@ -77,6 +77,12 @@ export interface RoomDressing {
   // and the renderer draws THESE instead of a cosmetic corner stack, so what
   // you see is exactly what you can hit.
   breakables: { x: number; y: number; key: string }[];
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): tile-snapped blocking pieces —
+  // the table (isTable) and a bulk run hugging one wall. The sim stamps
+  // map.blocked from these and spawns them as hp-2 Breakables; the renderer
+  // entity-draws them and skips the cosmetic duplicates. Every set is
+  // connectivity-validated: a stamp that would trap anyone is dropped.
+  blockers: { tile: number; key: string; isTable?: boolean }[];
 }
 
 /** Merge a variant over its base purpose (variant fields REPLACE base fields).
@@ -201,7 +207,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     } else if (purpose.centerpiece) {
       anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
     }
-    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [] });
+    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [], blockers: [] });
   }
   // The story roll: one event sweeps a coherent path of conditions over the
   // independent per-room rolls above. `out` is ordered entrance-to-depths,
@@ -243,6 +249,97 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
         key: d.purpose.cornerStack[Math.floor(nextFloat(rng) * d.purpose.cornerStack.length)],
       });
     }
+  }
+  // ---- PHYSICAL FURNITURE (PHYSICALITY.md §1) — drawn last of all so these
+  // rolls never reshuffle story/service/breakable outcomes for older seeds.
+  // Rules that keep the connectivity check cheap and rarely failing:
+  // bulk runs hug ONE wall (they cannot cut a room), nothing stamps beside a
+  // doorway or within 3 tiles of spawn/stairs, and the table is a single
+  // interior tile the room ring-fences by construction.
+  const BULK_KEYS = new Set([
+    "bookcase_single", "bookcase_double_decorateda", "bartop_a_medium",
+    "bed_a_single", "bed_b_single", "bed_decorated",
+    "fuel_a_barrels", "food_barrel_fish", "crate_large_decorated",
+  ]);
+  const W = map.w;
+  const tileOf = (x: number, y: number) => Math.floor(y) * W + Math.floor(x);
+  const nearPoint = (ti: number, pt: Vec2, d: number) =>
+    Math.hypot((ti % W) + 0.5 - pt.x, Math.floor(ti / W) + 0.5 - pt.y) < d;
+  // Baseline reachability BFS: passable = not Wall (locked doors open later,
+  // so furniture may never be the second lock on a door).
+  const passable = (ti: number, blocked: Set<number>) =>
+    map.tiles[ti] !== 0 && !blocked.has(ti);
+  const reachableFrom = (start: number, blocked: Set<number>): Set<number> => {
+    const seen = new Set<number>([start]);
+    const queue = [start];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+        if (nb < 0 || nb >= map.tiles.length || seen.has(nb)) continue;
+        if (!passable(nb, blocked)) continue;
+        seen.add(nb);
+        queue.push(nb);
+      }
+    }
+    return seen;
+  };
+  const spawnTile = tileOf(map.spawn.x, map.spawn.y);
+  const baseline = reachableFrom(spawnTile, new Set());
+  const accepted = new Set<number>();
+  for (const d of out) {
+    const r = map.rooms[d.roomIdx];
+    const candidate: { tile: number; key: string; isTable?: boolean }[] = [];
+    // (a) The table blocks its tile (entity-drawn; dressing skips the twin).
+    if (d.purpose.tableSet && d.anchor) {
+      const ti = tileOf(d.anchor.x, d.anchor.y);
+      if (!nearPoint(ti, map.spawn, 3) && !nearPoint(ti, map.stairs, 3)) {
+        candidate.push({
+          tile: ti,
+          key: d.condition === "scarred" ? "table_medium_broken" : d.purpose.tableSet.table,
+          isTable: true,
+        });
+      }
+    }
+    // (b) A bulk run hugging one wall: consecutive interior tiles whose
+    // outside neighbor is WALL (a Floor outside = a doorway; skip those).
+    const bulk = d.purpose.wallRun.filter((k) => BULK_KEYS.has(k));
+    if (bulk.length > 0) {
+      const side = Math.floor(nextFloat(rng) * 4);
+      const run: number[] = [];
+      const tryTile = (ix: number, iy: number, ox: number, oy: number) => {
+        const inside = iy * W + ix;
+        const outside = oy * W + ox;
+        if (map.tiles[inside] !== 1 || map.tiles[outside] !== 0) return; // hug WALL, never a doorway
+        if (nearPoint(inside, map.spawn, 3) || nearPoint(inside, map.stairs, 3)) return;
+        if (d.anchor && inside === tileOf(d.anchor.x, d.anchor.y)) return;
+        run.push(inside);
+      };
+      if (side === 0) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y, x, r.y - 1);
+      else if (side === 1) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y + r.h - 1, x, r.y + r.h);
+      else if (side === 2) for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x, y, r.x - 1, y);
+      else for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x + r.w - 1, y, r.x + r.w, y);
+      const runLen = Math.min(
+        run.length,
+        CONFIG.blockerRunMin + Math.floor(nextFloat(rng) * (CONFIG.blockerRunMax - CONFIG.blockerRunMin + 1)),
+      );
+      const start = Math.floor(nextFloat(rng) * Math.max(1, run.length - runLen + 1));
+      for (let i = 0; i < runLen; i++) {
+        candidate.push({ tile: run[start + i], key: bulk[Math.floor(nextFloat(rng) * bulk.length)] });
+      }
+    }
+    if (candidate.length === 0) continue;
+    // Connectivity gate: with this room's furniture added, every baseline-
+    // reachable tile (minus the furniture itself) must stay reachable.
+    const trial = new Set(accepted);
+    for (const c of candidate) trial.add(c.tile);
+    const after = reachableFrom(spawnTile, trial);
+    let ok = true;
+    for (const ti of baseline) {
+      if (!trial.has(ti) && !after.has(ti)) { ok = false; break; }
+    }
+    if (!ok) continue; // this room keeps its cosmetic-only furniture
+    for (const c of candidate) accepted.add(c.tile);
+    d.blockers = candidate;
   }
   return { dressings: out, story, service };
 }

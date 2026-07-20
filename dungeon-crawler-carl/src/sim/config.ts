@@ -962,6 +962,10 @@ export const CONFIG = {
   breakableGoldSpread: 4, // + up to this much, seeded
   breakableCountMin: 2, // per dressed room with an intact corner hoard...
   breakableCountMax: 3,
+  // Physical furniture (PHYSICALITY.md §1): blocking pieces take real hits.
+  blockerHp: 2, // smash through the bookcase in two swings
+  blockerRunMin: 2, // bulk wall-furniture run length...
+  blockerRunMax: 4,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it

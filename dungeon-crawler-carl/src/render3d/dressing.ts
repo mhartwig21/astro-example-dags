@@ -63,7 +63,7 @@ function wallFaces(env: DressEnv, r: Rect): { x: number; y: number; nx: number; 
 export function dressRoomPurpose(
   env: DressEnv,
   r: Rect,
-  d: Pick<RoomDressing, "purpose" | "condition" | "anchor" | "breakables">,
+  d: Pick<RoomDressing, "purpose" | "condition" | "anchor" | "breakables" | "blockers">,
 ): void {
   const { frng, place } = env;
   const p: RoomPurpose = d.purpose;
@@ -125,7 +125,25 @@ export function dressRoomPurpose(
     }
   }
   // TABLE SET at the SHARED social anchor (the sim seats packs here).
-  if (p.tableSet && d.anchor && r.w >= 6 && r.h >= 6) {
+  // A table that BLOCKS (PHYSICALITY.md §1) is entity-drawn by the host's
+  // breakable sync — dress everything around it, skip the cosmetic twin.
+  // Tabletop items are skipped too (they would float once it's smashed).
+  const tableIsEntity = d.blockers.some((bl) => bl.isTable);
+  if (p.tableSet && d.anchor && r.w >= 6 && r.h >= 6 && tableIsEntity) {
+    const tcx = d.anchor.x, tcy = d.anchor.y;
+    if (p.rug && p.rug.length > 0 && cond !== "scarred") {
+      place(p.rug[Math.floor(frng() * p.rug.length)], tcx, tcy, {
+        scale: 1.9, jitter: 0.05, rot: Math.floor(frng() * 2) * (Math.PI / 2),
+      });
+    }
+    const seats = 2 + Math.floor(frng() * 3);
+    for (let s = 0; s < seats; s++) {
+      const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
+      place(p.tableSet.seat, tcx + Math.cos(a) * 0.9, tcy + Math.sin(a) * 0.9, {
+        scale: 0.32, jitter: cond === "scarred" ? 0.3 : 0.06, rot: a + Math.PI,
+      });
+    }
+  } else if (p.tableSet && d.anchor && r.w >= 6 && r.h >= 6) {
     const tcx = d.anchor.x, tcy = d.anchor.y;
     // A rug under the table sells the whole room (flat: no path lies).
     if (p.rug && p.rug.length > 0 && cond !== "scarred") {

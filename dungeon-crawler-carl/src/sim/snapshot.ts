@@ -29,7 +29,7 @@ export const SNAPSHOT_VERSION = 1;
 
 interface WireState extends Omit<GameState, "explored" | "map"> {
   explored: number[];
-  map: Omit<GameState["map"], "tiles"> & { tiles: number[] };
+  map: Omit<GameState["map"], "tiles" | "blocked"> & { tiles: number[]; blocked?: number[] };
 }
 
 /** Encode a FULL game state as a JSON string (join/world-change/persistence). */
@@ -37,7 +37,7 @@ export function serialize(state: GameState): string {
   const wire: WireState = {
     ...state,
     explored: Array.from(state.explored),
-    map: { ...state.map, tiles: Array.from(state.map.tiles) },
+    map: { ...state.map, tiles: Array.from(state.map.tiles), blocked: state.map.blocked ? Array.from(state.map.blocked) : undefined },
   };
   return JSON.stringify(wire);
 }
@@ -48,7 +48,7 @@ export function deserialize(json: string): GameState {
   return {
     ...wire,
     explored: new Uint8Array(wire.explored),
-    map: { ...wire.map, tiles: new Uint8Array(wire.map.tiles) },
+    map: { ...wire.map, tiles: new Uint8Array(wire.map.tiles), blocked: wire.map.blocked ? new Uint8Array(wire.map.blocked) : undefined },
   };
 }
 

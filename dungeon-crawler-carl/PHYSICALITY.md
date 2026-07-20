@@ -12,7 +12,15 @@ change what play feels like.
 
 ---
 
-## 1. Physicalized furniture
+## 1. Physicalized furniture — SHIPPED (P1+P2, 2026-07-10)
+
+Blocked mask + plan blockers + connectivity gate + hp-2 smash-to-clear are
+live (see the physical-furniture PR). Still open from this section: `tall`
+projectile blockers, brute smash-through (v2 — the payoff moment), and a
+real-browser visual pass (headless GL was too slow for the streamed models
+at review time; sim behavior is fully test-covered).
+
+### Original design (for reference)
 
 **Goal:** big furniture blocks movement, so rooms shape combat. Small clutter
 stays walk-through. Smashing big furniture clears the lane.

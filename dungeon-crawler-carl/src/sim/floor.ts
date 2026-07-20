@@ -480,7 +480,15 @@ export function tileAt(map: FloorMap, x: number, y: number): Tile {
 
 export function isWalkable(map: FloorMap, x: number, y: number): boolean {
   const t = tileAt(map, x, y);
-  return t !== Tile.Wall && t !== Tile.DoorLocked;
+  if (t === Tile.Wall || t === Tile.DoorLocked) return false;
+  // Blocking furniture (PHYSICALITY.md §1): feet stop here; shots do not
+  // (projectile collision checks Wall tiles only — tables are knee-high).
+  const b = map.blocked;
+  if (b) {
+    const i = Math.floor(y) * map.w + Math.floor(x);
+    if (b[i]) return false;
+  }
+  return true;
 }
 
 /**
@@ -504,7 +512,7 @@ export function walkableTiles(map: FloorMap): Vec2[] {
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
       const t = map.tiles[idx(map.w, x, y)];
-      if (t !== Tile.Wall && t !== Tile.DoorLocked) {
+      if (t !== Tile.Wall && t !== Tile.DoorLocked && !map.blocked?.[idx(map.w, x, y)]) {
         out.push({ x: x + 0.5, y: y + 0.5 });
       }
     }
