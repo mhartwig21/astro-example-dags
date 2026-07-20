@@ -568,6 +568,12 @@ export interface FloorMap {
   w: number;
   h: number;
   tiles: Uint8Array; // row-major, length w*h, values from Tile
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): a removable overlay — tiles the
+  // dressing plan stamped with blocking furniture. isWalkable() consults it,
+  // so players, monsters, dashes, drags, and the bot all inherit blocking
+  // through the one choke point. Smashing the furniture clears its bits
+  // WITHOUT a floor rebuild. Optional: pre-furniture snapshots lack it.
+  blocked?: Uint8Array;
   spawn: Vec2; // player entry point
   stairs: Vec2; // stairs-down location
   rooms: RoomRect[]; // generated room rectangles (rooms[0] contains the spawn)
@@ -706,7 +712,10 @@ export interface Breakable {
   id: number;
   pos: Vec2;
   key: string; // prop model key (hosts render it; the sim only owns the hp)
-  hp: number; // 1 — one good hit
+  hp: number; // clutter: 1 (one good hit); blocking furniture: CONFIG.blockerHp
+  // Blocking furniture (PHYSICALITY.md §1): the map.blocked tile indices this
+  // piece owns. Cleared when it dies — smash the bookcase, open the lane.
+  footprint?: number[];
 }
 
 // A fallen monster the necromancer can raise. Purely positional — the fresh

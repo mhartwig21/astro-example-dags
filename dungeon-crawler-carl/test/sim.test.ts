@@ -5258,8 +5258,10 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
       if ((g.breakables ?? []).length === 0) continue;
       sawAny = true;
       const plan = assignRoomPurposes(g.seed, g.floor, g.map);
-      const planned = plan.dressings.flatMap((d) => d.breakables);
-      expect(g.breakables!.length).toBe(planned.length);
+      // Clutter hoards + blocking furniture both live in state.breakables now.
+      const planned = plan.dressings.flatMap((d) => d.breakables).length +
+        plan.dressings.flatMap((d) => d.blockers).length;
+      expect(g.breakables!.length).toBe(planned);
       // Story-looted rooms keep no hoard.
       for (const d of plan.dressings) {
         if (d.condition === "looted") expect(d.breakables.length).toBe(0);
@@ -5272,7 +5274,8 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
     let tested = false;
     for (let seed = 1; seed <= 30 && !tested; seed++) {
       const g = createTestGame({ seed, floor: 5, level: 5 });
-      const b = (g.breakables ?? [])[0];
+      // Clutter only: furniture takes CONFIG.blockerHp swings (tested below).
+      const b = (g.breakables ?? []).find((bb) => !bb.footprint);
       if (!b) continue;
       tested = true;
       g.monsters = [];
@@ -5307,5 +5310,92 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
       }
     }
     expect(tested).toBe(true);
+  });
+});
+
+describe("physical furniture (PHYSICALITY.md §1)", () => {
+  it("connectivity fuzz: furniture never traps anyone, ever", () => {
+    // The gating test: with the mask stamped, every passable tile stays
+    // reachable from spawn. 40 seeds x 6 floors on the CI budget; the fuzz
+    // definition of passable matches the plan's (locked doors open later).
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [2, 5, 8, 11, 14, 17]) {
+        const g = createTestGame({ seed, floor, level: 4, gear: false });
+        const { map } = g;
+        const W = map.w;
+        const passable = (ti: number) => map.tiles[ti] !== 0 && !map.blocked?.[ti];
+        const start = Math.floor(map.spawn.y) * W + Math.floor(map.spawn.x);
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length > 0) {
+          const cur = queue.pop()!;
+          for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+            if (nb < 0 || nb >= map.tiles.length || seen.has(nb) || !passable(nb)) continue;
+            seen.add(nb);
+            queue.push(nb);
+          }
+        }
+        let unreachable = 0;
+        for (let ti = 0; ti < map.tiles.length; ti++) {
+          if (passable(ti) && !seen.has(ti)) unreachable++;
+        }
+        expect(unreachable, `seed ${seed} floor ${floor}`).toBe(0);
+        expect(seen.has(Math.floor(map.stairs.y) * W + Math.floor(map.stairs.x)), `seed ${seed} floor ${floor}: stairs`).toBe(true);
+      }
+    }
+  });
+
+  it("furniture blocks feet: you cannot walk through the table", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      expect(g.map.blocked?.[blk.footprint![0]]).toBe(1);
+      const p = g.players[0];
+      g.monsters = [];
+      p.pos = { x: blk.pos.x - 1.1, y: blk.pos.y };
+      for (let i = 0; i < 60; i++) step(g, { ...idle(), move: { x: 1, y: 0 }, attack: false }, 1 / 60);
+      // A full second of walking straight at it: still outside the tile.
+      expect(Math.floor(p.pos.x)).toBeLessThan(Math.floor(blk.pos.x));
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("smashing the furniture opens the lane", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: blk.pos.x - 0.9, y: blk.pos.y };
+      const tile = blk.footprint![0];
+      for (let swing = 0; swing < CONFIG.blockerHp; swing++) {
+        p.cd.melee = 0;
+        step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+        for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // cooldown
+      }
+      expect(g.map.blocked?.[tile]).toBe(0); // the lane is open
+      expect((g.breakables ?? []).some((b) => b.id === blk.id)).toBe(false);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("nothing spawns inside furniture", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      for (const m of g.monsters) {
+        const ti = Math.floor(m.pos.y) * g.map.w + Math.floor(m.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} monster ${m.kind}`).toBe(0);
+      }
+      for (const l of g.loot) {
+        const ti = Math.floor(l.pos.y) * g.map.w + Math.floor(l.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} loot ${l.kind}`).toBe(0);
+      }
+    }
   });
 });

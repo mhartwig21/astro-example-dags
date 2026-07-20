@@ -372,7 +372,7 @@ function spawnMonsters(state: GameState): void {
     for (let tries = 0; tries < 12; tries++) {
       const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
       const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
-      if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== 1) continue; // Floor only
+      if (!isWalkable(map, x, y)) continue; // Floor only, and never inside furniture
       if (dist({ x, y }, map.spawn) <= 6 || dist({ x, y }, map.stairs) <= 2) continue;
       return { x, y };
     }
@@ -456,7 +456,8 @@ function spawnMonsters(state: GameState): void {
         const squadId = state.nextEntityId++; // toysoldier members share it
         for (const member of template.members) {
           let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
-          if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // the table itself blocks now
           const m = makeMonster(state, member.kind, pos);
           if (roam) m.tribe = tribeId;
           if (member.kind === "toysoldier") m.squadId = squadId;
@@ -502,7 +503,8 @@ function spawnMonsters(state: GameState): void {
       const a = nextFloat(rng) * Math.PI * 2;
       const d = 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
-      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
       // The escort slot carries the pack's support: a shaman healer, or (from
       // the SEWERS down) a Drum Sergeant beating the pack into a frenzy — the
       // playbook's "The Drumline". Same kill-order lesson, different verb.
@@ -1129,12 +1131,29 @@ export function buildFloor(state: GameState, floor: number): void {
   state.strongholdLeaderId = -1;
   state.strongholdLeaderName = "";
   state.strongholdCleared = false;
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): stamp the blocked mask and spawn
+  // the blocking pieces BEFORE monsters, so every spawn (they all flow
+  // through isWalkable) respects the furniture. The plan is pure — this is
+  // the same answer the renderer and spawnMonsters compute.
+  const plan = assignRoomPurposes(state.seed, floor, state.map);
+  state.map.blocked = new Uint8Array(state.map.w * state.map.h);
+  for (const d of plan.dressings) {
+    for (const bl of d.blockers) {
+      state.map.blocked[bl.tile] = 1;
+      state.breakables!.push({
+        id: state.nextEntityId++,
+        pos: { x: (bl.tile % state.map.w) + 0.5, y: Math.floor(bl.tile / state.map.w) + 0.5 },
+        key: bl.key,
+        hp: CONFIG.blockerHp,
+        footprint: [bl.tile],
+      });
+    }
+  }
   spawnMonsters(state);
   // The floor's STORY + SERVICES (roomPurposes): if a seeded event swept the
   // dressing, the System mentions it exactly once; if a room is open for
   // business (rare — plan.service), its contract sits beside the furniture.
   {
-    const plan = assignRoomPurposes(state.seed, floor, state.map);
     if (plan.story) announce(state, "flavor", STORY_LINES[plan.story]);
     // Destructible dressing (phase 5): the corner hoards the plan marked
     // become sim entities — one good hit pops them for pocket gold.
@@ -1149,7 +1168,7 @@ export function buildFloor(state: GameState, floor: number): void {
         // The contract sits on a walkable tile nudged off the furniture.
         for (const [dx, dy] of [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9]] as const) {
           const x = d.anchor.x + dx, y = d.anchor.y + dy;
-          if (state.map.tiles[Math.floor(y) * state.map.w + Math.floor(x)] === Tile.Floor) {
+          if (isWalkable(state.map, x, y)) {
             state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "service", amount: 0, service: plan.service.purposeId });
             break;
           }
@@ -4471,6 +4490,17 @@ function smashBreakables(state: GameState, hits: (pos: Vec2) => boolean): void {
     if (!hits(b.pos)) {
       left.push(b);
       continue;
+    }
+    b.hp -= 1;
+    if (b.hp > 0) {
+      hit(state, b.pos, 0, "weapon"); // it cracks; one more should do it
+      left.push(b);
+      continue;
+    }
+    // Blocking furniture opens the lane when it dies (PHYSICALITY.md §1) —
+    // the mask mutates in place; no floor rebuild.
+    if (b.footprint && state.map.blocked) {
+      for (const ti of b.footprint) state.map.blocked[ti] = 0;
     }
     const gold = CONFIG.breakableGoldBase + Math.floor(nextFloat(state.rng) * (CONFIG.breakableGoldSpread + 1)) + Math.floor(state.floor / 3);
     state.loot.push({ id: state.nextEntityId++, pos: { x: b.pos.x, y: b.pos.y }, kind: "gold", amount: gold });

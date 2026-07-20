@@ -1658,6 +1658,7 @@ export class Renderer3D {
     const clear = (x: number, y: number, spawnR = 2.5, stairsR = 2.5): boolean => {
       const i = Math.floor(y) * map.w + Math.floor(x);
       if (map.tiles[i] !== Tile.Floor) return false;
+      if (map.blocked?.[i]) return false; // furniture owns that tile (entity-drawn)
       if (Math.hypot(x - map.spawn.x, y - map.spawn.y) < spawnR) return false;
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
@@ -2491,7 +2492,8 @@ export class Renderer3D {
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
-          obj.scale.multiplyScalar(0.45 / fp);
+          // Blocking furniture fills its tile; clutter stays hand-sized.
+          obj.scale.multiplyScalar((b.footprint ? 0.85 : 0.45) / fp);
           const sc = new THREE.Box3().setFromObject(obj);
           obj.position.set(
             b.pos.x - (sc.min.x + sc.max.x) / 2 + obj.position.x,

@@ -918,7 +918,7 @@ function refreshDressing(): void {
   } else if (p.centerpiece) {
     anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
   }
-  dressRoomPurpose(env, r, { purpose: p, condition: dress.condition, anchor, breakables: [] });
+  dressRoomPurpose(env, r, { purpose: p, condition: dress.condition, anchor, breakables: [], blockers: [] });
   spillPurposeDoorways(env, r, p);
   $("dressMsg").textContent = "";
   if (r.w < 5 || r.h < 5) {

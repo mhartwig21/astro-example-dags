@@ -284,7 +284,8 @@ export function render(
   for (const b of state.breakables ?? []) {
     if (!inVision(b.pos.x, b.pos.y)) continue;
     ctx.fillStyle = "#a06a3a";
-    ctx.fillRect(offX + b.pos.x * T - 4, offY + b.pos.y * T - 4, 8, 8);
+    const bs = b.footprint ? 8 : 4; // furniture fills more of its tile
+    ctx.fillRect(offX + b.pos.x * T - bs, offY + b.pos.y * T - bs, bs * 2, bs * 2);
   }
 
   // Loot.
