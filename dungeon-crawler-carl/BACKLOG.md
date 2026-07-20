@@ -144,3 +144,52 @@ session has a reason not to. Numbers reference the entries below.
     a damage-number diet. Target: every death reads "I was greedy", never
     "what hit me?". Code: renderer3d windup/hazard presentation + THEME
     semantic colors; audit against the fairness rule in DESIGN.md.
+
+## The AAA bar (2026-07-10 assessment)
+
+Priority-ordered gaps between "complete to spec" and "a AAA player calls it
+polished," scoped to the room-grammar arc. Overlaps with the polish-ranking
+entries above are cross-referenced, not duplicated. Items 19-20 have a full
+design doc — see `PHYSICALITY.md`.
+
+19. **Room-grammar telemetry** — extends #13's `usage_events` (SQLite is
+    live) with room events: dressed-room entry, service-contract touch/buy/
+    walk, wager outcomes, breakable smashes, resident-line triggers. The
+    grammar was tuned by bot; these numbers let #13's balance pass cover it.
+20. **Physicalized furniture** — big furniture blocks movement via a
+    removable `FloorMap.blocked` mask stamped from the dressing plan;
+    blocking pieces are hp-2 breakables (smash through the bookcase to
+    flank). Full design: `PHYSICALITY.md` §1. Gate: connectivity fuzz over
+    300 seeds.
+21. **Animation pass (residents act)** — host-side staging off
+    `Monster.residentOf`: grafted props (mug/book/map) via the weaponry
+    hand-slot seam, lying poses on beds, paired sparring with the existing
+    attack clip; later a commissioned `rig_medium_ambient` clip library.
+    Full design: `PHYSICALITY.md` §2.
+22. **Audio for the room grammar** (joins #3 status cues + #17 music beds):
+    smash crunch, per-purpose room tone (forge hum, den murmur), service
+    purchase sting, a stinger under System lines. Seam:
+    `src/audio/director.ts`; nothing new is mapped.
+23. **VFX + lighting quality.** Breakable pop reuses the generic hit poof
+    (no splinters/debris); dressed rooms rely on a capped point-light pool.
+    The gap vs the KayKit reference renders is mostly soft shadow/AO.
+24. **Interaction UX + accessibility** (pairs with #18 readability):
+    service contracts have no approach prompt or minimap icon; gold/purple
+    loot halos are not colorblind-safe; controller/touch parity for the
+    newest flows unaudited.
+25. **Roam re-stock exploit (latent bug).** `buildFloor` re-rolls
+    breakables and the service room on every build; when Roam floor
+    REVISITS land, consumed services/hoards regenerate free. Fix: persist
+    consumed ids per floor in the world checkpoint (PERSISTENCE.md) or
+    derive consumption from world state. Harmless in Race (one-way floors)
+    — fix before Roam revisiting ships.
+26. **Prop rendering perf.** Dressing + breakables are CLONED meshes under
+    a 185-prop cap, not GPU-instanced batches; torch lighting is a pooled
+    hack. Fine on desktop today; instancing + LOD before mobile/minspec
+    matters. Code: `place()` in the renderer3d/dressing env.
+27. **Systemic narrative depth.** Floor stories are one-liners with one
+    chase payoff; the ceiling is multi-floor arcs, room-driven quests, and
+    (eventually) a voiced System. Composes with interference + Roam quests.
+28. **Hardening.** New-entity netcode under packet loss, save-migration
+    tests beyond the one golden fixture, prop-placement edge-case QA
+    (tabletop clipping, mounts on odd walls), soak tests.
