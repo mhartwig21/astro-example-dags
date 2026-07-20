@@ -77,7 +77,16 @@ const renderer = new Renderer3D(canvas, {
 // per-frame feedback buffers. Silent until clips exist under public/audio/
 // (see ASSETS.md — Audio); missing files simply never play.
 const audio = new AudioEngine();
-void audio.load();
+// Payload diet (backlog #7a): 24MB of audio must not race the model wave for
+// first-visit bandwidth. Sounds stream in AFTER the game is playable — the
+// engine's silent-fallback covers the gap, exactly like missing files do.
+// requestIdleCallback isn't universal (Safari); a timer is the fallback.
+const startAudioLoad = (): void => { void audio.load(); };
+if ("requestIdleCallback" in window) {
+  requestIdleCallback(() => setTimeout(startAudioLoad, 4000));
+} else {
+  setTimeout(startAudioLoad, 6000);
+}
 const audioDirector = new AudioDirector(audio);
 
 // ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -356,6 +357,9 @@ export function startModelLoad(
   onProgress?: (loaded: number, total: number) => void,
 ): ModelStore {
   const loader = new GLTFLoader();
+  // Every shipped GLB is meshopt-compressed (scripts/compress-assets.mjs —
+  // backlog #7's payload diet); without the decoder none of them parse.
+  loader.setMeshoptDecoder(MeshoptDecoder);
   const store: ModelStore = {
     models: {},
     onArrive: null,
