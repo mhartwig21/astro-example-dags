@@ -210,6 +210,7 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   currentRunKind = runKind;
   dailySubmitted = false;
   alltimeSubmitted = false;
+  telemetrySubmitted = false;
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
@@ -532,6 +533,41 @@ function submitAlltime(s: GameState): void {
       pushLogLine(`ALL-TIME BOARD: top ten — ${headlines.join(", ").toUpperCase()}.`);
     }
   }).catch(() => { /* offline is fine */ });
+}
+
+/** Every finished SOLO run reports its build to usage_events (fire-and-forget)
+ *  — round 1 of BALANCE-NOTES.md found the balance record only saw multiplayer
+ *  while nearly all real runs happen right here in the browser. Same summary
+ *  shape the server logs for party runs, so mining treats both uniformly. */
+let telemetrySubmitted = false;
+function submitTelemetry(s: GameState): void {
+  if (net || testMode || telemetrySubmitted) return;
+  telemetrySubmitted = true;
+  const p = me(s);
+  void fetch(`${API_BASE}/telemetry`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "run_end",
+      token: ensureToken(),
+      data: {
+        status: s.status, floor: s.floor, mode: "solo", runKind: s.runKind,
+        elapsed: Math.round(s.elapsed),
+        players: [{
+          name: p.name, level: p.level, slots: p.abilities.slots,
+          ultimate: p.abilities.ultimate,
+          ranks: Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0),
+          weapon: p.equipment.weapon?.name ?? null,
+          maxHp: p.maxHp, armor: p.armor,
+          attackPower: p.attackPower, spellPower: p.spellPower,
+          crit: +p.critChance.toFixed(3), kills: p.kills,
+          damageDealt: Math.round(p.damageDealt),
+          damageTaken: Math.round(p.damageTaken),
+          gold: p.gold, sponsors: p.sponsors, alive: p.alive,
+        }],
+      },
+    }),
+  }).catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
 }
 
 // ---- Account (release infra): anonymous token + optional OAuth identity ----
@@ -3255,6 +3291,7 @@ async function main(): Promise<void> {
           if (state.status !== "playing") {
             submitDaily(state); // daily runs report to the board
             submitAlltime(state); // every finished run reports all-time
+            submitTelemetry(state); // ...and its build to the balance record
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
           }
         }

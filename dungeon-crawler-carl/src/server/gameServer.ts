@@ -247,6 +247,10 @@ export class GameServer {
       this.onLeaderboard(req, res);
       return;
     }
+    if (url.split("?")[0] === "/telemetry") {
+      this.onTelemetry(req, res);
+      return;
+    }
     if (url.startsWith("/auth/")) {
       void this.auth.handle(req, res);
       return;
@@ -336,6 +340,50 @@ export class GameServer {
     headers["content-length"] = String(st.size);
     res.writeHead(200, headers);
     createReadStream(file).pipe(res);
+  }
+
+  /**
+   * Solo run reports (BALANCE-NOTES.md round 1 found the blind spot: solo runs
+   * never touch this server, so usage_events only saw multiplayer). The client
+   * fire-and-forgets one POST per finished solo run; same size/CORS hygiene as
+   * the leaderboard. The payload lands in usage_events as kind "run_end" with
+   * party_code "SOLO" so mining queries treat both modes uniformly.
+   */
+  private onTelemetry(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    let body = "";
+    let overflow = false;
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 8192) { overflow = true; req.destroy(); }
+    });
+    req.on("end", () => {
+      if (overflow || !this.db) return;
+      try {
+        const msg = JSON.parse(body) as Record<string, unknown>;
+        // Only the shapes we mine; everything client-sent is size-capped and
+        // stored as data, never interpreted by the server.
+        if (msg.kind !== "run_end") { res.writeHead(400, cors).end(); return; }
+        const token = validToken(msg.token);
+        this.db.logEvent("run_end", "SOLO", token, msg.data ?? {}, Date.now());
+        res.writeHead(200, { "content-type": "application/json", ...cors });
+        res.end('{"ok":true}');
+      } catch {
+        res.writeHead(400, cors).end();
+      }
+    });
   }
 
   /**
