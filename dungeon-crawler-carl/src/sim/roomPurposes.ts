@@ -83,6 +83,11 @@ export interface RoomDressing {
   // entity-draws them and skips the cosmetic duplicates. Every set is
   // connectivity-validated: a stamp that would trap anyone is dropped.
   blockers: { tile: number; key: string; isTable?: boolean }[];
+  // SEAT SLOTS (staging v2): where a table BLOCKS, the plan also owns its
+  // seats. The sim places the resident pack ON these; the renderer puts the
+  // chairs at the same spots and plays the chair-sit — actor and furniture
+  // line up by construction instead of by two unrelated random draws.
+  seats: Vec2[];
 }
 
 /** Merge a variant over its base purpose (variant fields REPLACE base fields).
@@ -116,6 +121,26 @@ export const PURPOSE_RESIDENTS: Record<string, MonsterKind[]> = {
   den: ["grunt", "brute"], // the card game does not stop for you
   warroom: ["ranged", "shaman"], // planners and their bodyguards
   ossuary: ["necromancer", "swarmer", "swarmer"], // the filing clerk and the files
+};
+
+// STAGED PERCEPTION (staging v2): how alert a room's residents are while
+// their scene runs, as a fraction of monsterAggroRange. Sleep is nearly
+// blind (sneaking past the barracks is a real option now), absorbed work
+// dulls the ears, and the guardpost is PAID to watch. Snaps to 1 the
+// moment the scene breaks (detection in ai.ts, or damage).
+export const PURPOSE_PERCEPTION: Record<string, number> = {
+  barracks: 0.4, // asleep
+  archive: 0.6, // deep in the reading
+  forge: 0.6, // the hammering drowns you out
+  mess: 0.7, // dinner
+  den: 0.7, // the hand is absorbing
+  kitchen: 0.75, // service clatter
+  apothecary: 0.8,
+  storage: 0.85,
+  ossuary: 0.85,
+  trainhall: 0.85, // between reps somebody looks up
+  warroom: 0.9, // mid-argument
+  guardpost: 1.25, // the watch is WATCHING
 };
 
 // FLOOR STORIES: one seeded event per floor (35%) leaves its mark as a swept
@@ -207,7 +232,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     } else if (purpose.centerpiece) {
       anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
     }
-    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [], blockers: [] });
+    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [], blockers: [], seats: [] });
   }
   // The story roll: one event sweeps a coherent path of conditions over the
   // independent per-room rolls above. `out` is ordered entrance-to-depths,
@@ -340,6 +365,24 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     if (!ok) continue; // this room keeps its cosmetic-only furniture
     for (const c of candidate) accepted.add(c.tile);
     d.blockers = candidate;
+  }
+  // ---- SEAT SLOTS (staging v2) — drawn last of all, same stream discipline
+  // as blockers: appending draws at the END never reshuffles older seeds'
+  // outcomes. Only entity-drawn (blocking) tables get plan seats; cosmetic
+  // tables keep their cosmetic ring (nobody is placed there). A seat that
+  // would land in a wall or inside furniture is simply dropped.
+  for (const d of out) {
+    const tableAnchor = d.anchor;
+    if (!tableAnchor || !d.blockers.some((bl) => bl.isTable)) continue;
+    const n = 2 + Math.floor(nextFloat(rng) * 3);
+    for (let s = 0; s < n; s++) {
+      const a = (s / n) * Math.PI * 2 + nextFloat(rng) * 0.6;
+      const sx: number = tableAnchor.x + Math.cos(a) * 0.9;
+      const sy: number = tableAnchor.y + Math.sin(a) * 0.9;
+      const ti = Math.floor(sy) * W + Math.floor(sx);
+      if (map.tiles[ti] !== 1 || accepted.has(ti)) continue;
+      d.seats.push({ x: sx, y: sy });
+    }
   }
   return { dressings: out, story, service };
 }

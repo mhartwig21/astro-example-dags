@@ -314,6 +314,9 @@ export interface Monster {
   // Seated resident of a dressed room (roomPurposes phase 5): first damage
   // to the pack announces the purpose's interruption line, once per floor.
   residentOf?: string;
+  // Staging v2: spawned ON one of the plan's seat slots — the renderer plays
+  // the chair-sit instead of the floor-sit for this actor.
+  seated?: boolean;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
   // Signature STACKING (boss layer 2): from phase 1 the boss alternates its

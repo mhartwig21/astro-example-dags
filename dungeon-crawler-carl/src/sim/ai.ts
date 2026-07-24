@@ -10,9 +10,10 @@ import { moveWithCollision } from "./movement";
 import { applyStatus } from "./status";
 import {
   applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
-  damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
-  tauntingDecoy,
+  breakResidentScene, damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse,
+  spawnBossWave, summonMinion, tauntingDecoy,
 } from "./game";
+import { PURPOSE_PERCEPTION } from "./roomPurposes";
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -596,7 +597,21 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   const player = nearestPlayer(state, m.pos);
   if (!player) return;
   const hunt = tauntingDecoy(state, m.pos) ?? player;
-  const d = dist(m.pos, hunt.pos);
+  let d = dist(m.pos, hunt.pos);
+  // STAGED PERCEPTION (staging v2): an undisturbed resident is absorbed in
+  // its act — the barracks SLEEPS, diners are slow to look up, the guardpost
+  // is paid to watch. Until someone crosses aggroRange x the purpose's
+  // perception, every aggro gate below sees a distance beyond its widest
+  // multiplier, so the scene simply continues: sneaking past is a real
+  // option, and a stray corridor nova no longer wakes a room that never saw
+  // you. Crossing the line breaks the scene HERE, for the whole room.
+  if (m.residentOf && !(state.residentAggro ?? []).includes(m.residentOf)) {
+    if (d <= CONFIG.monsterAggroRange * (PURPOSE_PERCEPTION[m.residentOf] ?? 1)) {
+      breakResidentScene(state, m);
+    } else {
+      d = Math.max(d, CONFIG.monsterAggroRange * 2.6 + 1);
+    }
+  }
   const toPlayer = normalize({ x: hunt.pos.x - m.pos.x, y: hunt.pos.y - m.pos.y });
   // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
   const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;

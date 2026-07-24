@@ -25,7 +25,7 @@ import {
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
-import { PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
+import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -5397,5 +5397,84 @@ describe("physical furniture (PHYSICALITY.md §1)", () => {
         expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} loot ${l.kind}`).toBe(0);
       }
     }
+  });
+});
+
+describe("staging v2: seats, perception, detection", () => {
+  it("the plan seats blocking tables, on open floor, deterministically", () => {
+    let tested = 0;
+    for (let seed = 1; seed <= 40 && tested < 3; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const dressed = plan.dressings.filter((d) => d.blockers.some((bl) => bl.isTable));
+      for (const d of dressed) {
+        if (d.seats.length === 0) continue;
+        tested++;
+        expect(d.seats.length).toBeLessThanOrEqual(4);
+        for (const s of d.seats) {
+          const ti = Math.floor(s.y) * g.map.w + Math.floor(s.x);
+          expect(g.map.tiles[ti]).toBe(1); // open floor
+          expect(g.map.blocked?.[ti] ?? 0).toBe(0); // never inside furniture
+        }
+      }
+      // Same seed, same seats — the plan stays pure.
+      const again = assignRoomPurposes(g.seed, g.floor, g.map);
+      expect(again.dressings.map((d) => d.seats)).toEqual(plan.dressings.map((d) => d.seats));
+    }
+    expect(tested).toBeGreaterThanOrEqual(3);
+  });
+
+  it("residents spawn ON the plan's seats and are marked seated", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 80 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const seatedMon = g.monsters.find((m) => m.seated && m.residentOf);
+      if (!seatedMon) continue;
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const d = plan.dressings.find((dd) => dd.purposeId === seatedMon.residentOf);
+      expect(d).toBeTruthy();
+      const onSeat = d!.seats.some(
+        (s) => Math.abs(s.x - seatedMon.pos.x) < 1e-6 && Math.abs(s.y - seatedMon.pos.y) < 1e-6,
+      );
+      expect(onSeat).toBe(true);
+      tested = true;
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a staged room misses you outside its dulled perception; crossing it breaks the scene", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 120 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const resident = g.monsters.find(
+        (m) => m.residentOf && (PURPOSE_PERCEPTION[m.residentOf] ?? 1) <= 0.7 && !m.dormant,
+      );
+      if (!resident) continue;
+      tested = true;
+      const per = PURPOSE_PERCEPTION[resident.residentOf!]!;
+      g.monsters = [resident]; // just the one actor: nothing else can break the scene
+      const p = g.players[0];
+      // Inside NORMAL aggro range but outside the dulled radius: un-staged,
+      // this monster would close; staged, the act continues.
+      const outside = (per * CONFIG.monsterAggroRange + CONFIG.monsterAggroRange) / 2;
+      p.pos = { x: resident.pos.x + outside, y: resident.pos.y };
+      const before = { x: resident.pos.x, y: resident.pos.y };
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+      expect(g.residentAggro ?? []).not.toContain(resident.residentOf);
+      expect(resident.pos.x).toBeCloseTo(before.x, 5);
+      expect(resident.pos.y).toBeCloseTo(before.y, 5);
+      // Step inside the dulled radius: detection, the line, the wake-up.
+      // (announcements are per-tick host data — collect across steps)
+      g.announcements = [];
+      p.pos = { x: resident.pos.x + per * CONFIG.monsterAggroRange - 1, y: resident.pos.y };
+      let sawLine = false;
+      for (let i = 0; i < 10; i++) {
+        step(g, idle(), 1 / 60);
+        if (g.announcements.some((a) => a.kind === "flavor")) sawLine = true;
+      }
+      expect(g.residentAggro ?? []).toContain(resident.residentOf);
+      expect(sawLine).toBe(true);
+    }
+    expect(tested).toBe(true);
   });
 });
