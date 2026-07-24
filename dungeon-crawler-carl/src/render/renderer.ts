@@ -283,7 +283,8 @@ export function render(
   // Smashable dressing (phase 5): little brown crates on the truth view.
   for (const b of state.breakables ?? []) {
     if (!inVision(b.pos.x, b.pos.y)) continue;
-    ctx.fillStyle = "#a06a3a";
+    // Damaged blocking furniture reads darker (one hit from gone).
+    ctx.fillStyle = b.footprint && b.hp === 1 ? "#6e4522" : "#a06a3a";
     const bs = b.footprint ? 8 : 4; // furniture fills more of its tile
     ctx.fillRect(offX + b.pos.x * T - bs, offY + b.pos.y * T - bs, bs * 2, bs * 2);
   }
