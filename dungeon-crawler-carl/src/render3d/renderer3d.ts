@@ -47,6 +47,13 @@ interface CanopyEntry {
 
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
 // doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
+// DAMAGED STATE (furniture-feel): blocking furniture at 1 hp swaps to the
+// kit's broken counterpart where one exists; the rest get the tilt-and-sink
+// treatment at build time (see the smashables sync).
+const BREAKABLE_DAMAGED: Record<string, string> = {
+  table_round_medium: "table_medium_broken",
+};
+
 const WINDUP_CLIP: Record<string, string> = {
   shot: "shoot",
   slam: "spin", // the 2H overhead spin reads as a wide AoE, not a jab
@@ -2521,23 +2528,39 @@ export class Renderer3D {
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
     // Meshes are placed once (they don't move); a smashed one vanishes and
-    // the sim's hit event supplies the pop.
+    // the sim's hit event supplies the pop. DAMAGED STATE (furniture-feel):
+    // blocking furniture at 1 hp LOOKS one hit from gone — the table swaps
+    // to the kit's broken model, everything else tilts and sinks. The hp
+    // edge just drops the mesh; the next frame rebuilds it damaged.
     const bSeen = new Set<number>();
     for (const b of state.breakables ?? []) {
       bSeen.add(b.id);
+      const damaged = !!b.footprint && b.hp === 1;
+      const prev = this.breakableMeshes.get(b.id);
+      if (prev && damaged && !prev.userData.damaged) {
+        this.scene.remove(prev);
+        this.breakableMeshes.delete(b.id);
+      }
       if (!this.breakableMeshes.has(b.id)) {
-        const obj = this.modelInstance(b.key);
+        const swap = damaged ? BREAKABLE_DAMAGED[b.key] : undefined;
+        const obj = this.modelInstance(swap && this.models[swap] ? swap : b.key);
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
           // Blocking furniture fills its tile; clutter stays hand-sized.
           obj.scale.multiplyScalar((b.footprint ? 0.85 : 0.45) / fp);
+          if (damaged && !(swap && this.models[swap])) {
+            // No broken model in the kit: one good hit knocks it askew.
+            obj.rotation.y = ((b.id * 2654435761) % 628) / 100;
+            obj.rotation.z = 0.09;
+          }
           const sc = new THREE.Box3().setFromObject(obj);
           obj.position.set(
             b.pos.x - (sc.min.x + sc.max.x) / 2 + obj.position.x,
-            -sc.min.y + 0.004,
+            -sc.min.y + 0.004 - (damaged ? 0.05 : 0),
             b.pos.y - (sc.min.z + sc.max.z) / 2 + obj.position.z,
           );
+          obj.userData.damaged = damaged;
           this.scene.add(obj);
           this.breakableMeshes.set(b.id, obj);
         }

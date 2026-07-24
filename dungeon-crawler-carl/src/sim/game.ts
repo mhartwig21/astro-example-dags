@@ -2577,7 +2577,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   }
   // The swing pops smashable dressing in the arc (phase 5): the Diablo
   // barrel, at last. Same reach test the monsters get.
-  smashBreakables(state, (pos) => {
+  smashBreakables(state, ({ pos }) => {
     const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
     return Math.hypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
   });
@@ -3790,6 +3790,31 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
     moveWithCollision(state.map, p.pos, dir, Math.min(0.2, dp.distance - moved), isWalkable);
     if (dist(before, p.pos) < 0.01) break; // dead stop: a wall ate the dash
   }
+  // DASH VAULT (furniture-feel): knee-high furniture is mobility TEXTURE,
+  // not masonry. If the slide stopped short and what stopped it is BLOCKED
+  // FURNITURE, scan the remaining reach for open floor with nothing but
+  // furniture in between and go OVER the table. Walls and locked doors
+  // still eat the dash — crossing masonry is Backstage Pass's job below.
+  {
+    const slid = dist(start, p.pos);
+    const bx = p.pos.x + dir.x * 0.45, by = p.pos.y + dir.y * 0.45;
+    const bi = Math.floor(by) * state.map.w + Math.floor(bx);
+    if (slid < dp.distance - 0.4 && state.map.blocked?.[bi]) {
+      for (let dd = dp.distance; dd > slid + 0.5; dd -= 0.25) {
+        const landing = { x: start.x + dir.x * dd, y: start.y + dir.y * dd };
+        if (!isWalkable(state.map, landing.x, landing.y)) continue;
+        let crossesWall = false;
+        for (let s = 0.25; s < dd; s += 0.25) {
+          const t = tileAt(state.map, start.x + dir.x * s, start.y + dir.y * s);
+          if (t === Tile.Wall || t === Tile.DoorLocked) { crossesWall = true; break; }
+        }
+        if (crossesWall) continue; // a shorter hop may still clear the table
+        p.pos.x = landing.x;
+        p.pos.y = landing.y;
+        break;
+      }
+    }
+  }
   // Backstage Pass (chase legendary): walls are set dressing. If the ordinary
   // dash slide stopped short but the reach extends to walkable ground on the
   // FAR side, blink there — scanning from full reach backward for the farthest
@@ -3914,7 +3939,7 @@ function radialDamage(
     if (m.hp <= 0) killed.push(m);
   }
   // Blasts pop the smashable dressing too — nova through the storeroom.
-  smashBreakables(state, (pos) => dist(center, pos) <= radius);
+  smashBreakables(state, ({ pos }) => dist(center, pos) <= radius);
   // RIVALS: blasts don't check contracts — rivals in the radius eat it too.
   for (const v of rivalTargets(state, p)) {
     const d = dist(center, v.pos);
@@ -4501,16 +4526,24 @@ function updateHazards(state: GameState, dt: number): void {
 
 /** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
 /** Pop every smashable the hit test reaches: pocket gold + a poof. */
-function smashBreakables(state: GameState, hits: (pos: Vec2) => boolean): void {
+/** BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): a committed big-frame swing
+ *  also clears blocking furniture in its arc — the table explodes and the
+ *  fight arrives. Clutter hoards are NOT touched (their gold stays a player
+ *  verb); only footprint pieces fall, and they fall in one blow. */
+export function smashBlockersAt(state: GameState, center: Vec2, radius: number): void {
+  smashBreakables(state, (b) => !!b.footprint && dist(center, b.pos) <= radius, 999);
+}
+
+function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg = 1): void {
   const bs = state.breakables ?? [];
   if (bs.length === 0) return;
   const left: Breakable[] = [];
   for (const b of bs) {
-    if (!hits(b.pos)) {
+    if (!hits(b)) {
       left.push(b);
       continue;
     }
-    b.hp -= 1;
+    b.hp -= dmg;
     if (b.hp > 0) {
       hit(state, b.pos, 0, "weapon"); // it cracks; one more should do it
       left.push(b);

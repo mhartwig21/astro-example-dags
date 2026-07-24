@@ -14,6 +14,30 @@ import {
   spawnBossWave, summonMinion, tauntingDecoy,
 } from "./game";
 import { PURPOSE_PERCEPTION } from "./roomPurposes";
+import { smashBlockersAt } from "./game";
+
+// FURNITURE-FEEL: the kinds with the frame to remove furniture rather than
+// walk around it. Everyone else slips the 45s (see slipAround).
+const SMASH_KINDS = new Set<Monster["kind"]>(["brute", "warden", "colossus", "slagbreaker", "foreman", "boss"]);
+
+/** Any blocking furniture within reach of this monster's swing? */
+function furnitureWithin(state: GameState, pos: Vec2, r: number): boolean {
+  return (state.breakables ?? []).some((b) => b.footprint && dist(pos, b.pos) <= r);
+}
+
+/** LOCAL AVOIDANCE (furniture-feel): a stalled chaser tries the two
+ *  45-degree slips instead of grinding at a mid-room table like a stuck
+ *  vacuum. Parity picks the first side, so a pack SPLITS around the
+ *  obstacle instead of conga-lining behind one member. */
+function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number): void {
+  const px = m.pos.x, py = m.pos.y;
+  for (const sign of m.id % 2 === 0 ? [1, -1] : [-1, 1]) {
+    const c = Math.SQRT1_2, s = sign * Math.SQRT1_2;
+    const slip = { x: toPlayer.x * c - toPlayer.y * s, y: toPlayer.x * s + toPlayer.y * c };
+    moveWithCollision(state.map, m.pos, slip, step, isWalkable);
+    if (Math.hypot(m.pos.x - px, m.pos.y - py) >= step * 0.5) return;
+  }
+}
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -77,6 +101,8 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
 function resolveMeleeStrike(state: GameState, m: Monster): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+  // The big frames wreck furniture in the arc (brute smash-through).
+  if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, reach + 0.45);
   // A STUNT DOUBLE in reach takes the hit — that is what it is paid for.
   if (decoySoak(state, m.pos, reach, m.damage)) return;
   for (const player of state.players) {
@@ -106,6 +132,9 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
  * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
 function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+  // The slam wrecks the furniture too (brute smash-through): the table
+  // explodes and the fight arrives.
+  if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, radius + 0.45);
   // The double dives on the slam too (players in the radius still get spared —
   // one professional sacrifice per blast).
   if (decoySoak(state, m.pos, radius, dmg)) return;
@@ -1454,7 +1483,19 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     if (d <= m.attackRange) {
       if (m.attackCooldown === 0) beginWindup(m, "slam", windup);
     } else {
+      const px = m.pos.x, py = m.pos.y;
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+      if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+        // BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): stalled against blocking
+        // furniture with the prey beyond it? Then the furniture IS the target —
+        // the same telegraphed slam, resolved against the room (the resolve
+        // clears every footprint piece in the arc). The payoff moment.
+        if (m.attackCooldown === 0 && furnitureWithin(state, m.pos, m.attackRange + CONFIG.monsterStrikeGrace + 0.45)) {
+          beginWindup(m, "slam", windup);
+        } else {
+          slipAround(state, m, toPlayer, moveSpeed * dt);
+        }
+      }
     }
     return;
   }
@@ -1464,6 +1505,10 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
   } else {
+    const px = m.pos.x, py = m.pos.y;
     moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+      slipAround(state, m, toPlayer, moveSpeed * dt);
+    }
   }
 }

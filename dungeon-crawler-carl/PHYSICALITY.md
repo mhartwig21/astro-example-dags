@@ -15,10 +15,19 @@ change what play feels like.
 ## 1. Physicalized furniture — SHIPPED (P1+P2, 2026-07-10)
 
 Blocked mask + plan blockers + connectivity gate + hp-2 smash-to-clear are
-live (see the physical-furniture PR). Still open from this section: `tall`
-projectile blockers, brute smash-through (v2 — the payoff moment), and a
-real-browser visual pass (headless GL was too slow for the streamed models
-at review time; sim behavior is fully test-covered).
+live (see the physical-furniture PR).
+
+**Furniture-feel (2026-07-24, the AA critique batch):** DASH VAULT (a dash
+that stalls on blocked furniture carries OVER it to open floor — walls and
+locked doors still eat the dash), DAMAGED STATES (1-hp furniture swaps to
+the kit's broken table or tilts-and-sinks), LOCAL AVOIDANCE (stalled
+chasers slip the 45s around mid-room tables; id-parity splits the pack),
+and BRUTE SMASH-THROUGH (big frames — brute/warden/colossus/slagbreaker/
+foreman/boss — windup AT blocking furniture when stalled, and every
+committed swing clears footprint pieces in its arc; hoard clutter stays a
+player verb). Still open: `tall` projectile blockers (the bookcase-arrow
+contradiction), sub-tile colliders (collision is still tile-granular), and
+the real-browser look pass (use `?eagerassets`, see CLAUDE.md).
 
 ### Original design (for reference)
 

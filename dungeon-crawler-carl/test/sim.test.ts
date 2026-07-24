@@ -5478,3 +5478,100 @@ describe("staging v2: seats, perception, detection", () => {
     expect(tested).toBe(true);
   });
 });
+
+describe("furniture feel: vault, smash-through, avoidance", () => {
+  /** First blocking table with clear straight-line approach + landing. */
+  function findVaultSetup(g: ReturnType<typeof createTestGame>) {
+    for (const b of g.breakables ?? []) {
+      if (!b.footprint || !b.key.startsWith("table")) continue;
+      // approach from the west, land on the east
+      const from = { x: b.pos.x - 1.2, y: b.pos.y };
+      const beyond = { x: b.pos.x + 1.2, y: b.pos.y };
+      if (isWalkable(g.map, from.x, from.y) && isWalkable(g.map, beyond.x, beyond.y) &&
+          isWalkable(g.map, from.x, from.y - 0.31) && isWalkable(g.map, from.x, from.y + 0.31) &&
+          isWalkable(g.map, beyond.x, beyond.y - 0.31) && isWalkable(g.map, beyond.x, beyond.y + 0.31)) {
+        return { b, from };
+      }
+    }
+    return null;
+  }
+
+  it("a dash goes OVER blocking furniture and lands on open floor", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: setup.from.x, y: setup.from.y };
+      p.facing = { x: 1, y: 0 };
+      step(g, { ...idle(), dash: true, move: { x: 1, y: 0 } }, 1 / 60);
+      // The vault carried the crawler past the table (which still stands).
+      expect(p.pos.x).toBeGreaterThan(setup.b.pos.x + 0.4);
+      expect(g.breakables!.some((bb) => bb.id === setup.b.id)).toBe(true);
+      expect(isWalkable(g.map, p.pos.x, p.pos.y)).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled brute slams THROUGH the table instead of shuffling", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const brute = g.monsters.find((m) => m.kind === "brute");
+      if (!brute) continue;
+      tested = true;
+      const p = g.players[0];
+      // Prey on the far side of the table, brute pressed against the near side.
+      g.monsters = [brute];
+      brute.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      brute.residentOf = undefined;
+      brute.dormant = false;
+      brute.attackCooldown = 0;
+      p.pos = { x: setup.b.pos.x + 1.6, y: setup.b.pos.y };
+      const id = setup.b.id;
+      const ti = setup.b.footprint![0];
+      let gone = false;
+      for (let i = 0; i < 900 && !gone; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break; // slam reached the prey through the grace arc — fine
+        gone = !g.breakables!.some((bb) => bb.id === id);
+      }
+      expect(gone).toBe(true); // the table exploded...
+      expect(g.map.blocked![ti]).toBe(0); // ...and the lane is open
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled grunt slips the 45 instead of grinding at furniture", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const grunt = g.monsters.find((m) => m.kind === "grunt" || m.kind === "swarmer");
+      if (!grunt) continue;
+      tested = true;
+      const p = g.players[0];
+      g.monsters = [grunt];
+      grunt.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      grunt.residentOf = undefined;
+      grunt.dormant = false;
+      p.pos = { x: setup.b.pos.x + 2.0, y: setup.b.pos.y };
+      const y0 = grunt.pos.y;
+      let slipped = false;
+      for (let i = 0; i < 240 && !slipped; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break;
+        // lateral progress = it went AROUND, not through
+        if (Math.abs(grunt.pos.y - y0) > 0.35 || grunt.pos.x > setup.b.pos.x) slipped = true;
+      }
+      expect(slipped).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+});
