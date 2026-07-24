@@ -137,7 +137,11 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
   just tests. Headless Chrome recipe (flags, CDP driving, SwiftShader
   gotchas — it runs ~3fps, hold keys ≥450ms, sim time dilates) lives in
   `.claude/skills/verify/SKILL.md` if present locally; the test-mode URL is
-  the fast path to any game state.
+  the fast path to any game state. Harness flags (`src/render3d/assets.ts`):
+  `?noassets` skips all GLB loading (procedural stand-ins — fast layout
+  checks under software GL); `?eagerassets` blocks boot until the full
+  manifest settles (screenshots show final art, not a mid-stream mix).
+  Both stamp `<html data-assets-settled="1">` — poll that, don't sleep.
 - **Deploy runbook** (after merging to main):
   1. `git checkout origin/main` and run `npm test` + `npm run typecheck` on
      the exact commit you'll ship.
