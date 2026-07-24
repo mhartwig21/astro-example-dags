@@ -521,6 +521,12 @@ export class Renderer3D {
       stage_hold: pick(/^Holding_B$/i, /^Holding_A$/i),
       stage_pushups: pick(/^Push_Ups$/i),
       stage_idle_b: pick(/^Idle_B$/i),
+      stage_sit_chair: pick(/^Sit_Chair_Idle$/i),
+      // THE RISE (staging v2): scene-break stand-up transitions. One-shots —
+      // the busy timer holds locomotion off until the actor is upright.
+      stage_rise_sit: pick(/^Sit_Floor_StandUp$/i, /^Sit_Chair_StandUp$/i),
+      stage_rise_chair: pick(/^Sit_Chair_StandUp$/i, /^Sit_Floor_StandUp$/i),
+      stage_rise_lie: pick(/^Lie_StandUp$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
     const LOOPING = new Set([
@@ -528,7 +534,7 @@ export class Renderer3D {
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
       "sneak", "blocking",
       // Staged resident verbs hold their loop until the scene breaks.
-      "stage_sit", "stage_lie", "stage_hammer", "stage_chop",
+      "stage_sit", "stage_sit_chair", "stage_lie", "stage_hammer", "stage_chop",
       "stage_work_a", "stage_work_b", "stage_hold", "stage_pushups", "stage_idle_b",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
@@ -2681,9 +2687,18 @@ export class Renderer3D {
             const wanted = WINDUP_CLIP[mon.windupKind ?? ""] ?? "attack";
             playM(hasClip(wanted) ? wanted : "attack");
           } else if ((ud.animBusy as () => number)() <= 0) {
+            const hasClipM = ud.hasClip as (n: string) => boolean;
+            const act = residentAct(state, mon);
+            // THE RISE (staging v2): the scene just broke for this actor —
+            // play the stand-up ONE-SHOT before locomotion takes the body.
+            // The whole room rises together (residentAggro is per-purpose).
+            if (!act && ud.stagedRise) {
+              const rise = ud.stagedRise as string;
+              ud.stagedRise = null;
+              if (hasClipM(rise)) playFirstM(rise);
+            } else {
             // Same hysteresis as players: enter walking decisively, leave lazily.
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
-            const hasClipM = ud.hasClip as (n: string) => boolean;
             if (ud.locoMoving) {
               // The unnoticed Repo Rat CREEPS between hoards; once the "a rat!"
               // event fires it drops the act. Fast movers (fleeing filcher,
@@ -2697,9 +2712,9 @@ export class Renderer3D {
               // scene breaks (first blood) or anything upstream outranks the
               // idle slot. Kind-signature performances still win (a parked
               // Drum Sergeant drums even in a mess hall).
-              const act = residentAct(state, mon);
               if (act && hasClipM(act.clip) &&
                   !(mon.kind === "drummer" || mon.kind === "shieldbearer" || mon.kind === "duelist")) {
+                ud.stagedRise = act.rise ?? null; // armed for the scene-break edge
                 if (act.burst && hasClipM(act.burst)) {
                   ud.stageT = ((ud.stageT as number) ?? 0) + dt;
                   if ((ud.stageT as number) >= burstPeriod(act, mon.id)) {
@@ -2725,6 +2740,7 @@ export class Renderer3D {
                 mon.kind === "duelist" && (mon.riposteT ?? 0) > 0 && hasClipM("idle_brawler") ? "idle_brawler" : "idle",
               );
               }
+            }
             }
           }
         }

@@ -63,7 +63,7 @@ function wallFaces(env: DressEnv, r: Rect): { x: number; y: number; nx: number; 
 export function dressRoomPurpose(
   env: DressEnv,
   r: Rect,
-  d: Pick<RoomDressing, "purpose" | "condition" | "anchor" | "breakables" | "blockers">,
+  d: Pick<RoomDressing, "purpose" | "condition" | "anchor" | "breakables" | "blockers" | "seats">,
 ): void {
   const { frng, place } = env;
   const p: RoomPurpose = d.purpose;
@@ -136,11 +136,13 @@ export function dressRoomPurpose(
         scale: 1.9, jitter: 0.05, rot: Math.floor(frng() * 2) * (Math.PI / 2),
       });
     }
-    const seats = 2 + Math.floor(frng() * 3);
-    for (let s = 0; s < seats; s++) {
-      const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
-      place(p.tableSet.seat, tcx + Math.cos(a) * 0.9, tcy + Math.sin(a) * 0.9, {
-        scale: 0.32, jitter: cond === "scarred" ? 0.3 : 0.06, rot: a + Math.PI,
+    // Seats come from the PLAN (staging v2): the sim sits the pack on
+    // exactly these slots, so chair and actor line up. Tiny jitter only —
+    // a shoved chair under a seated skeleton reads as a bug, not a story.
+    for (const s of d.seats) {
+      const a = Math.atan2(s.y - tcy, s.x - tcx);
+      place(p.tableSet.seat, s.x, s.y, {
+        scale: 0.32, jitter: 0.02, rot: a + Math.PI,
       });
     }
   } else if (p.tableSet && d.anchor && r.w >= 6 && r.h >= 6) {

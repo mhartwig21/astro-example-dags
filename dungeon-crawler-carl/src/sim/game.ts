@@ -505,6 +505,12 @@ function spawnMonsters(state: GameState): void {
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
+      // STAGING v2: residents take the PLAN'S seat slots first — the sim owns
+      // where the pack sits, so the chairs and the sitting actors agree. The
+      // ring draws above STAY in the stream (draw-then-override convention).
+      const seat = social && dressing ? dressing.seats[k] : undefined;
+      const seatOk = seat !== undefined && isWalkable(map, seat.x, seat.y);
+      if (seat && seatOk) pos = { x: seat.x, y: seat.y };
       // The escort slot carries the pack's support: a shaman healer, or (from
       // the SEWERS down) a Drum Sergeant beating the pack into a frenzy — the
       // playbook's "The Drumline". Same kill-order lesson, different verb.
@@ -520,8 +526,9 @@ function spawnMonsters(state: GameState): void {
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
       // Seated residents HOLD their room (sentries) and remember whose room
-      // it is — the interruption line fires on first blood (damageMonster).
+      // it is — the scene breaks on detection (ai.ts) or first blood.
       if (social && dressing) m.residentOf = dressing.purposeId;
+      if (seatOk) m.seated = true;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
       state.monsters.push(m);
       budget--;
@@ -1893,6 +1900,17 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
  * `priority: "high"` marks the handful of headline moments (boss down, new
  * band, wipe) that hosts may present bigger than a toast.
  */
+/** STAGING v2: the room's scene is over — they SAW you (ai.ts detection)
+ *  or FELT you (damageMonster). The whole purpose wakes at once, the
+ *  interruption line fires once per floor, perception snaps to normal, and
+ *  the renderer plays the stand-up transition off this same flag. */
+export function breakResidentScene(state: GameState, m: Monster): void {
+  if (!m.residentOf || (state.residentAggro ?? []).includes(m.residentOf)) return;
+  (state.residentAggro ??= []).push(m.residentOf);
+  const line = RESIDENT_LINES[m.residentOf];
+  if (line) announce(state, "flavor", line);
+}
+
 function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
@@ -2305,13 +2323,10 @@ export function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
-  // Interrupting the residents (phase 5): the first hit on a seated pack
-  // gets the room's line, once per floor. The furniture stays out of it.
-  if (m.residentOf && !(state.residentAggro ?? []).includes(m.residentOf)) {
-    (state.residentAggro ??= []).push(m.residentOf);
-    const line = RESIDENT_LINES[m.residentOf];
-    if (line) announce(state, "flavor", line);
-  }
+  // Interrupting the residents: damage breaks the scene too (staging v2 —
+  // detection in ai.ts is the usual path; an opening shot from the dark
+  // still counts as introducing yourself).
+  breakResidentScene(state, m);
   if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   // Repo Rat: every HP quarter beaten out of it SPILLS a coin of its carry —
   // the chase pays out as it runs, and the kill drops whatever's left.

@@ -107,11 +107,20 @@ already in RIG_CLIP_MANIFEST) carry REAL Sit/Lie/Cheering/Hammering/Chopping/
 Working/Push_Ups clips, so A3 (commissioned clips) is unnecessary and the
 prop-trick fallbacks were never needed. Shipped: canonical `stage_*` keys in
 the animator table + `staging.ts` acts wired into the idle slot of the clip
-state machine (dormancy/stagger/windup/locomotion all outrank it, so the
-interruption transition is free; the room's scene breaks permanently on
-first blood via residentAggro). Large-rig residents fall through to plain
-idle gracefully. Still open: hand-prop grafts (mug/book) as garnish, and
-the same real-browser visual pass furniture is waiting on.
+state machine (dormancy/stagger/windup/locomotion all outrank it). Large-rig
+residents fall through to plain idle gracefully.
+
+**Staging v2 (2026-07-24, the AA critique batch):** the plan owns SEAT SLOTS
+(`RoomDressing.seats`) wherever a table blocks — the sim spawns residents ON
+them (`Monster.seated`), the renderer's chairs land at the same coordinates,
+and seated actors play the chair-sit. The scene now breaks on DETECTION
+(`PURPOSE_PERCEPTION` in roomPurposes.ts dulls staged aggro radius — the
+barracks sleeps at 0.4x, the guardpost watches at 1.25x; sneaking past is a
+real option) or on damage, via `breakResidentScene`; the whole room then
+plays a real STAND-UP transition (`stage_rise_*`) before locomotion.
+Still open: hand-prop grafts (mug/book) as garnish; clip-playback look
+(alignment is now by construction, but sit/lie/rise poses want human eyes —
+use `?eagerassets` on a desktop, see CLAUDE.md harness flags).
 
 ### Original design (for reference)
 
