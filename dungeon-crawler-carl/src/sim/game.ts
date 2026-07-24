@@ -1903,11 +1903,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
+  extra?: { dir?: Vec2; killed?: boolean; overkill?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
 ): void {
   state.hits.push({
     pos: { x: pos.x, y: pos.y }, amount, kind,
-    dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+    dir: extra?.dir, killed: extra?.killed, overkill: extra?.overkill,
+    school: extra?.school, resisted: extra?.resisted,
     effect: extra?.effect, to: extra?.to ? { x: extra.to.x, y: extra.to.y } : undefined,
   });
 }
@@ -2378,7 +2379,10 @@ export function damageMonster(
     }
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
-    dir: opts.dir, killed: m.hp <= 0, school: opts.school,
+    dir: opts.dir, killed: m.hp <= 0,
+    // Deleted, not defeated: the blow overshot by a third of the bar.
+    overkill: (m.hp <= -0.35 * m.maxHp) || undefined,
+    school: opts.school,
     resisted: (resisted || guarded) || undefined, // guarded hits read dim too
     effect: opts.effect,
   });

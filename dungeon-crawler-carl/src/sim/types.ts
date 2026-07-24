@@ -739,6 +739,9 @@ export interface HitEvent {
   kind: HitKind;
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
+  // The killing blow OVERSHOT by ≥35% of max hp: hosts stage it bigger
+  // (corpse launch, longer hit-stop). Only ever set alongside killed.
+  overkill?: boolean;
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
   effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)
