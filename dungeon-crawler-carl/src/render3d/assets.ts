@@ -13,6 +13,23 @@ export interface LoadedModel {
   animations: THREE.AnimationClip[];
 }
 
+// ---- Verification harness flags ----
+// The headless verify rig can't keep up with ~200 streamed meshopt GLBs under
+// software GL, which is how visual changes ended up shipping sight-unseen.
+// Two URL flags fix that from either direction:
+//   ?noassets    — skip ALL model loading; every mesh is a procedural stand-in.
+//                  Fast enough for layout/behavior checks under SwiftShader.
+//   ?eagerassets — boot blocks until the FULL manifest has settled, so a real
+//                  screenshot shows final art instead of a mid-stream mix.
+// Either way, <html data-assets-settled="1"> is stamped when loading is done —
+// poll THAT from the driver instead of sleeping and hoping.
+const HARNESS = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+export const NO_ASSETS = HARNESS?.has("noassets") ?? false;
+const EAGER_ASSETS = HARNESS?.has("eagerassets") ?? false;
+function markAssetsSettled(): void {
+  if (typeof document !== "undefined") document.documentElement.dataset.assetsSettled = "1";
+}
+
 // Optional model manifest. Paths are relative to the site root (Vite `public/`).
 // Missing files are handled gracefully — the renderer uses procedural stand-ins.
 export const MODEL_MANIFEST: Record<string, string> = {
@@ -367,6 +384,13 @@ export function startModelLoad(
     complete: Promise.resolve(),
   };
 
+  // ?noassets (verify harness): nothing loads, stand-ins everywhere, and the
+  // settled beacon is up before the first frame.
+  if (NO_ASSETS) {
+    markAssetsSettled();
+    return store;
+  }
+
   // Shared clip libraries fill IN PLACE with slot-stable order (the renderer's
   // regex fallbacks are order-sensitive). Characters that arrive before their
   // clips hold a reference to the same array, so late packs reach them
@@ -417,12 +441,13 @@ export function startModelLoad(
   let settled = 0;
   const tick = () => onProgress?.(++settled, wave1.length);
 
-  store.ready = Promise.all(
+  const priorityWave = Promise.all(
     wave1.map((e) => loadModel(e[0], e[1]).finally(tick)),
   ).then(() => {});
+  store.ready = priorityWave;
 
   const background = async (): Promise<void> => {
-    await store.ready; // priority wave owns the bandwidth first
+    await priorityWave; // priority wave owns the bandwidth first
     await Promise.all([
       ...wave2.map((e) => loadModel(e[0], e[1])),
       ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).flatMap((rig) =>
@@ -469,6 +494,10 @@ export function startModelLoad(
     ]);
   };
   store.complete = background();
+  void store.complete.then(markAssetsSettled);
+  // ?eagerassets (verify harness): boot gates on the FULL manifest. Reassigned
+  // AFTER background() captured priorityWave, so this can't deadlock on itself.
+  if (EAGER_ASSETS) store.ready = store.complete;
 
   return store;
 }
