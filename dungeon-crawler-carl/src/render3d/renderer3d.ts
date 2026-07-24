@@ -157,7 +157,15 @@ export class Renderer3D {
   private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
   private aimIndicator: THREE.Group | null = null; // drag-to-aim telegraph (touch/pad)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
-  private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
+  private dying: {
+    mesh: THREE.Group; t: number; rigged: boolean;
+    // Overkill: the corpse is LAUNCHED — velocity + tumble applied while the
+    // death clip plays. KayKit physics: comedic, committed, correct.
+    fling?: { vx: number; vy: number; vz: number; spin: number };
+  }[] = [];
+  // Recent overkill killing blows (from emitHits) waiting to claim the corpse
+  // the next reconcile removes near their position. Short-lived by design.
+  private overkillMarks: { x: number; y: number; dir?: Vec2; t: number }[] = [];
   private loot = new Map<number, THREE.Object3D>();
   private projectiles = new Map<number, THREE.Object3D>();
 
@@ -2636,6 +2644,14 @@ export class Renderer3D {
           playFirstM("awaken");
         }
         const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        // FLINCH (combat-feel program #15.1): a fresh hit interrupts the body,
+        // not just the tint. Rate-limited so DoT ticks and flurries read as
+        // occasional twitches instead of stun-lock theater; never during a
+        // committed windup (interrupting attacks is the stagger system's job),
+        // never on bosses (their hit-react IS the stagger).
+        const flashRose = mon.hitFlash > 0 && !((ud.prevHitFlash as number) > 0);
+        ud.prevHitFlash = mon.hitFlash;
+        ud.flinchCd = Math.max(0, ((ud.flinchCd as number) ?? 0) - dt);
         if (state.encounter?.monsterId === mon.id) {
           // One performance per introduction — playFirst force-restarts, so gate it.
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
@@ -2652,6 +2668,12 @@ export class Renderer3D {
             // everyone else alternates the two hit reactions.
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
             else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
+          } else if (
+            flashRose && (ud.flinchCd as number) <= 0 && mon.windup <= 0 &&
+            mon.stagger <= 0 && mon.kind !== "boss" && mon.affix !== "shielded"
+          ) {
+            ud.flinchCd = 0.7;
+            playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (mon.windup > 0) {
             // Prefer a clip matching the committed attack; fall back to the
             // generic swing when the rig doesn't have that specific one baked.
@@ -2877,7 +2899,21 @@ export class Renderer3D {
             const variant = Math.random() < 0.5 && (mesh.userData.hasClip as (n: string) => boolean)("death_b") ? "death_b" : "death";
             (mesh.userData.play as (n: string, force?: boolean) => void)(variant, true);
           }
-          this.dying.push({ mesh, t: rigged ? 1.1 : 0.7, rigged });
+          // An overkill blow near this corpse claims it: launched, tumbling,
+          // death clip still playing mid-air. Bigger send-off for bigger hits.
+          let fling: (typeof this.dying)[number]["fling"];
+          const okIdx = this.overkillMarks.findIndex(
+            (mk) => Math.hypot(mk.x - mesh.position.x, mk.y - mesh.position.z) < 1.4,
+          );
+          if (okIdx >= 0) {
+            const mk = this.overkillMarks.splice(okIdx, 1)[0];
+            const d = mk.dir ?? { x: 0, y: 0 };
+            fling = {
+              vx: d.x * 5.5 + (Math.random() - 0.5), vy: 4.6 + Math.random() * 1.2,
+              vz: d.y * 5.5 + (Math.random() - 0.5), spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4),
+            };
+          }
+          this.dying.push({ mesh, t: (rigged ? 1.1 : 0.7) + (fling ? 0.4 : 0), rigged, fling });
         }
       }
     }
@@ -3351,11 +3387,16 @@ export class Renderer3D {
         h.kind === "heal" ? 0x5fd08a :
         h.kind === "gold" ? 0xf2c14e : 0xb98bff;
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
-      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0);
+      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0) + (h.overkill ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
       if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
       if (h.kind === "crit") this.addTrauma(0.3);
       if (h.killed && h.kind !== "player") this.addTrauma(0.25);
+      if (h.overkill && h.kind !== "player") {
+        this.addTrauma(0.2);
+        // The corpse this kill removes (next reconcile) gets launched.
+        this.overkillMarks.push({ x: h.pos.x, y: h.pos.y, dir: h.dir, t: 0.5 });
+      }
     }
   }
 
@@ -3465,13 +3506,30 @@ export class Renderer3D {
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
   private updateDying(dt: number): void {
+    // Unclaimed overkill marks expire fast (net mode can cull the corpse
+    // before we ever see it disappear).
+    this.overkillMarks = this.overkillMarks.filter((mk) => (mk.t -= dt) > 0);
     const alive: typeof this.dying = [];
     for (const d of this.dying) {
       d.t -= dt;
       if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
+      if (d.fling) {
+        // Launched: ballistic arc + tumble, death clip still playing.
+        const f = d.fling;
+        d.mesh.position.x += f.vx * dt;
+        d.mesh.position.y += f.vy * dt;
+        d.mesh.position.z += f.vz * dt;
+        f.vy -= 14 * dt;
+        d.mesh.rotation.z += f.spin * dt;
+        if (d.mesh.position.y <= 0) {
+          // Landed: kill the arc, keep a skid, stop tumbling upright-ish.
+          d.mesh.position.y = 0;
+          f.vx *= 0.25; f.vz *= 0.25; f.vy = 0; f.spin *= 0.2;
+        }
+      }
       if (d.rigged) {
         (d.mesh.userData.mixer as THREE.AnimationMixer).update(dt);
-      } else {
+      } else if (!d.fling) {
         d.mesh.rotation.z = Math.min(Math.PI / 2, d.mesh.rotation.z + dt * 4);
         d.mesh.position.y -= dt * 0.6;
       }

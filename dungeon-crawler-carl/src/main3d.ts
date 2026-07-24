@@ -3260,9 +3260,15 @@ async function main(): Promise<void> {
         }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths
-      // hang for drama, ordinary kills get a couple of frames.
+      // hang for drama, ordinary kills get a couple of frames. Non-kill CRITS
+      // get a single-frame tick (the accumulator cap keeps flurries sane), and
+      // OVERKILL blows hang longest — deleting something should feel like it.
       for (const h of frameHits) {
-        if (!h.killed) continue;
+        if (h.overkill) { hitStop = Math.min(0.14, hitStop + 0.1); continue; }
+        if (!h.killed) {
+          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.022);
+          continue;
+        }
         hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
       }
 

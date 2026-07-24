@@ -119,11 +119,37 @@ session has a reason not to. Numbers reference the entries below.
     (c) drop drama — the rare+ drop moment (beam/sound/brief hold) is most of
     what "good itemization" FEELS like (`render3d` ground-item presentation +
     `audio/director.ts`).
-15. **Combat micro-feel audit** (polish ranking #4). The last 10% after the
-    combat-feel arc: a few frames of hit-stop on crits/kill blows, overkill
-    corpse launch, distinct swing/impact feel per weapon class. All
-    presentation-layer: `render3d/juice` + `audio/director.ts` keyed off
-    existing `HitEvent` data (no sim changes).
+15. **The combat-feel program** (polish ranking #4 — SUPERSEDES the old
+    "micro-feel audit"; owner-approved 2026-07-20 after the AA critique).
+    Verdict being fixed: the systems layer is strong but the 200ms around a
+    hit landing is hollow — instant hitscan melee with zero commitment,
+    hit reactions that stop at a tint flash, monster strikes that are radial
+    proximity pulses, weapon classes that differ only numerically. Six
+    ordered fixes; ship each as its own PR:
+    (1) IMPACT FRAMES — 60-90ms hit-stop on crits/kill blows (rate-limited
+        so hordes don't stutter; local presentation only — never pause the
+        server sim), flinch clip on damaged monsters (the rigs ship hit
+        clips), overkill corpse launch, per-weapon-class impact audio.
+        Presentation-only: main3d frame pacing + renderer3d animator +
+        `audio/director.ts` off existing `HitEvent` data.
+    (2) ATTACK COMMITMENT — ~100ms windup / ~150ms recovery on the player
+        swing, weapon-class scaled (swift barely, heavy noticeably). SIM
+        change: `doPlayerAttack` + `meleeParams`; balance-bot contract must
+        be re-tuned. Creates risk, rhythm, and weapon feel in one move.
+    (3) DIRECTIONAL MONSTER STRIKES — melee archetypes swing an ARC (not
+        the current 360° range+grace pulse in `resolveMeleeStrike`) with a
+        punishable whiff-recovery state; generalize the shieldbearer's
+        directional-guard pattern. SIM change, balance-gated.
+    (4) WEAPON-CLASS KINESTHETICS — distinct visible swing arcs, animation
+        timing, and impact sounds per swift/heavy/reach/chaotic, riding on
+        (1)+(2).
+    (5) CAST CEREMONY — the Five + ultimates get wind-up theater (Nova
+        gathers; Cataclysm is an EVENT). Stunt Double/Extradition prove the
+        pattern.
+    (6) CREATURE VOCALIZATION — aggro/pain/death barks per archetype family
+        through `audio/director.ts` (silent-fallback until clips sourced).
+    Order matters: (1)+(6) are pure presentation and land anytime; (2)+(3)
+    want the #13 telemetry baseline first so re-tuning is evidence-driven.
 16. **Announcer tone sweep** (polish ranking #5). The menus went dry-System
     (2026-07-16, see the campfire PRs); the in-game `announce()` lines still
     carry game-show barker copy, and CLAUDE.md still SAYS "game-show
