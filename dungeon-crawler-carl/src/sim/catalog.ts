@@ -1,3 +1,4 @@
+import { CONFIG } from "./config";
 import type { Affixes, ItemSlot, MaterialId, PassiveId } from "./types";
 
 // The System Shop catalog — one hybrid shop/crafting system (LoL-style).
@@ -346,8 +347,10 @@ export function gearAffixes(e: CatalogEntry, floor: number): Affixes {
   const mult = 1 + 0.15 * Math.max(0, floor - 2);
   const a = e.affixes ?? {};
   const out: Affixes = {};
-  if (a.damage) out.damage = Math.round(a.damage * mult);
-  if (a.spell) out.spell = Math.round(a.spell * mult); // the schools scale together
+  // gearPowerMult keeps shop/drop tier parity through the build-matters pass:
+  // both paths' damage/spell scaled together (see config.ts).
+  if (a.damage) out.damage = Math.round(a.damage * mult * CONFIG.gearPowerMult);
+  if (a.spell) out.spell = Math.round(a.spell * mult * CONFIG.gearPowerMult); // the schools scale together
   if (a.maxHp) out.maxHp = Math.round(a.maxHp * mult);
   if (a.armor) out.armor = Math.round(a.armor * mult);
   if (a.speed) out.speed = +(a.speed * Math.min(mult, 2)).toFixed(2);
