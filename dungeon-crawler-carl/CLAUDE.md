@@ -51,6 +51,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
 | `BUILDER.md` | The /builder.html crafting bench: room templates, custom enemies, and the dev-only Meshy bridge (prop + creature generation). Content lands in `src/content/` |
 | `PHYSICALITY.md` | Design proposal: furniture that blocks (removable blocked-mask + smashable blockers) and the resident animation/staging pass. Delete sections as they ship |
+| `UNIQUES.md` | The uniques economy design: 24 FOUND uniques (band-gated pantheon, rolls, pity) + the BUILT catalog ladder (early/core/grail) + the Refurbishment bench. Delete sections as they ship |
 
 ## Commands
 

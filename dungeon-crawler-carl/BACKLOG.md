@@ -14,7 +14,7 @@ session has a reason not to. Numbers reference the entries below.
    SHIPPED 2026-07-20: chase-speed patience ramp, `bossChaseRamp*` in
    config.ts — contact resets, capped 1.65x, announced once.)
 2. Data-driven balance pass (#13) — usage_events is sitting unmined
-3. Itemization depth (#14) — prune dead affixes, named build-benders, drop drama
+3. Itemization: the uniques economy (#14) — found pantheon + built ladder, design in UNIQUES.md
 4. Combat micro-feel audit (#15) + telegraph readability pass (#18)
 5. Announcer tone sweep (#16) — the menus went dry-System; the sim should follow
 6. First-visit payload diet (#7) — the invite-link first impression
@@ -109,16 +109,19 @@ session has a reason not to. Numbers reference the entries below.
     data with a seed-VARIANCE harness (bot over N seeds x floors, flag the
     outlier tails that starve drafts or stack early elite affixes —
     `src/sim/bot.ts`); tuning the tails is what makes the Daily fair.
-14. **Itemization depth** (polish ranking #3). Three cuts, no new systems:
-    (a) prune dead affixes — anything no build ever wants is noise on every
-    drop (`src/sim/items.ts` affix tables; #13's data names the corpses);
-    (b) a small set of NAMED build-benders — items with one rule-breaking
-    line ("Nova leaves a burning ring", "dash gains a charge, loses
-    i-frames") that create decisions, not bigger numbers (items.ts + hooks in
-    `game.ts`/`abilities.ts`, catalog.ts if purchasable);
-    (c) drop drama — the rare+ drop moment (beam/sound/brief hold) is most of
-    what "good itemization" FEELS like (`render3d` ground-item presentation +
-    `audio/director.ts`).
+14. **Itemization: the uniques economy** (polish ranking #3 — REFRAMED
+    2026-07-26 by owner direction: "single-run Diablo 2 with a LoL crafting
+    path"). Full design in **UNIQUES.md**: a 24-item FOUND pantheon (drop-only,
+    band-gated, 4 per band, each a rule + one rolled line) beside the existing
+    BUILT catalog legendaries re-laddered onto early/core/grail shelves, a
+    pity-backed drop economy (bosses/vault pedestals/menaces, never chaff),
+    and the Refurbishment reroll bench. Ships in 7 slices (UNIQUES.md §9),
+    slice 1 = unique tier + drop channels + the Undercroft four. Drop drama
+    (beam/sound/brief hold on rare+ and unique drops) rides with slice 1;
+    dead-affix pruning stays deferred behind #13's usage_events mining.
+    Code seams: `src/sim/uniques.ts` (new), `Item.passive`/`hasPassive`
+    plumbing (already live), hooks at `damageMonster`/status/dash choke
+    points — see UNIQUES.md §8.
 15. **The combat-feel program** (polish ranking #4 — SUPERSEDES the old
     "micro-feel audit"; owner-approved 2026-07-20 after the AA critique).
     Verdict being fixed: the systems layer is strong but the 200ms around a
