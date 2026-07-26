@@ -208,6 +208,16 @@ export const CONFIG = {
   meleeTokensBase: 2, // floors 1-6
   meleeTokensEveryFloors: 6, // +1 token every N floors deeper
   meleeTokensMax: 4,
+  // LOS aggro (AI tier 2): the mass archetypes commit when they SEE you (or
+  // get hurt, or a packmate raises the alarm), and remember the hunt for a
+  // while after losing sight — pursuing through the flow field. Walls hide
+  // you; breaking contact is a real move. Memory follows the training-wheels
+  // ramp (same doctrine as tempo): floors 1-3 are forgetful, the deep
+  // dungeon holds a grudge. See monsterMemory().
+  monsterMemoryBase: 3, // seconds, floors 1-3
+  monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
+  monsterMemoryMax: 9, // ...capped (floor 7+)
+  packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
@@ -1153,6 +1163,12 @@ export const ARCHETYPES = {
 
 /** Depth tempo multipliers: how much quicker monsters move, swing, and
  * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+/** Pursuit memory after losing sight (LOS aggro): training-wheel floors are
+ * forgetful; the deep dungeon holds a grudge. */
+export function monsterMemory(floor: number): number {
+  return Math.min(CONFIG.monsterMemoryMax, CONFIG.monsterMemoryBase + Math.max(0, floor - 3) * CONFIG.monsterMemoryPerFloor);
+}
+
 export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
   const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
   return {
