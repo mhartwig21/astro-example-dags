@@ -84,7 +84,7 @@ export class NetClient {
   private snapAt = 0;
   private snapInterval = 67; // ms between snapshots; refined from arrivals
   // Auto-reconnect state: the original join args, replayed on unexpected close.
-  private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean } | null = null;
+  private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean; isPublic: boolean } | null = null;
   private retryN = 0;
   private everConnected = false; // never auto-retry a join that failed outright
 
@@ -112,14 +112,15 @@ export class NetClient {
 
   /** Connect, join a party, resolve on the welcome snapshot.
    * `rivals` opts the instance into the competitive race (first joiner decides);
-   * `roam` starts the party as a Roam campaign the same way. */
-  connect(url: string, code: string, name: string, rivals = false, roam = false): Promise<GameState> {
-    this.args = { url, code, name, rivals, roam };
+   * `roam` starts the party as a Roam campaign the same way; `isPublic` flags a
+   * brand-new instance discoverable via GET /open-parties (Quick Join). */
+  connect(url: string, code: string, name: string, rivals = false, roam = false, isPublic = false): Promise<GameState> {
+    this.args = { url, code, name, rivals, roam, isPublic };
     return this.open();
   }
 
   private open(): Promise<GameState> {
-    const { url, code, name, rivals, roam } = this.args!;
+    const { url, code, name, rivals, roam, isPublic } = this.args!;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
@@ -127,6 +128,7 @@ export class NetClient {
         t: "join", code, name,
         rivals: rivals || undefined,
         roam: roam || undefined,
+        public: isPublic || undefined,
         token: loadToken(),
         skin: loadSkin(),
       }));
