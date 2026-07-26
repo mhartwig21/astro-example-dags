@@ -372,7 +372,7 @@ function spawnMonsters(state: GameState): void {
     for (let tries = 0; tries < 12; tries++) {
       const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
       const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
-      if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== 1) continue; // Floor only
+      if (!isWalkable(map, x, y)) continue; // Floor only, and never inside furniture
       if (dist({ x, y }, map.spawn) <= 6 || dist({ x, y }, map.stairs) <= 2) continue;
       return { x, y };
     }
@@ -456,7 +456,8 @@ function spawnMonsters(state: GameState): void {
         const squadId = state.nextEntityId++; // toysoldier members share it
         for (const member of template.members) {
           let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
-          if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // the table itself blocks now
           const m = makeMonster(state, member.kind, pos);
           if (roam) m.tribe = tribeId;
           if (member.kind === "toysoldier") m.squadId = squadId;
@@ -502,7 +503,14 @@ function spawnMonsters(state: GameState): void {
       const a = nextFloat(rng) * Math.PI * 2;
       const d = 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
-      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
+      // STAGING v2: residents take the PLAN'S seat slots first — the sim owns
+      // where the pack sits, so the chairs and the sitting actors agree. The
+      // ring draws above STAY in the stream (draw-then-override convention).
+      const seat = social && dressing ? dressing.seats[k] : undefined;
+      const seatOk = seat !== undefined && isWalkable(map, seat.x, seat.y);
+      if (seat && seatOk) pos = { x: seat.x, y: seat.y };
       // The escort slot carries the pack's support: a shaman healer, or (from
       // the SEWERS down) a Drum Sergeant beating the pack into a frenzy — the
       // playbook's "The Drumline". Same kill-order lesson, different verb.
@@ -518,8 +526,9 @@ function spawnMonsters(state: GameState): void {
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
       // Seated residents HOLD their room (sentries) and remember whose room
-      // it is — the interruption line fires on first blood (damageMonster).
+      // it is — the scene breaks on detection (ai.ts) or first blood.
       if (social && dressing) m.residentOf = dressing.purposeId;
+      if (seatOk) m.seated = true;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
       state.monsters.push(m);
       budget--;
@@ -825,6 +834,7 @@ function maybeSpawnFloorEvent(state: GameState): void {
     const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
     const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
     if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== Tile.Floor) continue;
+    if (!isWalkable(map, x, y)) continue; // never inside furniture (the mask)
     if (dist({ x, y }, map.spawn) <= 6) continue;
     state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "shrine", amount: 0 });
     state.floorEvent = { type: "shrine" };
@@ -1129,12 +1139,29 @@ export function buildFloor(state: GameState, floor: number): void {
   state.strongholdLeaderId = -1;
   state.strongholdLeaderName = "";
   state.strongholdCleared = false;
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): stamp the blocked mask and spawn
+  // the blocking pieces BEFORE monsters, so every spawn (they all flow
+  // through isWalkable) respects the furniture. The plan is pure — this is
+  // the same answer the renderer and spawnMonsters compute.
+  const plan = assignRoomPurposes(state.seed, floor, state.map);
+  state.map.blocked = new Uint8Array(state.map.w * state.map.h);
+  for (const d of plan.dressings) {
+    for (const bl of d.blockers) {
+      state.map.blocked[bl.tile] = 1;
+      state.breakables!.push({
+        id: state.nextEntityId++,
+        pos: { x: (bl.tile % state.map.w) + 0.5, y: Math.floor(bl.tile / state.map.w) + 0.5 },
+        key: bl.key,
+        hp: CONFIG.blockerHp,
+        footprint: [bl.tile],
+      });
+    }
+  }
   spawnMonsters(state);
   // The floor's STORY + SERVICES (roomPurposes): if a seeded event swept the
   // dressing, the System mentions it exactly once; if a room is open for
   // business (rare — plan.service), its contract sits beside the furniture.
   {
-    const plan = assignRoomPurposes(state.seed, floor, state.map);
     if (plan.story) announce(state, "flavor", STORY_LINES[plan.story]);
     // Destructible dressing (phase 5): the corner hoards the plan marked
     // become sim entities — one good hit pops them for pocket gold.
@@ -1149,7 +1176,7 @@ export function buildFloor(state: GameState, floor: number): void {
         // The contract sits on a walkable tile nudged off the furniture.
         for (const [dx, dy] of [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9]] as const) {
           const x = d.anchor.x + dx, y = d.anchor.y + dy;
-          if (state.map.tiles[Math.floor(y) * state.map.w + Math.floor(x)] === Tile.Floor) {
+          if (isWalkable(state.map, x, y)) {
             state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "service", amount: 0, service: plan.service.purposeId });
             break;
           }
@@ -1663,9 +1690,11 @@ export function raiseCorpse(state: GameState, m: Monster): void {
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
 export function summonMinion(state: GameState, m: Monster): void {
   const a = nextFloat(state.rng) * Math.PI * 2;
-  const spawned = makeMonster(state, "swarmer", {
-    x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7,
-  });
+  let pos = { x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7 };
+  // Never born INTO furniture (the blocked mask) — a swarmer wedged inside a
+  // bookcase is stuck for good; the mother's own tile is always safe ground.
+  if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: m.pos.x, y: m.pos.y };
+  const spawned = makeMonster(state, "swarmer", pos);
   spawned.xp = 1;
   state.monsters.push(spawned);
   hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
@@ -1874,6 +1903,17 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
  * `priority: "high"` marks the handful of headline moments (boss down, new
  * band, wipe) that hosts may present bigger than a toast.
  */
+/** STAGING v2: the room's scene is over — they SAW you (ai.ts detection)
+ *  or FELT you (damageMonster). The whole purpose wakes at once, the
+ *  interruption line fires once per floor, perception snaps to normal, and
+ *  the renderer plays the stand-up transition off this same flag. */
+export function breakResidentScene(state: GameState, m: Monster): void {
+  if (!m.residentOf || (state.residentAggro ?? []).includes(m.residentOf)) return;
+  (state.residentAggro ??= []).push(m.residentOf);
+  const line = RESIDENT_LINES[m.residentOf];
+  if (line) announce(state, "flavor", line);
+}
+
 function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
@@ -1884,11 +1924,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
+  extra?: { dir?: Vec2; killed?: boolean; overkill?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
 ): void {
   state.hits.push({
     pos: { x: pos.x, y: pos.y }, amount, kind,
-    dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+    dir: extra?.dir, killed: extra?.killed, overkill: extra?.overkill,
+    school: extra?.school, resisted: extra?.resisted,
     effect: extra?.effect, to: extra?.to ? { x: extra.to.x, y: extra.to.y } : undefined,
   });
 }
@@ -2285,13 +2326,10 @@ export function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
-  // Interrupting the residents (phase 5): the first hit on a seated pack
-  // gets the room's line, once per floor. The furniture stays out of it.
-  if (m.residentOf && !(state.residentAggro ?? []).includes(m.residentOf)) {
-    (state.residentAggro ??= []).push(m.residentOf);
-    const line = RESIDENT_LINES[m.residentOf];
-    if (line) announce(state, "flavor", line);
-  }
+  // Interrupting the residents: damage breaks the scene too (staging v2 —
+  // detection in ai.ts is the usual path; an opening shot from the dark
+  // still counts as introducing yourself).
+  breakResidentScene(state, m);
   if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   // Repo Rat: every HP quarter beaten out of it SPILLS a coin of its carry —
   // the chase pays out as it runs, and the kill drops whatever's left.
@@ -2359,7 +2397,10 @@ export function damageMonster(
     }
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
-    dir: opts.dir, killed: m.hp <= 0, school: opts.school,
+    dir: opts.dir, killed: m.hp <= 0,
+    // Deleted, not defeated: the blow overshot by a third of the bar.
+    overkill: (m.hp <= -0.35 * m.maxHp) || undefined,
+    school: opts.school,
     resisted: (resisted || guarded) || undefined, // guarded hits read dim too
     effect: opts.effect,
   });
@@ -2539,7 +2580,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   }
   // The swing pops smashable dressing in the arc (phase 5): the Diablo
   // barrel, at last. Same reach test the monsters get.
-  smashBreakables(state, (pos) => {
+  smashBreakables(state, ({ pos }) => {
     const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
     return Math.hypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
   });
@@ -3752,6 +3793,31 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
     moveWithCollision(state.map, p.pos, dir, Math.min(0.2, dp.distance - moved), isWalkable);
     if (dist(before, p.pos) < 0.01) break; // dead stop: a wall ate the dash
   }
+  // DASH VAULT (furniture-feel): knee-high furniture is mobility TEXTURE,
+  // not masonry. If the slide stopped short and what stopped it is BLOCKED
+  // FURNITURE, scan the remaining reach for open floor with nothing but
+  // furniture in between and go OVER the table. Walls and locked doors
+  // still eat the dash — crossing masonry is Backstage Pass's job below.
+  {
+    const slid = dist(start, p.pos);
+    const bx = p.pos.x + dir.x * 0.45, by = p.pos.y + dir.y * 0.45;
+    const bi = Math.floor(by) * state.map.w + Math.floor(bx);
+    if (slid < dp.distance - 0.4 && state.map.blocked?.[bi]) {
+      for (let dd = dp.distance; dd > slid + 0.5; dd -= 0.25) {
+        const landing = { x: start.x + dir.x * dd, y: start.y + dir.y * dd };
+        if (!isWalkable(state.map, landing.x, landing.y)) continue;
+        let crossesWall = false;
+        for (let s = 0.25; s < dd; s += 0.25) {
+          const t = tileAt(state.map, start.x + dir.x * s, start.y + dir.y * s);
+          if (t === Tile.Wall || t === Tile.DoorLocked) { crossesWall = true; break; }
+        }
+        if (crossesWall) continue; // a shorter hop may still clear the table
+        p.pos.x = landing.x;
+        p.pos.y = landing.y;
+        break;
+      }
+    }
+  }
   // Backstage Pass (chase legendary): walls are set dressing. If the ordinary
   // dash slide stopped short but the reach extends to walkable ground on the
   // FAR side, blink there — scanning from full reach backward for the farthest
@@ -3876,7 +3942,7 @@ function radialDamage(
     if (m.hp <= 0) killed.push(m);
   }
   // Blasts pop the smashable dressing too — nova through the storeroom.
-  smashBreakables(state, (pos) => dist(center, pos) <= radius);
+  smashBreakables(state, ({ pos }) => dist(center, pos) <= radius);
   // RIVALS: blasts don't check contracts — rivals in the radius eat it too.
   for (const v of rivalTargets(state, p)) {
     const d = dist(center, v.pos);
@@ -4463,14 +4529,33 @@ function updateHazards(state: GameState, dt: number): void {
 
 /** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
 /** Pop every smashable the hit test reaches: pocket gold + a poof. */
-function smashBreakables(state: GameState, hits: (pos: Vec2) => boolean): void {
+/** BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): a committed big-frame swing
+ *  also clears blocking furniture in its arc — the table explodes and the
+ *  fight arrives. Clutter hoards are NOT touched (their gold stays a player
+ *  verb); only footprint pieces fall, and they fall in one blow. */
+export function smashBlockersAt(state: GameState, center: Vec2, radius: number): void {
+  smashBreakables(state, (b) => !!b.footprint && dist(center, b.pos) <= radius, 999);
+}
+
+function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg = 1): void {
   const bs = state.breakables ?? [];
   if (bs.length === 0) return;
   const left: Breakable[] = [];
   for (const b of bs) {
-    if (!hits(b.pos)) {
+    if (!hits(b)) {
       left.push(b);
       continue;
+    }
+    b.hp -= dmg;
+    if (b.hp > 0) {
+      hit(state, b.pos, 0, "weapon"); // it cracks; one more should do it
+      left.push(b);
+      continue;
+    }
+    // Blocking furniture opens the lane when it dies (PHYSICALITY.md §1) —
+    // the mask mutates in place; no floor rebuild.
+    if (b.footprint && state.map.blocked) {
+      for (const ti of b.footprint) state.map.blocked[ti] = 0;
     }
     const gold = CONFIG.breakableGoldBase + Math.floor(nextFloat(state.rng) * (CONFIG.breakableGoldSpread + 1)) + Math.floor(state.floor / 3);
     state.loot.push({ id: state.nextEntityId++, pos: { x: b.pos.x, y: b.pos.y }, kind: "gold", amount: gold });

@@ -141,6 +141,31 @@ describe("server persistence (accounts + character saves)", () => {
     await waitFor(() => instances().size === 0);
   });
 
+  it("POST /telemetry logs a SOLO run_end; junk shapes are rejected", async () => {
+    const post = (body: unknown) =>
+      fetch(`http://127.0.0.1:${port}/telemetry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const ok = await post({
+      kind: "run_end", token: "solo-test-token-1",
+      data: { status: "dead", floor: 3, mode: "solo", players: [{ name: "Carl", level: 4 }] },
+    });
+    expect(ok.status).toBe(200);
+    const events = server.db!.listEvents("run_end", 5);
+    const solo = events.find((e) => e.partyCode === "SOLO");
+    expect(solo).toBeTruthy();
+    expect(solo!.accountId).toBe("solo-test-token-1");
+    expect((solo!.data as { floor: number }).floor).toBe(3);
+    // Wrong kind and non-JSON both bounce without logging.
+    expect((await post({ kind: "hax", data: {} })).status).toBe(400);
+    const bad = await fetch(`http://127.0.0.1:${port}/telemetry`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{nope",
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("the campfire skin rides the join, persists, and garbage picks are ignored", async () => {
     const j = (skin?: string) =>
       new Promise<{ playerId: number; snap: GameState; ws: WebSocket }>((resolve, reject) => {

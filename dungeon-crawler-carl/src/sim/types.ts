@@ -314,6 +314,9 @@ export interface Monster {
   // Seated resident of a dressed room (roomPurposes phase 5): first damage
   // to the pack announces the purpose's interruption line, once per floor.
   residentOf?: string;
+  // Staging v2: spawned ON one of the plan's seat slots — the renderer plays
+  // the chair-sit instead of the floor-sit for this actor.
+  seated?: boolean;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
   // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
@@ -347,6 +350,10 @@ export interface Monster {
   // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
   // (her entourage takes less while SHE takes more — kill-order pressure).
   aura?: "frenzy" | "shield";
+  // Boss anti-kite: seconds spent out of melee reach (chase speed ramps past
+  // a patience delay; contact resets — see the boss branch in ai.ts).
+  chaseT?: number;
+  chaseVexed?: boolean; // the one-per-orbit "done chasing politely" line fired
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
   shieldT?: number; // seconds of Darling stardust remaining on THIS monster
   // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
@@ -564,6 +571,12 @@ export interface FloorMap {
   w: number;
   h: number;
   tiles: Uint8Array; // row-major, length w*h, values from Tile
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): a removable overlay — tiles the
+  // dressing plan stamped with blocking furniture. isWalkable() consults it,
+  // so players, monsters, dashes, drags, and the bot all inherit blocking
+  // through the one choke point. Smashing the furniture clears its bits
+  // WITHOUT a floor rebuild. Optional: pre-furniture snapshots lack it.
+  blocked?: Uint8Array;
   spawn: Vec2; // player entry point
   stairs: Vec2; // stairs-down location
   rooms: RoomRect[]; // generated room rectangles (rooms[0] contains the spawn)
@@ -702,7 +715,10 @@ export interface Breakable {
   id: number;
   pos: Vec2;
   key: string; // prop model key (hosts render it; the sim only owns the hp)
-  hp: number; // 1 — one good hit
+  hp: number; // clutter: 1 (one good hit); blocking furniture: CONFIG.blockerHp
+  // Blocking furniture (PHYSICALITY.md §1): the map.blocked tile indices this
+  // piece owns. Cleared when it dies — smash the bookcase, open the lane.
+  footprint?: number[];
 }
 
 // A fallen monster the necromancer can raise. Purely positional — the fresh
@@ -726,6 +742,9 @@ export interface HitEvent {
   kind: HitKind;
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
+  // The killing blow OVERSHOT by ≥35% of max hp: hosts stage it bigger
+  // (corpse launch, longer hit-stop). Only ever set alongside killed.
+  overkill?: boolean;
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
   effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)

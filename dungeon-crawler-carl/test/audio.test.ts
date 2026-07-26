@@ -242,3 +242,44 @@ describe("audio director", () => {
     }
   });
 });
+
+describe("audio director: status cues + band sting (launch polish #3)", () => {
+  it("DoT ticks sound as their element, never as a blow", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [
+      { pos: { x: p.pos.x + 1, y: p.pos.y }, amount: 3, kind: "enemy", effect: "burn" },
+      { pos: { x: p.pos.x + 1, y: p.pos.y }, amount: 2, kind: "enemy", effect: "poison" },
+      { pos: { x: p.pos.x, y: p.pos.y }, amount: 2, kind: "player", effect: "chill" },
+    ], [], p.id);
+    expect(sink.ids()).toContain("dot_burn");
+    expect(sink.ids()).toContain("dot_poison");
+    expect(sink.ids()).toContain("dot_chill");
+    expect(sink.ids()).not.toContain("hit");
+    expect(sink.ids()).not.toContain("player_hurt");
+  });
+
+  it("DoT ticks alone do not raise the battle bed", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0; // no pack pressure
+    director.frame(state, [
+      { pos: { x: p.pos.x + 1, y: p.pos.y }, amount: 3, kind: "enemy", effect: "burn" },
+    ], [], p.id);
+    expect(sink.lastMusic()).toBe("music_dungeon");
+  });
+
+  it("stings the act change when a descent crosses a band boundary", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    state.floor = 2; // 1 -> 2: same band, just the descend thunk
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("descend");
+    expect(sink.ids()).not.toContain("band_sting");
+    sink.played = [];
+    state.floor = 4; // 2 -> 4: THE SEWERS open
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("band_sting");
+  });
+});

@@ -31,14 +31,14 @@ function capturePositions(s: GameState): Map<string, Vec2> {
 // character saves off. Minted server-side on first join, echoed in the
 // welcome, kept here so the same browser gets the same character back.
 const TOKEN_KEY = "dcc:token:v1";
-function loadToken(): string | undefined {
+export function loadToken(): string | undefined {
   try {
     return localStorage.getItem(TOKEN_KEY) ?? undefined;
   } catch {
     return undefined; // no storage (private mode / non-browser): session-only identity
   }
 }
-function storeToken(token: string): void {
+export function storeToken(token: string): void {
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch {

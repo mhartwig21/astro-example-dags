@@ -122,8 +122,9 @@
                                 · #party 96px right rail (roster under YOUR stats chip)
            headline zone:       #headline — the ONE high-priority banner at a time
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           tutorial zone:       #tutorial — top-left, below #hud-tl; dismissible
-                                 first-contact tip cards (kind:"tip"), one at a time
+           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; dismissible
+                                 first-contact tip cards (kind:"tip"), one at a time;
+                                 touch mode slides it below the relocated minimap
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -157,7 +158,16 @@
          gets an explicit dismiss instead of an auto-fade — a rule you have
          to acknowledge, not miss in a blur of chatter. Top-left, clear of
          the centered headline/toast zones. */
-      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none; }
+      /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
+         mode minimap (z 5) or taps land on movement instead of GOT IT. */
+      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none;
+        z-index: 7; }
+      /* Touch mode parks the minimap in this corner — the iPad slides below
+         it; the phone hasn't the height, so the transient card sits OVER the
+         minimap instead (z 7 beats its z 5; one tap and it's gone). */
+      body.touch #tutorial { top: 284px; }
+      body.phone #tutorial { top: 96px; max-width: 30ch; }
+      body.phone .tut-body { font-size: 12px; }
       .tut { background: rgba(12,10,20,0.92); border: 1px solid #c9a24b; border-radius: 6px;
         color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
@@ -169,6 +179,10 @@
         background: rgba(201,162,75,0.15); border: 1px solid #8a6d3b; border-radius: 3px;
         color: #f2c14e; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; cursor: pointer; }
       .tut-dismiss:hover { background: rgba(201,162,75,0.28); }
+      @media (pointer: coarse) {
+        .tut { touch-action: manipulation; } /* never a double-tap zoom */
+        .tut-dismiss { padding: 12px 0; font-size: 12px; } /* thumb-sized */
+      }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already
@@ -603,6 +617,18 @@
       #m-open-list li .cd { color: #e8ddc8; font-weight: 700; letter-spacing: 1px; }
       #m-open-list li .meta { margin-left: auto; flex: none; color: #a99f8c; font-size: 11px; }
       #m-open-list li.none { color: #6f6757; font-style: italic; border-top: none; cursor: default; }
+      /* Board tabs (LoL underline, small) + the account row. */
+      .m-board-h .bt { cursor: pointer; color: #6f6757; margin-right: 10px; letter-spacing: 0.06em; }
+      .m-board-h .bt:hover { color: #a99f8c; }
+      .m-board-h .bt.active { color: #f2c14e; border-bottom: 2px solid rgba(201,162,75,0.7); }
+      .m-board-h .m-board-day { float: right; color: #6f6757; }
+      .m-account { margin-top: 10px; display: flex; gap: 8px; align-items: center;
+        justify-content: center; flex-wrap: wrap; font-size: 11.5px; color: #a99f8c; }
+      .m-account #m-acct-status b { color: #c9a24b; }
+      /* Yesterday's champion header line — context above today's race. */
+      .m-board li.yday { color: #a99f8c; font-size: 11px; letter-spacing: 0.4px;
+        border-top: none; border-bottom: 1px dashed rgba(110,85,51,0.5); padding-bottom: 5px; }
+      .m-board li.yday b { color: #c9a24b; }
       #menu .m-foot { margin-top: 16px; text-align: center; color: #6f6757; font-size: 10.5px;
         letter-spacing: 0.5px; }
 
@@ -1366,6 +1392,8 @@
         </div>
         <div class="rfoot">
           <button id="recap-again">NEW SEASON <kbd>R</kbd></button>
+          <button class="dismiss" id="recap-share" style="display:none">COPY CHALLENGE</button>
+          <button class="dismiss" id="recap-card">SAVE CARD</button>
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
           <span class="note" id="recap-note"></span>
         </div>
@@ -1412,12 +1440,16 @@
               <button class="m-card" id="m-solo">
                 <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
               </button>
+              <button class="m-card" id="m-rejoin" style="display:none">
+                <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
+              </button>
               <button class="m-card" id="m-party">
                 <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
               </button>
               <div class="m-form" id="m-party-form" style="display:none">
                 <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
                 <button class="m-mini" id="m-roll">NEW CODE</button>
+                <button class="m-mini" id="m-invite">COPY INVITE</button>
                 <button class="m-go" id="m-join">CO-OP ▶</button>
               </div>
               <button class="m-card" id="m-quickjoin">
@@ -1433,6 +1465,7 @@
               <div class="m-form" id="m-rivals-form" style="display:none">
                 <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
                 <button class="m-mini" id="m-rroll">NEW CODE</button>
+                <button class="m-mini" id="m-rinvite">COPY INVITE</button>
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
               <button class="m-card dim" id="m-test">
@@ -1455,8 +1488,22 @@
           </div>
           <div class="m-side">
             <div class="m-board">
-              <div class="m-board-h">TODAY'S BOARD · <span id="m-board-day"></span></div>
+              <div class="m-board-h">
+                <span class="bt active" data-bt="today">TODAY</span>
+                <span class="bt" data-bt="deepest">DEEPEST</span>
+                <span class="bt" data-bt="fastest">FASTEST</span>
+                <span class="bt" data-bt="kills">KILLS</span>
+                <span class="bt" data-bt="contracts">RIVALS</span>
+                <span class="m-board-day" id="m-board-day"></span>
+              </div>
               <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+            </div>
+            <div class="m-account" id="m-account" style="display:none">
+              <span id="m-acct-status"></span>
+              <button class="m-mini" id="m-signin-discord" style="display:none">SIGN IN · DISCORD</button>
+              <button class="m-mini" id="m-signin-google" style="display:none">SIGN IN · GOOGLE</button>
+              <button class="m-mini" id="m-signout" style="display:none">SIGN OUT</button>
+              <button class="m-mini" id="m-forget" style="display:none" title="deletes your account, identities, and cross-device saves from the server">FORGET ME</button>
             </div>
             <div class="m-board" id="m-career" style="display:none">
               <div class="m-board-h">YOUR CAREER · <span id="m-career-sub"></span></div>

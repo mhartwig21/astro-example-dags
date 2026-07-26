@@ -30,6 +30,16 @@ export const AUDIO_MANIFEST = {
   kill: { url: "/audio/sfx/kill.ogg", bus: "sfx", volume: 0.9, throttleMs: 90 },
   boss_intro: { url: "/audio/sfx/boss_intro.ogg", bus: "sfx", volume: 0.9, throttleMs: 1000 },
 
+  // Status effects (HitEvent.effect — DoT ticks read as their ELEMENT, not as
+  // blows). All CC0: fire crackle (AntumDeluge), bubble (farfadet46), freeze
+  // (artisticdude) — trimmed to tick length; provenance in ASSETS.md.
+  dot_burn: { url: "/audio/sfx/dot_burn.ogg", bus: "sfx", volume: 0.4, throttleMs: 450 },
+  dot_poison: { url: "/audio/sfx/dot_poison.ogg", bus: "sfx", volume: 0.38, throttleMs: 450 },
+  dot_chill: { url: "/audio/sfx/dot_chill.ogg", bus: "sfx", volume: 0.4, throttleMs: 600 },
+  // New band every 3 floors: a pizzicato flourish from the same Kenney
+  // jingle pack the progression sounds already come from.
+  band_sting: { url: "/audio/sfx/band_sting.ogg", bus: "sfx", volume: 0.75, throttleMs: 4000 },
+
   // Skills (state-edge triggered).
   dash: { url: "/audio/sfx/dash.ogg", bus: "sfx" },
   bolt: { url: "/audio/sfx/bolt.ogg", bus: "sfx", volume: 0.7, throttleMs: 120 },

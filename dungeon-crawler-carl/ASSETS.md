@@ -134,7 +134,8 @@ public/audio/
           swing.ogg, tell.ogg, kill.ogg,
           dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
-          announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
+          announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg,
+          dot_burn.ogg, dot_poison.ogg, dot_chill.ogg, band_sting.ogg   (status/band cues)
   music/  dungeon.ogg, safe_room.mp3, collapse.wav,
           battle_theme_a.ogg, battle_music.ogg, battle_winter.ogg,   (battle rotation)
           boss_epic.ogg, boss_blackmoor.ogg, boss_colossal.ogg   (boss themes; all loop)
@@ -158,6 +159,10 @@ pointers for the audio sources too.
 | `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
 | `music/battle_theme_a.ogg` | [Battle Theme A](https://opengameart.org/content/battle-theme-a) | cynicmusic (The Cynic Project) | CC0 |
 | `music/boss_epic.ogg` | [Boss Battle Music](https://opengameart.org/content/boss-battle-music) | Juhani Junkala (SubspaceAudio) | CC0 |
+| `sfx/dot_burn.ogg` | [Fire Crackling](https://opengameart.org/content/fire-crackling) (trimmed to a 0.4s tick) | AntumDeluge | CC0 |
+| `sfx/dot_poison.ogg` | [bubbles 'pop'](https://opengameart.org/content/bubbles-pop) (pitched down ~20%) | farfadet46 | CC0 |
+| `sfx/dot_chill.ogg` | [Freeze Spell](https://opengameart.org/content/freeze-spell-0) (first 0.5s, faded) | artisticdude | CC0 |
+| `sfx/band_sting.ogg` | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) (jingles_PIZZA07) | Kenney | CC0 |
 
 Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), the combat-feel trio
 `sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and

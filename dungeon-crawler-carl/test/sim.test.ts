@@ -25,7 +25,7 @@ import {
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
-import { PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
+import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -4261,6 +4261,11 @@ describe("broodmother (the pack grows if you ignore it)", () => {
   it("births swarmers on a timer, capped per mother, and never attacks", () => {
     const g = createGame(7100);
     const p = g.players[0];
+    // Births stop if every player is dead (nearestPlayer gates the brain) —
+    // an armored observer keeps the 3-cycle window about CADENCE, not about
+    // how fast this seed's brood happens to chew through a level-1 crawler
+    // (the furniture-consistency layout re-roll exposed exactly that).
+    p.hp = p.maxHp = 100000;
     g.monsters.length = 0;
     const mother = mkMon({
       id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
@@ -5258,8 +5263,10 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
       if ((g.breakables ?? []).length === 0) continue;
       sawAny = true;
       const plan = assignRoomPurposes(g.seed, g.floor, g.map);
-      const planned = plan.dressings.flatMap((d) => d.breakables);
-      expect(g.breakables!.length).toBe(planned.length);
+      // Clutter hoards + blocking furniture both live in state.breakables now.
+      const planned = plan.dressings.flatMap((d) => d.breakables).length +
+        plan.dressings.flatMap((d) => d.blockers).length;
+      expect(g.breakables!.length).toBe(planned);
       // Story-looted rooms keep no hoard.
       for (const d of plan.dressings) {
         if (d.condition === "looted") expect(d.breakables.length).toBe(0);
@@ -5272,7 +5279,8 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
     let tested = false;
     for (let seed = 1; seed <= 30 && !tested; seed++) {
       const g = createTestGame({ seed, floor: 5, level: 5 });
-      const b = (g.breakables ?? [])[0];
+      // Clutter only: furniture takes CONFIG.blockerHp swings (tested below).
+      const b = (g.breakables ?? []).find((bb) => !bb.footprint);
       if (!b) continue;
       tested = true;
       g.monsters = [];
@@ -5305,6 +5313,269 @@ describe("destructible dressing + behavioral residents (phase 5)", () => {
         damageMonster(g, p, sibling, 1, { allowCrit: false });
         expect(g.announcements.filter((a) => a.kind === "flavor").length).toBe(0);
       }
+    }
+    expect(tested).toBe(true);
+  });
+});
+
+describe("physical furniture (PHYSICALITY.md §1)", () => {
+  it("connectivity fuzz: furniture never traps anyone, ever", () => {
+    // The gating test: with the mask stamped, every passable tile stays
+    // reachable from spawn. 40 seeds x 6 floors on the CI budget; the fuzz
+    // definition of passable matches the plan's (locked doors open later).
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [2, 5, 8, 11, 14, 17]) {
+        const g = createTestGame({ seed, floor, level: 4, gear: false });
+        const { map } = g;
+        const W = map.w;
+        const passable = (ti: number) => map.tiles[ti] !== 0 && !map.blocked?.[ti];
+        const start = Math.floor(map.spawn.y) * W + Math.floor(map.spawn.x);
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length > 0) {
+          const cur = queue.pop()!;
+          for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+            if (nb < 0 || nb >= map.tiles.length || seen.has(nb) || !passable(nb)) continue;
+            seen.add(nb);
+            queue.push(nb);
+          }
+        }
+        let unreachable = 0;
+        for (let ti = 0; ti < map.tiles.length; ti++) {
+          if (passable(ti) && !seen.has(ti)) unreachable++;
+        }
+        expect(unreachable, `seed ${seed} floor ${floor}`).toBe(0);
+        expect(seen.has(Math.floor(map.stairs.y) * W + Math.floor(map.stairs.x)), `seed ${seed} floor ${floor}: stairs`).toBe(true);
+      }
+    }
+  });
+
+  it("furniture blocks feet: you cannot walk through the table", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      expect(g.map.blocked?.[blk.footprint![0]]).toBe(1);
+      const p = g.players[0];
+      g.monsters = [];
+      p.pos = { x: blk.pos.x - 1.1, y: blk.pos.y };
+      for (let i = 0; i < 60; i++) step(g, { ...idle(), move: { x: 1, y: 0 }, attack: false }, 1 / 60);
+      // A full second of walking straight at it: still outside the tile.
+      expect(Math.floor(p.pos.x)).toBeLessThan(Math.floor(blk.pos.x));
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("smashing the furniture opens the lane", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: blk.pos.x - 0.9, y: blk.pos.y };
+      const tile = blk.footprint![0];
+      for (let swing = 0; swing < CONFIG.blockerHp; swing++) {
+        p.cd.melee = 0;
+        step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+        for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // cooldown
+      }
+      expect(g.map.blocked?.[tile]).toBe(0); // the lane is open
+      expect((g.breakables ?? []).some((b) => b.id === blk.id)).toBe(false);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("nothing spawns inside furniture", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      for (const m of g.monsters) {
+        const ti = Math.floor(m.pos.y) * g.map.w + Math.floor(m.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} monster ${m.kind}`).toBe(0);
+      }
+      for (const l of g.loot) {
+        const ti = Math.floor(l.pos.y) * g.map.w + Math.floor(l.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} loot ${l.kind}`).toBe(0);
+      }
+    }
+  });
+});
+
+describe("staging v2: seats, perception, detection", () => {
+  it("the plan seats blocking tables, on open floor, deterministically", () => {
+    let tested = 0;
+    for (let seed = 1; seed <= 40 && tested < 3; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const dressed = plan.dressings.filter((d) => d.blockers.some((bl) => bl.isTable));
+      for (const d of dressed) {
+        if (d.seats.length === 0) continue;
+        tested++;
+        expect(d.seats.length).toBeLessThanOrEqual(4);
+        for (const s of d.seats) {
+          const ti = Math.floor(s.y) * g.map.w + Math.floor(s.x);
+          expect(g.map.tiles[ti]).toBe(1); // open floor
+          expect(g.map.blocked?.[ti] ?? 0).toBe(0); // never inside furniture
+        }
+      }
+      // Same seed, same seats — the plan stays pure.
+      const again = assignRoomPurposes(g.seed, g.floor, g.map);
+      expect(again.dressings.map((d) => d.seats)).toEqual(plan.dressings.map((d) => d.seats));
+    }
+    expect(tested).toBeGreaterThanOrEqual(3);
+  });
+
+  it("residents spawn ON the plan's seats and are marked seated", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 80 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const seatedMon = g.monsters.find((m) => m.seated && m.residentOf);
+      if (!seatedMon) continue;
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const d = plan.dressings.find((dd) => dd.purposeId === seatedMon.residentOf);
+      expect(d).toBeTruthy();
+      const onSeat = d!.seats.some(
+        (s) => Math.abs(s.x - seatedMon.pos.x) < 1e-6 && Math.abs(s.y - seatedMon.pos.y) < 1e-6,
+      );
+      expect(onSeat).toBe(true);
+      tested = true;
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a staged room misses you outside its dulled perception; crossing it breaks the scene", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 120 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const resident = g.monsters.find(
+        (m) => m.residentOf && (PURPOSE_PERCEPTION[m.residentOf] ?? 1) <= 0.7 && !m.dormant,
+      );
+      if (!resident) continue;
+      tested = true;
+      const per = PURPOSE_PERCEPTION[resident.residentOf!]!;
+      g.monsters = [resident]; // just the one actor: nothing else can break the scene
+      const p = g.players[0];
+      // Inside NORMAL aggro range but outside the dulled radius: un-staged,
+      // this monster would close; staged, the act continues.
+      const outside = (per * CONFIG.monsterAggroRange + CONFIG.monsterAggroRange) / 2;
+      p.pos = { x: resident.pos.x + outside, y: resident.pos.y };
+      const before = { x: resident.pos.x, y: resident.pos.y };
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+      expect(g.residentAggro ?? []).not.toContain(resident.residentOf);
+      expect(resident.pos.x).toBeCloseTo(before.x, 5);
+      expect(resident.pos.y).toBeCloseTo(before.y, 5);
+      // Step inside the dulled radius: detection, the line, the wake-up.
+      // (announcements are per-tick host data — collect across steps)
+      g.announcements = [];
+      p.pos = { x: resident.pos.x + per * CONFIG.monsterAggroRange - 1, y: resident.pos.y };
+      let sawLine = false;
+      for (let i = 0; i < 10; i++) {
+        step(g, idle(), 1 / 60);
+        if (g.announcements.some((a) => a.kind === "flavor")) sawLine = true;
+      }
+      expect(g.residentAggro ?? []).toContain(resident.residentOf);
+      expect(sawLine).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+});
+
+describe("furniture feel: vault, smash-through, avoidance", () => {
+  /** First blocking table with clear straight-line approach + landing. */
+  function findVaultSetup(g: ReturnType<typeof createTestGame>) {
+    for (const b of g.breakables ?? []) {
+      if (!b.footprint || !b.key.startsWith("table")) continue;
+      // approach from the west, land on the east
+      const from = { x: b.pos.x - 1.2, y: b.pos.y };
+      const beyond = { x: b.pos.x + 1.2, y: b.pos.y };
+      if (isWalkable(g.map, from.x, from.y) && isWalkable(g.map, beyond.x, beyond.y) &&
+          isWalkable(g.map, from.x, from.y - 0.31) && isWalkable(g.map, from.x, from.y + 0.31) &&
+          isWalkable(g.map, beyond.x, beyond.y - 0.31) && isWalkable(g.map, beyond.x, beyond.y + 0.31)) {
+        return { b, from };
+      }
+    }
+    return null;
+  }
+
+  it("a dash goes OVER blocking furniture and lands on open floor", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: setup.from.x, y: setup.from.y };
+      p.facing = { x: 1, y: 0 };
+      step(g, { ...idle(), dash: true, move: { x: 1, y: 0 } }, 1 / 60);
+      // The vault carried the crawler past the table (which still stands).
+      expect(p.pos.x).toBeGreaterThan(setup.b.pos.x + 0.4);
+      expect(g.breakables!.some((bb) => bb.id === setup.b.id)).toBe(true);
+      expect(isWalkable(g.map, p.pos.x, p.pos.y)).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled brute slams THROUGH the table instead of shuffling", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const brute = g.monsters.find((m) => m.kind === "brute");
+      if (!brute) continue;
+      tested = true;
+      const p = g.players[0];
+      // Prey on the far side of the table, brute pressed against the near side.
+      g.monsters = [brute];
+      brute.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      brute.residentOf = undefined;
+      brute.dormant = false;
+      brute.attackCooldown = 0;
+      p.pos = { x: setup.b.pos.x + 1.6, y: setup.b.pos.y };
+      const id = setup.b.id;
+      const ti = setup.b.footprint![0];
+      let gone = false;
+      for (let i = 0; i < 900 && !gone; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break; // slam reached the prey through the grace arc — fine
+        gone = !g.breakables!.some((bb) => bb.id === id);
+      }
+      expect(gone).toBe(true); // the table exploded...
+      expect(g.map.blocked![ti]).toBe(0); // ...and the lane is open
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled grunt slips the 45 instead of grinding at furniture", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const grunt = g.monsters.find((m) => m.kind === "grunt" || m.kind === "swarmer");
+      if (!grunt) continue;
+      tested = true;
+      const p = g.players[0];
+      g.monsters = [grunt];
+      grunt.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      grunt.residentOf = undefined;
+      grunt.dormant = false;
+      p.pos = { x: setup.b.pos.x + 2.0, y: setup.b.pos.y };
+      const y0 = grunt.pos.y;
+      let slipped = false;
+      for (let i = 0; i < 240 && !slipped; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break;
+        // lateral progress = it went AROUND, not through
+        if (Math.abs(grunt.pos.y - y0) > 0.35 || grunt.pos.x > setup.b.pos.x) slipped = true;
+      }
+      expect(slipped).toBe(true);
     }
     expect(tested).toBe(true);
   });

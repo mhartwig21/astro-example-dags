@@ -77,6 +77,17 @@ export interface RoomDressing {
   // and the renderer draws THESE instead of a cosmetic corner stack, so what
   // you see is exactly what you can hit.
   breakables: { x: number; y: number; key: string }[];
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): tile-snapped blocking pieces —
+  // the table (isTable) and a bulk run hugging one wall. The sim stamps
+  // map.blocked from these and spawns them as hp-2 Breakables; the renderer
+  // entity-draws them and skips the cosmetic duplicates. Every set is
+  // connectivity-validated: a stamp that would trap anyone is dropped.
+  blockers: { tile: number; key: string; isTable?: boolean }[];
+  // SEAT SLOTS (staging v2): where a table BLOCKS, the plan also owns its
+  // seats. The sim places the resident pack ON these; the renderer puts the
+  // chairs at the same spots and plays the chair-sit — actor and furniture
+  // line up by construction instead of by two unrelated random draws.
+  seats: Vec2[];
 }
 
 /** Merge a variant over its base purpose (variant fields REPLACE base fields).
@@ -110,6 +121,38 @@ export const PURPOSE_RESIDENTS: Record<string, MonsterKind[]> = {
   den: ["grunt", "brute"], // the card game does not stop for you
   warroom: ["ranged", "shaman"], // planners and their bodyguards
   ossuary: ["necromancer", "swarmer", "swarmer"], // the filing clerk and the files
+};
+
+// FURNITURE-SIZED prop keys (PHYSICALITY.md §1). THE CONSISTENCY RULE:
+// if it's furniture-sized it BLOCKS, everywhere it appears; if it doesn't
+// block, it's clutter-sized. The plan stamps these as blockers on every
+// eligible wall, and the renderer's cosmetic dressing NEVER draws them
+// (dressing.ts filters wall runs and doorway spill against this set), so
+// two identical bookcases can't disagree about being solid.
+export const BULK_KEYS = new Set([
+  "bookcase_single", "bookcase_double_decorateda", "bartop_a_medium",
+  "bed_a_single", "bed_b_single", "bed_decorated",
+  "fuel_a_barrels", "food_barrel_fish", "crate_large_decorated",
+]);
+
+// STAGED PERCEPTION (staging v2): how alert a room's residents are while
+// their scene runs, as a fraction of monsterAggroRange. Sleep is nearly
+// blind (sneaking past the barracks is a real option now), absorbed work
+// dulls the ears, and the guardpost is PAID to watch. Snaps to 1 the
+// moment the scene breaks (detection in ai.ts, or damage).
+export const PURPOSE_PERCEPTION: Record<string, number> = {
+  barracks: 0.4, // asleep
+  archive: 0.6, // deep in the reading
+  forge: 0.6, // the hammering drowns you out
+  mess: 0.7, // dinner
+  den: 0.7, // the hand is absorbing
+  kitchen: 0.75, // service clatter
+  apothecary: 0.8,
+  storage: 0.85,
+  ossuary: 0.85,
+  trainhall: 0.85, // between reps somebody looks up
+  warroom: 0.9, // mid-argument
+  guardpost: 1.25, // the watch is WATCHING
 };
 
 // FLOOR STORIES: one seeded event per floor (35%) leaves its mark as a swept
@@ -201,7 +244,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     } else if (purpose.centerpiece) {
       anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
     }
-    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [] });
+    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [], blockers: [], seats: [] });
   }
   // The story roll: one event sweeps a coherent path of conditions over the
   // independent per-room rolls above. `out` is ordered entrance-to-depths,
@@ -242,6 +285,123 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
         y: r.y + c.y + (nextFloat(rng) - 0.5) * 0.8,
         key: d.purpose.cornerStack[Math.floor(nextFloat(rng) * d.purpose.cornerStack.length)],
       });
+    }
+  }
+  // ---- PHYSICAL FURNITURE (PHYSICALITY.md §1) — drawn last of all so these
+  // rolls never reshuffle story/service/breakable outcomes for older seeds.
+  // Rules that keep the connectivity check cheap and rarely failing:
+  // bulk runs hug walls (they cannot cut a room), nothing stamps beside a
+  // doorway or within 3 tiles of spawn/stairs, and the table is a single
+  // interior tile the room ring-fences by construction.
+  const W = map.w;
+  const tileOf = (x: number, y: number) => Math.floor(y) * W + Math.floor(x);
+  const nearPoint = (ti: number, pt: Vec2, d: number) =>
+    Math.hypot((ti % W) + 0.5 - pt.x, Math.floor(ti / W) + 0.5 - pt.y) < d;
+  // Baseline reachability BFS: passable = not Wall (locked doors open later,
+  // so furniture may never be the second lock on a door).
+  const passable = (ti: number, blocked: Set<number>) =>
+    map.tiles[ti] !== 0 && !blocked.has(ti);
+  const reachableFrom = (start: number, blocked: Set<number>): Set<number> => {
+    const seen = new Set<number>([start]);
+    const queue = [start];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+        if (nb < 0 || nb >= map.tiles.length || seen.has(nb)) continue;
+        if (!passable(nb, blocked)) continue;
+        seen.add(nb);
+        queue.push(nb);
+      }
+    }
+    return seen;
+  };
+  const spawnTile = tileOf(map.spawn.x, map.spawn.y);
+  const baseline = reachableFrom(spawnTile, new Set());
+  const accepted = new Set<number>();
+  for (const d of out) {
+    const r = map.rooms[d.roomIdx];
+    const candidate: { tile: number; key: string; isTable?: boolean }[] = [];
+    // (a) The table blocks its tile (entity-drawn; dressing skips the twin).
+    if (d.purpose.tableSet && d.anchor) {
+      const ti = tileOf(d.anchor.x, d.anchor.y);
+      if (!nearPoint(ti, map.spawn, 3) && !nearPoint(ti, map.stairs, 3)) {
+        candidate.push({
+          tile: ti,
+          key: d.condition === "scarred" ? "table_medium_broken" : d.purpose.tableSet.table,
+          isTable: true,
+        });
+      }
+    }
+    // (b) Bulk runs on EVERY eligible wall (the consistency rule: cosmetic
+    // dressing no longer draws bulk keys, so every bookcase you see is one
+    // of these). Eligible tiles hug true WALL — a Floor outside is a
+    // doorway; skip those — and stay clear of spawn/stairs/the anchor.
+    const bulk = d.purpose.wallRun.filter((k) => BULK_KEYS.has(k));
+    const sideRuns: { tile: number; key: string; isTable?: boolean }[][] = [];
+    if (bulk.length > 0) {
+      for (let side = 0; side < 4; side++) {
+        const run: number[] = [];
+        const tryTile = (ix: number, iy: number, ox: number, oy: number) => {
+          const inside = iy * W + ix;
+          const outside = oy * W + ox;
+          if (map.tiles[inside] !== 1 || map.tiles[outside] !== 0) return;
+          if (nearPoint(inside, map.spawn, 3) || nearPoint(inside, map.stairs, 3)) return;
+          if (d.anchor && inside === tileOf(d.anchor.x, d.anchor.y)) return;
+          run.push(inside);
+        };
+        if (side === 0) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y, x, r.y - 1);
+        else if (side === 1) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y + r.h - 1, x, r.y + r.h);
+        else if (side === 2) for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x, y, r.x - 1, y);
+        else for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x + r.w - 1, y, r.x + r.w, y);
+        const runLen = Math.min(
+          run.length,
+          CONFIG.blockerRunMin + Math.floor(nextFloat(rng) * (CONFIG.blockerRunMax - CONFIG.blockerRunMin + 1)),
+        );
+        const start = Math.floor(nextFloat(rng) * Math.max(1, run.length - runLen + 1));
+        const g: { tile: number; key: string }[] = [];
+        for (let i = 0; i < runLen; i++) {
+          g.push({ tile: run[start + i], key: bulk[Math.floor(nextFloat(rng) * bulk.length)] });
+        }
+        if (g.length > 0) sideRuns.push(g);
+      }
+    }
+    // Connectivity gate, INCREMENTALLY per group (table first, then each
+    // wall's run): a group that would strand any baseline-reachable tile is
+    // dropped alone instead of costing the whole room its furniture. The
+    // DENSITY BUDGET (CONFIG.blockerRoomFraction) caps how much of a room's
+    // interior may block — fight space stays fight space.
+    const roomBudget = Math.max(2, Math.floor((r.w - 2) * (r.h - 2) * CONFIG.blockerRoomFraction));
+    for (const group of [candidate, ...sideRuns]) {
+      if (group.length === 0) continue;
+      if (d.blockers.length + group.length > roomBudget) continue;
+      const trial = new Set(accepted);
+      for (const c of group) trial.add(c.tile);
+      const after = reachableFrom(spawnTile, trial);
+      let ok = true;
+      for (const ti of baseline) {
+        if (!trial.has(ti) && !after.has(ti)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (const c of group) accepted.add(c.tile);
+      d.blockers.push(...group);
+    }
+  }
+  // ---- SEAT SLOTS (staging v2) — drawn last of all, same stream discipline
+  // as blockers: appending draws at the END never reshuffles older seeds'
+  // outcomes. Only entity-drawn (blocking) tables get plan seats; cosmetic
+  // tables keep their cosmetic ring (nobody is placed there). A seat that
+  // would land in a wall or inside furniture is simply dropped.
+  for (const d of out) {
+    const tableAnchor = d.anchor;
+    if (!tableAnchor || !d.blockers.some((bl) => bl.isTable)) continue;
+    const n = 2 + Math.floor(nextFloat(rng) * 3);
+    for (let s = 0; s < n; s++) {
+      const a = (s / n) * Math.PI * 2 + nextFloat(rng) * 0.6;
+      const sx: number = tableAnchor.x + Math.cos(a) * 0.9;
+      const sy: number = tableAnchor.y + Math.sin(a) * 0.9;
+      const ti = Math.floor(sy) * W + Math.floor(sx);
+      if (map.tiles[ti] !== 1 || accepted.has(ti)) continue;
+      d.seats.push({ x: sx, y: sy });
     }
   }
   return { dressings: out, story, service };

@@ -12,6 +12,7 @@ import { heroSkin, type CrawlerSkin } from "../sim/game";
 import { CharSelectScene } from "./charSelect";
 import { CONFIG, floorBand } from "../sim/config";
 import { cosmeticRng, themeForFloor, tileHash, type FloorTheme } from "./floorThemes";
+import { burstPeriod, residentAct } from "./staging";
 import { assignRoomPurposes } from "../sim/roomPurposes";
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressing";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
@@ -46,6 +47,13 @@ interface CanopyEntry {
 
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
 // doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
+// DAMAGED STATE (furniture-feel): blocking furniture at 1 hp swaps to the
+// kit's broken counterpart where one exists; the rest get the tilt-and-sink
+// treatment at build time (see the smashables sync).
+const BREAKABLE_DAMAGED: Record<string, string> = {
+  table_round_medium: "table_medium_broken",
+};
+
 const WINDUP_CLIP: Record<string, string> = {
   shot: "shoot",
   slam: "spin", // the 2H overhead spin reads as a wide AoE, not a jab
@@ -141,6 +149,7 @@ export class Renderer3D {
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
   private breakableMeshes = new Map<number, THREE.Object3D>(); // smashable dressing (phase 5)
+  private stagingAnchors = new Map<string, Vec2>(); // purpose -> social anchor (resident facing)
   private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
@@ -155,7 +164,15 @@ export class Renderer3D {
   private moveMarker: THREE.Mesh | null = null; // click-to-move destination (host-local)
   private aimIndicator: THREE.Group | null = null; // drag-to-aim telegraph (touch/pad)
   // Corpses linger briefly so deaths read (death clip / tumble) instead of popping.
-  private dying: { mesh: THREE.Group; t: number; rigged: boolean }[] = [];
+  private dying: {
+    mesh: THREE.Group; t: number; rigged: boolean;
+    // Overkill: the corpse is LAUNCHED — velocity + tumble applied while the
+    // death clip plays. KayKit physics: comedic, committed, correct.
+    fling?: { vx: number; vy: number; vz: number; spin: number };
+  }[] = [];
+  // Recent overkill killing blows (from emitHits) waiting to claim the corpse
+  // the next reconcile removes near their position. Short-lived by design.
+  private overkillMarks: { x: number; y: number; dir?: Vec2; t: number }[] = [];
   private loot = new Map<number, THREE.Object3D>();
   private projectiles = new Map<number, THREE.Object3D>();
 
@@ -498,12 +515,34 @@ export class Renderer3D {
       // the bones; greeters STAND perfectly still among the props.
       dormant_floor: pick(/Skeletons_Inactive_Floor_Pose/i),
       dormant_stand: pick(/Skeletons_Inactive_Standing_Pose/i, /^T-Pose$/i),
+      // RESIDENT STAGING (PHYSICALITY.md §2): the simulation + tools
+      // libraries put real verbs in the idle slot — dinner, sleep, the
+      // forge's hammer, kitchen prep, drills. Medium rig only; large-rig
+      // residents (brutes) gracefully fall through to plain idle.
+      stage_sit: pick(/^Sit_Floor_Idle$/i, /^Sit_Chair_Idle$/i),
+      stage_lie: pick(/^Lie_Idle$/i),
+      stage_hammer: pick(/^Hammering$/i, /^Hammer$/i),
+      stage_chop: pick(/^Chopping$/i, /^Chop$/i),
+      stage_work_a: pick(/^Working_A$/i, /^Work_A$/i),
+      stage_work_b: pick(/^Working_B$/i, /^Work_B$/i),
+      stage_hold: pick(/^Holding_B$/i, /^Holding_A$/i),
+      stage_pushups: pick(/^Push_Ups$/i),
+      stage_idle_b: pick(/^Idle_B$/i),
+      stage_sit_chair: pick(/^Sit_Chair_Idle$/i),
+      // THE RISE (staging v2): scene-break stand-up transitions. One-shots —
+      // the busy timer holds locomotion off until the actor is upright.
+      stage_rise_sit: pick(/^Sit_Floor_StandUp$/i, /^Sit_Chair_StandUp$/i),
+      stage_rise_chair: pick(/^Sit_Chair_StandUp$/i, /^Sit_Floor_StandUp$/i),
+      stage_rise_lie: pick(/^Lie_StandUp$/i),
     };
     // Everything except locomotion/idles plays once then yields via the busy timer.
     const LOOPING = new Set([
       "idle", "idle_brawler", "idle_deadeye", "walk", "run", "walk_back",
       "strafe_left", "strafe_right", "drum", "dormant_floor", "dormant_stand",
       "sneak", "blocking",
+      // Staged resident verbs hold their loop until the scene breaks.
+      "stage_sit", "stage_sit_chair", "stage_lie", "stage_hammer", "stage_chop",
+      "stage_work_a", "stage_work_b", "stage_hold", "stage_pushups", "stage_idle_b",
     ]);
     // Retime one-shots to combat tempo (seconds); unlisted one-shots run natural.
     const TARGET: Record<string, number> = {
@@ -1658,6 +1697,7 @@ export class Renderer3D {
     const clear = (x: number, y: number, spawnR = 2.5, stairsR = 2.5): boolean => {
       const i = Math.floor(y) * map.w + Math.floor(x);
       if (map.tiles[i] !== Tile.Floor) return false;
+      if (map.blocked?.[i]) return false; // furniture owns that tile (entity-drawn)
       if (Math.hypot(x - map.spawn.x, y - map.spawn.y) < spawnR) return false;
       if (Math.hypot(x - map.stairs.x, y - map.stairs.y) < stairsR) return false;
       return ![i - 1, i + 1, i - map.w, i + map.w].some((n) => map.tiles[n] === Tile.DoorLocked);
@@ -1851,6 +1891,12 @@ export class Renderer3D {
       // same rooms, same purposes for the renderer and for spawnMonsters —
       // which is what lets the mess pack actually sit at the mess table.
       const dressings = assignRoomPurposes(state.seed, state.floor, map).dressings;
+      // Staging (PHYSICALITY.md §2): remember each purpose's social anchor so
+      // seated residents can face the table they were dressed around.
+      this.stagingAnchors.clear();
+      for (const d of dressings) {
+        if (d.anchor) this.stagingAnchors.set(d.purposeId, { x: d.anchor.x, y: d.anchor.y });
+      }
       for (const d of dressings) dressRoomPurpose(dressEnv, map.rooms[d.roomIdx], d);
       // CORRIDOR TISSUE: the job leaks out the door so corridors read as
       // paths BETWEEN places rather than filler.
@@ -2482,22 +2528,39 @@ export class Renderer3D {
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
     // Meshes are placed once (they don't move); a smashed one vanishes and
-    // the sim's hit event supplies the pop.
+    // the sim's hit event supplies the pop. DAMAGED STATE (furniture-feel):
+    // blocking furniture at 1 hp LOOKS one hit from gone — the table swaps
+    // to the kit's broken model, everything else tilts and sinks. The hp
+    // edge just drops the mesh; the next frame rebuilds it damaged.
     const bSeen = new Set<number>();
     for (const b of state.breakables ?? []) {
       bSeen.add(b.id);
+      const damaged = !!b.footprint && b.hp === 1;
+      const prev = this.breakableMeshes.get(b.id);
+      if (prev && damaged && !prev.userData.damaged) {
+        this.scene.remove(prev);
+        this.breakableMeshes.delete(b.id);
+      }
       if (!this.breakableMeshes.has(b.id)) {
-        const obj = this.modelInstance(b.key);
+        const swap = damaged ? BREAKABLE_DAMAGED[b.key] : undefined;
+        const obj = this.modelInstance(swap && this.models[swap] ? swap : b.key);
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
-          obj.scale.multiplyScalar(0.45 / fp);
+          // Blocking furniture fills its tile; clutter stays hand-sized.
+          obj.scale.multiplyScalar((b.footprint ? 0.85 : 0.45) / fp);
+          if (damaged && !(swap && this.models[swap])) {
+            // No broken model in the kit: one good hit knocks it askew.
+            obj.rotation.y = ((b.id * 2654435761) % 628) / 100;
+            obj.rotation.z = 0.09;
+          }
           const sc = new THREE.Box3().setFromObject(obj);
           obj.position.set(
             b.pos.x - (sc.min.x + sc.max.x) / 2 + obj.position.x,
-            -sc.min.y + 0.004,
+            -sc.min.y + 0.004 - (damaged ? 0.05 : 0),
             b.pos.y - (sc.min.z + sc.max.z) / 2 + obj.position.z,
           );
+          obj.userData.damaged = damaged;
           this.scene.add(obj);
           this.breakableMeshes.set(b.id, obj);
         }
@@ -2610,6 +2673,14 @@ export class Renderer3D {
           playFirstM("awaken");
         }
         const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        // FLINCH (combat-feel program #15.1): a fresh hit interrupts the body,
+        // not just the tint. Rate-limited so DoT ticks and flurries read as
+        // occasional twitches instead of stun-lock theater; never during a
+        // committed windup (interrupting attacks is the stagger system's job),
+        // never on bosses (their hit-react IS the stagger).
+        const flashRose = mon.hitFlash > 0 && !((ud.prevHitFlash as number) > 0);
+        ud.prevHitFlash = mon.hitFlash;
+        ud.flinchCd = Math.max(0, ((ud.flinchCd as number) ?? 0) - dt);
         if (state.encounter?.monsterId === mon.id) {
           // One performance per introduction — playFirst force-restarts, so gate it.
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
@@ -2626,6 +2697,12 @@ export class Renderer3D {
             // everyone else alternates the two hit reactions.
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
             else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
+          } else if (
+            flashRose && (ud.flinchCd as number) <= 0 && mon.windup <= 0 &&
+            mon.stagger <= 0 && mon.kind !== "boss" && mon.affix !== "shielded"
+          ) {
+            ud.flinchCd = 0.7;
+            playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (mon.windup > 0) {
             // Prefer a clip matching the committed attack; fall back to the
             // generic swing when the rig doesn't have that specific one baked.
@@ -2633,9 +2710,18 @@ export class Renderer3D {
             const wanted = WINDUP_CLIP[mon.windupKind ?? ""] ?? "attack";
             playM(hasClip(wanted) ? wanted : "attack");
           } else if ((ud.animBusy as () => number)() <= 0) {
+            const hasClipM = ud.hasClip as (n: string) => boolean;
+            const act = residentAct(state, mon);
+            // THE RISE (staging v2): the scene just broke for this actor —
+            // play the stand-up ONE-SHOT before locomotion takes the body.
+            // The whole room rises together (residentAggro is per-purpose).
+            if (!act && ud.stagedRise) {
+              const rise = ud.stagedRise as string;
+              ud.stagedRise = null;
+              if (hasClipM(rise)) playFirstM(rise);
+            } else {
             // Same hysteresis as players: enter walking decisively, leave lazily.
             ud.locoMoving = (ud.locoMoving as boolean) ? mSpeed > 0.12 : mSpeed > 0.4;
-            const hasClipM = ud.hasClip as (n: string) => boolean;
             if (ud.locoMoving) {
               // The unnoticed Repo Rat CREEPS between hoards; once the "a rat!"
               // event fires it drops the act. Fast movers (fleeing filcher,
@@ -2644,6 +2730,30 @@ export class Renderer3D {
               if (mon.kind === "filcher" && !mon.noticed && hasClipM("sneak")) playM("sneak");
               else playM(mSpeed > 3.2 && hasClipM("run") ? "run" : "walk");
             } else {
+              // RESIDENT STAGING (PHYSICALITY.md §2): an undisturbed resident
+              // ACTS — dinner, sleep, hammering, push-ups — until the room's
+              // scene breaks (first blood) or anything upstream outranks the
+              // idle slot. Kind-signature performances still win (a parked
+              // Drum Sergeant drums even in a mess hall).
+              if (act && hasClipM(act.clip) &&
+                  !(mon.kind === "drummer" || mon.kind === "shieldbearer" || mon.kind === "duelist")) {
+                ud.stagedRise = act.rise ?? null; // armed for the scene-break edge
+                if (act.burst && hasClipM(act.burst)) {
+                  ud.stageT = ((ud.stageT as number) ?? 0) + dt;
+                  if ((ud.stageT as number) >= burstPeriod(act, mon.id)) {
+                    ud.stageT = 0;
+                    playFirstM(act.burst);
+                  } else if ((ud.animBusy as () => number)() <= 0) {
+                    playM(act.clip);
+                  }
+                } else {
+                  playM(act.clip);
+                }
+                if (act.faceAnchor) {
+                  const anchor = this.stagingAnchors.get(mon.residentOf!);
+                  if (anchor) mesh.rotation.y = Math.atan2(anchor.x - mon.pos.x, anchor.y - mon.pos.y);
+                }
+              } else {
               // A parked Drum Sergeant performs; a parked Shieldbearer holds
               // the wall behind its tower shield; a flourishing Duelist puts
               // the blade UP (the riposte window has to READ).
@@ -2652,6 +2762,8 @@ export class Renderer3D {
                 mon.kind === "shieldbearer" && hasClipM("blocking") ? "blocking" :
                 mon.kind === "duelist" && (mon.riposteT ?? 0) > 0 && hasClipM("idle_brawler") ? "idle_brawler" : "idle",
               );
+              }
+            }
             }
           }
         }
@@ -2826,7 +2938,21 @@ export class Renderer3D {
             const variant = Math.random() < 0.5 && (mesh.userData.hasClip as (n: string) => boolean)("death_b") ? "death_b" : "death";
             (mesh.userData.play as (n: string, force?: boolean) => void)(variant, true);
           }
-          this.dying.push({ mesh, t: rigged ? 1.1 : 0.7, rigged });
+          // An overkill blow near this corpse claims it: launched, tumbling,
+          // death clip still playing mid-air. Bigger send-off for bigger hits.
+          let fling: (typeof this.dying)[number]["fling"];
+          const okIdx = this.overkillMarks.findIndex(
+            (mk) => Math.hypot(mk.x - mesh.position.x, mk.y - mesh.position.z) < 1.4,
+          );
+          if (okIdx >= 0) {
+            const mk = this.overkillMarks.splice(okIdx, 1)[0];
+            const d = mk.dir ?? { x: 0, y: 0 };
+            fling = {
+              vx: d.x * 5.5 + (Math.random() - 0.5), vy: 4.6 + Math.random() * 1.2,
+              vz: d.y * 5.5 + (Math.random() - 0.5), spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4),
+            };
+          }
+          this.dying.push({ mesh, t: (rigged ? 1.1 : 0.7) + (fling ? 0.4 : 0), rigged, fling });
         }
       }
     }
@@ -3300,11 +3426,16 @@ export class Renderer3D {
         h.kind === "heal" ? 0x5fd08a :
         h.kind === "gold" ? 0xf2c14e : 0xb98bff;
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
-      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0);
+      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0) + (h.overkill ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
       if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
       if (h.kind === "crit") this.addTrauma(0.3);
       if (h.killed && h.kind !== "player") this.addTrauma(0.25);
+      if (h.overkill && h.kind !== "player") {
+        this.addTrauma(0.2);
+        // The corpse this kill removes (next reconcile) gets launched.
+        this.overkillMarks.push({ x: h.pos.x, y: h.pos.y, dir: h.dir, t: 0.5 });
+      }
     }
   }
 
@@ -3414,13 +3545,30 @@ export class Renderer3D {
 
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
   private updateDying(dt: number): void {
+    // Unclaimed overkill marks expire fast (net mode can cull the corpse
+    // before we ever see it disappear).
+    this.overkillMarks = this.overkillMarks.filter((mk) => (mk.t -= dt) > 0);
     const alive: typeof this.dying = [];
     for (const d of this.dying) {
       d.t -= dt;
       if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
+      if (d.fling) {
+        // Launched: ballistic arc + tumble, death clip still playing.
+        const f = d.fling;
+        d.mesh.position.x += f.vx * dt;
+        d.mesh.position.y += f.vy * dt;
+        d.mesh.position.z += f.vz * dt;
+        f.vy -= 14 * dt;
+        d.mesh.rotation.z += f.spin * dt;
+        if (d.mesh.position.y <= 0) {
+          // Landed: kill the arc, keep a skid, stop tumbling upright-ish.
+          d.mesh.position.y = 0;
+          f.vx *= 0.25; f.vz *= 0.25; f.vy = 0; f.spin *= 0.2;
+        }
+      }
       if (d.rigged) {
         (d.mesh.userData.mixer as THREE.AnimationMixer).update(dt);
-      } else {
+      } else if (!d.fling) {
         d.mesh.rotation.z = Math.min(Math.PI / 2, d.mesh.rotation.z + dt * 4);
         d.mesh.position.y -= dt * 0.6;
       }

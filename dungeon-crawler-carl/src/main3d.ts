@@ -36,7 +36,7 @@ import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
-import { NetClient } from "./net/netClient";
+import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
 import type { CustomMobDef, RoomTemplate } from "./content/types";
@@ -77,7 +77,16 @@ const renderer = new Renderer3D(canvas, {
 // per-frame feedback buffers. Silent until clips exist under public/audio/
 // (see ASSETS.md — Audio); missing files simply never play.
 const audio = new AudioEngine();
-void audio.load();
+// Payload diet (backlog #7a): 24MB of audio must not race the model wave for
+// first-visit bandwidth. Sounds stream in AFTER the game is playable — the
+// engine's silent-fallback covers the gap, exactly like missing files do.
+// requestIdleCallback isn't universal (Safari); a timer is the fallback.
+const startAudioLoad = (): void => { void audio.load(); };
+if ("requestIdleCallback" in window) {
+  requestIdleCallback(() => setTimeout(startAudioLoad, 4000));
+} else {
+  setTimeout(startAudioLoad, 6000);
+}
 const audioDirector = new AudioDirector(audio);
 
 // ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----
@@ -203,6 +212,8 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   runMode = mode;
   currentRunKind = runKind;
   dailySubmitted = false;
+  alltimeSubmitted = false;
+  telemetrySubmitted = false;
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
@@ -274,6 +285,12 @@ applyTouchMode();
 canvas.addEventListener("pointerdown", (e) => {
   if (touchMode && e.pointerType === "touch") e.preventDefault();
 });
+// Safari (iOS + macOS trackpads) pinch-zooms the PAGE through proprietary
+// GestureEvents that ignore touch-action entirely — two-thumb play (stick +
+// ability chip) reads as a pinch and lurches the viewport. Snuff the stream.
+for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(g, (e) => e.preventDefault(), { passive: false });
+}
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
   if (testMode) {
@@ -361,10 +378,84 @@ nameInput.addEventListener("change", () => {
 // in dev the Vite client on :5280 talks to the sibling server on :5281.
 const API_BASE = import.meta.env.DEV ? `http://${location.hostname}:5281` : "";
 
+// ---- Daily challenge links (launch polish #2) ----
+// ?daily=YYYY-MM-DD[&by=&floor=&t=&won=1] turns the DAILY CRAWL card into an
+// accepted challenge: same day = same seed = the same dungeon the challenger
+// ran. Everything but the day is display flavor (names go through textContent).
+const challengeDay = /^\d{4}-\d{2}-\d{2}$/.test(params.get("daily") ?? "")
+  ? params.get("daily")!
+  : null;
+
+// Participation streak: finishing a daily (win OR wipe — showing up counts)
+// extends it; a missed day resets. Local to the browser, like the career.
+const STREAK_KEY = "dcc:dailystreak:v1";
+function loadStreak(): { last: string; n: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(STREAK_KEY) ?? "null") as { last: string; n: number } | null;
+    return v && typeof v.last === "string" && typeof v.n === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function dayBefore(day: string): string {
+  return dayFromMs(Date.parse(`${day}T12:00:00Z`) - 86_400_000);
+}
+function bumpStreak(day: string): number {
+  const cur = loadStreak();
+  const n = cur?.last === day ? cur.n : cur?.last === dayBefore(day) ? cur.n + 1 : 1;
+  try { localStorage.setItem(STREAK_KEY, JSON.stringify({ last: day, n })); } catch { /* best-effort */ }
+  return n;
+}
+/** The streak shown on the menu card: alive if it includes today or yesterday. */
+function currentStreak(): number {
+  const cur = loadStreak();
+  const today = dayFromMs(Date.now());
+  return cur && (cur.last === today || cur.last === dayBefore(today)) ? cur.n : 0;
+}
+
+// Board tabs: TODAY (the daily) + the all-time category boards.
+let boardTab = "today";
+document.querySelectorAll<HTMLElement>(".m-board-h .bt").forEach((el) => {
+  el.addEventListener("click", () => {
+    boardTab = el.dataset.bt ?? "today";
+    document.querySelectorAll(".m-board-h .bt").forEach((b) => b.classList.toggle("active", b === el));
+    void refreshBoard();
+  });
+});
+
+/** Result column per all-time category — each board brags differently. */
+function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: number; kills: number }): string {
+  if (cat === "fastest" || cat === "contracts") return `CLEAR · ${fmt(e.timeSec)}`;
+  if (cat === "kills") return `${e.kills.toLocaleString()} kills`;
+  return e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`;
+}
+
 async function refreshBoard(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
+  const dayEl = document.getElementById("m-board-day")!;
+  if (boardTab !== "today") {
+    try {
+      const r = await fetch(`${API_BASE}/leaderboard?cat=${boardTab}`);
+      if (!r.ok) throw new Error(String(r.status));
+      const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number; kills: number }[] };
+      dayEl.textContent = "ALL-TIME";
+      list.innerHTML = data.entries.length
+        ? data.entries.slice(0, 10).map((e, i) =>
+            `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
+            `<span class="res${e.won ? " win" : ""}">${alltimeRes(boardTab, e)}</span></li>`,
+          ).join("")
+        : '<li class="none">nobody has claimed this board yet</li>';
+      const nms = list.querySelectorAll(".nm");
+      data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
+    } catch {
+      list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+    }
+    return;
+  }
   try {
-    const day = dayFromMs(Date.now());
+    // A challenge link shows the CHALLENGER'S board day, not today's.
+    const day = challengeDay ?? dayFromMs(Date.now());
+    dayEl.textContent = day;
     const r = await fetch(`${API_BASE}/leaderboard?day=${day}`);
     if (!r.ok) throw new Error(String(r.status));
     const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number }[] };
@@ -377,6 +468,26 @@ async function refreshBoard(): Promise<void> {
     // Names are player-supplied: set via textContent, never innerHTML.
     const nms = list.querySelectorAll(".nm");
     data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
+    // Yesterday's champion header (skipped on challenge-day views).
+    if (!challengeDay) {
+      const yr = await fetch(`${API_BASE}/leaderboard?day=${dayBefore(day)}`);
+      if (yr.ok) {
+        const ydata = (await yr.json()) as typeof data;
+        const champ = ydata.entries[0];
+        if (champ) {
+          const li = document.createElement("li");
+          li.className = "yday";
+          const label = document.createElement("span");
+          label.textContent = "YESTERDAY'S CHAMPION: ";
+          const nm = document.createElement("b");
+          nm.textContent = champ.name;
+          const res = document.createElement("span");
+          res.textContent = champ.won ? ` — CLEAR · ${fmt(champ.timeSec)}` : ` — floor ${champ.floor}`;
+          li.append(label, nm, res);
+          list.prepend(li);
+        }
+      }
+    }
   } catch {
     list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
   }
@@ -398,11 +509,167 @@ function submitDaily(s: GameState): void {
   }).then(async (r) => {
     if (!r.ok) return;
     const { rank } = (await r.json()) as { rank: number };
-    pushLogLine(`DAILY CRAWL: rank #${rank} on today's board.`);
+    const streak = bumpStreak(runMode.day!);
+    pushLogLine(`DAILY CRAWL: rank #${rank} on the board${streak > 1 ? ` · ${streak}-day streak` : ""}.`);
     const note = document.getElementById("recap-note")!;
-    note.textContent = `daily board: rank #${rank} today${note.textContent ? ` · ${note.textContent}` : ""}`;
+    note.textContent = `daily board: rank #${rank}${streak > 1 ? ` · streak ${streak}` : ""}${note.textContent ? ` · ${note.textContent}` : ""}`;
   }).catch(() => { /* offline is fine */ });
 }
+
+/** Every finished solo run reports to the all-time boards (win or wipe). */
+let alltimeSubmitted = false;
+function submitAlltime(s: GameState): void {
+  if (net || testMode || alltimeSubmitted || s.runKind === "roam") return;
+  alltimeSubmitted = true;
+  const p = me(s);
+  void fetch(`${API_BASE}/leaderboard`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      board: "alltime", token: ensureToken(), name: p.name, floor: s.floor,
+      won: s.status === "won", timeSec: Math.round(s.elapsed), kills: p.kills,
+    }),
+  }).then(async (r) => {
+    if (!r.ok) return;
+    const { headlines } = (await r.json()) as { headlines: string[] };
+    if (headlines.length > 0) {
+      pushLogLine(`ALL-TIME BOARD: top ten — ${headlines.join(", ").toUpperCase()}.`);
+    }
+  }).catch(() => { /* offline is fine */ });
+}
+
+/** Every finished SOLO run reports its build to usage_events (fire-and-forget)
+ *  — round 1 of BALANCE-NOTES.md found the balance record only saw multiplayer
+ *  while nearly all real runs happen right here in the browser. Same summary
+ *  shape the server logs for party runs, so mining treats both uniformly. */
+let telemetrySubmitted = false;
+function submitTelemetry(s: GameState): void {
+  if (net || testMode || telemetrySubmitted) return;
+  telemetrySubmitted = true;
+  const p = me(s);
+  void fetch(`${API_BASE}/telemetry`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "run_end",
+      token: ensureToken(),
+      data: {
+        status: s.status, floor: s.floor, mode: "solo", runKind: s.runKind,
+        elapsed: Math.round(s.elapsed),
+        players: [{
+          name: p.name, level: p.level, slots: p.abilities.slots,
+          ultimate: p.abilities.ultimate,
+          ranks: Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0),
+          weapon: p.equipment.weapon?.name ?? null,
+          maxHp: p.maxHp, armor: p.armor,
+          attackPower: p.attackPower, spellPower: p.spellPower,
+          crit: +p.critChance.toFixed(3), kills: p.kills,
+          damageDealt: Math.round(p.damageDealt),
+          damageTaken: Math.round(p.damageTaken),
+          gold: p.gold, sponsors: p.sponsors, alive: p.alive,
+        }],
+      },
+    }),
+  }).catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
+}
+
+// ---- Account (release infra): anonymous token + optional OAuth identity ----
+// The token is the account. Solo players may never have joined a server, so
+// mint one locally when needed — the server accepts any well-formed id.
+function ensureToken(): string {
+  let t = loadToken();
+  if (!t) {
+    t = crypto.randomUUID();
+    storeToken(t);
+  }
+  return t;
+}
+
+const SIGNIN_KEY = "dcc:signin:v1";
+function loadSignin(): { who: string; provider: string } | null {
+  try {
+    return JSON.parse(localStorage.getItem(SIGNIN_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+// Consume the OAuth callback hash BEFORE anything else reads the URL:
+// #auth=<account>&who=<display>&provider=<p> (or #autherr=<why>).
+{
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (h.get("auth")) {
+    storeToken(h.get("auth")!);
+    try {
+      localStorage.setItem(SIGNIN_KEY, JSON.stringify({ who: h.get("who") ?? "Crawler", provider: h.get("provider") ?? "" }));
+    } catch { /* best-effort */ }
+    history.replaceState(null, "", location.pathname + location.search);
+  } else if (h.get("autherr")) {
+    console.warn("sign-in failed:", h.get("autherr"));
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
+
+/** Wire the menu account row: sign-in buttons per enabled provider, the
+ *  signed-in chip with cross-device career stats, sign-out, delete. */
+async function initAccountUi(): Promise<void> {
+  const row = document.getElementById("m-account")!;
+  const status = document.getElementById("m-acct-status")!;
+  let providers: string[] = [];
+  try {
+    const r = await fetch(`${API_BASE}/auth/providers`);
+    providers = r.ok ? ((await r.json()) as { providers: string[] }).providers : [];
+  } catch { /* server unreachable: keep the menu quiet */ }
+  const signin = loadSignin();
+  if (providers.length === 0 && !signin) return; // nothing to offer
+  row.style.display = "flex";
+  const show = (id: string, on: boolean) => { document.getElementById(id)!.style.display = on ? "" : "none"; };
+  if (signin) {
+    status.innerHTML = `◆ <b></b>`;
+    status.querySelector("b")!.textContent = `${signin.who} · ${signin.provider}`;
+    show("m-signin-discord", false);
+    show("m-signin-google", false);
+    show("m-signout", true);
+    show("m-forget", true);
+    // Cross-device career, from the server's aggregate (profiles).
+    try {
+      const r = await fetch(`${API_BASE}/auth/whoami?token=${encodeURIComponent(ensureToken())}`);
+      if (r.ok) {
+        const { stats } = (await r.json()) as { stats: { runs: number; wins: number; deepest: number; kills: number } | null };
+        if (stats && stats.runs > 0) {
+          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${stats.kills.toLocaleString()} kills`);
+        }
+      }
+    } catch { /* stats are garnish */ }
+  } else {
+    status.textContent = "sync your crawler across devices:";
+    show("m-signin-discord", providers.includes("discord"));
+    show("m-signin-google", providers.includes("google"));
+    show("m-signout", false);
+    show("m-forget", false);
+  }
+}
+for (const [btn, prov] of [["m-signin-discord", "discord"], ["m-signin-google", "google"]] as const) {
+  document.getElementById(btn)!.addEventListener("click", () => {
+    location.href = `${API_BASE}/auth/login/${prov}?token=${encodeURIComponent(ensureToken())}`;
+  });
+}
+document.getElementById("m-signout")!.addEventListener("click", () => {
+  // Full sign-out (shared computers): the identity chip AND the token go.
+  try { localStorage.removeItem(SIGNIN_KEY); localStorage.removeItem("dcc:token:v1"); } catch { /* ok */ }
+  void initAccountUi();
+});
+document.getElementById("m-forget")!.addEventListener("click", () => {
+  if (!confirm("Delete your account? Cross-device saves, identities, and career stats are erased from the server. Local progress stays on this device.")) return;
+  void fetch(`${API_BASE}/auth/delete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: ensureToken() }),
+  }).catch(() => { /* best-effort */ });
+  try { localStorage.removeItem(SIGNIN_KEY); localStorage.removeItem("dcc:token:v1"); } catch { /* ok */ }
+  void initAccountUi();
+});
+void initAccountUi();
 
 /** The CAREER panel: personal bests + recent seasons, from the local ledger. */
 function renderCareer(): void {
@@ -450,7 +717,7 @@ function openMenu(): void {
       `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
-  document.getElementById("m-board-day")!.textContent = dayFromMs(Date.now());
+  document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
 }
@@ -470,7 +737,24 @@ function closeMenu(): void {
 // somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
 document.getElementById("m-daily")!.addEventListener("click", () =>
-  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: dayFromMs(Date.now()) })));
+  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: challengeDay ?? dayFromMs(Date.now()) })));
+// Challenge links re-dress the card; a live streak decorates the subtitle.
+{
+  const sub = document.getElementById("m-daily-sub")!;
+  if (challengeDay) {
+    const by = (params.get("by") ?? "a rival crawler").slice(0, 24);
+    const floorN = Math.max(1, Math.min(99, Number(params.get("floor")) || 0));
+    const t = Number(params.get("t")) || 0;
+    const feat = params.get("won") === "1" && t > 0
+      ? `cleared it in ${fmt(t)}`
+      : floorN > 0 ? `reached floor ${floorN}` : "laid down a run";
+    sub.textContent = `${by} ${feat} on ${challengeDay} — same dungeon, beat it`;
+    document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
+  } else {
+    const streak = currentStreak();
+    if (streak > 0) sub.textContent = `${sub.textContent} · your streak: ${streak} day${streak === 1 ? "" : "s"}`;
+  }
+}
 document.getElementById("m-solo")!.addEventListener("click", () =>
   enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
@@ -501,6 +785,81 @@ function rollCode(): string {
   for (let i = 0; i < 5; i++) c += chars[Math.floor(Math.random() * chars.length)];
   return c;
 }
+
+// ---- Party friction (launch polish #7): links beat codes ----
+// A join URL carries everything but the NAME (each crawler picks their own at
+// check-in). Clipboard API needs a secure context (prod + localhost are);
+// the legacy path covers anything else.
+function inviteUrl(code: string, rivals: boolean): string {
+  const q = new URLSearchParams({ join: code });
+  if (rivals) q.set("rivals", "1");
+  if (roamMode) q.set("roam", "1");
+  return `${location.origin}${location.pathname}?${q}`;
+}
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+/** Copy an invite and flash the button so the click visibly DID something. */
+function wireInvite(btnId: string, input: HTMLInputElement, rivals: boolean): void {
+  const btn = document.getElementById(btnId)!;
+  btn.addEventListener("click", async () => {
+    if (!input.value.trim()) input.value = rollCode();
+    const code = input.value.trim().toUpperCase().slice(0, 32);
+    const ok = await copyText(inviteUrl(code, rivals));
+    const label = btn.textContent;
+    btn.textContent = ok ? "COPIED" : "COPY FAILED";
+    setTimeout(() => { btn.textContent = label; }, 1400);
+  });
+}
+
+// One-tap rejoin: remember the last party this browser sat in (a week keeps
+// weekend groups alive without resurrecting ancient codes forever).
+const LASTPARTY_KEY = "dcc:lastparty:v1";
+function rememberParty(): void {
+  try {
+    localStorage.setItem(LASTPARTY_KEY, JSON.stringify({ code: joinCode, rivals: rivalsMode, roam: roamMode, at: Date.now() }));
+  } catch { /* best-effort */ }
+}
+function offerRejoin(): void {
+  try {
+    const raw = localStorage.getItem(LASTPARTY_KEY);
+    if (!raw || net) return; // already in a party: nothing to offer
+    const last = JSON.parse(raw) as { code: string; rivals: boolean; roam?: boolean; at: number };
+    if (!last.code || Date.now() - last.at > 7 * 86400_000) return;
+    const btn = document.getElementById("m-rejoin")!;
+    document.getElementById("m-rejoin-code")!.textContent = last.code.slice(0, 12);
+    document.getElementById("m-rejoin-sub")!.textContent = last.rivals
+      ? "the race is still live — your rivals kept descending"
+      : last.roam ? "your Roam campaign kept the campfire lit" : "your party is still out there";
+    btn.style.display = "";
+    btn.addEventListener("click", () => {
+      enterCasting(`${last.rivals ? "RIVALS" : "PARTY"} ${last.code}`, () => {
+        const q = new URLSearchParams({ join: last.code, name: crawlerName() });
+        if (last.rivals) q.set("rivals", "1");
+        if (last.roam) q.set("roam", "1");
+        location.href = `${location.pathname}?${q}`;
+      });
+    });
+  } catch { /* best-effort */ }
+}
+offerRejoin();
 document.getElementById("m-party")!.addEventListener("click", () => {
   const form = document.getElementById("m-party-form")!;
   const opening = form.style.display === "none";
@@ -508,6 +867,7 @@ document.getElementById("m-party")!.addEventListener("click", () => {
   if (opening && !codeInput.value) codeInput.value = rollCode();
 });
 document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.value = rollCode(); });
+wireInvite("m-invite", codeInput, false);
 document.getElementById("m-join")!.addEventListener("click", () => {
   const code = codeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { codeInput.focus(); return; }
@@ -567,6 +927,7 @@ document.getElementById("m-rivals-card")!.addEventListener("click", () => {
   if (opening && !rivalCodeInput.value) rivalCodeInput.value = rollCode();
 });
 document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeInput.value = rollCode(); });
+wireInvite("m-rinvite", rivalCodeInput, true);
 document.getElementById("m-rivals")!.addEventListener("click", () => {
   const code = rivalCodeInput.value.trim().toUpperCase().slice(0, 32);
   if (!code) { rivalCodeInput.focus(); return; }
@@ -1282,7 +1643,9 @@ function applyBindings(): void {
   document.getElementById("tm-system")!.innerHTML =
     row("keybinds", "Key Bindings & Options") +
     row("mute", "Mute / Unmute Sound") +
-    (net ? "" : row("newRun", "New Run"));
+    // In a party: invites from anywhere, one tap/click (not a bindable
+    // action — the menu dispatch special-cases it).
+    (net ? `<div class="tm-row" data-act="invite"><span>Copy Party Invite Link</span></div>` : row("newRun", "New Run"));
   document.getElementById("tm-crawler")!.innerHTML =
     row("inventory", "Inventory") +
     row("abilities", "Loadout & Achievements") +
@@ -1480,10 +1843,15 @@ for (const tb of topBars) {
     closeTopMenus();
     if (!was) tb.classList.add("open");
   });
-  tb.querySelector(".topmenu")!.addEventListener("click", (e) => {
+  tb.querySelector(".topmenu")!.addEventListener("click", async (e) => {
     const r = (e.target as HTMLElement).closest<HTMLElement>(".tm-row");
     if (!r?.dataset.act) return;
     closeTopMenus();
+    if (r.dataset.act === "invite") {
+      const ok = await copyText(inviteUrl(joinCode!, rivalsMode));
+      pushLogLine(ok ? "Invite link copied — paste it to your crawlers." : "Copy failed — the code is " + joinCode);
+      return;
+    }
     fireAction(r.dataset.act as BindableAction);
   });
 }
@@ -2338,14 +2706,20 @@ function showTutorialCard(a: Announcement): void {
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
+  // The WHOLE card dismisses, not just the button — a thumb on a phone gets
+  // the full surface. Guarded: button + card both firing must not eat two
+  // queue entries.
+  let dismissed = false;
   const dismiss = (): void => {
+    if (dismissed) return;
+    dismissed = true;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
     const next = tutorialQueue.shift();
     if (next) showTutorialCard(next);
   };
-  el.querySelector(".tut-dismiss")!.addEventListener("click", dismiss);
+  el.addEventListener("click", dismiss);
 }
 
 // ---- Run recap (backlog #12): the season report card ----
@@ -2420,6 +2794,9 @@ function renderRecap(s: GameState): void {
     ? "the server hosts the next season"
     : won ? "season two is contractually obligated" : "";
   document.getElementById("recap-again")!.style.display = net ? "none" : "";
+  // Daily runs mint a challenge link: same day = same seed = same dungeon.
+  document.getElementById("recap-share")!.style.display =
+    !net && runMode.kind === "daily" && runMode.day ? "" : "none";
 }
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
@@ -2433,6 +2810,91 @@ function maybeShowRecap(s: GameState): void {
 
 document.getElementById("recap-dismiss")!.addEventListener("click", () => {
   recapEl.style.display = "none"; // spectate the arena; R still restarts
+});
+// ---- The run card (launch polish #4): the recap as a shareable artifact ----
+// A 1200x630 canvas (link-preview dims) in the Torchlit palette. Cinzel and
+// Alegreya are document fonts, so the canvas can use them directly.
+function composeRunCard(s: GameState): HTMLCanvasElement {
+  const p = me(s);
+  const won = s.status === "won";
+  const cv = document.createElement("canvas");
+  cv.width = 1200; cv.height = 630;
+  const g = cv.getContext("2d")!;
+  // Slab ground + double frame.
+  g.fillStyle = "#0e0b09"; g.fillRect(0, 0, 1200, 630);
+  g.strokeStyle = "#6e5533"; g.lineWidth = 3; g.strokeRect(14, 14, 1172, 602);
+  g.strokeStyle = "rgba(0,0,0,0.6)"; g.strokeRect(18, 18, 1164, 594);
+  const center = (t: string, y: number, font: string, color: string) => {
+    g.font = font; g.fillStyle = color; g.textAlign = "center"; g.fillText(t, 600, y);
+  };
+  center("◆ DUNGEON CRAWLER CLAUDE ◆", 78, "700 24px Cinzel, serif", "#c9a24b");
+  center(won ? "SEASON FINALE" : "IN MEMORIAM", 168, "700 72px Cinzel, serif", won ? "#f2c14e" : "#c0392f");
+  center(
+    won
+      ? `${p.name} cleared all ${CONFIG.finalFloor} floors in ${fmt(s.elapsed)}`
+      : `${p.name} · season canceled on floor ${s.floor} · ${fmt(s.elapsed)}`,
+    216, "26px 'Alegreya Sans', sans-serif", "#e8ddc8",
+  );
+  // Gold rule.
+  g.strokeStyle = "rgba(201,162,75,0.55)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(180, 252); g.lineTo(1020, 252); g.stroke();
+  // Stat ledger, two rows of three.
+  const stats: [string, string][] = [
+    [String(p.level), "LEVEL"], [p.kills.toLocaleString(), "KILLS"],
+    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE"],
+    [Math.round(p.viewers).toLocaleString(), "VIEWERS"],
+    [Math.floor(p.favorites).toLocaleString(), "FAVORITES"], [String(p.sponsors), "SPONSORS"],
+  ];
+  stats.forEach(([v, l], i) => {
+    const x = 260 + (i % 3) * 340;
+    const y = 330 + Math.floor(i / 3) * 120;
+    g.font = "700 46px Cinzel, serif"; g.fillStyle = "#f2c14e"; g.textAlign = "center";
+    g.fillText(v, x, y);
+    g.font = "16px 'Alegreya Sans', sans-serif"; g.fillStyle = "#6f6757";
+    g.fillText(l, x, y + 28);
+  });
+  // The build: The Five + the weapon in hand.
+  const build = [
+    ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ABILITY_INFO[id].name),
+    ...(p.abilities.ultimate ? [`${ABILITY_INFO[p.abilities.ultimate].name} (ULT)`] : []),
+  ].join(" · ");
+  center(build || "bare hands and bad intentions", 542, "20px 'Alegreya Sans', sans-serif", "#a99f8c");
+  if (p.equipment.weapon) center(`wielding ${p.equipment.weapon.name}`, 572, "italic 18px 'Alegreya Sans', sans-serif", "#9a6bd0");
+  const footer = runMode.kind === "daily" && runMode.day
+    ? `DAILY CRAWL ${runMode.day} · dungeon-crawler-claude.fly.dev`
+    : `dungeon-crawler-claude.fly.dev`;
+  center(footer, 604, "15px 'Alegreya Sans', sans-serif", "#6f6757");
+  return cv;
+}
+
+document.getElementById("recap-card")!.addEventListener("click", () => {
+  const cv = composeRunCard(state);
+  cv.toBlob(async (blob) => {
+    if (!blob) return;
+    const name = `dcc-${state.status === "won" ? "finale" : "memoriam"}-${dayFromMs(Date.now())}.png`;
+    const file = new File([blob], name, { type: "image/png" });
+    // The mobile path is the share sheet; desktop falls back to a download.
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Dungeon Crawler Claude" }); return; } catch { /* fall through */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, "image/png");
+});
+
+document.getElementById("recap-share")!.addEventListener("click", async () => {
+  if (runMode.kind !== "daily" || !runMode.day) return;
+  const p = me(state);
+  const q = new URLSearchParams({ daily: runMode.day, by: p.name.slice(0, 24), floor: String(state.floor) });
+  if (state.status === "won") { q.set("won", "1"); q.set("t", String(Math.round(state.elapsed))); }
+  const ok = await copyText(`${location.origin}${location.pathname}?${q}`);
+  const btn = document.getElementById("recap-share")!;
+  const label = btn.textContent;
+  btn.textContent = ok ? "COPIED" : "COPY FAILED";
+  setTimeout(() => { btn.textContent = label; }, 1400);
 });
 document.getElementById("recap-again")!.addEventListener("click", () => {
   recapEl.style.display = "none";
@@ -2741,7 +3203,8 @@ async function main(): Promise<void> {
     }
     localId = net.playerId;
     renderer.localPlayerId = localId;
-    pushLogLine(`Joined party ${joinCode} as ${playerName}.`);
+    rememberParty(); // the menu offers one-tap REJOIN next visit
+    pushLogLine(`Joined party ${joinCode} as ${playerName}. SYSTEM menu copies an invite link.`);
     net.onEvents = (batch) => {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
@@ -2870,14 +3333,22 @@ async function main(): Promise<void> {
           persistRun(state);
           if (state.status !== "playing") {
             submitDaily(state); // daily runs report to the board
+            submitAlltime(state); // every finished run reports all-time
+            submitTelemetry(state); // ...and its build to the balance record
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
           }
         }
       }
       // Killing blows schedule the next freeze: crits pop hardest, player deaths
-      // hang for drama, ordinary kills get a couple of frames.
+      // hang for drama, ordinary kills get a couple of frames. Non-kill CRITS
+      // get a single-frame tick (the accumulator cap keeps flurries sane), and
+      // OVERKILL blows hang longest — deleting something should feel like it.
       for (const h of frameHits) {
-        if (!h.killed) continue;
+        if (h.overkill) { hitStop = Math.min(0.14, hitStop + 0.1); continue; }
+        if (!h.killed) {
+          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.022);
+          continue;
+        }
         hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
       }
 

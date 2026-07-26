@@ -10,9 +10,34 @@ import { moveWithCollision } from "./movement";
 import { applyStatus } from "./status";
 import {
   applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
-  damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse, spawnBossWave, summonMinion,
-  tauntingDecoy,
+  breakResidentScene, damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, nearestPlayer, raiseCorpse,
+  spawnBossWave, summonMinion, tauntingDecoy,
 } from "./game";
+import { PURPOSE_PERCEPTION } from "./roomPurposes";
+import { smashBlockersAt } from "./game";
+
+// FURNITURE-FEEL: the kinds with the frame to remove furniture rather than
+// walk around it. Everyone else slips the 45s (see slipAround).
+const SMASH_KINDS = new Set<Monster["kind"]>(["brute", "warden", "colossus", "slagbreaker", "foreman", "boss"]);
+
+/** Any blocking furniture within reach of this monster's swing? */
+function furnitureWithin(state: GameState, pos: Vec2, r: number): boolean {
+  return (state.breakables ?? []).some((b) => b.footprint && dist(pos, b.pos) <= r);
+}
+
+/** LOCAL AVOIDANCE (furniture-feel): a stalled chaser tries the two
+ *  45-degree slips instead of grinding at a mid-room table like a stuck
+ *  vacuum. Parity picks the first side, so a pack SPLITS around the
+ *  obstacle instead of conga-lining behind one member. */
+function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number): void {
+  const px = m.pos.x, py = m.pos.y;
+  for (const sign of m.id % 2 === 0 ? [1, -1] : [-1, 1]) {
+    const c = Math.SQRT1_2, s = sign * Math.SQRT1_2;
+    const slip = { x: toPlayer.x * c - toPlayer.y * s, y: toPlayer.x * s + toPlayer.y * c };
+    moveWithCollision(state.map, m.pos, slip, step, isWalkable);
+    if (Math.hypot(m.pos.x - px, m.pos.y - py) >= step * 0.5) return;
+  }
+}
 
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
@@ -76,6 +101,8 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
 function resolveMeleeStrike(state: GameState, m: Monster): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   const reach = m.attackRange + CONFIG.monsterStrikeGrace;
+  // The big frames wreck furniture in the arc (brute smash-through).
+  if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, reach + 0.45);
   // A STUNT DOUBLE in reach takes the hit — that is what it is paid for.
   if (decoySoak(state, m.pos, reach, m.damage)) return;
   for (const player of state.players) {
@@ -105,6 +132,9 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
  * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
 function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
+  // The slam wrecks the furniture too (brute smash-through): the table
+  // explodes and the fight arrives.
+  if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, radius + 0.45);
   // The double dives on the slam too (players in the radius still get spared —
   // one professional sacrifice per blast).
   if (decoySoak(state, m.pos, radius, dmg)) return;
@@ -596,7 +626,21 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   const player = nearestPlayer(state, m.pos);
   if (!player) return;
   const hunt = tauntingDecoy(state, m.pos) ?? player;
-  const d = dist(m.pos, hunt.pos);
+  let d = dist(m.pos, hunt.pos);
+  // STAGED PERCEPTION (staging v2): an undisturbed resident is absorbed in
+  // its act — the barracks SLEEPS, diners are slow to look up, the guardpost
+  // is paid to watch. Until someone crosses aggroRange x the purpose's
+  // perception, every aggro gate below sees a distance beyond its widest
+  // multiplier, so the scene simply continues: sneaking past is a real
+  // option, and a stray corridor nova no longer wakes a room that never saw
+  // you. Crossing the line breaks the scene HERE, for the whole room.
+  if (m.residentOf && !(state.residentAggro ?? []).includes(m.residentOf)) {
+    if (d <= CONFIG.monsterAggroRange * (PURPOSE_PERCEPTION[m.residentOf] ?? 1)) {
+      breakResidentScene(state, m);
+    } else {
+      d = Math.max(d, CONFIG.monsterAggroRange * 2.6 + 1);
+    }
+  }
   const toPlayer = normalize({ x: hunt.pos.x - m.pos.x, y: hunt.pos.y - m.pos.y });
   // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
   const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;
@@ -763,8 +807,29 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       }
     }
     // Boss: relentless melee chase (telegraphed slam) + periodic radial volley.
+    // ANTI-KITE (backlog #6, movement half): time out of melee reach builds
+    // impatience — past a patience delay the chase speed ramps toward a cap,
+    // so orbiting the arena forever stops being free. One moment of contact
+    // resets it: the counterplay is standing your ground in windows (dodging
+    // INTO range), not running laps.
+    if (d > m.attackRange) {
+      m.chaseT = (m.chaseT ?? 0) + dt;
+    } else {
+      m.chaseT = 0;
+      m.chaseVexed = false;
+    }
+    const overPatience = Math.max(0, (m.chaseT ?? 0) - CONFIG.bossChaseRampDelay);
+    const chase = Math.min(CONFIG.bossChaseRampCap, 1 + overPatience * CONFIG.bossChaseRampRate);
+    if (chase >= CONFIG.bossChaseRampCap && !m.chaseVexed) {
+      m.chaseVexed = true;
+      state.announcements.push({
+        text: "The boss is done chasing politely. Sponsors, mark the footwork clause.",
+        kind: "boss",
+        priority: "normal",
+      });
+    }
     if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, "melee", windup);
-    else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * chase * dt, isWalkable);
     if (m.shootCd === 0 && d < CONFIG.monsterAggroRange * 2.5) {
       m.shootCd = Math.max(1.2, CONFIG.bossVolleyCooldown - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
       const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
@@ -1418,7 +1483,19 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     if (d <= m.attackRange) {
       if (m.attackCooldown === 0) beginWindup(m, "slam", windup);
     } else {
+      const px = m.pos.x, py = m.pos.y;
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+      if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+        // BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): stalled against blocking
+        // furniture with the prey beyond it? Then the furniture IS the target —
+        // the same telegraphed slam, resolved against the room (the resolve
+        // clears every footprint piece in the arc). The payoff moment.
+        if (m.attackCooldown === 0 && furnitureWithin(state, m.pos, m.attackRange + CONFIG.monsterStrikeGrace + 0.45)) {
+          beginWindup(m, "slam", windup);
+        } else {
+          slipAround(state, m, toPlayer, moveSpeed * dt);
+        }
+      }
     }
     return;
   }
@@ -1428,6 +1505,10 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
   } else {
+    const px = m.pos.x, py = m.pos.y;
     moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+      slipAround(state, m, toPlayer, moveSpeed * dt);
+    }
   }
 }

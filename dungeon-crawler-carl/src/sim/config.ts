@@ -510,6 +510,13 @@ export const CONFIG = {
   //   tier 1 (floors 6, 9)        — + Ground Slam
   //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
+  // Anti-kite (backlog #6, movement half): a boss that can't REACH you loses
+  // patience — chase speed ramps while you stay out of melee reach, and one
+  // moment of contact resets it. Circling the arena stops being free; the
+  // counterplay becomes standing your ground in windows, which is the fight.
+  bossChaseRampDelay: 3.5, // seconds out of reach before the ramp starts
+  bossChaseRampRate: 0.15, // +chase multiplier per second past the delay
+  bossChaseRampCap: 1.65, // top multiplier — outrunnable only by spending dashes
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
@@ -955,6 +962,16 @@ export const CONFIG = {
   breakableGoldSpread: 4, // + up to this much, seeded
   breakableCountMin: 2, // per dressed room with an intact corner hoard...
   breakableCountMax: 3,
+  // Physical furniture (PHYSICALITY.md §1): blocking pieces take real hits.
+  blockerHp: 2, // smash through the bookcase in two swings
+  blockerRunMin: 2, // bulk wall-furniture run length...
+  blockerRunMax: 4,
+  // Furniture density budget: at most this fraction of a room's interior may
+  // be blocking furniture. Keeps the consistency rule (all bulk furniture
+  // blocks, on every wall) from turning small early-floor rooms into mazes —
+  // measured by the bands bot, uncapped four-wall runs spiked floor-1..3
+  // deaths from ~10% to ~60%.
+  blockerRoomFraction: 0.16,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
