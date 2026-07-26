@@ -140,6 +140,12 @@ export const CONFIG = {
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
   damagePerLevel: 3,
+  // Level-up heal: HALF the missing HP, not a full restore (playtest
+  // 2026-07-12). Deep-floor XP catch-up mints levels so fast that full heals
+  // made attrition meaningless for an underleveled crawler — a level chain
+  // was a free infinite-sustain loop. Half-the-gap still makes the ding feel
+  // good (and chains still compound) without erasing every mistake.
+  levelHealMissingFraction: 0.5,
 
   // Multiplayer difficulty: per EXTRA party member (beyond the first), floors
   // spawn more monsters and each monster gets tougher. Applied at floor build
@@ -165,7 +171,14 @@ export const CONFIG = {
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
-  monsterHpPerFloor: 6,
+  // 6 -> 8 (playtest 2026-07-12): at 6/floor, a BASE-power crawler (level 1,
+  // starter gear) three-hit floor-7 grunts and cruised the midgame on skill
+  // alone — monster HP is the stat gate that makes power matter. Target:
+  // ~4 swings per grunt at base power, still 1-2 at on-curve power (the
+  // on-curve DPS lead is ~4.4x, so parity play barely feels this). 10/floor
+  // was tried and broke the boss-arena reference builds (fixture bots died
+  // to trash before every boss) — 8 holds the difficulty CONTRACT green.
+  monsterHpPerFloor: 8,
   // Compounding scaling: linear per-floor growth loses to a farming player by
   // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
   // damage additionally multiply by monsterScaleCompound each floor, so the deep
