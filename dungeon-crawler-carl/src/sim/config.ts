@@ -189,6 +189,25 @@ export const CONFIG = {
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
+  // Pack presence (AI tier 1): monsters take up SPACE. Separation shoves
+  // overlapping monsters apart (mass-weighted — grunts yield to brutes;
+  // winding-up monsters are rooted anchors), so a pack arrives as a crescent
+  // instead of a stacked point a single cleave erases. See separateMonsters.
+  monsterSeparationRadius: 0.7, // tiles of personal space
+  monsterSeparationSpeed: 2.2, // tiles/sec max shove out of a stack
+  // Flanking approach: melee chasers blend an id-derived tangential bias into
+  // pursuit as they close (see flankVector) — the pack fans into a crescent
+  // instead of a conga line. Strength is the max tangent-to-pursuit ratio;
+  // engage range is how far out the fan starts opening.
+  flankStrength: 1.3,
+  flankEngageRange: 3, // tiles beyond attack range where the bias ramps in
+  // Attack tokens: at most this many BASIC (grunt/swarmer) melee windups in
+  // flight at once, per living crawler — the rest of the surround waits its
+  // turn, so strikes STAGGER around the ring instead of synchronizing into
+  // one big dodge. Scales with depth; elites/bosses/named kinds never wait.
+  meleeTokensBase: 2, // floors 1-6
+  meleeTokensEveryFloors: 6, // +1 token every N floors deeper
+  meleeTokensMax: 4,
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).

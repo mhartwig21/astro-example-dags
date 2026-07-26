@@ -16,6 +16,92 @@ import {
 import { PURPOSE_PERCEPTION } from "./roomPurposes";
 import { smashBlockersAt } from "./game";
 
+/**
+ * SEPARATION (pack presence, AI tier 1): monsters softly shove each other
+ * apart, so a pack arrives as a crescent instead of nine ghosts stacked on
+ * one tile — a cleave should hit the two in front, not the whole pack, and
+ * nine overlapping telegraphs should never render as one. Mass decides who
+ * yields (a grunt steps around the brute, not vice versa). Winding-up
+ * monsters are rooted anchors: their telegraph position is a promise to the
+ * player, so they push neighbors but never slide themselves. O(n) via a
+ * coarse spatial hash; forces accumulate off the pre-pass positions so
+ * iteration order can't bias the result (determinism).
+ */
+export function separateMonsters(state: GameState, dt: number): void {
+  const ms = state.monsters;
+  if (ms.length < 2 || dt <= 0) return;
+  const R = CONFIG.monsterSeparationRadius;
+  const key = (cx: number, cy: number) => cx * 4096 + cy;
+  const buckets = new Map<number, number[]>();
+  for (let i = 0; i < ms.length; i++) {
+    const m = ms[i];
+    if (m.hp <= 0 || (m.vanishT ?? 0) > 0) continue;
+    const k = key(Math.floor(m.pos.x), Math.floor(m.pos.y));
+    const b = buckets.get(k);
+    if (b) b.push(i);
+    else buckets.set(k, [i]);
+  }
+  const push: (Vec2 | null)[] = new Array(ms.length).fill(null);
+  for (let i = 0; i < ms.length; i++) {
+    const m = ms[i];
+    if (m.hp <= 0 || m.windup > 0 || (m.vanishT ?? 0) > 0) continue;
+    const mass = ARCHETYPES[m.kind].mass;
+    const cx = Math.floor(m.pos.x), cy = Math.floor(m.pos.y);
+    let fx = 0, fy = 0;
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        const b = buckets.get(key(cx + ox, cy + oy));
+        if (!b) continue;
+        for (const j of b) {
+          if (j === i) continue;
+          const o = ms[j];
+          const dx = m.pos.x - o.pos.x, dy = m.pos.y - o.pos.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= R * R) continue;
+          const w = (1 - Math.sqrt(d2) / R) * Math.min(2, ARCHETYPES[o.kind].mass / mass);
+          if (d2 < 1e-8) {
+            // Perfectly stacked: split along an id-derived heading so even a
+            // spawn-point pile resolves, deterministically, without the RNG.
+            const a = (m.id % 8) * (Math.PI / 4);
+            fx += Math.cos(a) * w;
+            fy += Math.sin(a) * w;
+          } else {
+            const d = Math.sqrt(d2);
+            fx += (dx / d) * w;
+            fy += (dy / d) * w;
+          }
+        }
+      }
+    }
+    if (fx !== 0 || fy !== 0) push[i] = { x: fx, y: fy };
+  }
+  for (let i = 0; i < ms.length; i++) {
+    const f = push[i];
+    if (!f) continue;
+    const len = Math.hypot(f.x, f.y);
+    if (len < 1e-6) continue;
+    const step = Math.min(1, len) * CONFIG.monsterSeparationSpeed * dt;
+    moveWithCollision(state.map, ms[i].pos, { x: f.x / len, y: f.y / len }, step, isWalkable);
+  }
+}
+
+/**
+ * FLANKING APPROACH (attack slots, AI tier 1): each melee chaser blends a
+ * personal tangential bias into its pursuit as it closes, so a pack fans
+ * into a crescent — and, with separation pushing the wings outward, a
+ * surround — instead of a single-file line to the player's center. The bias
+ * is id-derived (deterministic, no coordination, no RNG) and fades with
+ * distance, so a far chaser still takes the direct line. AA slot managers
+ * do this with claimed positions; the stateless blend gets the same read
+ * for a swarm at zero bookkeeping — revisit when flow fields land.
+ */
+function flankVector(m: Monster, toPlayer: Vec2, d: number): Vec2 {
+  const spread = ((m.id % 7) - 3) / 3; // -1..1: this monster's preferred side
+  const closeness = Math.max(0, Math.min(1, 1 - (d - m.attackRange) / CONFIG.flankEngageRange));
+  const k = spread * closeness * CONFIG.flankStrength;
+  return normalize({ x: toPlayer.x - toPlayer.y * k, y: toPlayer.y + toPlayer.x * k });
+}
+
 // FURNITURE-FEEL: the kinds with the frame to remove furniture rather than
 // walk around it. Everyone else slips the 45s (see slipAround).
 const SMASH_KINDS = new Set<Monster["kind"]>(["brute", "warden", "colossus", "slagbreaker", "foreman", "boss"]);
@@ -31,7 +117,13 @@ function furnitureWithin(state: GameState, pos: Vec2, r: number): boolean {
  *  obstacle instead of conga-lining behind one member. */
 function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number): void {
   const px = m.pos.x, py = m.pos.y;
-  for (const sign of m.id % 2 === 0 ? [1, -1] : [-1, 1]) {
+  // Try the flank-preferred side FIRST (same id-derived sign as flankVector,
+  // same rotation convention) — a slip that opposes the tangential bias
+  // deadlocks into a wiggle at the obstacle instead of rounding it. Ids with
+  // no flank bias keep the old parity split.
+  const spread = (m.id % 7) - 3;
+  const first = spread !== 0 ? Math.sign(spread) : m.id % 2 === 0 ? 1 : -1;
+  for (const sign of [first, -first]) {
     const c = Math.SQRT1_2, s = sign * Math.SQRT1_2;
     const slip = { x: toPlayer.x * c - toPlayer.y * s, y: toPlayer.x * s + toPlayer.y * c };
     moveWithCollision(state.map, m.pos, slip, step, isWalkable);
@@ -95,6 +187,29 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
   m.windup = seconds;
   m.windupTotal = seconds;
   m.windupKind = kind;
+}
+
+/**
+ * ATTACK TOKENS (AI tier 1): only a few BASIC melee windups may be in flight
+ * at once — the rest of the surround presses and waits its turn. This makes
+ * a pack HARDER to read than the old everyone-swings-at-once pile: one
+ * sidestep no longer dodges nine synchronized hits, it dodges one, and the
+ * next tell is already starting somewhere else on the ring. The cap scales
+ * with depth (shallow floors read like duels, deep floors overlap) and with
+ * party size. Named kinds, elites, and bosses are the SPICE — they never
+ * wait for a token. Gate applies only to the generic grunt/swarmer swing.
+ */
+function meleeTokenFree(state: GameState, m: Monster): boolean {
+  if (m.elite || m.kind === "boss") return true;
+  const alive = state.players.reduce((n, p) => n + (p.alive ? 1 : 0), 0);
+  const cap = Math.min(CONFIG.meleeTokensMax, CONFIG.meleeTokensBase + Math.floor((state.floor - 1) / CONFIG.meleeTokensEveryFloors)) * Math.max(1, alive);
+  let inFlight = 0;
+  for (const o of state.monsters) {
+    if (o === m || o.hp <= 0 || o.windup <= 0 || o.windupKind !== "melee") continue;
+    if (o.elite || o.kind === "boss") continue; // spice swings don't spend tokens
+    if (++inFlight >= cap) return false;
+  }
+  return true;
 }
 
 /** A melee strike lands: damage every living player still inside range + grace. */
@@ -519,6 +634,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - dt);
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
+  if ((m.slipT ?? 0) > 0) m.slipT = Math.max(0, (m.slipT ?? 0) - dt);
   // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
   // an interrupt takes a concentrated burst — chip damage banks nothing. The
   // post-stagger grace window on bosses/elites ticks down here too.
@@ -1503,11 +1619,16 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // Melee archetypes (grunt / swarmer).
   if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
   if (d <= m.attackRange) {
-    if (m.attackCooldown === 0) beginWindup(m, "melee", windup);
+    if (m.attackCooldown === 0 && meleeTokenFree(state, m)) beginWindup(m, "melee", windup);
   } else {
     const px = m.pos.x, py = m.pos.y;
-    moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
+    // A recent stall means an obstacle: commit to rounding it (straight line
+    // + slips) with the flank bias suppressed — the bias otherwise drags the
+    // chaser back into the pocket it just slipped out of, a wiggle deadlock.
+    const dir = (m.slipT ?? 0) > 0 ? toPlayer : flankVector(m, toPlayer, d);
+    moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
     if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+      m.slipT = 0.6;
       slipAround(state, m, toPlayer, moveSpeed * dt);
     }
   }

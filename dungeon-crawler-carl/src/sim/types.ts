@@ -355,6 +355,7 @@ export interface Monster {
   chaseT?: number;
   chaseVexed?: boolean; // the one-per-orbit "done chasing politely" line fired
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  slipT?: number; // seconds of committed obstacle-rounding (flank bias suppressed)
   shieldT?: number; // seconds of Darling stardust remaining on THIS monster
   // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
   // into it reflects; wait it out or answer with ranged/magic.

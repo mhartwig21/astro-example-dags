@@ -4248,6 +4248,123 @@ describe("ultimate constellations", () => {
   });
 });
 
+describe("pack presence (separation — bodies take up space)", () => {
+  const stackedPack = (n: number, at: Vec2, g: GameState) => {
+    g.monsters.length = 0;
+    for (let i = 0; i < n; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: at.x, y: at.y }, hp: 1000, maxHp: 1000 }));
+    }
+  };
+  const minPairDist = (g: GameState) => {
+    let min = Infinity;
+    for (let i = 0; i < g.monsters.length; i++) {
+      for (let j = i + 1; j < g.monsters.length; j++) {
+        min = Math.min(min, dist(g.monsters[i].pos, g.monsters[j].pos));
+      }
+    }
+    return min;
+  };
+
+  // Packs stage INSIDE the entrance room (player + 1.5 tiles) — farther
+  // offsets land inside walls on these seeds and moveWithCollision rightly
+  // refuses to move anything into them.
+  it("a spawn-point pile spreads to personal space", () => {
+    const g = createGame(1200);
+    const p = g.players[0];
+    stackedPack(8, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30);
+    expect(minPairDist(g)).toBeGreaterThan(CONFIG.monsterSeparationRadius * 0.5);
+  });
+
+  it("an engaged pack stays spread, not restacked on the player", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    stackedPack(6, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (const m of g.monsters) m.speed = 2.6; // real chasers, not statues
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of engagement
+    expect(minPairDist(g)).toBeGreaterThan(0.3); // no two share a tile-point
+  });
+
+  it("a pack fans into a crescent around the player, not a conga line (flanking)", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    // Stage the pack at a real walkable spot 4-5.5 tiles out.
+    const spot = walkableTiles(g.map).map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+      .find((t) => { const dd = dist(t, p.pos); return dd > 4 && dd < 5.5; })!;
+    expect(spot).toBeTruthy();
+    g.monsters.length = 0;
+    for (let i = 0; i < 6; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+    }
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s: close and engage
+    // Angular coverage around the player: the crescent, not a point.
+    const bearings = g.monsters
+      .map((m) => (Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x) * 180) / Math.PI)
+      .sort((a, b) => a - b);
+    let maxGap = 0;
+    for (let i = 0; i < bearings.length; i++) {
+      const next = i + 1 < bearings.length ? bearings[i + 1] : bearings[0] + 360;
+      maxGap = Math.max(maxGap, next - bearings[i]);
+    }
+    expect(360 - maxGap).toBeGreaterThan(120); // measured ~172° on this seed
+    expect(minPairDist(g)).toBeGreaterThan(0.5); // and spaced, not sharing tiles
+  });
+
+  it("a winding-up monster is a rooted anchor: pushed neighbors slide, it doesn't", () => {
+    const g = createGame(1202);
+    const p = g.players[0];
+    stackedPack(2, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    const [a, b] = g.monsters;
+    a.windup = 5;
+    a.windupTotal = 5;
+    const at = { x: a.pos.x, y: a.pos.y };
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30);
+    expect(a.pos).toEqual(at); // the telegraph position is a promise
+    expect(dist(b.pos, at)).toBeGreaterThan(0.2); // the neighbor yielded
+  });
+
+  it("attack tokens: basic melee windups stagger, never exceeding the floor's cap", () => {
+    const g = createGame(1203);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      g.monsters.push(mkMon({
+        id: 200 + i, hp: 1000, maxHp: 1000,
+        pos: { x: p.pos.x + Math.cos(a) * 0.9, y: p.pos.y + Math.sin(a) * 0.9 },
+      }));
+    }
+    let maxSimul = 0;
+    for (let i = 0; i < 300; i++) {
+      step(g, idle(), 1 / 30);
+      const n = g.monsters.filter((m) => m.windup > 0 && m.windupKind === "melee").length;
+      maxSimul = Math.max(maxSimul, n);
+    }
+    expect(maxSimul).toBeGreaterThan(0); // the ring does attack...
+    expect(maxSimul).toBeLessThanOrEqual(CONFIG.meleeTokensBase); // ...in turns (floor 1, solo)
+  });
+
+  it("elites never wait for a token", () => {
+    const g = createGame(1204);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Two grunts already mid-windup hold every floor-1 token...
+    for (let i = 0; i < 2; i++) {
+      const m = mkMon({ id: 300 + i, hp: 1000, maxHp: 1000, pos: { x: p.pos.x + 0.9, y: p.pos.y + i * 0.5 } });
+      m.windup = 1;
+      m.windupTotal = 1;
+      m.windupKind = "melee";
+      g.monsters.push(m);
+    }
+    const elite = mkMon({ id: 310, hp: 1000, maxHp: 1000, pos: { x: p.pos.x - 0.9, y: p.pos.y } });
+    elite.elite = true;
+    elite.introduced = true; // skip the RINGSIDE INTRODUCTION (it pauses the world)
+    g.monsters.push(elite);
+    step(g, idle(), 1 / 30);
+    expect(elite.windup).toBeGreaterThan(0); // the spice swings on ITS schedule
+  });
+});
+
 describe("depth tempo (monsters get quicker, not just fatter)", () => {
   it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
     // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
