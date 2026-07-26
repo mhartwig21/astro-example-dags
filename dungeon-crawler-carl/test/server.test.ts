@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
-import { GameServer, seedFromCode } from "../src/server/gameServer";
+import { GameServer, seedFromCode, MAX_PARTY_SIZE } from "../src/server/gameServer";
 import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
@@ -144,7 +144,7 @@ interface TestClient {
   close: () => void;
 }
 
-function connect(port: number, code: string, name: string, rivals = false): Promise<TestClient> {
+function connect(port: number, code: string, name: string, rivals = false, isPublic = false): Promise<TestClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const client: TestClient = {
@@ -170,7 +170,7 @@ function connect(port: number, code: string, name: string, rivals = false): Prom
       if (client.lastSnap) mergeColdPlayers(s.players, client.lastSnap.players);
       return s;
     };
-    ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined }));
+    ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined, public: isPublic || undefined }));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
@@ -195,6 +195,22 @@ const waitFor = async (cond: () => boolean, ms = 4000): Promise<void> => {
     await new Promise((r) => setTimeout(r, 25));
   }
 };
+
+type OpenParty = { code: string; players: number; cap: number; floor: number };
+function openParties(port: number): Promise<OpenParty[]> {
+  return fetch(`http://127.0.0.1:${port}/open-parties`).then((r) => r.json());
+}
+// Same shape as waitFor, but the condition itself is async (a fetch) — polls
+// /open-parties until `code`'s presence matches `present`.
+async function waitForOpenParty(port: number, code: string, present: boolean, ms = 4000): Promise<OpenParty | undefined> {
+  const t0 = Date.now();
+  for (;;) {
+    const found = (await openParties(port)).find((p) => p.code === code);
+    if (present ? found : !found) return found;
+    if (Date.now() - t0 > ms) throw new Error("timeout waiting for open-parties state");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 describe("authoritative server", () => {
   let server: GameServer;
@@ -284,6 +300,31 @@ describe("authoritative server", () => {
     await waitFor(() => inst.state.lootBoxes > lootBefore);
     expect(p.unclaimedAchievements).not.toContain("first_blood");
     a.close();
+  });
+
+  it("Quick Join: /open-parties lists public co-op parties with free seats, joins one, and drops it once full", async () => {
+    const priv = await connect(port, "PRIV-1", "Carl"); // ordinary private party — never listed
+    const host = await connect(port, "OPEN-1", "Hostella", false, true);
+
+    const entry = await waitForOpenParty(port, "OPEN-1", true);
+    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1 });
+    expect((await openParties(port)).some((p) => p.code === "PRIV-1")).toBe(false);
+
+    // A stranger joins straight off the listed code and lands in the same party.
+    const joiner = await connect(port, entry!.code, "Stranger");
+    await waitFor(() => (joiner.lastSnap?.players.length ?? 0) >= 2);
+    expect(joiner.lastSnap!.seed).toBe(host.lastSnap!.seed);
+
+    // Fill the remaining seats; at capacity the party drops off the list.
+    const rest = await Promise.all(
+      Array.from({ length: MAX_PARTY_SIZE - 2 }, (_, i) => connect(port, "OPEN-1", `Filler${i}`)),
+    );
+    await waitForOpenParty(port, "OPEN-1", false);
+
+    priv.close();
+    host.close();
+    joiner.close();
+    rest.forEach((c) => c.close());
   });
 
   it("a tick that throws drops only that instance — other parties keep playing", async () => {
