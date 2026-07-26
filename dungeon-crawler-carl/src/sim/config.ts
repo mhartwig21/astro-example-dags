@@ -139,7 +139,12 @@ export const CONFIG = {
   xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
-  damagePerLevel: 3,
+  // 3 -> 2 (build-matters pass, owner-approved 2026-07-26): levels used to be
+  // ~65% of attack power, so junk-drawer gear played nearly as well as an
+  // optimized build. Intrinsic power came DOWN and gear rolls went UP
+  // (gearPowerMult) — total power at parity, but gear/build now own ~half the
+  // stat instead of a third. HP intrinsic stays (survival isn't the lever).
+  damagePerLevel: 2,
 
   // Multiplayer difficulty: per EXTRA party member (beyond the first), floors
   // spawn more monsters and each monster gets tougher. Applied at floor build
@@ -177,6 +182,16 @@ export const CONFIG = {
   // those stack with this, so this alone doesn't need to carry as much.
   monsterScaleCompoundFrom: 3,
   monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
+  // The BUILD CHECK (owner-approved 2026-07-26): the last two bands ramp
+  // again on top of the base compound. Floors 13+ demand a coherent build —
+  // "anyone reaches the Garden, thoughtful builds reach the Ironworks,
+  // optimized builds win." The inverse balance-contract test pins this:
+  // a junk-drawer build must FAIL deep floors that a coherent one clears.
+  deepScaleCompoundFrom: 12, // first ramped floor is 13 (Ironworks)
+  deepScaleCompound: 1.06, // extra ~1.42x by floor 18
+  // Deep elites lean into resist affixes (armored/warded): mono-school soup
+  // without an answer gets checked, not just outstatted.
+  deepResistBias: 0.35,
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT, because you saw it coming — see the ~40% target win rate in
   // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
@@ -189,19 +204,60 @@ export const CONFIG = {
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
+  // Pack presence (AI tier 1): monsters take up SPACE. Separation shoves
+  // overlapping monsters apart (mass-weighted — grunts yield to brutes;
+  // winding-up monsters are rooted anchors), so a pack arrives as a crescent
+  // instead of a stacked point a single cleave erases. See separateMonsters.
+  monsterSeparationRadius: 0.7, // tiles of personal space
+  monsterSeparationSpeed: 2.2, // tiles/sec max shove out of a stack
+  // Flanking approach: melee chasers blend an id-derived tangential bias into
+  // pursuit as they close (see flankVector) — the pack fans into a crescent
+  // instead of a conga line. Strength is the max tangent-to-pursuit ratio;
+  // engage range is how far out the fan starts opening.
+  flankStrength: 1.3,
+  flankEngageRange: 3, // tiles beyond attack range where the bias ramps in
+  // Attack tokens: at most this many BASIC (grunt/swarmer) melee windups in
+  // flight at once, per living crawler — the rest of the surround waits its
+  // turn, so strikes STAGGER around the ring instead of synchronizing into
+  // one big dodge. Scales with depth; elites/bosses/named kinds never wait.
+  meleeTokensBase: 2, // floors 1-6
+  meleeTokensEveryFloors: 6, // +1 token every N floors deeper
+  meleeTokensMax: 4,
+  // LOS aggro (AI tier 2): the mass archetypes commit when they SEE you (or
+  // get hurt, or a packmate raises the alarm), and remember the hunt for a
+  // while after losing sight — pursuing through the flow field. Walls hide
+  // you; breaking contact is a real move. Memory follows the training-wheels
+  // ramp (same doctrine as tempo): floors 1-3 are forgetful, the deep
+  // dungeon holds a grudge. See monsterMemory().
+  monsterMemoryBase: 3, // seconds, floors 1-3
+  monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
+  monsterMemoryMax: 9, // ...capped (floor 7+)
+  packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
+  // Ranged unit play (tier 2c): archers claim distinct firing arcs — a
+  // later-arriving caster sharing a bearing (within this angle) strafes
+  // sideways until the crossfire opens — and when closed on they retreat
+  // TOWARD their nearest melee bodyguard instead of into open space.
+  rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
+  rangedGuardRange: 7, // tiles it will look for a bodyguard within
+  rangedGuardPull: 0.9, // blend of retreat-vector toward the guard
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
   // Past the ramp floor, monsters get quicker on every axis — faster chase,
   // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
   // the caps keep the deep dungeon fast but still READABLE and dodgeable.
-  monsterTempoFrom: 4,
-  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
-  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
-  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
-  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
-  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
-  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+  // Steepened 2026-07: at 2%/floor from 4, a floor-7 tell was 94% of floor
+  // 1's — at player speed 4.2 anything over ~0.3s is a free walk-out, so a
+  // human was never hit. TEMPO (not fatter trash) is the axis that scales
+  // challenge over a typical run: one-shotting chaff stays legitimate; the
+  // chaff that's still alive gets its swing off sooner.
+  monsterTempoFrom: 3,
+  monsterTempoSpeedPerFloor: 0.03, // +3% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.45, // ...capped at +45% (still under player speed)
+  monsterTempoCdPerFloor: 0.035, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.55, // ...to at most 45% faster swings
+  monsterTempoWindupPerFloor: 0.045, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.55, // ...but the tell stays readable
 
   // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
   // mob that makes ignoring a pack the wrong call. Kill the mother first.
@@ -424,6 +480,12 @@ export const CONFIG = {
   // should be scary — see dropLoot), so this holds gear rates steady.
   lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
+  // Build-matters pass: gear's share of the power stat. Applied to damage/spell
+  // rolls on BOTH drop generation (items.ts rollAffix) and catalog
+  // materialization (catalog.ts gearAffixes) so shop/drop tier parity holds.
+  // Paired with damagePerLevel 3 -> 2: total power stays ~flat, but the gap
+  // between junk-drawer gear and an optimized loadout roughly doubles.
+  gearPowerMult: 1.35,
   goldDropChance: 0.8,
   goldMin: 3,
   goldMax: 12,
@@ -448,6 +510,10 @@ export const CONFIG = {
   heavyMeleeCdMult: 1.15, // ...swings like one too
   heavyPoiseMult: 2, // heavy swings break poise twice as fast
   reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
+  // Off-class melee: swinging a caster/ranged weapon (arcane/ballistic) is a
+  // pommel bash — the mirror of boltSidearmMult below. A melee build holding
+  // a wand should feel it (gear coherence; owner ruling 2026-07-26).
+  offclassMeleeDmgMult: 0.65,
   boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
   boltBallisticMult: 1.0, // Crossbow: real bolts, full attack power
   boltBallisticSpeedMult: 1.3, // ...and they MOVE
@@ -1129,6 +1195,12 @@ export const ARCHETYPES = {
 
 /** Depth tempo multipliers: how much quicker monsters move, swing, and
  * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+/** Pursuit memory after losing sight (LOS aggro): training-wheel floors are
+ * forgetful; the deep dungeon holds a grudge. */
+export function monsterMemory(floor: number): number {
+  return Math.min(CONFIG.monsterMemoryMax, CONFIG.monsterMemoryBase + Math.max(0, floor - 3) * CONFIG.monsterMemoryPerFloor);
+}
+
 export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
   const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
   return {
@@ -1292,4 +1364,23 @@ export function floorTimeBudget(floor: number): number {
 /** XP required to advance FROM the given level to the next. */
 export function xpForLevel(level: number): number {
   return Math.round(CONFIG.xpBase * Math.pow(CONFIG.xpGrowth, level - 1));
+}
+
+/**
+ * The floor a crawler of this level is representative of — the inverse of the
+ * natural leveling pace (a typical run clears ~60% of each floor's cast).
+ * Test mode's `gear=level` dresses an off-curve crawler with THIS floor's
+ * loot, so "level 1 dropped onto floor 7" wears starter gear, not floor-7
+ * gear. Derived from the same knobs as the XP economy: retunes track it.
+ */
+export function naturalFloorForLevel(level: number): number {
+  const clearFraction = 0.6;
+  let lvl = 1, xp = 0, need = xpForLevel(1);
+  for (let f = 1; f <= CONFIG.finalFloor; f++) {
+    if (lvl >= level) return f;
+    const mobs = Math.min(CONFIG.monsterBaseCountFloor1 + (f - 1) * CONFIG.monsterCountPerFloor, CONFIG.monsterMaxCount);
+    xp += mobs * (CONFIG.monsterXp + (f - 1) * CONFIG.monsterXpPerFloor) * clearFraction;
+    while (xp >= need) { xp -= need; lvl++; need = xpForLevel(lvl); }
+  }
+  return CONFIG.finalFloor;
 }

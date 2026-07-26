@@ -219,3 +219,16 @@ design doc — see `PHYSICALITY.md`.
 28. **Hardening.** New-entity netcode under packet loss, save-migration
     tests beyond the one golden fixture, prop-placement edge-case QA
     (tabletop clipping, mounts on odd walls), soak tests.
+29. **Bot full-run win rate collapsed to 0% on current main (balance
+    telemetry, 2026-07-12).** `npx tsx scripts/balance-sweep.ts 48 1`:
+    35.4% on last week's tip -> 0/48 today, measured with tempo knobs
+    HELD at their old values (control run), so the depth-tempo retune is
+    not the cause. Deaths pile up on floors 1-4 (3/5/6/5 per floor vs
+    1/2/1/1 baseline). Prime suspects: PHYSICALITY §1 blocked furniture
+    (`map.blocked`) that `src/sim/bot.ts` pathing doesn't route around
+    (wedged bot = surrounded bot), and/or roomPurposes residents adding
+    early-floor pack density. Worth deciding whether this is a bot
+    pathing artifact or a real early-game difficulty spike before the
+    next balance pass — the sweep is blind as a tuning instrument until
+    it's resolved. The floors-1-2 contract in balance.test.ts still
+    passes (bar is only "4/6 seeds clear 2 floors").

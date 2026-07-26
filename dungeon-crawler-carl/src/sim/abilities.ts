@@ -292,9 +292,15 @@ export function startingLoadout(): Player["abilities"] {
 export function meleeParams(p: Player) {
   // Weapon-class hooks (DESIGN 5.8): swift swings faster, heavy hits harder
   // (and staggers harder) but slower, reach extends the arc's radius. The Mug
-  // does a little of everything, badly.
+  // does a little of everything, badly. Arcane/ballistic weapons swing as a
+  // POMMEL BASH (offclassMeleeDmgMult) — the melee mirror of bolt's thrown
+  // sidearm: the wrong tool works, reduced.
   const wc = weaponClassOf(p.equipment.weapon);
-  const classDmg = wc === "heavy" ? CONFIG.heavyMeleeDmgMult : wc === "chaotic" ? 1.15 : 1;
+  const classDmg =
+    wc === "heavy" ? CONFIG.heavyMeleeDmgMult
+    : wc === "chaotic" ? 1.15
+    : wc === "arcane" || wc === "ballistic" ? CONFIG.offclassMeleeDmgMult
+    : 1;
   const classCd = wc === "swift" ? CONFIG.swiftMeleeCdMult : wc === "heavy" ? CONFIG.heavyMeleeCdMult : wc === "chaotic" ? 0.95 : 1;
   return {
     damageMult: (1 + rank(p, "melee.heavy") * 0.2) * classDmg,

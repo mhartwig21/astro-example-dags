@@ -63,7 +63,9 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 `/iso.html?test&floor=9&level=12&abilities=all&gold=500&seed=42` (2D: `/?test...`).
 Builds a deterministic stage-representative crawler via `createTestGame`
 (sim/game.ts): floor clamps to 1..finalFloor, levels auto-draft real
-constellation ranks, gear rolls floor-scaled (`gear=0` disables), `abilities`
+constellation ranks, gear rolls floor-scaled (`gear=0` disables, `gear=level`
+dresses for the crawler's LEVEL instead of the floor — the honest way to test
+an underleveled crawler at depth, `gear=N` rolls floor-N loot), `abilities`
 is `all` or a comma list. Nothing is loaded or saved — the real run's save is
 untouched. R rerolls the seed unless `seed=` is pinned. This is also the
 fastest way to verify visual/balance changes at depth.
