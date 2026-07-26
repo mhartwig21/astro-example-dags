@@ -834,6 +834,7 @@ function maybeSpawnFloorEvent(state: GameState): void {
     const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
     const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
     if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== Tile.Floor) continue;
+    if (!isWalkable(map, x, y)) continue; // never inside furniture (the mask)
     if (dist({ x, y }, map.spawn) <= 6) continue;
     state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "shrine", amount: 0 });
     state.floorEvent = { type: "shrine" };
@@ -1689,9 +1690,11 @@ export function raiseCorpse(state: GameState, m: Monster): void {
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
 export function summonMinion(state: GameState, m: Monster): void {
   const a = nextFloat(state.rng) * Math.PI * 2;
-  const spawned = makeMonster(state, "swarmer", {
-    x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7,
-  });
+  let pos = { x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7 };
+  // Never born INTO furniture (the blocked mask) — a swarmer wedged inside a
+  // bookcase is stuck for good; the mother's own tile is always safe ground.
+  if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: m.pos.x, y: m.pos.y };
+  const spawned = makeMonster(state, "swarmer", pos);
   spawned.xp = 1;
   state.monsters.push(spawned);
   hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer

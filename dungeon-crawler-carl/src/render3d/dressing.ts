@@ -13,6 +13,7 @@
 // graph beyond what place() returns.
 
 import * as THREE from "three";
+import { BULK_KEYS } from "../sim/roomPurposes";
 import type { RoomDressing, RoomPurpose } from "../sim/roomPurposes";
 
 export interface Rect {
@@ -87,12 +88,18 @@ export function dressRoomPurpose(
     (a, b) => (visible(a[0]) ? 1000 : 0) + a.length < (visible(b[0]) ? 1000 : 0) + b.length ? 1 : -1,
   );
   const runWall = walls[0];
-  let runLen = Math.min(runWall.length, 3 + Math.floor(frng() * 3));
-  if (cond === "looted") runLen = Math.max(1, runLen - 2);
+  // THE CONSISTENCY RULE (PHYSICALITY.md §1): furniture-sized keys are the
+  // sim's to place — they block, and the breakable sync entity-draws them.
+  // The cosmetic run only ever uses clutter, so nothing wall-sized can be
+  // walked through. All-bulk purposes (the archive) simply skip the run;
+  // their walls are dressed by the blockers themselves.
+  const runKeys = p.wallRun.filter((k) => !BULK_KEYS.has(k));
+  let runLen = runKeys.length === 0 ? 0 : Math.min(runWall.length, 3 + Math.floor(frng() * 3));
+  if (cond === "looted") runLen = Math.max(runLen === 0 ? 0 : 1, runLen - 2);
   const runStart = Math.floor(frng() * Math.max(1, runWall.length - runLen));
   for (let i = 0; i < runLen; i++) {
     const f = runWall[runStart + i];
-    const key = p.wallRun[Math.floor(frng() * p.wallRun.length)];
+    const key = runKeys[Math.floor(frng() * runKeys.length)];
     place(key, f.x - f.nx * 0.26, f.y - f.ny * 0.26, {
       rot: Math.atan2(f.nx, f.ny) + (frng() - 0.5) * (cond === "scarred" ? 0.6 : 0.12),
       jitter: cond === "scarred" ? 0.3 : 0.08, // a battle shoved everything
@@ -153,26 +160,17 @@ export function dressRoomPurpose(
         scale: 1.9, jitter: 0.05, rot: Math.floor(frng() * 2) * (Math.PI / 2),
       });
     }
-    const tableKey = cond === "scarred" ? "table_medium_broken" : p.tableSet.table;
-    const tableObj = place(tableKey, tcx, tcy, { scale: 0.85, jitter: 0.1 });
-    if (tableObj) {
-      const top = new THREE.Box3().setFromObject(tableObj).max.y;
-      const seats = 2 + Math.floor(frng() * 3);
-      for (let s = 0; s < seats; s++) {
-        const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
-        place(p.tableSet.seat, tcx + Math.cos(a) * 0.8, tcy + Math.sin(a) * 0.8, {
-          scale: 0.32, jitter: cond === "scarred" ? 0.3 : 0.06, rot: a + Math.PI, // seats face the table
-        });
-      }
-      // Looted rooms serve a BARE table — they took the silverware too.
-      if (cond !== "looted") {
-        for (let it = 0, n = 1 + Math.floor(frng() * 2); it < n; it++) {
-          const key = p.tableSet.tabletop[Math.floor(frng() * p.tableSet.tabletop.length)];
-          place(key, tcx + (frng() - 0.5) * 0.45, tcy + (frng() - 0.5) * 0.45, {
-            scale: 0.2, elevate: top + 0.01, jitter: 0,
-          });
-        }
-      }
+    // No blocking table here (the plan dropped it — spawn/stairs clearance
+    // or the connectivity gate). THE CONSISTENCY RULE: a full-size table
+    // you can walk through is a lie, so this room's table COLLAPSED —
+    // broken-table debris reads as steppable because it is.
+    place("table_medium_broken", tcx, tcy, { scale: 0.6, jitter: 0.15 });
+    const seats = 2 + Math.floor(frng() * 3);
+    for (let s = 0; s < seats; s++) {
+      const a = (s / seats) * Math.PI * 2 + frng() * 0.6;
+      place(p.tableSet.seat, tcx + Math.cos(a) * 0.8, tcy + Math.sin(a) * 0.8, {
+        scale: 0.32, jitter: 0.3, rot: a + Math.PI, // shoved when it went down
+      });
     }
   }
   // CENTERPIECE + SPILL at the shared anchor.
@@ -223,8 +221,8 @@ export function dressRoomPurpose(
  */
 export function spillPurposeDoorways(env: DressEnv, r: Rect, purpose: RoomPurpose): void {
   const { frng, place } = env;
-  const spill = purpose.cornerStack ?? purpose.wallRun;
-  if (!spill || spill.length === 0) return;
+  const spill = (purpose.cornerStack ?? purpose.wallRun).filter((k) => !BULK_KEYS.has(k));
+  if (spill.length === 0) return;
   const doorways: { x: number; y: number }[] = [];
   const tryDoor = (inx: number, iny: number, outx: number, outy: number) => {
     if (env.isFloor(inx, iny) && env.isFloor(outx, outy)) doorways.push({ x: outx, y: outy });
