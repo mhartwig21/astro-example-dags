@@ -500,10 +500,10 @@
         justify-content: center; pointer-events: none;
         background: radial-gradient(ellipse at 50% 45%, rgba(4,4,8,0.0) 30%, rgba(4,4,8,0.35) 100%);
         z-index: 28; }
-      #menu .panel { width: min(700px, 56vw); max-height: 84vh; overflow: auto;
+      #menu .panel { width: min(920px, 84vw); max-height: 90vh; overflow: auto;
         pointer-events: auto;
         background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: 12px;
-        padding: 22px 26px 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
+        padding: 18px 26px 16px; box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
       /* While checked in, the game HUD behind the campfire goes dark — the
          backdrop world isn't being rendered, only the lineup is. */
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
@@ -544,40 +544,56 @@
       #menu input:focus { outline: none; border-color: #c9a24b; }
       #menu .m-name-row input { width: 180px; text-align: center; font-weight: 700;
         letter-spacing: 1px; color: #f5e6bf; }
-      #menu .m-cols { display: grid; grid-template-columns: 1fr 285px; gap: 22px; }
-      .m-mode-row { display: flex; gap: 10px; margin-bottom: 14px; }
-      .m-mode { flex: 1; cursor: pointer; font: inherit; text-align: center;
-        background: #171310; border: 1px solid #6e5533; border-radius: 6px; padding: 10px 8px;
-        color: #a99f8c; letter-spacing: 3px; font-size: 13px; font-weight: 700;
-        transition: border-color 0.12s ease, color 0.12s ease; }
-      .m-mode small { display: block; color: #6f6757; font-size: 10px; letter-spacing: 0.5px;
-        font-weight: 400; margin-top: 4px; }
-      .m-mode:hover { border-color: #a8854f; color: #e8ddc8; }
-      .m-mode.active { border-color: #c9a24b; color: #f2c14e; background: #221b15; }
-      .m-mode.active small { color: #a99f8c; }
-      .m-card { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
-        background: #221b15; border: 1px solid #6e5533; border-left: 3px solid #3f5f6f;
-        border-radius: 6px; padding: 11px 15px; margin-bottom: 9px; color: #e8ddc8;
+      #menu .m-cols { display: grid; grid-template-columns: 1fr 270px; gap: 26px; }
+      /* Tile hub (STYLEGUIDE.md Phase-1: "main menu — season poster, three
+         framed contracts"). A few large peer choices, not a scrolling list —
+         each mode gets equal visual weight matched to its actual importance;
+         Party's two ways in (share a code / find an open one) live as tabs
+         inside ONE tile instead of two sibling cards. */
+      .m-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 8px; margin-bottom: 4px; }
+      .m-tile { --tc: #a99f8c; display: flex; flex-direction: column; align-items: center;
+        text-align: center; gap: 6px; cursor: pointer; font: inherit;
+        background: linear-gradient(180deg, #221b15, #1b1611 70%); border: 1px solid #6e5533;
+        border-radius: 6px; padding: 12px 12px 10px; color: #e8ddc8;
         transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease; }
-      .m-card b { display: block; font-size: 14px; letter-spacing: 2px; }
-      .m-card small { display: block; color: #6f6757; font-size: 11px; margin-top: 3px; }
-      .m-card:hover { border-color: #5a87c6; background: #2c241b; transform: translateX(4px); }
-      .m-card.gold { border-left-color: #c9a24b; }
-      .m-card.gold b { color: #f2c14e; }
-      .m-card.gold:hover { border-color: #c9a24b; box-shadow: 0 0 18px rgba(201,162,75,0.18); }
-      .m-card.red { border-left-color: #8a3038; }
-      .m-card.red b { color: #e06a5a; }
-      .m-card.red:hover { border-color: #8a3038; box-shadow: 0 0 18px rgba(224,106,90,0.15); }
-      .m-card.green { border-left-color: #6e5533; }
-      .m-card.green b { color: #6da356; }
-      .m-card.dim { border-left-color: #6e5533; opacity: 0.75; }
-      .m-card.dim b { color: #a99f8c; letter-spacing: 1.5px; font-size: 12px; }
+      .m-tile b { display: block; font-size: 13px; letter-spacing: 1.5px; }
+      .m-tile small { display: block; color: #6f6757; font-size: 10.5px; margin-top: 2px; line-height: 1.35; }
+      .m-tile:hover { border-color: #a8854f; background: linear-gradient(180deg, #2c241b, #221b15 70%);
+        transform: translateY(-2px); }
+      .m-tile-icon { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
+        border-radius: 6px; box-shadow: inset 0 0 12px rgba(0,0,0,0.6); }
+      .m-tile-ic { width: 32px; height: 32px; display: block; background: var(--tc);
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .m-tile.gold { --tc: #c9a24b; }
+      .m-tile.gold b { color: #f2c14e; }
+      .m-tile.gold:hover { border-color: #c9a24b; box-shadow: 0 0 18px rgba(201,162,75,0.18); }
+      .m-tile.red { --tc: #c0392f; }
+      .m-tile.red b { color: #e06a5a; }
+      .m-tile.red:hover { border-color: #8a3038; box-shadow: 0 0 18px rgba(224,106,90,0.15); }
+      .m-tile.green { --tc: #6da356; }
+      .m-tile.green b { color: #6da356; }
+      .m-tile.green:hover { border-color: #6da356; box-shadow: 0 0 18px rgba(109,163,86,0.15); }
+      .m-testlink { display: block; width: 100%; text-align: center; cursor: pointer; font: inherit;
+        background: none; border: none; color: #55493a; font-size: 10.5px; letter-spacing: 1px;
+        padding: 10px 0 2px; }
+      .m-testlink:hover { color: #a99f8c; }
       .m-form { background: #14100c; border: 1px solid #3a2f22; border-radius: 6px;
         padding: 10px 12px; margin: -3px 0 10px; display: flex; flex-wrap: wrap; gap: 8px;
         align-items: center; font-size: 11px; color: #a99f8c; letter-spacing: 1px; }
       .m-form label { display: flex; align-items: center; gap: 6px; }
       .m-form input[type="number"] { width: 64px; }
       .m-form input[type="checkbox"] { accent-color: #c9a24b; }
+      .m-party-panel { flex-direction: column; align-items: stretch; }
+      .m-tabs { display: flex; gap: 14px; width: 100%; margin-bottom: 4px; }
+      .m-tab { cursor: pointer; font: inherit; font-size: 10.5px; letter-spacing: 1.5px;
+        font-weight: 700; background: none; border: none; border-bottom: 2px solid transparent;
+        color: #6f6757; padding: 4px 1px 6px; }
+      .m-tab:hover { color: #a99f8c; }
+      .m-tab.active { color: #f2c14e; border-bottom-color: #c9a24b; }
+      .m-tab-body { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
       #m-code { width: 150px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
       .m-mini { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 1px;
         background: #221b15; color: #a99f8c; border: 1px solid #6e5533; border-radius: 4px;
@@ -1426,40 +1442,45 @@
         <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
         <div class="m-cols">
           <div>
-            <div class="m-mode-row">
-              <button class="m-mode active" id="m-mode-race">RACE<small>one sitting, 18 floors, the clock is the enemy</small></button>
-              <button class="m-mode" id="m-mode-roam">ROAM<small>no clock, a settlement, a tribe, a quest</small></button>
-            </div>
-            <div id="m-race-cards">
-              <button class="m-card green" id="m-continue" style="display:none">
+            <div class="m-tiles">
+              <button class="m-tile green" id="m-continue" style="display:none">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/race.svg);-webkit-mask-image:url(/icons/ui/race.svg)"></i></span>
                 <b>CONTINUE RUN</b><small id="m-continue-sub"></small>
               </button>
-              <button class="m-card gold" id="m-daily">
+              <button class="m-tile gold" id="m-daily">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
                 <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
               </button>
-              <button class="m-card" id="m-solo">
+              <button class="m-tile" id="m-solo">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/race.svg);-webkit-mask-image:url(/icons/ui/race.svg)"></i></span>
                 <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
               </button>
-              <button class="m-card" id="m-rejoin" style="display:none">
+              <button class="m-tile" id="m-rejoin" style="display:none">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
                 <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
               </button>
-              <button class="m-card" id="m-party">
-                <b>PARTY CRAWL</b><small>share a code, share a dungeon — up to six crawlers</small>
+              <button class="m-tile" id="m-party">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
+                <b>PARTY CRAWL</b><small>share a code, or find an open crew — up to six crawlers</small>
               </button>
-              <div class="m-form" id="m-party-form" style="display:none">
-                <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
-                <button class="m-mini" id="m-roll">NEW CODE</button>
-                <button class="m-mini" id="m-invite">COPY INVITE</button>
-                <button class="m-go" id="m-join">CO-OP ▶</button>
+              <div class="m-form m-party-panel" id="m-party-form" style="display:none">
+                <div class="m-tabs">
+                  <button class="m-tab active" id="m-party-tab-code">SHARE CODE</button>
+                  <button class="m-tab" id="m-party-tab-open">FIND OPEN PARTY</button>
+                </div>
+                <div class="m-tab-body" id="m-party-tab-code-body">
+                  <input id="m-code" maxlength="32" placeholder="PARTY CODE" spellcheck="false" autocomplete="off" />
+                  <button class="m-mini" id="m-roll">NEW CODE</button>
+                  <button class="m-mini" id="m-invite">COPY INVITE</button>
+                  <button class="m-go" id="m-join">CO-OP ▶</button>
+                </div>
+                <div class="m-tab-body" id="m-party-tab-open-body" style="display:none">
+                  <ol id="m-open-list"><li class="none">looking for open parties…</li></ol>
+                  <button class="m-go" id="m-quickjoin-host">HOST OPEN PARTY ▶</button>
+                </div>
               </div>
-              <button class="m-card" id="m-quickjoin">
-                <b>QUICK JOIN</b><small>hop into an open party — no code needed</small>
-              </button>
-              <div class="m-form" id="m-quickjoin-form" style="display:none">
-                <ol id="m-open-list"><li class="none">looking for open parties…</li></ol>
-                <button class="m-go" id="m-quickjoin-host">HOST OPEN PARTY ▶</button>
-              </div>
-              <button class="m-card red" id="m-rivals-card">
+              <button class="m-tile red" id="m-rivals-card">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/skull.svg);-webkit-mask-image:url(/icons/ui/skull.svg)"></i></span>
                 <b>RIVALS</b><small>up to four HOSTILE crawlers, one contract &mdash; first boss kill wins</small>
               </button>
               <div class="m-form" id="m-rivals-form" style="display:none">
@@ -1468,22 +1489,19 @@
                 <button class="m-mini" id="m-rinvite">COPY INVITE</button>
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
-              <button class="m-card dim" id="m-test">
-                <b>TEST CHAMBER</b><small>practice floors — nothing is saved</small>
+              <button class="m-tile" id="m-roam-solo">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/marker.svg);-webkit-mask-image:url(/icons/ui/marker.svg)"></i></span>
+                <b>ROAM</b><small>no clock, a settlement, a tribe, a quest — v1, solo only for now</small>
               </button>
-              <div class="m-form" id="m-test-form" style="display:none">
-                <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>
-                <label>LEVEL <input id="m-t-level" type="number" min="1" max="40" value="1" /></label>
-                <label>GOLD <input id="m-t-gold" type="number" min="0" value="0" /></label>
-                <label>SEED <input id="m-t-seed" type="number" placeholder="random" /></label>
-                <label><input id="m-t-all" type="checkbox" /> ALL ABILITIES</label>
-                <button class="m-go" id="m-t-go">ENTER ▶</button>
-              </div>
             </div>
-            <div id="m-roam-cards" style="display:none">
-              <button class="m-card" id="m-roam-solo">
-                <b>BEGIN ROAM</b><small>one big floor, a settlement, a tribe to thin out — v1, solo only for now</small>
-              </button>
+            <button class="m-testlink" id="m-test">TEST CHAMBER — practice floors, nothing is saved</button>
+            <div class="m-form" id="m-test-form" style="display:none">
+              <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>
+              <label>LEVEL <input id="m-t-level" type="number" min="1" max="40" value="1" /></label>
+              <label>GOLD <input id="m-t-gold" type="number" min="0" value="0" /></label>
+              <label>SEED <input id="m-t-seed" type="number" placeholder="random" /></label>
+              <label><input id="m-t-all" type="checkbox" /> ALL ABILITIES</label>
+              <button class="m-go" id="m-t-go">ENTER ▶</button>
             </div>
           </div>
           <div class="m-side">
