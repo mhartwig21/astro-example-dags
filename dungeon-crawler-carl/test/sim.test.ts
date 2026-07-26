@@ -4261,6 +4261,11 @@ describe("broodmother (the pack grows if you ignore it)", () => {
   it("births swarmers on a timer, capped per mother, and never attacks", () => {
     const g = createGame(7100);
     const p = g.players[0];
+    // Births stop if every player is dead (nearestPlayer gates the brain) —
+    // an armored observer keeps the 3-cycle window about CADENCE, not about
+    // how fast this seed's brood happens to chew through a level-1 crawler
+    // (the furniture-consistency layout re-roll exposed exactly that).
+    p.hp = p.maxHp = 100000;
     g.monsters.length = 0;
     const mother = mkMon({
       id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },

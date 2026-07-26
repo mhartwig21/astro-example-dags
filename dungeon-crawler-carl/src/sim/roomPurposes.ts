@@ -123,6 +123,18 @@ export const PURPOSE_RESIDENTS: Record<string, MonsterKind[]> = {
   ossuary: ["necromancer", "swarmer", "swarmer"], // the filing clerk and the files
 };
 
+// FURNITURE-SIZED prop keys (PHYSICALITY.md §1). THE CONSISTENCY RULE:
+// if it's furniture-sized it BLOCKS, everywhere it appears; if it doesn't
+// block, it's clutter-sized. The plan stamps these as blockers on every
+// eligible wall, and the renderer's cosmetic dressing NEVER draws them
+// (dressing.ts filters wall runs and doorway spill against this set), so
+// two identical bookcases can't disagree about being solid.
+export const BULK_KEYS = new Set([
+  "bookcase_single", "bookcase_double_decorateda", "bartop_a_medium",
+  "bed_a_single", "bed_b_single", "bed_decorated",
+  "fuel_a_barrels", "food_barrel_fish", "crate_large_decorated",
+]);
+
 // STAGED PERCEPTION (staging v2): how alert a room's residents are while
 // their scene runs, as a fraction of monsterAggroRange. Sleep is nearly
 // blind (sneaking past the barracks is a real option now), absorbed work
@@ -278,14 +290,9 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
   // ---- PHYSICAL FURNITURE (PHYSICALITY.md §1) — drawn last of all so these
   // rolls never reshuffle story/service/breakable outcomes for older seeds.
   // Rules that keep the connectivity check cheap and rarely failing:
-  // bulk runs hug ONE wall (they cannot cut a room), nothing stamps beside a
+  // bulk runs hug walls (they cannot cut a room), nothing stamps beside a
   // doorway or within 3 tiles of spawn/stairs, and the table is a single
   // interior tile the room ring-fences by construction.
-  const BULK_KEYS = new Set([
-    "bookcase_single", "bookcase_double_decorateda", "bartop_a_medium",
-    "bed_a_single", "bed_b_single", "bed_decorated",
-    "fuel_a_barrels", "food_barrel_fish", "crate_large_decorated",
-  ]);
   const W = map.w;
   const tileOf = (x: number, y: number) => Math.floor(y) * W + Math.floor(x);
   const nearPoint = (ti: number, pt: Vec2, d: number) =>
@@ -325,46 +332,59 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
         });
       }
     }
-    // (b) A bulk run hugging one wall: consecutive interior tiles whose
-    // outside neighbor is WALL (a Floor outside = a doorway; skip those).
+    // (b) Bulk runs on EVERY eligible wall (the consistency rule: cosmetic
+    // dressing no longer draws bulk keys, so every bookcase you see is one
+    // of these). Eligible tiles hug true WALL — a Floor outside is a
+    // doorway; skip those — and stay clear of spawn/stairs/the anchor.
     const bulk = d.purpose.wallRun.filter((k) => BULK_KEYS.has(k));
+    const sideRuns: { tile: number; key: string; isTable?: boolean }[][] = [];
     if (bulk.length > 0) {
-      const side = Math.floor(nextFloat(rng) * 4);
-      const run: number[] = [];
-      const tryTile = (ix: number, iy: number, ox: number, oy: number) => {
-        const inside = iy * W + ix;
-        const outside = oy * W + ox;
-        if (map.tiles[inside] !== 1 || map.tiles[outside] !== 0) return; // hug WALL, never a doorway
-        if (nearPoint(inside, map.spawn, 3) || nearPoint(inside, map.stairs, 3)) return;
-        if (d.anchor && inside === tileOf(d.anchor.x, d.anchor.y)) return;
-        run.push(inside);
-      };
-      if (side === 0) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y, x, r.y - 1);
-      else if (side === 1) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y + r.h - 1, x, r.y + r.h);
-      else if (side === 2) for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x, y, r.x - 1, y);
-      else for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x + r.w - 1, y, r.x + r.w, y);
-      const runLen = Math.min(
-        run.length,
-        CONFIG.blockerRunMin + Math.floor(nextFloat(rng) * (CONFIG.blockerRunMax - CONFIG.blockerRunMin + 1)),
-      );
-      const start = Math.floor(nextFloat(rng) * Math.max(1, run.length - runLen + 1));
-      for (let i = 0; i < runLen; i++) {
-        candidate.push({ tile: run[start + i], key: bulk[Math.floor(nextFloat(rng) * bulk.length)] });
+      for (let side = 0; side < 4; side++) {
+        const run: number[] = [];
+        const tryTile = (ix: number, iy: number, ox: number, oy: number) => {
+          const inside = iy * W + ix;
+          const outside = oy * W + ox;
+          if (map.tiles[inside] !== 1 || map.tiles[outside] !== 0) return;
+          if (nearPoint(inside, map.spawn, 3) || nearPoint(inside, map.stairs, 3)) return;
+          if (d.anchor && inside === tileOf(d.anchor.x, d.anchor.y)) return;
+          run.push(inside);
+        };
+        if (side === 0) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y, x, r.y - 1);
+        else if (side === 1) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y + r.h - 1, x, r.y + r.h);
+        else if (side === 2) for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x, y, r.x - 1, y);
+        else for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x + r.w - 1, y, r.x + r.w, y);
+        const runLen = Math.min(
+          run.length,
+          CONFIG.blockerRunMin + Math.floor(nextFloat(rng) * (CONFIG.blockerRunMax - CONFIG.blockerRunMin + 1)),
+        );
+        const start = Math.floor(nextFloat(rng) * Math.max(1, run.length - runLen + 1));
+        const g: { tile: number; key: string }[] = [];
+        for (let i = 0; i < runLen; i++) {
+          g.push({ tile: run[start + i], key: bulk[Math.floor(nextFloat(rng) * bulk.length)] });
+        }
+        if (g.length > 0) sideRuns.push(g);
       }
     }
-    if (candidate.length === 0) continue;
-    // Connectivity gate: with this room's furniture added, every baseline-
-    // reachable tile (minus the furniture itself) must stay reachable.
-    const trial = new Set(accepted);
-    for (const c of candidate) trial.add(c.tile);
-    const after = reachableFrom(spawnTile, trial);
-    let ok = true;
-    for (const ti of baseline) {
-      if (!trial.has(ti) && !after.has(ti)) { ok = false; break; }
+    // Connectivity gate, INCREMENTALLY per group (table first, then each
+    // wall's run): a group that would strand any baseline-reachable tile is
+    // dropped alone instead of costing the whole room its furniture. The
+    // DENSITY BUDGET (CONFIG.blockerRoomFraction) caps how much of a room's
+    // interior may block — fight space stays fight space.
+    const roomBudget = Math.max(2, Math.floor((r.w - 2) * (r.h - 2) * CONFIG.blockerRoomFraction));
+    for (const group of [candidate, ...sideRuns]) {
+      if (group.length === 0) continue;
+      if (d.blockers.length + group.length > roomBudget) continue;
+      const trial = new Set(accepted);
+      for (const c of group) trial.add(c.tile);
+      const after = reachableFrom(spawnTile, trial);
+      let ok = true;
+      for (const ti of baseline) {
+        if (!trial.has(ti) && !after.has(ti)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (const c of group) accepted.add(c.tile);
+      d.blockers.push(...group);
     }
-    if (!ok) continue; // this room keeps its cosmetic-only furniture
-    for (const c of candidate) accepted.add(c.tile);
-    d.blockers = candidate;
   }
   // ---- SEAT SLOTS (staging v2) — drawn last of all, same stream discipline
   // as blockers: appending draws at the END never reshuffles older seeds'

@@ -966,6 +966,12 @@ export const CONFIG = {
   blockerHp: 2, // smash through the bookcase in two swings
   blockerRunMin: 2, // bulk wall-furniture run length...
   blockerRunMax: 4,
+  // Furniture density budget: at most this fraction of a room's interior may
+  // be blocking furniture. Keeps the consistency rule (all bulk furniture
+  // blocks, on every wall) from turning small early-floor rooms into mazes —
+  // measured by the bands bot, uncapped four-wall runs spiked floor-1..3
+  // deaths from ~10% to ~60%.
+  blockerRoomFraction: 0.16,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
