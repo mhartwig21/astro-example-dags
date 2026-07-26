@@ -3,7 +3,7 @@ import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from 
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
 import { moveWithCollision } from "./movement";
-import { springAmbush, stepMonster } from "./ai";
+import { separateMonsters, springAmbush, stepMonster } from "./ai";
 import { generateItem, hasPassive, itemScore } from "./items";
 import { creditQuestKill, spawnSettlement, talkToNpc } from "./npc";
 import {
@@ -5031,6 +5031,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt * statusTimeMult(m));
+  separateMonsters(state, mdt); // pack presence: bodies take up space (AI tier 1)
   updateMonsterStatuses(state, mdt); // DoT burns on WORLD time (chill can't slow its own poison)
   arenaDirector(state, mdt); // boss layer 3: the ROOM fights on its own rhythm
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
