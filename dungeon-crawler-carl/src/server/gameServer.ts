@@ -23,8 +23,10 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 //
 // Protocol (JSON messages):
 //   client -> server:
-//     { t: "join", code, name, token?, rivals?, roam? } join/create a party;
-//       token is the account id from a previous welcome (saves key off it)
+//     { t: "join", code, name, token?, rivals?, roam?, public? } join/create a
+//       party; token is the account id from a previous welcome (saves key off
+//       it); public only matters the FIRST time a code is seen — it flags the
+//       new instance discoverable via GET /open-parties
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
@@ -127,6 +129,11 @@ interface Instance {
   // Per-player fingerprints of the SLOW block (equipment/inventory/abilities…)
   // — serializeDynamic omits it while unchanged; see snapshot.ts cold split.
   coldCache: Map<number, string>;
+  // Discoverable via GET /open-parties. Decided once, by whoever's join
+  // created this instance (see getOrCreateInstance) — never persisted (an
+  // instance only exists in memory while it has players, so there's nothing
+  // to restore after a restart) and never flippable by a later joiner.
+  public: boolean;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -164,6 +171,14 @@ export function seedFromCode(code: string): number {
   let h = 5381;
   for (let i = 0; i < code.length; i++) h = (Math.imul(h, 33) ^ code.charCodeAt(i)) >>> 0;
   return h;
+}
+
+/** Party-size cap for an instance's current mode/run-kind: rivals races are
+ *  fixed at four, roam campaigns seat a bigger band, co-op races get the base six. */
+function capFor(state: GameState): number {
+  return state.mode === "rivals" ? MAX_RIVALS
+    : state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
+    : MAX_PARTY_SIZE;
 }
 
 const MIME: Record<string, string> = {
@@ -241,6 +256,10 @@ export class GameServer {
     const url = req.url ?? "/";
     if (url.split("?")[0] === "/leaderboard") {
       this.onLeaderboard(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/open-parties") {
+      this.onOpenParties(req, res);
       return;
     }
     if (url === "/metrics") {
@@ -377,6 +396,34 @@ export class GameServer {
     res.writeHead(405, cors).end();
   }
 
+  /**
+   * Quick Join: GET /open-parties lists live co-op instances that opted into
+   * discovery (see Instance.public) and still have a free seat — a stranger's
+   * only path into the game besides a shared code. No names, no auth, same
+   * open-CORS trust model as /leaderboard.
+   */
+  private onOpenParties(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    const parties = [...this.instances.values()]
+      .filter((inst) =>
+        inst.public && inst.state.mode === "coop" && inst.state.runKind === "race"
+        && inst.state.status === "playing" && inst.clients.length < capFor(inst.state))
+      .sort((a, b) => b.clients.length - a.clients.length) // busiest parties first
+      .slice(0, 50)
+      .map((inst) => ({
+        code: inst.code, players: inst.clients.length, cap: capFor(inst.state), floor: inst.state.floor,
+      }));
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+    res.end(JSON.stringify(parties));
+  }
+
   get port(): number {
     return (this.http.address() as { port: number }).port;
   }
@@ -452,8 +499,8 @@ export class GameServer {
         const token = validToken(msg.token) ?? randomUUID();
         const now = Date.now();
         this.db?.touchAccount(token, name, now);
-        // RIVALS/ROAM: the first joiner's flags decide the instance's shape.
-        const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true);
+        // RIVALS/ROAM/public: the first joiner's flags decide the instance's shape.
+        const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true, msg.public === true);
         // `held` must reflect LIVE sockets only — a client whose socket already
         // closed/is closing, but whose "close" event hasn't fired here yet
         // (network/proxy propagation lag — observed 3-10s in production), would
@@ -483,9 +530,7 @@ export class GameServer {
             for (const m of this.db.memberSeats(code)) if (m.accountId !== token) owned.add(m.playerId);
           }
           const seatless = inst.state.players.filter((p) => !held.has(p.id) && !owned.has(p.id));
-          const cap = inst.state.mode === "rivals" ? MAX_RIVALS
-            : inst.state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
-            : MAX_PARTY_SIZE;
+          const cap = capFor(inst.state);
           if (!seatless[0] && inst.state.players.length >= cap) {
             ws.send(JSON.stringify({ t: "error", reason: "party full" }));
             ws.close();
@@ -616,7 +661,7 @@ export class GameServer {
     });
   }
 
-  private getOrCreateInstance(code: string, rivals = false, roam = false): Instance {
+  private getOrCreateInstance(code: string, rivals = false, roam = false, isPublic = false): Instance {
     let inst = this.instances.get(code);
     if (inst) return inst;
     // A known party outranks the joiner's flags: the party code committed to a
@@ -677,6 +722,7 @@ export class GameServer {
       lastStatus: state.status,
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
+      public: isPublic,
     };
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());

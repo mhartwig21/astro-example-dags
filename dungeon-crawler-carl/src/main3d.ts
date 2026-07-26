@@ -90,6 +90,9 @@ const rivalsMode = params.has("rivals");
 // ROAM (multiplayer): ?roam=1&join=CODE — the party campaigns across sessions;
 // the server persists characters per account (see PERSISTENCE.md).
 const roamMode = params.has("roam");
+// QUICK JOIN: ?public=1&join=CODE — only matters the first time this code is
+// seen; flags the new instance discoverable via GET /open-parties.
+const publicMode = params.has("public");
 const net = joinCode ? new NetClient() : null;
 const playerName =
   params.get("name") ?? (joinCode ? (prompt("Crawler name?") || "Crawler") : "Carl");
@@ -514,6 +517,46 @@ document.getElementById("m-join")!.addEventListener("click", () => {
     location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
   });
 });
+
+// QUICK JOIN: browse public co-op parties (GET /open-parties) instead of
+// needing a shared code — the only stranger-facing entry point into co-op.
+document.getElementById("m-quickjoin")!.addEventListener("click", () => {
+  const form = document.getElementById("m-quickjoin-form")!;
+  const opening = form.style.display === "none";
+  form.style.display = opening ? "flex" : "none";
+  if (opening) void refreshOpenParties(); // lazy: don't fetch on every menu open
+});
+async function refreshOpenParties(): Promise<void> {
+  const list = document.getElementById("m-open-list")!;
+  try {
+    const r = await fetch(`${API_BASE}/open-parties`);
+    if (!r.ok) throw new Error(String(r.status));
+    const parties = (await r.json()) as { code: string; players: number; cap: number; floor: number }[];
+    list.innerHTML = parties.length
+      ? parties.map(() => `<li><span class="cd"></span><span class="meta"></span></li>`).join("")
+      : '<li class="none">no open parties right now — be the first</li>';
+    // Codes are player-supplied (a Quick-Join host can mint any string) and
+    // now shown to strangers for the first time — same textContent-not-
+    // interpolated guard refreshBoard() uses for player names, just for codes.
+    list.querySelectorAll("li").forEach((li, i) => {
+      const p = parties[i];
+      li.querySelector(".cd")!.textContent = p.code;
+      li.querySelector(".meta")!.textContent = `${p.players}/${p.cap} · floor ${p.floor}`;
+      li.addEventListener("click", () => enterCasting(`PARTY ${p.code}`, () => {
+        location.href = `${location.pathname}?join=${encodeURIComponent(p.code)}&name=${encodeURIComponent(crawlerName())}`;
+      }));
+    });
+  } catch {
+    list.innerHTML = '<li class="none">couldn\'t reach the party list</li>';
+  }
+}
+document.getElementById("m-quickjoin-host")!.addEventListener("click", () => {
+  const code = rollCode();
+  enterCasting(`PARTY ${code}`, () => {
+    location.href = `${location.pathname}?join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}&public=1`;
+  });
+});
+
 // RIVALS: a first-class home-screen card with its own race code — same code
 // plumbing as co-op, hostile rules. The first joiner arms the race.
 const rivalCodeInput = document.getElementById("m-rcode") as HTMLInputElement;
@@ -2690,7 +2733,7 @@ async function main(): Promise<void> {
 
   if (net) {
     try {
-      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode, roamMode);
+      state = await net.connect(serverUrl, joinCode!, playerName, rivalsMode, roamMode, publicMode);
     } catch (err) {
       hudLog.innerHTML = `<b style="color:#c0392f">${(err as Error).message}</b><br>` +
         `Start it with <b>npm run server</b>, or check ?server=.`;
