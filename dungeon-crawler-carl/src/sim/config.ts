@@ -139,7 +139,12 @@ export const CONFIG = {
   xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
-  damagePerLevel: 3,
+  // 3 -> 2 (build-matters pass, owner-approved 2026-07-26): levels used to be
+  // ~65% of attack power, so junk-drawer gear played nearly as well as an
+  // optimized build. Intrinsic power came DOWN and gear rolls went UP
+  // (gearPowerMult) — total power at parity, but gear/build now own ~half the
+  // stat instead of a third. HP intrinsic stays (survival isn't the lever).
+  damagePerLevel: 2,
 
   // Multiplayer difficulty: per EXTRA party member (beyond the first), floors
   // spawn more monsters and each monster gets tougher. Applied at floor build
@@ -177,6 +182,16 @@ export const CONFIG = {
   // those stack with this, so this alone doesn't need to carry as much.
   monsterScaleCompoundFrom: 3,
   monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
+  // The BUILD CHECK (owner-approved 2026-07-26): the last two bands ramp
+  // again on top of the base compound. Floors 13+ demand a coherent build —
+  // "anyone reaches the Garden, thoughtful builds reach the Ironworks,
+  // optimized builds win." The inverse balance-contract test pins this:
+  // a junk-drawer build must FAIL deep floors that a coherent one clears.
+  deepScaleCompoundFrom: 12, // first ramped floor is 13 (Ironworks)
+  deepScaleCompound: 1.06, // extra ~1.42x by floor 18
+  // Deep elites lean into resist affixes (armored/warded): mono-school soup
+  // without an answer gets checked, not just outstatted.
+  deepResistBias: 0.35,
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT, because you saw it coming — see the ~40% target win rate in
   // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
@@ -429,6 +444,12 @@ export const CONFIG = {
   // should be scary — see dropLoot), so this holds gear rates steady.
   lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
+  // Build-matters pass: gear's share of the power stat. Applied to damage/spell
+  // rolls on BOTH drop generation (items.ts rollAffix) and catalog
+  // materialization (catalog.ts gearAffixes) so shop/drop tier parity holds.
+  // Paired with damagePerLevel 3 -> 2: total power stays ~flat, but the gap
+  // between junk-drawer gear and an optimized loadout roughly doubles.
+  gearPowerMult: 1.35,
   goldDropChance: 0.8,
   goldMin: 3,
   goldMax: 12,

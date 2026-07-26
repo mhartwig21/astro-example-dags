@@ -1,4 +1,4 @@
-import { RARITIES } from "./config";
+import { CONFIG, RARITIES } from "./config";
 import { nextFloat, nextInt, pick, type Rng } from "./rng";
 import { EQUIP_SLOTS, type Affixes, type Item, type ItemSlot, type PassiveId, type Player, type Rarity } from "./types";
 
@@ -91,7 +91,9 @@ function rollAffix(rng: Rng, key: keyof Affixes, floor: number, mult: number): n
   switch (key) {
     case "damage":
     case "spell": // the schools grow on the same curve; gear picks WHICH
-      return Math.max(1, Math.round((nextInt(rng, 2, 4) + floor) * mult));
+      // gearPowerMult: gear owns ~half the power stat since the build-matters
+      // pass (damagePerLevel came down in tandem — see config.ts).
+      return Math.max(1, Math.round((nextInt(rng, 2, 4) + floor) * mult * CONFIG.gearPowerMult));
     case "maxHp":
       return Math.max(2, Math.round((nextInt(rng, 6, 12) + floor * 2) * mult));
     case "speed":

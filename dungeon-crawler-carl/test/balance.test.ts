@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { createGame, restoreGame, createTestGame } from "../src/sim/game";
+import { createGame, restoreGame, createTestGame, equipItem, recomputeStats } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
+import type { AbilityId } from "../src/sim/abilities";
 
 // Playability invariants, measured by the scripted balance bot (src/sim/bot.ts).
 // These are the regression net for tuning: if a damage/timer/economy change
@@ -237,6 +238,45 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
       totalLostPct,
       `floor 12 barely scratched the crawler (${totalLostPct.toFixed(0)}% total HP across seeds) — scaling may have been flattened`,
     ).toBeGreaterThan(40);
+  });
+
+  it("the BUILD CHECK: an off-school weapon on a committed kit is punished (floor 13)", () => {
+    // The inverse contract of "still playable" (build-matters pass, owner-
+    // approved 2026-07-26): grabbing random shit must STOP working where the
+    // game gets serious. Fixture: a committed physical kit (the "I'm a melee
+    // build" crawler) dropped on floor 13 — first floor of the deep ramp —
+    // wearing either a coherent epic blade or the SAME stat budget on a wand
+    // (the off-school grab). The wand crawler swings a pommel bash and its
+    // bolt runs off a school its gear never invested in.
+    //
+    // Calibration (2026-07-26, seeds 1-14): blade clears 4, wand clears 3;
+    // on the seeds BOTH clear, the wand build bleeds x2.34 the HP. The
+    // assertions pin the direction with margin, not the exact numbers.
+    const KIT: AbilityId[] = ["melee", "dash", "bolt", "overcharge", "cutto", "airstrike"];
+    const run = (seed: number, wand: boolean) => {
+      const g = createTestGame({ seed, floor: 13, level: 18, abilities: KIT });
+      const p = g.players[0];
+      equipItem(p, wand
+        ? { id: 999902, slot: "weapon", rarity: "epic", name: "Apocalyptic Wand", affixes: { spell: 80, crit: 0.06 } }
+        : { id: 999901, slot: "weapon", rarity: "epic", name: "Apocalyptic Blade", affixes: { damage: 80, crit: 0.06 } });
+      recomputeStats(p);
+      const maxHp = p.maxHp;
+      const r = runBot(g, 1, 120_000);
+      return r.floors[0] ? (r.floors[0].damageTaken / maxHp) * 100 : null;
+    };
+    let bladeClears = 0, wandClears = 0, both = 0, bladeLost = 0, wandLost = 0;
+    for (let seed = 1; seed <= 14; seed++) {
+      const b = run(seed, false), w = run(seed, true);
+      if (b !== null) bladeClears++;
+      if (w !== null) wandClears++;
+      if (b !== null && w !== null) { both++; bladeLost += b; wandLost += w; }
+    }
+    expect(bladeClears, "the coherent build should clear at least as often").toBeGreaterThanOrEqual(wandClears);
+    expect(both, "need paired clears to compare HP cost").toBeGreaterThanOrEqual(2);
+    expect(
+      wandLost,
+      `off-school weapon cost ${wandLost.toFixed(0)}% vs coherent ${bladeLost.toFixed(0)}% — incoherence isn't being punished`,
+    ).toBeGreaterThan(bladeLost * 1.5);
   });
 
   it("deep floors are DENSE, not empty (count outgrows the old 60 cap)", () => {

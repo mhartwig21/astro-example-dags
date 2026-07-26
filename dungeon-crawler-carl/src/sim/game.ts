@@ -117,8 +117,11 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   // Compounding scaling steepens the back half (the linear curve loses to a
   // farming player by midgame). No effect at/under monsterScaleCompoundFrom.
   const compound = Math.pow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
-  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound;
-  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound;
+  // The BUILD CHECK: floors past deepScaleCompoundFrom ramp again — the last
+  // two bands demand a coherent build, not just a leveled crawler (config.ts).
+  const deep = Math.pow(CONFIG.deepScaleCompound, Math.max(0, floor - CONFIG.deepScaleCompoundFrom));
+  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound * deep;
+  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound * deep;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
   const hp = Math.round(baseHp * a.hpMult);
   const m: Monster = {
@@ -289,6 +292,16 @@ const ELITE_AFFIXES: EliteAffix[] = [
   // The six-pack (MOB-CONCEPTS.md): each one sentence of counterplay.
   "linked", "vampiric", "juggernaut", "mortar", "berserking", "executioner",
 ];
+
+/** One elite-affix roll. Deep floors (past deepScaleCompoundFrom) lean into
+ * the RESIST affixes at deepResistBias — part of the build check: mono-school
+ * stat soup without a second answer gets checked, not just outstatted. */
+function rollEliteAffix(rng: Rng, floor: number): EliteAffix {
+  if (floor > CONFIG.deepScaleCompoundFrom && chance(rng, CONFIG.deepResistBias)) {
+    return chance(rng, 0.5) ? "armored" : "warded";
+  }
+  return pick(rng, ELITE_AFFIXES);
+}
 
 /** A band-end boss arena floor (3, 6, 9, 12, 15 — never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
@@ -564,7 +577,7 @@ function spawnMonsters(state: GameState): void {
     leader.hp = leader.maxHp = Math.round(leader.maxHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
     leader.damage *= CONFIG.eliteDmgMult;
     leader.xp = Math.round(leader.xp * CONFIG.eliteXpMult);
-    if (floor >= CONFIG.eliteAffixFromFloor) leader.affix = pick(rng, ELITE_AFFIXES);
+    if (floor >= CONFIG.eliteAffixFromFloor) leader.affix = rollEliteAffix(rng, floor);
     state.monsters.push(leader);
     state.strongholdLeaderId = leader.id;
     state.strongholdLeaderName = leader.eliteName;
@@ -664,7 +677,7 @@ function spawnMonsters(state: GameState): void {
     m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
     // From floor eliteAffixFromFloor, elites roll one affix mechanic.
     if (floor >= CONFIG.eliteAffixFromFloor) {
-      m.affix = pick(rng, ELITE_AFFIXES);
+      m.affix = rollEliteAffix(rng, floor);
       if (m.affix === "swift") m.speed *= CONFIG.swiftSpeedMult;
       if (m.affix === "juggernaut") m.speed *= CONFIG.juggernautSpeedMult; // your CC is void; your kiting isn't
     }
