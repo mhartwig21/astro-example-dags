@@ -1478,7 +1478,10 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "ranged") {
-    // Ranged: keep a standoff, kite if crowded, aim (windup) then shoot when in band.
+    // Ranged: keep a standoff, aim (windup) then shoot when in band — and
+    // fight like a UNIT (tier 2c): spread into a crossfire arc instead of a
+    // stacked firing squad, and when closed on, fall back INTO the pack's
+    // melee (the archer kites you to its bodyguards, not into open space).
     if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange * 1.7)) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     const seen = tileLos(state.map, m.pos, hunt.pos);
@@ -1487,11 +1490,49 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       return;
     }
     if (d < standoff - 1.5 && seen) {
-      moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
+      // Closed on: retreat biased toward the nearest melee ally in sight.
+      let guard: Monster | null = null;
+      let guardD: number = CONFIG.rangedGuardRange;
+      for (const ally of state.monsters) {
+        if (ally === m || ally.hp <= 0 || ARCHETYPES[ally.kind].ranged || ally.kind === "boss") continue;
+        const ad = dist(m.pos, ally.pos);
+        if (ad < guardD && tileLos(state.map, m.pos, ally.pos)) { guard = ally; guardD = ad; }
+      }
+      const away = guard
+        ? normalize({
+            x: -toPlayer.x + (guard.pos.x - m.pos.x) / Math.max(1, guardD) * CONFIG.rangedGuardPull,
+            y: -toPlayer.y + (guard.pos.y - m.pos.y) / Math.max(1, guardD) * CONFIG.rangedGuardPull,
+          })
+        : { x: -toPlayer.x, y: -toPlayer.y };
+      moveWithCollision(state.map, m.pos, away, m.speed * dt, isWalkable);
     } else if (d > standoff + 0.5 || !seen) {
       // No firing line: reposition along the flow until one opens up.
       const dir = (seen ? null : flowDir(state, m.pos)) ?? toPlayer;
       moveWithCollision(state.map, m.pos, dir, m.speed * dt, isWalkable);
+    } else {
+      // In band and sighted: claim your own ARC. If a lower-id ranged ally
+      // shares this firing bearing, strafe perpendicular (id-parity side)
+      // until the crossfire opens — deterministic, and only the later
+      // arrival moves, so pairs never oscillate.
+      const myBearing = Math.atan2(m.pos.y - hunt.pos.y, m.pos.x - hunt.pos.x);
+      let crowded = false;
+      for (const ally of state.monsters) {
+        if (ally === m || ally.hp <= 0 || !ARCHETYPES[ally.kind].ranged || ally.id >= m.id) continue;
+        if (dist(ally.pos, hunt.pos) > standoff + 2.5) continue;
+        const ab = Math.atan2(ally.pos.y - hunt.pos.y, ally.pos.x - hunt.pos.x);
+        let diff = Math.abs(myBearing - ab);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < CONFIG.rangedLaneAngle) { crowded = true; break; }
+      }
+      if (crowded) {
+        // Preferred side by parity; a wall in the way flips the strafe
+        // rather than pinning the caster mid-lane.
+        const px = m.pos.x, py = m.pos.y;
+        for (const side of m.id % 2 === 0 ? [1, -1] : [-1, 1]) {
+          moveWithCollision(state.map, m.pos, { x: -toPlayer.y * side, y: toPlayer.x * side }, m.speed * dt, isWalkable);
+          if (Math.hypot(m.pos.x - px, m.pos.y - py) >= m.speed * dt * 0.5) break;
+        }
+      }
     }
     return;
   }

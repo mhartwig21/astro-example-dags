@@ -218,6 +218,13 @@ export const CONFIG = {
   monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
   monsterMemoryMax: 9, // ...capped (floor 7+)
   packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
+  // Ranged unit play (tier 2c): archers claim distinct firing arcs — a
+  // later-arriving caster sharing a bearing (within this angle) strafes
+  // sideways until the crossfire opens — and when closed on they retreat
+  // TOWARD their nearest melee bodyguard instead of into open space.
+  rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
+  rangedGuardRange: 7, // tiles it will look for a bodyguard within
+  rangedGuardPull: 0.9, // blend of retreat-vector toward the guard
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).

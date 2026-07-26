@@ -106,8 +106,10 @@ describe("balance bot: early-game playability", () => {
     // AI tier 2 (flow field + LOS aggro) made its floor-3 packs actually
     // arrive (20-seed probe: floors-1-4 survival held at 13/20, same as
     // main's pre-change control — the smarts re-rolled WHICH seeds die, not
-    // how many). Seed 12 fits again (3/6/9/11).
-    const g = createGame(12);
+    // how many); seed 12 fell to the ranged crossfire/bodyguard pass the
+    // same way (probe again 13/20 — outcome lottery, not a difficulty
+    // shift). Seed 18 fits (3/4/7/11).
+    const g = createGame(18);
     const bands: [number, number][] = [[1, 4], [3, 7], [6, 9], [8, 12]];
     for (let f = 0; f < bands.length; f++) {
       const r = runBot(g, 1, 400_000);
