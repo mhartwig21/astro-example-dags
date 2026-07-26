@@ -204,6 +204,42 @@ export const CONFIG = {
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
+  // Pack presence (AI tier 1): monsters take up SPACE. Separation shoves
+  // overlapping monsters apart (mass-weighted — grunts yield to brutes;
+  // winding-up monsters are rooted anchors), so a pack arrives as a crescent
+  // instead of a stacked point a single cleave erases. See separateMonsters.
+  monsterSeparationRadius: 0.7, // tiles of personal space
+  monsterSeparationSpeed: 2.2, // tiles/sec max shove out of a stack
+  // Flanking approach: melee chasers blend an id-derived tangential bias into
+  // pursuit as they close (see flankVector) — the pack fans into a crescent
+  // instead of a conga line. Strength is the max tangent-to-pursuit ratio;
+  // engage range is how far out the fan starts opening.
+  flankStrength: 1.3,
+  flankEngageRange: 3, // tiles beyond attack range where the bias ramps in
+  // Attack tokens: at most this many BASIC (grunt/swarmer) melee windups in
+  // flight at once, per living crawler — the rest of the surround waits its
+  // turn, so strikes STAGGER around the ring instead of synchronizing into
+  // one big dodge. Scales with depth; elites/bosses/named kinds never wait.
+  meleeTokensBase: 2, // floors 1-6
+  meleeTokensEveryFloors: 6, // +1 token every N floors deeper
+  meleeTokensMax: 4,
+  // LOS aggro (AI tier 2): the mass archetypes commit when they SEE you (or
+  // get hurt, or a packmate raises the alarm), and remember the hunt for a
+  // while after losing sight — pursuing through the flow field. Walls hide
+  // you; breaking contact is a real move. Memory follows the training-wheels
+  // ramp (same doctrine as tempo): floors 1-3 are forgetful, the deep
+  // dungeon holds a grudge. See monsterMemory().
+  monsterMemoryBase: 3, // seconds, floors 1-3
+  monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
+  monsterMemoryMax: 9, // ...capped (floor 7+)
+  packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
+  // Ranged unit play (tier 2c): archers claim distinct firing arcs — a
+  // later-arriving caster sharing a bearing (within this angle) strafes
+  // sideways until the crossfire opens — and when closed on they retreat
+  // TOWARD their nearest melee bodyguard instead of into open space.
+  rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
+  rangedGuardRange: 7, // tiles it will look for a bodyguard within
+  rangedGuardPull: 0.9, // blend of retreat-vector toward the guard
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
@@ -1159,6 +1195,12 @@ export const ARCHETYPES = {
 
 /** Depth tempo multipliers: how much quicker monsters move, swing, and
  * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+/** Pursuit memory after losing sight (LOS aggro): training-wheel floors are
+ * forgetful; the deep dungeon holds a grudge. */
+export function monsterMemory(floor: number): number {
+  return Math.min(CONFIG.monsterMemoryMax, CONFIG.monsterMemoryBase + Math.max(0, floor - 3) * CONFIG.monsterMemoryPerFloor);
+}
+
 export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
   const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
   return {
