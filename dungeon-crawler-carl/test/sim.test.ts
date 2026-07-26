@@ -1024,6 +1024,22 @@ describe("ability tree + upgrade drafts", () => {
     expect(g.players[0].pendingUpgrades.length).toBe(0);
   });
 
+  it("a level-up heals HALF the missing HP, not all of it (catch-up sustain, not invincibility)", () => {
+    const g = createGame(32);
+    const p = g.players[0];
+    p.hp = 20; // badly hurt going into the ding
+    p.xp = p.xpToNext;
+    p.facing = { x: 1, y: 0 };
+    p.attackPower = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, xp: 1 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.level).toBe(2);
+    // Half the gap to the NEW max (recomputeStats runs before the heal).
+    expect(p.hp).toBe(20 + Math.round((p.maxHp - 20) * CONFIG.levelHealMissingFraction));
+    expect(p.hp).toBeLessThan(p.maxHp); // the mistake is not erased
+  });
+
   it("offers only upgrades for known abilities, deterministically per seed", () => {
     function offers(seed: number) {
       const g = createGame(seed);

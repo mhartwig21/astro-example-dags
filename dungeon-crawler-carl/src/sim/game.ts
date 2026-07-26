@@ -2015,7 +2015,9 @@ function grantXp(state: GameState, p: Player, amount: number): void {
     p.level++;
     p.xpToNext = xpForLevel(p.level);
     recomputeStats(p); // intrinsic stats scale with level
-    p.hp = p.maxHp; // level-up fully heals
+    // Half the missing HP per level (not a full restore): catch-up level
+    // chains are sustain, not invincibility — see levelHealMissingFraction.
+    p.hp = Math.min(p.maxHp, p.hp + Math.round((p.maxHp - p.hp) * CONFIG.levelHealMissingFraction));
     p.upgradeDraftsOwed++; // each level opens an ability draft (queued if several)
   }
   // One line per XP grant, however many levels it crossed (boss XP jumps 2-3).
