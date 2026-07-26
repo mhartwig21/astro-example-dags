@@ -1349,7 +1349,11 @@ export interface TestSetup {
   level?: number; // crawler level; ranks are auto-drafted to match
   gold?: number; // default scales with the floor so the shop is testable
   abilities?: AbilityId[] | "all"; // learned + auto-slotted before leveling
-  gear?: boolean; // roll floor-scaled random gear (default true)
+  gear?: boolean; // roll random gear (default true)
+  // Which floor's loot table the gear rolls from (default: the starting
+  // floor). Hosts map `gear=level` to naturalFloorForLevel(level) so an
+  // off-curve crawler can be dressed for their LEVEL, not their location.
+  gearFloor?: number;
 }
 
 /**
@@ -1385,10 +1389,11 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   }
   p.xp = 0;
 
-  // Floor-scaled loadout: several rolls, wear the upgrades, bag a few spares.
+  // Scaled loadout: several rolls, wear the upgrades, bag a few spares.
   if (opts.gear !== false) {
+    const gearFloor = Math.max(1, Math.min(CONFIG.finalFloor, Math.floor(opts.gearFloor ?? floor)));
     for (let i = 0; i < 8; i++) {
-      const item = generateItem(state.rng, floor, () => state.nextEntityId++);
+      const item = generateItem(state.rng, gearFloor, () => state.nextEntityId++);
       const worn = p.equipment[item.slot];
       if (!worn || itemScore(item) > itemScore(worn)) {
         p.equipment[item.slot] = item;

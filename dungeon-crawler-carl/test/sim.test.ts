@@ -22,7 +22,7 @@ import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
 import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
@@ -3165,6 +3165,29 @@ describe("test mode (createTestGame)", () => {
     expect(bare.equipment.weapon).toBeNull();
     expect(bare.gold).toBe(400);
   });
+
+  it("gearFloor dresses the crawler from another floor's loot table", () => {
+    // Same seed, same floor: a starter-loot crawler is strictly weaker than a
+    // deep-loot one (level-representative gear for an off-curve test).
+    const starter = createTestGame({ floor: 12, level: 1, seed: 9, gearFloor: 1 }).players[0];
+    const deep = createTestGame({ floor: 12, level: 1, seed: 9, gearFloor: 18 }).players[0];
+    expect(starter.equipment.weapon ?? starter.equipment.armor).toBeTruthy(); // still geared...
+    expect(starter.attackPower + starter.armor + starter.maxHp)
+      .toBeLessThan(deep.attackPower + deep.armor + deep.maxHp); // ...just period-appropriate
+  });
+
+  it("naturalFloorForLevel inverts the leveling pace (monotone, clamped)", () => {
+    expect(naturalFloorForLevel(1)).toBe(1);
+    let prev = 1;
+    for (let lvl = 2; lvl <= 30; lvl++) {
+      const f = naturalFloorForLevel(lvl);
+      expect(f).toBeGreaterThanOrEqual(prev); // deeper levels never map shallower
+      expect(f).toBeLessThanOrEqual(CONFIG.finalFloor);
+      prev = f;
+    }
+    // A high-mid level maps into the dungeon's interior, not the endpoints.
+    expect(naturalFloorForLevel(15)).toBeGreaterThan(2);
+  });
 });
 
 describe("ability constellation (prereqs, forks, capstones)", () => {
@@ -4228,18 +4251,23 @@ describe("ultimate constellations", () => {
 describe("depth tempo (monsters get quicker, not just fatter)", () => {
   it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
     // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
-    for (const f of [1, 2, 3, 4]) {
+    for (const f of [1, 2, 3]) {
       expect(monsterTempo(f)).toEqual({ speed: 1, cooldown: 1, windup: 1 });
     }
     const mid = monsterTempo(10);
     expect(mid.speed).toBeGreaterThan(1);
     expect(mid.cooldown).toBeLessThan(1);
     expect(mid.windup).toBeLessThan(1);
+    // Mid-run tells are MEANINGFULLY quicker (2026-07 playtest: a floor-7
+    // tell at 94% of floor 1's was a free walk-out for any human) — but
+    // never so fast the telegraph stops being a telegraph.
+    expect(monsterTempo(7).windup).toBeLessThanOrEqual(0.85);
     // Deep floors hit the caps and stay there (fast but still readable).
     const deep = monsterTempo(30);
     expect(deep.speed).toBe(CONFIG.monsterTempoSpeedMax);
     expect(deep.cooldown).toBe(CONFIG.monsterTempoCdMin);
     expect(deep.windup).toBe(CONFIG.monsterTempoWindupMin);
+    expect(deep.windup).toBeGreaterThanOrEqual(0.5);
   });
 
   it("a floor-12 grunt genuinely moves faster than a floor-1 grunt", () => {

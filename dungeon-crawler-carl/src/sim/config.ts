@@ -195,13 +195,18 @@ export const CONFIG = {
   // Past the ramp floor, monsters get quicker on every axis — faster chase,
   // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
   // the caps keep the deep dungeon fast but still READABLE and dodgeable.
-  monsterTempoFrom: 4,
-  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
-  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
-  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
-  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
-  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
-  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+  // Steepened 2026-07: at 2%/floor from 4, a floor-7 tell was 94% of floor
+  // 1's — at player speed 4.2 anything over ~0.3s is a free walk-out, so a
+  // human was never hit. TEMPO (not fatter trash) is the axis that scales
+  // challenge over a typical run: one-shotting chaff stays legitimate; the
+  // chaff that's still alive gets its swing off sooner.
+  monsterTempoFrom: 3,
+  monsterTempoSpeedPerFloor: 0.03, // +3% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.45, // ...capped at +45% (still under player speed)
+  monsterTempoCdPerFloor: 0.035, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.55, // ...to at most 45% faster swings
+  monsterTempoWindupPerFloor: 0.045, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.55, // ...but the tell stays readable
 
   // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
   // mob that makes ignoring a pack the wrong call. Kill the mother first.
@@ -1292,4 +1297,23 @@ export function floorTimeBudget(floor: number): number {
 /** XP required to advance FROM the given level to the next. */
 export function xpForLevel(level: number): number {
   return Math.round(CONFIG.xpBase * Math.pow(CONFIG.xpGrowth, level - 1));
+}
+
+/**
+ * The floor a crawler of this level is representative of — the inverse of the
+ * natural leveling pace (a typical run clears ~60% of each floor's cast).
+ * Test mode's `gear=level` dresses an off-curve crawler with THIS floor's
+ * loot, so "level 1 dropped onto floor 7" wears starter gear, not floor-7
+ * gear. Derived from the same knobs as the XP economy: retunes track it.
+ */
+export function naturalFloorForLevel(level: number): number {
+  const clearFraction = 0.6;
+  let lvl = 1, xp = 0, need = xpForLevel(1);
+  for (let f = 1; f <= CONFIG.finalFloor; f++) {
+    if (lvl >= level) return f;
+    const mobs = Math.min(CONFIG.monsterBaseCountFloor1 + (f - 1) * CONFIG.monsterCountPerFloor, CONFIG.monsterMaxCount);
+    xp += mobs * (CONFIG.monsterXp + (f - 1) * CONFIG.monsterXpPerFloor) * clearFraction;
+    while (xp >= need) { xp -= need; lvl++; need = xpForLevel(lvl); }
+  }
+  return CONFIG.finalFloor;
 }

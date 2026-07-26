@@ -952,6 +952,11 @@ describe("boss layers", () => {
     for (let t = 0; t < CONFIG.directorFloodInterval + 1; t += DT) {
       boss.sigCd = 9999; // hold it every step
       boss.hp = boss.maxHp; // no phases
+      // Keep the crawler standing too: depth tempo gives the floor-6 boss
+      // ~10% faster swings, enough to drop an idle level-8 crawler before
+      // the flood interval elapses — this test measures the ROOM's clock,
+      // not the crawler's health bar.
+      g.players[0].hp = g.players[0].maxHp;
       step(g, idle(), DT);
     }
     expect(g.hazards.some((h) => h.kind === "sludge")).toBe(true); // the sump ROSE

@@ -5,7 +5,7 @@ import {
 import { ABILITY_INFO, type AbilityId } from "./sim/abilities";
 import { CATALOG_BY_ID } from "./sim/catalog";
 import type { GameState } from "./sim/types";
-import { CONFIG } from "./sim/config";
+import { CONFIG, naturalFloorForLevel } from "./sim/config";
 import { InputController } from "./input/input";
 import { GamepadController } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
@@ -49,13 +49,17 @@ function testSetup(): TestSetup {
     return Number.isFinite(v) ? v : undefined;
   };
   const ab = params.get("abilities");
+  // gear=0 none, gear=level dresses for the crawler's LEVEL (not the floor
+  // they're dropped onto), gear=N rolls floor-N loot; default = the floor's.
+  const gear = params.get("gear");
   return {
     seed: num("seed"),
     floor: num("floor"),
     level: num("level"),
     gold: num("gold"),
     abilities: ab === "all" ? "all" : ab ? (ab.split(",").filter((a) => a in ABILITY_INFO) as AbilityId[]) : undefined,
-    gear: params.get("gear") !== "0",
+    gear: gear !== "0",
+    gearFloor: gear === "level" ? naturalFloorForLevel(num("level") ?? 1) : num("gear"),
   };
 }
 function persistRun(g: GameState): void {
