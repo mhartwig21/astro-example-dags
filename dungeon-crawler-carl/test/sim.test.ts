@@ -4449,6 +4449,58 @@ describe("flow-field pathfinding (monsters route around geometry)", () => {
   });
 });
 
+describe("ranged unit play (crossfire arcs + bodyguard retreat)", () => {
+  const mkRanged = (id: number, x: number, y: number) =>
+    mkMon({ id, kind: "ranged", pos: { x, y }, hp: 1000, maxHp: 1000, speed: 2.6, attackRange: 6.5 });
+
+  it("stacked casters spread into distinct firing arcs", () => {
+    // Needs a SIGHTED lane at standoff range — scan seeds for one (the
+    // entrance room is usually smaller than a caster's standoff).
+    let tested = false;
+    for (let seed = 1400; seed < 1440 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 5.2 && dd < 6.2 && tileLos(g.map, t, p.pos);
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Three casters sharing one bearing — the old firing squad.
+      for (let i = 0; i < 3; i++) {
+        const m = mkRanged(700 + i, spot.x, spot.y);
+        m.alertT = 999;
+        g.monsters.push(m);
+      }
+      for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of unit play
+      const bearings = g.monsters
+        .map((m) => Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x))
+        .sort((a, b) => a - b);
+      // A crossfire SPAN opens (started at zero — one stacked bearing). A
+      // full per-pair fan isn't always geometrically possible (a 2-tile
+      // corridor pins the third caster against the wall), and that's right.
+      expect(bearings[bearings.length - 1] - bearings[0]).toBeGreaterThan(CONFIG.rangedLaneAngle);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a closed-on caster retreats toward its melee bodyguard, not open space", () => {
+    const g = createGame(1401);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const archer = mkRanged(710, p.pos.x + 3, p.pos.y);
+    const guard = mkMon({ id: 711, pos: { x: p.pos.x + 6, y: p.pos.y + 2 }, hp: 1000, maxHp: 1000 });
+    g.monsters.push(archer, guard);
+    const gapBefore = dist(archer.pos, guard.pos);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30); // 3s of falling back
+    expect(dist(archer.pos, p.pos)).toBeGreaterThan(3.5); // it retreated...
+    expect(dist(archer.pos, guard.pos)).toBeLessThan(gapBefore); // ...INTO the pack
+  });
+});
+
 describe("depth tempo (monsters get quicker, not just fatter)", () => {
   it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
     // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
