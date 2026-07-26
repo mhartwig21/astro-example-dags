@@ -25,6 +25,7 @@ import {
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
+import { flowDir, tileLos } from "../src/sim/pathfield";
 import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
@@ -4362,6 +4363,89 @@ describe("pack presence (separation — bodies take up space)", () => {
     g.monsters.push(elite);
     step(g, idle(), 1 / 30);
     expect(elite.windup).toBeGreaterThan(0); // the spice swings on ITS schedule
+  });
+});
+
+describe("flow-field pathfinding (monsters route around geometry)", () => {
+  it("a chaser with no line of sight finds its way around the walls", () => {
+    // Find a real out-of-sight spot within aggro range on some seed, drop a
+    // grunt there, and require genuine progress toward the crawler — the old
+    // greedy steering ground at the wall between them forever.
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4 && dd < 7.5 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null;
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({ id: 500, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+      const m = g.monsters[0];
+      m.alertT = 999; // it heard you (LOS aggro would otherwise leave it parked)
+      const before = dist(m.pos, p.pos);
+      for (let i = 0; i < 360 && dist(m.pos, p.pos) > 1.3; i++) step(g, idle(), 1 / 30);
+      expect(dist(m.pos, p.pos), `seed ${seed}: started ${before.toFixed(1)} away, no LOS`).toBeLessThan(1.5);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("LOS aggro: an unalerted grunt behind a wall stays parked; damage wakes the pack", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // Two SEPARATE hidden tiles (separation would shove co-located sentries
+      // around, possibly into a sight line) that can see each other — the
+      // alarm cascade is LOS-gated — but not the crawler.
+      const tiles = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .filter((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos);
+        });
+      let pair: [Vec2, Vec2] | null = null;
+      for (const t1 of tiles) {
+        const t2 = tiles.find((t) => t !== t1 && dist(t, t1) >= 1 && dist(t, t1) <= 3 && tileLos(g.map, t1, t));
+        if (t2) { pair = [t1, t2]; break; }
+      }
+      if (!pair) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Sentries (speed 0): a wandering monster can legitimately stroll into
+      // sight, which isn't what's under test.
+      const a = mkMon({ id: 600, pos: { x: pair[0].x, y: pair[0].y }, hp: 1000, maxHp: 1000 });
+      const b = mkMon({ id: 601, pos: { x: pair[1].x, y: pair[1].y }, hp: 1000, maxHp: 1000 });
+      g.monsters.push(a, b);
+      for (let i = 0; i < 180; i++) step(g, idle(), 1 / 30); // 6s, never seen
+      expect(a.alertT ?? 0).toBe(0); // no sight, no aggro — even in range
+      expect(b.alertT ?? 0).toBe(0);
+      // Shooting A raises the alarm — B (never touched) joins the hunt too.
+      // (Arrival-via-flow-field is the previous test; this one is the gate.)
+      damageMonster(g, p, a, 1, {});
+      expect((a.alertT ?? 0)).toBeGreaterThan(0);
+      expect((b.alertT ?? 0)).toBeGreaterThan(0); // the pack cascade
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("flowDir is null on the crawler's tile and inside sealed regions", () => {
+    const g = createGame(77);
+    const p = g.players[0];
+    expect(flowDir(g, p.pos)).toBeNull(); // standing on the source
+    expect(flowDir(g, { x: 0.5, y: 0.5 })).toBeNull(); // the border wall corner
+  });
+
+  it("tileLos: walls block sight, open floor does not", () => {
+    const g = createGame(78);
+    const p = g.players[0];
+    expect(tileLos(g.map, p.pos, p.pos)).toBe(true);
+    expect(tileLos(g.map, p.pos, { x: p.pos.x + 1, y: p.pos.y })).toBe(true); // entrance room floor
+    expect(tileLos(g.map, p.pos, { x: 0.5, y: 0.5 })).toBe(false); // through the border wall
   });
 });
 

@@ -1,4 +1,4 @@
-import { ARCHETYPES, CONFIG, monsterTempo } from "./config";
+import { ARCHETYPES, CONFIG, monsterMemory, monsterTempo } from "./config";
 import { dist, normalize } from "./combat";
 // Monster movement always uses the settlement-aware check: on Race floors
 // (settlementRoomIdx -1) this is identical to isWalkable; on Roam floors it
@@ -7,6 +7,7 @@ import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
+import { flowDir, tileLos } from "./pathfield";
 import { applyStatus } from "./status";
 import {
   applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
@@ -83,6 +84,38 @@ export function separateMonsters(state: GameState, dt: number): void {
     const step = Math.min(1, len) * CONFIG.monsterSeparationSpeed * dt;
     moveWithCollision(state.map, ms[i].pos, { x: f.x / len, y: f.y / len }, step, isWalkable);
   }
+}
+
+/**
+ * LOS AGGRO (AI tier 2): hunters commit when they SEE you — or when hurt, or
+ * when a packmate raises the alarm — and remember the hunt for a few seconds
+ * after losing sight, chasing through the flow field along the way you went.
+ * Fog becomes tactical: walls hide you, breaking contact is a real move, and
+ * a pack you never showed yourself to stays parked. Applies to the mass
+ * archetypes (generic melee + ranged); named kinds keep their own senses.
+ */
+export function alertMonster(state: GameState, m: Monster): void {
+  const fresh = (m.alertT ?? 0) <= 0;
+  m.alertT = monsterMemory(state.floor);
+  if (!fresh) return;
+  // The alarm spreads through the pack (fresh-transition guard bounds the
+  // cascade): one grunt spotting you wakes the room, not just itself. Walls
+  // MUFFLE it — no line of sight, no alarm — or a chain of cascades would
+  // recruit room after room across the whole floor.
+  for (const n of state.monsters) {
+    if (n !== m && n.hp > 0 && !n.dormant && dist(m.pos, n.pos) <= CONFIG.packAlertRadius && tileLos(state.map, m.pos, n.pos)) {
+      alertMonster(state, n);
+    }
+  }
+}
+
+/** Seen right now (re-arms the memory), or still remembered? */
+function hunterAlerted(state: GameState, m: Monster, huntPos: Vec2, d: number, range: number): boolean {
+  if (d <= range && tileLos(state.map, m.pos, huntPos)) {
+    alertMonster(state, m);
+    return true;
+  }
+  return (m.alertT ?? 0) > 0;
 }
 
 /**
@@ -635,6 +668,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
   if ((m.slipT ?? 0) > 0) m.slipT = Math.max(0, (m.slipT ?? 0) - dt);
+  if ((m.alertT ?? 0) > 0) m.alertT = Math.max(0, (m.alertT ?? 0) - dt);
   // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
   // an interrupt takes a concentrated burst — chip damage banks nothing. The
   // post-stagger grace window on bosses/elites ticks down here too.
@@ -1445,16 +1479,19 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "ranged") {
     // Ranged: keep a standoff, kite if crowded, aim (windup) then shoot when in band.
-    if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
+    if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange * 1.7)) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
-    if (m.attackCooldown === 0 && d <= standoff + 1.5) {
+    const seen = tileLos(state.map, m.pos, hunt.pos);
+    if (m.attackCooldown === 0 && d <= standoff + 1.5 && seen) {
       beginWindup(m, "shot", windup); // stands still to line up the shot
       return;
     }
-    if (d < standoff - 1.5) {
+    if (d < standoff - 1.5 && seen) {
       moveWithCollision(state.map, m.pos, { x: -toPlayer.x, y: -toPlayer.y }, m.speed * dt, isWalkable);
-    } else if (d > standoff + 0.5) {
-      moveWithCollision(state.map, m.pos, toPlayer, m.speed * dt, isWalkable);
+    } else if (d > standoff + 0.5 || !seen) {
+      // No firing line: reposition along the flow until one opens up.
+      const dir = (seen ? null : flowDir(state, m.pos)) ?? toPlayer;
+      moveWithCollision(state.map, m.pos, dir, m.speed * dt, isWalkable);
     }
     return;
   }
@@ -1617,15 +1654,18 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   // Melee archetypes (grunt / swarmer).
-  if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
+  if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange)) { wander(state, m, dt); return; }
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0 && meleeTokenFree(state, m)) beginWindup(m, "melee", windup);
   } else {
     const px = m.pos.x, py = m.pos.y;
-    // A recent stall means an obstacle: commit to rounding it (straight line
-    // + slips) with the flank bias suppressed — the bias otherwise drags the
-    // chaser back into the pocket it just slipped out of, a wiggle deadlock.
-    const dir = (m.slipT ?? 0) > 0 ? toPlayer : flankVector(m, toPlayer, d);
+    // Steering ladder (AI tier 2): clear sight -> flank into the surround;
+    // sight blocked by walls, or a recent stall (furniture pocket) -> follow
+    // the flow field around the geometry; nothing useful from the field
+    // (sealed region) -> old greedy line + 45-degree slips as the last rung.
+    const obstructed = (m.slipT ?? 0) > 0 || !tileLos(state.map, m.pos, hunt.pos);
+    const dir = (obstructed ? flowDir(state, m.pos) : null)
+      ?? ((m.slipT ?? 0) > 0 ? toPlayer : flankVector(m, toPlayer, d));
     moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
     if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
       m.slipT = 0.6;
