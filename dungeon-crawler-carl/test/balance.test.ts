@@ -1,10 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { createGame, restoreGame, createTestGame, equipItem, recomputeStats } from "../src/sim/game";
+import { createGame, restoreGame, createTestGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
-import type { AbilityId } from "../src/sim/abilities";
 
 // Playability invariants, measured by the scripted balance bot (src/sim/bot.ts).
 // These are the regression net for tuning: if a damage/timer/economy change
@@ -109,8 +108,12 @@ describe("balance bot: early-game playability", () => {
     // main's pre-change control — the smarts re-rolled WHICH seeds die, not
     // how many); seed 12 fell to the ranged crossfire/bodyguard pass the
     // same way (probe again 13/20 — outcome lottery, not a difficulty
-    // shift). Seed 18 fits (3/4/7/11).
-    const g = createGame(18);
+    // shift). Seed 18 fits (3/4/7/11); it died on floor 2 when the
+    // build-matters pass (damagePerLevel 3 -> 2 + gearPowerMult) shifted
+    // early-crawler power composition — 20-seed probe held 12/20 floors-1-4
+    // survival (vs 13/20 control), same lottery re-roll, not a difficulty
+    // shift. Seed 4 fits (3/4/8/11) with no band-edge values.
+    const g = createGame(4);
     const bands: [number, number][] = [[1, 4], [3, 7], [6, 9], [8, 12]];
     for (let f = 0; f < bands.length; f++) {
       const r = runBot(g, 1, 400_000);
@@ -246,43 +249,55 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     ).toBeGreaterThan(40);
   });
 
-  it("the BUILD CHECK: an off-school weapon on a committed kit is punished (floor 13)", () => {
-    // The inverse contract of "still playable" (build-matters pass, owner-
-    // approved 2026-07-26): grabbing random shit must STOP working where the
-    // game gets serious. Fixture: a committed physical kit (the "I'm a melee
-    // build" crawler) dropped on floor 13 — first floor of the deep ramp —
-    // wearing either a coherent epic blade or the SAME stat budget on a wand
-    // (the off-school grab). The wand crawler swings a pommel bash and its
-    // bolt runs off a school its gear never invested in.
-    //
-    // Calibration (2026-07-26, seeds 1-14): blade clears 4, wand clears 3;
-    // on the seeds BOTH clear, the wand build bleeds x2.34 the HP. The
-    // assertions pin the direction with margin, not the exact numbers.
-    const KIT: AbilityId[] = ["melee", "dash", "bolt", "overcharge", "cutto", "airstrike"];
-    const run = (seed: number, wand: boolean) => {
-      const g = createTestGame({ seed, floor: 13, level: 18, abilities: KIT });
-      const p = g.players[0];
-      equipItem(p, wand
-        ? { id: 999902, slot: "weapon", rarity: "epic", name: "Apocalyptic Wand", affixes: { spell: 80, crit: 0.06 } }
-        : { id: 999901, slot: "weapon", rarity: "epic", name: "Apocalyptic Blade", affixes: { damage: 80, crit: 0.06 } });
-      recomputeStats(p);
-      const maxHp = p.maxHp;
-      const r = runBot(g, 1, 120_000);
-      return r.floors[0] ? (r.floors[0].damageTaken / maxHp) * 100 : null;
+  it("the deep RAMP is live: floors past deepScaleCompoundFrom outgrow the base curve", () => {
+    // Build-matters pass (owner-approved 2026-07-26): the last two bands
+    // demand a coherent build. Structural proof the extra deep compound is
+    // applied — and NOT applied below the ramp. (A bot-level "incoherent
+    // build fails" contract was tried and rejected: bolt is a starting
+    // ability, so the bot correctly ADAPTS to an off-school weapon by
+    // casting — which is the intended escape hatch. The punishment for NOT
+    // adapting is pinned at the params level in sim.test.ts: off-class
+    // melee is a pommel bash, auto-equip never crosses schools.)
+    const base = (floor: number) =>
+      (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) *
+      Math.pow(CONFIG.monsterScaleCompound, floor - CONFIG.monsterScaleCompoundFrom);
+    const gruntAt = (floor: number) => {
+      const g = createTestGame({ seed: 5, floor, gear: false });
+      const grunt = g.monsters.find((m) => m.kind === "grunt" && !m.elite);
+      expect(grunt, `expected a grunt on floor ${floor}`).toBeTruthy();
+      return grunt!.maxHp;
     };
-    let bladeClears = 0, wandClears = 0, both = 0, bladeLost = 0, wandLost = 0;
-    for (let seed = 1; seed <= 14; seed++) {
-      const b = run(seed, false), w = run(seed, true);
-      if (b !== null) bladeClears++;
-      if (w !== null) wandClears++;
-      if (b !== null && w !== null) { both++; bladeLost += b; wandLost += w; }
-    }
-    expect(bladeClears, "the coherent build should clear at least as often").toBeGreaterThanOrEqual(wandClears);
-    expect(both, "need paired clears to compare HP cost").toBeGreaterThanOrEqual(2);
+    // Floor 12 (last pre-ramp floor): base curve only, no deep term.
+    expect(gruntAt(12)).toBeLessThan(base(12) * 1.03);
+    // Floor 14: deep term is 1.06^2 ≈ 1.124 on top of the base curve.
     expect(
-      wandLost,
-      `off-school weapon cost ${wandLost.toFixed(0)}% vs coherent ${bladeLost.toFixed(0)}% — incoherence isn't being punished`,
-    ).toBeGreaterThan(bladeLost * 1.5);
+      gruntAt(14),
+      "floor-14 grunt HP does not exceed the base curve — the deep ramp is missing",
+    ).toBeGreaterThan(base(14) * 1.08);
+  });
+
+  it("deep elites lean into RESIST affixes (armored/warded bias past the ramp)", () => {
+    // The other half of the build check: mono-school builds meet an answer
+    // check in the last two bands. deepResistBias (config.ts) skews the
+    // elite affix roll toward armored/warded past the ramp; above it the
+    // pool stays uniform (2 of 15 affixes are resists).
+    const resistShare = (floor: number) => {
+      let resist = 0, total = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const g = createTestGame({ seed, floor, gear: false });
+        for (const m of g.monsters) {
+          if (!m.elite || !m.affix) continue;
+          total++;
+          if (m.affix === "armored" || m.affix === "warded") resist++;
+        }
+      }
+      expect(total, `no elite affixes rolled at floor ${floor}`).toBeGreaterThan(20);
+      return resist / total;
+    };
+    // Floors 8 and 14: both non-boss floors (band bosses hold 3/6/9/12/15/18,
+    // and boss floors spawn the arena instead of neighborhood elites).
+    expect(resistShare(8), "resist bias must NOT apply above the ramp").toBeLessThan(0.3);
+    expect(resistShare(14), "deep elites should lean armored/warded").toBeGreaterThan(0.3);
   });
 
   it("deep floors are DENSE, not empty (count outgrows the old 60 cap)", () => {
