@@ -153,6 +153,34 @@ export function generateItem(rng: Rng, floor: number, nextId: () => number): Ite
   return { id: nextId(), slot, rarity, name, affixes };
 }
 
+/** The damage school a weapon's stats feed: arcane → magic, chaotic → null
+ * (wildcard — the Mug plays both sides), everything else physical. */
+export function weaponSchoolOf(item: Item): "physical" | "magic" | null {
+  const wc = weaponClassOf(item);
+  if (wc === "arcane") return "magic";
+  if (wc === "chaotic") return null;
+  return "physical";
+}
+
+/**
+ * Should a picked-up/gifted item replace what's worn WITHOUT being asked?
+ * Non-weapons: plain score compare. Weapons additionally require SCHOOL
+ * agreement with the current weapon — auto-equip never swaps a melee build
+ * onto a wand (or a caster onto a maul). Cross-school weapons still drop and
+ * still stash; SWITCHING schools is a decision the player makes by hand
+ * (gear coherence: off-class melee swings at offclassMeleeDmgMult, so the
+ * game must not walk anyone into the penalty). The Mug matches either side.
+ */
+export function wantsAutoEquip(item: Item, worn: Item | null | undefined): boolean {
+  if (!worn) return true;
+  if (item.slot === "weapon" && worn.slot === "weapon") {
+    const a = weaponSchoolOf(item);
+    const b = weaponSchoolOf(worn);
+    if (a !== null && b !== null && a !== b) return false;
+  }
+  return itemScore(item) > itemScore(worn);
+}
+
 /** A single scalar used to auto-equip "the better item" and to sort the bag.
  * School-agnostic: both powers count the same (the player curates the build). */
 export function itemScore(item: Item): number {

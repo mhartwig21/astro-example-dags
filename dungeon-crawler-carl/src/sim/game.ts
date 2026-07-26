@@ -4,7 +4,7 @@ import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
 import { moveWithCollision } from "./movement";
 import { springAmbush, stepMonster } from "./ai";
-import { generateItem, hasPassive, itemScore } from "./items";
+import { generateItem, hasPassive, itemScore, wantsAutoEquip } from "./items";
 import { creditQuestKill, spawnSettlement, talkToNpc } from "./npc";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
@@ -1395,7 +1395,7 @@ export function createTestGame(opts: TestSetup = {}): GameState {
     for (let i = 0; i < 8; i++) {
       const item = generateItem(state.rng, gearFloor, () => state.nextEntityId++);
       const worn = p.equipment[item.slot];
-      if (!worn || itemScore(item) > itemScore(worn)) {
+      if (wantsAutoEquip(item, worn)) {
         p.equipment[item.slot] = item;
         if (worn && p.inventory.length < 4) p.inventory.push(worn);
       } else if (p.inventory.length < 4) {
@@ -2931,9 +2931,11 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, 0, "weapon");
         if (item.rarity === "epic") addHype(state, p, CONFIG.show.hypeEpicDrop);
         else if (item.rarity === "rare") addHype(state, p, CONFIG.show.hypeRareDrop);
-        // Auto-equip if strictly better than what's in that slot, else stash in the bag.
+        // Auto-equip if strictly better than what's in that slot, else stash in
+        // the bag. School-guarded for weapons (wantsAutoEquip): a wand never
+        // auto-replaces a blade — switching schools is a by-hand decision.
         const equipped = p.equipment[item.slot];
-        if (!equipped || itemScore(item) > itemScore(equipped)) {
+        if (wantsAutoEquip(item, equipped)) {
           equipItem(p, item);
           if (item.rarity === "epic") {
             announce(state, "loot", `EPIC DROP: ${item.name}! Equipped. The crowd loses it.`);
@@ -3556,7 +3558,7 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
     case "item":
       if (r.item) {
         const cur = p.equipment[r.item.slot];
-        if (!cur || itemScore(r.item) > itemScore(cur)) equipItem(p, r.item);
+        if (wantsAutoEquip(r.item, cur)) equipItem(p, r.item);
         else p.inventory.push(r.item);
       }
       break;

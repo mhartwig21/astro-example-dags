@@ -453,6 +453,10 @@ export const CONFIG = {
   heavyMeleeCdMult: 1.15, // ...swings like one too
   heavyPoiseMult: 2, // heavy swings break poise twice as fast
   reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
+  // Off-class melee: swinging a caster/ranged weapon (arcane/ballistic) is a
+  // pommel bash — the mirror of boltSidearmMult below. A melee build holding
+  // a wand should feel it (gear coherence; owner ruling 2026-07-26).
+  offclassMeleeDmgMult: 0.65,
   boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
   boltBallisticMult: 1.0, // Crossbow: real bolts, full attack power
   boltBallisticSpeedMult: 1.3, // ...and they MOVE

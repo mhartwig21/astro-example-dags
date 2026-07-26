@@ -12,7 +12,7 @@ import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
-import { generateItem, weaponClassOf } from "../src/sim/items";
+import { generateItem, wantsAutoEquip, weaponClassOf } from "../src/sim/items";
 import {
   DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
   damageVariance, effectiveMaxRank, knows, meleeParams,
@@ -20,7 +20,7 @@ import {
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
-  type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
+  type FloorMap, type GameState, type Intent, type Item, type ItemSlot, type Vec2,
 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
@@ -3501,6 +3501,29 @@ describe("genuine itemization (schools + weapon classes)", () => {
     expect(heavy.cooldown).toBeGreaterThan(swift.cooldown);
     equipItem(p, { id: 9307, slot: "weapon", rarity: "common", name: "Worn Spear", affixes: { damage: 5 } });
     expect(meleeParams(p).range).toBeCloseTo(CONFIG.playerAttackRange + CONFIG.reachRangeBonus);
+  });
+
+  it("off-class melee is a pommel bash, and auto-equip never crosses weapon schools", () => {
+    const g = createGame(1004);
+    const p = g.players[0];
+    equipItem(p, { id: 9310, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } });
+    const blade = meleeParams(p).damageMult;
+    equipItem(p, { id: 9311, slot: "weapon", rarity: "common", name: "Worn Wand", affixes: { spell: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+    equipItem(p, { id: 9312, slot: "weapon", rarity: "common", name: "Worn Crossbow", affixes: { damage: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+
+    // A fat epic wand outSCORES the blade but must not auto-replace it (either direction).
+    const worn: Item = { id: 9313, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } };
+    const fatWand: Item = { id: 9314, slot: "weapon", rarity: "epic", name: "Apocalyptic Wand", affixes: { spell: 60, crit: 0.1 } };
+    expect(wantsAutoEquip(fatWand, worn)).toBe(false);
+    expect(wantsAutoEquip(worn, fatWand)).toBe(false);
+    // Same school upgrades by score; bare hands take anything; the Mug plays both sides.
+    const betterBlade: Item = { id: 9315, slot: "weapon", rarity: "rare", name: "Vicious Blade", affixes: { damage: 25 } };
+    expect(wantsAutoEquip(betterBlade, worn)).toBe(true);
+    expect(wantsAutoEquip(fatWand, null)).toBe(true);
+    const mug: Item = { id: 9316, slot: "weapon", rarity: "epic", name: "Apocalyptic Mug", affixes: { damage: 40 } };
+    expect(wantsAutoEquip(mug, worn)).toBe(true);
   });
 
   it("legacy saves fold pre-schools damage into BOTH powers", () => {
