@@ -4913,7 +4913,8 @@ describe("first-contact System tips", () => {
     const p = g.players[0];
     step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);
     expect(p.tipsSeen).toContain("bolt");
-    expect(g.announcements.some((a) => a.kind === "tip")).toBe(true);
+    // Addressed to the crawler it touched — party veterans don't see the rerun.
+    expect(g.announcements.some((a) => a.kind === "tip" && a.forPlayer === p.id)).toBe(true);
     // Wait out the cooldown, cast again: the System does not repeat itself.
     for (let i = 0; i < 180; i++) step(g, idle(), 1 / 60);
     step(g, { ...idle(), bolt: true, aim: { x: 1, y: 0 } }, 1 / 60);

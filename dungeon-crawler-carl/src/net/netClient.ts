@@ -1,5 +1,6 @@
 import { deserialize, deserializeDynamic, mergeColdPlayers } from "../sim/snapshot";
 import { revealExplored } from "../sim/game";
+import { knownTips, recordTips } from "../persist/save";
 import type { Announcement, GameState, HitEvent, Intent, Vec2 } from "../sim/types";
 
 // Browser-side network client for the authoritative server. Receives snapshots
@@ -116,11 +117,17 @@ export class NetClient {
         rivals: rivals || undefined,
         roam: roam || undefined,
         token: loadToken(),
+        // This browser's seen-tips ledger: the server merges it into the
+        // account so first-contact tips never replay, on any device or run.
+        tips: knownTips(),
       }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
         const hadSeat = this.connected;
         this.connected = false;
+        // Tips fired during this session ride the snapshots (cold fields):
+        // bank them locally on the way out. The server ledger has them too.
+        if (hadSeat) recordTips(this.curr?.players.find((p) => p.id === this.playerId)?.tipsSeen);
         if (hadSeat) this.onDisconnect?.();
         // Unexpected drop mid-run (deploy, network blip): quietly rejoin with
         // the same code/token — the server gives this account its seat back.
@@ -135,6 +142,9 @@ export class NetClient {
           this.prevFloor = -1;
           this.curr = this.absorb(msg.snapshot, true);
           this.currPos = capturePositions(this.curr!);
+          // The welcome carries our seat seeded with the ACCOUNT's seen tips —
+          // fold them into the browser ledger so offline runs skip them too.
+          recordTips(this.curr!.players.find((p) => p.id === this.playerId)?.tipsSeen);
           this.snapAt = performance.now();
           this.connected = true;
           this.everConnected = true;

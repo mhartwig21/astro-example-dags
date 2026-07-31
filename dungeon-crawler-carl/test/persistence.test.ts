@@ -44,6 +44,14 @@ describe("PersistDb", () => {
     expect(db.getMember("CAMP-1", "acct-carl-1234")).toEqual({ playerId: 2, saveJson: '{"gold":888}' });
   });
 
+  it("account tips: a once-ever ledger, idempotent and account-scoped", () => {
+    expect(db.getTips("acct-carl-1234")).toEqual([]);
+    db.recordTips("acct-carl-1234", ["bolt", "stagger"], 1000);
+    db.recordTips("acct-carl-1234", ["bolt"], 2000); // re-recording never dupes
+    expect(db.getTips("acct-carl-1234").sort()).toEqual(["bolt", "stagger"]);
+    expect(db.getTips("acct-donut-9999")).toEqual([]); // someone else's lessons
+  });
+
   it("expiry: race parties last a week, roam campaigns a month and a half", () => {
     const now = 10_000;
     db.upsertParty("RACE-EXP", "coop", "race", 2, now);
@@ -68,7 +76,7 @@ interface TestClient {
   close: () => void;
 }
 
-function connect(port: number, code: string, name: string, token?: string, roam = false): Promise<TestClient> {
+function connect(port: number, code: string, name: string, token?: string, roam = false, tips?: string[]): Promise<TestClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const client: TestClient = { ws, playerId: -1, token: "", lastSnap: null, close: () => ws.close() };
@@ -86,7 +94,7 @@ function connect(port: number, code: string, name: string, token?: string, roam 
       if (client.lastSnap) mergeColdPlayers(s.players, client.lastSnap.players);
       return s;
     };
-    ws.on("open", () => ws.send(JSON.stringify({ t: "join", code, name, token, roam: roam || undefined })));
+    ws.on("open", () => ws.send(JSON.stringify({ t: "join", code, name, token, roam: roam || undefined, tips })));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
@@ -227,6 +235,67 @@ describe("server persistence (accounts + character saves)", () => {
     expect(b.lastSnap!.runKind).toBe("roam");
     expect(b.lastSnap!.floor).toBe(3);
     b.close();
+    await waitFor(() => instances().size === 0);
+  });
+});
+
+describe("first-contact tips: once EVER per account", () => {
+  let dir: string;
+  let server: GameServer;
+  let port: number;
+  const instances = () =>
+    (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dcc-tips-"));
+    server = new GameServer(0, undefined, undefined, join(dir, "dcc.sqlite"));
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a tip seen in one run never replays in the next (new party, same account)", async () => {
+    const a = await connect(port, "TIPS-1", "Carl", "tips-carl-token-1");
+    const inst = instances().get("TIPS-1")!;
+    const p = inst.state.players.find((pl) => pl.id === a.playerId)!;
+    (p.tipsSeen ??= []).push("bolt"); // stage: the System explained bolts
+    a.close(); // the leave checkpoint banks the tip on the ACCOUNT
+    await waitFor(() => instances().size === 0);
+
+    const b = await connect(port, "TIPS-2", "Carl", "tips-carl-token-1"); // brand-new party
+    const mine = b.lastSnap!.players.find((pl) => pl.id === b.playerId)!;
+    expect(mine.tipsSeen).toContain("bolt"); // seeded — systemTip will never re-fire
+    b.close();
+    await waitFor(() => instances().size === 0);
+  });
+
+  it("tips survive even a FINISHED run: clearParty forgets the character, not the lessons", async () => {
+    const a = await connect(port, "TIPS-3", "Carl", "tips-carl-token-2");
+    const inst = instances().get("TIPS-3")!;
+    (inst.state.players.find((pl) => pl.id === a.playerId)!.tipsSeen ??= []).push("stagger");
+    inst.state.status = "won";
+    a.close();
+    await waitFor(() => instances().size === 0);
+    expect(server.db!.getTips("tips-carl-token-2")).toContain("stagger");
+
+    const b = await connect(port, "TIPS-3", "Carl", "tips-carl-token-2");
+    expect(b.lastSnap!.status).toBe("playing"); // fresh dungeon...
+    expect(b.lastSnap!.players.find((pl) => pl.id === b.playerId)!.tipsSeen).toContain("stagger"); // ...same account memory
+    b.close();
+    await waitFor(() => instances().size === 0);
+  });
+
+  it("the join message seeds the browser's ledger into the account (bogus ids dropped)", async () => {
+    const c = await connect(port, "TIPS-4", "Donut", "tips-donut-token-1", false, ["lowhp", "not-a-tip"]);
+    const mine = c.lastSnap!.players.find((pl) => pl.id === c.playerId)!;
+    expect(mine.tipsSeen).toContain("lowhp");
+    expect(mine.tipsSeen).not.toContain("not-a-tip");
+    expect(server.db!.getTips("tips-donut-token-1")).toContain("lowhp");
+    c.close();
     await waitFor(() => instances().size === 0);
   });
 });

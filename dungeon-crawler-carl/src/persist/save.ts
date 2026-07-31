@@ -6,6 +6,43 @@ import type { GameState, Item, Player } from "../sim/types";
 // store per account and reload on login to rejoin the party's instance.
 
 const KEY = "dcc:save:v1";
+const TIPS_KEY = "dcc:tips:v1";
+
+// First-contact tips (tips.ts) are once-EVER, not once-per-run: this browser-
+// level ledger outlives individual saves (a new run mints a fresh character,
+// and the run save dies with the run). Hosts seed it into new characters via
+// seedTips and it grows on every saveRun; the multiplayer client sends it on
+// join so the server's account-level ledger and this one converge.
+
+/** Tip ids this browser has ever been shown (across all runs and characters). */
+export function knownTips(): string[] {
+  try {
+    const raw = localStorage.getItem(TIPS_KEY);
+    const ids = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(ids) ? ids.filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remember tips as seen forever (union — the ledger only grows). */
+export function recordTips(ids: string[] | undefined): void {
+  if (!ids?.length) return;
+  try {
+    const merged = new Set(knownTips());
+    const before = merged.size;
+    for (const id of ids) merged.add(id);
+    if (merged.size > before) localStorage.setItem(TIPS_KEY, JSON.stringify([...merged]));
+  } catch {
+    // Best-effort, like the run save.
+  }
+}
+
+/** Mark every previously-seen tip as already delivered to this character. */
+export function seedTips(p: Player): void {
+  const merged = new Set([...(p.tipsSeen ?? []), ...knownTips()]);
+  if (merged.size) p.tipsSeen = [...merged];
+}
 
 /** How this run was seeded. Daily runs remember their day so a resumed run
  *  still submits to the right board when it ends. */
@@ -98,6 +135,7 @@ export function saveRun(state: GameState, mode?: RunMode): void {
     // Single-player persistence: the local player's progression (players[0]).
     const data = toSaveData(state, state.players[0], mode);
     localStorage.setItem(KEY, JSON.stringify(data));
+    recordTips(data.player.tipsSeen); // the once-ever ledger outlives this save
   } catch {
     // Persistence is best-effort in the slice; ignore quota/availability errors.
   }

@@ -29,8 +29,9 @@ remains a non-event: SQLite-on-volume moves to a GCE persistent disk unchanged
   file is unusable the server logs loudly and runs without persistence rather
   than crashing. Tables: `meta` (schema_version), `accounts`, `parties`
   (mode + run_kind + floor + expiry), `party_members` (seat + `save_json` in
-  the `SaveData` shape), and `instance_snapshots` (the hibernated world:
-  versioned `serialize(state)` verbatim).
+  the `SaveData` shape), `account_tips` (first-contact tips the account has
+  ever been shown — see below), and `instance_snapshots` (the hibernated
+  world: versioned `serialize(state)` verbatim).
 - **Identity**: `join` carries an optional bearer `token`; the server mints a
   UUID for tokenless joins and echoes it in `welcome`; the client keeps it in
   `dcc:token:v1` (netClient.ts). Anonymous, friends-scale trust (like the
@@ -42,6 +43,17 @@ remains a non-event: SQLite-on-volume moves to a GCE persistent disk unchanged
   off-limits to drop-in strangers. Same token twice = the second seat plays as
   a guest and never writes the save. Corrupt/incompatible `save_json`
   degrades to a fresh character, never a crash.
+- **First-contact tips are once EVER, not once per run**: `tipsSeen` on the
+  character save only lives as long as the run (`clearParty`), so seen tips
+  are ALSO banked per account in `account_tips` (written at every checkpoint —
+  including the final one before `clearParty` — and at join). Every fresh
+  character an account starts is seeded with the account's ledger, so
+  `systemTip` never re-fires. The browser keeps its own ledger too
+  (`dcc:tips:v1`, persist/save.ts): local runs seed from and feed it, `join`
+  sends it up (validated against tips.ts ids), and `welcome`/disconnect fold
+  the account's ledger back down — offline and online converge. Tip
+  announcements are addressed (`forPlayer`), so a party veteran never re-sees
+  a newbie's courtesy explanation.
 - **World hibernate/restore**: coop/roam instances write the full
   `serialize(state)` (stamped `SNAPSHOT_VERSION`) at every checkpoint; an
   empty instance unloads from memory, and the next join deserializes the
