@@ -39,6 +39,8 @@ export interface EnvCtx {
   getObj: (key: string) => THREE.Object3D | null;
   /** Add a hand-built object to the floor group + fog-reveal registry. */
   addObj: (obj: THREE.Object3D, x: number, y: number) => void;
+  /** Register an extra light into the baked light grid (accent glows). */
+  addLight: (x: number, y: number, color: number, intensity: number, r: number) => void;
   /** Inject the world-light stage into a hand-built material. */
   worldLit: (m: THREE.Material) => THREE.Material;
   /** Track a raw (non-worldLit) material for disposal on the next rebuild. */
@@ -184,14 +186,44 @@ function decalTexture(kind: string): THREE.Texture {
         g.fill();
       }
     } else { // moss
-      // Speckled growth creeping from one edge.
-      for (let i = 0; i < 60; i++) {
-        const x = r() * 96, y = r() * 96;
-        const bias = 1 - Math.hypot(x - 48, y - 48) / 68;
-        if (bias < r() * 0.9) continue;
-        g.fillStyle = `rgba(${44 + (r() * 30) | 0},${86 + (r() * 40) | 0},${40 + (r() * 24) | 0},${0.25 + r() * 0.4})`;
+      // CLUSTERED growth (critic r3: single-pixel lime confetti read as image
+      // noise): 3-4 overlapping organic lobes — each a dark skirt, a mid
+      // body, and a small bright core — plus a few satellite tufts hugging
+      // the colony, so the patch reads as one grown thing, not speckle dust.
+      const lobes = 3 + Math.floor(r() * 2);
+      const cx0 = 40 + r() * 16, cy0 = 40 + r() * 16;
+      for (let i = 0; i < lobes; i++) {
+        const a = r() * Math.PI * 2, d = i === 0 ? 0 : 8 + r() * 16;
+        const x = cx0 + Math.cos(a) * d, y = cy0 + Math.sin(a) * d;
+        const rad = 12 + r() * 14;
+        // Dark skirt: the colony's shadowed edge grounds it on the tile.
+        let grad = g.createRadialGradient(x, y, rad * 0.35, x, y, rad);
+        grad.addColorStop(0, "rgba(18,32,16,0.55)");
+        grad.addColorStop(1, "rgba(18,32,16,0)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 96, 96);
+        // Mid body: soft muted green mass.
+        grad = g.createRadialGradient(x, y, 0, x, y, rad * 0.72);
+        grad.addColorStop(0, `rgba(${52 + (r() * 18) | 0},${92 + (r() * 26) | 0},${44 + (r() * 14) | 0},0.62)`);
+        grad.addColorStop(1, "rgba(40,70,34,0)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 96, 96);
+        // Bright core: a small luminous heart, off-center per lobe.
+        const ox = (r() - 0.5) * rad * 0.4, oy = (r() - 0.5) * rad * 0.4;
+        grad = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad * 0.24);
+        grad.addColorStop(0, `rgba(${130 + (r() * 40) | 0},${190 + (r() * 40) | 0},${80 + (r() * 30) | 0},0.75)`);
+        grad.addColorStop(1, "rgba(90,140,60,0)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 96, 96);
+      }
+      // Satellite tufts: few, clustered tight to the colony rim (never a
+      // uniform field of lone dots).
+      for (let i = 0; i < 7; i++) {
+        const a = r() * Math.PI * 2, d = 16 + r() * 14;
+        const x = cx0 + Math.cos(a) * d, y = cy0 + Math.sin(a) * d;
+        g.fillStyle = `rgba(${58 + (r() * 22) | 0},${100 + (r() * 30) | 0},${48 + (r() * 16) | 0},${0.4 + r() * 0.25})`;
         g.beginPath();
-        g.arc(x, y, 1.4 + r() * 3.4, 0, Math.PI * 2);
+        g.arc(x, y, 2.2 + r() * 2.6, 0, Math.PI * 2);
         g.fill();
       }
     }
@@ -648,18 +680,92 @@ export function signatureDressing(ctx: EnvCtx): void {
   });
 }
 
+// ---- Pass 2.5: counter-color accent glows ----
+
+/** Per-band accent: the COMPLEMENT of the band's lamp hue, carried by a small
+ * placed prop + layered glow + a baked light — one per (most) rooms, so no
+ * frame ships monochrome (critic r3: six green flames tinting the whole sewers
+ * room one queasy green with no warm counterpoint; D2R lives on warm/cool
+ * contrast). Garden skips — dusk sun + warm lanterns already carry two keys. */
+const ACCENT_SPECS: ({ color: number; key: string; keyScale: number; y: number; size: number; op: number; intensity: number; r: number } | null)[] = [
+  { color: 0x7a9aff, key: "skull", keyScale: 0.3, y: 0.34, size: 0.5, op: 0.4, intensity: 0.5, r: 2.6 }, // undercroft: soul-lit skull vs amber torches
+  { color: 0xffa040, key: "pot_a_stew", keyScale: 0.48, y: 0.5, size: 0.75, op: 0.6, intensity: 1.0, r: 3.2 }, // sewers: a cook-fire vs bile lamps
+  null, // garden
+  { color: 0x6a8cff, key: "gravestone", keyScale: 0.48, y: 0.55, size: 0.55, op: 0.45, intensity: 0.6, r: 2.8 }, // ruins: grave-light vs embers
+  { color: 0xff7a28, key: "anvil", keyScale: 0.52, y: 0.42, size: 0.75, op: 0.6, intensity: 1.0, r: 3.2 }, // ironworks: forge ember vs cyan work-light
+  { color: 0x9a86e8, key: "skull", keyScale: 0.3, y: 0.36, size: 0.5, op: 0.4, intensity: 0.55, r: 2.6 }, // approach: witch-light vs ember grandeur
+];
+
+export function accentGlows(ctx: EnvCtx): void {
+  const spec = ACCENT_SPECS[ctx.band];
+  if (!spec) return;
+  const tex = glowTexture();
+  for (const r of ctx.map.rooms) {
+    if (r.w < 5 || r.h < 5 || ctx.rng() > 0.85) continue;
+    // Corner-inset spot (out of the walk lanes); try two corners.
+    let placed = false;
+    let px = 0;
+    let py = 0;
+    for (let attempt = 0; attempt < 2 && !placed; attempt++) {
+      px = r.x + (ctx.rng() < 0.5 ? 1.7 : r.w - 1.7);
+      py = r.y + (ctx.rng() < 0.5 ? 1.7 : r.h - 1.7);
+      placed = ctx.place(spec.key, px, py, { scale: spec.keyScale, jitter: 0.12 });
+    }
+    if (!placed) continue;
+    // Layered glow riding the prop: hot-ish core + wide soft halo, additive.
+    const g = new THREE.Group();
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, color: new THREE.Color(spec.color).lerp(new THREE.Color(0xffffff), 0.3),
+      transparent: true, opacity: spec.op, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    core.scale.setScalar(spec.size * 0.45);
+    core.position.y = spec.y;
+    core.userData.noAO = true;
+    ctx.trackMat(core.material);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, color: spec.color,
+      transparent: true, opacity: spec.op * 0.4, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    halo.scale.setScalar(spec.size * 1.5);
+    halo.position.y = spec.y + 0.1;
+    halo.userData.noAO = true;
+    ctx.trackMat(halo.material);
+    g.add(core, halo);
+    g.position.set(px, 0, py);
+    ctx.addObj(g, px, py);
+    // The counter-colored pool carved into the baked grid (wall-shadowed).
+    ctx.addLight(px, py, spec.color, spec.intensity, spec.r);
+  }
+}
+
 // ---- Pass 3: void composition (interior bands) ----
 
 /** Sparse silhouetted geometry where there is otherwise only darkness: dim
  * columns/arches on the deep rock and past the map edge, plus a few distant
  * glints — negative space with composition, still clearly "not the world". */
-export function voidSilhouettes(ctx: EnvCtx, mood: { voidInner: number; hemiSky: number; envHorizon: number }): void {
+export function voidSilhouettes(ctx: EnvCtx, mood: { voidInner: number; hemiSky: number; envHorizon: number; fogDark: number }): void {
   const { map } = ctx;
   // WHISPER-quiet: these read as barely-there depth cues (<10% value step
   // over the murk). At the old 1.35x lift they read as glowing slabs
-  // floating in the fog — the critic's #1 blocker.
-  const silCol = new THREE.Color(mood.voidInner).lerp(new THREE.Color(mood.hemiSky), 0.1).multiplyScalar(0.8);
-  const mat = new THREE.MeshBasicMaterial({ color: silCol });
+  // floating in the fog — the critic's #1 blocker. Round 3: the column
+  // color TRACKS the band's murk (fogDark — the same colored dark the
+  // world-lit silhouettes sink into), lifted a whisper, so it sits just
+  // above the murk floor in every band — the old voidInner-derived color
+  // popped blue over the undercroft's near-black and read as a punched
+  // BLACK hole over the ironworks' lighter blue. A vertical gradient makes
+  // the crown catch the lift while the base loses itself downward, so a
+  // column reads as a form in the dark, never a flat matte box.
+  const silCol = new THREE.Color(mood.fogDark).multiplyScalar(1.35).lerp(new THREE.Color(mood.hemiSky), 0.06);
+  const gradTex = canvasTex("voidsil-grad", (g) => {
+    // Dark base -> faintly lighter crown (the horizon glow catches the top).
+    const grad = g.createLinearGradient(0, 96, 0, 0);
+    grad.addColorStop(0, "rgb(120,120,126)");
+    grad.addColorStop(0.55, "rgb(170,170,176)");
+    grad.addColorStop(1, "rgb(255,255,255)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 96, 96);
+  });
+  const mat = new THREE.MeshBasicMaterial({ color: silCol, map: gradTex });
   ctx.trackMat(mat);
   const mats: THREE.Matrix4[] = [];
   const quat = new THREE.Quaternion();
@@ -677,8 +783,11 @@ export function voidSilhouettes(ctx: EnvCtx, mood: { voidInner: number; hemiSky:
     scl.set(alongX ? len : 0.42, 0.34, alongX ? 0.42 : len);
     mats.push(new THREE.Matrix4().compose(pos, quat, scl));
   };
-  // Deep-rock silhouettes: wall tiles with no floor within 2 tiles carry the
-  // occasional broken column standing out of the rock mass.
+  // Deep-rock: NO in-map columns (critic r3: isolated dark boxes floating in
+  // the murk read as untextured placeholder props — "remove or silhouette the
+  // orphan cubes"). The deep rock keeps only distant EMISSIVE glints (embers,
+  // eyes, runes) — pinpricks of the band's horizon color that give the dark
+  // depth without adding geometry to misread.
   const deepOK = (x: number, y: number): boolean => {
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
@@ -692,13 +801,12 @@ export function voidSilhouettes(ctx: EnvCtx, mood: { voidInner: number; hemiSky:
     for (let x = 1; x < map.w - 1; x++) {
       if (!ctx.isWall(x, y) || !deepOK(x, y)) continue;
       const h = tileHash(x, y, ctx.floor + 307);
-      if (h < 16) {
-        col(x + 0.5, y + 0.5, 1.35 + (h % 13) * 0.1, 0.34 + (h % 7) * 0.03);
-      } else if (h < 21 && glints.length < 5) {
+      if (h < 40 && glints.length < 12) {
         glints.push({ x: x + 0.5, z: y + 0.5, y: 1.2 + (h % 9) * 0.12 });
       }
     }
   }
+  const deepCount = mats.length; // 0 — kept so the ring tint indexing below stays honest
   // Past the map edge: a ruin skyline ring — columns, the odd arch pair.
   const ring = 44;
   for (let i = 0; i < ring; i++) {
@@ -719,20 +827,29 @@ export function voidSilhouettes(ctx: EnvCtx, mood: { voidInner: number; hemiSky:
   }
   if (mats.length > 0) {
     const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, mats.length);
-    mats.forEach((m, i) => mesh.setMatrixAt(i, m));
+    const deepTint = new THREE.Color(0.8, 0.8, 0.82);
+    const ringTint = new THREE.Color(1, 1, 1);
+    mats.forEach((m, i) => {
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, i < deepCount ? deepTint : ringTint);
+    });
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
     ctx.group.add(mesh);
   }
-  // Distant glints: pinpricks of the band's horizon color in the dark.
+  // Distant glints: pinpricks of the band's horizon color in the dark —
+  // clearly visible embers now (0.14 was still sub-threshold under the murk),
+  // still far below any real light, so the deep dark reads as a place where
+  // something smolders instead of unrendered canvas (critic r3 blocker).
   const gm = new THREE.SpriteMaterial({
-    map: glowTexture(), color: mood.envHorizon, transparent: true, opacity: 0.05,
+    map: glowTexture(), color: mood.envHorizon, transparent: true, opacity: 0.26,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   ctx.trackMat(gm);
   for (const gl of glints) {
     const s = new THREE.Sprite(gm);
-    s.scale.setScalar(0.2 + ctx.rng() * 0.16);
+    s.scale.setScalar(0.26 + ctx.rng() * 0.2);
     s.position.set(gl.x, gl.y, gl.z);
     s.userData.noAO = true;
     ctx.group.add(s);

@@ -124,20 +124,37 @@
         overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.9); }
       .hpbar .hp-ghost { position: absolute; top: 0; bottom: 0; left: 0; width: 100%;
         background: rgba(245,230,191,0.55); }
+      /* Fill as MATERIAL, not a color (r3 major): dark-to-bright vertical
+         blood gradient, 1px specular top edge, and a faint diagonal fabric
+         weave riding the surface so the liquid reads as textured. */
       .hpbar .hp-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 100%;
-        background: linear-gradient(180deg, #e0604f, var(--blood) 45%, #7e2018);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); }
+        background:
+          repeating-linear-gradient(115deg, rgba(255,255,255,0.06) 0 2px, transparent 2px 5px),
+          linear-gradient(180deg, #f0796a 0%, #e0604f 16%, var(--blood) 48%, #8a231b 78%, #6e1a13);
+        box-shadow: inset 0 1px 0 rgba(255,235,220,0.5), inset 0 -3px 4px rgba(0,0,0,0.4),
+          inset -1px 0 0 rgba(255,220,200,0.35); }
       .hpbar .hp-ticks { position: absolute; inset: 0; pointer-events: none;
         background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
         background-size: 25% 100%; background-position: -1px 0; }
+      /* Numerals engraved ON the bar in the display serif — a chip beside a
+         framed bar reads as debug UI (r3 major). */
       .hpbar .hp-num { position: absolute; inset: 0; display: flex; align-items: center;
-        justify-content: center; font-size: 10.5px; font-weight: 700; color: #ffe9dc;
-        letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
+        justify-content: center; font-family: var(--display); font-size: 11.5px;
+        font-weight: 700; color: #fff1e4;
+        letter-spacing: 0.05em; font-variant-numeric: tabular-nums;
+        paint-order: stroke fill; -webkit-text-stroke: 2.5px rgba(10,5,3,0.9);
         text-shadow: 0 1px 2px #000, 0 0 5px rgba(0,0,0,0.85); }
+      /* Under 25%: the fill itself smolders — an ember pulse INSIDE the bar,
+         paired with the frame glow. */
       #hud-tr.low-hp .hpframe { animation: hp-danger 1.1s ease-in-out infinite; }
+      #hud-tr.low-hp .hp-fill { animation: hp-ember 1.1s ease-in-out infinite; }
       @keyframes hp-danger {
         0%, 100% { box-shadow: inset 0 1px 0 rgba(232,221,200,0.14), 0 0 6px rgba(192,57,47,0.25); }
         50% { box-shadow: inset 0 1px 0 rgba(232,221,200,0.14), 0 0 18px rgba(192,57,47,0.6); }
+      }
+      @keyframes hp-ember {
+        0%, 100% { filter: brightness(1); }
+        50% { filter: brightness(1.35) saturate(1.15); }
       }
       .hh-xp { height: 5px; margin-top: 4px; border-radius: 2px;
         background: linear-gradient(180deg, #060503, #14100a);
@@ -185,19 +202,23 @@
          key hints live on the dropdown rows and in the K panel. */
       #banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
         display: flex; gap: 8px; align-items: center; z-index: 6; }
-      /* Test-chamber tag: a quiet diegetic System stamp, not red alarm text —
-         but still LEGIBLE (r3 minor): same contrast tier as the top buttons. */
-      #banner b { color: var(--ink-dim); font-size: 9px; letter-spacing: 0.22em;
-        margin-right: 4px; font-family: var(--display); font-variant: small-caps; font-weight: 600;
+      /* Test-chamber tag re-skinned as the floor's BROADCAST TITLE CARD (r4
+         major: no gray debug chips in the System's gold chrome) — gold
+         small-caps between a diamond, same plate family as the top buttons. */
+      #banner b { color: var(--gold); font-size: 9px; letter-spacing: 0.22em;
+        margin-right: 4px; font-family: var(--display); font-variant: small-caps; font-weight: 700;
         align-self: stretch; display: inline-flex; align-items: center;
-        border: 1px solid #6e5533; border-top-color: #8a6d3b; border-bottom-color: #3a2c19;
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
         outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
         border-radius: 3px; padding: 3px 11px;
         background: var(--noise),
-          linear-gradient(180deg, rgba(36,28,18,0.85), rgba(10,8,5,0.9));
-        box-shadow: inset 0 1px 0 rgba(242,222,180,0.12), inset 0 0 0 1px rgba(0,0,0,0.55); }
+          linear-gradient(180deg, rgba(46,36,23,0.85), rgba(10,8,5,0.9));
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.16), inset 0 0 0 1px rgba(0,0,0,0.55);
+        text-shadow: 0 1px 2px #000; }
+      #banner b::before { content: "◆"; margin-right: 7px; font-size: 7px;
+        color: var(--gold-hi); }
       .tb { position: relative; }
-      .topbtn { cursor: pointer; color: var(--ink-dim);
+      .topbtn { cursor: pointer; color: var(--gold);
         background: var(--noise),
           linear-gradient(180deg, rgba(46,36,23,0.85), rgba(13,10,7,0.88) 55%, rgba(8,6,4,0.9));
         border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
@@ -258,14 +279,31 @@
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
       .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 34px;
+        z-index: 0; /* own stacking context: the crit starburst (z -1) stays inside */
         transform: translate(-50%, -50%);
-        paint-order: stroke fill; -webkit-text-stroke: 6px rgba(10,6,2,0.95);
-        text-shadow: 0 0 1px rgba(255,255,255,0.85), 0 3px 6px rgba(0,0,0,0.85);
+        paint-order: stroke fill; -webkit-text-stroke: 7px rgba(8,4,1,0.98);
+        text-shadow: 0 0 1px rgba(255,255,255,0.85), 0 3px 7px rgba(0,0,0,0.95),
+          0 0 4px rgba(0,0,0,0.9), 0 0 14px rgba(255,150,60,0.35); /* dark halo, ember rim */
         will-change: transform, opacity;
         font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-      .dmg.crit { font-size: 58px; font-weight: 900; letter-spacing: 0.02em;
-        -webkit-text-stroke: 8px rgba(10,6,2,0.95);
-        text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 3px 0 rgba(0,0,0,0.7), 0 0 26px currentColor; }
+      /* Crits carry PUNCH (r4 major): ~1.9x the body size, hotter saturated
+         gold, thicker ink, and the starburst below — unmistakable hierarchy. */
+      .dmg.crit { font-size: 64px; font-weight: 900; letter-spacing: 0.02em;
+        -webkit-text-stroke: 9px rgba(8,4,1,0.98);
+        text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 4px 0 rgba(0,0,0,0.75),
+          0 3px 8px rgba(0,0,0,0.9), 0 0 30px currentColor; }
+      /* Crit starburst (r3 major): a four-ray gold flash blooms behind the
+         number — it rides the same WAAPI pop, so the burst scales in with the
+         punch and dies with the fade. Pure decoration, zero extra elements. */
+      .dmg.crit::before { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 150px; height: 150px; margin: -75px 0 0 -75px; z-index: -1;
+        background:
+          radial-gradient(circle, rgba(255,225,140,0.55) 0%, rgba(255,190,80,0.22) 26%, transparent 55%),
+          conic-gradient(from 0deg,
+            transparent 0 2%, rgba(255,220,130,0.5) 3%, transparent 4% 27%,
+            rgba(255,220,130,0.42) 28%, transparent 29% 52%,
+            rgba(255,220,130,0.5) 53%, transparent 54% 77%,
+            rgba(255,220,130,0.42) 78%, transparent 79% 100%); }
       /* Level-up (D4-style): bigger, gold, held longer than a hit number —
          paired with the world-space ring (see #fx-levelring in renderer3d). */
       .dmg.levelup-text { font-size: 34px; color: #f2c14e; letter-spacing: 0.5px;
@@ -532,11 +570,13 @@
          track and enrage pips under the name. */
       #bossbar { position: fixed; top: 92px; left: 50%; transform: translateX(-50%);
         width: min(520px, 60vw); display: none; pointer-events: none; z-index: 12;
-        background: linear-gradient(180deg, rgba(28,16,13,0.82), rgba(10,7,6,0.85));
+        background: var(--noise),
+          radial-gradient(140% 120% at 50% 0%, rgba(74,32,24,0.5), transparent 55%),
+          linear-gradient(180deg, rgba(28,16,13,0.85), rgba(10,7,6,0.88));
         border: 1px solid var(--bronze); border-radius: 3px;
         outline: 1px solid #201812; outline-offset: 2px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.06),
-          0 8px 28px rgba(0,0,0,0.55);
+          inset 0 0 24px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.55);
         padding: 6px 16px 10px; }
       #bossbar::before { content: ""; position: absolute; top: -4px; left: 50%; margin-left: -4px;
         width: 8px; height: 8px; transform: rotate(45deg);
@@ -587,12 +627,15 @@
         margin-left: -1px; z-index: 2; background: rgba(10,7,5,0.95);
         box-shadow: 0 0 0 1px rgba(168,133,79,0.45); }
       #bossbar.elite .bb-break, #bossbar.elite .bb-pips { display: none; }
-      #bossbar .bb-pips { display: flex; justify-content: center; gap: 9px; margin-top: 7px; }
-      #bossbar .bb-pips i { width: 8px; height: 8px; transform: rotate(45deg);
-        background: linear-gradient(135deg, #2c241b, #171310);
-        box-shadow: 0 0 0 1px var(--bronze), inset 0 1px 1px rgba(0,0,0,0.8); }
-      #bossbar .bb-pips i.on { background: linear-gradient(135deg, #e0604f, #7e2018);
-        box-shadow: 0 0 0 1px var(--bronze-hi), 0 0 8px rgba(192,57,47,0.65); }
+      /* Phase pips 1.5x (r3 minor): lit EMBER vs dark SOCKET must read from
+         across the arena, not differ by a hint of tint. */
+      #bossbar .bb-pips { display: flex; justify-content: center; gap: 12px; margin-top: 8px; }
+      #bossbar .bb-pips i { width: 11px; height: 11px; transform: rotate(45deg);
+        background: radial-gradient(circle at 35% 30%, #241d16, #0d0a07 75%);
+        box-shadow: 0 0 0 1px var(--bronze), inset 0 2px 3px rgba(0,0,0,0.9); }
+      #bossbar .bb-pips i.on { background: radial-gradient(circle at 35% 30%, #ffb08a, #e0604f 45%, #7e2018);
+        box-shadow: 0 0 0 1px var(--bronze-hi), 0 0 12px rgba(224,96,79,0.85),
+          inset 0 -1px 2px rgba(0,0,0,0.4); }
 
       /* Action bar (D4/WoW cockpit): globe + slots + XP strip. bottom leaves
          safe-area room for the XP strip riding 14px below the slots (r3
@@ -741,8 +784,10 @@
          chassis at lower intensity — bronze frame, recessed well, an engraved
          socket diamond where the icon would sit, and a keycap in the same
          gold family at reduced strength (LoL empty-trinket read). */
-      .skill.empty { border-color: rgba(110,85,51,0.55);
+      .skill.empty { border-color: rgba(110,85,51,0.4);
         background: linear-gradient(180deg, #16110d, #0c0906 70%);
+        opacity: 0.62; /* dormant sockets RECEDE (r4 minor): the live loadout
+          owns the bar's hierarchy, locked wells whisper */
         box-shadow: inset 0 3px 10px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(0,0,0,0.65),
           inset 0 -1px 0 rgba(232,221,200,0.04), 0 2px 8px rgba(0,0,0,0.5); }
       /* Deliberate rune-socket: a turned recess (dark well, thin bronze lip,
@@ -755,8 +800,8 @@
         box-shadow: inset 0 2px 5px rgba(0,0,0,0.95), inset 0 -1px 0 rgba(232,221,200,0.06),
           0 1px 0 rgba(232,221,200,0.07); }
       .skill.empty::after { content: ""; position: absolute; left: 50%; top: 50%;
-        width: 15px; height: 15px; margin: -8px 0 0 -7.5px;
-        background: rgba(201,162,75,0.32);
+        width: 12px; height: 12px; margin: -6px 0 0 -6px;
+        background: rgba(201,162,75,0.22);
         -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3zm0 8.4a1.9 1.9 0 0 1 1 3.5V18a1 1 0 0 1-2 0v-2.1a1.9 1.9 0 0 1 1-3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
         mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3zm0 8.4a1.9 1.9 0 0 1 1 3.5V18a1 1 0 0 1-2 0v-2.1a1.9 1.9 0 0 1 1-3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
         filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
@@ -772,6 +817,14 @@
       /* Empty sockets are ONE color regardless of slot type — a tinted empty
          frame reads as an accidental focus state (AAA r2 minor). */
       .skill.empty, .skill.ult.empty { border-color: rgba(110,85,51,0.55); }
+      /* Dormant sockets COLLAPSE to slim silhouettes (r4 minor): the live
+         loadout reads contiguously instead of parking two full-width dead
+         squares mid-bar. Touch mode keeps full-size round targets. */
+      body:not(.touch) #skills .skill.empty { width: 44px; }
+      body:not(.touch) #skills .skill.empty::before { width: 26px; height: 26px;
+        margin: -13px 0 0 -13px; }
+      body:not(.touch) #skills .skill.empty::after { width: 13px; height: 13px;
+        margin: -7px 0 0 -6.5px; }
       .skill.empty .key, .skill.ult.empty .key {
         color: rgba(201,162,75,0.66); border-color: rgba(110,85,51,0.6); }
       .skill .bench-badge { color: #a99f8c; font-size: 9px; }
@@ -1070,7 +1123,7 @@
       /* Hype meter in the HP bar's material language (r3 major: no bare 2px
          strips) — bronze bezel, visible groove at zero, diamond end-caps,
          and the frenzy line as an authored gold notch, not a stray tick. */
-      #show .hypebar { position: relative; width: 250px; height: 9px; border-radius: 2px;
+      #show .hypebar { position: relative; width: 250px; height: 12px; border-radius: 2px;
         background: linear-gradient(180deg, #05040a, #100d16);
         border: 1px solid var(--bronze); border-top-color: #8a6d3b;
         box-shadow: 0 0 0 1px rgba(201,162,75,0.45), inset 0 1px 3px rgba(0,0,0,0.9),
@@ -1086,8 +1139,16 @@
       #show .hypebar > i { display: block; height: 100%; width: 0%; border-radius: 1px;
         background: linear-gradient(90deg, #7a5cff, #c98ba6); transition: width 0.15s linear;
         box-shadow: inset -2px 0 0 rgba(255,240,220,0.7), inset 0 1px 0 rgba(255,255,255,0.3),
-          inset 0 -2px 3px rgba(0,0,0,0.35); }
-      #show .hypebar.frenzy > i { background: linear-gradient(90deg, #f2c14e, #ff6a28); }
+          inset 0 -2px 3px rgba(0,0,0,0.35), 0 0 9px rgba(122,92,255,0.5); }
+      #show .hypebar.frenzy > i { background: linear-gradient(90deg, #f2c14e, #ff6a28);
+        box-shadow: inset -2px 0 0 rgba(255,240,220,0.7), inset 0 1px 0 rgba(255,255,255,0.3),
+          inset 0 -2px 3px rgba(0,0,0,0.35), 0 0 12px rgba(255,140,50,0.6); }
+      /* Milestone ticks engraved through the groove (r4 minor: a core fantasy
+         meter earns quarter marks, same grammar as the collapse fuse). */
+      #show .hypebar > em { position: absolute; inset: 0; pointer-events: none;
+        border-radius: 1px;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
+        background-size: 25% 100%; background-position: -1px 0; }
       /* Frenzy line: an authored engraved diamond notch riding the frame's
          bottom rail (never a stray tick floating on the strip). */
       #show .hypebar > s { position: absolute; bottom: -4px; width: 5px; height: 5px;
@@ -1245,15 +1306,23 @@
       .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: #55493a; }
       .igrid { display: flex; flex-wrap: wrap; gap: 8px; }
       .itile { --tc: #a99f8c; width: 56px; cursor: pointer; }
+      /* LoL-shop tile read (r4 major): rarity-tinted radial backing behind the
+         painted art — the tier color is the tile's ambient light, not just a
+         corner gem — plus a tinted top rim so every box carries a key light. */
       .itile .ibox { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
-        background: linear-gradient(160deg, #1b1611, #14100c);
+        background:
+          radial-gradient(120% 95% at 50% 18%, color-mix(in srgb, var(--tc) 22%, #171009), rgba(0,0,0,0) 72%),
+          linear-gradient(160deg, #1b1611, #0e0b08);
         border: 1px solid color-mix(in srgb, var(--tc) 38%, #241d16);
         box-shadow: inset 0 0 12px rgba(0,0,0,0.75),
+          inset 0 1px 0 color-mix(in srgb, var(--tc) 26%, transparent),
           inset 0 0 10px -3px color-mix(in srgb, var(--tc) 40%, transparent); position: relative;
         transition: border-color 0.1s ease, box-shadow 0.1s ease, transform 0.12s ease; }
       .itile:not(.locked):not(.soldout):hover .ibox { transform: translateY(-1px);
         box-shadow: 0 0 10px -2px var(--tc), inset 0 0 12px rgba(0,0,0,0.75); }
-      .itile .ii { width: 36px; height: 36px; background: var(--tc); display: block;
+      /* Art FILLS the well (r4 major: a small sprite floating in a big dark
+         square reads as placeholder) — 46px art in a 54px box. */
+      .itile .ii { width: 46px; height: 46px; background: var(--tc); display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .itile .iglyph { font-size: 26px; color: var(--tc); line-height: 1; }
@@ -1261,6 +1330,24 @@
         margin-top: 3px; font-size: 10px; color: #f2c14e; font-variant-numeric: tabular-nums; }
       .itile .iprice .micon { width: 9px; height: 9px; }
       .itile:hover .ibox { border-color: var(--tc); }
+      /* Tier grading so rarity reads from three feet away (r4 major):
+         ADVANCED carries a steady gold-tinted glow; LEGENDARY breathes — an
+         embossed double frame plus a slow ember pulse. Sold-out/locked tiles
+         never shimmer (overridden below). */
+      .itile.tier-advanced .ibox { border-color: color-mix(in srgb, var(--tc) 62%, #241d16);
+        box-shadow: 0 0 8px -3px var(--tc), inset 0 0 12px rgba(0,0,0,0.7),
+          inset 0 1px 0 color-mix(in srgb, var(--tc) 30%, transparent),
+          inset 0 0 10px -3px color-mix(in srgb, var(--tc) 45%, transparent); }
+      .itile.tier-legendary .ibox { border-color: color-mix(in srgb, var(--tc) 78%, #241d16);
+        outline: 1px solid color-mix(in srgb, var(--tc) 38%, #0c0906); outline-offset: 2px;
+        animation: leg-breathe 2.6s ease-in-out infinite; }
+      @keyframes leg-breathe {
+        0%, 100% { box-shadow: 0 0 7px -2px var(--tc), inset 0 0 12px rgba(0,0,0,0.7),
+          inset 0 0 12px -4px color-mix(in srgb, var(--tc) 55%, transparent); }
+        50% { box-shadow: 0 0 15px -1px var(--tc), inset 0 0 12px rgba(0,0,0,0.65),
+          inset 0 0 16px -4px color-mix(in srgb, var(--tc) 80%, transparent); }
+      }
+      .itile.locked .ibox, .itile.soldout .ibox { animation: none; outline: none; }
       .itile.sel .ibox { border-color: #f2c14e; box-shadow: 0 0 10px rgba(242,193,78,0.35),
         inset 0 0 12px rgba(0,0,0,0.75); }
       .itile.locked .ibox { border-color: #241d16; opacity: 0.55;
@@ -1297,7 +1384,7 @@
       .dtree { display: flex; flex-wrap: wrap; gap: 6px; }
       .dtree .itile { width: 40px; }
       .dtree .itile .ibox { width: 38px; height: 38px; }
-      .dtree .itile .ii { width: 26px; height: 26px; }
+      .dtree .itile .ii { width: 31px; height: 31px; }
       .dtree .itile.have .ibox { border-color: #6da356; }
       .dtree .itile.have .ibox::after { content: "✓"; position: absolute; right: 2px; bottom: 0;
         font-size: 9px; color: #6da356; }
@@ -1325,7 +1412,10 @@
       .shop-bag { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 9px 12px 11px;
         flex: none; min-height: 0; max-height: 62%; overflow: hidden;
         display: flex; flex-direction: column; }
-      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55493a; margin: 3px 0 6px; flex: none; }
+      /* Same contrast tier as the shelf's tier headers (r3 minor: EQUIPPED/
+         BAG vanished into the panel texture at #55493a). */
+      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: var(--ink-dim);
+        margin: 3px 0 6px; flex: none; }
       #sr-sellall { float: right; background: #241a1a; color: #d08a7a; border: 1px solid #4a2f2f;
         border-radius: 4px; padding: 1px 8px; font: inherit; font-size: 10px; letter-spacing: 1px;
         cursor: pointer; }
@@ -1360,12 +1450,12 @@
       .bag-grid { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; align-content: flex-start; }
       .bag-grid .itile { width: 40px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
-      .bag-grid .itile .ii { width: 26px; height: 26px; }
+      .bag-grid .itile .ii { width: 31px; height: 31px; }
       .bag-grid .bempty { color: #55493a; font-size: 11px; font-style: italic; align-self: center; }
       .bag-grid.dense { gap: 5px; }
       .bag-grid.dense .itile { width: 32px; }
       .bag-grid.dense .itile .ibox { width: 30px; height: 30px; }
-      .bag-grid.dense .itile .ii { width: 20px; height: 20px; }
+      .bag-grid.dense .itile .ii { width: 24px; height: 24px; }
       .bag-grid.dense .itile .iglyph { font-size: 18px; }
       .bag-grid.micro { gap: 4px; }
       .bag-grid.micro .itile { width: 26px; }
@@ -1412,7 +1502,13 @@
       /* Engraved constellation plates (r3 major): each ability family is a
          framed star-chart card — bronze keyline, noise grain, header rule —
          not a flat brown field. */
-      .acard { background: var(--noise), linear-gradient(180deg, rgba(32,25,17,0.72), rgba(12,9,6,0.7) 80%);
+      .acard { background:
+          radial-gradient(1.3px 1.3px at 84% 12%, rgba(242,193,78,0.4), transparent 100%),
+          radial-gradient(1px 1px at 12% 34%, rgba(232,221,200,0.3), transparent 100%),
+          radial-gradient(1.2px 1.2px at 64% 58%, rgba(242,193,78,0.24), transparent 100%),
+          radial-gradient(1px 1px at 34% 82%, rgba(232,221,200,0.22), transparent 100%),
+          radial-gradient(1.4px 1.4px at 92% 76%, rgba(242,193,78,0.3), transparent 100%),
+          var(--noise), linear-gradient(180deg, rgba(26,21,15,0.8), rgba(9,7,5,0.82) 80%);
         border: 1px solid rgba(110,85,51,0.5); border-radius: 3px; padding: 11px 13px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,221,200,0.06),
           0 2px 10px rgba(0,0,0,0.35); }
@@ -1431,9 +1527,27 @@
         color: #6da356; border: 1px solid #2c241b; padding: 2px 8px; background: rgba(0,0,0,0.35); }
       .acard .awhere.bench { color: #6f6757; }
       .acard .awhere.ultc { color: #9a6bd0; border-color: #4a3a6a; }
-      .nrows { margin-top: 9px; }
-      .nrow { display: grid; grid-template-columns: 118px 44px 1fr; gap: 8px; align-items: baseline;
-        padding: 5px 2px 4px; border-top: 1px solid #241d16; font-size: 11.5px; }
+      /* Constellation spine (r3 major — earn the name): each upgrade row is a
+         STAR on a faint gold line running down the card. Taken ranks burn
+         warm, untaken sit dim, locked forks go dark; capstones are the
+         violet terminus star. */
+      .nrows { margin-top: 9px; position: relative; }
+      .nrows::before { content: ""; position: absolute; left: 6px; top: 12px; bottom: 12px;
+        width: 1px; background: linear-gradient(180deg, transparent,
+          rgba(201,162,75,0.5) 14%, rgba(201,162,75,0.5) 86%, transparent); }
+      .nrow { display: grid; grid-template-columns: 110px 44px 1fr; gap: 8px; align-items: baseline;
+        padding: 5px 2px 4px 18px; border-top: 1px solid #241d16; font-size: 11.5px;
+        position: relative; }
+      .nrow::before { content: ""; position: absolute; left: 2px; top: 50%;
+        width: 9px; height: 9px; margin-top: -4.5px;
+        clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+        background: #55493a; }
+      .nrow.taken::before { background: linear-gradient(135deg, #ffe9a8, var(--gold) 60%);
+        filter: drop-shadow(0 0 3px rgba(242,193,78,0.8)); }
+      .nrow.locked::before { background: #2c241b; }
+      .nrow.capstone::before { background: #4a3a6a; }
+      .nrow.taken.capstone::before { background: linear-gradient(135deg, #e2ccff, #9a6bd0 60%);
+        filter: drop-shadow(0 0 4px rgba(154,107,208,0.8)); }
       .nrow .ntitle { color: #e8ddc8; font-weight: 700; }
       .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
       /* Gem sockets: an empty socket is a hole in the bronze; a taken rank
@@ -1504,10 +1618,27 @@
       .sr-ach .claim-btn:hover { filter: brightness(1.1); }
       #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: 14px;
         margin-top: 12px; padding-top: 11px; border-top: 1px solid #221b15; }
-      #saferoom .descend button { cursor: pointer; background: #14231a; color: #6da356;
-        border: 1px solid #6da356; padding: 9px 40px; font: inherit; font-size: 13px;
-        font-weight: 700; letter-spacing: 2px; }
-      #saferoom .descend button:hover { background: #1b3123; box-shadow: 0 0 16px rgba(95,208,138,0.25); }
+      /* DESCEND in the house gold-filigree button language (r4 minor): beveled
+         gilt plate, engraved keyline, hover shimmer sweep — never a flat slab. */
+      #saferoom .descend button { cursor: pointer; position: relative; overflow: hidden;
+        font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: 0.2em;
+        color: #241a08; padding: 10px 44px;
+        background: linear-gradient(180deg, #ffe9ad, #f2c14e 38%, #c9962c 72%, #8a6d3b);
+        border: 1px solid #8a6d3b; border-top-color: #ffedb8; border-bottom-color: #453520;
+        border-radius: 3px; outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        text-shadow: 0 1px 0 rgba(255,246,220,0.55);
+        box-shadow: inset 0 1px 0 rgba(255,246,220,0.8), inset 0 -6px 10px rgba(110,70,15,0.45),
+          0 3px 12px rgba(0,0,0,0.5), 0 0 16px rgba(242,193,78,0.2); }
+      #saferoom .descend button::after { content: ""; position: absolute; inset: 0;
+        pointer-events: none;
+        background: linear-gradient(100deg, transparent 32%, rgba(255,255,255,0.5) 48%, transparent 62%);
+        background-size: 240% 100%; background-position: 135% 0;
+        transition: background-position 0.55s ease; }
+      #saferoom .descend button:hover { filter: brightness(1.07);
+        box-shadow: inset 0 1px 0 rgba(255,246,220,0.85), inset 0 -6px 10px rgba(110,70,15,0.4),
+          0 3px 12px rgba(0,0,0,0.5), 0 0 26px rgba(242,193,78,0.42); }
+      #saferoom .descend button:hover::after { background-position: -135% 0; }
+      #saferoom .descend button:active { transform: translateY(1px); }
       #saferoom .descend .rdy { color: #6f6757; font-size: 12px; }
 
       /* Crawler Profile — the System's personnel file on YOU. PoE2-style
@@ -1524,6 +1655,9 @@
       #sheet h2 .sub { font-size: 12px; color: #a99f8c; letter-spacing: 0.5px; font-weight: 400; }
       #sheet .hint { color: #6f6757; font-size: 12px; margin-bottom: 12px; }
       .sheet-cols { display: grid; grid-template-columns: 305px 1fr; gap: 18px; }
+      /* Defense + attributes share a row (r3 rebalance). */
+      .sheet-duo { display: grid; grid-template-columns: 1fr 250px; gap: 16px;
+        align-items: start; }
       .sheet-sec { font-size: 10px; font-weight: 700; letter-spacing: 3px; color: #a99f8c;
         margin: 14px 0 7px; display: flex; align-items: center; gap: 10px; }
       .sheet-sec:first-child { margin-top: 0; }
@@ -1537,11 +1671,11 @@
       .gear-row .gbox { --tc: #b9b2a4; flex: none; width: 40px; height: 40px; display: flex;
         align-items: center; justify-content: center; background: linear-gradient(160deg, #1a1926, #0e0d16);
         border: 1px solid #6e5533; box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
-      .gear-row .gbox .ii { width: 26px; height: 26px; background: var(--tc); display: block;
+      .gear-row .gbox .ii { width: 32px; height: 32px; background: var(--tc); display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .gear-row .gname { font-weight: 700; font-size: 12.5px; }
-      .gear-row .gaff { color: #cbbfa4; font-size: 11px; margin-top: 2px; }
+      .gear-row .gaff { color: #d6cab3; font-size: 11px; margin-top: 2px; }
       .gear-row .gslot { margin-left: auto; align-self: flex-start; flex: none; color: #6f6757;
         font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
       .gear-row.none { color: #7d7466; font-style: italic; font-size: 12px;
@@ -1575,7 +1709,7 @@
         padding: 1px 6px; border: 1px solid; border-radius: 3px; }
       .drow .school.phys { color: #d98e4a; border-color: #6a4530; }
       .drow .school.mag { color: #9a6bd0; border-color: #4a3a6a; }
-      .drow .dmech { color: #6f6757; font-size: 10.5px; margin-top: 2px; }
+      .drow .dmech { color: #918776; font-size: 10.5px; margin-top: 2px; }
       .drow .drange { text-align: right; font-variant-numeric: tabular-nums; cursor: help; }
       .drow .drange b { font-size: 14px; color: #e8ddc8; }
       .drow .drange small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 1px; }
@@ -1614,17 +1748,20 @@
       .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; z-index: 1;
         background: linear-gradient(180deg, var(--gold-hi), #8a6d3b);
         box-shadow: 0 0 0 1px rgba(10,6,3,0.8); }
-      .def-lines { font-size: 11.5px; color: #cbbfa4; line-height: 1.55; }
-      .def-lines b { color: #b9b2a4; }
-      .def-lines .ex { color: #6f6757; }
+      .def-lines { font-size: 11.5px; color: #d6cab3; line-height: 1.55; }
+      .def-lines b { color: #cfc4ae; }
+      .def-lines .ex { color: #918776; }
       .def-lines .ex b { color: #e8ddc8; }
       /* The Show strip: chips matching the top-bar audience colors. */
       .show-grid { display: flex; flex-wrap: wrap; gap: 7px; }
       .show-chip { background: #221b15; border: 1px solid #6e5533; border-radius: 999px;
-        padding: 4px 12px; font-size: 11px; color: #a99f8c; }
+        padding: 4px 12px; font-size: 11px; color: #b9ad96; }
       .show-chip b { color: #e8ddc8; font-variant-numeric: tabular-nums; margin-right: 4px; }
       .show-chip.viewers b { color: #7ba3d6; } .show-chip.favorites b { color: #c98ba6; }
       .show-chip.sponsors b { color: #c9a24b; }
+      /* Not-yet-earned stats: an honest dimmed 0, still clearly a number. */
+      .show-chip.zero { opacity: 0.55; }
+      .show-chip.zero b { color: var(--ink-faint) !important; }
       /* ============ TORCHLIT OVERRIDES (cascade layer — keep LAST) ============
          The slab: every modal panel is the same torchlit stone plate with a
          bronze double-frame. Individual panels above keep their layout; this
@@ -1657,16 +1794,19 @@
         background: linear-gradient(180deg, rgba(23,19,16,0), #171310 82%); }
       /* Buttons: gold bevel for primary actions, stone for the rest. */
       button { cursor: pointer; }
+      /* Primary CTAs as ENGRAVED METAL (r4 minor: never a flat mustard slab):
+         hot bevel crown, deep shaded foot, inner keyline, embossed label. */
       .dbtns button:not(.sell):not(:disabled),
       #saferoom .descend button, .m-go, #recap-again, #m-t-go {
         color: #241a08 !important;
-        background: linear-gradient(180deg, #fff0c2 0%, var(--gold-hi) 12%, var(--gold) 48%, #a37c2c 82%, #8a6d3b) !important;
-        border: 1px solid #5c4726 !important; border-bottom-width: 2px !important;
+        background: linear-gradient(180deg, #fff6d4 0%, #ffd970 10%, var(--gold) 45%, #9c7527 78%, #6e5327 96%, #57411e) !important;
+        border: 1px solid #4a3a1e !important; border-bottom-width: 2px !important;
         border-radius: 3px;
-        box-shadow: inset 0 1px 0 rgba(255,240,200,0.6), inset 0 -2px 3px rgba(96,62,18,0.55),
-          inset 0 0 0 1px rgba(120,88,36,0.35), 0 2px 6px rgba(0,0,0,0.5);
+        box-shadow: inset 0 1px 0 rgba(255,246,220,0.85), inset 0 2px 2px rgba(255,240,200,0.3),
+          inset 0 -3px 4px rgba(76,50,12,0.6), inset 0 0 0 1px rgba(120,88,36,0.4),
+          0 2px 6px rgba(0,0,0,0.55), 0 0 14px rgba(242,193,78,0.18);
         font-weight: 700; letter-spacing: 0.12em;
-        text-shadow: 0 1px 0 rgba(255,240,200,0.35);
+        text-shadow: 0 1px 0 rgba(255,246,220,0.5), 0 -1px 0 rgba(80,52,12,0.35);
       }
       .dbtns button:not(.sell):not(:disabled):hover,
       #saferoom .descend button:hover, .m-go:hover, #recap-again:hover {
@@ -1748,9 +1888,10 @@
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .ledger .lab { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
         color: var(--ink-dim); white-space: nowrap; padding-right: 10px; font-size: 12.5px; }
+      /* Leader dots: even 6px cadence at a readable weight (r4 minor). */
       .ledger .dots { width: 100%; height: 1em;
-        background-image: radial-gradient(circle, var(--ink-faint) 1px, transparent 1.4px);
-        background-size: 7px 2px; background-repeat: repeat-x; background-position: 0 70%; opacity: 0.5; }
+        background-image: radial-gradient(circle, var(--ink-dim) 1px, transparent 1.3px);
+        background-size: 6px 2px; background-repeat: repeat-x; background-position: 0 70%; opacity: 0.65; }
       .ledger .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink);
         padding-left: 10px; white-space: nowrap; font-weight: 700; }
       /* Drawn UI icons (game-icons masks) sized to surrounding text. */
@@ -1807,6 +1948,22 @@
       .itile.eslot .ibox { border: 1px solid #241d16;
         background: linear-gradient(180deg, #14100c, #0c0906);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(0,0,0,0.6); }
+      /* Shelf placeholder wells (r4 minor): sparse tiers complete their row
+         with recessed diamond-socket wells — a curated case with reserved
+         slots, never a half-empty shelf trailing into brown. */
+      .itile.well { cursor: default; }
+      .itile.well .ibox { border: 1px solid rgba(36,29,22,0.9);
+        background: linear-gradient(180deg, #14100c, #0b0805);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.6),
+          inset 0 -1px 0 rgba(232,221,200,0.03); position: relative; }
+      .itile.well .ibox::after { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, rgba(110,85,51,0.4), rgba(30,22,14,0.7));
+        box-shadow: inset 0 1px 1px rgba(0,0,0,0.8), 0 1px 0 rgba(232,221,200,0.05); }
+      /* Wells are furniture, not stock: no hover lift, no rarity light. */
+      .itile.well:hover .ibox { transform: none; border-color: rgba(36,29,22,0.9);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.6),
+          inset 0 -1px 0 rgba(232,221,200,0.03); }
       /* Bar fills read as material: specular top edge + shaded foot. */
       .bar > i, .hpbar .hp-fill, #bossbar #bb-fill, #show .hypebar > i,
       #xpbar > i, .hh-xp > i, #sheet .progress .bar > i, #loading .l-bar i {
@@ -1838,7 +1995,7 @@
           linear-gradient(180deg, #1d1712, #100c08);
         box-shadow: inset 0 2px 9px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.7),
           0 0 20px -7px var(--tc); }
-      .shop-detail .dart .ii { width: 58px; height: 58px; display: block;
+      .shop-detail .dart .ii { width: 76px; height: 76px; display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .shop-detail .dart .gem { position: absolute; right: -3px; top: -3px; width: 7px; height: 7px;
@@ -1959,6 +2116,12 @@
       body.modal #mobplates {
         opacity: 0 !important; visibility: hidden;
         transition: opacity 0.15s ease, visibility 0s linear 0.15s; }
+      /* And the persistent HUD anchors RECEDE (r4 minor): the paused world's
+         chrome dims to ~35% behind any modal scrim, so the panel owns the
+         frame instead of fighting a full-brightness cockpit for attention. */
+      body.modal #hud-tl, body.modal #hud-tr, body.modal #show, body.modal #cockpit,
+      body.modal #minimap-frame, body.modal #banner, body.modal #bossbar {
+        opacity: 0.35; filter: saturate(0.55) brightness(0.85); }
 
       /* ---- Enemy micro HP bars (r3 blocker): D2R read — nothing at rest,
          loud on engagement. A thin dark-gold framed sliver appears over a
@@ -1968,15 +2131,26 @@
          every chrome plaque that follows them in the stacking order. */
       #mobplates { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       body.cine #mobplates, body.checkin #mobplates { opacity: 0; }
+      /* r4 blocker (target identification): each plate is a dark BACKING CHIP
+         with a gold-tinted frame and a notch pointing at its owner — bars can
+         no longer read as detached red slivers floating over a pack. */
       .mplate { position: absolute; width: 46px; margin-left: -23px;
-        transform: translateY(-100%); will-change: left, top, opacity; }
+        transform: translateY(-100%); will-change: left, top, opacity;
+        padding: 2px 2px 3px; border-radius: 2px;
+        background: linear-gradient(180deg, rgba(24,18,11,0.85), rgba(6,4,2,0.88));
+        box-shadow: 0 0 0 1px rgba(8,5,3,0.9), inset 0 1px 0 rgba(232,221,200,0.08),
+          0 2px 5px rgba(0,0,0,0.6); }
+      .mplate::after { content: ""; position: absolute; left: 50%; bottom: -3px;
+        width: 5px; height: 5px; margin-left: -2.5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, rgba(24,18,11,0.9), rgba(6,4,2,0.92));
+        box-shadow: 1px 1px 0 rgba(8,5,3,0.9); }
       .mplate .mpname { display: none; text-align: center; margin-bottom: 2px;
         font-family: var(--display); font-variant: small-caps; font-weight: 600;
         font-size: 10px; letter-spacing: 0.1em; color: var(--gold-hi); white-space: nowrap;
         text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.85); }
       .mplate .mpbar { height: 5px; border-radius: 1px; overflow: hidden;
-        background: rgba(6,4,2,0.92); border: 1px solid rgba(138,109,59,0.85);
-        box-shadow: 0 0 0 1px rgba(0,0,0,0.85), inset 0 1px 2px rgba(0,0,0,0.85); }
+        background: rgba(6,4,2,0.92); border: 1px solid rgba(168,133,79,0.9);
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.85); }
       .mplate .mpfill { display: block; height: 100%; width: 100%;
         background: linear-gradient(180deg, #e0604f, #a93226 55%, #7e2018);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); }
@@ -1988,10 +2162,22 @@
 
       /* Hype meter docks under the viewer plate WITH its own engraved label —
          every meter has an owner (r3 minor). */
-      #show .hyperow { display: flex; align-items: center; gap: 7px; }
-      #show .hlabel { font-family: var(--display); font-variant: small-caps; font-weight: 600;
-        font-size: 9px; letter-spacing: 0.24em; color: var(--ink-dim);
-        text-shadow: 0 1px 2px #000; }
+      /* r4 minor: Hype is a SIGNATURE meter — it rides inside its own gothic
+         plate matching the audience chips, not a bare strip under them. */
+      #show .hyperow { display: flex; align-items: center; gap: 9px;
+        background: linear-gradient(180deg, rgba(34,26,17,0.88), rgba(11,8,6,0.9));
+        border: 1px solid var(--bronze); border-radius: 2px; padding: 4px 14px 5px;
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5),
+          0 2px 8px rgba(0,0,0,0.45); }
+      #show .hlabel { font-family: var(--display); font-variant: small-caps; font-weight: 700;
+        font-size: 10.5px; letter-spacing: 0.24em; color: var(--gold);
+        text-shadow: 0 1px 2px #000, 0 0 8px rgba(0,0,0,0.9); }
+      /* The meter GLOWS as it fills toward frenzy (host keeps width; the fill
+         itself carries the light so a hot crowd reads at a glance). */
+      #show .hypebar > i { filter: drop-shadow(0 0 4px rgba(122,92,255,0.55)); }
+      #show .hypebar.frenzy > i { filter: drop-shadow(0 0 6px rgba(255,140,50,0.7));
+        animation: hype-frenzy 1s ease-in-out infinite; }
+      @keyframes hype-frenzy { 50% { filter: drop-shadow(0 0 12px rgba(255,160,60,0.95)); } }
 
       /* Shop idle rail: FEATURED spotlight (r3 major — vertical space in a
          shop is inventory for persuasion). */
@@ -1999,18 +2185,50 @@
       .dfeat:hover .dname { color: var(--gold-hi); }
       .dempty-state .dsec { margin-top: 14px; }
 
-      /* Constellation star-dust: the panel field carries faint gold stars so
-         the codex reads as a star chart, not a brown table. */
+      /* THE CONSTELLATION earns its name (r4 major): a deep NIGHT-SKY field —
+         layered star specks in warm gold and cool arcane, faint nebulae —
+         behind translucent midnight chart cards. The upgrade nodes below
+         render as burning stars on drawn, glowing constellation lines. */
       #abil .panel { background:
-        radial-gradient(1.4px 1.4px at 12% 18%, rgba(242,193,78,0.35), transparent 100%),
-        radial-gradient(1px 1px at 78% 9%, rgba(232,221,200,0.28), transparent 100%),
-        radial-gradient(1.2px 1.2px at 55% 31%, rgba(242,193,78,0.22), transparent 100%),
-        radial-gradient(1px 1px at 31% 57%, rgba(232,221,200,0.2), transparent 100%),
-        radial-gradient(1.5px 1.5px at 88% 44%, rgba(242,193,78,0.3), transparent 100%),
-        radial-gradient(1px 1px at 8% 79%, rgba(232,221,200,0.22), transparent 100%),
-        radial-gradient(1.2px 1.2px at 64% 86%, rgba(242,193,78,0.26), transparent 100%),
-        radial-gradient(1px 1px at 42% 8%, rgba(232,221,200,0.18), transparent 100%),
-        var(--noise), linear-gradient(180deg, var(--raised), var(--stone) 36%); }
+        radial-gradient(1.6px 1.6px at 12% 18%, rgba(255,236,180,0.5), transparent 100%),
+        radial-gradient(1px 1px at 78% 9%, rgba(232,221,200,0.42), transparent 100%),
+        radial-gradient(1.3px 1.3px at 55% 31%, rgba(242,193,78,0.34), transparent 100%),
+        radial-gradient(1px 1px at 31% 57%, rgba(232,221,200,0.3), transparent 100%),
+        radial-gradient(1.7px 1.7px at 88% 44%, rgba(255,240,200,0.42), transparent 100%),
+        radial-gradient(1px 1px at 8% 79%, rgba(232,221,200,0.3), transparent 100%),
+        radial-gradient(1.3px 1.3px at 64% 86%, rgba(242,193,78,0.36), transparent 100%),
+        radial-gradient(1px 1px at 42% 8%, rgba(232,221,200,0.26), transparent 100%),
+        radial-gradient(1.2px 1.2px at 22% 38%, rgba(200,180,255,0.3), transparent 100%),
+        radial-gradient(1px 1px at 93% 68%, rgba(232,221,200,0.3), transparent 100%),
+        radial-gradient(1.5px 1.5px at 47% 66%, rgba(255,236,180,0.3), transparent 100%),
+        radial-gradient(1px 1px at 68% 22%, rgba(200,180,255,0.26), transparent 100%),
+        radial-gradient(60% 42% at 76% 10%, rgba(94,68,150,0.18), transparent 70%),
+        radial-gradient(50% 36% at 18% 74%, rgba(201,162,75,0.1), transparent 70%),
+        var(--noise), linear-gradient(180deg, #16131f, #0b0a12 42%, #080710); }
+      #abil h2 { text-shadow: 0 0 18px rgba(201,162,75,0.35); }
+      /* Chart cards: midnight glass — the sky reads through, never brown stone. */
+      #abil .acard { background:
+          radial-gradient(1.3px 1.3px at 84% 12%, rgba(242,193,78,0.45), transparent 100%),
+          radial-gradient(1px 1px at 12% 34%, rgba(232,221,200,0.34), transparent 100%),
+          radial-gradient(1.2px 1.2px at 64% 58%, rgba(242,193,78,0.28), transparent 100%),
+          radial-gradient(1px 1px at 34% 82%, rgba(232,221,200,0.26), transparent 100%),
+          radial-gradient(1.4px 1.4px at 92% 76%, rgba(242,193,78,0.34), transparent 100%),
+          linear-gradient(180deg, rgba(22,19,34,0.72), rgba(9,8,16,0.78) 80%);
+        border-color: rgba(120,100,64,0.5); }
+      #abil .ach { background: linear-gradient(180deg, rgba(24,21,34,0.7), rgba(11,10,17,0.72));
+        border-color: rgba(110,85,51,0.45); }
+      #abil .ach.locked { background: linear-gradient(180deg, rgba(13,11,19,0.7), rgba(8,7,12,0.6));
+        border-color: rgba(60,50,38,0.5); }
+      /* Constellation LINES: the spine glows — lit stars sit on a drawn line. */
+      .nrows::before { width: 2px; background: linear-gradient(180deg, transparent,
+          rgba(242,193,78,0.55) 12%, rgba(242,193,78,0.55) 88%, transparent);
+        box-shadow: 0 0 6px rgba(242,193,78,0.3); }
+      /* Nodes as STARS with glow states: unlit sockets sit dim on the line,
+         taken ranks BURN, locked forks go dead-dark, capstones end violet. */
+      .nrow::before { width: 13px; height: 13px; margin-top: -6.5px; left: 0; }
+      .nrow.taken::before { filter: drop-shadow(0 0 5px rgba(242,193,78,0.95)); }
+      .nrow.taken.capstone::before { filter: drop-shadow(0 0 6px rgba(154,107,208,0.95)); }
+      .nrow.locked::before { background: #1c1712; }
 
       /* House rule: panels fit the viewport. Where a scrollbar must exist, thin bronze. */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -2085,7 +2303,7 @@
         <div class="stat sponsors"><i class="uic" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i> <b id="stat-sponsors">0</b> sponsors</div>
       </div>
       <div class="hyperow"><span class="hlabel">Hype</span>
-        <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><s id="hype-tick"></s></div></div>
+        <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><em></em><s id="hype-tick"></s></div></div>
     </div>
     <div id="draft">
       <div class="panel">
@@ -2176,19 +2394,30 @@
         <h2>◆ CRAWLER PROFILE <span class="sub" id="sheet-sub"></span></h2>
         <div class="hint">The System's file on you · hover anything for the math ·
           <kbd id="sheet-close-key">P</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <!-- r3 rebalance: ATTRIBUTES rides the right column beside DEFENSE so
+             neither column dies early — the left is the armory, the right is
+             the math. -->
         <div class="sheet-cols">
           <div>
             <div class="sheet-sec">EQUIPPED</div>
             <div id="sheet-gear"></div>
-            <div class="sheet-sec">ATTRIBUTES</div>
-            <div class="stat-grid" id="sheet-attrs"></div>
             <div class="progress" id="sheet-progress"></div>
           </div>
           <div>
             <div class="sheet-sec">DAMAGE <span class="note" id="sheet-dice"></span></div>
             <div id="sheet-dmg"></div>
-            <div class="sheet-sec">DEFENSE</div>
-            <div id="sheet-def"></div>
+            <div class="sheet-duo">
+              <div>
+                <div class="sheet-sec">DEFENSE</div>
+                <div id="sheet-def"></div>
+              </div>
+              <div>
+                <div class="sheet-sec">ATTRIBUTES</div>
+                <!-- plain block: the ledger TABLE is the layout; a 2-col grid
+                     container squeezed it into half its track -->
+                <div id="sheet-attrs"></div>
+              </div>
+            </div>
             <div class="sheet-sec">THE SHOW <span class="note">your broadcast, this run</span></div>
             <div class="show-grid" id="sheet-show"></div>
           </div>

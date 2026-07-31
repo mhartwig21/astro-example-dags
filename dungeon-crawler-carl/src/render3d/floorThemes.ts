@@ -134,8 +134,11 @@ export const FLOOR_THEMES: FloorTheme[] = [
     floorKey: "floor_dirt_small_A", floorAltKey: "floor_dirt_small_weeds", altRatio: 0.3,
     floorAlt2Key: "floor_dirt_small", alt2Ratio: 0.14,
     wallKey: "wall_cracked",
+    // Per-biome prop story (critic r3 minor: the same red-striped trunk in
+    // every band): the sewers hoard mossy casks + fished-out junk, never the
+    // undercroft's tavern trunks.
     props: [
-      "barrel_large", "bottle_A_green", "rubble_half", "trunk_small_A",
+      "barrel_large", "bottle_A_green", "rubble_half", "basket_mushrooms",
       "pot_large", "food_barrel_fish", "crate_mushrooms", "bottle_a_labeled_green",
       "basket_mushrooms", "pot_a_stew", "crates_stacked", "rubble_large",
     ],
@@ -166,7 +169,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
       centerpieceKey: "rubble_large", centerpieceScale: 1.0,
       props: ["barrel_large", "bottle_A_green", "rubble_half"],
     },
-    entranceProps: ["barrel_large", "trunk_small_A"],
+    entranceProps: ["barrel_large", "crate_mushrooms"],
     doorFlankKey: "banner_green",
     mood: { // SUPERGIANT RULE: green LAMPS over desaturated blue-teal ambient
       // and shadows — the light carries the rot-green, the world around it is
@@ -257,9 +260,10 @@ export const FLOOR_THEMES: FloorTheme[] = [
     floorKey: "floor_tile_small_broken_A", floorAltKey: "floor_tile_small_broken_B", altRatio: 0.45,
     floorAlt2Key: "floor", alt2Ratio: 0.12,
     wallKey: "wall_broken",
+    // Ruins carry charred wreckage + reclaimed overgrowth — no tavern trunks.
     props: [
       "rubble_large", "rubble_half", "column", "sword_shield_broken", "forest_bush_1_a",
-      "weaponrack", "table_medium_broken", "trunk_small_A", "pillar",
+      "weaponrack", "table_medium_broken", "pot_large", "pillar",
       "tree_dead_small", "tree_dead_medium", "banner_brown", "rubble_half",
     ],
     propDensity: 0.105,
@@ -279,7 +283,9 @@ export const FLOOR_THEMES: FloorTheme[] = [
       centerpieceKey: "sword_shield_broken", centerpieceScale: 0.9,
       props: ["rubble_half", "sword_shield_broken"],
     },
-    entranceProps: ["trunk_small_A", "rubble_half"],
+    // Entrance camp reads occupied, not swept (critic r3: the f11 room shipped
+    // as bare plane + torches): wreckage, a toppled column, an old rack.
+    entranceProps: ["rubble_large", "rubble_half", "column", "weaponrack", "pot_large", "banner_brown"],
     doorFlankKey: "banner_brown",
     mood: { // ember light through smoke: warm ruin, umber darks
       ambient: 0x372220, ambientIntensity: 0.56,
@@ -372,7 +378,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
       centerpieceKey: "sword_shield_broken", centerpieceScale: 0.9,
       props: ["banner_shield_red", "coin_stack_medium"],
     },
-    entranceProps: ["banner_shield_red", "trunk_small_A"],
+    entranceProps: ["banner_shield_red", "coin_stack_medium"],
     doorFlankKey: "banner_red",
     mood: { // ember grandeur over VIOLET-GRAY: the ambient is deliberately
       // desaturated so saturated red exists NOWHERE in the base scene —

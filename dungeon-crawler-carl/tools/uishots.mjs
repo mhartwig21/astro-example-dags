@@ -1,4 +1,4 @@
-// TEMP UI shot panel (deleted after use). Reproduces the r2-ui-* shots.
+// TEMP UI shot panel (deleted after use). Reproduces the r3-ui-* shots.
 import { chromium } from "playwright";
 
 const OUT = "C:/Users/hartw/.claude/jobs/3a9dd2e4/tmp/shots";
@@ -39,6 +39,16 @@ async function shot(name, url, fn, opts = {}) {
     } catch {
       console.error(name, "WARN: assets never settled; shooting anyway");
     }
+    // r4 blocker: two panels shipped as boot screens. NEVER shoot while the
+    // SIGNAL ACQUISITION overlay is up — the game behind it isn't the shot.
+    try {
+      await page.waitForFunction(() => {
+        const l = document.getElementById("loading");
+        return !l || l.style.display === "none";
+      }, null, { timeout: 120000 });
+    } catch {
+      console.error(name, "WARN: loading screen never cleared; shot will be the boot screen");
+    }
     await page.waitForTimeout(opts.wait ?? 5000);
     if (fn) await fn(page);
     await page.waitForTimeout(opts.settle ?? 500);
@@ -52,7 +62,7 @@ async function shot(name, url, fn, opts = {}) {
 }
 
 const openShop = async (page) => {
-  await page.waitForFunction(() => !!window.__dcc, { timeout: 90000 });
+  await page.waitForFunction(() => !!window.__dcc, null, { timeout: 90000 });
   // Retry the walk-to-stairs + E press until the safe-room panel is actually
   // open — a single 400ms press can fall between dilated SwiftShader steps.
   for (let i = 0; i < 6; i++) {
@@ -72,14 +82,14 @@ const openShop = async (page) => {
   await page.waitForTimeout(600);
 };
 
-await shot("r2-ui-hud", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
+await shot("r3-ui-hud", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
   await keys(page, [["w", 900], [" ", 200]]);
 });
 
-await shot("r2-ui-combat", `${BASE}?test&floor=8&level=16&gold=430&seed=43&debug=1`, async (page) => {
+await shot("r3-ui-combat", `${BASE}?test&floor=8&level=16&gold=430&seed=43&debug=1`, async (page) => {
   // Teleport next to the nearest monster pack so the attack lands and the
   // damage numbers are in frame.
-  await page.waitForFunction(() => !!window.__dcc, { timeout: 90000 });
+  await page.waitForFunction(() => !!window.__dcc, null, { timeout: 90000 });
   await page.evaluate(() => {
     const s = window.__dcc.state;
     const p = s.players[0];
@@ -135,9 +145,9 @@ await shot("r2-ui-combat", `${BASE}?test&floor=8&level=16&gold=430&seed=43&debug
   });
 }, { settle: 120 });
 
-await shot("r2-ui-shop", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, openShop);
+await shot("r3-ui-shop", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, openShop);
 
-await shot("r2-ui-shop-detail", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
+await shot("r3-ui-shop-detail", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
   await openShop(page);
   // force: skip the "stable box" actionability wait — SwiftShader rAF runs at
   // seconds-per-frame, so the stability heuristic can starve past the timeout.
@@ -145,31 +155,70 @@ await shot("r2-ui-shop-detail", `${BASE}?test&floor=8&level=16&gold=430&seed=41&
   await page.waitForTimeout(700);
 });
 
-await shot("r2-ui-sheet", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
-  await keys(page, [["w", 900], ["p", 150]]);
-  await page.waitForTimeout(900);
+// r4 blocker fix: gate panel shots on a PANEL-SPECIFIC content marker, not a
+// fixed timeout — retry the toggle key until the panel is actually populated
+// (a single press can fall between dilated SwiftShader frames).
+async function openPanel(page, key, marker) {
+  await page.waitForFunction(() => !!window.__dcc, null, { timeout: 90000 });
+  for (let i = 0; i < 6; i++) {
+    await keys(page, [[key, 400]]);
+    try {
+      // Generous marker wait (SwiftShader frames run seconds apart) — and a
+      // re-press only when the marker is STILL false, so a slow-but-successful
+      // toggle can never be un-toggled by the retry.
+      await page.waitForFunction(marker, null, { timeout: 12000 });
+      return;
+    } catch { /* retry the toggle */ }
+    if (await page.evaluate(marker)) return;
+  }
+  console.error("WARN: panel marker never appeared for key", key);
+}
+
+await shot("r3-ui-sheet", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
+  await keys(page, [["w", 900]]);
+  await openPanel(page, "p", () => {
+    const el = document.getElementById("sheet");
+    return !!el && el.style.display === "flex" &&
+      el.querySelectorAll(".gear-row, .drow").length > 0; // stat block painted
+  });
+  await page.waitForTimeout(600);
 });
 
-await shot("r2-ui-constellation", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
-  await keys(page, [["w", 900], ["t", 150]]);
-  await page.waitForTimeout(900);
+await shot("r3-ui-constellation", `${BASE}?test&floor=8&level=16&gold=430&seed=41&debug=1`, async (page) => {
+  await keys(page, [["w", 900]]);
+  // Deathproof: the walk can wander into a pack under dilated SwiftShader
+  // time; a dead crawler's recap (z27) would eat the panel shot.
+  await page.waitForFunction(() => !!window.__dcc, null, { timeout: 90000 });
+  await page.evaluate(() => {
+    const p = window.__dcc.state.players[0];
+    p.hp = p.maxHp;
+  });
+  await openPanel(page, "t", () => {
+    const el = document.getElementById("abil");
+    return !!el && el.style.display === "flex" &&
+      el.querySelectorAll("#abil-grid .acard .nrow").length > 0; // stars painted
+  });
+  await page.waitForTimeout(600);
 });
 
-await shot("r2-ui-boss", `${BASE}?test&floor=3&level=8&seed=41&debug=1`, async (page) => {
-  await page.waitForFunction(() => !!window.__dcc, { timeout: 90000 });
+await shot("r3-ui-boss", `${BASE}?test&floor=3&level=8&seed=41&debug=1`, async (page) => {
+  await page.waitForFunction(() => !!window.__dcc, null, { timeout: 90000 });
   await page.evaluate(() => {
     const s = window.__dcc.state;
     const p = s.players[0];
     const boss = s.monsters.find((m) => m.kind === "boss");
     if (boss) { p.pos.x = boss.pos.x; p.pos.y = boss.pos.y + 3; }
   });
-  // The ringside card lives ~3.5s wall-clock, but a SwiftShader screenshot
-  // can take longer than that — freeze every animation mid-hold once the
-  // card is fully in, so the capture shows the cut as a player sees it.
+  // Shoot the FIGHT, not the cut: wait for the ringside cinematic to fire and
+  // fully END (body.cine drops), so the boss bar + HUD are back on screen —
+  // the standard boss-encounter read the critic scores.
   await page.waitForFunction(
     () => document.getElementById("bossintro")?.classList.contains("show"),
     null, { timeout: 60000 });
-  await page.waitForTimeout(1100); // let bi-in/letterbox/spotlight land
+  await page.waitForFunction(
+    () => !document.body.classList.contains("cine"),
+    null, { timeout: 90000 });
+  await page.waitForTimeout(900); // HUD opacity transitions land
   await page.evaluate(() => {
     document.getAnimations().forEach((a) => { try { a.pause(); } catch { /* infinite anims */ } });
   });

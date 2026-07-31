@@ -1040,6 +1040,10 @@ function pushLogLine(text: string): void {
   // The ringside title card owns the boss-intro moment — no third echo in the
   // visible feed (the line stays in the archive `log` array).
   if (text.includes("RINGSIDE INTRODUCTION")) return;
+  // COURTESY EXPLANATIONs own the top-left tutorial card — echoing the same
+  // paragraph into the visible feed doubles UI noise during play (r4 major:
+  // one canonical surface per system message). The archive keeps the line.
+  if (text.startsWith("COURTESY EXPLANATION")) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
   el.textContent = text;
@@ -1748,7 +1752,7 @@ function gearRowHtml(slot: ItemSlot, it: Item | null): string {
     `<div class="gear-row rar-${it.rarity}">` +
     `<div class="gbox" style="--tc:${tc}">${icon}</div>` +
     `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
-    `<div class="gaff">${affixLines(it).join(" · ") || "—"}</div></div>` +
+    `<div class="gaff">${affixLines(it).join(" · ") || "<i style=\"color:var(--ink-faint)\">unenchanted</i>"}</div></div>` +
     `<div class="gslot">${slot}</div>` +
     `</div>`
   );
@@ -1820,16 +1824,18 @@ function renderSheet(s: GameState): void {
     `<div class="def-lines" style="margin-top:7px">Effective HP ≈ <b>${d.effectiveHp}</b> · dash i-frames ×${d.dashCharges}<br>` +
     `<span class="ex">A typical floor-${id.floor} hit: <b>${d.exampleRaw}</b> raw → <b>${d.exampleTaken}</b> taken</span></div></div>` +
     `</div>`;
-  // Zero-state chips read as an em-dash, not a broken 0 (r3 minor): a level-16
-  // test crawler with no kills yet should look unwritten, not bugged.
-  const zv = (n: number): string => (n > 0 ? Math.round(n).toLocaleString() : "—");
+  // Zero-states render an honest dimmed "0", never an em-dash — a dash reads
+  // as unbound placeholder data shipped to screen (r3 major reversal).
+  const chip = (cls: string, n: number, label: string): string =>
+    `<span class="show-chip${cls ? ` ${cls}` : ""}${n > 0 ? "" : " zero"}">` +
+    `<b>${Math.round(n).toLocaleString()}</b>${label}</span>`;
   sheetShow.innerHTML =
-    `<span class="show-chip viewers"><b>${sh.show.viewers.toLocaleString()}</b>viewers</span>` +
-    `<span class="show-chip favorites"><b>${zv(sh.show.favorites)}</b>favorites</span>` +
-    `<span class="show-chip sponsors"><b>${zv(sh.show.sponsors)}</b>sponsors</span>` +
-    `<span class="show-chip"><b>${zv(sh.show.kills)}</b>kills</span>` +
-    `<span class="show-chip"><b>${zv(sh.show.damageDealt)}</b>dmg dealt</span>` +
-    `<span class="show-chip"><b>${zv(sh.show.damageTaken)}</b>dmg taken</span>`;
+    chip("viewers", sh.show.viewers, "viewers") +
+    chip("favorites", sh.show.favorites, "favorites") +
+    chip("sponsors", sh.show.sponsors, "sponsors") +
+    chip("", sh.show.kills, "kills") +
+    chip("", sh.show.damageDealt, "dmg dealt") +
+    chip("", sh.show.damageTaken, "dmg taken");
 }
 
 function toggleSheet(): void {
@@ -2174,6 +2180,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
   const soldOut = left <= 0;
   const cls = [
     "itile",
+    `tier-${e.tier}`, // rarity grading on the tile frame (r4 major)
     shopSel?.kind === "catalog" && shopSel.id === e.id ? "sel" : "",
     locked ? "locked" : "",
     soldOut ? "soldout" : "",
@@ -2193,7 +2200,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
 /** Small icon tile for build-tree rows and the bag (no price line). */
 function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
   return (
-    `<div class="itile ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
+    `<div class="itile tier-${e.tier} ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
     `<div class="ibox">${itemIconHtml(e.id)}<b class="gem"></b></div>` +
     `</div>`
   );
@@ -2206,8 +2213,12 @@ function invTileHtml(it: Item, data: string, selected: boolean): string {
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const inner = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  // Rarity grading rides the tile frame: catalog gear by shop tier, field
+  // drops map rare->advanced glow, epic->legendary breathe (r4 major).
+  const tier = it.catalogId ? CATALOG_BY_ID[it.catalogId].tier
+    : it.rarity === "epic" ? "legendary" : it.rarity === "rare" ? "advanced" : "basic";
   return (
-    `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
+    `<div class="itile tier-${tier}${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
     `<div class="ibox">${inner}<b class="gem"></b></div>` +
     `</div>`
   );
@@ -2516,9 +2527,16 @@ function renderShopPage(s: GameState): void {
       : shopView === "all" && entries.some((e) => !avail.has(e.id))
         ? `<span class="tnote">— stock varies by shop</span>`
         : "";
+    // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
+    // complete their row with recessed diamond-socket wells. 11 tiles fit a
+    // shelf row at 56px+8 gap; pad only to the end of the partial row so the
+    // shelf never grows a whole row of dead sockets (panels fit the viewport).
+    const perRow = 11;
+    const wells = (perRow - (entries.length % perRow)) % perRow;
     shelf +=
       `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>`;
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}` +
+      `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
   }
   srShelf.innerHTML = shelf;
   // Equipped + bag.
@@ -2846,7 +2864,11 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
   const X = (x: number): number => mmView.ox + x * sc;
   const Y = (y: number): number => mmView.oy + y * sc;
   const walkable = (i: number): boolean => !!s.explored[i] && map.tiles[i] !== Tile.Wall;
-  // Pass 1: floor fills (warm stone; stairs and sealed doors in gold).
+  // Pass 1: floor fills — ETCHED PARCHMENT, not one flat beige slab (r4
+  // major): each tile picks one of three near-identical vellum shades off a
+  // cheap position hash, so large rooms read as inked paper grain, and every
+  // tile carries a whisper of engraved grid on its right/bottom edge.
+  const VELLUM = ["#57452d", "#514029", "#5b4930"];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       const i = y * map.w + x;
@@ -2854,12 +2876,18 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
       const t = map.tiles[i];
       g.fillStyle =
         t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#f2c14e" : "#4a3c2a";
+        t === Tile.DoorLocked ? "#f2c14e" : VELLUM[(x * 7 + y * 13) % 3]!;
       g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
+      if (sc >= 4 && t !== Tile.StairsDown && t !== Tile.DoorLocked) {
+        g.fillStyle = "rgba(20,14,8,0.1)"; // engraved survey grid
+        g.fillRect(X(x + 1) - 0.5, Y(y), 0.5, sc);
+        g.fillRect(X(x), Y(y + 1) - 0.5, sc, 0.5);
+      }
     }
   }
-  // Pass 2: drawn room outlines — a bronze rule wherever explored floor meets
-  // wall, a soft dark fog edge where it meets the unexplored dark.
+  // Pass 2: drawn room outlines — an inked bronze rule wherever explored
+  // floor meets wall, and a soft FEATHERED fog edge (shadow-blurred stroke,
+  // never a hard slice) where the chart trails into the unexplored dark.
   g.lineWidth = 1;
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
@@ -2877,11 +2905,23 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
       check(x - 1, y, X(x), Y(y), X(x), Y(y + 1));
       check(x + 1, y, X(x + 1), Y(y), X(x + 1), Y(y + 1));
       for (const [x1, y1, x2, y2, isWall] of edges) {
-        g.strokeStyle = isWall ? "rgba(190,152,91,0.9)" : "rgba(10,7,4,0.8)";
+        g.save();
+        if (isWall) {
+          g.strokeStyle = "rgba(201,162,75,0.85)";
+          g.shadowColor = "rgba(0,0,0,0.7)";
+          g.shadowBlur = 1.5;
+        } else {
+          g.strokeStyle = "rgba(8,5,3,0.85)";
+          g.lineWidth = 2;
+          g.shadowColor = "rgba(8,5,3,0.9)";
+          g.shadowBlur = 5; // the fog FEATHERS over the vellum
+        }
         g.beginPath();
         g.moveTo(x1, y1);
         g.lineTo(x2, y2);
         g.stroke();
+        g.restore();
+        g.lineWidth = 1;
       }
     }
   }
@@ -2923,15 +2963,37 @@ function drawMinimap(s: GameState): void {
   const X = (x: number): number => mmView.ox + x * mmView.s;
   const Y = (y: number): number => mmView.oy + y * mmView.s;
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
+  // Enemies as EMBER GLYPHS, not raw red squares (r4 major): small rotated
+  // diamonds with a warm halo and an ink keyline — chart marks, not debug
+  // pixels. Bosses burn bigger with a ring.
+  mmCtx.save();
+  mmCtx.shadowBlur = 4;
   for (const m of s.monsters) {
     const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
     if (dx * dx + dy * dy > vis2) continue;
-    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#c0392f";
-    const r = m.kind === "boss" ? 3.5 : 2;
+    const boss = m.kind === "boss";
+    const cx = X(m.pos.x), cy = Y(m.pos.y);
+    const r = boss ? 3.6 : 2.1;
+    mmCtx.shadowColor = boss ? "rgba(255,110,70,0.9)" : "rgba(224,110,60,0.7)";
+    mmCtx.fillStyle = boss ? "#ff7a4d" : "#e0703f";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.85)";
+    mmCtx.lineWidth = 0.8;
     mmCtx.beginPath();
-    mmCtx.arc(X(m.pos.x), Y(m.pos.y), r, 0, Math.PI * 2);
+    mmCtx.moveTo(cx, cy - r);
+    mmCtx.lineTo(cx + r, cy);
+    mmCtx.lineTo(cx, cy + r);
+    mmCtx.lineTo(cx - r, cy);
+    mmCtx.closePath();
     mmCtx.fill();
+    mmCtx.stroke();
+    if (boss) {
+      mmCtx.beginPath();
+      mmCtx.arc(cx, cy, r + 2.2, 0, Math.PI * 2);
+      mmCtx.strokeStyle = "rgba(255,122,77,0.6)";
+      mmCtx.stroke();
+    }
   }
+  mmCtx.restore();
   for (const pl of s.players) {
     if (!pl.alive) {
       // Downed crawler: a hollow red ring — go stand inside it.
@@ -3051,7 +3113,7 @@ function dmgAnimate(rec: DmgLive): void {
   const grow = Math.min(1 + rec.merges * 0.07, 1.42);
   const drift = (Math.random() - 0.5) * (crit ? 64 : 44);
   const rise = (crit ? 70 : 56) * (rec.merges > 0 ? 0.85 : 1);
-  const pop = (crit ? 1.5 : 1.18) * grow;
+  const pop = (crit ? 1.68 : 1.18) * grow; // crits POP visibly harder (r4)
   const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
   const anim = el.animate(
     [
@@ -3702,6 +3764,10 @@ function updateHud(s: GameState): void {
   // readout that TICKS to the true value instead of teleporting.
   const maxHp = Math.max(1, p.maxHp);
   const frac = Math.max(0, Math.min(1, p.hp / maxHp));
+  // First frame: the ghost SNAPS to the live fill. Initializing at 1 made a
+  // damaged spawn (test chambers, reconnects) read as a flat pale remainder
+  // across the whole empty track while the ghost slow-chased down (r3 major).
+  if (hudDispHp < 0) { hudGhost = frac; hudPrevHpFrac = frac; }
   if (frac < hudPrevHpFrac - 1e-4) hudGhostHold = 0.3;
   hudPrevHpFrac = frac;
   if (hudGhost > frac + 1e-4) {

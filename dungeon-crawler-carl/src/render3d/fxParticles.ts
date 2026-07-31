@@ -351,39 +351,46 @@ export class FxParticles {
 
   // ---- Convenience emitters (each spawn is event-driven, not per-frame) ----
 
-  /** Radial impact spray: hot core chunks arcing out under gravity. */
+  /** Radial impact spray: hot core chunks arcing out under gravity.
+   * Audit r5 (uniform-dots fix): every chunk velocity-stretches, sizes and
+   * lifetimes vary widely, and every third particle is a flickering ember
+   * that lags behind the spray — no two dots read identical. */
   burst(x: number, z: number, hex: number, count: number, dir?: { x: number; y: number }): void {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
-      const sp = 1.6 + Math.random() * 2.8;
+      const ember = i % 3 === 2; // slower, flickering laggards under gravity
+      const sp = (ember ? 0.9 : 1.6) + Math.random() * (ember ? 1.4 : 2.8);
       this.spawn({
         x, y: 0.55 + Math.random() * 0.3, z,
         vx: Math.cos(a) * sp + (dir?.x ?? 0) * 2.4, vy: 2 + Math.random() * 2.6,
         vz: Math.sin(a) * sp + (dir?.y ?? 0) * 2.4,
-        ay: -10,
-        life: 0.4 + Math.random() * 0.3,
-        size0: 0.13 + Math.random() * 0.1, size1: 0.05,
-        col0: hot(hex), col1: hex, dim: 0.85,
+        ay: ember ? -6 : -10,
+        life: (ember ? 0.55 : 0.35) + Math.random() * 0.35,
+        size0: 0.09 + Math.random() * 0.13, size1: ember ? 0.03 : 0.05,
+        col0: hot(hex), col1: hex, dim: ember ? 0.7 : 0.85,
         rot: Math.random() * 6.28, spin: (Math.random() - 0.5) * 12,
+        stretch: ember ? 0 : 1.1,
+        tex: ember ? TEX_SOFT + TEX_FLICKER : TEX_SOFT,
       });
     }
   }
 
   /** Hot metal sparks: stretched additive streaks, fast and short.
-   * Cores run hue-hot (not white) so the streaks keep their school color. */
+   * Cores run hue-hot (not white) so the streaks keep their school color.
+   * Sized to READ at iso zoom (audit r3: impacts must visibly throw metal). */
   sparks(x: number, y: number, z: number, hex: number, count: number, dir?: { x: number; y: number }): void {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
-      const sp = 3.2 + Math.random() * 4.5;
+      const sp = 4.2 + Math.random() * 5.5;
       this.spawn({
         x, y: y + (Math.random() - 0.5) * 0.3, z,
-        vx: Math.cos(a) * sp + (dir?.x ?? 0) * 3, vy: 1.2 + Math.random() * 3,
-        vz: Math.sin(a) * sp + (dir?.y ?? 0) * 3,
-        ay: -14,
-        life: 0.2 + Math.random() * 0.18,
-        size0: 0.07 + Math.random() * 0.05, size1: 0.02,
-        col0: hot(hex, 0.45), col1: hex,
-        stretch: 1.4, fadeIn: 0.02, dim: 0.9,
+        vx: Math.cos(a) * sp + (dir?.x ?? 0) * 3.6, vy: 1.6 + Math.random() * 3.4,
+        vz: Math.sin(a) * sp + (dir?.y ?? 0) * 3.6,
+        ay: -15,
+        life: 0.3 + Math.random() * 0.25,
+        size0: 0.1 + Math.random() * 0.07, size1: 0.025,
+        col0: hot(hex, 0.5), col1: hex,
+        stretch: 2.2, fadeIn: 0.02, dim: 1,
       });
     }
   }
@@ -393,24 +400,26 @@ export class FxParticles {
    * Each layer is dimmed under the bloom knee so the hue SURVIVES the pass —
    * the flash reads as "orange strike" / "violet blast", never a white blob. */
   flash3(x: number, y: number, z: number, pal: FxPalette, size: number): void {
-    // BRIGHTNESS BUDGET (critic r2 blocker): the three layers peak at
-    // ~0.45+0.4+0.14 ≈ 0.9 pre-tonemap at the shared center, UNDER the ACES
-    // clip and the bloom knee — the hue survives instead of smearing white.
-    // White-hot core: TINY, hard falloff, hands off to color in ~60ms.
+    // BRIGHTNESS BUDGET (r3 rebalance): the core is ALLOWED to graze white for
+    // its 2-frame life (that IS the contact read); the star + rim layers stay
+    // saturated mid/deep hue so the flash silhouette keeps its school color.
+    // De-stacking (claimFlash) guarantees only one kit per spot per beat.
+    // White-hot core: a 2-frame contact card — small, hard falloff, hands
+    // off to color in ~70ms. This is the "hot flash card" of the impact kit.
     this.spawn({
-      x, y, z, life: 0.06, size0: size * 0.15, size1: size * 0.22,
-      col0: pal.core, col1: pal.mid, fadeIn: 0.02, dim: 0.45, tex: TEX_CORE,
+      x, y, z, life: 0.07, size0: size * 0.2, size1: size * 0.3,
+      col0: pal.core, col1: pal.mid, fadeIn: 0.015, dim: 0.7, tex: TEX_CORE,
     });
     // Saturated mid: the spiked star IS the shape language; slight spin-in.
     this.spawn({
-      x, y, z, life: 0.16, size0: size * 0.5, size1: size * 0.95,
-      col0: pal.mid, col1: pal.rim, fadeIn: 0.02, dim: 0.4,
+      x, y, z, life: 0.17, size0: size * 0.6, size1: size * 1.15,
+      col0: pal.mid, col1: pal.rim, fadeIn: 0.02, dim: 0.62,
       rot: Math.random() * 6.28, tex: TEX_STAR,
     });
     // Deep rim: a dim narrow halo that grounds the flash in its school color.
     this.spawn({
-      x, y, z, life: 0.24, size0: size * 0.55, size1: size * 1.1,
-      col0: pal.mid, col1: pal.rim, fadeIn: 0.04, dim: 0.14, tex: TEX_SOFT,
+      x, y, z, life: 0.26, size0: size * 0.6, size1: size * 1.25,
+      col0: pal.mid, col1: pal.rim, fadeIn: 0.04, dim: 0.2, tex: TEX_SOFT,
     });
   }
 
@@ -423,7 +432,9 @@ export class FxParticles {
    * lifetime — swell, go ragged, hollow out) with baked interior shading.
    * The tint is LIFTED because the tile rgb darkens the interior itself. */
   smoke(x: number, y: number, z: number, count: number, tint = 0x2c2a30): void {
-    const lit = hot(tint, 0.5);
+    // Lift kept LOW (audit r3): the old +0.5 white-lift made every puff read
+    // as an ambiguous pale smear on the dark floors — smoke stays sooty.
+    const lit = hot(tint, 0.28);
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       this.spawn({
@@ -435,6 +446,26 @@ export class FxParticles {
         col0: lit, col1: tint,
         rot: Math.random() * 6.28, spin: (Math.random() - 0.5) * 1.4,
         blend: "alpha", fadeIn: 0.22, tex: TEX_SMOKE_FLIP, dim: 1,
+      });
+    }
+  }
+
+  /** IMPACT DUST (audit r3 kit layer 3): a fast ~0.5s ambient-tinted puff that
+   * kicks out low and DISSIPATES — grounded weight under a hit without the
+   * lingering pale smear the old smoke left. Tint = the floor's ambient. */
+  dust(x: number, y: number, z: number, count: number, tint = 0x3a332c): void {
+    const lit = hot(tint, 0.18);
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.spawn({
+        x: x + Math.cos(a) * 0.22, y: y + Math.random() * 0.15, z: z + Math.sin(a) * 0.22,
+        vx: Math.cos(a) * 1.2, vy: 0.4 + Math.random() * 0.3, vz: Math.sin(a) * 1.2,
+        ax: -Math.cos(a) * 1.5, ay: -0.3, az: -Math.sin(a) * 1.5,
+        life: 0.42 + Math.random() * 0.18,
+        size0: 0.24 + Math.random() * 0.12, size1: 0.62 + Math.random() * 0.2,
+        col0: lit, col1: tint,
+        rot: Math.random() * 6.28, spin: (Math.random() - 0.5) * 2.6,
+        blend: "alpha", fadeIn: 0.14, tex: TEX_SMOKE_FLIP, dim: 1,
       });
     }
   }

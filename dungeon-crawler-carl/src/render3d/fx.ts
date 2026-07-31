@@ -45,6 +45,14 @@ const TEL_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uBoss; // 0 trash, 1 elite/boss (heavier vocabulary)
   varying vec2 vUv;
+  float telH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float telN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = telH(q), b = telH(q + vec2(1.0, 0.0));
+    float c = telH(q + vec2(0.0, 1.0)), d = telH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
     float r = length(p);
@@ -52,34 +60,110 @@ const TEL_FRAG = /* glsl */ `
     float ang = atan(p.y, p.x);
     float a01 = fract(ang / 6.2831853 + 0.5);
     float commit = smoothstep(0.78, 1.0, uProg);
-    // Outer rim: sharp edge glow, breathing while arming, locking at commit.
-    float pulse = 0.7 + 0.3 * sin(uTime * 9.0 - r * 4.0);
-    float rim = smoothstep(0.90, 0.965, r) * (1.0 - smoothstep(0.985, 1.0, r));
-    float rimA = rim * (0.35 + 0.65 * uProg) * mix(pulse, 1.2, commit);
+    // PULSE TIMELINE (audit r3): the breath gets BRIGHTER and FASTER as
+    // detonation approaches — urgency you can read in a single glance.
+    float rate = mix(5.0, 14.0, uProg);
+    float pulse = 0.6 + 0.4 * sin(uTime * rate - r * 5.0);
+    // INTERIOR ENERGY (audit r4): scrolling 2-octave noise eroding the fill —
+    // the zone churns like contained energy instead of sitting as flat vector
+    // paint. Polar-mapped, drifting INWARD (energy converging on the strike).
+    float nz = telN(vec2(a01 * 22.0, r * 9.0 + uTime * 2.4))
+             * 0.65 + telN(vec2(a01 * 47.0 + 13.0, r * 19.0 + uTime * 4.1)) * 0.35;
+    float churn = 0.55 + 0.9 * smoothstep(0.35, 0.85, nz);
+    // TWO-TONE FILL: a translucent radial gradient deepening toward the rim —
+    // the covered area reads as an authored danger zone, not a wire gizmo.
+    float fillGrad = (0.06 + 0.36 * pow(r, 1.9)) * (0.45 + 0.55 * uProg)
+                   * (0.75 + 0.45 * pulse * uProg) * churn;
     // Conic sweep: the filled sector IS the clock; a hot line at the frontier.
     float fill = step(a01, uProg);
     float sweep = smoothstep(0.05, 0.004, abs(a01 - uProg));
-    float fillA = fill * (0.10 + 0.15 * uProg);
-    // Rune ticks, slowly rotating (bosses: fewer, heavier, counter-rotating).
-    float seg = mix(20.0, 8.0, uBoss);
-    float spin = mix(1.6, -0.9, uBoss);
-    float ticks = smoothstep(0.15, 0.75, sin(ang * seg + uTime * spin));
-    float band = smoothstep(0.70, 0.75, r) * (1.0 - smoothstep(0.83, 0.88, r));
-    float runeA = band * ticks * (0.25 + 0.45 * uProg);
+    float fillA = fill * (0.09 + 0.13 * uProg);
+    // BRIGHT RIM: thicker edge glow, breathing while arming, locking at commit.
+    float rim = smoothstep(0.875, 0.95, r) * (1.0 - smoothstep(0.98, 1.0, r));
+    float rimA = rim * (0.5 + 0.75 * uProg) * mix(pulse * 1.15, 1.4, commit);
+    // Rotating rune ticks (bosses: fewer, heavier, counter-rotating).
+    float seg = mix(18.0, 8.0, uBoss);
+    float spin = mix(2.1, -1.1, uBoss);
+    float ticks = smoothstep(0.25, 0.78, sin(ang * seg + uTime * spin));
+    float band = smoothstep(0.70, 0.75, r) * (1.0 - smoothstep(0.84, 0.89, r));
+    float runeA = band * ticks * (0.32 + 0.55 * uProg);
     // Boss-only: an inner rim + pressure rings collapsing toward the center.
     float rim2 = smoothstep(0.55, 0.59, r) * (1.0 - smoothstep(0.62, 0.66, r));
     float waves = 0.5 + 0.5 * sin((r + uTime * 0.55) * 26.0);
     float innerA = uBoss * (rim2 * 0.5 + waves * smoothstep(0.55, 0.08, r) * 0.2 * uProg);
-    // READABILITY FLOOR (audit r3): the telegraph must survive FX bloom on top
-    // of it. A dark backing plate under the interior pins local contrast, the
-    // rim and sweep run brighter and more saturated than before.
-    float glowA = rimA * 1.05 + fillA * 1.5 + sweep * 0.9 + runeA * 1.15 + innerA + commit * 0.14;
-    float darkA = (1.0 - smoothstep(0.9, 0.99, r)) * (0.22 + 0.16 * uProg);
-    float alpha = clamp(glowA + darkA, 0.0, 0.92);
-    vec3 glowCol = uColor * (1.35 + sweep * 1.5 + commit * 1.0 + rim * 0.9);
+    // READABILITY FLOOR: a dark backing plate under the interior pins local
+    // contrast so the glow layers read over bright floors and FX bloom.
+    float glowA = rimA * 1.1 + fillGrad + fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2;
+    float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);
+    float alpha = clamp(glowA + darkA, 0.0, 0.94);
+    // HDR rim (audit r4): the edge runs 2-3x over white at commit so the ring
+    // FEEDS BLOOM — an emissive danger line, not a matte stroke.
+    vec3 glowCol = uColor * (1.35 + sweep * 1.9 + commit * 1.6 + rim * (1.7 + 1.3 * uProg) + 0.4 * pulse * uProg);
     vec3 col = (glowCol * glowA + uColor * 0.06 * darkA) / max(alpha, 1e-4);
     gl_FragColor = vec4(col, alpha);
   }`;
+
+// LANE telegraph (charger rush / lasher hook): same two-tone language as the
+// disc — translucent gradient fill, bright breathing side rails, chevrons
+// marching toward the far end faster as the rush commits (audit r3: the flat
+// single-color strip read as a debug gizmo).
+const LANE_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uProg;
+  uniform float uTime;
+  varying vec2 vUv;
+  float lnH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float lnN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = lnH(q), b = lnH(q + vec2(1.0, 0.0));
+    float c = lnH(q + vec2(0.0, 1.0)), d = lnH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  void main() {
+    float cross = abs(vUv.y - 0.5) * 2.0; // 0 center -> 1 side edge
+    float pulse = 0.62 + 0.38 * sin(uTime * (5.0 + 9.0 * uProg));
+    // Side rails: bright, breathing, locking solid near commit.
+    float rim = smoothstep(0.7, 0.9, cross) * (1.0 - smoothstep(0.96, 1.0, cross));
+    float rimA = rim * (0.45 + 0.7 * uProg) * mix(pulse * 1.1, 1.3, smoothstep(0.78, 1.0, uProg));
+    // Interior erosion (audit r4): streaming noise blown DOWN-LANE — the fill
+    // reads as rushing energy, not a flat painted bar.
+    float nz = lnN(vec2(vUv.x * 12.0 - uTime * (3.0 + 5.0 * uProg), vUv.y * 5.0)) * 0.65
+             + lnN(vec2(vUv.x * 27.0 - uTime * (5.0 + 8.0 * uProg) + 7.0, vUv.y * 11.0)) * 0.35;
+    float churn = 0.5 + 1.0 * smoothstep(0.35, 0.85, nz);
+    // Gradient fill deepening toward the rails.
+    float fillGrad = (0.07 + 0.3 * cross * cross) * (0.4 + 0.6 * uProg)
+                   * (0.75 + 0.45 * pulse * uProg) * churn;
+    // Chevrons pointing down-lane, marching faster as detonation nears.
+    float ang = (vUv.x * 9.0 - cross * 0.5 - uTime * (2.2 + 5.0 * uProg)) * 6.2831853;
+    float chevA = smoothstep(0.5, 0.95, sin(ang)) * (1.0 - cross) * (0.14 + 0.2 * uProg);
+    // Hot origin core: the lane is brightest where the rush launches from.
+    float coreA = smoothstep(0.35, 0.0, vUv.x) * (1.0 - cross) * (0.1 + 0.25 * uProg);
+    // Soft caps so the strip never ends on a hard raw edge.
+    float cap = smoothstep(0.0, 0.05, vUv.x) * (1.0 - smoothstep(0.95, 1.0, vUv.x));
+    float glowA = (rimA + fillGrad + chevA + coreA) * cap;
+    // Dark backing plate pins local contrast under the glow (disc dialect).
+    float darkA = 0.22 * cap * (0.6 + 0.4 * uProg);
+    float alpha = clamp(glowA + darkA, 0.0, 0.9);
+    // HDR rails feed bloom at commit — same emissive standard as the disc rim.
+    vec3 col = (uColor * (1.25 + rim * (1.5 + 1.2 * uProg) + chevA * 1.4) * glowA + uColor * 0.05 * darkA) / max(alpha, 1e-4);
+    gl_FragColor = vec4(col, alpha);
+  }`;
+
+export function makeLaneMat(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0xff9a2e) },
+      uProg: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: TEL_VERT,
+    fragmentShader: LANE_FRAG,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
 
 export function makeTelegraphMat(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -161,10 +245,13 @@ function splatTexture(): THREE.Texture {
     seed = (seed * 16807) % 2147483647;
     return seed / 2147483647;
   };
+  // CRISP falloff (audit r3): scorch marks hold a near-solid interior and cut
+  // off fast at the edge — a soft wide skirt reads as fog smear, not a mark.
   const blob = (bx: number, by: number, br: number, a: number): void => {
     const grad = g.createRadialGradient(bx, by, 1, bx, by, br);
     grad.addColorStop(0, `rgba(255,255,255,${a})`);
-    grad.addColorStop(0.7, `rgba(255,255,255,${a * 0.45})`);
+    grad.addColorStop(0.72, `rgba(255,255,255,${a * 0.55})`);
+    grad.addColorStop(0.9, `rgba(255,255,255,${a * 0.12})`);
     grad.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = grad;
     g.fillRect(bx - br, by - br, br * 2, br * 2);

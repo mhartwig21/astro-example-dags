@@ -48,22 +48,48 @@ const ARC_VERT = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 
+// 3-LAYER SWING (audit r5): the old single-hue crescent read as a flat UI
+// wedge pasted into the world. Now the sweep carries authored weapon-arc
+// anatomy — a white-hot additive core line at the frontier, a saturated
+// mid-band with soft falloff right behind it, and a long deep-hue smear wake
+// that ERODES with streaming hash noise (ember break-up) as it decays.
 const ARC_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uProg; // sweep position 0..1 along the arc
+  uniform float uTime;
   varying vec2 vUv;
+  float swH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float swN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = swH(q), b = swH(q + vec2(1.0, 0.0));
+    float c = swH(q + vec2(0.0, 1.0)), d = swH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
   void main() {
     float d = vUv.x - uProg;
-    // Hot leading edge at the sweep frontier.
-    float lead = smoothstep(0.05, 0.0, abs(d)) * 1.7;
-    // Wake behind the frontier, decaying with distance.
-    float wake = d < 0.0 ? smoothstep(-0.55, -0.015, d) : 0.0;
-    // Soft radial edges (no hard ring borders).
-    float rad = smoothstep(0.0, 0.22, vUv.y) * smoothstep(1.0, 0.7, vUv.y);
-    float dampen = 1.0 - uProg * uProg * 0.7; // whole arc dies as the swing lands
-    float a = (wake * 0.55 + lead) * rad * dampen;
+    // Soft radial edges (no hard ring borders); the core hugs the outer rim
+    // slightly (a blade's tip travels faster than its base).
+    float rad = smoothstep(0.0, 0.16, vUv.y) * smoothstep(1.0, 0.74, vUv.y);
+    float tipBias = 0.55 + 0.45 * vUv.y;
+    // LAYER 1 — white-hot core: a tight line at the sweep frontier.
+    float lead = smoothstep(0.042, 0.0, abs(d));
+    // LAYER 2 — saturated mid-band with soft falloff behind the edge.
+    float midB = d < 0.0 ? smoothstep(-0.24, -0.008, d) : 0.0;
+    // LAYER 3 — long smear wake, eroded by streaming noise so the trail
+    // breaks into embers instead of holding a solid crescent.
+    float wake = d < 0.0 ? smoothstep(-0.9, -0.12, d) : 0.0;
+    float nz = swN(vec2(vUv.x * 16.0 - uTime * 5.0, vUv.y * 4.0)) * 0.65
+             + swN(vec2(vUv.x * 33.0 + 7.0 - uTime * 8.0, vUv.y * 9.0)) * 0.35;
+    wake *= 0.3 + 0.95 * smoothstep(0.32, 0.8, nz);
+    float dampen = 1.0 - uProg * uProg * 0.62; // arc dies as the swing lands
+    float a = (lead * 1.35 + midB * 0.6 + wake * 0.3) * rad * tipBias * dampen;
     if (a < 0.004) discard;
-    gl_FragColor = vec4(uColor * (1.0 + lead * 1.4), a);
+    // Color hand-off: white-hot core -> saturated mid -> deep cooled tail.
+    vec3 hot = mix(uColor, vec3(1.0), 0.78);
+    vec3 deep = uColor * uColor * 1.6; // squared = darker, more saturated
+    vec3 col = hot * (2.3 * lead) + uColor * (1.45 * midB) + deep * (1.2 * wake);
+    gl_FragColor = vec4(col, a);
   }`;
 
 interface ArcSlot {
@@ -89,7 +115,7 @@ export class SwingArcs {
         for (const s of this.slots) if (s.life > slot.life) slot = s;
       } else {
         const mat = new THREE.ShaderMaterial({
-          uniforms: { uColor: { value: new THREE.Color() }, uProg: { value: 0 } },
+          uniforms: { uColor: { value: new THREE.Color() }, uProg: { value: 0 }, uTime: { value: 0 } },
           vertexShader: ARC_VERT,
           fragmentShader: ARC_FRAG,
           transparent: true,
@@ -106,7 +132,9 @@ export class SwingArcs {
       }
     }
     slot.life = 0;
-    slot.max = 0.14;
+    // 0.19s (audit r5): the extra ~3 frames past the old 0.14 are the smear's
+    // stretch-and-dissipate tail — the wake visibly decays instead of blinking.
+    slot.max = 0.19;
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(hex);
     slot.mat.uniforms.uProg.value = 0;
     slot.mesh.visible = true;
@@ -122,6 +150,7 @@ export class SwingArcs {
       const t = Math.min(1, s.life / s.max);
       // Ease-out sweep: fastest at launch, landing soft.
       s.mat.uniforms.uProg.value = 1 - (1 - t) * (1 - t);
+      s.mat.uniforms.uTime.value += dt; // streams the wake's erode noise
       if (s.life >= s.max) s.mesh.visible = false;
     }
   }
@@ -129,25 +158,43 @@ export class SwingArcs {
 
 // ---- Projectile ribbons ----
 
-const RIB_PTS = 12;
+// 16 history points ≈ 3-4 body lengths of tail at projectile speed (audit r3:
+// the LoL anatomy rule — core, glow shell, ribbon, embers).
+const RIB_PTS = 16;
 const RIB_POOL = 28;
 
 const RIB_VERT = /* glsl */ `
   attribute float aT;
+  attribute float aS;
   varying float vT;
+  varying float vS;
   void main() {
     vT = aT;
+    vS = aS;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 
+// LAYERED RIBBON (audit r4): the strip carries LoL anatomy in one pass — a
+// narrow white-hot core down the centerline handing off to a soft saturated
+// glow skirt at the edges, both tapering along the tail. One flat gradient
+// quad was the old read; this is core + glow shell in a single draw.
 const RIB_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uFade;
   varying float vT;
+  varying float vS;
   void main() {
-    float a = pow(1.0 - vT, 1.7) * uFade * 0.85;
+    float cx = abs(vS - 0.5) * 2.0; // 0 centerline -> 1 edge
+    float core = smoothstep(0.5, 0.0, cx);
+    float glow = 1.0 - smoothstep(0.15, 1.0, cx);
+    float along = pow(1.0 - vT, 1.55);
+    float a = (core * 0.8 + glow * 0.3) * along * uFade;
     if (a < 0.004) discard;
-    gl_FragColor = vec4(uColor * (1.0 + (1.0 - vT) * 0.9), a);
+    // Centerline runs white-hot at the head (feeds bloom), the skirt keeps the
+    // saturated school hue, the tail cools back to the deep color.
+    vec3 hot = mix(uColor, vec3(1.0), 0.72);
+    vec3 col = mix(uColor * (1.0 + (1.0 - vT) * 0.9), hot * (1.4 + (1.0 - vT) * 1.2), core * (1.0 - vT));
+    gl_FragColor = vec4(col, a);
   }`;
 
 interface Ribbon {
@@ -179,9 +226,12 @@ export class TrailRibbons {
     const posAttr = new THREE.BufferAttribute(new Float32Array(RIB_PTS * 2 * 3), 3);
     posAttr.setUsage(THREE.DynamicDrawUsage);
     const at = new Float32Array(RIB_PTS * 2);
+    const as = new Float32Array(RIB_PTS * 2); // cross coord: 0 side / 1 side
     const idx: number[] = [];
     for (let i = 0; i < RIB_PTS; i++) {
       at[i * 2] = at[i * 2 + 1] = i / (RIB_PTS - 1);
+      as[i * 2] = 0;
+      as[i * 2 + 1] = 1;
       if (i < RIB_PTS - 1) {
         const b = i * 2;
         idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
@@ -189,6 +239,7 @@ export class TrailRibbons {
     }
     geo.setAttribute("position", posAttr);
     geo.setAttribute("aT", new THREE.BufferAttribute(at, 1));
+    geo.setAttribute("aS", new THREE.BufferAttribute(as, 1));
     geo.setIndex(idx);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     const mat = new THREE.ShaderMaterial({
@@ -270,7 +321,9 @@ export class TrailRibbons {
       A.set(r.pts[k3] - r.pts[j3], r.pts[k3 + 1] - r.pts[j3 + 1], r.pts[k3 + 2] - r.pts[j3 + 2]);
       if (A.lengthSq() < 1e-8) A.set(1, 0, 0);
       B.crossVectors(A, this.cam).normalize();
-      const w = r.width * (1 - (i / (RIB_PTS - 1)) * 0.88) * 0.5;
+      // 0.68 (not 0.5): the layered shader's soft glow skirt eats ~1/3 of the
+      // strip visually, so the geometry runs a touch wider to compensate.
+      const w = r.width * (1 - (i / (RIB_PTS - 1)) * 0.88) * 0.68;
       arr[i * 6] = px + B.x * w; arr[i * 6 + 1] = py + B.y * w; arr[i * 6 + 2] = pz + B.z * w;
       arr[i * 6 + 3] = px - B.x * w; arr[i * 6 + 4] = py - B.y * w; arr[i * 6 + 5] = pz - B.z * w;
     }
@@ -283,6 +336,18 @@ export class TrailRibbons {
       if (r.fade <= 0) { r.mesh.visible = false; continue; }
       r.fade = Math.max(0, r.fade - dt / 0.16);
       r.mat.uniforms.uFade.value = r.fade;
+      // SHRIVEL (audit r4 orphan-quad fix): a released trail RETRACTS into its
+      // head point while it fades — a dead projectile's ribbon collapses to a
+      // spark instead of hanging in the air as a detached diagonal quad.
+      const pull = Math.min(1, dt * 11);
+      const hx = r.pts[0], hy = r.pts[1], hz = r.pts[2];
+      for (let i = 1; i < RIB_PTS; i++) {
+        const i3 = i * 3;
+        r.pts[i3] += (hx - r.pts[i3]) * pull;
+        r.pts[i3 + 1] += (hy - r.pts[i3 + 1]) * pull;
+        r.pts[i3 + 2] += (hz - r.pts[i3 + 2]) * pull;
+      }
+      this.rebuild(r);
       if (r.fade <= 0) { r.mesh.visible = false; r.mat.uniforms.uFade.value = 1; }
     }
   }
