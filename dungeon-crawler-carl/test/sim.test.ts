@@ -4472,6 +4472,64 @@ describe("flow-field pathfinding (monsters route around geometry)", () => {
   });
 });
 
+describe("encounter director (tier 4: retreat-and-regroup)", () => {
+  it("a broken survivor bolts away, and raises the alarm when it finds friends", () => {
+    let tested = false;
+    for (let seed = 1600; seed < 1640 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: CONFIG.regroupFromFloor, level: 5, gear: false }); // the director sits out the training bands
+      const p = g.players[0];
+      // A parked pack hidden from the crawler, 4.5-7 tiles out: the friends.
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => { const dd = dist(t, p.pos); return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null; });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const friend = mkMon({ id: 900, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000 });
+      // The survivor: wounded, alerted, alone beside the crawler, packmates dead around it.
+      const survivor = mkMon({ id: 901, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+      survivor.alertT = 999;
+      g.monsters.push(friend, survivor);
+      g.corpses.push(
+        { id: 9000, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+        { id: 9001, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+      );
+      const before = dist(survivor.pos, p.pos);
+      step(g, idle(), 1 / 30);
+      expect(survivor.regroupT ?? 0).toBeGreaterThan(0); // it BROKE OFF
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30); // 1s of flight
+      expect(dist(survivor.pos, p.pos)).toBeGreaterThan(before); // it fled, not charged
+      // The join, deterministically: the natural uphill path may or may not
+      // pass the friends on this map, so stage the meeting mid-flight.
+      survivor.regroupT = 2;
+      survivor.pos = { x: spot.x, y: spot.y };
+      step(g, idle(), 1 / 30);
+      expect(friend.alertT ?? 0).toBeGreaterThan(0); // the alarm — the fight spills
+      expect(survivor.regroupT).toBe(0); // it stops running and fights with them
+      expect(survivor.regrouped).toBe(true); // once per lifetime
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a healthy or accompanied grunt never bolts", () => {
+    const g = createTestGame({ seed: 1601, floor: CONFIG.regroupFromFloor, level: 5, gear: false });
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const a = mkMon({ id: 910, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+    const b = mkMon({ id: 911, pos: { x: p.pos.x + 1.5, y: p.pos.y + 0.7 }, hp: 1000, maxHp: 1000, speed: 2.6 });
+    a.alertT = 999;
+    b.alertT = 999;
+    g.monsters.push(a, b);
+    g.corpses.push(
+      { id: 9100, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+      { id: 9101, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+    );
+    for (let i = 0; i < 60; i++) step(g, idle(), 1 / 30);
+    expect(a.regroupT ?? 0).toBe(0); // B stands beside it — the line holds
+    expect(b.regroupT ?? 0).toBe(0); // B is healthy — no reason to run
+  });
+});
+
 describe("band personalities (tier 3: group doctrine per district)", () => {
   it("SEWERS: an idle drum buffs; an ALERTED drum beats the charge and marches the pack", () => {
     let tested = false;

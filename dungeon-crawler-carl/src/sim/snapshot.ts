@@ -58,7 +58,7 @@ export function deserialize(json: string): GameState {
 // here; if presentation grows a need for a listed one, delete its entry.
 const MONSTER_WIRE_OMIT = [
   "damage", "speed", "xp", "attackCooldown", "shootCd", "healCd", "affixCd",
-  "sigCd", "slamCd", "ritualCd", "poiseDmg", "staggerGraceT", "lastHitBy", "slipT", "alertT", "rushBeaten",
+  "sigCd", "slamCd", "ritualCd", "poiseDmg", "staggerGraceT", "lastHitBy", "slipT", "alertT", "rushBeaten", "regroupT", "regrouped",
   "roams", "home", "wanderT", "wanderDir", "raiseId", "signature", "sigAlt",
   "sigUsed", "chargeT", "chargeHits", "surgeT", "bleedStage", "frenzyT",
   "aura", "bossTier", "bountyT", "bountyGold", "consecrateAt", "duoId",

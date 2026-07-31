@@ -101,6 +101,33 @@ export function flowDir(state: GameState, pos: Vec2): Vec2 | null {
   return len < 1e-6 ? null : { x: dx / len, y: dy / len };
 }
 
+/**
+ * The UPHILL step — away from every crawler along walkable topology (the
+ * flee direction that can't be cornered by walls). Null when nothing is
+ * useful (unreached tile, local maximum with no better neighbor).
+ */
+export function flowUphill(state: GameState, pos: Vec2): Vec2 | null {
+  const f = field(state);
+  const tx = Math.floor(pos.x), ty = Math.floor(pos.y);
+  if (tx < 0 || ty < 0 || tx >= f.w || ty >= f.h) return null;
+  const here = f.dist[ty * f.w + tx];
+  if (here < 0) return null;
+  let best = here;
+  let bx = tx, by = ty;
+  const consider = (nx: number, ny: number) => {
+    const d = f.dist[ny * f.w + nx];
+    if (d > best) { best = d; bx = nx; by = ny; }
+  };
+  if (tx > 0) consider(tx - 1, ty);
+  if (tx < f.w - 1) consider(tx + 1, ty);
+  if (ty > 0) consider(tx, ty - 1);
+  if (ty < f.h - 1) consider(tx, ty + 1);
+  if (bx === tx && by === ty) return null;
+  const dx = bx + 0.5 - pos.x, dy = by + 0.5 - pos.y;
+  const len = Math.hypot(dx, dy);
+  return len < 1e-6 ? null : { x: dx / len, y: dy / len };
+}
+
 /** Sight blockers: walls and locked doors. Furniture is knee-high — it
  * stops feet (isWalkable) but not eyes, same rule projectiles use. */
 function sightBlocked(map: FloorMap, x: number, y: number): boolean {
