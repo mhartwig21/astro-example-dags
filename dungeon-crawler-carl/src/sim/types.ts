@@ -292,6 +292,7 @@ export interface Monster {
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
+  veteran?: boolean; // the middle rung: a pack's long-surviving heavy anchor — bigger, tougher, no name/affix/fanfare
   eliteName?: string; // announcer name for elites and city bosses
   defId?: string; // crafted enemy (src/content/mobs): stats applied at spawn; hosts resolve skin/tint from the def
   // System bounty (interference tier 1): seconds left to collect + the purse.

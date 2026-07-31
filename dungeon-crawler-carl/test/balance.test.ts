@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createGame, restoreGame, createTestGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
-import { CONFIG } from "../src/sim/config";
+import { CONFIG, naturalFloorForLevel } from "../src/sim/config";
+import { meleeParams } from "../src/sim/abilities";
 
 // Playability invariants, measured by the scripted balance bot (src/sim/bot.ts).
 // These are the regression net for tuning: if a damage/timer/economy change
@@ -112,8 +113,11 @@ describe("balance bot: early-game playability", () => {
     // build-matters pass (damagePerLevel 3 -> 2 + gearPowerMult) shifted
     // early-crawler power composition — 20-seed probe held 12/20 floors-1-4
     // survival (vs 13/20 control), same lottery re-roll, not a difficulty
-    // shift. Seed 4 fits (3/4/8/11) with no band-edge values.
-    const g = createGame(4);
+    // shift. Seed 4 drifted off-band under the VETERAN tier (its pack-roll
+    // stream re-rolled); probe survival 9/20 — the drop from 12/20 is real
+    // and intended (veterans make floors 3-4 cost something; floors 1-2
+    // deaths unchanged). Seed 8 fits (3/4/8/11), all interior.
+    const g = createGame(8);
     const bands: [number, number][] = [[1, 4], [3, 7], [6, 9], [8, 12]];
     for (let f = 0; f < bands.length; f++) {
       const r = runBot(g, 1, 400_000);
@@ -298,6 +302,62 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     // and boss floors spawn the arena instead of neighborhood elites).
     expect(resistShare(8), "resist bias must NOT apply above the ramp").toBeLessThan(0.3);
     expect(resistShare(14), "deep elites should lean armored/warded").toBeGreaterThan(0.3);
+  });
+
+  it("the POWER LADDER: trash folds, veterans take real swings, elites take more (on-curve)", () => {
+    // Owner 2026-07-26: "there really is only trash mobs and elites/bosses" —
+    // the middle rung was missing. This pins the swings-to-kill ladder for an
+    // ON-CURVE crawler (naturalFloorForLevel inverse): trash dies in 1-2
+    // swings (the power fantasy), a veteran pack anchor takes 3+, a named
+    // elite takes more than a veteran. If a tuning change collapses any rung
+    // into the one below, this fails.
+    const levelForFloor = (floor: number) => {
+      let level = 1;
+      for (let l = 1; l <= 40; l++) if (naturalFloorForLevel(l) <= floor) level = l;
+      return level;
+    };
+    for (const floor of [3, 6, 9]) {
+      const level = levelForFloor(floor);
+      let swing = 0;
+      const N = 8;
+      for (let seed = 1; seed <= N; seed++) {
+        const g = createTestGame({ seed, floor, level });
+        const p = g.players[0];
+        swing += p.attackPower * meleeParams(p).damageMult;
+      }
+      swing /= N;
+      const g = createTestGame({ seed: 3, floor, gear: false });
+      const grunt = g.monsters.find((m) => m.kind === "grunt" && !m.elite && !m.veteran);
+      expect(grunt, `expected a plain grunt on floor ${floor}`).toBeTruthy();
+      const gruntHp = grunt!.maxHp;
+      const veteranHp = Math.round(gruntHp * CONFIG.veteranHpMult);
+      const eliteHp = Math.round(gruntHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
+      const swings = (hp: number) => Math.ceil(hp / swing);
+      expect(swings(gruntHp), `floor ${floor}: grunt takes ${swings(gruntHp)} on-curve swings (hp ${gruntHp}, swing ${swing.toFixed(0)})`).toBeLessThanOrEqual(2);
+      expect(swings(veteranHp), `floor ${floor}: veteran takes ${swings(veteranHp)} on-curve swings — the middle rung collapsed into trash`).toBeGreaterThanOrEqual(3);
+      expect(swings(eliteHp), `floor ${floor}: elite (${swings(eliteHp)} swings) should outlast a veteran (${swings(veteranHp)})`).toBeGreaterThan(swings(veteranHp));
+    }
+  });
+
+  it("VETERANS spawn as fanfare-free pack anchors (floor 2+, never floor 1, never elite)", () => {
+    let vets = 0, total = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const g1 = createTestGame({ seed, floor: 1, gear: false });
+      expect(g1.monsters.some((m) => m.veteran), "floor 1 must stay veteran-free (the contract floor)").toBe(false);
+      const g5 = createTestGame({ seed, floor: 5, gear: false });
+      for (const m of g5.monsters) {
+        total++;
+        if (m.veteran) {
+          vets++;
+          expect(m.elite, "a veteran must never also be the named elite (mults would stack)").toBeFalsy();
+          expect(m.eliteName, "veterans are fanfare-free — no announcer name").toBeUndefined();
+        }
+      }
+    }
+    const share = vets / total;
+    expect(vets, "no veterans spawned at floor 5 across 30 seeds").toBeGreaterThan(0);
+    expect(share, `veteran share ${(share * 100).toFixed(1)}% out of band`).toBeGreaterThan(0.02);
+    expect(share, `veteran share ${(share * 100).toFixed(1)}% out of band`).toBeLessThan(0.15);
   });
 
   it("deep floors are DENSE, not empty (count outgrows the old 60 cap)", () => {

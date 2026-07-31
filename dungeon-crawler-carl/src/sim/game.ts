@@ -180,6 +180,26 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   return m;
 }
 
+/** The middle rung of the power ladder: a pack anchor that has SURVIVED down
+ * here. Bigger silhouette, real HP, a real hit, triple XP — no name, no
+ * affix, no announcement (fanfare is the elite's job; the veteran just takes
+ * 3-5 on-curve swings to die while its pack dies in one). */
+function promoteVeteran(m: Monster): void {
+  m.veteran = true;
+  m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.veteranHpMult);
+  m.damage = Math.round(m.damage * CONFIG.veteranDmgMult);
+  m.speed *= CONFIG.veteranSpeedMult;
+  m.xp = Math.round(m.xp * CONFIG.veteranXpMult);
+}
+
+/** Pack kinds that can carry the veteran anchor: real fighters only — props,
+ * parades, and support castes keep their own acts. */
+function canVeteran(kind: MonsterKind): boolean {
+  return kind !== "toysoldier" && kind !== "greeter" && kind !== "shaman" &&
+    kind !== "necromancer" && kind !== "broodmother" && kind !== "drummer" &&
+    kind !== "suitguy";
+}
+
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
@@ -511,6 +531,11 @@ function spawnMonsters(state: GameState): void {
     const packSize = kind === "toysoldier"
       ? Math.min(budget, nextInt(rng, CONFIG.toysquadMin, CONFIG.toysquadMax))
       : size;
+    // VETERAN anchor: a share of packs are led by the middle rung (drawn for
+    // every pack, then gated — draw-then-override keeps the rng stream
+    // fixture-stable when the gate knobs move).
+    const vetRoll = chance(rng, CONFIG.veteranPackChance);
+    const veteranAnchor = vetRoll && floor >= CONFIG.veteranFromFloor && canVeteran(kind);
     for (let k = 0; k < packSize; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
       const a = nextFloat(rng) * Math.PI * 2;
@@ -535,6 +560,7 @@ function spawnMonsters(state: GameState): void {
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
+      if (veteranAnchor && k === 0 && memberKind === kind) promoteVeteran(m);
       if (roam) m.tribe = tribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
@@ -651,7 +677,8 @@ function spawnMonsters(state: GameState): void {
     const canBoss = (m: Monster) =>
       m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer" &&
       m.kind !== "broodmother" && // support castes never take the crown
-      m.kind !== "foreman"; // the CHAMPION outranks the neighborhood — no re-crowning
+      m.kind !== "foreman" && // the CHAMPION outranks the neighborhood — no re-crowning
+      !m.veteran; // already promoted once — elite mults must not stack on veteran mults
     const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
@@ -2481,7 +2508,7 @@ export function damageMonster(
 /** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
  * counts. Elites are rendered bigger, so their hitbox grows to match. */
 export function bodyRadius(m: Monster): number {
-  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : 1);
+  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : m.veteran ? CONFIG.veteranScale : 1);
 }
 
 /** True when `m` is inside a swing from `pos` along `facing`: reach extends by

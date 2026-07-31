@@ -1341,7 +1341,9 @@ describe("multiplayer difficulty scaling", () => {
     expect(trio.length).toBeGreaterThan(solo.length);
     // The per-monster multipliers are per KIND (the spawn mix itself varies), so
     // compare same-kind monsters: every shared archetype is tougher in the trio.
-    const hpOf = (ms: typeof solo, kind: string) => ms.find((m) => m.kind === kind && !m.elite)?.maxHp;
+    // Skip promoted tiers: a veteran (3.4x) or elite sampled on one side only
+    // would swamp the party multiplier this test measures.
+    const hpOf = (ms: typeof solo, kind: string) => ms.find((m) => m.kind === kind && !m.elite && !m.veteran)?.maxHp;
     const shared = [...new Set(solo.map((m) => m.kind))].filter((k) => hpOf(trio, k) !== undefined);
     expect(shared.length).toBeGreaterThan(0);
     for (const kind of shared) {

@@ -2619,6 +2619,12 @@ export class Renderer3D {
           mesh.userData.baseScale = bs;
           mesh.scale.setScalar(bs);
           this.applyAffixVisual(mesh, mon.affix, mon.kind);
+        } else if (mon.veteran) {
+          // Veteran pack anchor: the silhouette IS the telegraph — bigger
+          // than its pack, smaller than an elite, no other fanfare.
+          const bs = ((mesh.userData.baseScale as number) ?? 1) * CONFIG.veteranScale;
+          mesh.userData.baseScale = bs;
+          mesh.scale.setScalar(bs);
         }
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
@@ -2909,7 +2915,7 @@ export class Renderer3D {
         mat.color.setHex(kind === "burn" ? 0xff7a2f : kind === "poison" ? 0x7ed957 : 0x7fd4ff);
         mat.opacity = 0.22 + 0.1 * Math.sin(time * 6 + mon.id);
         ring.position.set(mon.pos.x, 0.04, mon.pos.y);
-        ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : 1));
+        ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : mon.veteran ? CONFIG.veteranScale : 1));
         ring.visible = mesh.visible;
       } else if (ring) {
         this.scene.remove(ring);

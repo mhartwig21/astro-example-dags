@@ -888,6 +888,21 @@ export const CONFIG = {
   eliteDmgMult: 1.7,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
+  // VETERAN tier (owner 2026-07-26: "more variety in the power levels of
+  // mobs"). The power ladder read trash -> named elite -> boss, and on-curve
+  // crawlers one-shot ~85% of early spawns — there was no fanfare-free
+  // middle rung. Veterans are a pack's long-surviving anchor: bigger
+  // silhouette, real HP (3-5 on-curve swings), a real hit, triple XP — but
+  // NO name, affix, or announcement. The silhouette is the whole telegraph.
+  veteranFromFloor: 3, // floors 1-2 stay the pure on-ramp (fresh-crawler
+  // mortality there is already real: a 20-seed probe at fromFloor 2 dropped
+  // floors-1-4 bot survival 12/20 -> 9/20; fromFloor 3 restores it)
+  veteranPackChance: 0.35, // share of rolled packs anchored by a veteran
+  veteranHpMult: 3.4,
+  veteranDmgMult: 1.35,
+  veteranSpeedMult: 0.9, // survivors don't hurry
+  veteranXpMult: 3,
+  veteranScale: 1.25, // body radius + render scale (between grunt and elite)
   // One-shot insurance: a single player hit can never remove more than this
   // fraction of a boss/elite health pool, whatever the build finds next.
   bossHitCapFraction: 0.1,
