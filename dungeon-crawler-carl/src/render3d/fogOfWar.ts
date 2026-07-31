@@ -34,7 +34,7 @@ interface LayerSpec {
 // tops that sell the motion. Mist layer: an ankle-height haze that drifts
 // over explored ground as well, so the revealed world keeps atmospheric depth.
 const LAYERS: LayerSpec[] = [
-  { y: 0.55, opacity: 0.42, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
+  { y: 0.55, opacity: 0.44, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
   { y: 1.35, opacity: 0.2, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
   { y: 0.16, opacity: 0.14, billowTiles: 6, driftA: [0.014, -0.008], driftB: [-0.009, 0.016], mist: 0.45 },
 ];
@@ -161,8 +161,10 @@ export class FogOfWar {
     // painted over the frame — the exact "unfinished" tell.)
     const bg = new THREE.Color(theme.background);
     const shadow = new THREE.Color(theme.mood?.gradeShadow ?? 0x16132b);
-    const colA = bg.clone().lerp(shadow, 0.75).lerp(new THREE.Color(0x7a83a0), 0.04);
-    const colB = bg.clone().lerp(shadow, 0.6).lerp(new THREE.Color(0xaab6cc), 0.09);
+    // CRUSHED further (critic r2: the murk read as a mid-value navy canvas):
+    // the bank sits barely above black; the billow highlight is a whisper.
+    const colA = bg.clone().lerp(shadow, 0.75).multiplyScalar(0.55);
+    const colB = bg.clone().lerp(shadow, 0.6).lerp(new THREE.Color(0xaab6cc), 0.03).multiplyScalar(0.7);
 
     for (const spec of LAYERS) {
       const mat = new THREE.ShaderMaterial({

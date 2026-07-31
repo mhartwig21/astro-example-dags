@@ -66,24 +66,38 @@
       /* In-run HUD stays quiet neutral GLASS — the warm stone treatment is for
          full-screen sets (shop/profile/recap), never the overlays you fight
          behind. (Play feedback 2026-07-05: brown chips read as clutter.) */
-      .hud { position: fixed; pointer-events: none; background: rgba(0,0,0,0.5);
-        border: 1px solid rgba(110,85,51,0.35); box-shadow: 0 2px 12px rgba(0,0,0,0.35);
-        padding: 8px 12px; border-radius: 6px; font-size: 13px; line-height: 1.5; }
+      /* r4: one metallic plate family for ALL fight-screen chrome — outer
+         dark keyline (outline), beveled gold edge (light top / shaded
+         bottom), inner black keyline, top specular, leather-noise fill,
+         soft inner shadow pooling at the well's base. */
+      .hud { position: fixed; pointer-events: none;
+        background: var(--noise),
+          linear-gradient(180deg, rgba(46,36,23,0.9), rgba(15,11,7,0.92) 52%, rgba(8,6,4,0.94));
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), inset 0 0 0 1px rgba(0,0,0,0.65),
+          inset 0 -8px 14px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.55);
+        padding: 8px 12px; border-radius: 4px; font-size: 13px; line-height: 1.5; }
       #hud-tl { top: 12px; left: 12px; }
       #hud-tr { top: 12px; right: 12px; text-align: right; min-width: 190px; }
       /* Cockpit plaques (glass, rule four): Cinzel small-caps labels, tabular
          data, semantic color ONLY on meaning — no more inline-hex text soup. */
       .hh-row { display: flex; align-items: baseline; gap: 7px; line-height: 1.35; }
       #hud-tr .hh-row { justify-content: flex-end; }
+      /* r3 minor: cockpit labels sit ONE contrast step up from faint — the
+         collapse clock is a headline mechanic, not a whisper. */
       .hh-label { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        font-size: 10px; color: var(--ink-faint); }
+        font-size: 10.5px; color: var(--ink-dim); text-shadow: 0 1px 2px #000; }
       .hh-big { font-family: var(--display); font-weight: 700; font-size: 17px;
         color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
       .hh-dim { color: var(--ink-faint); font-size: 11px; }
       .hh-num { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
       .hh-num.gold { color: var(--gold-hi); display: inline-flex; align-items: baseline; gap: 4px; }
       .hh-sep { width: 1px; height: 11px; background: rgba(110,85,51,0.6); align-self: center; }
-      .hh-stat { font-size: 11px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+      .hh-stat { font-size: 11px; color: var(--ink-dim); font-variant-numeric: tabular-nums;
+        display: inline-flex; align-items: baseline; gap: 3px; font-weight: 700; }
+      .hh-stat .uic { width: 11px; height: 11px; align-self: center; opacity: 0.85;
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.7)); }
       .rtx-common { color: #b9b2a4; } .rtx-magic { color: #8fb0d9; }
       .rtx-rare { color: #f2c14e; } .rtx-epic { color: #b08fd9; }
       .hh-phase { font-family: var(--display); font-variant: small-caps; font-size: 10.5px;
@@ -132,32 +146,38 @@
       .hh-xp > i { display: block; height: 100%; width: 0;
         background: linear-gradient(90deg, #3c5f93, var(--lore)); }
       .hh-status { margin-top: 4px; }
-      /* The event feed carries NO container chrome at all — each line is its
-         own glass chip, so there is structurally no way to render a bordered
-         empty rectangle (r3 blocker: the frame outlived its content). */
+      /* Event feed (r2): proper HUD chrome — dark plate, gold hairline,
+         small-caps header — that exists ONLY while lines are live (.live is
+         host-managed, so no bordered empty rectangle can ever render).
+         Capped at 3 lines; each fades after ~5s (LOG_HOLD_MS, main3d). */
       #hud-log { bottom: 12px; left: 12px; font-size: 12px; color: #b3ab99; max-width: 60ch;
-        background: none; border: none; box-shadow: none; padding: 0;
+        min-width: 24ch; background: none; border: none; box-shadow: none; padding: 0;
         transition: opacity 0.4s ease; }
       #hud-log:not(.live) { opacity: 0; }
-      /* Log feed: each line fades in/out on its own (was a blunt innerHTML
-         overwrite every frame — a burst of 2+ events could evict an unread
-         line with zero visual cue). "fresh" briefly pops the text brighter so
-         a new arrival catches the eye, then eases back to the muted tan. */
-      #hud-log-feed { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+      #hud-log.live { background: var(--noise), linear-gradient(180deg, rgba(26,20,14,0.86), rgba(11,8,5,0.88));
+        border: 1px solid rgba(168,133,79,0.5); border-radius: 3px; padding: 0 0 6px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,221,200,0.06),
+          0 6px 20px rgba(0,0,0,0.5); }
+      #hud-log.live::before { content: "◆ Live Feed"; display: block;
+        font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 9.5px; letter-spacing: 0.22em; color: var(--gold);
+        padding: 4px 10px 3px; margin-bottom: 4px;
+        border-bottom: 1px solid rgba(168,133,79,0.3);
+        background: linear-gradient(180deg, rgba(201,162,75,0.1), transparent); }
+      /* Log feed: each line fades in/out on its own. "fresh" briefly pops the
+         text brighter so a new arrival catches the eye, then eases back. */
+      #hud-log-feed { display: flex; flex-direction: column; gap: 2px; align-items: stretch; }
       .log-line { opacity: 0; transform: translateX(-6px);
-        background: rgba(0,0,0,0.52); border-left: 2px solid rgba(168,133,79,0.55);
-        border-radius: 0 3px 3px 0; padding: 3px 10px 3px 8px;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+        border-left: 2px solid rgba(168,133,79,0.55);
+        padding: 2px 10px 2px 8px;
         transition: opacity 0.35s ease, transform 0.35s ease, color 0.9s ease; }
       .log-line.show { opacity: 1; transform: translateX(0); }
       .log-line.fresh { color: #f5e6bf; }
       /* Older lines recede (D2R chat fade) — newest reads, history whispers. */
-      #hud-log-feed .log-line.show:nth-last-child(3) { opacity: 0.75; }
-      #hud-log-feed .log-line.show:nth-last-child(4) { opacity: 0.55; }
-      #hud-log-feed .log-line.show:nth-last-child(n+5) { opacity: 0.35; }
-      #hud-log-status { margin-top: 4px; background: rgba(0,0,0,0.52);
-        border-left: 2px solid rgba(192,57,47,0.6); border-radius: 0 3px 3px 0;
-        padding: 4px 10px 4px 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.35); }
+      #hud-log-feed .log-line.show:nth-last-child(2) { opacity: 0.7; }
+      #hud-log-feed .log-line.show:nth-last-child(n+3) { opacity: 0.45; }
+      #hud-log-status { margin-top: 4px; border-left: 2px solid rgba(192,57,47,0.6);
+        padding: 3px 10px 3px 8px; }
       #hud-log-status:empty { display: none; }
       /* Top-center: two buttons replace the old keycap strip (play feedback
          2026-07-09) — SYSTEM (configuration) and CRAWLER (in-run panels).
@@ -169,15 +189,22 @@
          but still LEGIBLE (r3 minor): same contrast tier as the top buttons. */
       #banner b { color: var(--ink-dim); font-size: 9px; letter-spacing: 0.22em;
         margin-right: 4px; font-family: var(--display); font-variant: small-caps; font-weight: 600;
-        border: 1px solid rgba(110,85,51,0.65); border-radius: 3px; padding: 3px 9px;
-        background: rgba(0,0,0,0.55);
-        box-shadow: inset 0 1px 0 rgba(232,221,200,0.07); }
+        align-self: stretch; display: inline-flex; align-items: center;
+        border: 1px solid #6e5533; border-top-color: #8a6d3b; border-bottom-color: #3a2c19;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        border-radius: 3px; padding: 3px 11px;
+        background: var(--noise),
+          linear-gradient(180deg, rgba(36,28,18,0.85), rgba(10,8,5,0.9));
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.12), inset 0 0 0 1px rgba(0,0,0,0.55); }
       .tb { position: relative; }
       .topbtn { cursor: pointer; color: var(--ink-dim);
-        background: linear-gradient(180deg, rgba(38,29,19,0.72), rgba(8,6,4,0.72));
-        border: 1px solid rgba(110,85,51,0.65); border-radius: 3px; padding: 6px 18px;
-        box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5),
-          0 2px 8px rgba(0,0,0,0.45);
+        background: var(--noise),
+          linear-gradient(180deg, rgba(46,36,23,0.85), rgba(13,10,7,0.88) 55%, rgba(8,6,4,0.9));
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        border-radius: 3px; padding: 6px 18px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), inset 0 0 0 1px rgba(0,0,0,0.6),
+          inset 0 -5px 9px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.45);
         font-family: "Cinzel", serif; font-size: 12px; font-weight: 600;
         letter-spacing: 0.12em; text-transform: uppercase; }
       .topbtn:hover, .tb.open .topbtn { color: var(--gold-hi); border-color: var(--bronze-hi); }
@@ -195,11 +222,31 @@
       .bar { height: 8px; border-radius: 2px; background: #0a0805; margin-top: 4px; overflow: hidden;
         box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 0 0 1px rgba(110,85,51,0.4); }
       .bar > i { display: block; height: 100%; }
-      /* Segment ticks every 25% on the collapse clock (material pass). */
-      .hh-collapse { position: relative; }
+      /* Collapse clock (r2): a gold-framed depleting FUSE — hairline gold
+         bezel, diamond endcaps (host markup adds .fcap spans), diamond-tick
+         quarter marks, green -> amber -> red phase ramp (semantic classes
+         above), and a white-hot leading edge on the burn line. */
+      .hh-collapse { position: relative; height: 9px; overflow: visible;
+        border-radius: 2px; background: linear-gradient(180deg, #060503, #14100a);
+        box-shadow: 0 0 0 1px rgba(201,162,75,0.5), inset 0 1px 3px rgba(0,0,0,0.9),
+          inset 0 -1px 0 rgba(232,221,200,0.06), 0 1px 4px rgba(0,0,0,0.5); }
+      .hh-collapse > i { border-radius: 1px;
+        box-shadow: inset -2px 0 0 rgba(255,240,200,0.65), inset 0 1px 0 rgba(255,255,255,0.3),
+          inset 0 -2px 3px rgba(0,0,0,0.35) !important; }
       .hh-collapse::after { content: ""; position: absolute; inset: 0; pointer-events: none;
-        background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.6) 1px, transparent 1px);
         background-size: 25% 100%; background-position: -1px 0; }
+      .hh-collapse .fcap { position: absolute; top: 50%; width: 7px; height: 7px;
+        margin-top: -4px; transform: rotate(45deg); z-index: 2;
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      .hh-collapse .fcap.l { left: -5px; }
+      .hh-collapse .fcap.r { right: -5px; }
+      /* Quarter marks as engraved diamond notches under the track. */
+      .hh-collapse .ftick { position: absolute; bottom: -3px; width: 4px; height: 4px;
+        margin-left: -2px; transform: rotate(45deg); z-index: 1;
+        background: linear-gradient(135deg, #6e5533, #3a2c19);
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.7); }
       kbd { background: linear-gradient(180deg, var(--hover), var(--raised));
         border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: 3px;
         padding: 1px 6px; font-size: 11px; color: var(--ink-dim); }
@@ -210,14 +257,15 @@
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
-      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 30px;
+      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 34px;
         transform: translate(-50%, -50%);
-        paint-order: stroke fill; -webkit-text-stroke: 5px rgba(12,7,3,0.92);
-        text-shadow: 0 3px 5px rgba(0,0,0,0.75); will-change: transform, opacity;
+        paint-order: stroke fill; -webkit-text-stroke: 6px rgba(10,6,2,0.95);
+        text-shadow: 0 0 1px rgba(255,255,255,0.85), 0 3px 6px rgba(0,0,0,0.85);
+        will-change: transform, opacity;
         font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-      .dmg.crit { font-size: 48px; font-weight: 900; letter-spacing: 0.02em;
-        -webkit-text-stroke: 7px rgba(12,7,3,0.92);
-        text-shadow: 0 3px 0 rgba(0,0,0,0.7), 0 0 26px currentColor; }
+      .dmg.crit { font-size: 58px; font-weight: 900; letter-spacing: 0.02em;
+        -webkit-text-stroke: 8px rgba(10,6,2,0.95);
+        text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 3px 0 rgba(0,0,0,0.7), 0 0 26px currentColor; }
       /* Level-up (D4-style): bigger, gold, held longer than a hit number —
          paired with the world-space ring (see #fx-levelring in renderer3d). */
       .dmg.levelup-text { font-size: 34px; color: #f2c14e; letter-spacing: 0.5px;
@@ -313,10 +361,11 @@
       /* Minimap: framed like an instrument, not a raw canvas — bronze bezel,
          corner-cap diamonds, inner vignette (house frame language). */
       #minimap-frame { position: fixed; right: 12px; bottom: 12px; padding: 4px;
-        background: linear-gradient(180deg, rgba(40,31,23,0.9), rgba(14,11,9,0.9));
-        border: 1px solid var(--bronze); border-radius: 3px;
-        outline: 1px solid #201812; outline-offset: 2px;
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.08),
+        background: var(--noise), linear-gradient(180deg, rgba(46,36,26,0.92), rgba(14,11,9,0.94));
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        border-radius: 3px;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(242,222,180,0.14),
           0 6px 20px rgba(0,0,0,0.5); }
       #minimap-frame::before, #minimap-frame::after { content: ""; position: absolute; left: 50%;
         width: 8px; height: 8px; margin-left: -5px; transform: rotate(45deg);
@@ -387,13 +436,16 @@
       /* Boss encounter: ringside intro splash + persistent top health bar.
          The splash sits BELOW the headline zone (see screen zones above) — a
          ringside introduction fires both, and they must never share pixels. */
-      #bossintro { position: fixed; top: max(32%, 240px); left: 50%; transform: translateX(-50%);
+      /* Lower-third staging (r3 major): the card sits BELOW center so the
+         menace being introduced is framed above it, never hidden behind its
+         own title text. */
+      #bossintro { position: fixed; top: max(58%, 420px); left: 50%; transform: translateX(-50%);
         display: none; text-align: center; pointer-events: none; z-index: 20; }
-      /* Scrim band: the title card owns its layer — no boss geometry reading
-         through the kicker line (AAA r2 minor). */
-      #bossintro::before { content: ""; position: absolute; inset: -36px -160px; z-index: -1;
-        background: radial-gradient(ellipse 100% 100% at 50% 50%,
-          rgba(7,4,2,0.72), rgba(7,4,2,0.45) 55%, transparent 78%); }
+      /* Scrim band (r2): a feathered horizontal gradient — 0 at the wings,
+         ~60% alpha through the title — never a hard-edged grey slab. */
+      #bossintro::before { content: ""; position: absolute; inset: -44px -50vw; z-index: -1;
+        background: linear-gradient(90deg,
+          rgba(7,4,2,0) 0%, rgba(7,4,2,0.6) 32%, rgba(7,4,2,0.6) 68%, rgba(7,4,2,0) 100%); }
       /* Ringside kicker between engraved gold rules. */
       #bossintro .bi-kicker { display: flex; align-items: center; justify-content: center; gap: 16px;
         color: var(--gold); font-family: var(--display); font-variant: small-caps;
@@ -438,13 +490,43 @@
          alongside the intro; bars slide in, hold, and fade with the card). */
       #letterbox { position: fixed; inset: 0; pointer-events: none; z-index: 19; display: none; }
       #letterbox.on { display: block; }
-      #letterbox i { position: absolute; left: 0; right: 0; height: 72px; }
-      #letterbox .lb-top { top: 0; background: linear-gradient(180deg, rgba(0,0,0,0.96) 68%, transparent);
+      /* r3 major: soft gradient falloff (no hard-edged slab) + an engraved
+         gold hairline riding each band's inner edge — broadcast, not bug. */
+      #letterbox i { position: absolute; left: 0; right: 0; height: 88px; }
+      #letterbox .lb-top { top: 0; background: linear-gradient(180deg,
+          rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
         animation: lb-top-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
-      #letterbox .lb-bot { bottom: 0; background: linear-gradient(0deg, rgba(0,0,0,0.96) 68%, transparent);
+      #letterbox .lb-bot { bottom: 0; background: linear-gradient(0deg,
+          rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
         animation: lb-bot-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+      #letterbox i::after { content: ""; position: absolute; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(201,162,75,0.75) 16%,
+          rgba(201,162,75,0.75) 84%, transparent);
+        box-shadow: 0 0 8px rgba(201,162,75,0.4); }
+      #letterbox .lb-top::after { bottom: 30px; }
+      #letterbox .lb-bot::after { top: 30px; }
+      /* Intro key light: a warm radial lift projected AT the boss (host
+         positions it via worldToScreen) so the star of the introduction is
+         lit for the cut, not an unreadable silhouette. */
+      #bossspot { position: fixed; width: 620px; height: 620px; margin: -310px 0 0 -310px;
+        display: none; pointer-events: none; z-index: 18; mix-blend-mode: screen;
+        background: radial-gradient(circle, rgba(255,216,150,0.55) 0%,
+          rgba(255,186,116,0.22) 38%, rgba(255,170,100,0) 66%); }
+      #bossspot.on { display: block;
+        animation: spot-in 0.5s ease-out both, bi-out 0.5s ease 3s forwards; }
+      @keyframes spot-in { from { opacity: 0; transform: scale(0.8); } }
       @keyframes lb-top-in { from { transform: translateY(-100%); } }
       @keyframes lb-bot-in { from { transform: translateY(100%); } }
+      /* Broadcast cut (r2): while the letterbox rides the title card the HUD
+         leaves the frame ENTIRELY — no half-dimmed panels under a cinematic.
+         body.cine is set by the host for the letterbox window (~3.5s). */
+      body.cine #hud-tl, body.cine #hud-tr, body.cine #hud-log,
+      body.cine #minimap-frame, body.cine #show, body.cine #cockpit,
+      body.cine #party, body.cine #toasts, body.cine #banner,
+      body.cine #draft-badge { opacity: 0; transition: opacity 0.3s ease; }
+      /* And they FADE back in when the cut ends, not pop. */
+      #hud-tl, #hud-tr, #minimap-frame, #show, #cockpit, #party, #banner,
+      #draft-badge { transition: opacity 0.45s ease; }
       /* Boss bar, D2R/D4 standard: named plaque with engraved side rules,
          ornamental bronze frame, damage-lag ghost, phase-break notches on the
          track and enrage pips under the name. */
@@ -470,31 +552,40 @@
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; font-size: 15px;
         text-shadow: 0 1px 2px #000, 0 0 14px rgba(192,57,47,0.35); }
       #bossbar .bb-affix { color: #d14538; font-size: 11px; letter-spacing: 2px; white-space: nowrap; }
-      /* D4 endcaps: bronze diamonds pin the menace's bar at both ends. */
-      #bossbar .bar { height: 11px; margin-top: 6px; border: 1px solid #000;
-        position: relative; overflow: visible; background: #0a0805; }
+      /* D4 endcaps: bronze diamonds pin the menace's bar at both ends.
+         r3 rebuild: ONE frame (the .bar) with the fill inset precisely to its
+         inner bounds — the fill can never overshoot the bezel — and the only
+         ticks are the phase breaks, drawn on the frame layer ABOVE the fill
+         at their exact fractions. */
+      #bossbar .bar { height: 13px; margin-top: 6px; border: 1px solid #000;
+        position: relative; overflow: visible;
+        background: linear-gradient(180deg, #060402, #16100a);
+        box-shadow: 0 0 0 1px rgba(138,109,59,0.55), inset 0 1px 3px rgba(0,0,0,0.9); }
       #bossbar .bar::before, #bossbar .bar::after { content: ""; position: absolute; top: 50%;
         width: 9px; height: 9px; margin-top: -5px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
-        border: 1px solid #241a08; z-index: 2; }
+        border: 1px solid #241a08; z-index: 3; }
       #bossbar .bar::before { left: -6px; }
       #bossbar .bar::after { right: -6px; }
-      #bossbar .bb-track { position: absolute; inset: 0; overflow: hidden; }
-      /* Segment ticks every 25% over the fill (D2R material read). */
-      #bossbar .bb-ticks { position: absolute; inset: 0; pointer-events: none; z-index: 1;
-        background-image: linear-gradient(90deg, rgba(0,0,0,0.6) 1px, transparent 1px);
-        background-size: 25% 100%; background-position: -1px 0; }
+      #bossbar .bb-track { position: absolute; inset: 2px; overflow: hidden; }
       #bossbar .bb-track > i { position: absolute; top: 0; bottom: 0; left: 0; display: block; }
       #bossbar #bb-ghost { width: 100%; background: rgba(245,230,191,0.5); }
-      /* Fill: top-edge gloss band + shaded foot — lit metal, not matte paint. */
+      /* Fill: top-edge gloss + shaded foot, plus a slow ember drift crawling
+         the surface — lit, breathing menace, not matte paint. */
       #bossbar #bb-fill { width: 100%; transition: width 0.12s ease;
         background: linear-gradient(180deg, #e87a68 0%, #d4574a 18%, #a93226 55%, #7e2018);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), inset 0 2px 2px rgba(255,220,200,0.18),
           inset 0 -3px 4px rgba(0,0,0,0.45); }
-      /* Phase breaks at 2/3 and 1/3 HP — the enrage thresholds (sim config). */
-      #bossbar .bb-break { position: absolute; top: -2px; bottom: -2px; width: 2px;
-        margin-left: -1px; z-index: 1; background: rgba(14,11,9,0.92);
-        box-shadow: 0 0 0 1px rgba(168,133,79,0.4); }
+      #bossbar #bb-fill::after { content: ""; position: absolute; inset: 0;
+        background: linear-gradient(100deg, transparent 30%, rgba(255,168,92,0.4) 46%,
+          rgba(255,220,160,0.25) 50%, transparent 66%);
+        background-size: 220% 100%; animation: bb-ember 3.4s linear infinite; }
+      @keyframes bb-ember { from { background-position: 130% 0; } to { background-position: -120% 0; } }
+      /* Phase breaks at 2/3 and 1/3 HP — the enrage thresholds (sim config) —
+         engraved through the track, above the fill. */
+      #bossbar .bb-break { position: absolute; top: 0; bottom: 0; width: 2px;
+        margin-left: -1px; z-index: 2; background: rgba(10,7,5,0.95);
+        box-shadow: 0 0 0 1px rgba(168,133,79,0.45); }
       #bossbar.elite .bb-break, #bossbar.elite .bb-pips { display: none; }
       #bossbar .bb-pips { display: flex; justify-content: center; gap: 9px; margin-top: 7px; }
       #bossbar .bb-pips i { width: 8px; height: 8px; transform: rotate(45deg);
@@ -503,8 +594,10 @@
       #bossbar .bb-pips i.on { background: linear-gradient(135deg, #e0604f, #7e2018);
         box-shadow: 0 0 0 1px var(--bronze-hi), 0 0 8px rgba(192,57,47,0.65); }
 
-      /* Action bar (D4/WoW cockpit): globe + slots + XP strip */
-      #cockpit { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      /* Action bar (D4/WoW cockpit): globe + slots + XP strip. bottom leaves
+         safe-area room for the XP strip riding 14px below the slots (r3
+         minor: the lower gold trim was clipped by the viewport edge). */
+      #cockpit { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
         display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
       /* Banked-draft badge: level-ups no longer hijack the screen mid-fight —
          they wait here until the crawler claims them (see draft flow, main3d). */
@@ -599,51 +692,78 @@
       #rotate b { font-family: "Cinzel", serif; font-size: 20px; letter-spacing: 0.14em;
         color: var(--gold-hi); text-transform: uppercase; }
       #rotate span { color: var(--ink-dim); font-size: 14px; max-width: 34ch; }
-      /* Ability chips: one unified geometry (dark well, bronze frame, 6px
-         radius everywhere), keycap-styled binds, a gold-edged radial sweep,
-         and a bright ready-flash the moment a cooldown completes. */
-      .skill { position: relative; width: 56px; height: 56px;
-        background: linear-gradient(180deg, #1b1611, #100c09);
-        border: 1px solid var(--bronze); border-radius: 6px; font-size: 10px; color: var(--ink);
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 12px rgba(0,0,0,0.5),
-          0 2px 8px rgba(0,0,0,0.5);
+      /* Ability chips (r2 hotbar): ~64px BEVELED GOLD frames — engraved
+         bronze-gold border, inner black keyline, top bevel light — keycap
+         seated in the frame's top edge, radial cooldown wipes, charge pip
+         rows riding the bottom rail, recessed sockets when empty. */
+      .skill { position: relative; width: 64px; height: 64px;
+        background: var(--noise), linear-gradient(180deg, #241c14, #100c09 60%);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        border-radius: 6px; font-size: 10px; color: var(--ink);
+        outline: 1px solid #16100a; outline-offset: 1px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.14),
+          inset 0 0 14px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.55);
         display: flex; flex-direction: column; align-items: center; justify-content: center; }
-      /* Keycap seated in a dedicated notch centered on the frame's top edge —
-         never overlapping the slot border at a corner (AAA r2 minor). */
-      .skill .key { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+      /* Keycap integrated INTO the frame's top edge: same gold family as the
+         frame, sunk so its border fuses with the slot border (r2). */
+      .skill .key { position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
         z-index: 2; white-space: nowrap;
-        background: linear-gradient(180deg, var(--hover), var(--raised));
-        border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: 3px;
-        padding: 0 6px; font-size: 9px; color: var(--gold); font-weight: 700; line-height: 1.5;
+        background: linear-gradient(180deg, #3b2e1c, #201812);
+        border: 1px solid #8a6d3b; border-bottom-width: 2px; border-radius: 3px;
+        padding: 0 7px; font-size: 9.5px; color: var(--gold-hi); font-weight: 700; line-height: 1.6;
         font-family: var(--display); letter-spacing: 0.05em;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.55); }
-      .skill .label { position: absolute; bottom: 2px; z-index: 2; font-size: 8px; color: var(--ink-dim);
-        max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 2px 4px rgba(0,0,0,0.6); }
+      /* Skill names at the HUD's parchment tone (r3 minor: dim-to-illegible). */
+      .skill .label { position: absolute; bottom: 3px; z-index: 2; font-size: 9px; color: #d9cdb0;
+        max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.08em;
-        text-shadow: 0 1px 2px #000; }
+        text-shadow: 0 1px 2px #000, 0 0 4px rgba(0,0,0,0.8); }
+      /* Charge pips (Dash ×2, Slurp ×3): gold gem diamonds seated on the
+         bottom frame rail — banked charges glow, spent sockets sit dark. */
+      .skill .cpips { position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 6px; z-index: 3; }
+      .skill .cpip { width: 7px; height: 7px; transform: rotate(45deg);
+        background: linear-gradient(135deg, #2c241b, #14100a);
+        box-shadow: 0 0 0 1px var(--bronze), inset 0 1px 2px rgba(0,0,0,0.85); }
+      .skill .cpip.on { background: linear-gradient(135deg, #ffe9ad, #c9a24b 55%, #7a6428);
+        box-shadow: 0 0 0 1px #7a6428, 0 0 7px rgba(242,193,78,0.6); }
       .skill .cd { display: none; }
       /* Radial cooldown sweep: --cd goes 0 (ready) -> 1 (full cooldown); the
          leading edge carries a thin gold rim so the sweep reads as a dial. */
       .skill .sweep { position: absolute; inset: 1px; border-radius: 5px; z-index: 1;
         background: conic-gradient(rgba(6,4,2,0.84) calc(var(--cd, 0) * 360deg - 3deg),
           rgba(242,193,78,0.55) calc(var(--cd, 0) * 360deg), transparent 0); }
-      .skill.ready { border-color: var(--bronze-hi);
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 10px rgba(0,0,0,0.45),
-          0 0 10px rgba(201,162,75,0.2), 0 2px 8px rgba(0,0,0,0.5); }
+      .skill.ready { border-color: var(--gold);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 1px 0 rgba(242,222,180,0.16),
+          inset 0 0 10px rgba(0,0,0,0.45),
+          0 0 12px rgba(201,162,75,0.28), 0 3px 10px rgba(0,0,0,0.55); }
       /* Empty slots are first-class citizens (r3 major): the SAME bevel
          chassis at lower intensity — bronze frame, recessed well, an engraved
          socket diamond where the icon would sit, and a keycap in the same
          gold family at reduced strength (LoL empty-trinket read). */
       .skill.empty { border-color: rgba(110,85,51,0.55);
         background: linear-gradient(180deg, #16110d, #0c0906 70%);
-        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.65),
+        box-shadow: inset 0 3px 10px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(0,0,0,0.65),
           inset 0 -1px 0 rgba(232,221,200,0.04), 0 2px 8px rgba(0,0,0,0.5); }
+      /* Deliberate rune-socket: a turned recess (dark well, thin bronze lip,
+         light catching the bottom rim) with a lock rune engraved at ~30% —
+         "not yet earned", never "asset missing". */
+      .skill.empty::before { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%;
+        background: radial-gradient(circle at 50% 34%, #060403, #130e09 78%);
+        border: 1px solid rgba(110,85,51,0.5);
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.95), inset 0 -1px 0 rgba(232,221,200,0.06),
+          0 1px 0 rgba(232,221,200,0.07); }
       .skill.empty::after { content: ""; position: absolute; left: 50%; top: 50%;
-        width: 11px; height: 11px; margin: -6px 0 0 -6px; transform: rotate(45deg);
-        border: 1px solid rgba(168,133,79,0.4);
-        background: linear-gradient(135deg, rgba(168,133,79,0.14), rgba(0,0,0,0.3));
-        box-shadow: inset 0 1px 2px rgba(0,0,0,0.8); }
+        width: 15px; height: 15px; margin: -8px 0 0 -7.5px;
+        background: rgba(201,162,75,0.32);
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3zm0 8.4a1.9 1.9 0 0 1 1 3.5V18a1 1 0 0 1-2 0v-2.1a1.9 1.9 0 0 1 1-3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V7a3 3 0 0 1 3-3zm0 8.4a1.9 1.9 0 0 1 1 3.5V18a1 1 0 0 1-2 0v-2.1a1.9 1.9 0 0 1 1-3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
       .skill.empty .key { opacity: 0.8; }
+      /* A drained flask is SPENT, not locked: keep its own icon, dimmed. */
+      #flask-chip.empty::before, #flask-chip.empty::after { content: none; }
+      #flask-chip.empty .icon { background: rgba(201,162,75,0.35); }
       .skill.ult { border-color: #5d3f85; }
       .skill.ult.ready { border-color: var(--arcane);
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 10px rgba(0,0,0,0.45),
@@ -655,7 +775,7 @@
       .skill.empty .key, .skill.ult.empty .key {
         color: rgba(201,162,75,0.66); border-color: rgba(110,85,51,0.6); }
       .skill .bench-badge { color: #a99f8c; font-size: 9px; }
-      .skill .icon { display: block; width: 30px; height: 30px;
+      .skill .icon { display: block; width: 34px; height: 34px;
         background: #c9a24b; mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
         filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6)); }
@@ -678,10 +798,13 @@
       body.touch #skills .skill .sweep, body.touch #skills .skill .flashfx { border-radius: 50%; }
       /* XP strip under the slots (health lives in the top-right cockpit).
          XP is lore-blue — the styleguide's semantic rule. */
-      #xpbar { position: absolute; left: 0; right: 0; bottom: -8px; height: 4px;
-        background: #0a0805; border: 1px solid #241d16; border-radius: 3px; overflow: hidden; }
+      #xpbar { position: absolute; left: 0; right: 0; bottom: -14px; height: 5px;
+        background: linear-gradient(180deg, #060503, #14100a);
+        border: 1px solid #241d16; border-radius: 3px; overflow: hidden;
+        box-shadow: 0 0 0 1px rgba(110,85,51,0.5), inset 0 1px 2px rgba(0,0,0,0.9),
+          inset 0 -1px 0 rgba(232,221,200,0.05); }
       #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #3c5f93, #5a87c6);
-        width: 0%; }
+        width: 0%; box-shadow: inset -2px 0 0 rgba(220,235,255,0.6), inset 0 1px 0 rgba(255,255,255,0.25); }
       #keys .credits { margin-top: 10px; color: #6f6757; font-size: 10px; }
 
       /* Inventory panel */
@@ -940,30 +1063,37 @@
       /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
       /* Tucked under the SYSTEM/CRAWLER buttons (play feedback 2026-07-09:
          it floated once the keycap strip left). Boss bar takes the old slot. */
-      #show { position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
-        display: flex; flex-direction: column; align-items: center; gap: 5px;
+      #show { position: fixed; top: 46px; left: 50%; transform: translateX(-50%);
+        display: flex; flex-direction: column; align-items: center; gap: 4px;
         pointer-events: none; font-size: 13px; }
       #show .chips { display: flex; gap: 10px; }
       /* Hype meter in the HP bar's material language (r3 major: no bare 2px
          strips) — bronze bezel, visible groove at zero, diamond end-caps,
          and the frenzy line as an authored gold notch, not a stray tick. */
-      #show .hypebar { position: relative; width: 250px; height: 7px; border-radius: 2px;
+      #show .hypebar { position: relative; width: 250px; height: 9px; border-radius: 2px;
         background: linear-gradient(180deg, #05040a, #100d16);
-        border: 1px solid var(--bronze);
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(232,221,200,0.05),
-          0 1px 4px rgba(0,0,0,0.5); }
+        border: 1px solid var(--bronze); border-top-color: #8a6d3b;
+        box-shadow: 0 0 0 1px rgba(201,162,75,0.45), inset 0 1px 3px rgba(0,0,0,0.9),
+          inset 0 -1px 0 rgba(232,221,200,0.06), 0 1px 5px rgba(0,0,0,0.55); }
       #show .hypebar::before, #show .hypebar::after { content: ""; position: absolute; top: 50%;
-        width: 6px; height: 6px; margin-top: -3.5px; transform: rotate(45deg); z-index: 1;
+        width: 7px; height: 7px; margin-top: -4px; transform: rotate(45deg); z-index: 1;
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
         border: 1px solid #241a08; }
-      #show .hypebar::before { left: -5px; }
-      #show .hypebar::after { right: -5px; }
-      #show .hypebar > i { display: block; height: 100%; width: 0%;
-        background: linear-gradient(90deg, #7a5cff, #c98ba6); transition: width 0.15s linear; }
+      #show .hypebar::before { left: -6px; }
+      #show .hypebar::after { right: -6px; }
+      /* Fill carries a white-hot leading-edge glint + top sheen, same burn-
+         line grammar as the collapse fuse. */
+      #show .hypebar > i { display: block; height: 100%; width: 0%; border-radius: 1px;
+        background: linear-gradient(90deg, #7a5cff, #c98ba6); transition: width 0.15s linear;
+        box-shadow: inset -2px 0 0 rgba(255,240,220,0.7), inset 0 1px 0 rgba(255,255,255,0.3),
+          inset 0 -2px 3px rgba(0,0,0,0.35); }
       #show .hypebar.frenzy > i { background: linear-gradient(90deg, #f2c14e, #ff6a28); }
-      #show .hypebar > s { position: absolute; top: -2px; bottom: -2px; width: 2px;
-        background: linear-gradient(180deg, var(--gold-hi), #8a6d3b);
-        box-shadow: 0 0 0 1px rgba(10,6,3,0.8); }
+      /* Frenzy line: an authored engraved diamond notch riding the frame's
+         bottom rail (never a stray tick floating on the strip). */
+      #show .hypebar > s { position: absolute; bottom: -4px; width: 5px; height: 5px;
+        margin-left: -2.5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--gold-hi), #8a6d3b);
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.8), 0 0 5px rgba(242,193,78,0.4); }
       /* Audience plaques: small gothic plates matching the corner chrome —
          one visual language, no rounded web pills on the fight screen. */
       #show .stat { background: linear-gradient(180deg, rgba(34,26,17,0.88), rgba(11,8,6,0.9));
@@ -1045,7 +1175,10 @@
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
       #abil h2 { margin: 0 0 4px; font-size: 15px; color: #5a87c6; letter-spacing: 1px; }
       #abil .hint { color: #6f6757; font-size: 12px; margin-bottom: 14px; }
-      #abil .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      /* Masonry columns (r3 major): cards pack tight per column, so a short
+         Dash card can never strand a half-screen of dead space beside Melee. */
+      #abil .grid { display: block; columns: 2; column-gap: 14px; }
+      #abil .grid .acard { break-inside: avoid; margin-bottom: 14px; }
       /* Ability cards inside this panel reuse the .acard/.nrow styles below. */
 
       /* Achievements (inside the abilities panel) */
@@ -1274,8 +1407,16 @@
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
          not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
-      .abil-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .acard { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 11px 13px; }
+      .abil-cards { display: block; columns: 2; column-gap: 12px; }
+      .abil-cards .acard { break-inside: avoid; margin-bottom: 12px; }
+      /* Engraved constellation plates (r3 major): each ability family is a
+         framed star-chart card — bronze keyline, noise grain, header rule —
+         not a flat brown field. */
+      .acard { background: var(--noise), linear-gradient(180deg, rgba(32,25,17,0.72), rgba(12,9,6,0.7) 80%);
+        border: 1px solid rgba(110,85,51,0.5); border-radius: 3px; padding: 11px 13px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,221,200,0.06),
+          0 2px 10px rgba(0,0,0,0.35); }
+      .acard .ahead { padding-bottom: 7px; border-bottom: 1px solid rgba(110,85,51,0.3); }
       .acard.unknown { border-color: #241d16; opacity: 0.7;
         background: linear-gradient(180deg, rgba(9,6,4,0.6), rgba(9,6,4,0.35));
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.55); }
@@ -1450,16 +1591,29 @@
       .def-box .dbig { text-align: center; cursor: help; }
       .def-box .dbig b { font-size: 26px; color: #b9b2a4; font-variant-numeric: tabular-nums; }
       .def-box .dbig small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 2px; }
-      /* Armor meter stays in the warm palette (r3 minor: no stray cool blue) —
-         armor-grey fill with a bronze-bezel groove; blue is XP/frost only. */
-      .def-meter { height: 10px; background: linear-gradient(180deg, #070503, #16110b);
-        border: 1px solid rgba(110,85,51,0.5); border-radius: 3px;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.85);
-        overflow: hidden; position: relative; }
-      .def-meter > i { display: block; height: 100%;
-        background: linear-gradient(90deg, #6f6a5e, #b9b2a4);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -3px 4px rgba(0,0,0,0.3); }
-      .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #c0392f; }
+      /* Effective-HP meter (r2): the HP bar's own language — gold hairline
+         frame, diamond endcaps, segment ticks — never a stock progress bar.
+         Armor-grey fill keeps the warm palette (blue is XP/frost only). */
+      .def-meter { height: 11px; background: linear-gradient(180deg, #060503, #14100a);
+        border-radius: 2px;
+        box-shadow: 0 0 0 1px rgba(201,162,75,0.5), inset 0 1px 3px rgba(0,0,0,0.9),
+          inset 0 -1px 0 rgba(232,221,200,0.06), 0 1px 4px rgba(0,0,0,0.5);
+        overflow: visible; position: relative; }
+      .def-meter > i { display: block; height: 100%; border-radius: 1px;
+        background: linear-gradient(180deg, #cfc8b8, #9d968a 45%, #5f5a50);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -3px 4px rgba(0,0,0,0.35) !important; }
+      .def-meter .ticks { position: absolute; inset: 0; pointer-events: none;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
+        background-size: 25% 100%; background-position: -1px 0; }
+      .def-meter::before, .def-meter::after { content: ""; position: absolute; top: 50%;
+        width: 7px; height: 7px; margin-top: -4px; transform: rotate(45deg); z-index: 2;
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      .def-meter::before { left: -5px; }
+      .def-meter::after { right: -5px; }
+      .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; z-index: 1;
+        background: linear-gradient(180deg, var(--gold-hi), #8a6d3b);
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.8); }
       .def-lines { font-size: 11.5px; color: #cbbfa4; line-height: 1.55; }
       .def-lines b { color: #b9b2a4; }
       .def-lines .ex { color: #6f6757; }
@@ -1506,22 +1660,27 @@
       .dbtns button:not(.sell):not(:disabled),
       #saferoom .descend button, .m-go, #recap-again, #m-t-go {
         color: #241a08 !important;
-        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b) !important;
-        border: 1px solid #5c4726 !important;
+        background: linear-gradient(180deg, #fff0c2 0%, var(--gold-hi) 12%, var(--gold) 48%, #a37c2c 82%, #8a6d3b) !important;
+        border: 1px solid #5c4726 !important; border-bottom-width: 2px !important;
         border-radius: 3px;
-        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55), 0 2px 6px rgba(0,0,0,0.5);
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.6), inset 0 -2px 3px rgba(96,62,18,0.55),
+          inset 0 0 0 1px rgba(120,88,36,0.35), 0 2px 6px rgba(0,0,0,0.5);
         font-weight: 700; letter-spacing: 0.12em;
+        text-shadow: 0 1px 0 rgba(255,240,200,0.35);
       }
       .dbtns button:not(.sell):not(:disabled):hover,
       #saferoom .descend button:hover, .m-go:hover, #recap-again:hover {
         filter: brightness(1.08); box-shadow: inset 0 1px 0 rgba(255,240,200,0.55),
           0 2px 10px rgba(201,162,75,0.35);
       }
-      /* Pressed: the gold darkens and sinks — buttons are metal, not flat fills. */
+      /* Pressed: the gold darkens and SINKS — bevel collapses, top shadow
+         deepens, the button travels 1px. Metal, not a flat fill. */
       .dbtns button:not(.sell):not(:disabled):active,
       #saferoom .descend button:active, .m-go:active, #recap-again:active, #m-t-go:active {
-        filter: brightness(0.9); transform: translateY(1px);
-        box-shadow: inset 0 2px 5px rgba(60,40,10,0.6), 0 1px 3px rgba(0,0,0,0.5);
+        filter: brightness(0.88); transform: translateY(1px);
+        border-bottom-width: 1px !important;
+        box-shadow: inset 0 3px 6px rgba(60,40,10,0.65), inset 0 0 0 1px rgba(96,62,18,0.4),
+          0 1px 2px rgba(0,0,0,0.5);
       }
       .dbtns button.sell:active, #recap .rfoot .dismiss:active, .m-mini:active,
       #keys .kb-reset button:active { transform: translateY(1px);
@@ -1658,7 +1817,11 @@
       #sheet .progress .bar { position: relative; height: 9px;
         background: linear-gradient(180deg, #070503, #16110b);
         border: 1px solid rgba(110,85,51,0.5); border-radius: 2px;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(232,221,200,0.06); }
+        box-shadow: 0 0 0 1px rgba(201,162,75,0.45), inset 0 1px 3px rgba(0,0,0,0.9),
+          inset 0 -1px 0 rgba(232,221,200,0.06); }
+      /* A visible leading tick even at low XP — the meter always reads live. */
+      #sheet .progress .bar > i { min-width: 3px;
+        box-shadow: inset -2px 0 0 rgba(220,235,255,0.65), inset 0 1px 0 rgba(255,255,255,0.3); }
       #sheet .progress .bar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
         background-image: linear-gradient(90deg, rgba(0,0,0,0.5) 1px, transparent 1px);
         background-size: 10% 100%; background-position: -1px 0; }
@@ -1710,10 +1873,21 @@
         align-items: center; justify-content: center; font-size: 18px; color: var(--gold);
         background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
         box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
-      /* ---- Painted item art (AAA r2 BLOCKER): every item icon renders as an
-         illustrated object in its own MATERIAL — highlight/base/shade trio,
-         top-left key light, a specular streak, and an embossed edge. Rarity
+      /* ---- Painted item art, r2: item/noun/stat icons are PRE-PAINTED 3-tone
+         SVGs (tools/paint-icons.mjs — shared 45° light, ink outline, material
+         palette baked in) rendered as <img class="ii">. The gradient-tint
+         rules above still serve ability masks; imgs opt out below. Rarity
          stays on the frame (--tc border + glow); the art is full-color. ---- */
+      img.ii, img.si { background: none !important;
+        -webkit-mask-image: none !important; mask-image: none !important;
+        object-fit: contain;
+        filter: saturate(1.12) contrast(1.06) drop-shadow(0 2px 2px rgba(0,0,0,0.78)) !important; }
+      img.si { width: 17px; height: 17px; display: block; margin: 0 auto; }
+      /* Dim states keep their language on top of the painted art. */
+      .itile.broke img.ii { filter: saturate(0.35) brightness(0.7)
+        drop-shadow(0 2px 2px rgba(0,0,0,0.75)) !important; }
+      .itile.locked img.ii, .itile.soldout img.ii {
+        filter: grayscale(0.7) brightness(0.6) !important; }
       .mat-steel   { --ma: #eef3f8; --mb: #9fb0c2; --mc: #3e4c5c; }
       .mat-iron    { --ma: #ded8cd; --mb: #8b857a; --mc: #37332c; }
       .mat-leather { --ma: #eec08a; --mb: #a5713d; --mc: #4a2d14; }
@@ -1776,6 +1950,68 @@
       .dempty-state .dtree { justify-content: center; margin-top: 4px; }
       .dempty-state .dempty { margin-top: auto; padding-top: 14px; text-align: center;
         color: #6f6455; }
+      /* ---- Modal focus (r3 blocker): while ANY full-screen panel is open,
+         transient HUD chatter leaves the frame ENTIRELY — no log lines, tips,
+         toasts, or banners may bleed readably behind a modal scrim. body.modal
+         is host-managed (style-attribute observer in main3d). ---- */
+      body.modal #hud-log, body.modal #toasts, body.modal #tutorial,
+      body.modal #headline, body.modal #draft-badge, body.modal #party,
+      body.modal #mobplates {
+        opacity: 0 !important; visibility: hidden;
+        transition: opacity 0.15s ease, visibility 0s linear 0.15s; }
+
+      /* ---- Enemy micro HP bars (r3 blocker): D2R read — nothing at rest,
+         loud on engagement. A thin dark-gold framed sliver appears over a
+         monster on first damage, tracks 3s past the last hit, then fades.
+         Elites carry a nameplate tier. Host: updateMobPlates (main3d). ---- */
+      /* No z-index: DOM order keeps plates under #fx damage numbers and under
+         every chrome plaque that follows them in the stacking order. */
+      #mobplates { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+      body.cine #mobplates, body.checkin #mobplates { opacity: 0; }
+      .mplate { position: absolute; width: 46px; margin-left: -23px;
+        transform: translateY(-100%); will-change: left, top, opacity; }
+      .mplate .mpname { display: none; text-align: center; margin-bottom: 2px;
+        font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 10px; letter-spacing: 0.1em; color: var(--gold-hi); white-space: nowrap;
+        text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.85); }
+      .mplate .mpbar { height: 5px; border-radius: 1px; overflow: hidden;
+        background: rgba(6,4,2,0.92); border: 1px solid rgba(138,109,59,0.85);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.85), inset 0 1px 2px rgba(0,0,0,0.85); }
+      .mplate .mpfill { display: block; height: 100%; width: 100%;
+        background: linear-gradient(180deg, #e0604f, #a93226 55%, #7e2018);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); }
+      .mplate.elite { width: 68px; margin-left: -34px; }
+      .mplate.elite .mpname { display: block; }
+      .mplate.elite .mpbar { height: 6px; border-color: rgba(201,162,75,0.9);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.85), 0 0 6px rgba(201,162,75,0.25),
+          inset 0 1px 2px rgba(0,0,0,0.85); }
+
+      /* Hype meter docks under the viewer plate WITH its own engraved label —
+         every meter has an owner (r3 minor). */
+      #show .hyperow { display: flex; align-items: center; gap: 7px; }
+      #show .hlabel { font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 9px; letter-spacing: 0.24em; color: var(--ink-dim);
+        text-shadow: 0 1px 2px #000; }
+
+      /* Shop idle rail: FEATURED spotlight (r3 major — vertical space in a
+         shop is inventory for persuasion). */
+      .dfeat { cursor: pointer; }
+      .dfeat:hover .dname { color: var(--gold-hi); }
+      .dempty-state .dsec { margin-top: 14px; }
+
+      /* Constellation star-dust: the panel field carries faint gold stars so
+         the codex reads as a star chart, not a brown table. */
+      #abil .panel { background:
+        radial-gradient(1.4px 1.4px at 12% 18%, rgba(242,193,78,0.35), transparent 100%),
+        radial-gradient(1px 1px at 78% 9%, rgba(232,221,200,0.28), transparent 100%),
+        radial-gradient(1.2px 1.2px at 55% 31%, rgba(242,193,78,0.22), transparent 100%),
+        radial-gradient(1px 1px at 31% 57%, rgba(232,221,200,0.2), transparent 100%),
+        radial-gradient(1.5px 1.5px at 88% 44%, rgba(242,193,78,0.3), transparent 100%),
+        radial-gradient(1px 1px at 8% 79%, rgba(232,221,200,0.22), transparent 100%),
+        radial-gradient(1.2px 1.2px at 64% 86%, rgba(242,193,78,0.26), transparent 100%),
+        radial-gradient(1px 1px at 42% 8%, rgba(232,221,200,0.18), transparent 100%),
+        var(--noise), linear-gradient(180deg, var(--raised), var(--stone) 36%); }
+
       /* House rule: panels fit the viewport. Where a scrollbar must exist, thin bronze. */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: var(--bronze); border-radius: 4px; }
@@ -1829,12 +2065,13 @@
         <span class="bb-affix" id="bb-affix"></span>
       </div>
       <div class="bar">
-        <span class="bb-track"><i id="bb-ghost"></i><i id="bb-fill"></i><span class="bb-ticks"></span></span>
-        <span class="bb-break" style="left: 66.67%"></span>
-        <span class="bb-break" style="left: 33.33%"></span>
+        <span class="bb-track"><i id="bb-ghost"></i><i id="bb-fill"></i>
+          <span class="bb-break" style="left: 66.67%"></span>
+          <span class="bb-break" style="left: 33.33%"></span></span>
       </div>
       <div class="bb-pips" id="bb-pips"></div>
     </div>
+    <div id="bossspot"></div>
     <div id="letterbox"><i class="lb-top"></i><i class="lb-bot"></i></div>
     <div id="bossintro">
       <div class="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
@@ -1847,7 +2084,8 @@
         <div class="stat favorites"><i class="uic" style="mask-image:url(/icons/ui/star.svg);-webkit-mask-image:url(/icons/ui/star.svg)"></i> <b id="stat-favorites">0</b> favorites</div>
         <div class="stat sponsors"><i class="uic" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i> <b id="stat-sponsors">0</b> sponsors</div>
       </div>
-      <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><s id="hype-tick"></s></div>
+      <div class="hyperow"><span class="hlabel">Hype</span>
+        <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><s id="hype-tick"></s></div></div>
     </div>
     <div id="draft">
       <div class="panel">
@@ -1858,8 +2096,8 @@
     </div>
     <div id="abil">
       <div class="panel">
-        <h2>ABILITIES</h2>
-        <div class="hint">Level up to rank abilities · find tomes to learn new ones · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
+        <h2>◆ THE CONSTELLATION</h2>
+        <div class="hint">Your star chart — level up to brighten ranks, find tomes to chart new stars · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
         <div class="grid" id="abil-grid"></div>
         <div id="ach-section">
           <h2 style="margin-top:16px">ACHIEVEMENTS <span id="ach-count" style="color:#a99f8c;font-size:12px"></span></h2>

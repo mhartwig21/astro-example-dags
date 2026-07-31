@@ -1016,8 +1016,8 @@ const hudLogStatus = document.getElementById("hud-log-status")!;
 // with zero visual cue). Pops brighter on arrival (.fresh, eased by the
 // `color` transition on .log-line), holds, then fades out on its way out;
 // overflow past LOG_MAX fades the oldest instead of yanking it.
-const LOG_MAX = 5;
-const LOG_HOLD_MS = 7000;
+const LOG_MAX = 3; // HUD chrome caps at three lines (render critic r2)
+const LOG_HOLD_MS = 5000;
 
 /** The log frame only shows chrome while it has content (audit r2: no bare
  *  wireframe box bottom-left during combat). Lines mid-fade-out don't count —
@@ -1144,6 +1144,27 @@ function hideOverlay(el: HTMLElement): void {
   }, 130));
 }
 
+// Modal focus (AAA r3 blocker): while ANY full-screen panel is open, the
+// transient HUD chatter (log feed, toasts, tutorial cards, headline banners)
+// is fully suppressed — nothing readable may bleed behind a modal scrim.
+// A style-attribute observer catches every open/close path (showOverlay,
+// direct display writes, net snapshot toggles) without touching call sites.
+{
+  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu"]
+    .map((id) => document.getElementById(id))
+    .filter((el): el is HTMLElement => el !== null);
+  const syncModal = (): void => {
+    const open = modalEls.some((el) =>
+      el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
+    document.body.classList.toggle("modal", open);
+  };
+  const modalObserver = new MutationObserver(syncModal);
+  for (const el of modalEls) {
+    modalObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+  }
+  syncModal();
+}
+
 function openDraftModal(): void {
   renderDraft(state);
   showOverlay(draftEl);
@@ -1173,9 +1194,23 @@ const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
 const bbPips = document.getElementById("bb-pips")!;
 const bossintroEl = document.getElementById("bossintro")!;
 const letterboxEl = document.getElementById("letterbox")!;
+const bossSpotEl = document.getElementById("bossspot")!;
 const biName = document.getElementById("bi-name")!;
 const biAffix = document.getElementById("bi-affix")!;
 let introShownFor = -1;
+// Broadcast cut: while the letterbox rides the title card (~3.5s), ALL HUD
+// chrome + minimap leave the frame entirely (r2: no half-dimmed panels
+// under a cinematic). body.cine gates it in CSS; the timer mirrors bi-out.
+let cineTimer = 0;
+function enterCine(): void {
+  document.body.classList.add("cine");
+  window.clearTimeout(cineTimer);
+  cineTimer = window.setTimeout(() => document.body.classList.remove("cine"), 3500);
+}
+function exitCine(): void {
+  window.clearTimeout(cineTimer);
+  document.body.classList.remove("cine");
+}
 // Damage-lag ghost on the boss bar (audit #6): white trail that holds a beat,
 // then chases the live fill. Reset per engaged target.
 let bossGhostFor = -1;
@@ -1198,13 +1233,30 @@ function updateBossBar(s: GameState): void {
         : enc.kind === "boss" ? "BOSS" : "ELITE";
       bossintroEl.classList.remove("show");
       letterboxEl.classList.remove("on");
+      bossSpotEl.classList.remove("on");
       void (bossintroEl as HTMLElement).offsetWidth; // restart the scale-in
       bossintroEl.classList.add("show");
       letterboxEl.classList.add("on"); // broadcast cut: letterbox rides the card
+      // Intro key light (r3 major): a warm radial lift projected at the star
+      // of the introduction — the cut sells the monster, not a silhouette.
+      const star = s.monsters.find((m) => m.id === enc.monsterId);
+      if (star) {
+        const sp = renderer.worldToScreen(star.pos.x, 1.1, star.pos.y);
+        if (sp.visible) {
+          bossSpotEl.style.left = `${sp.x}px`;
+          bossSpotEl.style.top = `${sp.y}px`;
+          bossSpotEl.classList.remove("on");
+          void (bossSpotEl as HTMLElement).offsetWidth;
+          bossSpotEl.classList.add("on");
+        }
+      }
+      enterCine();
     }
   } else {
     bossintroEl.classList.remove("show");
     letterboxEl.classList.remove("on");
+    bossSpotEl.classList.remove("on");
+    exitCine();
   }
   // Engaged target: the nearest introduced, living boss/elite within range.
   let target: GameState["monsters"][number] | null = null;
@@ -1301,14 +1353,19 @@ const esc = (s: string): string =>
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
-// Sponsor gifts have no ability icon; a glyph in the plate carries the read.
-// (Engraved geometric marks are fine; true emoji are not — STYLEGUIDE.md.)
+// Sponsor gifts have no ability icon; a DRAWN mark in the plate carries the
+// read (STYLEGUIDE.md rule three: icons are drawn, never typed — the old
+// dingbat set read as emoji at a glance). All masks, tinted by --oc.
 const coinIcon = `<i class="uic" style="mask-image:url(/icons/items/gold.svg);-webkit-mask-image:url(/icons/items/gold.svg)"></i>`;
+const mic = (rel: string): string =>
+  `<i class="uic" style="mask-image:url(/icons/${rel}.svg);-webkit-mask-image:url(/icons/${rel}.svg)"></i>`;
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
-  bonusTime: "⧗", materials: "◆", favor: "★", retrain: "↺",
-  shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
-  revision: "☰", revisionDecline: "—",
+  healFull: mic("stats/hp"), maxHp: mic("stats/hp"), damage: uic("party"),
+  crit: mic("stats/crit"), armor: mic("stats/armor"), item: mic("items/mystery_box"),
+  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: "◆",
+  favor: uic("star"), retrain: uic("retrain"),
+  shrineBlood: mic("items/blood_subscription"), shrineGreed: coinIcon, shrineDecline: "—",
+  revision: mic("items/landlords_ledger"), revisionDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -1321,8 +1378,8 @@ function renderDraft(s: GameState): void {
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
     const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE"
-      : quest ? "⚑ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
+    draftTitle.textContent = revision ? "◆ CLASS REVISION" : shrine ? "◆ SYSTEM SHRINE"
+      : quest ? "◆ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -1356,7 +1413,7 @@ function renderDraft(s: GameState): void {
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
         // Overrank offers extend the pip row past the printed max with stars.
         const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
-          r < u.nextRank ? (r >= max ? "⭑" : "●") : "○").join("");
+          r < u.nextRank ? (r >= max ? "✦" : "●") : "○").join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
           `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
@@ -1635,7 +1692,7 @@ function renderAbilities(s: GameState): void {
     const got = me(s).achievements.includes(a.id);
     return (
       `<div class="ach${got ? "" : " locked"}">` +
-      `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
       `</div>`
     );
@@ -1679,8 +1736,6 @@ const sheetDef = document.getElementById("sheet-def")!;
 const sheetShow = document.getElementById("sheet-show")!;
 let sheetOpen = false;
 
-const statIcon = (id: string): string =>
-  `mask-image:url(/icons/stats/${id}.svg);-webkit-mask-image:url(/icons/stats/${id}.svg)`;
 const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
@@ -1743,9 +1798,9 @@ function renderSheet(s: GameState): void {
   // tabular value — the icon keeps the scan, ink carries the data.
   sheetAttrs.innerHTML =
     `<table class="ledger">` +
-    tiles.map(([ic, c, v, l, tip]) =>
+    tiles.map(([ic, , v, l, tip]) =>
       `<tr title="${tip}">` +
-      `<td class="lic"><i class="si" style="${statIcon(ic)};background:${c}"></i></td>` +
+      `<td class="lic"><img class="si" src="/icons/painted/stats/${ic}.svg" alt=""></td>` +
       `<td class="lab">${l}</td><td class="dots"></td>` +
       `<td class="val">${v}</td></tr>`).join("") +
     `</table>`;
@@ -1761,17 +1816,20 @@ function renderSheet(s: GameState): void {
   sheetDef.innerHTML =
     `<div class="def-box">` +
     `<div class="dbig" title="armor ÷ (armor + ${d.armorK}), capped at ${Math.round(d.reductionCap * 100)}%"><b>${d.armor}</b><small>ARMOR · ${redPct}% REDUCTION</small></div>` +
-    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="cap" style="left:100%"></span></div>` +
+    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="ticks"></span></div>` +
     `<div class="def-lines" style="margin-top:7px">Effective HP ≈ <b>${d.effectiveHp}</b> · dash i-frames ×${d.dashCharges}<br>` +
     `<span class="ex">A typical floor-${id.floor} hit: <b>${d.exampleRaw}</b> raw → <b>${d.exampleTaken}</b> taken</span></div></div>` +
     `</div>`;
+  // Zero-state chips read as an em-dash, not a broken 0 (r3 minor): a level-16
+  // test crawler with no kills yet should look unwritten, not bugged.
+  const zv = (n: number): string => (n > 0 ? Math.round(n).toLocaleString() : "—");
   sheetShow.innerHTML =
     `<span class="show-chip viewers"><b>${sh.show.viewers.toLocaleString()}</b>viewers</span>` +
-    `<span class="show-chip favorites"><b>${sh.show.favorites.toLocaleString()}</b>favorites</span>` +
-    `<span class="show-chip sponsors"><b>${sh.show.sponsors}</b>sponsors</span>` +
-    `<span class="show-chip"><b>${sh.show.kills}</b>kills</span>` +
-    `<span class="show-chip"><b>${sh.show.damageDealt.toLocaleString()}</b>dmg dealt</span>` +
-    `<span class="show-chip"><b>${sh.show.damageTaken.toLocaleString()}</b>dmg taken</span>`;
+    `<span class="show-chip favorites"><b>${zv(sh.show.favorites)}</b>favorites</span>` +
+    `<span class="show-chip sponsors"><b>${zv(sh.show.sponsors)}</b>sponsors</span>` +
+    `<span class="show-chip"><b>${zv(sh.show.kills)}</b>kills</span>` +
+    `<span class="show-chip"><b>${zv(sh.show.damageDealt)}</b>dmg dealt</span>` +
+    `<span class="show-chip"><b>${zv(sh.show.damageTaken)}</b>dmg taken</span>`;
 }
 
 function toggleSheet(): void {
@@ -2065,43 +2123,14 @@ const iconStyle = (id: string): string =>
 const coin = `<i class="micon" style="${iconStyle("gold")}"></i>`;
 const matIcon = (id: string): string => `<i class="micon" style="${iconStyle(id)}"></i>`;
 
-// ---- Painted item art (AAA r2 blocker): each catalog item renders in its own
-// MATERIAL palette (see .mat-* in iso.html) so the shelf reads as full-color
-// illustrated objects, not tier-tinted font glyphs. Rarity stays on the frame.
-const ITEM_MAT: Record<string, string> = {
-  backstage_pass: "mat-gold", blastplate_harness: "mat-iron", blood_subscription: "mat-blood",
-  bloodsport_maul: "mat-iron", boss_sigil: "mat-arcane", box_seat_crossbow: "mat-wood",
-  boxcutter: "mat-steel", cancellation_axe: "mat-steel", cardboard_cuirass: "mat-leather",
-  crash_helmet: "mat-ember", crowd_medallion: "mat-gold", cursed_amplifier: "mat-arcane",
-  elite_trophy: "mat-gold", encore_treads: "mat-leather", field_ration: "mat-blood",
-  focus_bead: "mat-frost", glass_charm: "mat-frost", gold: "mat-gold",
-  gyro_stabilizer: "mat-steel", headliner_cleaver: "mat-steel", honed_edge: "mat-steel",
-  iron_plating: "mat-iron", killer_instinct: "mat-blood", landlords_ledger: "mat-leather",
-  live_feed: "mat-screen", location_scout: "mat-bone", lucky_bottlecap: "mat-gold",
-  mosh_pit_helm: "mat-iron", mystery_box: "mat-wood", overtime_clause: "mat-bone",
-  ozone_wand: "mat-arcane", padded_lining: "mat-leather", perpetual_encore: "mat-arcane",
-  plating_kit: "mat-iron", plot_armor: "mat-gold", primetime_cleaver: "mat-steel",
-  ratings_magnet: "mat-ember", roadie_runner: "mat-leather", showstopper_plate: "mat-gold",
-  signature_choreography: "mat-bone", stabilizer_rod: "mat-steel", stagedive_harness: "mat-leather",
-  standing_ovation: "mat-gold", stormcall_staff: "mat-arcane", sweeps_week_staff: "mat-wood",
-  swift_wraps: "mat-bone", system_favor: "mat-gold", tome: "mat-arcane",
-  tour_treads: "mat-leather", venom_clause: "mat-verdant", vip_pass: "mat-gold",
-};
-// Field-drop nouns (generated gear) get materials by what the thing IS.
-const NOUN_MAT: Record<string, string> = {
-  aegis: "mat-gold", axe: "mat-steel", band: "mat-gold", blade: "mat-steel",
-  boots: "mat-leather", carapace: "mat-iron", charm: "mat-frost", cleaver: "mat-steel",
-  crossbow: "mat-wood", crown: "mat-gold", fetish: "mat-bone", greaves: "mat-iron",
-  hauberk: "mat-iron", helm: "mat-iron", hood: "mat-leather", idol: "mat-gold",
-  locket: "mat-gold", maul: "mat-iron", mug: "mat-wood", pendant: "mat-gold",
-  plate: "mat-iron", sigil: "mat-arcane", spear: "mat-steel", staff: "mat-wood",
-  striders: "mat-leather", talisman: "mat-arcane", totem: "mat-wood",
-  treads: "mat-leather", vest: "mat-leather", visor: "mat-steel", wand: "mat-arcane",
-};
+// ---- Painted item art (AAA icon pass): every shelf/bag/gear icon is a
+// pre-painted 3-tone flat-shaded SVG (tools/paint-icons.mjs — shared 45°
+// key light, material palette baked in, uniform ink silhouette), rendered
+// as an <img>. Rarity stays on the tile frame (--tc border + glow).
 const itemIconHtml = (id: string): string =>
-  `<i class="ii ${ITEM_MAT[id] ?? "mat-gold"}" style="${iconStyle(id)}"></i>`;
+  `<img class="ii" src="/icons/painted/items/${id}.svg" alt="" draggable="false">`;
 const nounIconHtml = (noun: string): string =>
-  `<i class="ii ${NOUN_MAT[noun] ?? "mat-steel"}" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
+  `<img class="ii" src="/icons/painted/nouns/${noun}.svg" alt="" draggable="false">`;
 
 /** How many of each catalog id the player owns (bag + equipped) — component dots. */
 function ownedCatalogCounts(p: Player): Record<string, number> {
@@ -2235,13 +2264,26 @@ function renderShopDetail(s: GameState): void {
         if (picks.length >= 4) break;
       }
     }
+    // Featured spotlight (AAA r3 major): the idle rail SELLS — the floor's
+    // headline pick gets the full item-card art treatment, the rest ride
+    // below as Mordecai's picks. Never 60% dead brown.
+    const feat = picks[0];
+    const featHtml = feat
+      ? `<div class="dfeat" data-id="${feat.id}">` +
+        `<div class="dsec">FEATURED — FLOOR ${room.nextFloor}</div>` +
+        detailArtHtml(TIER_COLOR[feat.tier], itemIconHtml(feat.id)) +
+        `<div class="dname" style="--tc:${TIER_COLOR[feat.tier]}">${feat.name}</div>` +
+        `<div class="dkindrow"><span class="dkind" style="--tc:${TIER_COLOR[feat.tier]}">${TIER_LABEL[feat.tier]}</span></div>` +
+        `<div class="dprice"><span class="eff">${coin}${priceOf(feat)}</span></div>` +
+        `</div>`
+      : `<div class="dsigil"></div>`;
     srDetail.innerHTML =
       `<div class="dempty-state">` +
-      `<div class="dsigil"></div>` +
       `<div class="dsys">THE SYSTEM PROVIDES</div>` +
-      (picks.length
-        ? `<div class="dsec">MORDECAI'S PICKS — FLOOR ${room.nextFloor}</div>` +
-          `<div class="dtree">${picks.map((e) => miniTileHtml(e, "", `data-id="${e.id}"`)).join("")}</div>`
+      featHtml +
+      (picks.length > 1
+        ? `<div class="dsec">MORDECAI'S PICKS</div>` +
+          `<div class="dtree">${picks.slice(1).map((e) => miniTileHtml(e, "", `data-id="${e.id}"`)).join("")}</div>`
         : "") +
       `<div class="dempty">Select anything on the shelf. Components you own are credited toward whatever they build into.</div>` +
       `</div>`;
@@ -2266,6 +2308,13 @@ function renderShopDetail(s: GameState): void {
           : `<div class="dstats">Out of print — the party knows everything.</div>`;
       } else if (e.effect === "maxHp") {
         html += `<div class="dstats">+${12 + room.nextFloor * 2} max HP, permanent.</div>`;
+      }
+      // Scarcity is a stat (r3 major: no half-empty consumable cards).
+      const stock = consumableStock(e);
+      if (Number.isFinite(stock)) {
+        const left = Math.max(0, stock - (room.purchased[e.id] ?? 0));
+        html += `<div class="dstat-block"><div class="dstat-row"><span class="lab">STOCK</span>` +
+          `<span class="val">${left} left this shop</span></div></div>`;
       }
       flavor = e.desc;
     } else {
@@ -2309,6 +2358,17 @@ function renderShopDetail(s: GameState): void {
     html += `<div class="dprice">${eff < full ? `<span class="full">${full}</span>` : ""}<span class="eff">${coin}${eff}</span></div>`;
     const blocker = buyBlocker(s, e);
     html += `<div class="dbtns"><button data-buy="${e.id}" ${blocker ? "disabled" : ""}>${blocker ?? "BUY"}</button></div>`;
+    // Persuasion below the fold (r3 major: the pane never dies at the BUY
+    // button) — shelf-mates in the same slot or tier, one click away.
+    const shelfMates = room.available
+      .map((id) => CATALOG_BY_ID[id])
+      .filter((x): x is CatalogEntry => !!x && x.id !== e.id && x.id !== "tome" &&
+        ((!!e.slot && x.slot === e.slot) || x.tier === e.tier))
+      .slice(0, 4);
+    if (shelfMates.length) {
+      html += `<div class="dsec">ALSO ON THE SHELF</div><div class="dtree">${
+        shelfMates.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
+    }
     srDetail.innerHTML = html;
     return;
   }
@@ -2402,7 +2462,7 @@ function renderAchPage(s: GameState): void {
     const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
     return (
       `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
-      `<div class="atitle">${got ? "★" : "☆"} ${a.title}</div>` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
       (unopened
         ? `<button class="claim-btn" data-claim="${a.id}">◆ OPEN LOOT BOX</button>`
@@ -2550,7 +2610,7 @@ srDetail.addEventListener("click", (e) => {
     renderSafeRoom(state);
     return;
   }
-  const nav = el.closest(".itile[data-id]") as HTMLElement | null;
+  const nav = el.closest(".itile[data-id], .dfeat[data-id]") as HTMLElement | null;
   if (nav) {
     shopSel = { kind: "catalog", id: nav.dataset.id! };
     renderSafeRoom(state);
@@ -2686,35 +2746,43 @@ function updateSkills(s: GameState): void {
     `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
+    // Charge pip rows (r2): banked charges read as gold gem pips seated in
+    // the frame's bottom edge — Dash ×2, Slurp ×3 — not a "×N" text tag.
+    const pipRow = (have: number, max: number): string =>
+      `<span class="cpips">` +
+      Array.from({ length: max }, (_, i) => `<i class="cpip${i < have ? " on" : ""}"></i>`).join("") +
+      `</span>`;
     skillsEl.innerHTML = entries
       .map((e, i) => {
         const bind = bindingLabel(bindings, slotActions[i]).split(" / ")[0];
         const label = e.ability
           ? (e.ability === "dash"
-            ? `Dash ×${p.dashCharges}` // charge count in the chip
+            ? "Dash" // charges read on the pip row below
             : e.ability === "stance"
               ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
               : e.ability === "overcharge" && p.overcharged
                 ? "CHARGED" // banked and waiting for the next attack
                 : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "";
+        const pips = e.ability === "dash" ? pipRow(p.dashCharges, CONFIG.dashCharges) : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
         return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
-          `<span class="label">${label}</span><span class="sweep"></span><span class="flashfx"></span></div>`;
+          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +
-      // Flask chip (cockpit-style): charge count in the label; the radial
+      // Flask chip (cockpit-style): charges on the pip row; the radial
       // sweep shows progress toward the next charge (kills refill it).
       (CONFIG.flaskEnabled
         ? `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
           `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
           `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
           `<i class="icon" style="mask-image:url(/icons/flask.svg);-webkit-mask-image:url(/icons/flask.svg)"></i>` +
-          `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span><span class="flashfx"></span>` +
+          `<span class="label">Slurp</span>${pipRow(p.flaskCharges, CONFIG.flaskMaxCharges)}` +
+          `<span class="sweep"></span><span class="flashfx"></span>` +
           `</div>`
         : "");
   }
@@ -2769,7 +2837,7 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
   // Uniform scale, capped LOW so a barely-explored floor renders as a drawn
   // chart, never giant solid slabs (r3 minor: one minimap material spec at
   // every zoom — parchment fill, stroked walls, fixed-size actor marks).
-  const sc = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 5.5);
+  const sc = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 8);
   mmView.s = sc;
   mmView.ox = (W - bw * sc) / 2 - minX * sc;
   mmView.oy = (H - bh * sc) / 2 - minY * sc;
@@ -2786,7 +2854,7 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
       const t = map.tiles[i];
       g.fillStyle =
         t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#f2c14e" : "#443728";
+        t === Tile.DoorLocked ? "#f2c14e" : "#4a3c2a";
       g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
     }
   }
@@ -2809,7 +2877,7 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
       check(x - 1, y, X(x), Y(y), X(x), Y(y + 1));
       check(x + 1, y, X(x + 1), Y(y), X(x + 1), Y(y + 1));
       for (const [x1, y1, x2, y2, isWall] of edges) {
-        g.strokeStyle = isWall ? "rgba(168,133,79,0.75)" : "rgba(10,7,4,0.8)";
+        g.strokeStyle = isWall ? "rgba(190,152,91,0.9)" : "rgba(10,7,4,0.8)";
         g.beginPath();
         g.moveTo(x1, y1);
         g.lineTo(x2, y2);
@@ -2944,34 +3012,124 @@ const HIT_COLORS: Record<HitEvent["kind"], string> = {
   chain: "#c8d0da", // iron links; zero-amount events never become numbers anyway
 };
 
-// Floating combat numbers (audit #7): pooled DOM elements + Web Animations —
-// scale-pop, arced drift, fade. No per-hit createElement/remove churn, no CSS
-// transition round-trips, transform/opacity only (zero layout thrash).
+// Floating combat numbers (critic r2 blocker rework): pooled DOM elements +
+// Web Animations, now with AGGREGATION and COLLISION AVOIDANCE. Same-kind
+// ticks landing on the same spot within ~half a second merge into ONE rolling
+// counter that re-pops as it grows (the LoL treatment); distinct numbers that
+// would overlap fan out on golden-angle radial slots instead of piling into
+// an unreadable clump. Numbers anchor ABOVE the impact (y≈1.2) so they ride
+// over the blast core instead of sitting inside it.
 const dmgPool: HTMLDivElement[] = [];
 const DMG_POOL_MAX = 48;
 // Readability cap (audit r2): past ~16 simultaneous numbers the screen is
 // confetti — ordinary enemy ticks are dropped first; crits, kills, player
 // damage, heals, and gold always land.
 const DMG_MAX_ACTIVE = 16;
-let dmgActive = 0;
+interface DmgLive {
+  el: HTMLDivElement;
+  key: string; // kind|school|effect — only like merges with like
+  wx: number; wz: number; // world anchor: aggregation radius test
+  sx: number; sy: number; // screen anchor: collision-fan test
+  total: number;
+  merges: number;
+  born: number; // ms clock
+  crit: boolean;
+}
+const dmgLive: DmgLive[] = [];
+const DMG_AGG_MS = 520; // rolling-counter window
+const DMG_AGG_R2 = 0.9 * 0.9; // world-units² — same-target ticks merge
+const DMG_FAN_PX = 46; // min screen spacing before fanning out
+
+function dmgText(rec: DmgLive, sign: string): string {
+  return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
+}
+
+/** (Re)run the pop-drift-fade animation for a live number. Merges re-pop with
+ * a slightly bigger punch each stack so a rolling counter visibly GROWS. */
+function dmgAnimate(rec: DmgLive): void {
+  const { el, crit } = rec;
+  const grow = Math.min(1 + rec.merges * 0.07, 1.42);
+  const drift = (Math.random() - 0.5) * (crit ? 64 : 44);
+  const rise = (crit ? 70 : 56) * (rec.merges > 0 ? 0.85 : 1);
+  const pop = (crit ? 1.5 : 1.18) * grow;
+  const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
+  const anim = el.animate(
+    [
+      { transform: `translate(-50%, -50%) scale(${crit ? 0.3 : 0.55}) rotate(${tilt}deg)`, opacity: 1 },
+      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.3).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.16 },
+      { transform: `translate(calc(-50% + ${(drift * 0.55).toFixed(1)}px), calc(-50% - ${(rise * 0.72).toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.55 },
+      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
+    ],
+    { duration: crit ? 900 : 760, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+  );
+  anim.onfinish = () => {
+    const i = dmgLive.indexOf(rec);
+    if (i >= 0) dmgLive.splice(i, 1);
+    el.style.visibility = "hidden";
+    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el);
+    else el.remove();
+  };
+}
+
 function spawnDamageNumber(h: HitEvent): void {
-  const important = h.kind !== "enemy" || h.killed === true;
-  if (dmgActive >= DMG_MAX_ACTIVE && !important) return;
-  const s = renderer.worldToScreen(h.pos.x, 0.7, h.pos.y);
+  const crit = h.kind === "crit";
+  const s = renderer.worldToScreen(h.pos.x, crit ? 1.35 : 1.15, h.pos.y);
   if (!s.visible) return;
+  const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
+  const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
+  const now = performance.now();
+
+  // ROLLING COUNTER: a same-kind hit on the same spot inside the window
+  // grows the existing number and re-pops it instead of stacking a twin.
+  // (Resisted numbers carry an icon child, so they never merge.) Runs BEFORE
+  // the saturation gate: a mergeable tick always lands somewhere readable.
+  if (!h.resisted && !h.killed) {
+    for (const rec of dmgLive) {
+      if (rec.key !== key || now - rec.born > DMG_AGG_MS) continue;
+      const dx = rec.wx - h.pos.x, dz = rec.wz - h.pos.y;
+      if (dx * dx + dz * dz > DMG_AGG_R2) continue;
+      rec.total += h.amount;
+      rec.merges++;
+      rec.wx = h.pos.x; rec.wz = h.pos.y;
+      rec.el.getAnimations().forEach((a) => a.cancel());
+      rec.el.textContent = dmgText(rec, sign);
+      dmgAnimate(rec);
+      return;
+    }
+  }
+  const important = h.kind !== "enemy" || h.killed === true;
+  if (dmgLive.length >= DMG_MAX_ACTIVE && !important) return;
+
   let el = dmgPool.pop();
   if (!el) {
     el = document.createElement("div");
     fxLayer.appendChild(el);
   }
-  const crit = h.kind === "crit";
   el.className = crit ? "dmg crit" : "dmg";
   el.style.color = HIT_COLORS[h.kind];
   el.style.opacity = "";
-  el.style.left = `${s.x}px`;
-  el.style.top = `${s.y}px`;
-  const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
-  el.textContent = crit ? `${h.amount}!` : `${sign}${h.amount}`;
+  // COLLISION FAN: if this number would land on an active one, walk
+  // golden-angle radial slots until the spot is clear — no more clumps.
+  let px = s.x, py = s.y;
+  for (let slot = 0; slot < 8; slot++) {
+    let clear = true;
+    for (const rec of dmgLive) {
+      const ddx = rec.sx - px, ddy = rec.sy - py;
+      if (ddx * ddx + ddy * ddy < DMG_FAN_PX * DMG_FAN_PX) { clear = false; break; }
+    }
+    if (clear) break;
+    const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
+    const rad = 50 + slot * 9;
+    px = s.x + Math.cos(ang) * rad;
+    py = s.y + Math.sin(ang) * rad * 0.72; // squash: favor horizontal spread
+  }
+  el.style.left = `${px}px`;
+  el.style.top = `${py}px`;
+  const rec: DmgLive = {
+    el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
+    total: h.amount, merges: 0, born: now, crit,
+  };
+  el.textContent = dmgText(rec, sign);
   // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
   // can SEE which school each number came from (physical keeps the defaults).
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
@@ -2986,32 +3144,91 @@ function spawnDamageNumber(h: HitEvent): void {
   if (h.resisted) {
     el.style.color = "#8a8272";
     el.style.opacity = "0.85";
-    el.textContent = `${el.textContent} ⛨`;
+    // Drawn shield mark, never a typed dingbat (some platforms emoji-fy ⛨).
+    el.insertAdjacentHTML("beforeend",
+      ` <i class="uic" style="mask-image:url(/icons/stats/armor.svg);-webkit-mask-image:url(/icons/stats/armor.svg)"></i>`);
   }
   el.style.visibility = "visible";
-  // Motion: chunky scale-pop out of the impact, then an arced drift — the
-  // horizontal push accelerates while the rise decelerates. Crits pop ~50%
-  // larger, hang longer, and land with a slight tilt.
-  const drift = (Math.random() - 0.5) * (crit ? 64 : 48);
-  const rise = crit ? 62 : 48;
-  const pop = crit ? 1.5 : 1.18;
-  const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
-  const anim = el.animate(
-    [
-      { transform: `translate(-50%, -50%) scale(${crit ? 0.3 : 0.55}) rotate(${tilt}deg)`, opacity: 1 },
-      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.3).toFixed(1)}px)) scale(${pop}) rotate(${tilt}deg)`, opacity: 1, offset: 0.16 },
-      { transform: `translate(calc(-50% + ${(drift * 0.55).toFixed(1)}px), calc(-50% - ${(rise * 0.72).toFixed(1)}px)) scale(1)`, opacity: 1, offset: 0.55 },
-      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${rise}px)) scale(${crit ? 0.98 : 0.9})`, opacity: 0 },
-    ],
-    { duration: crit ? 900 : 720, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-  );
-  dmgActive++;
-  anim.onfinish = () => {
-    dmgActive--;
-    el!.style.visibility = "hidden";
-    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el!);
-    else el!.remove();
-  };
+  dmgLive.push(rec);
+  dmgAnimate(rec);
+}
+
+// ---- Enemy micro HP bars (AAA r3 blocker): D2R monster-health read —
+// nothing at rest, loud on engagement. A thin dark-gold framed bar appears
+// over a monster on its FIRST damage, tracks for 3s past the last hit, then
+// fades out. Elites carry a nameplate tier (engraved gold name above the
+// bar). Bosses are excluded — the top-center boss bar is their treatment.
+// Pooled DOM, transform/width mutations only; no per-frame element churn.
+const mobPlatesLayer = document.createElement("div");
+mobPlatesLayer.id = "mobplates";
+fxLayer.before(mobPlatesLayer); // damage numbers stay above the plates
+type MobPlate = { root: HTMLDivElement; name: HTMLDivElement; fill: HTMLSpanElement; cls: string };
+const mobPlatePool: MobPlate[] = [];
+const mobPlateLive = new Map<number, MobPlate>();
+const mobPlateMem = new Map<number, { hp: number; until: number }>();
+const mobPlateSeen = new Set<number>();
+const PLATE_HOLD_MS = 3000;
+const PLATE_FADE_MS = 400;
+const PLATE_MAX = 24; // past this the swarm is confetti, not information
+
+function makeMobPlate(): MobPlate {
+  const root = document.createElement("div");
+  root.className = "mplate";
+  const name = document.createElement("div");
+  name.className = "mpname";
+  const bar = document.createElement("div");
+  bar.className = "mpbar";
+  const fill = document.createElement("span");
+  fill.className = "mpfill";
+  bar.appendChild(fill);
+  root.appendChild(name);
+  root.appendChild(bar);
+  mobPlatesLayer.appendChild(root);
+  return { root, name, fill, cls: "mplate" };
+}
+
+function updateMobPlates(s: GameState): void {
+  const now = performance.now();
+  mobPlateSeen.clear();
+  let shown = 0;
+  for (const m of s.monsters) {
+    if (m.hp <= 0) { mobPlateMem.delete(m.id); continue; }
+    let mem = mobPlateMem.get(m.id);
+    if (!mem) { mem = { hp: m.hp, until: 0 }; mobPlateMem.set(m.id, mem); }
+    if (m.hp < mem.hp - 1e-6) mem.until = now + PLATE_HOLD_MS; // fresh damage
+    mem.hp = m.hp;
+    if (m.kind === "boss") continue; // the boss bar owns the menace read
+    if (mem.until <= now || m.hp >= m.maxHp || shown >= PLATE_MAX) continue;
+    const sp = renderer.worldToScreen(m.pos.x, m.elite ? 2.05 : 1.55, m.pos.y);
+    if (!sp.visible) continue;
+    let plate = mobPlateLive.get(m.id);
+    if (!plate) {
+      plate = mobPlatePool.pop() ?? makeMobPlate();
+      mobPlateLive.set(m.id, plate);
+      plate.root.style.display = "block";
+    }
+    shown++;
+    mobPlateSeen.add(m.id);
+    const cls = m.elite ? "mplate elite" : "mplate";
+    if (plate.cls !== cls) {
+      plate.cls = cls;
+      plate.root.className = cls;
+      if (m.elite) plate.name.textContent = m.eliteName ?? "ELITE";
+    }
+    plate.root.style.left = `${sp.x}px`;
+    plate.root.style.top = `${sp.y}px`;
+    plate.fill.style.width = `${Math.max(0, Math.min(1, m.hp / m.maxHp)) * 100}%`;
+    const left = mem.until - now;
+    plate.root.style.opacity = left < PLATE_FADE_MS ? (left / PLATE_FADE_MS).toFixed(2) : "1";
+  }
+  // Release plates whose monsters left the visible/damaged set this frame.
+  for (const [id, plate] of mobPlateLive) {
+    if (mobPlateSeen.has(id)) continue;
+    plate.root.style.display = "none";
+    plate.cls = "";
+    mobPlateLive.delete(id);
+    mobPlatePool.push(plate);
+  }
 }
 
 // D4-style level-up: a floating "LEVEL {n}" over the crawler's head, paired
@@ -3161,9 +3378,21 @@ function showTutorialCard(a: Announcement): void {
   };
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
-  // Auto-dismiss: a courtesy, not a squatter. Long enough to read twice.
-  tutorialAutoTimer = window.setTimeout(dismiss, 14_000);
+  tutorialShownAt = performance.now();
+  // Auto-dismiss: a courtesy, not a squatter (r2: 6-8s, or any input).
+  tutorialAutoTimer = window.setTimeout(dismiss, 7000);
 }
+
+// Any input clears the courtesy card (r2) — with a short grace so the key
+// the player was already holding when it appeared can't insta-kill it.
+let tutorialShownAt = 0;
+function dismissTutorialOnInput(): void {
+  if (tutorialDismissActive && performance.now() - tutorialShownAt > 1200) {
+    tutorialDismissActive();
+  }
+}
+window.addEventListener("keydown", dismissTutorialOnInput);
+window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
 
 /** Slide the active card out NOW (floor transitions, boss intros). Queued
  *  cards wait a beat so nothing pops over the new moment. */
@@ -3226,8 +3455,8 @@ function renderRecap(s: GameState): void {
   const ach = p.achievements
     .map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.title)
     .filter((t): t is string => !!t);
-  document.getElementById("recap-ach")!.textContent = ach.length
-    ? `★ ${ach.join(" · ★ ")}`
+  document.getElementById("recap-ach")!.innerHTML = ach.length
+    ? `${uic("star")} ${ach.map(esc).join(` · ${uic("star")} `)}`
     : "None recorded. The System pretends not to judge.";
   document.getElementById("recap-gear")!.innerHTML =
     EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
@@ -3407,12 +3636,15 @@ hudTL.innerHTML =
   `<div class="hh-row"><span class="hh-label">Collapse</span>` +
   `<span class="hh-num" id="hh-time"></span>` +
   `<span class="hh-phase" id="hh-phase"></span></div>` +
-  `<div class="bar hh-collapse" id="hh-collapse"><i id="hh-collapse-fill"></i></div>`;
+  `<div class="bar hh-collapse" id="hh-collapse"><i id="hh-collapse-fill"></i>` +
+  `<s class="fcap l"></s><s class="fcap r"></s>` +
+  `<s class="ftick" style="left:25%"></s><s class="ftick" style="left:50%"></s>` +
+  `<s class="ftick" style="left:75%"></s></div>`;
 hudTR.innerHTML =
   `<div class="hh-row"><span class="hh-label">Level</span><span class="hh-big" id="hh-level"></span>` +
   `<span class="hh-sep"></span><span class="hh-num gold">${coinIcon}<span id="hh-gold"></span></span>` +
-  `<span class="hh-sep"></span><span class="hh-stat" id="hh-atk" title="attack power (tinted by weapon rarity)"></span>` +
-  `<span class="hh-stat" id="hh-mag" title="spell power (tinted by weapon rarity)"></span></div>` +
+  `<span class="hh-sep"></span><span class="hh-stat" id="hh-atk" title="attack power (tinted by weapon rarity)">${mic("stats/attack")}<span id="hh-atk-v"></span></span>` +
+  `<span class="hh-stat" id="hh-mag" title="spell power (tinted by weapon rarity)">${mic("stats/spell")}<span id="hh-mag-v"></span></span></div>` +
   `<div class="hpframe"><div class="hpbar">` +
   `<i class="hp-ghost" id="hh-hpghost"></i><i class="hp-fill" id="hh-hpfill"></i>` +
   `<span class="hp-ticks"></span><span class="hp-num" id="hh-hpnum"></span></div></div>` +
@@ -3422,6 +3654,7 @@ const hh = (id: string): HTMLElement => document.getElementById(id) as HTMLEleme
 const hhFloor = hh("hh-floor"), hhTime = hh("hh-time"), hhPhase = hh("hh-phase"),
   hhCollapse = hh("hh-collapse"), hhCollapseFill = hh("hh-collapse-fill"),
   hhLevel = hh("hh-level"), hhGold = hh("hh-gold"), hhAtk = hh("hh-atk"), hhMag = hh("hh-mag"),
+  hhAtkV = hh("hh-atk-v"), hhMagV = hh("hh-mag-v"),
   hhHpGhost = hh("hh-hpghost"), hhHpFill = hh("hh-hpfill"), hhHpNum = hh("hh-hpnum"),
   hhXpFill = hh("hh-xpfill"), hhStatus = hh("hh-status");
 const hudCache: Record<string, string> = {};
@@ -3458,8 +3691,8 @@ function updateHud(s: GameState): void {
   // Top-right: level · gold · schools (weapon-rarity tinted), then the bar.
   setHudText(hhLevel, "level", String(p.level));
   setHudText(hhGold, "gold", p.gold.toLocaleString());
-  setHudText(hhAtk, "atk", `ATK ${p.attackPower}`);
-  setHudText(hhMag, "mag", `MAG ${p.spellPower}`);
+  setHudText(hhAtkV, "atk", String(p.attackPower));
+  setHudText(hhMagV, "mag", String(p.spellPower));
   if (hudCache.rar !== p.weaponRarity) {
     hudCache.rar = p.weaponRarity;
     hhAtk.className = `hh-stat rtx-${p.weaponRarity}`;
@@ -3519,6 +3752,9 @@ function updateHud(s: GameState): void {
     hudLogStatus.innerHTML = status;
     updateLogChrome();
   }
+  // Overhead enemy plates ride the same frame cadence as the cockpit (the
+  // camera is already positioned — updateHud runs after renderer.render).
+  updateMobPlates(s);
 }
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
@@ -3535,6 +3771,9 @@ if (new URLSearchParams(location.search).has("debug")) {
       addPlayer: (name: string) => addPlayer(state, name),
       step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
       equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
+      // Full hit path for staged FX shots: world FX + the DOM damage number
+      // (renderer.emitHits alone skips the number layer real hits get).
+      hit: (h: HitEvent) => { renderer.emitHits([h]); spawnDamageNumber(h); },
     }),
   });
 }

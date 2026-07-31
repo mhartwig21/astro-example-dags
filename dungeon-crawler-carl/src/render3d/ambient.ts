@@ -29,9 +29,9 @@ interface BandSpec {
 // Matches FLOOR_THEMES band order (undercroft, sewers, garden, ruins, ironworks, approach).
 const BAND_SPECS: BandSpec[] = [
   { // undercroft: warm dust motes hanging in torchlight, stray embers at sconces
-    count: 150, colors: [0xffb066, 0xe8d0a8, 0xffc890], sizeMin: 3.5, sizeMax: 8,
+    count: 200, colors: [0xffb066, 0xe8d0a8, 0xffc890], sizeMin: 3.5, sizeMax: 8,
     opacity: 0.5, additive: true, riseMin: 0.05, riseMax: 0.22, sway: 0.16,
-    lifeMin: 3.5, lifeMax: 7, torchBias: 0.55, yMin: 0.2, yMax: 1.6,
+    lifeMin: 3.5, lifeMax: 7, torchBias: 0.6, yMin: 0.2, yMax: 1.6,
   },
   { // sewers: luminous marsh spores drifting up out of the muck
     count: 150, colors: [0x8fe07a, 0x4fae5a, 0xb8f0a0], sizeMin: 4, sizeMax: 9,
@@ -44,7 +44,7 @@ const BAND_SPECS: BandSpec[] = [
     lifeMin: 3, lifeMax: 6.5, torchBias: 0.3, yMin: 0.25, yMax: 2.0,
   },
   { // ruins: embers climbing off the smolder
-    count: 160, colors: [0xff9a40, 0xff6a28, 0xffc060], sizeMin: 3, sizeMax: 7.5,
+    count: 210, colors: [0xff9a40, 0xff6a28, 0xffc060], sizeMin: 3, sizeMax: 7.5,
     opacity: 0.7, additive: true, riseMin: 0.3, riseMax: 0.7, sway: 0.28,
     lifeMin: 2.2, lifeMax: 4.5, torchBias: 0.55, yMin: 0.1, yMax: 1.8,
   },
