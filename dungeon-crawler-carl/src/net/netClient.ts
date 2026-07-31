@@ -131,13 +131,10 @@ export class NetClient {
         roam: roam || undefined,
         public: isPublic || undefined,
         token: loadToken(),
-<<<<<<< HEAD
+        skin: loadSkin(),
         // This browser's seen-tips ledger: the server merges it into the
         // account so first-contact tips never replay, on any device or run.
         tips: knownTips(),
-=======
-        skin: loadSkin(),
->>>>>>> origin/main
       }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {

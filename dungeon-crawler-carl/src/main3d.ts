@@ -224,11 +224,8 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
-<<<<<<< HEAD
-  seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
-=======
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
->>>>>>> origin/main
+  seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
