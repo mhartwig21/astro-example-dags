@@ -3,8 +3,8 @@ import { generateFloor, isWalkable, sealRoomOnMap, tileAt, walkableTiles } from 
 import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
 import { moveWithCollision } from "./movement";
-import { springAmbush, stepMonster } from "./ai";
-import { generateItem, hasPassive, itemScore } from "./items";
+import { alertMonster, separateMonsters, springAmbush, stepMonster } from "./ai";
+import { generateItem, hasPassive, itemScore, wantsAutoEquip } from "./items";
 import { creditQuestKill, spawnSettlement, talkToNpc } from "./npc";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
@@ -20,12 +20,13 @@ import {
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
-import { PURPOSE_RESIDENTS, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
+import { PURPOSE_RESIDENTS, RESIDENT_LINES, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
+// (service verbs ride the same plan: plan.service marks the open room)
 import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
+  Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
   MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -116,8 +117,11 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   // Compounding scaling steepens the back half (the linear curve loses to a
   // farming player by midgame). No effect at/under monsterScaleCompoundFrom.
   const compound = Math.pow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
-  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound;
-  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound;
+  // The BUILD CHECK: floors past deepScaleCompoundFrom ramp again — the last
+  // two bands demand a coherent build, not just a leveled crawler (config.ts).
+  const deep = Math.pow(CONFIG.deepScaleCompound, Math.max(0, floor - CONFIG.deepScaleCompoundFrom));
+  const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound * deep;
+  const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound * deep;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
   const hp = Math.round(baseHp * a.hpMult);
   const m: Monster = {
@@ -176,26 +180,51 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   return m;
 }
 
+/** The middle rung of the power ladder: a pack anchor that has SURVIVED down
+ * here. Bigger silhouette, real HP, a real hit, triple XP — no name, no
+ * affix, no announcement (fanfare is the elite's job; the veteran just takes
+ * 3-5 on-curve swings to die while its pack dies in one). */
+function promoteVeteran(m: Monster): void {
+  m.veteran = true;
+  m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.veteranHpMult);
+  m.damage = Math.round(m.damage * CONFIG.veteranDmgMult);
+  m.speed *= CONFIG.veteranSpeedMult;
+  m.xp = Math.round(m.xp * CONFIG.veteranXpMult);
+}
+
+/** Pack kinds that can carry the veteran anchor: real fighters only — props,
+ * parades, and support castes keep their own acts. */
+function canVeteran(kind: MonsterKind): boolean {
+  return kind !== "toysoldier" && kind !== "greeter" && kind !== "shaman" &&
+    kind !== "necromancer" && kind !== "broodmother" && kind !== "drummer" &&
+    kind !== "suitguy";
+}
+
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
   // specialists: bombers (floor 2+), chargers (3+), shamans (4+), spitters
   // (5+), phantoms (6+), necromancers (7+).
   const rangedW = 1 + floor * 0.5;
-  const bruteW = floor >= 3 ? floor * 0.4 : 0;
+  // VANILLA HEFT (owner 2026-07-26, after the veteran pass): D2-style — some
+  // ordinary kinds are just TOUGHER, learnable by silhouette, no tier badge.
+  // The heavies existed (brute 2.6x, warden 2.2x, colossus 2.8x, slagbreaker
+  // 3.0x) but the weights buried them at ~8-14% of spawns; they now carry
+  // ~25% of the mix from floor 2-3 on, pinned by the HEFT MIX contract.
+  const bruteW = floor >= 2 ? floor * 0.7 : 0;
   const swarmW = 2 + floor * 0.3;
   const gruntW = 5;
   const bomberW = floor >= 2 ? floor * 0.3 : 0;
   const shamanW = floor >= 4 ? floor * 0.25 : 0;
   const phantomW = floor >= 6 ? floor * 0.3 : 0;
-  const chargerW = floor >= 3 ? floor * 0.3 : 0;
+  const chargerW = floor >= 3 ? floor * 0.45 : 0;
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
-  const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  const broodW = floor >= 5 ? floor * 0.25 : 0; // the nests move in mid-run
   // THE UNDERCROFT trainers (2+): floor 1 stays pristine — the contract floor.
   const crypt = floor >= CONFIG.undercroftFromFloor;
   const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
-  const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
+  const wardW = crypt ? Math.max(1.2, floor * 0.35) : 0; // the band's vanilla heavy
   const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
   // THE RUINS (10+): the dead civilization drills you — walls, blessings,
   // beams, and the furniture itself.
@@ -203,7 +232,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const bearW = ruins ? floor * 0.3 : 0;
   const clericW = ruins ? floor * 0.2 : 0;
   const archW = ruins ? floor * 0.22 : 0;
-  const colW = ruins ? floor * 0.12 : 0;
+  const colW = ruins ? floor * 0.25 : 0; // the band's vanilla heavy
   // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
   const garden = floor >= CONFIG.gardenFromFloor;
   const lashW = garden ? floor * 0.25 : 0;
@@ -214,7 +243,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const iron = floor >= CONFIG.ironworksFromFloor;
   const lineW = iron ? floor * 0.45 : 0;
   const sentW = iron ? floor * 0.3 : 0;
-  const slagW = iron ? floor * 0.12 : 0;
+  const slagW = iron ? floor * 0.28 : 0; // the band's vanilla heavy
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   // THE APPROACH (16+): the System fields its own. (The suitguy never rolls —
@@ -288,6 +317,16 @@ const ELITE_AFFIXES: EliteAffix[] = [
   // The six-pack (MOB-CONCEPTS.md): each one sentence of counterplay.
   "linked", "vampiric", "juggernaut", "mortar", "berserking", "executioner",
 ];
+
+/** One elite-affix roll. Deep floors (past deepScaleCompoundFrom) lean into
+ * the RESIST affixes at deepResistBias — part of the build check: mono-school
+ * stat soup without a second answer gets checked, not just outstatted. */
+function rollEliteAffix(rng: Rng, floor: number): EliteAffix {
+  if (floor > CONFIG.deepScaleCompoundFrom && chance(rng, CONFIG.deepResistBias)) {
+    return chance(rng, 0.5) ? "armored" : "warded";
+  }
+  return pick(rng, ELITE_AFFIXES);
+}
 
 /** A band-end boss arena floor (3, 6, 9, 12, 15 — never the final floor). */
 export function isCityBossFloor(floor: number): boolean {
@@ -371,7 +410,7 @@ function spawnMonsters(state: GameState): void {
     for (let tries = 0; tries < 12; tries++) {
       const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
       const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
-      if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== 1) continue; // Floor only
+      if (!isWalkable(map, x, y)) continue; // Floor only, and never inside furniture
       if (dist({ x, y }, map.spawn) <= 6 || dist({ x, y }, map.stairs) <= 2) continue;
       return { x, y };
     }
@@ -455,7 +494,8 @@ function spawnMonsters(state: GameState): void {
         const squadId = state.nextEntityId++; // toysoldier members share it
         for (const member of template.members) {
           let pos = { x: anchor.x + member.dx, y: anchor.y + member.dy };
-          if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+          if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // the table itself blocks now
           const m = makeMonster(state, member.kind, pos);
           if (roam) m.tribe = tribeId;
           if (member.kind === "toysoldier") m.squadId = squadId;
@@ -487,19 +527,40 @@ function spawnMonsters(state: GameState): void {
       (floor >= CONFIG.ambushFromFloor && canAmbush && chance(rng, CONFIG.ambushPackChance));
     // Behavior VARIETY: a share of (non-ambush) packs PATROL their territory
     // together; the rest are sentries that hold the room they spawned in.
-    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance);
+    // (the chance is still DRAWN for seated packs — overriding the result
+    // instead of skipping the roll keeps the rng stream fixture-stable)
+    const patrol = !ambush && chance(rng, CONFIG.packPatrolChance) && !social;
     // Wind-Up Battalions muster at parade strength — the synced volley IS the
     // encounter, so the squad claims its own size band and a shared squadId.
     const squadId = kind === "toysoldier" ? state.nextEntityId++ : undefined;
+    // HEAVY PACK formation (config.ts heavyPack*): brute-class kinds spawn
+    // 2-4 spread bodies, not a knot. Broodmother keeps her clustered brood.
+    const heavyPack = ARCHETYPES[kind].hpMult >= CONFIG.heavyPackHpMult && kind !== "broodmother";
     const packSize = kind === "toysoldier"
       ? Math.min(budget, nextInt(rng, CONFIG.toysquadMin, CONFIG.toysquadMax))
+      : heavyPack ? Math.min(budget, Math.max(2, Math.min(4, Math.round(size / 3))))
       : size;
+    // VETERAN anchor: a share of packs are led by the middle rung (drawn for
+    // every pack, then gated — draw-then-override keeps the rng stream
+    // fixture-stable when the gate knobs move).
+    const vetRoll = chance(rng, CONFIG.veteranPackChance);
+    const veteranAnchor = vetRoll && floor >= CONFIG.veteranFromFloor && canVeteran(kind);
     for (let k = 0; k < packSize; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
+      // Heavy packs take the WIDE ring — same two draws, different spacing.
       const a = nextFloat(rng) * Math.PI * 2;
-      const d = 0.4 + nextFloat(rng) * 1.4;
+      const d = heavyPack
+        ? CONFIG.heavyPackSpreadBase + nextFloat(rng) * CONFIG.heavyPackSpreadRange
+        : 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
-      if (map.tiles[Math.floor(pos.y) * map.w + Math.floor(pos.x)] !== 1) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
+      if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
+      // STAGING v2: residents take the PLAN'S seat slots first — the sim owns
+      // where the pack sits, so the chairs and the sitting actors agree. The
+      // ring draws above STAY in the stream (draw-then-override convention).
+      const seat = social && dressing ? dressing.seats[k] : undefined;
+      const seatOk = seat !== undefined && isWalkable(map, seat.x, seat.y);
+      if (seat && seatOk) pos = { x: seat.x, y: seat.y };
       // The escort slot carries the pack's support: a shaman healer, or (from
       // the SEWERS down) a Drum Sergeant beating the pack into a frenzy — the
       // playbook's "The Drumline". Same kill-order lesson, different verb.
@@ -511,9 +572,14 @@ function spawnMonsters(state: GameState): void {
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
+      if (veteranAnchor && k === 0 && memberKind === kind) promoteVeteran(m);
       if (roam) m.tribe = tribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
+      // Seated residents HOLD their room (sentries) and remember whose room
+      // it is — the scene breaks on detection (ai.ts) or first blood.
+      if (social && dressing) m.residentOf = dressing.purposeId;
+      if (seatOk) m.seated = true;
       if (squadId !== undefined && memberKind === "toysoldier") m.squadId = squadId;
       state.monsters.push(m);
       budget--;
@@ -549,7 +615,7 @@ function spawnMonsters(state: GameState): void {
     leader.hp = leader.maxHp = Math.round(leader.maxHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
     leader.damage *= CONFIG.eliteDmgMult;
     leader.xp = Math.round(leader.xp * CONFIG.eliteXpMult);
-    if (floor >= CONFIG.eliteAffixFromFloor) leader.affix = pick(rng, ELITE_AFFIXES);
+    if (floor >= CONFIG.eliteAffixFromFloor) leader.affix = rollEliteAffix(rng, floor);
     state.monsters.push(leader);
     state.strongholdLeaderId = leader.id;
     state.strongholdLeaderName = leader.eliteName;
@@ -623,7 +689,8 @@ function spawnMonsters(state: GameState): void {
     const canBoss = (m: Monster) =>
       m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer" &&
       m.kind !== "broodmother" && // support castes never take the crown
-      m.kind !== "foreman"; // the CHAMPION outranks the neighborhood — no re-crowning
+      m.kind !== "foreman" && // the CHAMPION outranks the neighborhood — no re-crowning
+      !m.veteran; // already promoted once — elite mults must not stack on veteran mults
     const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
@@ -649,7 +716,7 @@ function spawnMonsters(state: GameState): void {
     m.xp = Math.round(m.xp * CONFIG.eliteXpMult);
     // From floor eliteAffixFromFloor, elites roll one affix mechanic.
     if (floor >= CONFIG.eliteAffixFromFloor) {
-      m.affix = pick(rng, ELITE_AFFIXES);
+      m.affix = rollEliteAffix(rng, floor);
       if (m.affix === "swift") m.speed *= CONFIG.swiftSpeedMult;
       if (m.affix === "juggernaut") m.speed *= CONFIG.juggernautSpeedMult; // your CC is void; your kiting isn't
     }
@@ -819,6 +886,7 @@ function maybeSpawnFloorEvent(state: GameState): void {
     const x = nextInt(rng, r.x, r.x + r.w - 1) + 0.5;
     const y = nextInt(rng, r.y, r.y + r.h - 1) + 0.5;
     if (map.tiles[Math.floor(y) * map.w + Math.floor(x)] !== Tile.Floor) continue;
+    if (!isWalkable(map, x, y)) continue; // never inside furniture (the mask)
     if (dist({ x, y }, map.spawn) <= 6) continue;
     state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "shrine", amount: 0 });
     state.floorEvent = { type: "shrine" };
@@ -949,6 +1017,7 @@ function makePlayer(id: number, name: string): Player {
     upgradeDraftsOwed: 0,
     pendingRewards: [],
     achievements: [],
+    unclaimedAchievements: [],
     goldSpent: 0,
     kills: 0,
     killsThisStep: 0,
@@ -1020,10 +1089,24 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
 // Cosmetic hero skins: every run you drop in as a random adventurer, and party
 // members never twin (up to the pool size). Purely DERIVED from (seed, player
 // id) — no state, no save field, no rng-stream impact, and every client
-// computes the same answer from the shared seed. Becomes real chosen state
-// when character types/classes land.
+// computes the same answer from the shared seed. The FALLBACK for crawlers
+// who never stood at the campfire (below).
 export const HERO_SKINS = ["knight", "barbarian", "mage", "rogue", "hooded"] as const;
 export type HeroSkin = (typeof HERO_SKINS)[number];
+
+// CHOSEN crawler looks: the campfire check-in lineup (Adventurers 2.0, CC0).
+// Cosmetic only — the constellation stays the build. Stored on Player.skin,
+// persisted per account, validated by the server on join. The books let you
+// change your race at level 3; for now the fire is where you decide who you
+// are.
+export const CRAWLER_SKINS = [
+  "knight", "barbarian", "druid", "engineer", "mage", "ranger", "rogue", "hooded",
+] as const;
+export type CrawlerSkin = (typeof CRAWLER_SKINS)[number];
+
+export function isCrawlerSkin(v: unknown): v is CrawlerSkin {
+  return typeof v === "string" && (CRAWLER_SKINS as readonly string[]).includes(v);
+}
 
 /** Which adventurer this crawler is for this run (hosts map it to a model). */
 export function heroSkin(seed: number, playerId: number): HeroSkin {
@@ -1058,8 +1141,10 @@ export function addPlayer(state: GameState, name: string): Player {
   return p;
 }
 
-/** Derive a per-floor sub-seed so each floor is reproducible from the run seed. */
-function floorSeed(seed: number, floor: number): number {
+/** Derive a per-floor sub-seed so each floor is reproducible from the run
+ *  seed. Exported for the builder's test-drive seed search (it hunts a seed
+ *  whose floor actually stamps your template, using the real derivation). */
+export function floorSeed(seed: number, floor: number): number {
   return (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
 }
 
@@ -1084,6 +1169,8 @@ export function buildFloor(state: GameState, floor: number): void {
   state.arenaT = 0; // the next arena's director starts its clock fresh
   state.corpses = [];
   state.decoys = []; // stunt contracts don't follow you downstairs
+  state.breakables = []; // the plan below restocks the smashables
+  state.residentAggro = []; // fresh floor, fresh grievances
   state.encounter = null;
   state.floorEvent = null;
   state.goldSurge = false;
@@ -1106,13 +1193,71 @@ export function buildFloor(state: GameState, floor: number): void {
   state.strongholdLeaderId = -1;
   state.strongholdLeaderName = "";
   state.strongholdCleared = false;
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): stamp the blocked mask and spawn
+  // the blocking pieces BEFORE monsters, so every spawn (they all flow
+  // through isWalkable) respects the furniture. The plan is pure — this is
+  // the same answer the renderer and spawnMonsters compute.
+  const plan = assignRoomPurposes(state.seed, floor, state.map);
+  state.map.blocked = new Uint8Array(state.map.w * state.map.h);
+  for (const d of plan.dressings) {
+    for (const bl of d.blockers) {
+      state.map.blocked[bl.tile] = 1;
+      state.breakables!.push({
+        id: state.nextEntityId++,
+        pos: { x: (bl.tile % state.map.w) + 0.5, y: Math.floor(bl.tile / state.map.w) + 0.5 },
+        key: bl.key,
+        hp: CONFIG.blockerHp,
+        footprint: [bl.tile],
+      });
+    }
+  }
   spawnMonsters(state);
-  // The floor's STORY (roomPurposes): if a seeded event swept this floor's
-  // dressing, the System mentions it exactly once, on arrival. The rooms
-  // show the rest — looted stores, unlit scars, the spreading damp.
+  // The floor's STORY + SERVICES (roomPurposes): if a seeded event swept the
+  // dressing, the System mentions it exactly once; if a room is open for
+  // business (rare — plan.service), its contract sits beside the furniture.
   {
-    const story = assignRoomPurposes(state.seed, floor, state.map).story;
-    if (story) announce(state, "flavor", STORY_LINES[story]);
+    if (plan.story) announce(state, "flavor", STORY_LINES[plan.story]);
+    // Destructible dressing (phase 5): the corner hoards the plan marked
+    // become sim entities — one good hit pops them for pocket gold.
+    for (const d of plan.dressings) {
+      for (const b of d.breakables) {
+        state.breakables!.push({ id: state.nextEntityId++, pos: { x: b.x, y: b.y }, key: b.key, hp: 1 });
+      }
+    }
+    if (plan.service && state.runKind !== "roam") {
+      const d = plan.dressings.find((dd) => dd.roomIdx === plan.service!.roomIdx);
+      if (d?.anchor) {
+        // The contract sits on a walkable tile nudged off the furniture.
+        for (const [dx, dy] of [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9]] as const) {
+          const x = d.anchor.x + dx, y = d.anchor.y + dy;
+          if (isWalkable(state.map, x, y)) {
+            state.loot.push({ id: state.nextEntityId++, pos: { x, y }, kind: "service", amount: 0, service: plan.service.purposeId });
+            break;
+          }
+        }
+      }
+    }
+    // THE CHASE: looters who swept the LAST floor are still ahead of you,
+    // as fleeing Repo Rats carrying the haul. Floors regenerate purely from
+    // (seed, floor), so yesterday's story is recomputable today. Floor 4+
+    // only: the Repo Rat is a SEWERS specialist (mobs.test encodes the
+    // roster rule — no filchers prowling the UNDERCROFT).
+    if (floor >= 4 && state.runKind !== "roam") {
+      const prevMap = generateFloor(createRng(floorSeed(state.seed, floor - 1)), floor - 1, state.runKind);
+      if (assignRoomPurposes(state.seed, floor - 1, prevMap).story === "looters") {
+        const carry = CONFIG.chaseFilcherCarry + floor * CONFIG.chaseFilcherCarryPerFloor;
+        const spots = walkableTiles(state.map).filter(
+          (tl) => dist(tl, state.map.spawn) > 7 && dist(tl, state.map.spawn) < 16 && dist(tl, state.map.stairs) > 3,
+        );
+        for (let i = 0; i < CONFIG.chaseFilcherCount && spots.length > 0; i++) {
+          const pos = spots.splice(nextInt(state.rng, 0, spots.length - 1), 1)[0];
+          const m = makeMonster(state, "filcher", pos);
+          m.carry = carry;
+          state.monsters.push(m);
+        }
+        announce(state, "show", "The looters from the last floor are still AHEAD of you, carrying everything they took. The System recommends repossession.");
+      }
+    }
   }
   if (state.runKind === "roam") {
     spawnSettlement(state);
@@ -1140,9 +1285,11 @@ export interface SavedProgress {
     inventory?: Item[];
     abilities?: Player["abilities"];
     achievements?: string[];
+    unclaimedAchievements?: string[]; // achievement loot boxes not yet opened
     goldSpent?: number;
     kills?: number;
     name?: string;
+    skin?: string; // chosen campfire look; absent on pre-select saves
     damageDealt?: number;
     damageTaken?: number;
     materials?: Record<MaterialId, number>;
@@ -1164,6 +1311,7 @@ export interface SavedProgress {
  */
 export function applySavedPlayer(p: Player, save: SavedProgress): void {
   const s = save.player;
+  if (isCrawlerSkin(s.skin)) p.skin = s.skin; // the look follows the character
   p.level = s.level;
   p.xp = s.xp;
   p.xpToNext = s.xpToNext;
@@ -1201,6 +1349,7 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
     }
   }
   if (s.achievements) p.achievements = s.achievements;
+  p.unclaimedAchievements = s.unclaimedAchievements ?? []; // loot boxes wait for a Safe Room
   p.revisions = s.revisions ?? []; // CLASS REVISIONS survive the reload
   p.tipsSeen = s.tipsSeen ?? []; // a rule explained once stays explained
   p.goldSpent = s.goldSpent ?? 0;
@@ -1254,7 +1403,11 @@ export interface TestSetup {
   level?: number; // crawler level; ranks are auto-drafted to match
   gold?: number; // default scales with the floor so the shop is testable
   abilities?: AbilityId[] | "all"; // learned + auto-slotted before leveling
-  gear?: boolean; // roll floor-scaled random gear (default true)
+  gear?: boolean; // roll random gear (default true)
+  // Which floor's loot table the gear rolls from (default: the starting
+  // floor). Hosts map `gear=level` to naturalFloorForLevel(level) so an
+  // off-curve crawler can be dressed for their LEVEL, not their location.
+  gearFloor?: number;
 }
 
 /**
@@ -1290,12 +1443,13 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   }
   p.xp = 0;
 
-  // Floor-scaled loadout: several rolls, wear the upgrades, bag a few spares.
+  // Scaled loadout: several rolls, wear the upgrades, bag a few spares.
   if (opts.gear !== false) {
+    const gearFloor = Math.max(1, Math.min(CONFIG.finalFloor, Math.floor(opts.gearFloor ?? floor)));
     for (let i = 0; i < 8; i++) {
-      const item = generateItem(state.rng, floor, () => state.nextEntityId++);
+      const item = generateItem(state.rng, gearFloor, () => state.nextEntityId++);
       const worn = p.equipment[item.slot];
-      if (!worn || itemScore(item) > itemScore(worn)) {
+      if (wantsAutoEquip(item, worn)) {
         p.equipment[item.slot] = item;
         if (worn && p.inventory.length < 4) p.inventory.push(worn);
       } else if (p.inventory.length < 4) {
@@ -1351,6 +1505,7 @@ export function createGame(
     strikes: [],
     bulletTimeLeft: 0,
     decoys: [],
+    breakables: [],
     hazards: [],
     corpses: [],
     pings: [],
@@ -1594,9 +1749,11 @@ export function raiseCorpse(state: GameState, m: Monster): void {
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
 export function summonMinion(state: GameState, m: Monster): void {
   const a = nextFloat(state.rng) * Math.PI * 2;
-  const spawned = makeMonster(state, "swarmer", {
-    x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7,
-  });
+  let pos = { x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7 };
+  // Never born INTO furniture (the blocked mask) — a swarmer wedged inside a
+  // bookcase is stuck for good; the mother's own tile is always safe ground.
+  if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: m.pos.x, y: m.pos.y };
+  const spawned = makeMonster(state, "swarmer", pos);
   spawned.xp = 1;
   state.monsters.push(spawned);
   hit(state, spawned.pos, 0, "weapon"); // a poof for the juice layer
@@ -1805,6 +1962,17 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
  * `priority: "high"` marks the handful of headline moments (boss down, new
  * band, wipe) that hosts may present bigger than a toast.
  */
+/** STAGING v2: the room's scene is over — they SAW you (ai.ts detection)
+ *  or FELT you (damageMonster). The whole purpose wakes at once, the
+ *  interruption line fires once per floor, perception snaps to normal, and
+ *  the renderer plays the stand-up transition off this same flag. */
+export function breakResidentScene(state: GameState, m: Monster): void {
+  if (!m.residentOf || (state.residentAggro ?? []).includes(m.residentOf)) return;
+  (state.residentAggro ??= []).push(m.residentOf);
+  const line = RESIDENT_LINES[m.residentOf];
+  if (line) announce(state, "flavor", line);
+}
+
 function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
@@ -1816,11 +1984,12 @@ function announce(
 
 function hit(
   state: GameState, pos: Vec2, amount: number, kind: HitEvent["kind"],
-  extra?: { dir?: Vec2; killed?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
+  extra?: { dir?: Vec2; killed?: boolean; overkill?: boolean; school?: School; resisted?: boolean; effect?: StatusKind; to?: Vec2 },
 ): void {
   state.hits.push({
     pos: { x: pos.x, y: pos.y }, amount, kind,
-    dir: extra?.dir, killed: extra?.killed, school: extra?.school, resisted: extra?.resisted,
+    dir: extra?.dir, killed: extra?.killed, overkill: extra?.overkill,
+    school: extra?.school, resisted: extra?.resisted,
     effect: extra?.effect, to: extra?.to ? { x: extra.to.x, y: extra.to.y } : undefined,
   });
 }
@@ -1938,7 +2107,7 @@ export function chooseUpgrade(state: GameState, playerId: number, idx: number): 
     return;
   }
   const def = upgradeDef(offer.id);
-  announce(state, "levelup", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
+  announce(state, "progress", `${p.name}: ${offer.title} rank ${offer.nextRank}${def && offer.nextRank >= def.maxRank ? " (MAX)" : ""}. The System approves.`);
 }
 
 /**
@@ -1961,7 +2130,7 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
     L.bench.push(ability);
     where = "BENCHED (re-slot in a safe room)";
   }
-  announce(state, "levelup", `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
+  announce(state, "progress", `${p.name} learns ${info.name.toUpperCase()} — ${info.blurb}. ${where}. The crowd demands a demo.`);
   addHype(state, p, CONFIG.show.hypeEpicDrop);
 }
 
@@ -2016,8 +2185,12 @@ export function setUltimate(state: GameState, playerId: number, ability: Ability
   );
 }
 
-/** Award a loot box to one player: an immediate randomized buff, DCC-style. */
-function awardLootBox(state: GameState, p: Player): void {
+/**
+ * Open a loot box for one player: an immediate randomized buff, DCC-style.
+ * Exported so any claim source (achievements today; a future "events" system)
+ * can trigger the same roll — the queueing/claiming lives with the source.
+ */
+export function openLootBox(state: GameState, p: Player): void {
   state.lootBoxes++;
   const undiscovered = unknownAbilities(p, state.floor, state.seed);
   const roll = nextInt(state.rng, 0, undiscovered.length > 0 ? 3 : 2);
@@ -2213,6 +2386,13 @@ export function damageMonster(
   m.hp -= dmg;
   m.hitFlash = 0.12;
   m.lastHitBy = p.id;
+  // Getting hurt IS being seen (LOS aggro): the victim commits to the hunt
+  // and raises the pack's alarm — even a killing shot wakes the neighbors.
+  alertMonster(state, m);
+  // Interrupting the residents: damage breaks the scene too (staging v2 —
+  // detection in ai.ts is the usual path; an opening shot from the dark
+  // still counts as introducing yourself).
+  breakResidentScene(state, m);
   if (m.dormant) springAmbush(state, m); // shooting an ambusher springs the whole trap
   // Repo Rat: every HP quarter beaten out of it SPILLS a coin of its carry —
   // the chase pays out as it runs, and the kill drops whatever's left.
@@ -2280,7 +2460,10 @@ export function damageMonster(
     }
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
-    dir: opts.dir, killed: m.hp <= 0, school: opts.school,
+    dir: opts.dir, killed: m.hp <= 0,
+    // Deleted, not defeated: the blow overshot by a third of the bar.
+    overkill: (m.hp <= -0.35 * m.maxHp) || undefined,
+    school: opts.school,
     resisted: (resisted || guarded) || undefined, // guarded hits read dim too
     effect: opts.effect,
   });
@@ -2340,7 +2523,7 @@ export function damageMonster(
 /** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
  * counts. Elites are rendered bigger, so their hitbox grows to match. */
 export function bodyRadius(m: Monster): number {
-  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : 1);
+  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : m.veteran ? CONFIG.veteranScale : 1);
 }
 
 /** True when `m` is inside a swing from `pos` along `facing`: reach extends by
@@ -2458,6 +2641,12 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
       p.meleeComboT = CONFIG.meleeMomentumWindow;
     }
   }
+  // The swing pops smashable dressing in the arc (phase 5): the Diablo
+  // barrel, at last. Same reach test the monsters get.
+  smashBreakables(state, ({ pos }) => {
+    const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
+    return Math.hypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
+  });
   // RIVALS: the same swing arc also cuts rivals sharing this floor.
   for (const v of rivalTargets(state, p)) {
     const toV = { x: v.pos.x - p.pos.x, y: v.pos.y - p.pos.y };
@@ -2681,7 +2870,6 @@ function reapDead(state: GameState): void {
       announce(state, "progress", "The KEYHOLDER is down! That shiny thing it dropped? Take it.");
     }
     dropLoot(state, m.pos);
-    if (state.killCount % CONFIG.lootBoxEveryKills === 0) awardLootBox(state, killer);
     // Named menaces shower guaranteed rewards (incl. crafting materials).
     if (m.elite) {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "elite_trophy" });
@@ -2758,6 +2946,19 @@ function collectLoot(state: GameState): void {
         }
         break;
       }
+      case "service": {
+        // A room taking customers: same non-blocking pick-1 plumbing as the
+        // shrine; the contract is consumed whether you buy or walk.
+        if (p.pendingRewards.length > 0) {
+          remaining.push(l);
+          break;
+        }
+        p.pendingRewards = serviceChoices(state, l.service ?? "");
+        systemTip(state, p, "service");
+        announce(state, "show", `OPEN FOR BUSINESS: the ${l.service ?? "room"} takes customers. The System takes a cut.`);
+        hit(state, p.pos, 0, "weapon");
+        break;
+      }
       case "shrine": {
         // A bargain, not a pickup: consumed only when the crawler is free to
         // choose (never clobbers a pending sponsor draft — walk by, come back).
@@ -2788,9 +2989,11 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, 0, "weapon");
         if (item.rarity === "epic") addHype(state, p, CONFIG.show.hypeEpicDrop);
         else if (item.rarity === "rare") addHype(state, p, CONFIG.show.hypeRareDrop);
-        // Auto-equip if strictly better than what's in that slot, else stash in the bag.
+        // Auto-equip if strictly better than what's in that slot, else stash in
+        // the bag. School-guarded for weapons (wantsAutoEquip): a wand never
+        // auto-replaces a blade — switching schools is a by-hand decision.
         const equipped = p.equipment[item.slot];
-        if (!equipped || itemScore(item) > itemScore(equipped)) {
+        if (wantsAutoEquip(item, equipped)) {
           equipItem(p, item);
           if (item.rarity === "epic") {
             announce(state, "loot", `EPIC DROP: ${item.name}! Equipped. The crowd loses it.`);
@@ -3024,9 +3227,6 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
         p.hp = Math.min(p.maxHp, p.hp + amt);
         break;
       }
-      case "mystery":
-        awardLootBox(state, p);
-        break;
       case "tome":
         learnAbility(state, p, room.tomeAbility);
         break;
@@ -3191,6 +3391,7 @@ type SponsorRewardKind = Exclude<
   Reward["kind"],
   | "shrineBlood" | "shrineGreed" | "shrineDecline"
   | "shrineDraft" | "shrineLoan" | "shrineLiquidate" | "shrinePremium"
+  | "svcTemper" | "svcDraught" | "svcWager" | "svcMap" | "svcPlans"
   | "revision" | "revisionDecline"
 >;
 
@@ -3311,6 +3512,11 @@ function rewardFitScore(p: Player, r: Reward): number {
     case "shrineLoan":
     case "shrineLiquidate":
     case "shrinePremium":
+    case "svcTemper":
+    case "svcDraught":
+    case "svcWager":
+    case "svcMap":
+    case "svcPlans":
     case "revision":
     case "revisionDecline":
       return 0; // shrine bargains and castings never enter the sponsor pool
@@ -3410,7 +3616,7 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
     case "item":
       if (r.item) {
         const cur = p.equipment[r.item.slot];
-        if (!cur || itemScore(r.item) > itemScore(cur)) equipItem(p, r.item);
+        if (wantsAutoEquip(r.item, cur)) equipItem(p, r.item);
         else p.inventory.push(r.item);
       }
       break;
@@ -3458,6 +3664,62 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       announce(state, "show", `${p.name} pays the INSURANCE PREMIUM (${cost} gold): fully restored, statuses cleansed. The claims department is now closed.`);
       break;
     }
+    // SERVICE ROOMS (roomPurposes phase 4 — every verb costs):
+    case "svcTemper": {
+      const cost = CONFIG.svcTemperCost + Math.round(state.floor * CONFIG.svcTemperCostPerFloor);
+      if (p.gold < cost) {
+        announce(state, "show", `${p.name} cannot afford the tempering. The System does not extend credit.`);
+        break;
+      }
+      p.gold -= cost;
+      const amt = CONFIG.svcTemperDamage + Math.round(state.floor * CONFIG.svcTemperDamagePerFloor);
+      p.bonusDamage += amt;
+      p.bonusSpell += amt;
+      recomputeStats(p);
+      announce(state, "show", `${p.name}'s arms are TEMPERED at the forge: +${amt} damage, both schools, permanent. The receipt is nailed to the anvil.`);
+      break;
+    }
+    case "svcDraught": {
+      const cost = CONFIG.svcDraughtCost + Math.round(state.floor * CONFIG.svcDraughtCostPerFloor);
+      if (p.gold < cost) {
+        announce(state, "show", `${p.name} cannot afford the draught. The apothecary suggests dying cheaper.`);
+        break;
+      }
+      p.gold -= cost;
+      p.hp = p.maxHp;
+      p.statuses = [];
+      hit(state, p.pos, p.maxHp, "heal");
+      announce(state, "show", `${p.name} downs the HOUSE DRAUGHT (${cost} gold): fully restored, chemically forgiven.`);
+      break;
+    }
+    case "svcWager": {
+      const stake = CONFIG.svcWagerStake + state.floor * CONFIG.svcWagerStakePerFloor;
+      if (p.gold < stake) {
+        announce(state, "show", `${p.name} cannot cover the stake. The table has standards.`);
+        break;
+      }
+      p.gold -= stake;
+      if (chance(state.rng, CONFIG.svcWagerWinChance)) {
+        p.gold += stake * 2;
+        addHype(state, p, 15);
+        announce(state, "show", `${p.name} WINS the hand: +${stake} gold. The dealer files a complaint.`);
+      } else {
+        addHype(state, p, 5);
+        announce(state, "show", `${p.name} loses the hand (${stake} gold). The house always wins. The crowd loves it.`);
+      }
+      break;
+    }
+    case "svcMap":
+      state.explored.fill(1);
+      state.exploredVersion++;
+      addHype(state, p, 8);
+      announce(state, "show", `${p.name} reads the LEDGER: the floor's layout, filed and cross-referenced. The System admires thorough paperwork.`);
+      break;
+    case "svcPlans":
+      state.timeBudget += CONFIG.svcPlansTime;
+      state.timeRemaining += CONFIG.svcPlansTime;
+      announce(state, "show", `${p.name} studies the PLANS: the shortcuts are marked. +${CONFIG.svcPlansTime}s on the clock.`);
+      break;
     case "shrineDecline":
       break; // the shrine dims, unimpressed
     // CLASS REVISION (milestone castings — revisions.ts):
@@ -3493,6 +3755,28 @@ export function chooseReward(state: GameState, playerId: number, idx: number): v
         ? `${p.name} answers the casting call: ${r.title}.`
         : `${p.name} accepts a sponsor gift: ${r.title}.`,
   );
+}
+
+/** A service room's menu (roomPurposes phase 4): ONE verb + Walk Away.
+ * Rare by design and priced by contract — see CONFIG service knobs. */
+function serviceChoices(state: GameState, purposeId: string): Reward[] {
+  const floor = state.floor;
+  const card = (kind: Reward["kind"], title: string, desc: string): Reward =>
+    ({ id: state.nextEntityId++, kind, title, desc, amount: 0 });
+  const verb =
+    purposeId === "forge"
+      ? card("svcTemper", "Temper Your Arms", `Pay ${CONFIG.svcTemperCost + Math.round(floor * CONFIG.svcTemperCostPerFloor)} gold: +${CONFIG.svcTemperDamage + Math.round(floor * CONFIG.svcTemperDamagePerFloor)} damage, both schools, permanent`)
+      : purposeId === "apothecary"
+        ? card("svcDraught", "Buy the House Draught", `Pay ${CONFIG.svcDraughtCost + Math.round(floor * CONFIG.svcDraughtCostPerFloor)} gold: full heal, every status cleansed`)
+        : purposeId === "den"
+          ? card("svcWager", "Play a Hand", `Stake ${CONFIG.svcWagerStake + floor * CONFIG.svcWagerStakePerFloor} gold: win double or lose it. The house deals`)
+          : purposeId === "warroom"
+            ? card("svcPlans", "Study the Plans", `Free. The shortcuts are marked: +${CONFIG.svcPlansTime}s on the collapse clock`)
+            : card("svcMap", "Read the Ledger", "Free. The floor's layout, filed and cross-referenced");
+  return [
+    verb,
+    { id: state.nextEntityId++, kind: "shrineDecline", title: "Walk Away", desc: "No sale. The proprietor is dead anyway", amount: 0 },
+  ];
 }
 
 /** The System Shrine's pick-1 bargain (floor event). Rides pendingRewards —
@@ -3573,6 +3857,31 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
     const before = { x: p.pos.x, y: p.pos.y };
     moveWithCollision(state.map, p.pos, dir, Math.min(0.2, dp.distance - moved), isWalkable);
     if (dist(before, p.pos) < 0.01) break; // dead stop: a wall ate the dash
+  }
+  // DASH VAULT (furniture-feel): knee-high furniture is mobility TEXTURE,
+  // not masonry. If the slide stopped short and what stopped it is BLOCKED
+  // FURNITURE, scan the remaining reach for open floor with nothing but
+  // furniture in between and go OVER the table. Walls and locked doors
+  // still eat the dash — crossing masonry is Backstage Pass's job below.
+  {
+    const slid = dist(start, p.pos);
+    const bx = p.pos.x + dir.x * 0.45, by = p.pos.y + dir.y * 0.45;
+    const bi = Math.floor(by) * state.map.w + Math.floor(bx);
+    if (slid < dp.distance - 0.4 && state.map.blocked?.[bi]) {
+      for (let dd = dp.distance; dd > slid + 0.5; dd -= 0.25) {
+        const landing = { x: start.x + dir.x * dd, y: start.y + dir.y * dd };
+        if (!isWalkable(state.map, landing.x, landing.y)) continue;
+        let crossesWall = false;
+        for (let s = 0.25; s < dd; s += 0.25) {
+          const t = tileAt(state.map, start.x + dir.x * s, start.y + dir.y * s);
+          if (t === Tile.Wall || t === Tile.DoorLocked) { crossesWall = true; break; }
+        }
+        if (crossesWall) continue; // a shorter hop may still clear the table
+        p.pos.x = landing.x;
+        p.pos.y = landing.y;
+        break;
+      }
+    }
   }
   // Backstage Pass (chase legendary): walls are set dressing. If the ordinary
   // dash slide stopped short but the reach extends to walkable ground on the
@@ -3697,6 +4006,8 @@ function radialDamage(
     damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult });
     if (m.hp <= 0) killed.push(m);
   }
+  // Blasts pop the smashable dressing too — nova through the storeroom.
+  smashBreakables(state, ({ pos }) => dist(center, pos) <= radius);
   // RIVALS: blasts don't check contracts — rivals in the radius eat it too.
   for (const v of rivalTargets(state, p)) {
     const d = dist(center, v.pos);
@@ -4282,6 +4593,42 @@ function updateHazards(state: GameState, dt: number): void {
 }
 
 /** Tick raisable corpses: past their TTL they're too cold for the necromancer. */
+/** Pop every smashable the hit test reaches: pocket gold + a poof. */
+/** BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): a committed big-frame swing
+ *  also clears blocking furniture in its arc — the table explodes and the
+ *  fight arrives. Clutter hoards are NOT touched (their gold stays a player
+ *  verb); only footprint pieces fall, and they fall in one blow. */
+export function smashBlockersAt(state: GameState, center: Vec2, radius: number): void {
+  smashBreakables(state, (b) => !!b.footprint && dist(center, b.pos) <= radius, 999);
+}
+
+function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg = 1): void {
+  const bs = state.breakables ?? [];
+  if (bs.length === 0) return;
+  const left: Breakable[] = [];
+  for (const b of bs) {
+    if (!hits(b)) {
+      left.push(b);
+      continue;
+    }
+    b.hp -= dmg;
+    if (b.hp > 0) {
+      hit(state, b.pos, 0, "weapon"); // it cracks; one more should do it
+      left.push(b);
+      continue;
+    }
+    // Blocking furniture opens the lane when it dies (PHYSICALITY.md §1) —
+    // the mask mutates in place; no floor rebuild.
+    if (b.footprint && state.map.blocked) {
+      for (const ti of b.footprint) state.map.blocked[ti] = 0;
+    }
+    const gold = CONFIG.breakableGoldBase + Math.floor(nextFloat(state.rng) * (CONFIG.breakableGoldSpread + 1)) + Math.floor(state.floor / 3);
+    state.loot.push({ id: state.nextEntityId++, pos: { x: b.pos.x, y: b.pos.y }, kind: "gold", amount: gold });
+    hit(state, b.pos, 0, "weapon"); // the pop — hosts particle it
+  }
+  state.breakables = left;
+}
+
 function updateCorpses(state: GameState, dt: number): void {
   if (state.corpses.length === 0) return;
   for (const c of state.corpses) c.t -= dt;
@@ -4744,6 +5091,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
   for (const m of state.monsters) stepMonster(state, m, mdt * statusTimeMult(m));
+  separateMonsters(state, mdt); // pack presence: bodies take up space (AI tier 1)
   updateMonsterStatuses(state, mdt); // DoT burns on WORLD time (chill can't slow its own poison)
   arenaDirector(state, mdt); // boss layer 3: the ROOM fights on its own rhythm
   updateHazards(state, mdt); // enemy-side blasts run on world (slowable) time
@@ -4827,7 +5175,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
 /** Every per-floor GameState slot; mounting a world swaps these wholesale. */
 const WORLD_FIELDS = [
   "floor", "rng", "map", "explored", "exploredVersion", "mapVersion",
-  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys",
+  "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys", "breakables",
   "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge",
   "timeBudget", "timeRemaining", "phase", "collapseElapsed",
 ] as const;
@@ -4896,7 +5244,12 @@ function stepRivals(state: GameState, intents: PartyIntents, dt: number): void {
   if (view) mountWorld(state, view);
 
   // Worlds nobody can ever return to (every rival is past them) get dropped.
-  const lowest = Math.min(...roster.map((p) => (p.safeRoom ? p.safeRoom.nextFloor : p.floorNo)));
+  // A shopper still anchors their CURRENT floor: floorNo doesn't advance until
+  // they leave the safe room, and their client renders (and the server
+  // serializes) that world behind the shop every snapshot. Counting them as
+  // already on nextFloor deleted the last world under a solo rival and
+  // crashed the server.
+  const lowest = Math.min(...roster.map((p) => p.floorNo));
   for (const f of floors) if (f < lowest) delete worlds[f];
 }
 
@@ -5014,6 +5367,7 @@ function rivalTargets(state: GameState, attacker: Player): Player[] {
 function checkAchievements(state: GameState): void {
   if (!CONFIG.achievementsEnabled) return;
   for (const p of state.players) {
+    const firstEver = p.achievements.length === 0;
     // Big moments (boss kills, level bursts) unlock several at once — collect
     // them and announce one combined line so the toast layer isn't flooded.
     const unlocked: (typeof ACHIEVEMENTS)[number][] = [];
@@ -5023,6 +5377,7 @@ function checkAchievements(state: GameState): void {
       p.achievements.push(a.id);
       p.gold += a.gold;
       if (a.hype > 0) addHype(state, p, a.hype);
+      (p.unclaimedAchievements ??= []).push(a.id);
       unlocked.push(a);
     }
     if (unlocked.length === 1) {
@@ -5037,7 +5392,18 @@ function checkAchievements(state: GameState): void {
       // The log still gets each unlock's full description.
       for (const a of unlocked) state.events.push(`ACHIEVEMENT (${p.name}): ${a.title} — ${a.desc}`);
     }
+    if (firstEver && unlocked.length > 0) systemTip(state, p, "achievementClaim");
   }
+}
+
+/** Claim one player's achievement-earned loot box: verifies, opens, pays out. */
+export function claimAchievementLootBox(state: GameState, playerId: number, achievementId: string): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p) return;
+  const idx = (p.unclaimedAchievements ?? []).indexOf(achievementId);
+  if (idx < 0) return;
+  p.unclaimedAchievements!.splice(idx, 1);
+  openLootBox(state, p);
 }
 
 /**

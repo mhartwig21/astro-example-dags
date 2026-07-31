@@ -29,7 +29,7 @@ export const SNAPSHOT_VERSION = 1;
 
 interface WireState extends Omit<GameState, "explored" | "map"> {
   explored: number[];
-  map: Omit<GameState["map"], "tiles"> & { tiles: number[] };
+  map: Omit<GameState["map"], "tiles" | "blocked"> & { tiles: number[]; blocked?: number[] };
 }
 
 /** Encode a FULL game state as a JSON string (join/world-change/persistence). */
@@ -37,7 +37,7 @@ export function serialize(state: GameState): string {
   const wire: WireState = {
     ...state,
     explored: Array.from(state.explored),
-    map: { ...state.map, tiles: Array.from(state.map.tiles) },
+    map: { ...state.map, tiles: Array.from(state.map.tiles), blocked: state.map.blocked ? Array.from(state.map.blocked) : undefined },
   };
   return JSON.stringify(wire);
 }
@@ -48,7 +48,7 @@ export function deserialize(json: string): GameState {
   return {
     ...wire,
     explored: new Uint8Array(wire.explored),
-    map: { ...wire.map, tiles: new Uint8Array(wire.map.tiles) },
+    map: { ...wire.map, tiles: new Uint8Array(wire.map.tiles), blocked: wire.map.blocked ? new Uint8Array(wire.map.blocked) : undefined },
   };
 }
 
@@ -58,7 +58,7 @@ export function deserialize(json: string): GameState {
 // here; if presentation grows a need for a listed one, delete its entry.
 const MONSTER_WIRE_OMIT = [
   "damage", "speed", "xp", "attackCooldown", "shootCd", "healCd", "affixCd",
-  "sigCd", "slamCd", "ritualCd", "poiseDmg", "staggerGraceT", "lastHitBy",
+  "sigCd", "slamCd", "ritualCd", "poiseDmg", "staggerGraceT", "lastHitBy", "slipT", "alertT", "rushBeaten", "regroupT", "regrouped",
   "roams", "home", "wanderT", "wanderDir", "raiseId", "signature", "sigAlt",
   "sigUsed", "chargeT", "chargeHits", "surgeT", "bleedStage", "frenzyT",
   "aura", "bossTier", "bountyT", "bountyGold", "consecrateAt", "duoId",
@@ -185,7 +185,10 @@ function rivalView(state: GameState, playerId: number) {
   const me = state.players.find((p) => p.id === playerId);
   const floors = Object.keys(state.worlds!).map(Number);
   const floorNo = me?.floorNo ?? Math.min(...floors);
-  const w = state.worlds![floorNo] ?? state.worlds![Math.min(...floors)];
+  // Last resort: the classic slots always hold the most recently mounted
+  // world, so a missing entry degrades to a stale view instead of a crash
+  // that takes the whole server process (and every party on it) down.
+  const w = state.worlds![floorNo] ?? state.worlds![Math.min(...floors)] ?? state;
   const rivals: RivalMeta[] = state.players.map((p) => ({
     id: p.id,
     name: p.name,
@@ -217,7 +220,7 @@ export function rivalWorldKey(state: GameState, playerId: number): string {
   const floors = Object.keys(state.worlds).map(Number);
   const floorNo = me?.floorNo ?? Math.min(...floors);
   const w = state.worlds[floorNo] ?? state.worlds[Math.min(...floors)];
-  return `${floorNo}:${w.mapVersion}`;
+  return `${floorNo}:${w?.mapVersion ?? state.mapVersion}`;
 }
 
 /** FULL personal rivals snapshot (join + world changes). */

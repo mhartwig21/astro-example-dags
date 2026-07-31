@@ -133,16 +133,18 @@ export const CONFIG = {
   reviveHpFraction: 0.35, // of max HP on revive
   reviveDecayMult: 1.5, // progress decays this much faster than it builds
 
-  // DCC "System" loot boxes: awarded every N kills, granting an immediate buff.
-  lootBoxEveryKills: 8,
-
   // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
   // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
   // shifts the whole curve down ~half a level early, less later.
   xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
   hpPerLevel: 18,
-  damagePerLevel: 3,
+  // 3 -> 2 (build-matters pass, owner-approved 2026-07-26): levels used to be
+  // ~65% of attack power, so junk-drawer gear played nearly as well as an
+  // optimized build. Intrinsic power came DOWN and gear rolls went UP
+  // (gearPowerMult) — total power at parity, but gear/build now own ~half the
+  // stat instead of a third. HP intrinsic stays (survival isn't the lever).
+  damagePerLevel: 2,
 
   // Multiplayer difficulty: per EXTRA party member (beyond the first), floors
   // spawn more monsters and each monster gets tougher. Applied at floor build
@@ -165,6 +167,14 @@ export const CONFIG = {
   // real overlapping-danger moments instead of a queue of solo fights.
   packSizeMin: 5,
   packSizeMax: 13,
+  // HEAVY PACKS (owner 2026-07-26): brute-class kinds (archetype hpMult at or
+  // above the threshold) run SMALL and SPREAD — 2-4 bodies holding a wide
+  // ring instead of a 5-13 knot. Each heavy defends its own space, so the
+  // room becomes crossing telegraphs to weave through (active dodging), not
+  // a blob to arc down. Size derives from the same pack-size draw (~size/3).
+  heavyPackHpMult: 2.0, // archetype hpMult threshold for the heavy formation
+  heavyPackSpreadBase: 1.6, // ring spacing: base + roll * range (tiles)
+  heavyPackSpreadRange: 2.2,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
@@ -180,6 +190,16 @@ export const CONFIG = {
   // those stack with this, so this alone doesn't need to carry as much.
   monsterScaleCompoundFrom: 3,
   monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
+  // The BUILD CHECK (owner-approved 2026-07-26): the last two bands ramp
+  // again on top of the base compound. Floors 13+ demand a coherent build —
+  // "anyone reaches the Garden, thoughtful builds reach the Ironworks,
+  // optimized builds win." The inverse balance-contract test pins this:
+  // a junk-drawer build must FAIL deep floors that a coherent one clears.
+  deepScaleCompoundFrom: 12, // first ramped floor is 13 (Ironworks)
+  deepScaleCompound: 1.06, // extra ~1.42x by floor 18
+  // Deep elites lean into resist affixes (armored/warded): mono-school soup
+  // without an answer gets checked, not just outstatted.
+  deepResistBias: 0.35,
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT, because you saw it coming — see the ~40% target win rate in
   // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
@@ -192,19 +212,75 @@ export const CONFIG = {
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
+  // Pack presence (AI tier 1): monsters take up SPACE. Separation shoves
+  // overlapping monsters apart (mass-weighted — grunts yield to brutes;
+  // winding-up monsters are rooted anchors), so a pack arrives as a crescent
+  // instead of a stacked point a single cleave erases. See separateMonsters.
+  monsterSeparationRadius: 0.7, // tiles of personal space
+  monsterSeparationSpeed: 2.2, // tiles/sec max shove out of a stack
+  // Flanking approach: melee chasers blend an id-derived tangential bias into
+  // pursuit as they close (see flankVector) — the pack fans into a crescent
+  // instead of a conga line. Strength is the max tangent-to-pursuit ratio;
+  // engage range is how far out the fan starts opening.
+  flankStrength: 1.3,
+  flankEngageRange: 3, // tiles beyond attack range where the bias ramps in
+  // Attack tokens: at most this many BASIC (grunt/swarmer) melee windups in
+  // flight at once, per living crawler — the rest of the surround waits its
+  // turn, so strikes STAGGER around the ring instead of synchronizing into
+  // one big dodge. Scales with depth; elites/bosses/named kinds never wait.
+  meleeTokensBase: 2, // floors 1-6
+  meleeTokensEveryFloors: 6, // +1 token every N floors deeper
+  meleeTokensMax: 4,
+  // LOS aggro (AI tier 2): the mass archetypes commit when they SEE you (or
+  // get hurt, or a packmate raises the alarm), and remember the hunt for a
+  // while after losing sight — pursuing through the flow field. Walls hide
+  // you; breaking contact is a real move. Memory follows the training-wheels
+  // ramp (same doctrine as tempo): floors 1-3 are forgetful, the deep
+  // dungeon holds a grudge. See monsterMemory().
+  monsterMemoryBase: 3, // seconds, floors 1-3
+  monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
+  monsterMemoryMax: 9, // ...capped (floor 7+)
+  packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
+  // Ranged unit play (tier 2c): archers claim distinct firing arcs — a
+  // later-arriving caster sharing a bearing (within this angle) strafes
+  // sideways until the crossfire opens — and when closed on they retreat
+  // TOWARD their nearest melee bodyguard instead of into open space.
+  rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
+  rangedGuardRange: 7, // tiles it will look for a bodyguard within
+  rangedGuardPull: 0.9, // blend of retreat-vector toward the guard
+  // Band group personalities (tier 3): each district fights with its own
+  // group doctrine on top of the tier-1/2 machinery.
+  drumRushLinger: 2.5, // SEWERS: an alerted drummer's beat holds the frenzy this long (and marches the pack)
+  phalanxGuardRange: 8, // RUINS: shieldbearers hold the line for a caster within this range...
+  phalanxLineFraction: 0.35, // ...standing this far along the ward->crawler line
+  gardenEncircleMult: 1.7, // GARDEN: flanking arcs widen — the growth envelops
+  // Encounter director (tier 4): retreat-and-regroup. A broken survivor
+  // (wounded, packmates dead around it, nobody left beside it) bolts uphill
+  // on the flow field; reaching another pack raises the alarm and the fight
+  // SPILLS. Once per monster — a survivor that finds nobody dies alone.
+  regroupFromFloor: 5, // the drama starts past the training bands (probe: spilling fights cost 2 more early-floor seeds)
+  regroupHpFraction: 0.5, // wounded below this...
+  regroupCorpseCount: 2, // ...with this many packmates dead nearby...
+  regroupCorpseRadius: 5, // ...within this radius...
+  regroupSeconds: 4, // ...bolts for this long looking for friends
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
   // Past the ramp floor, monsters get quicker on every axis — faster chase,
   // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
   // the caps keep the deep dungeon fast but still READABLE and dodgeable.
-  monsterTempoFrom: 4,
-  monsterTempoSpeedPerFloor: 0.025, // +2.5% move speed per floor past the ramp...
-  monsterTempoSpeedMax: 1.35, // ...capped at +35% (floor 18)
-  monsterTempoCdPerFloor: 0.025, // attack cooldowns shrink per floor...
-  monsterTempoCdMin: 0.65, // ...to at most 35% faster swings
-  monsterTempoWindupPerFloor: 0.02, // telegraphs shorten per floor...
-  monsterTempoWindupMin: 0.75, // ...but the tell stays readable
+  // Steepened 2026-07: at 2%/floor from 4, a floor-7 tell was 94% of floor
+  // 1's — at player speed 4.2 anything over ~0.3s is a free walk-out, so a
+  // human was never hit. TEMPO (not fatter trash) is the axis that scales
+  // challenge over a typical run: one-shotting chaff stays legitimate; the
+  // chaff that's still alive gets its swing off sooner.
+  monsterTempoFrom: 3,
+  monsterTempoSpeedPerFloor: 0.03, // +3% move speed per floor past the ramp...
+  monsterTempoSpeedMax: 1.45, // ...capped at +45% (still under player speed)
+  monsterTempoCdPerFloor: 0.035, // attack cooldowns shrink per floor...
+  monsterTempoCdMin: 0.55, // ...to at most 45% faster swings
+  monsterTempoWindupPerFloor: 0.045, // telegraphs shorten per floor...
+  monsterTempoWindupMin: 0.55, // ...but the tell stays readable
 
   // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
   // mob that makes ignoring a pack the wrong call. Kill the mother first.
@@ -427,6 +503,12 @@ export const CONFIG = {
   // should be scary — see dropLoot), so this holds gear rates steady.
   lootDropChance: 0.22,
   componentDropChance: 0.35, // share of equipment drops that are catalog basics
+  // Build-matters pass: gear's share of the power stat. Applied to damage/spell
+  // rolls on BOTH drop generation (items.ts rollAffix) and catalog
+  // materialization (catalog.ts gearAffixes) so shop/drop tier parity holds.
+  // Paired with damagePerLevel 3 -> 2: total power stays ~flat, but the gap
+  // between junk-drawer gear and an optimized loadout roughly doubles.
+  gearPowerMult: 1.35,
   goldDropChance: 0.8,
   goldMin: 3,
   goldMax: 12,
@@ -451,6 +533,10 @@ export const CONFIG = {
   heavyMeleeCdMult: 1.15, // ...swings like one too
   heavyPoiseMult: 2, // heavy swings break poise twice as fast
   reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
+  // Off-class melee: swinging a caster/ranged weapon (arcane/ballistic) is a
+  // pommel bash — the mirror of boltSidearmMult below. A melee build holding
+  // a wand should feel it (gear coherence; owner ruling 2026-07-26).
+  offclassMeleeDmgMult: 0.65,
   boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
   boltBallisticMult: 1.0, // Crossbow: real bolts, full attack power
   boltBallisticSpeedMult: 1.3, // ...and they MOVE
@@ -513,6 +599,13 @@ export const CONFIG = {
   //   tier 1 (floors 6, 9)        — + Ground Slam
   //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
   //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
+  // Anti-kite (backlog #6, movement half): a boss that can't REACH you loses
+  // patience — chase speed ramps while you stay out of melee reach, and one
+  // moment of contact resets it. Circling the arena stops being free; the
+  // counterplay becomes standing your ground in windows, which is the fight.
+  bossChaseRampDelay: 3.5, // seconds out of reach before the ramp starts
+  bossChaseRampRate: 0.15, // +chase multiplier per second past the delay
+  bossChaseRampCap: 1.65, // top multiplier — outrunnable only by spending dashes
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
@@ -818,6 +911,21 @@ export const CONFIG = {
   eliteDmgMult: 1.7,
   eliteXpMult: 3.0,
   eliteScale: 1.45, // render scale bump
+  // VETERAN tier (owner 2026-07-26: "more variety in the power levels of
+  // mobs"). The power ladder read trash -> named elite -> boss, and on-curve
+  // crawlers one-shot ~85% of early spawns — there was no fanfare-free
+  // middle rung. Veterans are a pack's long-surviving anchor: bigger
+  // silhouette, real HP (3-5 on-curve swings), a real hit, triple XP — but
+  // NO name, affix, or announcement. The silhouette is the whole telegraph.
+  veteranFromFloor: 3, // floors 1-2 stay the pure on-ramp (fresh-crawler
+  // mortality there is already real: a 20-seed probe at fromFloor 2 dropped
+  // floors-1-4 bot survival 12/20 -> 9/20; fromFloor 3 restores it)
+  veteranPackChance: 0.35, // share of rolled packs anchored by a veteran
+  veteranHpMult: 3.4,
+  veteranDmgMult: 1.35,
+  veteranSpeedMult: 0.9, // survivors don't hurry
+  veteranXpMult: 3,
+  veteranScale: 1.25, // body radius + render scale (between grunt and elite)
   // One-shot insurance: a single player hit can never remove more than this
   // fraction of a boss/elite health pool, whatever the build finds next.
   bossHitCapFraction: 0.1,
@@ -932,6 +1040,42 @@ export const CONFIG = {
   shrineLoanDebt: 30, // ...and what the NEXT floor's budget pays back
   shrineLiquidateBonus: 1.5, // Liquidation Event: bag buyout premium over sell value
   shrinePremiumCostFraction: 0.3, // Insurance Premium: slice of current gold
+
+  // Service rooms (roomPurposes phase 4): RARE room verbs. At most ONE room
+  // per floor is "open for business" (serviceChance, rolled in the pure
+  // assignment), it must be pristine/overgrown, and every verb costs — gold,
+  // a losing-odds stake, or it pays in knowledge/time instead of power.
+  serviceChance: 0.4, // fraction of eligible floors with a service room
+  svcTemperCost: 35, // forge: gold cost base...
+  svcTemperCostPerFloor: 8,
+  svcTemperDamage: 3, // ...for this much permanent damage (both schools)...
+  svcTemperDamagePerFloor: 0.5,
+  svcDraughtCost: 25, // apothecary: full heal + cleanse
+  svcDraughtCostPerFloor: 5,
+  svcWagerStake: 30, // den: double or nothing...
+  svcWagerStakePerFloor: 10,
+  svcWagerWinChance: 0.45, // ...and the house deals
+  svcPlansTime: 20, // war room: seconds added to the collapse clock
+  // THE CHASE (floor stories): looters who swept the last floor are ahead,
+  // as fleeing Repo Rats carrying the haul.
+  chaseFilcherCount: 2,
+  chaseFilcherCarry: 40, // gold each carries base...
+  chaseFilcherCarryPerFloor: 10,
+  // Destructible dressing (phase 5): smashing a hoard pops pocket change.
+  breakableGoldBase: 3,
+  breakableGoldSpread: 4, // + up to this much, seeded
+  breakableCountMin: 2, // per dressed room with an intact corner hoard...
+  breakableCountMax: 3,
+  // Physical furniture (PHYSICALITY.md §1): blocking pieces take real hits.
+  blockerHp: 2, // smash through the bookcase in two swings
+  blockerRunMin: 2, // bulk wall-furniture run length...
+  blockerRunMax: 4,
+  // Furniture density budget: at most this fraction of a room's interior may
+  // be blocking furniture. Keeps the consistency rule (all bulk furniture
+  // blocks, on every wall) from turning small early-floor rooms into mazes —
+  // measured by the bands bot, uncapped four-wall runs spiked floor-1..3
+  // deaths from ~10% to ~60%.
+  blockerRoomFraction: 0.16,
   shrineGreedGoldMult: 2, // ...and its gold drops pay double
   vaultOpenSeconds: 45, // how long a sprung timed vault stays open
   vaultTriggerRadius: 3, // tiles beyond the room rect that spring it
@@ -1089,6 +1233,12 @@ export const ARCHETYPES = {
 
 /** Depth tempo multipliers: how much quicker monsters move, swing, and
  * telegraph on a given floor. 1/1/1 through the ramp floor; capped deep. */
+/** Pursuit memory after losing sight (LOS aggro): training-wheel floors are
+ * forgetful; the deep dungeon holds a grudge. */
+export function monsterMemory(floor: number): number {
+  return Math.min(CONFIG.monsterMemoryMax, CONFIG.monsterMemoryBase + Math.max(0, floor - 3) * CONFIG.monsterMemoryPerFloor);
+}
+
 export function monsterTempo(floor: number): { speed: number; cooldown: number; windup: number } {
   const past = Math.max(0, floor - CONFIG.monsterTempoFrom);
   return {
@@ -1252,4 +1402,23 @@ export function floorTimeBudget(floor: number): number {
 /** XP required to advance FROM the given level to the next. */
 export function xpForLevel(level: number): number {
   return Math.round(CONFIG.xpBase * Math.pow(CONFIG.xpGrowth, level - 1));
+}
+
+/**
+ * The floor a crawler of this level is representative of — the inverse of the
+ * natural leveling pace (a typical run clears ~60% of each floor's cast).
+ * Test mode's `gear=level` dresses an off-curve crawler with THIS floor's
+ * loot, so "level 1 dropped onto floor 7" wears starter gear, not floor-7
+ * gear. Derived from the same knobs as the XP economy: retunes track it.
+ */
+export function naturalFloorForLevel(level: number): number {
+  const clearFraction = 0.6;
+  let lvl = 1, xp = 0, need = xpForLevel(1);
+  for (let f = 1; f <= CONFIG.finalFloor; f++) {
+    if (lvl >= level) return f;
+    const mobs = Math.min(CONFIG.monsterBaseCountFloor1 + (f - 1) * CONFIG.monsterCountPerFloor, CONFIG.monsterMaxCount);
+    xp += mobs * (CONFIG.monsterXp + (f - 1) * CONFIG.monsterXpPerFloor) * clearFraction;
+    while (xp >= need) { xp -= need; lvl++; need = xpForLevel(lvl); }
+  }
+  return CONFIG.finalFloor;
 }

@@ -7,7 +7,15 @@
 
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { loadModels, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
+import { loadModels, ELITE_TEXTURES, MODEL_MANIFEST, type LoadedModel } from "./render3d/assets";
+import { THEME } from "./render3d/theme";
+import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./render3d/dressing";
+import { ROOM_PURPOSES, resolvePurpose, type RoomPurpose, type RoomCondition } from "./sim/roomPurposes";
+import { createRng, nextFloat } from "./sim/rng";
+import { ROOM_TEMPLATES, registerRoomTemplate, validateTemplate } from "./content/rooms";
+import { MOB_DEFS } from "./content/mobs";
+import { generateFloor } from "./sim/floor";
+import { floorSeed } from "./sim/game";
 import type { RoomTemplate, RoomProp, CustomMobDef } from "./content/types";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -24,18 +32,38 @@ const key = new THREE.DirectionalLight(0xfff1d0, 1.6);
 key.position.set(6, 12, 4);
 scene.add(key);
 
+// Orbit + zoom: wheel zooms, middle-drag (or Alt+LMB) orbits yaw — the fixed
+// iso angle hides the far walls, and dressings deserve inspection from all
+// sides. Yaw π/4 reproduces the original (+10, +10) diagonal exactly.
+let camYaw = Math.PI / 4;
+let camZoom = 1;
 function frame(): void {
   const w = viewport.clientWidth, h = viewport.clientHeight;
   renderer.setSize(w, h);
-  const span = Math.max(room.w, room.h) * 0.75 + 2.5;
+  const span = (Math.max(room.w, room.h) * 0.75 + 2.5) / camZoom;
   const aspect = w / Math.max(1, h);
   camera.left = -span * aspect; camera.right = span * aspect;
   camera.top = span; camera.bottom = -span;
-  camera.position.set(room.w / 2 + 10, 14, room.h / 2 + 10);
-  camera.lookAt(room.w / 2, 0, room.h / 2);
+  const cx = room.w / 2, cz = room.h / 2, R = Math.SQRT2 * 10;
+  camera.position.set(cx + Math.sin(camYaw) * R, 14, cz + Math.cos(camYaw) * R);
+  camera.lookAt(cx, 0, cz);
   camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", frame);
+viewport.addEventListener("wheel", (e) => {
+  camZoom = Math.min(3, Math.max(0.4, camZoom * (e.deltaY < 0 ? 1.12 : 0.89)));
+  frame();
+  e.preventDefault();
+}, { passive: false });
+let orbiting = false;
+let orbitX = 0;
+window.addEventListener("pointermove", (ev) => {
+  if (!orbiting) return;
+  camYaw += (ev.clientX - orbitX) * 0.008;
+  orbitX = ev.clientX;
+  frame();
+});
+window.addEventListener("pointerup", () => { orbiting = false; });
 
 // ---- Model library (the game's own loader: rig clips attach themselves) ----
 let models: Record<string, LoadedModel> = {};
@@ -124,14 +152,35 @@ function pointerTile(ev: PointerEvent): { x: number; y: number; fx: number; fy: 
   return { x, y, fx: Math.round(hit.x * 2) / 2, fy: Math.round(hit.z * 2) / 2 };
 }
 
+// Undo: every mutation snapshots first; Ctrl+Z restores (50 deep).
+const undoStack: { w: number; h: number; tiles: number[]; props: RoomProp[] }[] = [];
+function pushUndo(): void {
+  undoStack.push({ w: room.w, h: room.h, tiles: [...room.tiles], props: JSON.parse(JSON.stringify(room.props)) });
+  if (undoStack.length > 50) undoStack.shift();
+}
+function popUndo(): void {
+  const s = undoStack.pop();
+  if (!s) return;
+  room.w = s.w; room.h = s.h; room.tiles = s.tiles; room.props = s.props;
+  lastPlaced = null;
+  ($("roomW") as HTMLInputElement).value = String(room.w);
+  ($("roomH") as HTMLInputElement).value = String(room.h);
+  rebuildTiles(); rebuildProps(); frame();
+}
+
 let painting = false;
 renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
 renderer.domElement.addEventListener("pointerdown", (ev) => {
+  if (ev.button === 1 || (ev.button === 0 && ev.altKey)) {
+    orbiting = true; orbitX = ev.clientX; ev.preventDefault();
+    return;
+  }
   if (mode !== "rooms") return;
   const t = pointerTile(ev);
   if (!t) return;
   if (ev.button === 2 || tool === "erase") {
     // Erase: prop under cursor first, else revert tile to floor.
+    pushUndo();
     const near = room.props.findIndex((p) => Math.hypot(p.x - t.fx, p.y - t.fy) < 0.6);
     if (near >= 0) { room.props.splice(near, 1); rebuildProps(); return; }
     room.tiles[t.y * room.w + t.x] = FLOOR;
@@ -139,11 +188,13 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
     return;
   }
   if (tool === "prop" && activeProp) {
+    pushUndo();
     lastPlaced = { key: activeProp, x: t.fx, y: t.fy, rot: 0 };
     room.props.push(lastPlaced);
     rebuildProps();
     return;
   }
+  pushUndo();
   painting = true;
   room.tiles[t.y * room.w + t.x] = tool === "wall" ? WALL : FLOOR;
   rebuildTiles();
@@ -166,9 +217,76 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
 });
 window.addEventListener("pointerup", () => { painting = false; });
 window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "r" && lastPlaced) {
+  const tag = (e.target as HTMLElement).tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.ctrlKey && e.key.toLowerCase() === "z") { popUndo(); e.preventDefault(); return; }
+  if (mode !== "rooms" || !lastPlaced) return;
+  if (e.key.toLowerCase() === "r") {
     lastPlaced.rot = ((lastPlaced.rot ?? 0) + Math.PI / 4) % (Math.PI * 2);
     rebuildProps();
+    return;
+  }
+  // Nudge the last-placed prop: arrows move a quarter tile, [ ] scale it.
+  const nudge = 0.25;
+  const moves: Record<string, [number, number]> = {
+    ArrowLeft: [-nudge, 0], ArrowRight: [nudge, 0], ArrowUp: [0, -nudge], ArrowDown: [0, nudge],
+  };
+  if (e.key in moves) {
+    lastPlaced.x = Math.max(0, Math.min(room.w, lastPlaced.x + moves[e.key][0]));
+    lastPlaced.y = Math.max(0, Math.min(room.h, lastPlaced.y + moves[e.key][1]));
+    rebuildProps();
+    e.preventDefault();
+  } else if (e.key === "[" || e.key === "]") {
+    lastPlaced.scale = Math.max(0.2, Math.min(4, (lastPlaced.scale ?? 1) * (e.key === "]" ? 1.1 : 0.9)));
+    rebuildProps();
+  }
+});
+
+// ---- Prop thumbnails (lazy offscreen renders, cached per key) ----
+const thumbCache = new Map<string, string>();
+let thumbGL: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.OrthographicCamera } | null = null;
+function thumbFor(key: string): string | null {
+  const cached = thumbCache.get(key);
+  if (cached) return cached;
+  const src = models[key];
+  if (!src) return null;
+  if (!thumbGL) {
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+    r.setSize(56, 56);
+    const s = new THREE.Scene();
+    s.add(new THREE.AmbientLight(0xa0a0c0, 1.6));
+    const d = new THREE.DirectionalLight(0xfff1d0, 1.8);
+    d.position.set(3, 6, 2);
+    s.add(d);
+    thumbGL = { r, scene: s, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60) };
+  }
+  const obj = src.scene.clone(true) as THREE.Group;
+  thumbGL.scene.add(obj);
+  const box = new THREE.Box3().setFromObject(obj);
+  const c = box.getCenter(new THREE.Vector3());
+  const m = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 1e-3) * 0.62;
+  thumbGL.cam.left = -m; thumbGL.cam.right = m; thumbGL.cam.top = m; thumbGL.cam.bottom = -m;
+  thumbGL.cam.position.set(c.x + m * 2, c.y + m * 1.6, c.z + m * 2);
+  thumbGL.cam.lookAt(c);
+  thumbGL.cam.updateProjectionMatrix();
+  thumbGL.r.render(thumbGL.scene, thumbGL.cam);
+  const url = thumbGL.r.domElement.toDataURL();
+  thumbGL.scene.remove(obj);
+  thumbCache.set(key, url);
+  return url;
+}
+// Render only thumbnails that scroll into view — the palette is 100+ keys.
+const thumbObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    const img = e.target as HTMLImageElement;
+    const url = thumbFor(img.dataset.key ?? "");
+    if (url) {
+      img.src = url;
+      thumbObserver.unobserve(img);
+    } else if (Object.keys(models).length > 0) {
+      thumbObserver.unobserve(img); // library loaded but key unknown — leave the placeholder
+    } // else: models still loading; the palette re-renders after loadModels
   }
 });
 
@@ -212,7 +330,13 @@ function renderPropList(filter = ""): void {
   list.innerHTML = "";
   for (const k of PROP_KEYS.filter((k) => k.includes(filter) && inCategory(k))) {
     const b = document.createElement("button");
-    b.textContent = k;
+    const img = document.createElement("img");
+    img.dataset.key = k;
+    img.width = 28; img.height = 28;
+    thumbObserver.observe(img);
+    const label = document.createElement("span");
+    label.textContent = k;
+    b.append(img, label);
     if (k === activeProp) b.classList.add("active");
     b.onclick = () => {
       tool = "prop"; activeProp = k;
@@ -257,6 +381,7 @@ const currentRoom = (): RoomTemplate => ({
   w: room.w, h: room.h, tiles: [...room.tiles], props: JSON.parse(JSON.stringify(room.props)),
 });
 function loadRoom(t: RoomTemplate): void {
+  pushUndo();
   room.w = t.w; room.h = t.h; room.tiles = [...t.tiles]; room.props = JSON.parse(JSON.stringify(t.props));
   ($("roomId") as HTMLInputElement).value = t.id;
   ($("roomName") as HTMLInputElement).value = t.name;
@@ -297,14 +422,54 @@ $("importRoom").onclick = () => {
   try { loadRoom(JSON.parse(($("roomJson") as HTMLTextAreaElement).value)); $("roomMsg").innerHTML = '<span class="ok">imported</span>'; }
   catch { $("roomMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
 };
-$("clearRoom").onclick = () => { resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); };
+$("clearRoom").onclick = () => { pushUndo(); resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); };
+// Shipped game content, loadable for editing (re-ship to update it).
+function renderGameRooms(): void {
+  const list = $("gameRooms");
+  list.innerHTML = "";
+  for (const t of ROOM_TEMPLATES) {
+    const b = document.createElement("button");
+    b.style.cssText = "display:block;text-align:left;background:none;border:none;color:var(--ink);cursor:pointer;padding:3px 6px;font-size:12px";
+    b.textContent = `${t.name} (${t.w}×${t.h})`;
+    b.onclick = () => { loadRoom(t); $("roomMsg").innerHTML = '<span class="ok">loaded from game — edit and re-ship</span>'; };
+    list.appendChild(b);
+  }
+}
+// TEST WALK: register the WIP template, then hunt (floor, seed) pairs with
+// the game's exact derivation until one actually stamps it, and open that
+// exact dungeon in a test-mode tab (main3d re-registers from localStorage).
+$("testRoom").onclick = () => {
+  const t = currentRoom();
+  if (!t.id || !validateTemplate(t)) {
+    $("roomMsg").innerHTML = '<span class="warn">needs an id + a valid template (floor border ring, open center)</span>';
+    return;
+  }
+  registerRoomTemplate(t);
+  localStorage.setItem("dcc:test:room", JSON.stringify(t));
+  $("roomMsg").textContent = "searching for a floor that stamps it…";
+  setTimeout(() => {
+    for (let floor = 1; floor <= 6; floor++) {
+      for (let seed = 1; seed <= 150; seed++) {
+        const map = generateFloor(createRng(floorSeed(seed, floor)), floor);
+        if (map.stamps?.some((s) => s.id === t.id)) {
+          window.open(`/iso.html?test&floor=${floor}&seed=${seed}&testroom=1`, "_blank");
+          $("roomMsg").innerHTML = `<span class="ok">stamped on floor ${floor}, seed ${seed} — opened. Check the minimap for your room</span>`;
+          return;
+        }
+      }
+    }
+    $("roomMsg").innerHTML = '<span class="warn">no stamp in 900 floors — the template may be too big (rooms are 6-12 tiles; strict fit needs w≤room-2)</span>';
+  }, 30);
+};
 $("resize").onclick = () => {
+  pushUndo();
   room.w = Math.max(4, Math.min(18, Number(($("roomW") as HTMLInputElement).value)));
   room.h = Math.max(4, Math.min(14, Number(($("roomH") as HTMLInputElement).value)));
   resetTiles(); room.props = []; rebuildTiles(); rebuildProps(); frame();
 };
 $("rotateRoom").onclick = () => {
   // Rotate the whole design 90° clockwise: tiles transpose, props follow.
+  pushUndo();
   const { w, h } = room;
   const next = new Array(w * h).fill(FLOOR);
   for (let y = 0; y < h; y++) {
@@ -348,6 +513,7 @@ const CHARACTER_KEYS = Object.entries(MODEL_MANIFEST)
   .sort();
 
 let mobPreview: THREE.Group | null = null;
+let mobRef: THREE.Group | null = null; // the hero, for scale
 let mobMixer: THREE.AnimationMixer | null = null;
 const mob: CustomMobDef = {
   id: "my-enemy", name: "THE NEWCOMER", behavior: "swarmer",
@@ -355,29 +521,90 @@ const mob: CustomMobDef = {
   scale: 1, bands: [0], weight: 1,
 };
 
+// Kit preview: weapon graft options (KayKit rigs share handslot bones — a
+// cloned weapon node's local transform carries over 1:1, same trick the game
+// uses for the drummer's drum and the player armory). Preview only; defs
+// have no weapon field.
+const KIT_WEAPONS: [string, [string, string, "l" | "r"] | null][] = [
+  ["none", null],
+  ["sword", ["weapon_sword_a", "*", "r"]],
+  ["greatsword", ["weapon_sword_e", "*", "r"]],
+  ["axe", ["weapon_axe_a", "*", "r"]],
+  ["war axe", ["weapon_axe_c", "*", "r"]],
+  ["maul", ["weapon_hammer_b", "*", "r"]],
+  ["spear", ["weapon_spear_a", "*", "r"]],
+  ["halberd", ["weapon_halberd", "*", "r"]],
+  ["dagger", ["weapon_dagger_a", "*", "r"]],
+  ["wand", ["weapon_wand_a", "*", "r"]],
+  ["staff", ["weapon_staff_b", "*", "r"]],
+  ["crossbow", ["armory_knives", "1H_Crossbow", "r"]],
+  ["tower shield (off hand)", ["player", "Rectangle_Shield", "l"]],
+];
+const kit = { weapon: null as [string, string, "l" | "r"] | null, hero: false };
+const previewTexCache = new Map<string, THREE.Texture>();
+const previewTexFor = (url: string): THREE.Texture => {
+  let t = previewTexCache.get(url);
+  if (!t) {
+    t = new THREE.TextureLoader().load(url);
+    t.flipY = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    previewTexCache.set(url, t);
+  }
+  return t;
+};
+// Game-accurate height: bodies normalize to 1.1 then take the archetype's
+// scale × the def's — so the preview's proportions ARE the game's, just
+// magnified by a constant view factor (hero included, so the ratio holds).
+const KIT_VIEW = 1.8;
+function normalizeForKit(g: THREE.Group, archetypeScale: number, defScale: number): void {
+  const size = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+  g.scale.setScalar((1.1 / Math.max(size.y, 1e-3)) * archetypeScale * defScale * KIT_VIEW);
+}
+
 function showMobPreview(): void {
   if (mobPreview) scene.remove(mobPreview);
+  if (mobRef) { scene.remove(mobRef); mobRef = null; }
   mobMixer = null;
   const m = models[mob.skin];
   if (!m) return;
   // SkeletonUtils.clone, not .clone(): a plain clone leaves skinned meshes
   // bound to the source scene's bones, so clips play but the mesh never moves.
   mobPreview = cloneSkinned(m.scene) as THREE.Group;
-  // Normalize to a readable size, apply scale + tint like the game would.
-  const size = new THREE.Box3().setFromObject(mobPreview).getSize(new THREE.Vector3());
-  mobPreview.scale.setScalar((2.2 / Math.max(size.y, 1e-3)) * (mob.scale ?? 1));
-  if (mob.tint) {
+  normalizeForKit(mobPreview, THEME.archetype[mob.behavior as keyof typeof THEME.archetype]?.scale ?? 1, mob.scale ?? 1);
+  // Tint + alternate texture, cloned like the game's buildMonsterMesh.
+  if (mob.tint !== undefined || mob.texture) {
+    const tex = mob.texture ? previewTexFor(mob.texture) : null;
     mobPreview.traverse((o) => {
       const mm = o as THREE.Mesh;
-      if (!mm.isMesh) return;
+      if (!mm.isMesh || !mm.material) return;
       const mat = (mm.material as THREE.MeshStandardMaterial).clone();
-      mat.emissive = new THREE.Color(mob.tint!);
-      mat.emissiveIntensity = 0.32;
+      if (tex && mat.map) mat.map = tex;
+      if (mob.tint !== undefined) {
+        mat.emissive = new THREE.Color(mob.tint);
+        mat.emissiveIntensity = 0.32;
+      }
       mm.material = mat;
     });
   }
+  // Weapon graft onto the hand slot (KayKit rig convention).
+  $("kitMsg").textContent = "";
+  if (kit.weapon) {
+    const [srcKey, node, hand] = kit.weapon;
+    const src = node === "*" ? models[srcKey]?.scene : models[srcKey]?.scene.getObjectByName(node);
+    const handObj = mobPreview.getObjectByName(`handslot${hand}`) ?? mobPreview.getObjectByName(`handslot.${hand}`);
+    if (src && handObj) handObj.add(src.clone(true));
+    else $("kitMsg").textContent = !src ? "weapon model not loaded" : "this body has no hand slot — no weapon possible";
+  }
   mobPreview.position.set(room.w / 2, 0, room.h / 2);
   scene.add(mobPreview);
+  // Hero for scale: the player model at ITS in-game height, standing beside.
+  if (kit.hero && models.player) {
+    mobRef = cloneSkinned(models.player.scene) as THREE.Group;
+    normalizeForKit(mobRef, 1, 1);
+    mobRef.position.set(room.w / 2 - 1.7, 0, room.h / 2 + 0.6);
+    mobRef.rotation.y = Math.PI / 5;
+    scene.add(mobRef);
+  }
   // Clip preview dropdown: every animation this body can play, selectable.
   const clipSel = $("mobClip") as HTMLSelectElement;
   const prevChoice = clipSel.value;
@@ -457,6 +684,39 @@ bindSlider("mWeight", "oWeight", (v) => (mob.weight = v));
   mob.tint = v ? Number(v) : undefined;
   showMobPreview();
 };
+// Alternate texture: the elites' B-skin urls, def-driven (ships with the def).
+{
+  const texSel = $("mobTexture") as HTMLSelectElement;
+  const urls = [...new Set(Object.values(ELITE_TEXTURES))];
+  const add = (v: string, label: string) => {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = label;
+    texSel.appendChild(o);
+  };
+  add("", "none");
+  for (const u of urls) add(u, u.split("/").pop()!.replace("_texture_b.png", " B"));
+  texSel.onchange = () => {
+    mob.texture = texSel.value || undefined;
+    showMobPreview();
+  };
+}
+// Kit preview controls (weapon graft + hero scale reference).
+{
+  const wSel = $("kitWeapon") as HTMLSelectElement;
+  for (const [label] of KIT_WEAPONS) {
+    const o = document.createElement("option");
+    o.value = label; o.textContent = label;
+    wSel.appendChild(o);
+  }
+  wSel.onchange = () => {
+    kit.weapon = KIT_WEAPONS.find(([l]) => l === wSel.value)?.[1] ?? null;
+    showMobPreview();
+  };
+  ($("kitHero") as HTMLInputElement).onchange = (e) => {
+    kit.hero = (e.target as HTMLInputElement).checked;
+    showMobPreview();
+  };
+}
 
 const MOBS_KEY = "dcc:builder:mobs";
 const savedMobs = (): CustomMobDef[] => JSON.parse(localStorage.getItem(MOBS_KEY) ?? "[]");
@@ -502,31 +762,289 @@ $("exportMob").onclick = () => {
 $("importMob").onclick = () => {
   try {
     const d = JSON.parse(($("mobJson") as HTMLTextAreaElement).value) as CustomMobDef;
-    Object.assign(mob, d);
-    ($("mobId") as HTMLInputElement).value = d.id;
-    ($("mobName") as HTMLInputElement).value = d.name;
-    behaviorSel.value = d.behavior;
-    renderMobModels(); showMobPreview();
+    loadMob(d);
     $("mobMsg").innerHTML = '<span class="ok">imported</span>';
   } catch { $("mobMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
 };
+function loadMob(d: CustomMobDef): void {
+  Object.assign(mob, d);
+  ($("mobId") as HTMLInputElement).value = d.id;
+  ($("mobName") as HTMLInputElement).value = d.name;
+  behaviorSel.value = d.behavior;
+  renderMobModels();
+  showMobPreview();
+}
+function renderGameMobs(): void {
+  const list = $("gameMobs");
+  list.innerHTML = "";
+  for (const d of MOB_DEFS) {
+    const b = document.createElement("button");
+    b.style.cssText = "display:block;text-align:left;background:none;border:none;color:var(--ink);cursor:pointer;padding:3px 6px;font-size:12px";
+    b.textContent = `${d.name} (${d.behavior})`;
+    b.onclick = () => { loadMob(d); $("mobMsg").innerHTML = '<span class="ok">loaded from game — edit and re-ship</span>'; };
+    list.appendChild(b);
+  }
+}
+// TEST FIGHT: stash the def; the test-mode host registers it with every band
+// + heavy weight so its behavior's next spawns become YOUR enemy.
+$("testMob").onclick = () => {
+  const d = currentMob();
+  if (!d.id) { $("mobMsg").innerHTML = '<span class="warn">id required</span>'; return; }
+  localStorage.setItem("dcc:test:mob", JSON.stringify(d));
+  const floor = (d.bands?.[0] ?? 0) * 3 + 1;
+  window.open(`/iso.html?test&floor=${floor}&testmob=1`, "_blank");
+  $("mobMsg").innerHTML = `<span class="ok">opened floor ${floor} — most ${d.behavior}s there are now ${d.name}</span>`;
+};
+
+// ---- Dressing preview (the vignette grammar, SHARED with the game) ----
+// dressRoomPurpose here is the same function renderer3d runs on real floors:
+// what this tab shows is what the game builds, not a lookalike. The painted
+// Rooms-tab footprint is the room; everything outside it reads as wall mass,
+// with one synthetic doorway so the corridor spill shows too.
+const dressGroup = new THREE.Group();
+scene.add(dressGroup);
+const dress = {
+  purposeId: ROOM_PURPOSES[0].id,
+  variantId: "", // "" = base dressing
+  condition: "pristine" as RoomCondition,
+  seed: 1,
+  override: null as RoomPurpose | null, // Apply JSON edits land here
+};
+const currentBase = (): RoomPurpose =>
+  ROOM_PURPOSES.find((p) => p.id === dress.purposeId) ?? ROOM_PURPOSES[0];
+function resolvedDress(): RoomPurpose {
+  if (dress.override) return dress.override;
+  const base = currentBase();
+  return resolvePurpose(base, base.variants?.find((v) => v.id === dress.variantId) ?? null);
+}
+
+// Unknown keys (typos, un-promoted generated props) still show as a stand-in
+// box so the composition reads while you iterate.
+const fallbackBox = (key: string): THREE.Group => {
+  let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.8, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0x3a3a4f + (h % 0x40), roughness: 0.9 }),
+  );
+  m.position.y = 0.4;
+  g.add(m);
+  return g;
+};
+const apronMat = new THREE.MeshStandardMaterial({ color: 0x1a1a28, roughness: 0.95 });
+
+// The latest dressing pass as bake-able template props (see place()).
+const dressBake: { props: RoomProp[]; skipped: number } = { props: [], skipped: 0 };
+
+function refreshDressing(): void {
+  dressGroup.clear();
+  dressBake.props = [];
+  dressBake.skipped = 0;
+  if (mode !== "dress") return;
+  const r = { x: 0, y: 0, w: room.w, h: room.h };
+  // Apron under the surroundings so the doorway spill has ground to sit over.
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(room.w + 6, room.h + 6), apronMat);
+  apron.rotation.x = -Math.PI / 2;
+  apron.position.set(room.w / 2, -0.02, room.h / 2);
+  dressGroup.add(apron);
+  // Synthetic map: the painted footprint, wall mass beyond it, one doorway
+  // corridor off the south edge (so spillPurposeDoorways has a door to leak
+  // out of, exactly like a real floor's corridors).
+  const doorX = Math.floor(room.w / 2);
+  const inRoom = (tx: number, ty: number) => tx >= 0 && ty >= 0 && tx < room.w && ty < room.h;
+  const isCorridor = (tx: number, ty: number) => tx === doorX && ty >= room.h && ty < room.h + 2;
+  const isFloorAt = (x: number, y: number): boolean => {
+    const tx = Math.floor(x), ty = Math.floor(y);
+    return inRoom(tx, ty) ? room.tiles[ty * room.w + tx] === FLOOR : isCorridor(tx, ty);
+  };
+  const rng = createRng((dress.seed ^ 0x9e3779b1) >>> 0);
+  const frng = () => nextFloat(rng);
+  let lights = 0;
+  const env: DressEnv = {
+    frng,
+    isFloor: isFloorAt,
+    isWall: (x, y) => {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      return inRoom(tx, ty) ? room.tiles[ty * room.w + tx] === WALL : !isCorridor(tx, ty);
+    },
+    clear: isFloorAt,
+    place: (key, x, y, opts = {}) => {
+      if (!isFloorAt(x, y)) return null;
+      // Mirror of renderer3d's place(): footprint-normalize, jitter, ground
+      // snap — same rng call order so seeds shuffle layouts the same way.
+      const obj = instance(key) ?? fallbackBox(key);
+      const box = new THREE.Box3().setFromObject(obj);
+      const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
+      obj.scale.multiplyScalar((opts.scale ?? 0.55 + frng() * 0.2) / fp);
+      const scaled = new THREE.Box3().setFromObject(obj);
+      const j = opts.jitter ?? 0.25;
+      obj.position.set(
+        x + (frng() - 0.5) * j - (scaled.min.x + scaled.max.x) / 2 + obj.position.x,
+        -scaled.min.y + 0.004 + (opts.elevate ?? 0),
+        y + (frng() - 0.5) * j - (scaled.min.z + scaled.max.z) / 2 + obj.position.z,
+      );
+      obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
+      dressGroup.add(obj);
+      // Bake bookkeeping: template props live at y=0 with a scalar scale, so
+      // elevated placements (wall mounts, tabletop items), corridor spill,
+      // and unknown keys can't survive the conversion — count them instead.
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const bx = r2(obj.position.x), by = r2(obj.position.z);
+      if ((opts.elevate ?? 0) > 0 || !models[key] || bx < 0 || by < 0 || bx > room.w || by > room.h) {
+        dressBake.skipped++;
+      } else {
+        dressBake.props.push({ key, x: bx, y: by, rot: r2(obj.rotation.y), scale: r2(obj.scale.x) });
+      }
+      return obj;
+    },
+    canTorch: () => lights < 6,
+    addTorch: (x, y) => {
+      if (lights++ >= 6) return;
+      const l = new THREE.PointLight(0xffb45e, 2.2, 6);
+      l.position.set(x, 0.9, y);
+      dressGroup.add(l);
+    },
+  };
+  const p = resolvedDress();
+  // Social anchor, rolled like assignRoomPurposes rolls it: a table sits in
+  // an off-center quadrant (the middle stays a fight), a centerpiece centers.
+  let anchor: { x: number; y: number } | null = null;
+  if (p.tableSet) {
+    anchor = {
+      x: r.x + r.w * (frng() < 0.5 ? 0.32 : 0.68),
+      y: r.y + r.h * (frng() < 0.5 ? 0.32 : 0.68),
+    };
+  } else if (p.centerpiece) {
+    anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
+  }
+  dressRoomPurpose(env, r, { purpose: p, condition: dress.condition, anchor, breakables: [], blockers: [], seats: [] });
+  spillPurposeDoorways(env, r, p);
+  $("dressMsg").textContent = "";
+  if (r.w < 5 || r.h < 5) {
+    $("dressMsg").innerHTML = '<span class="warn">room under 5×5 — the game only dresses rooms 5×5 and up</span>';
+  }
+}
+
+function renderPurposeList(): void {
+  const list = $("purposeList");
+  list.innerHTML = "";
+  for (const pu of ROOM_PURPOSES) {
+    const b = document.createElement("button");
+    b.textContent = `${pu.id} · ${pu.zone ?? "work"}`;
+    b.style.cssText = "text-align:left;background:none;border:none;padding:3px 6px;cursor:pointer;font-size:12px";
+    b.style.color = pu.id === dress.purposeId ? "var(--gold)" : "var(--ink)";
+    b.onclick = () => {
+      dress.purposeId = pu.id;
+      dress.variantId = "";
+      dress.override = null;
+      renderPurposeList();
+      refreshVariantSelect();
+      syncDressJson();
+      refreshDressing();
+    };
+    list.appendChild(b);
+  }
+}
+function refreshVariantSelect(): void {
+  const sel = $("dressVariant") as HTMLSelectElement;
+  sel.innerHTML = "";
+  const add = (v: string, t: string) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = t;
+    sel.appendChild(o);
+  };
+  add("", "base");
+  for (const v of currentBase().variants ?? []) add(v.id, v.id);
+  sel.value = dress.variantId;
+}
+function syncDressJson(): void {
+  ($("dressJson") as HTMLTextAreaElement).value = JSON.stringify(resolvedDress(), null, 2);
+}
+($("dressVariant") as HTMLSelectElement).onchange = (e) => {
+  dress.variantId = (e.target as HTMLSelectElement).value;
+  dress.override = null;
+  syncDressJson();
+  refreshDressing();
+};
+($("dressCondition") as HTMLSelectElement).onchange = (e) => {
+  dress.condition = (e.target as HTMLSelectElement).value as RoomCondition;
+  refreshDressing();
+};
+($("dressSeed") as HTMLInputElement).oninput = (e) => {
+  dress.seed = Number((e.target as HTMLInputElement).value) || 0;
+  refreshDressing();
+};
+$("dressReroll").onclick = () => {
+  dress.seed += 1;
+  ($("dressSeed") as HTMLInputElement).value = String(dress.seed);
+  refreshDressing();
+};
+$("dressApply").onclick = () => {
+  try {
+    const p = JSON.parse(($("dressJson") as HTMLTextAreaElement).value) as RoomPurpose;
+    if (!Array.isArray(p.wallRun) || !Array.isArray(p.wallMount)) {
+      throw new Error("wallRun and wallMount must be arrays of prop keys");
+    }
+    dress.override = p;
+    // Warn on keys the model library doesn't know — they render as boxes.
+    const keys = [
+      ...p.wallRun, ...p.wallMount, ...(p.cornerStack ?? []), ...(p.rug ?? []),
+      ...(p.tableSet ? [p.tableSet.table, p.tableSet.seat, ...p.tableSet.tabletop] : []),
+      ...(p.centerpiece ? [p.centerpiece.key, ...p.centerpiece.spill] : []),
+    ];
+    const unknown = [...new Set(keys.filter((k) => !models[k]))];
+    refreshDressing();
+    $("dressMsg").innerHTML = unknown.length
+      ? `<span class="warn">unknown props render as boxes: ${unknown.join(", ")}</span>`
+      : '<span class="ok">applied</span>';
+  } catch (e) {
+    $("dressMsg").innerHTML = `<span class="warn">${String(e).slice(0, 160)}</span>`;
+  }
+};
+$("dressReset").onclick = () => {
+  dress.override = null;
+  syncDressJson();
+  refreshDressing();
+};
+// BAKE: the current dressing becomes the room's own props — hand-tweak each
+// piece in the Rooms tab, then save/ship as a template. Wall mounts, table-
+// top items, and corridor spill can't convert (templates are y=0, in-room).
+$("dressBake").onclick = () => {
+  if (dressBake.props.length === 0) { $("dressMsg").innerHTML = '<span class="warn">nothing to bake — dress a room first</span>'; return; }
+  pushUndo();
+  room.props = JSON.parse(JSON.stringify(dressBake.props));
+  rebuildProps();
+  $("dressMsg").innerHTML = `<span class="ok">baked ${dressBake.props.length} props into the Rooms tab${dressBake.skipped ? ` (${dressBake.skipped} elevated/corridor pieces skipped)` : ""}</span>`;
+};
 
 // ---- Tabs ----
-let mode: "rooms" | "mobs" = "rooms";
+let mode: "rooms" | "mobs" | "dress" = "rooms";
 function setMode(m: typeof mode): void {
   mode = m;
   $("tabRooms").classList.toggle("active", m === "rooms");
   $("tabMobs").classList.toggle("active", m === "mobs");
+  $("tabDress").classList.toggle("active", m === "dress");
   $("roomTools").style.display = m === "rooms" ? "" : "none";
   $("roomPane").style.display = m === "rooms" ? "" : "none";
   $("mobPane").style.display = m === "mobs" ? "" : "none";
   $("mobRight").style.display = m === "mobs" ? "" : "none";
-  tileGroup.visible = propGroup.visible = m === "rooms";
+  $("dressPane").style.display = m === "dress" ? "" : "none";
+  $("dressRight").style.display = m === "dress" ? "" : "none";
+  tileGroup.visible = m !== "mobs"; // the dressed room keeps its painted walls
+  propGroup.visible = m === "rooms"; // manual props hide while previewing dressing
+  if (ghost) ghost.visible = false;
   if (m === "mobs") showMobPreview();
-  else if (mobPreview) { scene.remove(mobPreview); mobPreview = null; mobMixer = null; }
+  else {
+    if (mobPreview) { scene.remove(mobPreview); mobPreview = null; mobMixer = null; }
+    if (mobRef) { scene.remove(mobRef); mobRef = null; }
+  }
+  refreshDressing();
 }
 $("tabRooms").onclick = () => setMode("rooms");
 $("tabMobs").onclick = () => setMode("mobs");
+$("tabDress").onclick = () => setMode("dress");
 
 // ---- Meshy bridge (dev server only; the deployed page hides this) ----
 async function initBridge(): Promise<void> {
@@ -536,6 +1054,35 @@ async function initBridge(): Promise<void> {
   } catch { return; }
   $("bridgeBox").style.display = "";
   $("zipBox").style.display = "";
+  // SHIP TO GAME: the bridge writes the content file + registry entry on this
+  // machine — the result is a git diff to review, not a hidden side channel.
+  $("shipRoom").style.display = $("shipMob").style.display = $("shipPurpose").style.display = "";
+  const ship = async (kind: string, data: unknown, msgEl: string): Promise<void> => {
+    const r = await fetch("/__builder/ship", { method: "POST", body: JSON.stringify({ kind, data }) });
+    const body = await r.json() as { files?: string[]; error?: string };
+    $(msgEl).innerHTML = r.ok
+      ? `<span class="ok">shipped → ${(body.files ?? []).join(", ")} — review the git diff and commit</span>`
+      : `<span class="warn">${body.error}</span>`;
+  };
+  $("shipRoom").onclick = () => {
+    const t = currentRoom();
+    if (!t.id || !validateTemplate(t)) {
+      $("roomMsg").innerHTML = '<span class="warn">needs an id + a valid template (floor border ring, open center)</span>';
+      return;
+    }
+    void ship("room", t, "roomMsg");
+  };
+  $("shipMob").onclick = () => {
+    const d = currentMob();
+    if (!d.id || !d.name) { $("mobMsg").innerHTML = '<span class="warn">id and name required</span>'; return; }
+    void ship("mob", d, "mobMsg");
+  };
+  $("shipPurpose").onclick = () => {
+    try {
+      const p = JSON.parse(($("dressJson") as HTMLTextAreaElement).value) as RoomPurpose;
+      void ship("purpose", p, "dressMsg"); // bridge upsert keeps authored variants unless you send your own
+    } catch { $("dressMsg").innerHTML = '<span class="warn">invalid JSON</span>'; }
+  };
   // Zip import: search the owner's KayKit collection zip, extract + convert
   // props on demand (they land in the generated palette).
   $("zipGo").onclick = async () => {
@@ -572,18 +1119,53 @@ async function initBridge(): Promise<void> {
   };
   setInterval(renderJobs, 4000);
   void renderJobs();
+  // Creature clip picker: the standard five (the clip-matcher's vocabulary)
+  // plus extras from the Meshy preset library, 3 credits per clip.
+  const CLIP_CHOICES: [string, number, boolean][] = [
+    ["Idle", 89, true], ["Walking_A", 1, true], ["Attack", 96, true],
+    ["Hit_A", 178, true], ["Death_A", 8, true],
+    ["Throw", 239, false], ["Drink", 342, false], ["Bow", 42, false],
+  ];
+  const clipBox = $("clipPicks");
+  for (const [name, action, on] of CLIP_CHOICES) {
+    const l = document.createElement("label");
+    l.style.cssText = "display:inline-flex;gap:5px;align-items:center;margin-top:0";
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.style.width = "auto"; c.checked = on;
+    c.dataset.clip = `${name}:${action}`;
+    l.append(c, document.createTextNode(`${name} (#${action})`));
+    clipBox.appendChild(l);
+  }
+  const pickedClips = (): string =>
+    [...clipBox.querySelectorAll<HTMLInputElement>("input:checked")].map((c) => c.dataset.clip).join(",");
   const kick = async (kind: "prop" | "creature") => {
     const id = ($("genId") as HTMLInputElement).value.trim();
     const prompt = ($("genPrompt") as HTMLInputElement).value.trim();
+    const clips = kind === "creature" ? pickedClips() : undefined;
     const r = await fetch("/__builder/generate", {
       method: "POST",
-      body: JSON.stringify({ kind, id, prompt }),
+      body: JSON.stringify({ kind, id, prompt, clips: clips || undefined }),
     });
     if (!r.ok) $("jobList").innerHTML = `<span class="warn">${(await r.json()).error}</span>`;
     else void renderJobs();
   };
   $("genProp").onclick = () => void kick("prop");
   $("genCreature").onclick = () => void kick("creature");
+  // Retexture: same mesh, new skin (~10 credits) — for palette-matching a
+  // generated asset to a band or aging a prop without regenerating geometry.
+  $("rtxGo").onclick = async () => {
+    const r = await fetch("/__builder/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "retexture",
+        id: ($("rtxId") as HTMLInputElement).value.trim(),
+        prompt: ($("rtxPrompt") as HTMLInputElement).value.trim(),
+        source: ($("rtxSource") as HTMLInputElement).value.trim(),
+      }),
+    });
+    if (!r.ok) $("jobList").innerHTML = `<span class="warn">${(await r.json()).error}</span>`;
+    else void renderJobs();
+  };
 }
 void initBridge();
 
@@ -601,6 +1183,11 @@ renderPropList();
 renderSaved();
 renderSavedMobs();
 renderMobModels();
+renderGameRooms();
+renderGameMobs();
+renderPurposeList();
+refreshVariantSelect();
+syncDressJson();
 frame();
 tick();
 void loadModels().then(async (m) => {
@@ -619,10 +1206,14 @@ void loadModels().then(async (m) => {
   } catch { /* nothing generated yet */ }
   rebuildProps();
   if (mode === "mobs") showMobPreview();
+  if (mode === "dress") refreshDressing();
 });
 
 // Headless-verify hook: lets a driver assert the preview's skinned meshes are
 // bound to the clone's own skeleton (the SkeletonUtils.clone contract).
 (window as unknown as { __builderDebug: unknown }).__builderDebug = {
   preview: () => mobPreview,
+  dressCount: () => dressGroup.children.length,
+  dressSnapshot: () =>
+    JSON.stringify(dressGroup.children.map((o) => [Math.round(o.position.x * 100), Math.round(o.position.z * 100)])),
 };

@@ -8,11 +8,13 @@
 // local rng derived from (seed, floor). No GameState, no mutation, no DOM.
 
 import { createRng, nextFloat, type Rng } from "./rng";
-import { floorBand } from "./config";
+import { CONFIG, floorBand } from "./config";
 import type { FloorMap, MonsterKind, Vec2 } from "./types";
+import PURPOSES_DATA from "./roomPurposes.data.json";
 
 export interface RoomPurpose {
   id: string;
+  note?: string; // authorial one-liner (was an inline comment pre-JSON)
   wallRun: string[]; // props lined shoulder-to-shoulder along one wall
   wallMount: string[]; // decor hung ON wall faces (banners, shelves, sconces)
   cornerStack?: string[]; // a tight hoard in one corner
@@ -32,145 +34,34 @@ export interface RoomPurpose {
   variants?: (Partial<Omit<RoomPurpose, "variants">> & { id: string })[];
 }
 
-export const ROOM_PURPOSES: RoomPurpose[] = [
-  {
-    id: "storage", // the quartermaster's floor: kegs and crates against the walls
-    zone: "work",
-    wallRun: ["keg", "barrel_large", "crates_stacked", "box_large", "keg_decorated"],
-    wallMount: ["shelf_small"],
-    cornerStack: ["box_small", "barrel_small", "trunk_small_A"],
-    variants: [
-      { id: "wine_cellar", wallRun: ["keg_decorated", "barrel_small_stack", "keg", "barrel_large"], cornerStack: ["bottle_a_labeled_green", "bottle_b_brown", "bottle_A_green"], wallMount: ["shelf_small", "lantern_hanging"] },
-      { id: "ransacked", wallRun: ["table_medium_broken", "rubble_half", "box_large"], cornerStack: ["rubble_half", "barrel_small"], wallMount: ["banner_brown"] },
-    ],
-  },
-  {
-    id: "mess", // somebody eats down here: a set table, a bar top, a keg on tap
-    zone: "living",
-    wallRun: ["bartop_a_medium", "keg_decorated", "barrel_large"],
-    wallMount: ["banner_red", "shelf_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
-    variants: [
-      { id: "tavern_night", rug: ["rug_oval_a"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["mug_a", "mug_b", "vampire_goblet", "plate_food_a"] }, wallMount: ["lantern_hanging", "banner_red"] },
-      { id: "washup", wallRun: ["bartop_a_medium", "dishrack_plates", "keg"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["plate_stack"] } },
-    ],
-  },
-  {
-    id: "archive", // the dungeon keeps records: bookcase runs and a reading table
-    zone: "work", bands: [0, 3, 5],
-    wallRun: ["bookcase_single", "bookcase_double_decorateda", "bookcase_single"],
-    wallMount: ["shelf_small_books"],
-    cornerStack: ["book_single", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["book_single"] },
-    variants: [
-      { id: "map_annex", tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled", "book_single"] }, cornerStack: ["map_rolled", "box_small"], rug: ["rug_rectangle_a"] },
-    ],
-  },
-  {
-    id: "guardpost", // a watch was stationed here; the shift ended badly
-    zone: "work",
-    wallRun: ["bench", "box_large", "barrel_small"],
-    wallMount: ["banner_shield_red", "torch_mounted"],
-    cornerStack: ["barrel_small", "bottle_A_green"],
-    centerpiece: { key: "table_medium_broken", spill: ["sword_shield_broken", "bottle_A_green"] },
-    variants: [
-      { id: "card_watch", tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_hearts_king", "mug_b", "coin_silver"] }, centerpiece: undefined },
-      { id: "armory_rack", wallRun: ["weaponrack", "weaponrack_decorated", "bench"], centerpiece: { key: "dummy_base", spill: ["sword_shield_broken"] } },
-    ],
-  },
-  // Wave 2 (extracted 2026-07-09: Dungeon Remastered beds/chair/food plates,
-  // Restaurant pots, Resource barrels, Block Bits anvil, Adventurers potions).
-  {
-    id: "barracks", // rows of cots against the wall; somebody sleeps down here
-    zone: "living",
-    wallRun: ["bed_a_single", "bed_b_single", "bed_floor", "bed_decorated"],
-    wallMount: ["banner_blue", "shelf_small"],
-    cornerStack: ["trunk_small_A", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["bottle_A_green"] },
-    variants: [
-      { id: "officers", wallRun: ["bed_decorated", "bookcase_single", "trunk_small_A"], rug: ["rug_rectangle_a"], tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["vampire_goblet", "book_single"] } },
-      { id: "flophouse", wallRun: ["bed_floor", "bed_floor", "box_small"], wallMount: ["banner_brown"], cornerStack: ["bottle_b_brown", "bottle_A_green", "barrel_small"], tableSet: undefined },
-    ],
-  },
-  {
-    id: "kitchen", // the mess gets fed from somewhere: stew pots and stock
-    zone: "living",
-    wallRun: ["food_barrel_fish", "crate_potatoes", "barrel_small_stack", "crate_large_decorated"],
-    wallMount: ["shelf_small", "banner_brown"],
-    cornerStack: ["pot_large", "barrel_small"],
-    centerpiece: { key: "pot_a_stew", spill: ["plate_food_a", "plate_food_b", "bottle_A_green"] },
-    variants: [
-      { id: "mushroom_prep", wallRun: ["crate_mushrooms", "basket_mushrooms", "barrel_small_stack"], centerpiece: { key: "pot_large", spill: ["mushroom", "mushroom", "plate_food_b"] } },
-      { id: "sculleryard", wallRun: ["dishrack_plates", "bartop_a_medium", "crate_large_decorated"], centerpiece: { key: "pot_a_stew", spill: ["plate_stack", "mug_a"] } },
-    ],
-  },
-  {
-    id: "forge", // a work floor: the anvil is the altar and fuel is the faith
-    zone: "deep", bands: [3, 4],
-    wallRun: ["fuel_a_barrels", "crate_large_decorated", "box_large"],
-    wallMount: ["torch_mounted", "shelf_small"],
-    cornerStack: ["rubble_half", "barrel_small"],
-    centerpiece: { key: "anvil", spill: ["sword_shield_broken", "rubble_half"] },
-    variants: [
-      { id: "cold_forge", wallMount: ["banner_brown", "shelf_small"], centerpiece: { key: "anvil", spill: ["rubble_half", "rubble_large", "skull"] }, cornerStack: ["rubble_large", "fuel_a_barrels"] },
-    ],
-  },
-  {
-    id: "apothecary", // shelves of glassware; the dungeon brews its own
-    zone: "work", bands: [0, 1, 3],
-    wallRun: ["bookcase_single", "shelf_small", "crate_large_decorated"],
-    wallMount: ["shelf_small_books", "banner_green"],
-    cornerStack: ["gems_sack", "box_small"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["potion_huge_green", "potion_large_blue", "potion_medium_red"] },
-    variants: [
-      { id: "witch_pantry", wallRun: ["shelf_small", "crate_mushrooms", "bookcase_single"], tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["basket_mushrooms", "potion_medium_red", "mushroom"] }, cornerStack: ["basket_mushrooms", "gems_sack"] },
-    ],
-  },
-  // Wave 3: whole new jobs (Prototype/Board Game/RPG Tools/Halloween bits).
-  {
-    id: "trainhall", // the watch drills here: racks, dummies, and splinters
-    zone: "work", bands: [0, 4, 5],
-    wallRun: ["weaponrack", "weaponrack_decorated", "bench"],
-    wallMount: ["banner_red", "torch_mounted"],
-    cornerStack: ["box_large", "barrel_small"],
-    centerpiece: { key: "trainingdummy_base", spill: ["sword_shield_broken", "rubble_half"] },
-    variants: [
-      { id: "proving_ground", centerpiece: { key: "dummy_base", spill: ["sword_shield_broken", "sword_shield_broken"] }, wallMount: ["banner_white", "torch_mounted"] },
-    ],
-  },
-  {
-    id: "den", // after the shift: cards, coins, and nobody watching the door
-    zone: "living", bands: [1, 4, 5],
-    wallRun: ["keg_decorated", "barrel_large", "bench"],
-    wallMount: ["lantern_hanging", "banner_brown"],
-    cornerStack: ["bottle_b_brown", "box_small", "coin_silver"],
-    rug: ["rug_rectangle_b", "rug_oval_a"],
-    tableSet: { table: "table_round_medium", seat: "stool_round", tabletop: ["card_base", "card_spades_ace", "card_hearts_king", "coin_gold", "coin_10_gold", "mug_a", "vampire_goblet"] },
-  },
-  {
-    id: "warroom", // somebody is planning something down here
-    zone: "deep", bands: [0, 3, 5],
-    wallRun: ["bookcase_single", "weaponrack", "box_large"],
-    wallMount: ["banner_shield_red", "banner_blue"],
-    cornerStack: ["map_rolled", "trunk_small_A"],
-    rug: ["rug_rectangle_a"],
-    tableSet: { table: "table_round_medium", seat: "chair", tabletop: ["map", "map_rolled"] },
-  },
-  {
-    id: "ossuary", // the dungeon files its dead like everything else
-    zone: "deep", bands: [0, 3],
-    wallRun: ["rubble_half", "rubble_large", "crate_large_decorated"],
-    wallMount: ["banner_white", "torch_mounted"],
-    cornerStack: ["skull", "bone_A", "ribcage"],
-    centerpiece: { key: "ribcage", spill: ["skull", "bone_A", "rubble_half"] },
-  },
-];
+// The purpose DATA lives in roomPurposes.data.json so the builder's dev
+// bridge can ship dressing edits as a clean file write. Convention: in a
+// variant, JSON null means "remove the base field" (JSON cannot say
+// undefined); resolvePurpose normalizes nulls away after the merge.
+export const ROOM_PURPOSES: RoomPurpose[] = PURPOSES_DATA as unknown as RoomPurpose[];
 
 
 // A dressed room's HISTORY, layered over purpose + variant. The renderer
 // translates each into prop damage (thinned runs, broken tables, moss);
 // "pristine" is the default and means the variant dresses as authored.
 export type RoomCondition = "pristine" | "looted" | "scarred" | "overgrown";
+
+// What the residents SAY when you interrupt them (phase 5) — announced once
+// per floor, the first time a seated pack takes damage. System voice.
+export const RESIDENT_LINES: Record<string, string> = {
+  storage: "Something was NESTING in the stores. It objects to the audit.",
+  mess: "You interrupted DINNER. The mess hall takes this personally.",
+  archive: "QUIET in the archive. The readers enforce the rule.",
+  guardpost: "The WATCH earns its pay after all.",
+  barracks: "You woke the GARRISON. They were off duty. They are not anymore.",
+  kitchen: "You barged into the KITCHEN mid-service. The staff has knives anyway.",
+  forge: "You disturbed the FORGE. The work order now includes you.",
+  apothecary: "You jostled the GLASSWARE. The brewers bill for breakage.",
+  trainhall: "The SPARRING RING welcomes a volunteer.",
+  den: "You interrupted the HAND. All bets are off.",
+  warroom: "The PLANNERS pencil you in.",
+  ossuary: "The FILING SYSTEM objects to being rearranged.",
+};
 
 export interface RoomDressing {
   roomIdx: number; // index into map.rooms
@@ -182,6 +73,34 @@ export interface RoomDressing {
   // renderer builds the furniture here; the sim gathers the resident pack
   // around it. Null when the purpose has no focal furniture.
   anchor: Vec2 | null;
+  // Smashable corner hoard (phase 5): the sim spawns Breakable entities here
+  // and the renderer draws THESE instead of a cosmetic corner stack, so what
+  // you see is exactly what you can hit.
+  breakables: { x: number; y: number; key: string }[];
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): tile-snapped blocking pieces —
+  // the table (isTable) and a bulk run hugging one wall. The sim stamps
+  // map.blocked from these and spawns them as hp-2 Breakables; the renderer
+  // entity-draws them and skips the cosmetic duplicates. Every set is
+  // connectivity-validated: a stamp that would trap anyone is dropped.
+  blockers: { tile: number; key: string; isTable?: boolean }[];
+  // SEAT SLOTS (staging v2): where a table BLOCKS, the plan also owns its
+  // seats. The sim places the resident pack ON these; the renderer puts the
+  // chairs at the same spots and plays the chair-sit — actor and furniture
+  // line up by construction instead of by two unrelated random draws.
+  seats: Vec2[];
+}
+
+/** Merge a variant over its base purpose (variant fields REPLACE base fields).
+ *  A null field in the variant REMOVES the base's (JSON's stand-in for
+ *  undefined — see roomPurposes.data.json). */
+export function resolvePurpose(
+  base: RoomPurpose,
+  variant: (Partial<Omit<RoomPurpose, "variants">> & { id: string }) | null,
+): RoomPurpose {
+  if (!variant) return base;
+  const merged = { ...base, ...variant, id: base.id, variants: undefined } as Record<string, unknown>;
+  for (const k of Object.keys(merged)) if (merged[k] === null) merged[k] = undefined;
+  return merged as unknown as RoomPurpose;
 }
 
 // OCCUPANCY v2: who actually lives in each kind of room. When a pack spawns
@@ -204,6 +123,38 @@ export const PURPOSE_RESIDENTS: Record<string, MonsterKind[]> = {
   ossuary: ["necromancer", "swarmer", "swarmer"], // the filing clerk and the files
 };
 
+// FURNITURE-SIZED prop keys (PHYSICALITY.md §1). THE CONSISTENCY RULE:
+// if it's furniture-sized it BLOCKS, everywhere it appears; if it doesn't
+// block, it's clutter-sized. The plan stamps these as blockers on every
+// eligible wall, and the renderer's cosmetic dressing NEVER draws them
+// (dressing.ts filters wall runs and doorway spill against this set), so
+// two identical bookcases can't disagree about being solid.
+export const BULK_KEYS = new Set([
+  "bookcase_single", "bookcase_double_decorateda", "bartop_a_medium",
+  "bed_a_single", "bed_b_single", "bed_decorated",
+  "fuel_a_barrels", "food_barrel_fish", "crate_large_decorated",
+]);
+
+// STAGED PERCEPTION (staging v2): how alert a room's residents are while
+// their scene runs, as a fraction of monsterAggroRange. Sleep is nearly
+// blind (sneaking past the barracks is a real option now), absorbed work
+// dulls the ears, and the guardpost is PAID to watch. Snaps to 1 the
+// moment the scene breaks (detection in ai.ts, or damage).
+export const PURPOSE_PERCEPTION: Record<string, number> = {
+  barracks: 0.4, // asleep
+  archive: 0.6, // deep in the reading
+  forge: 0.6, // the hammering drowns you out
+  mess: 0.7, // dinner
+  den: 0.7, // the hand is absorbing
+  kitchen: 0.75, // service clatter
+  apothecary: 0.8,
+  storage: 0.85,
+  ossuary: 0.85,
+  trainhall: 0.85, // between reps somebody looks up
+  warroom: 0.9, // mid-argument
+  guardpost: 1.25, // the watch is WATCHING
+};
+
 // FLOOR STORIES: one seeded event per floor (35%) leaves its mark as a swept
 // PATH of conditions instead of independent rolls — looters came in the same
 // door you did, a battle tore through the middle, the damp claims the deep
@@ -216,9 +167,17 @@ export const STORY_LINES: Record<FloorStoryId, string> = {
   damp: "The damp is winning down here. The System disclaims all fungus.",
 };
 
+// Purposes that can take customers (phase 4). The verb per purpose lives in
+// game.ts (serviceChoices) — this set only gates WHO can hang a shingle.
+export const SERVICE_PURPOSES = new Set(["forge", "apothecary", "den", "archive", "warroom"]);
+
 export interface FloorDressingPlan {
   dressings: RoomDressing[];
   story: FloorStoryId | null;
+  // At most ONE room per floor is OPEN FOR BUSINESS — rare by design (the
+  // owner's constraint: verbs must be a lucky find, not a farming loop),
+  // and never in a looted or scarred room: those have nothing left to sell.
+  service: { roomIdx: number; purposeId: string } | null;
 }
 
 function shuffleInPlace<T>(rng: Rng, a: T[]): T[] {
@@ -242,7 +201,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const r = map.rooms[ri];
     if (map.roles[ri] === "combat" && r.w >= 5 && r.h >= 5) candidates.push(ri);
   }
-  if (candidates.length === 0) return { dressings: [], story: null };
+  if (candidates.length === 0) return { dressings: [], story: null, service: null };
   const band = floorBand(floor);
   const pool = shuffleInPlace(rng, ROOM_PURPOSES.filter((pu) => !pu.bands || pu.bands.includes(band)));
   const byDist = candidates
@@ -266,9 +225,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const variant = base.variants && base.variants.length > 0 && nextFloat(rng) < 0.55
       ? base.variants[Math.floor(nextFloat(rng) * base.variants.length)]
       : null;
-    const purpose: RoomPurpose = variant
-      ? { ...base, ...variant, id: base.id, variants: undefined }
-      : base;
+    const purpose = resolvePurpose(base, variant);
     // Condition roll: most rooms are lived-in as authored; the rest carry a
     // history. Overgrowth only takes root in the damp bands.
     const conditions: RoomCondition[] = ["looted", "scarred"];
@@ -287,7 +244,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     } else if (purpose.centerpiece) {
       anchor = { x: r.x + r.w * 0.5, y: r.y + r.h * 0.5 };
     }
-    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor });
+    out.push({ roomIdx: slot.ri, purpose, purposeId: base.id, variantId: variant ? variant.id : null, condition, anchor, breakables: [], blockers: [], seats: [] });
   }
   // The story roll: one event sweeps a coherent path of conditions over the
   // independent per-room rolls above. `out` is ordered entrance-to-depths,
@@ -302,5 +259,150 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const cond: RoomCondition = story === "looters" ? "looted" : story === "battle" ? "scarred" : "overgrown";
     for (let i = 0; i < Math.min(story === "battle" ? 2 : 3, path.length); i++) path[i].condition = cond;
   }
-  return { dressings: out, story };
+  let service: FloorDressingPlan["service"] = null;
+  const open = out.filter(
+    (d) => SERVICE_PURPOSES.has(d.purposeId) && d.anchor && (d.condition === "pristine" || d.condition === "overgrown"),
+  );
+  if (open.length > 0 && nextFloat(rng) < CONFIG.serviceChance) {
+    const d = open[Math.floor(nextFloat(rng) * open.length)];
+    service = { roomIdx: d.roomIdx, purposeId: d.purposeId };
+  }
+  // SMASHABLE corner hoards (phase 5) — drawn LAST so these rolls never
+  // reshuffle the story/service outcomes above, and computed against the
+  // FINAL condition (a story-looted room has no hoard left to smash).
+  for (const d of out) {
+    if (!d.purpose.cornerStack || d.condition === "looted") continue;
+    const r = map.rooms[d.roomIdx];
+    const corners = [
+      { x: 1.3, y: 1.3 }, { x: r.w - 1.3, y: 1.3 },
+      { x: 1.3, y: r.h - 1.3 }, { x: r.w - 1.3, y: r.h - 1.3 },
+    ];
+    const c = corners[Math.floor(nextFloat(rng) * 4)];
+    const n = CONFIG.breakableCountMin + Math.floor(nextFloat(rng) * (CONFIG.breakableCountMax - CONFIG.breakableCountMin + 1));
+    for (let bi = 0; bi < n; bi++) {
+      d.breakables.push({
+        x: r.x + c.x + (nextFloat(rng) - 0.5) * 0.8,
+        y: r.y + c.y + (nextFloat(rng) - 0.5) * 0.8,
+        key: d.purpose.cornerStack[Math.floor(nextFloat(rng) * d.purpose.cornerStack.length)],
+      });
+    }
+  }
+  // ---- PHYSICAL FURNITURE (PHYSICALITY.md §1) — drawn last of all so these
+  // rolls never reshuffle story/service/breakable outcomes for older seeds.
+  // Rules that keep the connectivity check cheap and rarely failing:
+  // bulk runs hug walls (they cannot cut a room), nothing stamps beside a
+  // doorway or within 3 tiles of spawn/stairs, and the table is a single
+  // interior tile the room ring-fences by construction.
+  const W = map.w;
+  const tileOf = (x: number, y: number) => Math.floor(y) * W + Math.floor(x);
+  const nearPoint = (ti: number, pt: Vec2, d: number) =>
+    Math.hypot((ti % W) + 0.5 - pt.x, Math.floor(ti / W) + 0.5 - pt.y) < d;
+  // Baseline reachability BFS: passable = not Wall (locked doors open later,
+  // so furniture may never be the second lock on a door).
+  const passable = (ti: number, blocked: Set<number>) =>
+    map.tiles[ti] !== 0 && !blocked.has(ti);
+  const reachableFrom = (start: number, blocked: Set<number>): Set<number> => {
+    const seen = new Set<number>([start]);
+    const queue = [start];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+        if (nb < 0 || nb >= map.tiles.length || seen.has(nb)) continue;
+        if (!passable(nb, blocked)) continue;
+        seen.add(nb);
+        queue.push(nb);
+      }
+    }
+    return seen;
+  };
+  const spawnTile = tileOf(map.spawn.x, map.spawn.y);
+  const baseline = reachableFrom(spawnTile, new Set());
+  const accepted = new Set<number>();
+  for (const d of out) {
+    const r = map.rooms[d.roomIdx];
+    const candidate: { tile: number; key: string; isTable?: boolean }[] = [];
+    // (a) The table blocks its tile (entity-drawn; dressing skips the twin).
+    if (d.purpose.tableSet && d.anchor) {
+      const ti = tileOf(d.anchor.x, d.anchor.y);
+      if (!nearPoint(ti, map.spawn, 3) && !nearPoint(ti, map.stairs, 3)) {
+        candidate.push({
+          tile: ti,
+          key: d.condition === "scarred" ? "table_medium_broken" : d.purpose.tableSet.table,
+          isTable: true,
+        });
+      }
+    }
+    // (b) Bulk runs on EVERY eligible wall (the consistency rule: cosmetic
+    // dressing no longer draws bulk keys, so every bookcase you see is one
+    // of these). Eligible tiles hug true WALL — a Floor outside is a
+    // doorway; skip those — and stay clear of spawn/stairs/the anchor.
+    const bulk = d.purpose.wallRun.filter((k) => BULK_KEYS.has(k));
+    const sideRuns: { tile: number; key: string; isTable?: boolean }[][] = [];
+    if (bulk.length > 0) {
+      for (let side = 0; side < 4; side++) {
+        const run: number[] = [];
+        const tryTile = (ix: number, iy: number, ox: number, oy: number) => {
+          const inside = iy * W + ix;
+          const outside = oy * W + ox;
+          if (map.tiles[inside] !== 1 || map.tiles[outside] !== 0) return;
+          if (nearPoint(inside, map.spawn, 3) || nearPoint(inside, map.stairs, 3)) return;
+          if (d.anchor && inside === tileOf(d.anchor.x, d.anchor.y)) return;
+          run.push(inside);
+        };
+        if (side === 0) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y, x, r.y - 1);
+        else if (side === 1) for (let x = r.x + 1; x < r.x + r.w - 1; x++) tryTile(x, r.y + r.h - 1, x, r.y + r.h);
+        else if (side === 2) for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x, y, r.x - 1, y);
+        else for (let y = r.y + 1; y < r.y + r.h - 1; y++) tryTile(r.x + r.w - 1, y, r.x + r.w, y);
+        const runLen = Math.min(
+          run.length,
+          CONFIG.blockerRunMin + Math.floor(nextFloat(rng) * (CONFIG.blockerRunMax - CONFIG.blockerRunMin + 1)),
+        );
+        const start = Math.floor(nextFloat(rng) * Math.max(1, run.length - runLen + 1));
+        const g: { tile: number; key: string }[] = [];
+        for (let i = 0; i < runLen; i++) {
+          g.push({ tile: run[start + i], key: bulk[Math.floor(nextFloat(rng) * bulk.length)] });
+        }
+        if (g.length > 0) sideRuns.push(g);
+      }
+    }
+    // Connectivity gate, INCREMENTALLY per group (table first, then each
+    // wall's run): a group that would strand any baseline-reachable tile is
+    // dropped alone instead of costing the whole room its furniture. The
+    // DENSITY BUDGET (CONFIG.blockerRoomFraction) caps how much of a room's
+    // interior may block — fight space stays fight space.
+    const roomBudget = Math.max(2, Math.floor((r.w - 2) * (r.h - 2) * CONFIG.blockerRoomFraction));
+    for (const group of [candidate, ...sideRuns]) {
+      if (group.length === 0) continue;
+      if (d.blockers.length + group.length > roomBudget) continue;
+      const trial = new Set(accepted);
+      for (const c of group) trial.add(c.tile);
+      const after = reachableFrom(spawnTile, trial);
+      let ok = true;
+      for (const ti of baseline) {
+        if (!trial.has(ti) && !after.has(ti)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (const c of group) accepted.add(c.tile);
+      d.blockers.push(...group);
+    }
+  }
+  // ---- SEAT SLOTS (staging v2) — drawn last of all, same stream discipline
+  // as blockers: appending draws at the END never reshuffles older seeds'
+  // outcomes. Only entity-drawn (blocking) tables get plan seats; cosmetic
+  // tables keep their cosmetic ring (nobody is placed there). A seat that
+  // would land in a wall or inside furniture is simply dropped.
+  for (const d of out) {
+    const tableAnchor = d.anchor;
+    if (!tableAnchor || !d.blockers.some((bl) => bl.isTable)) continue;
+    const n = 2 + Math.floor(nextFloat(rng) * 3);
+    for (let s = 0; s < n; s++) {
+      const a = (s / n) * Math.PI * 2 + nextFloat(rng) * 0.6;
+      const sx: number = tableAnchor.x + Math.cos(a) * 0.9;
+      const sy: number = tableAnchor.y + Math.sin(a) * 0.9;
+      const ti = Math.floor(sy) * W + Math.floor(sx);
+      if (map.tiles[ti] !== 1 || accepted.has(ti)) continue;
+      d.seats.push({ x: sx, y: sy });
+    }
+  }
+  return { dressings: out, story, service };
 }

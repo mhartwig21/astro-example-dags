@@ -32,18 +32,30 @@ function capturePositions(s: GameState): Map<string, Vec2> {
 // character saves off. Minted server-side on first join, echoed in the
 // welcome, kept here so the same browser gets the same character back.
 const TOKEN_KEY = "dcc:token:v1";
-function loadToken(): string | undefined {
+export function loadToken(): string | undefined {
   try {
     return localStorage.getItem(TOKEN_KEY) ?? undefined;
   } catch {
     return undefined; // no storage (private mode / non-browser): session-only identity
   }
 }
-function storeToken(token: string): void {
+export function storeToken(token: string): void {
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch {
     // Best-effort, like the run save.
+  }
+}
+
+// Campfire look (character select in main3d): rides the join like the token
+// so a party link carries who you decided to be. Server-validated; absent =
+// the seeded fallback look.
+const SKIN_KEY = "dcc:skin:v1";
+function loadSkin(): string | undefined {
+  try {
+    return localStorage.getItem(SKIN_KEY) ?? undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -73,7 +85,7 @@ export class NetClient {
   private snapAt = 0;
   private snapInterval = 67; // ms between snapshots; refined from arrivals
   // Auto-reconnect state: the original join args, replayed on unexpected close.
-  private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean } | null = null;
+  private args: { url: string; code: string; name: string; rivals: boolean; roam: boolean; isPublic: boolean } | null = null;
   private retryN = 0;
   private everConnected = false; // never auto-retry a join that failed outright
 
@@ -101,14 +113,15 @@ export class NetClient {
 
   /** Connect, join a party, resolve on the welcome snapshot.
    * `rivals` opts the instance into the competitive race (first joiner decides);
-   * `roam` starts the party as a Roam campaign the same way. */
-  connect(url: string, code: string, name: string, rivals = false, roam = false): Promise<GameState> {
-    this.args = { url, code, name, rivals, roam };
+   * `roam` starts the party as a Roam campaign the same way; `isPublic` flags a
+   * brand-new instance discoverable via GET /open-parties (Quick Join). */
+  connect(url: string, code: string, name: string, rivals = false, roam = false, isPublic = false): Promise<GameState> {
+    this.args = { url, code, name, rivals, roam, isPublic };
     return this.open();
   }
 
   private open(): Promise<GameState> {
-    const { url, code, name, rivals, roam } = this.args!;
+    const { url, code, name, rivals, roam, isPublic } = this.args!;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
@@ -116,10 +129,15 @@ export class NetClient {
         t: "join", code, name,
         rivals: rivals || undefined,
         roam: roam || undefined,
+        public: isPublic || undefined,
         token: loadToken(),
+<<<<<<< HEAD
         // This browser's seen-tips ledger: the server merges it into the
         // account so first-contact tips never replay, on any device or run.
         tips: knownTips(),
+=======
+        skin: loadSkin(),
+>>>>>>> origin/main
       }));
       ws.onerror = () => reject(new Error(`Could not reach the server at ${url}`));
       ws.onclose = () => {
@@ -228,6 +246,10 @@ export class NetClient {
   /** Sell a bag item back to the System Shop. */
   sell(idx: number): void {
     this.send({ t: "sell", idx });
+  }
+  /** Open an achievement's claimable loot box (Safe Room ACHIEVEMENTS tab). */
+  claimAchievement(id: string): void {
+    this.send({ t: "claimAchievement", id });
   }
   /** Liquidate the whole bag (equipped gear is safe). */
   sellAll(): void {

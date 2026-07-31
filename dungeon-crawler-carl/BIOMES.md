@@ -123,3 +123,17 @@ and the announcer already sells it ("The System grew you a garden…").
 - Decide THE GARDEN's sky/light values in-engine (screenshots at floor 7
   via `?test&floor=7`).
 - Whether elites/bosses get biome-flavored set-pieces per band/role.
+
+## Lived-in look experiment (iso.html?look=lived&view=close)
+
+A flag-gated variant chasing the KayKit Dungeon Remastered promo look:
+doorway arches over corridor tiles at room mouths, gated/window wall panel
+variants (~11% of faces), corridor floor grates, interior pillar pairs in
+big rooms, translucent standing-water pools in THE SEWERS, denser corner
+clutter and a 265 prop cap. `view=close` zooms in by a third (a near-overhead top view was tried and rejected).
+Both flags are independent and cosmetic-only — the sim never changes, and
+the default look is byte-identical without them. Code: renderer3d
+(`look`/`viewTop`), assets wall_doorway / wall_gated /
+wall_archedwindow_gated / wall_window_open / floor_tile_grate_open /
+pillar (Dungeon Remastered 1.1, CC0). If the look wins, fold it into the
+band themes and retire the flag.

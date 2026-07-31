@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -10,6 +11,23 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 export interface LoadedModel {
   scene: THREE.Group;
   animations: THREE.AnimationClip[];
+}
+
+// ---- Verification harness flags ----
+// The headless verify rig can't keep up with ~200 streamed meshopt GLBs under
+// software GL, which is how visual changes ended up shipping sight-unseen.
+// Two URL flags fix that from either direction:
+//   ?noassets    — skip ALL model loading; every mesh is a procedural stand-in.
+//                  Fast enough for layout/behavior checks under SwiftShader.
+//   ?eagerassets — boot blocks until the FULL manifest has settled, so a real
+//                  screenshot shows final art instead of a mid-stream mix.
+// Either way, <html data-assets-settled="1"> is stamped when loading is done —
+// poll THAT from the driver instead of sleeping and hoping.
+const HARNESS = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+export const NO_ASSETS = HARNESS?.has("noassets") ?? false;
+const EAGER_ASSETS = HARNESS?.has("eagerassets") ?? false;
+function markAssetsSettled(): void {
+  if (typeof document !== "undefined") document.documentElement.dataset.assetsSettled = "1";
 }
 
 // Optional model manifest. Paths are relative to the site root (Vite `public/`).
@@ -93,6 +111,17 @@ export const MODEL_MANIFEST: Record<string, string> = {
   armory_knives: "/assets/characters/rogue.glb",
   // Extra hero skin: the one adventurer nothing else wears.
   hero_hooded: "/assets/characters/rogue_hooded.glb",
+  // CHOSEN crawler looks (Adventurers 2.0, CC0): the campfire check-in lineup.
+  // New-generation GLBs — no baked clips, they ride the medium rig libraries
+  // via CHARACTER_RIGS like the monster cast does.
+  crawler_knight: "/assets/characters/crawler_knight.glb",
+  crawler_barbarian: "/assets/characters/crawler_barbarian.glb",
+  crawler_druid: "/assets/characters/crawler_druid.glb",
+  crawler_engineer: "/assets/characters/crawler_engineer.glb",
+  crawler_mage: "/assets/characters/crawler_mage.glb",
+  crawler_ranger: "/assets/characters/crawler_ranger.glb",
+  crawler_rogue: "/assets/characters/crawler_rogue.glb",
+  crawler_hooded: "/assets/characters/crawler_rogue_hooded.glb",
   // Roam mode (SETTLEMENTS.md v1): the settlement's one resident. Reuses a
   // skeleton-family model unwired to any monster or hero skin — a v1 rough
   // edge (it reads skeleton-like) rather than new asset work.
@@ -146,6 +175,11 @@ export const MODEL_MANIFEST: Record<string, string> = {
       // room, ossuary + variant dressing (rugs, mugs, maps, mushrooms).
       // Prototype/Board Game/Furniture/RPG Tools/Halloween/Restaurant/
       // Mystery Monthly bits, all CC0 — see ASSETS.md.
+      // LIVED-IN LOOK TEST (iso.html?look=lived): doorway arches at room
+      // mouths, gated/window wall variants, open grates, interior pillars.
+      // KayKit Dungeon Remastered 1.1, CC0 — see ASSETS.md.
+      "wall_doorway", "wall_gated", "wall_archedwindow_gated", "wall_window_open",
+      "floor_tile_grate_open", "pillar",
       "dummy_base", "weaponrack", "weaponrack_decorated", "trainingdummy_base",
       "card_base", "card_spades_ace", "card_hearts_king",
       "coin_gold", "coin_10_gold", "coin_silver",
@@ -258,6 +292,15 @@ export const CHARACTER_RIGS: Record<string, "medium" | "large"> = {
   monster_boss_12: "large", // FrostGolem
   monster_boss_15: "large", // OrcBrute (as The Furnace Marshal)
   monster_boss_18: "large", // DemonLord
+  // The campfire lineup (Adventurers 2.0) — all medium rig.
+  crawler_knight: "medium",
+  crawler_barbarian: "medium",
+  crawler_druid: "medium",
+  crawler_engineer: "medium",
+  crawler_mage: "medium",
+  crawler_ranger: "medium",
+  crawler_rogue: "medium",
+  crawler_hooded: "medium",
 };
 
 // Shared rig clip libraries (KayKit Character Animations 1.1 + DemonLord pack).
@@ -300,91 +343,170 @@ const HERO_CLIP_MANIFEST = [
   "/assets/characters/stuntdouble_cast.glb", // Meshy 42 Gentlemans_Bow — hiring the professional
 ];
 
+/**
+ * The handful of models a first playable frame actually needs: the hero (baked
+ * clips included) and the core dungeon shell. Everything else streams behind
+ * the running game — the renderer's procedural stand-ins cover the gap and
+ * are swapped out via ModelStore.onArrive.
+ */
+const PRIORITY_KEYS = new Set([
+  "player", "wall", "floor", "stairs", "torch_lit", "torch_mounted",
+]);
+
+export interface ModelStore {
+  /** LIVE record — fills in as GLBs arrive. Hosts read it every frame. */
+  models: Record<string, LoadedModel>;
+  /** Resolves when the priority wave has settled — enough to start playing. */
+  ready: Promise<void>;
+  /** Resolves when every manifest entry has settled (tools/tests). */
+  complete: Promise<void>;
+  /** Set by the host: fires per background arrival (debounce on the far side). */
+  onArrive: ((key: string) => void) | null;
+}
+
+/**
+ * Kick off the streaming load. Nothing here throws: a missing file simply
+ * never lands in `models` and the renderer keeps its procedural stand-in.
+ * onProgress tracks the PRIORITY wave (what the boot screen gates on); the
+ * background bulk reports nothing — it is deliberately invisible.
+ */
+export function startModelLoad(
+  onProgress?: (loaded: number, total: number) => void,
+): ModelStore {
+  const loader = new GLTFLoader();
+  // Every shipped GLB is meshopt-compressed (scripts/compress-assets.mjs —
+  // backlog #7's payload diet); without the decoder none of them parse.
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  const store: ModelStore = {
+    models: {},
+    onArrive: null,
+    ready: Promise.resolve(),
+    complete: Promise.resolve(),
+  };
+
+  // ?noassets (verify harness): nothing loads, stand-ins everywhere, and the
+  // settled beacon is up before the first frame.
+  if (NO_ASSETS) {
+    markAssetsSettled();
+    return store;
+  }
+
+  // Shared clip libraries fill IN PLACE with slot-stable order (the renderer's
+  // regex fallbacks are order-sensitive). Characters that arrive before their
+  // clips hold a reference to the same array, so late packs reach them
+  // automatically; the onArrive-driven mesh rebuild re-binds their animators.
+  const rigClips: Record<"medium" | "large", THREE.AnimationClip[]> = { medium: [], large: [] };
+  const rigSlots: Record<"medium" | "large", THREE.AnimationClip[][]> = {
+    medium: RIG_CLIP_MANIFEST.medium.map(() => []),
+    large: RIG_CLIP_MANIFEST.large.map(() => []),
+  };
+  const heroSlots: THREE.AnimationClip[][] = HERO_CLIP_MANIFEST.map(() => []);
+  const heroBaked = new Map<string, number>(); // hero key -> its own clip count
+
+  const appendHeroClips = (key: string): void => {
+    const m = store.models[key];
+    const baked = heroBaked.get(key);
+    if (!m || baked === undefined) return;
+    m.animations.length = baked; // idempotent: re-append after each pack lands
+    m.animations.push(...heroSlots.flat());
+  };
+  const finalizeCharacter = (key: string): void => {
+    const m = store.models[key];
+    if (!m) return;
+    const rig = CHARACTER_RIGS[key];
+    if (rig && m.animations.length === 0) m.animations = rigClips[rig];
+    if (HERO_SKIN_KEYS.includes(key)) {
+      heroBaked.set(key, m.animations.length);
+      appendHeroClips(key);
+    }
+  };
+
+  const loadModel = async (key: string, url: string): Promise<void> => {
+    try {
+      const gltf = await loader.loadAsync(url);
+      store.models[key] = { scene: gltf.scene, animations: gltf.animations };
+      finalizeCharacter(key);
+      store.onArrive?.(key);
+    } catch {
+      // File absent or failed to parse — renderer keeps its stand-in.
+    }
+  };
+
+  const entries = Object.entries(MODEL_MANIFEST);
+  const wave1 = entries.filter(([k]) => PRIORITY_KEYS.has(k));
+  const wave2 = entries.filter(([k]) => !PRIORITY_KEYS.has(k));
+
+  // Progress = priority files SETTLED (loaded or missing-and-skipped) — the
+  // boot bar must never stall on an asset we'd gracefully skip anyway.
+  let settled = 0;
+  const tick = () => onProgress?.(++settled, wave1.length);
+
+  const priorityWave = Promise.all(
+    wave1.map((e) => loadModel(e[0], e[1]).finally(tick)),
+  ).then(() => {});
+  store.ready = priorityWave;
+
+  const background = async (): Promise<void> => {
+    await priorityWave; // priority wave owns the bandwidth first
+    await Promise.all([
+      ...wave2.map((e) => loadModel(e[0], e[1])),
+      ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).flatMap((rig) =>
+        RIG_CLIP_MANIFEST[rig].map(async (url, slot) => {
+          try {
+            rigSlots[rig][slot] = (await loader.loadAsync(url)).animations;
+          } catch {
+            return; // missing pack: rig characters just animate with less variety
+          }
+          // Rebuild in place so every character holding this array sees it.
+          rigClips[rig].length = 0;
+          rigClips[rig].push(...rigSlots[rig].flat());
+          store.onArrive?.(`rig:${rig}`);
+        }),
+      ),
+      ...HERO_CLIP_MANIFEST.map(async (url, slot) => {
+        try {
+          heroSlots[slot] = (await loader.loadAsync(url)).animations;
+        } catch {
+          return; // missing ability clip: the animator's playFirst fallbacks cover it
+        }
+        for (const key of HERO_SKIN_KEYS) appendHeroClips(key);
+        store.onArrive?.("hero:clips");
+      }),
+      // GENERATED assets (the builder's Meshy bridge writes these at dev time;
+      // committed ones ship like any other file). index.json maps key -> {url,
+      // clips?}: props are plain models; creature entries carry armature-only
+      // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
+      (async () => {
+        try {
+          const ix = await (await fetch("/assets/generated/index.json")).json() as
+            Record<string, { url: string; clips?: string[] }>;
+          await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
+            try {
+              const gltf = await loader.loadAsync(entry.url);
+              const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
+                (await loader.loadAsync(c)).animations));
+              store.models[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
+              store.onArrive?.(key);
+            } catch { /* one bad generated asset never blocks the rest */ }
+          }));
+        } catch { /* no generated index: nothing crafted yet */ }
+      })(),
+    ]);
+  };
+  store.complete = background();
+  void store.complete.then(markAssetsSettled);
+  // ?eagerassets (verify harness): boot gates on the FULL manifest. Reassigned
+  // AFTER background() captured priorityWave, so this can't deadlock on itself.
+  if (EAGER_ASSETS) store.ready = store.complete;
+
+  return store;
+}
+
+/** One-shot full load (tools/tests) — the streaming store, awaited to the end. */
 export async function loadModels(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<Record<string, LoadedModel>> {
-  const loader = new GLTFLoader();
-  const out: Record<string, LoadedModel> = {};
-  // Progress = files SETTLED (loaded or missing-and-skipped) over total — the
-  // boot loading screen reads this. A 404'd optional pack still advances the
-  // bar; the screen must never stall on an asset we'd gracefully skip anyway.
-  const total =
-    Object.keys(MODEL_MANIFEST).length +
-    RIG_CLIP_MANIFEST.medium.length +
-    RIG_CLIP_MANIFEST.large.length +
-    HERO_CLIP_MANIFEST.length;
-  let settled = 0;
-  const tick = () => onProgress?.(++settled, total);
-  // Rig clip libraries load alongside the models; each library GLB carries a
-  // mannequin we discard — only its AnimationClips matter.
-  const rigClips: Record<"medium" | "large", import("three").AnimationClip[]> = { medium: [], large: [] };
-  const heroClips: import("three").AnimationClip[] = [];
-  await Promise.all([
-    ...Object.entries(MODEL_MANIFEST).map(async ([key, url]) => {
-      try {
-        const gltf = await loader.loadAsync(url);
-        out[key] = { scene: gltf.scene, animations: gltf.animations };
-      } catch {
-        // File absent or failed to parse — leave it out; renderer falls back.
-      }
-      tick();
-    }),
-    ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).map(async (rig) => {
-      // Per-pack slots keep the clip order stable regardless of which fetch
-      // finishes first — the renderer's regex fallbacks are order-sensitive.
-      const slots = await Promise.all(
-        RIG_CLIP_MANIFEST[rig].map(async (url) => {
-          try {
-            return (await loader.loadAsync(url)).animations;
-          } catch {
-            // Missing clip pack: rig-based characters just animate with less variety.
-            return [];
-          } finally {
-            tick();
-          }
-        }),
-      );
-      rigClips[rig] = slots.flat();
-    }),
-    ...HERO_CLIP_MANIFEST.map(async (url) => {
-      try {
-        heroClips.push(...(await loader.loadAsync(url)).animations);
-      } catch {
-        // Missing ability clip: the animator's playFirst fallbacks cover it.
-      }
-      tick();
-    }),
-  ]);
-  // Attach the shared library to every animation-less rig-based character.
-  // Clips bind to each model's own skeleton by node name at mixer time, so
-  // one clip array can serve many characters.
-  for (const [key, rig] of Object.entries(CHARACTER_RIGS)) {
-    const m = out[key];
-    if (m && m.animations.length === 0) m.animations = rigClips[rig];
-  }
-  // Hero skins already have baked clips (the merge above skips them), so the
-  // extra ability clips are APPENDED rather than gated on animations.length.
-  if (heroClips.length > 0) {
-    for (const key of HERO_SKIN_KEYS) {
-      const m = out[key];
-      if (m) m.animations = [...m.animations, ...heroClips];
-    }
-  }
-  // GENERATED assets (the builder's Meshy bridge writes these at dev time;
-  // committed ones ship like any other file). index.json maps key -> {url,
-  // clips?}: props are plain models; creature entries carry armature-only
-  // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
-  try {
-    const ix = await (await fetch("/assets/generated/index.json")).json() as
-      Record<string, { url: string; clips?: string[] }>;
-    await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
-      try {
-        const gltf = await loader.loadAsync(entry.url);
-        const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
-          (await loader.loadAsync(c)).animations));
-        out[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
-      } catch { /* one bad generated asset never blocks the rest */ }
-    }));
-  } catch { /* no generated index: nothing crafted yet */ }
-  return out;
+  const store = startModelLoad(onProgress);
+  await store.complete;
+  return store.models;
 }

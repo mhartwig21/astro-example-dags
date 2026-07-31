@@ -38,6 +38,9 @@ TEXT_TO_3D = "/openapi/v2/text-to-3d"
 IMAGE_TO_3D = "/openapi/v1/image-to-3d"
 RIGGING = "/openapi/v1/rigging"
 ANIMATIONS = "/openapi/v1/animations"
+# Retexture: new texture on an existing mesh (verified live 2026-07-10 via
+# test mode: requires InputTaskID or ModelURL; text_style_prompt drives it).
+RETEXTURE = "/openapi/v1/retexture"
 
 
 class MeshyError(RuntimeError):
@@ -163,6 +166,25 @@ class MeshyClient:
         if texture_image_url:
             body["texture_image_url"] = texture_image_url
         return self._request("POST", RIGGING, body)["result"]
+
+    def retexture(
+        self,
+        model: str,
+        text_style_prompt: str,
+        enable_pbr: bool = False,
+    ) -> str:
+        """model: a Meshy task id, an https URL, or a local .glb path (data URI).
+        Generates a fresh texture for the existing mesh (geometry unchanged)."""
+        body: dict = {"text_style_prompt": text_style_prompt, "enable_pbr": enable_pbr}
+        if model.startswith(("http://", "https://", "data:")):
+            body["model_url"] = model
+        elif os.path.exists(model):
+            with open(model, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode()
+            body["model_url"] = f"data:model/gltf-binary;base64,{encoded}"
+        else:
+            body["input_task_id"] = model
+        return self._request("POST", RETEXTURE, body)["result"]
 
     def animate(self, rig_task_id: str, action_id: int, fps: int | None = None) -> str:
         """Apply a preset animation (action_id from the animation library) to a

@@ -149,6 +149,58 @@ describe("server persistence (accounts + character saves)", () => {
     await waitFor(() => instances().size === 0);
   });
 
+  it("POST /telemetry logs a SOLO run_end; junk shapes are rejected", async () => {
+    const post = (body: unknown) =>
+      fetch(`http://127.0.0.1:${port}/telemetry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const ok = await post({
+      kind: "run_end", token: "solo-test-token-1",
+      data: { status: "dead", floor: 3, mode: "solo", players: [{ name: "Carl", level: 4 }] },
+    });
+    expect(ok.status).toBe(200);
+    const events = server.db!.listEvents("run_end", 5);
+    const solo = events.find((e) => e.partyCode === "SOLO");
+    expect(solo).toBeTruthy();
+    expect(solo!.accountId).toBe("solo-test-token-1");
+    expect((solo!.data as { floor: number }).floor).toBe(3);
+    // Wrong kind and non-JSON both bounce without logging.
+    expect((await post({ kind: "hax", data: {} })).status).toBe(400);
+    const bad = await fetch(`http://127.0.0.1:${port}/telemetry`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{nope",
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("the campfire skin rides the join, persists, and garbage picks are ignored", async () => {
+    const j = (skin?: string) =>
+      new Promise<{ playerId: number; snap: GameState; ws: WebSocket }>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+        ws.on("open", () => ws.send(JSON.stringify({ t: "join", code: "SKIN-1", name: "Carl", token: "skin-test-token-1", skin })));
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(String(raw));
+          if (msg.t === "welcome") resolve({ playerId: msg.playerId, snap: deserialize(msg.snapshot), ws });
+        });
+        ws.on("error", reject);
+      });
+    const a = await j("druid");
+    expect(a.snap.players.find((p) => p.id === a.playerId)!.skin).toBe("druid");
+    a.ws.close();
+    await waitFor(() => instances().size === 0);
+    // Rejoin without a pick: the saved character still wears the druid.
+    const b = await j(undefined);
+    expect(b.snap.players.find((p) => p.id === b.playerId)!.skin).toBe("druid");
+    b.ws.close();
+    await waitFor(() => instances().size === 0);
+    // A hostile/garbage pick never lands on the player.
+    const c = await j("<script>alert(1)</script>");
+    expect(c.snap.players.find((p) => p.id === c.playerId)!.skin).toBe("druid");
+    c.ws.close();
+    await waitFor(() => instances().size === 0);
+  });
+
   it("a character survives the instance being dropped and comes back on rejoin", async () => {
     const a = await connect(port, "SAVE-1", "Carl", "carl-token-00001");
     // Stage progression directly in the live sim, then leave.
@@ -236,6 +288,76 @@ describe("server persistence (accounts + character saves)", () => {
     expect(b.lastSnap!.floor).toBe(3);
     b.close();
     await waitFor(() => instances().size === 0);
+  });
+
+  it("a client whose socket already closed (but whose close event hasn't fired here yet) doesn't block reclaim", async () => {
+    // Regression test for a real production bug: the server's "held" check
+    // used to count ANY entry still physically in inst.clients as a live
+    // second tab, even one whose socket had already closed — a gap that can
+    // last several seconds (network/proxy propagation), well inside the
+    // client's own first auto-reconnect attempt (netClient.ts fires at 1s).
+    // A fast reconnect landed in that gap and got shunted onto a disposable
+    // guest character instead of reclaiming its own. Simulated directly
+    // (rather than raced against real timing, which would be flaky) by
+    // forcing the server's view of the socket to report CLOSED while it's
+    // still sitting in inst.clients — exactly the state during that gap.
+    const a = await connect(port, "STALE-1", "Carl", "stale-token-0001");
+    const inst = instances().get("STALE-1")! as unknown as {
+      clients: { ws: WebSocket; playerId: number }[];
+    };
+    const client = inst.clients.find((c) => c.playerId === a.playerId)!;
+    Object.defineProperty(client.ws, "readyState", { value: WebSocket.CLOSED, configurable: true });
+
+    const b = await connect(port, "STALE-1", "Carl", "stale-token-0001");
+    expect(b.playerId).toBe(a.playerId); // reclaimed, not shunted to a guest seat
+
+    // Cleanup: `a`'s socket has a permanently-mocked readyState now, so its
+    // own close handshake can't be relied on — just drop both raw sockets and
+    // let the next test's fresh party code avoid any collision. afterAll's
+    // server.close() force-terminates anything still open regardless.
+    a.ws.terminate();
+    b.close();
+  });
+});
+
+describe("connection heartbeat", () => {
+  // A separate server with a fast heartbeat interval so the tests don't wait
+  // on the real HEARTBEAT_INTERVAL_MS (20s).
+  let dir: string;
+  let server: GameServer;
+  let port: number;
+  const instances = () =>
+    (server as unknown as { instances: Map<string, { clients: { isAlive: boolean; ws: WebSocket }[] }> }).instances;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dcc-heartbeat-"));
+    server = new GameServer(0, undefined, undefined, join(dir, "dcc.sqlite"), 100);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("terminates a connection that missed its last heartbeat pong", async () => {
+    // A hard network drop never sends a close frame at all — nothing short
+    // of a heartbeat detects it. Force the exact state a missed pong leaves
+    // behind (isAlive already false when the next sweep runs) rather than
+    // fighting the ws library's own automatic ping/pong reply, which a
+    // healthy test client can't easily suppress.
+    const a = await connect(port, "ZOMBIE-1", "Carl", "zombie-token-0001");
+    const client = instances().get("ZOMBIE-1")!.clients[0];
+    client.isAlive = false;
+    await waitFor(() => instances().size === 0, 2000);
+    a.close();
+  });
+
+  it("does not terminate a connection that keeps responding to pings", async () => {
+    await connect(port, "HEALTHY-1", "Carl", "healthy-token-0001");
+    await new Promise((r) => setTimeout(r, 350)); // several heartbeat cycles at 100ms
+    expect(instances().get("HEALTHY-1")?.clients.length).toBe(1);
   });
 });
 

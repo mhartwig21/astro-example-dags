@@ -18,6 +18,10 @@ export type TimerPhase = "safe" | "warning" | "collapse";
 export interface Player {
   id: number; // stable per party member; 0 is the solo/first player
   name: string; // shown in announcer lines and (later) over the head
+  // Chosen crawler look (CRAWLER_SKINS in game.ts), picked at the campfire
+  // check-in. COSMETIC ONLY — kits come from the constellation, not the body.
+  // Absent (old saves / no pick yet): hosts fall back to the seeded heroSkin.
+  skin?: string;
   pos: Vec2;
   facing: Vec2; // unit vector of last movement/attack direction
   hp: number;
@@ -110,6 +114,10 @@ export interface Player {
 
   // Per-player achievement progress + flags its checks read.
   achievements: string[];
+  // Achievement ids whose loot box hasn't been opened yet (see
+  // claimAchievementLootBox) — claimed only from a Safe Room's ACHIEVEMENTS
+  // tab. Optional for old-save/snapshot compat; makePlayer initializes [].
+  unclaimedAchievements?: string[];
   goldSpent: number; // cumulative shop spending this run
   kills: number; // cumulative kill credit (killing blows) this run
   killsThisStep: number; // transient: kills credited to this player this step
@@ -284,6 +292,7 @@ export interface Monster {
   hitFlash: number;
   lastHitBy?: number; // player id credited with the killing blow (loot boxes)
   elite?: boolean; // neighborhood boss: beefed-up named archetype with loot
+  veteran?: boolean; // the middle rung: a pack's long-surviving heavy anchor — bigger, tougher, no name/affix/fanfare
   eliteName?: string; // announcer name for elites and city bosses
   defId?: string; // crafted enemy (src/content/mobs): stats applied at spawn; hosts resolve skin/tint from the def
   // System bounty (interference tier 1): seconds left to collect + the purse.
@@ -303,6 +312,12 @@ export interface Monster {
   ritualCd?: number; // boss tier 3 only: seconds until Dark Ritual can cast again
   // Band-end boss signature mechanic (one per arena, themed to the band).
   signature?: BossSignature;
+  // Seated resident of a dressed room (roomPurposes phase 5): first damage
+  // to the pack announces the purpose's interruption line, once per floor.
+  residentOf?: string;
+  // Staging v2: spawned ON one of the plan's seat slots — the renderer plays
+  // the chair-sit instead of the floor-sit for this actor.
+  seated?: boolean;
   sigCd?: number; // seconds until the signature can fire again
   sigUsed?: boolean; // the first-cast announcer line already played
   // Signature STACKING (boss layer 2): from phase 1 the boss alternates its
@@ -336,7 +351,16 @@ export interface Monster {
   // "frenzy" = the Drum Sergeant's beat; "shield" = the Darling's stardust
   // (her entourage takes less while SHE takes more — kill-order pressure).
   aura?: "frenzy" | "shield";
+  // Boss anti-kite: seconds spent out of melee reach (chase speed ramps past
+  // a patience delay; contact resets — see the boss branch in ai.ts).
+  chaseT?: number;
+  chaseVexed?: boolean; // the one-per-orbit "done chasing politely" line fired
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
+  slipT?: number; // seconds of committed obstacle-rounding (flank bias suppressed)
+  alertT?: number; // seconds of pursuit memory after losing sight of prey (LOS aggro)
+  rushBeaten?: boolean; // drummer: this alarm's CHARGE was already beaten (one surge per alarm)
+  regroupT?: number; // seconds left of bolting-for-reinforcements flight
+  regrouped?: boolean; // one retreat per lifetime — a survivor that found nobody dies where it stands
   shieldT?: number; // seconds of Darling stardust remaining on THIS monster
   // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
   // into it reflects; wait it out or answer with ranged/magic.
@@ -383,7 +407,7 @@ export interface Quest {
   state: "offered" | "active" | "complete";
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
 // on legendary signature gear (see catalog.ts).
@@ -453,6 +477,7 @@ export interface Loot {
   rarity?: Rarity; // convenience for render tint (mirrors item.rarity)
   ability?: AbilityId; // present when kind === "tome": the ability it teaches
   material?: MaterialId; // present when kind === "material"
+  service?: string; // present when kind === "service": the purpose taking customers
 }
 
 // The between-floors safe room / System Shop. While non-null, the sim is
@@ -488,6 +513,12 @@ export type RewardKind =
   | "shrineLoan" // Time Loan: +seconds now; the NEXT floor starts shorter
   | "shrineLiquidate" // Liquidation Event: the shrine buys the whole bag at a premium
   | "shrinePremium" // Insurance Premium: a slice of gold for full heal + cleanse
+  // SERVICE ROOMS (roomPurposes phase 4 — rare; at most one per floor):
+  | "svcTemper" // the forge: gold for permanent damage, both schools
+  | "svcDraught" // the apothecary: gold for full heal + cleanse
+  | "svcWager" // the den: stake gold on a hand the house usually wins
+  | "svcMap" // the archive: the floor's layout, filed and cross-referenced
+  | "svcPlans" // the war room: the shortcuts are marked (+collapse time)
   // CLASS REVISION milestone drafts (revisions.ts — never in the sponsor pool):
   | "revision" // a permanent recasting with a built-in curse
   | "revisionDecline"; // REMAIN UNCAST (defiance pays a small permanent hype bonus)
@@ -546,6 +577,12 @@ export interface FloorMap {
   w: number;
   h: number;
   tiles: Uint8Array; // row-major, length w*h, values from Tile
+  // PHYSICAL FURNITURE (PHYSICALITY.md §1): a removable overlay — tiles the
+  // dressing plan stamped with blocking furniture. isWalkable() consults it,
+  // so players, monsters, dashes, drags, and the bot all inherit blocking
+  // through the one choke point. Smashing the furniture clears its bits
+  // WITHOUT a floor rebuild. Optional: pre-furniture snapshots lack it.
+  blocked?: Uint8Array;
   spawn: Vec2; // player entry point
   stairs: Vec2; // stairs-down location
   rooms: RoomRect[]; // generated room rectangles (rooms[0] contains the spawn)
@@ -676,6 +713,20 @@ export interface Ping {
   total: number; // full lifetime (render progress)
 }
 
+// Destructible dressing (roomPurposes phase 5): a corner hoard you can SMASH.
+// Non-blocking like every prop (only hittable); melee arcs and radial blasts
+// pop them for pocket gold. Positions come from the pure dressing plan, so
+// looks and hitboxes agree everywhere.
+export interface Breakable {
+  id: number;
+  pos: Vec2;
+  key: string; // prop model key (hosts render it; the sim only owns the hp)
+  hp: number; // clutter: 1 (one good hit); blocking furniture: CONFIG.blockerHp
+  // Blocking furniture (PHYSICALITY.md §1): the map.blocked tile indices this
+  // piece owns. Cleared when it dies — smash the bookcase, open the lane.
+  footprint?: number[];
+}
+
 // A fallen monster the necromancer can raise. Purely positional — the fresh
 // minion is rebuilt from the corpse's kind (see raiseCorpse in game.ts).
 export interface Corpse {
@@ -697,6 +748,9 @@ export interface HitEvent {
   kind: HitKind;
   dir?: Vec2; // unit impact direction (attacker -> victim): directional particles
   killed?: boolean; // this hit was the killing blow (kill pops, heavier shake)
+  // The killing blow OVERSHOT by ≥35% of max hp: hosts stage it bigger
+  // (corpse launch, longer hit-stop). Only ever set alongside killed.
+  overkill?: boolean;
   school?: School; // damage school of a player hit (hosts tint magic numbers)
   resisted?: boolean; // the target resisted this school (hosts dim the number)
   effect?: StatusKind; // DoT tick: which status dealt it (hosts tint per effect)
@@ -745,7 +799,8 @@ export interface FloorWorld {
   projectiles: Projectile[];
   strikes: Strike[];
   bulletTimeLeft: number;
-  decoys: Decoy[]; // active Stunt Doubles (friendly entities)
+  decoys: Decoy[];
+  breakables?: Breakable[]; // smashable dressing (phase 5; optional: pre-phase-5 snapshots) // active Stunt Doubles (friendly entities)
   hazards: Hazard[];
   corpses: Corpse[];
   pings: Ping[];
@@ -838,6 +893,7 @@ export interface GameState {
 
   // Friendly entities: active Stunt Doubles (see Decoy).
   decoys: Decoy[];
+  breakables?: Breakable[]; // smashable dressing (phase 5; optional: pre-phase-5 snapshots)
 
   // Enemy-side ground danger (volatile blasts, spitter puddles).
   hazards: Hazard[];
@@ -871,6 +927,8 @@ export interface GameState {
   // Party-level per-step flags (per-player progress lives on Player).
   killsThisStep: number; // transient: party kills reaped this step (combo hype)
   escapedCollapse: boolean; // transient: descended while the floor was collapsing
+  // Resident interruption lines already delivered this floor (purpose ids).
+  residentAggro?: string[];
 
   elapsed: number; // total seconds elapsed this run (for stats/display)
 }

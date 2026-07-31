@@ -1,0 +1,18 @@
+# Binary assets must NEVER go through text/eol normalization — a CRLF
+# conversion inside a GLB or audio file is silent corruption. (Discovered
+# 2026-07-20: git's text heuristic misclassified some compressed GLBs and
+# printed eol-conversion warnings on add.)
+*.glb binary
+*.gltf text
+*.bin binary
+*.png binary
+*.webp binary
+*.jpg binary
+*.ico binary
+*.ogg binary
+*.mp3 binary
+*.wav binary
+*.ttf binary
+*.sqlite binary
+# Shell scripts run inside the Linux container — never CRLF.
+*.sh text eol=lf

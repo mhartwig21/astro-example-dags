@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
   serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey,
@@ -11,7 +12,9 @@ import {
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
 import { TIPS } from "../sim/tips";
-import { Leaderboard } from "./leaderboard";
+import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
+import { sanitizeName } from "./names";
+import { AuthService } from "./auth";
 import { openDb, type PersistDb } from "./db";
 import { Metrics } from "./metrics";
 import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player, type Vec2 } from "../sim/types";
@@ -23,15 +26,18 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 //
 // Protocol (JSON messages):
 //   client -> server:
-//     { t: "join", code, name, token?, rivals?, roam?, tips? } join/create a
-//       party; token is the account id from a previous welcome (saves key off
-//       it); tips is the browser's seen-tips ledger — merged into the account
-//       so first-contact tips never replay for a returning crawler
+//     { t: "join", code, name, token?, rivals?, roam?, public?, tips? }
+//       join/create a party; token is the account id from a previous welcome
+//       (saves key off it); public only matters the FIRST time a code is seen —
+//       it flags the new instance discoverable via GET /open-parties; tips is
+//       the browser's seen-tips ledger — merged into the account so
+//       first-contact tips never replay for a returning crawler
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
 //     { t: "sell", idx: number }                       sell a bag item back
 //     { t: "sellAll" }                                 liquidate the whole bag
+//     { t: "claimAchievement", id: string }             open an earned achievement's loot box
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
 //     { t: "welcome", playerId, token, snapshot }      join accepted (full state;
@@ -45,6 +51,11 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 export const TICK_HZ = 30;
 export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
 export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60s)
+// ws heartbeat: bounds how long a connection that never sends a close frame
+// (a hard network drop) can linger before its seat frees up. Long enough to
+// be cheap over a month-long idle Roam party, short enough to reasonably
+// bound a genuinely dead connection.
+export const HEARTBEAT_INTERVAL_MS = 20_000;
 
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
@@ -98,6 +109,11 @@ interface Client {
   // (second tab): the extra seat plays as a guest and never writes the save.
   bound: boolean;
   joinedAt: number; // wall clock — session_end reports the session length
+  // Heartbeat (defense in depth alongside the `held` readyState check above):
+  // true whenever a pong has arrived since the last ping. A connection that
+  // never sends a proper close frame at all (a hard network drop, not just a
+  // slow one) would otherwise linger in inst.clients indefinitely.
+  isAlive: boolean;
 }
 
 interface Instance {
@@ -118,6 +134,11 @@ interface Instance {
   // Per-player fingerprints of the SLOW block (equipment/inventory/abilities…)
   // — serializeDynamic omits it while unchanged; see snapshot.ts cold split.
   coldCache: Map<number, string>;
+  // Discoverable via GET /open-parties. Decided once, by whoever's join
+  // created this instance (see getOrCreateInstance) — never persisted (an
+  // instance only exists in memory while it has players, so there's nothing
+  // to restore after a restart) and never flippable by a later joiner.
+  public: boolean;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -157,6 +178,14 @@ export function seedFromCode(code: string): number {
   return h;
 }
 
+/** Party-size cap for an instance's current mode/run-kind: rivals races are
+ *  fixed at four, roam campaigns seat a bigger band, co-op races get the base six. */
+function capFor(state: GameState): number {
+  return state.mode === "rivals" ? MAX_RIVALS
+    : state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
+    : MAX_PARTY_SIZE;
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -170,7 +199,12 @@ const MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
+  ".ttf": "font/ttf",
 };
+
+// Worth gzipping on the wire: text plus GLB (raw geometry shrinks ~60%).
+// PNG/OGG/MP3 are internally compressed already — recompressing wastes CPU.
+const COMPRESSIBLE = new Set([".glb", ".js", ".css", ".html", ".json", ".svg", ".txt", ".ttf", ".wav"]);
 
 export class GameServer {
   private http: HttpServer;
@@ -178,6 +212,7 @@ export class GameServer {
   private instances = new Map<string, Instance>();
   private staticDir: string | null;
   readonly leaderboard: Leaderboard;
+  readonly auth: AuthService;
   readonly db: PersistDb | null;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
@@ -185,23 +220,32 @@ export class GameServer {
   private startedAt = Date.now();
   // Prometheus registry behind /metrics (Fly scrapes it into Grafana).
   readonly metrics = new Metrics();
+  // ws heartbeat sweep (defense in depth for the `held` readyState check in
+  // onConnection — see HEARTBEAT_INTERVAL_MS). Configurable so tests don't
+  // wait 20 real seconds for a zombie connection to get reaped.
+  private heartbeatTimer: NodeJS.Timeout;
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
    * /health endpoint) and the game WebSocket on the same port. Plain Node —
    * no platform-specific APIs, so the container runs anywhere (Fly, GCP, a VPS).
    */
-  constructor(port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string) {
+  constructor(
+    port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string,
+    heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+  ) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
     // Account + save persistence (PERSISTENCE.md P1). No dbFile (tests, bare
     // dev runs) means no persistence — everything else behaves as before.
     this.db = dbFile ? openDb(dbFile) : null;
     this.db?.sweepExpired(Date.now());
+    this.auth = new AuthService(this.db);
     this.http = createServer((req, res) => this.onRequest(req, res));
     this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
+    this.heartbeatTimer = setInterval(() => this.sweepHeartbeat(), heartbeatIntervalMs);
     // Gauges are read lazily at scrape time — zero cost between scrapes.
     this.metrics.gauge("dcc_instances", () => this.instances.size);
     this.metrics.gauge("dcc_players_connected", () => {
@@ -219,6 +263,18 @@ export class GameServer {
     const url = req.url ?? "/";
     if (url.split("?")[0] === "/leaderboard") {
       this.onLeaderboard(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/open-parties") {
+      this.onOpenParties(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/telemetry") {
+      this.onTelemetry(req, res);
+      return;
+    }
+    if (url.startsWith("/auth/")) {
+      void this.auth.handle(req, res);
       return;
     }
     if (url === "/metrics") {
@@ -265,19 +321,91 @@ export class GameServer {
     // Cache policy: we deploy many times a day, and a browser mixing old HTML
     // with new hashed chunks (or vice versa) renders a dungeon that doesn't
     // match the sim. HTML must always revalidate; Vite's content-hashed bundles
-    // are immutable; everything else (models/audio/icons) gets a short TTL.
+    // are immutable. Assets (models/audio/icons/fonts) are the load-time
+    // budget — ~90MB across 200+ files — so they get a real TTL plus an ETag:
+    // within a day a repeat visit costs ZERO asset requests, after that each
+    // file revalidates to a 304 (no re-download) unless it actually changed.
     const ext = extname(file);
+    const st = statSync(file);
     const hashed = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file);
+    const assetish = /^(assets|audio|icons|fonts)[/\\]/.test(clean);
     const cache = ext === ".html"
       ? "no-cache"
       : hashed
         ? "public, max-age=31536000, immutable"
-        : "public, max-age=300";
-    res.writeHead(200, {
-      "content-type": MIME[ext] ?? "application/octet-stream",
+        : assetish
+          ? "public, max-age=86400, stale-while-revalidate=604800"
+          : "public, max-age=300";
+    // Weak ETag from size+mtime — cheap, and correct for whole-file replaces.
+    const etag = `W/"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"`;
+    const headers: Record<string, string> = {
       "cache-control": cache,
-    });
+      etag,
+      vary: "accept-encoding",
+    };
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+    headers["content-type"] = MIME[ext] ?? "application/octet-stream";
+    // On-the-fly gzip for compressible types. GLBs are mostly raw geometry
+    // buffers and shrink ~60%; PNGs/OGGs are already compressed and skipped.
+    // Streaming (no buffering) keeps memory flat on the single Fly machine.
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+      headers["content-encoding"] = "gzip";
+      res.writeHead(200, headers);
+      createReadStream(file).pipe(createGzip({ level: 6 })).pipe(res);
+      return;
+    }
+    headers["content-length"] = String(st.size);
+    res.writeHead(200, headers);
     createReadStream(file).pipe(res);
+  }
+
+  /**
+   * Solo run reports (BALANCE-NOTES.md round 1 found the blind spot: solo runs
+   * never touch this server, so usage_events only saw multiplayer). The client
+   * fire-and-forgets one POST per finished solo run; same size/CORS hygiene as
+   * the leaderboard. The payload lands in usage_events as kind "run_end" with
+   * party_code "SOLO" so mining queries treat both modes uniformly.
+   */
+  private onTelemetry(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    let body = "";
+    let overflow = false;
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 8192) { overflow = true; req.destroy(); }
+    });
+    req.on("end", () => {
+      if (overflow || !this.db) return;
+      try {
+        const msg = JSON.parse(body) as Record<string, unknown>;
+        // Only the shapes we mine; everything client-sent is size-capped and
+        // stored as data, never interpreted by the server.
+        if (msg.kind !== "run_end") { res.writeHead(400, cors).end(); return; }
+        const token = validToken(msg.token);
+        this.db.logEvent("run_end", "SOLO", token, msg.data ?? {}, Date.now());
+        res.writeHead(200, { "content-type": "application/json", ...cors });
+        res.end('{"ok":true}');
+      } catch {
+        res.writeHead(400, cors).end();
+      }
+    });
   }
 
   /**
@@ -296,13 +424,24 @@ export class GameServer {
       return;
     }
     if (req.method === "GET") {
-      const day = new URL(req.url ?? "/", "http://x").searchParams.get("day")
-        ?? new Date().toISOString().slice(0, 10);
+      const q = new URL(req.url ?? "/", "http://x").searchParams;
+      const cat = q.get("cat");
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+      if (cat && (ALLTIME_CATS as readonly string[]).includes(cat)) {
+        res.end(JSON.stringify({ cat, entries: this.leaderboard.getAlltime(cat as AlltimeCat).slice(0, 100) }));
+        return;
+      }
+      const day = q.get("day") ?? new Date().toISOString().slice(0, 10);
       res.end(JSON.stringify({ day, entries: this.leaderboard.get(day).slice(0, 100) }));
       return;
     }
     if (req.method === "POST") {
+      // Self-reported scores from an internet-facing endpoint: bound the blast
+      // radius per client (a browser submits at most a few runs a minute).
+      if (!this.allowSubmit(req)) {
+        res.writeHead(429, cors).end();
+        return;
+      }
       let body = "";
       let overflow = false;
       req.on("data", (chunk) => {
@@ -318,6 +457,14 @@ export class GameServer {
           res.writeHead(400, cors).end();
           return;
         }
+        msg.name = sanitizeName(msg.name); // public surface: clean at ingress
+        if (msg.board === "alltime") {
+          const headlines = this.leaderboard.submitAlltime(msg, Date.now());
+          this.recordRunStats(msg); // account-backed career (see profiles)
+          res.writeHead(200, { "content-type": "application/json", ...cors });
+          res.end(JSON.stringify({ ok: true, headlines }));
+          return;
+        }
         const rank = this.leaderboard.submit(String(msg.day ?? ""), msg, Date.now());
         res.writeHead(rank === null ? 400 : 200, { "content-type": "application/json", ...cors });
         res.end(JSON.stringify(rank === null ? { ok: false } : { ok: true, rank }));
@@ -325,6 +472,62 @@ export class GameServer {
       return;
     }
     res.writeHead(405, cors).end();
+  }
+
+  /**
+   * Quick Join: GET /open-parties lists live co-op instances that opted into
+   * discovery (see Instance.public) and still have a free seat — a stranger's
+   * only path into the game besides a shared code. No names, no auth, same
+   * open-CORS trust model as /leaderboard.
+   */
+  private onOpenParties(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    const parties = [...this.instances.values()]
+      .filter((inst) =>
+        inst.public && inst.state.mode === "coop" && inst.state.runKind === "race"
+        && inst.state.status === "playing" && inst.clients.length < capFor(inst.state))
+      .sort((a, b) => b.clients.length - a.clients.length) // busiest parties first
+      .slice(0, 50)
+      .map((inst) => ({
+        code: inst.code, players: inst.clients.length, cap: capFor(inst.state), floor: inst.state.floor,
+      }));
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+    res.end(JSON.stringify(parties));
+  }
+
+  // Token-bucket per client IP: burst of 6, refill 6/min. Fly fronts us, so
+  // the real client address arrives in fly-client-ip.
+  private submitBuckets = new Map<string, { tokens: number; at: number }>();
+  private allowSubmit(req: IncomingMessage): boolean {
+    const ip = String(req.headers["fly-client-ip"] ?? req.socket.remoteAddress ?? "?");
+    const now = Date.now();
+    const b = this.submitBuckets.get(ip) ?? { tokens: 6, at: now };
+    b.tokens = Math.min(6, b.tokens + ((now - b.at) / 60_000) * 6);
+    b.at = now;
+    if (b.tokens < 1) { this.submitBuckets.set(ip, b); return false; }
+    b.tokens -= 1;
+    this.submitBuckets.set(ip, b);
+    if (this.submitBuckets.size > 5000) this.submitBuckets.clear(); // memory backstop
+    return true;
+  }
+
+  /** Roll a finished run into the submitting account's career (profiles). */
+  private recordRunStats(msg: Record<string, unknown>): void {
+    const token = typeof msg.token === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(msg.token) ? msg.token : null;
+    if (!token || !this.db) return;
+    this.db.bumpAccountStats(token, {
+      won: msg.won === true,
+      floor: Math.max(1, Math.min(18, Math.floor(Number(msg.floor)) || 1)),
+      kills: Math.max(0, Math.min(100_000, Math.floor(Number(msg.kills)) || 0)),
+      timeSec: Math.max(0, Math.min(6 * 3600, Math.round(Number(msg.timeSec)) || 0)),
+    }, Date.now());
   }
 
   get port(): number {
@@ -339,11 +542,31 @@ export class GameServer {
     });
   }
 
+  /**
+   * Standard ws heartbeat: a connection that didn't pong since the last ping
+   * gets terminated — this is what bounds a hard network drop (no close frame
+   * ever sent) instead of leaking the seat/instance indefinitely. terminate()
+   * fires the normal close handler synchronously (ws library semantics), so
+   * checkpoint/session_end/cleanup all still run through the one code path;
+   * nothing here duplicates that logic.
+   */
+  private sweepHeartbeat(): void {
+    for (const inst of this.instances.values()) {
+      for (const c of inst.clients) {
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        if (!c.isAlive) { c.ws.terminate(); continue; }
+        c.isAlive = false;
+        c.ws.ping();
+      }
+    }
+  }
+
   close(): void {
     // Flush every live run before the process goes away — this is what makes
     // a deploy restart survivable (SIGINT handler below). Untrack instances
     // BEFORE terminating sockets: each terminate fires a close handler that
     // must not re-checkpoint an already-flushed instance against a closed DB.
+    clearInterval(this.heartbeatTimer);
     for (const inst of this.instances.values()) {
       this.checkpoint(inst);
       clearInterval(inst.timer);
@@ -370,7 +593,7 @@ export class GameServer {
 
       if (msg.t === "join" && typeof msg.code === "string" && typeof msg.name === "string" && !joined) {
         const code = msg.code.slice(0, MAX_CODE_LEN);
-        const name = (msg.name.slice(0, MAX_NAME_LEN).trim() || "Crawler");
+        const name = sanitizeName(msg.name.slice(0, MAX_NAME_LEN));
         if (!this.instances.has(code) && this.instances.size >= MAX_INSTANCES) {
           ws.send(JSON.stringify({ t: "error", reason: "server full" }));
           ws.close();
@@ -382,9 +605,19 @@ export class GameServer {
         const token = validToken(msg.token) ?? randomUUID();
         const now = Date.now();
         this.db?.touchAccount(token, name, now);
-        // RIVALS/ROAM: the first joiner's flags decide the instance's shape.
-        const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true);
-        const held = new Set(inst.clients.map((c) => c.playerId));
+        // RIVALS/ROAM/public: the first joiner's flags decide the instance's shape.
+        const inst = this.getOrCreateInstance(code, msg.rivals === true, msg.roam === true, msg.public === true);
+        // `held` must reflect LIVE sockets only — a client whose socket already
+        // closed/is closing, but whose "close" event hasn't fired here yet
+        // (network/proxy propagation lag — observed 3-10s in production), would
+        // otherwise read as a live second tab and shunt a fast reconnect into a
+        // disposable guest seat instead of reclaiming its own character. The
+        // stale entry is left in inst.clients untouched — its own close handler
+        // still runs normally, later, exactly as before; only this computed set
+        // ignores it.
+        const held = new Set(
+          inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).map((c) => c.playerId),
+        );
         const member = this.db?.getMember(code, token) ?? null;
         let player: (typeof inst.state.players)[number] | undefined;
         let bound = true;
@@ -403,9 +636,7 @@ export class GameServer {
             for (const m of this.db.memberSeats(code)) if (m.accountId !== token) owned.add(m.playerId);
           }
           const seatless = inst.state.players.filter((p) => !held.has(p.id) && !owned.has(p.id));
-          const cap = inst.state.mode === "rivals" ? MAX_RIVALS
-            : inst.state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
-            : MAX_PARTY_SIZE;
+          const cap = capFor(inst.state);
           if (!seatless[0] && inst.state.players.length >= cap) {
             ws.send(JSON.stringify({ t: "error", reason: "party full" }));
             ws.close();
@@ -428,6 +659,9 @@ export class GameServer {
         }
         inst.seated.add(player.id);
         player.name = name;
+        // Campfire look: cosmetic, so the joiner's current pick always wins
+        // (like the name). Invalid/absent values leave the seat as it was.
+        if (isCrawlerSkin(msg.skin)) player.skin = msg.skin;
         // First-contact tips are once-EVER per account: seed this seat with
         // everything the account (server ledger) or this browser (join msg,
         // validated against the real tip ids) has already been shown, and
@@ -444,7 +678,8 @@ export class GameServer {
           player.tipsSeen = [...seenTips];
           this.db?.recordTips(token, player.tipsSeen, now);
         }
-        const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now };
+        const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now, isAlive: true };
+        ws.on("pong", () => { client.isAlive = true; });
         // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.
         if (inst.state.mode === "rivals") client.worldKey = rivalWorldKey(inst.state, player.id);
         inst.clients.push(client);
@@ -486,6 +721,9 @@ export class GameServer {
           break;
         case "sellAll":
           sellAllItems(inst.state, playerId);
+          break;
+        case "claimAchievement":
+          claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
         case "ready":
           setReady(inst.state, playerId);
@@ -545,7 +783,7 @@ export class GameServer {
     });
   }
 
-  private getOrCreateInstance(code: string, rivals = false, roam = false): Instance {
+  private getOrCreateInstance(code: string, rivals = false, roam = false, isPublic = false): Instance {
     let inst = this.instances.get(code);
     if (inst) return inst;
     // A known party outranks the joiner's flags: the party code committed to a
@@ -606,6 +844,7 @@ export class GameServer {
       lastStatus: state.status,
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
+      public: isPublic,
     };
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
@@ -645,6 +884,28 @@ export class GameServer {
   }
 
   private tickInstance(inst: Instance): void {
+    try {
+      this.tickInstanceBody(inst);
+    } catch (err) {
+      // A throw inside one party's tick (sim bug, serialization hole) must
+      // never escape the interval callback — that kills the whole process and
+      // every party on the box. Drop just this instance: characters are
+      // checkpointed if the state still serializes, sockets close, and the
+      // clients auto-reconnect into a regenerated world.
+      console.error(`instance ${inst.code} tick failed — dropping it:`, err);
+      clearInterval(inst.timer);
+      this.instances.delete(inst.code);
+      try {
+        this.checkpoint(inst);
+      } catch {
+        // The corrupt state is likely what threw; member saves from the last
+        // good checkpoint stand.
+      }
+      for (const c of inst.clients) c.ws.close();
+    }
+  }
+
+  private tickInstanceBody(inst: Instance): void {
     const t0 = performance.now();
     inst.tick++;
     // Fixed dt: sim time advances by exactly one tick regardless of wall clock.
@@ -686,6 +947,17 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
+        // A secured RIVALS contract goes on the all-time board SERVER-SIDE —
+        // the one score the authoritative sim can vouch for itself.
+        if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
+          const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
+          if (winner) {
+            this.leaderboard.submitAlltime({
+              name: sanitizeName(winner.name), floor: inst.state.floor, won: true,
+              timeSec: Math.round(inst.state.elapsed), kills: winner.kills,
+            }, Date.now(), true);
+          }
+        }
       }
       inst.lastStatus = inst.state.status;
     }

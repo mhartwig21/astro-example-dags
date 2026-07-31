@@ -4,6 +4,7 @@ import {
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster, shrineChoices,
+  openLootBox, claimAchievementLootBox,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
@@ -11,7 +12,7 @@ import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
-import { generateItem, weaponClassOf } from "../src/sim/items";
+import { generateItem, wantsAutoEquip, weaponClassOf } from "../src/sim/items";
 import {
   DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
   damageVariance, effectiveMaxRank, knows, meleeParams,
@@ -19,11 +20,13 @@ import {
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
-  type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
+  type FloorMap, type GameState, type Intent, type Item, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, monsterTempo, roamTribeId } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
-import { PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
+import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
+import { flowDir, tileLos } from "../src/sim/pathfield";
+import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -194,19 +197,15 @@ describe("combat feedback + loot boxes", () => {
     expect(combat[0].amount).toBeGreaterThan(0);
   });
 
-  it("awards a loot box every N kills and records it", () => {
+  it("opening a loot box grants a randomized buff and records it (achievement-exclusive)", () => {
     const g = createGame(7);
-    // Kill lootBoxEveryKills monsters in one swing by stacking them in-arc at point blank.
-    g.players[0].facing = { x: 1, y: 0 };
-    g.players[0].attackPower = 100000;
-    g.monsters.length = 0;
-    for (let i = 0; i < CONFIG.lootBoxEveryKills; i++) {
-      g.monsters.push(mkMon({ id: 1000 + i, pos: { x: g.players[0].pos.x + 0.6, y: g.players[0].pos.y } }));
-    }
-    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
-    expect(g.killCount).toBe(CONFIG.lootBoxEveryKills);
+    openLootBox(g, g.players[0]);
     expect(g.lootBoxes).toBe(1);
     expect(g.announcements.some((a) => a.text.includes("LOOT BOX"))).toBe(true);
+  });
+
+  it("the shop no longer sells a Mystery Box — loot boxes come from achievements only", () => {
+    expect(CATALOG_BY_ID["mystery_box"]).toBeUndefined();
   });
 
   it("keeps hits/announcements deterministic across identical runs", () => {
@@ -873,7 +872,7 @@ describe("achievements", () => {
   beforeAll(() => { flags.achievementsEnabled = true; });
   afterAll(() => { flags.achievementsEnabled = false; });
 
-  it("FIRST BLOOD unlocks on the first kill with a payout", () => {
+  it("FIRST BLOOD unlocks on the first kill with a payout, and queues a claimable loot box", () => {
     const g = createGame(400);
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
@@ -882,16 +881,24 @@ describe("achievements", () => {
     const gold0 = g.players[0].gold;
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.players[0].achievements).toContain("first_blood");
-    expect(g.players[0].gold).toBeGreaterThan(gold0);
+    expect(g.players[0].gold).toBeGreaterThan(gold0); // gold/hype still pay out instantly
     expect(g.announcements.some((a) => a.text.includes("FIRST BLOOD"))).toBe(true);
+    // The loot box waits for a claim, not applied yet.
+    expect(g.players[0].unclaimedAchievements).toContain("first_blood");
+    expect(g.lootBoxes).toBe(0);
     // Never unlocks twice.
     g.monsters.push(mkMon({ id: 2, pos: { x: g.players[0].pos.x + 0.8, y: g.players[0].pos.y } }));
     step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
     expect(g.players[0].achievements.filter((a) => a === "first_blood").length).toBe(1);
+    // Claiming opens the loot box and clears the pending entry.
+    claimAchievementLootBox(g, g.players[0].id, "first_blood");
+    expect(g.lootBoxes).toBe(1);
+    expect(g.players[0].unclaimedAchievements).not.toContain("first_blood");
   });
 
-  it("DIRTY FIGHTER unlocks on a 3-kill instant", () => {
+  it("DIRTY FIGHTER unlocks on a 3-kill instant (floor 2+)", () => {
     const g = createGame(401);
+    g.floor = 2;
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
     g.monsters.length = 0;
@@ -911,15 +918,16 @@ describe("achievements", () => {
     expect(g.players[0].achievements).toContain("collector");
   });
 
-  it("achievements persist through save/restore", () => {
+  it("achievements (and unclaimed loot boxes) persist through save/restore", () => {
     const restored = restoreGame({
       seed: 403, floor: 2,
       player: {
         hp: 90, level: 2, xp: 0, xpToNext: 27, gold: 5,
-        achievements: ["first_blood", "crumbs"], goldSpent: 120,
+        achievements: ["first_blood", "crumbs"], unclaimedAchievements: ["crumbs"], goldSpent: 120,
       },
     });
     expect(restored.players[0].achievements).toEqual(["first_blood", "crumbs"]);
+    expect(restored.players[0].unclaimedAchievements).toEqual(["crumbs"]);
     expect(restored.players[0].goldSpent).toBe(120);
   });
 
@@ -930,6 +938,7 @@ describe("achievements", () => {
 
   it("several same-step unlocks combine into one announcer line", () => {
     const g = createGame(404);
+    g.floor = 2; // dirty_fighter needs floor 2+
     g.players[0].facing = { x: 1, y: 0 };
     g.players[0].attackPower = 9999;
     g.monsters.length = 0;
@@ -1332,7 +1341,9 @@ describe("multiplayer difficulty scaling", () => {
     expect(trio.length).toBeGreaterThan(solo.length);
     // The per-monster multipliers are per KIND (the spawn mix itself varies), so
     // compare same-kind monsters: every shared archetype is tougher in the trio.
-    const hpOf = (ms: typeof solo, kind: string) => ms.find((m) => m.kind === kind && !m.elite)?.maxHp;
+    // Skip promoted tiers: a veteran (3.4x) or elite sampled on one side only
+    // would swamp the party multiplier this test measures.
+    const hpOf = (ms: typeof solo, kind: string) => ms.find((m) => m.kind === kind && !m.elite && !m.veteran)?.maxHp;
     const shared = [...new Set(solo.map((m) => m.kind))].filter((k) => hpOf(trio, k) !== undefined);
     expect(shared.length).toBeGreaterThan(0);
     for (const kind of shared) {
@@ -3157,6 +3168,29 @@ describe("test mode (createTestGame)", () => {
     expect(bare.equipment.weapon).toBeNull();
     expect(bare.gold).toBe(400);
   });
+
+  it("gearFloor dresses the crawler from another floor's loot table", () => {
+    // Same seed, same floor: a starter-loot crawler is strictly weaker than a
+    // deep-loot one (level-representative gear for an off-curve test).
+    const starter = createTestGame({ floor: 12, level: 1, seed: 9, gearFloor: 1 }).players[0];
+    const deep = createTestGame({ floor: 12, level: 1, seed: 9, gearFloor: 18 }).players[0];
+    expect(starter.equipment.weapon ?? starter.equipment.armor).toBeTruthy(); // still geared...
+    expect(starter.attackPower + starter.armor + starter.maxHp)
+      .toBeLessThan(deep.attackPower + deep.armor + deep.maxHp); // ...just period-appropriate
+  });
+
+  it("naturalFloorForLevel inverts the leveling pace (monotone, clamped)", () => {
+    expect(naturalFloorForLevel(1)).toBe(1);
+    let prev = 1;
+    for (let lvl = 2; lvl <= 30; lvl++) {
+      const f = naturalFloorForLevel(lvl);
+      expect(f).toBeGreaterThanOrEqual(prev); // deeper levels never map shallower
+      expect(f).toBeLessThanOrEqual(CONFIG.finalFloor);
+      prev = f;
+    }
+    // A high-mid level maps into the dungeon's interior, not the endpoints.
+    expect(naturalFloorForLevel(15)).toBeGreaterThan(2);
+  });
 });
 
 describe("ability constellation (prereqs, forks, capstones)", () => {
@@ -3470,6 +3504,29 @@ describe("genuine itemization (schools + weapon classes)", () => {
     expect(heavy.cooldown).toBeGreaterThan(swift.cooldown);
     equipItem(p, { id: 9307, slot: "weapon", rarity: "common", name: "Worn Spear", affixes: { damage: 5 } });
     expect(meleeParams(p).range).toBeCloseTo(CONFIG.playerAttackRange + CONFIG.reachRangeBonus);
+  });
+
+  it("off-class melee is a pommel bash, and auto-equip never crosses weapon schools", () => {
+    const g = createGame(1004);
+    const p = g.players[0];
+    equipItem(p, { id: 9310, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } });
+    const blade = meleeParams(p).damageMult;
+    equipItem(p, { id: 9311, slot: "weapon", rarity: "common", name: "Worn Wand", affixes: { spell: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+    equipItem(p, { id: 9312, slot: "weapon", rarity: "common", name: "Worn Crossbow", affixes: { damage: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+
+    // A fat epic wand outSCORES the blade but must not auto-replace it (either direction).
+    const worn: Item = { id: 9313, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } };
+    const fatWand: Item = { id: 9314, slot: "weapon", rarity: "epic", name: "Apocalyptic Wand", affixes: { spell: 60, crit: 0.1 } };
+    expect(wantsAutoEquip(fatWand, worn)).toBe(false);
+    expect(wantsAutoEquip(worn, fatWand)).toBe(false);
+    // Same school upgrades by score; bare hands take anything; the Mug plays both sides.
+    const betterBlade: Item = { id: 9315, slot: "weapon", rarity: "rare", name: "Vicious Blade", affixes: { damage: 25 } };
+    expect(wantsAutoEquip(betterBlade, worn)).toBe(true);
+    expect(wantsAutoEquip(fatWand, null)).toBe(true);
+    const mug: Item = { id: 9316, slot: "weapon", rarity: "epic", name: "Apocalyptic Mug", affixes: { damage: 40 } };
+    expect(wantsAutoEquip(mug, worn)).toBe(true);
   });
 
   it("legacy saves fold pre-schools damage into BOTH powers", () => {
@@ -4217,21 +4274,404 @@ describe("ultimate constellations", () => {
   });
 });
 
+describe("pack presence (separation — bodies take up space)", () => {
+  const stackedPack = (n: number, at: Vec2, g: GameState) => {
+    g.monsters.length = 0;
+    for (let i = 0; i < n; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: at.x, y: at.y }, hp: 1000, maxHp: 1000 }));
+    }
+  };
+  const minPairDist = (g: GameState) => {
+    let min = Infinity;
+    for (let i = 0; i < g.monsters.length; i++) {
+      for (let j = i + 1; j < g.monsters.length; j++) {
+        min = Math.min(min, dist(g.monsters[i].pos, g.monsters[j].pos));
+      }
+    }
+    return min;
+  };
+
+  // Packs stage INSIDE the entrance room (player + 1.5 tiles) — farther
+  // offsets land inside walls on these seeds and moveWithCollision rightly
+  // refuses to move anything into them.
+  it("a spawn-point pile spreads to personal space", () => {
+    const g = createGame(1200);
+    const p = g.players[0];
+    stackedPack(8, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30);
+    expect(minPairDist(g)).toBeGreaterThan(CONFIG.monsterSeparationRadius * 0.5);
+  });
+
+  it("an engaged pack stays spread, not restacked on the player", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    stackedPack(6, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (const m of g.monsters) m.speed = 2.6; // real chasers, not statues
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of engagement
+    expect(minPairDist(g)).toBeGreaterThan(0.3); // no two share a tile-point
+  });
+
+  it("a pack fans into a crescent around the player, not a conga line (flanking)", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    // Stage the pack at a real walkable spot 4-5.5 tiles out.
+    const spot = walkableTiles(g.map).map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+      .find((t) => { const dd = dist(t, p.pos); return dd > 4 && dd < 5.5; })!;
+    expect(spot).toBeTruthy();
+    g.monsters.length = 0;
+    for (let i = 0; i < 6; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+    }
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s: close and engage
+    // Angular coverage around the player: the crescent, not a point.
+    const bearings = g.monsters
+      .map((m) => (Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x) * 180) / Math.PI)
+      .sort((a, b) => a - b);
+    let maxGap = 0;
+    for (let i = 0; i < bearings.length; i++) {
+      const next = i + 1 < bearings.length ? bearings[i + 1] : bearings[0] + 360;
+      maxGap = Math.max(maxGap, next - bearings[i]);
+    }
+    expect(360 - maxGap).toBeGreaterThan(120); // measured ~172° on this seed
+    expect(minPairDist(g)).toBeGreaterThan(0.5); // and spaced, not sharing tiles
+  });
+
+  it("a winding-up monster is a rooted anchor: pushed neighbors slide, it doesn't", () => {
+    const g = createGame(1202);
+    const p = g.players[0];
+    stackedPack(2, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    const [a, b] = g.monsters;
+    a.windup = 5;
+    a.windupTotal = 5;
+    const at = { x: a.pos.x, y: a.pos.y };
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30);
+    expect(a.pos).toEqual(at); // the telegraph position is a promise
+    expect(dist(b.pos, at)).toBeGreaterThan(0.2); // the neighbor yielded
+  });
+
+  it("attack tokens: basic melee windups stagger, never exceeding the floor's cap", () => {
+    const g = createGame(1203);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      g.monsters.push(mkMon({
+        id: 200 + i, hp: 1000, maxHp: 1000,
+        pos: { x: p.pos.x + Math.cos(a) * 0.9, y: p.pos.y + Math.sin(a) * 0.9 },
+      }));
+    }
+    let maxSimul = 0;
+    for (let i = 0; i < 300; i++) {
+      step(g, idle(), 1 / 30);
+      const n = g.monsters.filter((m) => m.windup > 0 && m.windupKind === "melee").length;
+      maxSimul = Math.max(maxSimul, n);
+    }
+    expect(maxSimul).toBeGreaterThan(0); // the ring does attack...
+    expect(maxSimul).toBeLessThanOrEqual(CONFIG.meleeTokensBase); // ...in turns (floor 1, solo)
+  });
+
+  it("elites never wait for a token", () => {
+    const g = createGame(1204);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Two grunts already mid-windup hold every floor-1 token...
+    for (let i = 0; i < 2; i++) {
+      const m = mkMon({ id: 300 + i, hp: 1000, maxHp: 1000, pos: { x: p.pos.x + 0.9, y: p.pos.y + i * 0.5 } });
+      m.windup = 1;
+      m.windupTotal = 1;
+      m.windupKind = "melee";
+      g.monsters.push(m);
+    }
+    const elite = mkMon({ id: 310, hp: 1000, maxHp: 1000, pos: { x: p.pos.x - 0.9, y: p.pos.y } });
+    elite.elite = true;
+    elite.introduced = true; // skip the RINGSIDE INTRODUCTION (it pauses the world)
+    g.monsters.push(elite);
+    step(g, idle(), 1 / 30);
+    expect(elite.windup).toBeGreaterThan(0); // the spice swings on ITS schedule
+  });
+});
+
+describe("flow-field pathfinding (monsters route around geometry)", () => {
+  it("a chaser with no line of sight finds its way around the walls", () => {
+    // Find a real out-of-sight spot within aggro range on some seed, drop a
+    // grunt there, and require genuine progress toward the crawler — the old
+    // greedy steering ground at the wall between them forever.
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4 && dd < 7.5 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null;
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({ id: 500, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+      const m = g.monsters[0];
+      m.alertT = 999; // it heard you (LOS aggro would otherwise leave it parked)
+      const before = dist(m.pos, p.pos);
+      for (let i = 0; i < 360 && dist(m.pos, p.pos) > 1.3; i++) step(g, idle(), 1 / 30);
+      expect(dist(m.pos, p.pos), `seed ${seed}: started ${before.toFixed(1)} away, no LOS`).toBeLessThan(1.5);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("LOS aggro: an unalerted grunt behind a wall stays parked; damage wakes the pack", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // Two SEPARATE hidden tiles (separation would shove co-located sentries
+      // around, possibly into a sight line) that can see each other — the
+      // alarm cascade is LOS-gated — but not the crawler.
+      const tiles = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .filter((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos);
+        });
+      let pair: [Vec2, Vec2] | null = null;
+      for (const t1 of tiles) {
+        const t2 = tiles.find((t) => t !== t1 && dist(t, t1) >= 1 && dist(t, t1) <= 3 && tileLos(g.map, t1, t));
+        if (t2) { pair = [t1, t2]; break; }
+      }
+      if (!pair) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Sentries (speed 0): a wandering monster can legitimately stroll into
+      // sight, which isn't what's under test.
+      const a = mkMon({ id: 600, pos: { x: pair[0].x, y: pair[0].y }, hp: 1000, maxHp: 1000 });
+      const b = mkMon({ id: 601, pos: { x: pair[1].x, y: pair[1].y }, hp: 1000, maxHp: 1000 });
+      g.monsters.push(a, b);
+      for (let i = 0; i < 180; i++) step(g, idle(), 1 / 30); // 6s, never seen
+      expect(a.alertT ?? 0).toBe(0); // no sight, no aggro — even in range
+      expect(b.alertT ?? 0).toBe(0);
+      // Shooting A raises the alarm — B (never touched) joins the hunt too.
+      // (Arrival-via-flow-field is the previous test; this one is the gate.)
+      damageMonster(g, p, a, 1, {});
+      expect((a.alertT ?? 0)).toBeGreaterThan(0);
+      expect((b.alertT ?? 0)).toBeGreaterThan(0); // the pack cascade
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("flowDir is null on the crawler's tile and inside sealed regions", () => {
+    const g = createGame(77);
+    const p = g.players[0];
+    expect(flowDir(g, p.pos)).toBeNull(); // standing on the source
+    expect(flowDir(g, { x: 0.5, y: 0.5 })).toBeNull(); // the border wall corner
+  });
+
+  it("tileLos: walls block sight, open floor does not", () => {
+    const g = createGame(78);
+    const p = g.players[0];
+    expect(tileLos(g.map, p.pos, p.pos)).toBe(true);
+    expect(tileLos(g.map, p.pos, { x: p.pos.x + 1, y: p.pos.y })).toBe(true); // entrance room floor
+    expect(tileLos(g.map, p.pos, { x: 0.5, y: 0.5 })).toBe(false); // through the border wall
+  });
+});
+
+describe("encounter director (tier 4: retreat-and-regroup)", () => {
+  it("a broken survivor bolts away, and raises the alarm when it finds friends", () => {
+    let tested = false;
+    for (let seed = 1600; seed < 1640 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: CONFIG.regroupFromFloor, level: 5, gear: false }); // the director sits out the training bands
+      const p = g.players[0];
+      // A parked pack hidden from the crawler, 4.5-7 tiles out: the friends.
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => { const dd = dist(t, p.pos); return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null; });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const friend = mkMon({ id: 900, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000 });
+      // The survivor: wounded, alerted, alone beside the crawler, packmates dead around it.
+      const survivor = mkMon({ id: 901, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+      survivor.alertT = 999;
+      g.monsters.push(friend, survivor);
+      g.corpses.push(
+        { id: 9000, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+        { id: 9001, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+      );
+      const before = dist(survivor.pos, p.pos);
+      step(g, idle(), 1 / 30);
+      expect(survivor.regroupT ?? 0).toBeGreaterThan(0); // it BROKE OFF
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30); // 1s of flight
+      expect(dist(survivor.pos, p.pos)).toBeGreaterThan(before); // it fled, not charged
+      // The join, deterministically: the natural uphill path may or may not
+      // pass the friends on this map, so stage the meeting mid-flight.
+      survivor.regroupT = 2;
+      survivor.pos = { x: spot.x, y: spot.y };
+      step(g, idle(), 1 / 30);
+      expect(friend.alertT ?? 0).toBeGreaterThan(0); // the alarm — the fight spills
+      expect(survivor.regroupT).toBe(0); // it stops running and fights with them
+      expect(survivor.regrouped).toBe(true); // once per lifetime
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a healthy or accompanied grunt never bolts", () => {
+    const g = createTestGame({ seed: 1601, floor: CONFIG.regroupFromFloor, level: 5, gear: false });
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const a = mkMon({ id: 910, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+    const b = mkMon({ id: 911, pos: { x: p.pos.x + 1.5, y: p.pos.y + 0.7 }, hp: 1000, maxHp: 1000, speed: 2.6 });
+    a.alertT = 999;
+    b.alertT = 999;
+    g.monsters.push(a, b);
+    g.corpses.push(
+      { id: 9100, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+      { id: 9101, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+    );
+    for (let i = 0; i < 60; i++) step(g, idle(), 1 / 30);
+    expect(a.regroupT ?? 0).toBe(0); // B stands beside it — the line holds
+    expect(b.regroupT ?? 0).toBe(0); // B is healthy — no reason to run
+  });
+});
+
+describe("band personalities (tier 3: group doctrine per district)", () => {
+  it("SEWERS: an idle drum buffs; an ALERTED drum beats the charge and marches the pack", () => {
+    let tested = false;
+    for (let seed = 1500; seed < 1540 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // Drummer + grunt hidden from the crawler (no self-alert via sight),
+      // within the aura's 4-tile beat of each other.
+      const tiles = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .filter((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos);
+        });
+      let pair: [Vec2, Vec2] | null = null;
+      for (const t1 of tiles) {
+        const t2 = tiles.find((t) => t !== t1 && dist(t, t1) >= 1 && dist(t, t1) <= 3);
+        if (t2) { pair = [t1, t2]; break; }
+      }
+      if (!pair) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const drummer = mkMon({ id: 800, kind: "drummer", pos: { x: pair[0].x, y: pair[0].y }, hp: 1000, maxHp: 1000 });
+      drummer.aura = "frenzy";
+      const ally = mkMon({ id: 801, pos: { x: pair[1].x, y: pair[1].y }, hp: 1000, maxHp: 1000 });
+      g.monsters.push(drummer, ally);
+      step(g, idle(), 1 / 30);
+      // (The ally's own step decays its timers by one dt after the aura set them.)
+      expect(ally.frenzyT).toBeGreaterThan(0); // idle drum: the passive buff...
+      expect(ally.frenzyT).toBeLessThanOrEqual(CONFIG.drumAuraLinger); // ...at linger length
+      expect(ally.alertT ?? 0).toBe(0); // nobody is hunting yet
+      drummer.alertT = 5; // the drum spots you (or got hit)
+      step(g, idle(), 1 / 30);
+      expect(ally.frenzyT).toBeGreaterThan(CONFIG.drumAuraLinger); // the CHARGE is beaten...
+      expect(ally.alertT ?? 0).toBeGreaterThan(0); // ...and the whole aura marches
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("RUINS: a shieldbearer holds the line between the crawler and its caster ward", () => {
+    let tested = false;
+    for (let seed = 1550; seed < 1590 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // The ward needs SIGHT of the crawler, or the ward->crawler line (and
+      // the phalanx point on it) can run through a wall.
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => { const dd = dist(t, p.pos); return dd > 5 && dd < 7 && tileLos(g.map, t, p.pos); });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const ward = mkMon({ id: 810, kind: "ranged", pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, attackRange: 6.5 }); // speed 0: pinned
+      const shield = mkMon({ id: 811, kind: "shieldbearer", pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 1000, maxHp: 1000, speed: 1.8, attackRange: 1.1 });
+      g.monsters.push(ward, shield);
+      for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s to take position
+      const line = {
+        x: ward.pos.x + (p.pos.x - ward.pos.x) * CONFIG.phalanxLineFraction,
+        y: ward.pos.y + (p.pos.y - ward.pos.y) * CONFIG.phalanxLineFraction,
+      };
+      expect(dist(shield.pos, line)).toBeLessThan(1.3); // the wall stands ON the line
+      // And it IS between them: closer to the crawler than the ward is.
+      expect(dist(shield.pos, p.pos)).toBeLessThan(dist(ward.pos, p.pos));
+    }
+    expect(tested).toBe(true);
+  });
+});
+
+describe("ranged unit play (crossfire arcs + bodyguard retreat)", () => {
+  const mkRanged = (id: number, x: number, y: number) =>
+    mkMon({ id, kind: "ranged", pos: { x, y }, hp: 1000, maxHp: 1000, speed: 2.6, attackRange: 6.5 });
+
+  it("stacked casters spread into distinct firing arcs", () => {
+    // Needs a SIGHTED lane at standoff range — scan seeds for one (the
+    // entrance room is usually smaller than a caster's standoff).
+    let tested = false;
+    for (let seed = 1400; seed < 1440 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 5.2 && dd < 6.2 && tileLos(g.map, t, p.pos);
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Three casters sharing one bearing — the old firing squad.
+      for (let i = 0; i < 3; i++) {
+        const m = mkRanged(700 + i, spot.x, spot.y);
+        m.alertT = 999;
+        g.monsters.push(m);
+      }
+      for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of unit play
+      const bearings = g.monsters
+        .map((m) => Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x))
+        .sort((a, b) => a - b);
+      // A crossfire SPAN opens (started at zero — one stacked bearing). A
+      // full per-pair fan isn't always geometrically possible (a 2-tile
+      // corridor pins the third caster against the wall), and that's right.
+      expect(bearings[bearings.length - 1] - bearings[0]).toBeGreaterThan(CONFIG.rangedLaneAngle);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a closed-on caster retreats toward its melee bodyguard, not open space", () => {
+    const g = createGame(1401);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const archer = mkRanged(710, p.pos.x + 3, p.pos.y);
+    const guard = mkMon({ id: 711, pos: { x: p.pos.x + 6, y: p.pos.y + 2 }, hp: 1000, maxHp: 1000 });
+    g.monsters.push(archer, guard);
+    const gapBefore = dist(archer.pos, guard.pos);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30); // 3s of falling back
+    expect(dist(archer.pos, p.pos)).toBeGreaterThan(3.5); // it retreated...
+    expect(dist(archer.pos, guard.pos)).toBeLessThan(gapBefore); // ...INTO the pack
+  });
+});
+
 describe("depth tempo (monsters get quicker, not just fatter)", () => {
   it("ramps speed up and cooldowns/windups down past the ramp floor, capped", () => {
     // Training floors: untouched (the balance-bot floors-1-2 net stays valid).
-    for (const f of [1, 2, 3, 4]) {
+    for (const f of [1, 2, 3]) {
       expect(monsterTempo(f)).toEqual({ speed: 1, cooldown: 1, windup: 1 });
     }
     const mid = monsterTempo(10);
     expect(mid.speed).toBeGreaterThan(1);
     expect(mid.cooldown).toBeLessThan(1);
     expect(mid.windup).toBeLessThan(1);
+    // Mid-run tells are MEANINGFULLY quicker (2026-07 playtest: a floor-7
+    // tell at 94% of floor 1's was a free walk-out for any human) — but
+    // never so fast the telegraph stops being a telegraph.
+    expect(monsterTempo(7).windup).toBeLessThanOrEqual(0.85);
     // Deep floors hit the caps and stay there (fast but still readable).
     const deep = monsterTempo(30);
     expect(deep.speed).toBe(CONFIG.monsterTempoSpeedMax);
     expect(deep.cooldown).toBe(CONFIG.monsterTempoCdMin);
     expect(deep.windup).toBe(CONFIG.monsterTempoWindupMin);
+    expect(deep.windup).toBeGreaterThanOrEqual(0.5);
   });
 
   it("a floor-12 grunt genuinely moves faster than a floor-1 grunt", () => {
@@ -4253,6 +4693,11 @@ describe("broodmother (the pack grows if you ignore it)", () => {
   it("births swarmers on a timer, capped per mother, and never attacks", () => {
     const g = createGame(7100);
     const p = g.players[0];
+    // Births stop if every player is dead (nearestPlayer gates the brain) —
+    // an armored observer keeps the 3-cycle window about CADENCE, not about
+    // how fast this seed's brood happens to chew through a level-1 crawler
+    // (the furniture-consistency layout re-roll exposed exactly that).
+    p.hp = p.maxHp = 100000;
     g.monsters.length = 0;
     const mother = mkMon({
       id: 1, kind: "broodmother", pos: { x: p.pos.x + 4, y: p.pos.y },
@@ -4585,6 +5030,34 @@ describe("RIVALS mode (competitive race)", () => {
     expect(g.status).toBe("won");
     expect(g.winnerId).toBe(a.id);
     expect(g.announcements.some((an) => an.text.includes("CONTRACT SECURED"))).toBe(true);
+  });
+
+  it("a solo rival shopping at the stairs keeps their world mounted (server crash regression)", () => {
+    // The trailing (or only) rival enters the personal shop: floorNo stays on
+    // the old floor until they leave, so that world must survive — it's what
+    // their client renders behind the shop, and rivalWorldKey/serializeFor
+    // dereference it every snapshot. Dropping it emptied state.worlds and
+    // crashed the whole server process on the next tick.
+    const g = rivalsGame(8107, 1);
+    const [a] = g.players;
+    g.monsters.length = 0;
+    g.worlds![1].monsters = [];
+    a.pos = { x: g.map.stairs.x, y: g.map.stairs.y };
+    step(g, intentsFor(g, { [a.id]: { useStairs: true } }), 1 / 60);
+    expect(a.safeRoom).toBeTruthy();
+    // The next step is where the world-GC ran with lowest = nextFloor.
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1]).toBeTruthy();
+    // The exact calls the server makes per snapshot tick must not throw.
+    expect(rivalWorldKey(g, a.id)).toBe(`1:${g.worlds![1].mapVersion}`);
+    expect(() => serializeFor(g, a.id)).not.toThrow();
+    expect(() => serializeForDynamic(g, a.id)).not.toThrow();
+    // Leaving the shop lands on floor 2; only then is floor 1 unreachable.
+    setReady(g, a.id);
+    expect(a.floorNo).toBe(2);
+    step(g, intentsFor(g, {}), 1 / 60);
+    expect(g.worlds![1]).toBeUndefined();
+    expect(g.worlds![2]).toBeTruthy();
   });
 
   it("kill XP is NOT split between rivals sharing a floor", () => {
@@ -5111,7 +5584,10 @@ describe("room purposes are sim-visible (occupancy)", () => {
   });
 
   it("a resident pack gathers at the dressed room's furniture", () => {
-    const g = createTestGame({ seed: 92, floor: 4, level: 4 });
+    // Seed 92's dinner party dispersed under the vanilla-heft spawn
+    // reweight (stream re-roll); seed 97 seats 4 packs — widest margin
+    // in the 90-112 probe.
+    const g = createTestGame({ seed: 97, floor: 4, level: 4 });
     const anchored = assignRoomPurposes(g.seed, g.floor, g.map).dressings.filter((d) => d.anchor !== null);
     expect(anchored.length).toBeGreaterThan(0);
     let seated = 0;
@@ -5145,5 +5621,398 @@ describe("floor stories and residents", () => {
       expect(JSON.stringify(assignRoomPurposes(g.seed, g.floor, g.map))).toBe(JSON.stringify(plan));
     }
     expect(found).toBeGreaterThanOrEqual(3); // ~35% of 60 seeds should story
+  });
+});
+
+describe("service rooms (phase 4: rare room verbs)", () => {
+  const svcCard = (kind: import("../src/sim/types").Reward["kind"]) =>
+    ({ id: 1, kind, title: kind, desc: "", amount: 0 });
+
+  it("a contract appears rarely, at most one, only in businesslike rooms", () => {
+    let sawService = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const svc = g.loot.filter((l) => l.kind === "service");
+      expect(svc.length).toBeLessThanOrEqual(1);
+      if (svc.length === 1) {
+        sawService++;
+        const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+        expect(plan.service?.purposeId).toBe(svc[0].service);
+        const d = plan.dressings.find((dd) => dd.roomIdx === plan.service!.roomIdx)!;
+        expect(["pristine", "overgrown"]).toContain(d.condition);
+      }
+    }
+    expect(sawService).toBeGreaterThan(2); // real...
+    expect(sawService).toBeLessThan(30); // ...but rare
+  });
+
+  it("the forge tempers for gold", () => {
+    const g = createTestGame({ seed: 61, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 500;
+    const dmg0 = p.bonusDamage;
+    p.pendingRewards = [svcCard("svcTemper")];
+    chooseReward(g, p.id, 0);
+    const cost = CONFIG.svcTemperCost + Math.round(g.floor * CONFIG.svcTemperCostPerFloor);
+    const amt = CONFIG.svcTemperDamage + Math.round(g.floor * CONFIG.svcTemperDamagePerFloor);
+    expect(p.gold).toBe(500 - cost);
+    expect(p.bonusDamage).toBe(dmg0 + amt);
+  });
+
+  it("the den's wager is a real stake: double or nothing", () => {
+    const g = createTestGame({ seed: 62, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.gold = 500;
+    p.pendingRewards = [svcCard("svcWager")];
+    chooseReward(g, p.id, 0);
+    const stake = CONFIG.svcWagerStake + g.floor * CONFIG.svcWagerStakePerFloor;
+    expect([500 - stake, 500 + stake]).toContain(p.gold);
+  });
+
+  it("the archive's ledger maps the floor", () => {
+    const g = createTestGame({ seed: 63, floor: 5, level: 5 });
+    const p = g.players[0];
+    p.pendingRewards = [svcCard("svcMap")];
+    chooseReward(g, p.id, 0);
+    expect(Array.from(g.explored).every((v) => v === 1)).toBe(true);
+  });
+
+  it("last floor's looters flee ahead of you, haul in hand", () => {
+    let found = false;
+    for (let seed = 1; seed <= 90 && !found; seed++) {
+      const g = createTestGame({ seed, floor: 6, level: 6 });
+      if (!g.announcements.some((a) => a.text.includes("recommends repossession"))) continue;
+      found = true;
+      const carry = CONFIG.chaseFilcherCarry + g.floor * CONFIG.chaseFilcherCarryPerFloor;
+      const chasers = g.monsters.filter((m) => m.kind === "filcher" && (m.carry ?? 0) >= carry);
+      expect(chasers.length).toBeGreaterThanOrEqual(1);
+    }
+    expect(found).toBe(true);
+  });
+});
+
+describe("destructible dressing + behavioral residents (phase 5)", () => {
+  it("dressed corner hoards spawn as smashable entities", () => {
+    let sawAny = false;
+    for (let seed = 1; seed <= 20 && !sawAny; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      if ((g.breakables ?? []).length === 0) continue;
+      sawAny = true;
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      // Clutter hoards + blocking furniture both live in state.breakables now.
+      const planned = plan.dressings.flatMap((d) => d.breakables).length +
+        plan.dressings.flatMap((d) => d.blockers).length;
+      expect(g.breakables!.length).toBe(planned);
+      // Story-looted rooms keep no hoard.
+      for (const d of plan.dressings) {
+        if (d.condition === "looted") expect(d.breakables.length).toBe(0);
+      }
+    }
+    expect(sawAny).toBe(true);
+  });
+
+  it("a melee swing pops the barrel for pocket gold", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      // Clutter only: furniture takes CONFIG.blockerHp swings (tested below).
+      const b = (g.breakables ?? []).find((bb) => !bb.footprint);
+      if (!b) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: b.pos.x - 0.9, y: b.pos.y };
+      const n0 = g.breakables!.length;
+      const loot0 = g.loot.filter((l) => l.kind === "gold").length;
+      step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+      expect(g.breakables!.length).toBeLessThan(n0);
+      expect(g.loot.filter((l) => l.kind === "gold").length).toBeGreaterThan(loot0);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("interrupting a seated pack gets the room's line, once", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const resident = g.monsters.find((m) => m.residentOf);
+      if (!resident) continue;
+      tested = true;
+      const p = g.players[0];
+      g.announcements = [];
+      damageMonster(g, p, resident, 1, { allowCrit: false });
+      const lines = g.announcements.filter((a) => a.kind === "flavor").length;
+      expect(lines).toBeGreaterThanOrEqual(1);
+      const sibling = g.monsters.find((m) => m.residentOf === resident.residentOf && m !== resident);
+      if (sibling) {
+        g.announcements = [];
+        damageMonster(g, p, sibling, 1, { allowCrit: false });
+        expect(g.announcements.filter((a) => a.kind === "flavor").length).toBe(0);
+      }
+    }
+    expect(tested).toBe(true);
+  });
+});
+
+describe("physical furniture (PHYSICALITY.md §1)", () => {
+  it("connectivity fuzz: furniture never traps anyone, ever", () => {
+    // The gating test: with the mask stamped, every passable tile stays
+    // reachable from spawn. 40 seeds x 6 floors on the CI budget; the fuzz
+    // definition of passable matches the plan's (locked doors open later).
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const floor of [2, 5, 8, 11, 14, 17]) {
+        const g = createTestGame({ seed, floor, level: 4, gear: false });
+        const { map } = g;
+        const W = map.w;
+        const passable = (ti: number) => map.tiles[ti] !== 0 && !map.blocked?.[ti];
+        const start = Math.floor(map.spawn.y) * W + Math.floor(map.spawn.x);
+        const seen = new Set([start]);
+        const queue = [start];
+        while (queue.length > 0) {
+          const cur = queue.pop()!;
+          for (const nb of [cur - 1, cur + 1, cur - W, cur + W]) {
+            if (nb < 0 || nb >= map.tiles.length || seen.has(nb) || !passable(nb)) continue;
+            seen.add(nb);
+            queue.push(nb);
+          }
+        }
+        let unreachable = 0;
+        for (let ti = 0; ti < map.tiles.length; ti++) {
+          if (passable(ti) && !seen.has(ti)) unreachable++;
+        }
+        expect(unreachable, `seed ${seed} floor ${floor}`).toBe(0);
+        expect(seen.has(Math.floor(map.stairs.y) * W + Math.floor(map.stairs.x)), `seed ${seed} floor ${floor}: stairs`).toBe(true);
+      }
+    }
+  });
+
+  it("furniture blocks feet: you cannot walk through the table", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      expect(g.map.blocked?.[blk.footprint![0]]).toBe(1);
+      const p = g.players[0];
+      g.monsters = [];
+      p.pos = { x: blk.pos.x - 1.1, y: blk.pos.y };
+      for (let i = 0; i < 60; i++) step(g, { ...idle(), move: { x: 1, y: 0 }, attack: false }, 1 / 60);
+      // A full second of walking straight at it: still outside the tile.
+      expect(Math.floor(p.pos.x)).toBeLessThan(Math.floor(blk.pos.x));
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("smashing the furniture opens the lane", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 30 && !tested; tested || seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const blk = (g.breakables ?? []).find((b) => b.footprint);
+      if (!blk) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: blk.pos.x - 0.9, y: blk.pos.y };
+      const tile = blk.footprint![0];
+      for (let swing = 0; swing < CONFIG.blockerHp; swing++) {
+        p.cd.melee = 0;
+        step(g, { ...idle(), attack: true, aim: { x: 1, y: 0 } }, 1 / 60);
+        for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60); // cooldown
+      }
+      expect(g.map.blocked?.[tile]).toBe(0); // the lane is open
+      expect((g.breakables ?? []).some((b) => b.id === blk.id)).toBe(false);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("nothing spawns inside furniture", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      for (const m of g.monsters) {
+        const ti = Math.floor(m.pos.y) * g.map.w + Math.floor(m.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} monster ${m.kind}`).toBe(0);
+      }
+      for (const l of g.loot) {
+        const ti = Math.floor(l.pos.y) * g.map.w + Math.floor(l.pos.x);
+        expect(g.map.blocked?.[ti] ?? 0, `seed ${seed} loot ${l.kind}`).toBe(0);
+      }
+    }
+  });
+});
+
+describe("staging v2: seats, perception, detection", () => {
+  it("the plan seats blocking tables, on open floor, deterministically", () => {
+    let tested = 0;
+    for (let seed = 1; seed <= 40 && tested < 3; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const dressed = plan.dressings.filter((d) => d.blockers.some((bl) => bl.isTable));
+      for (const d of dressed) {
+        if (d.seats.length === 0) continue;
+        tested++;
+        expect(d.seats.length).toBeLessThanOrEqual(4);
+        for (const s of d.seats) {
+          const ti = Math.floor(s.y) * g.map.w + Math.floor(s.x);
+          expect(g.map.tiles[ti]).toBe(1); // open floor
+          expect(g.map.blocked?.[ti] ?? 0).toBe(0); // never inside furniture
+        }
+      }
+      // Same seed, same seats — the plan stays pure.
+      const again = assignRoomPurposes(g.seed, g.floor, g.map);
+      expect(again.dressings.map((d) => d.seats)).toEqual(plan.dressings.map((d) => d.seats));
+    }
+    expect(tested).toBeGreaterThanOrEqual(3);
+  });
+
+  it("residents spawn ON the plan's seats and are marked seated", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 80 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const seatedMon = g.monsters.find((m) => m.seated && m.residentOf);
+      if (!seatedMon) continue;
+      const plan = assignRoomPurposes(g.seed, g.floor, g.map);
+      const d = plan.dressings.find((dd) => dd.purposeId === seatedMon.residentOf);
+      expect(d).toBeTruthy();
+      const onSeat = d!.seats.some(
+        (s) => Math.abs(s.x - seatedMon.pos.x) < 1e-6 && Math.abs(s.y - seatedMon.pos.y) < 1e-6,
+      );
+      expect(onSeat).toBe(true);
+      tested = true;
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a staged room misses you outside its dulled perception; crossing it breaks the scene", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 120 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const resident = g.monsters.find(
+        (m) => m.residentOf && (PURPOSE_PERCEPTION[m.residentOf] ?? 1) <= 0.7 && !m.dormant,
+      );
+      if (!resident) continue;
+      tested = true;
+      const per = PURPOSE_PERCEPTION[resident.residentOf!]!;
+      g.monsters = [resident]; // just the one actor: nothing else can break the scene
+      const p = g.players[0];
+      // Inside NORMAL aggro range but outside the dulled radius: un-staged,
+      // this monster would close; staged, the act continues.
+      const outside = (per * CONFIG.monsterAggroRange + CONFIG.monsterAggroRange) / 2;
+      p.pos = { x: resident.pos.x + outside, y: resident.pos.y };
+      const before = { x: resident.pos.x, y: resident.pos.y };
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 60);
+      expect(g.residentAggro ?? []).not.toContain(resident.residentOf);
+      expect(resident.pos.x).toBeCloseTo(before.x, 5);
+      expect(resident.pos.y).toBeCloseTo(before.y, 5);
+      // Step inside the dulled radius: detection, the line, the wake-up.
+      // (announcements are per-tick host data — collect across steps)
+      g.announcements = [];
+      p.pos = { x: resident.pos.x + per * CONFIG.monsterAggroRange - 1, y: resident.pos.y };
+      let sawLine = false;
+      for (let i = 0; i < 10; i++) {
+        step(g, idle(), 1 / 60);
+        if (g.announcements.some((a) => a.kind === "flavor")) sawLine = true;
+      }
+      expect(g.residentAggro ?? []).toContain(resident.residentOf);
+      expect(sawLine).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+});
+
+describe("furniture feel: vault, smash-through, avoidance", () => {
+  /** First blocking table with clear straight-line approach + landing. */
+  function findVaultSetup(g: ReturnType<typeof createTestGame>) {
+    for (const b of g.breakables ?? []) {
+      if (!b.footprint || !b.key.startsWith("table")) continue;
+      // approach from the west, land on the east
+      const from = { x: b.pos.x - 1.2, y: b.pos.y };
+      const beyond = { x: b.pos.x + 1.2, y: b.pos.y };
+      if (isWalkable(g.map, from.x, from.y) && isWalkable(g.map, beyond.x, beyond.y) &&
+          isWalkable(g.map, from.x, from.y - 0.31) && isWalkable(g.map, from.x, from.y + 0.31) &&
+          isWalkable(g.map, beyond.x, beyond.y - 0.31) && isWalkable(g.map, beyond.x, beyond.y + 0.31)) {
+        return { b, from };
+      }
+    }
+    return null;
+  }
+
+  it("a dash goes OVER blocking furniture and lands on open floor", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      tested = true;
+      g.monsters = [];
+      const p = g.players[0];
+      p.pos = { x: setup.from.x, y: setup.from.y };
+      p.facing = { x: 1, y: 0 };
+      step(g, { ...idle(), dash: true, move: { x: 1, y: 0 } }, 1 / 60);
+      // The vault carried the crawler past the table (which still stands).
+      expect(p.pos.x).toBeGreaterThan(setup.b.pos.x + 0.4);
+      expect(g.breakables!.some((bb) => bb.id === setup.b.id)).toBe(true);
+      expect(isWalkable(g.map, p.pos.x, p.pos.y)).toBe(true);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled brute slams THROUGH the table instead of shuffling", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const brute = g.monsters.find((m) => m.kind === "brute");
+      if (!brute) continue;
+      tested = true;
+      const p = g.players[0];
+      // Prey on the far side of the table, brute pressed against the near side.
+      g.monsters = [brute];
+      brute.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      brute.residentOf = undefined;
+      brute.dormant = false;
+      brute.attackCooldown = 0;
+      p.pos = { x: setup.b.pos.x + 1.6, y: setup.b.pos.y };
+      const id = setup.b.id;
+      const ti = setup.b.footprint![0];
+      let gone = false;
+      for (let i = 0; i < 900 && !gone; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break; // slam reached the prey through the grace arc — fine
+        gone = !g.breakables!.some((bb) => bb.id === id);
+      }
+      expect(gone).toBe(true); // the table exploded...
+      expect(g.map.blocked![ti]).toBe(0); // ...and the lane is open
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a stalled grunt slips the 45 instead of grinding at furniture", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 60 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: 5, level: 5 });
+      const setup = findVaultSetup(g);
+      if (!setup) continue;
+      const grunt = g.monsters.find((m) => m.kind === "grunt" || m.kind === "swarmer");
+      if (!grunt) continue;
+      tested = true;
+      const p = g.players[0];
+      g.monsters = [grunt];
+      grunt.pos = { x: setup.b.pos.x - 1.0, y: setup.b.pos.y };
+      grunt.residentOf = undefined;
+      grunt.dormant = false;
+      p.pos = { x: setup.b.pos.x + 2.0, y: setup.b.pos.y };
+      const y0 = grunt.pos.y;
+      let slipped = false;
+      for (let i = 0; i < 240 && !slipped; i++) {
+        step(g, idle(), 1 / 60);
+        if (!p.alive) break;
+        // lateral progress = it went AROUND, not through
+        if (Math.abs(grunt.pos.y - y0) > 0.35 || grunt.pos.x > setup.b.pos.x) slipped = true;
+      }
+      expect(slipped).toBe(true);
+    }
+    expect(tested).toBe(true);
   });
 });

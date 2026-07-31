@@ -35,6 +35,7 @@ appreciated).
 | KayKit Mystery Monthly: Clown — `clown_bomb.glb` (bomber fuse + volatile-corpse blasts) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Mystery Monthly: Orc Raider — `orc_wardrum.glb` + `orc_wardrum_stick.glb` (the Drum Sergeant's grafted instrument) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Adventurers 2.0 — `potion_medium_red.glb` (flask act prop, staged) + `smokebomb.glb` (Blindside poof anchor, staged); converted via gltf-pipeline | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
+| KayKit Adventurers 2.0 — `crawler_{knight,barbarian,druid,engineer,mage,ranger,rogue,rogue_hooded}.glb`: the campfire check-in lineup (chosen cosmetic looks; medium rig, shared clip libraries) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-adventurers |
 | KayKit Character Animations 1.1 — the previously-untapped clip packs: `rig_medium_movementadvanced/simulation/tools.glb`, `rig_large_movementadvanced/simulation/special.glb` (Sneaking, Lockpicking, dodge sets, sit/lie/wave, EXPERIMENTAL_Large_Transform) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/ |
 | KayKit Dungeon Remastered 1.1 (interiors: bookcases, tavern bar set, mimic + gold chests, colored banners) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-dungeon-remastered |
 | KayKit Resource Bits (vault hoards: gem piles, gold bars, money piles, gem chest; `gem_medium.glb` is the trinket/charm ground drop) | Kay Lousberg | CC0 | https://kaylousberg.itch.io/kaykit-resource-bits |
@@ -133,7 +134,8 @@ public/audio/
           swing.ogg, tell.ogg, kill.ogg,
           dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
-          announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg
+          announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg,
+          dot_burn.ogg, dot_poison.ogg, dot_chill.ogg, band_sting.ogg   (status/band cues)
   music/  dungeon.ogg, safe_room.mp3, collapse.wav,
           battle_theme_a.ogg, battle_music.ogg, battle_winter.ogg,   (battle rotation)
           boss_epic.ogg, boss_blackmoor.ogg, boss_colossal.ogg   (boss themes; all loop)
@@ -157,6 +159,10 @@ pointers for the audio sources too.
 | `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
 | `music/battle_theme_a.ogg` | [Battle Theme A](https://opengameart.org/content/battle-theme-a) | cynicmusic (The Cynic Project) | CC0 |
 | `music/boss_epic.ogg` | [Boss Battle Music](https://opengameart.org/content/boss-battle-music) | Juhani Junkala (SubspaceAudio) | CC0 |
+| `sfx/dot_burn.ogg` | [Fire Crackling](https://opengameart.org/content/fire-crackling) (trimmed to a 0.4s tick) | AntumDeluge | CC0 |
+| `sfx/dot_poison.ogg` | [bubbles 'pop'](https://opengameart.org/content/bubbles-pop) (pitched down ~20%) | farfadet46 | CC0 |
+| `sfx/dot_chill.ogg` | [Freeze Spell](https://opengameart.org/content/freeze-spell-0) (first 0.5s, faded) | artisticdude | CC0 |
+| `sfx/band_sting.ogg` | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) (jingles_PIZZA07) | Kenney | CC0 |
 
 Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), the combat-feel trio
 `sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and
@@ -382,6 +388,7 @@ above. Provenance rules for anything it produces:
 | File(s) | Use | Source + license |
 |---|---|---|
 | dungeon/bed_{a,b}_single.glb, bed_floor.glb, bed_decorated.glb, chair.glb, plate_food_{a,b}.glb, crate_large_decorated.glb, barrel_small_stack.glb | barracks/kitchen purposes | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
+| dungeon/wall_doorway.glb, wall_gated.glb, wall_archedwindow_gated.glb, wall_window_open.glb, floor_tile_grate_open.glb, pillar.glb | lived-in look test (doorway arches, gated/window walls, open grates, interior pillars) | KayKit Dungeon Remastered 1.1 (Complete Collection), CC0 |
 | dungeon/pot_a_stew.glb, pot_large.glb, crate_potatoes.glb | kitchen purpose | KayKit Restaurant Bits 1.0, CC0 |
 | dungeon/food_barrel_fish.glb, fuel_a_barrels.glb, gems_sack.glb | kitchen/forge/apothecary | KayKit Resource Bits 1.0, CC0 |
 | dungeon/anvil.glb | forge centerpiece | KayKit Block Bits 1.0, CC0 |

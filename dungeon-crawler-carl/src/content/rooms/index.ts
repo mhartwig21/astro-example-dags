@@ -14,6 +14,16 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
 const byId = new Map(ROOM_TEMPLATES.map((t) => [t.id, t]));
 export const roomTemplateById = (id: string): RoomTemplate | undefined => byId.get(id);
 
+/** Register (or replace) a template at runtime — the builder's TEST-DRIVE
+ *  path. Hosts call this before creating a test game so a work-in-progress
+ *  room can stamp; shipped content still goes through the JSON registry. */
+export function registerRoomTemplate(t: RoomTemplate): void {
+  const i = ROOM_TEMPLATES.findIndex((x) => x.id === t.id);
+  if (i >= 0) ROOM_TEMPLATES[i] = t;
+  else ROOM_TEMPLATES.push(t);
+  byId.set(t.id, t);
+}
+
 /** A template is stampable when its border ring and center tile are floor. */
 export function validateTemplate(t: RoomTemplate): boolean {
   if (t.tiles.length !== t.w * t.h) return false;

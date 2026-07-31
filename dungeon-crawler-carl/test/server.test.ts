@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
-import { GameServer, seedFromCode } from "../src/server/gameServer";
+import { GameServer, seedFromCode, MAX_PARTY_SIZE } from "../src/server/gameServer";
 import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
@@ -144,7 +144,7 @@ interface TestClient {
   close: () => void;
 }
 
-function connect(port: number, code: string, name: string, rivals = false): Promise<TestClient> {
+function connect(port: number, code: string, name: string, rivals = false, isPublic = false): Promise<TestClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const client: TestClient = {
@@ -170,7 +170,7 @@ function connect(port: number, code: string, name: string, rivals = false): Prom
       if (client.lastSnap) mergeColdPlayers(s.players, client.lastSnap.players);
       return s;
     };
-    ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined }));
+    ws.on("open", () => client.send({ t: "join", code, name, rivals: rivals || undefined, public: isPublic || undefined }));
     ws.on("message", (raw) => {
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
@@ -195,6 +195,22 @@ const waitFor = async (cond: () => boolean, ms = 4000): Promise<void> => {
     await new Promise((r) => setTimeout(r, 25));
   }
 };
+
+type OpenParty = { code: string; players: number; cap: number; floor: number };
+function openParties(port: number): Promise<OpenParty[]> {
+  return fetch(`http://127.0.0.1:${port}/open-parties`).then((r) => r.json());
+}
+// Same shape as waitFor, but the condition itself is async (a fetch) — polls
+// /open-parties until `code`'s presence matches `present`.
+async function waitForOpenParty(port: number, code: string, present: boolean, ms = 4000): Promise<OpenParty | undefined> {
+  const t0 = Date.now();
+  for (;;) {
+    const found = (await openParties(port)).find((p) => p.code === code);
+    if (present ? found : !found) return found;
+    if (Date.now() - t0 > ms) throw new Error("timeout waiting for open-parties state");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 describe("authoritative server", () => {
   let server: GameServer;
@@ -272,6 +288,61 @@ describe("authoritative server", () => {
     b.close();
   });
 
+  it("claiming an achievement's loot box applies over the network", async () => {
+    const a = await connect(port, "ACH-1", "Carl");
+    const instances = (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+    const inst = instances.get("ACH-1")!;
+    const p = inst.state.players.find((pl) => pl.id === a.playerId)!;
+    p.achievements.push("first_blood");
+    p.unclaimedAchievements = ["first_blood"];
+    const lootBefore = inst.state.lootBoxes;
+    a.send({ t: "claimAchievement", id: "first_blood" });
+    await waitFor(() => inst.state.lootBoxes > lootBefore);
+    expect(p.unclaimedAchievements).not.toContain("first_blood");
+    a.close();
+  });
+
+  it("Quick Join: /open-parties lists public co-op parties with free seats, joins one, and drops it once full", async () => {
+    const priv = await connect(port, "PRIV-1", "Carl"); // ordinary private party — never listed
+    const host = await connect(port, "OPEN-1", "Hostella", false, true);
+
+    const entry = await waitForOpenParty(port, "OPEN-1", true);
+    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1 });
+    expect((await openParties(port)).some((p) => p.code === "PRIV-1")).toBe(false);
+
+    // A stranger joins straight off the listed code and lands in the same party.
+    const joiner = await connect(port, entry!.code, "Stranger");
+    await waitFor(() => (joiner.lastSnap?.players.length ?? 0) >= 2);
+    expect(joiner.lastSnap!.seed).toBe(host.lastSnap!.seed);
+
+    // Fill the remaining seats; at capacity the party drops off the list.
+    const rest = await Promise.all(
+      Array.from({ length: MAX_PARTY_SIZE - 2 }, (_, i) => connect(port, "OPEN-1", `Filler${i}`)),
+    );
+    await waitForOpenParty(port, "OPEN-1", false);
+
+    priv.close();
+    host.close();
+    joiner.close();
+    rest.forEach((c) => c.close());
+  });
+
+  it("a tick that throws drops only that instance — other parties keep playing", async () => {
+    const doomed = await connect(port, "CRASH-1", "Carl");
+    const bystander = await connect(port, "SAFE-1", "Donut");
+    const closed = new Promise<void>((r) => doomed.ws.on("close", () => r()));
+    // Corrupt the sim so the next tick throws — stands in for any future
+    // in-sim hole. Before the guard this killed the whole process.
+    const instances = (server as unknown as { instances: Map<string, { state: unknown }> }).instances;
+    instances.get("CRASH-1")!.state = null;
+    await closed; // the doomed party's socket closes...
+    expect(instances.has("CRASH-1")).toBe(false); // ...and its instance is gone
+    // ...but the process lives and the OTHER party still receives snapshots.
+    const n = bystander.snaps.length;
+    await waitFor(() => bystander.snaps.length > n);
+    bystander.close();
+  });
+
   it("RIVALS: personal snapshots carry the race standings and personal shops", async () => {
     const a = await connect(port, "RACE-1", "Carl", true);
     const b = await connect(port, "RACE-1", "Donut");
@@ -284,5 +355,208 @@ describe("authoritative server", () => {
     expect(b.lastSnap!.map.tiles.length).toBeGreaterThan(0); // but YOUR floor does
     a.close();
     b.close();
+  });
+});
+
+describe("static file serving: caching + compression (the load-time budget)", () => {
+  let server: GameServer;
+  let port: number;
+  let dir: string;
+
+  beforeAll(async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dir = mkdtempSync(join(tmpdir(), "dcc-static-"));
+    mkdirSync(join(dir, "assets"), { recursive: true });
+    // Repetitive bytes so gzip visibly shrinks it (GLBs behave the same way).
+    writeFileSync(join(dir, "assets", "thing.glb"), Buffer.alloc(64 * 1024, 7));
+    writeFileSync(join(dir, "assets", "pic.png"), Buffer.alloc(1024, 9));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>x</title>");
+    server = new GameServer(0, dir);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(async () => {
+    server.close();
+    const { rmSync } = await import("node:fs");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("assets get a day-long TTL and an ETag; HTML always revalidates", async () => {
+    const asset = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toContain("max-age=86400");
+    expect(asset.headers.get("etag")).toMatch(/^W\//);
+    const html = await fetch(`http://127.0.0.1:${port}/index.html`);
+    expect(html.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("If-None-Match returns 304 with no body — a repeat visit never re-downloads", async () => {
+    const first = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`);
+    const etag = first.headers.get("etag")!;
+    const again = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`, {
+      headers: { "if-none-match": etag },
+    });
+    expect(again.status).toBe(304);
+    expect((await again.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("gzips GLBs on the wire (and the bytes round-trip)", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/assets/thing.glb`, {
+      headers: { "accept-encoding": "gzip" },
+    });
+    // fetch transparently decompresses; verify the negotiated encoding + content.
+    const body = Buffer.from(await res.arrayBuffer());
+    expect(body.length).toBe(64 * 1024);
+    expect(body[0]).toBe(7);
+    expect(res.headers.get("vary")).toBe("accept-encoding");
+    // The raw stream must actually be gzip: ask node's http directly.
+    const { get } = await import("node:http");
+    const enc = await new Promise<string>((resolve2) => {
+      get({ host: "127.0.0.1", port, path: "/assets/thing.glb", headers: { "accept-encoding": "gzip" } },
+        (r) => { resolve2(String(r.headers["content-encoding"])); r.resume(); });
+    });
+    expect(enc).toBe("gzip");
+  });
+
+  it("skips recompressing formats that are already compressed (png)", async () => {
+    const { get } = await import("node:http");
+    const enc = await new Promise<string>((resolve2) => {
+      get({ host: "127.0.0.1", port, path: "/assets/pic.png", headers: { "accept-encoding": "gzip" } },
+        (r) => { resolve2(String(r.headers["content-encoding"])); r.resume(); });
+    });
+    expect(enc).toBe("undefined");
+  });
+});
+
+describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () => {
+  let server: GameServer;
+  let port: number;
+  let dbFile: string;
+  let mock: import("node:http").Server;
+  let mockPort: number;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dbFile = join(mkdtempSync(join(tmpdir(), "dcc-db-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+
+    // A fake OAuth provider: authorize is never fetched by the server (the
+    // browser goes there); token + user endpoints are.
+    const { createServer } = await import("node:http");
+    mock = createServer((req, res) => {
+      if (req.url?.startsWith("/token")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: "mock-access" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "prov-777", global_name: "Mock Crawler" }));
+    });
+    await new Promise<void>((r) => mock.listen(0, () => r()));
+    mockPort = (mock.address() as { port: number }).port;
+    server.auth.registerProvider("mock", {
+      authUrl: `http://127.0.0.1:${mockPort}/authorize`,
+      tokenUrl: `http://127.0.0.1:${mockPort}/token`,
+      userUrl: `http://127.0.0.1:${mockPort}/user`,
+      clientId: "cid", clientSecret: "sec", scope: "identify",
+      identity: (u) => (typeof u.id === "string" ? { id: u.id, display: String(u.global_name) } : null),
+    });
+  });
+
+  afterAll(() => {
+    server.close();
+    mock.close();
+  });
+
+  it("records finished runs on the all-time category boards", async () => {
+    const post = (b: unknown) => fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b),
+    });
+    await post({ board: "alltime", name: "Carl", floor: 18, won: true, timeSec: 1500, kills: 300 });
+    await post({ board: "alltime", name: "Donut", floor: 12, won: false, timeSec: 900, kills: 450 });
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    expect(deepest.entries[0].name).toBe("Carl");
+    const kills = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=kills`)).json();
+    expect(kills.entries[0].name).toBe("Donut");
+    // fastest only ranks full clears.
+    const fastest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=fastest`)).json();
+    expect(fastest.entries.map((e: { name: string }) => e.name)).toEqual(["Carl"]);
+  });
+
+  it("sanitizes names at the board ingress", async () => {
+    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board: "alltime", name: "N1gg4 Slayer", floor: 5, won: false, timeSec: 300, kills: 10 }),
+    });
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    const names = deepest.entries.map((e: { name: string }) => e.name);
+    expect(names).toContain("Crawler");
+    expect(names.join()).not.toContain("N1gg4");
+  });
+
+  it("rate-limits a submission flood from one client", async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const r = await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: "alltime", name: `Flood${i}`, floor: 2, won: false, timeSec: 60, kills: 1 }),
+      });
+      codes.push(r.status);
+    }
+    expect(codes).toContain(429);
+  });
+
+  it("OAuth: login redirects with a signed state; callback links the browser token", async () => {
+    const login = await fetch(`http://127.0.0.1:${port}/auth/login/mock?token=browser-token-1234`, { redirect: "manual" });
+    expect(login.status).toBe(302);
+    const authorize = new URL(login.headers.get("location")!);
+    expect(authorize.origin).toBe(`http://127.0.0.1:${mockPort}`);
+    const state = authorize.searchParams.get("state")!;
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+    expect(cb.status).toBe(302);
+    const dest = new URLSearchParams(new URL(cb.headers.get("location")!).hash.replace(/^#/, ""));
+    expect(dest.get("auth")).toBe("browser-token-1234"); // LINKED, not replaced
+    expect(dest.get("who")).toBe("Mock Crawler");
+  });
+
+  it("OAuth: a known identity RECOVERS its account from any device", async () => {
+    const login = await fetch(`http://127.0.0.1:${port}/auth/login/mock?token=some-other-device-9`, { redirect: "manual" });
+    const state = new URL(login.headers.get("location")!).searchParams.get("state")!;
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=${encodeURIComponent(state)}`, { redirect: "manual" });
+    const dest = new URLSearchParams(new URL(cb.headers.get("location")!).hash.replace(/^#/, ""));
+    expect(dest.get("auth")).toBe("browser-token-1234"); // the ORIGINAL account
+  });
+
+  it("whoami reports identities + career stats; delete forgets everything", async () => {
+    // A fresh client IP (the limiter honors fly-client-ip) — the flood test
+    // above deliberately drained localhost's bucket.
+    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
+      method: "POST", headers: { "content-type": "application/json", "fly-client-ip": "203.0.113.9" },
+      body: JSON.stringify({ board: "alltime", token: "browser-token-1234", name: "Mock Crawler", floor: 9, won: false, timeSec: 700, kills: 55 }),
+    });
+    const who = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
+    expect(who.identities.map((i: { provider: string }) => i.provider)).toContain("mock");
+    expect(who.stats.runs).toBe(1);
+    expect(who.stats.deepest).toBe(9);
+
+    await fetch(`http://127.0.0.1:${port}/auth/delete`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "browser-token-1234" }),
+    });
+    const gone = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
+    expect(gone.identities).toEqual([]);
+    expect(gone.stats).toBeNull();
+  });
+
+  it("tampered OAuth state is rejected", async () => {
+    const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=forged.sig`, { redirect: "manual" });
+    expect(new URL(cb.headers.get("location")!).hash).toContain("autherr");
   });
 });

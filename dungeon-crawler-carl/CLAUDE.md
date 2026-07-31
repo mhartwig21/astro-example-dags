@@ -50,6 +50,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `BACKLOG.md` | Open play-driven items with code pointers. Delete entries when they ship |
 | `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
 | `BUILDER.md` | The /builder.html crafting bench: room templates, custom enemies, and the dev-only Meshy bridge (prop + creature generation). Content lands in `src/content/` |
+| `PHYSICALITY.md` | Design proposal: furniture that blocks (removable blocked-mask + smashable blockers) and the resident animation/staging pass. Delete sections as they ship |
 
 ## Commands
 
@@ -62,7 +63,9 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 `/iso.html?test&floor=9&level=12&abilities=all&gold=500&seed=42` (2D: `/?test...`).
 Builds a deterministic stage-representative crawler via `createTestGame`
 (sim/game.ts): floor clamps to 1..finalFloor, levels auto-draft real
-constellation ranks, gear rolls floor-scaled (`gear=0` disables), `abilities`
+constellation ranks, gear rolls floor-scaled (`gear=0` disables, `gear=level`
+dresses for the crawler's LEVEL instead of the floor — the honest way to test
+an underleveled crawler at depth, `gear=N` rolls floor-N loot), `abilities`
 is `all` or a comma list. Nothing is loaded or saved — the real run's save is
 untouched. R rerolls the seed unless `seed=` is pinned. This is also the
 fastest way to verify visual/balance changes at depth.
@@ -136,7 +139,11 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
   just tests. Headless Chrome recipe (flags, CDP driving, SwiftShader
   gotchas — it runs ~3fps, hold keys ≥450ms, sim time dilates) lives in
   `.claude/skills/verify/SKILL.md` if present locally; the test-mode URL is
-  the fast path to any game state.
+  the fast path to any game state. Harness flags (`src/render3d/assets.ts`):
+  `?noassets` skips all GLB loading (procedural stand-ins — fast layout
+  checks under software GL); `?eagerassets` blocks boot until the full
+  manifest settles (screenshots show final art, not a mid-stream mix).
+  Both stamp `<html data-assets-settled="1">` — poll that, don't sleep.
 - **Deploy runbook** (after merging to main):
   1. `git checkout origin/main` and run `npm test` + `npm run typecheck` on
      the exact commit you'll ship.
