@@ -84,6 +84,10 @@ export interface Player {
     ultimate: AbilityId | null;
     bench: AbilityId[];
     ranks: Record<string, number>;
+    // Abilities that already received their SLOT-ARRIVAL draft this run (a
+    // cold ability's welcome draft when first slotted — see warmSlottedAbility
+    // in game.ts). Optional for old-save/snapshot compat.
+    warmed?: AbilityId[];
   };
   critChance: number; // effective crit chance (base + equipment)
   // Effective armor (equipment + permanent bonuses). Incoming hits are reduced

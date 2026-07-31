@@ -524,6 +524,17 @@ export function availableUpgrades(p: Player): UpgradeDef[] {
   return UPGRADES.filter((u) => slotted(p, u.ability) && rank(p, u.id) < u.maxRank && nodeOpen(p, u));
 }
 
+/** Open, below-max nodes for ONE ability — availableUpgrades' per-ability
+ * sibling without the slotted gate. The slot-arrival warm draft rolls here. */
+export function abilityUpgrades(p: Player, ability: AbilityId): UpgradeDef[] {
+  return UPGRADES.filter((u) => u.ability === ability && rank(p, u.id) < u.maxRank && nodeOpen(p, u));
+}
+
+/** Total ranks held across an ability's constellation (0 = genuinely cold). */
+export function abilityRankTotal(p: Player, ability: AbilityId): number {
+  return UPGRADES.reduce((s, u) => (u.ability === ability ? s + rank(p, u.id) : s), 0);
+}
+
 /** Nodes eligible for the overrank lottery: at printed max, headroom left. */
 export function overrankUpgrades(p: Player): UpgradeDef[] {
   return UPGRADES.filter(
