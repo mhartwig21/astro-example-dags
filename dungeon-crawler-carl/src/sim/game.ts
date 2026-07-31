@@ -180,26 +180,51 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   return m;
 }
 
+/** The middle rung of the power ladder: a pack anchor that has SURVIVED down
+ * here. Bigger silhouette, real HP, a real hit, triple XP — no name, no
+ * affix, no announcement (fanfare is the elite's job; the veteran just takes
+ * 3-5 on-curve swings to die while its pack dies in one). */
+function promoteVeteran(m: Monster): void {
+  m.veteran = true;
+  m.hp = m.maxHp = Math.round(m.maxHp * CONFIG.veteranHpMult);
+  m.damage = Math.round(m.damage * CONFIG.veteranDmgMult);
+  m.speed *= CONFIG.veteranSpeedMult;
+  m.xp = Math.round(m.xp * CONFIG.veteranXpMult);
+}
+
+/** Pack kinds that can carry the veteran anchor: real fighters only — props,
+ * parades, and support castes keep their own acts. */
+function canVeteran(kind: MonsterKind): boolean {
+  return kind !== "toysoldier" && kind !== "greeter" && kind !== "shaman" &&
+    kind !== "necromancer" && kind !== "broodmother" && kind !== "drummer" &&
+    kind !== "suitguy";
+}
+
 /** Pick an archetype mix that gets nastier with depth. */
 function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // Deeper floors shift the mix toward brutes/ranged/swarms, then unlock the
   // specialists: bombers (floor 2+), chargers (3+), shamans (4+), spitters
   // (5+), phantoms (6+), necromancers (7+).
   const rangedW = 1 + floor * 0.5;
-  const bruteW = floor >= 3 ? floor * 0.4 : 0;
+  // VANILLA HEFT (owner 2026-07-26, after the veteran pass): D2-style — some
+  // ordinary kinds are just TOUGHER, learnable by silhouette, no tier badge.
+  // The heavies existed (brute 2.6x, warden 2.2x, colossus 2.8x, slagbreaker
+  // 3.0x) but the weights buried them at ~8-14% of spawns; they now carry
+  // ~25% of the mix from floor 2-3 on, pinned by the HEFT MIX contract.
+  const bruteW = floor >= 2 ? floor * 0.7 : 0;
   const swarmW = 2 + floor * 0.3;
   const gruntW = 5;
   const bomberW = floor >= 2 ? floor * 0.3 : 0;
   const shamanW = floor >= 4 ? floor * 0.25 : 0;
   const phantomW = floor >= 6 ? floor * 0.3 : 0;
-  const chargerW = floor >= 3 ? floor * 0.3 : 0;
+  const chargerW = floor >= 3 ? floor * 0.45 : 0;
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
-  const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  const broodW = floor >= 5 ? floor * 0.25 : 0; // the nests move in mid-run
   // THE UNDERCROFT trainers (2+): floor 1 stays pristine — the contract floor.
   const crypt = floor >= CONFIG.undercroftFromFloor;
   const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
-  const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
+  const wardW = crypt ? Math.max(1.2, floor * 0.35) : 0; // the band's vanilla heavy
   const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
   // THE RUINS (10+): the dead civilization drills you — walls, blessings,
   // beams, and the furniture itself.
@@ -207,7 +232,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const bearW = ruins ? floor * 0.3 : 0;
   const clericW = ruins ? floor * 0.2 : 0;
   const archW = ruins ? floor * 0.22 : 0;
-  const colW = ruins ? floor * 0.12 : 0;
+  const colW = ruins ? floor * 0.25 : 0; // the band's vanilla heavy
   // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
   const garden = floor >= CONFIG.gardenFromFloor;
   const lashW = garden ? floor * 0.25 : 0;
@@ -218,7 +243,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const iron = floor >= CONFIG.ironworksFromFloor;
   const lineW = iron ? floor * 0.45 : 0;
   const sentW = iron ? floor * 0.3 : 0;
-  const slagW = iron ? floor * 0.12 : 0;
+  const slagW = iron ? floor * 0.28 : 0; // the band's vanilla heavy
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   // THE APPROACH (16+): the System fields its own. (The suitguy never rolls —
@@ -508,13 +533,25 @@ function spawnMonsters(state: GameState): void {
     // Wind-Up Battalions muster at parade strength — the synced volley IS the
     // encounter, so the squad claims its own size band and a shared squadId.
     const squadId = kind === "toysoldier" ? state.nextEntityId++ : undefined;
+    // HEAVY PACK formation (config.ts heavyPack*): brute-class kinds spawn
+    // 2-4 spread bodies, not a knot. Broodmother keeps her clustered brood.
+    const heavyPack = ARCHETYPES[kind].hpMult >= CONFIG.heavyPackHpMult && kind !== "broodmother";
     const packSize = kind === "toysoldier"
       ? Math.min(budget, nextInt(rng, CONFIG.toysquadMin, CONFIG.toysquadMax))
+      : heavyPack ? Math.min(budget, Math.max(2, Math.min(4, Math.round(size / 3))))
       : size;
+    // VETERAN anchor: a share of packs are led by the middle rung (drawn for
+    // every pack, then gated — draw-then-override keeps the rng stream
+    // fixture-stable when the gate knobs move).
+    const vetRoll = chance(rng, CONFIG.veteranPackChance);
+    const veteranAnchor = vetRoll && floor >= CONFIG.veteranFromFloor && canVeteran(kind);
     for (let k = 0; k < packSize; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
+      // Heavy packs take the WIDE ring — same two draws, different spacing.
       const a = nextFloat(rng) * Math.PI * 2;
-      const d = 0.4 + nextFloat(rng) * 1.4;
+      const d = heavyPack
+        ? CONFIG.heavyPackSpreadBase + nextFloat(rng) * CONFIG.heavyPackSpreadRange
+        : 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
@@ -535,6 +572,7 @@ function spawnMonsters(state: GameState): void {
         : kind === "broodmother" && k > 0 ? "swarmer" // ONE mother + her brood
         : kind;
       const m = makeMonster(state, memberKind, pos);
+      if (veteranAnchor && k === 0 && memberKind === kind) promoteVeteran(m);
       if (roam) m.tribe = tribeId;
       if (ambush) m.dormant = true;
       if (patrol) m.roams = true;
@@ -651,7 +689,8 @@ function spawnMonsters(state: GameState): void {
     const canBoss = (m: Monster) =>
       m.kind !== "boss" && m.kind !== "shaman" && m.kind !== "necromancer" &&
       m.kind !== "broodmother" && // support castes never take the crown
-      m.kind !== "foreman"; // the CHAMPION outranks the neighborhood — no re-crowning
+      m.kind !== "foreman" && // the CHAMPION outranks the neighborhood — no re-crowning
+      !m.veteran; // already promoted once — elite mults must not stack on veteran mults
     const candidates = state.monsters.filter((m) => inLandmark(m) && canBoss(m));
     let m: Monster;
     if (candidates.length > 0) {
@@ -2481,7 +2520,7 @@ export function damageMonster(
 /** Body radius (tiles) a hit check must respect: clipping a brute's shoulder
  * counts. Elites are rendered bigger, so their hitbox grows to match. */
 export function bodyRadius(m: Monster): number {
-  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : 1);
+  return ARCHETYPES[m.kind].radius * (m.elite ? CONFIG.eliteScale : m.veteran ? CONFIG.veteranScale : 1);
 }
 
 /** True when `m` is inside a swing from `pos` along `facing`: reach extends by
