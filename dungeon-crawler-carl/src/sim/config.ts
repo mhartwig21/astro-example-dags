@@ -246,6 +246,15 @@ export const CONFIG = {
   phalanxGuardRange: 8, // RUINS: shieldbearers hold the line for a caster within this range...
   phalanxLineFraction: 0.35, // ...standing this far along the ward->crawler line
   gardenEncircleMult: 1.7, // GARDEN: flanking arcs widen — the growth envelops
+  // Encounter director (tier 4): retreat-and-regroup. A broken survivor
+  // (wounded, packmates dead around it, nobody left beside it) bolts uphill
+  // on the flow field; reaching another pack raises the alarm and the fight
+  // SPILLS. Once per monster — a survivor that finds nobody dies alone.
+  regroupFromFloor: 5, // the drama starts past the training bands (probe: spilling fights cost 2 more early-floor seeds)
+  regroupHpFraction: 0.5, // wounded below this...
+  regroupCorpseCount: 2, // ...with this many packmates dead nearby...
+  regroupCorpseRadius: 5, // ...within this radius...
+  regroupSeconds: 4, // ...bolts for this long looking for friends
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).

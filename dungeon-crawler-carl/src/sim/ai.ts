@@ -7,7 +7,7 @@ import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { flowDir, tileLos } from "./pathfield";
+import { flowDir, flowUphill, tileLos } from "./pathfield";
 import { applyStatus } from "./status";
 import {
   applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
@@ -673,6 +673,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
   if ((m.slipT ?? 0) > 0) m.slipT = Math.max(0, (m.slipT ?? 0) - dt);
+  if ((m.regroupT ?? 0) > 0) m.regroupT = Math.max(0, (m.regroupT ?? 0) - dt);
   if ((m.alertT ?? 0) > 0) m.alertT = Math.max(0, (m.alertT ?? 0) - dt);
   // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
   // an interrupt takes a concentrated burst — chip damage banks nothing. The
@@ -1736,6 +1737,49 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   // Melee archetypes (grunt / swarmer).
   if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange)) { wander(state, m, dt); return; }
+
+  // RETREAT-AND-REGROUP (encounter director, tier 4): a broken survivor —
+  // wounded, packmates dead around it, nobody left beside it — BOLTS for
+  // reinforcements instead of trading its life. It flees uphill on the flow
+  // field (away from every crawler, along walkable topology); the moment it
+  // reaches another pack it raises the alarm and turns to fight with them.
+  // The fight SPILLS into the next room. Once per monster: a survivor that
+  // found nobody dies where its memory runs out.
+  if ((m.regroupT ?? 0) > 0) {
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0 || ally.dormant || ally.kind === "boss") continue;
+      if (dist(m.pos, ally.pos) <= CONFIG.packAlertRadius && tileLos(state.map, m.pos, ally.pos)) {
+        alertMonster(state, ally); // the alarm — its pack cascades awake
+        m.regroupT = 0;
+        m.alertT = monsterMemory(state.floor);
+        break;
+      }
+    }
+    if ((m.regroupT ?? 0) > 0) {
+      const dir = flowUphill(state, m.pos) ?? { x: -toPlayer.x, y: -toPlayer.y };
+      moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
+      return;
+    }
+  } else if (
+    state.floor >= CONFIG.regroupFromFloor &&
+    !m.elite && !m.regrouped && m.hp < m.maxHp * CONFIG.regroupHpFraction &&
+    d < CONFIG.monsterAggroRange
+  ) {
+    let corpses = 0;
+    for (const c of state.corpses) if (dist(m.pos, c.pos) <= CONFIG.regroupCorpseRadius) corpses++;
+    let alone = true;
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0) continue;
+      if (dist(m.pos, ally.pos) <= CONFIG.packAlertRadius) { alone = false; break; }
+    }
+    if (corpses >= CONFIG.regroupCorpseCount && alone) {
+      m.regroupT = CONFIG.regroupSeconds;
+      m.regrouped = true;
+      state.events.push("A survivor BOLTS for reinforcements — cut it down before the whole floor knows.");
+      return;
+    }
+  }
+
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0 && meleeTokenFree(state, m)) beginWindup(m, "melee", windup);
   } else {
