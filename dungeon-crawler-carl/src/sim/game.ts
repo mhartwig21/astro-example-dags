@@ -1047,7 +1047,9 @@ function systemTip(state: GameState, p: Player, id: string): void {
   const line = TIPS[id];
   if (!line || (p.tipsSeen ?? []).includes(id)) return;
   (p.tipsSeen ??= []).push(id);
-  announce(state, "tip", line);
+  // Addressed: the System explains the rule to the crawler it touched, not
+  // to party veterans who dismissed this explanation runs ago.
+  announce(state, "tip", line, "normal", p.id);
 }
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
@@ -1974,8 +1976,9 @@ export function breakResidentScene(state: GameState, m: Monster): void {
 function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
+  forPlayer?: number,
 ): void {
-  state.announcements.push({ text: line, kind, priority });
+  state.announcements.push({ text: line, kind, priority, forPlayer });
   state.events.push(line);
 }
 

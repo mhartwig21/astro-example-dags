@@ -11,6 +11,7 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
+import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
 import { AuthService } from "./auth";
@@ -25,10 +26,12 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 //
 // Protocol (JSON messages):
 //   client -> server:
-//     { t: "join", code, name, token?, rivals?, roam?, public? } join/create a
-//       party; token is the account id from a previous welcome (saves key off
-//       it); public only matters the FIRST time a code is seen — it flags the
-//       new instance discoverable via GET /open-parties
+//     { t: "join", code, name, token?, rivals?, roam?, public?, tips? }
+//       join/create a party; token is the account id from a previous welcome
+//       (saves key off it); public only matters the FIRST time a code is seen —
+//       it flags the new instance discoverable via GET /open-parties; tips is
+//       the browser's seen-tips ledger — merged into the account so
+//       first-contact tips never replay for a returning crawler
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
@@ -659,6 +662,22 @@ export class GameServer {
         // Campfire look: cosmetic, so the joiner's current pick always wins
         // (like the name). Invalid/absent values leave the seat as it was.
         if (isCrawlerSkin(msg.skin)) player.skin = msg.skin;
+        // First-contact tips are once-EVER per account: seed this seat with
+        // everything the account (server ledger) or this browser (join msg,
+        // validated against the real tip ids) has already been shown, and
+        // grow the ledger with the union so both sides converge.
+        const clientTips = Array.isArray(msg.tips)
+          ? msg.tips.filter((t): t is string => typeof t === "string" && t in TIPS).slice(0, 64)
+          : [];
+        const seenTips = new Set([
+          ...(player.tipsSeen ?? []),
+          ...(this.db?.getTips(token) ?? []),
+          ...clientTips,
+        ]);
+        if (seenTips.size) {
+          player.tipsSeen = [...seenTips];
+          this.db?.recordTips(token, player.tipsSeen, now);
+        }
         const client: Client = { ws, playerId: player.id, accountId: token, bound, joinedAt: now, isAlive: true };
         ws.on("pong", () => { client.isAlive = true; });
         // The welcome below is a FULL snapshot; recurring snaps can stay dynamic.
@@ -838,11 +857,18 @@ export class GameServer {
    *  the party so the next join under this code starts fresh. */
   private checkpoint(inst: Instance): void {
     if (!this.db || !this.db.isOpen()) return;
+    const now = Date.now();
+    // Tips fired since the last checkpoint go to the ACCOUNT ledger, which
+    // outlives the run — do this even (especially) when the run just ended,
+    // because clearParty is about to forget these characters.
+    for (const c of inst.clients) {
+      const p = inst.state.players.find((pl) => pl.id === c.playerId);
+      if (p?.tipsSeen?.length) this.db.recordTips(c.accountId, p.tipsSeen, now);
+    }
     if (inst.state.status !== "playing") {
       this.db.clearParty(inst.code);
       return;
     }
-    const now = Date.now();
     this.db.checkpoint(() => {
       this.db!.upsertParty(inst.code, inst.state.mode, inst.state.runKind, inst.state.floor, now);
       for (const c of inst.clients) {

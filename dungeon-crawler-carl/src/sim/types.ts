@@ -775,6 +775,9 @@ export interface Announcement {
   // high = a headline moment (boss down, new band, wipe); hosts may give these
   // an exclusive full-width treatment. normal = a queued toast.
   priority: "high" | "normal";
+  // Addressed to one crawler (tips: the System explains rules to whoever they
+  // first touched, not the whole party). Absent = everyone sees it.
+  forPlayer?: number;
 }
 
 /**

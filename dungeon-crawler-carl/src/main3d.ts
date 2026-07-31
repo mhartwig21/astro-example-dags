@@ -33,7 +33,7 @@ import {
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, loadRun, saveRun, type RunMode } from "./persist/save";
+import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
@@ -193,11 +193,14 @@ function boot(): GameState {
     hasContinue = true;
     const g = restoreGame(save);
     if (save.player.name) g.players[0].name = save.player.name;
+    seedTips(g.players[0]); // the ledger may know tips from other runs
     return g;
   }
   // No run to resume: this state is only the menu's backdrop. Nothing is
   // saved until the crawler signs the waiver (picks a mode).
-  return createGame(freshSeed());
+  const g = createGame(freshSeed());
+  seedTips(g.players[0]);
+  return g;
 }
 if (testMode) {
   document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>TEST MODE</b>");
@@ -222,6 +225,7 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
+  seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
@@ -2628,6 +2632,9 @@ const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
 };
 
 function showAnnouncement(a: Announcement): void {
+  // Addressed lines (first-contact tips) are for ONE crawler — party members
+  // who've already had that rule explained don't get the rerun.
+  if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
   if (a.priority === "high") { showBanner(a); return; }
   // Level-ups get the world-space ring + floating text (see the
   // lastLevelByPid diff loop) instead of a toast — the line still reaches

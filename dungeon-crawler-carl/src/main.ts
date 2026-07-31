@@ -11,7 +11,7 @@ import { GamepadController } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import { loadGamepad, loadMouseMove } from "./input/bindings";
 import { render, updateCamera, type Camera } from "./render/renderer";
-import { clearRun, loadRun, saveRun } from "./persist/save";
+import { clearRun, loadRun, saveRun, seedTips } from "./persist/save";
 
 const SIM_HZ = 60;
 const SIM_DT = 1 / SIM_HZ;
@@ -74,6 +74,7 @@ function startFresh(): GameState {
   }
   clearRun();
   const g = createGame(freshSeed());
+  seedTips(g.players[0]); // first-contact tips are once EVER, not once per run
   saveRun(g);
   return g;
 }
@@ -83,7 +84,9 @@ function boot(): GameState {
   if (testMode) return createTestGame(testSetup());
   const save = loadRun();
   if (save && save.status === "playing") {
-    return restoreGame(save);
+    const g = restoreGame(save);
+    seedTips(g.players[0]); // the ledger may know tips from other runs
+    return g;
   }
   return startFresh();
 }

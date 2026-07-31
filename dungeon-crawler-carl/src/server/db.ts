@@ -54,6 +54,15 @@ CREATE TABLE IF NOT EXISTS party_members (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (party_code, account_id)
 );
+-- First-contact tips (sim/tips.ts) are once-EVER per account, not once per
+-- character: party_members saves die with the run (clearParty), so seen tips
+-- live here and get seeded into every fresh character the account starts.
+CREATE TABLE IF NOT EXISTS account_tips (
+  account_id TEXT NOT NULL,
+  tip_id     TEXT NOT NULL,
+  seen_at    INTEGER NOT NULL,
+  PRIMARY KEY (account_id, tip_id)
+);
 -- P2 (hibernate/restore) writes this; created now so the schema is complete.
 CREATE TABLE IF NOT EXISTS instance_snapshots (
   party_code TEXT PRIMARY KEY,
@@ -157,6 +166,22 @@ export class PersistDb {
        ON CONFLICT(party_code, account_id) DO UPDATE SET player_id = excluded.player_id,
          save_json = excluded.save_json, updated_at = excluded.updated_at`,
     ).run(code, accountId, playerId, saveJson, now);
+  }
+
+  /** Every tip this account has ever been shown, on any character. */
+  getTips(accountId: string): string[] {
+    const rows = this.db.prepare("SELECT tip_id FROM account_tips WHERE account_id = ?")
+      .all(accountId) as { tip_id: string }[];
+    return rows.map((r) => r.tip_id);
+  }
+
+  /** Remember tips as seen forever (idempotent — the ledger only grows). */
+  recordTips(accountId: string, tipIds: string[], now: number): void {
+    if (!tipIds.length) return;
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO account_tips (account_id, tip_id, seen_at) VALUES (?, ?, ?)",
+    );
+    for (const id of tipIds) ins.run(accountId, id, now);
   }
 
   getSnapshot(code: string): { version: number; snapshot: string } | null {
