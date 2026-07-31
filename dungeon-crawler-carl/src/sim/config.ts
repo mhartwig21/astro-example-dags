@@ -240,6 +240,12 @@ export const CONFIG = {
   rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
   rangedGuardRange: 7, // tiles it will look for a bodyguard within
   rangedGuardPull: 0.9, // blend of retreat-vector toward the guard
+  // Band group personalities (tier 3): each district fights with its own
+  // group doctrine on top of the tier-1/2 machinery.
+  drumRushLinger: 2.5, // SEWERS: an alerted drummer's beat holds the frenzy this long (and marches the pack)
+  phalanxGuardRange: 8, // RUINS: shieldbearers hold the line for a caster within this range...
+  phalanxLineFraction: 0.35, // ...standing this far along the ward->crawler line
+  gardenEncircleMult: 1.7, // GARDEN: flanking arcs widen — the growth envelops
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).

@@ -357,6 +357,7 @@ export interface Monster {
   frenzyT?: number; // seconds of drum frenzy remaining on THIS monster
   slipT?: number; // seconds of committed obstacle-rounding (flank bias suppressed)
   alertT?: number; // seconds of pursuit memory after losing sight of prey (LOS aggro)
+  rushBeaten?: boolean; // drummer: this alarm's CHARGE was already beaten (one surge per alarm)
   shieldT?: number; // seconds of Darling stardust remaining on THIS monster
   // Featured Extra (duelist): seconds of riposte FLOURISH remaining — melee
   // into it reflects; wait it out or answer with ranged/magic.
