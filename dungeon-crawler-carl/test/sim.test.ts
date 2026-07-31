@@ -12,7 +12,7 @@ import { moveWithCollision } from "../src/sim/movement";
 import { buildCharacterSheet } from "../src/sim/sheet";
 import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost } from "../src/sim/catalog";
 import { ACHIEVEMENTS } from "../src/sim/achievements";
-import { generateItem, weaponClassOf } from "../src/sim/items";
+import { generateItem, wantsAutoEquip, weaponClassOf } from "../src/sim/items";
 import {
   DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
   damageVariance, effectiveMaxRank, knows, meleeParams,
@@ -20,11 +20,12 @@ import {
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
-  type FloorMap, type GameState, type Intent, type ItemSlot, type Vec2,
+  type FloorMap, type GameState, type Intent, type Item, type ItemSlot, type Vec2,
 } from "../src/sim/types";
 import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
+import { flowDir, tileLos } from "../src/sim/pathfield";
 import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
@@ -3503,6 +3504,29 @@ describe("genuine itemization (schools + weapon classes)", () => {
     expect(meleeParams(p).range).toBeCloseTo(CONFIG.playerAttackRange + CONFIG.reachRangeBonus);
   });
 
+  it("off-class melee is a pommel bash, and auto-equip never crosses weapon schools", () => {
+    const g = createGame(1004);
+    const p = g.players[0];
+    equipItem(p, { id: 9310, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } });
+    const blade = meleeParams(p).damageMult;
+    equipItem(p, { id: 9311, slot: "weapon", rarity: "common", name: "Worn Wand", affixes: { spell: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+    equipItem(p, { id: 9312, slot: "weapon", rarity: "common", name: "Worn Crossbow", affixes: { damage: 5 } });
+    expect(meleeParams(p).damageMult).toBeCloseTo(blade * CONFIG.offclassMeleeDmgMult);
+
+    // A fat epic wand outSCORES the blade but must not auto-replace it (either direction).
+    const worn: Item = { id: 9313, slot: "weapon", rarity: "common", name: "Worn Blade", affixes: { damage: 5 } };
+    const fatWand: Item = { id: 9314, slot: "weapon", rarity: "epic", name: "Apocalyptic Wand", affixes: { spell: 60, crit: 0.1 } };
+    expect(wantsAutoEquip(fatWand, worn)).toBe(false);
+    expect(wantsAutoEquip(worn, fatWand)).toBe(false);
+    // Same school upgrades by score; bare hands take anything; the Mug plays both sides.
+    const betterBlade: Item = { id: 9315, slot: "weapon", rarity: "rare", name: "Vicious Blade", affixes: { damage: 25 } };
+    expect(wantsAutoEquip(betterBlade, worn)).toBe(true);
+    expect(wantsAutoEquip(fatWand, null)).toBe(true);
+    const mug: Item = { id: 9316, slot: "weapon", rarity: "epic", name: "Apocalyptic Mug", affixes: { damage: 40 } };
+    expect(wantsAutoEquip(mug, worn)).toBe(true);
+  });
+
   it("legacy saves fold pre-schools damage into BOTH powers", () => {
     const restored = restoreGame({
       seed: 42, floor: 3,
@@ -4245,6 +4269,258 @@ describe("ultimate constellations", () => {
     const open = availableUpgrades(p).map((u) => u.id);
     expect(open).not.toContain("orbit.wide");
     expect(open).toContain("orbit.guillotine"); // the capstone stays reachable
+  });
+});
+
+describe("pack presence (separation — bodies take up space)", () => {
+  const stackedPack = (n: number, at: Vec2, g: GameState) => {
+    g.monsters.length = 0;
+    for (let i = 0; i < n; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: at.x, y: at.y }, hp: 1000, maxHp: 1000 }));
+    }
+  };
+  const minPairDist = (g: GameState) => {
+    let min = Infinity;
+    for (let i = 0; i < g.monsters.length; i++) {
+      for (let j = i + 1; j < g.monsters.length; j++) {
+        min = Math.min(min, dist(g.monsters[i].pos, g.monsters[j].pos));
+      }
+    }
+    return min;
+  };
+
+  // Packs stage INSIDE the entrance room (player + 1.5 tiles) — farther
+  // offsets land inside walls on these seeds and moveWithCollision rightly
+  // refuses to move anything into them.
+  it("a spawn-point pile spreads to personal space", () => {
+    const g = createGame(1200);
+    const p = g.players[0];
+    stackedPack(8, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30);
+    expect(minPairDist(g)).toBeGreaterThan(CONFIG.monsterSeparationRadius * 0.5);
+  });
+
+  it("an engaged pack stays spread, not restacked on the player", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    stackedPack(6, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    for (const m of g.monsters) m.speed = 2.6; // real chasers, not statues
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of engagement
+    expect(minPairDist(g)).toBeGreaterThan(0.3); // no two share a tile-point
+  });
+
+  it("a pack fans into a crescent around the player, not a conga line (flanking)", () => {
+    const g = createGame(1201);
+    const p = g.players[0];
+    // Stage the pack at a real walkable spot 4-5.5 tiles out.
+    const spot = walkableTiles(g.map).map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+      .find((t) => { const dd = dist(t, p.pos); return dd > 4 && dd < 5.5; })!;
+    expect(spot).toBeTruthy();
+    g.monsters.length = 0;
+    for (let i = 0; i < 6; i++) {
+      g.monsters.push(mkMon({ id: 100 + i, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+    }
+    for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s: close and engage
+    // Angular coverage around the player: the crescent, not a point.
+    const bearings = g.monsters
+      .map((m) => (Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x) * 180) / Math.PI)
+      .sort((a, b) => a - b);
+    let maxGap = 0;
+    for (let i = 0; i < bearings.length; i++) {
+      const next = i + 1 < bearings.length ? bearings[i + 1] : bearings[0] + 360;
+      maxGap = Math.max(maxGap, next - bearings[i]);
+    }
+    expect(360 - maxGap).toBeGreaterThan(120); // measured ~172° on this seed
+    expect(minPairDist(g)).toBeGreaterThan(0.5); // and spaced, not sharing tiles
+  });
+
+  it("a winding-up monster is a rooted anchor: pushed neighbors slide, it doesn't", () => {
+    const g = createGame(1202);
+    const p = g.players[0];
+    stackedPack(2, { x: p.pos.x + 1.5, y: p.pos.y }, g);
+    const [a, b] = g.monsters;
+    a.windup = 5;
+    a.windupTotal = 5;
+    const at = { x: a.pos.x, y: a.pos.y };
+    for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30);
+    expect(a.pos).toEqual(at); // the telegraph position is a promise
+    expect(dist(b.pos, at)).toBeGreaterThan(0.2); // the neighbor yielded
+  });
+
+  it("attack tokens: basic melee windups stagger, never exceeding the floor's cap", () => {
+    const g = createGame(1203);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      g.monsters.push(mkMon({
+        id: 200 + i, hp: 1000, maxHp: 1000,
+        pos: { x: p.pos.x + Math.cos(a) * 0.9, y: p.pos.y + Math.sin(a) * 0.9 },
+      }));
+    }
+    let maxSimul = 0;
+    for (let i = 0; i < 300; i++) {
+      step(g, idle(), 1 / 30);
+      const n = g.monsters.filter((m) => m.windup > 0 && m.windupKind === "melee").length;
+      maxSimul = Math.max(maxSimul, n);
+    }
+    expect(maxSimul).toBeGreaterThan(0); // the ring does attack...
+    expect(maxSimul).toBeLessThanOrEqual(CONFIG.meleeTokensBase); // ...in turns (floor 1, solo)
+  });
+
+  it("elites never wait for a token", () => {
+    const g = createGame(1204);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    // Two grunts already mid-windup hold every floor-1 token...
+    for (let i = 0; i < 2; i++) {
+      const m = mkMon({ id: 300 + i, hp: 1000, maxHp: 1000, pos: { x: p.pos.x + 0.9, y: p.pos.y + i * 0.5 } });
+      m.windup = 1;
+      m.windupTotal = 1;
+      m.windupKind = "melee";
+      g.monsters.push(m);
+    }
+    const elite = mkMon({ id: 310, hp: 1000, maxHp: 1000, pos: { x: p.pos.x - 0.9, y: p.pos.y } });
+    elite.elite = true;
+    elite.introduced = true; // skip the RINGSIDE INTRODUCTION (it pauses the world)
+    g.monsters.push(elite);
+    step(g, idle(), 1 / 30);
+    expect(elite.windup).toBeGreaterThan(0); // the spice swings on ITS schedule
+  });
+});
+
+describe("flow-field pathfinding (monsters route around geometry)", () => {
+  it("a chaser with no line of sight finds its way around the walls", () => {
+    // Find a real out-of-sight spot within aggro range on some seed, drop a
+    // grunt there, and require genuine progress toward the crawler — the old
+    // greedy steering ground at the wall between them forever.
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4 && dd < 7.5 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null;
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      g.monsters.push(mkMon({ id: 500, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, speed: 2.6 }));
+      const m = g.monsters[0];
+      m.alertT = 999; // it heard you (LOS aggro would otherwise leave it parked)
+      const before = dist(m.pos, p.pos);
+      for (let i = 0; i < 360 && dist(m.pos, p.pos) > 1.3; i++) step(g, idle(), 1 / 30);
+      expect(dist(m.pos, p.pos), `seed ${seed}: started ${before.toFixed(1)} away, no LOS`).toBeLessThan(1.5);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("LOS aggro: an unalerted grunt behind a wall stays parked; damage wakes the pack", () => {
+    let tested = false;
+    for (let seed = 1; seed <= 40 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // Two SEPARATE hidden tiles (separation would shove co-located sentries
+      // around, possibly into a sight line) that can see each other — the
+      // alarm cascade is LOS-gated — but not the crawler.
+      const tiles = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .filter((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos);
+        });
+      let pair: [Vec2, Vec2] | null = null;
+      for (const t1 of tiles) {
+        const t2 = tiles.find((t) => t !== t1 && dist(t, t1) >= 1 && dist(t, t1) <= 3 && tileLos(g.map, t1, t));
+        if (t2) { pair = [t1, t2]; break; }
+      }
+      if (!pair) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Sentries (speed 0): a wandering monster can legitimately stroll into
+      // sight, which isn't what's under test.
+      const a = mkMon({ id: 600, pos: { x: pair[0].x, y: pair[0].y }, hp: 1000, maxHp: 1000 });
+      const b = mkMon({ id: 601, pos: { x: pair[1].x, y: pair[1].y }, hp: 1000, maxHp: 1000 });
+      g.monsters.push(a, b);
+      for (let i = 0; i < 180; i++) step(g, idle(), 1 / 30); // 6s, never seen
+      expect(a.alertT ?? 0).toBe(0); // no sight, no aggro — even in range
+      expect(b.alertT ?? 0).toBe(0);
+      // Shooting A raises the alarm — B (never touched) joins the hunt too.
+      // (Arrival-via-flow-field is the previous test; this one is the gate.)
+      damageMonster(g, p, a, 1, {});
+      expect((a.alertT ?? 0)).toBeGreaterThan(0);
+      expect((b.alertT ?? 0)).toBeGreaterThan(0); // the pack cascade
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("flowDir is null on the crawler's tile and inside sealed regions", () => {
+    const g = createGame(77);
+    const p = g.players[0];
+    expect(flowDir(g, p.pos)).toBeNull(); // standing on the source
+    expect(flowDir(g, { x: 0.5, y: 0.5 })).toBeNull(); // the border wall corner
+  });
+
+  it("tileLos: walls block sight, open floor does not", () => {
+    const g = createGame(78);
+    const p = g.players[0];
+    expect(tileLos(g.map, p.pos, p.pos)).toBe(true);
+    expect(tileLos(g.map, p.pos, { x: p.pos.x + 1, y: p.pos.y })).toBe(true); // entrance room floor
+    expect(tileLos(g.map, p.pos, { x: 0.5, y: 0.5 })).toBe(false); // through the border wall
+  });
+});
+
+describe("ranged unit play (crossfire arcs + bodyguard retreat)", () => {
+  const mkRanged = (id: number, x: number, y: number) =>
+    mkMon({ id, kind: "ranged", pos: { x, y }, hp: 1000, maxHp: 1000, speed: 2.6, attackRange: 6.5 });
+
+  it("stacked casters spread into distinct firing arcs", () => {
+    // Needs a SIGHTED lane at standoff range — scan seeds for one (the
+    // entrance room is usually smaller than a caster's standoff).
+    let tested = false;
+    for (let seed = 1400; seed < 1440 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 5.2 && dd < 6.2 && tileLos(g.map, t, p.pos);
+        });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      // Three casters sharing one bearing — the old firing squad.
+      for (let i = 0; i < 3; i++) {
+        const m = mkRanged(700 + i, spot.x, spot.y);
+        m.alertT = 999;
+        g.monsters.push(m);
+      }
+      for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s of unit play
+      const bearings = g.monsters
+        .map((m) => Math.atan2(m.pos.y - p.pos.y, m.pos.x - p.pos.x))
+        .sort((a, b) => a - b);
+      // A crossfire SPAN opens (started at zero — one stacked bearing). A
+      // full per-pair fan isn't always geometrically possible (a 2-tile
+      // corridor pins the third caster against the wall), and that's right.
+      expect(bearings[bearings.length - 1] - bearings[0]).toBeGreaterThan(CONFIG.rangedLaneAngle);
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a closed-on caster retreats toward its melee bodyguard, not open space", () => {
+    const g = createGame(1401);
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const archer = mkRanged(710, p.pos.x + 3, p.pos.y);
+    const guard = mkMon({ id: 711, pos: { x: p.pos.x + 6, y: p.pos.y + 2 }, hp: 1000, maxHp: 1000 });
+    g.monsters.push(archer, guard);
+    const gapBefore = dist(archer.pos, guard.pos);
+    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 30); // 3s of falling back
+    expect(dist(archer.pos, p.pos)).toBeGreaterThan(3.5); // it retreated...
+    expect(dist(archer.pos, guard.pos)).toBeLessThan(gapBefore); // ...INTO the pack
   });
 });
 

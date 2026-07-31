@@ -762,21 +762,9 @@ document.getElementById("m-daily")!.addEventListener("click", () =>
 document.getElementById("m-solo")!.addEventListener("click", () =>
   enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
-// RACE / ROAM top-level split. RACE shows today's full card set unchanged;
 // ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
-// settlement, one tribe, one quest, no daily/party/rivals/test yet.
-document.getElementById("m-mode-race")!.addEventListener("click", () => {
-  document.getElementById("m-race-cards")!.style.display = "";
-  document.getElementById("m-roam-cards")!.style.display = "none";
-  document.getElementById("m-mode-race")!.classList.add("active");
-  document.getElementById("m-mode-roam")!.classList.remove("active");
-});
-document.getElementById("m-mode-roam")!.addEventListener("click", () => {
-  document.getElementById("m-race-cards")!.style.display = "none";
-  document.getElementById("m-roam-cards")!.style.display = "";
-  document.getElementById("m-mode-roam")!.classList.add("active");
-  document.getElementById("m-mode-race")!.classList.remove("active");
-});
+// settlement, one tribe, one quest, no daily/party/rivals/test yet — a peer
+// tile in the hub like everything else, one click straight into casting.
 document.getElementById("m-roam-solo")!.addEventListener("click", () =>
   enterCasting("ROAM", () => startRun({ kind: "random" }, "roam")));
 
@@ -869,6 +857,7 @@ document.getElementById("m-party")!.addEventListener("click", () => {
   const opening = form.style.display === "none";
   form.style.display = opening ? "flex" : "none";
   if (opening && !codeInput.value) codeInput.value = rollCode();
+  if (opening) showPartyTab("code"); // always reopen on the default tab
 });
 document.getElementById("m-roll")!.addEventListener("click", () => { codeInput.value = rollCode(); });
 wireInvite("m-invite", codeInput, false);
@@ -882,14 +871,18 @@ document.getElementById("m-join")!.addEventListener("click", () => {
   });
 });
 
-// QUICK JOIN: browse public co-op parties (GET /open-parties) instead of
-// needing a shared code — the only stranger-facing entry point into co-op.
-document.getElementById("m-quickjoin")!.addEventListener("click", () => {
-  const form = document.getElementById("m-quickjoin-form")!;
-  const opening = form.style.display === "none";
-  form.style.display = opening ? "flex" : "none";
-  if (opening) void refreshOpenParties(); // lazy: don't fetch on every menu open
-});
+// Party tile, two paths to the same intent: share a code, or browse open
+// ones (GET /open-parties) — a tab switch inside ONE tile, not a second
+// sibling mode card (that's the mistake this replaces).
+function showPartyTab(tab: "code" | "open"): void {
+  document.getElementById("m-party-tab-code")!.classList.toggle("active", tab === "code");
+  document.getElementById("m-party-tab-open")!.classList.toggle("active", tab === "open");
+  document.getElementById("m-party-tab-code-body")!.style.display = tab === "code" ? "flex" : "none";
+  document.getElementById("m-party-tab-open-body")!.style.display = tab === "open" ? "flex" : "none";
+  if (tab === "open") void refreshOpenParties(); // lazy: don't fetch until the tab is actually opened
+}
+document.getElementById("m-party-tab-code")!.addEventListener("click", () => showPartyTab("code"));
+document.getElementById("m-party-tab-open")!.addEventListener("click", () => showPartyTab("open"));
 async function refreshOpenParties(): Promise<void> {
   const list = document.getElementById("m-open-list")!;
   try {
