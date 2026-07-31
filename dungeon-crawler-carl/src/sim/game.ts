@@ -206,20 +206,25 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   // specialists: bombers (floor 2+), chargers (3+), shamans (4+), spitters
   // (5+), phantoms (6+), necromancers (7+).
   const rangedW = 1 + floor * 0.5;
-  const bruteW = floor >= 3 ? floor * 0.4 : 0;
+  // VANILLA HEFT (owner 2026-07-26, after the veteran pass): D2-style — some
+  // ordinary kinds are just TOUGHER, learnable by silhouette, no tier badge.
+  // The heavies existed (brute 2.6x, warden 2.2x, colossus 2.8x, slagbreaker
+  // 3.0x) but the weights buried them at ~8-14% of spawns; they now carry
+  // ~25% of the mix from floor 2-3 on, pinned by the HEFT MIX contract.
+  const bruteW = floor >= 2 ? floor * 0.7 : 0;
   const swarmW = 2 + floor * 0.3;
   const gruntW = 5;
   const bomberW = floor >= 2 ? floor * 0.3 : 0;
   const shamanW = floor >= 4 ? floor * 0.25 : 0;
   const phantomW = floor >= 6 ? floor * 0.3 : 0;
-  const chargerW = floor >= 3 ? floor * 0.3 : 0;
+  const chargerW = floor >= 3 ? floor * 0.45 : 0;
   const spitterW = floor >= 5 ? floor * 0.25 : 0;
   const necroW = floor >= 7 ? floor * 0.2 : 0;
-  const broodW = floor >= 5 ? floor * 0.15 : 0; // the nests move in mid-run
+  const broodW = floor >= 5 ? floor * 0.25 : 0; // the nests move in mid-run
   // THE UNDERCROFT trainers (2+): floor 1 stays pristine — the contract floor.
   const crypt = floor >= CONFIG.undercroftFromFloor;
   const cutW = crypt ? Math.max(0.8, floor * 0.25) : 0;
-  const wardW = crypt ? Math.max(0.6, floor * 0.15) : 0;
+  const wardW = crypt ? Math.max(1.2, floor * 0.35) : 0; // the band's vanilla heavy
   const digW = crypt ? Math.max(0.7, floor * 0.2) : 0;
   // THE RUINS (10+): the dead civilization drills you — walls, blessings,
   // beams, and the furniture itself.
@@ -227,7 +232,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const bearW = ruins ? floor * 0.3 : 0;
   const clericW = ruins ? floor * 0.2 : 0;
   const archW = ruins ? floor * 0.22 : 0;
-  const colW = ruins ? floor * 0.12 : 0;
+  const colW = ruins ? floor * 0.25 : 0; // the band's vanilla heavy
   // THE GARDEN (7+): the floor fights back — hooks, morphs, and marks.
   const garden = floor >= CONFIG.gardenFromFloor;
   const lashW = garden ? floor * 0.25 : 0;
@@ -238,7 +243,7 @@ function rollArchetype(rng: Rng, floor: number): MonsterKind {
   const iron = floor >= CONFIG.ironworksFromFloor;
   const lineW = iron ? floor * 0.45 : 0;
   const sentW = iron ? floor * 0.3 : 0;
-  const slagW = iron ? floor * 0.12 : 0;
+  const slagW = iron ? floor * 0.28 : 0; // the band's vanilla heavy
   const greetW = iron ? floor * 0.22 : 0;
   const toyW = iron ? floor * 0.25 : 0; // a roll = a whole squad (see spawnMonsters)
   // THE APPROACH (16+): the System fields its own. (The suitguy never rolls —

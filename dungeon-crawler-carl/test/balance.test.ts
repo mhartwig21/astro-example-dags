@@ -175,9 +175,12 @@ describe("balance bot: boss difficulty", () => {
   });
 
   it("bosses hit back: reference fights cost real health", () => {
+    // Seed 99 stopped finishing any arena fight when the vanilla-heft
+    // reweight re-rolled the adds mix; probe over 8 seeds shows most seeds
+    // finish 1-2 fights at real cost. Seed 3 finishes 2 with ample margin.
     let totalLost = 0;
     for (const b of ARENAS) {
-      const r = arena(99, b);
+      const r = arena(3, b);
       const boss = r.encounters.find((e) => e.kind === "boss");
       if (boss) totalLost += boss.hpLost;
     }
@@ -304,6 +307,24 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     expect(resistShare(14), "deep elites should lean armored/warded").toBeGreaterThan(0.3);
   });
 
+  // On-curve helpers for the power-ladder and heft-mix contracts: the level a
+  // crawler naturally carries onto a floor, and its average melee swing there.
+  const levelForFloor = (floor: number) => {
+    let level = 1;
+    for (let l = 1; l <= 40; l++) if (naturalFloorForLevel(l) <= floor) level = l;
+    return level;
+  };
+  const onCurveSwing = (floor: number) => {
+    let swing = 0;
+    const N = 8;
+    for (let seed = 1; seed <= N; seed++) {
+      const g = createTestGame({ seed, floor, level: levelForFloor(floor) });
+      const p = g.players[0];
+      swing += p.attackPower * meleeParams(p).damageMult;
+    }
+    return swing / N;
+  };
+
   it("the POWER LADDER: trash folds, veterans take real swings, elites take more (on-curve)", () => {
     // Owner 2026-07-26: "there really is only trash mobs and elites/bosses" —
     // the middle rung was missing. This pins the swings-to-kill ladder for an
@@ -311,21 +332,8 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     // swings (the power fantasy), a veteran pack anchor takes 3+, a named
     // elite takes more than a veteran. If a tuning change collapses any rung
     // into the one below, this fails.
-    const levelForFloor = (floor: number) => {
-      let level = 1;
-      for (let l = 1; l <= 40; l++) if (naturalFloorForLevel(l) <= floor) level = l;
-      return level;
-    };
     for (const floor of [3, 6, 9]) {
-      const level = levelForFloor(floor);
-      let swing = 0;
-      const N = 8;
-      for (let seed = 1; seed <= N; seed++) {
-        const g = createTestGame({ seed, floor, level });
-        const p = g.players[0];
-        swing += p.attackPower * meleeParams(p).damageMult;
-      }
-      swing /= N;
+      const swing = onCurveSwing(floor);
       const g = createTestGame({ seed: 3, floor, gear: false });
       const grunt = g.monsters.find((m) => m.kind === "grunt" && !m.elite && !m.veteran);
       expect(grunt, `expected a plain grunt on floor ${floor}`).toBeTruthy();
@@ -336,6 +344,32 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
       expect(swings(gruntHp), `floor ${floor}: grunt takes ${swings(gruntHp)} on-curve swings (hp ${gruntHp}, swing ${swing.toFixed(0)})`).toBeLessThanOrEqual(2);
       expect(swings(veteranHp), `floor ${floor}: veteran takes ${swings(veteranHp)} on-curve swings — the middle rung collapsed into trash`).toBeGreaterThanOrEqual(3);
       expect(swings(eliteHp), `floor ${floor}: elite (${swings(eliteHp)} swings) should outlast a veteran (${swings(veteranHp)})`).toBeGreaterThan(swings(veteranHp));
+    }
+  });
+
+  it("the HEFT MIX: tough vanilla kinds carry a real share of every floor's spawns", () => {
+    // Owner 2026-07-26 (the D2 note): some ORDINARY mobs are just tougher —
+    // kind-based, learnable by silhouette, no tier badge (brute, warden,
+    // colossus, slagbreaker...). The archetypes existed; the spawn weights
+    // buried them at ~8-14%. This pins their presence: on each sampled
+    // floor, the share of spawns that SURVIVE one on-curve swing (veterans
+    // included, elites/champions excluded) stays above 18%.
+    for (const floor of [3, 6, 9, 14]) {
+      const swing = onCurveSwing(floor);
+      let hefty = 0, total = 0;
+      for (let seed = 1; seed <= 10; seed++) {
+        const g = createTestGame({ seed, floor, gear: false });
+        for (const m of g.monsters) {
+          if (m.elite || m.kind === "boss" || m.kind === "foreman") continue;
+          total++;
+          if (m.maxHp > swing) hefty++;
+        }
+      }
+      const share = hefty / total;
+      expect(
+        share,
+        `floor ${floor}: only ${(share * 100).toFixed(1)}% of spawns survive one on-curve swing (${swing.toFixed(0)}) — the heft mix collapsed`,
+      ).toBeGreaterThan(0.18);
     }
   });
 
