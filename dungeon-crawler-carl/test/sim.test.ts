@@ -2906,6 +2906,33 @@ describe("the five (ability loadout)", () => {
     expect(p.abilities.ranks["nova.bang"]).toBe(2);
   });
 
+  it("slot-arrival draft: a COLD ability arrives warm with its own nodes, once per run", () => {
+    const g = safeRoomGame(805);
+    const p = g.players[0];
+    learnAbility(g, p, "nova"); // auto-slots into the open slot 4 -> warmed
+    p.pendingUpgrades = []; // clear any auto-slot welcome for a clean stage
+    p.abilities.warmed = [];
+    learnAbility(g, p, "orbit"); // slots full -> benched, cold
+    // Slotting the cold benched ability grants a draft of ITS OWN nodes.
+    slotAbility(g, p.id, 3, "orbit");
+    expect(p.abilities.slots[3]).toBe("orbit");
+    expect(p.pendingUpgrades.length).toBeGreaterThan(0);
+    for (const o of p.pendingUpgrades) expect(o.ability).toBe("orbit");
+    expect(p.abilities.warmed).toContain("orbit");
+    // Swap out and back: no second welcome.
+    p.pendingUpgrades = [];
+    slotAbility(g, p.id, 3, "nova"); // nova has 0 ranks BUT was cleared from warmed above -> gets ITS welcome
+    expect(p.pendingUpgrades.every((o) => o.ability === "nova")).toBe(true);
+    p.pendingUpgrades = [];
+    slotAbility(g, p.id, 3, "orbit"); // already warmed -> silent
+    expect(p.pendingUpgrades.length).toBe(0);
+    // A RANKED ability never gets a welcome (it earned its ranks the usual way).
+    p.abilities.ranks["nova.bang"] = 1;
+    p.abilities.warmed = [];
+    slotAbility(g, p.id, 3, "nova");
+    expect(p.pendingUpgrades.length).toBe(0);
+  });
+
   it("freeing melee removes the basic attack (a real commitment)", () => {
     const g = safeRoomGame(804);
     const p = g.players[0];

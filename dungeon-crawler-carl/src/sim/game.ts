@@ -11,7 +11,7 @@ import {
   type CatalogEntry,
 } from "./catalog";
 import {
-  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, airstrikeParams, boltParams, bulletTimeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, abilityRankTotal, abilityUpgrades, airstrikeParams, boltParams, bulletTimeParams,
   crowdSurfParams, cutToParams, stuntDoubleParams,
   cataclysmParams, damageVariance, dashParams, knows, meleeParams,
   rank,
@@ -2139,6 +2139,38 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
  * build is a committed decision, not a mid-fight reshuffle. Displaced abilities
  * go to the bench; ranks always persist.
  */
+/**
+ * SLOT-ARRIVAL DRAFT (owner-approved 2026-07-27): drafts stay slotted-only
+ * (dense, build-focused), but the first time a COLD ability — zero ranks
+ * anywhere in its constellation — joins the bill this run, it arrives WARM:
+ * one draft rolled from its own open nodes, so pivoting into a late
+ * discovery is never rank-0 next to a ranked core. Once per ability per run
+ * (abilities.warmed); if a draft is already pending, the welcome queues as
+ * an owed draft instead (the ability is slotted now, so the normal pool
+ * covers it).
+ */
+function warmSlottedAbility(state: GameState, p: Player, ability: AbilityId): void {
+  const L = p.abilities;
+  if ((L.warmed ?? []).includes(ability)) return;
+  if (abilityRankTotal(p, ability) > 0) return; // not cold — it earned its ranks the usual way
+  (L.warmed ??= []).push(ability);
+  const pool = abilityUpgrades(p, ability);
+  if (pool.length === 0) return;
+  if (p.pendingUpgrades.length > 0) {
+    p.upgradeDraftsOwed++;
+    return;
+  }
+  const offers: Player["pendingUpgrades"] = [];
+  const count = Math.min(CONFIG.upgradeDraftSize, pool.length);
+  while (offers.length < count) {
+    const drawn = pool.splice(nextInt(state.rng, 0, pool.length - 1), 1)[0];
+    const next = rank(p, drawn.id) + 1;
+    offers.push({ id: drawn.id, ability: drawn.ability, title: drawn.title, desc: drawn.desc(next), nextRank: next });
+  }
+  p.pendingUpgrades = offers;
+  state.events.push(`${ABILITY_INFO[ability].name} arrives WARM — the System advances one draft.`);
+}
+
 export function slotAbility(state: GameState, playerId: number, slotIdx: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
   if (!p || !state.safeRoom) return;
@@ -2164,6 +2196,7 @@ export function slotAbility(state: GameState, playerId: number, slotIdx: number,
       ? `${p.name} freed slot ${slotIdx + 1}.`
       : `${p.name} slotted ${ABILITY_INFO[ability].name} into slot ${slotIdx + 1}.`,
   );
+  if (ability !== null) warmSlottedAbility(state, p, ability);
 }
 
 /** Set (or clear) the ultimate slot. Safe-room only; displaced ult is benched. */
@@ -2183,6 +2216,7 @@ export function setUltimate(state: GameState, playerId: number, ability: Ability
   state.events.push(
     ability === null ? `${p.name} cleared the ultimate slot.` : `${p.name} slotted ${ABILITY_INFO[ability].name} as their ULTIMATE.`,
   );
+  if (ability !== null) warmSlottedAbility(state, p, ability);
 }
 
 /**
