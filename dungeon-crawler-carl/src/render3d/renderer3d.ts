@@ -1209,6 +1209,32 @@ export class Renderer3D {
   // ---- Floor geometry (rebuilt on descent) ----
 
   /**
+   * Compressed GLBs (scripts/compress-assets.mjs) store attributes as
+   * NORMALIZED integers — positions Int16, normals Int8, uvs Uint16 — with the
+   * dequantize scale on the node matrix (KHR_mesh_quantization). Baking a
+   * matrix into such an attribute renormalizes on write and CLAMPS at the ±1
+   * quantization box, crushing any model larger than ~2 units into a spiky
+   * blob (this blacked out the whole Garden band's trees). Expand to Float32
+   * first so applyMatrix4 has real numbers to write into.
+   */
+  private static dequantize(src: THREE.BufferGeometry): THREE.BufferGeometry {
+    const geo = src.clone();
+    for (const name of Object.keys(geo.attributes)) {
+      const a = geo.getAttribute(name);
+      if (!a.normalized) continue;
+      const out = new Float32Array(a.count * a.itemSize);
+      for (let i = 0; i < a.count; i++) {
+        out[i * a.itemSize] = a.getX(i); // getX/getY/… denormalize on read
+        if (a.itemSize > 1) out[i * a.itemSize + 1] = a.getY(i);
+        if (a.itemSize > 2) out[i * a.itemSize + 2] = a.getZ(i);
+        if (a.itemSize > 3) out[i * a.itemSize + 3] = a.getW(i);
+      }
+      geo.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+    }
+    return geo;
+  }
+
+  /**
    * Pull the largest mesh out of a manifest model as an instancing source, with a
    * scale that normalizes its footprint to one tile. Null when the model is absent.
    */
@@ -1228,7 +1254,7 @@ export class Renderer3D {
     });
     if (!best) return null;
     const picked = best as THREE.Mesh;
-    const geo = (picked.geometry as THREE.BufferGeometry).clone().applyMatrix4(picked.matrixWorld);
+    const geo = Renderer3D.dequantize(picked.geometry as THREE.BufferGeometry).applyMatrix4(picked.matrixWorld);
     geo.computeBoundingBox();
     const box = geo.boundingBox!.clone();
     const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);

@@ -4474,6 +4474,132 @@ describe("flow-field pathfinding (monsters route around geometry)", () => {
   });
 });
 
+describe("encounter director (tier 4: retreat-and-regroup)", () => {
+  it("a broken survivor bolts away, and raises the alarm when it finds friends", () => {
+    let tested = false;
+    for (let seed = 1600; seed < 1640 && !tested; seed++) {
+      const g = createTestGame({ seed, floor: CONFIG.regroupFromFloor, level: 5, gear: false }); // the director sits out the training bands
+      const p = g.players[0];
+      // A parked pack hidden from the crawler, 4.5-7 tiles out: the friends.
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => { const dd = dist(t, p.pos); return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos) && flowDir(g, t) !== null; });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const friend = mkMon({ id: 900, pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000 });
+      // The survivor: wounded, alerted, alone beside the crawler, packmates dead around it.
+      const survivor = mkMon({ id: 901, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+      survivor.alertT = 999;
+      g.monsters.push(friend, survivor);
+      g.corpses.push(
+        { id: 9000, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+        { id: 9001, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+      );
+      const before = dist(survivor.pos, p.pos);
+      step(g, idle(), 1 / 30);
+      expect(survivor.regroupT ?? 0).toBeGreaterThan(0); // it BROKE OFF
+      for (let i = 0; i < 30; i++) step(g, idle(), 1 / 30); // 1s of flight
+      expect(dist(survivor.pos, p.pos)).toBeGreaterThan(before); // it fled, not charged
+      // The join, deterministically: the natural uphill path may or may not
+      // pass the friends on this map, so stage the meeting mid-flight.
+      survivor.regroupT = 2;
+      survivor.pos = { x: spot.x, y: spot.y };
+      step(g, idle(), 1 / 30);
+      expect(friend.alertT ?? 0).toBeGreaterThan(0); // the alarm — the fight spills
+      expect(survivor.regroupT).toBe(0); // it stops running and fights with them
+      expect(survivor.regrouped).toBe(true); // once per lifetime
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("a healthy or accompanied grunt never bolts", () => {
+    const g = createTestGame({ seed: 1601, floor: CONFIG.regroupFromFloor, level: 5, gear: false });
+    const p = g.players[0];
+    g.monsters.length = 0;
+    const a = mkMon({ id: 910, pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 300, maxHp: 1000, speed: 2.6 });
+    const b = mkMon({ id: 911, pos: { x: p.pos.x + 1.5, y: p.pos.y + 0.7 }, hp: 1000, maxHp: 1000, speed: 2.6 });
+    a.alertT = 999;
+    b.alertT = 999;
+    g.monsters.push(a, b);
+    g.corpses.push(
+      { id: 9100, pos: { x: p.pos.x + 1.8, y: p.pos.y }, kind: "grunt", t: 10 },
+      { id: 9101, pos: { x: p.pos.x + 1.2, y: p.pos.y + 0.5 }, kind: "grunt", t: 10 },
+    );
+    for (let i = 0; i < 60; i++) step(g, idle(), 1 / 30);
+    expect(a.regroupT ?? 0).toBe(0); // B stands beside it — the line holds
+    expect(b.regroupT ?? 0).toBe(0); // B is healthy — no reason to run
+  });
+});
+
+describe("band personalities (tier 3: group doctrine per district)", () => {
+  it("SEWERS: an idle drum buffs; an ALERTED drum beats the charge and marches the pack", () => {
+    let tested = false;
+    for (let seed = 1500; seed < 1540 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // Drummer + grunt hidden from the crawler (no self-alert via sight),
+      // within the aura's 4-tile beat of each other.
+      const tiles = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .filter((t) => {
+          const dd = dist(t, p.pos);
+          return dd > 4.5 && dd < 7 && !tileLos(g.map, t, p.pos);
+        });
+      let pair: [Vec2, Vec2] | null = null;
+      for (const t1 of tiles) {
+        const t2 = tiles.find((t) => t !== t1 && dist(t, t1) >= 1 && dist(t, t1) <= 3);
+        if (t2) { pair = [t1, t2]; break; }
+      }
+      if (!pair) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const drummer = mkMon({ id: 800, kind: "drummer", pos: { x: pair[0].x, y: pair[0].y }, hp: 1000, maxHp: 1000 });
+      drummer.aura = "frenzy";
+      const ally = mkMon({ id: 801, pos: { x: pair[1].x, y: pair[1].y }, hp: 1000, maxHp: 1000 });
+      g.monsters.push(drummer, ally);
+      step(g, idle(), 1 / 30);
+      // (The ally's own step decays its timers by one dt after the aura set them.)
+      expect(ally.frenzyT).toBeGreaterThan(0); // idle drum: the passive buff...
+      expect(ally.frenzyT).toBeLessThanOrEqual(CONFIG.drumAuraLinger); // ...at linger length
+      expect(ally.alertT ?? 0).toBe(0); // nobody is hunting yet
+      drummer.alertT = 5; // the drum spots you (or got hit)
+      step(g, idle(), 1 / 30);
+      expect(ally.frenzyT).toBeGreaterThan(CONFIG.drumAuraLinger); // the CHARGE is beaten...
+      expect(ally.alertT ?? 0).toBeGreaterThan(0); // ...and the whole aura marches
+    }
+    expect(tested).toBe(true);
+  });
+
+  it("RUINS: a shieldbearer holds the line between the crawler and its caster ward", () => {
+    let tested = false;
+    for (let seed = 1550; seed < 1590 && !tested; seed++) {
+      const g = createGame(seed);
+      const p = g.players[0];
+      // The ward needs SIGHT of the crawler, or the ward->crawler line (and
+      // the phalanx point on it) can run through a wall.
+      const spot = walkableTiles(g.map)
+        .map((t) => ({ x: t.x + 0.5, y: t.y + 0.5 }))
+        .find((t) => { const dd = dist(t, p.pos); return dd > 5 && dd < 7 && tileLos(g.map, t, p.pos); });
+      if (!spot) continue;
+      tested = true;
+      g.monsters.length = 0;
+      const ward = mkMon({ id: 810, kind: "ranged", pos: { x: spot.x, y: spot.y }, hp: 1000, maxHp: 1000, attackRange: 6.5 }); // speed 0: pinned
+      const shield = mkMon({ id: 811, kind: "shieldbearer", pos: { x: p.pos.x + 1.5, y: p.pos.y }, hp: 1000, maxHp: 1000, speed: 1.8, attackRange: 1.1 });
+      g.monsters.push(ward, shield);
+      for (let i = 0; i < 240; i++) step(g, idle(), 1 / 30); // 8s to take position
+      const line = {
+        x: ward.pos.x + (p.pos.x - ward.pos.x) * CONFIG.phalanxLineFraction,
+        y: ward.pos.y + (p.pos.y - ward.pos.y) * CONFIG.phalanxLineFraction,
+      };
+      expect(dist(shield.pos, line)).toBeLessThan(1.3); // the wall stands ON the line
+      // And it IS between them: closer to the crawler than the ward is.
+      expect(dist(shield.pos, p.pos)).toBeLessThan(dist(ward.pos, p.pos));
+    }
+    expect(tested).toBe(true);
+  });
+});
+
 describe("ranged unit play (crossfire arcs + bodyguard retreat)", () => {
   const mkRanged = (id: number, x: number, y: number) =>
     mkMon({ id, kind: "ranged", pos: { x, y }, hp: 1000, maxHp: 1000, speed: 2.6, attackRange: 6.5 });

@@ -7,7 +7,7 @@ import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
 import type { GameState, Monster, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
-import { flowDir, tileLos } from "./pathfield";
+import { flowDir, flowUphill, tileLos } from "./pathfield";
 import { applyStatus } from "./status";
 import {
   applyPlayerKnockback, bossDebrisRain, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossRootGrasp,
@@ -128,10 +128,15 @@ function hunterAlerted(state: GameState, m: Monster, huntPos: Vec2, d: number, r
  * do this with claimed positions; the stateless blend gets the same read
  * for a swarm at zero bookkeeping — revisit when flow fields land.
  */
-function flankVector(m: Monster, toPlayer: Vec2, d: number): Vec2 {
+function flankVector(state: GameState, m: Monster, toPlayer: Vec2, d: number): Vec2 {
   const spread = ((m.id % 7) - 3) / 3; // -1..1: this monster's preferred side
   const closeness = Math.max(0, Math.min(1, 1 - (d - m.attackRange) / CONFIG.flankEngageRange));
-  const k = spread * closeness * CONFIG.flankStrength;
+  // GARDEN band personality (tier 3): the growth ENCIRCLES — wider flanking
+  // arcs on floors 7-9, so the foliage floor's packs envelop instead of
+  // pressing a crescent.
+  const garden = state.floor >= CONFIG.gardenFromFloor && state.floor < CONFIG.ruinsFromFloor
+    ? CONFIG.gardenEncircleMult : 1;
+  const k = spread * closeness * CONFIG.flankStrength * garden;
   return normalize({ x: toPlayer.x - toPlayer.y * k, y: toPlayer.y + toPlayer.x * k });
 }
 
@@ -668,6 +673,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
   if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - dt);
   if ((m.slipT ?? 0) > 0) m.slipT = Math.max(0, (m.slipT ?? 0) - dt);
+  if ((m.regroupT ?? 0) > 0) m.regroupT = Math.max(0, (m.regroupT ?? 0) - dt);
   if ((m.alertT ?? 0) > 0) m.alertT = Math.max(0, (m.alertT ?? 0) - dt);
   // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
   // an interrupt takes a concentrated burst — chip damage banks nothing. The
@@ -692,11 +698,25 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // on every pack-mate in radius. The drum radiates even mid-windup — only
   // death stops the band. Kill-order lesson: the buffED aren't the problem.
   if (m.aura === "frenzy") {
+    // SEWERS band personality (tier 3): an ALERTED drummer doesn't just buff
+    // — it beats the CHARGE: ONE surge per alarm (not a standing state — a
+    // permanent march made floor 4 a wall in the 20-seed probe). The whole
+    // aura joins the hunt for one memory window and keeps the long frenzy
+    // for one rush; after that the drum is back to its passive linger buff
+    // until the alarm is raised fresh.
+    const marching = (m.alertT ?? 0) > 0;
+    const charge = marching && !m.rushBeaten;
+    m.rushBeaten = marching ? true : undefined;
     let bolstered = false;
     for (const ally of state.monsters) {
       if (ally === m || ally.hp <= 0 || ally.aura) continue;
       if (dist(m.pos, ally.pos) > CONFIG.drumAuraRadius) continue;
-      ally.frenzyT = CONFIG.drumAuraLinger;
+      if (charge) {
+        ally.frenzyT = CONFIG.drumRushLinger;
+        if (!ally.dormant) ally.alertT = Math.max(ally.alertT ?? 0, monsterMemory(state.floor));
+      } else {
+        ally.frenzyT = Math.max(ally.frenzyT ?? 0, CONFIG.drumAuraLinger);
+      }
       bolstered = true;
     }
     if (bolstered && !m.noticed) {
@@ -1201,6 +1221,27 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         if (m.kind === "colossus") m.chargeDir = toPlayer; // the crack's lane, frozen NOW
         beginWindup(m, m.kind === "colossus" ? "slam" : "melee", windup);
       }
+    } else if (m.kind === "shieldbearer") {
+      // RUINS band personality (tier 3): the PHALANX. The shield doesn't
+      // chase — it walks the line between the crawler and its backline
+      // (nearest caster: cleric consecrating, hexer marking), so reaching
+      // the priority target means going through the wall. No backline to
+      // hold for -> ordinary advance.
+      let ward: Monster | null = null;
+      let wd: number = CONFIG.phalanxGuardRange;
+      for (const ally of state.monsters) {
+        if (ally === m || ally.hp <= 0 || !ARCHETYPES[ally.kind].ranged) continue;
+        const ad = dist(m.pos, ally.pos);
+        if (ad < wd) { ward = ally; wd = ad; }
+      }
+      const target = ward
+        ? {
+            x: ward.pos.x + (hunt.pos.x - ward.pos.x) * CONFIG.phalanxLineFraction,
+            y: ward.pos.y + (hunt.pos.y - ward.pos.y) * CONFIG.phalanxLineFraction,
+          }
+        : hunt.pos;
+      const to = normalize({ x: target.x - m.pos.x, y: target.y - m.pos.y });
+      if (dist(m.pos, target) > 0.3) moveWithCollision(state.map, m.pos, to, moveSpeed * dt, isWalkable);
     } else {
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
     }
@@ -1696,6 +1737,49 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   // Melee archetypes (grunt / swarmer).
   if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange)) { wander(state, m, dt); return; }
+
+  // RETREAT-AND-REGROUP (encounter director, tier 4): a broken survivor —
+  // wounded, packmates dead around it, nobody left beside it — BOLTS for
+  // reinforcements instead of trading its life. It flees uphill on the flow
+  // field (away from every crawler, along walkable topology); the moment it
+  // reaches another pack it raises the alarm and turns to fight with them.
+  // The fight SPILLS into the next room. Once per monster: a survivor that
+  // found nobody dies where its memory runs out.
+  if ((m.regroupT ?? 0) > 0) {
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0 || ally.dormant || ally.kind === "boss") continue;
+      if (dist(m.pos, ally.pos) <= CONFIG.packAlertRadius && tileLos(state.map, m.pos, ally.pos)) {
+        alertMonster(state, ally); // the alarm — its pack cascades awake
+        m.regroupT = 0;
+        m.alertT = monsterMemory(state.floor);
+        break;
+      }
+    }
+    if ((m.regroupT ?? 0) > 0) {
+      const dir = flowUphill(state, m.pos) ?? { x: -toPlayer.x, y: -toPlayer.y };
+      moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
+      return;
+    }
+  } else if (
+    state.floor >= CONFIG.regroupFromFloor &&
+    !m.elite && !m.regrouped && m.hp < m.maxHp * CONFIG.regroupHpFraction &&
+    d < CONFIG.monsterAggroRange
+  ) {
+    let corpses = 0;
+    for (const c of state.corpses) if (dist(m.pos, c.pos) <= CONFIG.regroupCorpseRadius) corpses++;
+    let alone = true;
+    for (const ally of state.monsters) {
+      if (ally === m || ally.hp <= 0) continue;
+      if (dist(m.pos, ally.pos) <= CONFIG.packAlertRadius) { alone = false; break; }
+    }
+    if (corpses >= CONFIG.regroupCorpseCount && alone) {
+      m.regroupT = CONFIG.regroupSeconds;
+      m.regrouped = true;
+      state.events.push("A survivor BOLTS for reinforcements — cut it down before the whole floor knows.");
+      return;
+    }
+  }
+
   if (d <= m.attackRange) {
     if (m.attackCooldown === 0 && meleeTokenFree(state, m)) beginWindup(m, "melee", windup);
   } else {
@@ -1706,7 +1790,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // (sealed region) -> old greedy line + 45-degree slips as the last rung.
     const obstructed = (m.slipT ?? 0) > 0 || !tileLos(state.map, m.pos, hunt.pos);
     const dir = (obstructed ? flowDir(state, m.pos) : null)
-      ?? ((m.slipT ?? 0) > 0 ? toPlayer : flankVector(m, toPlayer, d));
+      ?? ((m.slipT ?? 0) > 0 ? toPlayer : flankVector(state, m, toPlayer, d));
     moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
     if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
       m.slipT = 0.6;
