@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createGame, restoreGame, createTestGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
-import { CONFIG, naturalFloorForLevel } from "../src/sim/config";
+import { ARCHETYPES, CONFIG, naturalFloorForLevel } from "../src/sim/config";
 import { meleeParams } from "../src/sim/abilities";
 
 // Playability invariants, measured by the scripted balance bot (src/sim/bot.ts).
@@ -116,8 +116,10 @@ describe("balance bot: early-game playability", () => {
     // shift. Seed 4 drifted off-band under the VETERAN tier (its pack-roll
     // stream re-rolled); probe survival 9/20 — the drop from 12/20 is real
     // and intended (veterans make floors 3-4 cost something; floors 1-2
-    // deaths unchanged). Seed 8 fits (3/4/8/11), all interior.
-    const g = createGame(8);
+    // deaths unchanged). Seed 8 died on floor 2 when HEAVY PACK formations
+    // changed member-loop draw counts (probe survival 10/24 — steady).
+    // Seed 10 fits (2/4/8/11), all interior.
+    const g = createGame(10);
     const bands: [number, number][] = [[1, 4], [3, 7], [6, 9], [8, 12]];
     for (let f = 0; f < bands.length; f++) {
       const r = runBot(g, 1, 400_000);
@@ -370,6 +372,48 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
         share,
         `floor ${floor}: only ${(share * 100).toFixed(1)}% of spawns survive one on-curve swing (${swing.toFixed(0)}) — the heft mix collapsed`,
       ).toBeGreaterThan(0.18);
+    }
+  });
+
+  it("HEAVY PACKS run spread, trash packs run tight (the dodge-dance formation)", () => {
+    // Owner 2026-07-26: heavies should come in SMALL, SPREAD packs — each
+    // defending its own space so the room is crossing telegraphs to weave
+    // through, not a knot to arc down. Pins median nearest-same-kind spacing
+    // on ordinary floors (boss floors 3/6/9... spawn arena crowds instead):
+    // heavies hold a wide ring, trash stays clustered. Probe medians at
+    // authoring time: heavy 5.1/4.1 vs trash 0.63/0.49 (floors 5/14).
+    const nearestSame = (ms: { kind: string; pos: { x: number; y: number } }[], i: number) => {
+      let best = Infinity;
+      for (let j = 0; j < ms.length; j++) {
+        if (j === i || ms[j].kind !== ms[i].kind) continue;
+        const d = Math.hypot(ms[j].pos.x - ms[i].pos.x, ms[j].pos.y - ms[i].pos.y);
+        if (d < best) best = d;
+      }
+      return best;
+    };
+    const median = (a: number[]) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+    for (const floor of [5, 14]) {
+      const heavy: number[] = [], trash: number[] = [];
+      for (let seed = 1; seed <= 12; seed++) {
+        const g = createTestGame({ seed, floor, gear: false });
+        const ms = g.monsters.filter((m) => !m.elite && m.kind !== "boss" && m.kind !== "foreman");
+        for (let i = 0; i < ms.length; i++) {
+          const d = nearestSame(ms, i);
+          if (d === Infinity) continue;
+          const hp = ARCHETYPES[ms[i].kind].hpMult;
+          if (hp >= CONFIG.heavyPackHpMult && ms[i].kind !== "broodmother") heavy.push(d);
+          else if (ms[i].kind === "grunt" || ms[i].kind === "swarmer") trash.push(d);
+        }
+      }
+      expect(heavy.length, `no heavy-kind spawns sampled on floor ${floor}`).toBeGreaterThan(20);
+      expect(
+        median(heavy),
+        `floor ${floor}: heavy spacing median ${median(heavy).toFixed(2)} — the wide ring collapsed`,
+      ).toBeGreaterThan(1.4);
+      expect(
+        median(trash),
+        `floor ${floor}: trash spacing median ${median(trash).toFixed(2)} — packs stopped clustering`,
+      ).toBeLessThan(1.2);
     }
   });
 

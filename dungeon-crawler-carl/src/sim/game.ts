@@ -533,8 +533,12 @@ function spawnMonsters(state: GameState): void {
     // Wind-Up Battalions muster at parade strength — the synced volley IS the
     // encounter, so the squad claims its own size band and a shared squadId.
     const squadId = kind === "toysoldier" ? state.nextEntityId++ : undefined;
+    // HEAVY PACK formation (config.ts heavyPack*): brute-class kinds spawn
+    // 2-4 spread bodies, not a knot. Broodmother keeps her clustered brood.
+    const heavyPack = ARCHETYPES[kind].hpMult >= CONFIG.heavyPackHpMult && kind !== "broodmother";
     const packSize = kind === "toysoldier"
       ? Math.min(budget, nextInt(rng, CONFIG.toysquadMin, CONFIG.toysquadMax))
+      : heavyPack ? Math.min(budget, Math.max(2, Math.min(4, Math.round(size / 3))))
       : size;
     // VETERAN anchor: a share of packs are led by the middle rung (drawn for
     // every pack, then gated — draw-then-override keeps the rng stream
@@ -543,8 +547,11 @@ function spawnMonsters(state: GameState): void {
     const veteranAnchor = vetRoll && floor >= CONFIG.veteranFromFloor && canVeteran(kind);
     for (let k = 0; k < packSize; k++) {
       // Cluster around the anchor; members that land in a wall squeeze inward.
+      // Heavy packs take the WIDE ring — same two draws, different spacing.
       const a = nextFloat(rng) * Math.PI * 2;
-      const d = 0.4 + nextFloat(rng) * 1.4;
+      const d = heavyPack
+        ? CONFIG.heavyPackSpreadBase + nextFloat(rng) * CONFIG.heavyPackSpreadRange
+        : 0.4 + nextFloat(rng) * 1.4;
       let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS

@@ -167,6 +167,14 @@ export const CONFIG = {
   // real overlapping-danger moments instead of a queue of solo fights.
   packSizeMin: 5,
   packSizeMax: 13,
+  // HEAVY PACKS (owner 2026-07-26): brute-class kinds (archetype hpMult at or
+  // above the threshold) run SMALL and SPREAD — 2-4 bodies holding a wide
+  // ring instead of a 5-13 knot. Each heavy defends its own space, so the
+  // room becomes crossing telegraphs to weave through (active dodging), not
+  // a blob to arc down. Size derives from the same pack-size draw (~size/3).
+  heavyPackHpMult: 2.0, // archetype hpMult threshold for the heavy formation
+  heavyPackSpreadBase: 1.6, // ring spacing: base + roll * range (tiles)
+  heavyPackSpreadRange: 2.2,
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
