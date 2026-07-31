@@ -84,8 +84,11 @@ const GradeShader = {
       c.rgb *= mix(vec3(1.0), uHighlight, smoothstep(0.35, 1.0, l) * 0.4);
       c.rgb = mix(vec3(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))), c.rgb, uSaturation);
       // Film vignette, tinted toward the band's void rather than dead black.
+      // Capped to the OUTER ~10% of frame (final pass, issue #1): a vignette
+      // that starts mid-frame was stacking with the murk and crushing 60%+
+      // of every shot below 5% luminance.
       float d = length(vUv - 0.5) * 1.4142;
-      float vig = 1.0 - uVignette * smoothstep(0.42, 1.08, d);
+      float vig = 1.0 - uVignette * smoothstep(0.84, 1.16, d);
       c.rgb = mix(uVigColor, c.rgb, vig);
       gl_FragColor = c;
     }`,
@@ -222,9 +225,30 @@ export class Renderer3D {
     uWlFlick: { value: 1 },
     uWlNoise: { value: null as THREE.Texture | null },
     uWlTime: { value: 0 },
+    // WALL-AWARE visibility (final pass, issue #2): per-tile walk-distance
+    // field BFS'd from the player through the walkable grid — the light
+    // falloff follows corridors and stops at architecture instead of
+    // airbrushing a radial blob across walls. R8, dist/32 tiles.
+    uWlDist: { value: neutralLightGrid() as THREE.Texture },
+    // READABLE DARKNESS floor (final pass, issue #1): out-of-play geometry
+    // keeps ~8-12% display luminance — band-hued cool murk that still shows
+    // tile/wall texture — plus sparse warm accent glints (embers/fungus/
+    // crowd-cam drones per the DCC fiction) every 8-10 tiles.
+    uWlMurk: { value: new THREE.Color(0.9, 1.0, 1.25).multiplyScalar(0.016) },
+    uWlGlint: { value: new THREE.Color(1.0, 0.6, 0.3).multiplyScalar(0.22) },
   };
   // The live baked grid for the current floor (disposed on rebuild).
   private lightGridTex: THREE.DataTexture | null = null;
+  // Walk-distance field for the wall-aware light falloff (issue #2): all
+  // buffers preallocated per floor — the per-tile BFS re-runs only when the
+  // player crosses a tile boundary, with zero hot-loop allocation.
+  private wlDist: {
+    tex: THREE.DataTexture;
+    data: Uint8Array;
+    field: Float32Array;
+    queue: Int32Array;
+    lastTile: number;
+  } | null = null;
   // Prop materials already swapped for their world-lit clone this build
   // (original -> clone), so shared loader-cache materials clone exactly once.
   private wlPropCache = new Map<THREE.Material, THREE.Material>();
@@ -249,7 +273,7 @@ export class Renderer3D {
             "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nvec3 wlBake;\nvec3 wlFogSil;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nvec3 wlBake;\nvec3 wlFogSil;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDist;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
         let stage = "#include <color_fragment>\n{\n";
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
@@ -297,7 +321,13 @@ export class Renderer3D {
           "  float wNz = texture2D(uWlNoise, vWlPos.xz * 0.045 + vec2(uWlTime * 0.010, uWlTime * -0.007)).r;\n" +
           "  wFog = clamp(smoothstep(0.10, 0.92, wFog + (wNz - 0.5) * 0.44 * wFog * (1.9 - wFog)), 0.0, 1.0);\n" +
           "  wlFogG = wFog;\n" +
-          "  float wD = distance(vWlPos.xz, uWlPlayer);\n" +
+          // WALL-AWARE falloff (issue #2): walk-distance BFS'd through the
+          // level, not euclidean — light carving follows corridors and stops
+          // at wall faces. Blended 25% toward euclidean so the frontier keeps
+          // a soft radial core near the player instead of hard tile steps.
+          "  float wDWalk = texture2D(uWlDist, wUv).r * 32.0;\n" +
+          "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wDWalk = 32.0;\n" +
+          "  float wD = mix(wDWalk, distance(vWlPos.xz, uWlPlayer), 0.25);\n" +
           "  float wT = clamp((wD - uWlFall.x) / uWlFall.y, 0.0, 1.0);\n" +
           "  float wFall = uWlFall.z + (1.0 - uWlFall.z) * (1.0 - wT * wT * (3.0 - 2.0 * wT));\n" +
           "  float wLit = 1.0 - wFog;\n" +
@@ -320,21 +350,29 @@ export class Renderer3D {
           "  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(wLum) * vec3(0.72, 0.84, 1.04), 0.55 * wT);\n" +
           "  vec3 wAlb = diffuseColor.rgb;\n" +
           "  wlK = wFall * uWlDim * wLit;\n" +
-          // ART-DIRECTED MURK: unexplored space is a DESIGNED material, not
-          // under-lit geometry. Albedo response collapses toward zero (so the
-          // key light can no longer paint floating pale slabs in the fog) and
-          // the band's colored dark returns below as a TRUE near-black
-          // silhouette (2-4% value, critic r2 blocker): flat — the baked AO /
-          // grime grid barely reaches it, so the tile grid vanishes in the
-          // dark — with an ATMOSPHERIC DEPTH gradient (silhouettes sink
-          // cooler and darker with distance from the player) and the drifting
-          // noise breathing through it so it stays alive, never a canvas.
-          "  diffuseColor.rgb = wAlb * wlK;\n" +
+          // READABLE DARKNESS (final pass, issue #1 — D2R rule): unexplored /
+          // out-of-play space keeps ~8-12% display luminance. The scene lights
+          // retain a whisper of albedo response (so the key still models the
+          // forms) and a band-hued COOL murk emissive returns below it,
+          // modulated by the geometry's own albedo + baked AO grid — tile
+          // seams and wall texture stay readable in the dark instead of
+          // collapsing to a crushed void. Distance cools and dims it gently
+          // (never to black); the drifting noise keeps it breathing.
+          "  diffuseColor.rgb = wAlb * max(wlK, wFog * 0.055);\n" +
           "  float wUp = max(wlN.y, 0.0) * smoothstep(0.30, 0.95, vWlPos.y);\n" +
-          "  float wSil = (0.90 + 0.10 * min(wAo, 1.0)) * (0.82 + 0.36 * wUp) * (0.82 + 0.36 * wNz);\n" +
-          "  float wDepth = 1.0 - 0.72 * smoothstep(5.0, 17.0, wD);\n" +
-          "  vec3 wSilCol = mix(uWlDark, uWlDark * vec3(0.72, 0.84, 1.12), smoothstep(6.0, 16.0, wD));\n" +
-          "  wlFogSil = wSilCol * (wSil * wFog * 0.68 * wDepth);\n" +
+          "  float wTex = dot(wAlb, vec3(0.299, 0.587, 0.114));\n" +
+          "  wTex = wTex / (wTex + 0.22);\n" +
+          "  float wDepth = 1.0 - 0.40 * smoothstep(5.0, 20.0, wD);\n" +
+          "  float wMurk = (0.45 + 0.85 * wTex) * (0.80 + 0.28 * wNz) * (0.85 + 0.30 * wUp) * min(0.35 + 0.85 * wAo, 1.1);\n" +
+          "  wlFogSil = uWlMurk * (wMurk * wFog * wDepth);\n" +
+          // Sparse distant accents (DCC fiction: stray embers, glinting eyes,
+          // crowd-cam drone lights): two decorrelated noise octaves thresholded
+          // to isolated specks every ~8-10 tiles, guttering with the torch
+          // flicker, only in the murk and away from the play bubble.
+          "  float wG1 = texture2D(uWlNoise, vWlPos.xz * 0.37 + vec2(3.1, 7.7)).r;\n" +
+          "  float wG2 = texture2D(uWlNoise, vWlPos.xz * 0.093 + vec2(9.2, 1.4)).r;\n" +
+          "  float wGl = smoothstep(0.90, 0.95, wG1 * (0.30 + 0.70 * wG2));\n" +
+          "  wlFogSil += uWlGlint * (wGl * wFog * (0.55 + 0.45 * uWlFlick) * smoothstep(2.5, 6.0, wD));\n" +
           "  wlBake = wAlb * wLm.rgb * (" + LM_SCALE.toFixed(3) + " * uWlFlick" + (opts.base ? " * (0.55 + 0.9 * exp(-2.6 * abs(vWlPos.y - 0.78)))" : "") + ") * wLit * (0.4 + 0.6 * wFall);\n}";
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", head)
@@ -386,32 +424,104 @@ export class Renderer3D {
     });
   }
 
-  // FIGURE-GROUND RIM: a cool fresnel edge-light injected into character
-  // materials (cloned once per source material + strength variant, cached
-  // for the session) — silhouettes pop off any floor wash without the draw
-  // calls of inverted-hull outlines. Ortho camera: view direction is
-  // constant, so the rim reads as a stable screen-edge accent.
+  // CHARACTER SHADING (final pass, issues #3-4) — one injected stage turns
+  // the flat "3D-print blank" KayKit clay into lit material:
+  //  · albedo ZONING by texel luminance: dark texels (cloth/leather/metal)
+  //    lean cool, bright texels (bone/ivory/skin) lean warm — the single
+  //    white cast splits into readable material families;
+  //  · warm-top/cool-bottom vertical 2-tone (key from above, bounce below);
+  //  · cavity AO from the surface normal (undersides/crevices sink);
+  //  · two-tone fresnel rim: the warm side keyed to the BAND'S practical
+  //    light color (uChWarm tracks the floor theme's torch), the cool side a
+  //    persistent figure-ground accent;
+  //  · optional emissive ACCENT (class trim on the hero, threat glow on
+  //    elites/bosses) breathing on uChTime.
+  // Clones are cached per source material + variant for the session.
   private rimCache = new Map<string, THREE.Material>();
-  private applyRimLight(g: THREE.Object3D, hex: number, strength: number, desat = 0): void {
-    const col = new THREE.Color(hex);
-    // TWO-TONE RIM (audit r5, D2R rule: warm key / cool fill): the fresnel
-    // edge splits by view-space normal side — the upper-left silhouette edge
-    // catches a warm torch-kicker, the lower-right keeps the cool accent —
-    // so characters read as lit material, not clay under one flat accent.
-    const warm = new THREE.Color(0xffc890).multiplyScalar(0.85);
-    const glsl =
-      `{ vec3 rimV = normalize(vViewPosition);\n` +
+  // Shared per-frame uniforms for every character material.
+  private chU = {
+    uChTime: { value: 0 },
+    uChWarm: { value: new THREE.Color(0xffc890).multiplyScalar(0.85) },
+  };
+  private applyCharacterShading(
+    g: THREE.Object3D,
+    opts: {
+      rim: number; // cool rim color
+      strength: number; // rim intensity
+      desat?: number; // palette pullback 0..1 (mobs cede saturation to the hero)
+      hero?: boolean; // value/saturation authority boost (+~18%/12%)
+      accent?: number; // emissive accent color (class trim / elite threat)
+      accentGain?: number; // accent intensity (default 0.35)
+      tint?: number; // archetype albedo tint folded into UNSATURATED texels
+      tintGain?: number; // how far white-clay texels lean into the tint (default 0.5)
+      value?: number; // flat value multiplier (<1: mobs cede brightness to the hero)
+    },
+  ): void {
+    const col = new THREE.Color(opts.rim);
+    const desat = opts.desat ?? 0;
+    const accent = opts.accent !== undefined ? new THREE.Color(opts.accent) : null;
+    const accentGain = opts.accentGain ?? 0.35;
+    // Archetype tint, VALUE-PRESERVING (issue #3: "bone-white 3D-print
+    // blanks"): normalize so the max component is 1 — the tint shifts hue on
+    // white clay without crushing it toward black.
+    let tint: THREE.Color | null = null;
+    if (opts.tint !== undefined) {
+      tint = new THREE.Color(opts.tint);
+      const mx = Math.max(tint.r, tint.g, tint.b, 1e-3);
+      tint.multiplyScalar(1 / mx);
+    }
+    const tintGain = opts.tintGain ?? 0.5;
+    // Non-normal terms run at color_fragment (before lighting): pullback or
+    // hero authority, then luminance-band zoning + the vertical 2-tone.
+    let colorGlsl = "";
+    if (desat > 0) {
+      colorGlsl +=
+        `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, ${(1 - desat).toFixed(3)});`;
+    }
+    if (opts.hero) {
+      // HERO AUTHORITY (issue #4): the player owns the value/saturation
+      // budget — ~18% more chroma and ~12% more value than any NPC.
+      colorGlsl +=
+        `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, 1.18) * 1.12;`;
+    }
+    if (opts.value !== undefined && opts.value !== 1) {
+      colorGlsl += `\n  diffuseColor.rgb *= ${opts.value.toFixed(3)};`;
+    }
+    if (tint) {
+      // ALBEDO ZONING, archetype pass (issue #3): bright UNSATURATED texels —
+      // the white clay that reads as a 3D-print blank — take on the
+      // archetype's hue (an ogre gets ogre skin, a cultist gets robe dye),
+      // while already-dyed texels (cloth, trim) and dark texels (leather,
+      // metal — the cool lean below owns those) keep their material identity.
+      colorGlsl +=
+        `\n  { float tMx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));` +
+        `\n    float tSat = tMx - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));` +
+        `\n    float tK = (1.0 - smoothstep(0.08, 0.30, tSat)) * smoothstep(0.30, 0.60, tMx);` +
+        `\n    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(${tint.r.toFixed(4)}, ${tint.g.toFixed(4)}, ${tint.b.toFixed(4)}), tK * ${tintGain.toFixed(3)}); }`;
+    }
+    colorGlsl +=
+      `\n  { float chL = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));` +
+      `\n    diffuseColor.rgb *= mix(vec3(0.78, 0.85, 1.10), vec3(1.10, 1.01, 0.88), smoothstep(0.22, 0.68, chL));` +
+      `\n    diffuseColor.rgb *= mix(vec3(0.84, 0.88, 1.02), vec3(1.05, 1.02, 0.97), smoothstep(0.05, 1.35, vChW.y)); }`;
+    // Normal-dependent terms run at emissivemap_fragment (normal is live):
+    // cavity AO sink, the two-tone rim, and the accent glow.
+    let emisGlsl =
+      `{ diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(-0.7, 0.6, normal.y);\n` +
+      `  vec3 rimV = normalize(vViewPosition);\n` +
       `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 3.0);\n` +
       `  float rimSide = smoothstep(-0.45, 0.55, -normal.x * 0.6 + normal.y * 0.55);\n` +
-      `  vec3 rimC = mix(vec3(${col.r.toFixed(4)}, ${col.g.toFixed(4)}, ${col.b.toFixed(4)}),\n` +
-      `    vec3(${warm.r.toFixed(4)}, ${warm.g.toFixed(4)}, ${warm.b.toFixed(4)}), rimSide);\n` +
-      `  totalEmissiveRadiance += rimC * (rimF * ${strength.toFixed(3)}); }`;
-    // Enemy palette pullback (LoL figure-ground rule): mobs run ~15% grayer
-    // than the hero, so the player owns the saturation budget in a crowd.
-    const desatGlsl = desat > 0
-      ? `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, ${(1 - desat).toFixed(3)});`
-      : "";
-    const variant = `${hex}:${strength}:${desat}:w2`; // w2 = two-tone rim scheme
+      `  vec3 rimC = mix(vec3(${col.r.toFixed(4)}, ${col.g.toFixed(4)}, ${col.b.toFixed(4)}), uChWarm, rimSide);\n` +
+      `  totalEmissiveRadiance += rimC * (rimF * ${opts.strength.toFixed(3)});\n`;
+    if (accent) {
+      // Accent rides the mid-fresnel band (trim/edges, not the whole body),
+      // breathing at ~1.3Hz so it reads alive at a glance.
+      emisGlsl +=
+        `  float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.0);\n` +
+        `  float accPulse = 0.75 + 0.25 * sin(uChTime * 8.2);\n` +
+        `  totalEmissiveRadiance += vec3(${accent.r.toFixed(4)}, ${accent.g.toFixed(4)}, ${accent.b.toFixed(4)}) * (accF * ${accentGain.toFixed(3)} * accPulse);\n`;
+    }
+    emisGlsl += `}`;
+    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:w4`;
     g.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material || mesh.userData.noAO) return;
@@ -428,14 +538,25 @@ export class Renderer3D {
           (c as THREE.MeshStandardMaterial).roughness =
             Math.min((c as THREE.MeshStandardMaterial).roughness ?? 1, 0.82);
           c.onBeforeCompile = (shader) => {
+            Object.assign(shader.uniforms, this.chU);
+            shader.vertexShader = shader.vertexShader
+              .replace("#include <common>", "#include <common>\nvarying vec3 vChW;")
+              .replace(
+                "#include <project_vertex>",
+                "#include <project_vertex>\nvChW = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+              );
             shader.fragmentShader = shader.fragmentShader
               .replace(
+                "#include <common>",
+                "#include <common>\nvarying vec3 vChW;\nuniform float uChTime;\nuniform vec3 uChWarm;",
+              )
+              .replace(
                 "#include <emissivemap_fragment>",
-                `#include <emissivemap_fragment>\n${glsl}`,
+                `#include <emissivemap_fragment>\n${emisGlsl}`,
               )
               .replace(
                 "#include <color_fragment>",
-                `#include <color_fragment>${desatGlsl}`,
+                `#include <color_fragment>${colorGlsl}`,
               );
           };
           c.customProgramCacheKey = () => `rim${variant}`;
@@ -589,7 +710,7 @@ export class Renderer3D {
 
   private breakableMeshes = new Map<number, THREE.Object3D>(); // smashable dressing (phase 5)
   private stagingAnchors = new Map<string, Vec2>(); // purpose -> social anchor (resident facing)
-  private npcMesh: THREE.Group | null = null; // Roam: the settlement's one resident
+  private npcMeshes = new Map<number, THREE.Group>(); // Roam: settlement residents
   localPlayerId = 0;
   private monsters = new Map<number, THREE.Group>();
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
@@ -1119,6 +1240,7 @@ export class Renderer3D {
     // SkeletonUtils.clone: a plain .clone() leaves skinned meshes bound to the
     // source skeleton, which renders as a mangled/collapsed pose.
     const g = cloneSkinned(m.scene) as THREE.Group;
+    g.userData.modelKey = key; // capture-harness prop identification (propprobe)
     // KayKit characters ship their whole class arsenal visible at once; show one
     // clean canonical loadout instead (players get theirs from equipment).
     const attachments = ATTACHMENT_NODES[key];
@@ -1553,6 +1675,15 @@ export class Renderer3D {
     "c:rogue": "crawler_rogue", "c:hooded": "crawler_hooded",
   };
 
+  // Class-colored trim glow for the hero accent (issue #4): each skin owns a
+  // signature hue so YOUR crawler is findable in a brawl by color alone.
+  private static readonly SKIN_ACCENT: Record<string, number> = {
+    knight: 0x4fd1ff, barbarian: 0xff8a3c, mage: 0xb98bff,
+    rogue: 0x8bd450, hooded: 0x6fe3ff,
+    "c:knight": 0x4fd1ff, "c:barbarian": 0xff8a3c, "c:druid": 0x7ed957,
+    "c:engineer": 0xf2c14e, "c:mage": 0xb98bff, "c:rogue": 0x8bd450,
+  };
+
   /** The render skin id for a player: their campfire pick, else the seeded look. */
   static skinIdFor(pl: { id: number; skin?: string }, seed: number): string {
     return pl.skin && `c:${pl.skin}` in Renderer3D.SKIN_MODEL ? `c:${pl.skin}` : heroSkin(seed, pl.id);
@@ -1564,12 +1695,20 @@ export class Renderer3D {
     if (model) {
       this.normalizeHeight(model, 1.35);
       this.addBlobShadow(model, 0.42);
-      // Hero rim, stronger than the mobs' + full saturation (mobs run 15%
-      // grayer): the player must read FIRST in any wash, even against
-      // torch pools (the critic's "outranked by torches" blocker).
-      // 0.9 (audit r4): a constant kicker that lifts the hero off the floor
-      // plane at gameplay zoom, not just in close-ups.
-      this.applyRimLight(model, 0xcfe0ff, 0.9);
+      // HERO SILHOUETTE AUTHORITY (final pass, issue #4): persistent cool
+      // rim (stronger than any NPC's), +18%/12% sat/value authority, and a
+      // class-colored trim glow — the player reads FIRST in any crowd.
+      // Stored on userData so late attachments (headgear, grafted weapons)
+      // inherit the exact same treatment instead of swallowing the rim.
+      const shade = {
+        rim: 0xcfe0ff,
+        strength: 1.2,
+        hero: true,
+        accent: Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff,
+        accentGain: 0.42,
+      };
+      model.userData.charShade = shade;
+      this.applyCharacterShading(model, shade);
       // Crisp directional contact shadow: a second, tighter dark ellipse
       // offset opposite the key light so the hero visibly SITS on the floor.
       {
@@ -1635,6 +1774,11 @@ export class Renderer3D {
         const grafts = (mesh.userData.grafts as THREE.Object3D[]) ?? [];
         grafts.push(obj);
         mesh.userData.grafts = grafts;
+        // Grafted gear inherits the owner's character shading (issue #4:
+        // headgear/weapons must LAYER onto the silhouette — an unshaded
+        // graft reads as a matte hole in the rim-lit figure).
+        const shade = mesh.userData.charShade as Parameters<Renderer3D["applyCharacterShading"]>[1] | undefined;
+        if (shade) this.applyCharacterShading(obj, shade);
       }
     }
     if (obj) obj.visible = true;
@@ -1837,8 +1981,28 @@ export class Renderer3D {
     }
     // Figure-ground rim (LoL rule): a cool fresnel edge so a pack reads as
     // individuals against any floor wash instead of one silhouette soup —
-    // plus a 15% palette pullback so enemies never outrank the hero.
-    this.applyRimLight(g, 0x9fc4ff, 0.5, 0.15);
+    // plus a 15% palette pullback so enemies never outrank the hero. Elites
+    // and bosses add an archetype-colored emissive accent (issue #3: threat
+    // ID at a glance); bosses burn hotter and get arena treatment on spawn.
+    const isBossKind = kind === "boss";
+    const shade = {
+      rim: 0x9fc4ff,
+      strength: isBossKind ? 0.75 : 0.5,
+      desat: isBossKind ? 0.05 : 0.15,
+      accent: elite || isBossKind ? (def?.tint ?? spec.color) : undefined,
+      accentGain: isBossKind ? 0.6 : 0.4,
+      // Archetype albedo tint (issue #3): white-clay texels take the
+      // archetype's hue, so a pack splits into material families instead of
+      // shipping as identical bone-white blanks. Bosses lean harder — the
+      // menace must read as ITS OWN THING from across the arena.
+      tint: def?.tint ?? spec.color,
+      tintGain: isBossKind ? 0.6 : 0.5,
+      // Mobs cede brightness to the hero (issue #4): a white ogre must never
+      // out-value the player's silhouette.
+      value: isBossKind ? 1 : 0.9,
+    };
+    g.userData.charShade = shade;
+    this.applyCharacterShading(g, shade);
     return g;
   }
 
@@ -2031,6 +2195,15 @@ export class Renderer3D {
     this.rim.color.set(mood.rim);
     this.rim.intensity = mood.rimIntensity;
     this.fogDark.set(mood.fogDark);
+    // Character warm rim keyed to the band's PRACTICAL light (issue #3): the
+    // torch-side kicker on every figure matches the color of the sconces
+    // actually lighting the floor, luma-normalized so it shifts hue only.
+    {
+      const w = this.chU.uChWarm.value as THREE.Color;
+      w.set(theme.torchColor);
+      const luma = Math.max(1e-4, 0.2126 * w.r + 0.7152 * w.g + 0.0722 * w.b);
+      w.multiplyScalar(0.85 / luma);
+    }
 
     this.scene.background = new THREE.Color(theme.background);
     (this.scene.fog as THREE.Fog).color.set(theme.background);
@@ -2627,9 +2800,34 @@ export class Renderer3D {
     this.wl.uWlMapInv.value.set(1 / map.w, 1 / map.h);
     this.wl.uWlDark.value.copy(this.fogDark);
     // Interior falloff starts sooner with a deeper floor: mid-distance sinks
-    // toward shadow so the torch pools read carved out of the dark (D2R).
-    if (openAir) this.wl.uWlFall.value.set(5.5, 16, 0.22);
-    else this.wl.uWlFall.value.set(3.7, 11, 0.10);
+    // toward shadow so the torch pools read carved out of the dark (D2R) —
+    // but the far floor stays READABLE (final pass, issue #1): distant
+    // explored ground keeps ~a third of its lighting, never a crushed void.
+    if (openAir) this.wl.uWlFall.value.set(5.5, 16, 0.34);
+    else this.wl.uWlFall.value.set(3.7, 11, 0.30);
+    // Murk hue: the band's colored dark, luma-normalized then leaned cool
+    // (faint sky bounce) at a fixed ~8-12% display-luminance magnitude — the
+    // band keeps its identity in the dark without the value crush.
+    {
+      const m = this.fogDark.clone();
+      const luma = Math.max(1e-4, 0.2126 * m.r + 0.7152 * m.g + 0.0722 * m.b);
+      m.multiplyScalar(1 / luma).multiply(new THREE.Color(0.86, 0.94, 1.18));
+      (this.wl.uWlMurk.value as THREE.Color).copy(m).multiplyScalar(0.016);
+      (this.wl.uWlGlint.value as THREE.Color).set(theme.torchColor).multiplyScalar(0.3);
+    }
+    // Walk-distance field for the wall-aware falloff (issue #2): allocated
+    // per floor, BFS'd from the player's tile whenever it changes.
+    this.wlDist?.tex.dispose();
+    {
+      const n = map.w * map.h;
+      const data = new Uint8Array(n).fill(255);
+      const tex = new THREE.DataTexture(data, map.w, map.h, THREE.RedFormat, THREE.UnsignedByteType);
+      tex.magFilter = tex.minFilter = THREE.LinearFilter;
+      tex.unpackAlignment = 1;
+      tex.needsUpdate = true;
+      this.wlDist = { tex, data, field: new Float32Array(n), queue: new Int32Array(n * 8), lastTile: -1 };
+      this.wl.uWlDist.value = tex;
+    }
     this.ambientFx.rebuild(floorBand(state.floor), this.renderer.getPixelRatio());
     this.atmoRefresh = 0; // feed the mote cloud fresh spawn candidates now
 
@@ -3078,12 +3276,39 @@ export class Renderer3D {
 
     // 6) Boss arenas are summoning sites: a ritual circle under the menace
     //    marks where the System put it down. The finale's is DemonLord-sized.
+    // ARENA KICK LIGHTING (final pass, issue #6): the reveal frame must never
+    // be a black void — the arena gets its own practicals: a ring of ritual
+    // flames around the circle (real torch anchors, so they inherit the flame
+    // sprites, baked wall-shadowed pools and gutter flicker), plus a baked
+    // boss-colored glow under the circle itself that silhouettes the menace
+    // from below and rims every combatant that steps in.
+    const arenaLights: BakeLight[] = [];
     const boss = state.monsters.find((mo) => mo.kind === "boss");
     if (boss) {
+      const finale = state.floor >= CONFIG.finalFloor;
       place("summoning_circle", boss.pos.x, boss.pos.y, {
-        scale: state.floor >= CONFIG.finalFloor ? 3.2 : 2.0,
+        scale: finale ? 3.2 : 2.0,
         rot: 0,
         jitter: 0,
+      });
+      const ringR = finale ? 4.2 : 3.1;
+      const flameKey = openAir ? "lantern_standing" : "torch_lit";
+      for (let k = 0; k < 6; k++) {
+        const ang = (k / 6) * Math.PI * 2 + 0.35;
+        const bx = boss.pos.x + Math.cos(ang) * ringR;
+        const by = boss.pos.y + Math.sin(ang) * ringR;
+        if (!isFloorAt(Math.floor(bx), Math.floor(by))) continue;
+        if (place(flameKey, bx, by, { scale: 0.62, jitter: 0.04 })) {
+          this.torchAnchors.push({ x: bx, y: by, seed: 31 + k * 2.3 });
+        }
+      }
+      // The ritual circle glows the boss's threat color — a cool-void frame
+      // with a crimson-lit menace at its center, not a white blob in the dark.
+      const bc = new THREE.Color(THEME.archetype.boss.color).lerp(new THREE.Color(0xff9a4d), 0.35);
+      arenaLights.push({
+        x: boss.pos.x, y: boss.pos.y, r: finale ? 6.5 : 5.0,
+        color: { r: bc.r, g: bc.g, b: bc.b },
+        intensity: 1.05, jitter: false,
       });
     }
 
@@ -3351,6 +3576,9 @@ export class Renderer3D {
       // Counter-color accent pools (envDressing accentGlows): the warm
       // cook-fire in the green sewers, the cool grave-light in the embers.
       lights.push(...envAccentLights);
+      // Boss-arena ritual glow (issue #6) — baked, so it rims the arena even
+      // before any dynamic light wakes up.
+      lights.push(...arenaLights);
       const stains: BakeStain[] = [];
       for (const r of map.rooms) {
         const count = 2 + Math.floor(frng() * 3);
@@ -3442,9 +3670,83 @@ export class Renderer3D {
    * frontier is the fog bank's bilinear mask, so light-to-dark is a smooth
    * vignette, never a staircase of tile-sized rectangles.
    */
+  /** Rebuild the walk-distance field (wall-aware visibility, issue #2):
+   * label-correcting BFS from the player's tile over the walkable grid,
+   * 8-connected (diagonals cost √2, no corner cutting); wall tiles take
+   * min(adjacent floor)+0.7 so their lit faces match the corridor they face.
+   * Encoded dist/32 tiles into the R8 texture the world-lit shader samples. */
+  private bakeWalkDist(map: GameState["map"], px: number, pz: number): void {
+    const d = this.wlDist;
+    if (!d) return;
+    const { w, h } = map;
+    const tiles = map.tiles;
+    const { field, queue, data } = d;
+    field.fill(Infinity);
+    const sx = Math.max(0, Math.min(w - 1, Math.floor(px)));
+    const sy = Math.max(0, Math.min(h - 1, Math.floor(pz)));
+    const start = sy * w + sx;
+    field[start] = 0;
+    queue[0] = start;
+    let head = 0;
+    let tail = 1;
+    const cap = queue.length;
+    while (head !== tail) {
+      const i = queue[head++ % cap];
+      if (head > cap * 4) break; // safety: pathological re-expansion
+      const base = field[i];
+      const x = i % w;
+      const y = (i / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const ni = ny * w + nx;
+          if (tiles[ni] === Tile.Wall) continue;
+          // No diagonal corner cutting past a wall.
+          if (dx !== 0 && dy !== 0 && (tiles[y * w + nx] === Tile.Wall || tiles[ny * w + x] === Tile.Wall)) continue;
+          const nd = base + (dx !== 0 && dy !== 0 ? 1.41421356 : 1);
+          if (nd < field[ni] - 1e-4) {
+            field[ni] = nd;
+            queue[tail++ % cap] = ni;
+            if (tail - head >= cap) { head = tail; break; } // overflow guard
+          }
+        }
+      }
+    }
+    // Wall tiles read the corridor beside them (+0.7), so lit wall faces
+    // darken with the room they bound, not the room behind them.
+    for (let i = 0; i < field.length; i++) {
+      let v = field[i];
+      if (tiles[i] === Tile.Wall) {
+        const x = i % w;
+        const y = (i / w) | 0;
+        v = Infinity;
+        if (x > 0) v = Math.min(v, field[i - 1]);
+        if (x < w - 1) v = Math.min(v, field[i + 1]);
+        if (y > 0) v = Math.min(v, field[i - w]);
+        if (y < h - 1) v = Math.min(v, field[i + w]);
+        v += 0.7;
+      }
+      data[i] = v === Infinity ? 255 : Math.min(255, Math.round((v / 32) * 255));
+    }
+    d.tex.needsUpdate = true;
+  }
+
   private updateFogTint(state: GameState, px: number, pz: number): void {
     const { map } = state;
     this.wl.uWlPlayer.value.set(px, pz);
+    if (this.wlDist) {
+      const tile =
+        Math.max(0, Math.min(map.h - 1, Math.floor(pz))) * map.w +
+        Math.max(0, Math.min(map.w - 1, Math.floor(px)));
+      if (tile !== this.wlDist.lastTile && this.wlDist.data.length === map.w * map.h) {
+        this.wlDist.lastTile = tile;
+        this.bakeWalkDist(map, px, pz);
+      }
+    }
     const alphas = this.fogBank.alphas;
     if (alphas.length !== map.w * map.h) return; // rebuild in flight
     // Props ride the same animated alpha: they scale in as their tile's fog
@@ -4125,18 +4427,28 @@ export class Renderer3D {
       return false;
     };
 
-    // Roam settlement NPC: at most one at a time, so no id-keyed mesh pool —
-    // just toggle/reposition the single mesh.
-    if (state.npc) {
-      if (!this.npcMesh) {
-        this.npcMesh = this.buildNpcMesh();
-        this.scene.add(this.npcMesh);
+    // Roam settlement residents: id-keyed mesh pool over the full roster
+    // (state.npcs; v1 snapshots only carried the singular state.npc).
+    {
+      const npcs = state.npcs ?? (state.npc ? [state.npc] : []);
+      const seen = new Set<number>();
+      for (const n of npcs) {
+        seen.add(n.id);
+        let mesh = this.npcMeshes.get(n.id);
+        if (!mesh) {
+          mesh = this.buildNpcMesh();
+          this.scene.add(mesh);
+          this.npcMeshes.set(n.id, mesh);
+        }
+        mesh.position.set(n.pos.x, 0, n.pos.y);
+        mesh.visible = inVision(n.pos);
       }
-      this.npcMesh.position.set(state.npc.pos.x, 0, state.npc.pos.y);
-      this.npcMesh.visible = inVision(state.npc.pos);
-    } else if (this.npcMesh) {
-      this.scene.remove(this.npcMesh);
-      this.npcMesh = null;
+      for (const [id, mesh] of this.npcMeshes) {
+        if (!seen.has(id)) {
+          this.scene.remove(mesh);
+          this.npcMeshes.delete(id);
+        }
+      }
     }
 
     // Monsters: reconcile mesh pool with live monster set + animate.
@@ -5107,6 +5419,7 @@ export class Renderer3D {
     // Baked-pool gutter + fog-frontier drift for the world-lit materials.
     this.wl.uWlFlick.value = 0.88 + 0.12 * Renderer3D.torchFlicker(time, 0.37);
     this.wl.uWlTime.value = time;
+    this.chU.uChTime.value = time; // character accent-glow breathing
     // Sewer channels etc: emissive water crawls along its run.
     for (const f of this.envFlow) {
       f.tex.offset.set(time * f.sx, time * f.sy);

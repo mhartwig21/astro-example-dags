@@ -207,11 +207,38 @@ leader) is a new `clearStronghold` quest, appended once the settlement's
 stairway-ping, and hostile-settlement "razed" state still resets with the
 floor (same persistence gap as everything else — P3).
 
-**P3 — Persistence.** Settlement/quest/reputation state survives log-off —
-this is the phase that actually needs the Expedition-mode world-persistence
-wall from the other pitch. Until P3, "razing a settlement" or "completing a
-quest" only lasts as long as the current floor instance, same ceiling every
-other sim state has today.
+**P2.5 — SHIPPED (Roam v2: the civilization layer, sim core).**
+- **Multiple settlements per megafloor** (2-3 + the entrance one,
+  `map.settlementRoomIdxs`), each a sanctuary with a 1-tile no-aggro skirt
+  (`isWalkableForMonster`) AND a targeting exemption — a crawler inside a
+  settlement is invisible to `nearestPlayer`, the one choke point every
+  monster targeting decision flows through.
+- **2-4 named residents each** (trader / quartermaster / rumor-monger /
+  tribe elder, civic-satire register), a **working vendor** per settlement
+  (a `SafeRoom`-shaped shelf; `shopRoomFor` falls back to the settlement the
+  player stands in, so `buyCatalogItem`/`sellItem` and the shop UI seams
+  work unchanged), and the **safe-room service in-map**: paid heal+cleanse
+  via dialogue, ability re-slotting allowed inside the walls.
+- **`state.dialogue`** — the dialogue channel §3 called for (VOICE.md
+  amended with the settlement register): sessions with portraitId, lines,
+  and effectful choices (`startDialogue`/`chooseDialogue` in npc.ts),
+  deterministic per (seed, floor, npc).
+- **Five quest archetypes** on the offer-and-pick plumbing (cull the tribe,
+  clear the stronghold, recover a vault cache, deliver between settlements,
+  light the beacons), 2-3 per floor from different residents, rewards
+  through `pendingRewards` (source "quest").
+- **Mordecai is the guide** in every entrance settlement: orientation that
+  reveals settlement regions + stairs direction, first-time tips gated
+  through the persisted `tipsSeen` ledger.
+- **Run persistence (BACKLOG #11 fixed):** `runKind` + quest/stock/hoard
+  state round-trip `SaveData.roam` (`toRoamSave`/`applyRoamSave`) — CONTINUE
+  resumes a Roam campaign on its rebuilt floor with progress intact.
+
+**P3 — World persistence.** What remains of the old P3: cross-floor world
+state (revisiting old floors, razed-settlement memory, reputation) still
+needs the Expedition-mode world-persistence wall from the other pitch.
+Within the CURRENT floor, quest/vendor/hoard state now survives log-off via
+the save overlay above.
 
 ## Open questions for the next session
 

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300">
+  <!-- Mordecai, the guide: weathered barkeep-sage, raised mug, warm key light.
+       Painted language: 2-3 tones per material, heavy ink, top-left key. -->
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.34" r="0.85">
+      <stop offset="0" stop-color="#3a2c1b"/>
+      <stop offset="0.55" stop-color="#221a10"/>
+      <stop offset="1" stop-color="#100c08"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2c14e" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#f2c14e" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="240" height="300" fill="url(#bg)"/>
+  <!-- ember glow behind the shoulder -->
+  <ellipse cx="186" cy="238" rx="72" ry="60" fill="#d98e4a" opacity="0.12"/>
+  <ellipse cx="52" cy="70" rx="80" ry="66" fill="#f2c14e" opacity="0.08"/>
+  <!-- torso: leather vest over shirt -->
+  <path d="M40 300 L46 244 C52 216 74 202 96 196 L144 196 C170 202 190 216 196 244 L202 300 Z"
+        fill="#4a3820" stroke="#150e07" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M40 300 L46 244 C52 216 74 202 96 196 L110 196 C88 214 74 252 70 300 Z" fill="#6e5533"/>
+  <path d="M202 300 L196 244 C192 224 180 210 162 202 C176 228 182 262 183 300 Z" fill="#2c2013"/>
+  <!-- shirt wedge -->
+  <path d="M98 197 L120 232 L142 197 C134 191 106 191 98 197 Z" fill="#8c7a58" stroke="#150e07" stroke-width="6" stroke-linejoin="round"/>
+  <!-- raised MUG (his signature) in the right fist -->
+  <g stroke="#150e07" stroke-width="7" stroke-linejoin="round">
+    <path d="M158 236 C154 262 158 284 166 296 L206 296 C214 282 216 258 212 236 Z" fill="#a8854f"/>
+    <path d="M158 236 C154 262 158 284 166 296 L178 296 C172 280 170 256 173 236 Z" fill="#c9a24b" stroke="none"/>
+    <path d="M208 244 C226 246 230 268 216 276" fill="none"/>
+    <ellipse cx="185" cy="236" rx="27" ry="9" fill="#f5e6bf"/>
+  </g>
+  <path d="M170 232 C178 228 196 228 202 232" stroke="#fff8e6" stroke-width="4" fill="none" opacity="0.7"/>
+  <!-- neck -->
+  <path d="M104 176 L104 202 C112 210 128 210 136 202 L136 176 Z" fill="#a97c50" stroke="#150e07" stroke-width="7"/>
+  <!-- head -->
+  <path d="M78 96 C74 60 96 38 120 38 C144 38 166 60 162 96 C160 126 148 150 120 152 C92 150 80 126 78 96 Z"
+        fill="#c9986a" stroke="#150e07" stroke-width="7" stroke-linejoin="round"/>
+  <!-- face shadow (right side, away from key light) -->
+  <path d="M120 38 C144 38 166 60 162 96 C160 126 148 150 120 152 L120 38 Z" fill="#8a5f3d" opacity="0.55"/>
+  <!-- highlight plane -->
+  <path d="M84 84 C84 62 98 46 116 44 C104 58 98 76 96 98 C92 96 86 92 84 84 Z" fill="#eec392" opacity="0.85"/>
+  <!-- heavy grey brows -->
+  <path d="M84 92 C92 84 104 82 112 86 L110 96 C102 92 92 94 86 99 Z" fill="#b9b2a4" stroke="#150e07" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M156 92 C148 84 136 82 128 86 L130 96 C138 92 148 94 154 99 Z" fill="#8f887b" stroke="#150e07" stroke-width="5" stroke-linejoin="round"/>
+  <!-- eyes: tired, knowing -->
+  <path d="M92 104 C97 100 106 100 110 104 C106 109 96 109 92 104 Z" fill="#150e07"/>
+  <path d="M130 104 C135 100 144 100 148 104 C144 109 134 109 130 104 Z" fill="#150e07"/>
+  <!-- nose -->
+  <path d="M118 100 C116 112 112 120 110 124 C114 128 126 128 130 124 C126 118 124 110 122 100 Z" fill="#8a5f3d" opacity="0.7"/>
+  <!-- grand grey moustache + short beard -->
+  <path d="M88 128 C98 122 112 126 120 132 C128 126 142 122 152 128 C154 142 142 152 130 150 C126 146 114 146 110 150 C98 152 86 142 88 128 Z"
+        fill="#d9d2c2" stroke="#150e07" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M120 132 C128 126 142 122 152 128 C154 142 142 152 130 150 C126 146 122 144 120 144 Z" fill="#a29a8a"/>
+  <path d="M100 150 C106 162 134 162 140 150 C134 158 106 158 100 150 Z" fill="#b9b2a4" stroke="#150e07" stroke-width="5"/>
+  <!-- balding crown + side tufts -->
+  <path d="M80 78 C82 52 100 36 120 36 C140 36 158 52 160 78 C150 60 134 52 120 52 C106 52 90 60 80 78 Z"
+        fill="#3a2c1b" stroke="#150e07" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M74 92 C68 96 66 108 72 114 C76 108 78 98 74 92 Z" fill="#b9b2a4" stroke="#150e07" stroke-width="5"/>
+  <path d="M166 92 C172 96 174 108 168 114 C164 108 162 98 166 92 Z" fill="#8f887b" stroke="#150e07" stroke-width="5"/>
+  <!-- warm rim light off the ember -->
+  <path d="M162 96 C164 66 148 44 126 40 C146 48 158 68 156 96 C155 118 147 138 132 147 C150 142 160 120 162 96 Z" fill="#d98e4a" opacity="0.5"/>
+  <rect width="240" height="34" fill="url(#rim)" opacity="0.35"/>
+  <!-- bottom vignette -->
+  <rect y="240" width="240" height="60" fill="#0e0b09" opacity="0.35"/>
+</svg>

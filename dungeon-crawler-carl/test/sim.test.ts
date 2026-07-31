@@ -26,6 +26,7 @@ import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel,
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
 import { flowDir, tileLos } from "../src/sim/pathfield";
+import { chooseDialogue } from "../src/sim/npc";
 import { PURPOSE_PERCEPTION, PURPOSE_RESIDENTS, ROOM_PURPOSES, assignRoomPurposes } from "../src/sim/roomPurposes";
 
 function idle(): Intent {
@@ -3597,7 +3598,9 @@ describe("Roam mode (SETTLEMENTS.md)", () => {
     expect(g.map.roles[g.map.strongholdRoomIdx]).toBe("stronghold");
     expect(g.map.strongholdRoomIdx).not.toBe(g.map.settlementRoomIdx);
     expect(g.npc).not.toBeNull();
-    expect(g.quests).toHaveLength(1);
+    // v2 quest board: killTribe anchors it, plus 1-2 extra archetypes.
+    expect(g.quests.length).toBeGreaterThanOrEqual(2);
+    expect(g.quests.length).toBeLessThanOrEqual(CONFIG.roamQuestsPerFloorMax);
     expect(g.quests[0].objective.kind).toBe("killTribe");
     expect(g.monsters.length).toBeGreaterThan(0);
     const tribe = roamTribeId(1);
@@ -3660,28 +3663,34 @@ describe("Roam mode (SETTLEMENTS.md)", () => {
     expect(g.strongholdCleared).toBe(true);
   });
 
-  it("talking to the NPC offers killTribe, then completes and unlocks clearStronghold", () => {
+  it("the killTribe arc: accept via dialogue, complete, unlock and clear the stronghold quest", () => {
     const g = createGame(7, "coop", "roam");
     const p = g.players[0];
-    p.pos = { x: g.npc!.pos.x, y: g.npc!.pos.y };
+    const giver = g.npcs!.find((n) => n.id === g.quests[0].giverNpcId)!;
+    p.pos = { x: giver.pos.x, y: giver.pos.y };
+    // Interacting opens a dialogue session (state.dialogue), not the stairs.
     step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    expect(g.dialogue).not.toBeNull();
+    expect(g.dialogue!.npcId).toBe(giver.id);
+    chooseDialogue(g, p.id, "accept:cull");
     expect(g.quests[0].state).toBe("active");
     const obj0 = g.quests[0].objective;
     if (obj0.kind === "killTribe") obj0.killed = obj0.target;
-    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30);
+    chooseDialogue(g, p.id, "turnin:cull");
     expect(g.quests[0].state).toBe("complete");
     expect(p.pendingRewards.length).toBeGreaterThan(0);
-    expect(g.quests).toHaveLength(2);
-    expect(g.quests[1].objective.kind).toBe("clearStronghold");
-    expect(g.quests[1].state).toBe("offered");
+    expect(p.pendingRewards.every((r) => r.source === "quest")).toBe(true);
+    const stronghold = g.quests.find((q) => q.key === "stronghold")!;
+    expect(stronghold.objective.kind).toBe("clearStronghold");
+    expect(stronghold.state).toBe("offered");
 
-    // Turn in the second quest.
+    // Turn in the second quest at the same giver.
     p.pendingRewards = [];
     g.strongholdCleared = true;
-    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // offer -> active
-    expect(g.quests[1].state).toBe("active");
-    step(g, { [p.id]: { ...idle(), useStairs: true } }, 1 / 30); // active -> complete
-    expect(g.quests[1].state).toBe("complete");
+    chooseDialogue(g, p.id, "accept:stronghold");
+    expect(stronghold.state).toBe("active");
+    chooseDialogue(g, p.id, "turnin:stronghold");
+    expect(stronghold.state).toBe("complete");
     expect(p.pendingRewards.length).toBeGreaterThan(0);
   });
 

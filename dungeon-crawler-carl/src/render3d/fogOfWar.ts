@@ -34,8 +34,8 @@ interface LayerSpec {
 // tops that sell the motion. Mist layer: an ankle-height haze that drifts
 // over explored ground as well, so the revealed world keeps atmospheric depth.
 const LAYERS: LayerSpec[] = [
-  { y: 0.55, opacity: 0.44, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
-  { y: 1.35, opacity: 0.2, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
+  { y: 0.55, opacity: 0.32, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
+  { y: 1.35, opacity: 0.16, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
   { y: 0.16, opacity: 0.14, billowTiles: 6, driftA: [0.014, -0.008], driftB: [-0.009, 0.016], mist: 0.45 },
 ];
 
@@ -161,10 +161,12 @@ export class FogOfWar {
     // painted over the frame — the exact "unfinished" tell.)
     const bg = new THREE.Color(theme.background);
     const shadow = new THREE.Color(theme.mood?.gradeShadow ?? 0x16132b);
-    // CRUSHED further (critic r2: the murk read as a mid-value navy canvas):
-    // the bank sits barely above black; the billow highlight is a whisper.
-    const colA = bg.clone().lerp(shadow, 0.75).multiplyScalar(0.55);
-    const colB = bg.clone().lerp(shadow, 0.6).lerp(new THREE.Color(0xaab6cc), 0.03).multiplyScalar(0.7);
+    // READABLE murk (final pass, issue #1): the bank is a VEIL over geometry
+    // that now keeps its own ~10% luminance floor — so it sits at the band's
+    // shadow value instead of crushing toward black (the r2 crush stacked
+    // with the vignette and buried 60%+ of every frame below 5% luminance).
+    const colA = bg.clone().lerp(shadow, 0.75).multiplyScalar(1.1);
+    const colB = bg.clone().lerp(shadow, 0.6).lerp(new THREE.Color(0xaab6cc), 0.07).multiplyScalar(1.25);
 
     for (const spec of LAYERS) {
       const mat = new THREE.ShaderMaterial({

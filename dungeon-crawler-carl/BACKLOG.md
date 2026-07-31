@@ -79,15 +79,6 @@ session has a reason not to. Numbers reference the entries below.
     story-event per floor applying conditions along a path. Prop gaps (beds,
     food, anvil, altar) live in the untapped KayKit Furniture/Restaurant/RPG
     Tools packs — extract via the established pipeline.
-11. **Roam mode isn't saved/resumable yet.** `createGame`'s new `runKind`
-    param (`"race" | "roam"`) never round-trips through `SavedProgress`
-    (`src/persist/save.ts`) — closing the tab mid-Roam and hitting CONTINUE
-    RUN silently rebuilds as Race. `SaveData` needs an optional `runKind?`
-    field (the codebase's existing optional-field + load-time-default
-    convention, e.g. `revisions?`/`tipsSeen?`) once Roam is worth resuming.
-    Not a blocker for v1 (SETTLEMENTS.md scoped v1 as no-persistence), but
-    easy to forget once real persistence work starts.
-
 12. **Boss signature mechanics** (polish ranking #1, with the #6 kiting fix).
     Band bosses are cast reuses with phase layers; none has a mechanic you
     must LEARN. Give each of the six one signature (the Sump King floods
@@ -203,12 +194,14 @@ design doc — see `PHYSICALITY.md`.
     service contracts have no approach prompt or minimap icon; gold/purple
     loot halos are not colorblind-safe; controller/touch parity for the
     newest flows unaudited.
-25. **Roam re-stock exploit (latent bug).** `buildFloor` re-rolls
-    breakables and the service room on every build; when Roam floor
-    REVISITS land, consumed services/hoards regenerate free. Fix: persist
-    consumed ids per floor in the world checkpoint (PERSISTENCE.md) or
-    derive consumption from world state. Harmless in Race (one-way floors)
-    — fix before Roam revisiting ships.
+25. **Roam re-stock exploit — save/load leg FIXED; revisit leg still open.**
+    The CONTINUE rebuild no longer restocks: smashed hoards persist by
+    position key (`state.roamSmashed` -> `SaveData.roam.smashed`, applied in
+    `applyRoamSave`, src/sim/npc.ts) and settlement vendor `purchased`
+    counts round-trip the same way; the service room never spawns on Roam
+    floors at all. Still open: if Roam ever grows BACKWARD floor revisiting
+    within a session, per-floor consumed state needs the world checkpoint
+    (PERSISTENCE.md) — today only the current floor's state is carried.
 26. **Prop rendering perf.** Dressing + breakables are CLONED meshes under
     a 185-prop cap, not GPU-instanced batches; torch lighting is a pooled
     hack. Fine on desktop today; instancing + LOD before mobile/minspec

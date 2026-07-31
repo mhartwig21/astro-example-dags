@@ -17,7 +17,7 @@ import { chromium } from "playwright";
 
 const OUT = process.argv[2] ?? "C:/Users/hartw/.claude/jobs/3a9dd2e4/tmp/shots";
 const URL =
-  "http://localhost:5285/iso.html?test&debug=1&floor=6&level=14&abilities=all&seed=77&eagerassets";
+  "http://localhost:5285/iso.html?test&debug=1&clean=1&floor=6&level=14&abilities=all&seed=77&eagerassets";
 
 const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox"],

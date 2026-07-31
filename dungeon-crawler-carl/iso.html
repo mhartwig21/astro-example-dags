@@ -315,7 +315,11 @@
            top strip (12px):    #hud-tl left · #banner center (SYSTEM/CRAWLER menus) · #hud-tr right
            upper chips:         #show 48px (under the buttons) · #bossbar 92px (center)
                                 · #party 96px right rail (roster under YOUR stats chip)
+                                · #quests 210px right rail (Roam contract ledger,
+                                  collapsible, below the roster zone)
            headline zone:       #headline — the ONE high-priority banner at a time
+           settlement plaque:   #settle-plaque (Roam arrival card, ~26% center —
+                                  below the headline zone, transient)
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
            tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; dismissible
                                  first-contact tip cards (kind:"tip"), one at a time;
@@ -324,7 +328,9 @@
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
                                   System chatter)
-           modals (z 20-28):    #inv/#abil/#sheet 20 · #saferoom 24 · #draft 25 · #keys 26
+           modals (z 20-28):    #inv/#abil/#sheet 20 · #dialogue 22 (Roam NPC
+                                  conversation — letterboxed cut, portrait left)
+                                · #saferoom 24 · #draft 25 · #keys 26
                                 · #recap 27 (end-of-run report; nothing in-run outranks it)
                                 · #menu 28 (RINGSIDE CHECK-IN — pre-run only; panel docks right,
                                   pointer-events off elsewhere so the campfire lineup on the
@@ -2230,6 +2236,209 @@
       .nrow.taken.capstone::before { filter: drop-shadow(0 0 6px rgba(154,107,208,0.95)); }
       .nrow.locked::before { background: #1c1712; }
 
+      /* ============ ROAM PRESENTATION (SETTLEMENTS.md) ============
+         The third register: settlement voices. Same gold-on-dark house, but
+         CONVERSATION chrome — letterboxed cut, painted portrait, plaque. */
+
+      /* Dialogue screen (z 22 — see the zone map): dimmed letterboxed world,
+         portrait panel left, gold-framed text + numbered choices right.
+         Only the interacting player's host ever shows it (sim playerId). */
+      #dialogue { position: fixed; inset: 0; z-index: 22; display: none;
+        align-items: flex-end; justify-content: center;
+        background: radial-gradient(120% 90% at 50% 40%, rgba(8,5,3,0.25), rgba(8,5,3,0.72));
+        opacity: 0; transition: opacity 0.22s ease; }
+      #dialogue.show { opacity: 1; }
+      #dialogue .dlg-bar { position: absolute; left: 0; right: 0; height: 9%;
+        background: #050302; transform: scaleY(0); transition: transform 0.3s ease; }
+      #dialogue .dlg-bar.top { top: 0; transform-origin: top; }
+      #dialogue .dlg-bar.bot { bottom: 0; transform-origin: bottom; }
+      #dialogue.show .dlg-bar { transform: scaleY(1); }
+      .dlg-stage { position: relative; display: flex; align-items: flex-end; gap: 18px;
+        margin-bottom: max(11%, 76px); width: min(880px, 92vw);
+        transform: translateY(14px); transition: transform 0.28s ease; }
+      #dialogue.show .dlg-stage { transform: translateY(0); }
+      /* Portrait: a painted panel in the house plate frame, key-lit. */
+      .dlg-left { flex: 0 0 200px; display: flex; flex-direction: column; align-items: center; }
+      .dlg-portrait { position: relative; width: 200px; height: 250px; border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.65), inset 0 1px 0 rgba(242,222,180,0.16),
+          0 10px 30px rgba(0,0,0,0.65); background: #100c08; }
+      .dlg-portrait img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .dlg-portrait .dlg-pglow { position: absolute; inset: 0; pointer-events: none;
+        box-shadow: inset 0 -26px 30px rgba(0,0,0,0.55), inset 0 0 40px rgba(0,0,0,0.3); }
+      /* Name plaque: engraved bronze bar overlapping the portrait's foot. */
+      .dlg-nameplate { margin-top: -14px; z-index: 1; text-align: center;
+        padding: 5px 18px 4px; border-radius: 3px; min-width: 150px;
+        background: var(--noise), linear-gradient(180deg, #3a2d1c, #17110a 80%);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 4px 12px rgba(0,0,0,0.6); }
+      .dlg-nameplate b { display: block; font-family: var(--display); font-variant: small-caps;
+        font-size: 15px; letter-spacing: 0.14em; color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
+      .dlg-nameplate small { display: block; font-family: var(--display); font-variant: small-caps;
+        font-size: 9.5px; letter-spacing: 0.24em; color: var(--ink-dim); margin-top: 1px; }
+      /* Text panel: the conversation slab. */
+      .dlg-panel { flex: 1; min-width: 0; border-radius: 4px; padding: 12px 18px 12px;
+        background: var(--noise), linear-gradient(180deg, rgba(38,29,19,0.96), rgba(13,10,6,0.97) 60%);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.16), inset 0 0 0 1px rgba(0,0,0,0.6),
+          0 12px 34px rgba(0,0,0,0.6); }
+      .dlg-kicker { font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 9.5px; letter-spacing: 0.26em; color: var(--gold);
+        border-bottom: 1px solid rgba(168,133,79,0.35); padding-bottom: 5px; margin-bottom: 8px; }
+      .dlg-text { min-height: 66px; font-size: 15px; line-height: 1.55; color: #ecdfc4;
+        text-shadow: 0 1px 2px #000; }
+      .dlg-text .dlg-line + .dlg-line { margin-top: 7px; }
+      /* Typewriter caret: rides the reveal, gone when the line settles. */
+      .dlg-text.typing .dlg-line:last-child::after { content: "▌"; color: var(--gold-hi);
+        animation: dlg-caret 0.9s steps(1) infinite; }
+      @keyframes dlg-caret { 50% { opacity: 0; } }
+      .dlg-choices { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+      .dlg-choice { display: flex; align-items: baseline; gap: 10px; text-align: left;
+        cursor: pointer; font: inherit; font-size: 13.5px; color: var(--ink);
+        background: linear-gradient(180deg, rgba(201,162,75,0.07), rgba(201,162,75,0.02));
+        border: 1px solid rgba(110,85,51,0.55); border-radius: 3px; padding: 6px 12px;
+        transition: background 0.1s ease, border-color 0.1s ease, transform 0.1s ease; }
+      .dlg-choice:hover { background: linear-gradient(180deg, rgba(201,162,75,0.2), rgba(201,162,75,0.06));
+        border-color: var(--bronze-hi); color: #f5e6bf; transform: translateX(3px); }
+      .dlg-choice .dnum { font-family: var(--display); font-weight: 700; font-size: 11px;
+        color: var(--gold); min-width: 14px; }
+      .dlg-choice:hover .dnum { color: var(--gold-hi); }
+      .dlg-choice .dlabel { flex: 1; }
+      .dlg-choice .dcost { color: var(--gold-hi); font-variant-numeric: tabular-nums;
+        font-size: 12px; display: inline-flex; align-items: baseline; gap: 3px; }
+      .dlg-choice .dcost .micon { width: 11px; height: 11px; align-self: center; }
+      .dlg-choice.quest .dlabel { color: #f2c14e; }
+      .dlg-choice.bye { border-color: rgba(110,85,51,0.35); color: var(--ink-dim); }
+      .dlg-hint { margin-top: 9px; font-size: 10.5px; color: var(--ink-faint); text-align: right; }
+      /* Guide moment: Mordecai's frame runs WARM — ember keyline + hearth glow,
+         and the kicker names the man, not the channel. */
+      #dialogue.guide .dlg-portrait { border-color: #b8945a; border-top-color: #e2b06a;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.65), inset 0 1px 0 rgba(242,222,180,0.2),
+          0 0 34px rgba(217,142,74,0.28), 0 10px 30px rgba(0,0,0,0.65); }
+      #dialogue.guide .dlg-panel { border-top-color: #e2b06a;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.2), inset 0 0 0 1px rgba(0,0,0,0.6),
+          0 0 30px rgba(217,142,74,0.16), 0 12px 34px rgba(0,0,0,0.6); }
+      #dialogue.guide .dlg-kicker { color: var(--ember); }
+      #dialogue.guide .dlg-nameplate b { color: #f5cf82; }
+
+      /* Quest tracker (right rail, under the party roster zone): collapsible
+         contract ledger in the glass HUD family — fight-screen chrome, not
+         the stone of full-screen sets. */
+      #quests { position: fixed; right: 12px; top: 210px; width: 218px; z-index: 5;
+        display: none; pointer-events: auto; }
+      body.cine #quests, body.modal #quests { display: none !important; }
+      .q-head { display: flex; align-items: center; gap: 7px; width: 100%; cursor: pointer;
+        font: inherit; font-family: var(--display); font-variant: small-caps; font-weight: 700;
+        font-size: 10.5px; letter-spacing: 0.22em; color: var(--gold); text-align: left;
+        background: var(--noise), linear-gradient(180deg, rgba(46,36,23,0.9), rgba(12,9,6,0.92));
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        border-radius: 3px; padding: 5px 10px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.16), 0 4px 12px rgba(0,0,0,0.5);
+        text-shadow: 0 1px 2px #000; }
+      .q-head:hover { color: var(--gold-hi); }
+      .q-head .q-dia { font-size: 7px; color: var(--gold-hi); }
+      .q-head #q-n { color: var(--ink-dim); letter-spacing: 0.08em; }
+      .q-head .q-carrot { margin-left: auto; font-size: 9px; color: var(--ink-dim);
+        transition: transform 0.15s ease; }
+      #quests.collapsed .q-carrot { transform: rotate(-90deg); }
+      #quests.collapsed #q-list { display: none; }
+      #q-list { margin-top: 5px; display: flex; flex-direction: column; gap: 5px; }
+      .q-row { padding: 6px 10px 7px; border-radius: 3px; font-size: 12px;
+        background: var(--noise), linear-gradient(180deg, rgba(26,20,14,0.88), rgba(11,8,5,0.9));
+        border: 1px solid rgba(168,133,79,0.45); border-left: 2px solid var(--gold);
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.06), 0 3px 10px rgba(0,0,0,0.45); }
+      .q-row .q-title { font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 12px; letter-spacing: 0.08em; color: #f5e6bf; text-shadow: 0 1px 2px #000; }
+      .q-row .q-prog { display: flex; align-items: center; gap: 6px; margin-top: 3px;
+        color: var(--ink-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+      .q-row .q-ticks { display: inline-flex; gap: 3px; }
+      .q-row .q-ticks i { width: 6px; height: 6px; transform: rotate(45deg);
+        background: #241c11; box-shadow: 0 0 0 1px rgba(110,85,51,0.6); }
+      .q-row .q-ticks i.on { background: linear-gradient(135deg, var(--gold-hi), var(--gold));
+        box-shadow: 0 0 0 1px rgba(20,12,4,0.8), 0 0 5px rgba(242,193,78,0.5); }
+      .q-row.done { border-left-color: var(--verdant); opacity: 0.85; }
+      .q-row.done .q-title { color: var(--verdant); }
+      .q-row.done .q-prog { color: var(--verdant); }
+      .q-row.offered { border-left-color: rgba(168,133,79,0.5); opacity: 0.8; }
+      .q-row.offered .q-title { color: var(--ink-dim); }
+      /* Quest-complete banner beat: same headline zone, its OWN voice — the
+         settlement ledger, verdant seal, no "◆ SYSTEM" prefix. */
+      .ann.quest { border-color: var(--verdant); color: #dff0d2;
+        box-shadow: 0 0 34px rgba(109,163,86,0.3), 0 6px 26px rgba(0,0,0,0.6); }
+      .ann.quest::before { content: "◆ CONTRACT SETTLED "; color: var(--verdant); font-weight: 700; }
+      .ann.quest.accepted { border-color: var(--gold); color: #f5e6bf;
+        box-shadow: 0 0 28px rgba(201,162,75,0.28), 0 6px 26px rgba(0,0,0,0.6); }
+      .ann.quest.accepted::before { content: "◆ CONTRACT ACCEPTED "; color: var(--gold); }
+
+      /* Settlement plaque: the arrival title card — engraved name, census
+         line, fades in on crossing the walls and excuses itself. */
+      #settle-plaque { position: fixed; top: max(26%, 190px); left: 50%;
+        transform: translate(-50%, -10px); pointer-events: none; text-align: center;
+        opacity: 0; transition: opacity 0.6s ease, transform 0.6s ease; z-index: 6; }
+      #settle-plaque.show { opacity: 1; transform: translate(-50%, 0); }
+      body.cine #settle-plaque, body.modal #settle-plaque { display: none; }
+      #settle-plaque .sp-kicker { font-family: var(--display); font-variant: small-caps;
+        font-weight: 600; font-size: 10px; letter-spacing: 0.34em; color: var(--verdant);
+        text-shadow: 0 1px 3px #000; }
+      #settle-plaque .sp-name { font-family: var(--display); font-variant: small-caps;
+        font-weight: 700; font-size: 34px; letter-spacing: 0.1em; color: #f5e6bf;
+        text-shadow: 0 0 24px rgba(201,162,75,0.4), 0 2px 4px #000, 0 0 2px #000; }
+      #settle-plaque .sp-sub { font-family: var(--display); font-variant: small-caps;
+        font-size: 12px; letter-spacing: 0.26em; color: var(--ink-dim); margin-top: 2px;
+        text-shadow: 0 1px 2px #000; }
+      #settle-plaque .sp-rule { width: 210px; height: 1px; margin: 6px auto 0;
+        background: linear-gradient(90deg, transparent, rgba(201,162,75,0.7), transparent); }
+
+      /* Settlement resident plates: name + role floated overhead on approach,
+         with the talk-key hint when in reach. Warm glass, never a health bar. */
+      #npcplates { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
+      body.cine #npcplates, body.modal #npcplates { display: none; }
+      .nplate { position: absolute; transform: translate(-50%, -100%); text-align: center;
+        white-space: nowrap; will-change: transform, opacity; }
+      .nplate .nname { font-family: var(--display); font-variant: small-caps; font-weight: 700;
+        font-size: 12.5px; letter-spacing: 0.12em; color: #f2d9a0;
+        text-shadow: 0 0 8px rgba(201,162,75,0.4), 0 1px 2px #000, 0 0 3px #000; }
+      .nplate .nrole { font-family: var(--display); font-variant: small-caps; font-size: 9px;
+        letter-spacing: 0.3em; color: var(--ink-dim); text-shadow: 0 1px 2px #000; }
+      .nplate .ntalk { display: none; margin-top: 2px; font-size: 10px; color: var(--gold-hi); }
+      .nplate .ntalk kbd { padding: 0 5px; font-size: 10px; color: var(--gold-hi);
+        border-color: var(--gold); background: rgba(20,14,8,0.85); }
+      .nplate.reach .ntalk { display: block; }
+      .nplate.guide .nname { color: #f5cf82; text-shadow: 0 0 10px rgba(217,142,74,0.55),
+        0 1px 2px #000, 0 0 3px #000; }
+      /* Mordecai paints the chart: a gold pulse on the minimap bezel whenever
+         a dialogue reveal floods new ground onto it. */
+      #minimap-frame.mm-flash { animation: mm-reveal 1.6s ease; }
+      @keyframes mm-reveal {
+        0% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(242,222,180,0.14),
+          0 6px 20px rgba(0,0,0,0.5); }
+        25% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(242,222,180,0.14),
+          0 0 30px rgba(242,193,78,0.6), 0 6px 20px rgba(0,0,0,0.5); }
+        100% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(242,222,180,0.14),
+          0 6px 20px rgba(0,0,0,0.5); }
+      }
+
+      /* ROAM menu card: the campaign gets a proper poster — ember hearth
+         behind the marker, verdant read, and a CAMPAIGN CONTINUES state. */
+      .m-tile.roam { --tc: #d98e4a;
+        background:
+          radial-gradient(70% 60% at 50% 18%, rgba(217,142,74,0.16), transparent 70%),
+          linear-gradient(180deg, #241c12, #1b1611 70%); }
+      .m-tile.roam b { color: var(--ember); }
+      .m-tile.roam:hover { border-color: var(--ember);
+        box-shadow: 0 0 18px rgba(217,142,74,0.18); }
+      .m-tile.roam .m-tile-icon { border-color: #4a3820;
+        background: radial-gradient(60% 55% at 50% 68%, rgba(217,142,74,0.35), transparent 75%),
+          linear-gradient(160deg, #1b1611, #100c09); }
+      .m-tile.roam.continues { border-color: rgba(217,142,74,0.7); }
+      .m-tile.roam.continues b { color: #f5cf82; }
+      .m-tile.roam.continues small { color: #a99f8c; }
+
       /* House rule: panels fit the viewport. Where a scrollbar must exist, thin bronze. */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: var(--bronze); border-radius: 4px; }
@@ -2379,6 +2588,34 @@
     <div id="headline"></div>
     <div id="tutorial"></div>
     <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
+    <!-- ROAM: the settlement conversation cut (only the interacting player's
+         host shows it; sim session playerId gates rendering). -->
+    <div id="dialogue">
+      <i class="dlg-bar top"></i><i class="dlg-bar bot"></i>
+      <div class="dlg-stage">
+        <div class="dlg-left">
+          <div class="dlg-portrait"><img id="dlg-portrait" src="" alt="" draggable="false"><i class="dlg-pglow"></i></div>
+          <div class="dlg-nameplate"><b id="dlg-name"></b><small id="dlg-role"></small></div>
+        </div>
+        <div class="dlg-panel">
+          <div class="dlg-kicker" id="dlg-kicker">◆ SETTLEMENT CHANNEL ◆</div>
+          <div class="dlg-text" id="dlg-text"></div>
+          <div class="dlg-choices" id="dlg-choices"></div>
+          <div class="dlg-hint"><kbd>1</kbd>–<kbd>9</kbd> answer · <kbd>Esc</kbd> farewell</div>
+        </div>
+      </div>
+    </div>
+    <!-- ROAM: contract ledger (right rail) + settlement arrival plaque. -->
+    <div id="quests">
+      <button class="q-head" id="q-head"><span class="q-dia">◆</span> CONTRACTS <span id="q-n"></span><span class="q-carrot">▾</span></button>
+      <div id="q-list"></div>
+    </div>
+    <div id="settle-plaque">
+      <div class="sp-kicker">◆ SETTLEMENT ◆</div>
+      <div class="sp-name" id="sp-name"></div>
+      <div class="sp-rule"></div>
+      <div class="sp-sub" id="sp-sub"></div>
+    </div>
     <div id="inv">
       <div class="panel">
         <h2>INVENTORY</h2>
@@ -2545,9 +2782,9 @@
                 <button class="m-mini" id="m-rinvite">COPY INVITE</button>
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
-              <button class="m-tile" id="m-roam-solo">
+              <button class="m-tile roam" id="m-roam-solo">
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/marker.svg);-webkit-mask-image:url(/icons/ui/marker.svg)"></i></span>
-                <b>ROAM</b><small>no clock, a settlement, a tribe, a quest — v1, solo only for now</small>
+                <b id="m-roam-title">ROAM</b><small id="m-roam-sub">no clock — settlements, residents, contracts · solo campaign</small>
               </button>
             </div>
             <button class="m-testlink" id="m-test">TEST CHAMBER — practice floors, nothing is saved</button>

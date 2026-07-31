@@ -26,6 +26,21 @@ export const CONFIG = {
   roamMonsterDensity: 0.012, // monsters per walkable tile
   roamQuestTarget: 10, // kills required to complete the settlement's killTribe quest
 
+  // Roam settlements (SETTLEMENTS.md): count per megafloor (the entrance one
+  // + 2-3 outlying), the sanctuary's no-aggro skirt beyond the room walls,
+  // and the in-map safe-room services' pricing.
+  roamSettlementsMin: 3,
+  roamSettlementsMax: 4,
+  roamSettlementPad: 1, // tiles of no-aggro skirt around each settlement room
+  roamQuestsPerFloorMin: 2, // active quest board size (killTribe + 1-2 more)
+  roamQuestsPerFloorMax: 3,
+  roamBeaconCount: 3, // spots the "light the beacons" quest scatters
+  roamHealCostBase: 20, // quartermaster patch-up: base gold...
+  roamHealCostPerFloor: 5, // ...plus this per floor
+  roamRumorCostBase: 15, // rumor-monger's stairway ping: base gold...
+  roamRumorCostPerFloor: 3, // ...plus this per floor
+  roamVendorGearStock: 5, // seeded gear picks on a settlement vendor's shelf
+
   // Collapse timer (seconds). Floor 1 is generous; deeper floors tighten.
   // Budgets account for the larger floors (longer traversal to the stairs).
   timerBaseSeconds: 120,

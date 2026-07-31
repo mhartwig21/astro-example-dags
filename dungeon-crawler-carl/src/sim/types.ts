@@ -386,28 +386,104 @@ export interface Monster {
   tribe?: string; // Roam-only: which TribeId this monster belongs to, for quest kill-credit
 }
 
-// Roam-only: the settlement's single resident. Static, unarmed, no AI.
+// Roam-only: a settlement resident. Static, unarmed, no AI. `role` drives
+// dialogue content + services (npc.ts); absent on v1 snapshots (treated as
+// a plain elder). The guide role is Mordecai — present in every entrance
+// settlement.
+export type NpcRole = "guide" | "trader" | "quartermaster" | "rumor" | "elder";
+
 export interface Npc {
   id: number;
   pos: Vec2;
   name: string;
   kind: "settlement";
+  role?: NpcRole;
+  settlementId?: number; // which Settlement this resident belongs to
+  portraitId?: string; // host portrait art key (defaults to the role)
 }
 
-// Roam-only: quests offered by the settlement NPC. killTribe is offered
-// first; clearStronghold is appended once killTribe completes (only on
-// floors with a stronghold) — see talkToNpc in npc.ts.
+// Roam-only: a friendly settlement — a sanctuary room (monsters won't path
+// in; see isWalkableForMonster) with residents, a vendor shelf, and safe-room
+// services (heal, ability re-slot). The vendor reuses the SafeRoom shape
+// verbatim so buyCatalogItem/sellItem work unchanged (shopRoomFor falls back
+// to the settlement the player is standing in).
+export interface Settlement {
+  id: number;
+  name: string;
+  roomIdx: number; // index into map.rooms
+  entrance: boolean; // the settlement nearest spawn (Mordecai lives here)
+  npcIds: number[];
+  shop: SafeRoom; // nextFloor = the CURRENT floor (price basis); ready unused
+}
+
+// Roam-only NPC dialogue: its own channel, deliberately separate from
+// state.announcements (VOICE.md reserves that surface for the System's
+// voice — settlement voices are a third register, carved out like the
+// safe-room manager tips were). Emitted by startDialogue/chooseDialogue in
+// npc.ts; hosts render the panel and call chooseDialogue with a choice id.
+export interface DialogueLine {
+  speaker: string;
+  text: string;
+}
+
+export type DialogueEffect =
+  | "acceptQuest" // questKey: offered -> active (may spawn objective props)
+  | "turnIn" // questKey: active+done -> complete, rewards via pendingRewards
+  | "vendor" // host signal: open the settlement shop (session.open)
+  | "reslot" // host signal: open the loadout panel (session.open)
+  | "heal" // pay `price` gold: full heal + cleanse (safe-room service in-map)
+  | "rumor" // pay `price` gold: the stairway ping + revealed ground
+  | "orient" // guide only: what this floor holds; reveals settlement regions
+  | "tip" // guide only: first-time advice (gated by Player.tipsSeen)
+  | "farewell"; // close the session
+
+export interface DialogueChoice {
+  id: string;
+  label: string;
+  effect: DialogueEffect;
+  questKey?: string; // acceptQuest / turnIn
+  price?: number; // heal / rumor: gold cost (UI shows it; sim charges it)
+}
+
+export interface DialogueSession {
+  id: number;
+  playerId: number; // whose session this is (one active session per state)
+  npcId: number;
+  npcName: string;
+  portraitId: string;
+  settlementId: number;
+  lines: DialogueLine[];
+  choices: DialogueChoice[];
+  open?: "vendor" | "reslot"; // host signal set by the matching choice
+  done?: boolean; // farewell chosen — hosts close the panel
+}
+
+// Roam-only quest objectives — the five archetypes. killTribe is the floor's
+// anchor quest; clearStronghold is appended once killTribe turns in (floors
+// with a stronghold); the rest are rolled per floor from different NPCs.
 export type QuestObjective =
   | { kind: "killTribe"; tribe: string; target: number; killed: number }
-  | { kind: "clearStronghold"; leaderName: string };
+  | { kind: "clearStronghold"; leaderName: string }
+  // Recover a cache from the vault room (the prop spawns on accept).
+  | { kind: "cache"; roomIdx: number; recovered: boolean }
+  // Deliver a parcel to a named resident of ANOTHER settlement; turn-in
+  // happens at the recipient, not the giver.
+  | { kind: "delivery"; toNpcId: number; toName: string; toSettlementId: number; cargo: string; delivered: boolean }
+  // Light every beacon (walk to each spot while the quest is active).
+  | { kind: "beacons"; spots: { x: number; y: number; lit: boolean }[] };
 
 export interface Quest {
   id: number;
+  // Stable identity for save round-trips (quest generation is deterministic
+  // per (seed, floor), so a key matches across rebuilds). Absent on v1 saves.
+  key?: string;
+  giverNpcId?: number;
+  title?: string;
   objective: QuestObjective;
   state: "offered" | "active" | "complete";
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service" | "cache";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
 // on legendary signature gear (see catalog.ts).
@@ -591,7 +667,10 @@ export interface FloorMap {
   cycles: number; // extra loop corridors carved beyond the spanning chain
   locked: boolean; // the stairs room is sealed behind DoorLocked tiles
   lockedRoomIdx: number; // index into rooms of the sealed stairs room; -1 when unlocked
-  settlementRoomIdx: number; // index into rooms of the Roam settlement; -1 when not a Roam floor
+  settlementRoomIdx: number; // the ENTRANCE settlement's room; -1 when not a Roam floor
+  // ALL settlement rooms (2-4 per Roam megafloor; the first is the entrance
+  // one). Optional: v1 snapshots carry only the singular field above.
+  settlementRoomIdxs?: number[];
   strongholdRoomIdx: number; // index into rooms of the Roam hostile stronghold; -1 when none
   // Landmark set pieces carved into the GRID (tile indices; the tiles are
   // Wall): pillars/pedestal used to be walk-through renderer dressing —
@@ -823,10 +902,23 @@ export interface GameState {
   // settlement/tribe/quest, regenerating open-endedly instead of ending at
   // floor 18. See SETTLEMENTS.md.
   runKind: "race" | "roam";
-  // Roam only: the floor's single settlement resident and its quest board.
-  // Rebuilt fresh by buildFloor each Roam floor; both empty on Race floors.
+  // Roam only: the guide NPC (Mordecai, entrance settlement). Kept as the
+  // legacy singular field so v1 snapshots and the current renderer path stay
+  // valid; the full roster lives in `npcs` below.
   npc: Npc | null;
   quests: Quest[];
+  // Roam only: every settlement resident on this floor (includes `npc`).
+  // Optional: v1 snapshots lack it — readers default to [npc].
+  npcs?: Npc[];
+  // Roam only: the floor's settlements (2-4; [0] is the entrance one).
+  settlements?: Settlement[];
+  // Roam only: the active NPC dialogue session (one at a time — solo-first,
+  // like pendingRewards but floor-scoped). Hosts render it and answer via
+  // chooseDialogue/closeDialogue in npc.ts. Null/absent = no panel.
+  dialogue?: DialogueSession | null;
+  // Roam only (BACKLOG #25 seam): position keys of breakables smashed on
+  // THIS floor, so a save/load rebuild doesn't restock consumed hoards.
+  roamSmashed?: string[];
   // Roam only: the current floor's hostile stronghold, if any. The leader id
   // is tracked so reapDead can flip strongholdCleared on its death even if no
   // clearStronghold quest exists yet (killing it "early" is a valid outcome).

@@ -14,8 +14,9 @@ import {
 import {
   EQUIP_SLOTS, Tile,
   type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
-  type Vec2,
+  type DialogueSession, type Quest, type SafeRoom, type Vec2,
 } from "./sim/types";
+import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
 import { CONFIG, naturalFloorForLevel } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -93,6 +94,9 @@ const audioDirector = new AudioDirector(audio);
 // Local mode runs the sim in-page; network mode renders authoritative snapshots
 // from the server and forwards intents/actions. Same renderer, same UI.
 const params = new URLSearchParams(location.search);
+// CLEAN CAPTURE: ?clean=1 suppresses tutorial cards + courtesy toast chatter
+// (showcase/marketing frames — see tools/beautyshot.mjs). Gameplay untouched.
+const cleanMode = params.has("clean");
 const joinCode = params.get("join");
 // RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
 const rivalsMode = params.has("rivals");
@@ -192,6 +196,7 @@ function boot(): GameState {
     runMode = save.mode ?? { kind: "random" };
     hasContinue = true;
     const g = restoreGame(save);
+    currentRunKind = g.runKind; // a resumed Roam campaign stays Roam (BACKLOG #11)
     if (save.player.name) g.players[0].name = save.player.name;
     seedTips(g.players[0]); // the ledger may know tips from other runs
     return g;
@@ -726,6 +731,28 @@ function openMenu(): void {
       `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
+  // ROAM card: a live campaign turns the poster into its save slot — floor,
+  // open contracts, the campfire still lit. Clicking it RESUMES (see handler).
+  {
+    const roamTile = document.getElementById("m-roam-solo")!;
+    const roamCampaign = hasContinue && state.runKind === "roam";
+    roamTile.classList.toggle("continues", roamCampaign);
+    if (roamCampaign) {
+      const p = state.players[0];
+      const open = state.quests.filter((q) => q.state === "active").length;
+      const settled = state.quests.filter((q) => q.state === "complete").length;
+      const bits = [`floor ${state.floor}`, `level ${p.level}`];
+      if (open > 0) bits.push(`${open} contract${open === 1 ? "" : "s"} open`);
+      if (settled > 0) bits.push(`${settled} settled`);
+      document.getElementById("m-roam-title")!.textContent = "ROAM — CAMPAIGN CONTINUES";
+      document.getElementById("m-roam-sub")!.textContent = `${bits.join(" · ")} — the campfire is still lit`;
+      cont.style.display = "none"; // one resume affordance: the campaign card IS the save
+    } else {
+      document.getElementById("m-roam-title")!.textContent = "ROAM";
+      document.getElementById("m-roam-sub")!.textContent =
+        "no clock — settlements, residents, contracts · solo campaign";
+    }
+  }
   document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
@@ -767,11 +794,14 @@ document.getElementById("m-daily")!.addEventListener("click", () =>
 document.getElementById("m-solo")!.addEventListener("click", () =>
   enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
-// ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
-// settlement, one tribe, one quest, no daily/party/rivals/test yet — a peer
-// tile in the hub like everything else, one click straight into casting.
-document.getElementById("m-roam-solo")!.addEventListener("click", () =>
-  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam")));
+// ROAM (SETTLEMENTS.md) is solo-only for now: settlements, residents, and the
+// contract board, no daily/party/rivals/test yet. With a live Roam save the
+// card IS the save slot — clicking resumes the campaign (no casting call:
+// like CONTINUE, that crawler already exists). Otherwise it starts one.
+document.getElementById("m-roam-solo")!.addEventListener("click", () => {
+  if (hasContinue && state.runKind === "roam") { closeMenu(); return; }
+  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam"));
+});
 
 // Party crawl: the invite code IS the dungeon seed; the URL is the invite.
 const codeInput = document.getElementById("m-code") as HTMLInputElement;
@@ -1154,7 +1184,7 @@ function hideOverlay(el: HTMLElement): void {
 // A style-attribute observer catches every open/close path (showOverlay,
 // direct display writes, net snapshot toggles) without touching call sites.
 {
-  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu"]
+  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu", "dialogue"]
     .map((id) => document.getElementById(id))
     .filter((el): el is HTMLElement => el !== null);
   const syncModal = (): void => {
@@ -1627,9 +1657,10 @@ function abilityCard(s: GameState, id: AbilityId): string {
   const whereCls = where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : "";
   const rows = UPGRADES.filter((u) => u.ability === id).map((u) => nodeRowHtml(p, u)).join("");
   // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
-  // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
+  // the buttons elsewhere). Roam: a settlement's walls count as safety — the
+  // sim's slotAbility accepts playerInSettlement, so the buttons show there too.
   let controls = "";
-  if (s.safeRoom) {
+  if (s.safeRoom || settlementShopFor(s, me(s))) {
     if (info.tier === "active") {
       const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
         `<button class="slot-btn" data-ability="${id}" data-slot="${i}">SLOT ${i + 1}</button>`).join("");
@@ -2149,9 +2180,16 @@ function ownedCatalogCounts(p: Player): Record<string, number> {
   return counts;
 }
 
+/** The store panel serves BOTH shop kinds: the between-floor safe room, and
+ * — Roam — the settlement outfitter the player is standing in (same SafeRoom
+ * shape sim-side; buy/sell/reslot route through shopRoomFor unchanged). */
+function shopRoomOf(s: GameState): SafeRoom | null {
+  return s.safeRoom ?? settlementShopFor(s, me(s));
+}
+
 /** Why this entry can't be bought right now, or null if it can. */
 function buyBlocker(s: GameState, e: CatalogEntry): string | null {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   if (!room.available.includes(e.id)) {
     const unlock = TIER_UNLOCK_SHOP[e.tier];
@@ -2170,7 +2208,7 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
 }
 
 function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, number>): string {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   const locked = !room.available.includes(e.id);
   const price = effectivePrice(p, e.id, room.nextFloor);
@@ -2257,7 +2295,7 @@ function detailArtHtml(tc: string, iconHtml: string): string {
 }
 
 function renderShopDetail(s: GameState): void {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   if (!shopSel) {
     // Never a void (AAA r2 major): the unselected pane shows the System's
@@ -2417,10 +2455,19 @@ function renderShopDetail(s: GameState): void {
 }
 
 function renderSafeRoom(s: GameState): void {
-  const room = s.safeRoom;
+  const room = shopRoomOf(s);
   if (!room) return;
   const p = me(s);
-  srTip.textContent = room.tip;
+  // Settlement outfitter: same panel, the settlement's voice on the chrome —
+  // and no DESCEND (you're mid-floor; the exit is the door you came in by).
+  const roamShop = !s.safeRoom;
+  const settlement = roamShop ? settlementAt(s, p.pos) : null;
+  srEl.querySelector("h2")!.textContent = roamShop
+    ? `◆ ${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
+    : "◆ SAFE ROOM";
+  srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
+  srTip.textContent = room.tip ||
+    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
   // Zero-value currencies stay off the header until first earned — three
   // dead 0-chips are noise, not information.
   const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
@@ -2428,7 +2475,7 @@ function renderSafeRoom(s: GameState): void {
   if (p.materials.boss_sigil > 0) wchips.push(`<span class="chip" title="boss sigils">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>`);
   if (p.sponsors > 0) wchips.push(`<span class="chip" title="sponsors"><i class="micon" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i><b>${p.sponsors}</b></span>`);
   srWallet.innerHTML = wchips.join("");
-  srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
+  srReady.textContent = !roamShop && s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
   // Top-level tab dispatch.
   srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
   if (srTab === "ach" && !CONFIG.achievementsEnabled) srTab = "shop";
@@ -2507,7 +2554,7 @@ const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
 const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
 
 function renderShopPage(s: GameState): void {
-  const room = s.safeRoom;
+  const room = shopRoomOf(s);
   if (!room) return;
   const p = me(s);
   srTabStock.classList.toggle("active", shopView === "stock");
@@ -2729,6 +2776,12 @@ srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state);
 srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
 
 srDescend.addEventListener("click", () => {
+  // Settlement outfitter: the button is an exit, not a descent.
+  if (!state.safeRoom) {
+    settlementShopOpen = false;
+    hideOverlay(srEl);
+    return;
+  }
   if (net) {
     net.ready(); // modal stays until the whole party is ready (snapshot clears it)
     return;
@@ -3047,6 +3100,9 @@ function drawMinimap(s: GameState): void {
     mmCtx.stroke();
     mmCtx.globalAlpha = 1;
   }
+  // Roam: settlement pennants + active-contract pins, in the same engraved
+  // chart language as the rest of the surveyor's minimap.
+  if (s.runKind === "roam") drawRoamPins(s, X, Y);
   // Location Scout (chase legendary): the stairs are marked from the moment
   // you arrive — a pulsing gold diamond, fog or no fog.
   if (hasPassive(me(s), "pathfinder")) {
@@ -3063,6 +3119,507 @@ function drawMinimap(s: GameState): void {
     mmCtx.stroke();
     mmCtx.fillStyle = "#ffd700";
     mmCtx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
+  }
+}
+
+// ============================ ROAM PRESENTATION ============================
+// Host side of src/sim/npc.ts: the settlement conversation cut, the contract
+// ledger, arrival plaques, resident nameplates, and minimap chart pins.
+// Dialogue rides state.dialogue (its OWN channel — never the System's
+// announcer surfaces) and renders ONLY for the interacting player.
+
+let settlementShopOpen = false; // the in-map outfitter (reuses #saferoom)
+
+const dlgEl = document.getElementById("dialogue")!;
+const dlgPortraitImg = document.getElementById("dlg-portrait") as HTMLImageElement;
+const dlgNameEl = document.getElementById("dlg-name")!;
+const dlgRoleEl = document.getElementById("dlg-role")!;
+const dlgKickerEl = document.getElementById("dlg-kicker")!;
+const dlgTextEl = document.getElementById("dlg-text")!;
+const dlgChoicesEl = document.getElementById("dlg-choices")!;
+const mmFrameEl = document.getElementById("minimap-frame")!;
+
+// Painted portrait per archetype (public/icons/portraits/): the sim's
+// portraitId is the file key; unknown ids fall back to the elder.
+const PORTRAIT_IDS = new Set(["mordecai", "trader", "quartermaster", "rumor", "elder"]);
+const NPC_ROLE_LABEL: Record<string, string> = {
+  guide: "Guide", trader: "Trader", quartermaster: "Quartermaster",
+  rumor: "Rumor-Monger", elder: "Elder",
+};
+
+let dlgOpen = false;
+let dlgSessionId = -1;
+let dlgLinesKey = "";
+let dlgFullText: string[] = [];
+let dlgShown = 0; // characters revealed so far, across every line
+let dlgTypeTimer = 0;
+
+function dlgTotalChars(): number {
+  return dlgFullText.reduce((n, l) => n + l.length, 0);
+}
+
+function dlgRenderText(): void {
+  let budget = dlgShown;
+  let html = "";
+  for (const line of dlgFullText) {
+    if (budget <= 0) break;
+    const take = Math.min(line.length, budget);
+    budget -= take;
+    html += `<div class="dlg-line">${esc(line.slice(0, take))}</div>`;
+  }
+  dlgTextEl.innerHTML = html;
+  dlgTextEl.classList.toggle("typing", dlgShown < dlgTotalChars());
+}
+
+/** Classic RPG typewriter — click / Space / Enter skips to the full text. */
+function dlgStartType(lines: string[]): void {
+  dlgFullText = lines;
+  dlgShown = 1;
+  window.clearInterval(dlgTypeTimer);
+  dlgTypeTimer = window.setInterval(() => {
+    dlgShown += 2;
+    dlgRenderText();
+    if (dlgShown >= dlgTotalChars()) window.clearInterval(dlgTypeTimer);
+  }, 16);
+  dlgRenderText();
+}
+
+function dlgFinishType(): void {
+  window.clearInterval(dlgTypeTimer);
+  dlgShown = dlgTotalChars();
+  dlgRenderText();
+}
+
+function dlgRenderChoices(session: DialogueSession): void {
+  dlgChoicesEl.innerHTML = session.choices.map((c, i) => {
+    const cls = [
+      "dlg-choice",
+      c.effect === "farewell" ? "bye" : "",
+      c.effect === "acceptQuest" || c.effect === "turnIn" ? "quest" : "",
+    ].filter(Boolean).join(" ");
+    const cost = c.price ? `<span class="dcost">${coin}${c.price}</span>` : "";
+    return (
+      `<button class="${cls}" data-choice="${esc(c.id)}">` +
+      `<span class="dnum">${i + 1}</span><span class="dlabel">${esc(c.label)}</span>${cost}</button>`
+    );
+  }).join("");
+}
+
+function openDialogueUi(session: DialogueSession, s: GameState): void {
+  dlgOpen = true;
+  dlgSessionId = session.id;
+  const guide = session.portraitId === "mordecai";
+  dlgEl.classList.toggle("guide", guide);
+  const pid = PORTRAIT_IDS.has(session.portraitId) ? session.portraitId : "elder";
+  dlgPortraitImg.src = `/icons/portraits/${pid}.svg`;
+  dlgNameEl.textContent = session.npcName;
+  const npc = npcsOf(s).find((n) => n.id === session.npcId);
+  dlgRoleEl.textContent = NPC_ROLE_LABEL[npc?.role ?? "elder"] ?? "Resident";
+  const st = (s.settlements ?? []).find((x) => x.id === session.settlementId);
+  dlgKickerEl.textContent = guide
+    ? "◆ THE GUIDE ◆"
+    : `◆ ${(st?.name ?? "the camp").toUpperCase()} — SETTLEMENT CHANNEL ◆`;
+  input.captureMode = true; // digits answer, not cast, while the panel is up
+  dlgEl.style.display = "flex";
+  requestAnimationFrame(() => dlgEl.classList.add("show"));
+}
+
+function closeDialogueUi(): void {
+  if (!dlgOpen) return;
+  dlgOpen = false;
+  dlgSessionId = -1;
+  dlgLinesKey = "";
+  window.clearInterval(dlgTypeTimer);
+  dlgEl.classList.remove("show");
+  window.setTimeout(() => { if (!dlgOpen) dlgEl.style.display = "none"; }, 220);
+  if (!menuOpen && !kbOpen) input.captureMode = false;
+}
+
+/** Answer a dialogue choice (local sim only — Roam is solo-first). */
+function answerDialogue(choiceId: string): void {
+  if (net) return; // no wire message for dialogue answers yet
+  const session = state.dialogue;
+  if (!session) return;
+  const before = state.exploredVersion;
+  chooseDialogue(state, session.playerId, choiceId);
+  flushFeedback(state);
+  persistRun(state);
+  // Guide moment: an orientation / rumor just painted the chart — pulse the
+  // minimap bezel so the reveal lands as a visible gift. Deferred: the modal
+  // scrim hides the minimap right now; the pulse fires as the panel closes.
+  if (state.exploredVersion !== before) mmFlashPending = true;
+}
+let mmFlashPending = false;
+
+dlgChoicesEl.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest(".dlg-choice") as HTMLElement | null;
+  if (btn?.dataset.choice) answerDialogue(btn.dataset.choice);
+});
+dlgTextEl.addEventListener("click", () => dlgFinishType());
+// The dialogue owns the keyboard while open (captureMode holds game binds):
+// 1-9 answer, Space/Enter skip the typewriter, Esc is a polite farewell.
+window.addEventListener("keydown", (e) => {
+  if (!dlgOpen) return;
+  if (e.key === "Escape") {
+    if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
+    closeDialogueUi();
+    e.stopImmediatePropagation();
+    return;
+  }
+  if ((e.key === " " || e.key === "Enter") && dlgShown < dlgTotalChars()) {
+    dlgFinishType();
+    return;
+  }
+  const n = Number(e.key);
+  if (Number.isInteger(n) && n >= 1 && n <= 9) {
+    (dlgChoicesEl.children[n - 1] as HTMLButtonElement | undefined)?.click();
+  }
+}, true);
+
+/** Per-frame dialogue sync: the sim session is the truth, the panel follows. */
+function updateDialogueUi(s: GameState): void {
+  const session = s.runKind === "roam" ? s.dialogue ?? null : null;
+  if (!session || session.playerId !== me(s).id || session.done) {
+    if (dlgOpen) closeDialogueUi();
+    return;
+  }
+  // Host signals: a choice asked for the shop / the loadout bench — trade the
+  // conversation for the panel (the settlement outfitter reuses #saferoom).
+  if (session.open) {
+    const page = session.open;
+    if (!net) {
+      closeDialogue(s, session.playerId);
+      closeDialogueUi();
+      srTab = page === "reslot" ? "abil" : "shop";
+      shopView = "stock";
+      shopSel = null;
+      settlementShopOpen = true;
+    }
+    return;
+  }
+  const key =
+    `${session.id}:${session.lines.map((l) => l.text).join("¦")}:` +
+    session.choices.map((c) => c.id).join(",");
+  if (key === dlgLinesKey) return;
+  const fresh = session.id !== dlgSessionId;
+  dlgLinesKey = key;
+  if (fresh) openDialogueUi(session, s);
+  dlgStartType(session.lines.map((l) => l.text));
+  dlgRenderChoices(session);
+}
+
+// ---- Contract ledger (right rail, collapsible) ----
+const questsEl = document.getElementById("quests")!;
+const qListEl = document.getElementById("q-list")!;
+const qNEl = document.getElementById("q-n")!;
+const Q_COLLAPSE_KEY = "dcc:quests:v1";
+try { if (localStorage.getItem(Q_COLLAPSE_KEY) === "1") questsEl.classList.add("collapsed"); } catch { /* default open */ }
+document.getElementById("q-head")!.addEventListener("click", () => {
+  const c = questsEl.classList.toggle("collapsed");
+  try { localStorage.setItem(Q_COLLAPSE_KEY, c ? "1" : "0"); } catch { /* best-effort */ }
+});
+let questTrackerKey = "";
+
+/** Display-only progress read of a quest objective (no rules live here). */
+function questProgress(s: GameState, q: Quest): { text: string; done: boolean; ticks?: [number, number] } {
+  const o = q.objective;
+  switch (o.kind) {
+    case "killTribe": {
+      const k = Math.min(o.killed, o.target);
+      return { text: `${k} / ${o.target} culled`, done: k >= o.target, ticks: [k, o.target] };
+    }
+    case "clearStronghold":
+      return s.strongholdCleared
+        ? { text: `${o.leaderName} evicted`, done: true }
+        : { text: `${o.leaderName} still holds the camp`, done: false };
+    case "cache":
+      return o.recovered
+        ? { text: "cache in hand", done: true }
+        : { text: "recover the cache from the vault", done: false };
+    case "delivery":
+      return o.delivered
+        ? { text: "delivered, signed, witnessed", done: true }
+        : { text: `deliver to ${o.toName}`, done: false };
+    case "beacons": {
+      const lit = o.spots.filter((x) => x.lit).length;
+      return { text: `${lit} / ${o.spots.length} beacons lit`, done: lit >= o.spots.length, ticks: [lit, o.spots.length] };
+    }
+  }
+}
+
+function updateQuestTracker(s: GameState): void {
+  const show = s.runKind === "roam" && s.status === "playing" && !menuOpen && (s.quests?.length ?? 0) > 0;
+  questsEl.style.display = show ? "block" : "none";
+  if (!show) { questTrackerKey = ""; return; }
+  const key = s.quests.map((q) => `${q.key ?? q.id}:${q.state}:${questProgress(s, q).text}`).join("|");
+  if (key === questTrackerKey) return;
+  questTrackerKey = key;
+  const active = s.quests.filter((q) => q.state === "active");
+  const offered = s.quests.filter((q) => q.state === "offered");
+  const done = s.quests.filter((q) => q.state === "complete");
+  qNEl.textContent = active.length > 0 ? `· ${active.length} open` : "";
+  const giverName = (q: Quest): string =>
+    npcsOf(s).find((n) => n.id === q.giverNpcId)?.name ?? "a resident";
+  const ticksHtml = (a: number, b: number): string =>
+    b <= 10
+      ? `<span class="q-ticks">${Array.from({ length: b }, (_v, i) => `<i class="${i < a ? "on" : ""}"></i>`).join("")}</span>`
+      : "";
+  qListEl.innerHTML =
+    active.map((q) => {
+      const pr = questProgress(s, q);
+      const line = pr.done && q.objective.kind !== "delivery"
+        ? `${pr.text} — see ${giverName(q)}`
+        : pr.text;
+      return (
+        `<div class="q-row${pr.done ? " done" : ""}">` +
+        `<div class="q-title">${esc(q.title ?? q.key ?? "the work")}</div>` +
+        `<div class="q-prog">${pr.ticks ? ticksHtml(pr.ticks[0], pr.ticks[1]) : ""}<span>${esc(line)}</span></div>` +
+        `</div>`
+      );
+    }).join("") +
+    offered.map((q) =>
+      `<div class="q-row offered"><div class="q-title">${esc(q.title ?? "posted work")}</div>` +
+      `<div class="q-prog"><span>ask ${esc(giverName(q))}</span></div></div>`).join("") +
+    (done.length > 0
+      ? `<div class="q-row done"><div class="q-prog"><span>${done.length} contract${done.length === 1 ? "" : "s"} settled this floor</span></div></div>`
+      : "");
+}
+
+// Contract beats: accept / settle each get one pass through the headline zone
+// in the settlement ledger's voice (.ann.quest — distinct from the System).
+// They fire INSIDE the dialogue modal (which suppresses #headline), so beats
+// buffer here and land the moment the conversation / reward draft clears.
+const questStateMem = new Map<string, Quest["state"]>();
+const pendingQuestBeats: { a: Announcement; cls: string }[] = [];
+function watchQuestBeats(s: GameState): void {
+  if (s.runKind !== "roam") return;
+  for (const q of s.quests ?? []) {
+    const k = `${s.seed}:${s.floor}:${q.key ?? q.id}`;
+    const prevSt = questStateMem.get(k);
+    if (prevSt !== q.state) {
+      questStateMem.set(k, q.state);
+      if (prevSt === undefined) continue; // first sight (build / restore): no beat
+      if (q.state === "active") {
+        pendingQuestBeats.push({
+          a: { text: q.title ?? "the work", kind: "progress", priority: "high" },
+          cls: "ann banner quest accepted",
+        });
+      } else if (q.state === "complete") {
+        pendingQuestBeats.push({
+          a: { text: `${q.title ?? "the job"} — the payout draft is yours`, kind: "progress", priority: "high" },
+          cls: "ann banner quest",
+        });
+      }
+    }
+  }
+  if (pendingQuestBeats.length > 0 && !document.body.classList.contains("modal")) {
+    for (const b of pendingQuestBeats.splice(0)) showBanner(b.a, b.cls);
+  }
+}
+
+// ---- Settlement presence: the arrival plaque ----
+const plaqueEl = document.getElementById("settle-plaque")!;
+const spNameEl = document.getElementById("sp-name")!;
+const spSubEl = document.getElementById("sp-sub")!;
+let plaqueSettlementId = -1;
+let plaqueTimer = 0;
+const plaqueLastShown = new Map<number, number>();
+
+function updateSettlementPresence(s: GameState): void {
+  const p = me(s);
+  const st = s.runKind === "roam" && s.status === "playing" && p.alive
+    ? settlementAt(s, p.pos)
+    : null;
+  const id = st?.id ?? -1;
+  if (id === plaqueSettlementId) return;
+  plaqueSettlementId = id;
+  if (!st) { plaqueEl.classList.remove("show"); return; }
+  // Boundary-hover guard: crossing the wall twice in a minute isn't two arrivals.
+  const last = plaqueLastShown.get(id) ?? -1e9;
+  if (performance.now() - last < 45000) return;
+  plaqueLastShown.set(id, performance.now());
+  spNameEl.textContent = st.name.toUpperCase();
+  spSubEl.textContent = `pop. ${st.npcIds.length} · no-aggro ground`;
+  plaqueEl.classList.add("show");
+  window.clearTimeout(plaqueTimer);
+  plaqueTimer = window.setTimeout(() => plaqueEl.classList.remove("show"), 3800);
+}
+
+// ---- Resident nameplates: name/role float on approach, talk hint in reach ----
+const npcPlatesLayer = document.createElement("div");
+npcPlatesLayer.id = "npcplates";
+document.getElementById("fx")!.before(npcPlatesLayer); // numbers stay on top
+type NpcPlateEl = { root: HTMLDivElement; name: HTMLDivElement; role: HTMLDivElement; talk: HTMLDivElement; cls: string; forId: number };
+const npcPlatePool: NpcPlateEl[] = [];
+const npcPlateLive = new Map<number, NpcPlateEl>();
+
+function makeNpcPlate(): NpcPlateEl {
+  const root = document.createElement("div");
+  root.className = "nplate";
+  const name = document.createElement("div");
+  name.className = "nname";
+  const role = document.createElement("div");
+  role.className = "nrole";
+  const talk = document.createElement("div");
+  talk.className = "ntalk";
+  root.append(name, role, talk);
+  npcPlatesLayer.appendChild(root);
+  return { root, name, role, talk, cls: "nplate", forId: -1 };
+}
+
+function updateNpcPlates(s: GameState): void {
+  const seen = new Set<number>();
+  if (s.runKind === "roam" && s.status === "playing" && !dlgOpen) {
+    const p = me(s);
+    // Gather first: residents cluster, so plates need a de-overlap pass and
+    // only the NEAREST one in reach gets the talk hint (one E, one target).
+    const cands: { n: ReturnType<typeof npcsOf>[number]; d: number; x: number; y: number }[] = [];
+    for (const n of npcsOf(s)) {
+      const d = Math.hypot(n.pos.x - p.pos.x, n.pos.y - p.pos.y);
+      if (d > 7) continue;
+      const sp = renderer.worldToScreen(n.pos.x, 2.15, n.pos.y);
+      if (!sp.visible) continue;
+      cands.push({ n, d, x: sp.x, y: sp.y });
+    }
+    let talkId = -1;
+    let talkD = 1.6;
+    for (const c of cands) if (c.d <= talkD) { talkD = c.d; talkId = c.n.id; }
+    // Colliding plates fan upward, chart-label style (top-most stays put).
+    cands.sort((a, b) => a.y - b.y);
+    const placed: { x: number; y: number }[] = [];
+    for (const c of cands) {
+      for (const q of placed) {
+        if (Math.abs(q.x - c.x) < 120 && Math.abs(q.y - c.y) < 44) c.y = q.y - 46;
+      }
+      placed.push({ x: c.x, y: c.y });
+    }
+    for (const c of cands) {
+      const n = c.n;
+      let plate = npcPlateLive.get(n.id);
+      if (!plate) {
+        plate = npcPlatePool.pop() ?? makeNpcPlate();
+        npcPlateLive.set(n.id, plate);
+        plate.root.style.display = "block";
+      }
+      seen.add(n.id);
+      if (plate.forId !== n.id) {
+        plate.forId = n.id;
+        plate.name.textContent = n.name;
+        plate.role.textContent = NPC_ROLE_LABEL[n.role ?? "elder"] ?? "Resident";
+        plate.talk.innerHTML = `<kbd>${esc(bindingLabel(bindings, "stairs").toUpperCase())}</kbd> talk`;
+      }
+      const cls = `nplate${n.role === "guide" ? " guide" : ""}${n.id === talkId ? " reach" : ""}`;
+      if (plate.cls !== cls) {
+        plate.cls = cls;
+        plate.root.className = cls;
+      }
+      plate.root.style.left = `${c.x}px`;
+      plate.root.style.top = `${c.y}px`;
+      plate.root.style.opacity = c.d > 6 ? Math.max(0, 1 - (c.d - 6)).toFixed(2) : "1";
+    }
+  }
+  for (const [id, plate] of npcPlateLive) {
+    if (seen.has(id)) continue;
+    plate.root.style.display = "none";
+    plate.cls = "";
+    plate.forId = -1;
+    npcPlateLive.delete(id);
+    npcPlatePool.push(plate);
+  }
+}
+
+// ---- Minimap chart pins: settlements + active-contract targets ----
+function drawRoamPins(s: GameState, X: (x: number) => number, Y: (y: number) => number): void {
+  const roomCenterOf = (idx: number): Vec2 | null => {
+    const r = s.map.rooms[idx];
+    return r ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : null;
+  };
+  const exploredAt = (v: Vec2): boolean =>
+    !!s.explored[Math.floor(v.y) * s.map.w + Math.floor(v.x)];
+  const ring = (cx: number, cy: number, color: string): void => {
+    const pulse = 5 + Math.sin(performance.now() / 300) * 1.4;
+    mmCtx.strokeStyle = color;
+    mmCtx.lineWidth = 1.4;
+    mmCtx.beginPath();
+    mmCtx.arc(cx, cy, pulse, 0, Math.PI * 2);
+    mmCtx.stroke();
+  };
+  // Settlements: verdant rooftop pennants — sanctuary at a glance.
+  for (const st of s.settlements ?? []) {
+    const c = roomCenterOf(st.roomIdx);
+    if (!c || !exploredAt(c)) continue;
+    const cx = X(c.x), cy = Y(c.y);
+    mmCtx.save();
+    mmCtx.shadowColor = "rgba(134,184,106,0.8)";
+    mmCtx.shadowBlur = 4;
+    mmCtx.fillStyle = "#a8d18a";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+    mmCtx.lineWidth = 1;
+    mmCtx.beginPath();
+    mmCtx.moveTo(cx, cy - 4.6);
+    mmCtx.lineTo(cx + 4.2, cy - 0.6);
+    mmCtx.lineTo(cx + 2.6, cy - 0.6);
+    mmCtx.lineTo(cx + 2.6, cy + 3.4);
+    mmCtx.lineTo(cx - 2.6, cy + 3.4);
+    mmCtx.lineTo(cx - 2.6, cy - 0.6);
+    mmCtx.lineTo(cx - 4.2, cy - 0.6);
+    mmCtx.closePath();
+    mmCtx.fill();
+    mmCtx.stroke();
+    mmCtx.restore();
+  }
+  for (const q of s.quests ?? []) {
+    if (q.state !== "active") continue;
+    const o = q.objective;
+    if (o.kind === "beacons") {
+      // Unlit: hollow amber diamonds. Lit: filled gold with a warm halo.
+      for (const spot of o.spots) {
+        const cx = X(spot.x), cy = Y(spot.y);
+        mmCtx.save();
+        if (spot.lit) {
+          mmCtx.shadowColor = "rgba(242,193,78,0.9)";
+          mmCtx.shadowBlur = 5;
+          mmCtx.fillStyle = "#ffd76e";
+        }
+        mmCtx.strokeStyle = spot.lit ? "rgba(20,12,4,0.9)" : "#d9a94a";
+        mmCtx.lineWidth = 1.3;
+        mmCtx.beginPath();
+        mmCtx.moveTo(cx, cy - 3.6);
+        mmCtx.lineTo(cx + 3.6, cy);
+        mmCtx.lineTo(cx, cy + 3.6);
+        mmCtx.lineTo(cx - 3.6, cy);
+        mmCtx.closePath();
+        if (spot.lit) mmCtx.fill();
+        mmCtx.stroke();
+        mmCtx.restore();
+      }
+    } else if (o.kind === "cache" && !o.recovered) {
+      // The quartermaster gave directions — the vault is marked through fog.
+      const c = roomCenterOf(o.roomIdx);
+      if (c) ring(X(c.x), Y(c.y), "#f2c14e");
+    } else if (o.kind === "delivery" && !o.delivered) {
+      const st = (s.settlements ?? []).find((x) => x.id === o.toSettlementId);
+      const c = st ? roomCenterOf(st.roomIdx) : null;
+      if (c) ring(X(c.x), Y(c.y), "#f2c14e");
+    } else if (o.kind === "clearStronghold" && !s.strongholdCleared && s.map.strongholdRoomIdx >= 0) {
+      const c = roomCenterOf(s.map.strongholdRoomIdx);
+      if (c && exploredAt(c)) ring(X(c.x), Y(c.y), "#e0703f");
+    }
+  }
+}
+
+/** One per-frame entry point for everything Roam (called after drawMinimap). */
+function updateRoamUi(s: GameState): void {
+  updateDialogueUi(s);
+  updateQuestTracker(s);
+  watchQuestBeats(s);
+  updateSettlementPresence(s);
+  updateNpcPlates(s);
+  if (mmFlashPending && !document.body.classList.contains("modal")) {
+    mmFlashPending = false;
+    mmFrameEl.classList.remove("mm-flash");
+    void (mmFrameEl as HTMLElement).offsetWidth;
+    mmFrameEl.classList.add("mm-flash");
   }
 }
 
@@ -3096,6 +3653,7 @@ interface DmgLive {
   merges: number;
   born: number; // ms clock
   crit: boolean;
+  color: string; // numeral face hex — merges repaint with the same palette
 }
 const dmgLive: DmgLive[] = [];
 const DMG_AGG_MS = 520; // rolling-counter window
@@ -3106,23 +3664,102 @@ function dmgText(rec: DmgLive, sign: string): string {
   return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
 }
 
+// BESPOKE DISPLAY NUMERALS (final pass, issue #5): canvas-rendered glyphs —
+// chunky ultra-black face, slight italic skew, chiseled bevel (dark underlay
+// + vertical face gradient + top sheen), heavy rounded ink outline, soft
+// color glow. Crits add a chromatic red/cyan flash under the ink. One draw
+// per spawn/merge (a few per second) — zero per-frame cost; the WAAPI
+// transform animation moves the finished bitmap.
+const DMG_FONT = `900 %PX%px "Arial Black", "Segoe UI Black", "Arial", sans-serif`;
+function dmgShade(hex: string, k: number): string {
+  // k > 0 lightens toward white, k < 0 darkens toward black.
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number): number =>
+    Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean): void {
+  let canvas = el.firstElementChild as HTMLCanvasElement | null;
+  if (!canvas || canvas.tagName !== "CANVAS") {
+    canvas = document.createElement("canvas");
+    canvas.style.display = "block";
+    el.prepend(canvas);
+  }
+  const px = crit ? 58 : 34;
+  const pad = crit ? 30 : 18;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { el.textContent = text; return; }
+  ctx.font = DMG_FONT.replace("%PX%", String(px));
+  const tw = Math.ceil(ctx.measureText(text).width);
+  const w = tw + pad * 2 + Math.ceil(px * 0.14);
+  const h = px + pad * 2;
+  canvas.width = w;
+  canvas.height = h;
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(w / 2, h / 2);
+  ctx.transform(1, 0, -0.14, 1, 0, 0); // the slight italic lean
+  ctx.font = DMG_FONT.replace("%PX%", String(px));
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  if (crit) {
+    // Chromatic flash under the ink: hot red left, cold cyan right.
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#ff3b30";
+    ctx.fillText(text, -3.5, 0);
+    ctx.fillStyle = "#4fd8ff";
+    ctx.fillText(text, 3.5, 0);
+    ctx.globalAlpha = 1;
+  }
+  // Heavy ink: a dropped dark stroke for weight, then the main outline.
+  ctx.strokeStyle = "rgba(6,3,1,0.85)";
+  ctx.lineWidth = crit ? 11 : 8;
+  ctx.strokeText(text, 0, 2.5);
+  ctx.strokeStyle = "rgba(12,6,2,0.97)";
+  ctx.lineWidth = crit ? 9 : 6.5;
+  ctx.strokeText(text, 0, 0);
+  // Chiseled bevel: dark underlay, then the vertical face gradient with a
+  // soft color glow, then a top sheen.
+  ctx.fillStyle = dmgShade(color, -0.55);
+  ctx.fillText(text, 0, 2.2);
+  const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
+  face.addColorStop(0, dmgShade(color, 0.7));
+  face.addColorStop(0.42, color);
+  face.addColorStop(1, dmgShade(color, -0.28));
+  ctx.shadowColor = color;
+  ctx.shadowBlur = crit ? 18 : 10;
+  ctx.fillStyle = face;
+  ctx.fillText(text, 0, 0);
+  ctx.shadowBlur = 0;
+  const sheen = ctx.createLinearGradient(0, -px / 2, 0, 0);
+  sheen.addColorStop(0, "rgba(255,255,255,0.5)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillText(text, 0, -0.8);
+}
+
 /** (Re)run the pop-drift-fade animation for a live number. Merges re-pop with
  * a slightly bigger punch each stack so a rolling counter visibly GROWS. */
+/** Scale-in + ARC-OUT (issue #5): the number pops in, lobs up along its
+ * drift, crests just past mid-life and settles slightly on the way out — a
+ * thrown-coin arc, not a linear float. Merges re-pop with a bigger punch. */
 function dmgAnimate(rec: DmgLive): void {
   const { el, crit } = rec;
   const grow = Math.min(1 + rec.merges * 0.07, 1.42);
-  const drift = (Math.random() - 0.5) * (crit ? 64 : 44);
-  const rise = (crit ? 70 : 56) * (rec.merges > 0 ? 0.85 : 1);
-  const pop = (crit ? 1.68 : 1.18) * grow; // crits POP visibly harder (r4)
+  const drift = (Math.random() - 0.5) * (crit ? 88 : 62);
+  const rise = (crit ? 82 : 64) * (rec.merges > 0 ? 0.85 : 1);
+  const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
   const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
   const anim = el.animate(
     [
-      { transform: `translate(-50%, -50%) scale(${crit ? 0.3 : 0.55}) rotate(${tilt}deg)`, opacity: 1 },
-      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.3).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.16 },
-      { transform: `translate(calc(-50% + ${(drift * 0.55).toFixed(1)}px), calc(-50% - ${(rise * 0.72).toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.55 },
-      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
+      { transform: `translate(-50%, -50%) scale(${crit ? 0.25 : 0.5}) rotate(${tilt}deg)`, opacity: 0.9 },
+      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.44).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.14 },
+      { transform: `translate(calc(-50% + ${(drift * 0.62).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.58 },
+      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${(rise * 0.86).toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
     ],
-    { duration: crit ? 900 : 760, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    { duration: crit ? 920 : 780, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
   );
   anim.onfinish = () => {
     const i = dmgLive.indexOf(rec);
@@ -3135,7 +3772,9 @@ function dmgAnimate(rec: DmgLive): void {
 
 function spawnDamageNumber(h: HitEvent): void {
   const crit = h.kind === "crit";
-  const s = renderer.worldToScreen(h.pos.x, crit ? 1.35 : 1.15, h.pos.y);
+  // Spawn ABOVE heads (issue #5): the anchor clears the tallest silhouettes
+  // so numbers arc over the fight instead of occluding the actors under them.
+  const s = renderer.worldToScreen(h.pos.x, crit ? 2.1 : 1.85, h.pos.y);
   if (!s.visible) return;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
@@ -3154,7 +3793,7 @@ function spawnDamageNumber(h: HitEvent): void {
       rec.merges++;
       rec.wx = h.pos.x; rec.wz = h.pos.y;
       rec.el.getAnimations().forEach((a) => a.cancel());
-      rec.el.textContent = dmgText(rec, sign);
+      paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit);
       dmgAnimate(rec);
       return;
     }
@@ -3168,8 +3807,18 @@ function spawnDamageNumber(h: HitEvent): void {
     fxLayer.appendChild(el);
   }
   el.className = crit ? "dmg crit" : "dmg";
-  el.style.color = HIT_COLORS[h.kind];
   el.style.opacity = "";
+  // Numeral palette. School tint (DESIGN 5.8): magic reads arcane-purple so
+  // a mixed build can SEE which school each number came from. Status DoT
+  // ticks (5.11): burn ember-orange, poison toxin-green. Resists mute.
+  let color = HIT_COLORS[h.kind];
+  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
+    color = crit ? "#d9c2ff" : "#c2a3f2"; // bright arcane, still inked
+  }
+  if (h.effect === "burn") color = "#ff7a2f";
+  else if (h.effect === "poison") color = "#7ed957";
+  if (h.resisted) color = "#8a8272";
+  el.style.color = color; // the crit starburst ::before keys off currentColor
   // COLLISION FAN: if this number would land on an active one, walk
   // golden-angle radial slots until the spot is clear — no more clumps.
   let px = s.x, py = s.y;
@@ -3189,22 +3838,14 @@ function spawnDamageNumber(h: HitEvent): void {
   el.style.top = `${py}px`;
   const rec: DmgLive = {
     el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
-    total: h.amount, merges: 0, born: now, crit,
+    total: h.amount, merges: 0, born: now, crit, color,
   };
-  el.textContent = dmgText(rec, sign);
-  // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
-  // can SEE which school each number came from (physical keeps the defaults).
-  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    el.style.color = crit ? "#d9c2ff" : "#c2a3f2"; // bright arcane, still outlined
-  }
-  // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
-  // poison toxin-green — so a DoT build can read its uptime mid-fight.
-  if (h.effect === "burn") el.style.color = "#ff7a2f";
-  else if (h.effect === "poison") el.style.color = "#7ed957";
+  // Drop any stale resist icon a pooled element carried, then paint.
+  while (el.childElementCount > 1) el.lastElementChild!.remove();
+  paintNumeral(el, dmgText(rec, sign), color, crit);
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
-    el.style.color = "#8a8272";
     el.style.opacity = "0.85";
     // Drawn shield mark, never a typed dingbat (some platforms emoji-fy ⛨).
     el.insertAdjacentHTML("beforeend",
@@ -3350,8 +3991,9 @@ function showAnnouncement(a: Announcement): void {
   // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
   // deserves an explicit acknowledgment rather than an auto-fade a player
   // could easily miss.
-  if (a.kind === "tip") { showTutorialCard(a); return; }
+  if (a.kind === "tip") { if (!cleanMode) showTutorialCard(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
+  if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
@@ -3375,14 +4017,16 @@ function showAnnouncement(a: Announcement): void {
 // Headline moments (boss down, new band, wipe): one at a time, front and center.
 // #headline, NOT #banner — that id belongs to the keybinds strip at the top.
 const bannerLayer = document.getElementById("headline")!;
-const bannerQueue: Announcement[] = [];
+const bannerQueue: { a: Announcement; cls: string }[] = [];
 let bannerActive = false;
 
-function showBanner(a: Announcement): void {
-  if (bannerActive) { bannerQueue.push(a); return; }
+// `cls` lets the Roam contract beat ride the same one-at-a-time headline zone
+// with its OWN voice (.ann.quest — settlement ledger, not the System's).
+function showBanner(a: Announcement, cls = "ann banner"): void {
+  if (bannerActive) { bannerQueue.push({ a, cls }); return; }
   bannerActive = true;
   const el = document.createElement("div");
-  el.className = "ann banner";
+  el.className = cls;
   el.textContent = a.text;
   bannerLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -3391,7 +4035,7 @@ function showBanner(a: Announcement): void {
     setTimeout(() => el.remove(), 400);
     bannerActive = false;
     const next = bannerQueue.shift();
-    if (next) showBanner(next);
+    if (next) showBanner(next.a, next.cls);
   }, BANNER_HOLD_MS);
 }
 
@@ -3694,8 +4338,8 @@ function statusChips(st: { kind: string; stacks: number; remaining: number }[] |
 hudTL.innerHTML =
   `<div class="hh-row"><span class="hh-label">Floor</span>` +
   `<span class="hh-big" id="hh-floor"></span>` +
-  `<span class="hh-dim">/ ${CONFIG.finalFloor}</span></div>` +
-  `<div class="hh-row"><span class="hh-label">Collapse</span>` +
+  `<span class="hh-dim" id="hh-floor-cap">/ ${CONFIG.finalFloor}</span></div>` +
+  `<div class="hh-row" id="hh-collapse-row"><span class="hh-label">Collapse</span>` +
   `<span class="hh-num" id="hh-time"></span>` +
   `<span class="hh-phase" id="hh-phase"></span></div>` +
   `<div class="bar hh-collapse" id="hh-collapse"><i id="hh-collapse-fill"></i>` +
@@ -3738,6 +4382,15 @@ function updateHud(s: GameState): void {
   if (hudCache.tutFloor !== String(s.floor)) {
     if (hudCache.tutFloor !== undefined) dismissTutorialForTransition();
     hudCache.tutFloor = String(s.floor);
+  }
+  // Roam has no collapse sprint and no floor 18: the clock row and the depth
+  // cap leave the cockpit entirely rather than reading as a stuck timer.
+  if (hudCache.runKind !== s.runKind) {
+    hudCache.runKind = s.runKind;
+    const roam = s.runKind === "roam";
+    hh("hh-floor-cap").style.display = roam ? "none" : "";
+    hh("hh-collapse-row").style.display = roam ? "none" : "";
+    hhCollapse.style.display = roam ? "none" : "";
   }
   // Top-left: floor + the collapse clock (phase color via semantic classes).
   setHudText(hhFloor, "floor", String(s.floor));
@@ -4155,6 +4808,11 @@ async function main(): Promise<void> {
       draftBadge.style.display = "none";
       draftIdleSec = 0;
     }
+    // Settlement outfitter (Roam): opened by a dialogue choice, closed by its
+    // exit button or by leaving the walls. Reuses the #saferoom panel wholesale.
+    if (settlementShopOpen && (inSafeRoom || !!net || !settlementShopFor(state, lp))) {
+      settlementShopOpen = false;
+    }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
       srTab = "shop"; // every safe room opens on today's shelf
       shopView = "stock";
@@ -4162,14 +4820,19 @@ async function main(): Promise<void> {
       renderSafeRoom(state);
       srEl.style.display = "flex";
     }
-    if (srEl.style.display === "flex" && !inSafeRoom) srEl.style.display = "none";
+    if (srEl.style.display !== "flex" && settlementShopOpen && !draftPending) {
+      renderSafeRoom(state); // tab already chosen by the dialogue signal
+      srEl.style.display = "flex";
+    }
+    if (srEl.style.display === "flex" && !inSafeRoom && !settlementShopOpen) srEl.style.display = "none";
 
     if (!net) {
       // Local sim. Panels, an OPEN draft modal, and the safe room pause it (a
       // host UX choice — the networked world never pauses); drop accumulated
       // time. Banked drafts deliberately do NOT pause: the badge flow means
       // the world keeps running until the crawler chooses their moment.
-      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom) acc = 0;
+      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom
+        || dlgOpen || settlementShopOpen) acc = 0; // Roam: conversation + outfitter pause like the safe room
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(SIM_DT), SIM_DT);
@@ -4232,7 +4895,14 @@ async function main(): Promise<void> {
         renderer.setAimIndicator(null);
       }
       const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
-      tStairsEl.classList.toggle("on", state.map.tiles[ti] === Tile.StairsDown);
+      // Roam: the same interact chip talks to a resident in reach (the sim's
+      // useStairs seam routes to startDialogue when an NPC is closer).
+      const nearNpc = state.runKind === "roam" &&
+        npcsOf(state).some((n) => Math.hypot(n.pos.x - p.pos.x, n.pos.y - p.pos.y) <= 1.6);
+      if (tStairsEl.textContent !== (nearNpc ? "Talk" : "Descend")) {
+        tStairsEl.textContent = nearNpc ? "Talk" : "Descend";
+      }
+      tStairsEl.classList.toggle("on", nearNpc || state.map.tiles[ti] === Tile.StairsDown);
     }
 
     // Controller rumble rides the same hit stream as particles/shake: damage
@@ -4276,6 +4946,7 @@ async function main(): Promise<void> {
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);
+    updateRoamUi(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
