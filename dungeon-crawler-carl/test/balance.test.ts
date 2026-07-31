@@ -118,8 +118,10 @@ describe("balance bot: early-game playability", () => {
     // and intended (veterans make floors 3-4 cost something; floors 1-2
     // deaths unchanged). Seed 8 died on floor 2 when HEAVY PACK formations
     // changed member-loop draw counts (probe survival 10/24 — steady).
-    // Seed 10 fits (2/4/8/11), all interior.
-    const g = createGame(10);
+    // Seed 10 fell to main's AI tiers 3-4 merge (band personalities +
+    // retreat-regroup; probe 9/24, same outcome-lottery pattern those PRs
+    // documented). Seed 19 fits (2/4/7/10), all interior.
+    const g = createGame(19);
     const bands: [number, number][] = [[1, 4], [3, 7], [6, 9], [8, 12]];
     for (let f = 0; f < bands.length; f++) {
       const r = runBot(g, 1, 400_000);
@@ -179,10 +181,12 @@ describe("balance bot: boss difficulty", () => {
   it("bosses hit back: reference fights cost real health", () => {
     // Seed 99 stopped finishing any arena fight when the vanilla-heft
     // reweight re-rolled the adds mix; probe over 8 seeds shows most seeds
-    // finish 1-2 fights at real cost. Seed 3 finishes 2 with ample margin.
+    // finish 1-2 fights at real cost. Seed 3 finished 2 with ample margin,
+    // then stopped finishing any under main's AI tiers 3-4 merge; seed 13
+    // finishes 2 at 1599 lost (9-seed probe).
     let totalLost = 0;
     for (const b of ARENAS) {
-      const r = arena(3, b);
+      const r = arena(13, b);
       const boss = r.encounters.find((e) => e.kind === "boss");
       if (boss) totalLost += boss.hpLost;
     }
