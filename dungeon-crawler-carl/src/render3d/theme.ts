@@ -3,6 +3,41 @@
 // values define the placeholder low-poly style that stands in until the CC0 glTF
 // packs listed in ASSETS.md are dropped into /public/assets.
 
+/**
+ * Cinematic per-band lighting + grade. Each 3-floor district gets a full
+ * 3-point rig (colored ambient fill, warm key, cool rim), an environment
+ * gradient for material sheen, and a display-space color grade (split-tone +
+ * vignette) applied by the renderer's post chain. Darks lift toward a HUE —
+ * deep blue-purple undercroft, green-black sewers — never true black.
+ */
+export interface BandMood {
+  ambient: number; ambientIntensity: number;
+  hemiSky: number; hemiGround: number; hemiIntensity: number;
+  key: number; keyIntensity: number;
+  rim: number; rimIntensity: number; // cool accent from behind-left
+  envHorizon: number; // PMREM gradient horizon tint (sky/ground derive from the rig)
+  envIntensity: number;
+  gradeShadow: number; // darks lift toward this hue (never true black)
+  gradeHighlight: number; // brights tint toward this (normalized to luma 1)
+  gradeSaturation: number; // 1 = neutral
+  vignette: number; // 0..1 film-vignette strength
+  voidInner: number; // out-of-bounds ground gradient, near the play space
+  voidOuter: number; // ...falling off to this at the horizon (also vignette tint)
+  fogDark: number; // unexplored instanced tiles multiply toward this (colored dark)
+}
+
+export const DEFAULT_MOOD: BandMood = {
+  ambient: 0x2e2a52, ambientIntensity: 0.6,
+  hemiSky: 0x4a4a78, hemiGround: 0x241a10, hemiIntensity: 0.45,
+  key: 0xffe8c4, keyIntensity: 1.7,
+  rim: 0x6a8cff, rimIntensity: 0.55,
+  envHorizon: 0xffb060, envIntensity: 0.35,
+  gradeShadow: 0x16132b, gradeHighlight: 0xfff2dc, gradeSaturation: 1.05,
+  vignette: 0.32,
+  voidInner: 0x100f1e, voidOuter: 0x05050b,
+  fogDark: 0x0b0a18,
+};
+
 export const THEME = {
   // Scene mood. Fog is tuned around the orthographic camera distance (camDist):
   // meshes sit ~camDist units from the camera, so fog must start beyond that or the
@@ -13,23 +48,32 @@ export const THEME = {
   fogNear: 26,
   fogFar: 52,
 
-  // Lighting (moody dungeon, but readable mid-floor)
+  // Filmic pipeline: ACES tone map + exposure (post chain lives in renderer3d).
+  toneExposure: 1.22,
+
+  // Lighting (moody dungeon, but readable mid-floor). These are the FALLBACK
+  // rig values — per-band moods (floorThemes.ts) override them on floor build.
   ambient: 0x33334d,
-  ambientIntensity: 0.7,
+  ambientIntensity: 0.55,
   hemiSky: 0x5a5a82,
   hemiGround: 0x1a1a12,
-  hemiIntensity: 0.65,
+  hemiIntensity: 0.5,
   keyLight: 0xfff1d0,
-  keyIntensity: 1.2,
+  keyIntensity: 1.5,
   torchColor: 0xff9a3c,
   torchIntensity: 2.4,
-  torchDistance: 7,
+  // Short throw: the dynamic lights are FILL over the baked shadowed pools
+  // (lightGrid.ts) — a long unshadowed throw would wash through walls.
+  torchDistance: 6.5,
 
-  // Materials (low-poly, flat-shaded)
+  // Materials (low-poly, flat-shaded). The wall fill is REAL STONE albedo —
+  // a mid-value violet-grey the key light and torch pools can actually paint
+  // (a near-black fill box reads as unlit placeholder geometry; the per-band
+  // instance tint + the wall-base gradient carry the darkening).
   floor: 0x2a2740,
   floorAlt: 0x322d4a,
-  wall: 0x1a1826,
-  wallTop: 0x272337,
+  wall: 0x8d8798, // mid-value stone the key/torch light can visibly paint
+  wallTop: 0x847e94,
   stairs: 0xc9a24b,
 
   player: 0x4fd1ff,

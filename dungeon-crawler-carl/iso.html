@@ -42,6 +42,12 @@
         --arcane: #9a6bd0; --lore: #5a87c6;
         --display: "Cinzel", "Palatino Linotype", Georgia, serif;
         --body: "Alegreya Sans", "Segoe UI", system-ui, sans-serif;
+        /* Shared material grain: warm low-alpha noise tile — layered under
+           panel gradients so slabs read as stone, not flat CSS fills. Baked
+           PNG (tools/gen-noise-png.mjs), NOT an feTurbulence SVG: the live
+           SVG filter intermittently rasterized at full strength and washed
+           whole panels milky tan (r3 blocker). A baked bitmap cannot drift. */
+        --noise: url("data:image/png;base64,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");
       }
       html, body { margin: 0; height: 100%; background: var(--void); color: var(--ink);
         font-family: var(--body); font-size: 14px; overflow: hidden;
@@ -61,36 +67,126 @@
          full-screen sets (shop/profile/recap), never the overlays you fight
          behind. (Play feedback 2026-07-05: brown chips read as clutter.) */
       .hud { position: fixed; pointer-events: none; background: rgba(0,0,0,0.5);
+        border: 1px solid rgba(110,85,51,0.35); box-shadow: 0 2px 12px rgba(0,0,0,0.35);
         padding: 8px 12px; border-radius: 6px; font-size: 13px; line-height: 1.5; }
       #hud-tl { top: 12px; left: 12px; }
-      #hud-tr { top: 12px; right: 12px; text-align: right; }
-      #hud-log { bottom: 12px; left: 12px; font-size: 12px; color: #b3ab99; max-width: 60ch; }
+      #hud-tr { top: 12px; right: 12px; text-align: right; min-width: 190px; }
+      /* Cockpit plaques (glass, rule four): Cinzel small-caps labels, tabular
+         data, semantic color ONLY on meaning — no more inline-hex text soup. */
+      .hh-row { display: flex; align-items: baseline; gap: 7px; line-height: 1.35; }
+      #hud-tr .hh-row { justify-content: flex-end; }
+      .hh-label { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 10px; color: var(--ink-faint); }
+      .hh-big { font-family: var(--display); font-weight: 700; font-size: 17px;
+        color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
+      .hh-dim { color: var(--ink-faint); font-size: 11px; }
+      .hh-num { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+      .hh-num.gold { color: var(--gold-hi); display: inline-flex; align-items: baseline; gap: 4px; }
+      .hh-sep { width: 1px; height: 11px; background: rgba(110,85,51,0.6); align-self: center; }
+      .hh-stat { font-size: 11px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+      .rtx-common { color: #b9b2a4; } .rtx-magic { color: #8fb0d9; }
+      .rtx-rare { color: #f2c14e; } .rtx-epic { color: #b08fd9; }
+      .hh-phase { font-family: var(--display); font-variant: small-caps; font-size: 10.5px;
+        letter-spacing: 0.16em; color: var(--ink-dim); }
+      .hh-phase.safe { color: var(--verdant); }
+      .hh-phase.warning { color: var(--gold-hi); }
+      .hh-phase.collapse, .hh-phase.critical { color: #d14538; text-shadow: 0 0 8px rgba(192,57,47,0.5); }
+      .hh-collapse.safe > i { background: linear-gradient(90deg, #557f43, var(--verdant)); }
+      .hh-collapse.warning > i { background: linear-gradient(90deg, #a8854f, var(--gold-hi)); }
+      .hh-collapse.collapse > i, .hh-collapse.critical > i { background: linear-gradient(90deg, #8a231b, #d14538); }
+      /* The HP cockpit anchor: gold-bezel framed bar with segment ticks, a
+         damage-lag ghost trail, and the smoothed readout engraved on top. */
+      .hpframe { margin-top: 6px; padding: 2px; position: relative; border-radius: 3px;
+        background: linear-gradient(180deg, #4a3820, #241b10 60%);
+        border: 1px solid var(--bronze);
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.14), 0 1px 4px rgba(0,0,0,0.6); }
+      .hpframe::before, .hpframe::after { content: ""; position: absolute; top: 50%;
+        width: 7px; height: 7px; margin-top: -4px; transform: rotate(45deg); z-index: 1;
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      .hpframe::before { left: -5px; }
+      .hpframe::after { right: -5px; }
+      .hpbar { position: relative; height: 15px; background: #0a0805; border-radius: 2px;
+        overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.9); }
+      .hpbar .hp-ghost { position: absolute; top: 0; bottom: 0; left: 0; width: 100%;
+        background: rgba(245,230,191,0.55); }
+      .hpbar .hp-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 100%;
+        background: linear-gradient(180deg, #e0604f, var(--blood) 45%, #7e2018);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); }
+      .hpbar .hp-ticks { position: absolute; inset: 0; pointer-events: none;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
+        background-size: 25% 100%; background-position: -1px 0; }
+      .hpbar .hp-num { position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; font-size: 10.5px; font-weight: 700; color: #ffe9dc;
+        letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 2px #000, 0 0 5px rgba(0,0,0,0.85); }
+      #hud-tr.low-hp .hpframe { animation: hp-danger 1.1s ease-in-out infinite; }
+      @keyframes hp-danger {
+        0%, 100% { box-shadow: inset 0 1px 0 rgba(232,221,200,0.14), 0 0 6px rgba(192,57,47,0.25); }
+        50% { box-shadow: inset 0 1px 0 rgba(232,221,200,0.14), 0 0 18px rgba(192,57,47,0.6); }
+      }
+      .hh-xp { height: 5px; margin-top: 4px; border-radius: 2px;
+        background: linear-gradient(180deg, #060503, #14100a);
+        overflow: hidden; box-shadow: 0 0 0 1px rgba(110,85,51,0.5),
+          inset 0 1px 2px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(232,221,200,0.05); }
+      .hh-xp > i { display: block; height: 100%; width: 0;
+        background: linear-gradient(90deg, #3c5f93, var(--lore)); }
+      .hh-status { margin-top: 4px; }
+      /* The event feed carries NO container chrome at all — each line is its
+         own glass chip, so there is structurally no way to render a bordered
+         empty rectangle (r3 blocker: the frame outlived its content). */
+      #hud-log { bottom: 12px; left: 12px; font-size: 12px; color: #b3ab99; max-width: 60ch;
+        background: none; border: none; box-shadow: none; padding: 0;
+        transition: opacity 0.4s ease; }
+      #hud-log:not(.live) { opacity: 0; }
       /* Log feed: each line fades in/out on its own (was a blunt innerHTML
          overwrite every frame — a burst of 2+ events could evict an unread
          line with zero visual cue). "fresh" briefly pops the text brighter so
          a new arrival catches the eye, then eases back to the muted tan. */
-      #hud-log-feed { display: flex; flex-direction: column; gap: 2px; }
+      #hud-log-feed { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
       .log-line { opacity: 0; transform: translateX(-6px);
+        background: rgba(0,0,0,0.52); border-left: 2px solid rgba(168,133,79,0.55);
+        border-radius: 0 3px 3px 0; padding: 3px 10px 3px 8px;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.35);
         transition: opacity 0.35s ease, transform 0.35s ease, color 0.9s ease; }
       .log-line.show { opacity: 1; transform: translateX(0); }
       .log-line.fresh { color: #f5e6bf; }
-      #hud-log-status { margin-top: 4px; }
+      /* Older lines recede (D2R chat fade) — newest reads, history whispers. */
+      #hud-log-feed .log-line.show:nth-last-child(3) { opacity: 0.75; }
+      #hud-log-feed .log-line.show:nth-last-child(4) { opacity: 0.55; }
+      #hud-log-feed .log-line.show:nth-last-child(n+5) { opacity: 0.35; }
+      #hud-log-status { margin-top: 4px; background: rgba(0,0,0,0.52);
+        border-left: 2px solid rgba(192,57,47,0.6); border-radius: 0 3px 3px 0;
+        padding: 4px 10px 4px 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.35); }
+      #hud-log-status:empty { display: none; }
       /* Top-center: two buttons replace the old keycap strip (play feedback
          2026-07-09) — SYSTEM (configuration) and CRAWLER (in-run panels).
          On the fight screen, so glass chips + glass dropdowns (rule four);
          key hints live on the dropdown rows and in the K panel. */
       #banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
         display: flex; gap: 8px; align-items: center; z-index: 6; }
-      #banner b { color: #c0392f; font-size: 11px; letter-spacing: 0.08em; margin-right: 4px; }
+      /* Test-chamber tag: a quiet diegetic System stamp, not red alarm text —
+         but still LEGIBLE (r3 minor): same contrast tier as the top buttons. */
+      #banner b { color: var(--ink-dim); font-size: 9px; letter-spacing: 0.22em;
+        margin-right: 4px; font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        border: 1px solid rgba(110,85,51,0.65); border-radius: 3px; padding: 3px 9px;
+        background: rgba(0,0,0,0.55);
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.07); }
       .tb { position: relative; }
-      .topbtn { cursor: pointer; background: rgba(0,0,0,0.5); color: var(--ink-dim);
-        border: 1px solid #2a2a34; border-radius: 6px; padding: 6px 18px;
+      .topbtn { cursor: pointer; color: var(--ink-dim);
+        background: linear-gradient(180deg, rgba(38,29,19,0.72), rgba(8,6,4,0.72));
+        border: 1px solid rgba(110,85,51,0.65); border-radius: 3px; padding: 6px 18px;
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5),
+          0 2px 8px rgba(0,0,0,0.45);
         font-family: "Cinzel", serif; font-size: 12px; font-weight: 600;
         letter-spacing: 0.12em; text-transform: uppercase; }
-      .topbtn:hover, .tb.open .topbtn { color: var(--gold-hi); border-color: #3a3a46; }
+      .topbtn:hover, .tb.open .topbtn { color: var(--gold-hi); border-color: var(--bronze-hi); }
+      .topbtn:active { transform: translateY(1px);
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.5); }
       .topmenu { display: none; position: absolute; top: calc(100% + 6px); left: 0;
-        min-width: 250px; background: rgba(12,10,20,0.92); border: 1px solid #2a2a34;
-        border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); }
+        min-width: 250px; background: rgba(14,11,9,0.94); border: 1px solid rgba(110,85,51,0.6);
+        border-radius: 3px; padding: 4px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.55); }
       .tb.open .topmenu { display: block; }
       .tm-row { display: flex; justify-content: space-between; align-items: center;
         gap: 18px; padding: 7px 10px; border-radius: 4px; cursor: pointer;
@@ -99,19 +195,32 @@
       .bar { height: 8px; border-radius: 2px; background: #0a0805; margin-top: 4px; overflow: hidden;
         box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 0 0 1px rgba(110,85,51,0.4); }
       .bar > i { display: block; height: 100%; }
+      /* Segment ticks every 25% on the collapse clock (material pass). */
+      .hh-collapse { position: relative; }
+      .hh-collapse::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.55) 1px, transparent 1px);
+        background-size: 25% 100%; background-position: -1px 0; }
       kbd { background: linear-gradient(180deg, var(--hover), var(--raised));
         border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: 3px;
         padding: 1px 6px; font-size: 11px; color: var(--ink-dim); }
 
-      /* Floating combat numbers */
+      /* Floating combat numbers: pooled DOM elements driven by WAAPI (scale
+         pop + arc + fade in main3d.spawnDamageNumber) — no CSS transitions,
+         no layout thrash, transform/opacity only. */
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-      .dmg { position: absolute; font-weight: 700; font-size: 15px; transform: translate(-50%, -50%);
-        text-shadow: 0 1px 3px #000; will-change: transform, opacity;
-        transition: transform 0.8s ease-out, opacity 0.8s ease-out; }
-      .dmg.crit { font-size: 22px; }
+      /* Fat display face, white-gold core, heavy dark outline — combat numbers
+         must be findable over midtone foliage in motion (AAA r2 blocker). */
+      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 30px;
+        transform: translate(-50%, -50%);
+        paint-order: stroke fill; -webkit-text-stroke: 5px rgba(12,7,3,0.92);
+        text-shadow: 0 3px 5px rgba(0,0,0,0.75); will-change: transform, opacity;
+        font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+      .dmg.crit { font-size: 48px; font-weight: 900; letter-spacing: 0.02em;
+        -webkit-text-stroke: 7px rgba(12,7,3,0.92);
+        text-shadow: 0 3px 0 rgba(0,0,0,0.7), 0 0 26px currentColor; }
       /* Level-up (D4-style): bigger, gold, held longer than a hit number —
          paired with the world-space ring (see #fx-levelring in renderer3d). */
-      .dmg.levelup-text { font-size: 26px; color: #f2c14e; letter-spacing: 0.5px;
+      .dmg.levelup-text { font-size: 34px; color: #f2c14e; letter-spacing: 0.5px;
         text-shadow: 0 0 10px rgba(242,193,78,0.6), 0 1px 3px #000;
         transition: transform 1.2s ease-out, opacity 1.2s ease-out; }
 
@@ -201,9 +310,45 @@
       .toast-loot { --tc: #9a6bd0; } .toast-achievement { --tc: #f2c14e; } .toast-show { --tc: #a99f8c; }
       .toast-flavor { --tc: #a99f8c; }
 
-      /* Minimap */
-      #minimap { position: fixed; right: 12px; bottom: 12px; background: rgba(6,6,12,0.75);
-        border: 1px solid #2a2a34; border-radius: 6px; }
+      /* Minimap: framed like an instrument, not a raw canvas — bronze bezel,
+         corner-cap diamonds, inner vignette (house frame language). */
+      #minimap-frame { position: fixed; right: 12px; bottom: 12px; padding: 4px;
+        background: linear-gradient(180deg, rgba(40,31,23,0.9), rgba(14,11,9,0.9));
+        border: 1px solid var(--bronze); border-radius: 3px;
+        outline: 1px solid #201812; outline-offset: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.08),
+          0 6px 20px rgba(0,0,0,0.5); }
+      #minimap-frame::before, #minimap-frame::after { content: ""; position: absolute; left: 50%;
+        width: 8px; height: 8px; margin-left: -5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      #minimap-frame::before { top: -5px; }
+      #minimap-frame::after { bottom: -5px; }
+      /* Surveyor's chart, not a black void: warm vellum-dark ground with a
+         parchment grain so the field reads as material, not a flat fill. */
+      #minimap { display: block; border-radius: 2px;
+        background: var(--noise),
+          radial-gradient(130% 110% at 32% 22%, #241b13, #100c08 72%); }
+      .mm-vignette { position: absolute; inset: 4px; border-radius: 2px; pointer-events: none;
+        box-shadow: inset 0 0 22px rgba(0,0,0,0.7), inset 0 0 3px rgba(0,0,0,0.9); }
+      /* Corner filigree: engraved bracket at each corner of the chart. */
+      .mm-vignette::before { content: ""; position: absolute; inset: 3px; opacity: 0.55;
+        background:
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) left top / 10px 1px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) left top / 1px 10px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) right top / 10px 1px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) right top / 1px 10px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) left bottom / 10px 1px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) left bottom / 1px 10px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) right bottom / 10px 1px,
+          linear-gradient(var(--bronze-hi), var(--bronze-hi)) right bottom / 1px 10px;
+        background-repeat: no-repeat; }
+      /* Compass ornament: a small four-point gold rose. */
+      .mm-rose { position: absolute; right: 9px; top: 9px; width: 13px; height: 13px;
+        pointer-events: none; opacity: 0.85;
+        clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+        background: linear-gradient(135deg, #ffe9ad, var(--gold) 45%, #8a6d3b);
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
 
       /* Keybinds panel */
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -214,7 +359,7 @@
       #keys h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; }
       #keys .hint { color: #6f6757; font-size: 12px; margin-bottom: 12px; }
       .kb-row { display: flex; justify-content: space-between; align-items: center;
-        padding: 6px 4px; border-top: 1px dashed #22222e; font-size: 13px; }
+        padding: 6px 4px; border-top: 1px solid #241d16; font-size: 13px; }
       .kb-row .kb-name { color: #cfcfe0; }
       .kb-row .kb-name small { color: #6f6757; margin-left: 6px; }
       .kb-key { cursor: pointer; background: #1a1a24; border: 1px solid #6e5533; border-radius: 4px;
@@ -233,7 +378,9 @@
          rail (play feedback 2026-07-10 — the old centered slot sat in the
          middle of the action, worst on phones). Above the ticker (148px). */
       #party { position: fixed; top: 96px; right: 12px; text-align: right;
-        background: rgba(12,10,20,0.72); border: 1px solid #3f5f6f; border-radius: 999px;
+        background: linear-gradient(180deg, rgba(34,26,17,0.88), rgba(11,8,6,0.9));
+        border: 1px solid var(--bronze); border-radius: 2px;
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5);
         padding: 4px 14px; font-size: 12px; color: #a99f8c; pointer-events: none; }
       body.phone #party { top: 78px; font-size: 10px; padding: 3px 10px; }
 
@@ -242,36 +389,119 @@
          ringside introduction fires both, and they must never share pixels. */
       #bossintro { position: fixed; top: max(32%, 240px); left: 50%; transform: translateX(-50%);
         display: none; text-align: center; pointer-events: none; z-index: 20; }
-      #bossintro .bi-kicker { color: #c9a24b; font-size: 13px; letter-spacing: 4px; }
-      #bossintro .bi-name { font-size: 36px; font-weight: 800; color: #ffe9c4; letter-spacing: 2px;
-        margin-top: 6px; text-shadow: 0 2px 24px rgba(226,87,76,0.6), 0 1px 3px #000; }
-      #bossintro .bi-affix { color: #c0392f; font-size: 13px; letter-spacing: 3px; margin-top: 6px; }
-      #bossintro.show { display: block; animation: bi-in 0.45s ease-out; }
+      /* Scrim band: the title card owns its layer — no boss geometry reading
+         through the kicker line (AAA r2 minor). */
+      #bossintro::before { content: ""; position: absolute; inset: -36px -160px; z-index: -1;
+        background: radial-gradient(ellipse 100% 100% at 50% 50%,
+          rgba(7,4,2,0.72), rgba(7,4,2,0.45) 55%, transparent 78%); }
+      /* Ringside kicker between engraved gold rules. */
+      #bossintro .bi-kicker { display: flex; align-items: center; justify-content: center; gap: 16px;
+        color: var(--gold); font-family: var(--display); font-variant: small-caps;
+        font-size: 12px; letter-spacing: 0.38em; }
+      #bossintro .bi-kicker::before, #bossintro .bi-kicker::after { content: ""; width: 96px;
+        height: 3px; border-top: 1px solid rgba(201,162,75,0.85);
+        border-bottom: 1px solid rgba(0,0,0,0.6); }
+      /* The name: large display type with a metallic gradient fill. */
+      #bossintro .bi-name { font-family: var(--display); font-weight: 900; font-size: 46px;
+        letter-spacing: 0.05em; margin-top: 10px; line-height: 1.1;
+        background: linear-gradient(180deg, #fff6dc 10%, #f2c14e 36%, #b58935 55%, #ffe9ad 68%, #8a6d3b 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        filter: drop-shadow(0 2px 2px rgba(0,0,0,0.9)) drop-shadow(0 0 22px rgba(201,162,75,0.35)); }
+      /* "BOSS" / affix: legible gold-on-dark plate, never dark-red-on-stone. */
+      #bossintro .bi-affix { display: inline-block; position: relative; margin-top: 14px; padding: 4px 20px;
+        background: linear-gradient(180deg, rgba(28,19,11,0.94), rgba(10,7,4,0.94));
+        border: 1px solid var(--bronze); border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), inset 0 1px 0 rgba(232,221,200,0.08),
+          0 2px 12px rgba(0,0,0,0.55);
+        color: var(--gold-hi); font-family: var(--display); font-variant: small-caps;
+        font-size: 12px; letter-spacing: 0.32em; }
+      /* Diamond finials pin the plaque, matching the title's engraved rules. */
+      #bossintro .bi-affix::before, #bossintro .bi-affix::after { content: ""; position: absolute;
+        top: 50%; width: 6px; height: 6px; margin-top: -3px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      #bossintro .bi-affix::before { left: -16px; }
+      #bossintro .bi-affix::after { right: -16px; }
+      #bossintro.show { display: block;
+        animation: bi-in 0.45s ease-out, bi-out 0.5s ease 3s forwards; }
+      #bossintro.show .bi-name { animation: bi-name-in 0.6s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+      #bossintro.show .bi-kicker { animation: bi-fade 0.5s ease 0.08s both; }
+      #bossintro.show .bi-affix { animation: bi-fade 0.5s ease 0.32s both; }
       @keyframes bi-in {
-        from { opacity: 0; transform: translateX(-50%) scale(1.4); }
+        from { opacity: 0; transform: translateX(-50%) scale(1.15); }
         to { opacity: 1; transform: translateX(-50%) scale(1); }
       }
+      @keyframes bi-out { to { opacity: 0; } }
+      @keyframes bi-name-in { from { opacity: 0; transform: scale(1.3); letter-spacing: 0.18em; } }
+      @keyframes bi-fade { from { opacity: 0; transform: translateY(6px); } }
+      /* Letterbox bars: the broadcast cuts to the title card (host toggles .on
+         alongside the intro; bars slide in, hold, and fade with the card). */
+      #letterbox { position: fixed; inset: 0; pointer-events: none; z-index: 19; display: none; }
+      #letterbox.on { display: block; }
+      #letterbox i { position: absolute; left: 0; right: 0; height: 72px; }
+      #letterbox .lb-top { top: 0; background: linear-gradient(180deg, rgba(0,0,0,0.96) 68%, transparent);
+        animation: lb-top-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+      #letterbox .lb-bot { bottom: 0; background: linear-gradient(0deg, rgba(0,0,0,0.96) 68%, transparent);
+        animation: lb-bot-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+      @keyframes lb-top-in { from { transform: translateY(-100%); } }
+      @keyframes lb-bot-in { from { transform: translateY(100%); } }
+      /* Boss bar, D2R/D4 standard: named plaque with engraved side rules,
+         ornamental bronze frame, damage-lag ghost, phase-break notches on the
+         track and enrage pips under the name. */
       #bossbar { position: fixed; top: 92px; left: 50%; transform: translateX(-50%);
         width: min(520px, 60vw); display: none; pointer-events: none; z-index: 12;
-        background: rgba(10,8,16,0.72); border: 1px solid #4a2a30; border-radius: 8px;
-        padding: 6px 14px 9px; }
+        background: linear-gradient(180deg, rgba(28,16,13,0.82), rgba(10,7,6,0.85));
+        border: 1px solid var(--bronze); border-radius: 3px;
+        outline: 1px solid #201812; outline-offset: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.06),
+          0 8px 28px rgba(0,0,0,0.55);
+        padding: 6px 16px 10px; }
+      #bossbar::before { content: ""; position: absolute; top: -4px; left: 50%; margin-left: -4px;
+        width: 8px; height: 8px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
       #bossbar .bb-row { display: flex; align-items: baseline; gap: 10px; justify-content: center;
         font-size: 13px; letter-spacing: 1px; }
-      #bossbar .bb-icon { color: #c0392f; font-size: 15px; }
-      #bossbar .bb-name { color: #ffd9c9; font-weight: 700;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; font-size: 15px; }
-      #bossbar .bb-affix { color: #c0392f; font-size: 11px; letter-spacing: 2px; }
+      #bossbar .bb-row::before, #bossbar .bb-row::after { content: ""; flex: 1; height: 3px;
+        align-self: center; border-top: 1px solid rgba(110,85,51,0.7);
+        border-bottom: 1px solid rgba(0,0,0,0.55); }
+      #bossbar .bb-icon { color: #d14538; font-size: 15px; }
+      #bossbar .bb-name { color: #f5e6bf; font-weight: 700; white-space: nowrap;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; font-size: 15px;
+        text-shadow: 0 1px 2px #000, 0 0 14px rgba(192,57,47,0.35); }
+      #bossbar .bb-affix { color: #d14538; font-size: 11px; letter-spacing: 2px; white-space: nowrap; }
       /* D4 endcaps: bronze diamonds pin the menace's bar at both ends. */
-      #bossbar .bar { height: 10px; margin-top: 6px; border: 1px solid #000;
-        position: relative; overflow: visible; }
+      #bossbar .bar { height: 11px; margin-top: 6px; border: 1px solid #000;
+        position: relative; overflow: visible; background: #0a0805; }
       #bossbar .bar::before, #bossbar .bar::after { content: ""; position: absolute; top: 50%;
         width: 9px; height: 9px; margin-top: -5px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
-        border: 1px solid #241a08; z-index: 1; }
+        border: 1px solid #241a08; z-index: 2; }
       #bossbar .bar::before { left: -6px; }
       #bossbar .bar::after { right: -6px; }
-      #bossbar .bar > i { background: linear-gradient(90deg, #c0392f, #a93226);
-        transition: width 0.15s ease; }
+      #bossbar .bb-track { position: absolute; inset: 0; overflow: hidden; }
+      /* Segment ticks every 25% over the fill (D2R material read). */
+      #bossbar .bb-ticks { position: absolute; inset: 0; pointer-events: none; z-index: 1;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.6) 1px, transparent 1px);
+        background-size: 25% 100%; background-position: -1px 0; }
+      #bossbar .bb-track > i { position: absolute; top: 0; bottom: 0; left: 0; display: block; }
+      #bossbar #bb-ghost { width: 100%; background: rgba(245,230,191,0.5); }
+      /* Fill: top-edge gloss band + shaded foot — lit metal, not matte paint. */
+      #bossbar #bb-fill { width: 100%; transition: width 0.12s ease;
+        background: linear-gradient(180deg, #e87a68 0%, #d4574a 18%, #a93226 55%, #7e2018);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), inset 0 2px 2px rgba(255,220,200,0.18),
+          inset 0 -3px 4px rgba(0,0,0,0.45); }
+      /* Phase breaks at 2/3 and 1/3 HP — the enrage thresholds (sim config). */
+      #bossbar .bb-break { position: absolute; top: -2px; bottom: -2px; width: 2px;
+        margin-left: -1px; z-index: 1; background: rgba(14,11,9,0.92);
+        box-shadow: 0 0 0 1px rgba(168,133,79,0.4); }
+      #bossbar.elite .bb-break, #bossbar.elite .bb-pips { display: none; }
+      #bossbar .bb-pips { display: flex; justify-content: center; gap: 9px; margin-top: 7px; }
+      #bossbar .bb-pips i { width: 8px; height: 8px; transform: rotate(45deg);
+        background: linear-gradient(135deg, #2c241b, #171310);
+        box-shadow: 0 0 0 1px var(--bronze), inset 0 1px 1px rgba(0,0,0,0.8); }
+      #bossbar .bb-pips i.on { background: linear-gradient(135deg, #e0604f, #7e2018);
+        box-shadow: 0 0 0 1px var(--bronze-hi), 0 0 8px rgba(192,57,47,0.65); }
 
       /* Action bar (D4/WoW cockpit): globe + slots + XP strip */
       #cockpit { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
@@ -324,7 +554,7 @@
       body.touch #skills #flask-chip { right: 244px; bottom: 0; }
       body.touch #skills .skill .key { display: none; } /* no keycaps under thumbs */
       /* Above the stick zone (z 4) — tapping the minimap pings, not walks. */
-      body.touch #minimap { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5;
+      body.touch #minimap-frame { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5;
         touch-action: manipulation; }
       /* Fat-finger insurance on menus + safe-area breathing room. */
       @media (pointer: coarse) {
@@ -350,7 +580,7 @@
       body.phone #skills .skill[data-i="4"] { width: 52px; height: 52px; right: 0; bottom: 130px; }
       body.phone #skills #flask-chip { right: 180px; bottom: 0; }
       body.phone #t-stairs { right: 186px; bottom: 88px; padding: 10px 14px; font-size: 11px; }
-      body.phone #minimap { transform: scale(0.72); transform-origin: top left; }
+      body.phone #minimap-frame { transform: scale(0.72); transform-origin: top left; }
       body.phone .topbtn { padding: 7px 12px; font-size: 10px; }
       /* #show centers itself with translateX(-50%) — the scale must COMPOSE
          with it, not replace it (a bare scale() shoved the chips right). */
@@ -369,33 +599,88 @@
       #rotate b { font-family: "Cinzel", serif; font-size: 20px; letter-spacing: 0.14em;
         color: var(--gold-hi); text-transform: uppercase; }
       #rotate span { color: var(--ink-dim); font-size: 14px; max-width: 34ch; }
-      .skill { position: relative; width: 56px; height: 56px; background: rgba(12,10,20,0.85);
-        border: 2px solid #6e5533; border-radius: 8px; font-size: 10px; color: #cfcfe0;
+      /* Ability chips: one unified geometry (dark well, bronze frame, 6px
+         radius everywhere), keycap-styled binds, a gold-edged radial sweep,
+         and a bright ready-flash the moment a cooldown completes. */
+      .skill { position: relative; width: 56px; height: 56px;
+        background: linear-gradient(180deg, #1b1611, #100c09);
+        border: 1px solid var(--bronze); border-radius: 6px; font-size: 10px; color: var(--ink);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 12px rgba(0,0,0,0.5),
+          0 2px 8px rgba(0,0,0,0.5);
         display: flex; flex-direction: column; align-items: center; justify-content: center; }
-      .skill .key { position: absolute; top: -1px; left: -1px; background: #221b15;
-        border: 1px solid #6e5533; border-radius: 6px 0 6px 0; padding: 0 5px; font-size: 9px;
-        color: #c9a24b; font-weight: 700; line-height: 1.5; }
-      .skill .label { position: absolute; bottom: 2px; font-size: 8px; color: #a99f8c;
-        max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* Keycap seated in a dedicated notch centered on the frame's top edge —
+         never overlapping the slot border at a corner (AAA r2 minor). */
+      .skill .key { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+        z-index: 2; white-space: nowrap;
+        background: linear-gradient(180deg, var(--hover), var(--raised));
+        border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: 3px;
+        padding: 0 6px; font-size: 9px; color: var(--gold); font-weight: 700; line-height: 1.5;
+        font-family: var(--display); letter-spacing: 0.05em;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.55); }
+      .skill .label { position: absolute; bottom: 2px; z-index: 2; font-size: 8px; color: var(--ink-dim);
+        max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.08em;
+        text-shadow: 0 1px 2px #000; }
       .skill .cd { display: none; }
-      /* Radial cooldown sweep: --cd goes 0 (ready) -> 1 (full cooldown). */
-      .skill .sweep { position: absolute; inset: 0; border-radius: 6px;
-        background: conic-gradient(rgba(6,6,12,0.85) calc(var(--cd, 0) * 360deg), transparent 0); }
-      .skill.ready { border-color: #3f5f6f; box-shadow: 0 0 8px rgba(79,209,255,0.12); }
-      .skill.empty { opacity: 0.4; border-style: dashed; }
-      .skill.ult { border-color: #7a5cc9; }
-      .skill.ult.ready { box-shadow: 0 0 12px rgba(185,152,255,0.35); }
-      .skill.ult .key { color: #9a6bd0; }
+      /* Radial cooldown sweep: --cd goes 0 (ready) -> 1 (full cooldown); the
+         leading edge carries a thin gold rim so the sweep reads as a dial. */
+      .skill .sweep { position: absolute; inset: 1px; border-radius: 5px; z-index: 1;
+        background: conic-gradient(rgba(6,4,2,0.84) calc(var(--cd, 0) * 360deg - 3deg),
+          rgba(242,193,78,0.55) calc(var(--cd, 0) * 360deg), transparent 0); }
+      .skill.ready { border-color: var(--bronze-hi);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 10px rgba(0,0,0,0.45),
+          0 0 10px rgba(201,162,75,0.2), 0 2px 8px rgba(0,0,0,0.5); }
+      /* Empty slots are first-class citizens (r3 major): the SAME bevel
+         chassis at lower intensity — bronze frame, recessed well, an engraved
+         socket diamond where the icon would sit, and a keycap in the same
+         gold family at reduced strength (LoL empty-trinket read). */
+      .skill.empty { border-color: rgba(110,85,51,0.55);
+        background: linear-gradient(180deg, #16110d, #0c0906 70%);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.65),
+          inset 0 -1px 0 rgba(232,221,200,0.04), 0 2px 8px rgba(0,0,0,0.5); }
+      .skill.empty::after { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 11px; height: 11px; margin: -6px 0 0 -6px; transform: rotate(45deg);
+        border: 1px solid rgba(168,133,79,0.4);
+        background: linear-gradient(135deg, rgba(168,133,79,0.14), rgba(0,0,0,0.3));
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.8); }
+      .skill.empty .key { opacity: 0.8; }
+      .skill.ult { border-color: #5d3f85; }
+      .skill.ult.ready { border-color: var(--arcane);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 10px rgba(0,0,0,0.45),
+          0 0 12px rgba(154,107,208,0.35), 0 2px 8px rgba(0,0,0,0.5); }
+      .skill.ult .key { color: var(--arcane); border-color: #4a3a6a; }
+      /* Empty sockets are ONE color regardless of slot type — a tinted empty
+         frame reads as an accidental focus state (AAA r2 minor). */
+      .skill.empty, .skill.ult.empty { border-color: rgba(110,85,51,0.55); }
+      .skill.empty .key, .skill.ult.empty .key {
+        color: rgba(201,162,75,0.66); border-color: rgba(110,85,51,0.6); }
       .skill .bench-badge { color: #a99f8c; font-size: 9px; }
       .skill .icon { display: block; width: 30px; height: 30px;
         background: #c9a24b; mask-size: contain; mask-repeat: no-repeat; mask-position: center;
-        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6)); }
       .skill.ult .icon { background: #9a6bd0; }
-      .skill.empty .icon { background: #33334a; }
-      /* XP strip under the slots (health lives in the top-left HUD) */
+      .skill.empty .icon { background: transparent; }
+      /* Ready flash: fires once when a cooldown completes (host toggles
+         .flash); the ring blooms out and dies in ~450ms. */
+      .skill .flashfx { position: absolute; inset: -3px; border-radius: 8px; pointer-events: none;
+        opacity: 0; z-index: 3;
+        background: radial-gradient(circle, rgba(255,240,200,0.4), transparent 62%);
+        box-shadow: 0 0 0 1px rgba(242,193,78,0.9), 0 0 20px 4px rgba(242,193,78,0.5); }
+      .skill.flash .flashfx { animation: ready-flash 0.45s ease-out; }
+      .skill.ult .flashfx { background: radial-gradient(circle, rgba(226,204,255,0.4), transparent 62%);
+        box-shadow: 0 0 0 1px rgba(154,107,208,0.9), 0 0 20px 4px rgba(154,107,208,0.5); }
+      @keyframes ready-flash {
+        0% { opacity: 0; transform: scale(0.85); }
+        25% { opacity: 1; transform: scale(1.04); }
+        100% { opacity: 0; transform: scale(1.18); }
+      }
+      body.touch #skills .skill .sweep, body.touch #skills .skill .flashfx { border-radius: 50%; }
+      /* XP strip under the slots (health lives in the top-right cockpit).
+         XP is lore-blue — the styleguide's semantic rule. */
       #xpbar { position: absolute; left: 0; right: 0; bottom: -8px; height: 4px;
-        background: #14100c; border: 1px solid #241d16; border-radius: 3px; overflow: hidden; }
-      #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #6fd8a8, #3fae7c);
+        background: #0a0805; border: 1px solid #241d16; border-radius: 3px; overflow: hidden; }
+      #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #3c5f93, #5a87c6);
         width: 0%; }
       #keys .credits { margin-top: 10px; color: #6f6757; font-size: 10px; }
 
@@ -417,7 +702,11 @@
       .item .affixes { color: #cbbfa4; font-size: 12px; margin-top: 3px; }
       .item.bag { cursor: pointer; }
       .item.bag:hover { border-color: #5a87c6; background: #2c241b; }
-      .item.empty { color: #6f6757; font-style: italic; border-style: dashed; cursor: default; }
+      /* Empty slots are recessed sockets (dark inset well), never dashed
+         wireframes — the LoL/D2R empty-socket language (AAA r2 major). */
+      .item.empty { color: #6f6757; font-style: italic; cursor: default;
+        border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.75); }
       .rar-common { border-left-color: #b9b2a4; } .rar-common .name { color: #e8ddc8; }
       .rar-magic  { border-left-color: #5a87c6; } .rar-magic .name  { color: #8fb0d9; }
       .rar-rare   { border-left-color: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
@@ -508,7 +797,7 @@
          backdrop world isn't being rendered, only the lineup is. */
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
       body.checkin #skills, body.checkin #banner, body.checkin #show,
-      body.checkin #minimap, body.checkin #cockpit,
+      body.checkin #minimap-frame, body.checkin #cockpit,
       body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
       #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
         color: #f5e6bf; text-shadow: 0 2px 12px #000; }
@@ -615,7 +904,7 @@
       .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px; }
       .m-board ol { margin: 0; padding: 0; list-style: none; font-size: 12px; }
       .m-board li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
-        border-top: 1px dashed #1e1e2a; font-variant-numeric: tabular-nums; }
+        border-top: 1px solid #241d16; font-variant-numeric: tabular-nums; }
       .m-board li:first-child { border-top: none; }
       .m-board li .rank { color: #6f6757; width: 20px; flex: none; }
       .m-board li:nth-child(1) .rank { color: #f2c14e; }
@@ -627,7 +916,7 @@
       #m-open-list { flex: 1 0 100%; margin: 0; padding: 0; list-style: none; font-size: 12px;
         max-height: 140px; overflow-y: auto; font-variant-numeric: tabular-nums; }
       #m-open-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
-        border-top: 1px dashed #1e1e2a; cursor: pointer; }
+        border-top: 1px solid #241d16; cursor: pointer; }
       #m-open-list li:first-child { border-top: none; }
       #m-open-list li:hover { color: #f2c14e; }
       #m-open-list li .cd { color: #e8ddc8; font-weight: 700; letter-spacing: 1px; }
@@ -643,7 +932,7 @@
       .m-account #m-acct-status b { color: #c9a24b; }
       /* Yesterday's champion header line — context above today's race. */
       .m-board li.yday { color: #a99f8c; font-size: 11px; letter-spacing: 0.4px;
-        border-top: none; border-bottom: 1px dashed rgba(110,85,51,0.5); padding-bottom: 5px; }
+        border-top: none; border-bottom: 1px solid rgba(110,85,51,0.4); padding-bottom: 5px; }
       .m-board li.yday b { color: #c9a24b; }
       #menu .m-foot { margin-top: 16px; text-align: center; color: #6f6757; font-size: 10.5px;
         letter-spacing: 0.5px; }
@@ -655,18 +944,41 @@
         display: flex; flex-direction: column; align-items: center; gap: 5px;
         pointer-events: none; font-size: 13px; }
       #show .chips { display: flex; gap: 10px; }
-      #show .hypebar { position: relative; width: 250px; height: 5px; border-radius: 3px;
-        background: rgba(12,10,20,0.72); border: 1px solid #6e5533; overflow: hidden; }
+      /* Hype meter in the HP bar's material language (r3 major: no bare 2px
+         strips) — bronze bezel, visible groove at zero, diamond end-caps,
+         and the frenzy line as an authored gold notch, not a stray tick. */
+      #show .hypebar { position: relative; width: 250px; height: 7px; border-radius: 2px;
+        background: linear-gradient(180deg, #05040a, #100d16);
+        border: 1px solid var(--bronze);
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(232,221,200,0.05),
+          0 1px 4px rgba(0,0,0,0.5); }
+      #show .hypebar::before, #show .hypebar::after { content: ""; position: absolute; top: 50%;
+        width: 6px; height: 6px; margin-top: -3.5px; transform: rotate(45deg); z-index: 1;
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      #show .hypebar::before { left: -5px; }
+      #show .hypebar::after { right: -5px; }
       #show .hypebar > i { display: block; height: 100%; width: 0%;
         background: linear-gradient(90deg, #7a5cff, #c98ba6); transition: width 0.15s linear; }
       #show .hypebar.frenzy > i { background: linear-gradient(90deg, #f2c14e, #ff6a28); }
-      #show .hypebar > s { position: absolute; top: 0; bottom: 0; width: 2px; background: #c9a24b; opacity: 0.85; }
-      #show .stat { background: rgba(12,10,20,0.72); border: 1px solid #6e5533;
-        border-radius: 999px; padding: 4px 12px; display: flex; gap: 6px; align-items: baseline; }
+      #show .hypebar > s { position: absolute; top: -2px; bottom: -2px; width: 2px;
+        background: linear-gradient(180deg, var(--gold-hi), #8a6d3b);
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.8); }
+      /* Audience plaques: small gothic plates matching the corner chrome —
+         one visual language, no rounded web pills on the fight screen. */
+      #show .stat { background: linear-gradient(180deg, rgba(34,26,17,0.88), rgba(11,8,6,0.9));
+        border: 1px solid var(--bronze); border-radius: 2px; padding: 4px 12px;
+        display: flex; gap: 6px; align-items: baseline;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.08em;
+        font-size: 11.5px; color: var(--ink-dim);
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5),
+          0 2px 8px rgba(0,0,0,0.45); }
+      #show .stat b { font-size: 13px; }
       #show .stat b { font-variant-numeric: tabular-nums; }
-      #show .viewers b { color: #7ba3d6; }
-      #show .favorites b { color: #c98ba6; }
-      #show .sponsors b { color: #c9a24b; }
+      #show .stat .uic { width: 12px; height: 12px; align-self: center; opacity: 0.9; }
+      #show .viewers b, #show .viewers .uic { color: #7ba3d6; }
+      #show .favorites b, #show .favorites .uic { color: #c98ba6; }
+      #show .sponsors b, #show .sponsors .uic { color: #c9a24b; }
       #show .stat.bump { animation: bump 0.4s ease; }
       @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.18)} 100%{transform:scale(1)} }
 
@@ -740,17 +1052,18 @@
       #abil .ach-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
       .ach { border: 1px solid #6e5533; border-radius: 6px; padding: 7px 10px; background: #221b15; font-size: 12px; }
       .ach .atitle { font-weight: 700; color: #f2c14e; }
-      .ach.locked { border-style: dashed; }
-      .ach.locked .atitle { color: #6f6757; }
+      .ach.locked { border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.6); }
+      .ach.locked .atitle { color: #8a8072; }
       .ach .adesc { color: #a99f8c; margin-top: 2px; }
 
       /* Run stats (inside the abilities panel) */
       #abil .stats-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 12px; }
       #abil .stats-table th { color: #a99f8c; text-transform: uppercase; font-size: 10px;
         letter-spacing: 1px; font-weight: 700; text-align: right; padding: 3px 8px;
-        border-bottom: 1px dashed #6e5533; }
+        border-bottom: 1px solid rgba(110,85,51,0.6); }
       #abil .stats-table td { color: #b9b2a4; text-align: right; padding: 3px 8px;
-        border-bottom: 1px dashed #1e1e2a; }
+        border-bottom: 1px solid #241d16; }
       #abil .stats-table th:first-child, #abil .stats-table td:first-child { text-align: left; }
       #abil .stats-table td:first-child { color: #e8ddc8; font-weight: 700; }
       #abil .stats-table tr.you td:first-child { color: #5a87c6; }
@@ -800,9 +1113,13 @@
       .igrid { display: flex; flex-wrap: wrap; gap: 8px; }
       .itile { --tc: #a99f8c; width: 56px; cursor: pointer; }
       .itile .ibox { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
-        background: linear-gradient(160deg, #131a16, #0b0f0d); border: 1px solid #2c241b;
-        box-shadow: inset 0 0 12px rgba(0,0,0,0.75); position: relative;
-        transition: border-color 0.1s ease, box-shadow 0.1s ease; }
+        background: linear-gradient(160deg, #1b1611, #14100c);
+        border: 1px solid color-mix(in srgb, var(--tc) 38%, #241d16);
+        box-shadow: inset 0 0 12px rgba(0,0,0,0.75),
+          inset 0 0 10px -3px color-mix(in srgb, var(--tc) 40%, transparent); position: relative;
+        transition: border-color 0.1s ease, box-shadow 0.1s ease, transform 0.12s ease; }
+      .itile:not(.locked):not(.soldout):hover .ibox { transform: translateY(-1px);
+        box-shadow: 0 0 10px -2px var(--tc), inset 0 0 12px rgba(0,0,0,0.75); }
       .itile .ii { width: 36px; height: 36px; background: var(--tc); display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
@@ -813,14 +1130,18 @@
       .itile:hover .ibox { border-color: var(--tc); }
       .itile.sel .ibox { border-color: #f2c14e; box-shadow: 0 0 10px rgba(242,193,78,0.35),
         inset 0 0 12px rgba(0,0,0,0.75); }
-      .itile.locked .ibox { border-style: dashed; opacity: 0.45; }
+      .itile.locked .ibox { border-color: #241d16; opacity: 0.55;
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85); }
+      .itile.locked .ii { filter: grayscale(0.7) brightness(0.6); }
       .itile.locked .iprice { opacity: 0.45; }
       .itile.locked .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
         font-size: 10px; color: #55493a; }
       /* Consumable scarcity: remaining-stock badge + sold-out state. */
       .itile .istock { position: absolute; top: 1px; right: 2px; font-size: 9px; line-height: 1;
         color: #a99f8c; font-variant-numeric: tabular-nums; }
-      .itile.soldout .ibox { border-style: dashed; opacity: 0.4; }
+      .itile.soldout .ibox { border-color: #241d16; opacity: 0.45;
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85); }
+      .itile.soldout .ii { filter: grayscale(0.7) brightness(0.6); }
       .itile.soldout .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
         font-size: 10px; color: #c0392f; }
       .itile.soldout .iprice { color: #6f6757; font-size: 8px; letter-spacing: 0.5px; }
@@ -829,7 +1150,7 @@
         width: 5px; height: 5px; background: #6da356; border-radius: 50%; }
       /* Detail pane: the selected item's stats, build tree, and BUY/SELL. */
       .shop-side { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
-      .shop-detail { flex: 1; overflow-y: auto; background: rgba(6,10,8,0.55);
+      .shop-detail { flex: 1; overflow-y: auto; background: rgba(12,9,6,0.55);
         border: 1px solid #221b15; padding: 12px 14px; }
       .shop-detail .dempty { color: #55493a; font-size: 12px; font-style: italic; }
       .dname { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; color: var(--tc, #e8ddc8); }
@@ -857,9 +1178,9 @@
         letter-spacing: 2px; padding: 8px 0; color: #0a0d0b; background: linear-gradient(180deg, #f2c14e, #c9932e);
         border: 1px solid #f2c14e; }
       .dbtns button:hover:not(:disabled) { filter: brightness(1.15); }
-      .dbtns button:disabled { cursor: default; color: #55493a; background: #101512;
+      .dbtns button:disabled { cursor: default; color: #55493a; background: #14100c;
         border-color: #221b15; font-weight: 400; }
-      .dbtns button.sell { background: #101512; color: #a99f8c; border-color: #2c241b; font-weight: 400; }
+      .dbtns button.sell { background: #14100c; color: #a99f8c; border-color: #2c241b; font-weight: 400; }
       .dbtns button.sell:hover { border-color: #c0392f; color: #ffb3ab; filter: none; }
       /* Bag strip under the detail pane. House rule: panels FIT the viewport —
          the bag never scrolls and never bleeds past the panel. It is bounded
@@ -868,7 +1189,7 @@
          (40px -> 32px -> 26px tiles), and truly pathological bags summarize
          the tail as a "+K more" tile instead of escaping the frame. */
       .shop-detail { min-height: 150px; }
-      .shop-bag { background: rgba(6,10,8,0.55); border: 1px solid #221b15; padding: 9px 12px 11px;
+      .shop-bag { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 9px 12px 11px;
         flex: none; min-height: 0; max-height: 62%; overflow: hidden;
         display: flex; flex-direction: column; }
       .sec-label { font-size: 9px; letter-spacing: 2.5px; color: #55493a; margin: 3px 0 6px; flex: none; }
@@ -936,24 +1257,28 @@
       .loadout { display: flex; gap: 10px; margin: 4px 0 14px; }
       .lslot { width: 58px; }
       .lslot .ibox { width: 56px; height: 56px; position: relative; display: flex; align-items: center;
-        justify-content: center; background: linear-gradient(160deg, #131a16, #0b0f0d);
-        border: 1px solid #3d5244; box-shadow: inset 0 0 12px rgba(0,0,0,0.75); }
-      .lslot.empty .ibox { border-style: dashed; border-color: #221b15; }
+        justify-content: center; background: linear-gradient(160deg, #1b1611, #14100c);
+        border: 1px solid var(--bronze); box-shadow: inset 0 0 12px rgba(0,0,0,0.75); }
+      .lslot.empty .ibox { border-color: #241d16;
+        background: linear-gradient(180deg, #14100c, #0c0906);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.6); }
       .lslot.ult .ibox { border-color: #7a5cc9; }
       .lslot .ii { width: 36px; height: 36px; background: #c9a24b; display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .lslot.ult .ii { background: #9a6bd0; }
-      .lslot .lkey { position: absolute; top: -1px; left: -1px; background: #0a0d0b;
-        border: 1px solid #3d5244; padding: 0 5px; font-size: 9px; color: #c9a24b; font-weight: 700; }
+      .lslot .lkey { position: absolute; top: -1px; left: -1px; background: var(--raised);
+        border: 1px solid var(--bronze); padding: 0 5px; font-size: 9px; color: #c9a24b; font-weight: 700; }
       .lslot.ult .lkey { color: #9a6bd0; border-color: #7a5cc9; }
       .lslot .lname { text-align: center; font-size: 9px; color: #6f6757; margin-top: 3px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
          not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
       .abil-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .acard { background: rgba(6,10,8,0.55); border: 1px solid #221b15; padding: 11px 13px; }
-      .acard.unknown { border-style: dashed; opacity: 0.55; }
+      .acard { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 11px 13px; }
+      .acard.unknown { border-color: #241d16; opacity: 0.7;
+        background: linear-gradient(180deg, rgba(9,6,4,0.6), rgba(9,6,4,0.35));
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.55); }
       .acard .ahead { display: flex; align-items: center; gap: 9px; }
       .acard .ahead .ii { width: 26px; height: 26px; flex: none; background: #c9a24b; display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
@@ -967,7 +1292,7 @@
       .acard .awhere.ultc { color: #9a6bd0; border-color: #4a3a6a; }
       .nrows { margin-top: 9px; }
       .nrow { display: grid; grid-template-columns: 118px 44px 1fr; gap: 8px; align-items: baseline;
-        padding: 5px 2px 4px; border-top: 1px dashed #1c2620; font-size: 11.5px; }
+        padding: 5px 2px 4px; border-top: 1px solid #241d16; font-size: 11.5px; }
       .nrow .ntitle { color: #e8ddc8; font-weight: 700; }
       .nrow .npips { color: #f2c14e; letter-spacing: 2px; font-size: 10px; white-space: nowrap; }
       /* Gem sockets: an empty socket is a hole in the bronze; a taken rank
@@ -994,23 +1319,34 @@
       .nrow.taken .ntitle { color: #f2c14e; }
       .nrow.untaken .ntitle { color: #6f6757; font-weight: 400; }
       .nrow.untaken .neffect { color: #55493a; }
-      .nrow.locked { opacity: 0.45; }
-      .nrow.locked .neffect { color: #8a5a5a; font-style: italic; }
+      /* Locked forks: a desaturated inset well + lock glyph — legible at a
+         glance, not gray-italic-on-near-black (AAA r2 minor). */
+      .nrow.locked { background: linear-gradient(180deg, rgba(6,4,2,0.55), rgba(6,4,2,0.3));
+        box-shadow: inset 0 1px 5px rgba(0,0,0,0.5); border-radius: 2px; }
+      .nrow.locked .ntitle { color: #857b6b; display: inline-flex; align-items: center; gap: 5px; }
+      .nrow.locked .ntitle::before { content: ""; flex: none; width: 10px; height: 10px;
+        background: #857b6b;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a4 4 0 0 0-4 4v4h2V6a2 2 0 0 1 4 0v4h2V6a4 4 0 0 0-4-4z'/%3E%3Crect x='5' y='10' width='14' height='11' rx='2'/%3E%3C/svg%3E") center / contain no-repeat;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a4 4 0 0 0-4 4v4h2V6a2 2 0 0 1 4 0v4h2V6a4 4 0 0 0-4-4z'/%3E%3Crect x='5' y='10' width='14' height='11' rx='2'/%3E%3C/svg%3E") center / contain no-repeat; }
+      .nrow.locked .neffect { color: #8d8375; font-style: italic; }
+      .nrow.locked .npips .pip { opacity: 0.35; }
       .nrow.capstone .ntitle { color: #b08fd9; }
       .nrow.taken.capstone .ntitle { color: #b08fd9; text-shadow: 0 0 8px rgba(185,152,255,0.4); }
       /* Slot-swap buttons (safe room only; the sim enforces the gate). */
       .slot-controls { display: flex; gap: 5px; margin-top: 9px; }
       .slot-btn { cursor: pointer; font: inherit; font-size: 10px; font-weight: 700; letter-spacing: 1px;
-        padding: 3px 10px; color: #a99f8c; background: #0f1511; border: 1px solid #2c241b; }
+        padding: 3px 10px; color: #a99f8c; background: #14100c; border: 1px solid #2c241b; }
       .slot-btn:hover { color: #f2c14e; border-color: #7a6428; }
       /* Achievements page */
       .sr-ach-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-      .sr-ach { background: rgba(6,10,8,0.55); border: 1px solid #221b15; padding: 10px 12px; }
+      .sr-ach { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 10px 12px; }
       .sr-ach .atitle { font-size: 12px; font-weight: 700; color: #f2c14e; letter-spacing: 0.4px; }
       .sr-ach .adesc { font-size: 11px; color: #6f6757; margin-top: 3px; line-height: 1.45; }
       .sr-ach .areward { font-size: 10px; color: #6da356; margin-top: 5px; }
-      .sr-ach.locked { border-style: dashed; opacity: 0.5; }
-      .sr-ach.locked .atitle { color: #6f6757; }
+      .sr-ach.locked { border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.6); }
+      .sr-ach.locked .atitle { color: #8a8072; }
+      .sr-ach.locked .adesc { color: #7d7466; }
       /* Unclaimed: earned but the loot box sits unopened — the glow is the
          call to action ("go claim this"), a warm gold pulse distinct from
          the quiet PAID/PAYS state either side of it. */
@@ -1067,7 +1403,9 @@
       .gear-row .gaff { color: #cbbfa4; font-size: 11px; margin-top: 2px; }
       .gear-row .gslot { margin-left: auto; align-self: flex-start; flex: none; color: #6f6757;
         font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
-      .gear-row.none { border-style: dashed; color: #6f6757; font-style: italic; font-size: 12px; }
+      .gear-row.none { color: #7d7466; font-style: italic; font-size: 12px;
+        border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.75); }
       /* Attribute tiles (LoL stat-popout style): tinted glyph + big number. */
       .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
       .stile { --sc: #c9a24b; display: flex; gap: 9px; align-items: center; padding: 7px 10px;
@@ -1080,7 +1418,7 @@
       #sheet .progress { margin-top: 10px; font-size: 11px; color: #a99f8c; }
       #sheet .progress b { color: #f2c14e; }
       #sheet .progress .bar { margin-top: 5px; border: 1px solid #241d16; }
-      #sheet .progress .bar > i { background: linear-gradient(90deg, #6fd8a8, #3fae7c); }
+      #sheet .progress .bar > i { background: linear-gradient(90deg, #3c5f93, #5a87c6); }
       /* Damage rows: ability icon · name/mechanics · [min–max] · CD · DPS. */
       .drow { display: grid; grid-template-columns: 34px 1fr 128px 52px 64px; gap: 10px;
         align-items: center; padding: 7px 9px; background: #221b15; border: 1px solid #6e5533;
@@ -1112,9 +1450,15 @@
       .def-box .dbig { text-align: center; cursor: help; }
       .def-box .dbig b { font-size: 26px; color: #b9b2a4; font-variant-numeric: tabular-nums; }
       .def-box .dbig small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 2px; }
-      .def-meter { height: 10px; background: #14100c; border: 1px solid #241d16; border-radius: 3px;
+      /* Armor meter stays in the warm palette (r3 minor: no stray cool blue) —
+         armor-grey fill with a bronze-bezel groove; blue is XP/frost only. */
+      .def-meter { height: 10px; background: linear-gradient(180deg, #070503, #16110b);
+        border: 1px solid rgba(110,85,51,0.5); border-radius: 3px;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.85);
         overflow: hidden; position: relative; }
-      .def-meter > i { display: block; height: 100%; background: linear-gradient(90deg, #5a7d96, #b9b2a4); }
+      .def-meter > i { display: block; height: 100%;
+        background: linear-gradient(90deg, #6f6a5e, #b9b2a4);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -3px 4px rgba(0,0,0,0.3); }
       .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #c0392f; }
       .def-lines { font-size: 11.5px; color: #cbbfa4; line-height: 1.55; }
       .def-lines b { color: #b9b2a4; }
@@ -1135,7 +1479,7 @@
          glass for the fight); a stone slab there boxed it in as a brown plate. */
       #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
       #saferoom .panel, #menu .panel {
-        background: linear-gradient(180deg, var(--raised), var(--stone) 36%);
+        background: var(--noise), linear-gradient(180deg, var(--raised), var(--stone) 36%);
         border: 1px solid var(--bronze);
         border-radius: 3px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.05),
@@ -1145,6 +1489,18 @@
       #inv h2, #abil h2, #sheet h2, #keys h2, #recap h2, #saferoom h2, #draft h2 {
         color: var(--gold); font-weight: 600;
       }
+      /* Helper/hint lines must clear ~4.5:1 on the slab — never ship text you
+         cannot read (r3 major: the P-panel subtitle was dark-on-dark). */
+      #inv .hint, #abil .hint, #sheet .hint, #keys .hint {
+        color: #a89880;
+      }
+      /* Scrolling panels end in an inset fade, not a hard slice through a
+         card mid-row (r3 major: achievements bled through the panel edge).
+         Sticky footer gradient: zero scroll-height cost, rides the scroll. */
+      #abil .panel { padding-bottom: 0; }
+      #abil .panel::after { content: ""; position: sticky; bottom: 0; display: block;
+        height: 26px; margin-top: -8px; pointer-events: none;
+        background: linear-gradient(180deg, rgba(23,19,16,0), #171310 82%); }
       /* Buttons: gold bevel for primary actions, stone for the rest. */
       button { cursor: pointer; }
       .dbtns button:not(.sell):not(:disabled),
@@ -1161,6 +1517,15 @@
         filter: brightness(1.08); box-shadow: inset 0 1px 0 rgba(255,240,200,0.55),
           0 2px 10px rgba(201,162,75,0.35);
       }
+      /* Pressed: the gold darkens and sinks — buttons are metal, not flat fills. */
+      .dbtns button:not(.sell):not(:disabled):active,
+      #saferoom .descend button:active, .m-go:active, #recap-again:active, #m-t-go:active {
+        filter: brightness(0.9); transform: translateY(1px);
+        box-shadow: inset 0 2px 5px rgba(60,40,10,0.6), 0 1px 3px rgba(0,0,0,0.5);
+      }
+      .dbtns button.sell:active, #recap .rfoot .dismiss:active, .m-mini:active,
+      #keys .kb-reset button:active { transform: translateY(1px);
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.55); }
       .dbtns button.sell, #recap .rfoot .dismiss, .m-mini, #keys .kb-reset button, #sr-sellall {
         color: var(--ink-dim); background: linear-gradient(180deg, var(--hover), var(--raised));
         border: 1px solid var(--bronze); border-radius: 3px;
@@ -1168,9 +1533,49 @@
       .dbtns button.sell:hover, #recap .rfoot .dismiss:hover, .m-mini:hover,
       #keys .kb-reset button:hover { color: var(--ink); border-color: var(--bronze-hi); filter: none; }
       button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
-      /* Item tiles: dark wells, rarity carried by the frame (LoL shelf). */
+      /* Item tiles: dark wells, rarity carried by the frame + a faint inner
+         glow in the rarity hue (LoL shelf / styleguide item-tile recipe). */
       .itile .ibox { background: linear-gradient(180deg, #1b1611, #14100c);
-        border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7); }
+        border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 0 10px -3px color-mix(in srgb, var(--tc) 45%, transparent); }
+      .itile:not(.locked):not(.soldout):hover .ibox {
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 0 12px -3px color-mix(in srgb, var(--tc) 60%, transparent),
+          0 0 10px -2px var(--tc); }
+      .itile.sel .ibox { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7),
+        0 0 10px rgba(242,193,78,0.35), inset 0 0 12px rgba(0,0,0,0.6); }
+      /* Purchase feedback: the detail pane flashes gold, the wallet bumps. */
+      .shop-detail.purchased { animation: buy-flash 0.5s ease-out; }
+      @keyframes buy-flash {
+        0% { box-shadow: inset 0 0 0 2px #f2c14e, 0 0 24px rgba(242,193,78,0.55); }
+        100% { box-shadow: none; }
+      }
+      .shop-wallet .chip.bump { animation: bump 0.4s ease; }
+      /* Gold-cost typography: the price is a headline, not a footnote. */
+      .dprice .eff { font-family: var(--display); font-size: 17px; letter-spacing: 0.04em;
+        color: var(--gold-hi); }
+      /* Panel motion: fast scale/fade on open (a display flip restarts the
+         animation, so no JS is needed); .closing mirrors it — the host adds
+         the class and hides the overlay ~130ms later. */
+      #inv, #abil, #sheet, #keys, #recap, #saferoom, #draft, #menu {
+        animation: overlay-in 0.14s ease-out; }
+      #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
+      #saferoom .panel, #draft .panel, #menu .panel {
+        animation: panel-in 0.16s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      .closing { animation: overlay-out 0.13s ease-in forwards; }
+      .closing .panel { animation: panel-out 0.13s ease-in forwards; }
+      @keyframes overlay-in { from { opacity: 0; } }
+      @keyframes overlay-out { to { opacity: 0; } }
+      @keyframes panel-in { from { opacity: 0; transform: scale(0.96) translateY(8px); } }
+      @keyframes panel-out { to { opacity: 0; transform: scale(0.97); } }
+      @media (prefers-reduced-motion: reduce) {
+        #inv, #abil, #sheet, #keys, #recap, #saferoom, #draft, #menu,
+        #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
+        #saferoom .panel, #draft .panel, #menu .panel,
+        .closing, .closing .panel, .skill.flash .flashfx { animation: none; }
+        .closing { opacity: 0; }
+      }
       /* The System's broadcast lines: lower-third, not toast. */
       /* Broadcast lines + ticker keep their original cool glass (in-run layer). */
       /* Tooltip: engraved plate. */
@@ -1193,6 +1598,184 @@
       .uic { display: inline-block; width: 1em; height: 1em; vertical-align: -0.12em;
         background: currentColor; mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      /* ---- Icon material pass (round 2): every drawn icon renders as a lit,
+         3-tone object — warm highlight top-left, base hue, shadowed foot —
+         plus a cast shadow. Same mask art, painted read. ---- */
+      .itile .ii, .dtree .itile .ii, .shop-detail .dart .ii {
+        background: linear-gradient(150deg,
+          color-mix(in srgb, var(--tc) 42%, #fff6e0) 6%,
+          var(--tc) 44%,
+          color-mix(in srgb, var(--tc) 58%, #170d04) 92%);
+        filter: drop-shadow(0 -1px 0 rgba(255,246,224,0.18))
+          drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      .gear-row .gbox .ii {
+        background: linear-gradient(150deg,
+          color-mix(in srgb, var(--tc) 42%, #fff6e0) 6%, var(--tc) 44%,
+          color-mix(in srgb, var(--tc) 58%, #170d04) 92%);
+        filter: drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      .skill .icon, .lslot .ii, .acard .ahead .ii {
+        background: linear-gradient(150deg, #ffe9ad 6%, #c9a24b 44%, #6e5327 92%);
+        filter: drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      .skill.ult .icon, .lslot.ult .ii, .acard.ult .ahead .ii {
+        background: linear-gradient(150deg, #e2ccff 6%, #9a6bd0 44%, #4d3568 92%); }
+      .skill.empty .icon { background: transparent; filter: none; }
+      .oicon i, .drow .dic i {
+        background: linear-gradient(150deg,
+          color-mix(in srgb, var(--oc) 42%, #fff6e0) 6%, var(--oc) 44%,
+          color-mix(in srgb, var(--oc) 58%, #170d04) 92%);
+        filter: drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      /* Item tiles, round 2: deeper recessed well with a rarity under-glow
+         pooled at the foot, engraved rarity frame, corner gem. */
+      .itile .ibox {
+        border-color: color-mix(in srgb, var(--tc) 55%, #241d16);
+        background:
+          radial-gradient(60% 60% at 50% 44%, color-mix(in srgb, var(--tc) 16%, transparent), transparent 72%),
+          radial-gradient(120% 85% at 50% 112%, color-mix(in srgb, var(--tc) 30%, transparent), transparent 58%),
+          linear-gradient(180deg, #1d1712, #110d09);
+        box-shadow: inset 0 2px 7px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 -1px 0 rgba(232,221,200,0.05), 0 1px 0 rgba(232,221,200,0.06); }
+      .itile .gem { position: absolute; right: -2px; top: -2px; width: 6px; height: 6px;
+        transform: rotate(45deg); pointer-events: none;
+        background: linear-gradient(135deg, color-mix(in srgb, var(--tc) 55%, #fff), var(--tc) 55%,
+          color-mix(in srgb, var(--tc) 55%, #000));
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.85), 0 0 6px -1px var(--tc); }
+      .itile .gem.g2 { right: auto; top: auto; left: -2px; bottom: -2px; }
+      /* Unaffordable: the item itself dims and desaturates; the price goes
+         red — consistent broke language everywhere. */
+      .itile.broke .ii { filter: saturate(0.35) brightness(0.7) drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      .itile.broke .gem { filter: saturate(0.35) brightness(0.7); }
+      /* Empty equipped wells: recessed slot, no placeholder glyph. */
+      .itile.eslot .ibox { border: 1px solid #241d16;
+        background: linear-gradient(180deg, #14100c, #0c0906);
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(0,0,0,0.6); }
+      /* Bar fills read as material: specular top edge + shaded foot. */
+      .bar > i, .hpbar .hp-fill, #bossbar #bb-fill, #show .hypebar > i,
+      #xpbar > i, .hh-xp > i, #sheet .progress .bar > i, #loading .l-bar i {
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), inset 0 -3px 4px rgba(0,0,0,0.35); }
+      /* Sheet XP bar: tick marks over the lore-blue fill. The zero-XP state
+         still reads as an authored groove (bronze bezel + inner bevel), never
+         a flat black void (r3 major). */
+      #sheet .progress .bar { position: relative; height: 9px;
+        background: linear-gradient(180deg, #070503, #16110b);
+        border: 1px solid rgba(110,85,51,0.5); border-radius: 2px;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.9), inset 0 -1px 0 rgba(232,221,200,0.06); }
+      #sheet .progress .bar::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.5) 1px, transparent 1px);
+        background-size: 10% 100%; background-position: -1px 0; }
+      /* Ledger: fixed-width icon column, breathing room before the label. */
+      .ledger .lic { width: 28px; padding-right: 9px; }
+      .ledger .lic .si { width: 16px; height: 16px; margin: 0 auto; }
+      /* Shop detail: a proper item card. Large art in a rarity well up top,
+         name + rarity banner, stat block with deltas, flavor in italics. */
+      .shop-detail .dart { --tc: #a99f8c; position: relative; width: 88px; height: 88px;
+        margin: 4px auto 10px; display: flex; align-items: center; justify-content: center;
+        border: 1px solid color-mix(in srgb, var(--tc) 60%, #241d16); border-radius: 2px;
+        background:
+          radial-gradient(120% 85% at 50% 112%, color-mix(in srgb, var(--tc) 32%, transparent), transparent 60%),
+          linear-gradient(180deg, #1d1712, #100c08);
+        box-shadow: inset 0 2px 9px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.7),
+          0 0 20px -7px var(--tc); }
+      .shop-detail .dart .ii { width: 58px; height: 58px; display: block;
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .shop-detail .dart .gem { position: absolute; right: -3px; top: -3px; width: 7px; height: 7px;
+        transform: rotate(45deg);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--tc) 55%, #fff), var(--tc) 55%,
+          color-mix(in srgb, var(--tc) 55%, #000));
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.85), 0 0 7px -1px var(--tc); }
+      .shop-detail .dart .gem.g2 { right: auto; top: auto; left: -3px; bottom: -3px; }
+      .shop-detail .dname { text-align: center; font-family: var(--display);
+        font-variant: small-caps; font-size: 16px; letter-spacing: 0.06em; }
+      .shop-detail .dkindrow { text-align: center; margin: 4px 0 10px; }
+      .shop-detail .dkind { display: inline-block; margin: 0; padding: 2px 12px;
+        border: 1px solid color-mix(in srgb, var(--tc, #6e5533) 45%, #241d16); border-radius: 2px;
+        background: rgba(0,0,0,0.4); color: var(--tc, #a99f8c); font-size: 9px; letter-spacing: 2px; }
+      .shop-detail .dhave { text-align: center; color: var(--verdant); font-size: 10.5px;
+        letter-spacing: 1px; margin: -5px 0 8px; }
+      .dstat-row { display: flex; align-items: baseline; gap: 8px; padding: 2.5px 0;
+        font-size: 12.5px; }
+      .dstat-row .lab { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; font-size: 11px; color: var(--ink-dim); width: 44px; flex: none; }
+      .dstat-row .val { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+      .dstat-row .dd { margin-left: auto; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+      .dd-up { color: var(--verdant); } .dd-down { color: #d14538; }
+      .shop-detail .ddesc { font-style: italic; color: var(--ink-faint); }
+      .shop-detail .dprice { justify-content: center; }
+      /* Undiscovered abilities collapse into ONE teaser card. */
+      .acard.discover { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
+        border-color: #241d16; opacity: 0.9;
+        background: linear-gradient(180deg, rgba(9,6,4,0.6), rgba(9,6,4,0.35));
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.55); }
+      .acard.discover .dstar { flex: none; width: 34px; height: 34px; display: flex;
+        align-items: center; justify-content: center; font-size: 18px; color: var(--gold);
+        background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
+      /* ---- Painted item art (AAA r2 BLOCKER): every item icon renders as an
+         illustrated object in its own MATERIAL — highlight/base/shade trio,
+         top-left key light, a specular streak, and an embossed edge. Rarity
+         stays on the frame (--tc border + glow); the art is full-color. ---- */
+      .mat-steel   { --ma: #eef3f8; --mb: #9fb0c2; --mc: #3e4c5c; }
+      .mat-iron    { --ma: #ded8cd; --mb: #8b857a; --mc: #37332c; }
+      .mat-leather { --ma: #eec08a; --mb: #a5713d; --mc: #4a2d14; }
+      .mat-gold    { --ma: #ffedb0; --mb: #cfa14b; --mc: #795720; }
+      .mat-wood    { --ma: #e0aa72; --mb: #8f5f34; --mc: #3e2610; }
+      .mat-arcane  { --ma: #e9d9ff; --mb: #a476dd; --mc: #4a3067; }
+      .mat-blood   { --ma: #ffb49c; --mb: #c74a34; --mc: #5e180d; }
+      .mat-verdant { --ma: #d8eeb2; --mb: #7fa84f; --mc: #31451a; }
+      .mat-frost   { --ma: #e4f4ff; --mb: #86bbdc; --mc: #2b5068; }
+      .mat-ember   { --ma: #ffd9a3; --mb: #d98e4a; --mc: #63370f; }
+      .mat-bone    { --ma: #f8f1e2; --mb: #c9bda2; --mc: #5f5540; }
+      .mat-screen  { --ma: #d8e6f2; --mb: #7f95ad; --mc: #2c3a4a; }
+      .ii[class*="mat-"], .dart .ii[class*="mat-"], .gbox .ii[class*="mat-"] {
+        background:
+          linear-gradient(118deg, transparent 30%, rgba(255,248,230,0.45) 42%, transparent 53%),
+          radial-gradient(130% 95% at 28% 8%, var(--ma) 0%, rgba(255,255,255,0) 55%),
+          linear-gradient(168deg, var(--ma) 6%, var(--mb) 46%, var(--mc) 94%);
+        filter: drop-shadow(0 1px 0 rgba(255,244,214,0.22)) drop-shadow(0 2px 2px rgba(0,0,0,0.78));
+      }
+      /* Broke/locked keep their dimmed language on top of the painted art. */
+      .itile.broke .ii[class*="mat-"] { filter: saturate(0.35) brightness(0.7)
+        drop-shadow(0 2px 1px rgba(0,0,0,0.7)); }
+      .itile.locked .ii[class*="mat-"], .itile.soldout .ii[class*="mat-"] {
+        filter: grayscale(0.7) brightness(0.6); }
+      /* Richer paint on the gold ability set too: streak + emboss, house gold. */
+      .skill .icon, .lslot .ii, .acard .ahead .ii {
+        background:
+          linear-gradient(118deg, transparent 30%, rgba(255,248,230,0.4) 42%, transparent 53%),
+          linear-gradient(150deg, #ffe9ad 6%, #c9a24b 44%, #6e5327 92%);
+        filter: drop-shadow(0 1px 0 rgba(255,244,214,0.2)) drop-shadow(0 2px 2px rgba(0,0,0,0.75)); }
+      .skill.ult .icon, .lslot.ult .ii, .acard.ult .ahead .ii {
+        background:
+          linear-gradient(118deg, transparent 30%, rgba(246,236,255,0.4) 42%, transparent 53%),
+          linear-gradient(150deg, #e2ccff 6%, #9a6bd0 44%, #4d3568 92%); }
+      .skill.empty .icon { background: transparent; filter: none; }
+
+      /* ---- Shop empty state (AAA r2 major): never a black void — an engraved
+         System sigil watermark + Mordecai's featured picks for this floor. ---- */
+      .dempty-state { display: flex; flex-direction: column; min-height: 100%; }
+      .dsigil { position: relative; width: 74px; height: 74px; margin: 26px auto 30px;
+        transform: rotate(45deg); flex: none;
+        border: 2px solid rgba(110,85,51,0.55); outline: 1px solid rgba(0,0,0,0.65);
+        outline-offset: 4px;
+        background:
+          radial-gradient(70% 70% at 32% 26%, rgba(201,162,75,0.18), rgba(0,0,0,0) 70%),
+          linear-gradient(160deg, #1d1712, #0f0b08);
+        box-shadow: inset 0 2px 10px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(232,221,200,0.05); }
+      .dsigil::before { content: ""; position: absolute; inset: 12px;
+        border: 1px solid rgba(110,85,51,0.45); }
+      .dsigil::after { content: ""; position: absolute; left: 50%; top: 50%;
+        width: 14px; height: 14px; margin: -7px 0 0 -7px;
+        background: linear-gradient(135deg, rgba(242,193,78,0.75), rgba(122,90,30,0.75));
+        box-shadow: 0 0 10px rgba(201,162,75,0.35); }
+      .dsys { text-align: center; color: var(--gold); font-family: var(--display);
+        font-variant: small-caps; font-size: 11px; letter-spacing: 0.34em;
+        margin-bottom: 6px; text-shadow: 0 0 12px rgba(201,162,75,0.3); }
+      .dempty-state .dsec { color: #8a7f6c; justify-content: center; }
+      .dempty-state .dsec::after { display: none; }
+      .dempty-state .dsec::before { content: none; }
+      .dempty-state .dtree { justify-content: center; margin-top: 4px; }
+      .dempty-state .dempty { margin-top: auto; padding-top: 14px; text-align: center;
+        color: #6f6455; }
       /* House rule: panels fit the viewport. Where a scrollbar must exist, thin bronze. */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: var(--bronze); border-radius: 4px; }
@@ -1245,8 +1828,14 @@
         <span class="bb-name" id="bb-name"></span>
         <span class="bb-affix" id="bb-affix"></span>
       </div>
-      <div class="bar"><i id="bb-fill"></i></div>
+      <div class="bar">
+        <span class="bb-track"><i id="bb-ghost"></i><i id="bb-fill"></i><span class="bb-ticks"></span></span>
+        <span class="bb-break" style="left: 66.67%"></span>
+        <span class="bb-break" style="left: 33.33%"></span>
+      </div>
+      <div class="bb-pips" id="bb-pips"></div>
     </div>
+    <div id="letterbox"><i class="lb-top"></i><i class="lb-bot"></i></div>
     <div id="bossintro">
       <div class="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
       <div class="bi-name" id="bi-name"></div>
@@ -1254,9 +1843,9 @@
     </div>
     <div id="show">
       <div class="chips">
-        <div class="stat viewers">👁 <b id="stat-viewers">0</b> viewers</div>
-        <div class="stat favorites">⭐ <b id="stat-favorites">0</b> favorites</div>
-        <div class="stat sponsors">🤝 <b id="stat-sponsors">0</b> sponsors</div>
+        <div class="stat viewers"><i class="uic" style="mask-image:url(/icons/ui/eye.svg);-webkit-mask-image:url(/icons/ui/eye.svg)"></i> <b id="stat-viewers">0</b> viewers</div>
+        <div class="stat favorites"><i class="uic" style="mask-image:url(/icons/ui/star.svg);-webkit-mask-image:url(/icons/ui/star.svg)"></i> <b id="stat-favorites">0</b> favorites</div>
+        <div class="stat sponsors"><i class="uic" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i> <b id="stat-sponsors">0</b> sponsors</div>
       </div>
       <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><s id="hype-tick"></s></div>
     </div>
@@ -1333,7 +1922,7 @@
     <div id="toasts"></div>
     <div id="headline"></div>
     <div id="tutorial"></div>
-    <canvas id="minimap" width="168" height="168"></canvas>
+    <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
     <div id="inv">
       <div class="panel">
         <h2>INVENTORY</h2>

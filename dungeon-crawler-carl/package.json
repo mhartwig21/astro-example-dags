@@ -16,6 +16,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/three": "^0.169.0",
     "@types/ws": "^8.18.1",
+    "playwright": "^1.62.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",
     "vitest": "^2.0.5"

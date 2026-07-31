@@ -341,6 +341,9 @@ icons are drawn, never typed). CSS-mask tinted via `.uic`.
 | race | laurels | Lorc |
 | shopping | shopping-cart | Delapouite |
 | marker | position-marker | Delapouite |
+| eye *(original)* | show-bar viewers chip | drawn for this repo, CC0 — NOT game-icons |
+| star *(original)* | show-bar favorites chip | drawn for this repo, CC0 — NOT game-icons |
+| rosette *(original)* | sponsors chip + shop wallet (wax-seal mark) | drawn for this repo, CC0 — NOT game-icons |
 
 ### Fonts — `public/fonts/` (SIL Open Font License 1.1)
 

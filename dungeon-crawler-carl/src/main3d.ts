@@ -13,7 +13,7 @@ import {
 } from "./sim/catalog";
 import {
   EQUIP_SLOTS, Tile,
-  type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
+  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
   type Vec2,
 } from "./sim/types";
 import { CONFIG, naturalFloorForLevel } from "./sim/config";
@@ -203,7 +203,8 @@ function boot(): GameState {
   return g;
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>TEST MODE</b>");
+  // A quiet diegetic stamp (styled in iso.html), not red alarm text.
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>Test Chamber</b>");
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -956,6 +957,53 @@ document.getElementById("m-t-go")!.addEventListener("click", () => {
 
 if (!net && !testMode) openMenu();
 
+// ---- Icon integrity net (AAA r3 major): every drawn icon is a CSS mask, and
+// a mask whose fetch fails renders as NOTHING (Blink treats a failed mask as
+// fully transparent) — a blank tile with a price tag under it. Each distinct
+// icon URL is probed ONCE via an Image (shares the HTTP cache; also catches a
+// dev server answering a missing file with SPA-fallback HTML, which decodes
+// as a broken image). Only a CONFIRMED failure touches any style — every bad
+// mask is swapped for an engraved diamond fallback glyph, so a missing sprite
+// can never ship as a void. The success path changes nothing (no repaint
+// churn: under software raster a late mask swap can blank icons at capture).
+const FALLBACK_MASK =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 L20 12 L12 22 L4 12 Z M12 6.2 L7.4 12 L12 17.8 L16.6 12 Z' fill='%23000' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+const maskUrlRe = /url\("?([^")]+)"?\)/;
+const maskProbe = new Map<string, "pending" | "ok" | "bad">();
+function applyMaskFallback(el: HTMLElement): void {
+  el.style.setProperty("mask-image", FALLBACK_MASK);
+  el.style.setProperty("-webkit-mask-image", FALLBACK_MASK);
+}
+function swapBadMasks(url: string): void {
+  document.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach((el) => {
+    const m = maskUrlRe.exec(el.style.getPropertyValue("mask-image"));
+    if (m && m[1] === url) applyMaskFallback(el);
+  });
+}
+function armIconMask(el: HTMLElement): void {
+  const m = maskUrlRe.exec(el.style.getPropertyValue("mask-image"));
+  if (!m || m[1].startsWith("data:") || m[1].startsWith("blob:")) return;
+  const url = m[1];
+  const known = maskProbe.get(url);
+  if (known === "bad") { applyMaskFallback(el); return; }
+  if (known) return;
+  maskProbe.set(url, "pending");
+  const img = new Image();
+  img.onload = () => maskProbe.set(url, "ok");
+  img.onerror = () => { maskProbe.set(url, "bad"); swapBadMasks(url); };
+  img.src = url;
+}
+new MutationObserver((muts) => {
+  for (const mu of muts) {
+    mu.addedNodes.forEach((n) => {
+      if (!(n instanceof HTMLElement)) return;
+      if (maskUrlRe.test(n.style.getPropertyValue("mask-image"))) armIconMask(n);
+      n.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach(armIconMask);
+    });
+  }
+}).observe(document.body, { childList: true, subtree: true });
+document.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach(armIconMask);
+
 // HUD elements.
 const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
@@ -971,17 +1019,32 @@ const hudLogStatus = document.getElementById("hud-log-status")!;
 const LOG_MAX = 5;
 const LOG_HOLD_MS = 7000;
 
+/** The log frame only shows chrome while it has content (audit r2: no bare
+ *  wireframe box bottom-left during combat). Lines mid-fade-out don't count —
+ *  the chrome fades WITH the last line, not 350ms after it. */
+function updateLogChrome(): void {
+  const liveLines = [...hudLogFeed.children]
+    .filter((c) => !(c as HTMLElement).dataset.dying).length;
+  hudLog.classList.toggle("live", liveLines > 0 || hudLogStatus.innerHTML !== "");
+}
+
 function fadeOutLogLine(el: HTMLElement): void {
   el.classList.remove("show");
-  setTimeout(() => el.remove(), 350);
+  el.dataset.dying = "1";
+  updateLogChrome();
+  setTimeout(() => { el.remove(); updateLogChrome(); }, 350);
 }
 
 function pushLogLine(text: string): void {
   log.push(text);
+  // The ringside title card owns the boss-intro moment — no third echo in the
+  // visible feed (the line stays in the archive `log` array).
+  if (text.includes("RINGSIDE INTRODUCTION")) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
   el.textContent = text;
   hudLogFeed.appendChild(el);
+  updateLogChrome();
   if (hudLogFeed.children.length > LOG_MAX) fadeOutLogLine(hudLogFeed.firstElementChild as HTMLElement);
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => el.classList.remove("fresh"), 900);
@@ -990,6 +1053,7 @@ function pushLogLine(text: string): void {
 
 function clearLogFeed(): void {
   hudLogFeed.innerHTML = "";
+  updateLogChrome();
 }
 
 pushLogLine(`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`);
@@ -1023,22 +1087,15 @@ const mmCtx = minimap.getContext("2d")!;
 minimap.addEventListener("pointerdown", (e) => {
   if (!touchMode) return;
   const r = minimap.getBoundingClientRect();
-  if (r.width === 0 || r.height === 0) return;
+  if (r.width === 0 || r.height === 0 || mmView.s <= 0) return;
   const cx = (e.clientX - r.left) * (minimap.width / r.width);
   const cy = (e.clientY - r.top) * (minimap.height / r.height);
-  const pad = 6;
-  const sx = (minimap.width - pad * 2) / state.map.w;
-  const sy = (minimap.height - pad * 2) / state.map.h;
   touchEdges.ping = {
-    x: Math.max(0, Math.min(state.map.w - 1, (cx - pad) / sx)),
-    y: Math.max(0, Math.min(state.map.h - 1, (cy - pad) / sy)),
+    x: Math.max(0, Math.min(state.map.w - 1, (cx - mmView.ox) / mmView.s)),
+    y: Math.max(0, Math.min(state.map.h - 1, (cy - mmView.oy) / mmView.s)),
   };
   e.preventDefault();
 });
-
-const RARITY_COLORS: Record<string, string> = {
-  common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
-};
 
 // ---- The Show: audience bar + sponsor draft ----
 const statViewers = document.getElementById("stat-viewers")!;
@@ -1066,13 +1123,34 @@ let prevInSafe = false;
 let shownSponsors = 0;
 let shownViewers = 0;
 
+// ---- Overlay motion (audit #3): fast 130-160ms scale/fade on panels.
+// Opening is free — a display:none -> flex flip restarts the CSS panel-in
+// animation (iso.html). Closing adds .closing for ~130ms before hiding; the
+// timer is tracked so a rapid re-open never gets eaten by a stale close.
+const overlayTimers = new Map<HTMLElement, number>();
+function showOverlay(el: HTMLElement): void {
+  const t = overlayTimers.get(el);
+  if (t !== undefined) { clearTimeout(t); overlayTimers.delete(el); }
+  el.classList.remove("closing");
+  el.style.display = "flex";
+}
+function hideOverlay(el: HTMLElement): void {
+  if (el.style.display === "none" || overlayTimers.has(el)) return;
+  el.classList.add("closing");
+  overlayTimers.set(el, window.setTimeout(() => {
+    overlayTimers.delete(el);
+    el.classList.remove("closing");
+    el.style.display = "none";
+  }, 130));
+}
+
 function openDraftModal(): void {
   renderDraft(state);
-  draftEl.style.display = "flex";
+  showOverlay(draftEl);
 }
 
 function dismissDraftModal(): void {
-  draftEl.style.display = "none";
+  hideOverlay(draftEl);
   draftChain = false;
 }
 
@@ -1091,10 +1169,21 @@ const bbIcon = document.getElementById("bb-icon")!;
 const bbName = document.getElementById("bb-name")!;
 const bbAffix = document.getElementById("bb-affix")!;
 const bbFill = document.getElementById("bb-fill") as HTMLElement;
+const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
+const bbPips = document.getElementById("bb-pips")!;
 const bossintroEl = document.getElementById("bossintro")!;
+const letterboxEl = document.getElementById("letterbox")!;
 const biName = document.getElementById("bi-name")!;
 const biAffix = document.getElementById("bi-affix")!;
 let introShownFor = -1;
+// Damage-lag ghost on the boss bar (audit #6): white trail that holds a beat,
+// then chases the live fill. Reset per engaged target.
+let bossGhostFor = -1;
+let bossGhost = 1;
+let bossGhostHold = 0;
+let bossPrevFrac = 1;
+let bossPipKey = "";
+let bossLastNow = 0;
 
 function updateBossBar(s: GameState): void {
   const p = me(s);
@@ -1102,16 +1191,20 @@ function updateBossBar(s: GameState): void {
   if (enc) {
     if (introShownFor !== enc.monsterId) {
       introShownFor = enc.monsterId;
+      dismissTutorialForTransition(); // the title card owns the screen now
       biName.textContent = enc.name;
       biAffix.textContent = enc.affix
         ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
         : enc.kind === "boss" ? "BOSS" : "ELITE";
       bossintroEl.classList.remove("show");
+      letterboxEl.classList.remove("on");
       void (bossintroEl as HTMLElement).offsetWidth; // restart the scale-in
       bossintroEl.classList.add("show");
+      letterboxEl.classList.add("on"); // broadcast cut: letterbox rides the card
     }
   } else {
     bossintroEl.classList.remove("show");
+    letterboxEl.classList.remove("on");
   }
   // Engaged target: the nearest introduced, living boss/elite within range.
   let target: GameState["monsters"][number] | null = null;
@@ -1123,6 +1216,7 @@ function updateBossBar(s: GameState): void {
   }
   if (!target) {
     bossbarEl.style.display = "none";
+    bossGhostFor = -1;
     return;
   }
   bossbarEl.style.display = "block";
@@ -1131,9 +1225,39 @@ function updateBossBar(s: GameState): void {
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
   // the party has stuck to it (burn/poison/chill uptime at a glance).
   bbAffix.innerHTML = (target.affix ? target.affix.toUpperCase() + " " : "") + statusChips(target.statuses);
-  bbFill.style.width = `${Math.max(0, Math.min(1, target.hp / target.maxHp)) * 100}%`;
+  const frac = Math.max(0, Math.min(1, target.hp / target.maxHp));
+  const now = performance.now();
+  const dt = bossLastNow > 0 ? Math.min(0.1, (now - bossLastNow) / 1000) : 0.016;
+  bossLastNow = now;
+  if (target.id !== bossGhostFor) {
+    bossGhostFor = target.id;
+    bossGhost = frac;
+    bossPrevFrac = frac;
+    bossGhostHold = 0;
+  }
+  if (frac < bossPrevFrac - 1e-4) bossGhostHold = 0.3; // fresh damage: hold, then trail
+  bossPrevFrac = frac;
+  if (bossGhost > frac + 1e-4) {
+    if (bossGhostHold > 0) bossGhostHold -= dt;
+    else bossGhost = Math.max(frac, bossGhost - dt * (0.3 + (bossGhost - frac) * 2.5));
+  } else bossGhost = frac;
+  bbFill.style.width = `${frac * 100}%`;
+  bbGhost.style.width = `${bossGhost * 100}%`;
+  // Phase pips + break notches: bosses enrage at 2/3 and 1/3 HP (sim config);
+  // elites have no phases, so the ornament hides (.elite).
+  const isBoss = target.kind === "boss";
+  bossbarEl.classList.toggle("elite", !isBoss);
+  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}` : "";
+  if (pipKey !== bossPipKey) {
+    bossPipKey = pipKey;
+    bbPips.innerHTML = isBoss
+      ? Array.from({ length: 3 }, (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
+      : "";
+  }
 }
 
+let shownFavVis: boolean | null = null;
+let shownSponVis: boolean | null = null;
 function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
@@ -1142,6 +1266,17 @@ function updateShowHud(s: GameState): void {
   statViewers.textContent = v.toLocaleString();
   statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
   statSponsors.textContent = String(p.sponsors);
+  // Zero-value audience chips stay hidden until first earned.
+  const favVis = Math.floor(p.favorites) > 0;
+  if (favVis !== shownFavVis) {
+    shownFavVis = favVis;
+    (statFavorites.parentElement as HTMLElement).style.display = favVis ? "" : "none";
+  }
+  const sponVis = p.sponsors > 0;
+  if (sponVis !== shownSponVis) {
+    shownSponVis = sponVis;
+    (statSponsors.parentElement as HTMLElement).style.display = sponVis ? "" : "none";
+  }
   if (p.sponsors !== shownSponsors) { shownSponsors = p.sponsors; bump(statSponsors); }
   // Pop the viewer chip on a big surge (exciting moment).
   if (v > shownViewers * 1.25 && v > 500) bump(statViewers);
@@ -1171,7 +1306,7 @@ const draftHint = document.getElementById("draft-hint")!;
 const coinIcon = `<i class="uic" style="mask-image:url(/icons/items/gold.svg);-webkit-mask-image:url(/icons/items/gold.svg)"></i>`;
 const REWARD_GLYPHS: Record<string, string> = {
   healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
-  bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
+  bonusTime: "⧗", materials: "◆", favor: "★", retrain: "↺",
   shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
   revision: "☰", revisionDecline: "—",
 };
@@ -1323,8 +1458,8 @@ function renderInventory(s: GameState): void {
 
 function toggleInventory(): void {
   invOpen = !invOpen;
-  invEl.style.display = invOpen ? "flex" : "none";
-  if (invOpen) renderInventory(state);
+  if (invOpen) { renderInventory(state); showOverlay(invEl); }
+  else hideOverlay(invEl);
 }
 
 // Delegated click: equip the clicked bag item, persist, and refresh the panel.
@@ -1392,6 +1527,26 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
     `<span class="ntitle">${u.title}</span>` +
     `<span class="npips">${pips}</span>` +
     `<span class="neffect">${effect}</span>` +
+    `</div>`
+  );
+}
+
+/** All still-undiscovered abilities collapse into ONE teaser row (audit r2:
+ *  seven identical "???" placeholder cards were dead weight). */
+function discoverTeaserHtml(s: GameState): string {
+  const p = me(s);
+  const unknown = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => !knows(p, id));
+  if (unknown.length === 0) return "";
+  const actives = unknown.filter((id) => ABILITY_INFO[id].tier === "active").length;
+  const ults = unknown.length - actives;
+  const breakdown = [
+    actives > 0 ? `${actives} active${actives === 1 ? "" : "s"}` : "",
+    ults > 0 ? `${ults} ultimate${ults === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    `<div class="acard discover"><span class="dstar">✦</span>` +
+    `<div><div class="ahname">${unknown.length} ${unknown.length === 1 ? "ability" : "abilities"} left to discover</div>` +
+    `<div class="ahblurb">${breakdown} — tomes drop in the dungeon, or buy one in the shop</div></div>` +
     `</div>`
   );
 }
@@ -1470,8 +1625,9 @@ const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
 function renderAbilities(s: GameState): void {
-  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
-  abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  const p = me(s);
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  abilGrid.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
   document.getElementById("ach-section")!.style.display =
     CONFIG.achievementsEnabled ? "" : "none";
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
@@ -1504,8 +1660,8 @@ function renderAbilities(s: GameState): void {
 
 function toggleAbilities(): void {
   abilOpen = !abilOpen;
-  abilEl.style.display = abilOpen ? "flex" : "none";
-  if (abilOpen) renderAbilities(state);
+  if (abilOpen) { renderAbilities(state); showOverlay(abilEl); }
+  else hideOverlay(abilEl);
 }
 
 // ---- Crawler Profile (pauses the game while open) ----
@@ -1531,13 +1687,11 @@ const abilIcon = (id: string): string =>
 function gearRowHtml(slot: ItemSlot, it: Item | null): string {
   if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
   const noun = it.name.split(" ").pop()!.toLowerCase();
-  const icon = it.catalogId
-    ? iconStyle(it.catalogId)
-    : `mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)`;
+  const icon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   return (
     `<div class="gear-row rar-${it.rarity}">` +
-    `<div class="gbox" style="--tc:${tc}"><i class="ii" style="${icon}"></i></div>` +
+    `<div class="gbox" style="--tc:${tc}">${icon}</div>` +
     `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
     `<div class="gaff">${affixLines(it).join(" · ") || "—"}</div></div>` +
     `<div class="gslot">${slot}</div>` +
@@ -1622,8 +1776,8 @@ function renderSheet(s: GameState): void {
 
 function toggleSheet(): void {
   sheetOpen = !sheetOpen;
-  sheetEl.style.display = sheetOpen ? "flex" : "none";
-  if (sheetOpen) renderSheet(state);
+  if (sheetOpen) { renderSheet(state); showOverlay(sheetEl); }
+  else hideOverlay(sheetEl);
 }
 
 // ---- Key bindings (rebindable; persisted per browser) ----
@@ -1679,10 +1833,10 @@ function renderKeybinds(): void {
 
 function toggleKeybinds(): void {
   kbOpen = !kbOpen;
-  keysEl.style.display = kbOpen ? "flex" : "none";
+  if (kbOpen) { renderKeybinds(); showOverlay(keysEl); }
+  else hideOverlay(keysEl);
   listening = null;
   input.captureMode = false;
-  if (kbOpen) renderKeybinds();
 }
 
 kbRows.addEventListener("click", (e) => {
@@ -1911,6 +2065,44 @@ const iconStyle = (id: string): string =>
 const coin = `<i class="micon" style="${iconStyle("gold")}"></i>`;
 const matIcon = (id: string): string => `<i class="micon" style="${iconStyle(id)}"></i>`;
 
+// ---- Painted item art (AAA r2 blocker): each catalog item renders in its own
+// MATERIAL palette (see .mat-* in iso.html) so the shelf reads as full-color
+// illustrated objects, not tier-tinted font glyphs. Rarity stays on the frame.
+const ITEM_MAT: Record<string, string> = {
+  backstage_pass: "mat-gold", blastplate_harness: "mat-iron", blood_subscription: "mat-blood",
+  bloodsport_maul: "mat-iron", boss_sigil: "mat-arcane", box_seat_crossbow: "mat-wood",
+  boxcutter: "mat-steel", cancellation_axe: "mat-steel", cardboard_cuirass: "mat-leather",
+  crash_helmet: "mat-ember", crowd_medallion: "mat-gold", cursed_amplifier: "mat-arcane",
+  elite_trophy: "mat-gold", encore_treads: "mat-leather", field_ration: "mat-blood",
+  focus_bead: "mat-frost", glass_charm: "mat-frost", gold: "mat-gold",
+  gyro_stabilizer: "mat-steel", headliner_cleaver: "mat-steel", honed_edge: "mat-steel",
+  iron_plating: "mat-iron", killer_instinct: "mat-blood", landlords_ledger: "mat-leather",
+  live_feed: "mat-screen", location_scout: "mat-bone", lucky_bottlecap: "mat-gold",
+  mosh_pit_helm: "mat-iron", mystery_box: "mat-wood", overtime_clause: "mat-bone",
+  ozone_wand: "mat-arcane", padded_lining: "mat-leather", perpetual_encore: "mat-arcane",
+  plating_kit: "mat-iron", plot_armor: "mat-gold", primetime_cleaver: "mat-steel",
+  ratings_magnet: "mat-ember", roadie_runner: "mat-leather", showstopper_plate: "mat-gold",
+  signature_choreography: "mat-bone", stabilizer_rod: "mat-steel", stagedive_harness: "mat-leather",
+  standing_ovation: "mat-gold", stormcall_staff: "mat-arcane", sweeps_week_staff: "mat-wood",
+  swift_wraps: "mat-bone", system_favor: "mat-gold", tome: "mat-arcane",
+  tour_treads: "mat-leather", venom_clause: "mat-verdant", vip_pass: "mat-gold",
+};
+// Field-drop nouns (generated gear) get materials by what the thing IS.
+const NOUN_MAT: Record<string, string> = {
+  aegis: "mat-gold", axe: "mat-steel", band: "mat-gold", blade: "mat-steel",
+  boots: "mat-leather", carapace: "mat-iron", charm: "mat-frost", cleaver: "mat-steel",
+  crossbow: "mat-wood", crown: "mat-gold", fetish: "mat-bone", greaves: "mat-iron",
+  hauberk: "mat-iron", helm: "mat-iron", hood: "mat-leather", idol: "mat-gold",
+  locket: "mat-gold", maul: "mat-iron", mug: "mat-wood", pendant: "mat-gold",
+  plate: "mat-iron", sigil: "mat-arcane", spear: "mat-steel", staff: "mat-wood",
+  striders: "mat-leather", talisman: "mat-arcane", totem: "mat-wood",
+  treads: "mat-leather", vest: "mat-leather", visor: "mat-steel", wand: "mat-arcane",
+};
+const itemIconHtml = (id: string): string =>
+  `<i class="ii ${ITEM_MAT[id] ?? "mat-gold"}" style="${iconStyle(id)}"></i>`;
+const nounIconHtml = (noun: string): string =>
+  `<i class="ii ${NOUN_MAT[noun] ?? "mat-steel"}" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
+
 /** How many of each catalog id the player owns (bag + equipped) — component dots. */
 function ownedCatalogCounts(p: Player): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -1963,7 +2155,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     ? `<div class="istock" title="${left} left in stock this shop">×${left}</div>` : "";
   return (
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i>${stockBadge}</div>` +
+    `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
@@ -1973,7 +2165,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
 function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
   return (
     `<div class="itile ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
+    `<div class="ibox">${itemIconHtml(e.id)}<b class="gem"></b></div>` +
     `</div>`
   );
 }
@@ -1983,34 +2175,89 @@ function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
  * tinted by rarity via the tile's --tc mask color. */
 function invTileHtml(it: Item, data: string, selected: boolean): string {
   const noun = it.name.split(" ").pop()!.toLowerCase();
-  const inner = it.catalogId
-    ? `<i class="ii" style="${iconStyle(it.catalogId)}"></i>`
-    : `<i class="ii" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
+  const inner = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   return (
     `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
-    `<div class="ibox">${inner}</div>` +
+    `<div class="ibox">${inner}<b class="gem"></b></div>` +
     `</div>`
   );
 }
 
-function statLines(it: Pick<Item, "affixes">): string {
-  return affixLines(it as Item).join(" · ");
+// ---- Item card stat block (audit r2): labeled rows with green/red deltas
+// vs whatever is equipped in the same slot — the LoL-shop comparison read. ----
+const AFFIX_ROWS: { k: keyof Affixes; label: string; fmt: (v: number) => string }[] = [
+  { k: "damage", label: "ATK", fmt: (v) => String(Math.round(v)) },
+  { k: "spell", label: "MAG", fmt: (v) => String(Math.round(v)) },
+  { k: "maxHp", label: "HP", fmt: (v) => String(Math.round(v)) },
+  { k: "armor", label: "ARM", fmt: (v) => String(Math.round(v)) },
+  { k: "speed", label: "SPD", fmt: (v) => v.toFixed(2) },
+  { k: "crit", label: "CRIT", fmt: (v) => `${Math.round(v * 100)}%` },
+];
+
+function statRowsHtml(next: Affixes, cur: Affixes | null): string {
+  let out = "";
+  for (const { k, label, fmt } of AFFIX_ROWS) {
+    const nv = next[k] ?? 0;
+    const cv = cur?.[k] ?? 0;
+    if (nv === 0 && cv === 0) continue;
+    const d = nv - cv;
+    const dd = cur && Math.abs(d) > 1e-9
+      ? `<span class="dd ${d > 0 ? "dd-up" : "dd-down"}">${d > 0 ? "▲" : "▼"} ${fmt(Math.abs(d))} vs equipped</span>`
+      : "";
+    out += `<div class="dstat-row"><span class="lab">${label}</span><span class="val">+${fmt(nv)}</span>${dd}</div>`;
+  }
+  return out;
+}
+
+/** The big item render at the top of the detail card. */
+function detailArtHtml(tc: string, iconHtml: string): string {
+  return `<div class="dart" style="--tc:${tc}">${iconHtml}` +
+    `<b class="gem"></b><b class="gem g2"></b></div>`;
 }
 
 function renderShopDetail(s: GameState): void {
   const room = s.safeRoom!;
   const p = me(s);
   if (!shopSel) {
-    srDetail.innerHTML = `<div class="dempty">Select an item. Components you own are credited toward anything they build into.</div>`;
+    // Never a void (AAA r2 major): the unselected pane shows the System's
+    // engraved sigil + Mordecai's featured picks for the floor below.
+    const avail = room.available
+      .map((id) => CATALOG_BY_ID[id])
+      .filter((e): e is CatalogEntry => !!e && e.id !== "tome");
+    const priceOf = (e: CatalogEntry): number => effectivePrice(p, e.id, room.nextFloor);
+    // Best affordable gear first (priciest = biggest upgrade), then the
+    // cheapest aspirational stock if the wallet is thin.
+    const picks = avail.filter((e) => !buyBlocker(s, e)).sort((a, b) => priceOf(b) - priceOf(a)).slice(0, 4);
+    if (picks.length < 4) {
+      for (const e of avail.filter((x) => !picks.includes(x)).sort((a, b) => priceOf(a) - priceOf(b))) {
+        picks.push(e);
+        if (picks.length >= 4) break;
+      }
+    }
+    srDetail.innerHTML =
+      `<div class="dempty-state">` +
+      `<div class="dsigil"></div>` +
+      `<div class="dsys">THE SYSTEM PROVIDES</div>` +
+      (picks.length
+        ? `<div class="dsec">MORDECAI'S PICKS — FLOOR ${room.nextFloor}</div>` +
+          `<div class="dtree">${picks.map((e) => miniTileHtml(e, "", `data-id="${e.id}"`)).join("")}</div>`
+        : "") +
+      `<div class="dempty">Select anything on the shelf. Components you own are credited toward whatever they build into.</div>` +
+      `</div>`;
     return;
   }
   if (shopSel.kind === "catalog") {
     const e = CATALOG_BY_ID[shopSel.id];
     if (!e) { srDetail.innerHTML = ""; return; }
+    const tc = TIER_COLOR[e.tier];
+    const ownedN = ownedCatalogCounts(p)[e.id] ?? 0;
+    let flavor = ""; // plain flavor sits at the bottom of the card, in italics
     let html =
-      `<div class="dname" style="--tc:${TIER_COLOR[e.tier]}">${e.name}</div>` +
-      `<div class="dkind">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</div>`;
+      detailArtHtml(tc, itemIconHtml(e.id)) +
+      `<div class="dname" style="--tc:${tc}">${e.name}</div>` +
+      `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</span></div>` +
+      (ownedN > 0 ? `<div class="dhave">in your kit ×${ownedN}</div>` : "");
     if (e.tier === "consumable") {
       if (e.effect === "tome") {
         const ab = room.tomeAbility;
@@ -2020,11 +2267,13 @@ function renderShopDetail(s: GameState): void {
       } else if (e.effect === "maxHp") {
         html += `<div class="dstats">+${12 + room.nextFloor * 2} max HP, permanent.</div>`;
       }
-      html += `<div class="ddesc">${e.desc}</div>`;
+      flavor = e.desc;
     } else {
-      html += `<div class="dstats">${statLines({ affixes: gearAffixes(e, room.nextFloor) })}</div>`;
+      const next = gearAffixes(e, room.nextFloor);
+      const cur = e.slot ? p.equipment[e.slot]?.affixes ?? null : null;
+      html += `<div class="dstat-block">${statRowsHtml(next, cur)}</div>`;
       if (e.passive) html += `<div class="dpassive">${e.desc}</div>`;
-      else html += `<div class="ddesc">${e.desc}</div>`;
+      else flavor = e.desc;
     }
     // Build tree: what it's made of (with owned ✓s), and what it feeds.
     if (e.buildsFrom?.length) {
@@ -2053,6 +2302,7 @@ function renderShopDetail(s: GameState): void {
         html += `<div class="dreq ${has >= (n ?? 0) ? "met" : "unmet"}">${matIcon(m)} ${n}× ${m.replace("_", " ")} (you: ${has})</div>`;
       }
     }
+    if (flavor) html += `<div class="ddesc">${flavor}</div>`;
     // Price: full price struck through when owned components discount it.
     const full = e.tier === "consumable" ? consumablePrice(e, room.nextFloor) : totalCost(e.id);
     const eff = effectivePrice(p, e.id, room.nextFloor);
@@ -2066,12 +2316,17 @@ function renderShopDetail(s: GameState): void {
   const it = shopSel.kind === "bag" ? p.inventory[shopSel.idx] : p.equipment[shopSel.slot];
   if (!it) { shopSel = null; renderShopDetail(s); return; }
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const noun = it.name.split(" ").pop()!.toLowerCase();
+  const artIcon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
+  // Bag items compare against whatever currently holds their slot.
+  const curEq = shopSel.kind === "bag" ? p.equipment[it.slot]?.affixes ?? null : null;
   let html =
+    detailArtHtml(tc, artIcon) +
     `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
+    `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
     `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
-    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
-    `<div class="dstats">${statLines(it)}</div>`;
+    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</span></div>` +
+    `<div class="dstat-block">${statRowsHtml(it.affixes, curEq)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
   if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
   if (it.catalogId) {
@@ -2095,11 +2350,13 @@ function renderSafeRoom(s: GameState): void {
   if (!room) return;
   const p = me(s);
   srTip.textContent = room.tip;
-  srWallet.innerHTML =
-    `<span class="chip">${coin}<b>${p.gold}</b></span>` +
-    `<span class="chip">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>` +
-    `<span class="chip">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>` +
-    `<span class="chip" title="sponsors">🤝 <b>${p.sponsors}</b></span>`;
+  // Zero-value currencies stay off the header until first earned — three
+  // dead 0-chips are noise, not information.
+  const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
+  if (p.materials.elite_trophy > 0) wchips.push(`<span class="chip" title="elite trophies">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>`);
+  if (p.materials.boss_sigil > 0) wchips.push(`<span class="chip" title="boss sigils">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>`);
+  if (p.sponsors > 0) wchips.push(`<span class="chip" title="sponsors"><i class="micon" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i><b>${p.sponsors}</b></span>`);
+  srWallet.innerHTML = wchips.join("");
   srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
   // Top-level tab dispatch.
   srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
@@ -2129,8 +2386,8 @@ function renderAbilPage(s: GameState): void {
   srLoadout.innerHTML =
     p.abilities.slots.map((id, i) => slotTile(id, String(i + 1))).join("") +
     slotTile(p.abilities.ultimate, "U", true);
-  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
-  srAbil.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  srAbil.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -2207,7 +2464,7 @@ function renderShopPage(s: GameState): void {
   // Equipped + bag.
   srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
-    if (!it) return `<div class="itile" style="--tc:#2c241b"><div class="ibox"><span class="iglyph" style="color:#2c241b">·</span></div></div>`;
+    if (!it) return `<div class="itile eslot" title="${slot}: empty"><div class="ibox"></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
   // The bag TIGHTENS as it fills so the panel always fits the viewport
@@ -2259,6 +2516,11 @@ srDetail.addEventListener("click", (e) => {
       persistRun(state);
     }
     renderSafeRoom(state);
+    // Purchase feedback (audit #8): gold flash on the detail pane, wallet bump.
+    srDetail.classList.remove("purchased");
+    void srDetail.offsetWidth; // restart the animation
+    srDetail.classList.add("purchased");
+    srWallet.querySelector(".chip")?.classList.add("bump");
     return;
   }
   const sellBtn = el.closest("button[data-sell]") as HTMLButtonElement | null;
@@ -2442,7 +2704,7 @@ function updateSkills(s: GameState): void {
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
         return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
-          `<span class="label">${label}</span><span class="sweep"></span></div>`;
+          `<span class="label">${label}</span><span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +
       // Flask chip (cockpit-style): charge count in the label; the radial
@@ -2452,7 +2714,7 @@ function updateSkills(s: GameState): void {
           `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
           `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
           `<i class="icon" style="mask-image:url(/icons/flask.svg);-webkit-mask-image:url(/icons/flask.svg)"></i>` +
-          `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
+          `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span><span class="flashfx"></span>` +
           `</div>`
         : "");
   }
@@ -2471,30 +2733,127 @@ function updateSkills(s: GameState): void {
       : Math.max(0, Math.min(1, remaining / base));
     chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
+    // Ready-flash (audit #4): the moment a REAL cooldown completes, the chip
+    // blooms once. "armed" only while a sweep is actually running, so loadout
+    // rebuilds and already-ready chips never flash spuriously.
+    const wasReady = chip.dataset.rdy === "1";
+    if (frac > 0.02) chip.dataset.armed = "1";
+    if (ready && !wasReady && chip.dataset.armed === "1") {
+      chip.dataset.armed = "0";
+      chip.classList.remove("flash");
+      void chip.offsetWidth; // restart the animation
+      chip.classList.add("flash");
+    }
+    chip.dataset.rdy = ready ? "1" : "0";
   });
   // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
 }
 
-// Top-down minimap: explored floor only (fog of war), stairs once seen,
-// monsters only while inside the vision radius, and the player (cyan).
+// Top-down minimap (audit r2): a surveyor's chart, not a raw pixel dump. The
+// view auto-frames the EXPLORED region (fog-of-war reveal fills the frame as
+// you map the floor), rooms get warm parchment fills with drawn bronze
+// outlines, and the static geometry renders once per reveal onto an offscreen
+// cache — the per-frame cost is one drawImage + a handful of dots.
+const mmView = { s: 0, ox: 0, oy: 0 }; // world tile -> canvas px transform
+const mmStatic = document.createElement("canvas");
+const mmStaticCtx = mmStatic.getContext("2d")!;
+let mmKey = "";
+
+function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: number, maxY: number): void {
+  const map = s.map;
+  const W = minimap.width, H = minimap.height, pad = 12;
+  mmStatic.width = W;
+  mmStatic.height = H;
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  // Uniform scale, capped LOW so a barely-explored floor renders as a drawn
+  // chart, never giant solid slabs (r3 minor: one minimap material spec at
+  // every zoom — parchment fill, stroked walls, fixed-size actor marks).
+  const sc = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 5.5);
+  mmView.s = sc;
+  mmView.ox = (W - bw * sc) / 2 - minX * sc;
+  mmView.oy = (H - bh * sc) / 2 - minY * sc;
+  const g = mmStaticCtx;
+  g.clearRect(0, 0, W, H);
+  const X = (x: number): number => mmView.ox + x * sc;
+  const Y = (y: number): number => mmView.oy + y * sc;
+  const walkable = (i: number): boolean => !!s.explored[i] && map.tiles[i] !== Tile.Wall;
+  // Pass 1: floor fills (warm stone; stairs and sealed doors in gold).
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const t = map.tiles[i];
+      g.fillStyle =
+        t === Tile.StairsDown ? "#c9a24b" :
+        t === Tile.DoorLocked ? "#f2c14e" : "#443728";
+      g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
+    }
+  }
+  // Pass 2: drawn room outlines — a bronze rule wherever explored floor meets
+  // wall, a soft dark fog edge where it meets the unexplored dark.
+  g.lineWidth = 1;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const edges: [number, number, number, number, boolean][] = [];
+      const check = (nx: number, ny: number, x1: number, y1: number, x2: number, y2: number): void => {
+        const out = nx < 0 || ny < 0 || nx >= map.w || ny >= map.h;
+        const ni = ny * map.w + nx;
+        if (out || map.tiles[ni] === Tile.Wall) edges.push([x1, y1, x2, y2, true]);
+        else if (!s.explored[ni]) edges.push([x1, y1, x2, y2, false]);
+      };
+      check(x, y - 1, X(x), Y(y), X(x + 1), Y(y));
+      check(x, y + 1, X(x), Y(y + 1), X(x + 1), Y(y + 1));
+      check(x - 1, y, X(x), Y(y), X(x), Y(y + 1));
+      check(x + 1, y, X(x + 1), Y(y), X(x + 1), Y(y + 1));
+      for (const [x1, y1, x2, y2, isWall] of edges) {
+        g.strokeStyle = isWall ? "rgba(168,133,79,0.75)" : "rgba(10,7,4,0.8)";
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.lineTo(x2, y2);
+        g.stroke();
+      }
+    }
+  }
+}
+
 function drawMinimap(s: GameState): void {
   const map = s.map;
-  const W = minimap.width, H = minimap.height, pad = 6;
-  const sx = (W - pad * 2) / map.w, sy = (H - pad * 2) / map.h;
-  mmCtx.clearRect(0, 0, W, H);
+  // Explored bbox scan (cheap: one pass over the tile grid). The count keys
+  // the static cache — a new reveal or a new floor triggers one rebuild.
+  let minX = map.w, minY = map.h, maxX = -1, maxY = -1, count = 0;
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
       const i = y * map.w + x;
-      if (!s.explored[i]) continue;
-      const t = map.tiles[i];
-      if (t === Tile.Wall) continue;
-      mmCtx.fillStyle =
-        t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#f2c14e" : "#3a2f24";
-      mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
+      if (!s.explored[i] || map.tiles[i] === Tile.Wall) continue;
+      count++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
     }
   }
+  const W = minimap.width, H = minimap.height;
+  if (maxX < 0) { mmCtx.clearRect(0, 0, W, H); return; }
+  // Location Scout marks the stairs through fog — keep them inside the frame.
+  const scout = hasPassive(me(s), "pathfinder");
+  if (scout) {
+    minX = Math.min(minX, Math.floor(s.map.stairs.x));
+    maxX = Math.max(maxX, Math.floor(s.map.stairs.x));
+    minY = Math.min(minY, Math.floor(s.map.stairs.y));
+    maxY = Math.max(maxY, Math.floor(s.map.stairs.y));
+  }
+  const key = `${s.floor}:${map.w}x${map.h}:${count}:${scout ? 1 : 0}`;
+  if (key !== mmKey) {
+    mmKey = key;
+    rebuildMinimapStatic(s, minX, minY, maxX, maxY);
+  }
+  mmCtx.clearRect(0, 0, W, H);
+  mmCtx.drawImage(mmStatic, 0, 0);
+  const X = (x: number): number => mmView.ox + x * mmView.s;
+  const Y = (y: number): number => mmView.oy + y * mmView.s;
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
   for (const m of s.monsters) {
     const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
@@ -2502,7 +2861,7 @@ function drawMinimap(s: GameState): void {
     mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#c0392f";
     const r = m.kind === "boss" ? 3.5 : 2;
     mmCtx.beginPath();
-    mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
+    mmCtx.arc(X(m.pos.x), Y(m.pos.y), r, 0, Math.PI * 2);
     mmCtx.fill();
   }
   for (const pl of s.players) {
@@ -2511,14 +2870,41 @@ function drawMinimap(s: GameState): void {
       mmCtx.strokeStyle = "#c0392f";
       mmCtx.lineWidth = 1.5;
       mmCtx.beginPath();
-      mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
+      mmCtx.arc(X(pl.pos.x), Y(pl.pos.y), 4, 0, Math.PI * 2);
       mmCtx.stroke();
       continue;
     }
-    mmCtx.fillStyle = pl.id === me(s).id ? "#5a87c6" : "#86b86a";
+    const isMe = pl.id === me(s).id;
+    if (isMe) {
+      // YOU are a glowing gold chevron pointing where you face — the D2R/LoL
+      // player-arrow read, not an anonymous dot (AAA r2 minor).
+      const ang = Math.atan2(pl.facing.y, pl.facing.x);
+      mmCtx.save();
+      mmCtx.translate(X(pl.pos.x), Y(pl.pos.y));
+      mmCtx.rotate(ang + Math.PI / 2);
+      mmCtx.shadowColor = "rgba(242,193,78,0.9)";
+      mmCtx.shadowBlur = 7;
+      mmCtx.fillStyle = "#ffedb8";
+      mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+      mmCtx.lineWidth = 1;
+      mmCtx.beginPath();
+      mmCtx.moveTo(0, -4.8);
+      mmCtx.lineTo(3.5, 3.9);
+      mmCtx.lineTo(0, 1.9);
+      mmCtx.lineTo(-3.5, 3.9);
+      mmCtx.closePath();
+      mmCtx.fill();
+      mmCtx.stroke();
+      mmCtx.restore();
+      continue;
+    }
+    mmCtx.fillStyle = "#86b86a";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+    mmCtx.lineWidth = 1;
     mmCtx.beginPath();
-    mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
+    mmCtx.arc(X(pl.pos.x), Y(pl.pos.y), 2.6, 0, Math.PI * 2);
     mmCtx.fill();
+    mmCtx.stroke();
   }
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
@@ -2527,14 +2913,14 @@ function drawMinimap(s: GameState): void {
     mmCtx.lineWidth = 1.5;
     mmCtx.globalAlpha = 0.9 - cycle * 0.6;
     mmCtx.beginPath();
-    mmCtx.arc(pad + pg.pos.x * sx, pad + pg.pos.y * sy, 2 + cycle * 4, 0, Math.PI * 2);
+    mmCtx.arc(X(pg.pos.x), Y(pg.pos.y), 2 + cycle * 4, 0, Math.PI * 2);
     mmCtx.stroke();
     mmCtx.globalAlpha = 1;
   }
   // Location Scout (chase legendary): the stairs are marked from the moment
   // you arrive — a pulsing gold diamond, fog or no fog.
   if (hasPassive(me(s), "pathfinder")) {
-    const cx = pad + s.map.stairs.x * sx, cy = pad + s.map.stairs.y * sy;
+    const cx = X(s.map.stairs.x), cy = Y(s.map.stairs.y);
     const pulse = 4 + Math.sin(performance.now() / 250) * 1.5;
     mmCtx.strokeStyle = "#ffd700";
     mmCtx.lineWidth = 1.5;
@@ -2551,26 +2937,45 @@ function drawMinimap(s: GameState): void {
 }
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
-  enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
-  heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
-  chain: "#aab2bd", // iron links; zero-amount events never become numbers anyway
+  // White-gold core for ordinary hits (readable over any foliage); crits are a
+  // distinct hot gold — the AAA r2 combat-feedback contrast pass.
+  enemy: "#fff1d6", crit: "#ffc93c", player: "#ff5240",
+  heal: "#8fd06f", gold: "#f2c14e", weapon: "#b98fe8",
+  chain: "#c8d0da", // iron links; zero-amount events never become numbers anyway
 };
 
-// Floating combat numbers: project a world hit to screen and float it upward.
+// Floating combat numbers (audit #7): pooled DOM elements + Web Animations —
+// scale-pop, arced drift, fade. No per-hit createElement/remove churn, no CSS
+// transition round-trips, transform/opacity only (zero layout thrash).
+const dmgPool: HTMLDivElement[] = [];
+const DMG_POOL_MAX = 48;
+// Readability cap (audit r2): past ~16 simultaneous numbers the screen is
+// confetti — ordinary enemy ticks are dropped first; crits, kills, player
+// damage, heals, and gold always land.
+const DMG_MAX_ACTIVE = 16;
+let dmgActive = 0;
 function spawnDamageNumber(h: HitEvent): void {
+  const important = h.kind !== "enemy" || h.killed === true;
+  if (dmgActive >= DMG_MAX_ACTIVE && !important) return;
   const s = renderer.worldToScreen(h.pos.x, 0.7, h.pos.y);
   if (!s.visible) return;
-  const el = document.createElement("div");
-  el.className = h.kind === "crit" ? "dmg crit" : "dmg";
+  let el = dmgPool.pop();
+  if (!el) {
+    el = document.createElement("div");
+    fxLayer.appendChild(el);
+  }
+  const crit = h.kind === "crit";
+  el.className = crit ? "dmg crit" : "dmg";
   el.style.color = HIT_COLORS[h.kind];
+  el.style.opacity = "";
   el.style.left = `${s.x}px`;
   el.style.top = `${s.y}px`;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
-  el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
+  el.textContent = crit ? `${h.amount}!` : `${sign}${h.amount}`;
   // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
   // can SEE which school each number came from (physical keeps the defaults).
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    el.style.color = h.kind === "crit" ? "#c4a8e8" : "#9a6bd0";
+    el.style.color = crit ? "#d9c2ff" : "#c2a3f2"; // bright arcane, still outlined
   }
   // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
   // poison toxin-green — so a DoT build can read its uptime mid-fight.
@@ -2583,14 +2988,30 @@ function spawnDamageNumber(h: HitEvent): void {
     el.style.opacity = "0.85";
     el.textContent = `${el.textContent} ⛨`;
   }
-  fxLayer.appendChild(el);
-  // Kick off the float+fade on the next frame so the transition applies.
-  requestAnimationFrame(() => {
-    const drift = (Math.random() - 0.5) * 40;
-    el.style.transform = `translate(calc(-50% + ${drift}px), calc(-50% - 46px))`;
-    el.style.opacity = "0";
-  });
-  setTimeout(() => el.remove(), 850);
+  el.style.visibility = "visible";
+  // Motion: chunky scale-pop out of the impact, then an arced drift — the
+  // horizontal push accelerates while the rise decelerates. Crits pop ~50%
+  // larger, hang longer, and land with a slight tilt.
+  const drift = (Math.random() - 0.5) * (crit ? 64 : 48);
+  const rise = crit ? 62 : 48;
+  const pop = crit ? 1.5 : 1.18;
+  const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
+  const anim = el.animate(
+    [
+      { transform: `translate(-50%, -50%) scale(${crit ? 0.3 : 0.55}) rotate(${tilt}deg)`, opacity: 1 },
+      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.3).toFixed(1)}px)) scale(${pop}) rotate(${tilt}deg)`, opacity: 1, offset: 0.16 },
+      { transform: `translate(calc(-50% + ${(drift * 0.55).toFixed(1)}px), calc(-50% - ${(rise * 0.72).toFixed(1)}px)) scale(1)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${rise}px)) scale(${crit ? 0.98 : 0.9})`, opacity: 0 },
+    ],
+    { duration: crit ? 900 : 720, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+  );
+  dmgActive++;
+  anim.onfinish = () => {
+    dmgActive--;
+    el!.style.visibility = "hidden";
+    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el!);
+    else el!.remove();
+  };
 }
 
 // D4-style level-up: a floating "LEVEL {n}" over the crawler's head, paired
@@ -2635,7 +3056,13 @@ function showAnnouncement(a: Announcement): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
   if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
-  if (a.priority === "high") { showBanner(a); return; }
+  if (a.priority === "high") {
+    // One presentation per moment: the ringside TITLE CARD (updateBossBar)
+    // already announces the intro — no duplicate center banner on top of it.
+    if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
+    showBanner(a);
+    return;
+  }
   // Level-ups get the world-space ring + floating text (see the
   // lastLevelByPid diff loop) instead of a toast — the line still reaches
   // the archive log via the separate state.events drain, nothing is lost.
@@ -2698,11 +3125,18 @@ function showBanner(a: Announcement): void {
 const tutorialLayer = document.getElementById("tutorial")!;
 const tutorialQueue: Announcement[] = [];
 let tutorialActive = false;
+let tutorialDismissActive: (() => void) | null = null;
+let tutorialAutoTimer = 0;
 
 function showTutorialCard(a: Announcement): void {
   if (tutorialActive) { tutorialQueue.push(a); return; }
   tutorialActive = true;
-  const body = a.text.replace(/^COURTESY EXPLANATION:\s*/, "");
+  // Strip the redundant lead-in (the ribbon header already says COURTESY
+  // EXPLANATION) and re-capitalize so the body never reads as a truncated
+  // sentence ("that unlock queued…" -> "That unlock queued…").
+  const body = a.text
+    .replace(/^COURTESY EXPLANATION:\s*/, "")
+    .replace(/^[a-z]/, (c) => c.toUpperCase());
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
@@ -2717,6 +3151,8 @@ function showTutorialCard(a: Announcement): void {
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
+    window.clearTimeout(tutorialAutoTimer);
+    tutorialDismissActive = null;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
@@ -2724,6 +3160,22 @@ function showTutorialCard(a: Announcement): void {
     if (next) showTutorialCard(next);
   };
   el.addEventListener("click", dismiss);
+  tutorialDismissActive = dismiss;
+  // Auto-dismiss: a courtesy, not a squatter. Long enough to read twice.
+  tutorialAutoTimer = window.setTimeout(dismiss, 14_000);
+}
+
+/** Slide the active card out NOW (floor transitions, boss intros). Queued
+ *  cards wait a beat so nothing pops over the new moment. */
+function dismissTutorialForTransition(): void {
+  if (!tutorialDismissActive) return;
+  const queued = tutorialQueue.splice(0);
+  tutorialDismissActive();
+  if (queued.length > 0) {
+    setTimeout(() => {
+      for (const q of queued) showTutorialCard(q);
+    }, 5000);
+  }
 }
 
 // ---- Run recap (backlog #12): the season report card ----
@@ -2920,9 +3372,6 @@ function updateDowned(s: GameState): void {
   }
 }
 
-function phaseColor(s: GameState): string {
-  return s.phase === "safe" ? "#6da356" : s.phase === "warning" ? "#f2c14e" : "#c0392f";
-}
 function fmt(t: number): string {
   const c = Math.max(0, t);
   return `${Math.floor(c / 60)}:${Math.floor(c % 60).toString().padStart(2, "0")}`;
@@ -2945,24 +3394,112 @@ function statusChips(st: { kind: string; stacks: number; remaining: number }[] |
   }).join("");
 }
 
+// ---- Cockpit HUD (top strip, audit #1/#5) ----
+// Structured plaques built ONCE; per-frame updates mutate text and bar widths
+// only — no innerHTML churn, no layout thrash. Colors ride iso.html tokens
+// through semantic classes instead of inline hex. The HP bar is the cockpit
+// anchor: gold-bezel frame, segment ticks, a damage-lag ghost trail, and a
+// readout that ticks toward the true value.
+hudTL.innerHTML =
+  `<div class="hh-row"><span class="hh-label">Floor</span>` +
+  `<span class="hh-big" id="hh-floor"></span>` +
+  `<span class="hh-dim">/ ${CONFIG.finalFloor}</span></div>` +
+  `<div class="hh-row"><span class="hh-label">Collapse</span>` +
+  `<span class="hh-num" id="hh-time"></span>` +
+  `<span class="hh-phase" id="hh-phase"></span></div>` +
+  `<div class="bar hh-collapse" id="hh-collapse"><i id="hh-collapse-fill"></i></div>`;
+hudTR.innerHTML =
+  `<div class="hh-row"><span class="hh-label">Level</span><span class="hh-big" id="hh-level"></span>` +
+  `<span class="hh-sep"></span><span class="hh-num gold">${coinIcon}<span id="hh-gold"></span></span>` +
+  `<span class="hh-sep"></span><span class="hh-stat" id="hh-atk" title="attack power (tinted by weapon rarity)"></span>` +
+  `<span class="hh-stat" id="hh-mag" title="spell power (tinted by weapon rarity)"></span></div>` +
+  `<div class="hpframe"><div class="hpbar">` +
+  `<i class="hp-ghost" id="hh-hpghost"></i><i class="hp-fill" id="hh-hpfill"></i>` +
+  `<span class="hp-ticks"></span><span class="hp-num" id="hh-hpnum"></span></div></div>` +
+  `<div class="hh-xp" title="experience"><i id="hh-xpfill"></i></div>` +
+  `<div class="hh-status" id="hh-status" style="display:none"></div>`;
+const hh = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
+const hhFloor = hh("hh-floor"), hhTime = hh("hh-time"), hhPhase = hh("hh-phase"),
+  hhCollapse = hh("hh-collapse"), hhCollapseFill = hh("hh-collapse-fill"),
+  hhLevel = hh("hh-level"), hhGold = hh("hh-gold"), hhAtk = hh("hh-atk"), hhMag = hh("hh-mag"),
+  hhHpGhost = hh("hh-hpghost"), hhHpFill = hh("hh-hpfill"), hhHpNum = hh("hh-hpnum"),
+  hhXpFill = hh("hh-xpfill"), hhStatus = hh("hh-status");
+const hudCache: Record<string, string> = {};
+const setHudText = (el: HTMLElement, key: string, v: string): void => {
+  if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; }
+};
+let hudGhost = 1;
+let hudGhostHold = 0;
+let hudPrevHpFrac = 1;
+let hudDispHp = -1;
+let hudLastNow = 0;
+
 function updateHud(s: GameState): void {
+  const now = performance.now();
+  const dt = hudLastNow > 0 ? Math.min(0.1, (now - hudLastNow) / 1000) : 0.016;
+  hudLastNow = now;
   const p = me(s);
+  // Floor transition: a stale courtesy card must not ride into the new floor.
+  if (hudCache.tutFloor !== String(s.floor)) {
+    if (hudCache.tutFloor !== undefined) dismissTutorialForTransition();
+    hudCache.tutFloor = String(s.floor);
+  }
+  // Top-left: floor + the collapse clock (phase color via semantic classes).
+  setHudText(hhFloor, "floor", String(s.floor));
+  setHudText(hhTime, "time", fmt(s.timeRemaining));
+  setHudText(hhPhase, "phase", s.phase.toUpperCase());
+  if (hudCache.phaseCls !== s.phase) {
+    hudCache.phaseCls = s.phase;
+    hhPhase.className = `hh-phase ${s.phase}`;
+    hhCollapse.className = `bar hh-collapse ${s.phase}`;
+  }
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
-  hudTL.innerHTML =
-    `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
-    `<span style="color:${phaseColor(s)}">Collapse ${fmt(s.timeRemaining)} · ${s.phase.toUpperCase()}</span>` +
-    `<div class="bar"><i style="width:${tf * 100}%;background:${phaseColor(s)}"></i></div>`;
-  const rc = RARITY_COLORS[p.weaponRarity] ?? "#b9b2a4";
-  hudTR.innerHTML =
-    `Level ${p.level} · ${p.gold} gold · ` +
-    `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
-    `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
-    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#c0392f"></i></div>` +
-    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#5a87c6"></i></div>` +
-    // Debuff row (5.11): active statuses read right under the health bar.
-    ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
+  hhCollapseFill.style.width = `${tf * 100}%`;
+  // Top-right: level · gold · schools (weapon-rarity tinted), then the bar.
+  setHudText(hhLevel, "level", String(p.level));
+  setHudText(hhGold, "gold", p.gold.toLocaleString());
+  setHudText(hhAtk, "atk", `ATK ${p.attackPower}`);
+  setHudText(hhMag, "mag", `MAG ${p.spellPower}`);
+  if (hudCache.rar !== p.weaponRarity) {
+    hudCache.rar = p.weaponRarity;
+    hhAtk.className = `hh-stat rtx-${p.weaponRarity}`;
+    hhMag.className = `hh-stat rtx-${p.weaponRarity}`;
+  }
+  // HP: live fill + white damage-lag ghost (holds a beat, then chases) + a
+  // readout that TICKS to the true value instead of teleporting.
+  const maxHp = Math.max(1, p.maxHp);
+  const frac = Math.max(0, Math.min(1, p.hp / maxHp));
+  if (frac < hudPrevHpFrac - 1e-4) hudGhostHold = 0.3;
+  hudPrevHpFrac = frac;
+  if (hudGhost > frac + 1e-4) {
+    if (hudGhostHold > 0) hudGhostHold -= dt;
+    else hudGhost = Math.max(frac, hudGhost - dt * (0.35 + (hudGhost - frac) * 3));
+  } else {
+    hudGhost = frac; // heals snap the ghost up with the fill
+  }
+  hhHpFill.style.width = `${frac * 100}%`;
+  hhHpGhost.style.width = `${hudGhost * 100}%`;
+  const hp = Math.max(0, p.hp);
+  if (hudDispHp < 0) hudDispHp = hp;
+  hudDispHp += (hp - hudDispHp) * Math.min(1, dt * 14);
+  if (Math.abs(hudDispHp - hp) < 0.6) hudDispHp = hp;
+  setHudText(hhHpNum, "hp", `${Math.ceil(hudDispHp)} / ${maxHp}`);
+  const low = frac < 0.3 && p.alive;
+  if (hudCache.low !== String(low)) {
+    hudCache.low = String(low);
+    hudTR.classList.toggle("low-hp", low);
+  }
+  hhXpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
+  // Debuff row (5.11): re-rendered only when the status set changes.
+  const stKey = (p.statuses ?? []).map((e) => `${e.kind}${e.stacks}${Math.ceil(e.remaining)}`).join("|");
+  if (hudCache.st !== stKey) {
+    hudCache.st = stKey;
+    hhStatus.style.display = stKey ? "" : "none";
+    hhStatus.innerHTML = statusChips(p.statuses);
+  }
   // The feed itself (hudLogFeed) is driven event-by-event via pushLogLine, not
-  // re-rendered every frame — only this persistent status blurb gets redrawn.
+  // re-rendered every frame — only this persistent status blurb gets redrawn,
+  // and only when it actually changes.
   let status = "";
   if (s.status === "playing" && !p.alive) {
     status += `<b style="color:#c0392f">DOWNED</b> — ` +
@@ -2977,7 +3514,11 @@ function updateHud(s: GameState): void {
       `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
       `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
   }
-  hudLogStatus.innerHTML = status;
+  if (hudCache.status !== status) {
+    hudCache.status = status;
+    hudLogStatus.innerHTML = status;
+    updateLogChrome();
+  }
 }
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests

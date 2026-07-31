@@ -24,13 +24,19 @@ interface LayerSpec {
   billowTiles: number; // approx tiles per large billow
   driftA: [number, number];
   driftB: [number, number];
+  mist?: number; // >0: thin ground-mist over EXPLORED space too (depth layering)
 }
 
-// Low layer: the dense bank that actually hides the level. High layer: thin
-// fast wisps above the wall tops that sell the motion.
+// Low layer: a dark atmospheric bank over unexplored space — it VEILS, it
+// does not hide: the actual level geometry renders everywhere and sinks into
+// the band's colored dark (renderer3d's fog tint), D2R-style; these planes
+// only add drifting depth on top. High layer: thin fast wisps above the wall
+// tops that sell the motion. Mist layer: an ankle-height haze that drifts
+// over explored ground as well, so the revealed world keeps atmospheric depth.
 const LAYERS: LayerSpec[] = [
-  { y: 0.55, opacity: 0.9, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
-  { y: 1.35, opacity: 0.4, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
+  { y: 0.55, opacity: 0.42, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
+  { y: 1.35, opacity: 0.2, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
+  { y: 0.16, opacity: 0.14, billowTiles: 6, driftA: [0.014, -0.008], driftB: [-0.009, 0.016], mist: 0.45 },
 ];
 
 const VERT = /* glsl */ `
@@ -53,6 +59,7 @@ uniform vec2 uDriftA;
 uniform vec2 uDriftB;
 uniform vec3 uColA;
 uniform vec3 uColB;
+uniform float uMist;
 varying vec2 vUv;
 void main() {
   float m = texture2D(uMask, vUv).r; // bilinear -> soft ~1-tile frontier
@@ -60,18 +67,49 @@ void main() {
   // touches the map border — don't let that clamp-smear to the horizon).
   float inside = step(0.0, vUv.x) * step(vUv.x, 1.0) * step(0.0, vUv.y) * step(vUv.y, 1.0);
   m = max(m, 1.0 - inside);
-  if (m < 0.01) discard;
   float n1 = texture2D(uNoise, vUv * uScale + uDriftA * uTime).r;
   float n2 = texture2D(uNoise, vUv * uScale * 2.63 + uDriftB * uTime).r;
   float billow = n1 * 0.62 + n2 * 0.38;
-  // Noise erodes the frontier so the edge curls instead of following tiles.
-  float edge = m * smoothstep(0.18, 0.72, m + (billow - 0.5) * 0.5);
+  // Noise erodes the frontier so the edge curls instead of following tiles —
+  // deep erosion, so the boundary reads as fingers of drifting fog, never a
+  // soft-brush airbrush stamp.
+  float edge = m * smoothstep(0.24, 0.68, m + (billow - 0.5) * 0.78);
+  // Ground mist: patchy haze over the EXPLORED map too (never past the edge).
+  float base = uMist * smoothstep(0.42, 0.9, billow) * inside;
+  float a = max(edge, base) * uOpacity * (0.8 + 0.2 * billow);
+  if (a < 0.012) discard;
   vec3 col = mix(uColA, uColB, smoothstep(0.25, 0.85, billow));
-  gl_FragColor = vec4(col, edge * uOpacity * (0.8 + 0.2 * billow));
+  gl_FragColor = vec4(col, a);
 }`;
 
 export class FogOfWar {
   readonly group = new THREE.Group();
+
+  /** Per-tile animated fog alpha (1 = hidden, 0 = revealed), row-major over the
+   * map. The renderer reads this to ease its instanced tile tint in sync with
+   * the dissipating bank, so the reveal is one motion, not two. */
+  get alphas(): Float32Array {
+    return this.cur;
+  }
+
+  /** True while any tile's alpha is still animating toward its target. */
+  get animating(): boolean {
+    return this.settling;
+  }
+
+  /** The animated per-tile fog mask (R8, bilinear). World materials sample
+   * this per fragment so the reveal frontier is a smooth ramp, never a
+   * staircase of tile-sized rectangles. Null until the first rebuild. */
+  get maskTexture(): THREE.DataTexture | null {
+    return this.mask;
+  }
+
+  /** The tileable billow noise — shared with the world-lit materials so the
+   * darkness frontier on the geometry erodes with the same texture the fog
+   * planes drift. */
+  get noiseTexture(): THREE.DataTexture {
+    return this.noise;
+  }
 
   private noise: THREE.DataTexture;
   private mask: THREE.DataTexture | null = null;
@@ -116,10 +154,15 @@ export class FogOfWar {
     this.mask.needsUpdate = true;
     this.settling = false;
 
-    // The band's clear color lifted toward pale grey: murk base + billow highlight.
+    // Murk colors: the band's clear color lifted toward its SHADOW hue (mood),
+    // kept DEEP — the unexplored world underneath must read through the veil
+    // as darkened geometry, so the bank is smoke-dark with only a whisper of
+    // grey lift for the billow highlights. (Pale banks read as a grey canvas
+    // painted over the frame — the exact "unfinished" tell.)
     const bg = new THREE.Color(theme.background);
-    const colA = bg.clone().lerp(new THREE.Color(0x8a93ad), 0.24);
-    const colB = bg.clone().lerp(new THREE.Color(0xc9d2e4), 0.34);
+    const shadow = new THREE.Color(theme.mood?.gradeShadow ?? 0x16132b);
+    const colA = bg.clone().lerp(shadow, 0.75).lerp(new THREE.Color(0x7a83a0), 0.04);
+    const colB = bg.clone().lerp(shadow, 0.6).lerp(new THREE.Color(0xaab6cc), 0.09);
 
     for (const spec of LAYERS) {
       const mat = new THREE.ShaderMaterial({
@@ -143,6 +186,7 @@ export class FogOfWar {
           uDriftB: { value: new THREE.Vector2(...spec.driftB) },
           uColA: { value: colA },
           uColB: { value: colB },
+          uMist: { value: spec.mist ?? 0 },
         },
       });
       const geo = new THREE.PlaneGeometry(map.w + 2 * PAD, map.h + 2 * PAD);
@@ -154,8 +198,11 @@ export class FogOfWar {
     }
   }
 
-  /** Retarget the mask from the explored set (call when exploredVersion bumps). */
-  setExplored(state: GameState): void {
+  /** Retarget the mask from the explored set (call when exploredVersion bumps).
+   * `snap` stamps the mask instantly instead of easing — used right after a
+   * SAME-WORLD rebuild (asset arrival, door opening), where re-fogging the
+   * whole map and dissolving it back in reads as a full-screen dark flash. */
+  setExplored(state: GameState, snap = false): void {
     const { explored, map } = state;
     if (map.w !== this.w || map.h !== this.h) return; // rebuild lands first
     for (let i = 0; i < this.target.length; i++) {
@@ -169,6 +216,16 @@ export class FogOfWar {
           (y > 0 && !!explored[i - this.w]) || (y < this.h - 1 && !!explored[i + this.w]);
       }
       this.target[i] = lit ? 0 : 1;
+    }
+    if (snap && this.mask) {
+      const data = this.mask.image.data as Uint8Array;
+      for (let i = 0; i < this.target.length; i++) {
+        this.cur[i] = this.target[i];
+        data[i] = this.target[i] * 255;
+      }
+      this.mask.needsUpdate = true;
+      this.settling = false;
+      return;
     }
     this.settling = true;
   }
