@@ -52,6 +52,25 @@ const ITEM_MAT = {
   standing_ovation: "gold", stormcall_staff: "arcane", sweeps_week_staff: "wood",
   swift_wraps: "bone", system_favor: "gold", tome: "arcane",
   tour_treads: "leather", venom_clause: "verdant", vip_pass: "gold",
+  // ITEMIZATION-V2 additions (masks authored by tools/gen-icon-masks.mjs).
+  rebar_spear: "iron", sledge_head: "iron", stock_trigger: "wood",
+  riot_shim: "steel", field_tourniquet: "blood", dowsing_fork: "wood",
+  insulated_gloves: "leather", pikemans_rebuttal: "steel",
+  demolition_permit: "ember", court_order: "bone", slumlords_deposit: "leather",
+  ambulance_chaser: "blood", grounded_suit: "steel", glyph_cache: "arcane",
+  // Boss uniques — drop-only chase gear reads richer than the shelf.
+  front_desk_bell: "gold", sump_crown: "verdant", rootcutter_shears: "steel",
+  loadbearing_girder: "iron", furnace_draft: "ember", refit_shard: "frost",
+};
+
+// Glyph -> material (ITEMIZATION-V2 §3): firmware stones. Arcane is the house
+// color; the elemental/behavioral ones take their own so a socket row reads
+// as five different stones, not five purple pebbles.
+const GLYPH_MAT = {
+  arc_splice: "frost", splitfang: "steel", reprise: "arcane",
+  brandmark: "blood", accelerant: "ember", arcane_lens: "arcane",
+  executioners_rebate: "gold", heavyweight_plate: "iron",
+  hair_trigger: "gold", slipstream: "frost",
 };
 
 // Field-drop noun -> material (mirrors NOUN_MAT in main3d.ts).
@@ -136,4 +155,5 @@ function run(setDir, matOf, fallback) {
 run("items", ITEM_MAT, "gold");
 run("nouns", NOUN_MAT, "steel");
 run("stats", STAT_MAT, "bone");
+run("glyphs", GLYPH_MAT, "arcane");
 console.log(`painted ${n} icons -> public/icons/painted/`);

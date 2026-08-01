@@ -113,6 +113,9 @@ export function interestMonsters(monsters: readonly Monster[], players: readonly
 export const PLAYER_COLD_FIELDS = [
   "equipment", "inventory", "abilities", "achievements", "materials",
   "tipsSeen", "revisions", "pendingUpgrades", "pendingRewards",
+  // Glyph loadout (V2 §3): changes only on explicit socket/unsocket/grant
+  // actions — belongs in the cold block.
+  "glyphs",
   // Derived/semi-static stats: written only by the stat recompute (equips,
   // level-ups, permanent buffs) or explicit actions — never per-tick. The
   // fingerprint is by VALUE, so an idempotent recompute doesn't re-ship.

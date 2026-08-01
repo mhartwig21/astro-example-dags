@@ -1,26 +1,30 @@
 import {
   createGame, createTestGame, restoreGame, step, equipFromInventory, equipItem, chooseReward, chooseUpgrade,
   buyCatalogItem, hasPassive, sellItem, sellAllItems, sellValue, effectivePrice, missingComponents, setReady, addPlayer, slotAbility, setUltimate,
-  claimAchievementLootBox,
+  claimAchievementLootBox, dismantleItem, dismantleYield, refitCost, refitItem, socketGlyph, unsocketGlyph,
   isCrawlerSkin, type CrawlerSkin, type TestSetup,
 } from "./sim/game";
 import { ACHIEVEMENTS } from "./sim/achievements";
 import { affixLines, itemScore, weaponClassOf } from "./sim/items";
 import { buildCharacterSheet, type SheetAbilityRow } from "./sim/sheet";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, consumableStock, gearAffixes,
+  CATALOG, CATALOG_BY_ID, BOSS_UNIQUES, TIER_UNLOCK_SHOP, buildsInto, consumablePrice, consumableStock, gearAffixes,
   totalCost, type CatalogEntry, type CatalogTier,
 } from "./sim/catalog";
 import {
+  GLYPH_INFO, glyphDormantReason, glyphMatches, glyphSocket2Level, glyphSocketCount, glyphsFor, socketLegal,
+  type GlyphId,
+} from "./sim/glyphs";
+import {
   EQUIP_SLOTS, Tile,
   type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
-  type DialogueSession, type Quest, type SafeRoom, type Vec2,
+  type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
 } from "./sim/types";
 import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
 import { CONFIG, naturalFloorForLevel } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  knows, nodeOpen, rank, upgradeDef, type AbilityId,
+  abilityCdrBreakdown, knows, nodeOpen, rank, upgradeDef, type AbilityId,
 } from "./sim/abilities";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
@@ -1437,11 +1441,23 @@ function renderDraft(s: GameState): void {
         : "Your sponsors reward a good show. Take one gift down — press its number or click.";
     draftCards.innerHTML = lp.pendingRewards
       .map((r, i) => {
-        const tint = r.item ? ` style="--oc:${RARITY_TEXT[r.item.rarity]}"` : "";
-        const ribbon = r.item ? `<span class="oribbon">${r.item.rarity}</span>` : "";
+        // V2 §2.1 on the gift card too: a catalog identity is named art with
+        // quality gems; a commodity drop is its rolled rarity and nothing more.
+        const tint = r.item ? ` style="--oc:${itemColor(r.item)}"`
+          : r.glyph ? ` style="--oc:#b08fd9"` : "";
+        const ribbon = r.item
+          ? (isCatalog(r.item)
+            ? `<span class="oribbon">${TIER_LABEL[CATALOG_BY_ID[r.item.catalogId!].tier].replace(/S$/, "")}</span>${qualityPipsHtml(r.item)}`
+            : `<span class="oribbon">${r.item.rarity}</span>`)
+          : r.glyph ? `<span class="oribbon">glyph</span>` : "";
+        // Real art wherever there is real art: catalog gear, glyph stones.
+        const art = r.item && r.item.catalogId
+          ? `<img class="ii" src="/icons/painted/items/${r.item.catalogId}.svg" alt="">`
+          : r.glyph ? glyphIconHtml(r.glyph)
+          : `<span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span>`;
         return (
           `<div class="reward" data-idx="${i}"${tint}>` +
-          `<div class="oicon"><span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span></div>` +
+          `<div class="oicon">${art}</div>` +
           `<div class="obody">` +
           `<div class="rtitle"><span>${r.title}</span>${ribbon}</div>` +
           `<div class="rdesc">${r.desc}</div>` +
@@ -1688,6 +1704,26 @@ function abilityCard(s: GameState, id: AbilityId): string {
       controls = `<div class="slot-controls">${ultBtn}</div>`;
     }
   }
+  // MODIFIERS (V2 §3): the glyphs this ability is actually running, read off
+  // the slot it occupies. A benched ability says so — sockets are the slot's.
+  const slotIdx = p.abilities.slots.indexOf(id) >= 0
+    ? p.abilities.slots.indexOf(id) : p.abilities.ultimate === id ? ULT_SLOT : -1;
+  let mods = "";
+  if (slotIdx >= 0) {
+    const live = glyphsFor(p, id);
+    const label = live.length
+      ? live.map((gid) => GLYPH_INFO[gid].name).join(" + ")
+      : "no glyphs seated in this slot";
+    // Rule 7's cap, on the card the player actually reads while building.
+    const cdr = abilityCdrBreakdown(p, id);
+    const capNote = cdr.capped && cdr.glyph > 0 && live.includes("hair_trigger")
+      ? `<span class="amodcap">CDR AT CAP — Hair Trigger's -${Math.round(CONFIG.glyphHairTriggerCd * 100)}% is wasted here</span>`
+      : "";
+    mods = `<div class="amods">${socketRowHtml(p, slotIdx, false)}` +
+      `<span class="amodtext">${label}</span>${capNote}</div>`;
+  } else if ((p.glyphs?.bench.length ?? 0) > 0) {
+    mods = `<div class="amods"><span class="amodtext dim">benched — glyphs live on the SLOT, so this inherits whatever it lands in</span></div>`;
+  }
   return (
     `<div class="acard${info.tier === "ultimate" ? " ult" : ""}">` +
     `<div class="ahead">` +
@@ -1695,10 +1731,44 @@ function abilityCard(s: GameState, id: AbilityId): string {
     `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
     `<span class="awhere ${whereCls}">${where}</span>` +
     `</div>` +
+    mods +
     (rows ? `<div class="nrows">${rows}</div>` : "") +
     controls +
     `</div>`
   );
+}
+
+// ---- Glyph socketing: click a bench glyph, then click a lit socket. Clicking
+// a FILLED socket pulls its glyph back to the bench (free and lossless — the
+// cheapest pivot in the game by design). The sim owns every legality rule;
+// a rejected click simply doesn't change anything. ----
+function handleGlyphClick(e: Event): boolean {
+  const el = e.target as HTMLElement;
+  const chip = el.closest(".gchip[data-glyph]") as HTMLElement | null;
+  if (chip) {
+    const id = chip.dataset.glyph as GlyphId;
+    heldGlyph = heldGlyph === id ? null : id;
+    renderSafeRoom(state);
+    return true;
+  }
+  const sock = el.closest(".sock.live") as HTMLElement | null;
+  if (!sock) return false;
+  const slotIdx = Number(sock.dataset.slot), socketIdx = Number(sock.dataset.socket);
+  const p = me(state);
+  if (sock.classList.contains("locked")) return true; // nothing to do, tooltip explains
+  if (heldGlyph && !sock.dataset.glyph) {
+    const id = heldGlyph;
+    audio.play("equip");
+    if (net) net.socket(slotIdx, socketIdx, id);
+    else { socketGlyph(state, p.id, slotIdx, socketIdx, id); flushFeedback(state); persistRun(state); }
+    heldGlyph = null;
+  } else if (sock.dataset.glyph) {
+    audio.play("equip");
+    if (net) net.socket(slotIdx, socketIdx, null);
+    else { unsocketGlyph(state, p.id, slotIdx, socketIdx); flushFeedback(state); persistRun(state); }
+  }
+  renderSafeRoom(state);
+  return true;
 }
 
 // Slotting clicks (sim validates; net mode forwards to the server). Shared by
@@ -1779,6 +1849,7 @@ const sheetSub = document.getElementById("sheet-sub")!;
 const sheetGear = document.getElementById("sheet-gear")!;
 const sheetAttrs = document.getElementById("sheet-attrs")!;
 const sheetProgress = document.getElementById("sheet-progress")!;
+const sheetMods = document.getElementById("sheet-mods")!;
 const sheetDice = document.getElementById("sheet-dice")!;
 const sheetDmg = document.getElementById("sheet-dmg")!;
 const sheetDef = document.getElementById("sheet-def")!;
@@ -1792,15 +1863,71 @@ function gearRowHtml(slot: ItemSlot, it: Item | null): string {
   if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const icon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
-  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const tc = itemColor(it);
   return (
     `<div class="gear-row rar-${it.rarity}">` +
     `<div class="gbox" style="--tc:${tc}">${icon}</div>` +
-    `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
+    `<div><div class="gname" style="color:${tc}">${it.name}${qualityPipsHtml(it)}</div>` +
     `<div class="gaff">${affixLines(it).join(" · ") || "<i style=\"color:var(--ink-faint)\">unenchanted</i>"}</div></div>` +
     `<div class="gslot">${slot}</div>` +
     `</div>`
   );
+}
+
+/** The MODIFIERS block (V2 §3.4): the two layers that aren't stat lines —
+ * item passives (what your gear DOES) and socketed glyphs (what your abilities
+ * do differently). Both are build identity; neither shows up in the ledger. */
+function modifierBlockHtml(p: Player): string {
+  const passives = EQUIP_SLOTS
+    .map((slot) => p.equipment[slot])
+    .filter((it): it is Item => !!it?.passive && !!it.catalogId);
+  // Only slots that actually CARRY firmware earn a row; open sockets are
+  // summarized in one line so the block stays a readout, not a form.
+  const slotRows: string[] = [];
+  let openSockets = 0;
+  for (let i = 0; i <= ULT_SLOT; i++) {
+    const ability = abilityInSlot(p, i);
+    const views = socketViews(p, i);
+    openSockets += views.filter((v) => !v.locked && !v.glyph && ability).length;
+    if (!views.some((v) => v.glyph)) continue;
+    const live = ability ? glyphsFor(p, ability) : [];
+    const dormant = views.filter((v) => v.dormant).map((v) => GLYPH_INFO[v.glyph!].name);
+    const text = live.length
+      ? live.map((gid) => GLYPH_INFO[gid].name).join(" + ")
+      : `<i style="color:var(--ink-faint)">dormant</i>`;
+    // Rule 7's cap, on the sheet as well as the tooltip: a capped slot holding
+    // Hair Trigger is paying damage for nothing, and the ledger has to say so.
+    const cdr = ability ? abilityCdrBreakdown(p, ability) : null;
+    const capNote = cdr?.capped && cdr.glyph > 0 && live.includes("hair_trigger")
+      ? ` <span class="mcap">CDR AT CAP — Hair Trigger's -${Math.round(CONFIG.glyphHairTriggerCd * 100)}% is wasted, ` +
+        `the -${Math.round((1 - CONFIG.glyphHairTriggerDmgMult) * 100)}% damage is not</span>`
+      : "";
+    slotRows.push(
+      `<div class="mod-row">${socketRowHtml(p, i, false)}` +
+      `<div><div class="mname">${i === ULT_SLOT ? "ULTIMATE" : `SLOT ${i + 1}`} · ${ability ? ABILITY_INFO[ability].name : "empty"}</div>` +
+      `<div class="mdesc">${text}${dormant.length ? ` <span class="mdorm">${dormant.join(", ")} DORMANT</span>` : ""}${capNote}</div></div></div>`,
+    );
+  }
+  // The open-socket nudge only earns its line when the block is still short;
+  // a full loadout's rows already say everything (panels FIT the viewport).
+  if (openSockets > 0 && slotRows.length < 4) {
+    slotRows.push(`<div class="mod-open">${openSockets} open socket${openSockets === 1 ? "" : "s"} — ` +
+      `glyphs seat in the safe room.</div>`);
+  }
+  let html = "";
+  if (passives.length) {
+    html += passives.map((it) =>
+      `<div class="mod-row">` +
+      `<div class="mbox" style="--tc:${itemColor(it)}">${itemIconHtml(it.catalogId!)}</div>` +
+      `<div><div class="mname" style="color:${itemColor(it)}">${it.name}</div>` +
+      `<div class="mdesc">${CATALOG_BY_ID[it.catalogId!]?.desc ?? ""}</div></div></div>`).join("");
+  }
+  html += slotRows.join("");
+  if (!html) {
+    html = `<div class="mod-empty">No passives, no glyphs. Completed works carry behavior, ` +
+      `and glyphs seat into your ability slots from level ${CONFIG.glyphSocket1Level}.</div>`;
+  }
+  return html;
 }
 
 function damageRowHtml(row: SheetAbilityRow, critChance: number): string {
@@ -1854,8 +1981,11 @@ function renderSheet(s: GameState): void {
       `<td class="val">${v}</td></tr>`).join("") +
     `</table>`;
   sheetProgress.innerHTML =
-    `<b>${coinIcon} ${id.gold}</b> gold · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
+    `<b>${coinIcon} ${id.gold}</b> gold` +
+    ((p.materials.refit_shard ?? 0) > 0 ? ` · <b>${matIcon("refit_shard")} ${p.materials.refit_shard}</b> shards` : "") +
+    ` · XP ${id.xp}/${id.xpToNext} to level ${id.level + 1}` +
     `<div class="bar"><i style="width:${Math.min(100, (id.xp / id.xpToNext) * 100)}%"></i></div>`;
+  sheetMods.innerHTML = modifierBlockHtml(p);
   sheetDice.textContent =
     `${id.weaponName}${id.weaponClass ? ` (${id.weaponClass})` : ""} — every hit rolls ±${Math.round(id.variance * 100)}%`;
   sheetDmg.innerHTML = sh.offense.length
@@ -2156,6 +2286,7 @@ const srReady = document.getElementById("sr-ready")!;
 const srDescend = document.getElementById("sr-descend")!;
 const srTabStock = document.getElementById("sr-tab-stock")!;
 const srTabAll = document.getElementById("sr-tab-all")!;
+const srTabChase = document.getElementById("sr-tab-chase")!;
 // Top-level safe-room tabs: SYSTEM SHOP / ABILITIES / ACHIEVEMENTS.
 const srTabShop = document.getElementById("sr-tab-shop")!;
 const srTabAbil = document.getElementById("sr-tab-abil")!;
@@ -2164,6 +2295,7 @@ const srPageShop = document.getElementById("sr-page-shop")!;
 const srPageAbil = document.getElementById("sr-page-abil")!;
 const srPageAch = document.getElementById("sr-page-ach")!;
 const srLoadout = document.getElementById("sr-loadout")!;
+const srGlyphs = document.getElementById("sr-glyphs")!;
 const srAbil = document.getElementById("sr-abil")!;
 const srAch = document.getElementById("sr-ach")!;
 const srAchCount = document.getElementById("sr-ach-count")!;
@@ -2174,10 +2306,67 @@ const TIER_COLOR: Record<CatalogTier, string> = {
   consumable: "#a99f8c", starter: "#b9b2a4", basic: "#8fb0d9", advanced: "#f2c14e", legendary: "#b08fd9",
 };
 const TIER_LABEL: Record<CatalogTier, string> = {
-  consumable: "CONSUMABLES", starter: "STARTER", basic: "BASIC", advanced: "ADVANCED", legendary: "LEGENDARY",
+  consumable: "CONSUMABLES", starter: "STARTER", basic: "COMPONENTS", advanced: "COMPLETED WORKS", legendary: "SIGNATURE",
 };
 
-let shopView: "stock" | "all" = "stock";
+// ---- ITEMIZATION V2 §2.1: identity first, quality on top ----
+// One loot system now, but TWO display registers that must never be confused:
+// a CATALOG item keeps its name (identity) and wears its quality roll as gem
+// pips; a COMMODITY drop has no identity, so its rolled rarity IS its story —
+// prefix in the name, tint on the frame. Quality compares within a path only.
+const QUALITY_PIPS: Record<Rarity, number> = { common: 0, magic: 1, rare: 2, epic: 3 };
+const QUALITY_LABEL: Record<Rarity, string> = {
+  common: "STANDARD ISSUE", magic: "CERTIFIED", rare: "OVERBUILT", epic: "MASTERWORK",
+};
+
+/** Quality gems — CATALOG ITEMS ONLY (a commodity drop wears its roll in its
+ * prefix and tint instead; §2.1 forbids reading the two scales as one). */
+function qualityPipsHtml(it: Item): string {
+  if (!isCatalog(it)) return "";
+  const n = QUALITY_PIPS[it.rarity];
+  if (n === 0) return "";
+  return `<span class="qpips" style="--qc:${RARITY_TEXT[it.rarity]}" title="${QUALITY_LABEL[it.rarity]} quality (${it.rarity})">` +
+    `<i class="qpip"></i>`.repeat(n) + `</span>`;
+}
+
+/** True when this item is a catalog identity (quality path, not commodity). */
+const isCatalog = (it: Item): boolean => !!it.catalogId && !!CATALOG_BY_ID[it.catalogId];
+
+/** The frame/text color for any item: catalog gear by SHOP TIER, commodity by
+ * rolled rarity. Two scales, deliberately — see §2.1. */
+function itemColor(it: Item): string {
+  return isCatalog(it) ? TIER_COLOR[CATALOG_BY_ID[it.catalogId!].tier] : RARITY_TEXT[it.rarity];
+}
+
+/** The kind line under an item's name: identity + quality, or rolled rarity.
+ * Kept to ONE line — a common catalog item is just the item, so its quality
+ * goes unspoken; only a hot roll earns the extra word. */
+function itemKindLine(it: Item): string {
+  const wc = weaponClassOf(it);
+  const tail = `${it.slot.toUpperCase()}${wc ? ` · ${wc.toUpperCase()}` : ""}`;
+  if (!isCatalog(it)) return `${it.rarity.toUpperCase()} · ${tail} · SALVAGE`;
+  const e = CATALOG_BY_ID[it.catalogId!];
+  const q = it.rarity === "common" ? "" : ` · ${QUALITY_LABEL[it.rarity]}`;
+  return `${TIER_LABEL[e.tier].replace(/S$/, "")} · ${tail}${q}`;
+}
+
+// Painted glyph art: /icons/painted/glyphs/<glyphId>.svg (same pipeline as
+// item art — tools/gen-icon-masks.mjs then tools/paint-icons.mjs).
+const glyphIconHtml = (id: GlyphId): string =>
+  `<img class="ii" src="/icons/painted/glyphs/${id}.svg" alt="" draggable="false">`;
+
+// Band bosses by floor — presentation copy for the chase showcase (the sim
+// owns who actually drops what; this only names the fight you go earn it in).
+const BOSS_NAME_BY_FLOOR: Record<number, string> = {
+  3: "The Crypt Concierge", 6: "The Sump King", 9: "The Topiary Warden",
+  12: "The Condemned Architect", 15: "The Furnace Marshal",
+};
+const CHASE_ENTRIES: { floor: number; entry: CatalogEntry }[] = Object.entries(BOSS_UNIQUES)
+  .map(([floor, id]) => ({ floor: Number(floor), entry: CATALOG_BY_ID[id] }))
+  .filter((x) => !!x.entry)
+  .sort((a, b) => a.floor - b.floor);
+
+let shopView: "stock" | "all" | "chase" = "stock";
 type ShopSel =
   | { kind: "catalog"; id: string }
   | { kind: "bag"; idx: number }
@@ -2237,6 +2426,25 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
   return null;
 }
 
+/**
+ * SHELF LINKAGE (r5 minor): 40 anonymous icons priced within 20 gold of each
+ * other carry no signal at a glance — you had to hover all 17 components to
+ * learn which one feeds the completed work you want. Selecting a COMPLETED
+ * WORK now lights its components in the grid (owned = claimed, missing = the
+ * thing to buy next), and selecting a component lights what it builds into.
+ * This is the LoL shop's "recommended" read without a recommendation engine.
+ */
+function shelfLinkClass(s: GameState, e: CatalogEntry): string {
+  const sel = shopSel?.kind === "catalog" ? CATALOG_BY_ID[shopSel.id] : undefined;
+  if (!sel || sel.id === e.id) return "";
+  const p = me(s);
+  if ((sel.buildsFrom ?? []).includes(e.id)) {
+    return (ownedCatalogCounts(p)[e.id] ?? 0) > 0 ? "linked have" : "linked need";
+  }
+  if ((e.buildsFrom ?? []).includes(sel.id)) return "linked into";
+  return "";
+}
+
 function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, number>): string {
   const room = shopRoomOf(s)!;
   const p = me(s);
@@ -2254,11 +2462,20 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     soldOut ? "soldout" : "",
     !locked && !soldOut && price > p.gold ? "broke" : "",
     (owned[e.id] ?? 0) > 0 ? "owned" : "",
+    // BUYABLE RIGHT NOW: gold in hand, components in the bag, stock on the
+    // shelf. The one state the shop never showed and the only one that answers
+    // "what can I actually click?" — the tempo read, at a glance.
+    buyBlocker(s, e) === null ? "ready" : "",
+    shelfLinkClass(s, e),
   ].filter(Boolean).join(" ");
   const stockBadge = Number.isFinite(left) && !soldOut && !locked
     ? `<div class="istock" title="${left} left in stock this shop">×${left}</div>` : "";
+  // The tile's hover text now carries the NAME plus why it can't be bought —
+  // the grid stops being 40 anonymous icons even before the card renders.
+  const blocker = buyBlocker(s, e);
   return (
-    `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
+    `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" ` +
+    `title="${esc(e.name)}${blocker ? ` — ${blocker}` : " — READY TO BUY"}">` +
     `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
@@ -2280,14 +2497,22 @@ function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
 function invTileHtml(it: Item, data: string, selected: boolean): string {
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const inner = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
-  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const tc = itemColor(it);
   // Rarity grading rides the tile frame: catalog gear by shop tier, field
   // drops map rare->advanced glow, epic->legendary breathe (r4 major).
   const tier = it.catalogId ? CATALOG_BY_ID[it.catalogId].tier
     : it.rarity === "epic" ? "legendary" : it.rarity === "rare" ? "advanced" : "basic";
+  // V2 §2.1: a HOT catalog roll is the Diablo moment — the item you already
+  // wanted, but better. Quality gems ride the tile corner so a rare Honed
+  // Edge reads different from the common one at a glance, in the bag.
+  const q = isCatalog(it) && QUALITY_PIPS[it.rarity] > 0
+    ? `<span class="qtile" style="--qc:${RARITY_TEXT[it.rarity]}">` +
+      `<i></i>`.repeat(QUALITY_PIPS[it.rarity]) + `</span>`
+    : "";
+  const chase = isCatalog(it) && CATALOG_BY_ID[it.catalogId!].dropOnly ? " chase" : "";
   return (
-    `<div class="itile tier-${tier}${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
-    `<div class="ibox">${inner}<b class="gem"></b></div>` +
+    `<div class="itile tier-${tier}${chase}${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
+    `<div class="ibox">${inner}${q}<b class="gem"></b></div>` +
     `</div>`
   );
 }
@@ -2322,6 +2547,41 @@ function statRowsHtml(next: Affixes, cur: Affixes | null): string {
 function detailArtHtml(tc: string, iconHtml: string): string {
   return `<div class="dart" style="--tc:${tc}">${iconHtml}` +
     `<b class="gem"></b><b class="gem g2"></b></div>`;
+}
+
+// ---- The BUILD PATH (V2 pillar 2: LoL's component -> completed spike curve
+// made visible). One ladder, read bottom-up: what feeds this item, the item
+// itself, and what it feeds. Owned rungs get the green check; the missing
+// ones carry their price, so the pane always answers "what do I buy next".
+function rungHtml(s: GameState, cid: string, have: Record<string, number>, self = false): string {
+  const room = shopRoomOf(s)!;
+  const p = me(s);
+  const c = CATALOG_BY_ID[cid];
+  if (!c) return "";
+  const got = !self && (have[cid] ?? 0) > 0;
+  if (got) have[cid]!--;
+  const price = c.tier === "consumable"
+    ? consumablePrice(c, room.nextFloor) : effectivePrice(p, cid, room.nextFloor);
+  const cost = self ? "" : got ? `<div class="pcost owned">HAVE</div>` : `<div class="pcost">${coin}${price}</div>`;
+  return `<div class="prung${self ? " self" : ""}">` +
+    miniTileHtml(c, got ? "have" : self ? "self" : "", `data-id="${cid}"`) + cost + `</div>`;
+}
+
+/** The selected entry's build path, on ONE line (the LoL tooltip read):
+ * components ▸ THIS ▸ what it upgrades into. Owned rungs read HAVE, missing
+ * ones carry their price — so the card always answers "what do I buy next". */
+function buildPathHtml(s: GameState, e: CatalogEntry): string {
+  const p = me(s);
+  const parents = e.slot ? buildsInto(e.id) : [];
+  const comps = e.buildsFrom ?? [];
+  if (comps.length === 0 && parents.length === 0) return "";
+  const have = { ...ownedCatalogCounts(p) };
+  const arrow = `<i class="parrow"></i>`;
+  let row = "";
+  if (comps.length) row += comps.map((cid) => rungHtml(s, cid, have)).join("") + arrow;
+  row += rungHtml(s, e.id, have, true);
+  if (parents.length) row += arrow + parents.map((x) => rungHtml(s, x.id, have)).join("");
+  return `<div class="dsec">BUILD PATH</div><div class="dpath">${row}</div>`;
 }
 
 function renderShopDetail(s: GameState): void {
@@ -2373,12 +2633,19 @@ function renderShopDetail(s: GameState): void {
     if (!e) { srDetail.innerHTML = ""; return; }
     const tc = TIER_COLOR[e.tier];
     const ownedN = ownedCatalogCounts(p)[e.id] ?? 0;
+    // CHASE UNIQUES (§2.5): drop-only, one per band boss. The card is a
+    // WANTED poster, not a listing — no price, no BUY, just where it lives.
+    const chaseFloor = CHASE_ENTRIES.find((c) => c.entry.id === e.id)?.floor ?? null;
     let flavor = ""; // plain flavor sits at the bottom of the card, in italics
     let html =
       detailArtHtml(tc, itemIconHtml(e.id)) +
       `<div class="dname" style="--tc:${tc}">${e.name}</div>` +
-      `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</span></div>` +
+      `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${e.dropOnly ? "CHASE UNIQUE" : TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</span></div>` +
       (ownedN > 0 ? `<div class="dhave">in your kit ×${ownedN}</div>` : "");
+    if (e.dropOnly) {
+      html += `<div class="dchase">Drops only from <b>${BOSS_NAME_BY_FLOOR[chaseFloor ?? 0] ?? "a band boss"}</b>` +
+        ` on <b>floor ${chaseFloor}</b>. The System does not stock it, and neither will anyone else.</div>`;
+    }
     if (e.tier === "consumable") {
       if (e.effect === "tome") {
         const ab = room.tomeAbility;
@@ -2403,22 +2670,8 @@ function renderShopDetail(s: GameState): void {
       if (e.passive) html += `<div class="dpassive">${e.desc}</div>`;
       else flavor = e.desc;
     }
-    // Build tree: what it's made of (with owned ✓s), and what it feeds.
-    if (e.buildsFrom?.length) {
-      const have = { ...ownedCatalogCounts(p) };
-      const tiles = e.buildsFrom.map((cid) => {
-        const c = CATALOG_BY_ID[cid];
-        const got = (have[cid] ?? 0) > 0;
-        if (got) have[cid]!--;
-        return miniTileHtml(c, got ? "have" : "", `data-id="${cid}"`);
-      }).join("");
-      html += `<div class="dsec">BUILDS FROM</div><div class="dtree">${tiles}</div>`;
-    }
-    const into = e.slot ? buildsInto(e.id) : [];
-    if (into.length) {
-      html += `<div class="dsec">BUILDS INTO</div><div class="dtree">${
-        into.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
-    }
+    // The LoL read: one ladder showing what feeds this and what it feeds.
+    html += buildPathHtml(s, e);
     // Requirements (sponsor backing + the material hunt).
     if (e.sponsors || e.materials) {
       html += `<div class="dsec">REQUIRES</div>`;
@@ -2431,15 +2684,25 @@ function renderShopDetail(s: GameState): void {
       }
     }
     if (flavor) html += `<div class="ddesc">${flavor}</div>`;
-    // Price: full price struck through when owned components discount it.
-    const full = e.tier === "consumable" ? consumablePrice(e, room.nextFloor) : totalCost(e.id);
-    const eff = effectivePrice(p, e.id, room.nextFloor);
-    html += `<div class="dprice">${eff < full ? `<span class="full">${full}</span>` : ""}<span class="eff">${coin}${eff}</span></div>`;
-    const blocker = buyBlocker(s, e);
-    html += `<div class="dbtns"><button data-buy="${e.id}" ${blocker ? "disabled" : ""}>${blocker ?? "BUY"}</button></div>`;
+    // The footer is STICKY (see .dfoot): the price and the button are the two
+    // things that must never sit below the fold, whatever the card carries.
+    if (e.dropOnly) {
+      // No price, no button: the only currency here is the fight.
+      html += `<div class="dfoot"><div class="dbtns"><button disabled>EARN IT ON FLOOR ${chaseFloor}</button></div></div>`;
+    } else {
+      // Price: full price struck through when owned components discount it.
+      const full = e.tier === "consumable" ? consumablePrice(e, room.nextFloor) : totalCost(e.id);
+      const eff = effectivePrice(p, e.id, room.nextFloor);
+      const blocker = buyBlocker(s, e);
+      html += `<div class="dfoot">` +
+        `<div class="dprice">${eff < full ? `<span class="full">${full}</span>` : ""}<span class="eff">${coin}${eff}</span></div>` +
+        `<div class="dbtns"><button data-buy="${e.id}" ${blocker ? "disabled" : ""}>${blocker ?? "BUY"}</button></div></div>`;
+    }
     // Persuasion below the fold (r3 major: the pane never dies at the BUY
-    // button) — shelf-mates in the same slot or tier, one click away.
-    const shelfMates = room.available
+    // button) — shelf-mates in the same slot or tier, one click away. An item
+    // WITH a build path already has its next step on the card; the alternates
+    // row would only push the ladder out of the pane.
+    const shelfMates = (e.buildsFrom?.length || buildsInto(e.id).length) ? [] : room.available
       .map((id) => CATALOG_BY_ID[id])
       .filter((x): x is CatalogEntry => !!x && x.id !== e.id && x.id !== "tome" &&
         ((!!e.slot && x.slot === e.slot) || x.tier === e.tier))
@@ -2454,33 +2717,59 @@ function renderShopDetail(s: GameState): void {
   // Bag / equipped item detail.
   const it = shopSel.kind === "bag" ? p.inventory[shopSel.idx] : p.equipment[shopSel.slot];
   if (!it) { shopSel = null; renderShopDetail(s); return; }
-  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const tc = itemColor(it);
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const artIcon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   // Bag items compare against whatever currently holds their slot.
   const curEq = shopSel.kind === "bag" ? p.equipment[it.slot]?.affixes ?? null : null;
   let html =
     detailArtHtml(tc, artIcon) +
-    `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
-    `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
+    `<div class="dname" style="--tc:${tc}">${it.name}${qualityPipsHtml(it)}</div>` +
+    `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${itemKindLine(it)}` +
     `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</span></div>` +
     `<div class="dstat-block">${statRowsHtml(it.affixes, curEq)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
-  if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
-  if (it.catalogId) {
-    const into = buildsInto(it.catalogId);
-    if (into.length) {
-      html += `<div class="dsec">BUILDS INTO</div><div class="dtree">${
-        into.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
-    }
+  if (!it.catalogId) html += `<div class="ddesc">Field salvage — no identity, no build path. Worth wearing for a floor, worth dismantling after.</div>`;
+  if (isCatalog(it)) html += buildPathHtml(s, CATALOG_BY_ID[it.catalogId!]);
+  // ---- THE BENCH (V2 §2.4): refit an owned identity up a quality step, or
+  // break salvage down into the shards that pay for it. Both are safe-room
+  // verbs, and both preview their exact cost before you commit.
+  // ---- THE BENCH (V2 §2.4) rides the sticky footer with the other verbs:
+  // every way to spend this item — wear it, sell it, upgrade it, break it for
+  // shards — is one row, always on screen, each with its price on the button.
+  const refit = refitCost(it);
+  const shards = p.materials.refit_shard ?? 0;
+  const bench: string[] = [];
+  let benchNote = "";
+  if (refit) {
+    const canPay = shards >= refit.shards && p.gold >= refit.gold &&
+      (refit.sigils === 0 || p.materials.boss_sigil >= refit.sigils);
+    const ref = shopSel.kind === "bag" ? String(shopSel.idx) : shopSel.slot;
+    const cost = `${matIcon("refit_shard")}${refit.shards} ${coin}${refit.gold}` +
+      (refit.sigils ? ` ${matIcon("boss_sigil")}${refit.sigils}` : "");
+    benchNote = `REFIT rerolls its bonus lines and rescales the base to floor ${room.nextFloor} — ` +
+      `strictly better than re-buying it.`;
+    bench.push(`<button class="bench-btn" data-refit="${ref}" ${canPay ? "" : "disabled"}>` +
+      `REFIT <b style="color:${RARITY_TEXT[refit.to]}">${refit.to.toUpperCase()}</b> · ${cost}</button>`);
+  } else if (isCatalog(it)) {
+    benchNote = `Certified MASTERWORK — nothing left for the bench to add.`;
   }
+  if (shopSel.kind === "bag") {
+    const y = dismantleYield(it);
+    if (!benchNote) benchNote = `Shards buy refits; gold buys the next item. That call is the safe room.`;
+    bench.push(`<button class="bench-btn scrap" data-dismantle="${shopSel.idx}">` +
+      `DISMANTLE · +${y}${matIcon("refit_shard")}</button>`);
+  }
+  html += `<div class="dfoot">`;
+  if (benchNote) html += `<div class="bnote">${benchNote}</div>`;
   if (shopSel.kind === "bag") {
     html += `<div class="dbtns">` +
       `<button data-equip="${shopSel.idx}">EQUIP</button>` +
       `<button class="sell" data-sell="${shopSel.idx}">SELL +${sellValue(it)}g</button>` +
       `</div>`;
   }
+  if (bench.length) html += `<div class="dbtns bench">${bench.join("")}</div>`;
+  html += `</div>`;
   srDetail.innerHTML = html;
 }
 
@@ -2501,6 +2790,8 @@ function renderSafeRoom(s: GameState): void {
   // Zero-value currencies stay off the header until first earned — three
   // dead 0-chips are noise, not information.
   const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
+  // Refit shards join the wallet the moment the bench economy is live (V2 §2.4).
+  if ((p.materials.refit_shard ?? 0) > 0) wchips.push(`<span class="chip" title="refit shards — bench currency">${matIcon("refit_shard")}<b>${p.materials.refit_shard}</b></span>`);
   if (p.materials.elite_trophy > 0) wchips.push(`<span class="chip" title="elite trophies">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>`);
   if (p.materials.boss_sigil > 0) wchips.push(`<span class="chip" title="boss sigils">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>`);
   if (p.sponsors > 0) wchips.push(`<span class="chip" title="sponsors"><i class="micon" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i><b>${p.sponsors}</b></span>`);
@@ -2520,20 +2811,174 @@ function renderSafeRoom(s: GameState): void {
   else renderAchPage(s);
 }
 
-/** The ABILITIES tab: loadout bar (The Five) + per-ability upgrade cards. */
+// ---- GLYPHS (ITEMIZATION-V2 §3): the modifier layer, on screen ----
+// Sockets belong to the SLOT, not the ability, so "slot 3 is my projectile
+// slot" is itself a build decision — the UI has to make that legible. Every
+// number and every legality check below comes from sim/glyphs.ts; the host
+// only asks questions and paints answers.
+
+/** The glyph picked up off the bench, waiting for a socket (click-to-assign). */
+let heldGlyph: GlyphId | null = null;
+
+const ULT_SLOT = ABILITY_SLOTS; // index 4: the ultimate's single socket
+
+/** Which ability currently occupies a socket row (null = the slot is empty). */
+function abilityInSlot(p: Player, slotIdx: number): AbilityId | null {
+  return slotIdx === ULT_SLOT ? p.abilities.ultimate : p.abilities.slots[slotIdx] ?? null;
+}
+
+interface SocketView {
+  glyph: GlyphId | null;
+  locked: boolean;
+  reason: string; // why it's locked, in plain language
+  dormant: boolean; // socketed but the slot's ability doesn't accept its tags
+}
+
+/** The two sockets of an active slot (one for the ultimate), unlock state and
+ * dormancy resolved exactly the way glyphsFor does it. */
+function socketViews(p: Player, slotIdx: number): SocketView[] {
+  const g = p.glyphs;
+  const ability = abilityInSlot(p, slotIdx);
+  const count = slotIdx === ULT_SLOT ? 1 : 2;
+  const unlocked = slotIdx === ULT_SLOT
+    ? (p.abilities.ultimate ? 1 : 0) : glyphSocketCount(p.level, slotIdx);
+  const arr = (slotIdx === ULT_SLOT ? g?.ultimate : g?.slots[slotIdx]) ?? [];
+  return Array.from({ length: count }, (_v, i) => {
+    const glyph = (arr[i] ?? null) as GlyphId | null;
+    const locked = i >= unlocked;
+    const reason = !locked ? ""
+      : slotIdx === ULT_SLOT ? "Opens with your ultimate"
+      : `Opens at level ${i === 0 ? CONFIG.glyphSocket1Level : glyphSocket2Level(slotIdx)}`;
+    return {
+      glyph, locked, reason,
+      dormant: !!glyph && !!ability && !glyphMatches(glyph, ability),
+    };
+  });
+}
+
+/** Human list of the abilities a glyph can modify ("any" = everything). */
+function glyphTagLine(id: GlyphId): string {
+  const tags = GLYPH_INFO[id].tags;
+  if (tags.includes("any")) return "any ability";
+  return tags.join(" · ");
+}
+
+/**
+ * RULE 7's cap, said out loud. A maxed Swift Strikes (-36%) plus Hair Trigger
+ * (-20%) sums to 56% and clamps to 40%: the glyph's cooldown line does NOTHING
+ * and you still eat its damage drawback. That is a trap unless the panel names
+ * it, which is exactly the breakpoint clarity the PoE2 pillar is asking for.
+ * Returns "" when there's nothing being wasted (`glyph` scopes the callout to
+ * a stone that actually contributes cooldown).
+ */
+function cdrCapWarningHtml(p: Player, ability: AbilityId, glyph?: GlyphId): string {
+  const cdr = abilityCdrBreakdown(p, ability);
+  if (!cdr.capped || cdr.glyph <= 0) return "";
+  if (glyph && glyph !== "hair_trigger") return "";
+  return `<div class="tcap">CDR AT CAP (${Math.round(CONFIG.cdrCap * 100)}%) — ` +
+    `you are ${Math.round(cdr.wasted * 100)}% over, so Hair Trigger's cooldown line is doing nothing here. ` +
+    `You keep the -${Math.round((1 - CONFIG.glyphHairTriggerDmgMult) * 100)}% damage. ` +
+    `Move it to a slot that isn't capped.</div>`;
+}
+
+/** The composed read: what this glyph does, and what the ability does WITH the
+ * glyphs it already carries (numbers straight off the character sheet, which
+ * calls the same param functions combat does). */
+function glyphTipHtml(s: GameState, id: GlyphId, slotIdx: number | null, dormant: boolean): string {
+  const p = me(s);
+  const info = GLYPH_INFO[id];
+  const ability = slotIdx === null ? null : abilityInSlot(p, slotIdx);
+  let html =
+    `<div class="tname" style="color:#b08fd9">${info.name}</div>` +
+    `<div class="tmeta">GLYPH · ${glyphTagLine(id)}${info.family ? ` · ${info.family} family` : ""}</div>` +
+    `<div class="taff">${info.blurb}</div>`;
+  if (info.family) {
+    html += `<div class="tbuild">One ${info.family}-family glyph per slot — they don't share.</div>`;
+  }
+  if (ability && dormant) {
+    // The SIM owns the reason (glyphs.ts) — dormancy is a rule, and rules do
+    // not live in a host. It now covers "wrong archetype" AND "right archetype,
+    // no machinery" (Reprise on Airstrike, Heavyweight on Bullet Time).
+    html += `<div class="tdormant">DORMANT — ${ABILITY_INFO[ability].name} ` +
+      `${esc(glyphDormantReason(id, ability) ?? "")}. Re-slot the ability or move the glyph.</div>`;
+  } else if (ability) {
+    const row = buildCharacterSheet(s, p).offense.find((r) => r.id === ability);
+    const live = glyphsFor(p, ability).map((gid) => GLYPH_INFO[gid].name).join(" + ");
+    html += `<div class="tpass">On ${ABILITY_INFO[ability].name}${live ? ` (${live})` : ""}: ` +
+      (row?.hit
+        ? `<b>${row.hit.min}–${row.hit.max}</b> per hit · <b>${row.hit.cooldown.toFixed(1)}s</b> cooldown</div>`
+        : `${row?.note ?? "utility"}</div>`);
+    html += cdrCapWarningHtml(p, ability, id);
+  }
+  return html;
+}
+
+/** One socket well. Interactive in a safe room; a read-only pip elsewhere. */
+function socketHtml(v: SocketView, slotIdx: number, socketIdx: number, interactive: boolean): string {
+  const held = heldGlyph;
+  const p = me(state);
+  const legal = held && !v.locked &&
+    (slotIdx === ULT_SLOT ? !!p.abilities.ultimate : true) &&
+    socketLegal(p, slotIdx, socketIdx, held);
+  const cls = [
+    "sock",
+    v.locked ? "locked" : v.glyph ? "filled" : "empty",
+    v.dormant ? "dormant" : "",
+    interactive && legal ? "target" : "",
+    interactive ? "live" : "",
+  ].filter(Boolean).join(" ");
+  const data = `data-slot="${slotIdx}" data-socket="${socketIdx}"${v.glyph ? ` data-glyph="${v.glyph}"` : ""}`;
+  const title = v.locked ? v.reason : v.glyph ? GLYPH_INFO[v.glyph].name : "empty socket";
+  return `<i class="${cls}" ${data} title="${esc(title)}">${v.glyph ? glyphIconHtml(v.glyph) : ""}</i>`;
+}
+
+function socketRowHtml(p: Player, slotIdx: number, interactive: boolean): string {
+  const views = socketViews(p, slotIdx);
+  if (views.every((v) => v.locked) && !views.some((v) => v.glyph)) {
+    return `<div class="socks locked-row" title="${esc(views[0].reason)}">` +
+      views.map((v, i) => socketHtml(v, slotIdx, i, interactive)).join("") + `</div>`;
+  }
+  return `<div class="socks">${views.map((v, i) => socketHtml(v, slotIdx, i, interactive)).join("")}</div>`;
+}
+
+/** The glyph bench: everything found and not currently socketed. */
+function glyphBenchHtml(p: Player, interactive: boolean): string {
+  const bench = (p.glyphs?.bench ?? []) as GlyphId[];
+  if (bench.length === 0) {
+    return `<div class="gbench empty">No loose glyphs. They drop in the dungeon, ` +
+      `fall out of band bosses, and the System sells a sealed cache when it feels generous.</div>`;
+  }
+  return `<div class="gbench">` + bench.map((id, i) =>
+    `<div class="gchip${heldGlyph === id ? " held" : ""}${interactive ? " live" : ""}" data-bench="${i}" data-glyph="${id}">` +
+    `<div class="gbox">${glyphIconHtml(id)}</div>` +
+    `<div class="gname">${GLYPH_INFO[id].name}</div>` +
+    `<div class="gtags">${glyphTagLine(id)}</div>` +
+    `</div>`).join("") + `</div>`;
+}
+
+/** The ABILITIES tab: loadout bar (The Five) + glyph bench + upgrade cards. */
 function renderAbilPage(s: GameState): void {
   const p = me(s);
-  const slotTile = (id: AbilityId | null, key: string, ult = false): string => {
+  const canSocket = !!s.safeRoom || !!settlementShopFor(s, p);
+  const slotTile = (id: AbilityId | null, key: string, slotIdx: number, ult = false): string => {
     const cls = `lslot${ult ? " ult" : ""}${id ? "" : " empty"}`;
     const icon = id
       ? `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>`
       : "";
     const name = id ? ABILITY_INFO[id].name : "empty";
-    return `<div class="${cls}"><div class="ibox"><span class="lkey">${key}</span>${icon}</div><div class="lname">${name}</div></div>`;
+    return `<div class="${cls}" data-slotidx="${slotIdx}">` +
+      `<div class="ibox"><span class="lkey">${key}</span>${icon}</div>` +
+      `<div class="lname">${name}</div>${socketRowHtml(p, slotIdx, canSocket)}</div>`;
   };
   srLoadout.innerHTML =
-    p.abilities.slots.map((id, i) => slotTile(id, String(i + 1))).join("") +
-    slotTile(p.abilities.ultimate, "U", true);
+    p.abilities.slots.map((id, i) => slotTile(id, String(i + 1), i)).join("") +
+    slotTile(p.abilities.ultimate, "U", ULT_SLOT, true);
+  const hint = heldGlyph
+    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — click a lit socket to seat it, or click the glyph again to put it down.`
+    : "Glyphs seat into SLOTS, not abilities: re-slot an ability and it inherits whatever that slot carries. Removal is free.";
+  srGlyphs.innerHTML =
+    `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
+    glyphBenchHtml(p, canSocket);
   const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
   srAbil.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
 }
@@ -2589,21 +3034,52 @@ function renderShopPage(s: GameState): void {
   const p = me(s);
   srTabStock.classList.toggle("active", shopView === "stock");
   srTabAll.classList.toggle("active", shopView === "all");
-  // The shelf, tier by tier.
+  srTabChase.classList.toggle("active", shopView === "chase");
   const avail = new Set(room.available);
   const owned = ownedCatalogCounts(p);
   const shopIndex = room.nextFloor - 1;
+  // THE CHASE (V2 §2.5): its own case, because it is not inventory. Five
+  // drop-only boss uniques behind glass — the run's want-list, and the reason
+  // the floor-3 boss means something. No prices: the currency is the fight.
+  if (shopView === "chase") {
+    srShelf.innerHTML =
+      `<div class="tier-h chase-h" style="--tc:#c0392f">DROP-ONLY — ONE PER BAND BOSS` +
+      `<span class="tnote">the System does not stock these, and neither will anyone else</span></div>` +
+      `<div class="chase-list">` +
+      CHASE_ENTRIES.map(({ floor, entry }) => {
+        const got = (owned[entry.id] ?? 0) > 0;
+        const sel = shopSel?.kind === "catalog" && shopSel.id === entry.id ? " sel" : "";
+        return (
+          `<div class="chase-row${got ? " owned" : ""}${sel}" data-id="${entry.id}">` +
+          `<div class="itile tier-legendary chase ${got ? "owned" : "sealed"}" style="--tc:#c0392f">` +
+          `<div class="ibox">${itemIconHtml(entry.id)}<b class="gem"></b></div></div>` +
+          `<div class="cbody"><div class="cname">${entry.name}` +
+          `<span class="cstate">${got ? "CLAIMED" : "UNCLAIMED"}</span></div>` +
+          `<div class="cdesc">${entry.desc}</div>` +
+          `<div class="cboss">FLOOR ${floor} · ${(BOSS_NAME_BY_FLOOR[floor] ?? "").toUpperCase()}</div></div>` +
+          `</div>`
+        );
+      }).join("") + `</div>`;
+    renderShopSide(s);
+    return;
+  }
+  // The shelf, tier by tier.
   let shelf = "";
   for (const tier of TIERS) {
     const pool = CATALOG.filter((e) => e.tier === tier && (e.id !== "tome" || room.tomeAbility));
     const entries = shopView === "stock" ? pool.filter((e) => avail.has(e.id)) : pool;
     if (entries.length === 0) continue;
     const unlock = TIER_UNLOCK_SHOP[tier];
+    // The shelf says how many of this tier you can actually click right now —
+    // the number that decides the next 30 seconds of the safe room.
+    const readyN = entries.filter((e) => buyBlocker(s, e) === null).length;
     const note = shopIndex < unlock
       ? `<span class="tnote">— unlocks at shop ${unlock}</span>`
-      : shopView === "all" && entries.some((e) => !avail.has(e.id))
-        ? `<span class="tnote">— stock varies by shop</span>`
-        : "";
+      : readyN > 0
+        ? `<span class="tnote ready">— ${readyN} ready to buy</span>`
+        : shopView === "all" && entries.some((e) => !avail.has(e.id))
+          ? `<span class="tnote">— stock varies by shop</span>`
+          : "";
     // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
     // complete their row with recessed diamond-socket wells. 11 tiles fit a
     // shelf row at 56px+8 gap; pad only to the end of the partial row so the
@@ -2616,6 +3092,12 @@ function renderShopPage(s: GameState): void {
       `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
   }
   srShelf.innerHTML = shelf;
+  renderShopSide(s);
+}
+
+/** The side column (equipped + bag + detail) — shared by every shelf view. */
+function renderShopSide(s: GameState): void {
+  const p = me(s);
   // Equipped + bag.
   srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
@@ -2642,6 +3124,21 @@ function renderShopPage(s: GameState): void {
 // Clicks happen while the sim is paused, so announcements produced by the action
 // (achievement unlocks, NEW ABILITY) would be cleared unseen by the next step —
 // surface them immediately.
+// Purchase/bench confirmation stamp: a transient plate inside the safe-room
+// panel (no new screen zone — it lives in #saferoom, z 24). Every gold-spending
+// verb ends with a legible "this happened", so a combine reads as an EVENT.
+const srStamp = document.getElementById("sr-stamp")!;
+let stampTimer = 0;
+function shopStamp(verb: string, name: string, color: string): void {
+  srStamp.innerHTML = `<span class="verb">${verb}</span><span class="what">${esc(name)}</span>`;
+  srStamp.style.setProperty("--sc", color);
+  srStamp.classList.remove("show");
+  void srStamp.offsetWidth; // restart the animation
+  srStamp.classList.add("show");
+  window.clearTimeout(stampTimer);
+  stampTimer = window.setTimeout(() => srStamp.classList.remove("show"), 2400);
+}
+
 function flushFeedback(s: GameState): void {
   for (const a of s.announcements) showAnnouncement(a);
   for (const e of s.events) pushLogLine(e);
@@ -2651,7 +3148,7 @@ function flushFeedback(s: GameState): void {
 
 // Shelf: click a tile to inspect it (locked tiles too — that's the planner).
 srShelf.addEventListener("click", (e) => {
-  const tile = (e.target as HTMLElement).closest(".itile[data-id]") as HTMLElement | null;
+  const tile = (e.target as HTMLElement).closest(".itile[data-id], .chase-row[data-id]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "catalog", id: tile.dataset.id! };
   renderSafeRoom(state);
@@ -2663,6 +3160,7 @@ srDetail.addEventListener("click", (e) => {
   const buyBtn = el.closest("button[data-buy]") as HTMLButtonElement | null;
   if (buyBtn && !buyBtn.disabled) {
     const id = buyBtn.dataset.buy!;
+    const entry = CATALOG_BY_ID[id];
     audio.play("buy");
     if (net) net.buy(id);
     else {
@@ -2676,6 +3174,46 @@ srDetail.addEventListener("click", (e) => {
     void srDetail.offsetWidth; // restart the animation
     srDetail.classList.add("purchased");
     srWallet.querySelector(".chip")?.classList.add("bump");
+    // …plus the ACQUIRED stamp (V2 shop pass): a combine is the moment the
+    // build clicks, so the pane says so out loud instead of quietly redrawing.
+    if (entry) {
+      shopStamp(entry.buildsFrom?.length ? "COMBINED" : "ACQUIRED", entry.name, TIER_COLOR[entry.tier]);
+    }
+    return;
+  }
+  // ---- Bench verbs (V2 §2.4). Both are sim calls; the host only asks. ----
+  const refitBtn = el.closest("button[data-refit]") as HTMLButtonElement | null;
+  if (refitBtn && !refitBtn.disabled) {
+    const raw = refitBtn.dataset.refit!;
+    const ref = /^\d+$/.test(raw) ? Number(raw) : (raw as ItemSlot);
+    const before = shopSel?.kind === "bag" ? me(state).inventory[shopSel.idx]
+      : shopSel?.kind === "equipped" ? me(state).equipment[shopSel.slot] : null;
+    audio.play("buy");
+    if (net) net.refit(raw);
+    else {
+      refitItem(state, me(state).id, ref);
+      flushFeedback(state);
+      persistRun(state);
+    }
+    renderSafeRoom(state);
+    if (before) shopStamp("REFIT", `${before.name} — ${before.rarity.toUpperCase()}`, RARITY_TEXT[before.rarity]);
+    return;
+  }
+  const scrapBtn = el.closest("button[data-dismantle]") as HTMLButtonElement | null;
+  if (scrapBtn) {
+    const idx = Number(scrapBtn.dataset.dismantle);
+    const item = me(state).inventory[idx];
+    const yield_ = item ? dismantleYield(item) : 0;
+    audio.play("buy");
+    if (net) net.dismantle(idx);
+    else {
+      dismantleItem(state, me(state).id, idx);
+      flushFeedback(state);
+      persistRun(state);
+    }
+    shopSel = null;
+    renderSafeRoom(state);
+    shopStamp("DISMANTLED", `+${yield_} refit shard${yield_ === 1 ? "" : "s"}`, "#8fb0d9");
     return;
   }
   const sellBtn = el.closest("button[data-sell]") as HTMLButtonElement | null;
@@ -2744,16 +3282,17 @@ document.getElementById("sr-sellall")!.addEventListener("click", () => {
 const itemTipEl = document.getElementById("itemtip")!;
 
 function itemTipHtml(it: Item): string {
-  const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
-  const wclass = weaponClassOf(it);
+  const tc = itemColor(it);
   const into = it.catalogId ? buildsInto(it.catalogId) : [];
+  const refit = refitCost(it);
   return (
-    `<div class="tname" style="color:${tc}">${it.name}</div>` +
-    `<div class="tmeta">${it.rarity} ${it.slot}${wclass ? ` · ${wclass}` : ""}</div>` +
+    `<div class="tname" style="color:${tc}">${it.name}${qualityPipsHtml(it)}</div>` +
+    `<div class="tmeta">${itemKindLine(it)}</div>` +
     (affixLines(it).map((l) => `<div class="taff">${l}</div>`).join("") || `<div class="taff">—</div>`) +
     (it.passive && it.catalogId ? `<div class="tpass">${CATALOG_BY_ID[it.catalogId].desc}</div>` : "") +
     (into.length ? `<div class="tbuild">component of: ${into.map((e) => e.name).join(", ")}</div>` : "") +
-    `<div class="tsell">sells for ${sellValue(it)} gold</div>`
+    (refit ? `<div class="tbuild">refits to ${refit.to} — ${refit.shards} shards + ${refit.gold}g</div>` : "") +
+    `<div class="tsell">sells for ${sellValue(it)} gold · dismantles for ${dismantleYield(it)}</div>`
   );
 }
 
@@ -2800,10 +3339,51 @@ document.addEventListener("pointerdown", (e) => {
 
 srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
 srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
+srTabChase.addEventListener("click", () => { shopView = "chase"; renderSafeRoom(state); });
 srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
 srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
 srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
 srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
+// The loadout bar's socket wells and the glyph bench share one dispatcher.
+srLoadout.addEventListener("click", handleGlyphClick);
+srGlyphs.addEventListener("click", handleGlyphClick);
+
+// Glyph tooltips ride the same cursor layer as item cards (#itemtip, z 30):
+// hovering a socket or a bench chip prints the composed behavior — what the
+// glyph does, and what the ability does WITH it (numbers off the sheet).
+function glyphIdUnder(el: HTMLElement): { id: GlyphId; slotIdx: number | null; dormant: boolean } | null {
+  const sock = el.closest(".sock[data-glyph]") as HTMLElement | null;
+  if (sock) {
+    return {
+      id: sock.dataset.glyph as GlyphId,
+      slotIdx: Number(sock.dataset.slot),
+      dormant: sock.classList.contains("dormant"),
+    };
+  }
+  const chip = el.closest(".gchip[data-glyph]") as HTMLElement | null;
+  if (chip) return { id: chip.dataset.glyph as GlyphId, slotIdx: null, dormant: false };
+  return null;
+}
+for (const container of [srLoadout, srGlyphs, srAbil]) {
+  container.addEventListener("mouseover", (e) => {
+    const hit = glyphIdUnder(e.target as HTMLElement);
+    // A LOCKED empty socket still owes an explanation.
+    const lock = (e.target as HTMLElement).closest(".sock.locked") as HTMLElement | null;
+    if (!hit && !lock) { itemTipEl.style.display = "none"; return; }
+    itemTipEl.innerHTML = hit
+      ? glyphTipHtml(state, hit.id, hit.slotIdx, hit.dormant)
+      : `<div class="tname" style="color:#6f6757">SEALED SOCKET</div>` +
+        `<div class="taff">${esc(lock!.title)}. Sockets belong to the slot — every active slot opens one at ` +
+        `level ${CONFIG.glyphSocket1Level}, and their second sockets open one at a time ` +
+        `(levels ${CONFIG.glyphSocket2Levels.join(", ")}) so you always have a stone for the next one.</div>`;
+    itemTipEl.style.display = "block";
+    moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mousemove", (e) => {
+    if (itemTipEl.style.display === "block") moveItemTip(e as MouseEvent);
+  });
+  container.addEventListener("mouseleave", () => { itemTipEl.style.display = "none"; });
+}
 
 srDescend.addEventListener("click", () => {
   // Settlement outfitter: the button is an exit, not a descent.
@@ -2843,8 +3423,12 @@ function updateSkills(s: GameState): void {
     ...p.abilities.slots.map((a) => ({ ability: a, ult: false })),
     { ability: p.abilities.ultimate, ult: true },
   ];
+  // Socketed glyphs are part of the chip's identity (V2 §3): the bar rebuilds
+  // when firmware changes, exactly as it does when the loadout does.
+  const glyphKey = [...(p.glyphs?.slots ?? []).map((a) => a.join(",")), (p.glyphs?.ultimate ?? []).join(",")]
+    .join("|") + `|L${glyphSocketCount(p.level)}`;
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
+    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}|${glyphKey}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     // Charge pip rows (r2): banked charges read as gold gem pips seated in
@@ -2866,12 +3450,22 @@ function updateSkills(s: GameState): void {
                 : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "";
         const pips = e.ability === "dash" ? pipRow(p.dashCharges, CONFIG.dashCharges) : "";
+        // GLYPH PIPS (V2 §3): tiny seated gems on the chip's top edge, one per
+        // socket this slot has open. A live glyph shows its painted stone; a
+        // DORMANT one (wrong tags for the ability now in the slot) sits dark,
+        // so a bad re-slot is visible from the cockpit, not just the panel.
+        const gv = socketViews(p, i === ABILITY_SLOTS ? ULT_SLOT : i).filter((v) => !v.locked || v.glyph);
+        const gpips = gv.length
+          ? `<span class="gpips">` + gv.map((v) =>
+            `<i class="gpip${v.glyph ? (v.dormant ? " dormant" : " on") : ""}">` +
+            `${v.glyph ? glyphIconHtml(v.glyph) : ""}</i>`).join("") + `</span>`
+          : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
+        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${gpips}${icon}` +
           `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +

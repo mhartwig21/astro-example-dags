@@ -14,7 +14,7 @@ import type { Affixes, ItemSlot, MaterialId, PassiveId } from "./types";
 export type CatalogTier = "consumable" | "starter" | "basic" | "advanced" | "legendary";
 
 /** What a consumable does when bought (applied immediately in buyCatalogItem). */
-export type ConsumableEffect = "heal" | "time" | "maxHp" | "tome" | "favor";
+export type ConsumableEffect = "heal" | "time" | "maxHp" | "tome" | "favor" | "glyph";
 
 export interface CatalogEntry {
   id: string;
@@ -42,6 +42,13 @@ export interface CatalogEntry {
   /** Consumables: how many can be bought PER SHOP (scarcity — was unlimited).
    * Absent = the CONSUMABLE_STOCK_DEFAULT below. */
   stock?: number;
+  /** BOSS UNIQUES (ITEMIZATION-V2 §2.5): never on a shop shelf — the item
+   * exists only as a band boss's seeded drop. Cannot be bought or planned. */
+  dropOnly?: true;
+  /** Curated bonus-affix pool for quality rolls (§2.1): magic/rare add 1,
+   * epic adds 2 — from THIS 3-4 key pool, so rolls stay readable.
+   * Absent: items.ts falls back to a per-slot default. */
+  bonusPool?: (keyof Affixes)[];
 }
 
 /** Per-shop stock for a consumable with no explicit `stock`. */
@@ -74,6 +81,10 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "system_favor", name: "System Favor", tier: "consumable", effect: "favor",
     desc: "The System owes you one: an extra ability-upgrade draft.", cost: 150, perFloor: 15, stock: 1,
+  },
+  {
+    id: "glyph_cache", name: "Glyph Cache", tier: "consumable", effect: "glyph",
+    desc: "A sealed System firmware patch for one ability. Roll inside is certified random.", cost: 90, perFloor: 8, stock: 1,
   },
 
   // ---- Starter (floor-1 kit; cheap stat sticks; sell them back later) ----
@@ -138,6 +149,42 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "cursed_amplifier", name: "Cursed Amplifier", tier: "basic", slot: "charm",
     desc: "Turns it up to eleven. The eleven is cursed.", cost: 60, affixes: { spell: 4, crit: 0.04 },
+  },
+  // V2 components (§2.3): class/slot gap fillers with clear stat identities.
+  {
+    id: "rebar_spear", name: "Rebar Spear", tier: "basic", slot: "weapon",
+    desc: "Structural. Formerly load-bearing.", cost: 55, affixes: { damage: 6 },
+    bonusPool: ["maxHp", "speed", "crit"],
+  },
+  {
+    id: "sledge_head", name: "Sledge Head", tier: "basic", slot: "weapon",
+    desc: "No handle. Commit.", cost: 60, affixes: { damage: 9 },
+    bonusPool: ["maxHp", "crit", "armor"],
+  },
+  {
+    id: "stock_trigger", name: "Stock and Trigger", tier: "basic", slot: "weapon",
+    desc: "Some assembly required. The bolts are your problem.", cost: 55, affixes: { damage: 5, crit: 0.03 },
+    bonusPool: ["crit", "speed", "maxHp"],
+  },
+  {
+    id: "riot_shim", name: "Riot Shim", tier: "basic", slot: "armor",
+    desc: "Wedged between you and the incident.", cost: 55, affixes: { armor: 7 },
+    bonusPool: ["maxHp", "speed", "spell"],
+  },
+  {
+    id: "field_tourniquet", name: "Field Tourniquet", tier: "basic", slot: "charm",
+    desc: "Twist until the screaming stops. Yours.", cost: 55, affixes: { maxHp: 8 },
+    bonusPool: ["maxHp", "armor", "speed"],
+  },
+  {
+    id: "dowsing_fork", name: "Dowsing Fork", tier: "basic", slot: "trinket",
+    desc: "Points at money. Occasionally at sewage.", cost: 50, affixes: { speed: 0.2 },
+    bonusPool: ["crit", "maxHp", "speed"],
+  },
+  {
+    id: "insulated_gloves", name: "Insulated Gloves", tier: "basic", slot: "charm",
+    desc: "Rated for the voltage you're about to be.", cost: 55, affixes: { spell: 4, armor: 3 },
+    bonusPool: ["spell", "maxHp", "crit"],
   },
 
   // ---- Advanced (two components + combine gold; floor-gated, shop-varying) ----
@@ -207,6 +254,44 @@ export const CATALOG: CatalogEntry[] = [
     id: "vip_pass", name: "VIP Pass", tier: "advanced", slot: "charm",
     desc: "Backstage access. The blood bar is included.", cost: 110,
     buildsFrom: ["killer_instinct", "focus_bead"], affixes: { crit: 0.05, speed: 0.25 },
+  },
+  // V2 completed works (§2.3): every one carries a build passive — LoL
+  // legendary energy, slotting into the existing chase ladders where marked.
+  {
+    id: "pikemans_rebuttal", name: "Pikeman's Rebuttal", tier: "advanced", slot: "weapon",
+    desc: "The hallway is a weapon: melee hits from range knock the target back.", cost: 110,
+    buildsFrom: ["rebar_spear", "iron_plating"], affixes: { damage: 12, maxHp: 20 },
+    passive: "longarm", bonusPool: ["maxHp", "speed", "crit"],
+  },
+  {
+    id: "demolition_permit", name: "Demolition Permit", tier: "advanced", slot: "weapon",
+    desc: "Paperwork for hitting load-bearing things: your stagger-breaking hits deal +40%.", cost: 120,
+    buildsFrom: ["sledge_head", "killer_instinct"], affixes: { damage: 16, crit: 0.05 },
+    passive: "wrecker", bonusPool: ["maxHp", "crit", "armor"],
+  },
+  {
+    id: "court_order", name: "Court Order", tier: "advanced", slot: "weapon",
+    desc: "Serve them: bolts against unalerted monsters always crit.", cost: 122,
+    buildsFrom: ["stock_trigger", "glass_charm"], affixes: { damage: 11, crit: 0.08 },
+    passive: "served", bonusPool: ["crit", "speed", "maxHp"],
+  },
+  {
+    id: "slumlords_deposit", name: "Slumlord's Deposit", tier: "advanced", slot: "trinket",
+    desc: "Monsters drop +20% gold. Non-refundable. Especially non-refundable.", cost: 105,
+    buildsFrom: ["dowsing_fork", "focus_bead"], affixes: { speed: 0.3 },
+    passive: "rent", bonusPool: ["crit", "maxHp", "speed"],
+  },
+  {
+    id: "ambulance_chaser", name: "Ambulance Chaser", tier: "advanced", slot: "charm",
+    desc: "Heal 3% of the damage you deal. Fees apply to someone.", cost: 110,
+    buildsFrom: ["field_tourniquet", "padded_lining"], affixes: { maxHp: 25 },
+    passive: "chaser", bonusPool: ["maxHp", "armor", "speed"],
+  },
+  {
+    id: "grounded_suit", name: "Grounded Suit", tier: "advanced", slot: "armor",
+    desc: "Above 70% HP: +15% spell power. Do not become the path of least resistance.", cost: 115,
+    buildsFrom: ["riot_shim", "insulated_gloves"], affixes: { armor: 12, spell: 6 },
+    passive: "grounded", bonusPool: ["spell", "maxHp", "crit"],
   },
 
   // ---- Legendary — sponsor-gated signature gear (unique passives) ----
@@ -304,7 +389,46 @@ export const CATALOG: CatalogEntry[] = [
     buildsFrom: ["vip_pass"], affixes: { speed: 0.35, maxHp: 20, crit: 0.04 },
     passive: "pathfinder", sponsors: 1, materials: { elite_trophy: 2 },
   },
+
+  // ---- BOSS UNIQUES (ITEMIZATION-V2 §2.5) — drop-only, one per band boss.
+  // Cannot be bought, cannot be target-farmed past the floor: the "it finally
+  // dropped" chase. `cost` exists only for refit/sell math.
+  {
+    id: "front_desk_bell", name: "Front Desk Bell", tier: "legendary", slot: "trinket", dropOnly: true,
+    desc: "Checkout is immediate: your kills leave NO corpses; each denied corpse pays gold and a sliver of HP.", cost: 140,
+    affixes: { speed: 0.25, crit: 0.04 }, passive: "denycorpse", bonusPool: ["crit", "maxHp", "speed"],
+  },
+  {
+    id: "sump_crown", name: "Sump Crown", tier: "legendary", slot: "helm", dropOnly: true,
+    desc: "Royalty of the standing water: ground hazards deal 50% to you; your chill and poison last +50%.", cost: 150,
+    affixes: { maxHp: 30, armor: 8, spell: 6 }, passive: "sumpcrown", bonusPool: ["spell", "maxHp", "armor"],
+  },
+  {
+    id: "rootcutter_shears", name: "Rootcutter Shears", tier: "legendary", slot: "weapon", dropOnly: true,
+    desc: "Every 3rd melee hit SNARES the target. Pruning is a lifestyle.", cost: 160,
+    affixes: { damage: 16, speed: 0.3, crit: 0.05 }, passive: "snare3", bonusPool: ["crit", "speed", "maxHp"],
+  },
+  {
+    id: "loadbearing_girder", name: "Loadbearing Girder", tier: "legendary", slot: "armor", dropOnly: true,
+    desc: "The building disagrees: you cannot be knocked back, and mitigated damage shards back at the attacker.", cost: 170,
+    affixes: { armor: 18, maxHp: 40 }, passive: "unmoved", bonusPool: ["maxHp", "armor", "damage"],
+  },
+  {
+    id: "furnace_draft", name: "Furnace Draft", tier: "legendary", slot: "charm", dropOnly: true,
+    desc: "Fire is a rumor that travels: enemies that die burning spread their burn to the nearest enemy.", cost: 170,
+    affixes: { spell: 14, crit: 0.06, maxHp: 20 }, passive: "spreadburn", bonusPool: ["spell", "crit", "maxHp"],
+  },
 ];
+
+/** Which band boss (by floor) owns which drop-only unique (§2.5). Floor 18
+ * drops none — the run ends there (a trophy tier for rivals/NG+ is LATER). */
+export const BOSS_UNIQUES: Record<number, string> = {
+  3: "front_desk_bell",
+  6: "sump_crown",
+  9: "rootcutter_shears",
+  12: "loadbearing_girder",
+  15: "furnace_draft",
+};
 
 export const CATALOG_BY_ID: Record<string, CatalogEntry> = Object.fromEntries(
   CATALOG.map((e) => [e.id, e]),
@@ -370,14 +494,17 @@ export const TIER_UNLOCK_SHOP: Record<CatalogTier, number> = {
   legendary: 4,
 };
 
-/** How many items of a tier a given shop stocks (before seeded selection). */
+/** How many items of a tier a given shop stocks (before seeded selection).
+ * Drop-only boss uniques never count — they are not shelf inventory. */
 export function tierStockCount(tier: CatalogTier, shopIndex: number): number {
-  const all = CATALOG.filter((e) => e.tier === tier).length;
+  const all = CATALOG.filter((e) => e.tier === tier && !e.dropOnly).length;
   const unlock = TIER_UNLOCK_SHOP[tier];
   if (shopIndex < unlock) return 0;
   // Deeper shelves for the planning game: the store is the build engine now,
-  // so the higher tiers stock more per shop than they used to.
-  if (tier === "advanced") return Math.min(all, 4 + (shopIndex - unlock));
+  // so the higher tiers stock more per shop than they used to. Advanced
+  // stocks one deeper per shop (+5 base) so the §2.6 floor-3 combine is
+  // reliably available — the first COMPLETED work is the act-1 click.
+  if (tier === "advanced") return Math.min(all, 5 + (shopIndex - unlock));
   if (tier === "legendary") return Math.min(all, 2 + Math.floor((shopIndex - unlock) / 2));
   return all; // consumables/starter/basic: full shelf, always
 }

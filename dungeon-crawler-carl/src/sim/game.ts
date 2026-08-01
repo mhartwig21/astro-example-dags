@@ -4,21 +4,27 @@ import { createRng, nextFloat, nextInt, chance, pick, type Rng } from "./rng";
 import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, turnToward } from "./combat";
 import { moveWithCollision } from "./movement";
 import { alertMonster, separateMonsters, springAmbush, stepMonster } from "./ai";
-import { generateItem, hasPassive, itemScore, wantsAutoEquip } from "./items";
+import {
+  catalogQualityAffixes, generateItem, hasPassive, itemScore, makeQualityCatalogItem, rollCatalogDrop, wantsAutoEquip,
+} from "./items";
+import {
+  GLYPH_IDS, GLYPH_INFO, defaultGlyphs, glyphMatches, glyphSocketCount,
+  hasGlyph, socketLegal, totalSocketsOpen, type GlyphId,
+} from "./glyphs";
 import {
   applyRoamSave, breakablePosKey, creditCachePickup, creditQuestKill, npcsOf, playerInSettlement,
   settlementShopFor, spawnSettlement, startDialogue, updateRoam, type RoamSaveState,
 } from "./npc";
 import {
-  CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
+  BOSS_UNIQUES, CATALOG, CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
   type CatalogEntry,
 } from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, airstrikeParams, boltParams, bulletTimeParams,
-  crowdSurfParams, cutToParams, stuntDoubleParams,
+  castSchool, crowdSurfParams, cutToParams, stuntDoubleParams,
   cataclysmParams, damageVariance, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, startingLoadout,
+  novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, stanceParams, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
@@ -29,8 +35,8 @@ import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
-  MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
+  Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, ItemSlot, Loot,
+  MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Rarity, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
 
@@ -1025,7 +1031,8 @@ function makePlayer(id: number, name: string): Player {
     kills: 0,
     killsThisStep: 0,
     lowHpKill: false,
-    materials: { elite_trophy: 0, boss_sigil: 0 },
+    materials: { elite_trophy: 0, boss_sigil: 0, refit_shard: 0 },
+    glyphs: defaultGlyphs(),
     damageDealt: 0,
     damageTaken: 0,
     hype: 0,
@@ -1082,6 +1089,12 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.petUsed = false; // the producers grant one save per floor too
   p.statuses = []; // the stairwell air burns the poison right out
   p.reviveProgress = 0;
+  p.slipstreamT = 0; // glyph transients never cross a stairwell
+  p.rebateAbility = undefined;
+  p.rebateT = 0;
+  p.rebateBudget = 0;
+  p.rebateCd0 = 0;
+  p.shearsCount = 0;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -1183,6 +1196,7 @@ export function buildFloor(state: GameState, floor: number): void {
   state.encounter = null;
   state.floorEvent = null;
   state.goldSurge = false;
+  state.glyphsDroppedThisFloor = 0; // §3.5: the per-floor glyph budget resets
   state.roamSmashed = []; // fresh floor, fresh hoards (#25: saves overlay this)
   state.dialogue = null; // nobody talks through a floor transition
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
@@ -1308,9 +1322,10 @@ export interface SavedProgress {
     skin?: string; // chosen campfire look; absent on pre-select saves
     damageDealt?: number;
     damageTaken?: number;
-    materials?: Record<MaterialId, number>;
+    materials?: Partial<Record<MaterialId, number>>;
     revisions?: string[]; // CLASS REVISIONS taken (pre-revision saves: absent)
     tipsSeen?: string[]; // first-contact tips already delivered (pre-tips saves: absent)
+    glyphs?: Player["glyphs"]; // V2 §3 sockets + bench (pre-glyph saves: absent)
     // Legacy (pre-itemization saves): fold into bonuses so old runs still resume.
     maxHp?: number;
     baseDamage?: number;
@@ -1380,12 +1395,15 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
   p.damageTaken = s.damageTaken ?? 0;
   if (s.materials) {
     // Legacy saves may carry extra material keys (pre-shop "scrap"); take only
-    // what the current economy spends.
+    // what the current economy spends. refit_shard: pre-V2 saves default to 0.
     p.materials = {
       elite_trophy: s.materials.elite_trophy ?? 0,
       boss_sigil: s.materials.boss_sigil ?? 0,
+      refit_shard: s.materials.refit_shard ?? 0,
     };
   }
+  // GLYPHS (V2 §3): optional field + load-time default (pre-glyph saves).
+  p.glyphs = s.glyphs ?? defaultGlyphs();
   // Legacy saves (pre-itemization) stored effective maxHp/baseDamage directly;
   // fold the surplus over intrinsic into permanent bonuses so old runs resume
   // intact. Pre-schools damage fed EVERY ability, so it folds into both powers.
@@ -1465,10 +1483,21 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   p.xp = 0;
 
   // Scaled loadout: several rolls, wear the upgrades, bag a few spares.
+  // ITEMIZATION-V2 §2.2: dress the crawler the way the DROP TABLE dresses one —
+  // catalog identities at rolled quality first (components, then completed
+  // works once they're floor-legal), commodity gear as the remainder. A test
+  // crawler wearing only freeform affix soup understates every stage.
   if (opts.gear !== false) {
     const gearFloor = Math.max(1, Math.min(CONFIG.finalFloor, Math.floor(opts.gearFloor ?? floor)));
+    const completedOk = gearFloor >= CONFIG.dropCompletedFromFloor;
     for (let i = 0; i < 8; i++) {
-      const item = generateItem(state.rng, gearFloor, () => state.nextEntityId++);
+      const roll = nextFloat(state.rng);
+      const item =
+        roll < CONFIG.dropComponentShare || (!completedOk && roll < CONFIG.dropComponentShare + CONFIG.dropCompletedShare)
+          ? rollCatalogDrop(state.rng, gearFloor, "basic", () => state.nextEntityId++)
+        : roll < CONFIG.dropComponentShare + CONFIG.dropCompletedShare
+          ? rollCatalogDrop(state.rng, gearFloor, "advanced", () => state.nextEntityId++)
+        : generateItem(state.rng, gearFloor, () => state.nextEntityId++);
       const worn = p.equipment[item.slot];
       if (wantsAutoEquip(item, worn)) {
         p.equipment[item.slot] = item;
@@ -1477,6 +1506,14 @@ export function createTestGame(opts: TestSetup = {}): GameState {
         p.inventory.push(item);
       }
     }
+  }
+
+  // GLYPHS (V2 §3): a stage-representative crawler has found firmware by now —
+  // one per unlocked socket across the kit, seeded, auto-filling compatible
+  // slots exactly as a field pickup would (leftovers land on the bench).
+  const socketsOpen = totalSocketsOpen(p.level, !!p.abilities.ultimate);
+  for (let i = 0; i < socketsOpen; i++) {
+    grantGlyph(state, p, GLYPH_IDS[nextInt(state.rng, 0, GLYPH_IDS.length - 1)]);
   }
 
   p.gold = Math.max(0, Math.floor(opts.gold ?? floor * 40));
@@ -2036,6 +2073,8 @@ export function playerMitigation(p: Player): number {
  */
 export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number, cap: number = CONFIG.bossSlamKnockback): void {
   if (!p.alive || tiles <= 0 || (dir.x === 0 && dir.y === 0)) return;
+  // Loadbearing Girder (boss unique, V2 §2.5): the wearer cannot be moved.
+  if (hasPassive(p, "unmoved")) return;
   const d = normalize(dir);
   // Shoves stack only up to a slam's worth; PULLS (the lasher's hook) pass
   // their own cap because the whole point is crossing the room.
@@ -2044,15 +2083,35 @@ export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number, cap: n
 
 export function damagePlayerHit(
   state: GameState, p: Player, base: number,
-  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind } = {},
+  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind; hazard?: boolean } = {},
 ): boolean {
   // Rivals revive grace: a crawler fresh off the timer is briefly untouchable.
   if ((p.reviveGraceT ?? 0) > 0) return false;
+  // Sump Crown (boss unique, V2 §2.5): ground hazards deal half to the wearer.
+  if (opts.hazard && hasPassive(p, "sumpcrown")) base *= CONFIG.sumpHazardTakenMult;
   const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
   let dmg = mitigate(raw, playerMitigation(p));
   // The Briar Witch's mark: everything hits harder while it holds. Kill the
   // witch, outlast the mark, or in co-op peel for the marked crawler.
   if ((p.cursedT ?? 0) > 0) dmg = Math.round(dmg * (1 + CONFIG.hexVulnerability));
+  // Loadbearing Girder (boss unique, V2 §2.5): a slice of what the armor ATE
+  // shards back at the nearest attacker in arm's reach — the building
+  // disagrees. (Ranged snipers stay safe: shards are shrapnel, not homing.)
+  if (hasPassive(p, "unmoved") && raw > dmg && p.alive) {
+    let src: Monster | null = null;
+    let bestD = 1.8;
+    for (const mm of state.monsters) {
+      if (mm.hp <= 0) continue;
+      const d = dist(p.pos, mm.pos);
+      if (d < bestD) { bestD = d; src = mm; }
+    }
+    if (src) {
+      const shard = Math.max(1, Math.round((raw - dmg) * CONFIG.girderReflectFraction));
+      src.hp -= shard;
+      src.lastHitBy = p.id;
+      hit(state, src.pos, shard, "enemy", { school: "physical", killed: src.hp <= 0 });
+    }
+  }
   p.hp -= dmg;
   p.damageTaken += dmg;
   // Plot Armor (chase legendary): once per floor, the season arc demands you
@@ -2189,6 +2248,80 @@ export function slotAbility(state: GameState, playerId: number, slotIdx: number,
   );
 }
 
+/** The school this crawler's build leans toward (auto-equip bias). */
+function dominantSchool(p: Player): School {
+  return p.spellPower > p.attackPower ? "magic" : "physical";
+}
+
+/**
+ * Give a glyph to a crawler (drop pickup / cache / sponsor gift). Fresh finds
+ * keep momentum (V2 §3.1): an unlocked EMPTY socket whose current ability
+ * accepts the glyph fills immediately in the field — the same exception
+ * ability discovery gets; otherwise it banks on the glyph bench and waits for
+ * a safe room. Rearranging is always the safe-room verb (socketGlyph).
+ */
+export function grantGlyph(state: GameState, p: Player, id: GlyphId): void {
+  const g = (p.glyphs ??= defaultGlyphs());
+  const trySlot = (slotIdx: number): boolean => {
+    const ability = slotIdx === ABILITY_SLOTS ? p.abilities.ultimate : p.abilities.slots[slotIdx];
+    if (!ability || !glyphMatches(id, ability)) return false;
+    const arr = slotIdx === ABILITY_SLOTS ? g.ultimate : g.slots[slotIdx];
+    const unlocked = slotIdx === ABILITY_SLOTS ? 1 : glyphSocketCount(p.level, slotIdx);
+    for (let s = 0; s < unlocked && s < arr.length; s++) {
+      if (arr[s] === null && socketLegal(p, slotIdx === ABILITY_SLOTS ? 4 : slotIdx, s, id)) {
+        arr[s] = id;
+        announce(state, "loot", `${p.name} sockets ${GLYPH_INFO[id].name} into ${ABILITY_INFO[ability].name}. Firmware applied.`, "normal", p.id);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (let i = 0; i < ABILITY_SLOTS; i++) if (trySlot(i)) return;
+  if (trySlot(ABILITY_SLOTS)) return;
+  g.bench.push(id);
+  state.events.push(`${p.name} banks ${GLYPH_INFO[id].name} on the glyph bench (socket it in a safe room).`);
+}
+
+/**
+ * Socket a BENCHED glyph into (slotIdx 0-3 actives | 4 = ultimate, socketIdx).
+ * A SAFE-ROOM decision (same gate as re-slotting): sockets belong to the SLOT,
+ * so "this slot is my projectile slot" is itself a build verb. The displaced
+ * glyph returns to the bench — removal is lossless; scarcity is in FINDING.
+ * No-ops (the UI communicates why): locked socket, family clash, duplicate
+ * copy in the slot, glyph not on the bench, ultimate socket without an ult.
+ */
+export function socketGlyph(state: GameState, playerId: number, slotIdx: number, socketIdx: number, glyph: GlyphId): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || (!shopRoomFor(state, p) && !playerInSettlement(state, p))) return;
+  const g = (p.glyphs ??= defaultGlyphs());
+  if (!g.bench.includes(glyph)) return;
+  if (slotIdx < 0 || slotIdx > ABILITY_SLOTS) return;
+  const arr = slotIdx === ABILITY_SLOTS ? g.ultimate : g.slots[slotIdx];
+  const unlocked = slotIdx === ABILITY_SLOTS ? (p.abilities.ultimate ? 1 : 0) : glyphSocketCount(p.level, slotIdx);
+  if (socketIdx < 0 || socketIdx >= unlocked || socketIdx >= arr.length) return;
+  if (!socketLegal(p, slotIdx === ABILITY_SLOTS ? 4 : slotIdx, socketIdx, glyph)) return;
+  g.bench.splice(g.bench.indexOf(glyph), 1);
+  const displaced = arr[socketIdx];
+  if (displaced) g.bench.push(displaced);
+  arr[socketIdx] = glyph;
+  state.events.push(`${p.name} sockets ${GLYPH_INFO[glyph].name} (slot ${slotIdx === ABILITY_SLOTS ? "ULT" : slotIdx + 1}).`);
+}
+
+/** Pull a socketed glyph back to the bench (safe-room gated, free, lossless). */
+export function unsocketGlyph(state: GameState, playerId: number, slotIdx: number, socketIdx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || (!shopRoomFor(state, p) && !playerInSettlement(state, p))) return;
+  const g = p.glyphs;
+  if (!g || slotIdx < 0 || slotIdx > ABILITY_SLOTS) return;
+  const arr = slotIdx === ABILITY_SLOTS ? g.ultimate : g.slots[slotIdx];
+  if (!arr || socketIdx < 0 || socketIdx >= arr.length) return;
+  const id = arr[socketIdx];
+  if (!id) return;
+  arr[socketIdx] = null;
+  g.bench.push(id);
+  state.events.push(`${p.name} pulls ${GLYPH_INFO[id].name} back to the glyph bench.`);
+}
+
 /** Set (or clear) the ultimate slot. Safe-room only; displaced ult is benched. */
 export function setUltimate(state: GameState, playerId: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
@@ -2254,18 +2387,28 @@ function dropBossBonus(state: GameState, pos: Vec2, items: number): void {
   state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount: gold });
 }
 
-/** Materialize a catalog entry as a real Item, floor-scaled. Shared by shop
- * purchases and component DROPS (random loot that advances a planned build). */
+/** Materialize a catalog entry as a real Item, floor-scaled, at COMMON
+ * quality — the shop sells certainty and build paths, never jackpots
+ * (V2 §2.1: `rarity` is the QUALITY field on catalog items; drops roll it,
+ * REFIT raises it). Shared by shop purchases and quality-common paths. */
 function makeCatalogItem(state: GameState, entry: CatalogEntry, floor: number): Item {
   return {
     id: state.nextEntityId++,
     slot: entry.slot!,
-    rarity: TIER_RARITY[entry.tier as keyof typeof TIER_RARITY],
+    rarity: "common",
     name: entry.name,
     affixes: gearAffixes(entry, floor),
     passive: entry.passive,
     catalogId: entry.id,
   };
+}
+
+/** Drop a seeded glyph (V2 §3.1 acquisition): the modifier stone as loot. */
+function dropGlyph(state: GameState, pos: Vec2): void {
+  state.glyphsDroppedThisFloor = (state.glyphsDroppedThisFloor ?? 0) + 1;
+  const glyph = GLYPH_IDS[nextInt(state.rng, 0, GLYPH_IDS.length - 1)];
+  state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "glyph", amount: 0, glyph });
+  announce(state, "loot", `A GLYPH dropped: ${GLYPH_INFO[glyph].name}. System firmware, finders keepers.`);
 }
 
 function dropLoot(state: GameState, pos: Vec2): void {
@@ -2279,32 +2422,55 @@ function dropLoot(state: GameState, pos: Vec2): void {
   }
   if (chance(rng, CONFIG.goldDropChance)) {
     // Greed Clause (System Shrine): this floor's gold pays double.
+    // Slumlord's Deposit (V2 §2.3): the landlord's cut, in reverse.
     const surge = state.goldSurge ? CONFIG.shrineGreedGoldMult : 1;
-    const amount = (nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor)) * surge;
+    const rent = state.players.some((p) => p.alive && hasPassive(p, "rent")) ? CONFIG.rentGoldMult : 1;
+    const amount = Math.round((nextInt(rng, CONFIG.goldMin, CONFIG.goldMax) + Math.floor(floor * CONFIG.goldPerFloor)) * surge * rent);
     state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount });
   }
   // Health potions no longer rain from chaff. Measured before removal: they
   // supplied 280-780 free HP per run (~a third of all damage taken absorbed),
   // and winners spent 0.0% of the run below 35% HP — health wasn't scary.
   // Healing is now a DECISION: field rations, sponsor gifts, level-ups, the
-  // flask (returning), leech — all chosen, none ambient. lootDropChance was
-  // rescaled (0.36 -> 0.22) when the potions' 40% share left, so gear and
-  // component drop rates are unchanged.
+  // flask (returning), leech — all chosen, none ambient.
+  //
+  // THE V2 DROP TABLE (§2.2) — one seeded draw per equipment drop:
+  //   55% catalog COMPONENT at rolled quality (loot advances the plan, and
+  //       sometimes spectacularly), 15% catalog COMPLETED (floor-gated, the
+  //       "skipped the shop line" windfall), 25% commodity gear (commons/
+  //       magics only — dismantle fodder), 5% GLYPH (floor 2+).
   if (chance(rng, CONFIG.lootDropChance)) {
     const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 0.6, y: pos.y + (nextFloat(rng) - 0.5) * 0.6 };
-    if (chance(rng, CONFIG.componentDropChance)) {
-      // A catalog BASIC drops: it carries its catalogId, so it slots straight
-      // into a build path — random loot in service of the plan, not instead of it.
-      const basics = CATALOG.filter((e) => e.tier === "basic");
-      const entry = basics[nextInt(rng, 0, basics.length - 1)];
-      const item = makeCatalogItem(state, entry, floor);
+    const roll = nextFloat(rng);
+    const completedOk = floor >= CONFIG.dropCompletedFromFloor;
+    // §3.5: glyphs drip at a rate that can actually fill nine sockets, but a
+    // per-floor budget keeps supply STEADY instead of spiky — a hot floor no
+    // longer hands over half the pool, and a cold one still pays out.
+    const glyphOk = floor >= CONFIG.dropGlyphFromFloor
+      && (state.glyphsDroppedThisFloor ?? 0) < CONFIG.glyphDropsPerFloorCap;
+    const compEnd = CONFIG.dropComponentShare;
+    const complEnd = compEnd + CONFIG.dropCompletedShare;
+    const glyphStart = 1 - CONFIG.dropGlyphShare;
+    if (glyphOk && roll >= glyphStart) {
+      dropGlyph(state, jitter);
+    } else if (roll < compEnd || (roll < complEnd && !completedOk)) {
+      const item = rollCatalogDrop(rng, floor, "basic", () => state.nextEntityId++);
+      state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
+    } else if (roll < complEnd) {
+      const item = rollCatalogDrop(rng, floor, "advanced", () => state.nextEntityId++);
       state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
     } else {
-      // Equipment drop: a rolled item with a rarity + affixes.
+      // Commodity gear: worn for two floors, then dismantled (shard fodder).
       const item = generateItem(rng, floor, () => state.nextEntityId++);
       state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
     }
   }
+}
+
+/** Duration of a chill/poison THIS player applies: the Sump Crown (boss
+ * unique, V2 §2.5) stretches the wearer's slows and toxins by half. */
+function statusDuration(p: Player, base: number): number {
+  return hasPassive(p, "sumpcrown") ? base * CONFIG.sumpStatusDurMult : base;
 }
 
 /** The school a monster resists (takes resistDamageTakenMult on), if any:
@@ -2331,6 +2497,7 @@ export function damageMonster(
     chained?: boolean; // a conduit arc — never arcs again (no chains of chains)
     effect?: StatusKind; // a DoT tick — hosts tint the number per effect
     melee?: boolean; // a SWING (not a bolt): the duelist's flourish answers these
+    ability?: AbilityId; // the casting ability (glyph hooks: brand/accelerant)
   } = {},
 ): void {
   // Signature Choreography: the post-swap surge window carries bonus crit.
@@ -2343,6 +2510,16 @@ export function damageMonster(
   // coming) and THE UNDERDOG's desperation bonus scale the incoming base.
   if (hasRevision(p, "canceled") && m.hp >= m.maxHp) base *= CONFIG.revisionCanceledFirstStrike;
   if (hasRevision(p, "underdog") && p.hp < p.maxHp * CONFIG.revisionUnderdogThreshold) base *= CONFIG.revisionUnderdogDamage;
+  // Slipstream glyph: the post-movement surge sharpens everything briefly.
+  if ((p.slipstreamT ?? 0) > 0) base *= CONFIG.glyphSlipstreamDmgMult;
+  // Brandmark glyph: a branded enemy takes more from this crawler's OTHER
+  // abilities — the mark is the setup, the cash-in comes from a second slot.
+  if (
+    (m.brandT ?? 0) > 0 && m.brandBy === p.id &&
+    opts.ability && opts.ability !== m.brandAbility && !opts.effect
+  ) {
+    base *= 1 + CONFIG.glyphBrandBonus;
+  }
   let dmg = rollDamage(state.rng, base, damageVariance(p)); // the WEAPON sets the dice
   if (isCrit) dmg = Math.round(dmg * CONFIG.playerCritMult);
   if (m.affix === "shielded") dmg = Math.max(1, Math.round(dmg * CONFIG.shieldedDamageTakenMult));
@@ -2394,6 +2571,18 @@ export function damageMonster(
   // damage MIX is the counterplay, so the reduction reads loud (dim numbers).
   const resisted = monsterResist(m) === (opts.school ?? "physical");
   if (resisted) dmg = Math.max(1, Math.round(dmg * CONFIG.resistDamageTakenMult));
+  // Demolition Permit (V2 §2.3): a hit that BREAKS poise lands +40% —
+  // predicted with the same grace/juggernaut rules the poise section applies.
+  if (m.hp > 0 && hasPassive(p, "wrecker") && !opts.effect) {
+    const aw = ARCHETYPES[m.kind];
+    const em = m.elite ? CONFIG.elitePoiseMult : 1;
+    const jug = m.affix === "juggernaut";
+    const chan = m.windupKind === "ritual";
+    const graced = (jug || (m.staggerGraceT ?? 0) > 0) && !chan;
+    const poiseAdd = dmg * (opts.poiseMult ?? 1) * (chan ? CONFIG.channelPoiseTakenMult : 1);
+    const breaks = !graced && ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg + poiseAdd >= m.maxHp * aw.poise * em);
+    if (breaks) dmg = Math.round(dmg * CONFIG.wreckerBonus);
+  }
   // One-shot insurance: named menaces never lose more than a capped fraction
   // of their pool to a single hit — a boss fight is a FIGHT, not a screenshot.
   if (m.kind === "boss") dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.bossHitCapFraction)));
@@ -2478,8 +2667,14 @@ export function damageMonster(
       m.chargeT = 0; // a poise break also stops a rush cold
       m.chargeDir = undefined;
     }
-    if (opts.dir && opts.knockback && !juggernaut) {
-      moveWithCollision(state.map, m.pos, opts.dir, opts.knockback / (a.mass * eliteMult), isWalkable);
+    // Pikeman's Rebuttal (V2 §2.3): melee hits landed from real range shove
+    // harder — the hallway is a weapon.
+    const longarm =
+      opts.melee && hasPassive(p, "longarm") && dist(p.pos, m.pos) >= CONFIG.longarmMinDist
+        ? CONFIG.longarmKnockback : 0;
+    const kb = (opts.knockback ?? 0) + longarm;
+    if (opts.dir && kb > 0 && !juggernaut) {
+      moveWithCollision(state.map, m.pos, opts.dir, kb / (a.mass * eliteMult), isWalkable);
     }
   }
   hit(state, m.pos, dmg, isCrit ? "crit" : "enemy", {
@@ -2494,18 +2689,52 @@ export function damageMonster(
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
   // Venom Clause (chase legendary): crits inject a poison stack — the DoT
   // ticks back through this same choke point, so resists/caps keep applying.
+  // (statusDuration: the Sump Crown stretches the wearer's poison/chill.)
   if (isCrit && m.hp > 0 && hasPassive(p, "venom")) {
     applyStatus(m, {
-      kind: "poison", duration: CONFIG.poisonDuration, school: "physical",
+      kind: "poison", duration: statusDuration(p, CONFIG.poisonDuration), school: "physical",
       magnitude: Math.max(1, Math.round(dmg * CONFIG.venomTickFraction)), sourceId: p.id,
     });
   }
-  // Blood Subscription (chase legendary): heal a slice of the damage you deal,
-  // capped per hit so ultimates don't refill the bar in one cast. Small drains
-  // (orbit ticks) heal silently; only meaningful sips emit a number.
-  if (p.alive && p.hp < p.maxHp && hasPassive(p, "leech")) {
+  // GLYPH RIDERS (V2 §3.3) — never re-triggered by DoT ticks (rule 6-adjacent:
+  // a burn tick must not brand or re-ignite).
+  if (opts.ability && !opts.effect && m.hp > 0 && dmg > 0) {
+    // Accelerant: hits IGNITE for a fraction of the hit over the burn window.
+    if (hasGlyph(p, opts.ability, "accelerant")) {
+      const perTick = (dmg * CONFIG.glyphAccelerantFrac) / (CONFIG.burnDuration / CONFIG.burnTickSeconds);
+      applyStatus(m, {
+        kind: "burn", duration: CONFIG.burnDuration, school: "magic",
+        magnitude: Math.max(1, Math.round(perTick)), sourceId: p.id,
+      });
+    }
+    // Brandmark: stamp the target — this crawler's OTHER abilities cash in.
+    if (hasGlyph(p, opts.ability, "brandmark")) {
+      m.brandT = CONFIG.glyphBrandDuration;
+      m.brandAbility = opts.ability;
+      m.brandBy = p.id;
+    }
+  }
+  // Rootcutter Shears (boss unique): every 3rd melee hit SNARES the target —
+  // implemented as a heavy chill (move + windup crawl), refresh-on-reapply.
+  if (opts.melee && !opts.effect && m.hp > 0 && hasPassive(p, "snare3")) {
+    p.shearsCount = (p.shearsCount ?? 0) + 1;
+    if (p.shearsCount >= CONFIG.shearsEveryHits) {
+      p.shearsCount = 0;
+      applyStatus(m, {
+        kind: "chill", duration: statusDuration(p, CONFIG.shearsSnareSeconds), school: "magic",
+        magnitude: m.kind === "boss" ? 0.8 * CONFIG.chillBossMult : 0.8,
+      });
+      hit(state, m.pos, 0, "weapon"); // snip — the snare reads on camera
+    }
+  }
+  // Blood Subscription (chase legendary) / Ambulance Chaser (V2 completed
+  // work): heal a slice of the damage you deal, capped per hit so ultimates
+  // don't refill the bar in one cast. Subscription supersedes its own rung.
+  const leechFrac = hasPassive(p, "leech") ? CONFIG.leechFraction
+    : hasPassive(p, "chaser") ? CONFIG.chaserFraction : 0;
+  if (p.alive && p.hp < p.maxHp && leechFrac > 0) {
     const heal = Math.min(
-      Math.round(dmg * CONFIG.leechFraction),
+      Math.round(dmg * leechFrac),
       Math.max(1, Math.round(p.maxHp * CONFIG.leechCapFraction)),
     );
     if (heal > 0) {
@@ -2617,6 +2846,9 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   const swiftRank = rank(p, "melee.swift");
   const comboMult = 1 + p.meleeCombo * CONFIG.meleeMomentumPerStack;
   const heavySplash = rank(p, "melee.heavy") > 0;
+  // Arcane Lens glyph: the swing deals MAGIC off spell power (power() and
+  // castSchool are both lens-aware) — an explicit socket beats a default.
+  const school = castSchool(p, "melee");
   let connected = false;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
@@ -2626,12 +2858,12 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
     const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
     damageMonster(state, p, m, dmg, {
-      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school: "physical", melee: true,
+      dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school, melee: true, ability: "melee",
       forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
     });
     // Echo Strike: the overcharged swing lands a second, softer hit.
     if (oc && oc.echoFrac > 0 && m.hp > 0) {
-      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon), school: "physical" });
+      damageMonster(state, p, m, dmg * oc.echoFrac, { dir: normalize(toMon), school, ability: "melee" });
     }
     // Heavy Blows: a killing swing's OVERKILL splashes to everything nearby —
     // the big hit carries through the corpse.
@@ -2769,10 +3001,51 @@ function reapDead(state: GameState): void {
       }
       continue;
     }
-    // Every fallen regular leaves a raisable corpse (necromancer fuel).
+    // Kill credit to the last hitter (computed early — several V2 passive
+    // hooks below read it; loot boxes + per-player achievements still apply).
+    const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
+    // Every fallen regular leaves a raisable corpse (necromancer fuel) —
+    // unless the killer rings the Front Desk Bell (boss unique, V2 §2.5):
+    // checkout is immediate, and every denied corpse pays out.
     if (m.kind !== "boss") {
-      state.corpses.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: m.kind, t: CONFIG.corpseTtl });
-      if (state.corpses.length > CONFIG.corpseMax) state.corpses.shift();
+      if (hasPassive(killer, "denycorpse")) {
+        killer.gold += CONFIG.bellCorpseGold;
+        if (killer.alive && killer.hp > 0) {
+          killer.hp = Math.min(killer.maxHp, killer.hp + Math.max(1, Math.round(killer.maxHp * CONFIG.bellCorpseHealFraction)));
+        }
+        hit(state, m.pos, CONFIG.bellCorpseGold, "gold");
+      } else {
+        state.corpses.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: m.kind, t: CONFIG.corpseTtl });
+        if (state.corpses.length > CONFIG.corpseMax) state.corpses.shift();
+      }
+    }
+    // Furnace Draft (boss unique, V2 §2.5): a death by fire is contagious —
+    // the burn jumps to the nearest living enemy, stacks and all.
+    const burning = m.statuses?.find((s) => s.kind === "burn");
+    if (burning && hasPassive(killer, "spreadburn")) {
+      let tgt: Monster | null = null;
+      let bd: number = CONFIG.spreadburnRadius;
+      for (const o of state.monsters) {
+        if (o === m || o.hp <= 0) continue;
+        const d = dist(m.pos, o.pos);
+        if (d < bd) { bd = d; tgt = o; }
+      }
+      if (tgt) {
+        applyStatus(tgt, {
+          kind: "burn", duration: CONFIG.burnDuration, school: "magic",
+          magnitude: burning.magnitude, sourceId: killer.id,
+        });
+        hit(state, m.pos, 0, "chain", { to: tgt.pos });
+      }
+    }
+    // Executioner's Rebate glyph (rule 8): a kill inside the cast window
+    // refunds a slice of the cooldown — capped per cast by the budget.
+    if ((killer.rebateT ?? 0) > 0 && killer.rebateAbility && (killer.rebateBudget ?? 0) > 0) {
+      const refund = Math.min((killer.rebateCd0 ?? 0) * CONFIG.glyphRebateFrac, killer.rebateBudget ?? 0);
+      if (refund > 0) {
+        killer.cd[killer.rebateAbility] = Math.max(0, (killer.cd[killer.rebateAbility] ?? 0) - refund);
+        killer.rebateBudget = (killer.rebateBudget ?? 0) - refund;
+      }
     }
     // A bomber shot down before reaching anyone still cooks off — half radius.
     if (m.kind === "bomber" && !m.exploded) explodeBomber(state, m, CONFIG.bomberDeathRadiusMult);
@@ -2800,8 +3073,6 @@ function reapDead(state: GameState): void {
     }
     state.killCount++;
     killsThisStep++;
-    // Kill credit to the last hitter (loot box milestones + per-player achievements).
-    const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
     killer.kills++;
     killer.killsThisStep++;
     creditQuestKill(state, m);
@@ -2897,6 +3168,14 @@ function reapDead(state: GameState): void {
     if (m.elite) {
       state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "elite_trophy" });
       dropBossBonus(state, m.pos, 1);
+      // V2 §2.2: elites owe one EXTRA roll, biased component/glyph — the
+      // named hunt always advances the plan.
+      if (state.floor >= CONFIG.dropGlyphFromFloor && chance(state.rng, CONFIG.eliteBonusGlyphShare)) {
+        dropGlyph(state, m.pos);
+      } else {
+        const comp = rollCatalogDrop(state.rng, state.floor, "basic", () => state.nextEntityId++);
+        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "item", amount: 0, item: comp, rarity: comp.rarity });
+      }
       addHype(state, killer, CONFIG.show.hypeBrute);
       announce(state, "boss", `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
     }
@@ -2914,6 +3193,17 @@ function reapDead(state: GameState): void {
       } else {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         dropBossBonus(state, m.pos, 2);
+        // V2 §3.1: band bosses guarantee a glyph — the modifier layer arrives
+        // on the run's chapter beats, not the lottery's.
+        dropGlyph(state, m.pos);
+        // V2 §2.5: the band's drop-only unique — announced like a title belt.
+        const uniqueId = BOSS_UNIQUES[state.floor];
+        if (uniqueId && chance(state.rng, CONFIG.bossUniqueChance)) {
+          const entry = CATALOG_BY_ID[uniqueId];
+          const unique = makeQualityCatalogItem(state.rng, entry, state.floor, () => state.nextEntityId++, "common");
+          state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "item", amount: 0, item: unique, rarity: unique.rarity });
+          announce(state, "loot", `TITLE BELT ON THE MAT: ${entry.name.toUpperCase()} DROPS. You cannot buy this. You could only take it.`, "high");
+        }
         addHype(state, killer, CONFIG.show.hypeBoss);
         announce(state, "boss", `CITY BOSS ${m.eliteName ?? ""} DEFEATED! The exit is OPEN. Sponsors are weeping with joy.`, "high");
       }
@@ -3001,6 +3291,14 @@ function collectLoot(state: GameState): void {
         hit(state, p.pos, 0, "weapon");
         break;
       }
+      case "glyph": {
+        if (l.glyph) {
+          grantGlyph(state, p, l.glyph);
+          hit(state, p.pos, 0, "weapon");
+          addHype(state, p, CONFIG.show.hypeRareDrop);
+        }
+        break;
+      }
       case "tome": {
         if (l.ability && !knows(p, l.ability)) {
           learnAbility(state, p, l.ability);
@@ -3022,8 +3320,10 @@ function collectLoot(state: GameState): void {
         // Auto-equip if strictly better than what's in that slot, else stash in
         // the bag. School-guarded for weapons (wantsAutoEquip): a wand never
         // auto-replaces a blade — switching schools is a by-hand decision.
+        // The compare is school-aware (V2 §1.2): a caster's dead attack power
+        // counts half, and a build passive is worth more than a stat stick.
         const equipped = p.equipment[item.slot];
-        if (wantsAutoEquip(item, equipped)) {
+        if (wantsAutoEquip(item, equipped, dominantSchool(p))) {
           equipItem(p, item);
           if (item.rarity === "epic") {
             announce(state, "loot", `EPIC DROP: ${item.name}! Equipped. The crowd loses it.`);
@@ -3134,7 +3434,11 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
   const shopIndex = nextFloor - 1; // shop #1 sits after floor 1
   const available: string[] = [];
   for (const tier of ["consumable", "starter", "basic", "advanced", "legendary"] as const) {
-    const pool = CATALOG.filter((e) => e.tier === tier);
+    // Drop-only boss uniques (V2 §2.5) never reach a shelf — they cannot be
+    // bought, only taken. The Glyph Cache row waits for shop 2 (§4 cadence:
+    // socket 1 opens at level ~4, and shop 1 is the school-pick shop).
+    const pool = CATALOG.filter((e) =>
+      e.tier === tier && !e.dropOnly && (e.id !== "glyph_cache" || shopIndex >= CONFIG.glyphCacheFromShop));
     const n = tierStockCount(tier, shopIndex);
     if (n <= 0) continue;
     const picks = n >= pool.length ? pool : shuffle(rng, pool).slice(0, n);
@@ -3152,7 +3456,7 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
     const t = available.indexOf("tome");
     if (t >= 0) available.splice(t, 1);
   }
-  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [], purchased: {} };
+  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [], purchased: {}, boughtThisShop: [] };
 }
 
 /**
@@ -3264,6 +3568,13 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
         p.upgradeDraftsOwed++;
         announce(state, "show", `${p.name} calls in a SYSTEM FAVOR. An upgrade draft is owed.`);
         break;
+      case "glyph": {
+        // Glyph Cache (V2 §3.1): the roll inside is seeded — certified random.
+        const glyph = GLYPH_IDS[nextInt(state.rng, 0, GLYPH_IDS.length - 1)];
+        announce(state, "loot", `${p.name} cracks a GLYPH CACHE: ${GLYPH_INFO[glyph].name}.`);
+        grantGlyph(state, p, glyph);
+        break;
+      }
     }
     state.events.push(`${p.name} bought ${entry.name} (-${price} gold).`);
     checkAchievements(state);
@@ -3287,14 +3598,19 @@ export function buyCatalogItem(state: GameState, playerId: number, catalogId: st
   p.gold -= price;
   p.goldSpent += price;
   for (const [m, n] of Object.entries(mats)) p.materials[m as MaterialId] -= n ?? 0;
-  // Consume claimed components wherever they live.
+  // Consume claimed components wherever they live. A consumed component
+  // leaves the same-shop refund list (V2 §4 eviction: combining IS modifying).
+  for (const it of claimed) evictBought(room, it.id);
   p.inventory = p.inventory.filter((it) => !claimed.has(it));
   for (const slot of EQUIP_SLOTS) {
     if (p.equipment[slot] && claimed.has(p.equipment[slot]!)) p.equipment[slot] = null;
   }
   const item = makeCatalogItem(state, entry, room.nextFloor);
+  // Same-shop full refund (V2 §4): the fresh purchase is undo-able until
+  // it's modified, consumed, or the shop closes.
+  (room.boughtThisShop ??= []).push(item.id);
   const cur = p.equipment[item.slot];
-  if (!cur || itemScore(item) > itemScore(cur)) equipItem(p, item);
+  if (!cur || itemScore(item, dominantSchool(p)) > itemScore(cur, dominantSchool(p))) equipItem(p, item);
   else p.inventory.push(item);
   recomputeStats(p);
   if (entry.tier === "legendary") {
@@ -3313,13 +3629,30 @@ export function sellValue(item: Item): number {
   return { common: 10, magic: 25, rare: 50, epic: 100 }[item.rarity];
 }
 
+/** Same-shop full refund (V2 §4): an UNMODIFIED purchase from THIS safe room
+ * sells back at 100% of its sticker price — the LoL undo. Modified/consumed
+ * items were evicted from boughtThisShop, so they fall back to 60%. */
+function refundValue(room: SafeRoom | null, item: Item): number {
+  if (room?.boughtThisShop?.includes(item.id) && item.catalogId) return totalCost(item.catalogId);
+  return sellValue(item);
+}
+
+/** Drop an item id from the same-shop refund list (modified/consumed/sold). */
+function evictBought(room: SafeRoom | null, itemId: number): void {
+  if (!room?.boughtThisShop) return;
+  const i = room.boughtThisShop.indexOf(itemId);
+  if (i >= 0) room.boughtThisShop.splice(i, 1);
+}
+
 /** Sell a BAG item back to the System Shop. Equipped gear is safe. */
 export function sellItem(state: GameState, playerId: number, bagIdx: number): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !shopRoomFor(state, p)) return;
+  const room = p ? shopRoomFor(state, p) : null;
+  if (!p || !room) return;
   if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
   const item = p.inventory.splice(bagIdx, 1)[0];
-  const value = sellValue(item);
+  const value = refundValue(room, item);
+  evictBought(room, item.id);
   p.gold += value;
   state.events.push(`${p.name} sold ${item.name} (+${value} gold).`);
 }
@@ -3327,13 +3660,96 @@ export function sellItem(state: GameState, playerId: number, bagIdx: number): vo
 /** Sell the WHOLE bag back to the System Shop (equipped gear is safe). */
 export function sellAllItems(state: GameState, playerId: number): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !shopRoomFor(state, p) || p.inventory.length === 0) return;
+  const room = p ? shopRoomFor(state, p) : null;
+  if (!p || !room || p.inventory.length === 0) return;
   const n = p.inventory.length;
   let total = 0;
-  for (const item of p.inventory) total += sellValue(item);
+  for (const item of p.inventory) {
+    total += refundValue(room, item);
+    evictBought(room, item.id);
+  }
   p.inventory = [];
   p.gold += total;
   state.events.push(`${p.name} liquidated the bag: ${n} item${n === 1 ? "" : "s"}, +${total} gold.`);
+}
+
+// ---- The SAFE-ROOM BENCH (ITEMIZATION-V2 §2.4): dismantle + refit ----
+
+/** Shards a dismantled item yields (preview + the verb share this). */
+export function dismantleYield(item: Item): number {
+  return CONFIG.dismantleShards[item.rarity];
+}
+
+/**
+ * DISMANTLE a bag item into refit shards (safe-room bench). The gold-vs-
+ * shards call is the real decision: catalog items can still be SOLD for the
+ * 60% gold path; junk commodity drops feed the refit economy instead.
+ * Dismantling a same-shop purchase forfeits its 100% refund (eviction rule).
+ */
+export function dismantleItem(state: GameState, playerId: number, bagIdx: number): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  const room = p ? shopRoomFor(state, p) : null;
+  if (!p || !room) return;
+  if (bagIdx < 0 || bagIdx >= p.inventory.length) return;
+  const item = p.inventory.splice(bagIdx, 1)[0];
+  const shards = dismantleYield(item);
+  evictBought(room, item.id);
+  p.materials.refit_shard = (p.materials.refit_shard ?? 0) + shards;
+  state.events.push(`${p.name} dismantles ${item.name}: +${shards} refit shard${shards === 1 ? "" : "s"}. Scrap, certified.`);
+}
+
+/** The next quality step up, or null at the cap. */
+function nextQuality(r: Rarity): Exclude<Rarity, "common"> | null {
+  return r === "common" ? "magic" : r === "magic" ? "rare" : r === "rare" ? "epic" : null;
+}
+
+/** Refit costs for an item (UI preview + the verb share this). Null when the
+ * item cannot be refitted (not a catalog identity, or already epic). */
+export function refitCost(item: Item): { shards: number; gold: number; sigils: number; to: Rarity } | null {
+  if (!item.catalogId) return null;
+  const to = nextQuality(item.rarity);
+  if (!to) return null;
+  const entry = CATALOG_BY_ID[item.catalogId];
+  if (!entry) return null;
+  return {
+    shards: CONFIG.refitShardCost[to],
+    gold: Math.round(totalCost(item.catalogId) * CONFIG.refitGoldFraction),
+    sigils: entry.dropOnly ? 1 : 0, // boss uniques refit with a sigil on top
+    to,
+  };
+}
+
+/**
+ * REFIT (safe-room bench): upgrade an OWNED catalog item's quality one step —
+ * shards + gold (+ a boss sigil for boss uniques). Re-rolls its bonus-affix
+ * additions at the new tier and FLOOR-RESCALES the base line to the floor
+ * ahead: the "my floor-4 item stays alive" verb, strictly better than
+ * re-buying. `ref` is a bag index (number) or an equipped slot name.
+ */
+export function refitItem(state: GameState, playerId: number, ref: number | ItemSlot): void {
+  const p = state.players.find((pl) => pl.id === playerId);
+  const room = p ? shopRoomFor(state, p) : null;
+  if (!p || !room) return;
+  const item = typeof ref === "number"
+    ? (ref >= 0 && ref < p.inventory.length ? p.inventory[ref] : null)
+    : p.equipment[ref];
+  if (!item) return;
+  const cost = refitCost(item);
+  if (!cost) return;
+  if ((p.materials.refit_shard ?? 0) < cost.shards) return;
+  if (p.gold < cost.gold) return;
+  if (cost.sigils > 0 && (p.materials.boss_sigil ?? 0) < cost.sigils) return;
+  const entry = CATALOG_BY_ID[item.catalogId!];
+  p.materials.refit_shard = (p.materials.refit_shard ?? 0) - cost.shards;
+  if (cost.sigils > 0) p.materials.boss_sigil -= cost.sigils;
+  p.gold -= cost.gold;
+  p.goldSpent += cost.gold;
+  item.rarity = cost.to;
+  item.affixes = catalogQualityAffixes(state.rng, entry, room.nextFloor, cost.to);
+  evictBought(room, item.id); // a refit purchase leaves the 100% refund path
+  recomputeStats(p);
+  announce(state, "loot", `REFIT: ${p.name}'s ${item.name} is certified ${cost.to.toUpperCase()}. The System stamps the paperwork.`);
+  checkAchievements(state);
 }
 
 /** Mark a player ready to descend; the party leaves when everyone is ready. */
@@ -3489,6 +3905,13 @@ function makeReward(state: GameState, rng: Rng, p: Player, kind: SponsorRewardKi
       const item = generateItem(rng, floor + 2, () => state.nextEntityId++); // sponsor gear runs hot
       return { id, kind, title: item.name, desc: `${item.rarity} ${item.slot}`, amount: 0, item };
     }
+    case "glyph": {
+      // A sponsored firmware patch (V2 §3.1): the Show may GIFT a glyph —
+      // glyphs stay loot, the crowd just occasionally pays for one.
+      const glyph = GLYPH_IDS[nextInt(rng, 0, GLYPH_IDS.length - 1)];
+      const info = GLYPH_INFO[glyph];
+      return { id, kind, title: `Glyph: ${info.name}`, desc: info.blurb, amount: 0, glyph };
+    }
   }
 }
 
@@ -3534,6 +3957,8 @@ function rewardFitScore(p: Player, r: Reward): number {
       return r.amount * 1.5;
     case "materials":
       return 55; // steady pull toward signature gear (flat — it's build variety)
+    case "glyph":
+      return 65; // a new behavior beats a stat bump, most floors
     case "favor":
       return 70; // a constellation rank is strong, but not always the pick
     case "retrain":
@@ -3584,6 +4009,8 @@ function generateRewards(state: GameState, playerId: number): Reward[] {
   const pool: SponsorRewardKind[] = [
     "healFull", "maxHp", "damage", "crit", "armor", "item", "gold", "bonusTime", "materials", "favor",
   ];
+  // Glyphs join the pool once sockets exist to care (V2 §3.1 acquisition).
+  if (state.floor >= CONFIG.dropGlyphFromFloor) pool.push("glyph");
   // Retraining Arc joins the pool only when there's a fork side to refund.
   if (retrainableNodes(pl).length > 0) pool.push("retrain");
   const surplus = Math.max(0, pl.sponsors - CONFIG.rewardMaxCount);
@@ -3629,6 +4056,9 @@ function applyReward(state: GameState, p: Player, r: Reward): void {
       break;
     case "materials":
       if (r.material) p.materials[r.material] += r.amount;
+      break;
+    case "glyph":
+      if (r.glyph) grantGlyph(state, p, r.glyph);
       break;
     case "favor":
       p.upgradeDraftsOwed += r.amount;
@@ -3944,13 +4374,15 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   // so dashing through a pack connects — and Long Blink extends the reach.
   if (dp.shockMult > 0) {
     segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
-      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, "magic");
+      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, "magic", "dash");
   }
   // AFTERSHOCK capstone: the arrival point additionally detonates outright.
   if (rank(p, "dash.after") > 0) {
-    radialDamage(state, p, p.pos, 1.8, power(p, "dash"), 0, "magic");
+    radialDamage(state, p, p.pos, 1.8, power(p, "dash"), 0, "magic", 1, "dash");
     p.novaFlash = Math.max(p.novaFlash, 0.18);
   }
+  // SLIPSTREAM glyph: the movement resolved — the surge window opens.
+  if (hasGlyph(p, "dash", "slipstream")) p.slipstreamT = CONFIG.glyphSlipstreamDur;
 }
 
 /**
@@ -3960,7 +4392,7 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
  */
 function doStance(state: GameState, p: Player): void {
   p.stance = p.stance === "melee" ? "ranged" : "melee";
-  p.cd.stance = CONFIG.stanceSwapCooldown * cdMult(p);
+  p.cd.stance = stanceParams(p).cooldown * cdMult(p); // rule-7 clamped (glyph CDR folds in)
   p.stanceTime = 0;
   p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
   if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
@@ -3978,7 +4410,7 @@ function doStance(state: GameState, p: Player): void {
  */
 function doOvercharge(state: GameState, p: Player): void {
   p.overcharged = true;
-  p.cd.overcharge = CONFIG.overchargeCooldown * cdMult(p);
+  p.cd.overcharge = overchargeParams(p).cooldown * cdMult(p); // rule-7 clamped
   hit(state, p.pos, 0, "weapon"); // a crackle poof for the juice layer
 }
 
@@ -4019,6 +4451,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       shatter: oc?.shatter || undefined,
       school: bp.school,
       chill: bp.chill > 0 ? bp.chill : undefined,
+      ability: "bolt", // glyph hooks (brand/accelerant/splitfang/arc-splice)
     });
   }
 }
@@ -4028,7 +4461,7 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
  * monsters this blast KILLED (Extinction chains / Sponsor Loyalty refunds). */
 function radialDamage(
   state: GameState, p: Player, center: Vec2, radius: number, damage: number,
-  knockback = 0, school: School = "physical", poiseMult = 1,
+  knockback = 0, school: School = "physical", poiseMult = 1, ability?: AbilityId,
 ): Monster[] {
   const killed: Monster[] = [];
   for (const m of state.monsters) {
@@ -4036,7 +4469,7 @@ function radialDamage(
     const d = dist(center, m.pos);
     if (d - bodyRadius(m) > radius) continue; // blasts catch the body, not the center
     const dir = d > 1e-4 ? { x: (m.pos.x - center.x) / d, y: (m.pos.y - center.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult });
+    damageMonster(state, p, m, damage, { dir, knockback, school, poiseMult, ability });
     if (m.hp <= 0) killed.push(m);
   }
   // Blasts pop the smashable dressing too — nova through the storeroom.
@@ -4068,7 +4501,7 @@ function extinctionChain(state: GameState, p: Player, killed: Monster[]): void {
  * (Shockstep's dash path). Knockback shoves away from the path. */
 function segmentDamage(
   state: GameState, p: Player, a: Vec2, b: Vec2, radius: number, damage: number,
-  knockback = 0, school: School = "physical",
+  knockback = 0, school: School = "physical", ability?: AbilityId,
 ): void {
   const ab = { x: b.x - a.x, y: b.y - a.y };
   const len2 = ab.x * ab.x + ab.y * ab.y;
@@ -4080,7 +4513,7 @@ function segmentDamage(
     const d = dist(closest, m.pos);
     if (d - bodyRadius(m) > radius) continue;
     const dir = d > 1e-4 ? { x: (m.pos.x - closest.x) / d, y: (m.pos.y - closest.y) / d } : undefined;
-    damageMonster(state, p, m, damage, { dir, knockback, school });
+    damageMonster(state, p, m, damage, { dir, knockback, school, ability });
   }
   // RIVALS: shockstepping THROUGH a rival counts.
   for (const v of rivalTargets(state, p)) {
@@ -4109,7 +4542,15 @@ function doNova(state: GameState, p: Player): void {
   }
   p.novaFlash = 0.3;
   const base = power(p, "nova") * np.damageMult;
-  radialDamage(state, p, p.pos, np.radius, base, CONFIG.novaKnockback, "magic");
+  radialDamage(state, p, p.pos, np.radius, base, CONFIG.novaKnockback, "magic", 1, "nova");
+  // REPRISE glyph: the blast re-detonates on the same spot a beat later.
+  if (hasGlyph(p, "nova", "reprise")) {
+    state.strikes.push({
+      pos: { x: p.pos.x, y: p.pos.y }, t: CONFIG.glyphRepriseDelay, ownerId: p.id,
+      kind: "echo", radius: np.radius, dmg: base * CONFIG.glyphRepriseFrac, knockback: 0, school: "magic",
+      ability: "nova",
+    });
+  }
   // AFTERBURN (5.11): the shockwave ignites — everything it touched burns for
   // a fraction of the nova hit, spread over burnDuration. Refresh, no stacking.
   const scorch = rank(p, "nova.scorch");
@@ -4155,7 +4596,7 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: "physical" });
+    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: castSchool(p, "orbit"), ability: "orbit" });
     // GUILLOTINE capstone: chaff the blades have worn down is simply finished.
     // (Exact HP, no damage roll — an execute that sometimes whiffs is a lie.)
     if (
@@ -4215,7 +4656,7 @@ function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   hit(state, p.pos, 0, "weapon"); // arrival flash for the juice layer
   // Sucker Punch: the arrival strike shatters poise (non-bosses arrive staggered).
   damageMonster(state, p, target, power(p, "cutto") * cp.dmgMult, {
-    dir, school: "physical", shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback, melee: true,
+    dir, school: castSchool(p, "cutto"), shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback, melee: true, ability: "cutto",
   });
   // REPEAT OFFENDER: finish them inside the window and the camera resets (reapDead).
   if (cp.match) p.cutMark = { monsterId: target.id, t: CONFIG.cutToMatchWindow };
@@ -4261,9 +4702,11 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
     hit(state, p.pos, 0, "weapon");
     // Gavel Drop: arriving IS the attack.
     if (sp.diveFrac > 0) {
-      radialDamage(state, p, p.pos, CONFIG.surfDiveRadius, power(p, "crowdsurf") * sp.diveFrac, CONFIG.shockstepKnockback, "magic");
+      radialDamage(state, p, p.pos, CONFIG.surfDiveRadius, power(p, "crowdsurf") * sp.diveFrac, CONFIG.shockstepKnockback, "magic", 1, "crowdsurf");
       hit(state, p.pos, 0, "crit");
     }
+    // SLIPSTREAM glyph: the self-pull is movement — the surge window opens.
+    if (hasGlyph(p, "crowdsurf", "slipstream")) p.slipstreamT = CONFIG.glyphSlipstreamDur;
   } else {
     dragToPlayer(state, p, target, sp.stagger);
   }
@@ -4355,8 +4798,8 @@ function updateDecoys(state: GameState, dt: number): void {
  * The constellation shapes the barrage: Payload hardens shells, Saturation
  * adds them (wider), Precision tightens the grouping. */
 function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
-  p.cd.airstrike = CONFIG.ultAirstrikeCooldown;
   const ap = airstrikeParams(p);
+  p.cd.airstrike = ap.cooldown; // rule-7 clamped (glyph CDR folds in)
   const len = Math.hypot(aim.x, aim.y);
   const range = Math.min(CONFIG.ultAirstrikeRange, len || 1);
   const dir = len > 0 ? { x: aim.x / len, y: aim.y / len } : p.facing;
@@ -4382,6 +4825,8 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
  */
 function updateMonsterStatuses(state: GameState, dt: number): void {
   for (const m of state.monsters) {
+    // Brandmark glyph: the mark fades on the world clock.
+    if ((m.brandT ?? 0) > 0) m.brandT = Math.max(0, (m.brandT ?? 0) - dt);
     if (m.hp <= 0 || !m.statuses || m.statuses.length === 0) continue;
     for (const due of tickStatuses(m, dt)) {
       if (m.hp <= 0) break;
@@ -4507,7 +4952,7 @@ function updateHazards(state: GameState, dt: number): void {
           for (const p of state.players) {
             if (!p.alive || p.dashTime > 0) continue;
             if (dist(hz.pos, p.pos) > hz.radius) continue;
-            if (damagePlayerHit(state, p, hz.damage)) {
+            if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
               handlePlayerDeath(state, p, `${p.name} tried to swim the surge. The sludge won. Smell-o-vision regrets everything.`);
             }
           }
@@ -4559,7 +5004,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage)) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
             handlePlayerDeath(state, p, `${p.name} stood on holy ground uninvited. The congregation objected.`);
           }
         }
@@ -4577,7 +5022,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage)) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
             handlePlayerDeath(state, p, `${p.name} lay down on the bone pile. The ossuary accepts the donation.`);
           }
         }
@@ -4593,7 +5038,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage)) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
             handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
           } else {
             // The acid SOAKS IN (5.11): every tick in the puddle also stacks
@@ -4617,7 +5062,7 @@ function updateHazards(state: GameState, dt: number): void {
       const away = d > 1e-4
         ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
         : undefined;
-      if (damagePlayerHit(state, p, hz.damage, { dir: away })) {
+      if (damagePlayerHit(state, p, hz.damage, { dir: away, hazard: true })) {
         handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
       }
     }
@@ -4697,11 +5142,19 @@ function updateStrikes(state: GameState, dt: number): void {
     const ap = airstrikeParams(owner);
     const radius = s.radius ?? CONFIG.ultAirstrikeRadius;
     const dmg = s.dmg ?? power(owner, "airstrike") * ap.dmgMult;
-    const killed = radialDamage(state, owner, s.pos, radius, dmg, s.knockback ?? CONFIG.airstrikeKnockback, s.school ?? "physical");
+    // Which ability owns this blast: tagged at schedule time (V2 §3), with the
+    // legacy reading for pre-tag snapshots (shell = airstrike, echo = cataclysm).
+    const source = s.ability ?? (s.kind === "echo" ? "cataclysm" : "airstrike");
+    const killed = radialDamage(
+      state, owner, s.pos, radius, dmg, s.knockback ?? CONFIG.airstrikeKnockback, s.school ?? "physical",
+      1, source,
+    );
     hit(state, s.pos, 0, "crit"); // impact flash for the juice layer
     if (s.kind === "echo") {
-      // The echo is still a Cataclysm: EXTINCTION chains off its kills too.
-      if (cataclysmParams(owner).extinction) extinctionChain(state, owner, killed);
+      // A CATACLYSM echo is still a Cataclysm: EXTINCTION chains off its kills
+      // too. A Reprise NOVA echo is a nova — the ultimate's capstone stays the
+      // ultimate's (rule 4: behaviors compose, they never leak across kits).
+      if (source === "cataclysm" && cataclysmParams(owner).extinction) extinctionChain(state, owner, killed);
     } else if (ap.loyalty && killed.length > 0 && (owner.cd.airstrike ?? 0) > 0) {
       // SPONSOR LOYALTY: the network pays per confirmed kill, in cooldown.
       owner.cd.airstrike = Math.max(
@@ -4716,11 +5169,11 @@ function updateStrikes(state: GameState, dt: number): void {
  * constellation shapes it: Epicenter widens, Upheaval hurls harder and
  * crushes poise, Aftermath schedules an echo shock, EXTINCTION chains kills. */
 function doCataclysm(state: GameState, p: Player): void {
-  p.cd.cataclysm = CONFIG.ultCataclysmCooldown;
   const cp = cataclysmParams(p);
+  p.cd.cataclysm = cp.cooldown; // rule-7 clamped (glyph CDR folds in)
   p.novaFlash = 0.3; // reuse the ring effect
-  const blastDmg = power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult;
-  const killed = radialDamage(state, p, p.pos, cp.radius, blastDmg, 0, "magic", cp.poiseMult);
+  const blastDmg = power(p, "cataclysm") * cp.dmgMult;
+  const killed = radialDamage(state, p, p.pos, cp.radius, blastDmg, 0, "magic", cp.poiseMult, "cataclysm");
   // Corpses detonate where they DIED — before the survivors get hurled.
   if (cp.extinction) extinctionChain(state, p, killed);
   for (const m of state.monsters) {
@@ -4740,6 +5193,16 @@ function doCataclysm(state: GameState, p: Player): void {
       dmg: blastDmg * cp.echoFrac,
       knockback: 0,
       school: "magic",
+      ability: "cataclysm",
+    });
+  }
+  // REPRISE glyph (ultimate socket): a second, smaller detonation — additive
+  // with the Aftermath node (rule 4: behaviors compose, families exclude).
+  if (hasGlyph(p, "cataclysm", "reprise")) {
+    state.strikes.push({
+      pos: { x: p.pos.x, y: p.pos.y }, t: CONFIG.glyphRepriseDelay, ownerId: p.id,
+      kind: "echo", radius: cp.radius, dmg: blastDmg * CONFIG.glyphRepriseFrac, knockback: 0, school: "magic",
+      ability: "cataclysm",
     });
   }
   announce(state, "show", `${p.name} CRACKS THE FLOOR. Everything airborne is a highlight.`);
@@ -4747,8 +5210,9 @@ function doCataclysm(state: GameState, p: Player): void {
 
 /** Bullet Time: the world slows; crawlers do not. Deep Focus stretches it. */
 function doBulletTime(state: GameState, p: Player): void {
-  p.cd.bullettime = CONFIG.ultBulletTimeCooldown;
-  state.bulletTimeLeft = bulletTimeParams(p).duration;
+  const bp = bulletTimeParams(p);
+  p.cd.bullettime = bp.cooldown; // rule-7 clamped (glyph CDR folds in)
+  state.bulletTimeLeft = bp.duration;
   announce(state, "show", `${p.name} bends the broadcast frame rate. BULLET TIME.`);
 }
 
@@ -4756,11 +5220,27 @@ function doBulletTime(state: GameState, p: Player): void {
  * Cast the ability in a slot. One switch = the whole cast surface; adding an
  * ability means one case here + a registry entry in abilities.ts.
  */
+/** Executioner's Rebate glyph (rule 8): arm the per-cast refund window. The
+ * budget caps this cast's total refunds at refundCapFraction of the cooldown
+ * it just set; re-casting resets window AND budget (never banks across casts). */
+function armRebate(p: Player, ability: AbilityId): void {
+  if (!hasGlyph(p, ability, "executioners_rebate")) return;
+  const cd0 = p.cd[ability] ?? 0;
+  if (cd0 <= 0) return;
+  p.rebateAbility = ability;
+  p.rebateT = CONFIG.glyphRebateWindow;
+  p.rebateCd0 = cd0;
+  p.rebateBudget = cd0 * CONFIG.refundCapFraction;
+}
+
 function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2, move: Vec2): void {
   // Dash is charge-gated, not cooldown-gated: cd.dash is its recharge timer,
   // which may be ticking while a banked charge is still ready to spend.
   if (ability === "dash") {
-    if (p.dashCharges > 0) doDash(state, p, move);
+    if (p.dashCharges > 0) {
+      doDash(state, p, move);
+      armRebate(p, "dash");
+    }
     return;
   }
   if ((p.cd[ability] ?? 0) > 0) return;
@@ -4778,6 +5258,8 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
     case "cataclysm": doCataclysm(state, p); break;
     case "bullettime": doBulletTime(state, p); break;
   }
+  // A cast that actually happened set its cooldown; the rebate window opens.
+  if ((p.cd[ability] ?? 0) > 0) armRebate(p, ability);
 }
 
 // hasPassive lives in items.ts now (abilities.ts needs it too); re-exported
@@ -4873,15 +5355,58 @@ function updateProjectiles(state: GameState, dt: number): void {
       for (const m of state.monsters) {
         if (pr.hitIds?.includes(m.id)) continue; // pierced through this one already
         if (dist(pr.pos, m.pos) <= CONFIG.projectileRadius + bodyRadius(m)) {
+          // Court Order (V2 §2.3): bolts against UNALERTED monsters always
+          // crit — the paperwork is served before the fight starts.
+          const served = hasPassive(owner, "served") && (m.alertT ?? 0) <= 0 && m.windup <= 0;
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
-            forceCrit: pr.crit, shatterPoise: pr.shatter, school: pr.school,
+            forceCrit: pr.crit || served || undefined, shatterPoise: pr.shatter, school: pr.school,
+            ability: pr.ability,
           });
+          // ARC-SPLICE glyph: the hit arcs a fraction to the nearest other
+          // enemy — one link, never a chain of chains (mirrors conduit).
+          if (pr.ability && hasGlyph(owner, pr.ability, "arc_splice")) {
+            let best: Monster | null = null;
+            let bestD: number = CONFIG.conduitRadius;
+            for (const o of state.monsters) {
+              if (o === m || o.hp <= 0) continue;
+              const d = dist(m.pos, o.pos);
+              if (d <= bestD) { bestD = d; best = o; }
+            }
+            if (best) {
+              hit(state, m.pos, 0, "chain", { to: best.pos });
+              damageMonster(state, owner, best, pr.damage * CONFIG.glyphArcSpliceFrac, {
+                allowCrit: false, school: pr.school, chained: true,
+                dir: normalize({ x: best.pos.x - m.pos.x, y: best.pos.y - m.pos.y }),
+              });
+            }
+          }
+          // SPLITFANG glyph: the first impact forks the shot outward. Forks
+          // never re-fork (and ricochet bounces never fork) — rule 4's
+          // additive-behaviors line, with hitIds preventing re-hits.
+          if (pr.ability && !pr.forked && !pr.bounced && hasGlyph(owner, pr.ability, "splitfang")) {
+            const baseA = Math.atan2(pr.vel.y, pr.vel.x);
+            const speed = Math.hypot(pr.vel.x, pr.vel.y);
+            for (let f = 0; f < CONFIG.glyphSplitfangCount; f++) {
+              const a = baseA + (f === 0 ? -0.35 : 0.35);
+              state.projectiles.push({
+                id: state.nextEntityId++,
+                pos: { x: pr.pos.x, y: pr.pos.y },
+                vel: { x: Math.cos(a) * speed, y: Math.sin(a) * speed },
+                damage: pr.damage * CONFIG.glyphSplitfangFrac,
+                ttl: 0.8, from: "player", ownerId: owner.id,
+                forked: true, hitIds: [m.id], school: pr.school, chill: pr.chill,
+                ability: pr.ability,
+              });
+            }
+          }
           // Frost Bolts (5.11): the impact CHILLS — move + attack/windup speed
           // slowed. Bosses shrug off half the slow (meaningful, never immune).
           if (pr.chill && m.hp > 0) {
+            // (statusDuration: the Sump Crown stretches the WEARER's chill —
+            // the boss unique reads at its one real source, not just venom.)
             applyStatus(m, {
-              kind: "chill", duration: CONFIG.chillDuration, school: "magic",
+              kind: "chill", duration: statusDuration(owner, CONFIG.chillDuration), school: "magic",
               magnitude: m.kind === "boss" ? pr.chill * CONFIG.chillBossMult : pr.chill,
             });
           }
@@ -5060,6 +5585,12 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
     p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
     if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
+    // Glyph transients: the Slipstream surge and the Rebate kill window.
+    if ((p.slipstreamT ?? 0) > 0) p.slipstreamT = Math.max(0, (p.slipstreamT ?? 0) - dt);
+    if ((p.rebateT ?? 0) > 0) {
+      p.rebateT = Math.max(0, (p.rebateT ?? 0) - dt);
+      if (p.rebateT === 0) p.rebateBudget = 0; // the window closed; the budget dies with it
+    }
 
     // Knockback in flight: the shove consumes its distance first — it doesn't
     // cancel input, it just moves the ground under the argument.
@@ -5082,7 +5613,8 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       if (p.attackSwing <= 0) p.facing = turnToward(p.facing, dir, CONFIG.playerTurnRate * dt);
       // Root snare (boss roots zones): a heavy slow — dashing is unaffected.
       // Chill (ptime) and roots stack multiplicatively; both are escape tests.
-      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
+      const slip = (p.slipstreamT ?? 0) > 0 ? CONFIG.glyphSlipstreamSpeedMult : 1; // Slipstream glyph surge
+      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * slip * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
       moveWithCollision(state.map, p.pos, dir, speed * dt, isWalkable);
     }
 
@@ -5226,7 +5758,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
 const WORLD_FIELDS = [
   "floor", "rng", "map", "explored", "exploredVersion", "mapVersion",
   "monsters", "loot", "projectiles", "strikes", "bulletTimeLeft", "decoys", "breakables",
-  "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge",
+  "hazards", "corpses", "pings", "encounter", "floorEvent", "goldSurge", "glyphsDroppedThisFloor",
   "timeBudget", "timeRemaining", "phase", "collapseElapsed",
 ] as const;
 

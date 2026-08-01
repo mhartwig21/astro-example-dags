@@ -91,6 +91,7 @@ export interface SaveData {
     materials?: Player["materials"];
     revisions?: string[]; // CLASS REVISIONS taken (optional: pre-revision saves)
     tipsSeen?: string[]; // first-contact tips delivered (optional: pre-tips saves)
+    glyphs?: Player["glyphs"]; // glyph sockets + bench (optional: pre-glyph saves)
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
@@ -133,6 +134,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
         materials: p.materials,
         revisions: p.revisions,
         tipsSeen: p.tipsSeen,
+        glyphs: p.glyphs,
       },
       show: {
         hype: p.hype,

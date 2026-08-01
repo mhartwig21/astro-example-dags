@@ -319,12 +319,14 @@ describe("itemization", () => {
 
   it("support slots (helm/boots/charm) roll on a reduced budget", () => {
     // Same rarity + floor: an armor piece's HP rolls must outbudget a helm's.
+    // ITEMIZATION-V2 §2.2: commodity gear is demoted to commons/magics (no
+    // rare/epic affix soup), so the budget compare samples at MAGIC now.
     const rng = createRng(123);
     let id = 0;
     let armorHp = 0, armorN = 0, helmHp = 0, helmN = 0;
     for (let i = 0; i < 3000; i++) {
       const it = generateItem(rng, 8, () => ++id);
-      if (it.rarity !== "rare") continue;
+      if (it.rarity !== "magic") continue;
       if (it.slot === "armor" && it.affixes.maxHp) { armorHp += it.affixes.maxHp; armorN++; }
       if (it.slot === "helm" && it.affixes.maxHp) { helmHp += it.affixes.maxHp; helmN++; }
     }
@@ -624,15 +626,17 @@ describe("safe room + System Shop", () => {
   });
 
   it("deeper shops unlock growing advanced/legendary subsets", () => {
+    // ITEMIZATION-V2 §2.6: advanced stocks one deeper per shop (base 4 -> 5)
+    // so the floor-3 completed-work combine is reliably on the shelf.
     // Shop index 3 (descending from floor 3): advanced yes, legendary not yet.
     const room3 = reachDeepSafeRoom(306, 3).safeRoom!;
     const tiers3 = room3.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers3.filter((t) => t === "advanced").length).toBe(5); // 4 + (3-2)
+    expect(tiers3.filter((t) => t === "advanced").length).toBe(6); // 5 + (3-2)
     expect(tiers3).not.toContain("legendary");
     // Shop index 5: one more advanced pick, and the first legendaries appear.
     const room5 = reachDeepSafeRoom(306, 5).safeRoom!;
     const tiers5 = room5.available.map((id) => CATALOG_BY_ID[id].tier);
-    expect(tiers5.filter((t) => t === "advanced").length).toBe(7);
+    expect(tiers5.filter((t) => t === "advanced").length).toBe(8);
     expect(tiers5.filter((t) => t === "legendary").length).toBe(2);
   });
 
@@ -737,7 +741,9 @@ describe("safe room + System Shop", () => {
     p.materials.elite_trophy = 2;
     buyCatalogItem(g, 0, "headliner_cleaver");
     expect(p.equipment.weapon?.passive).toBe("showrunner");
-    expect(p.equipment.weapon?.rarity).toBe("epic");
+    // ITEMIZATION-V2 §2.1: `rarity` is the QUALITY field now — the shop sells
+    // common quality (certainty, never jackpots); REFIT raises it.
+    expect(p.equipment.weapon?.rarity).toBe("common");
     expect(p.materials.elite_trophy).toBe(0); // spent
   });
 
@@ -3016,7 +3022,7 @@ describe("materials (the elite/boss hunt)", () => {
       player: { hp: 80, level: 4, xp: 0, xpToNext: 99, gold: 50,
         materials: { scrap: 7, elite_trophy: 2, boss_sigil: 1 } as never },
     });
-    expect(g.players[0].materials).toEqual({ elite_trophy: 2, boss_sigil: 1 });
+    expect(g.players[0].materials).toEqual({ refit_shard: 0, elite_trophy: 2, boss_sigil: 1 });
   });
 });
 
@@ -4063,7 +4069,9 @@ describe("chase legendaries (store-only uniques)", () => {
     p.materials.elite_trophy = 2;
     buyCatalogItem(g, 0, "standing_ovation");
     expect(p.equipment.weapon?.passive).toBe("skewer");
-    expect(boltParams(p).pierce).toBeGreaterThanOrEqual(1 + CONFIG.skewerBonusPierce);
+    // V2 §2.1: shop purchases come out COMMON quality, so the rare+ weapon
+    // pierce bonus now waits on a REFIT — the passive's +2 stands alone.
+    expect(boltParams(p).pierce).toBeGreaterThanOrEqual(CONFIG.skewerBonusPierce);
   });
 });
 
@@ -4087,7 +4095,9 @@ describe("planning-first drops", () => {
       for (let k = 0; k < 30; k++) step(g, idle(), 1 / 60);
     }
     expect(component).toBeGreaterThan(0); // drops now advance planned builds...
-    expect(rolled).toBeGreaterThan(component); // ...but rolled gear still leads
+    // ITEMIZATION-V2 §2.2: the drop table is CATALOG-FIRST by design (55%
+    // component + 15% completed vs 25% commodity) — loot advances the plan.
+    expect(component).toBeGreaterThan(rolled);
     // Dropped components are REAL components: they satisfy build gating.
     const entry = CATALOG_BY_ID.honed_edge;
     expect(entry.tier).toBe("basic");

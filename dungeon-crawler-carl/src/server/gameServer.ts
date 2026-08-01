@@ -4,7 +4,8 @@ import { extname, join, normalize, resolve } from "node:path";
 import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
+import { GLYPH_INFO, type GlyphId } from "../sim/glyphs";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
   serialize, serializeDynamic, serializeFor, serializeForDynamic, rivalWorldKey,
@@ -17,7 +18,7 @@ import { sanitizeName } from "./names";
 import { AuthService } from "./auth";
 import { openDb, type PersistDb } from "./db";
 import { Metrics } from "./metrics";
-import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player, type Vec2 } from "../sim/types";
+import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntents, type Player, type Vec2 } from "../sim/types";
 
 // Authoritative multiplayer server (DESIGN.md milestone). One deterministic sim
 // per party instance; clients send intents + choices, the server ticks the sim at
@@ -37,6 +38,9 @@ import { NO_INTENT, type GameState, type Intent, type PartyIntents, type Player,
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
 //     { t: "sell", idx: number }                       sell a bag item back
 //     { t: "sellAll" }                                 liquidate the whole bag
+//     { t: "dismantle", idx: number }                  bench: bag item -> refit shards
+//     { t: "refit", ref: string }                      bench: quality step up (bag index | slot)
+//     { t: "socket", slotIdx, socketIdx, glyph }       glyph in (id) or out (null)
 //     { t: "claimAchievement", id: string }             open an earned achievement's loot box
 //     { t: "ready" }                                   safe-room ready-up
 //   server -> client:
@@ -736,6 +740,25 @@ export class GameServer {
         case "sellAll":
           sellAllItems(inst.state, playerId);
           break;
+        // Safe-room bench (ITEMIZATION-V2 §2.4) — the sim re-validates the
+        // room gate, the costs, and the same-shop refund eviction.
+        case "dismantle":
+          dismantleItem(inst.state, playerId, Number(msg.idx));
+          break;
+        case "refit": {
+          const raw = String(msg.ref);
+          refitItem(inst.state, playerId, /^\d+$/.test(raw) ? Number(raw) : (raw as ItemSlot));
+          break;
+        }
+        // Glyph sockets (V2 §3): slots 0-3 actives, 4 = ultimate; null = pull
+        // the glyph back to the bench.
+        case "socket": {
+          const slotIdx = Number(msg.slotIdx), socketIdx = Number(msg.socketIdx);
+          const g = typeof msg.glyph === "string" && msg.glyph in GLYPH_INFO ? (msg.glyph as GlyphId) : null;
+          if (g) socketGlyph(inst.state, playerId, slotIdx, socketIdx, g);
+          else unsocketGlyph(inst.state, playerId, slotIdx, socketIdx);
+          break;
+        }
         case "claimAchievement":
           claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
