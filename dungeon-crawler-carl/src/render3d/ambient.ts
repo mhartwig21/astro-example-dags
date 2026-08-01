@@ -194,6 +194,24 @@ export class AmbientParticles {
     this.points.renderOrder = 5;
     this.points.userData.noAO = true;
     this.group.add(this.points);
+    this.applyDensity();
+  }
+
+  // MOTE BUDGET (quality ladder). Implemented as a draw range rather than a
+  // smaller buffer: the cloud's cost is transparent overdraw, not the handful
+  // of CPU-side floats it animates, and a draw range can be changed the instant
+  // a preset switches without rebuilding — or re-randomising — the population.
+  private density = 1;
+  setDensity(d: number): void {
+    const next = Math.min(1, Math.max(0.1, d));
+    if (next === this.density) return;
+    this.density = next;
+    this.applyDensity();
+  }
+  private applyDensity(): void {
+    if (!this.points || !this.spec) return;
+    const n = this.density >= 1 ? Infinity : Math.max(1, Math.round(this.spec.count * this.density));
+    this.points.geometry.setDrawRange(0, n);
   }
 
   /** Pick a fresh spawn spot from the live candidates (null = stay dead). */

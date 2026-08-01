@@ -15,7 +15,12 @@ import { chromium } from "playwright";
 
 const OUT = process.argv[2] ?? "C:/Users/hartw/.claude/jobs/3a9dd2e4/tmp/shots/beauty";
 const FILTER = process.argv[3] ?? "";
-const BASE = "http://localhost:5285/iso.html";
+// Default is the shared dev server, but a perf branch needs to shoot its OWN
+// production build on a private port — pass --base http://localhost:5295 (or
+// set DCC_BASE) to point the whole suite at another origin.
+const baseFlagIdx = process.argv.indexOf("--base");
+const BASE_ORIGIN = (baseFlagIdx >= 0 ? process.argv[baseFlagIdx + 1] : process.env.DCC_BASE) ?? "http://localhost:5285";
+const BASE = `${BASE_ORIGIN.replace(/\/$/, "")}/iso.html`;
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
@@ -102,10 +107,17 @@ const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox"],
 });
 
+// QUALITY PIN (--quality ultra|high|balanced|performance). This suite runs on
+// SwiftShader at a few frames per second, so the renderer's auto-detect quite
+// correctly walks the preset DOWN mid-capture — which would silently turn a
+// "before/after at ULTRA" comparison into a comparison of two different rungs.
+// `?quality=` overrides both storage and auto-detect for the life of the page.
+const QUALITY = (() => { const i = process.argv.indexOf("--quality"); return i >= 0 ? process.argv[i + 1] : ""; })();
+
 async function boot(url) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
-  await page.goto(url, { waitUntil: "load", timeout: 60000 });
+  await page.goto(QUALITY ? `${url}&quality=${QUALITY}` : url, { waitUntil: "load", timeout: 60000 });
   // Two gates, one retry-reload (HMR storms from concurrent agents wedge boots).
   let ready = false;
   for (let attempt = 0; attempt < 2 && !ready; attempt++) {

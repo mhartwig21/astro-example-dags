@@ -1,0 +1,782 @@
+[
+ {
+  "lum": 70.91,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 71.01,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.71,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.35,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.7,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.17,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.13,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.12,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.18,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.23,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.19,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.67,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 47,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.53,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.52,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.24,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.07,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.95,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 45.47,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.7,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.79,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.95,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.95,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.96,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 69.76,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.91,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.16,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.27,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.18,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 71.64,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.9,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.8,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.69,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.34,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.1,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 47.48,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.82,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.75,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.74,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.75,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 72.62,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 44.8,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.12,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.43,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.43,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.61,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.71,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 70.57,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.99,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.92,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.37,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.21,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.84,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.59,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.9,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.88,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.3,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.58,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.8,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 48.65,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 75.1,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 75.62,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.87,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.84,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.01,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 48.05,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 73.03,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.57,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.52,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.45,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 72.38,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 69.34,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.51,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.57,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.8,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.16,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.49,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 71.43,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.3,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.3,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.3,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.23,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.29,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 48.04,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.09,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.13,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.14,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.17,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.21,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 46.14,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.51,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 73.73,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 73.77,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 73.69,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 73.72,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 70.33,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.65,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.71,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.71,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.45,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.07,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.83,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.35,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.42,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.59,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.87,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.09,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 47.99,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.97,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 74.95,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 75.63,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 75.08,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 75.1,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 47.91,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.84,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 75.27,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 75.25,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.94,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.86,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 70.06,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.1,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.3,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 69.86,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.18,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.51,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 71.74,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.52,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.26,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.22,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.03,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 70.85,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 47.16,
+  "map": 0,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.91,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.85,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.85,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.88,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 73.98,
+  "map": 1536,
+  "preset": "balanced"
+ },
+ {
+  "lum": 45.18,
+  "map": 0,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.37,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.49,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.49,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.58,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 74.55,
+  "map": 1024,
+  "preset": "performance"
+ },
+ {
+  "lum": 70.43,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.74,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.55,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.45,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.47,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 70.18,
+  "map": 2048,
+  "preset": "ultra"
+ },
+ {
+  "lum": 71.04,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.09,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.09,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.08,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.08,
+  "map": 2048,
+  "preset": "high"
+ },
+ {
+  "lum": 71.09,
+  "map": 2048,
+  "preset": "high"
+ }
+]
