@@ -120,7 +120,9 @@ export const THEME = {
     suitactor: { color: 0x7a5c8f, scale: 1.2 }, // costume violet: fine television
     suitguy: { color: 0xd8c8a8, scale: 0.85 }, // office beige: LET HIM GO
     foreman: { color: 0xd94f2e, scale: 1.7 }, // champion vermilion: the checkpoint fight
-    boss: { color: 0xff3b3b, scale: 2.7 },
+    // Boss reads ~3x the crawler (r6 major: the menace must own its frame —
+    // LoL-objective presence, never smaller than its own damage numbers).
+    boss: { color: 0xff3b3b, scale: 3.0 },
   },
   projectilePlayer: 0x6fe3ff,
   projectileEnemy: 0xff8a3c,

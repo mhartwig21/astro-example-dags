@@ -69,11 +69,15 @@ const TEL_FRAG = /* glsl */ `
     // paint. Polar-mapped, drifting INWARD (energy converging on the strike).
     float nz = telN(vec2(a01 * 22.0, r * 9.0 + uTime * 2.4))
              * 0.65 + telN(vec2(a01 * 47.0 + 13.0, r * 19.0 + uTime * 4.1)) * 0.35;
-    float churn = 0.55 + 0.9 * smoothstep(0.35, 0.85, nz);
+    float churn = 0.45 + 1.15 * smoothstep(0.33, 0.85, nz);
+    // SOFT PERIMETER (r6 major: "hard alpha edge"): every layer that reaches
+    // the boundary dies over the last ~4% of radius, so the disc never ends
+    // on a raw circle cut against the floor.
+    float edgeF = 1.0 - smoothstep(0.955, 0.998, r);
     // TWO-TONE FILL: a translucent radial gradient deepening toward the rim —
     // the covered area reads as an authored danger zone, not a wire gizmo.
     float fillGrad = (0.06 + 0.36 * pow(r, 1.9)) * (0.45 + 0.55 * uProg)
-                   * (0.75 + 0.45 * pulse * uProg) * churn;
+                   * (0.75 + 0.45 * pulse * uProg) * churn * edgeF;
     // Conic sweep: the filled sector IS the clock; a hot line at the frontier.
     float fill = step(a01, uProg);
     float sweep = smoothstep(0.05, 0.004, abs(a01 - uProg));
@@ -93,7 +97,7 @@ const TEL_FRAG = /* glsl */ `
     float innerA = uBoss * (rim2 * 0.5 + waves * smoothstep(0.55, 0.08, r) * 0.2 * uProg);
     // READABILITY FLOOR: a dark backing plate under the interior pins local
     // contrast so the glow layers read over bright floors and FX bloom.
-    float glowA = rimA * 1.1 + fillGrad + fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2;
+    float glowA = rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad;
     float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);
     float alpha = clamp(glowA + darkA, 0.0, 0.94);
     // HDR rim (audit r4): the edge runs 2-3x over white at commit so the ring
@@ -175,6 +179,71 @@ export function makeTelegraphMat(): THREE.ShaderMaterial {
     },
     vertexShader: TEL_VERT,
     fragmentShader: TEL_FRAG,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+
+// GROUND-ZONE POOL (r6 major: "flat red/orange floor tints with no emissive
+// gradient, flicker, or edge treatment"): every lingering hazard zone (acid,
+// sludge, roots, bone shards, consecrated ground) renders as a living pool —
+// a noise-wobbled boundary instead of a compass circle, interior churn that
+// crawls, a hot luminous core cooling to a dark ember rim, and a gentle
+// full-pool flicker. uDry fades it out as the zone expires; uArm ghosts the
+// arming telegraph with a pulse.
+const POOL_FRAG = /* glsl */ `
+  uniform vec3 uColor; // body hue
+  uniform vec3 uHot;   // hot-core hue (pre-lightened on the CPU)
+  uniform float uTime;
+  uniform float uDry;  // 0 fresh -> 1 expiring
+  uniform float uArm;  // 1 while the arming telegraph ghosts
+  varying vec2 vUv;
+  float plH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float plN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = plH(q), b = plH(q + vec2(1.0, 0.0));
+    float c = plH(q + vec2(0.0, 1.0)), d = plH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    float a01 = fract(atan(p.y, p.x) / 6.2831853 + 0.5);
+    // Wobbled boundary: the pool's edge is drawn by noise, never a circle.
+    float en = plN(vec2(a01 * 9.0, uTime * 0.35)) * 0.16;
+    float edge = 1.0 - smoothstep(0.74 - en, 0.97 - en, r);
+    // Interior churn: two octaves crawling in opposite directions.
+    float nz = plN(p * 2.6 + vec2(uTime * 0.22, -uTime * 0.17)) * 0.6
+             + plN(p * 6.4 + vec2(-uTime * 0.4, uTime * 0.31)) * 0.4;
+    float churn = smoothstep(0.28, 0.85, nz);
+    // Hot core cooling outward to a dark ember rim; the whole pool breathes.
+    float core = smoothstep(0.8, 0.0, r);
+    float flick = 0.86 + 0.14 * sin(uTime * 6.5 + nz * 9.0);
+    vec3 col = mix(uColor * 0.5, uHot * (1.25 + 0.9 * core), core * (0.35 + 0.65 * churn)) * flick;
+    float emberRim = smoothstep(0.5, 0.92, r);
+    col = mix(col, uColor * 0.16, emberRim * 0.65);
+    float a = edge * (0.66 - 0.34 * uDry) * (0.55 + 0.45 * churn);
+    a *= mix(1.0, 0.32 + 0.16 * sin(uTime * 9.0), uArm);
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
+
+export function makePoolMat(bodyHex: number): THREE.ShaderMaterial {
+  const body = new THREE.Color(bodyHex);
+  const hot = body.clone().lerp(new THREE.Color(1, 1, 1), 0.45);
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: body },
+      uHot: { value: hot },
+      uTime: { value: 0 },
+      uDry: { value: 0 },
+      uArm: { value: 0 },
+    },
+    vertexShader: TEL_VERT,
+    fragmentShader: POOL_FRAG,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,

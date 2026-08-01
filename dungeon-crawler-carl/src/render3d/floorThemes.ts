@@ -77,6 +77,10 @@ export interface FloorTheme {
   // normalization lies about their nature — trees should tower, grass should
   // hug the dirt. Unlisted keys keep the default.
   propScale?: Record<string, number>;
+  // Per-key ALBEDO tint multiplied into the prop's material clone (r5 issue
+  // #2: pale KayKit stone read as untextured graybox): the same column is
+  // warm sandstone in the ruins and cold violet-gray on the approach.
+  propTint?: Record<string, number>;
   // Present = this band is an open-air district (see OpenAirSpec above).
   openAir?: OpenAirSpec;
   // Cinematic rig + grade for the band (theme.ts BandMood). Applied on floor
@@ -154,6 +158,9 @@ export const FLOOR_THEMES: FloorTheme[] = [
       mushroom: 0.28, basket_mushrooms: 0.38, bottle_A_green: 0.18,
       bottle_a_labeled_green: 0.18, bone_A: 0.3, rubble_half: 0.5,
     },
+    // Damp-stained stone: the cistern columns + rubble go mossy slate, never
+    // the ruins' pale gray (r5 issue #2 audit — one stone, per-band weather).
+    propTint: { column: 0x9cb2a4, rubble_half: 0xa4b09a, rubble_large: 0xa4b09a },
     // TWO-TONE (the green-on-green fix): ground and ambient pulled to a cool
     // desaturated slate-green, light pools pushed warm bile-amber — the key
     // keeps the band's hue, the shadows go complementary cool, and the light
@@ -192,9 +199,12 @@ export const FLOOR_THEMES: FloorTheme[] = [
     // a few graves persist as the landmark's memory of what got buried here.)
     floorKey: "floor_dirt", floorAltKey: "floor_dirt_grave", altRatio: 0.07,
     wallKey: "wall_broken",
+    // Five tree SILHOUETTES in the room pool (r5 issue #4: three identical
+    // styrofoam trees) — tall conical, round, twin-lobe, spire, broad — plus
+    // per-instance hue/scale jitter applied at place() time.
     props: [
-      "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a",
-      "forest_tree_5_a", "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
+      "forest_tree_1_a", "forest_tree_1_b", "forest_tree_2_a", "forest_tree_3_a",
+      "forest_tree_4_a", "forest_tree_5_a", "forest_bush_1_a", "forest_bush_2_a", "forest_bush_4_a",
       "forest_rock_1_a", "forest_rock_3_c", "forest_rock_6_a",
       "forest_grass_1_a", "forest_grass_2_a", "forest_grass_1_a", "forest_grass_2_a",
     ],
@@ -216,7 +226,7 @@ export const FLOOR_THEMES: FloorTheme[] = [
     doorFlankKey: "lantern_standing",
     propScale: {
       forest_tree_1_a: 1.6, forest_tree_1_b: 1.7, forest_tree_2_a: 1.5,
-      forest_tree_3_a: 1.1, forest_tree_5_a: 1.6, forest_tree_bare_1_a: 1.4,
+      forest_tree_3_a: 1.35, forest_tree_4_a: 1.5, forest_tree_5_a: 1.6, forest_tree_bare_1_a: 1.4,
       forest_bush_1_a: 0.9, forest_bush_2_a: 0.85, forest_bush_4_a: 1.0,
       forest_rock_1_a: 0.8, forest_rock_3_c: 1.2, forest_rock_6_a: 0.9,
       forest_grass_1_a: 0.55, forest_grass_2_a: 0.55,
@@ -275,6 +285,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
       skull: 0.32, bone_A: 0.3, ribcage: 0.5, rubble_half: 0.5,
       tree_dead_small: 0.9, tree_dead_medium: 1.25,
     },
+    // Warm sandstone/umber over the pale KayKit stone (r5 issue #2: the
+    // entrance's column + gravestone + rack cluster read as a light-gray
+    // graybox throne against the ember room).
+    propTint: {
+      column: 0xd9b28e, pillar: 0xd9b28e, gravestone: 0xcfa87e,
+      rubble_half: 0xd2ab84, rubble_large: 0xd2ab84, ribcage: 0xe2cfa8,
+      weaponrack: 0xc9a582, sword_shield_broken: 0xd0b294, banner_brown: 0xd8b898,
+      pot_large: 0xd8a878, table_medium_broken: 0xc9a582,
+    },
     floorTint: 0xe0b898, wallTint: 0xd0a888,
     torchColor: 0xff6a28, torchIntensity: 2.9,
     background: 0x120a06,
@@ -306,9 +325,13 @@ export const FLOOR_THEMES: FloorTheme[] = [
     // distance); the grates that remain glow faintly from below (altGlow),
     // so they read as designed vents and combat silhouettes keep a
     // low-frequency floor to pop against.
-    floorKey: "floor", floorAltKey: "floor_tile_grate", altRatio: 0.16,
+    floorKey: "floor", floorAltKey: "floor_tile_grate", altRatio: 0.07,
     floorAlt2Key: "floor_tile_large", alt2Ratio: 0.2,
-    altGlow: { color: 0x2a5a80, intensity: 0.4 },
+    // MOLTEN vents (r5 issue #3: the theme was invisible — flat blue-gray):
+    // sparse grates glow furnace-orange from below, echoing the molten
+    // channels; kept RARE — at 0.16/0.75 they tiled the floor into an orange
+    // hazard checkerboard instead of punctuating it.
+    altGlow: { color: 0xff5a1e, intensity: 0.65 },
     wallKey: "wall_scaffold",
     // Metal-forward destructibles: fuel drums, crates, anvils — the wooden
     // tavern kegs stay upstairs (theme-variant props per biome).
@@ -323,8 +346,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
       clumpsPerRoom: [6, 8], perClump: [2, 5],
     },
     propScale: { mug_b: 0.2, gems_sack: 0.3, box_small: 0.4 },
-    floorTint: 0xa8bcd8, wallTint: 0x98accc,
-    torchColor: 0x7ab4ff, torchIntensity: 2.7,
+    // DARK IRON ground (r5 issue #3): the old powder-blue floor read as flat
+    // blue-gray primer; the plate drops a value step so the molten channels
+    // and cyan work-lights have something dark to burn against.
+    floorTint: 0x8ea0b8, wallTint: 0x8090a8,
+    // FORGE KEY (r7 major: "no focal hierarchy — cold white point lights,
+    // whole image underexposed blue-grey"): the band's practicals are now
+    // furnace-orange and HOT — one dominant warm motif over dark iron, with
+    // the cyan surviving only in the mood's rim light. 3:1 warm-over-fill.
+    torchColor: 0xff8632, torchIntensity: 3.8,
     background: 0x060a14,
     landmark: { // an abandoned workshop
       pillarKey: "pillar_decorated", pillarScale: 0.9,
@@ -333,22 +363,28 @@ export const FLOOR_THEMES: FloorTheme[] = [
     },
     entranceProps: ["fuel_a_barrels", "box_large", "stool_round"],
     doorFlankKey: "banner_blue",
-    mood: { // cold steel: cyan work-light, blue-black shadows
+    mood: { // the foundry two-hander (r5 issue #3): a furnace-warm KEY over
+      // dark iron — the hero sits in the warmest pixels — with the cyan
+      // work-light surviving as rim + practicals, and a molten horizon so
+      // even the deep dark smolders instead of reading as flat navy.
       ambient: 0x20304a, ambientIntensity: 0.58,
-      hemiSky: 0x4a6490, hemiGround: 0x0e1218, hemiIntensity: 0.45,
-      key: 0xdce8ff, keyIntensity: 2.2,
+      hemiSky: 0x4a6490, hemiGround: 0x1c1210, hemiIntensity: 0.45,
+      key: 0xffd9a8, keyIntensity: 2.35,
       rim: 0x50c8ff, rimIntensity: 0.7,
-      envHorizon: 0x5090e0, envIntensity: 0.4,
-      gradeShadow: 0x070b13, gradeHighlight: 0xdcecff, gradeSaturation: 1.04,
+      envHorizon: 0xff7a30, envIntensity: 0.5,
+      gradeShadow: 0x070b13, gradeHighlight: 0xffe2c4, gradeSaturation: 1.06,
       vignette: 0.38,
       voidInner: 0x0b1220, voidOuter: 0x030408,
-      fogDark: 0x070d18,
+      fogDark: 0x0a0e18,
     },
   },
   {
     name: "THE APPROACH", // floors 16-18: arched grandeur, banners, blood light
     floorKey: "floor_tile_large", floorAltKey: "floor_tile_big_spikes", altRatio: 0.1,
     floorAlt2Key: "floor_tile_small_broken_A", alt2Ratio: 0.1,
+    // Spike pits glow faint ember from below (r5 issue #2: featureless
+    // pure-black holes) — visible depth, not a hole in the render.
+    altGlow: { color: 0xd86a30, intensity: 0.3 },
     wallKey: "wall_arched",
     props: [
       "banner_red", "banner_shield_red", "sword_shield_broken", "pillar_decorated", "chest_gold",
@@ -366,6 +402,13 @@ export const FLOOR_THEMES: FloorTheme[] = [
       card_spades_ace: 0.26, card_hearts_king: 0.26, card_base: 0.26,
       skull: 0.32, bone_A: 0.3, ribcage: 0.5, coin_stack_small: 0.26,
       coin_stack_medium: 0.34, rubble_half: 0.5,
+    },
+    // Violet-gray stone + parchment cards (r5 issue #2: white paper
+    // rectangles): the monument masonry takes the band's cool cast.
+    propTint: {
+      column: 0xc8b8c2, pillar: 0xc8b8c2, pillar_decorated: 0xcdbcae,
+      rubble_half: 0xc0b0b8, card_base: 0xe6d9be, card_spades_ace: 0xe6d9be,
+      card_hearts_king: 0xe6d9be,
     },
     // HAZARD-RED RESERVATION (D2R/LoL rule): the band's light is EMBER-amber
     // over cool violet darks — saturated red belongs to attack telegraphs

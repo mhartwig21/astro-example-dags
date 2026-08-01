@@ -1227,6 +1227,7 @@ const bbFill = document.getElementById("bb-fill") as HTMLElement;
 const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
 const bbPips = document.getElementById("bb-pips")!;
 const bossintroEl = document.getElementById("bossintro")!;
+const hypeRowEl = document.querySelector<HTMLElement>("#show .hyperow");
 const letterboxEl = document.getElementById("letterbox")!;
 const bossSpotEl = document.getElementById("bossspot")!;
 const biName = document.getElementById("bi-name")!;
@@ -1300,11 +1301,17 @@ function updateBossBar(s: GameState): void {
     const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
     if (d < best) { best = d; target = m; }
   }
+  // The boss plate SUPPRESSES the Hype row while it owns top-center (r6
+  // major: the "Hype" label clipped behind the boss health plate) — one
+  // marquee element per zone, never a stack.
+  const hypeRow = hypeRowEl;
   if (!target) {
     bossbarEl.style.display = "none";
+    if (hypeRow) { hypeRow.style.opacity = ""; hypeRow.style.visibility = ""; }
     bossGhostFor = -1;
     return;
   }
+  if (hypeRow) { hypeRow.style.opacity = "0"; hypeRow.style.visibility = "hidden"; }
   bossbarEl.style.display = "block";
   bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
@@ -2914,28 +2921,62 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
   mmView.oy = (H - bh * sc) / 2 - minY * sc;
   const g = mmStaticCtx;
   g.clearRect(0, 0, W, H);
+  // ONE CHART SPEC AT EVERY STATE (r6 major: "gold-speckle noise background…
+  // near-zero contrast"): the canvas lays its own opaque dark neutral ground
+  // first, so the chart never inherits the bezel's textured backing — rooms
+  // then sit on it at a high-contrast parchment value.
+  g.fillStyle = "#15100b";
+  g.fillRect(0, 0, W, H);
   const X = (x: number): number => mmView.ox + x * sc;
   const Y = (y: number): number => mmView.oy + y * sc;
   const walkable = (i: number): boolean => !!s.explored[i] && map.tiles[i] !== Tile.Wall;
-  // Pass 1: floor fills — ETCHED PARCHMENT, not one flat beige slab (r4
-  // major): each tile picks one of three near-identical vellum shades off a
-  // cheap position hash, so large rooms read as inked paper grain, and every
-  // tile carries a whisper of engraved grid on its right/bottom edge.
-  const VELLUM = ["#57452d", "#514029", "#5b4930"];
+  const wallAt = (x: number, y: number): boolean =>
+    x < 0 || y < 0 || x >= map.w || y >= map.h || map.tiles[y * map.w + x] === Tile.Wall;
+  // Pass 1: floor fills — flat high-contrast parchment (the r5 hash-speckle
+  // read as compression noise at 1x); corridors a step darker so passages
+  // read as passages, plus a faint survey grid.
+  const ROOM = "#97794a";
+  const CORRIDOR = "#6b5530";
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       const i = y * map.w + x;
       if (!walkable(i)) continue;
       const t = map.tiles[i];
+      const corridor =
+        (wallAt(x - 1, y) && wallAt(x + 1, y)) || (wallAt(x, y - 1) && wallAt(x, y + 1));
       g.fillStyle =
-        t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#f2c14e" : VELLUM[(x * 7 + y * 13) % 3]!;
+        t === Tile.StairsDown ? "#e8b84f" :
+        t === Tile.DoorLocked ? "#f2c14e" :
+        corridor ? CORRIDOR : ROOM;
       g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
-      if (sc >= 4 && t !== Tile.StairsDown && t !== Tile.DoorLocked) {
-        g.fillStyle = "rgba(20,14,8,0.1)"; // engraved survey grid
+      if (t !== Tile.StairsDown && t !== Tile.DoorLocked) {
+        g.fillStyle = "rgba(20,14,8,0.12)"; // engraved survey grid
         g.fillRect(X(x + 1) - 0.5, Y(y), 0.5, sc);
         g.fillRect(X(x), Y(y + 1) - 0.5, sc, 0.5);
       }
+    }
+  }
+  // Pass 1b: DOORWAY thresholds — where a corridor mouth meets a room, ink a
+  // short bronze lintel across the passage so the chart shows doorways, not
+  // just an undifferentiated tan blob.
+  g.fillStyle = "rgba(201,162,75,0.55)";
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const nsWalls = wallAt(x - 1, y) && wallAt(x + 1, y);
+      const ewWalls = wallAt(x, y - 1) && wallAt(x, y + 1);
+      if (!nsWalls && !ewWalls) continue;
+      // A corridor tile adjacent to an open (room) tile = a threshold.
+      const roomward = (nx: number, ny: number): boolean => {
+        const ni = ny * map.w + nx;
+        return !wallAt(nx, ny) && !!s.explored[ni] &&
+          !((wallAt(nx - 1, ny) && wallAt(nx + 1, ny)) || (wallAt(nx, ny - 1) && wallAt(nx, ny + 1)));
+      };
+      if (nsWalls && roomward(x, y - 1)) g.fillRect(X(x), Y(y) - 0.6, sc, 1.2);
+      if (nsWalls && roomward(x, y + 1)) g.fillRect(X(x), Y(y + 1) - 0.6, sc, 1.2);
+      if (ewWalls && roomward(x - 1, y)) g.fillRect(X(x) - 0.6, Y(y), 1.2, sc);
+      if (ewWalls && roomward(x + 1, y)) g.fillRect(X(x + 1) - 0.6, Y(y), 1.2, sc);
     }
   }
   // Pass 2: drawn room outlines — an inked bronze rule wherever explored
@@ -2960,8 +3001,10 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
       for (const [x1, y1, x2, y2, isWall] of edges) {
         g.save();
         if (isWall) {
-          g.strokeStyle = "rgba(201,162,75,0.85)";
-          g.shadowColor = "rgba(0,0,0,0.7)";
+          // Crisp 1px gold wall rule on the dark ground (r6 chart spec).
+          g.strokeStyle = "rgba(233,197,104,0.95)";
+          g.lineWidth = 1;
+          g.shadowColor = "rgba(0,0,0,0.8)";
           g.shadowBlur = 1.5;
         } else {
           g.strokeStyle = "rgba(8,5,3,0.85)";
@@ -3624,10 +3667,11 @@ function updateRoamUi(s: GameState): void {
 }
 
 const HIT_COLORS: Record<HitEvent["kind"], string> = {
-  // White-gold core for ordinary hits (readable over any foliage); crits are a
-  // distinct hot gold — the AAA r2 combat-feedback contrast pass.
-  enemy: "#fff1d6", crit: "#ffc93c", player: "#ff5240",
-  heal: "#8fd06f", gold: "#f2c14e", weapon: "#b98fe8",
+  // Warm parchment-gold for ordinary hits (r5 minor: the old white face went
+  // mid-gray through the bevel shading on dark ground); crits stay a hotter,
+  // deeper gold so the magnitude ramp survives the shared warm family.
+  enemy: "#ffd36a", crit: "#ffc93c", player: "#ff5240",
+  heal: "#8fd06f", gold: "#f2c14e", weapon: "#c9a3f5",
   chain: "#c8d0da", // iron links; zero-amount events never become numbers anyway
 };
 
@@ -3654,11 +3698,12 @@ interface DmgLive {
   born: number; // ms clock
   crit: boolean;
   color: string; // numeral face hex — merges repaint with the same palette
+  stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
 }
 const dmgLive: DmgLive[] = [];
 const DMG_AGG_MS = 520; // rolling-counter window
 const DMG_AGG_R2 = 0.9 * 0.9; // world-units² — same-target ticks merge
-const DMG_FAN_PX = 46; // min screen spacing before fanning out
+const DMG_FAN_PX = 56; // min screen spacing before fanning out
 
 function dmgText(rec: DmgLive, sign: string): string {
   return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
@@ -3685,7 +3730,7 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
     canvas.style.display = "block";
     el.prepend(canvas);
   }
-  const px = crit ? 58 : 34;
+  const px = crit ? 58 : 38; // non-crit floor raised (r5: 34px thinned to fog)
   const pad = crit ? 30 : 18;
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return; }
@@ -3721,15 +3766,17 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   ctx.lineWidth = crit ? 9 : 6.5;
   ctx.strokeText(text, 0, 0);
   // Chiseled bevel: dark underlay, then the vertical face gradient with a
-  // soft color glow, then a top sheen.
-  ctx.fillStyle = dmgShade(color, -0.55);
+  // soft color glow, then a top sheen. Face floor raised (r5 minor): the old
+  // -0.28 bottom stop dragged small numerals to mid-gray over dark ground —
+  // every number now keeps the crit treatment's warm luminous face.
+  ctx.fillStyle = dmgShade(color, -0.4);
   ctx.fillText(text, 0, 2.2);
   const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
-  face.addColorStop(0, dmgShade(color, 0.7));
+  face.addColorStop(0, dmgShade(color, 0.78));
   face.addColorStop(0.42, color);
-  face.addColorStop(1, dmgShade(color, -0.28));
+  face.addColorStop(1, dmgShade(color, -0.12));
   ctx.shadowColor = color;
-  ctx.shadowBlur = crit ? 18 : 10;
+  ctx.shadowBlur = crit ? 20 : 15;
   ctx.fillStyle = face;
   ctx.fillText(text, 0, 0);
   ctx.shadowBlur = 0;
@@ -3748,18 +3795,33 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
 function dmgAnimate(rec: DmgLive): void {
   const { el, crit } = rec;
   const grow = Math.min(1 + rec.merges * 0.07, 1.42);
-  const drift = (Math.random() - 0.5) * (crit ? 88 : 62);
-  const rise = (crit ? 82 : 64) * (rec.merges > 0 ? 0.85 : 1);
+  // LATERAL-DOMINANT ARC (r6 major): simultaneous hits fan OUT of the fight
+  // sideways — drift now outweighs rise, so a burst reads as a spray of
+  // coins, never a vertical pile climbing the back wall.
+  const dir = Math.random() < 0.5 ? -1 : 1;
+  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 132 : 96);
+  const rise = (crit ? 64 : 50) * (rec.merges > 0 ? 0.85 : 1);
   const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
   const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
+  // r7 blocker root cause (ghost numbers in EVERY combat frame): the old
+  // options-level `easing` is EFFECT-level in WAAPI — the entire keyframe
+  // timeline got remapped through the aggressive ease-out, so a number hit
+  // 88% keyframe progress (deep in its fade) at just 35% of real time and
+  // spent most of its life translucent. Easing now rides the KEYFRAMES: hard
+  // pop-in, gliding arc, full ink held to 80%, then a quick clean exit.
   const anim = el.animate(
     [
-      { transform: `translate(-50%, -50%) scale(${crit ? 0.25 : 0.5}) rotate(${tilt}deg)`, opacity: 0.9 },
-      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.44).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.14 },
-      { transform: `translate(calc(-50% + ${(drift * 0.62).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.58 },
+      { transform: `translate(-50%, -50%) scale(${crit ? 0.25 : 0.5}) rotate(${tilt}deg)`, opacity: 0.9, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.44).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.14, easing: "cubic-bezier(0.33, 1, 0.68, 1)" },
+      { transform: `translate(calc(-50% + ${(drift * 0.62).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.58, easing: "linear" },
+      { opacity: 1, offset: 0.8, easing: "ease-in" },
       { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${(rise * 0.86).toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
     ],
-    { duration: crit ? 920 : 780, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    // Per-number stagger (r6 major: simultaneous hits stacked into one
+    // unreadable pile): later numbers in a burst hold their pop a few frames
+    // so a flurry reads as a drum-roll, not a single clump. fill:backwards
+    // keeps the pre-pop keyframe applied during the delay.
+    { duration: crit ? 920 : 780, delay: rec.merges > 0 ? 0 : rec.stagger, fill: "backwards" },
   );
   anim.onfinish = () => {
     const i = dmgLive.indexOf(rec);
@@ -3772,9 +3834,11 @@ function dmgAnimate(rec: DmgLive): void {
 
 function spawnDamageNumber(h: HitEvent): void {
   const crit = h.kind === "crit";
-  // Spawn ABOVE heads (issue #5): the anchor clears the tallest silhouettes
-  // so numbers arc over the fight instead of occluding the actors under them.
-  const s = renderer.worldToScreen(h.pos.x, crit ? 2.1 : 1.85, h.pos.y);
+  // Anchor at HEAD height, not sky height (r6 major: numbers climbed the
+  // arena wall and jumbled at the top of the frame): they pop at the
+  // silhouette's crown and the arc carries them OUT (lateral drift dominates
+  // vertical rise), never up onto the wall geometry behind the fight.
+  const s = renderer.worldToScreen(h.pos.x, crit ? 1.55 : 1.3, h.pos.y);
   if (!s.visible) return;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
@@ -3813,15 +3877,17 @@ function spawnDamageNumber(h: HitEvent): void {
   // ticks (5.11): burn ember-orange, poison toxin-green. Resists mute.
   let color = HIT_COLORS[h.kind];
   if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    color = crit ? "#d9c2ff" : "#c2a3f2"; // bright arcane, still inked
+    color = crit ? "#d9c2ff" : "#d2b5ff"; // bright arcane, still inked
   }
   if (h.effect === "burn") color = "#ff7a2f";
   else if (h.effect === "poison") color = "#7ed957";
-  if (h.resisted) color = "#8a8272";
+  if (h.resisted) color = "#c0ad83"; // muted but never mid-gray (r5 minor)
   el.style.color = color; // the crit starburst ::before keys off currentColor
   // COLLISION FAN: if this number would land on an active one, walk
   // golden-angle radial slots until the spot is clear — no more clumps.
-  let px = s.x, py = s.y;
+  // A pinch of spawn scatter first (r6 major): even same-tick hits on one
+  // target never share an exact anchor pixel.
+  let px = s.x + (Math.random() - 0.5) * 34, py = s.y + (Math.random() - 0.5) * 10;
   for (let slot = 0; slot < 8; slot++) {
     let clear = true;
     for (const rec of dmgLive) {
@@ -3830,15 +3896,16 @@ function spawnDamageNumber(h: HitEvent): void {
     }
     if (clear) break;
     const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
-    const rad = 50 + slot * 9;
+    const rad = 56 + slot * 12;
     px = s.x + Math.cos(ang) * rad;
-    py = s.y + Math.sin(ang) * rad * 0.72; // squash: favor horizontal spread
+    py = s.y + Math.sin(ang) * rad * 0.5; // squash hard: favor horizontal fan
   }
   el.style.left = `${px}px`;
   el.style.top = `${py}px`;
   const rec: DmgLive = {
     el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
     total: h.amount, merges: 0, born: now, crit, color,
+    stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
   };
   // Drop any stale resist icon a pooled element carried, then paint.
   while (el.childElementCount > 1) el.lastElementChild!.remove();

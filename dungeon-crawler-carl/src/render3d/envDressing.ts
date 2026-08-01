@@ -46,8 +46,10 @@ export interface EnvCtx {
   /** Track a raw (non-worldLit) material for disposal on the next rebuild. */
   trackMat: (m: THREE.Material) => void;
   group: THREE.Group;
-  /** Register a texture whose offset scrolls per frame (water flow). */
-  addFlow: (tex: THREE.Texture, sx: number, sy: number) => void;
+  /** Register a texture whose offset scrolls per frame (water flow). The
+   * optional wobble adds a sinusoidal UV drift — heat shimmer on molten
+   * emissives (r5 ironworks pass). */
+  addFlow: (tex: THREE.Texture, sx: number, sy: number, opts?: { wobble?: number; freq?: number }) => void;
 }
 
 // ---- Generative decal textures (cached for the session) ----
@@ -242,6 +244,42 @@ function glowTexture(): THREE.Texture {
     g.fillStyle = grad;
     g.fillRect(0, 0, 96, 96);
   });
+}
+
+/** Molten-metal texture for the ironworks channels: near-black iron crust
+ * webbed with bright orange seams — used as both map and emissiveMap so the
+ * cracks are what glows (r5 issue #3: the band's signature emissive motif). */
+function lavaTexture(): THREE.Texture {
+  const t = canvasTex("lava", (g) => {
+    const r = drawRng(0xf0a11a);
+    g.fillStyle = "#160f0a";
+    g.fillRect(0, 0, 96, 96);
+    // Dim crust plates: barely-lighter patches so the dark isn't flat.
+    for (let i = 0; i < 12; i++) {
+      const v = 22 + (r() * 18) | 0;
+      g.fillStyle = `rgba(${v},${(v * 0.75) | 0},${(v * 0.5) | 0},0.8)`;
+      g.fillRect(r() * 88, r() * 88, 10 + r() * 22, 8 + r() * 18);
+    }
+    // Molten seams: wandering cracks, wide dim halo + hot core line.
+    for (let i = 0; i < 13; i++) {
+      let x = r() * 96, y = r() * 96;
+      let ang = r() * Math.PI * 2;
+      for (let s = 0; s < 6; s++) {
+        const len = 8 + r() * 14;
+        const nx = x + Math.cos(ang) * len, ny = y + Math.sin(ang) * len;
+        g.strokeStyle = `rgba(220,${54 + (r() * 40) | 0},12,0.55)`;
+        g.lineWidth = 3.2 + r() * 2.2;
+        g.lineCap = "round";
+        g.beginPath(); g.moveTo(x, y); g.lineTo(nx, ny); g.stroke();
+        g.strokeStyle = `rgba(255,${170 + (r() * 60) | 0},70,0.95)`;
+        g.lineWidth = 1.1;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(nx, ny); g.stroke();
+        x = nx; y = ny; ang += (r() - 0.5) * 1.2;
+      }
+    }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
 }
 
 /** Streaked water texture for the sewers channels — scrolled per frame. */
@@ -442,6 +480,88 @@ function pipeRun(ctx: EnvCtx, r: EnvRoom, steel: boolean): void {
   ctx.addObj(g, px, py);
 }
 
+/** Ember column: a vertical stack of tiny additive pinpricks rising off a
+ * molten source, opacity dying with height — reads as heat-lifted sparks in
+ * a still (r5 issue #3: ember columns near setpieces). */
+function emberColumn(ctx: EnvCtx, g: THREE.Group, x: number, z: number, baseY: number): void {
+  const tex = glowTexture();
+  const n = 4 + Math.floor(ctx.rng() * 3);
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, color: i % 3 === 0 ? 0xffb060 : 0xff6a1e, transparent: true,
+      opacity: 0.55 * (1 - t * 0.75), blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    s.scale.setScalar(0.05 + ctx.rng() * 0.07 + t * 0.03);
+    s.position.set(
+      x + (ctx.rng() - 0.5) * (0.14 + t * 0.4),
+      baseY + 0.1 + t * (0.9 + ctx.rng() * 0.5),
+      z + (ctx.rng() - 0.5) * (0.14 + t * 0.4),
+    );
+    s.userData.noAO = true;
+    ctx.trackMat(s.material);
+    g.add(s);
+  }
+}
+
+/** Ironworks hero #2: a molten channel cut across the floor — THE band
+ * signature emissive motif (r5 issue #3). Dark iron curbs, crack-glow melt
+ * scrolling with a heat-shimmer wobble, furnace bounce baked into the light
+ * grid, ember pinpricks rising over the surface. */
+function moltenChannel(ctx: EnvCtx, r: EnvRoom): void {
+  const horiz = r.w >= r.h;
+  const len = (horiz ? r.w : r.h) - 2.6;
+  if (len < 3) return;
+  const c = centerOf(r);
+  const off = (Math.min(r.w, r.h) / 2 - 1.7) * (ctx.rng() < 0.5 ? -1 : 1);
+  const cx = horiz ? c.x : c.x + off;
+  const cy = horiz ? c.y + off : c.y;
+  const g = new THREE.Group();
+  const ltex = lavaTexture().clone();
+  ltex.needsUpdate = true;
+  ltex.wrapS = ltex.wrapT = THREE.RepeatWrapping;
+  ltex.repeat.set(len / 1.5, 0.75);
+  ctx.addFlow(ltex, 0.016, 0.001, { wobble: 0.011, freq: 1.7 });
+  const melt = new THREE.Mesh(
+    new THREE.PlaneGeometry(len, 0.95).rotateX(-Math.PI / 2),
+    ctx.worldLit(new THREE.MeshStandardMaterial({
+      color: 0x2a1608, map: ltex, emissive: 0xff6a1e, emissiveMap: ltex,
+      emissiveIntensity: 2.0, roughness: 0.85, metalness: 0,
+    })),
+  );
+  melt.position.y = 0.03;
+  g.add(melt);
+  // Heavy iron curbs: the channel is BUILT, not painted on the tiles.
+  const curbMat = std(ctx, { color: 0x23272e, roughness: 0.5, metalness: 0.75 });
+  for (const side of [-1, 1]) {
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(len + 0.2, 0.11, 0.15), curbMat);
+    curb.position.set(0, 0.055, side * 0.58);
+    curb.castShadow = true;
+    g.add(curb);
+  }
+  // A low heat-haze halo hugging the melt + ember columns near both ends.
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture(), color: 0xff7a26, transparent: true, opacity: 0.16,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  halo.scale.set(Math.min(len * 0.7, 3.2), 1.1, 1);
+  halo.position.y = 0.32;
+  halo.userData.noAO = true;
+  ctx.trackMat(halo.material);
+  g.add(halo);
+  emberColumn(ctx, g, -len * 0.32, 0, 0.05);
+  emberColumn(ctx, g, len * 0.32, 0, 0.05);
+  if (!horiz) g.rotation.y = Math.PI / 2;
+  g.position.set(cx, 0, cy);
+  ctx.addObj(g, cx, cy);
+  // Furnace bounce carved into the baked grid: three orange pools along the
+  // run — the channel LIGHTS its room (bloom-catching, wall-shadowed).
+  const ex = horiz ? 1 : 0, ey = horiz ? 0 : 1;
+  for (const t of [-0.32, 0, 0.32]) {
+    ctx.addLight(cx + ex * len * t, cy + ey * len * t, 0xff5a1e, t === 0 ? 1.0 : 1.2, 3.6);
+  }
+}
+
 /** Ironworks hero: a glowing forge crucible — dark iron bulk, molten top. */
 function forgeCrucible(ctx: EnvCtx, r: EnvRoom): void {
   const c = centerOf(r);
@@ -467,7 +587,7 @@ function forgeCrucible(ctx: EnvCtx, r: EnvRoom): void {
   melt.position.y = 0.7;
   g.add(melt);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTexture(), color: 0xff8a30, transparent: true, opacity: 0.22,
+    map: glowTexture(), color: 0xff8a30, transparent: true, opacity: 0.3,
     blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   halo.scale.setScalar(1.7);
@@ -475,9 +595,14 @@ function forgeCrucible(ctx: EnvCtx, r: EnvRoom): void {
   halo.userData.noAO = true;
   ctx.trackMat(halo.material);
   g.add(halo);
+  // Sparks off the melt: the crucible is WORKING (r5 issue #3).
+  emberColumn(ctx, g, 0, 0, 0.7);
   g.rotation.y = ctx.rng() * Math.PI * 2;
   g.position.set(px, 0, py);
   ctx.addObj(g, px, py);
+  // The crucible LIGHTS its corner of the shop — furnace-orange pool baked
+  // into the grid so the fixture is a light source, not a glowing prop.
+  ctx.addLight(px, py, 0xff6a1e, 1.3, 3.8);
   // The workshop around it.
   ctx.place("anvil", px + 1.2, py + 0.2, { scale: 0.55 });
   ctx.place("fuel_a_barrels", px - 1.3, py + 0.6, { scale: 0.6 });
@@ -669,7 +794,15 @@ export function signatureDressing(ctx: EnvCtx): void {
         }
         break;
       case 4:
-        if (hero) forgeCrucible(ctx, r);
+        // Every featured ironworks room carries the molten motif (r5 issue
+        // #3: the theme was invisible): the hero room gets crucible + channel,
+        // the others a channel or the steel pipes under the hanging chains.
+        if (hero) {
+          forgeCrucible(ctx, r);
+          moltenChannel(ctx, r);
+        } else if (ctx.rng() < 0.75) {
+          moltenChannel(ctx, r);
+        }
         hangingChains(ctx, r);
         if (!hero) pipeRun(ctx, r, true);
         break;

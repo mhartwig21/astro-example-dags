@@ -33,10 +33,13 @@ interface LayerSpec {
 // only add drifting depth on top. High layer: thin fast wisps above the wall
 // tops that sell the motion. Mist layer: an ankle-height haze that drifts
 // over explored ground as well, so the revealed world keeps atmospheric depth.
+// Opacities kept low enough that the murk-lit geometry beneath ALWAYS reads
+// through (r5 issue #1: the unexplored 60-75% of frame must be dim
+// architecture, not a flat navy cloud painted over it).
 const LAYERS: LayerSpec[] = [
-  { y: 0.55, opacity: 0.32, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
-  { y: 1.35, opacity: 0.16, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
-  { y: 0.16, opacity: 0.14, billowTiles: 6, driftA: [0.014, -0.008], driftB: [-0.009, 0.016], mist: 0.45 },
+  { y: 0.55, opacity: 0.22, billowTiles: 9, driftA: [0.010, 0.006], driftB: [-0.006, 0.013] },
+  { y: 1.35, opacity: 0.12, billowTiles: 5, driftA: [-0.016, 0.010], driftB: [0.011, -0.019] },
+  { y: 0.16, opacity: 0.13, billowTiles: 6, driftA: [0.014, -0.008], driftB: [-0.009, 0.016], mist: 0.45 },
 ];
 
 const VERT = /* glsl */ `
@@ -70,10 +73,12 @@ void main() {
   float n1 = texture2D(uNoise, vUv * uScale + uDriftA * uTime).r;
   float n2 = texture2D(uNoise, vUv * uScale * 2.63 + uDriftB * uTime).r;
   float billow = n1 * 0.62 + n2 * 0.38;
-  // Noise erodes the frontier so the edge curls instead of following tiles —
-  // deep erosion, so the boundary reads as fingers of drifting fog, never a
-  // soft-brush airbrush stamp.
-  float edge = m * smoothstep(0.24, 0.68, m + (billow - 0.5) * 0.78);
+  // ARCHITECTURAL frontier (r5 issue #1: the old 0.78 erosion smeared a
+  // Gaussian ellipse over the map that ignored the walls): the band now hugs
+  // the per-tile mask — whose bilinear ramp is already wall-shaped, cleared
+  // room-by-room by the sim's flood-fill — with only a light curl of noise,
+  // so the darkness edge lands ON doorways and wall lines, 1-2 tiles wide.
+  float edge = m * smoothstep(0.34, 0.62, m + (billow - 0.5) * 0.30);
   // Ground mist: patchy haze over the EXPLORED map too (never past the edge).
   float base = uMist * smoothstep(0.42, 0.9, billow) * inside;
   float a = max(edge, base) * uOpacity * (0.8 + 0.2 * billow);

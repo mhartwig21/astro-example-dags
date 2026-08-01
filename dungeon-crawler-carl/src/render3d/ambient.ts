@@ -48,10 +48,11 @@ const BAND_SPECS: BandSpec[] = [
     opacity: 0.7, additive: true, riseMin: 0.3, riseMax: 0.7, sway: 0.28,
     lifeMin: 2.2, lifeMax: 4.5, torchBias: 0.55, yMin: 0.1, yMax: 1.8,
   },
-  { // ironworks: cold cyan sparks raining off the scaffolds
-    count: 150, colors: [0x6fd8ff, 0xa8ccff, 0x50a0e8], sizeMin: 2.5, sizeMax: 6.5,
-    opacity: 0.6, additive: true, riseMin: -0.5, riseMax: -0.2, sway: 0.24,
-    lifeMin: 2, lifeMax: 4, torchBias: 0.5, yMin: 0.6, yMax: 2.4,
+  { // ironworks: furnace sparks lifting off the molten channels (r5 issue #3:
+    // the warm half of the foundry story — the cyan stays in the work-lights)
+    count: 170, colors: [0xffa050, 0xff6a1e, 0xffd080, 0x6fd8ff], sizeMin: 2.5, sizeMax: 6.5,
+    opacity: 0.65, additive: true, riseMin: 0.22, riseMax: 0.6, sway: 0.26,
+    lifeMin: 2, lifeMax: 4, torchBias: 0.35, yMin: 0.1, yMax: 1.8,
   },
   { // approach: slow blood-lit ash sifting down before the end
     count: 170, colors: [0xd8a0a0, 0xb87878, 0xe8c0b0], sizeMin: 3.5, sizeMax: 8,
