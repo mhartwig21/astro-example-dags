@@ -187,9 +187,17 @@ const RIB_FRAG = /* glsl */ `
     float cx = abs(vS - 0.5) * 2.0; // 0 centerline -> 1 edge
     float core = smoothstep(0.5, 0.0, cx);
     float glow = 1.0 - smoothstep(0.15, 1.0, cx);
-    float along = pow(1.0 - vT, 1.55);
+    // NaN GUARD (the "giant black box" bug): vT is authored 0..1, but the
+    // composer target is multisampled, so an edge fragment is shaded at a
+    // pixel CENTER that lies outside the triangle and its varyings
+    // EXTRAPOLATE — vT lands a hair above 1 and pow(negative, 1.55) is NaN.
+    // A NaN alpha then survives an "a < 0.004" test (NaN compares false),
+    // additive blending smears NaN across all four channels, and
+    // UnrealBloomPass's five separable blurs explode that ONE pixel into a
+    // ~1150px black rectangle. Clamp the base, and discard non-finite alpha.
+    float along = pow(max(1.0 - vT, 0.0), 1.55);
     float a = (core * 0.8 + glow * 0.3) * along * uFade;
-    if (a < 0.004) discard;
+    if (!(a >= 0.004)) discard;
     // Centerline runs white-hot at the head (feeds bloom), the skirt keeps the
     // saturated school hue, the tail cools back to the deep color.
     vec3 hot = mix(uColor, vec3(1.0), 0.72);
