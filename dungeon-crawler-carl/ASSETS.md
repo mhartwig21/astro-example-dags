@@ -341,6 +341,20 @@ icons are drawn, never typed). CSS-mask tinted via `.uic`.
 | race | laurels | Lorc |
 | shopping | shopping-cart | Delapouite |
 | marker | position-marker | Delapouite |
+| eye *(original)* | show-bar viewers chip | drawn for this repo, CC0 — NOT game-icons |
+| star *(original)* | show-bar favorites chip | drawn for this repo, CC0 — NOT game-icons |
+| star_open *(original)* | unearned-achievement star (outline) | drawn for this repo, CC0 — NOT game-icons |
+| retrain *(original)* | class-revision draft glyph (cycle arrow) | drawn for this repo, CC0 — NOT game-icons |
+| rosette *(original)* | sponsors chip + shop wallet (wax-seal mark) | drawn for this repo, CC0 — NOT game-icons |
+
+### Painted icons — `public/icons/painted/{items,nouns,stats}/`
+
+Generated derivatives, NOT new art: `tools/paint-icons.mjs` re-renders each
+single-path mask above as a painted-material SVG (tonal gradient base, shared
+45° key light with rim/shade bands, diagonal specular sweep, ambient-occluded
+foot, uniform ink outline) for the shop/bag/sheet `<img>` tiles.
+Same authorship + CC BY 3.0 attribution as their source rows; regenerate
+with `node tools/paint-icons.mjs` after adding any new mask icon.
 
 ### Fonts — `public/fonts/` (SIL Open Font License 1.1)
 

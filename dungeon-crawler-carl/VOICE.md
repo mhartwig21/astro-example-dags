@@ -71,6 +71,18 @@ tips are a distinct character voice; keep), leaderboard framing.
 The menu kicker "◆ THE SYSTEM PRESENTS ◆" stays — the fusion IS the premise:
 the System presents the Show.
 
+### Roam settlements → SETTLEMENT register (amendment, 2026-07-31)
+
+The third register, carved out exactly the way the safe-room manager tips
+were: **settlement residents speak on `state.dialogue`, and only there.**
+They are civilians of the System's bureaucratic universe — the civic satire
+lives in their NAMES (Fee-Simple Fran, Alderman Root, "Probate Court"), the
+LINES are weary pragmatism, never announcer copy. The System's channel
+(`state.announcements`) remains exclusively the System's; no NPC line may
+ride it, and the System never speaks through `state.dialogue`. Mordecai
+(the guide) carries his established manager voice from the safe-room tips
+into the entrance settlement.
+
 ### Always, everywhere → the two carve-outs
 
 1. **Objects can be show-branded; narrators can't.** Sponsor merch inside the

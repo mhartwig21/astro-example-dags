@@ -73,7 +73,8 @@ Then share `https://<app-name>.fly.dev/iso.html?join=YOURCODE&name=Carl`.
 Notes:
 - `fly.toml` pins **one always-on machine** (`min_machines_running = 1`,
   `auto_stop_machines = false`) — a game server must not scale to zero mid-run.
-- 512MB shared-cpu-1x is generous; the sim is a few KB per party.
+- 1GB shared-cpu-1x is generous (see the capacity table): the sim is a few
+  MB per party and CPU sits under 10% at 48 players.
 - Deploys restart the process → runs checkpoint on SIGTERM and clients
   auto-reconnect (a few seconds of pause). Deploying mid-boss is rude, not fatal.
 - Custom domain later: `fly certs add game.yourdomain.com` + a CNAME.
@@ -136,44 +137,96 @@ calls `/auth/delete`, which erases the account row, identities, stats, and
 party seats. Tokens are stored plain (friends-scale) — hash them before a
 larger audience, as PERSISTENCE.md already notes.
 
-## Capacity & sizing (measured 2026-07-03)
+## Capacity & sizing (measured 2026-08-01)
 
-Evidence from a bot load test against production (`shared-cpu-1x`, 512MB,
-1 machine, ord). `/health` exposes live telemetry: `instances`, `players`,
+Evidence from bot load tests against a local build of the production server
+(same code path; Windows timers cap the local snapshot rate at ~11/s vs the
+15/s prod ideal — per-second figures below are normalized to 15/s where
+noted). `/health` exposes live telemetry: `instances`, `players`,
 `tickMsEma`/`tickMsMax` (per-instance sim tick cost; the whole Node thread
 has a 33ms budget per 30Hz tick across ALL instances), `rssMb`, `uptimeMin`.
 
-| Load | Tick cost (per instance) | RSS | Client snapshot delivery |
+The 2026-08 wire diet (three changes, all measured):
+1. **State slow split** (snapshot.ts `STATE_SLOW_FIELDS`): breakables + roam
+   npcs/settlements/quests/dialogue ship only when they change — they were
+   ~23% of a coop dynamic snapshot and ~32% of a roam one, re-sent 15/s.
+2. **Player cold split extended** to derived stats (maxHp/armor/attack/
+   spell/crit/bonus* — recompute-written, never per-tick) and transients
+   (events/announcements/hits) dropped from snapshots — the dedicated
+   `events` message already carried them; net hosts only render that channel.
+3. **WebSocket permessage-deflate** (gameServer.ts): frame-to-frame snapshot
+   JSON is highly repetitive, so deflate with context takeover acts as cheap
+   delta encoding — **95% measured on the socket**. zlib runs on the libuv
+   threadpool, off the tick thread; cost is ~150KB RSS per connection.
+
+| Load (active combat, 4/party) | Tick cost (per instance) | RSS | Wire per client |
 |---|---|---|---|
-| idle | -- | 84 MB | -- |
-| 16 players / 4 parties | 0.65ms avg, 12ms max | 100 MB | p50 63ms (67 ideal), p95 115ms |
-| 48 players / 12 parties | 0.5ms avg, 22ms max | 101 MB | p50 108ms, p95 500ms — degraded |
+| idle | -- | 92 MB | -- |
+| before diet: 16 players / 4 parties | 0.25ms avg | 105 MB | 8.0KB/snap, ~120KB/s at 15/s |
+| after diet: 16 players / 4 parties | 0.25ms avg | 116 MB | 5.1KB/snap decompressed, **~4.5KB/s on the socket** |
+| after diet: 48 players / 12 parties | 0.15ms avg, 6ms max | 155 MB | same per client; server egress ~200KB/s TOTAL, p95 gap nominal (was 500ms/degraded in 2026-07) |
+| after diet: roam parties | +0.1ms | +5 MB/party | 4.7KB/snap decompressed (was ~11KB — settlements/npcs no longer re-ship) |
 
 Findings:
-- **CPU and memory are nowhere near the limit.** At 48 players the sim uses
-  ~18% of the tick budget; RSS is ~100MB of 512.
-- **The ceiling is BANDWIDTH, not the machine.** Snapshots are ~28KB of JSON
-  at 15/s per client (~0.4 MB/s each; ~10 MB/s at 24 players). Degraded
-  delivery at 48 players comes from the wire, and no machine size fixes it.
+- **The old ceiling (bandwidth) is gone.** 2026-07 measured ~28KB snapshots
+  (~0.4 MB/s per client) degrading at 48 players. Post-diet a client costs
+  ~4.5KB/s on the socket — ~90x less than 2026-07, ~28x less than pre-diet
+  2026-08. Server egress at 48 players is ~200KB/s, nothing.
+- **CPU is now the far-off ceiling**: ~7% of the tick budget at 48 players
+  (tickMsEma × instances × 30). Straight-line that's ~300+ players of sim,
+  though GC pauses and deflate threadpool contention will bite first.
+- **Memory is the reason for the 1GB step**: RSS 155MB at 48 players, and
+  deflate adds ~150KB/connection. 512MB was already fine, but an OOM restart
+  wipes live parties — 1GB makes it unreachable at any plausible load.
 - Single-player never touches this server (the sim runs in the browser).
 
 Recommendations:
-1. **Stay on `shared-cpu-1x` / 512MB.** Comfortable to ~6-8 simultaneous
-   parties (~25-30 players). Upgrading buys nothing measurable today.
+1. **`shared-cpu-1x` / 1GB** (fly.toml as of 2026-08). Comfortable well past
+   ~20 simultaneous parties / 80+ players.
 2. **Exactly 1 machine is load-bearing, not budgetary.** Party state lives
    in process memory; a second machine splits same-code joins into separate
    universes. Scaling out needs Postgres persistence + session affinity
    (see GCP plan below). Never let auto-HA add a machine.
-3. Optional cheap insurance once strangers play: bump memory to 1GB so an
-   OOM restart (which wipes live parties) stays impossible.
-4. When sustained 30+ concurrent players arrive, the FIRST fix is snapshot
-   deltas + WebSocket compression (~5-10x bandwidth cut), THEN
-   `performance-1x` if tick cost ever climbs — Node is single-threaded, so
-   one fast core beats many shared ones.
+
+### Scale-up runbook (when /health or Grafana says so)
+
+Watch `tickMsEma × instances × 30 / 1000` (fraction of the sim thread in
+use) and `rssMb`. Escalate in this order — each is one command, applied on
+the next machine restart, live parties checkpoint + auto-reconnect through it:
+
+```bash
+fly scale memory 2048                  # RSS > ~700MB: more headroom, same CPU
+fly scale vm performance-1x --memory 2048   # tick budget > ~50%: a dedicated fast core
+                                            # (Node is single-threaded — one fast core
+                                            # beats many shared ones; never -2x/-4x for this)
+fly scale show                         # verify; count MUST read exactly 1
+```
+
+**Never** `fly scale count 2` (or let auto-HA do it) — see recommendation 2.
+`fly.toml [[vm]]` should be updated to match whatever you scale to, or the
+next `fly deploy` silently scales it back.
+
+### Load shedding (if the box is ever saturated)
+
+The server already sheds at the edges — know the knobs before an incident:
+- `MAX_INSTANCES` (gameServer.ts, 200): new party codes beyond it get
+  `server full` and a clean close; existing parties are untouched. Lower it
+  if tick budget saturates before instance count does.
+- `SNAPSHOT_EVERY` (gameServer.ts, 2 → 15/s): raising to 3 (10/s) cuts
+  snapshot bandwidth + serialization CPU by a third; clients already lerp
+  between snapshots, so 10/s stays playable (the 2D host runs fine on less).
+- Party caps (6 co-op / 10 roam / 4 rivals) bound per-instance cost; the
+  per-IP token bucket bounds leaderboard spam. Neither needs touching under
+  load.
+- A runaway single instance (sim bug) self-heals: its tick throw drops only
+  that party (tickInstance try/catch), everyone else keeps playing.
 
 Re-run the measurement anytime with `scripts/loadtest.mjs <parties>
-<perParty> <seconds>` (spawns bot parties that move/cast and reports
-/health telemetry + client snapshot-gap percentiles).
+<perParty> <seconds>` (spawns bot parties that move/cast and reports /health
+telemetry, client snapshot-gap percentiles, and per-client wire cost both
+decompressed and on the socket). `HOST=localhost:PORT` points it at a local
+server (start one with `PORT=5288 npm run server`); `ROAM=1` makes the bot
+parties roam campaigns — roam ships extra world state, so measure both.
 
 ## GCP migration plan (when the time comes)
 
@@ -206,7 +259,7 @@ What to do **before** GCP makes sense:
 
 ## Cost reality
 
-- Fly.io: ~$0–5/mo at this footprint (one shared-cpu 512MB machine).
+- Fly.io: ~$6/mo at this footprint (one shared-cpu-1x 1GB machine).
 - GCP: Cloud Run min-instances=1 ≈ $8–15/mo; e2-micro VM ≈ free tier.
 - Static-egress note: the client bundle + 33MB of models per first visit;
   cached after. At friends-scale, negligible everywhere.

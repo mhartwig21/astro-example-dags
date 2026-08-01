@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300">
+  <!-- The elder: scarred, long pale beard, chain of a vanished office.
+       Held the camp before the show arrived; the scar is the argument. -->
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.36" r="0.85">
+      <stop offset="0" stop-color="#302618"/>
+      <stop offset="0.55" stop-color="#1d1710"/>
+      <stop offset="1" stop-color="#0f0b08"/>
+    </radialGradient>
+  </defs>
+  <rect width="240" height="300" fill="url(#bg)"/>
+  <ellipse cx="60" cy="76" rx="84" ry="70" fill="#c9a24b" opacity="0.07"/>
+  <!-- heavy robe -->
+  <path d="M30 300 L40 244 C50 212 78 198 102 194 L138 194 C166 198 192 212 200 244 L210 300 Z"
+        fill="#4a3820" stroke="#150e07" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M30 300 L40 244 C48 218 66 204 90 196 C74 220 66 260 64 300 Z" fill="#6e5533"/>
+  <path d="M210 300 L200 244 C194 220 178 206 160 199 C174 226 182 262 184 300 Z" fill="#2c2013"/>
+  <!-- chain of office: tarnished links + seal -->
+  <path d="M84 202 C96 226 144 226 156 202" stroke="#150e07" stroke-width="12" fill="none"/>
+  <path d="M84 202 C96 226 144 226 156 202" stroke="#8a6d3b" stroke-width="7" fill="none" stroke-dasharray="7 5"/>
+  <circle cx="120" cy="228" r="13" fill="#a8854f" stroke="#150e07" stroke-width="6"/>
+  <path d="M114 224 L126 232 M126 224 L114 232" stroke="#150e07" stroke-width="3"/>
+  <!-- neck -->
+  <path d="M104 170 L104 200 C112 208 128 208 136 200 L136 170 Z" fill="#a97c50" stroke="#150e07" stroke-width="7"/>
+  <!-- gaunt head -->
+  <path d="M82 92 C80 58 98 40 120 40 C142 40 160 58 158 92 C157 118 148 140 120 144 C92 140 83 118 82 92 Z"
+        fill="#c9986a" stroke="#150e07" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M120 40 C142 40 160 58 158 92 C157 118 148 140 120 144 L120 40 Z" fill="#8a5f3d" opacity="0.55"/>
+  <path d="M88 78 C90 58 102 46 116 44 C106 56 100 72 98 90 C94 88 90 84 88 78 Z" fill="#eec392" opacity="0.85"/>
+  <!-- THE SCAR: brow to jaw, across the right eye -->
+  <path d="M140 52 C144 70 144 92 140 108 C138 118 134 126 130 132" stroke="#7e2719" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M134 76 L148 74 M133 92 L147 92" stroke="#7e2719" stroke-width="4" stroke-linecap="round"/>
+  <!-- deep-set eyes: the scarred one narrowed -->
+  <path d="M92 96 C98 92 106 92 110 96 C106 101 96 101 92 96 Z" fill="#150e07"/>
+  <path d="M132 97 C136 95 142 95 146 97 C142 101 135 101 132 97 Z" fill="#150e07"/>
+  <!-- white tangled brows -->
+  <path d="M88 88 C96 80 108 79 114 84 L112 92 C104 87 94 89 90 94 Z" fill="#d9d2c2" stroke="#150e07" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M152 88 C146 81 136 80 130 84 L132 92 C138 88 146 89 150 94 Z" fill="#a29a8a" stroke="#150e07" stroke-width="5" stroke-linejoin="round"/>
+  <!-- hawk nose -->
+  <path d="M118 96 C115 108 111 118 108 124 C113 128 127 128 132 124 C128 116 124 106 122 96 Z" fill="#8a5f3d" opacity="0.75"/>
+  <!-- LONG BEARD: falls past the frame -->
+  <path d="M88 122 C86 168 96 224 120 236 C144 224 154 168 152 122 C144 132 134 136 120 136 C106 136 96 132 88 122 Z"
+        fill="#d9d2c2" stroke="#150e07" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M120 136 C134 136 144 132 152 122 C154 168 144 224 120 236 C126 202 128 166 124 136 Z" fill="#a29a8a"/>
+  <path d="M104 150 C102 178 106 206 116 226 M136 150 C138 178 134 206 124 226" stroke="#150e07" stroke-width="3.5" fill="none" opacity="0.6"/>
+  <!-- moustache over the beard -->
+  <path d="M96 124 C104 118 114 120 120 126 C126 120 136 118 144 124 C144 134 136 140 128 138 C124 134 116 134 112 138 C104 140 96 134 96 124 Z"
+        fill="#efe9db" stroke="#150e07" stroke-width="5" stroke-linejoin="round"/>
+  <!-- bald pate, wisps at the temples -->
+  <path d="M84 74 C88 52 102 42 120 42 C138 42 152 52 156 74 C146 60 132 54 120 54 C108 54 94 60 84 74 Z" fill="#eec392" opacity="0.5"/>
+  <path d="M78 90 C72 94 70 106 76 112 C80 106 82 96 78 90 Z" fill="#d9d2c2" stroke="#150e07" stroke-width="5"/>
+  <path d="M162 90 C168 94 170 106 164 112 C160 106 158 96 162 90 Z" fill="#a29a8a" stroke="#150e07" stroke-width="5"/>
+  <rect y="240" width="240" height="60" fill="#0e0b09" opacity="0.35"/>
+</svg>

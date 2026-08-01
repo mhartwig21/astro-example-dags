@@ -13,9 +13,10 @@ import {
 } from "./sim/catalog";
 import {
   EQUIP_SLOTS, Tile,
-  type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
-  type Vec2,
+  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
+  type DialogueSession, type Quest, type SafeRoom, type Vec2,
 } from "./sim/types";
+import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
 import { CONFIG, naturalFloorForLevel } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
@@ -75,24 +76,19 @@ const renderer = new Renderer3D(canvas, {
 
 // Audio seam: same consumer pattern as particles/damage numbers, fed from the
 // per-frame feedback buffers. Silent until clips exist under public/audio/
-// (see ASSETS.md — Audio); missing files simply never play.
+// (see ASSETS.md — Audio); missing files simply never play. The clips now
+// front-load on the boot screen (perf round: longer up-front load is the
+// accepted trade for a hitch-free session) — see main() below.
 const audio = new AudioEngine();
-// Payload diet (backlog #7a): 24MB of audio must not race the model wave for
-// first-visit bandwidth. Sounds stream in AFTER the game is playable — the
-// engine's silent-fallback covers the gap, exactly like missing files do.
-// requestIdleCallback isn't universal (Safari); a timer is the fallback.
-const startAudioLoad = (): void => { void audio.load(); };
-if ("requestIdleCallback" in window) {
-  requestIdleCallback(() => setTimeout(startAudioLoad, 4000));
-} else {
-  setTimeout(startAudioLoad, 6000);
-}
 const audioDirector = new AudioDirector(audio);
 
 // ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----
 // Local mode runs the sim in-page; network mode renders authoritative snapshots
 // from the server and forwards intents/actions. Same renderer, same UI.
 const params = new URLSearchParams(location.search);
+// CLEAN CAPTURE: ?clean=1 suppresses tutorial cards + courtesy toast chatter
+// (showcase/marketing frames — see tools/beautyshot.mjs). Gameplay untouched.
+const cleanMode = params.has("clean");
 const joinCode = params.get("join");
 // RIVALS: ?rivals=1&join=CODE — up to four hostile crawlers race for the boss.
 const rivalsMode = params.has("rivals");
@@ -127,6 +123,21 @@ function resize(): void {
 }
 window.addEventListener("resize", resize);
 resize();
+
+// RENDER SCALE (SYSTEM menu, K panel): the 3D framebuffer renders at a
+// fraction of display resolution — the DOM HUD stays native-crisp. Persisted
+// per browser; applied before the first frame.
+const RENDERSCALE_KEY = "dcc:renderscale:v1";
+function loadRenderScale(): number {
+  try {
+    const v = Number(localStorage.getItem(RENDERSCALE_KEY));
+    return v === 0.75 || v === 0.9 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+let renderScale = loadRenderScale();
+if (renderScale !== 1) renderer.setRenderScale(renderScale);
 
 function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -192,6 +203,7 @@ function boot(): GameState {
     runMode = save.mode ?? { kind: "random" };
     hasContinue = true;
     const g = restoreGame(save);
+    currentRunKind = g.runKind; // a resumed Roam campaign stays Roam (BACKLOG #11)
     if (save.player.name) g.players[0].name = save.player.name;
     seedTips(g.players[0]); // the ledger may know tips from other runs
     return g;
@@ -203,7 +215,8 @@ function boot(): GameState {
   return g;
 }
 if (testMode) {
-  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>TEST MODE</b>");
+  // A quiet diegetic stamp (styled in iso.html), not red alarm text.
+  document.getElementById("banner")!.insertAdjacentHTML("afterbegin", "<b>Test Chamber</b>");
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
@@ -725,6 +738,28 @@ function openMenu(): void {
       `${p.name} · floor ${state.floor} · level ${p.level} — right where you left it`;
     if (p.name) nameInput.value = p.name;
   }
+  // ROAM card: a live campaign turns the poster into its save slot — floor,
+  // open contracts, the campfire still lit. Clicking it RESUMES (see handler).
+  {
+    const roamTile = document.getElementById("m-roam-solo")!;
+    const roamCampaign = hasContinue && state.runKind === "roam";
+    roamTile.classList.toggle("continues", roamCampaign);
+    if (roamCampaign) {
+      const p = state.players[0];
+      const open = state.quests.filter((q) => q.state === "active").length;
+      const settled = state.quests.filter((q) => q.state === "complete").length;
+      const bits = [`floor ${state.floor}`, `level ${p.level}`];
+      if (open > 0) bits.push(`${open} contract${open === 1 ? "" : "s"} open`);
+      if (settled > 0) bits.push(`${settled} settled`);
+      document.getElementById("m-roam-title")!.textContent = "ROAM — CAMPAIGN CONTINUES";
+      document.getElementById("m-roam-sub")!.textContent = `${bits.join(" · ")} — the campfire is still lit`;
+      cont.style.display = "none"; // one resume affordance: the campaign card IS the save
+    } else {
+      document.getElementById("m-roam-title")!.textContent = "ROAM";
+      document.getElementById("m-roam-sub")!.textContent =
+        "no clock — settlements, residents, contracts · solo campaign";
+    }
+  }
   document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
@@ -766,11 +801,14 @@ document.getElementById("m-daily")!.addEventListener("click", () =>
 document.getElementById("m-solo")!.addEventListener("click", () =>
   enterCasting("NEW RUN", () => startRun({ kind: "random" })));
 
-// ROAM (v1 — SETTLEMENTS.md) is solo-only for now: one big floor, one
-// settlement, one tribe, one quest, no daily/party/rivals/test yet — a peer
-// tile in the hub like everything else, one click straight into casting.
-document.getElementById("m-roam-solo")!.addEventListener("click", () =>
-  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam")));
+// ROAM (SETTLEMENTS.md) is solo-only for now: settlements, residents, and the
+// contract board, no daily/party/rivals/test yet. With a live Roam save the
+// card IS the save slot — clicking resumes the campaign (no casting call:
+// like CONTINUE, that crawler already exists). Otherwise it starts one.
+document.getElementById("m-roam-solo")!.addEventListener("click", () => {
+  if (hasContinue && state.runKind === "roam") { closeMenu(); return; }
+  enterCasting("ROAM", () => startRun({ kind: "random" }, "roam"));
+});
 
 // Party crawl: the invite code IS the dungeon seed; the URL is the invite.
 const codeInput = document.getElementById("m-code") as HTMLInputElement;
@@ -956,6 +994,53 @@ document.getElementById("m-t-go")!.addEventListener("click", () => {
 
 if (!net && !testMode) openMenu();
 
+// ---- Icon integrity net (AAA r3 major): every drawn icon is a CSS mask, and
+// a mask whose fetch fails renders as NOTHING (Blink treats a failed mask as
+// fully transparent) — a blank tile with a price tag under it. Each distinct
+// icon URL is probed ONCE via an Image (shares the HTTP cache; also catches a
+// dev server answering a missing file with SPA-fallback HTML, which decodes
+// as a broken image). Only a CONFIRMED failure touches any style — every bad
+// mask is swapped for an engraved diamond fallback glyph, so a missing sprite
+// can never ship as a void. The success path changes nothing (no repaint
+// churn: under software raster a late mask swap can blank icons at capture).
+const FALLBACK_MASK =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 L20 12 L12 22 L4 12 Z M12 6.2 L7.4 12 L12 17.8 L16.6 12 Z' fill='%23000' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+const maskUrlRe = /url\("?([^")]+)"?\)/;
+const maskProbe = new Map<string, "pending" | "ok" | "bad">();
+function applyMaskFallback(el: HTMLElement): void {
+  el.style.setProperty("mask-image", FALLBACK_MASK);
+  el.style.setProperty("-webkit-mask-image", FALLBACK_MASK);
+}
+function swapBadMasks(url: string): void {
+  document.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach((el) => {
+    const m = maskUrlRe.exec(el.style.getPropertyValue("mask-image"));
+    if (m && m[1] === url) applyMaskFallback(el);
+  });
+}
+function armIconMask(el: HTMLElement): void {
+  const m = maskUrlRe.exec(el.style.getPropertyValue("mask-image"));
+  if (!m || m[1].startsWith("data:") || m[1].startsWith("blob:")) return;
+  const url = m[1];
+  const known = maskProbe.get(url);
+  if (known === "bad") { applyMaskFallback(el); return; }
+  if (known) return;
+  maskProbe.set(url, "pending");
+  const img = new Image();
+  img.onload = () => maskProbe.set(url, "ok");
+  img.onerror = () => { maskProbe.set(url, "bad"); swapBadMasks(url); };
+  img.src = url;
+}
+new MutationObserver((muts) => {
+  for (const mu of muts) {
+    mu.addedNodes.forEach((n) => {
+      if (!(n instanceof HTMLElement)) return;
+      if (maskUrlRe.test(n.style.getPropertyValue("mask-image"))) armIconMask(n);
+      n.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach(armIconMask);
+    });
+  }
+}).observe(document.body, { childList: true, subtree: true });
+document.querySelectorAll<HTMLElement>("[style*=\"mask-image\"]").forEach(armIconMask);
+
 // HUD elements.
 const hudTL = document.getElementById("hud-tl")!;
 const hudTR = document.getElementById("hud-tr")!;
@@ -968,20 +1053,39 @@ const hudLogStatus = document.getElementById("hud-log-status")!;
 // with zero visual cue). Pops brighter on arrival (.fresh, eased by the
 // `color` transition on .log-line), holds, then fades out on its way out;
 // overflow past LOG_MAX fades the oldest instead of yanking it.
-const LOG_MAX = 5;
-const LOG_HOLD_MS = 7000;
+const LOG_MAX = 3; // HUD chrome caps at three lines (render critic r2)
+const LOG_HOLD_MS = 5000;
+
+/** The log frame only shows chrome while it has content (audit r2: no bare
+ *  wireframe box bottom-left during combat). Lines mid-fade-out don't count —
+ *  the chrome fades WITH the last line, not 350ms after it. */
+function updateLogChrome(): void {
+  const liveLines = [...hudLogFeed.children]
+    .filter((c) => !(c as HTMLElement).dataset.dying).length;
+  hudLog.classList.toggle("live", liveLines > 0 || hudLogStatus.innerHTML !== "");
+}
 
 function fadeOutLogLine(el: HTMLElement): void {
   el.classList.remove("show");
-  setTimeout(() => el.remove(), 350);
+  el.dataset.dying = "1";
+  updateLogChrome();
+  setTimeout(() => { el.remove(); updateLogChrome(); }, 350);
 }
 
 function pushLogLine(text: string): void {
   log.push(text);
+  // The ringside title card owns the boss-intro moment — no third echo in the
+  // visible feed (the line stays in the archive `log` array).
+  if (text.includes("RINGSIDE INTRODUCTION")) return;
+  // COURTESY EXPLANATIONs own the top-left tutorial card — echoing the same
+  // paragraph into the visible feed doubles UI noise during play (r4 major:
+  // one canonical surface per system message). The archive keeps the line.
+  if (text.startsWith("COURTESY EXPLANATION")) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
   el.textContent = text;
   hudLogFeed.appendChild(el);
+  updateLogChrome();
   if (hudLogFeed.children.length > LOG_MAX) fadeOutLogLine(hudLogFeed.firstElementChild as HTMLElement);
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => el.classList.remove("fresh"), 900);
@@ -990,6 +1094,7 @@ function pushLogLine(text: string): void {
 
 function clearLogFeed(): void {
   hudLogFeed.innerHTML = "";
+  updateLogChrome();
 }
 
 pushLogLine(`Entered floor ${state.floor}. Descend to floor ${CONFIG.finalFloor}.`);
@@ -1023,22 +1128,15 @@ const mmCtx = minimap.getContext("2d")!;
 minimap.addEventListener("pointerdown", (e) => {
   if (!touchMode) return;
   const r = minimap.getBoundingClientRect();
-  if (r.width === 0 || r.height === 0) return;
+  if (r.width === 0 || r.height === 0 || mmView.s <= 0) return;
   const cx = (e.clientX - r.left) * (minimap.width / r.width);
   const cy = (e.clientY - r.top) * (minimap.height / r.height);
-  const pad = 6;
-  const sx = (minimap.width - pad * 2) / state.map.w;
-  const sy = (minimap.height - pad * 2) / state.map.h;
   touchEdges.ping = {
-    x: Math.max(0, Math.min(state.map.w - 1, (cx - pad) / sx)),
-    y: Math.max(0, Math.min(state.map.h - 1, (cy - pad) / sy)),
+    x: Math.max(0, Math.min(state.map.w - 1, (cx - mmView.ox) / mmView.s)),
+    y: Math.max(0, Math.min(state.map.h - 1, (cy - mmView.oy) / mmView.s)),
   };
   e.preventDefault();
 });
-
-const RARITY_COLORS: Record<string, string> = {
-  common: "#b9b2a4", magic: "#5a87c6", rare: "#f2c14e", epic: "#9a6bd0",
-};
 
 // ---- The Show: audience bar + sponsor draft ----
 const statViewers = document.getElementById("stat-viewers")!;
@@ -1066,13 +1164,55 @@ let prevInSafe = false;
 let shownSponsors = 0;
 let shownViewers = 0;
 
+// ---- Overlay motion (audit #3): fast 130-160ms scale/fade on panels.
+// Opening is free — a display:none -> flex flip restarts the CSS panel-in
+// animation (iso.html). Closing adds .closing for ~130ms before hiding; the
+// timer is tracked so a rapid re-open never gets eaten by a stale close.
+const overlayTimers = new Map<HTMLElement, number>();
+function showOverlay(el: HTMLElement): void {
+  const t = overlayTimers.get(el);
+  if (t !== undefined) { clearTimeout(t); overlayTimers.delete(el); }
+  el.classList.remove("closing");
+  el.style.display = "flex";
+}
+function hideOverlay(el: HTMLElement): void {
+  if (el.style.display === "none" || overlayTimers.has(el)) return;
+  el.classList.add("closing");
+  overlayTimers.set(el, window.setTimeout(() => {
+    overlayTimers.delete(el);
+    el.classList.remove("closing");
+    el.style.display = "none";
+  }, 130));
+}
+
+// Modal focus (AAA r3 blocker): while ANY full-screen panel is open, the
+// transient HUD chatter (log feed, toasts, tutorial cards, headline banners)
+// is fully suppressed — nothing readable may bleed behind a modal scrim.
+// A style-attribute observer catches every open/close path (showOverlay,
+// direct display writes, net snapshot toggles) without touching call sites.
+{
+  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu", "dialogue"]
+    .map((id) => document.getElementById(id))
+    .filter((el): el is HTMLElement => el !== null);
+  const syncModal = (): void => {
+    const open = modalEls.some((el) =>
+      el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
+    document.body.classList.toggle("modal", open);
+  };
+  const modalObserver = new MutationObserver(syncModal);
+  for (const el of modalEls) {
+    modalObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+  }
+  syncModal();
+}
+
 function openDraftModal(): void {
   renderDraft(state);
-  draftEl.style.display = "flex";
+  showOverlay(draftEl);
 }
 
 function dismissDraftModal(): void {
-  draftEl.style.display = "none";
+  hideOverlay(draftEl);
   draftChain = false;
 }
 
@@ -1091,10 +1231,36 @@ const bbIcon = document.getElementById("bb-icon")!;
 const bbName = document.getElementById("bb-name")!;
 const bbAffix = document.getElementById("bb-affix")!;
 const bbFill = document.getElementById("bb-fill") as HTMLElement;
+const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
+const bbPips = document.getElementById("bb-pips")!;
 const bossintroEl = document.getElementById("bossintro")!;
+const hypeRowEl = document.querySelector<HTMLElement>("#show .hyperow");
+const letterboxEl = document.getElementById("letterbox")!;
+const bossSpotEl = document.getElementById("bossspot")!;
 const biName = document.getElementById("bi-name")!;
 const biAffix = document.getElementById("bi-affix")!;
 let introShownFor = -1;
+// Broadcast cut: while the letterbox rides the title card (~3.5s), ALL HUD
+// chrome + minimap leave the frame entirely (r2: no half-dimmed panels
+// under a cinematic). body.cine gates it in CSS; the timer mirrors bi-out.
+let cineTimer = 0;
+function enterCine(): void {
+  document.body.classList.add("cine");
+  window.clearTimeout(cineTimer);
+  cineTimer = window.setTimeout(() => document.body.classList.remove("cine"), 3500);
+}
+function exitCine(): void {
+  window.clearTimeout(cineTimer);
+  document.body.classList.remove("cine");
+}
+// Damage-lag ghost on the boss bar (audit #6): white trail that holds a beat,
+// then chases the live fill. Reset per engaged target.
+let bossGhostFor = -1;
+let bossGhost = 1;
+let bossGhostHold = 0;
+let bossPrevFrac = 1;
+let bossPipKey = "";
+let bossLastNow = 0;
 
 function updateBossBar(s: GameState): void {
   const p = me(s);
@@ -1102,16 +1268,37 @@ function updateBossBar(s: GameState): void {
   if (enc) {
     if (introShownFor !== enc.monsterId) {
       introShownFor = enc.monsterId;
+      dismissTutorialForTransition(); // the title card owns the screen now
       biName.textContent = enc.name;
       biAffix.textContent = enc.affix
         ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
         : enc.kind === "boss" ? "BOSS" : "ELITE";
       bossintroEl.classList.remove("show");
+      letterboxEl.classList.remove("on");
+      bossSpotEl.classList.remove("on");
       void (bossintroEl as HTMLElement).offsetWidth; // restart the scale-in
       bossintroEl.classList.add("show");
+      letterboxEl.classList.add("on"); // broadcast cut: letterbox rides the card
+      // Intro key light (r3 major): a warm radial lift projected at the star
+      // of the introduction — the cut sells the monster, not a silhouette.
+      const star = s.monsters.find((m) => m.id === enc.monsterId);
+      if (star) {
+        const sp = renderer.worldToScreen(star.pos.x, 1.1, star.pos.y);
+        if (sp.visible) {
+          bossSpotEl.style.left = `${sp.x}px`;
+          bossSpotEl.style.top = `${sp.y}px`;
+          bossSpotEl.classList.remove("on");
+          void (bossSpotEl as HTMLElement).offsetWidth;
+          bossSpotEl.classList.add("on");
+        }
+      }
+      enterCine();
     }
   } else {
     bossintroEl.classList.remove("show");
+    letterboxEl.classList.remove("on");
+    bossSpotEl.classList.remove("on");
+    exitCine();
   }
   // Engaged target: the nearest introduced, living boss/elite within range.
   let target: GameState["monsters"][number] | null = null;
@@ -1121,19 +1308,56 @@ function updateBossBar(s: GameState): void {
     const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
     if (d < best) { best = d; target = m; }
   }
+  // The boss plate SUPPRESSES the Hype row while it owns top-center (r6
+  // major: the "Hype" label clipped behind the boss health plate) — one
+  // marquee element per zone, never a stack.
+  const hypeRow = hypeRowEl;
   if (!target) {
     bossbarEl.style.display = "none";
+    if (hypeRow) { hypeRow.style.opacity = ""; hypeRow.style.visibility = ""; }
+    bossGhostFor = -1;
     return;
   }
+  if (hypeRow) { hypeRow.style.opacity = "0"; hypeRow.style.visibility = "hidden"; }
   bossbarEl.style.display = "block";
   bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
   // the party has stuck to it (burn/poison/chill uptime at a glance).
   bbAffix.innerHTML = (target.affix ? target.affix.toUpperCase() + " " : "") + statusChips(target.statuses);
-  bbFill.style.width = `${Math.max(0, Math.min(1, target.hp / target.maxHp)) * 100}%`;
+  const frac = Math.max(0, Math.min(1, target.hp / target.maxHp));
+  const now = performance.now();
+  const dt = bossLastNow > 0 ? Math.min(0.1, (now - bossLastNow) / 1000) : 0.016;
+  bossLastNow = now;
+  if (target.id !== bossGhostFor) {
+    bossGhostFor = target.id;
+    bossGhost = frac;
+    bossPrevFrac = frac;
+    bossGhostHold = 0;
+  }
+  if (frac < bossPrevFrac - 1e-4) bossGhostHold = 0.3; // fresh damage: hold, then trail
+  bossPrevFrac = frac;
+  if (bossGhost > frac + 1e-4) {
+    if (bossGhostHold > 0) bossGhostHold -= dt;
+    else bossGhost = Math.max(frac, bossGhost - dt * (0.3 + (bossGhost - frac) * 2.5));
+  } else bossGhost = frac;
+  bbFill.style.width = `${frac * 100}%`;
+  bbGhost.style.width = `${bossGhost * 100}%`;
+  // Phase pips + break notches: bosses enrage at 2/3 and 1/3 HP (sim config);
+  // elites have no phases, so the ornament hides (.elite).
+  const isBoss = target.kind === "boss";
+  bossbarEl.classList.toggle("elite", !isBoss);
+  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}` : "";
+  if (pipKey !== bossPipKey) {
+    bossPipKey = pipKey;
+    bbPips.innerHTML = isBoss
+      ? Array.from({ length: 3 }, (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
+      : "";
+  }
 }
 
+let shownFavVis: boolean | null = null;
+let shownSponVis: boolean | null = null;
 function updateShowHud(s: GameState): void {
   const p = me(s);
   const v = Math.round(p.viewers);
@@ -1142,6 +1366,17 @@ function updateShowHud(s: GameState): void {
   statViewers.textContent = v.toLocaleString();
   statFavorites.textContent = Math.floor(p.favorites).toLocaleString();
   statSponsors.textContent = String(p.sponsors);
+  // Zero-value audience chips stay hidden until first earned.
+  const favVis = Math.floor(p.favorites) > 0;
+  if (favVis !== shownFavVis) {
+    shownFavVis = favVis;
+    (statFavorites.parentElement as HTMLElement).style.display = favVis ? "" : "none";
+  }
+  const sponVis = p.sponsors > 0;
+  if (sponVis !== shownSponVis) {
+    shownSponVis = sponVis;
+    (statSponsors.parentElement as HTMLElement).style.display = sponVis ? "" : "none";
+  }
   if (p.sponsors !== shownSponsors) { shownSponsors = p.sponsors; bump(statSponsors); }
   // Pop the viewer chip on a big surge (exciting moment).
   if (v > shownViewers * 1.25 && v > 500) bump(statViewers);
@@ -1166,14 +1401,19 @@ const esc = (s: string): string =>
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 
-// Sponsor gifts have no ability icon; a glyph in the plate carries the read.
-// (Engraved geometric marks are fine; true emoji are not — STYLEGUIDE.md.)
+// Sponsor gifts have no ability icon; a DRAWN mark in the plate carries the
+// read (STYLEGUIDE.md rule three: icons are drawn, never typed — the old
+// dingbat set read as emoji at a glance). All masks, tinted by --oc.
 const coinIcon = `<i class="uic" style="mask-image:url(/icons/items/gold.svg);-webkit-mask-image:url(/icons/items/gold.svg)"></i>`;
+const mic = (rel: string): string =>
+  `<i class="uic" style="mask-image:url(/icons/${rel}.svg);-webkit-mask-image:url(/icons/${rel}.svg)"></i>`;
 const REWARD_GLYPHS: Record<string, string> = {
-  healFull: "✚", maxHp: "♥", damage: uic("party"), crit: "✦", armor: "⛨", item: "▣", gold: coinIcon,
-  bonusTime: "⌛", materials: "◆", favor: "★", retrain: "↺",
-  shrineBlood: "❖", shrineGreed: coinIcon, shrineDecline: "—",
-  revision: "☰", revisionDecline: "—",
+  healFull: mic("stats/hp"), maxHp: mic("stats/hp"), damage: uic("party"),
+  crit: mic("stats/crit"), armor: mic("stats/armor"), item: mic("items/mystery_box"),
+  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: "◆",
+  favor: uic("star"), retrain: uic("retrain"),
+  shrineBlood: mic("items/blood_subscription"), shrineGreed: coinIcon, shrineDecline: "—",
+  revision: mic("items/landlords_ledger"), revisionDecline: "—",
 };
 
 // One modal serves both drafts; sponsor gifts take priority if ever both pend.
@@ -1186,8 +1426,8 @@ function renderDraft(s: GameState): void {
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
     const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "☰ CLASS REVISION" : shrine ? "❖ SYSTEM SHRINE"
-      : quest ? "⚑ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
+    draftTitle.textContent = revision ? "◆ CLASS REVISION" : shrine ? "◆ SYSTEM SHRINE"
+      : quest ? "◆ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -1221,7 +1461,7 @@ function renderDraft(s: GameState): void {
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
         // Overrank offers extend the pip row past the printed max with stars.
         const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
-          r < u.nextRank ? (r >= max ? "⭑" : "●") : "○").join("");
+          r < u.nextRank ? (r >= max ? "✦" : "●") : "○").join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
           `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
@@ -1323,8 +1563,8 @@ function renderInventory(s: GameState): void {
 
 function toggleInventory(): void {
   invOpen = !invOpen;
-  invEl.style.display = invOpen ? "flex" : "none";
-  if (invOpen) renderInventory(state);
+  if (invOpen) { renderInventory(state); showOverlay(invEl); }
+  else hideOverlay(invEl);
 }
 
 // Delegated click: equip the clicked bag item, persist, and refresh the panel.
@@ -1396,6 +1636,26 @@ function nodeRowHtml(p: ReturnType<typeof me>, u: (typeof UPGRADES)[number]): st
   );
 }
 
+/** All still-undiscovered abilities collapse into ONE teaser row (audit r2:
+ *  seven identical "???" placeholder cards were dead weight). */
+function discoverTeaserHtml(s: GameState): string {
+  const p = me(s);
+  const unknown = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => !knows(p, id));
+  if (unknown.length === 0) return "";
+  const actives = unknown.filter((id) => ABILITY_INFO[id].tier === "active").length;
+  const ults = unknown.length - actives;
+  const breakdown = [
+    actives > 0 ? `${actives} active${actives === 1 ? "" : "s"}` : "",
+    ults > 0 ? `${ults} ultimate${ults === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    `<div class="acard discover"><span class="dstar">✦</span>` +
+    `<div><div class="ahname">${unknown.length} ${unknown.length === 1 ? "ability" : "abilities"} left to discover</div>` +
+    `<div class="ahblurb">${breakdown} — tomes drop in the dungeon, or buy one in the shop</div></div>` +
+    `</div>`
+  );
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -1411,9 +1671,10 @@ function abilityCard(s: GameState, id: AbilityId): string {
   const whereCls = where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : "";
   const rows = UPGRADES.filter((u) => u.ability === id).map((u) => nodeRowHtml(p, u)).join("");
   // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
-  // the buttons elsewhere). Actives get slot 1-4 + bench; ultimates get U.
+  // the buttons elsewhere). Roam: a settlement's walls count as safety — the
+  // sim's slotAbility accepts playerInSettlement, so the buttons show there too.
   let controls = "";
-  if (s.safeRoom) {
+  if (s.safeRoom || settlementShopFor(s, me(s))) {
     if (info.tier === "active") {
       const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
         `<button class="slot-btn" data-ability="${id}" data-slot="${i}">SLOT ${i + 1}</button>`).join("");
@@ -1470,8 +1731,9 @@ const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
 function renderAbilities(s: GameState): void {
-  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
-  abilGrid.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  const p = me(s);
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  abilGrid.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
   document.getElementById("ach-section")!.style.display =
     CONFIG.achievementsEnabled ? "" : "none";
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
@@ -1479,7 +1741,7 @@ function renderAbilities(s: GameState): void {
     const got = me(s).achievements.includes(a.id);
     return (
       `<div class="ach${got ? "" : " locked"}">` +
-      `<div class="atitle">${got ? "★ " : "☆ "}${a.title}</div>` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
       `</div>`
     );
@@ -1504,8 +1766,8 @@ function renderAbilities(s: GameState): void {
 
 function toggleAbilities(): void {
   abilOpen = !abilOpen;
-  abilEl.style.display = abilOpen ? "flex" : "none";
-  if (abilOpen) renderAbilities(state);
+  if (abilOpen) { renderAbilities(state); showOverlay(abilEl); }
+  else hideOverlay(abilEl);
 }
 
 // ---- Crawler Profile (pauses the game while open) ----
@@ -1523,23 +1785,19 @@ const sheetDef = document.getElementById("sheet-def")!;
 const sheetShow = document.getElementById("sheet-show")!;
 let sheetOpen = false;
 
-const statIcon = (id: string): string =>
-  `mask-image:url(/icons/stats/${id}.svg);-webkit-mask-image:url(/icons/stats/${id}.svg)`;
 const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
 function gearRowHtml(slot: ItemSlot, it: Item | null): string {
   if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
   const noun = it.name.split(" ").pop()!.toLowerCase();
-  const icon = it.catalogId
-    ? iconStyle(it.catalogId)
-    : `mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)`;
+  const icon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
   return (
     `<div class="gear-row rar-${it.rarity}">` +
-    `<div class="gbox" style="--tc:${tc}"><i class="ii" style="${icon}"></i></div>` +
+    `<div class="gbox" style="--tc:${tc}">${icon}</div>` +
     `<div><div class="gname" style="color:${tc}">${it.name}</div>` +
-    `<div class="gaff">${affixLines(it).join(" · ") || "—"}</div></div>` +
+    `<div class="gaff">${affixLines(it).join(" · ") || "<i style=\"color:var(--ink-faint)\">unenchanted</i>"}</div></div>` +
     `<div class="gslot">${slot}</div>` +
     `</div>`
   );
@@ -1589,9 +1847,9 @@ function renderSheet(s: GameState): void {
   // tabular value — the icon keeps the scan, ink carries the data.
   sheetAttrs.innerHTML =
     `<table class="ledger">` +
-    tiles.map(([ic, c, v, l, tip]) =>
+    tiles.map(([ic, , v, l, tip]) =>
       `<tr title="${tip}">` +
-      `<td class="lic"><i class="si" style="${statIcon(ic)};background:${c}"></i></td>` +
+      `<td class="lic"><img class="si" src="/icons/painted/stats/${ic}.svg" alt=""></td>` +
       `<td class="lab">${l}</td><td class="dots"></td>` +
       `<td class="val">${v}</td></tr>`).join("") +
     `</table>`;
@@ -1607,23 +1865,28 @@ function renderSheet(s: GameState): void {
   sheetDef.innerHTML =
     `<div class="def-box">` +
     `<div class="dbig" title="armor ÷ (armor + ${d.armorK}), capped at ${Math.round(d.reductionCap * 100)}%"><b>${d.armor}</b><small>ARMOR · ${redPct}% REDUCTION</small></div>` +
-    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="cap" style="left:100%"></span></div>` +
+    `<div><div class="def-meter"><i style="width:${Math.min(100, (d.reduction / d.reductionCap) * 100)}%"></i><span class="ticks"></span></div>` +
     `<div class="def-lines" style="margin-top:7px">Effective HP ≈ <b>${d.effectiveHp}</b> · dash i-frames ×${d.dashCharges}<br>` +
     `<span class="ex">A typical floor-${id.floor} hit: <b>${d.exampleRaw}</b> raw → <b>${d.exampleTaken}</b> taken</span></div></div>` +
     `</div>`;
+  // Zero-states render an honest dimmed "0", never an em-dash — a dash reads
+  // as unbound placeholder data shipped to screen (r3 major reversal).
+  const chip = (cls: string, n: number, label: string): string =>
+    `<span class="show-chip${cls ? ` ${cls}` : ""}${n > 0 ? "" : " zero"}">` +
+    `<b>${Math.round(n).toLocaleString()}</b>${label}</span>`;
   sheetShow.innerHTML =
-    `<span class="show-chip viewers"><b>${sh.show.viewers.toLocaleString()}</b>viewers</span>` +
-    `<span class="show-chip favorites"><b>${sh.show.favorites.toLocaleString()}</b>favorites</span>` +
-    `<span class="show-chip sponsors"><b>${sh.show.sponsors}</b>sponsors</span>` +
-    `<span class="show-chip"><b>${sh.show.kills}</b>kills</span>` +
-    `<span class="show-chip"><b>${sh.show.damageDealt.toLocaleString()}</b>dmg dealt</span>` +
-    `<span class="show-chip"><b>${sh.show.damageTaken.toLocaleString()}</b>dmg taken</span>`;
+    chip("viewers", sh.show.viewers, "viewers") +
+    chip("favorites", sh.show.favorites, "favorites") +
+    chip("sponsors", sh.show.sponsors, "sponsors") +
+    chip("", sh.show.kills, "kills") +
+    chip("", sh.show.damageDealt, "dmg dealt") +
+    chip("", sh.show.damageTaken, "dmg taken");
 }
 
 function toggleSheet(): void {
   sheetOpen = !sheetOpen;
-  sheetEl.style.display = sheetOpen ? "flex" : "none";
-  if (sheetOpen) renderSheet(state);
+  if (sheetOpen) { renderSheet(state); showOverlay(sheetEl); }
+  else hideOverlay(sheetEl);
 }
 
 // ---- Key bindings (rebindable; persisted per browser) ----
@@ -1679,10 +1942,10 @@ function renderKeybinds(): void {
 
 function toggleKeybinds(): void {
   kbOpen = !kbOpen;
-  keysEl.style.display = kbOpen ? "flex" : "none";
+  if (kbOpen) { renderKeybinds(); showOverlay(keysEl); }
+  else hideOverlay(keysEl);
   listening = null;
   input.captureMode = false;
-  if (kbOpen) renderKeybinds();
 }
 
 kbRows.addEventListener("click", (e) => {
@@ -1748,6 +2011,22 @@ kbCamZoom.addEventListener("click", () => {
   renderCamZoom();
 });
 renderCamZoom();
+
+// Render scale: 100% -> 90% -> 75% of display resolution for the 3D frame
+// (backing buffer + composer targets only; the DOM HUD stays native-crisp).
+// Applies instantly; persisted per browser.
+const RS_CYCLE = [1, 0.9, 0.75];
+const kbRenderScale = document.getElementById("kb-renderscale")!;
+function renderRenderScale(): void {
+  kbRenderScale.textContent = `${Math.round(renderScale * 100)}%`;
+}
+kbRenderScale.addEventListener("click", () => {
+  renderScale = RS_CYCLE[(RS_CYCLE.indexOf(renderScale) + 1) % RS_CYCLE.length];
+  try { localStorage.setItem(RENDERSCALE_KEY, String(renderScale)); } catch { /* best-effort */ }
+  renderer.setRenderScale(renderScale);
+  renderRenderScale();
+});
+renderRenderScale();
 
 // Controller on/off (see GamepadController). Toggling ON with a pad already
 // plugged in adopts it on the next frame's poll — no reconnect needed.
@@ -1911,6 +2190,15 @@ const iconStyle = (id: string): string =>
 const coin = `<i class="micon" style="${iconStyle("gold")}"></i>`;
 const matIcon = (id: string): string => `<i class="micon" style="${iconStyle(id)}"></i>`;
 
+// ---- Painted item art (AAA icon pass): every shelf/bag/gear icon is a
+// pre-painted 3-tone flat-shaded SVG (tools/paint-icons.mjs — shared 45°
+// key light, material palette baked in, uniform ink silhouette), rendered
+// as an <img>. Rarity stays on the tile frame (--tc border + glow).
+const itemIconHtml = (id: string): string =>
+  `<img class="ii" src="/icons/painted/items/${id}.svg" alt="" draggable="false">`;
+const nounIconHtml = (noun: string): string =>
+  `<img class="ii" src="/icons/painted/nouns/${noun}.svg" alt="" draggable="false">`;
+
 /** How many of each catalog id the player owns (bag + equipped) — component dots. */
 function ownedCatalogCounts(p: Player): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -1922,9 +2210,16 @@ function ownedCatalogCounts(p: Player): Record<string, number> {
   return counts;
 }
 
+/** The store panel serves BOTH shop kinds: the between-floor safe room, and
+ * — Roam — the settlement outfitter the player is standing in (same SafeRoom
+ * shape sim-side; buy/sell/reslot route through shopRoomFor unchanged). */
+function shopRoomOf(s: GameState): SafeRoom | null {
+  return s.safeRoom ?? settlementShopFor(s, me(s));
+}
+
 /** Why this entry can't be bought right now, or null if it can. */
 function buyBlocker(s: GameState, e: CatalogEntry): string | null {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   if (!room.available.includes(e.id)) {
     const unlock = TIER_UNLOCK_SHOP[e.tier];
@@ -1943,7 +2238,7 @@ function buyBlocker(s: GameState, e: CatalogEntry): string | null {
 }
 
 function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, number>): string {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   const locked = !room.available.includes(e.id);
   const price = effectivePrice(p, e.id, room.nextFloor);
@@ -1953,6 +2248,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
   const soldOut = left <= 0;
   const cls = [
     "itile",
+    `tier-${e.tier}`, // rarity grading on the tile frame (r4 major)
     shopSel?.kind === "catalog" && shopSel.id === e.id ? "sel" : "",
     locked ? "locked" : "",
     soldOut ? "soldout" : "",
@@ -1963,7 +2259,7 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     ? `<div class="istock" title="${left} left in stock this shop">×${left}</div>` : "";
   return (
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i>${stockBadge}</div>` +
+    `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
@@ -1972,8 +2268,8 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
 /** Small icon tile for build-tree rows and the bag (no price line). */
 function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
   return (
-    `<div class="itile ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
-    `<div class="ibox"><i class="ii" style="${iconStyle(e.id)}"></i></div>` +
+    `<div class="itile tier-${e.tier} ${extraCls}" ${data} style="--tc:${TIER_COLOR[e.tier]}" title="${e.name}">` +
+    `<div class="ibox">${itemIconHtml(e.id)}<b class="gem"></b></div>` +
     `</div>`
   );
 }
@@ -1983,34 +2279,106 @@ function miniTileHtml(e: CatalogEntry, extraCls = "", data = ""): string {
  * tinted by rarity via the tile's --tc mask color. */
 function invTileHtml(it: Item, data: string, selected: boolean): string {
   const noun = it.name.split(" ").pop()!.toLowerCase();
-  const inner = it.catalogId
-    ? `<i class="ii" style="${iconStyle(it.catalogId)}"></i>`
-    : `<i class="ii" style="mask-image:url(/icons/nouns/${noun}.svg);-webkit-mask-image:url(/icons/nouns/${noun}.svg)"></i>`;
+  const inner = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  // Rarity grading rides the tile frame: catalog gear by shop tier, field
+  // drops map rare->advanced glow, epic->legendary breathe (r4 major).
+  const tier = it.catalogId ? CATALOG_BY_ID[it.catalogId].tier
+    : it.rarity === "epic" ? "legendary" : it.rarity === "rare" ? "advanced" : "basic";
   return (
-    `<div class="itile${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
-    `<div class="ibox">${inner}</div>` +
+    `<div class="itile tier-${tier}${selected ? " sel" : ""}" ${data} style="--tc:${tc}" title="${it.name}">` +
+    `<div class="ibox">${inner}<b class="gem"></b></div>` +
     `</div>`
   );
 }
 
-function statLines(it: Pick<Item, "affixes">): string {
-  return affixLines(it as Item).join(" · ");
+// ---- Item card stat block (audit r2): labeled rows with green/red deltas
+// vs whatever is equipped in the same slot — the LoL-shop comparison read. ----
+const AFFIX_ROWS: { k: keyof Affixes; label: string; fmt: (v: number) => string }[] = [
+  { k: "damage", label: "ATK", fmt: (v) => String(Math.round(v)) },
+  { k: "spell", label: "MAG", fmt: (v) => String(Math.round(v)) },
+  { k: "maxHp", label: "HP", fmt: (v) => String(Math.round(v)) },
+  { k: "armor", label: "ARM", fmt: (v) => String(Math.round(v)) },
+  { k: "speed", label: "SPD", fmt: (v) => v.toFixed(2) },
+  { k: "crit", label: "CRIT", fmt: (v) => `${Math.round(v * 100)}%` },
+];
+
+function statRowsHtml(next: Affixes, cur: Affixes | null): string {
+  let out = "";
+  for (const { k, label, fmt } of AFFIX_ROWS) {
+    const nv = next[k] ?? 0;
+    const cv = cur?.[k] ?? 0;
+    if (nv === 0 && cv === 0) continue;
+    const d = nv - cv;
+    const dd = cur && Math.abs(d) > 1e-9
+      ? `<span class="dd ${d > 0 ? "dd-up" : "dd-down"}">${d > 0 ? "▲" : "▼"} ${fmt(Math.abs(d))} vs equipped</span>`
+      : "";
+    out += `<div class="dstat-row"><span class="lab">${label}</span><span class="val">+${fmt(nv)}</span>${dd}</div>`;
+  }
+  return out;
+}
+
+/** The big item render at the top of the detail card. */
+function detailArtHtml(tc: string, iconHtml: string): string {
+  return `<div class="dart" style="--tc:${tc}">${iconHtml}` +
+    `<b class="gem"></b><b class="gem g2"></b></div>`;
 }
 
 function renderShopDetail(s: GameState): void {
-  const room = s.safeRoom!;
+  const room = shopRoomOf(s)!;
   const p = me(s);
   if (!shopSel) {
-    srDetail.innerHTML = `<div class="dempty">Select an item. Components you own are credited toward anything they build into.</div>`;
+    // Never a void (AAA r2 major): the unselected pane shows the System's
+    // engraved sigil + Mordecai's featured picks for the floor below.
+    const avail = room.available
+      .map((id) => CATALOG_BY_ID[id])
+      .filter((e): e is CatalogEntry => !!e && e.id !== "tome");
+    const priceOf = (e: CatalogEntry): number => effectivePrice(p, e.id, room.nextFloor);
+    // Best affordable gear first (priciest = biggest upgrade), then the
+    // cheapest aspirational stock if the wallet is thin.
+    const picks = avail.filter((e) => !buyBlocker(s, e)).sort((a, b) => priceOf(b) - priceOf(a)).slice(0, 4);
+    if (picks.length < 4) {
+      for (const e of avail.filter((x) => !picks.includes(x)).sort((a, b) => priceOf(a) - priceOf(b))) {
+        picks.push(e);
+        if (picks.length >= 4) break;
+      }
+    }
+    // Featured spotlight (AAA r3 major): the idle rail SELLS — the floor's
+    // headline pick gets the full item-card art treatment, the rest ride
+    // below as Mordecai's picks. Never 60% dead brown.
+    const feat = picks[0];
+    const featHtml = feat
+      ? `<div class="dfeat" data-id="${feat.id}">` +
+        `<div class="dsec">FEATURED — FLOOR ${room.nextFloor}</div>` +
+        detailArtHtml(TIER_COLOR[feat.tier], itemIconHtml(feat.id)) +
+        `<div class="dname" style="--tc:${TIER_COLOR[feat.tier]}">${feat.name}</div>` +
+        `<div class="dkindrow"><span class="dkind" style="--tc:${TIER_COLOR[feat.tier]}">${TIER_LABEL[feat.tier]}</span></div>` +
+        `<div class="dprice"><span class="eff">${coin}${priceOf(feat)}</span></div>` +
+        `</div>`
+      : `<div class="dsigil"></div>`;
+    srDetail.innerHTML =
+      `<div class="dempty-state">` +
+      `<div class="dsys">THE SYSTEM PROVIDES</div>` +
+      featHtml +
+      (picks.length > 1
+        ? `<div class="dsec">MORDECAI'S PICKS</div>` +
+          `<div class="dtree">${picks.slice(1).map((e) => miniTileHtml(e, "", `data-id="${e.id}"`)).join("")}</div>`
+        : "") +
+      `<div class="dempty">Select anything on the shelf. Components you own are credited toward whatever they build into.</div>` +
+      `</div>`;
     return;
   }
   if (shopSel.kind === "catalog") {
     const e = CATALOG_BY_ID[shopSel.id];
     if (!e) { srDetail.innerHTML = ""; return; }
+    const tc = TIER_COLOR[e.tier];
+    const ownedN = ownedCatalogCounts(p)[e.id] ?? 0;
+    let flavor = ""; // plain flavor sits at the bottom of the card, in italics
     let html =
-      `<div class="dname" style="--tc:${TIER_COLOR[e.tier]}">${e.name}</div>` +
-      `<div class="dkind">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</div>`;
+      detailArtHtml(tc, itemIconHtml(e.id)) +
+      `<div class="dname" style="--tc:${tc}">${e.name}</div>` +
+      `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${TIER_LABEL[e.tier]}${e.slot ? ` · ${e.slot.toUpperCase()}` : ""}</span></div>` +
+      (ownedN > 0 ? `<div class="dhave">in your kit ×${ownedN}</div>` : "");
     if (e.tier === "consumable") {
       if (e.effect === "tome") {
         const ab = room.tomeAbility;
@@ -2020,11 +2388,20 @@ function renderShopDetail(s: GameState): void {
       } else if (e.effect === "maxHp") {
         html += `<div class="dstats">+${12 + room.nextFloor * 2} max HP, permanent.</div>`;
       }
-      html += `<div class="ddesc">${e.desc}</div>`;
+      // Scarcity is a stat (r3 major: no half-empty consumable cards).
+      const stock = consumableStock(e);
+      if (Number.isFinite(stock)) {
+        const left = Math.max(0, stock - (room.purchased[e.id] ?? 0));
+        html += `<div class="dstat-block"><div class="dstat-row"><span class="lab">STOCK</span>` +
+          `<span class="val">${left} left this shop</span></div></div>`;
+      }
+      flavor = e.desc;
     } else {
-      html += `<div class="dstats">${statLines({ affixes: gearAffixes(e, room.nextFloor) })}</div>`;
+      const next = gearAffixes(e, room.nextFloor);
+      const cur = e.slot ? p.equipment[e.slot]?.affixes ?? null : null;
+      html += `<div class="dstat-block">${statRowsHtml(next, cur)}</div>`;
       if (e.passive) html += `<div class="dpassive">${e.desc}</div>`;
-      else html += `<div class="ddesc">${e.desc}</div>`;
+      else flavor = e.desc;
     }
     // Build tree: what it's made of (with owned ✓s), and what it feeds.
     if (e.buildsFrom?.length) {
@@ -2053,12 +2430,24 @@ function renderShopDetail(s: GameState): void {
         html += `<div class="dreq ${has >= (n ?? 0) ? "met" : "unmet"}">${matIcon(m)} ${n}× ${m.replace("_", " ")} (you: ${has})</div>`;
       }
     }
+    if (flavor) html += `<div class="ddesc">${flavor}</div>`;
     // Price: full price struck through when owned components discount it.
     const full = e.tier === "consumable" ? consumablePrice(e, room.nextFloor) : totalCost(e.id);
     const eff = effectivePrice(p, e.id, room.nextFloor);
     html += `<div class="dprice">${eff < full ? `<span class="full">${full}</span>` : ""}<span class="eff">${coin}${eff}</span></div>`;
     const blocker = buyBlocker(s, e);
     html += `<div class="dbtns"><button data-buy="${e.id}" ${blocker ? "disabled" : ""}>${blocker ?? "BUY"}</button></div>`;
+    // Persuasion below the fold (r3 major: the pane never dies at the BUY
+    // button) — shelf-mates in the same slot or tier, one click away.
+    const shelfMates = room.available
+      .map((id) => CATALOG_BY_ID[id])
+      .filter((x): x is CatalogEntry => !!x && x.id !== e.id && x.id !== "tome" &&
+        ((!!e.slot && x.slot === e.slot) || x.tier === e.tier))
+      .slice(0, 4);
+    if (shelfMates.length) {
+      html += `<div class="dsec">ALSO ON THE SHELF</div><div class="dtree">${
+        shelfMates.map((t) => miniTileHtml(t, "", `data-id="${t.id}"`)).join("")}</div>`;
+    }
     srDetail.innerHTML = html;
     return;
   }
@@ -2066,12 +2455,17 @@ function renderShopDetail(s: GameState): void {
   const it = shopSel.kind === "bag" ? p.inventory[shopSel.idx] : p.equipment[shopSel.slot];
   if (!it) { shopSel = null; renderShopDetail(s); return; }
   const tc = it.catalogId ? TIER_COLOR[CATALOG_BY_ID[it.catalogId].tier] : RARITY_TEXT[it.rarity];
+  const noun = it.name.split(" ").pop()!.toLowerCase();
+  const artIcon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
+  // Bag items compare against whatever currently holds their slot.
+  const curEq = shopSel.kind === "bag" ? p.equipment[it.slot]?.affixes ?? null : null;
   let html =
+    detailArtHtml(tc, artIcon) +
     `<div class="dname" style="--tc:${tc}">${it.name}</div>` +
-    `<div class="dkind">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
+    `<div class="dkindrow"><span class="dkind" style="--tc:${tc}">${it.rarity.toUpperCase()} · ${it.slot.toUpperCase()}` +
     `${weaponClassOf(it) ? ` · ${weaponClassOf(it)!.toUpperCase()}` : ""}` +
-    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</div>` +
-    `<div class="dstats">${statLines(it)}</div>`;
+    `${shopSel.kind === "equipped" ? " · EQUIPPED" : " · BAG"}</span></div>` +
+    `<div class="dstat-block">${statRowsHtml(it.affixes, curEq)}</div>`;
   if (it.passive) html += `<div class="dpassive">${CATALOG_BY_ID[it.catalogId ?? ""]?.desc ?? ""}</div>`;
   if (!it.catalogId) html += `<div class="ddesc">Field drop — sells flat, never counts as a build component.</div>`;
   if (it.catalogId) {
@@ -2091,16 +2485,27 @@ function renderShopDetail(s: GameState): void {
 }
 
 function renderSafeRoom(s: GameState): void {
-  const room = s.safeRoom;
+  const room = shopRoomOf(s);
   if (!room) return;
   const p = me(s);
-  srTip.textContent = room.tip;
-  srWallet.innerHTML =
-    `<span class="chip">${coin}<b>${p.gold}</b></span>` +
-    `<span class="chip">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>` +
-    `<span class="chip">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>` +
-    `<span class="chip" title="sponsors">🤝 <b>${p.sponsors}</b></span>`;
-  srReady.textContent = s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
+  // Settlement outfitter: same panel, the settlement's voice on the chrome —
+  // and no DESCEND (you're mid-floor; the exit is the door you came in by).
+  const roamShop = !s.safeRoom;
+  const settlement = roamShop ? settlementAt(s, p.pos) : null;
+  srEl.querySelector("h2")!.textContent = roamShop
+    ? `◆ ${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
+    : "◆ SAFE ROOM";
+  srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
+  srTip.textContent = room.tip ||
+    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
+  // Zero-value currencies stay off the header until first earned — three
+  // dead 0-chips are noise, not information.
+  const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
+  if (p.materials.elite_trophy > 0) wchips.push(`<span class="chip" title="elite trophies">${matIcon("elite_trophy")}<b>${p.materials.elite_trophy}</b></span>`);
+  if (p.materials.boss_sigil > 0) wchips.push(`<span class="chip" title="boss sigils">${matIcon("boss_sigil")}<b>${p.materials.boss_sigil}</b></span>`);
+  if (p.sponsors > 0) wchips.push(`<span class="chip" title="sponsors"><i class="micon" style="mask-image:url(/icons/ui/rosette.svg);-webkit-mask-image:url(/icons/ui/rosette.svg)"></i><b>${p.sponsors}</b></span>`);
+  srWallet.innerHTML = wchips.join("");
+  srReady.textContent = !roamShop && s.players.length > 1 ? `ready ${room.ready.length}/${s.players.length}` : "";
   // Top-level tab dispatch.
   srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
   if (srTab === "ach" && !CONFIG.achievementsEnabled) srTab = "shop";
@@ -2129,8 +2534,8 @@ function renderAbilPage(s: GameState): void {
   srLoadout.innerHTML =
     p.abilities.slots.map((id, i) => slotTile(id, String(i + 1))).join("") +
     slotTile(p.abilities.ultimate, "U", true);
-  const all = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES];
-  srAbil.innerHTML = all.map((id) => abilityCard(s, id)).join("");
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  srAbil.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -2145,7 +2550,7 @@ function renderAchPage(s: GameState): void {
     const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
     return (
       `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
-      `<div class="atitle">${got ? "★" : "☆"} ${a.title}</div>` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
       `<div class="adesc">${a.desc}</div>` +
       (unopened
         ? `<button class="claim-btn" data-claim="${a.id}">◆ OPEN LOOT BOX</button>`
@@ -2179,7 +2584,7 @@ const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
 const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
 
 function renderShopPage(s: GameState): void {
-  const room = s.safeRoom;
+  const room = shopRoomOf(s);
   if (!room) return;
   const p = me(s);
   srTabStock.classList.toggle("active", shopView === "stock");
@@ -2199,15 +2604,22 @@ function renderShopPage(s: GameState): void {
       : shopView === "all" && entries.some((e) => !avail.has(e.id))
         ? `<span class="tnote">— stock varies by shop</span>`
         : "";
+    // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
+    // complete their row with recessed diamond-socket wells. 11 tiles fit a
+    // shelf row at 56px+8 gap; pad only to the end of the partial row so the
+    // shelf never grows a whole row of dead sockets (panels fit the viewport).
+    const perRow = 11;
+    const wells = (perRow - (entries.length % perRow)) % perRow;
     shelf +=
       `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>`;
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}` +
+      `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
   }
   srShelf.innerHTML = shelf;
   // Equipped + bag.
   srEquipped.innerHTML = EQUIP_SLOTS.map((slot) => {
     const it = p.equipment[slot];
-    if (!it) return `<div class="itile" style="--tc:#2c241b"><div class="ibox"><span class="iglyph" style="color:#2c241b">·</span></div></div>`;
+    if (!it) return `<div class="itile eslot" title="${slot}: empty"><div class="ibox"></div></div>`;
     return invTileHtml(it, `data-slot="${slot}"`, shopSel?.kind === "equipped" && shopSel.slot === slot);
   }).join("");
   // The bag TIGHTENS as it fills so the panel always fits the viewport
@@ -2259,6 +2671,11 @@ srDetail.addEventListener("click", (e) => {
       persistRun(state);
     }
     renderSafeRoom(state);
+    // Purchase feedback (audit #8): gold flash on the detail pane, wallet bump.
+    srDetail.classList.remove("purchased");
+    void srDetail.offsetWidth; // restart the animation
+    srDetail.classList.add("purchased");
+    srWallet.querySelector(".chip")?.classList.add("bump");
     return;
   }
   const sellBtn = el.closest("button[data-sell]") as HTMLButtonElement | null;
@@ -2288,7 +2705,7 @@ srDetail.addEventListener("click", (e) => {
     renderSafeRoom(state);
     return;
   }
-  const nav = el.closest(".itile[data-id]") as HTMLElement | null;
+  const nav = el.closest(".itile[data-id], .dfeat[data-id]") as HTMLElement | null;
   if (nav) {
     shopSel = { kind: "catalog", id: nav.dataset.id! };
     renderSafeRoom(state);
@@ -2389,6 +2806,12 @@ srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state);
 srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
 
 srDescend.addEventListener("click", () => {
+  // Settlement outfitter: the button is an exit, not a descent.
+  if (!state.safeRoom) {
+    settlementShopOpen = false;
+    hideOverlay(srEl);
+    return;
+  }
   if (net) {
     net.ready(); // modal stays until the whole party is ready (snapshot clears it)
     return;
@@ -2424,35 +2847,43 @@ function updateSkills(s: GameState): void {
     `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
+    // Charge pip rows (r2): banked charges read as gold gem pips seated in
+    // the frame's bottom edge — Dash ×2, Slurp ×3 — not a "×N" text tag.
+    const pipRow = (have: number, max: number): string =>
+      `<span class="cpips">` +
+      Array.from({ length: max }, (_, i) => `<i class="cpip${i < have ? " on" : ""}"></i>`).join("") +
+      `</span>`;
     skillsEl.innerHTML = entries
       .map((e, i) => {
         const bind = bindingLabel(bindings, slotActions[i]).split(" / ")[0];
         const label = e.ability
           ? (e.ability === "dash"
-            ? `Dash ×${p.dashCharges}` // charge count in the chip
+            ? "Dash" // charges read on the pip row below
             : e.ability === "stance"
               ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
               : e.ability === "overcharge" && p.overcharged
                 ? "CHARGED" // banked and waiting for the next attack
                 : ABILITY_INFO[e.ability].name.split(" ").pop())
           : "";
+        const pips = e.ability === "dash" ? pipRow(p.dashCharges, CONFIG.dashCharges) : "";
         const cls = `skill${e.ult ? " ult" : ""}${e.ability ? "" : " empty"}`;
         // Icon by convention: /icons/<abilityId>.svg (game-icons.net, tinted via CSS mask).
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
         return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${icon}` +
-          `<span class="label">${label}</span><span class="sweep"></span></div>`;
+          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +
-      // Flask chip (cockpit-style): charge count in the label; the radial
+      // Flask chip (cockpit-style): charges on the pip row; the radial
       // sweep shows progress toward the next charge (kills refill it).
       (CONFIG.flaskEnabled
         ? `<div class="skill${p.flaskCharges > 0 ? " ready" : " empty"}" id="flask-chip" ` +
           `style="--cd:${p.flaskCharges >= CONFIG.flaskMaxCharges ? 0 : (1 - p.flaskKillProgress / CONFIG.flaskKillsPerCharge).toFixed(3)}">` +
           `<span class="key">${bindingLabel(bindings, "flask").split(" / ")[0]}</span>` +
           `<i class="icon" style="mask-image:url(/icons/flask.svg);-webkit-mask-image:url(/icons/flask.svg)"></i>` +
-          `<span class="label">Slurp ×${p.flaskCharges}</span><span class="sweep"></span>` +
+          `<span class="label">Slurp</span>${pipRow(p.flaskCharges, CONFIG.flaskMaxCharges)}` +
+          `<span class="sweep"></span><span class="flashfx"></span>` +
           `</div>`
         : "");
   }
@@ -2471,54 +2902,258 @@ function updateSkills(s: GameState): void {
       : Math.max(0, Math.min(1, remaining / base));
     chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
+    // Ready-flash (audit #4): the moment a REAL cooldown completes, the chip
+    // blooms once. "armed" only while a sweep is actually running, so loadout
+    // rebuilds and already-ready chips never flash spuriously.
+    const wasReady = chip.dataset.rdy === "1";
+    if (frac > 0.02) chip.dataset.armed = "1";
+    if (ready && !wasReady && chip.dataset.armed === "1") {
+      chip.dataset.armed = "0";
+      chip.classList.remove("flash");
+      void chip.offsetWidth; // restart the animation
+      chip.classList.add("flash");
+    }
+    chip.dataset.rdy = ready ? "1" : "0";
   });
   // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
 }
 
-// Top-down minimap: explored floor only (fog of war), stairs once seen,
-// monsters only while inside the vision radius, and the player (cyan).
+// Top-down minimap (audit r2): a surveyor's chart, not a raw pixel dump. The
+// view auto-frames the EXPLORED region (fog-of-war reveal fills the frame as
+// you map the floor), rooms get warm parchment fills with drawn bronze
+// outlines, and the static geometry renders once per reveal onto an offscreen
+// cache — the per-frame cost is one drawImage + a handful of dots.
+const mmView = { s: 0, ox: 0, oy: 0 }; // world tile -> canvas px transform
+const mmStatic = document.createElement("canvas");
+const mmStaticCtx = mmStatic.getContext("2d")!;
+let mmKey = "";
+
+function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: number, maxY: number): void {
+  const map = s.map;
+  const W = minimap.width, H = minimap.height, pad = 12;
+  mmStatic.width = W;
+  mmStatic.height = H;
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  // Uniform scale, capped LOW so a barely-explored floor renders as a drawn
+  // chart, never giant solid slabs (r3 minor: one minimap material spec at
+  // every zoom — parchment fill, stroked walls, fixed-size actor marks).
+  const sc = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 8);
+  mmView.s = sc;
+  mmView.ox = (W - bw * sc) / 2 - minX * sc;
+  mmView.oy = (H - bh * sc) / 2 - minY * sc;
+  const g = mmStaticCtx;
+  g.clearRect(0, 0, W, H);
+  // ONE CHART SPEC AT EVERY STATE (r6 major: "gold-speckle noise background…
+  // near-zero contrast"): the canvas lays its own opaque dark neutral ground
+  // first, so the chart never inherits the bezel's textured backing — rooms
+  // then sit on it at a high-contrast parchment value.
+  g.fillStyle = "#15100b";
+  g.fillRect(0, 0, W, H);
+  const X = (x: number): number => mmView.ox + x * sc;
+  const Y = (y: number): number => mmView.oy + y * sc;
+  const walkable = (i: number): boolean => !!s.explored[i] && map.tiles[i] !== Tile.Wall;
+  const wallAt = (x: number, y: number): boolean =>
+    x < 0 || y < 0 || x >= map.w || y >= map.h || map.tiles[y * map.w + x] === Tile.Wall;
+  // Pass 1: floor fills — flat high-contrast parchment (the r5 hash-speckle
+  // read as compression noise at 1x); corridors a step darker so passages
+  // read as passages, plus a faint survey grid.
+  const ROOM = "#97794a";
+  const CORRIDOR = "#6b5530";
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const t = map.tiles[i];
+      const corridor =
+        (wallAt(x - 1, y) && wallAt(x + 1, y)) || (wallAt(x, y - 1) && wallAt(x, y + 1));
+      g.fillStyle =
+        t === Tile.StairsDown ? "#e8b84f" :
+        t === Tile.DoorLocked ? "#f2c14e" :
+        corridor ? CORRIDOR : ROOM;
+      g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
+      if (t !== Tile.StairsDown && t !== Tile.DoorLocked) {
+        g.fillStyle = "rgba(20,14,8,0.12)"; // engraved survey grid
+        g.fillRect(X(x + 1) - 0.5, Y(y), 0.5, sc);
+        g.fillRect(X(x), Y(y + 1) - 0.5, sc, 0.5);
+      }
+    }
+  }
+  // Pass 1b: DOORWAY thresholds — where a corridor mouth meets a room, ink a
+  // short bronze lintel across the passage so the chart shows doorways, not
+  // just an undifferentiated tan blob.
+  g.fillStyle = "rgba(201,162,75,0.55)";
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const nsWalls = wallAt(x - 1, y) && wallAt(x + 1, y);
+      const ewWalls = wallAt(x, y - 1) && wallAt(x, y + 1);
+      if (!nsWalls && !ewWalls) continue;
+      // A corridor tile adjacent to an open (room) tile = a threshold.
+      const roomward = (nx: number, ny: number): boolean => {
+        const ni = ny * map.w + nx;
+        return !wallAt(nx, ny) && !!s.explored[ni] &&
+          !((wallAt(nx - 1, ny) && wallAt(nx + 1, ny)) || (wallAt(nx, ny - 1) && wallAt(nx, ny + 1)));
+      };
+      if (nsWalls && roomward(x, y - 1)) g.fillRect(X(x), Y(y) - 0.6, sc, 1.2);
+      if (nsWalls && roomward(x, y + 1)) g.fillRect(X(x), Y(y + 1) - 0.6, sc, 1.2);
+      if (ewWalls && roomward(x - 1, y)) g.fillRect(X(x) - 0.6, Y(y), 1.2, sc);
+      if (ewWalls && roomward(x + 1, y)) g.fillRect(X(x + 1) - 0.6, Y(y), 1.2, sc);
+    }
+  }
+  // Pass 2: drawn room outlines — an inked bronze rule wherever explored
+  // floor meets wall, and a soft FEATHERED fog edge (shadow-blurred stroke,
+  // never a hard slice) where the chart trails into the unexplored dark.
+  g.lineWidth = 1;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const i = y * map.w + x;
+      if (!walkable(i)) continue;
+      const edges: [number, number, number, number, boolean][] = [];
+      const check = (nx: number, ny: number, x1: number, y1: number, x2: number, y2: number): void => {
+        const out = nx < 0 || ny < 0 || nx >= map.w || ny >= map.h;
+        const ni = ny * map.w + nx;
+        if (out || map.tiles[ni] === Tile.Wall) edges.push([x1, y1, x2, y2, true]);
+        else if (!s.explored[ni]) edges.push([x1, y1, x2, y2, false]);
+      };
+      check(x, y - 1, X(x), Y(y), X(x + 1), Y(y));
+      check(x, y + 1, X(x), Y(y + 1), X(x + 1), Y(y + 1));
+      check(x - 1, y, X(x), Y(y), X(x), Y(y + 1));
+      check(x + 1, y, X(x + 1), Y(y), X(x + 1), Y(y + 1));
+      for (const [x1, y1, x2, y2, isWall] of edges) {
+        g.save();
+        if (isWall) {
+          // Crisp 1px gold wall rule on the dark ground (r6 chart spec).
+          g.strokeStyle = "rgba(233,197,104,0.95)";
+          g.lineWidth = 1;
+          g.shadowColor = "rgba(0,0,0,0.8)";
+          g.shadowBlur = 1.5;
+        } else {
+          g.strokeStyle = "rgba(8,5,3,0.85)";
+          g.lineWidth = 2;
+          g.shadowColor = "rgba(8,5,3,0.9)";
+          g.shadowBlur = 5; // the fog FEATHERS over the vellum
+        }
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.lineTo(x2, y2);
+        g.stroke();
+        g.restore();
+        g.lineWidth = 1;
+      }
+    }
+  }
+}
+
 function drawMinimap(s: GameState): void {
   const map = s.map;
-  const W = minimap.width, H = minimap.height, pad = 6;
-  const sx = (W - pad * 2) / map.w, sy = (H - pad * 2) / map.h;
-  mmCtx.clearRect(0, 0, W, H);
+  // Explored bbox scan (cheap: one pass over the tile grid). The count keys
+  // the static cache — a new reveal or a new floor triggers one rebuild.
+  let minX = map.w, minY = map.h, maxX = -1, maxY = -1, count = 0;
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
       const i = y * map.w + x;
-      if (!s.explored[i]) continue;
-      const t = map.tiles[i];
-      if (t === Tile.Wall) continue;
-      mmCtx.fillStyle =
-        t === Tile.StairsDown ? "#c9a24b" :
-        t === Tile.DoorLocked ? "#f2c14e" : "#3a2f24";
-      mmCtx.fillRect(pad + x * sx, pad + y * sy, Math.ceil(sx), Math.ceil(sy));
+      if (!s.explored[i] || map.tiles[i] === Tile.Wall) continue;
+      count++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
     }
   }
+  const W = minimap.width, H = minimap.height;
+  if (maxX < 0) { mmCtx.clearRect(0, 0, W, H); return; }
+  // Location Scout marks the stairs through fog — keep them inside the frame.
+  const scout = hasPassive(me(s), "pathfinder");
+  if (scout) {
+    minX = Math.min(minX, Math.floor(s.map.stairs.x));
+    maxX = Math.max(maxX, Math.floor(s.map.stairs.x));
+    minY = Math.min(minY, Math.floor(s.map.stairs.y));
+    maxY = Math.max(maxY, Math.floor(s.map.stairs.y));
+  }
+  const key = `${s.floor}:${map.w}x${map.h}:${count}:${scout ? 1 : 0}`;
+  if (key !== mmKey) {
+    mmKey = key;
+    rebuildMinimapStatic(s, minX, minY, maxX, maxY);
+  }
+  mmCtx.clearRect(0, 0, W, H);
+  mmCtx.drawImage(mmStatic, 0, 0);
+  const X = (x: number): number => mmView.ox + x * mmView.s;
+  const Y = (y: number): number => mmView.oy + y * mmView.s;
   const vis2 = CONFIG.fogVisionRadius * CONFIG.fogVisionRadius;
+  // Enemies as EMBER GLYPHS, not raw red squares (r4 major): small rotated
+  // diamonds with a warm halo and an ink keyline — chart marks, not debug
+  // pixels. Bosses burn bigger with a ring.
+  mmCtx.save();
+  mmCtx.shadowBlur = 4;
   for (const m of s.monsters) {
     const dx = m.pos.x - me(s).pos.x, dy = m.pos.y - me(s).pos.y;
     if (dx * dx + dy * dy > vis2) continue;
-    mmCtx.fillStyle = m.kind === "boss" ? "#ff3b3b" : "#c0392f";
-    const r = m.kind === "boss" ? 3.5 : 2;
+    const boss = m.kind === "boss";
+    const cx = X(m.pos.x), cy = Y(m.pos.y);
+    const r = boss ? 3.6 : 2.1;
+    mmCtx.shadowColor = boss ? "rgba(255,110,70,0.9)" : "rgba(224,110,60,0.7)";
+    mmCtx.fillStyle = boss ? "#ff7a4d" : "#e0703f";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.85)";
+    mmCtx.lineWidth = 0.8;
     mmCtx.beginPath();
-    mmCtx.arc(pad + m.pos.x * sx, pad + m.pos.y * sy, r, 0, Math.PI * 2);
+    mmCtx.moveTo(cx, cy - r);
+    mmCtx.lineTo(cx + r, cy);
+    mmCtx.lineTo(cx, cy + r);
+    mmCtx.lineTo(cx - r, cy);
+    mmCtx.closePath();
     mmCtx.fill();
+    mmCtx.stroke();
+    if (boss) {
+      mmCtx.beginPath();
+      mmCtx.arc(cx, cy, r + 2.2, 0, Math.PI * 2);
+      mmCtx.strokeStyle = "rgba(255,122,77,0.6)";
+      mmCtx.stroke();
+    }
   }
+  mmCtx.restore();
   for (const pl of s.players) {
     if (!pl.alive) {
       // Downed crawler: a hollow red ring — go stand inside it.
       mmCtx.strokeStyle = "#c0392f";
       mmCtx.lineWidth = 1.5;
       mmCtx.beginPath();
-      mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 4, 0, Math.PI * 2);
+      mmCtx.arc(X(pl.pos.x), Y(pl.pos.y), 4, 0, Math.PI * 2);
       mmCtx.stroke();
       continue;
     }
-    mmCtx.fillStyle = pl.id === me(s).id ? "#5a87c6" : "#86b86a";
+    const isMe = pl.id === me(s).id;
+    if (isMe) {
+      // YOU are a glowing gold chevron pointing where you face — the D2R/LoL
+      // player-arrow read, not an anonymous dot (AAA r2 minor).
+      const ang = Math.atan2(pl.facing.y, pl.facing.x);
+      mmCtx.save();
+      mmCtx.translate(X(pl.pos.x), Y(pl.pos.y));
+      mmCtx.rotate(ang + Math.PI / 2);
+      mmCtx.shadowColor = "rgba(242,193,78,0.9)";
+      mmCtx.shadowBlur = 7;
+      mmCtx.fillStyle = "#ffedb8";
+      mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+      mmCtx.lineWidth = 1;
+      mmCtx.beginPath();
+      mmCtx.moveTo(0, -4.8);
+      mmCtx.lineTo(3.5, 3.9);
+      mmCtx.lineTo(0, 1.9);
+      mmCtx.lineTo(-3.5, 3.9);
+      mmCtx.closePath();
+      mmCtx.fill();
+      mmCtx.stroke();
+      mmCtx.restore();
+      continue;
+    }
+    mmCtx.fillStyle = "#86b86a";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+    mmCtx.lineWidth = 1;
     mmCtx.beginPath();
-    mmCtx.arc(pad + pl.pos.x * sx, pad + pl.pos.y * sy, 3, 0, Math.PI * 2);
+    mmCtx.arc(X(pl.pos.x), Y(pl.pos.y), 2.6, 0, Math.PI * 2);
     mmCtx.fill();
+    mmCtx.stroke();
   }
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
@@ -2527,14 +3162,17 @@ function drawMinimap(s: GameState): void {
     mmCtx.lineWidth = 1.5;
     mmCtx.globalAlpha = 0.9 - cycle * 0.6;
     mmCtx.beginPath();
-    mmCtx.arc(pad + pg.pos.x * sx, pad + pg.pos.y * sy, 2 + cycle * 4, 0, Math.PI * 2);
+    mmCtx.arc(X(pg.pos.x), Y(pg.pos.y), 2 + cycle * 4, 0, Math.PI * 2);
     mmCtx.stroke();
     mmCtx.globalAlpha = 1;
   }
+  // Roam: settlement pennants + active-contract pins, in the same engraved
+  // chart language as the rest of the surveyor's minimap.
+  if (s.runKind === "roam") drawRoamPins(s, X, Y);
   // Location Scout (chase legendary): the stairs are marked from the moment
   // you arrive — a pulsing gold diamond, fog or no fog.
   if (hasPassive(me(s), "pathfinder")) {
-    const cx = pad + s.map.stairs.x * sx, cy = pad + s.map.stairs.y * sy;
+    const cx = X(s.map.stairs.x), cy = Y(s.map.stairs.y);
     const pulse = 4 + Math.sin(performance.now() / 250) * 1.5;
     mmCtx.strokeStyle = "#ffd700";
     mmCtx.lineWidth = 1.5;
@@ -2550,47 +3188,840 @@ function drawMinimap(s: GameState): void {
   }
 }
 
-const HIT_COLORS: Record<HitEvent["kind"], string> = {
-  enemy: "#ffb347", crit: "#ffe066", player: "#d14538",
-  heal: "#6da356", gold: "#f2c14e", weapon: "#9a6bd0",
-  chain: "#aab2bd", // iron links; zero-amount events never become numbers anyway
+// ============================ ROAM PRESENTATION ============================
+// Host side of src/sim/npc.ts: the settlement conversation cut, the contract
+// ledger, arrival plaques, resident nameplates, and minimap chart pins.
+// Dialogue rides state.dialogue (its OWN channel — never the System's
+// announcer surfaces) and renders ONLY for the interacting player.
+
+let settlementShopOpen = false; // the in-map outfitter (reuses #saferoom)
+
+const dlgEl = document.getElementById("dialogue")!;
+const dlgPortraitImg = document.getElementById("dlg-portrait") as HTMLImageElement;
+const dlgNameEl = document.getElementById("dlg-name")!;
+const dlgRoleEl = document.getElementById("dlg-role")!;
+const dlgKickerEl = document.getElementById("dlg-kicker")!;
+const dlgTextEl = document.getElementById("dlg-text")!;
+const dlgChoicesEl = document.getElementById("dlg-choices")!;
+const mmFrameEl = document.getElementById("minimap-frame")!;
+
+// Painted portrait per archetype (public/icons/portraits/): the sim's
+// portraitId is the file key; unknown ids fall back to the elder.
+const PORTRAIT_IDS = new Set(["mordecai", "trader", "quartermaster", "rumor", "elder"]);
+const NPC_ROLE_LABEL: Record<string, string> = {
+  guide: "Guide", trader: "Trader", quartermaster: "Quartermaster",
+  rumor: "Rumor-Monger", elder: "Elder",
 };
 
-// Floating combat numbers: project a world hit to screen and float it upward.
-function spawnDamageNumber(h: HitEvent): void {
-  const s = renderer.worldToScreen(h.pos.x, 0.7, h.pos.y);
-  if (!s.visible) return;
-  const el = document.createElement("div");
-  el.className = h.kind === "crit" ? "dmg crit" : "dmg";
-  el.style.color = HIT_COLORS[h.kind];
-  el.style.left = `${s.x}px`;
-  el.style.top = `${s.y}px`;
-  const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
-  el.textContent = h.kind === "crit" ? `${h.amount}!` : `${sign}${h.amount}`;
-  // School tint (DESIGN 5.8): magic hits read arcane-purple so a mixed build
-  // can SEE which school each number came from (physical keeps the defaults).
-  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
-    el.style.color = h.kind === "crit" ? "#c4a8e8" : "#9a6bd0";
+let dlgOpen = false;
+let dlgSessionId = -1;
+let dlgLinesKey = "";
+let dlgFullText: string[] = [];
+let dlgShown = 0; // characters revealed so far, across every line
+let dlgTypeTimer = 0;
+
+function dlgTotalChars(): number {
+  return dlgFullText.reduce((n, l) => n + l.length, 0);
+}
+
+function dlgRenderText(): void {
+  let budget = dlgShown;
+  let html = "";
+  for (const line of dlgFullText) {
+    if (budget <= 0) break;
+    const take = Math.min(line.length, budget);
+    budget -= take;
+    html += `<div class="dlg-line">${esc(line.slice(0, take))}</div>`;
   }
-  // Status DoT ticks (5.11): each effect owns a color — burn ember-orange,
-  // poison toxin-green — so a DoT build can read its uptime mid-fight.
-  if (h.effect === "burn") el.style.color = "#ff7a2f";
-  else if (h.effect === "poison") el.style.color = "#7ed957";
+  dlgTextEl.innerHTML = html;
+  dlgTextEl.classList.toggle("typing", dlgShown < dlgTotalChars());
+}
+
+/** Classic RPG typewriter — click / Space / Enter skips to the full text. */
+function dlgStartType(lines: string[]): void {
+  dlgFullText = lines;
+  dlgShown = 1;
+  window.clearInterval(dlgTypeTimer);
+  dlgTypeTimer = window.setInterval(() => {
+    dlgShown += 2;
+    dlgRenderText();
+    if (dlgShown >= dlgTotalChars()) window.clearInterval(dlgTypeTimer);
+  }, 16);
+  dlgRenderText();
+}
+
+function dlgFinishType(): void {
+  window.clearInterval(dlgTypeTimer);
+  dlgShown = dlgTotalChars();
+  dlgRenderText();
+}
+
+function dlgRenderChoices(session: DialogueSession): void {
+  dlgChoicesEl.innerHTML = session.choices.map((c, i) => {
+    const cls = [
+      "dlg-choice",
+      c.effect === "farewell" ? "bye" : "",
+      c.effect === "acceptQuest" || c.effect === "turnIn" ? "quest" : "",
+    ].filter(Boolean).join(" ");
+    const cost = c.price ? `<span class="dcost">${coin}${c.price}</span>` : "";
+    return (
+      `<button class="${cls}" data-choice="${esc(c.id)}">` +
+      `<span class="dnum">${i + 1}</span><span class="dlabel">${esc(c.label)}</span>${cost}</button>`
+    );
+  }).join("");
+}
+
+function openDialogueUi(session: DialogueSession, s: GameState): void {
+  dlgOpen = true;
+  dlgSessionId = session.id;
+  const guide = session.portraitId === "mordecai";
+  dlgEl.classList.toggle("guide", guide);
+  const pid = PORTRAIT_IDS.has(session.portraitId) ? session.portraitId : "elder";
+  dlgPortraitImg.src = `/icons/portraits/${pid}.svg`;
+  dlgNameEl.textContent = session.npcName;
+  const npc = npcsOf(s).find((n) => n.id === session.npcId);
+  dlgRoleEl.textContent = NPC_ROLE_LABEL[npc?.role ?? "elder"] ?? "Resident";
+  const st = (s.settlements ?? []).find((x) => x.id === session.settlementId);
+  dlgKickerEl.textContent = guide
+    ? "◆ THE GUIDE ◆"
+    : `◆ ${(st?.name ?? "the camp").toUpperCase()} — SETTLEMENT CHANNEL ◆`;
+  input.captureMode = true; // digits answer, not cast, while the panel is up
+  dlgEl.style.display = "flex";
+  requestAnimationFrame(() => dlgEl.classList.add("show"));
+}
+
+function closeDialogueUi(): void {
+  if (!dlgOpen) return;
+  dlgOpen = false;
+  dlgSessionId = -1;
+  dlgLinesKey = "";
+  window.clearInterval(dlgTypeTimer);
+  dlgEl.classList.remove("show");
+  window.setTimeout(() => { if (!dlgOpen) dlgEl.style.display = "none"; }, 220);
+  if (!menuOpen && !kbOpen) input.captureMode = false;
+}
+
+/** Answer a dialogue choice (local sim only — Roam is solo-first). */
+function answerDialogue(choiceId: string): void {
+  if (net) return; // no wire message for dialogue answers yet
+  const session = state.dialogue;
+  if (!session) return;
+  const before = state.exploredVersion;
+  chooseDialogue(state, session.playerId, choiceId);
+  flushFeedback(state);
+  persistRun(state);
+  // Guide moment: an orientation / rumor just painted the chart — pulse the
+  // minimap bezel so the reveal lands as a visible gift. Deferred: the modal
+  // scrim hides the minimap right now; the pulse fires as the panel closes.
+  if (state.exploredVersion !== before) mmFlashPending = true;
+}
+let mmFlashPending = false;
+
+dlgChoicesEl.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest(".dlg-choice") as HTMLElement | null;
+  if (btn?.dataset.choice) answerDialogue(btn.dataset.choice);
+});
+dlgTextEl.addEventListener("click", () => dlgFinishType());
+// The dialogue owns the keyboard while open (captureMode holds game binds):
+// 1-9 answer, Space/Enter skip the typewriter, Esc is a polite farewell.
+window.addEventListener("keydown", (e) => {
+  if (!dlgOpen) return;
+  if (e.key === "Escape") {
+    if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
+    closeDialogueUi();
+    e.stopImmediatePropagation();
+    return;
+  }
+  if ((e.key === " " || e.key === "Enter") && dlgShown < dlgTotalChars()) {
+    dlgFinishType();
+    return;
+  }
+  const n = Number(e.key);
+  if (Number.isInteger(n) && n >= 1 && n <= 9) {
+    (dlgChoicesEl.children[n - 1] as HTMLButtonElement | undefined)?.click();
+  }
+}, true);
+
+/** Per-frame dialogue sync: the sim session is the truth, the panel follows. */
+function updateDialogueUi(s: GameState): void {
+  const session = s.runKind === "roam" ? s.dialogue ?? null : null;
+  if (!session || session.playerId !== me(s).id || session.done) {
+    if (dlgOpen) closeDialogueUi();
+    return;
+  }
+  // Host signals: a choice asked for the shop / the loadout bench — trade the
+  // conversation for the panel (the settlement outfitter reuses #saferoom).
+  if (session.open) {
+    const page = session.open;
+    if (!net) {
+      closeDialogue(s, session.playerId);
+      closeDialogueUi();
+      srTab = page === "reslot" ? "abil" : "shop";
+      shopView = "stock";
+      shopSel = null;
+      settlementShopOpen = true;
+    }
+    return;
+  }
+  const key =
+    `${session.id}:${session.lines.map((l) => l.text).join("¦")}:` +
+    session.choices.map((c) => c.id).join(",");
+  if (key === dlgLinesKey) return;
+  const fresh = session.id !== dlgSessionId;
+  dlgLinesKey = key;
+  if (fresh) openDialogueUi(session, s);
+  dlgStartType(session.lines.map((l) => l.text));
+  dlgRenderChoices(session);
+}
+
+// ---- Contract ledger (right rail, collapsible) ----
+const questsEl = document.getElementById("quests")!;
+const qListEl = document.getElementById("q-list")!;
+const qNEl = document.getElementById("q-n")!;
+const Q_COLLAPSE_KEY = "dcc:quests:v1";
+try { if (localStorage.getItem(Q_COLLAPSE_KEY) === "1") questsEl.classList.add("collapsed"); } catch { /* default open */ }
+document.getElementById("q-head")!.addEventListener("click", () => {
+  const c = questsEl.classList.toggle("collapsed");
+  try { localStorage.setItem(Q_COLLAPSE_KEY, c ? "1" : "0"); } catch { /* best-effort */ }
+});
+let questTrackerKey = "";
+
+/** Display-only progress read of a quest objective (no rules live here). */
+function questProgress(s: GameState, q: Quest): { text: string; done: boolean; ticks?: [number, number] } {
+  const o = q.objective;
+  switch (o.kind) {
+    case "killTribe": {
+      const k = Math.min(o.killed, o.target);
+      return { text: `${k} / ${o.target} culled`, done: k >= o.target, ticks: [k, o.target] };
+    }
+    case "clearStronghold":
+      return s.strongholdCleared
+        ? { text: `${o.leaderName} evicted`, done: true }
+        : { text: `${o.leaderName} still holds the camp`, done: false };
+    case "cache":
+      return o.recovered
+        ? { text: "cache in hand", done: true }
+        : { text: "recover the cache from the vault", done: false };
+    case "delivery":
+      return o.delivered
+        ? { text: "delivered, signed, witnessed", done: true }
+        : { text: `deliver to ${o.toName}`, done: false };
+    case "beacons": {
+      const lit = o.spots.filter((x) => x.lit).length;
+      return { text: `${lit} / ${o.spots.length} beacons lit`, done: lit >= o.spots.length, ticks: [lit, o.spots.length] };
+    }
+  }
+}
+
+function updateQuestTracker(s: GameState): void {
+  const show = s.runKind === "roam" && s.status === "playing" && !menuOpen && (s.quests?.length ?? 0) > 0;
+  questsEl.style.display = show ? "block" : "none";
+  if (!show) { questTrackerKey = ""; return; }
+  const key = s.quests.map((q) => `${q.key ?? q.id}:${q.state}:${questProgress(s, q).text}`).join("|");
+  if (key === questTrackerKey) return;
+  questTrackerKey = key;
+  const active = s.quests.filter((q) => q.state === "active");
+  const offered = s.quests.filter((q) => q.state === "offered");
+  const done = s.quests.filter((q) => q.state === "complete");
+  qNEl.textContent = active.length > 0 ? `· ${active.length} open` : "";
+  const giverName = (q: Quest): string =>
+    npcsOf(s).find((n) => n.id === q.giverNpcId)?.name ?? "a resident";
+  const ticksHtml = (a: number, b: number): string =>
+    b <= 10
+      ? `<span class="q-ticks">${Array.from({ length: b }, (_v, i) => `<i class="${i < a ? "on" : ""}"></i>`).join("")}</span>`
+      : "";
+  qListEl.innerHTML =
+    active.map((q) => {
+      const pr = questProgress(s, q);
+      const line = pr.done && q.objective.kind !== "delivery"
+        ? `${pr.text} — see ${giverName(q)}`
+        : pr.text;
+      return (
+        `<div class="q-row${pr.done ? " done" : ""}">` +
+        `<div class="q-title">${esc(q.title ?? q.key ?? "the work")}</div>` +
+        `<div class="q-prog">${pr.ticks ? ticksHtml(pr.ticks[0], pr.ticks[1]) : ""}<span>${esc(line)}</span></div>` +
+        `</div>`
+      );
+    }).join("") +
+    offered.map((q) =>
+      `<div class="q-row offered"><div class="q-title">${esc(q.title ?? "posted work")}</div>` +
+      `<div class="q-prog"><span>ask ${esc(giverName(q))}</span></div></div>`).join("") +
+    (done.length > 0
+      ? `<div class="q-row done"><div class="q-prog"><span>${done.length} contract${done.length === 1 ? "" : "s"} settled this floor</span></div></div>`
+      : "");
+}
+
+// Contract beats: accept / settle each get one pass through the headline zone
+// in the settlement ledger's voice (.ann.quest — distinct from the System).
+// They fire INSIDE the dialogue modal (which suppresses #headline), so beats
+// buffer here and land the moment the conversation / reward draft clears.
+const questStateMem = new Map<string, Quest["state"]>();
+const pendingQuestBeats: { a: Announcement; cls: string }[] = [];
+function watchQuestBeats(s: GameState): void {
+  if (s.runKind !== "roam") return;
+  for (const q of s.quests ?? []) {
+    const k = `${s.seed}:${s.floor}:${q.key ?? q.id}`;
+    const prevSt = questStateMem.get(k);
+    if (prevSt !== q.state) {
+      questStateMem.set(k, q.state);
+      if (prevSt === undefined) continue; // first sight (build / restore): no beat
+      if (q.state === "active") {
+        pendingQuestBeats.push({
+          a: { text: q.title ?? "the work", kind: "progress", priority: "high" },
+          cls: "ann banner quest accepted",
+        });
+      } else if (q.state === "complete") {
+        pendingQuestBeats.push({
+          a: { text: `${q.title ?? "the job"} — the payout draft is yours`, kind: "progress", priority: "high" },
+          cls: "ann banner quest",
+        });
+      }
+    }
+  }
+  if (pendingQuestBeats.length > 0 && !document.body.classList.contains("modal")) {
+    for (const b of pendingQuestBeats.splice(0)) showBanner(b.a, b.cls);
+  }
+}
+
+// ---- Settlement presence: the arrival plaque ----
+const plaqueEl = document.getElementById("settle-plaque")!;
+const spNameEl = document.getElementById("sp-name")!;
+const spSubEl = document.getElementById("sp-sub")!;
+let plaqueSettlementId = -1;
+let plaqueTimer = 0;
+const plaqueLastShown = new Map<number, number>();
+
+function updateSettlementPresence(s: GameState): void {
+  const p = me(s);
+  const st = s.runKind === "roam" && s.status === "playing" && p.alive
+    ? settlementAt(s, p.pos)
+    : null;
+  const id = st?.id ?? -1;
+  if (id === plaqueSettlementId) return;
+  plaqueSettlementId = id;
+  if (!st) { plaqueEl.classList.remove("show"); return; }
+  // Boundary-hover guard: crossing the wall twice in a minute isn't two arrivals.
+  const last = plaqueLastShown.get(id) ?? -1e9;
+  if (performance.now() - last < 45000) return;
+  plaqueLastShown.set(id, performance.now());
+  spNameEl.textContent = st.name.toUpperCase();
+  spSubEl.textContent = `pop. ${st.npcIds.length} · no-aggro ground`;
+  plaqueEl.classList.add("show");
+  window.clearTimeout(plaqueTimer);
+  plaqueTimer = window.setTimeout(() => plaqueEl.classList.remove("show"), 3800);
+}
+
+// ---- Resident nameplates: name/role float on approach, talk hint in reach ----
+const npcPlatesLayer = document.createElement("div");
+npcPlatesLayer.id = "npcplates";
+document.getElementById("fx")!.before(npcPlatesLayer); // numbers stay on top
+type NpcPlateEl = { root: HTMLDivElement; name: HTMLDivElement; role: HTMLDivElement; talk: HTMLDivElement; cls: string; forId: number };
+const npcPlatePool: NpcPlateEl[] = [];
+const npcPlateLive = new Map<number, NpcPlateEl>();
+
+function makeNpcPlate(): NpcPlateEl {
+  const root = document.createElement("div");
+  root.className = "nplate";
+  const name = document.createElement("div");
+  name.className = "nname";
+  const role = document.createElement("div");
+  role.className = "nrole";
+  const talk = document.createElement("div");
+  talk.className = "ntalk";
+  root.append(name, role, talk);
+  npcPlatesLayer.appendChild(root);
+  return { root, name, role, talk, cls: "nplate", forId: -1 };
+}
+
+function updateNpcPlates(s: GameState): void {
+  const seen = new Set<number>();
+  if (s.runKind === "roam" && s.status === "playing" && !dlgOpen) {
+    const p = me(s);
+    // Gather first: residents cluster, so plates need a de-overlap pass and
+    // only the NEAREST one in reach gets the talk hint (one E, one target).
+    const cands: { n: ReturnType<typeof npcsOf>[number]; d: number; x: number; y: number }[] = [];
+    for (const n of npcsOf(s)) {
+      const d = Math.hypot(n.pos.x - p.pos.x, n.pos.y - p.pos.y);
+      if (d > 7) continue;
+      const sp = renderer.worldToScreen(n.pos.x, 2.15, n.pos.y);
+      if (!sp.visible) continue;
+      cands.push({ n, d, x: sp.x, y: sp.y });
+    }
+    let talkId = -1;
+    let talkD = 1.6;
+    for (const c of cands) if (c.d <= talkD) { talkD = c.d; talkId = c.n.id; }
+    // Colliding plates fan upward, chart-label style (top-most stays put).
+    cands.sort((a, b) => a.y - b.y);
+    const placed: { x: number; y: number }[] = [];
+    for (const c of cands) {
+      for (const q of placed) {
+        if (Math.abs(q.x - c.x) < 120 && Math.abs(q.y - c.y) < 44) c.y = q.y - 46;
+      }
+      placed.push({ x: c.x, y: c.y });
+    }
+    for (const c of cands) {
+      const n = c.n;
+      let plate = npcPlateLive.get(n.id);
+      if (!plate) {
+        plate = npcPlatePool.pop() ?? makeNpcPlate();
+        npcPlateLive.set(n.id, plate);
+        plate.root.style.display = "block";
+      }
+      seen.add(n.id);
+      if (plate.forId !== n.id) {
+        plate.forId = n.id;
+        plate.name.textContent = n.name;
+        plate.role.textContent = NPC_ROLE_LABEL[n.role ?? "elder"] ?? "Resident";
+        plate.talk.innerHTML = `<kbd>${esc(bindingLabel(bindings, "stairs").toUpperCase())}</kbd> talk`;
+      }
+      const cls = `nplate${n.role === "guide" ? " guide" : ""}${n.id === talkId ? " reach" : ""}`;
+      if (plate.cls !== cls) {
+        plate.cls = cls;
+        plate.root.className = cls;
+      }
+      plate.root.style.left = `${c.x}px`;
+      plate.root.style.top = `${c.y}px`;
+      plate.root.style.opacity = c.d > 6 ? Math.max(0, 1 - (c.d - 6)).toFixed(2) : "1";
+    }
+  }
+  for (const [id, plate] of npcPlateLive) {
+    if (seen.has(id)) continue;
+    plate.root.style.display = "none";
+    plate.cls = "";
+    plate.forId = -1;
+    npcPlateLive.delete(id);
+    npcPlatePool.push(plate);
+  }
+}
+
+// ---- Minimap chart pins: settlements + active-contract targets ----
+function drawRoamPins(s: GameState, X: (x: number) => number, Y: (y: number) => number): void {
+  const roomCenterOf = (idx: number): Vec2 | null => {
+    const r = s.map.rooms[idx];
+    return r ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : null;
+  };
+  const exploredAt = (v: Vec2): boolean =>
+    !!s.explored[Math.floor(v.y) * s.map.w + Math.floor(v.x)];
+  const ring = (cx: number, cy: number, color: string): void => {
+    const pulse = 5 + Math.sin(performance.now() / 300) * 1.4;
+    mmCtx.strokeStyle = color;
+    mmCtx.lineWidth = 1.4;
+    mmCtx.beginPath();
+    mmCtx.arc(cx, cy, pulse, 0, Math.PI * 2);
+    mmCtx.stroke();
+  };
+  // Settlements: verdant rooftop pennants — sanctuary at a glance.
+  for (const st of s.settlements ?? []) {
+    const c = roomCenterOf(st.roomIdx);
+    if (!c || !exploredAt(c)) continue;
+    const cx = X(c.x), cy = Y(c.y);
+    mmCtx.save();
+    mmCtx.shadowColor = "rgba(134,184,106,0.8)";
+    mmCtx.shadowBlur = 4;
+    mmCtx.fillStyle = "#a8d18a";
+    mmCtx.strokeStyle = "rgba(10,7,4,0.9)";
+    mmCtx.lineWidth = 1;
+    mmCtx.beginPath();
+    mmCtx.moveTo(cx, cy - 4.6);
+    mmCtx.lineTo(cx + 4.2, cy - 0.6);
+    mmCtx.lineTo(cx + 2.6, cy - 0.6);
+    mmCtx.lineTo(cx + 2.6, cy + 3.4);
+    mmCtx.lineTo(cx - 2.6, cy + 3.4);
+    mmCtx.lineTo(cx - 2.6, cy - 0.6);
+    mmCtx.lineTo(cx - 4.2, cy - 0.6);
+    mmCtx.closePath();
+    mmCtx.fill();
+    mmCtx.stroke();
+    mmCtx.restore();
+  }
+  for (const q of s.quests ?? []) {
+    if (q.state !== "active") continue;
+    const o = q.objective;
+    if (o.kind === "beacons") {
+      // Unlit: hollow amber diamonds. Lit: filled gold with a warm halo.
+      for (const spot of o.spots) {
+        const cx = X(spot.x), cy = Y(spot.y);
+        mmCtx.save();
+        if (spot.lit) {
+          mmCtx.shadowColor = "rgba(242,193,78,0.9)";
+          mmCtx.shadowBlur = 5;
+          mmCtx.fillStyle = "#ffd76e";
+        }
+        mmCtx.strokeStyle = spot.lit ? "rgba(20,12,4,0.9)" : "#d9a94a";
+        mmCtx.lineWidth = 1.3;
+        mmCtx.beginPath();
+        mmCtx.moveTo(cx, cy - 3.6);
+        mmCtx.lineTo(cx + 3.6, cy);
+        mmCtx.lineTo(cx, cy + 3.6);
+        mmCtx.lineTo(cx - 3.6, cy);
+        mmCtx.closePath();
+        if (spot.lit) mmCtx.fill();
+        mmCtx.stroke();
+        mmCtx.restore();
+      }
+    } else if (o.kind === "cache" && !o.recovered) {
+      // The quartermaster gave directions — the vault is marked through fog.
+      const c = roomCenterOf(o.roomIdx);
+      if (c) ring(X(c.x), Y(c.y), "#f2c14e");
+    } else if (o.kind === "delivery" && !o.delivered) {
+      const st = (s.settlements ?? []).find((x) => x.id === o.toSettlementId);
+      const c = st ? roomCenterOf(st.roomIdx) : null;
+      if (c) ring(X(c.x), Y(c.y), "#f2c14e");
+    } else if (o.kind === "clearStronghold" && !s.strongholdCleared && s.map.strongholdRoomIdx >= 0) {
+      const c = roomCenterOf(s.map.strongholdRoomIdx);
+      if (c && exploredAt(c)) ring(X(c.x), Y(c.y), "#e0703f");
+    }
+  }
+}
+
+/** One per-frame entry point for everything Roam (called after drawMinimap). */
+function updateRoamUi(s: GameState): void {
+  updateDialogueUi(s);
+  updateQuestTracker(s);
+  watchQuestBeats(s);
+  updateSettlementPresence(s);
+  updateNpcPlates(s);
+  if (mmFlashPending && !document.body.classList.contains("modal")) {
+    mmFlashPending = false;
+    mmFrameEl.classList.remove("mm-flash");
+    void (mmFrameEl as HTMLElement).offsetWidth;
+    mmFrameEl.classList.add("mm-flash");
+  }
+}
+
+const HIT_COLORS: Record<HitEvent["kind"], string> = {
+  // Warm parchment-gold for ordinary hits (r5 minor: the old white face went
+  // mid-gray through the bevel shading on dark ground); crits stay a hotter,
+  // deeper gold so the magnitude ramp survives the shared warm family.
+  enemy: "#ffd36a", crit: "#ffc93c", player: "#ff5240",
+  heal: "#8fd06f", gold: "#f2c14e", weapon: "#c9a3f5",
+  chain: "#c8d0da", // iron links; zero-amount events never become numbers anyway
+};
+
+// Floating combat numbers (critic r2 blocker rework): pooled DOM elements +
+// Web Animations, now with AGGREGATION and COLLISION AVOIDANCE. Same-kind
+// ticks landing on the same spot within ~half a second merge into ONE rolling
+// counter that re-pops as it grows (the LoL treatment); distinct numbers that
+// would overlap fan out on golden-angle radial slots instead of piling into
+// an unreadable clump. Numbers anchor ABOVE the impact (y≈1.2) so they ride
+// over the blast core instead of sitting inside it.
+const dmgPool: HTMLDivElement[] = [];
+const DMG_POOL_MAX = 48;
+// Readability cap (audit r2): past ~16 simultaneous numbers the screen is
+// confetti — ordinary enemy ticks are dropped first; crits, kills, player
+// damage, heals, and gold always land.
+const DMG_MAX_ACTIVE = 16;
+interface DmgLive {
+  el: HTMLDivElement;
+  key: string; // kind|school|effect — only like merges with like
+  wx: number; wz: number; // world anchor: aggregation radius test
+  sx: number; sy: number; // screen anchor: collision-fan test
+  total: number;
+  merges: number;
+  born: number; // ms clock
+  crit: boolean;
+  color: string; // numeral face hex — merges repaint with the same palette
+  stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
+}
+const dmgLive: DmgLive[] = [];
+const DMG_AGG_MS = 520; // rolling-counter window
+const DMG_AGG_R2 = 0.9 * 0.9; // world-units² — same-target ticks merge
+const DMG_FAN_PX = 56; // min screen spacing before fanning out
+
+function dmgText(rec: DmgLive, sign: string): string {
+  return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
+}
+
+// BESPOKE DISPLAY NUMERALS (final pass, issue #5): canvas-rendered glyphs —
+// chunky ultra-black face, slight italic skew, chiseled bevel (dark underlay
+// + vertical face gradient + top sheen), heavy rounded ink outline, soft
+// color glow. Crits add a chromatic red/cyan flash under the ink. One draw
+// per spawn/merge (a few per second) — zero per-frame cost; the WAAPI
+// transform animation moves the finished bitmap.
+const DMG_FONT = `900 %PX%px "Arial Black", "Segoe UI Black", "Arial", sans-serif`;
+function dmgShade(hex: string, k: number): string {
+  // k > 0 lightens toward white, k < 0 darkens toward black.
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number): number =>
+    Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean): void {
+  let canvas = el.firstElementChild as HTMLCanvasElement | null;
+  if (!canvas || canvas.tagName !== "CANVAS") {
+    canvas = document.createElement("canvas");
+    canvas.style.display = "block";
+    el.prepend(canvas);
+  }
+  const px = crit ? 58 : 38; // non-crit floor raised (r5: 34px thinned to fog)
+  const pad = crit ? 30 : 18;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { el.textContent = text; return; }
+  ctx.font = DMG_FONT.replace("%PX%", String(px));
+  const tw = Math.ceil(ctx.measureText(text).width);
+  const w = tw + pad * 2 + Math.ceil(px * 0.14);
+  const h = px + pad * 2;
+  canvas.width = w;
+  canvas.height = h;
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(w / 2, h / 2);
+  ctx.transform(1, 0, -0.14, 1, 0, 0); // the slight italic lean
+  ctx.font = DMG_FONT.replace("%PX%", String(px));
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  if (crit) {
+    // Chromatic flash under the ink: hot red left, cold cyan right.
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#ff3b30";
+    ctx.fillText(text, -3.5, 0);
+    ctx.fillStyle = "#4fd8ff";
+    ctx.fillText(text, 3.5, 0);
+    ctx.globalAlpha = 1;
+  }
+  // Heavy ink: a dropped dark stroke for weight, then the main outline.
+  ctx.strokeStyle = "rgba(6,3,1,0.85)";
+  ctx.lineWidth = crit ? 11 : 8;
+  ctx.strokeText(text, 0, 2.5);
+  ctx.strokeStyle = "rgba(12,6,2,0.97)";
+  ctx.lineWidth = crit ? 9 : 6.5;
+  ctx.strokeText(text, 0, 0);
+  // Chiseled bevel: dark underlay, then the vertical face gradient with a
+  // soft color glow, then a top sheen. Face floor raised (r5 minor): the old
+  // -0.28 bottom stop dragged small numerals to mid-gray over dark ground —
+  // every number now keeps the crit treatment's warm luminous face.
+  ctx.fillStyle = dmgShade(color, -0.4);
+  ctx.fillText(text, 0, 2.2);
+  const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
+  face.addColorStop(0, dmgShade(color, 0.78));
+  face.addColorStop(0.42, color);
+  face.addColorStop(1, dmgShade(color, -0.12));
+  ctx.shadowColor = color;
+  ctx.shadowBlur = crit ? 20 : 15;
+  ctx.fillStyle = face;
+  ctx.fillText(text, 0, 0);
+  ctx.shadowBlur = 0;
+  const sheen = ctx.createLinearGradient(0, -px / 2, 0, 0);
+  sheen.addColorStop(0, "rgba(255,255,255,0.5)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillText(text, 0, -0.8);
+}
+
+/** (Re)run the pop-drift-fade animation for a live number. Merges re-pop with
+ * a slightly bigger punch each stack so a rolling counter visibly GROWS. */
+/** Scale-in + ARC-OUT (issue #5): the number pops in, lobs up along its
+ * drift, crests just past mid-life and settles slightly on the way out — a
+ * thrown-coin arc, not a linear float. Merges re-pop with a bigger punch. */
+function dmgAnimate(rec: DmgLive): void {
+  const { el, crit } = rec;
+  const grow = Math.min(1 + rec.merges * 0.07, 1.42);
+  // LATERAL-DOMINANT ARC (r6 major): simultaneous hits fan OUT of the fight
+  // sideways — drift now outweighs rise, so a burst reads as a spray of
+  // coins, never a vertical pile climbing the back wall.
+  const dir = Math.random() < 0.5 ? -1 : 1;
+  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 132 : 96);
+  const rise = (crit ? 64 : 50) * (rec.merges > 0 ? 0.85 : 1);
+  const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
+  const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
+  // r7 blocker root cause (ghost numbers in EVERY combat frame): the old
+  // options-level `easing` is EFFECT-level in WAAPI — the entire keyframe
+  // timeline got remapped through the aggressive ease-out, so a number hit
+  // 88% keyframe progress (deep in its fade) at just 35% of real time and
+  // spent most of its life translucent. Easing now rides the KEYFRAMES: hard
+  // pop-in, gliding arc, full ink held to 80%, then a quick clean exit.
+  const anim = el.animate(
+    [
+      { transform: `translate(-50%, -50%) scale(${crit ? 0.25 : 0.5}) rotate(${tilt}deg)`, opacity: 0.9, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.44).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.14, easing: "cubic-bezier(0.33, 1, 0.68, 1)" },
+      { transform: `translate(calc(-50% + ${(drift * 0.62).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.58, easing: "linear" },
+      { opacity: 1, offset: 0.8, easing: "ease-in" },
+      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${(rise * 0.86).toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
+    ],
+    // Per-number stagger (r6 major: simultaneous hits stacked into one
+    // unreadable pile): later numbers in a burst hold their pop a few frames
+    // so a flurry reads as a drum-roll, not a single clump. fill:backwards
+    // keeps the pre-pop keyframe applied during the delay.
+    { duration: crit ? 920 : 780, delay: rec.merges > 0 ? 0 : rec.stagger, fill: "backwards" },
+  );
+  anim.onfinish = () => {
+    const i = dmgLive.indexOf(rec);
+    if (i >= 0) dmgLive.splice(i, 1);
+    el.style.visibility = "hidden";
+    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el);
+    else el.remove();
+  };
+}
+
+function spawnDamageNumber(h: HitEvent): void {
+  const crit = h.kind === "crit";
+  // Anchor at HEAD height, not sky height (r6 major: numbers climbed the
+  // arena wall and jumbled at the top of the frame): they pop at the
+  // silhouette's crown and the arc carries them OUT (lateral drift dominates
+  // vertical rise), never up onto the wall geometry behind the fight.
+  const s = renderer.worldToScreen(h.pos.x, crit ? 1.55 : 1.3, h.pos.y);
+  if (!s.visible) return;
+  const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
+  const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
+  const now = performance.now();
+
+  // ROLLING COUNTER: a same-kind hit on the same spot inside the window
+  // grows the existing number and re-pops it instead of stacking a twin.
+  // (Resisted numbers carry an icon child, so they never merge.) Runs BEFORE
+  // the saturation gate: a mergeable tick always lands somewhere readable.
+  if (!h.resisted && !h.killed) {
+    for (const rec of dmgLive) {
+      if (rec.key !== key || now - rec.born > DMG_AGG_MS) continue;
+      const dx = rec.wx - h.pos.x, dz = rec.wz - h.pos.y;
+      if (dx * dx + dz * dz > DMG_AGG_R2) continue;
+      rec.total += h.amount;
+      rec.merges++;
+      rec.wx = h.pos.x; rec.wz = h.pos.y;
+      rec.el.getAnimations().forEach((a) => a.cancel());
+      paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit);
+      dmgAnimate(rec);
+      return;
+    }
+  }
+  const important = h.kind !== "enemy" || h.killed === true;
+  if (dmgLive.length >= DMG_MAX_ACTIVE && !important) return;
+
+  let el = dmgPool.pop();
+  if (!el) {
+    el = document.createElement("div");
+    fxLayer.appendChild(el);
+  }
+  el.className = crit ? "dmg crit" : "dmg";
+  el.style.opacity = "";
+  // Numeral palette. School tint (DESIGN 5.8): magic reads arcane-purple so
+  // a mixed build can SEE which school each number came from. Status DoT
+  // ticks (5.11): burn ember-orange, poison toxin-green. Resists mute.
+  let color = HIT_COLORS[h.kind];
+  if (h.school === "magic" && (h.kind === "enemy" || h.kind === "crit")) {
+    color = crit ? "#d9c2ff" : "#d2b5ff"; // bright arcane, still inked
+  }
+  if (h.effect === "burn") color = "#ff7a2f";
+  else if (h.effect === "poison") color = "#7ed957";
+  if (h.resisted) color = "#c0ad83"; // muted but never mid-gray (r5 minor)
+  el.style.color = color; // the crit starburst ::before keys off currentColor
+  // COLLISION FAN: if this number would land on an active one, walk
+  // golden-angle radial slots until the spot is clear — no more clumps.
+  // A pinch of spawn scatter first (r6 major): even same-tick hits on one
+  // target never share an exact anchor pixel.
+  let px = s.x + (Math.random() - 0.5) * 34, py = s.y + (Math.random() - 0.5) * 10;
+  for (let slot = 0; slot < 8; slot++) {
+    let clear = true;
+    for (const rec of dmgLive) {
+      const ddx = rec.sx - px, ddy = rec.sy - py;
+      if (ddx * ddx + ddy * ddy < DMG_FAN_PX * DMG_FAN_PX) { clear = false; break; }
+    }
+    if (clear) break;
+    const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
+    const rad = 56 + slot * 12;
+    px = s.x + Math.cos(ang) * rad;
+    py = s.y + Math.sin(ang) * rad * 0.5; // squash hard: favor horizontal fan
+  }
+  el.style.left = `${px}px`;
+  el.style.top = `${py}px`;
+  const rec: DmgLive = {
+    el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
+    total: h.amount, merges: 0, born: now, crit, color,
+    stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
+  };
+  // Drop any stale resist icon a pooled element carried, then paint.
+  while (el.childElementCount > 1) el.lastElementChild!.remove();
+  paintNumeral(el, dmgText(rec, sign), color, crit);
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
-    el.style.color = "#8a8272";
     el.style.opacity = "0.85";
-    el.textContent = `${el.textContent} ⛨`;
+    // Drawn shield mark, never a typed dingbat (some platforms emoji-fy ⛨).
+    el.insertAdjacentHTML("beforeend",
+      ` <i class="uic" style="mask-image:url(/icons/stats/armor.svg);-webkit-mask-image:url(/icons/stats/armor.svg)"></i>`);
   }
-  fxLayer.appendChild(el);
-  // Kick off the float+fade on the next frame so the transition applies.
-  requestAnimationFrame(() => {
-    const drift = (Math.random() - 0.5) * 40;
-    el.style.transform = `translate(calc(-50% + ${drift}px), calc(-50% - 46px))`;
-    el.style.opacity = "0";
-  });
-  setTimeout(() => el.remove(), 850);
+  el.style.visibility = "visible";
+  dmgLive.push(rec);
+  dmgAnimate(rec);
+}
+
+// ---- Enemy micro HP bars (AAA r3 blocker): D2R monster-health read —
+// nothing at rest, loud on engagement. A thin dark-gold framed bar appears
+// over a monster on its FIRST damage, tracks for 3s past the last hit, then
+// fades out. Elites carry a nameplate tier (engraved gold name above the
+// bar). Bosses are excluded — the top-center boss bar is their treatment.
+// Pooled DOM, transform/width mutations only; no per-frame element churn.
+const mobPlatesLayer = document.createElement("div");
+mobPlatesLayer.id = "mobplates";
+fxLayer.before(mobPlatesLayer); // damage numbers stay above the plates
+type MobPlate = { root: HTMLDivElement; name: HTMLDivElement; fill: HTMLSpanElement; cls: string };
+const mobPlatePool: MobPlate[] = [];
+const mobPlateLive = new Map<number, MobPlate>();
+const mobPlateMem = new Map<number, { hp: number; until: number }>();
+const mobPlateSeen = new Set<number>();
+const PLATE_HOLD_MS = 3000;
+const PLATE_FADE_MS = 400;
+const PLATE_MAX = 24; // past this the swarm is confetti, not information
+
+function makeMobPlate(): MobPlate {
+  const root = document.createElement("div");
+  root.className = "mplate";
+  const name = document.createElement("div");
+  name.className = "mpname";
+  const bar = document.createElement("div");
+  bar.className = "mpbar";
+  const fill = document.createElement("span");
+  fill.className = "mpfill";
+  bar.appendChild(fill);
+  root.appendChild(name);
+  root.appendChild(bar);
+  mobPlatesLayer.appendChild(root);
+  return { root, name, fill, cls: "mplate" };
+}
+
+function updateMobPlates(s: GameState): void {
+  const now = performance.now();
+  mobPlateSeen.clear();
+  let shown = 0;
+  for (const m of s.monsters) {
+    if (m.hp <= 0) { mobPlateMem.delete(m.id); continue; }
+    let mem = mobPlateMem.get(m.id);
+    if (!mem) { mem = { hp: m.hp, until: 0 }; mobPlateMem.set(m.id, mem); }
+    if (m.hp < mem.hp - 1e-6) mem.until = now + PLATE_HOLD_MS; // fresh damage
+    mem.hp = m.hp;
+    if (m.kind === "boss") continue; // the boss bar owns the menace read
+    if (mem.until <= now || m.hp >= m.maxHp || shown >= PLATE_MAX) continue;
+    const sp = renderer.worldToScreen(m.pos.x, m.elite ? 2.05 : 1.55, m.pos.y);
+    if (!sp.visible) continue;
+    let plate = mobPlateLive.get(m.id);
+    if (!plate) {
+      plate = mobPlatePool.pop() ?? makeMobPlate();
+      mobPlateLive.set(m.id, plate);
+      plate.root.style.display = "block";
+    }
+    shown++;
+    mobPlateSeen.add(m.id);
+    const cls = m.elite ? "mplate elite" : "mplate";
+    if (plate.cls !== cls) {
+      plate.cls = cls;
+      plate.root.className = cls;
+      if (m.elite) plate.name.textContent = m.eliteName ?? "ELITE";
+    }
+    plate.root.style.left = `${sp.x}px`;
+    plate.root.style.top = `${sp.y}px`;
+    plate.fill.style.width = `${Math.max(0, Math.min(1, m.hp / m.maxHp)) * 100}%`;
+    const left = mem.until - now;
+    plate.root.style.opacity = left < PLATE_FADE_MS ? (left / PLATE_FADE_MS).toFixed(2) : "1";
+  }
+  // Release plates whose monsters left the visible/damaged set this frame.
+  for (const [id, plate] of mobPlateLive) {
+    if (mobPlateSeen.has(id)) continue;
+    plate.root.style.display = "none";
+    plate.cls = "";
+    mobPlateLive.delete(id);
+    mobPlatePool.push(plate);
+  }
 }
 
 // D4-style level-up: a floating "LEVEL {n}" over the crawler's head, paired
@@ -2635,7 +4066,13 @@ function showAnnouncement(a: Announcement): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
   if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
-  if (a.priority === "high") { showBanner(a); return; }
+  if (a.priority === "high") {
+    // One presentation per moment: the ringside TITLE CARD (updateBossBar)
+    // already announces the intro — no duplicate center banner on top of it.
+    if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
+    showBanner(a);
+    return;
+  }
   // Level-ups get the world-space ring + floating text (see the
   // lastLevelByPid diff loop) instead of a toast — the line still reaches
   // the archive log via the separate state.events drain, nothing is lost.
@@ -2644,8 +4081,9 @@ function showAnnouncement(a: Announcement): void {
   // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
   // deserves an explicit acknowledgment rather than an auto-fade a player
   // could easily miss.
-  if (a.kind === "tip") { showTutorialCard(a); return; }
+  if (a.kind === "tip") { if (!cleanMode) showTutorialCard(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
+  if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
@@ -2669,14 +4107,16 @@ function showAnnouncement(a: Announcement): void {
 // Headline moments (boss down, new band, wipe): one at a time, front and center.
 // #headline, NOT #banner — that id belongs to the keybinds strip at the top.
 const bannerLayer = document.getElementById("headline")!;
-const bannerQueue: Announcement[] = [];
+const bannerQueue: { a: Announcement; cls: string }[] = [];
 let bannerActive = false;
 
-function showBanner(a: Announcement): void {
-  if (bannerActive) { bannerQueue.push(a); return; }
+// `cls` lets the Roam contract beat ride the same one-at-a-time headline zone
+// with its OWN voice (.ann.quest — settlement ledger, not the System's).
+function showBanner(a: Announcement, cls = "ann banner"): void {
+  if (bannerActive) { bannerQueue.push({ a, cls }); return; }
   bannerActive = true;
   const el = document.createElement("div");
-  el.className = "ann banner";
+  el.className = cls;
   el.textContent = a.text;
   bannerLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -2685,7 +4125,7 @@ function showBanner(a: Announcement): void {
     setTimeout(() => el.remove(), 400);
     bannerActive = false;
     const next = bannerQueue.shift();
-    if (next) showBanner(next);
+    if (next) showBanner(next.a, next.cls);
   }, BANNER_HOLD_MS);
 }
 
@@ -2698,11 +4138,18 @@ function showBanner(a: Announcement): void {
 const tutorialLayer = document.getElementById("tutorial")!;
 const tutorialQueue: Announcement[] = [];
 let tutorialActive = false;
+let tutorialDismissActive: (() => void) | null = null;
+let tutorialAutoTimer = 0;
 
 function showTutorialCard(a: Announcement): void {
   if (tutorialActive) { tutorialQueue.push(a); return; }
   tutorialActive = true;
-  const body = a.text.replace(/^COURTESY EXPLANATION:\s*/, "");
+  // Strip the redundant lead-in (the ribbon header already says COURTESY
+  // EXPLANATION) and re-capitalize so the body never reads as a truncated
+  // sentence ("that unlock queued…" -> "That unlock queued…").
+  const body = a.text
+    .replace(/^COURTESY EXPLANATION:\s*/, "")
+    .replace(/^[a-z]/, (c) => c.toUpperCase());
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
@@ -2717,6 +4164,8 @@ function showTutorialCard(a: Announcement): void {
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
+    window.clearTimeout(tutorialAutoTimer);
+    tutorialDismissActive = null;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
@@ -2724,6 +4173,34 @@ function showTutorialCard(a: Announcement): void {
     if (next) showTutorialCard(next);
   };
   el.addEventListener("click", dismiss);
+  tutorialDismissActive = dismiss;
+  tutorialShownAt = performance.now();
+  // Auto-dismiss: a courtesy, not a squatter (r2: 6-8s, or any input).
+  tutorialAutoTimer = window.setTimeout(dismiss, 7000);
+}
+
+// Any input clears the courtesy card (r2) — with a short grace so the key
+// the player was already holding when it appeared can't insta-kill it.
+let tutorialShownAt = 0;
+function dismissTutorialOnInput(): void {
+  if (tutorialDismissActive && performance.now() - tutorialShownAt > 1200) {
+    tutorialDismissActive();
+  }
+}
+window.addEventListener("keydown", dismissTutorialOnInput);
+window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
+
+/** Slide the active card out NOW (floor transitions, boss intros). Queued
+ *  cards wait a beat so nothing pops over the new moment. */
+function dismissTutorialForTransition(): void {
+  if (!tutorialDismissActive) return;
+  const queued = tutorialQueue.splice(0);
+  tutorialDismissActive();
+  if (queued.length > 0) {
+    setTimeout(() => {
+      for (const q of queued) showTutorialCard(q);
+    }, 5000);
+  }
 }
 
 // ---- Run recap (backlog #12): the season report card ----
@@ -2774,8 +4251,8 @@ function renderRecap(s: GameState): void {
   const ach = p.achievements
     .map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.title)
     .filter((t): t is string => !!t);
-  document.getElementById("recap-ach")!.textContent = ach.length
-    ? `★ ${ach.join(" · ★ ")}`
+  document.getElementById("recap-ach")!.innerHTML = ach.length
+    ? `${uic("star")} ${ach.map(esc).join(` · ${uic("star")} `)}`
     : "None recorded. The System pretends not to judge.";
   document.getElementById("recap-gear")!.innerHTML =
     EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
@@ -2920,9 +4397,6 @@ function updateDowned(s: GameState): void {
   }
 }
 
-function phaseColor(s: GameState): string {
-  return s.phase === "safe" ? "#6da356" : s.phase === "warning" ? "#f2c14e" : "#c0392f";
-}
 function fmt(t: number): string {
   const c = Math.max(0, t);
   return `${Math.floor(c / 60)}:${Math.floor(c % 60).toString().padStart(2, "0")}`;
@@ -2945,24 +4419,129 @@ function statusChips(st: { kind: string; stacks: number; remaining: number }[] |
   }).join("");
 }
 
+// ---- Cockpit HUD (top strip, audit #1/#5) ----
+// Structured plaques built ONCE; per-frame updates mutate text and bar widths
+// only — no innerHTML churn, no layout thrash. Colors ride iso.html tokens
+// through semantic classes instead of inline hex. The HP bar is the cockpit
+// anchor: gold-bezel frame, segment ticks, a damage-lag ghost trail, and a
+// readout that ticks toward the true value.
+hudTL.innerHTML =
+  `<div class="hh-row"><span class="hh-label">Floor</span>` +
+  `<span class="hh-big" id="hh-floor"></span>` +
+  `<span class="hh-dim" id="hh-floor-cap">/ ${CONFIG.finalFloor}</span></div>` +
+  `<div class="hh-row" id="hh-collapse-row"><span class="hh-label">Collapse</span>` +
+  `<span class="hh-num" id="hh-time"></span>` +
+  `<span class="hh-phase" id="hh-phase"></span></div>` +
+  `<div class="bar hh-collapse" id="hh-collapse"><i id="hh-collapse-fill"></i>` +
+  `<s class="fcap l"></s><s class="fcap r"></s>` +
+  `<s class="ftick" style="left:25%"></s><s class="ftick" style="left:50%"></s>` +
+  `<s class="ftick" style="left:75%"></s></div>`;
+hudTR.innerHTML =
+  `<div class="hh-row"><span class="hh-label">Level</span><span class="hh-big" id="hh-level"></span>` +
+  `<span class="hh-sep"></span><span class="hh-num gold">${coinIcon}<span id="hh-gold"></span></span>` +
+  `<span class="hh-sep"></span><span class="hh-stat" id="hh-atk" title="attack power (tinted by weapon rarity)">${mic("stats/attack")}<span id="hh-atk-v"></span></span>` +
+  `<span class="hh-stat" id="hh-mag" title="spell power (tinted by weapon rarity)">${mic("stats/spell")}<span id="hh-mag-v"></span></span></div>` +
+  `<div class="hpframe"><div class="hpbar">` +
+  `<i class="hp-ghost" id="hh-hpghost"></i><i class="hp-fill" id="hh-hpfill"></i>` +
+  `<span class="hp-ticks"></span><span class="hp-num" id="hh-hpnum"></span></div></div>` +
+  `<div class="hh-xp" title="experience"><i id="hh-xpfill"></i></div>` +
+  `<div class="hh-status" id="hh-status" style="display:none"></div>`;
+const hh = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
+const hhFloor = hh("hh-floor"), hhTime = hh("hh-time"), hhPhase = hh("hh-phase"),
+  hhCollapse = hh("hh-collapse"), hhCollapseFill = hh("hh-collapse-fill"),
+  hhLevel = hh("hh-level"), hhGold = hh("hh-gold"), hhAtk = hh("hh-atk"), hhMag = hh("hh-mag"),
+  hhAtkV = hh("hh-atk-v"), hhMagV = hh("hh-mag-v"),
+  hhHpGhost = hh("hh-hpghost"), hhHpFill = hh("hh-hpfill"), hhHpNum = hh("hh-hpnum"),
+  hhXpFill = hh("hh-xpfill"), hhStatus = hh("hh-status");
+const hudCache: Record<string, string> = {};
+const setHudText = (el: HTMLElement, key: string, v: string): void => {
+  if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; }
+};
+let hudGhost = 1;
+let hudGhostHold = 0;
+let hudPrevHpFrac = 1;
+let hudDispHp = -1;
+let hudLastNow = 0;
+
 function updateHud(s: GameState): void {
+  const now = performance.now();
+  const dt = hudLastNow > 0 ? Math.min(0.1, (now - hudLastNow) / 1000) : 0.016;
+  hudLastNow = now;
   const p = me(s);
+  // Floor transition: a stale courtesy card must not ride into the new floor.
+  if (hudCache.tutFloor !== String(s.floor)) {
+    if (hudCache.tutFloor !== undefined) dismissTutorialForTransition();
+    hudCache.tutFloor = String(s.floor);
+  }
+  // Roam has no collapse sprint and no floor 18: the clock row and the depth
+  // cap leave the cockpit entirely rather than reading as a stuck timer.
+  if (hudCache.runKind !== s.runKind) {
+    hudCache.runKind = s.runKind;
+    const roam = s.runKind === "roam";
+    hh("hh-floor-cap").style.display = roam ? "none" : "";
+    hh("hh-collapse-row").style.display = roam ? "none" : "";
+    hhCollapse.style.display = roam ? "none" : "";
+  }
+  // Top-left: floor + the collapse clock (phase color via semantic classes).
+  setHudText(hhFloor, "floor", String(s.floor));
+  setHudText(hhTime, "time", fmt(s.timeRemaining));
+  setHudText(hhPhase, "phase", s.phase.toUpperCase());
+  if (hudCache.phaseCls !== s.phase) {
+    hudCache.phaseCls = s.phase;
+    hhPhase.className = `hh-phase ${s.phase}`;
+    hhCollapse.className = `bar hh-collapse ${s.phase}`;
+  }
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
-  hudTL.innerHTML =
-    `Floor ${s.floor} / ${CONFIG.finalFloor}<br>` +
-    `<span style="color:${phaseColor(s)}">Collapse ${fmt(s.timeRemaining)} · ${s.phase.toUpperCase()}</span>` +
-    `<div class="bar"><i style="width:${tf * 100}%;background:${phaseColor(s)}"></i></div>`;
-  const rc = RARITY_COLORS[p.weaponRarity] ?? "#b9b2a4";
-  hudTR.innerHTML =
-    `Level ${p.level} · ${p.gold} gold · ` +
-    `<span style="color:${rc}">ATK ${p.attackPower} · MAG ${p.spellPower} (${p.weaponRarity})</span><br>` +
-    `HP ${Math.ceil(p.hp)} / ${p.maxHp}` +
-    `<div class="bar"><i style="width:${Math.max(0, (p.hp / p.maxHp) * 100)}%;background:#c0392f"></i></div>` +
-    `<div class="bar"><i style="width:${(p.xp / p.xpToNext) * 100}%;background:#5a87c6"></i></div>` +
-    // Debuff row (5.11): active statuses read right under the health bar.
-    ((p.statuses?.length ?? 0) > 0 ? `<div style="margin-top:3px">${statusChips(p.statuses)}</div>` : "");
+  hhCollapseFill.style.width = `${tf * 100}%`;
+  // Top-right: level · gold · schools (weapon-rarity tinted), then the bar.
+  setHudText(hhLevel, "level", String(p.level));
+  setHudText(hhGold, "gold", p.gold.toLocaleString());
+  setHudText(hhAtkV, "atk", String(p.attackPower));
+  setHudText(hhMagV, "mag", String(p.spellPower));
+  if (hudCache.rar !== p.weaponRarity) {
+    hudCache.rar = p.weaponRarity;
+    hhAtk.className = `hh-stat rtx-${p.weaponRarity}`;
+    hhMag.className = `hh-stat rtx-${p.weaponRarity}`;
+  }
+  // HP: live fill + white damage-lag ghost (holds a beat, then chases) + a
+  // readout that TICKS to the true value instead of teleporting.
+  const maxHp = Math.max(1, p.maxHp);
+  const frac = Math.max(0, Math.min(1, p.hp / maxHp));
+  // First frame: the ghost SNAPS to the live fill. Initializing at 1 made a
+  // damaged spawn (test chambers, reconnects) read as a flat pale remainder
+  // across the whole empty track while the ghost slow-chased down (r3 major).
+  if (hudDispHp < 0) { hudGhost = frac; hudPrevHpFrac = frac; }
+  if (frac < hudPrevHpFrac - 1e-4) hudGhostHold = 0.3;
+  hudPrevHpFrac = frac;
+  if (hudGhost > frac + 1e-4) {
+    if (hudGhostHold > 0) hudGhostHold -= dt;
+    else hudGhost = Math.max(frac, hudGhost - dt * (0.35 + (hudGhost - frac) * 3));
+  } else {
+    hudGhost = frac; // heals snap the ghost up with the fill
+  }
+  hhHpFill.style.width = `${frac * 100}%`;
+  hhHpGhost.style.width = `${hudGhost * 100}%`;
+  const hp = Math.max(0, p.hp);
+  if (hudDispHp < 0) hudDispHp = hp;
+  hudDispHp += (hp - hudDispHp) * Math.min(1, dt * 14);
+  if (Math.abs(hudDispHp - hp) < 0.6) hudDispHp = hp;
+  setHudText(hhHpNum, "hp", `${Math.ceil(hudDispHp)} / ${maxHp}`);
+  const low = frac < 0.3 && p.alive;
+  if (hudCache.low !== String(low)) {
+    hudCache.low = String(low);
+    hudTR.classList.toggle("low-hp", low);
+  }
+  hhXpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
+  // Debuff row (5.11): re-rendered only when the status set changes.
+  const stKey = (p.statuses ?? []).map((e) => `${e.kind}${e.stacks}${Math.ceil(e.remaining)}`).join("|");
+  if (hudCache.st !== stKey) {
+    hudCache.st = stKey;
+    hhStatus.style.display = stKey ? "" : "none";
+    hhStatus.innerHTML = statusChips(p.statuses);
+  }
   // The feed itself (hudLogFeed) is driven event-by-event via pushLogLine, not
-  // re-rendered every frame — only this persistent status blurb gets redrawn.
+  // re-rendered every frame — only this persistent status blurb gets redrawn,
+  // and only when it actually changes.
   let status = "";
   if (s.status === "playing" && !p.alive) {
     status += `<b style="color:#c0392f">DOWNED</b> — ` +
@@ -2977,7 +4556,14 @@ function updateHud(s: GameState): void {
       `<br>Final show: ${Math.round(p.viewers).toLocaleString()} viewers · ` +
       `${Math.floor(p.favorites).toLocaleString()} favorites · ${p.sponsors} sponsors`;
   }
-  hudLogStatus.innerHTML = status;
+  if (hudCache.status !== status) {
+    hudCache.status = status;
+    hudLogStatus.innerHTML = status;
+    updateLogChrome();
+  }
+  // Overhead enemy plates ride the same frame cadence as the cockpit (the
+  // camera is already positioned — updateHud runs after renderer.render).
+  updateMobPlates(s);
 }
 
 // Optional debug hook (enable with ?debug=1). Exposes live state + renderer so tests
@@ -2994,6 +4580,9 @@ if (new URLSearchParams(location.search).has("debug")) {
       addPlayer: (name: string) => addPlayer(state, name),
       step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
       equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
+      // Full hit path for staged FX shots: world FX + the DOM damage number
+      // (renderer.emitHits alone skips the number layer real hits get).
+      hit: (h: HitEvent) => { renderer.emitHits([h]); spawnDamageNumber(h); },
     }),
   });
 }
@@ -3168,13 +4757,18 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
 
 async function main(): Promise<void> {
   // SIGNAL ACQUISITION: the loading screen is baked into iso.html (visible
-  // from the first paint); here we just feed it real progress while the model
-  // manifest streams in, then fade it out. The System narrates its own load —
-  // the rotating line is flavor on a timer, the bar is the information.
+  // from the first paint); here we feed it real progress while the FULL
+  // manifest front-loads — every GLB, every sound clip, all six band
+  // environments, and a shader-precompile pass — so the running game never
+  // mid-streams assets or stalls on a first-cast program build. Longer
+  // up-front load is the accepted trade (perf round). The System narrates
+  // its own load — the rotating line is flavor on a timer, the bar is the
+  // information: a weighted sum of three phases, each tracked loaded/total.
   const loadingEl = document.getElementById("loading") as HTMLDivElement;
   const loadingFill = document.getElementById("loading-fill") as HTMLElement;
   const loadingCount = document.getElementById("loading-count") as HTMLElement;
   const loadingFlavor = document.getElementById("loading-flavor") as HTMLElement;
+  const loadingPhase = document.getElementById("loading-phase") as HTMLElement;
   const LOAD_LINES = [
     "DECORATING YOUR DEATHTRAP…",
     "REHEARSING THE MONSTERS…",
@@ -3189,9 +4783,31 @@ async function main(): Promise<void> {
     loadLine = (loadLine + 1) % LOAD_LINES.length;
     loadingFlavor.textContent = LOAD_LINES[loadLine];
   }, 1400);
+  // Real progress, weighted by phase (models are the bulk of the bytes).
+  const phaseFrac = { models: 0, audio: 0, warm: 0 };
+  const setBar = (): void => {
+    const p = phaseFrac.models * 0.72 + phaseFrac.audio * 0.2 + phaseFrac.warm * 0.08;
+    loadingFill.style.width = `${Math.round(p * 100)}%`;
+  };
+  loadingPhase.textContent = "RECEIVING THE DUNGEON";
   await renderer.init((loaded, total) => {
-    loadingFill.style.width = `${Math.round((loaded / total) * 100)}%`;
-    loadingCount.textContent = `${loaded} / ${total} ASSETS`;
+    phaseFrac.models = loaded / total;
+    setBar();
+    loadingCount.textContent = `${loaded} / ${total} MODELS`;
+  }, { full: true });
+  loadingPhase.textContent = "TUNING THE ANNOUNCER'S MICROPHONE";
+  await audio.load((loaded, total) => {
+    phaseFrac.audio = loaded / total;
+    setBar();
+    loadingCount.textContent = `${loaded} / ${total} SOUNDS`;
+  });
+  // Shader precompile + FX pool pre-allocation + all-band environment bake:
+  // everything the first combat frame would otherwise hitch on.
+  loadingPhase.textContent = "CALIBRATING THE CAMERAS";
+  await renderer.prewarm(state, (done, total) => {
+    phaseFrac.warm = done / total;
+    setBar();
+    loadingCount.textContent = `WARMUP ${done} / ${total}`;
   });
   window.clearInterval(flavorTimer);
   loadingEl.classList.add("done");
@@ -3228,6 +4844,9 @@ async function main(): Promise<void> {
     partyChip.style.display = "";
   }
 
+  // Feedback buffers reused across frames (GC sweep: no per-frame arrays).
+  const frameHits: typeof state.hits = [];
+  const frameAnns: Announcement[] = [];
   function frame(now: number): void {
     let dt = (now - prev) / 1000;
     prev = now;
@@ -3237,8 +4856,8 @@ async function main(): Promise<void> {
     pollTouch();
 
     // Buffer feedback across every sub-step (step() clears these each call).
-    const frameHits: typeof state.hits = [];
-    const frameAnns: Announcement[] = [];
+    frameHits.length = 0;
+    frameAnns.length = 0;
 
     if (net) {
       // Authoritative snapshots drive the world; we pump intent + drain events.
@@ -3309,6 +4928,11 @@ async function main(): Promise<void> {
       draftBadge.style.display = "none";
       draftIdleSec = 0;
     }
+    // Settlement outfitter (Roam): opened by a dialogue choice, closed by its
+    // exit button or by leaving the walls. Reuses the #saferoom panel wholesale.
+    if (settlementShopOpen && (inSafeRoom || !!net || !settlementShopFor(state, lp))) {
+      settlementShopOpen = false;
+    }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
       srTab = "shop"; // every safe room opens on today's shelf
       shopView = "stock";
@@ -3316,14 +4940,19 @@ async function main(): Promise<void> {
       renderSafeRoom(state);
       srEl.style.display = "flex";
     }
-    if (srEl.style.display === "flex" && !inSafeRoom) srEl.style.display = "none";
+    if (srEl.style.display !== "flex" && settlementShopOpen && !draftPending) {
+      renderSafeRoom(state); // tab already chosen by the dialogue signal
+      srEl.style.display = "flex";
+    }
+    if (srEl.style.display === "flex" && !inSafeRoom && !settlementShopOpen) srEl.style.display = "none";
 
     if (!net) {
       // Local sim. Panels, an OPEN draft modal, and the safe room pause it (a
       // host UX choice — the networked world never pauses); drop accumulated
       // time. Banked drafts deliberately do NOT pause: the badge flow means
       // the world keeps running until the crawler chooses their moment.
-      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom) acc = 0;
+      if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom
+        || dlgOpen || settlementShopOpen) acc = 0; // Roam: conversation + outfitter pause like the safe room
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
       while (acc >= SIM_DT) {
         step(state, sampleIntent(SIM_DT), SIM_DT);
@@ -3386,7 +5015,14 @@ async function main(): Promise<void> {
         renderer.setAimIndicator(null);
       }
       const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
-      tStairsEl.classList.toggle("on", state.map.tiles[ti] === Tile.StairsDown);
+      // Roam: the same interact chip talks to a resident in reach (the sim's
+      // useStairs seam routes to startDialogue when an NPC is closer).
+      const nearNpc = state.runKind === "roam" &&
+        npcsOf(state).some((n) => Math.hypot(n.pos.x - p.pos.x, n.pos.y - p.pos.y) <= 1.6);
+      if (tStairsEl.textContent !== (nearNpc ? "Talk" : "Descend")) {
+        tStairsEl.textContent = nearNpc ? "Talk" : "Descend";
+      }
+      tStairsEl.classList.toggle("on", nearNpc || state.map.tiles[ti] === Tile.StairsDown);
     }
 
     // Controller rumble rides the same hit stream as particles/shake: damage
@@ -3430,6 +5066,7 @@ async function main(): Promise<void> {
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);
+    updateRoamUi(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

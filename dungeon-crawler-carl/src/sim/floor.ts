@@ -276,28 +276,59 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
   }
   if (vaultIdx >= 0) roles[vaultIdx] = "vault";
 
-  // SETTLEMENT (Roam only): one more room, sized like a landmark candidate,
-  // left uncarved (no pillar-style set piece needed for v1) and later
-  // spawn-blocked + patrol-blocked so it reads as a sanctuary.
-  let settlementIdx = -1;
+  // SETTLEMENTS (Roam only): several per megafloor — the ENTRANCE one (the
+  // eligible room nearest spawn; Mordecai lives there) plus 2-3 more spread
+  // across the floor (largest remaining rooms with a minimum separation so
+  // they read as districts, not a cul-de-sac). All are sanctuaries: spawn-
+  // blocked here (role weight 0) and patrol-blocked at runtime
+  // (isWalkableForMonster below).
+  const settlementIdxs: number[] = [];
   if (roam) {
-    let bestSettleArea = -1;
+    const eligible = (i: number) =>
+      i !== 0 && i !== farthestIdx && i !== landmarkIdx && i !== vaultIdx && !settlementIdxs.includes(i);
+    // Entrance settlement: nearest eligible room to spawn.
+    let entranceIdx = -1;
+    let bestD = Infinity;
     for (let i = 1; i < rooms.length; i++) {
-      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx) continue;
-      const area = rooms[i].w * rooms[i].h;
-      if (area > bestSettleArea) { bestSettleArea = area; settlementIdx = i; }
+      if (!eligible(i)) continue;
+      const c = center(rooms[i]);
+      const d = (c.x - spawn.x) ** 2 + (c.y - spawn.y) ** 2;
+      if (d < bestD) { bestD = d; entranceIdx = i; }
     }
-    if (settlementIdx >= 0) roles[settlementIdx] = "settlement";
+    if (entranceIdx >= 0) settlementIdxs.push(entranceIdx);
+    // Outlying settlements: largest eligible rooms, kept apart from every
+    // settlement already picked so the map gets real districts.
+    const want = nextInt(rng, CONFIG.roamSettlementsMin, CONFIG.roamSettlementsMax);
+    const minSep = Math.min(w, h) / 4;
+    while (settlementIdxs.length < want) {
+      let pickIdx = -1;
+      let bestArea = -1;
+      for (let i = 1; i < rooms.length; i++) {
+        if (!eligible(i)) continue;
+        const c = center(rooms[i]);
+        const tooClose = settlementIdxs.some((si) => {
+          const sc = center(rooms[si]);
+          return Math.hypot(sc.x - c.x, sc.y - c.y) < minSep;
+        });
+        if (tooClose) continue;
+        const area = rooms[i].w * rooms[i].h;
+        if (area > bestArea) { bestArea = area; pickIdx = i; }
+      }
+      if (pickIdx < 0) break; // no separated candidates left — a small floor
+      settlementIdxs.push(pickIdx);
+    }
+    for (const si of settlementIdxs) roles[si] = "settlement";
   }
+  const settlementIdx = settlementIdxs.length > 0 ? settlementIdxs[0] : -1;
 
-  // STRONGHOLD (Roam only): a second distinct room, hostile — unlike the
-  // settlement it stays uncarved AND unblocked (isWalkableForMonster only
-  // checks settlementRoomIdx), since a garrison is meant to live there.
+  // STRONGHOLD (Roam only): a hostile room — unlike settlements it stays
+  // unblocked (isWalkableForMonster only guards settlement rooms), since a
+  // garrison is meant to live there.
   let strongholdIdx = -1;
   if (roam) {
     let bestStrongholdArea = -1;
     for (let i = 1; i < rooms.length; i++) {
-      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx || i === settlementIdx) continue;
+      if (i === farthestIdx || i === landmarkIdx || i === vaultIdx || settlementIdxs.includes(i)) continue;
       const area = rooms[i].w * rooms[i].h;
       if (area > bestStrongholdArea) { bestStrongholdArea = area; strongholdIdx = i; }
     }
@@ -423,6 +454,7 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     locked,
     lockedRoomIdx: locked ? farthestIdx : -1,
     settlementRoomIdx: settlementIdx,
+    settlementRoomIdxs: settlementIdxs,
     strongholdRoomIdx: strongholdIdx,
     pillars,
     pedestal,
@@ -492,18 +524,33 @@ export function isWalkable(map: FloorMap, x: number, y: number): boolean {
 }
 
 /**
- * Monster-only walkability: everything isWalkable allows, minus the Roam
- * settlement room's tiles (a sanctuary — monsters wander/chase everywhere
- * else on the floor, but won't path into it). Player movement always uses
+ * Which settlement room (index into map.settlementRoomIdxs order) contains
+ * this position, with an optional pad in tiles beyond the room walls — the
+ * settlement's no-aggro radius. Returns the room index into map.rooms, or
+ * -1. Falls back to the singular settlementRoomIdx for v1 snapshots.
+ */
+export function settlementRoomAt(map: FloorMap, x: number, y: number, pad = 0): number {
+  const idxs = map.settlementRoomIdxs ?? (map.settlementRoomIdx >= 0 ? [map.settlementRoomIdx] : []);
+  if (idxs.length === 0) return -1;
+  const tx = Math.floor(x), ty = Math.floor(y);
+  for (const si of idxs) {
+    const r = map.rooms[si];
+    if (!r) continue;
+    if (tx >= r.x - pad && tx < r.x + r.w + pad && ty >= r.y - pad && ty < r.y + r.h + pad) return si;
+  }
+  return -1;
+}
+
+/**
+ * Monster-only walkability: everything isWalkable allows, minus every Roam
+ * settlement room's tiles plus a 1-tile skirt (the sanctuary's no-aggro
+ * radius — monsters wander/chase everywhere else on the floor, but won't
+ * path in or press against the doorways). Player movement always uses
  * isWalkable directly, never this.
  */
 export function isWalkableForMonster(map: FloorMap, x: number, y: number): boolean {
   if (!isWalkable(map, x, y)) return false;
-  const si = map.settlementRoomIdx;
-  if (si < 0) return true;
-  const r = map.rooms[si];
-  const tx = Math.floor(x), ty = Math.floor(y);
-  return !(tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h);
+  return settlementRoomAt(map, x, y, CONFIG.roamSettlementPad) < 0;
 }
 
 /** Collect all walkable tile centers, for spawning monsters/loot. */

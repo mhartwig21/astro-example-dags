@@ -42,6 +42,12 @@ kill_timeout = "30s"
   method = "GET"
   path = "/health"
 
+# Sizing (measured 2026-08-01, DEPLOY.md capacity table): CPU is ~7% of the
+# tick budget at 48 players, so shared-cpu-1x stays right. Memory goes to 1GB:
+# RSS hit 155MB at 48 players and permessage-deflate adds ~150KB/connection —
+# 1GB makes an OOM restart (which wipes live parties) unreachable at any load
+# the wire can carry. NEVER scale count past exactly 1 machine — party state
+# is in-memory; see DEPLOY.md scale-up runbook for the vm/memory commands.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1gb"

@@ -5,7 +5,10 @@ import { angleBetween, armorReduction, dist, mitigate, normalize, rollDamage, tu
 import { moveWithCollision } from "./movement";
 import { alertMonster, separateMonsters, springAmbush, stepMonster } from "./ai";
 import { generateItem, hasPassive, itemScore, wantsAutoEquip } from "./items";
-import { creditQuestKill, spawnSettlement, talkToNpc } from "./npc";
+import {
+  applyRoamSave, breakablePosKey, creditCachePickup, creditQuestKill, npcsOf, playerInSettlement,
+  settlementShopFor, spawnSettlement, startDialogue, updateRoam, type RoamSaveState,
+} from "./npc";
 import {
   CATALOG, CATALOG_BY_ID, TIER_RARITY, consumablePrice, consumableStock, gearAffixes, tierStockCount, totalCost,
   type CatalogEntry,
@@ -27,7 +30,7 @@ import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, Loot,
-  MaterialId, Monster, MonsterKind, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
+  MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
 
@@ -1125,6 +1128,12 @@ export function nearestPlayer(state: GameState, pos: Vec2): Player | null {
   let bestD = Infinity;
   for (const p of state.players) {
     if (!p.alive) continue;
+    // Roam sanctuary (SETTLEMENTS.md): a crawler inside a settlement is not
+    // a target — monsters neither chase, shoot at, nor mark them. Every
+    // monster targeting decision flows through here, so this one check IS
+    // the no-aggro rule (movement is separately fenced by
+    // isWalkableForMonster's sanctuary skirt).
+    if (playerInSettlement(state, p)) continue;
     const d = dist(pos, p.pos);
     if (d < bestD) { bestD = d; best = p; }
   }
@@ -1174,6 +1183,8 @@ export function buildFloor(state: GameState, floor: number): void {
   state.encounter = null;
   state.floorEvent = null;
   state.goldSurge = false;
+  state.roamSmashed = []; // fresh floor, fresh hoards (#25: saves overlay this)
+  state.dialogue = null; // nobody talks through a floor transition
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
   state.timeBudget = state.runKind === "roam" ? CONFIG.roamTimeBudget : floorTimeBudget(floor);
   // SERIES REGULAR's debt: the network trims every remaining floor's runtime.
@@ -1270,6 +1281,11 @@ export function buildFloor(state: GameState, floor: number): void {
 export interface SavedProgress {
   seed: number;
   floor: number;
+  // BACKLOG #11: absent on pre-Roam saves — CONTINUE defaults to Race.
+  runKind?: GameState["runKind"];
+  // Roam campaign overlay (quest progress, consumed stock/hoards) — applied
+  // after the floor rebuilds. Absent on Race saves and pre-Roam saves.
+  roam?: RoamSaveState;
   player: {
     hp: number;
     level: number;
@@ -1391,9 +1407,14 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
  * single-player stand-in for "log back in and resume."
  */
 export function restoreGame(save: SavedProgress): GameState {
-  const state = createGame(save.seed);
+  // BACKLOG #11 fixed: the run kind round-trips — CONTINUE on a Roam
+  // campaign resumes a Roam campaign instead of silently rebuilding as Race.
+  const state = createGame(save.seed, "coop", save.runKind ?? "race");
   applySavedPlayer(state.players[0], save);
   buildFloor(state, save.floor);
+  // Roam: overlay the campaign's quest/stock/hoard state onto the rebuilt
+  // floor (quests match by key — generation is deterministic per seed+floor).
+  if (state.runKind === "roam" && save.roam) applyRoamSave(state, save.roam);
   return state;
 }
 
@@ -2141,7 +2162,9 @@ export function learnAbility(state: GameState, p: Player, ability: Loot["ability
  */
 export function slotAbility(state: GameState, playerId: number, slotIdx: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
+  // Loadout changes happen in safety: the between-floor safe room, or —
+  // Roam — inside a settlement's walls (the safe-room service, in-map).
+  if (!p || (!state.safeRoom && !playerInSettlement(state, p))) return;
   // TYPECAST (class revision): the billing is locked. THE FIVE are final.
   if (hasRevision(p, "typecast")) {
     state.events.push("TYPECAST: the System has locked your billing. THE FIVE are final.");
@@ -2169,7 +2192,7 @@ export function slotAbility(state: GameState, playerId: number, slotIdx: number,
 /** Set (or clear) the ultimate slot. Safe-room only; displaced ult is benched. */
 export function setUltimate(state: GameState, playerId: number, ability: AbilityId | null): void {
   const p = state.players.find((pl) => pl.id === playerId);
-  if (!p || !state.safeRoom) return;
+  if (!p || (!state.safeRoom && !playerInSettlement(state, p))) return;
   // TYPECAST (class revision): the billing is locked, ultimate included.
   if (hasRevision(p, "typecast")) {
     state.events.push("TYPECAST: the System has locked your billing. THE FIVE are final.");
@@ -2946,6 +2969,13 @@ function collectLoot(state: GameState): void {
         }
         break;
       }
+      case "cache": {
+        // Roam quest prop: the recovered cache. Turn-in happens back at the
+        // quartermaster; picking it up just checks the objective off.
+        creditCachePickup(state, p);
+        hit(state, p.pos, 0, "weapon");
+        break;
+      }
       case "service": {
         // A room taking customers: same non-blocking pick-1 plumbing as the
         // shrine; the contract is consumed whether you buy or walk.
@@ -3307,9 +3337,12 @@ export function sellAllItems(state: GameState, playerId: number): void {
 }
 
 /** Mark a player ready to descend; the party leaves when everyone is ready. */
-/** The shop this player is currently standing in: personal in rivals, shared in co-op. */
+/** The shop this player is currently standing in: personal in rivals, shared
+ * in co-op — and, on Roam floors, the settlement vendor's shelf when the
+ * crawler is inside a settlement (buy/sell work unchanged through it). */
 export function shopRoomFor(state: GameState, p: Player): SafeRoom | null {
-  return state.mode === "rivals" ? p.safeRoom ?? null : state.safeRoom;
+  if (state.mode === "rivals") return p.safeRoom ?? null;
+  return state.safeRoom ?? settlementShopFor(state, p);
 }
 
 export function setReady(state: GameState, playerId: number): void {
@@ -4622,6 +4655,9 @@ function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg 
     if (b.footprint && state.map.blocked) {
       for (const ti of b.footprint) state.map.blocked[ti] = 0;
     }
+    // Roam (#25): remember what was consumed so a save/load rebuild of this
+    // floor doesn't restock the hoard for free.
+    if (state.runKind === "roam") (state.roamSmashed ??= []).push(breakablePosKey(b.pos));
     const gold = CONFIG.breakableGoldBase + Math.floor(nextFloat(state.rng) * (CONFIG.breakableGoldSpread + 1)) + Math.floor(state.floor / 3);
     state.loot.push({ id: state.nextEntityId++, pos: { x: b.pos.x, y: b.pos.y }, kind: "gold", amount: gold });
     hit(state, b.pos, 0, "weapon"); // the pop — hosts particle it
@@ -5105,6 +5141,10 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   updatePings(state, dt);
   updateRevives(state, dt);
 
+  // Roam upkeep: beacon lighting by proximity + dialogue auto-close when the
+  // crawler walks off mid-sentence. Early-outs on Race floors.
+  updateRoam(state);
+
   // Floor event bookkeeping (vault trigger/reseal, challenge verdicts) —
   // after combat so it can read this step's deaths and damage.
   updateFloorEvent(state, dt);
@@ -5149,12 +5189,22 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     for (const p of ordered) {
       const pi = intents[p.id] ?? NO_INTENT;
       if (pi.useStairs && p.alive) {
-        // Roam only: the same interact key talks to the settlement NPC when
-        // in range, instead of trying the stairs — the two are never in
-        // proximity range at once, so no new Intent field is needed.
-        if (state.runKind === "roam" && state.npc && dist(p.pos, state.npc.pos) <= 1.5) {
-          talkToNpc(state, p);
-          continue;
+        // Roam only: the same interact key talks to the nearest settlement
+        // resident in range, instead of trying the stairs — NPCs and stairs
+        // are never in proximity range at once, so no new Intent field is
+        // needed. Opens a dialogue session (state.dialogue); hosts render it
+        // and answer through chooseDialogue/closeDialogue.
+        if (state.runKind === "roam") {
+          let talk: Npc | null = null;
+          let talkD = 1.6;
+          for (const n of npcsOf(state)) {
+            const d = dist(p.pos, n.pos);
+            if (d <= talkD) { talkD = d; talk = n; }
+          }
+          if (talk) {
+            startDialogue(state, p, talk);
+            continue;
+          }
         }
         if (state.mode === "rivals") {
           tryDescendRival(state, p);

@@ -1,4 +1,5 @@
 import type { GameState, Item, Player } from "../sim/types";
+import { toRoamSave, type RoamSaveState } from "../sim/npc";
 
 // Log on/off seam. In single-player we persist the whole run to localStorage so a
 // page refresh resumes the character mid-dungeon. In multiplayer this same shape
@@ -55,6 +56,13 @@ export interface SaveData {
   seed: number;
   floor: number;
   mode?: RunMode; // absent on pre-menu saves: treated as a random run
+  // BACKLOG #11: which run this is. Absent on pre-Roam saves — the codebase's
+  // optional-field + load-time-default convention; restoreGame defaults to
+  // "race", so old saves resume exactly as before.
+  runKind?: GameState["runKind"];
+  // Roam campaigns: quest progress, consumed vendor stock, smashed hoards
+  // (#25) — overlaid onto the deterministically rebuilt floor on CONTINUE.
+  roam?: RoamSaveState;
   // Character progression only — the floor itself is regenerated from seed + floor,
   // so we never persist transient monster/loot/timer state. Effective stats
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
@@ -98,6 +106,8 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
       seed: state.seed,
       floor: state.floor,
       mode,
+      runKind: state.runKind,
+      roam: state.runKind === "roam" ? toRoamSave(state) : undefined,
       player: {
         name: p.name,
         skin: p.skin,
