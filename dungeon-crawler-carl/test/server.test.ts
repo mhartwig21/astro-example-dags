@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
 import { GameServer, seedFromCode, MAX_PARTY_SIZE } from "../src/server/gameServer";
-import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers } from "../src/sim/snapshot";
+import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers, mergeSlowState } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
 
@@ -109,6 +109,53 @@ describe("snapshot (serialize/deserialize)", () => {
     const third = JSON.parse(serializeDynamic(g, cache)) as GameState;
     expect(third.players[0].equipment).toBeDefined();
     expect(third.players[0].tipsSeen).toContain("bolt");
+  });
+
+  it("state slow split: breakables/roam data ship once, stay home, and merge forward", () => {
+    const g = createGame(777, "coop", "roam");
+    const cache = new Map<number, string>();
+    // First dynamic snapshot with a cache: the slow block ships (baseline).
+    const first = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect(first.npc).toBeDefined(); // the wire marker field (null only in race mode)
+    expect(first.breakables).toBeDefined();
+    expect(first.settlements).toBeDefined();
+    // Nothing changed: the whole block stays home.
+    const second = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect((second as Partial<GameState>).npc).toBeUndefined();
+    expect(second.breakables).toBeUndefined();
+    expect(second.settlements).toBeUndefined();
+    expect(second.quests).toBeUndefined();
+    expect(second.players[0].hp).toBe(g.players[0].hp); // hot fields still ride
+    // The client merges the block forward from its previous snapshot.
+    mergeSlowState(second, first);
+    expect(second.npc).toEqual(first.npc);
+    expect(second.breakables).toEqual(first.breakables);
+    expect(second.settlements).toEqual(first.settlements);
+    // A change (a crate takes a hit) ships the whole block again.
+    if (g.breakables?.[0]) g.breakables[0].hp -= 1;
+    const third = JSON.parse(serializeDynamic(g, cache)) as GameState;
+    expect(third.npc).toBeDefined();
+    expect(third.breakables).toBeDefined();
+    // Without a cache (no per-client baseline: rivals, bare calls) it always ships.
+    const bare = JSON.parse(serializeDynamic(g)) as GameState;
+    expect(bare.npc).toBeDefined();
+    expect(bare.breakables).toBeDefined();
+  });
+
+  it("dynamic snapshots carry no transients (the events channel owns them)", () => {
+    const a = createGame(31337);
+    drive(a, 120);
+    a.events.push("a thing happened");
+    a.announcements.push({ text: "A THING", kind: "flavor", priority: "normal" });
+    a.hits.push({ pos: { x: 1, y: 1 }, amount: 5, kind: "enemy" });
+    const dyn = JSON.parse(serializeDynamic(a)) as GameState;
+    expect(dyn.events).toEqual([]);
+    expect(dyn.announcements).toEqual([]);
+    expect(dyn.hits).toEqual([]);
+    // Full snapshots stay exact — they feed persistence + golden determinism.
+    const full = JSON.parse(serialize(a)) as GameState;
+    expect(full.events.length).toBe(1);
+    expect(full.hits.length).toBe(1);
   });
 
   it("wire floats are rounded to sub-pixel precision (dynamic only)", () => {

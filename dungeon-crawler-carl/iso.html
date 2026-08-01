@@ -949,6 +949,18 @@
         justify-content: center; gap: 10px; z-index: 29; transition: opacity 0.45s ease;
         background: radial-gradient(ellipse at 50% 32%, rgba(22,17,36,0.9), rgba(4,4,8,0.99) 75%), #040408; }
       #loading.done { opacity: 0; pointer-events: none; }
+      /* The gold document frame (house style — same family as the panels):
+         an outer bronze rule with an inner gilt keyline, engraved corners. */
+      #loading .l-frame { position: relative; display: flex; flex-direction: column; align-items: center;
+        gap: 10px; padding: 36px 58px 28px; border: 1px solid #6e5533; border-radius: 4px;
+        background: linear-gradient(180deg, rgba(34,27,21,0.5), rgba(14,11,8,0.72));
+        box-shadow: 0 0 70px rgba(201,162,75,0.10), inset 0 0 46px rgba(0,0,0,0.55); }
+      #loading .l-frame::before { content: ""; position: absolute; inset: 5px; pointer-events: none;
+        border: 1px solid rgba(201,162,75,0.32); border-radius: 2px; }
+      #loading .l-frame::after { content: "◆"; position: absolute; top: -9px; left: 50%;
+        transform: translateX(-50%); color: #c9a24b; font-size: 12px; padding: 0 10px;
+        background: #06050a; letter-spacing: 0; }
+      #loading .l-phase { color: #8a6a2f; font-size: 10px; letter-spacing: 3px; margin-top: 2px; }
       #loading .l-kicker { color: #c9a24b; font-size: 12px; letter-spacing: 4px; }
       #loading .l-title { color: #f5e6bf; font-size: 30px; font-weight: 700; letter-spacing: 3px;
         text-shadow: 0 2px 22px rgba(201,162,75,0.35); }
@@ -2468,6 +2480,8 @@
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-row"><span class="kb-name">Camera zoom<small>CLOSE frames the action a third tighter</small></span>
           <span class="kb-key" id="kb-camzoom">STANDARD</span></div>
+        <div class="kb-row"><span class="kb-name">Render scale<small>3D resolution — lower = faster; UI stays crisp</small></span>
+          <span class="kb-key" id="kb-renderscale">100%</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
           <span class="kb-key" id="kb-gamepad">ON</span></div>
         <div class="kb-row"><span class="kb-name">Touch controls<small>AUTO shows them on tablets; ON forces them anywhere</small></span>
@@ -2710,11 +2724,14 @@
       </div>
     </div>
     <div id="loading">
-      <div class="l-kicker">◆ INCOMING TRANSMISSION ◆</div>
-      <div class="l-title">DUNGEON CRAWLER CLAUDE</div>
-      <div class="l-flavor" id="loading-flavor">ACQUIRING SIGNAL…</div>
-      <div class="l-bar"><i id="loading-fill"></i></div>
-      <div class="l-count" id="loading-count"></div>
+      <div class="l-frame">
+        <div class="l-kicker">◆ INCOMING TRANSMISSION ◆</div>
+        <div class="l-title">DUNGEON CRAWLER CLAUDE</div>
+        <div class="l-flavor" id="loading-flavor">ACQUIRING SIGNAL…</div>
+        <div class="l-bar"><i id="loading-fill"></i></div>
+        <div class="l-count" id="loading-count"></div>
+        <div class="l-phase" id="loading-phase">ESTABLISHING UPLINK</div>
+      </div>
     </div>
     <div id="menu">
       <div id="m-skin-label">

@@ -1428,15 +1428,20 @@ export class Renderer3D {
     this.composer.addPass(this.gradePass);
   }
 
-  async init(onProgress?: (loaded: number, total: number) => void): Promise<void> {
-    // Streaming load: init resolves after the PRIORITY wave (hero + core
-    // dungeon shell — a few files), so boot is near-instant. The remaining
-    // ~200 GLBs stream behind the running game; each arrival schedules a
-    // debounced refresh that swaps procedural stand-ins for the real thing.
+  async init(
+    onProgress?: (loaded: number, total: number) => void,
+    opts: { full?: boolean } = {},
+  ): Promise<void> {
+    // Streaming load: by default init resolves after the PRIORITY wave (hero +
+    // core dungeon shell — a few files), so boot is near-instant, and the
+    // remaining ~200 GLBs stream behind the running game (each arrival
+    // schedules a debounced refresh that swaps stand-ins for the real thing).
+    // `full` gates on the ENTIRE manifest instead — the perf round's loading
+    // screen front-loads everything so the running game never mid-streams.
     const store = startModelLoad(onProgress);
     this.models = store.models; // LIVE record — fills in as assets land
     store.onArrive = () => this.scheduleAssetRefresh();
-    await store.ready;
+    await (opts.full ? store.complete : store.ready);
     this.scheduleAssetRefresh();
   }
 
@@ -1461,6 +1466,112 @@ export class Renderer3D {
       for (const mesh of this.monsters.values()) this.scene.remove(mesh);
       this.monsters.clear();
     }, 350);
+  }
+
+  /**
+   * SHADER + POOL PREWARM (perf round): runs while the boot loading screen is
+   * still opaque. Bakes every band's PMREM environment, builds the boot floor
+   * and its entity meshes, pre-allocates the pooled FX lights, spawns one of
+   * every particle/telegraph/trail/beam/ring material variant far off-world,
+   * then compiles every program (renderer.compile + one full composer pass)
+   * so the first real combat frame never stalls on a shader build. All
+   * warmup FX are expired and removed before the screen lifts — zero visual
+   * change once play begins.
+   */
+  async prewarm(state: GameState, onStep?: (done: number, total: number) => void): Promise<void> {
+    const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
+    const TOTAL = 3;
+    // 1) Every band's environment sky (PMREM's own blur programs compile here).
+    for (let band = 0; band < 6; band++) {
+      const theme = themeForFloor(band * 3 + 1);
+      this.bakeEnv(band, theme.mood ?? DEFAULT_MOOD);
+    }
+    onStep?.(1, TOTAL);
+    await breathe();
+
+    // 2) The boot floor + entities, then one of each FX variant off-world
+    //    (position is irrelevant: compile() ignores the frustum, and the
+    //    opaque loading overlay hides the single warm render below).
+    this.update(state, 0.001);
+    this.update(state, 0.017); // second tick: hero lamp, animators, smoothing state
+    const WX = -40;
+    const WZ = -40;
+    this.fxp.burst(WX, WZ, 0xffb057, 4);
+    this.fxp.sparks(WX, 0.5, WZ, 0xffe066, 4);
+    this.fxp.flash3(WX, 0.5, WZ, FX_PAL.airstrike, 0.5);
+    this.fxp.smoke(WX, 0.5, WZ, 2);
+    this.fxp.dust(WX, 0.4, WZ, 2);
+    this.fxp.embers(WX, WZ, 0xff8a3c, 2, 0.5);
+    this.fxp.radialStreaks(WX, 0.5, WZ, 0xffe066, 3, 1);
+    this.fxp.vortex(WX, WZ, 0x8bd450, 1);
+    this.fxp.gatherBurst(WX, 0.5, WZ, 0xb98bff);
+    this.fxp.gather(WX, 0.5, WZ, 0xb98bff, 0.5);
+    this.fxp.gibs(WX, WZ, 0x8b1a1a, 2);
+    this.fxp.column(WX, WZ, 0xffb057, 2, 1);
+    this.swingArcs.spawn(WX, WZ, 0, 0xffb057, 0.6, false);
+    this.ribbons.claim(-999999, 0xffb057, 0.1);
+    this.ribbons.push(-999999, WX, 0.5, WZ);
+    this.ribbons.push(-999999, WX + 0.4, 0.6, WZ);
+    this.ribbons.release(-999999);
+    this.decals.spawn(WX, WZ, 0.6, 0x120a18, 0xffb057, 1);
+    this.shocks.spawn(WX, WZ, 0xffb057, 1, 0.3);
+    this.burst(WX, WZ, 0xc9a24b, 3, 0.5, 0.5);
+    this.spawnGlow(WX, 0.5, WZ, 0xf5e6bf, 0.5, 0.3);
+    this.spawnFxLight(WX, WZ, 0xc9a24b, 1, 0.2, 0.9); // allocates the pooled FX lights
+    this.emitLevelUp(WX, WZ);
+    this.spawnFadeProp("smokebomb", WX, 0.2, WZ, 0.5, 0.3);
+    // One-off shader materials that otherwise compile mid-combat: ground
+    // telegraphs, hazard pools, lane strips, channel beams, ability rings.
+    const warm: THREE.Object3D[] = [];
+    const addWarm = (o: THREE.Object3D, x: number, z: number): void => {
+      o.position.set(x, 0.06, z);
+      this.scene.add(o);
+      warm.push(o);
+    };
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makeTelegraphMat()), WX, WZ);
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(0x8bd450)), WX + 2, WZ);
+    {
+      const lane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeLaneMat());
+      lane.rotation.x = -Math.PI / 2;
+      addWarm(lane, WX + 4, WZ);
+    }
+    addWarm(this.buildBeamGroup(0xff5a2e, 1), WX, WZ + 2);
+    addWarm(this.buildOrbitBlade(), WX + 2, WZ + 2);
+    {
+      // The dissolve (death burn-away) shader variant.
+      const d = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), flat(0x888888));
+      makeDissolving(d, 0xffb457);
+      addWarm(d, WX + 4, WZ + 2);
+    }
+    // buildFxRing adds itself to the scene — track both variants for removal.
+    const novaWarm = this.buildFxRing("nova");
+    novaWarm.position.set(WX + 6, 0.06, WZ);
+    warm.push(novaWarm);
+    const cataWarm = this.buildFxRing("cataclysm");
+    cataWarm.position.set(WX + 8, 0.06, WZ);
+    warm.push(cataWarm);
+    onStep?.(2, TOTAL);
+    await breathe();
+
+    // 3) Compile everything, run one full post pass (GTAO/bloom/output/grade
+    //    programs + shadow-pass depth materials), then expire the warmup FX.
+    this.renderer.compile(this.scene, this.camera);
+    this.composer.render();
+    for (const o of warm) this.scene.remove(o);
+    // Fast-forward the transient FX well past their lifetimes. Materials are
+    // deliberately NOT disposed: disposing would release the very programs
+    // this warmed. The pooled systems (particles, lights) live for the run.
+    this.updateParticles(30);
+    this.swingArcs.update(30);
+    this.decals.update(30);
+    this.shocks.update(30);
+    this.ribbons.update(30);
+    // Expire the FX light pool (it goes invisible as a group) and compile the
+    // idle light-count program variant too — both counts are now resident.
+    this.updateFxLights(31);
+    this.renderer.compile(this.scene, this.camera);
+    onStep?.(3, TOTAL);
+    await breathe();
   }
 
   /** The campfire check-in scene shares this renderer's GL context + streamed
@@ -1755,8 +1866,12 @@ export class Renderer3D {
       ud.velX = ((ud.velX as number) ?? 0) + (ix - ((ud.velX as number) ?? 0)) * k;
       ud.velZ = ((ud.velZ as number) ?? 0) + (iz - ((ud.velZ as number) ?? 0)) * k;
     }
-    return { x: ud.velX as number, y: ud.velZ as number };
+    // Reused scratch (GC sweep): one call per animated body per frame.
+    this.velOut.x = ud.velX as number;
+    this.velOut.y = ud.velZ as number;
+    return this.velOut;
   }
+  private velOut: Vec2 = { x: 0, y: 0 };
 
   /**
    * Feet vs facing: forward run/walk, backpedal when retreating under aim,
@@ -1881,10 +1996,26 @@ export class Renderer3D {
     if (dir && (dir.x !== 0 || dir.y !== 0)) ind.rotation.y = -Math.atan2(dir.y, dir.x);
   }
 
+  // RENDER SCALE (SYSTEM menu setting): scales the backing buffer + composer
+  // targets only — the canvas CSS size and every DOM overlay stay crisp.
+  private renderScale = 1;
+  private lastW = 2;
+  private lastH = 2;
+  setRenderScale(s: number): void {
+    this.renderScale = Math.min(1, Math.max(0.5, s));
+    this.resize(this.lastW, this.lastH);
+  }
+
   resize(w: number, h: number): void {
+    this.lastW = w;
+    this.lastH = h;
+    const ratio = Math.min(devicePixelRatio || 1, 2) * this.renderScale;
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     // The composer multiplies by its own pixel ratio (captured from the
-    // renderer at construction), so pass CSS pixels — same as setSize above.
+    // renderer at construction — keep it in sync when the scale setting
+    // changes it), so pass CSS pixels — same as setSize above.
+    this.composer.setPixelRatio(ratio);
     this.composer.setSize(w, h);
     this.aspect = w / h;
     // "close" view: a third more zoomed in — furnishing and character read
@@ -2510,6 +2641,12 @@ export class Renderer3D {
     // Environment: a tiny gradient sky PMREM'd per band — metals and weapon
     // sheen pick up the district's palette at low intensity, keeping the flat
     // KayKit look while grounding speculars.
+    this.scene.environment = this.bakeEnv(band, mood);
+    this.scene.environmentIntensity = mood.envIntensity;
+  }
+
+  /** PMREM the band's gradient sky (cached per band — bake once, reuse). */
+  private bakeEnv(band: number, mood: BandMood): THREE.Texture {
     let env = this.envCache.get(band) ?? null;
     if (!env) {
       if (!this.pmrem) this.pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -2541,8 +2678,7 @@ export class Renderer3D {
       tex.dispose();
       this.envCache.set(band, env);
     }
-    this.scene.environment = env;
-    this.scene.environmentIntensity = mood.envIntensity;
+    return env;
   }
 
   private buildFloor(state: GameState): void {
@@ -2667,12 +2803,33 @@ export class Renderer3D {
     // many lights). Draw calls rise slightly; shaded fragments drop ~5x.
     const CHUNK = 12;
     const chunkCols = Math.ceil(map.w / CHUNK);
+    // DRAW-CALL DIET (perf round): sparse decorative kinds (coping trim,
+    // pilasters, wall banners, doors, grates, cliff facades, tree clusters)
+    // used to mint one InstancedMesh per 12x12 chunk EACH — dozens of tiny
+    // meshes per kind per floor, and every scene object costs again in the
+    // shadow + AO passes. They bucket into 36x36 SUPER-chunks instead:
+    // identical pixels (same instances, same materials, same tints), ~1/9
+    // the meshes. The high-population ground/fill/panel kinds keep the fine
+    // 12-tile chunking that makes frustum culling pay for itself.
+    const SUPER = 36;
+    const superCols = Math.ceil(map.w / SUPER);
+    const SPARSE_BASE = 0x40000; // key namespace: super-chunk ids never collide
+    // Deliberately NOT merged: cluster/accent foliage — those are the
+    // tri-heavy canopies (merging defeats frustum culling where it matters
+    // most) AND the camera-courtesy step-aside rewrites their instance
+    // matrices per frame, so their buffers must stay chunk-small.
+    const sparseKind = (kind: string): boolean =>
+      kind === "trim" || kind === "pilaster" || kind === "wbanner" || kind === "door" ||
+      kind === "grate" || kind === "grateO" || kind === "path" || kind === "panelGate" ||
+      kind.startsWith("cliff") || kind.startsWith("panelW");
     // Kinds are dynamic: interior bands use floor/alt/fill/panel/door; open-air
     // bands add a trodden path plus per-variant cliff facades and tree clusters.
     type Bucket = Map<string, { m: THREE.Matrix4; tile: number }[]>;
     const buckets = new Map<number, Bucket>();
     const push = (kind: string, x: number, y: number, tile: number, mat: THREE.Matrix4) => {
-      const key = Math.floor(y / CHUNK) * chunkCols + Math.floor(x / CHUNK);
+      const key = sparseKind(kind)
+        ? SPARSE_BASE + Math.floor(y / SUPER) * superCols + Math.floor(x / SUPER)
+        : Math.floor(y / CHUNK) * chunkCols + Math.floor(x / CHUNK);
       let b = buckets.get(key);
       if (!b) {
         b = new Map();
@@ -4135,7 +4292,14 @@ export class Renderer3D {
       }
     }
     this.prevStrikeCount = strikes.length;
-    this.prevStrikePos = strikes.map((s) => ({ x: s.pos.x, y: s.pos.y }));
+    // In-place refresh (GC sweep): the old strikes.map() minted a new array +
+    // objects every frame, combat or not.
+    this.prevStrikePos.length = strikes.length;
+    for (let i = 0; i < strikes.length; i++) {
+      const e = this.prevStrikePos[i] ?? (this.prevStrikePos[i] = { x: 0, y: 0 });
+      e.x = strikes[i].pos.x;
+      e.y = strikes[i].pos.y;
+    }
     for (let i = 0; i < Math.max(this.strikeMeshes.length, strikes.length); i++) {
       const s = strikes[i];
       let mesh = this.strikeMeshes[i];
@@ -4242,7 +4406,7 @@ export class Renderer3D {
    * committed splash point, the bomber hoists its bomb overhead. Both vanish
    * the moment the windup resolves or is interrupted; damage never lives here. */
   private updateWindupFx(state: GameState): void {
-    const seen = new Set<number>();
+    const seen = this.scratchSet();
     for (const m of state.monsters) {
       const total = m.windupTotal ?? 0;
       if (!m.windupKind || m.windup === undefined || total <= 0) continue;
@@ -4475,7 +4639,25 @@ export class Renderer3D {
 
   // ---- Per-frame sync ----
 
+  // GC SWEEP (perf round): the reconcile loops below each need a "seen ids"
+  // set per frame. They draw from this pool (index reset at the top of
+  // update(); call order is stable frame to frame) instead of allocating a
+  // dozen fresh Sets every frame.
+  private setPool: Set<number>[] = [];
+  private setPoolI = 0;
+  private scratchSet(): Set<number> {
+    let s = this.setPool[this.setPoolI];
+    if (!s) {
+      s = new Set();
+      this.setPool[this.setPoolI] = s;
+    }
+    this.setPoolI++;
+    s.clear();
+    return s;
+  }
+
   update(state: GameState, time: number): void {
+    this.setPoolI = 0;
     // Rebuild cached floor geometry on descent, on in-place tile mutations
     // (e.g. locked doors opening when the key is picked up) AND on a new run:
     // every fresh season starts back at floor 1 / mapVersion 1 — exactly what
@@ -4536,7 +4718,7 @@ export class Renderer3D {
     }
 
     // Players: reconcile mesh pool + animate each.
-    const pSeen = new Set<number>();
+    const pSeen = this.scratchSet();
     for (const pl of state.players) {
       pSeen.add(pl.id);
       // Hero skin: the campfire pick when the crawler made one, else derived
@@ -4678,7 +4860,7 @@ export class Renderer3D {
 
     // STUNT DOUBLES: a ghost-faded copy of the owner's body, idling in place.
     // (The sim moves nothing here — the contract is a statue that soaks.)
-    const dSeen = new Set<number>();
+    const dSeen = this.scratchSet();
     for (const dc of state.decoys ?? []) {
       dSeen.add(dc.id);
       let mesh = this.decoyMeshes.get(dc.id);
@@ -4716,7 +4898,7 @@ export class Renderer3D {
     // blocking furniture at 1 hp LOOKS one hit from gone — the table swaps
     // to the kit's broken model, everything else tilts and sinks. The hp
     // edge just drops the mesh; the next frame rebuilds it damaged.
-    const bSeen = new Set<number>();
+    const bSeen = this.scratchSet();
     for (const b of state.breakables ?? []) {
       bSeen.add(b.id);
       const damaged = !!b.footprint && b.hp === 1;
@@ -4771,7 +4953,7 @@ export class Renderer3D {
     // (state.npcs; v1 snapshots only carried the singular state.npc).
     {
       const npcs = state.npcs ?? (state.npc ? [state.npc] : []);
-      const seen = new Set<number>();
+      const seen = this.scratchSet();
       for (const n of npcs) {
         seen.add(n.id);
         let mesh = this.npcMeshes.get(n.id);
@@ -4851,7 +5033,7 @@ export class Renderer3D {
       }
     }
     const sepEase = 1 - Math.exp(-10 * dt);
-    const seen = new Set<number>();
+    const seen = this.scratchSet();
     for (const mon of state.monsters) {
       seen.add(mon.id);
       let mesh = this.monsters.get(mon.id);
@@ -5319,7 +5501,7 @@ export class Renderer3D {
     // toward detonation; spitter puddles are filled acid pools that fade out;
     // boss sludge/roots zones are filled pools that GHOST through their arming
     // telegraph, then snap solid when they go live.
-    const hazSeen = new Set<number>();
+    const hazSeen = this.scratchSet();
     for (const hz of state.hazards) {
       hazSeen.add(hz.id);
       // BEAM (line) hazards: authored ordnance anatomy (r5 major) — shader
@@ -5539,7 +5721,7 @@ export class Renderer3D {
     // Party pings: an expanding gold pulse on the marked spot. The pulse cycle
     // derives from the ping's remaining life (sim time), so replays match.
     // Pings pierce the fog on purpose — "over THERE" must work unseen.
-    const pingSeen = new Set<number>();
+    const pingSeen = this.scratchSet();
     for (const pg of state.pings) {
       pingSeen.add(pg.id);
       let ring = this.pingRings.get(pg.id);
@@ -5573,7 +5755,7 @@ export class Renderer3D {
 
     // Revive channel: a green ring tightening around a downed crawler as a
     // teammate stabilizes them (radius shows the stand-here zone).
-    const revSeen = new Set<number>();
+    const revSeen = this.scratchSet();
     for (const pl of state.players) {
       if (pl.alive || pl.reviveProgress <= 0) continue;
       revSeen.add(pl.id);
@@ -5600,7 +5782,7 @@ export class Renderer3D {
 
     // The Briar Witch's mark: a thorny purple pulse under a cursed crawler —
     // the whole party should see who to peel for.
-    const curseSeen = new Set<number>();
+    const curseSeen = this.scratchSet();
     for (const pl of state.players) {
       if (!pl.alive || (pl.cursedT ?? 0) <= 0) continue;
       curseSeen.add(pl.id);
@@ -5627,7 +5809,7 @@ export class Renderer3D {
     }
 
     // Projectiles: reconcile a mesh pool by id.
-    const projSeen = new Set<number>();
+    const projSeen = this.scratchSet();
     for (const pr of state.projectiles) {
       projSeen.add(pr.id);
       let mesh = this.projectiles.get(pr.id);
@@ -5743,7 +5925,7 @@ export class Renderer3D {
     }
 
     // Loot: reconcile + bob/spin.
-    const lootSeen = new Set<number>();
+    const lootSeen = this.scratchSet();
     for (const l of state.loot) {
       lootSeen.add(l.id);
       let mesh = this.loot.get(l.id);
@@ -5974,6 +6156,13 @@ export class Renderer3D {
    * down that diagonal from them. Such pieces shrink toward their root until
    * the shot is clear, then grow back — the System's cameras get their shot.
    */
+  // Scratch for updateCanopy (GC sweep: no per-frame Set/Matrix/Vector mints).
+  private canopyEnts: { x: number; y: number }[] = [];
+  private canopyMarked = new Set<CanopyEntry>();
+  private canopyDirty = new Set<THREE.InstancedMesh>();
+  private canopyM = new THREE.Matrix4();
+  private canopyV = new THREE.Vector3();
+
   private updateCanopy(state: GameState, ax: number, az: number, dt: number): void {
     if (!this.canopy) return;
     const SQ2 = Math.SQRT1_2;
@@ -5985,13 +6174,15 @@ export class Renderer3D {
     };
     // Entities that deserve a clear shot: living players + monsters near the
     // local player (the ones actually in frame and in the fight).
-    const ents: { x: number; y: number }[] = [];
+    const ents = this.canopyEnts;
+    ents.length = 0;
     for (const p of state.players) if (p.alive) ents.push(p.pos);
     for (const mo of state.monsters) {
       if (Math.abs(mo.pos.x - ax) < 14 && Math.abs(mo.pos.y - az) < 10) ents.push(mo.pos);
     }
     // Mark targets around each entity (candidate cells: the diagonal cone).
-    const marked = new Set<CanopyEntry>();
+    const marked = this.canopyMarked;
+    marked.clear();
     for (const e of ents) {
       const bx = Math.floor(e.x), bz = Math.floor(e.y);
       for (let dzz = -2; dzz <= 3; dzz++) {
@@ -6006,9 +6197,10 @@ export class Renderer3D {
     }
     // Ease every registered piece toward its target; write matrices on change.
     const k = Math.min(1, dt * 9);
-    const dirty = new Set<THREE.InstancedMesh>();
-    const scratchM = new THREE.Matrix4();
-    const scratchV = new THREE.Vector3();
+    const dirty = this.canopyDirty;
+    dirty.clear();
+    const scratchM = this.canopyM;
+    const scratchV = this.canopyV;
     for (const cell of this.canopy.values()) {
       for (const c of cell) {
         c.target = marked.has(c) ? 0.12 : 1;
@@ -6310,10 +6502,17 @@ export class Renderer3D {
   /** Tick lingering corpses: rigged models play their death clip, stand-ins tumble. */
   private updateDying(dt: number): void {
     // Unclaimed overkill marks expire fast (net mode can cull the corpse
-    // before we ever see it disappear).
-    this.overkillMarks = this.overkillMarks.filter((mk) => (mk.t -= dt) > 0);
-    const alive: typeof this.dying = [];
-    for (const d of this.dying) {
+    // before we ever see it disappear). In-place compaction — no per-frame
+    // filter() allocation.
+    let mw = 0;
+    for (let i = 0; i < this.overkillMarks.length; i++) {
+      const mk = this.overkillMarks[i];
+      if ((mk.t -= dt) > 0) this.overkillMarks[mw++] = mk;
+    }
+    this.overkillMarks.length = mw;
+    let dw = 0;
+    for (let di = 0; di < this.dying.length; di++) {
+      const d = this.dying[di];
       d.t -= dt;
       if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
       if (d.fling) {
@@ -6350,9 +6549,9 @@ export class Renderer3D {
         const bs = (d.mesh.userData.baseScale as number) ?? d.mesh.scale.x;
         d.mesh.scale.setScalar(bs * (1 + 0.15 * Math.sin(p * Math.PI)));
       }
-      alive.push(d);
+      this.dying[dw++] = d;
     }
-    this.dying = alive;
+    this.dying.length = dw;
   }
 
   /** Claim a pooled point light: explosions and magic actually illuminate the
@@ -6377,12 +6576,18 @@ export class Renderer3D {
     best.life = 0;
     best.max = max;
     best.peak = peak;
+    // The whole pool wakes AS A GROUP (see updateFxLights): the scene's point-
+    // light count only ever flips between two values — both prewarmed — so a
+    // combat flash never triggers a mid-fight program build.
+    for (const s of this.fxLights) s.light.visible = true;
   }
 
   private updateFxLights(dt: number): void {
     let total = 0;
+    let anyLive = false;
     for (const s of this.fxLights) {
       if (s.life >= s.max) { s.light.intensity = 0; continue; }
+      anyLive = true;
       s.life += dt;
       const t = Math.min(1, s.life / s.max);
       const env = t < 0.12 ? t / 0.12 : (1 - (t - 0.12) / 0.88) ** 2;
@@ -6403,6 +6608,14 @@ export class Renderer3D {
       // visibly — it just can't stack four of itself into pure white.
       const k = (BUDGET + (total - BUDGET) * 0.25) / total;
       for (const s of this.fxLights) s.light.intensity *= k;
+    }
+    // IDLE LIGHT DIET (perf round): with nothing burning, the pool goes
+    // invisible AS A GROUP — walk-around frames pay the baseline point-light
+    // count instead of shading four dead lights per fragment. Group toggling
+    // keeps the scene at exactly two light-count program variants, both
+    // compiled during prewarm.
+    if (!anyLive) {
+      for (const s of this.fxLights) s.light.visible = false;
     }
   }
 
@@ -6438,8 +6651,12 @@ export class Renderer3D {
   }
 
   private updateParticles(dt: number): void {
-    const alive: typeof this.particles = [];
-    for (const pt of this.particles) {
+    // GC SWEEP (perf round): every list below compacts IN PLACE (write-index
+    // pattern) — the old per-frame `const alive = []` rebuilds allocated five
+    // arrays every frame for the collector to chew on.
+    let w = 0;
+    for (let i = 0; i < this.particles.length; i++) {
+      const pt = this.particles[i];
       pt.life += dt;
       if (pt.life >= pt.max) { this.scene.remove(pt.mesh); continue; }
       pt.vy -= 9 * dt; // gravity
@@ -6449,25 +6666,27 @@ export class Renderer3D {
       const s = 1 - pt.life / pt.max;
       pt.mesh.scale.setScalar(0.4 + s * 0.6);
       if (pt.mesh.position.y < 0.05) { pt.vy = Math.abs(pt.vy) * 0.4; pt.mesh.position.y = 0.05; }
-      alive.push(pt);
+      this.particles[w++] = pt;
     }
-    this.particles = alive;
+    this.particles.length = w;
 
     // Glow sprites: fade + optional grow/shrink, no gravity.
-    const fxAlive: typeof this.fxSprites = [];
-    for (const fx of this.fxSprites) {
+    w = 0;
+    for (let i = 0; i < this.fxSprites.length; i++) {
+      const fx = this.fxSprites[i];
       fx.life += dt;
       if (fx.life >= fx.max) { this.scene.remove(fx.sprite); continue; }
       const t = fx.life / fx.max;
       (fx.sprite.material as THREE.SpriteMaterial).opacity = 1 - t;
       if (fx.grow !== 0) fx.sprite.scale.multiplyScalar(1 + fx.grow * dt);
-      fxAlive.push(fx);
+      this.fxSprites[w++] = fx;
     }
-    this.fxSprites = fxAlive;
+    this.fxSprites.length = w;
 
     // Chains: fade every material in the run, then drop it whole.
-    const chainAlive: typeof this.chainFx = [];
-    for (const cf of this.chainFx) {
+    w = 0;
+    for (let i = 0; i < this.chainFx.length; i++) {
+      const cf = this.chainFx[i];
       cf.life += dt;
       if (cf.life >= cf.max) {
         this.scene.remove(cf.group);
@@ -6475,15 +6694,16 @@ export class Renderer3D {
         continue;
       }
       for (const m of cf.mats) (m as THREE.MeshBasicMaterial).opacity = 1 - cf.life / cf.max;
-      chainAlive.push(cf);
+      this.chainFx[w++] = cf;
     }
-    this.chainFx = chainAlive;
+    this.chainFx.length = w;
 
     // Fade props (smokebomb, stars, cones): spin, grow/collapse, fade, vanish.
     // Growth is a deterministic curve off the spawn scale (no per-frame
     // compounding); `pop` adds an anticipation overshoot on the way in.
-    const propsAlive: typeof this.fadeProps = [];
-    for (const fp of this.fadeProps) {
+    w = 0;
+    for (let i = 0; i < this.fadeProps.length; i++) {
+      const fp = this.fadeProps[i];
       fp.life += dt;
       if (fp.life >= fp.max) { this.scene.remove(fp.obj); continue; }
       fp.obj.rotation.y += dt * fp.spin;
@@ -6495,21 +6715,22 @@ export class Renderer3D {
       fp.obj.scale.setScalar(s);
       const t = fp.life / fp.max;
       for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
-      propsAlive.push(fp);
+      this.fadeProps[w++] = fp;
     }
-    this.fadeProps = propsAlive;
+    this.fadeProps.length = w;
 
     // Level-up rings: expand + fade, then drop.
-    const ringAlive: typeof this.levelRings = [];
-    for (const r of this.levelRings) {
+    w = 0;
+    for (let i = 0; i < this.levelRings.length; i++) {
+      const r = this.levelRings[i];
       r.life += dt;
       if (r.life >= r.max) { this.scene.remove(r.mesh); continue; }
       const t = r.life / r.max;
       r.mesh.scale.setScalar(0.5 + t * 2.2);
       (r.mesh.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - t);
-      ringAlive.push(r);
+      this.levelRings[w++] = r;
     }
-    this.levelRings = ringAlive;
+    this.levelRings.length = w;
   }
 
   /** D4-style level-up halo: an expanding gold ring at the crawler's feet. */
@@ -6527,19 +6748,24 @@ export class Renderer3D {
     this.spawnFxLight(x, z, 0xf2c14e, 8, 0.8, 1.0);
   }
 
-  /** Project a world point to screen pixels (for DOM overlays like damage numbers). */
+  // Scratch for worldToScreen (called per damage number per frame — no
+  // per-call vector allocations).
+  private w2sV = new THREE.Vector3();
+  private w2sSize = new THREE.Vector2();
+  private w2sOut = { x: 0, y: 0, visible: true };
+
+  /** Project a world point to screen pixels (for DOM overlays like damage
+   * numbers). Returns a REUSED scratch object — consume it before the next call. */
   worldToScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
     // Ensure the camera's world/inverse matrices reflect this frame's lookAt.
     this.camera.updateMatrixWorld();
     this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
-    const v = new THREE.Vector3(x, y, z).project(this.camera);
-    const size = new THREE.Vector2();
-    this.renderer.getSize(size);
-    return {
-      x: (v.x * 0.5 + 0.5) * size.x,
-      y: (-v.y * 0.5 + 0.5) * size.y,
-      visible: v.z < 1,
-    };
+    const v = this.w2sV.set(x, y, z).project(this.camera);
+    const size = this.renderer.getSize(this.w2sSize);
+    this.w2sOut.x = (v.x * 0.5 + 0.5) * size.x;
+    this.w2sOut.y = (-v.y * 0.5 + 0.5) * size.y;
+    this.w2sOut.visible = v.z < 1;
+    return this.w2sOut;
   }
 
   render(): void {

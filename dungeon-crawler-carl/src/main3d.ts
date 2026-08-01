@@ -76,18 +76,10 @@ const renderer = new Renderer3D(canvas, {
 
 // Audio seam: same consumer pattern as particles/damage numbers, fed from the
 // per-frame feedback buffers. Silent until clips exist under public/audio/
-// (see ASSETS.md — Audio); missing files simply never play.
+// (see ASSETS.md — Audio); missing files simply never play. The clips now
+// front-load on the boot screen (perf round: longer up-front load is the
+// accepted trade for a hitch-free session) — see main() below.
 const audio = new AudioEngine();
-// Payload diet (backlog #7a): 24MB of audio must not race the model wave for
-// first-visit bandwidth. Sounds stream in AFTER the game is playable — the
-// engine's silent-fallback covers the gap, exactly like missing files do.
-// requestIdleCallback isn't universal (Safari); a timer is the fallback.
-const startAudioLoad = (): void => { void audio.load(); };
-if ("requestIdleCallback" in window) {
-  requestIdleCallback(() => setTimeout(startAudioLoad, 4000));
-} else {
-  setTimeout(startAudioLoad, 6000);
-}
 const audioDirector = new AudioDirector(audio);
 
 // ---- Network mode (?join=CODE[&name=...][&server=ws://host:5281]) ----
@@ -131,6 +123,21 @@ function resize(): void {
 }
 window.addEventListener("resize", resize);
 resize();
+
+// RENDER SCALE (SYSTEM menu, K panel): the 3D framebuffer renders at a
+// fraction of display resolution — the DOM HUD stays native-crisp. Persisted
+// per browser; applied before the first frame.
+const RENDERSCALE_KEY = "dcc:renderscale:v1";
+function loadRenderScale(): number {
+  try {
+    const v = Number(localStorage.getItem(RENDERSCALE_KEY));
+    return v === 0.75 || v === 0.9 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+let renderScale = loadRenderScale();
+if (renderScale !== 1) renderer.setRenderScale(renderScale);
 
 function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -2004,6 +2011,22 @@ kbCamZoom.addEventListener("click", () => {
   renderCamZoom();
 });
 renderCamZoom();
+
+// Render scale: 100% -> 90% -> 75% of display resolution for the 3D frame
+// (backing buffer + composer targets only; the DOM HUD stays native-crisp).
+// Applies instantly; persisted per browser.
+const RS_CYCLE = [1, 0.9, 0.75];
+const kbRenderScale = document.getElementById("kb-renderscale")!;
+function renderRenderScale(): void {
+  kbRenderScale.textContent = `${Math.round(renderScale * 100)}%`;
+}
+kbRenderScale.addEventListener("click", () => {
+  renderScale = RS_CYCLE[(RS_CYCLE.indexOf(renderScale) + 1) % RS_CYCLE.length];
+  try { localStorage.setItem(RENDERSCALE_KEY, String(renderScale)); } catch { /* best-effort */ }
+  renderer.setRenderScale(renderScale);
+  renderRenderScale();
+});
+renderRenderScale();
 
 // Controller on/off (see GamepadController). Toggling ON with a pad already
 // plugged in adopts it on the next frame's poll — no reconnect needed.
@@ -4734,13 +4757,18 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
 
 async function main(): Promise<void> {
   // SIGNAL ACQUISITION: the loading screen is baked into iso.html (visible
-  // from the first paint); here we just feed it real progress while the model
-  // manifest streams in, then fade it out. The System narrates its own load —
-  // the rotating line is flavor on a timer, the bar is the information.
+  // from the first paint); here we feed it real progress while the FULL
+  // manifest front-loads — every GLB, every sound clip, all six band
+  // environments, and a shader-precompile pass — so the running game never
+  // mid-streams assets or stalls on a first-cast program build. Longer
+  // up-front load is the accepted trade (perf round). The System narrates
+  // its own load — the rotating line is flavor on a timer, the bar is the
+  // information: a weighted sum of three phases, each tracked loaded/total.
   const loadingEl = document.getElementById("loading") as HTMLDivElement;
   const loadingFill = document.getElementById("loading-fill") as HTMLElement;
   const loadingCount = document.getElementById("loading-count") as HTMLElement;
   const loadingFlavor = document.getElementById("loading-flavor") as HTMLElement;
+  const loadingPhase = document.getElementById("loading-phase") as HTMLElement;
   const LOAD_LINES = [
     "DECORATING YOUR DEATHTRAP…",
     "REHEARSING THE MONSTERS…",
@@ -4755,9 +4783,31 @@ async function main(): Promise<void> {
     loadLine = (loadLine + 1) % LOAD_LINES.length;
     loadingFlavor.textContent = LOAD_LINES[loadLine];
   }, 1400);
+  // Real progress, weighted by phase (models are the bulk of the bytes).
+  const phaseFrac = { models: 0, audio: 0, warm: 0 };
+  const setBar = (): void => {
+    const p = phaseFrac.models * 0.72 + phaseFrac.audio * 0.2 + phaseFrac.warm * 0.08;
+    loadingFill.style.width = `${Math.round(p * 100)}%`;
+  };
+  loadingPhase.textContent = "RECEIVING THE DUNGEON";
   await renderer.init((loaded, total) => {
-    loadingFill.style.width = `${Math.round((loaded / total) * 100)}%`;
-    loadingCount.textContent = `${loaded} / ${total} ASSETS`;
+    phaseFrac.models = loaded / total;
+    setBar();
+    loadingCount.textContent = `${loaded} / ${total} MODELS`;
+  }, { full: true });
+  loadingPhase.textContent = "TUNING THE ANNOUNCER'S MICROPHONE";
+  await audio.load((loaded, total) => {
+    phaseFrac.audio = loaded / total;
+    setBar();
+    loadingCount.textContent = `${loaded} / ${total} SOUNDS`;
+  });
+  // Shader precompile + FX pool pre-allocation + all-band environment bake:
+  // everything the first combat frame would otherwise hitch on.
+  loadingPhase.textContent = "CALIBRATING THE CAMERAS";
+  await renderer.prewarm(state, (done, total) => {
+    phaseFrac.warm = done / total;
+    setBar();
+    loadingCount.textContent = `WARMUP ${done} / ${total}`;
   });
   window.clearInterval(flavorTimer);
   loadingEl.classList.add("done");
@@ -4794,6 +4844,9 @@ async function main(): Promise<void> {
     partyChip.style.display = "";
   }
 
+  // Feedback buffers reused across frames (GC sweep: no per-frame arrays).
+  const frameHits: typeof state.hits = [];
+  const frameAnns: Announcement[] = [];
   function frame(now: number): void {
     let dt = (now - prev) / 1000;
     prev = now;
@@ -4803,8 +4856,8 @@ async function main(): Promise<void> {
     pollTouch();
 
     // Buffer feedback across every sub-step (step() clears these each call).
-    const frameHits: typeof state.hits = [];
-    const frameAnns: Announcement[] = [];
+    frameHits.length = 0;
+    frameAnns.length = 0;
 
     if (net) {
       // Authoritative snapshots drive the world; we pump intent + drain events.

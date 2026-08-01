@@ -56,12 +56,16 @@ export class AudioEngine implements AudioSink {
   private pendingMusic: SoundId | null = null; // requested before unlock/decode
   private prefs = loadPrefs();
 
-  /** Fetch + decode every manifest clip that exists; missing files stay silent. */
-  async load(): Promise<void> {
+  /** Fetch + decode every manifest clip that exists; missing files stay silent.
+   * onProgress reports clips SETTLED (decoded or missing-and-skipped) so the
+   * boot screen can show real progress while the sound library front-loads. */
+  async load(onProgress?: (loaded: number, total: number) => void): Promise<void> {
+    const ids = Object.keys(AUDIO_MANIFEST) as SoundId[];
     const ctx = this.ensureContext();
-    if (!ctx) return; // no WebAudio (old browser / non-DOM host): stay silent
+    if (!ctx) { onProgress?.(ids.length, ids.length); return; } // no WebAudio: stay silent
+    let settled = 0;
     await Promise.all(
-      (Object.keys(AUDIO_MANIFEST) as SoundId[]).map(async (id) => {
+      ids.map(async (id) => {
         try {
           const res = await fetch(AUDIO_MANIFEST[id].url);
           if (!res.ok) return;
@@ -69,6 +73,8 @@ export class AudioEngine implements AudioSink {
           this.buffers.set(id, await ctx.decodeAudioData(data));
         } catch {
           // Absent or undecodable — leave it out; play() no-ops.
+        } finally {
+          onProgress?.(++settled, ids.length);
         }
       }),
     );

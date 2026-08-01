@@ -367,8 +367,9 @@ export interface ModelStore {
 /**
  * Kick off the streaming load. Nothing here throws: a missing file simply
  * never lands in `models` and the renderer keeps its procedural stand-in.
- * onProgress tracks the PRIORITY wave (what the boot screen gates on); the
- * background bulk reports nothing — it is deliberately invisible.
+ * onProgress tracks EVERY manifest file (models + rig/hero clip packs + the
+ * generated index) as it settles — loaded or missing-and-skipped — so a boot
+ * screen gating on the full wave can show real loaded/total progress.
  */
 export function startModelLoad(
   onProgress?: (loaded: number, total: number) => void,
@@ -387,6 +388,7 @@ export function startModelLoad(
   // ?noassets (verify harness): nothing loads, stand-ins everywhere, and the
   // settled beacon is up before the first frame.
   if (NO_ASSETS) {
+    onProgress?.(1, 1); // the boot bar completes instantly
     markAssetsSettled();
     return store;
   }
@@ -436,10 +438,14 @@ export function startModelLoad(
   const wave1 = entries.filter(([k]) => PRIORITY_KEYS.has(k));
   const wave2 = entries.filter(([k]) => !PRIORITY_KEYS.has(k));
 
-  // Progress = priority files SETTLED (loaded or missing-and-skipped) — the
-  // boot bar must never stall on an asset we'd gracefully skip anyway.
+  // Progress = files SETTLED (loaded or missing-and-skipped) across the WHOLE
+  // manifest — models, rig clip packs, hero clip packs, the generated index —
+  // the boot bar must never stall on an asset we'd gracefully skip anyway.
+  const totalFiles = entries.length +
+    RIG_CLIP_MANIFEST.medium.length + RIG_CLIP_MANIFEST.large.length +
+    HERO_CLIP_MANIFEST.length + 1; // +1: the generated-assets index
   let settled = 0;
-  const tick = () => onProgress?.(++settled, wave1.length);
+  const tick = () => onProgress?.(++settled, totalFiles);
 
   const priorityWave = Promise.all(
     wave1.map((e) => loadModel(e[0], e[1]).finally(tick)),
@@ -449,28 +455,36 @@ export function startModelLoad(
   const background = async (): Promise<void> => {
     await priorityWave; // priority wave owns the bandwidth first
     await Promise.all([
-      ...wave2.map((e) => loadModel(e[0], e[1])),
+      ...wave2.map((e) => loadModel(e[0], e[1]).finally(tick)),
       ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).flatMap((rig) =>
         RIG_CLIP_MANIFEST[rig].map(async (url, slot) => {
           try {
-            rigSlots[rig][slot] = (await loader.loadAsync(url)).animations;
-          } catch {
-            return; // missing pack: rig characters just animate with less variety
+            try {
+              rigSlots[rig][slot] = (await loader.loadAsync(url)).animations;
+            } catch {
+              return; // missing pack: rig characters just animate with less variety
+            }
+            // Rebuild in place so every character holding this array sees it.
+            rigClips[rig].length = 0;
+            rigClips[rig].push(...rigSlots[rig].flat());
+            store.onArrive?.(`rig:${rig}`);
+          } finally {
+            tick();
           }
-          // Rebuild in place so every character holding this array sees it.
-          rigClips[rig].length = 0;
-          rigClips[rig].push(...rigSlots[rig].flat());
-          store.onArrive?.(`rig:${rig}`);
         }),
       ),
       ...HERO_CLIP_MANIFEST.map(async (url, slot) => {
         try {
-          heroSlots[slot] = (await loader.loadAsync(url)).animations;
-        } catch {
-          return; // missing ability clip: the animator's playFirst fallbacks cover it
+          try {
+            heroSlots[slot] = (await loader.loadAsync(url)).animations;
+          } catch {
+            return; // missing ability clip: the animator's playFirst fallbacks cover it
+          }
+          for (const key of HERO_SKIN_KEYS) appendHeroClips(key);
+          store.onArrive?.("hero:clips");
+        } finally {
+          tick();
         }
-        for (const key of HERO_SKIN_KEYS) appendHeroClips(key);
-        store.onArrive?.("hero:clips");
       }),
       // GENERATED assets (the builder's Meshy bridge writes these at dev time;
       // committed ones ship like any other file). index.json maps key -> {url,
@@ -490,7 +504,7 @@ export function startModelLoad(
             } catch { /* one bad generated asset never blocks the rest */ }
           }));
         } catch { /* no generated index: nothing crafted yet */ }
-      })(),
+      })().finally(tick),
     ]);
   };
   store.complete = background();

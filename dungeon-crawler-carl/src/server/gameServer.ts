@@ -242,7 +242,21 @@ export class GameServer {
     this.db?.sweepExpired(Date.now());
     this.auth = new AuthService(this.db);
     this.http = createServer((req, res) => this.onRequest(req, res));
-    this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_WS_PAYLOAD });
+    // permessage-deflate: snapshot JSON is highly repetitive frame-to-frame,
+    // so deflate WITH context takeover (the default the browser negotiates)
+    // behaves like cheap delta encoding — measured ~10x on the recurring
+    // dynamic snapshots (see DEPLOY.md capacity table). The ceiling of this
+    // server is BANDWIDTH, not CPU (~1% tick budget in use), and zlib runs on
+    // the libuv threadpool, off the tick thread. Memory ~150KB/connection —
+    // 60 players ≈ 9MB. maxPayload still caps the DECOMPRESSED inbound size.
+    this.wss = new WebSocketServer({
+      server: this.http,
+      maxPayload: MAX_WS_PAYLOAD,
+      perMessageDeflate: {
+        threshold: 256, // don't bother compressing tiny event frames
+        zlibDeflateOptions: { level: 4 }, // 4 ≈ 6 ratio here at half the CPU
+      },
+    });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.http.listen(port);
     this.heartbeatTimer = setInterval(() => this.sweepHeartbeat(), heartbeatIntervalMs);

@@ -113,6 +113,14 @@ export function interestMonsters(monsters: readonly Monster[], players: readonly
 export const PLAYER_COLD_FIELDS = [
   "equipment", "inventory", "abilities", "achievements", "materials",
   "tipsSeen", "revisions", "pendingUpgrades", "pendingRewards",
+  // Derived/semi-static stats: written only by the stat recompute (equips,
+  // level-ups, permanent buffs) or explicit actions — never per-tick. The
+  // fingerprint is by VALUE, so an idempotent recompute doesn't re-ship.
+  // Deliberately NOT here: xp/gold/kills/hype/viewers (move per kill/pickup —
+  // they'd thrash the whole block).
+  "name", "skin", "maxHp", "speed", "armor", "attackPower", "spellPower",
+  "critChance", "weaponRarity", "xpToNext",
+  "bonusDamage", "bonusSpell", "bonusMaxHp", "bonusCrit", "bonusArmor",
 ] as const satisfies readonly (keyof Player)[];
 
 /** Fingerprint of the slow block (exact values — not wire-rounded). */
@@ -132,9 +140,37 @@ export function mergeColdPlayers(next: Player[], prev: readonly Player[]): void 
   }
 }
 
+// STATE-level slow block: top-level fields that change only through explicit
+// world events (a breakable smashed, a quest advanced, a dialogue turn-in),
+// yet re-ship 15/s — measured at ~23% of a coop dynamic snapshot (breakables)
+// and ~32% of a roam one (breakables + npcs/settlements/quests). Same deal as
+// the player cold split: co-op dynamic snapshots omit the whole block while a
+// fingerprint (kept in the instance coldCache under SLOW_KEY) is unchanged,
+// and the client merges it forward from its previous snapshot
+// (mergeSlowState). Welcome and FULL snapshots always carry everything.
+// `npc` is required on GameState (null in race mode), so its ABSENCE is the
+// wire marker for "block omitted" — mirroring equipment for players.
+export const STATE_SLOW_FIELDS = [
+  "npc", "npcs", "settlements", "quests", "dialogue", "roamSmashed", "breakables",
+] as const satisfies readonly (keyof GameState)[];
+
+/** coldCache slot for the state slow block's fingerprint (player ids are >= 0). */
+const SLOW_KEY = -1;
+
+/** Client side of the state slow split: a dynamic snapshot missing `npc`
+ * (otherwise always present, null in race mode) inherits the whole slow
+ * block from the previous snapshot. Mutates `next` in place. */
+export function mergeSlowState(next: GameState, prev: GameState): void {
+  if ((next as Partial<GameState>).npc !== undefined) return;
+  for (const k of STATE_SLOW_FIELDS) (next as unknown as Record<string, unknown>)[k] = prev[k];
+}
+
 /** Encode the recurring DYNAMIC snapshot: everything except map + fog mask,
- * with the monster list trimmed to the party's interest bubble and player
- * slow blocks omitted while unchanged (when a coldCache is provided). */
+ * with the monster list trimmed to the party's interest bubble, player slow
+ * blocks and the state slow block omitted while unchanged (when a coldCache
+ * is provided), and per-step transients zeroed (the server already delivers
+ * them through the dedicated `events` message every tick — net hosts render
+ * ONLY that channel, so the snapshot copy was pure duplication). */
 export function serializeDynamic(state: GameState, coldCache?: Map<number, string>): string {
   const players = !coldCache ? state.players : state.players.map((p) => {
     const fp = coldFingerprint(p);
@@ -152,7 +188,16 @@ export function serializeDynamic(state: GameState, coldCache?: Map<number, strin
     monsters: interestMonsters(state.monsters, state.players),
     monstersLeft: state.monsters.length,
     explored: undefined, map: undefined, worlds: undefined,
-  };
+    events: [], announcements: [], hits: [],
+  } as Record<string, unknown>;
+  if (coldCache) {
+    const fp = JSON.stringify(STATE_SLOW_FIELDS.map((k) => state[k] ?? null));
+    if (coldCache.get(SLOW_KEY) === fp) {
+      for (const k of STATE_SLOW_FIELDS) delete wire[k];
+    } else {
+      coldCache.set(SLOW_KEY, fp);
+    }
+  }
   return JSON.stringify(wire, roundFloats);
 }
 
@@ -244,5 +289,7 @@ export function serializeForDynamic(state: GameState, playerId: number): string 
     monsters: interestMonsters(view.monsters, view.players),
     monstersLeft: view.monsters.length,
     explored: undefined, map: undefined,
+    // Transients ride the dedicated `events` broadcast, never the snapshot.
+    events: [], announcements: [], hits: [],
   }, roundFloats);
 }
