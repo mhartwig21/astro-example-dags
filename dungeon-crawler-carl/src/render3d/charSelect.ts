@@ -404,6 +404,11 @@ export class CharSelectScene {
       this.camera.fov = this.camFov;
       this.camera.updateProjectionMatrix();
     }
+    // Renderer3D turns shadowMap.autoUpdate OFF (it drives the dungeon's key
+    // light manually so the map is not rebuilt once per post-processing pass),
+    // and this scene shares that WebGLRenderer. Arm our own rebuild or the
+    // campfire renders against a stale/empty shadow map.
+    this.gl.shadowMap.needsUpdate = true;
     this.gl.render(this.scene, this.camera);
   }
 

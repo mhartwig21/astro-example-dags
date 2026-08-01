@@ -5,6 +5,7 @@ import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
@@ -28,6 +29,10 @@ import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvC
 import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight, type BakeStain } from "./lightGrid";
 import { FxParticles, TEX_FLICKER } from "./fxParticles";
 import { SwingArcs, TrailRibbons } from "./fxTrails";
+import {
+  QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, guessQuality, loadQualityChoice,
+  saveQualityChoice, urlQualityOverride, type QualityChoice, type QualityProfile,
+} from "./quality";
 import { FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
@@ -94,6 +99,33 @@ const GradeShader = {
     }`,
 };
 
+// Bloom at a fraction of frame resolution (quality ladder).
+//
+// UnrealBloomPass already halves before it builds its 5-mip chain, so a scale
+// of 0.5 puts the brightest mip at a quarter of frame resolution. The pass's
+// final step is an additive fullscreen quad into the FULL-res read buffer, so
+// the scale never changes where bloom lands or how bright it is — only how
+// finely the glow is sampled. A wide soft kernel (radius 0.7 here) is a blur
+// of a blur: dropping its input resolution is invisible, and it takes the mip
+// chain's fill cost down with it quadratically.
+class ScaledBloomPass extends UnrealBloomPass {
+  private scale = 1;
+  private fullW = 2;
+  private fullH = 2;
+  setScale(s: number): void {
+    if (s === this.scale) return;
+    this.scale = s;
+    this.setSize(this.fullW, this.fullH);
+  }
+  setSize(width: number, height: number): void {
+    this.fullW = width; this.fullH = height;
+    super.setSize(
+      Math.max(2, Math.round(width * this.scale)),
+      Math.max(2, Math.round(height * this.scale)),
+    );
+  }
+}
+
 // GTAO with the cosmetic transparents excluded from its G-buffer: the fog
 // bank, glow sprites, and ambient motes must never carve occlusion into the
 // world (a fog plane over the map would AO-shade everything under it).
@@ -109,6 +141,96 @@ class WorldGTAOPass extends GTAOPass {
         o.visible = false;
       }
     });
+  }
+
+  // PERF (CPU floor): with an externally-supplied depth buffer the stock pass
+  // skips its G-buffer prepass entirely — no second full-scene render, no
+  // second shadow-map build, and no pair of scene.traverse() visibility walks
+  // over ~5,700 objects. What is left is four fullscreen quads. The normal
+  // target is then never rendered into, so keep it at 1x1 instead of paying
+  // for a full-res HalfFloat surface + depth texture that nothing reads.
+  private gbufOff = false;
+  useSharedDepth(depth: THREE.DepthTexture): void {
+    this.setGBuffer(depth, undefined);
+    this.gbufOff = true;
+    (this as unknown as { normalRenderTarget: THREE.WebGLRenderTarget }).normalRenderTarget.setSize(1, 1);
+  }
+
+  // HALF-RES AO WITH A BILATERAL UPSAMPLE (quality ladder).
+  //
+  // The AO buffer and the denoise buffer are sized independently. Running the
+  // AO march at aoScale 0.5 costs a QUARTER of its samples; the denoise pass
+  // then runs at full resolution and reads the small AO buffer through
+  // textureLod (bilinear) while weighting every tap by depth, normal and luma
+  // from the FULL-res shared depth buffer. That is precisely a joint-bilateral
+  // upsample, and it is stock three shader code — no custom pass needed. The
+  // occlusion contact line stays pinned to the geometry edge instead of
+  // bleeding across it the way a plain bilinear stretch would.
+  //
+  // Setting denoiseScale below 1 gives up the bilateral upsample and lets the
+  // AO blend do a plain bilinear stretch instead — cheaper, softer, which is
+  // the right trade on the lower rungs.
+  private aoScale = 1;
+  private denoiseScale = 1;
+  private fullW = 2;
+  private fullH = 2;
+  setResolutionScales(aoScale: number, denoiseScale: number): void {
+    if (aoScale === this.aoScale && denoiseScale === this.denoiseScale) return;
+    this.aoScale = aoScale;
+    this.denoiseScale = denoiseScale;
+    this.setSize(this.fullW, this.fullH);
+  }
+
+  // Stock setSize also resizes normalRenderTarget; skip that once it is dead.
+  setSize(width: number, height: number): void {
+    this.fullW = width; this.fullH = height;
+    if (!this.gbufOff) { super.setSize(width, height); return; }
+    const self = this as unknown as {
+      width: number; height: number;
+      gtaoRenderTarget: THREE.WebGLRenderTarget; pdRenderTarget: THREE.WebGLRenderTarget;
+      gtaoMaterial: THREE.ShaderMaterial; pdMaterial: THREE.ShaderMaterial;
+    };
+    const aw = Math.max(1, Math.round(width * this.aoScale));
+    const ah = Math.max(1, Math.round(height * this.aoScale));
+    const dw = Math.max(1, Math.round(width * this.denoiseScale));
+    const dh = Math.max(1, Math.round(height * this.denoiseScale));
+    self.width = width; self.height = height;
+    self.gtaoRenderTarget.setSize(aw, ah);
+    self.pdRenderTarget.setSize(dw, dh);
+    // Each material's `resolution` is the size of the buffer IT writes: the AO
+    // march steps in AO texels, the denoise steps its poisson radius in denoise
+    // texels. Feeding either the other one's size scales the kernels wrongly.
+    self.gtaoMaterial.uniforms.resolution.value.set(aw, ah);
+    self.gtaoMaterial.uniforms.cameraProjectionMatrix.value.copy(this.camera.projectionMatrix);
+    self.gtaoMaterial.uniforms.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
+    self.pdMaterial.uniforms.resolution.value.set(dw, dh);
+    self.pdMaterial.uniforms.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
+  }
+
+  // EffectComposer ping-pongs two render targets and rt2 is a clone of rt1 —
+  // so each carries its OWN cloned DepthTexture. Re-point the AO + denoise
+  // samplers at whichever buffer the RenderPass just filled; otherwise a pass
+  // count with odd swap parity would silently feed us last frame's depth.
+  render(
+    renderer: THREE.WebGLRenderer,
+    writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+    deltaTime = 0,
+    maskActive = false,
+  ): void {
+    if (this.gbufOff) {
+      const depth = readBuffer.depthTexture;
+      const self = this as unknown as {
+        depthTexture: THREE.Texture | null;
+        gtaoMaterial: THREE.ShaderMaterial; pdMaterial: THREE.ShaderMaterial;
+      };
+      if (depth && self.depthTexture !== depth) {
+        self.depthTexture = depth;
+        self.gtaoMaterial.uniforms.tDepth.value = depth;
+        self.pdMaterial.uniforms.tDepth.value = depth;
+      }
+    }
+    super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
   }
 }
 
@@ -184,11 +306,159 @@ export class Renderer3D {
   private ambientLight: THREE.AmbientLight;
   private rim: THREE.DirectionalLight; // cool accent from behind-left (no shadow)
 
-  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB) -> Grade.
+  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB) -> Grade -> SMAA.
   private composer: EffectComposer;
   private gtao: WorldGTAOPass;
-  private bloom: UnrealBloomPass;
+  private bloom: ScaledBloomPass;
   private gradePass: ShaderPass;
+  // SMAA runs LAST, on the tone-mapped, graded, gamma-encoded image. Edge
+  // detection wants perceptual (display-referred) values — running AA inside
+  // the linear HDR chain makes it under-detect edges in the shadows and
+  // over-detect them in the highlights. Grade is a smooth per-pixel operator
+  // (no grain), so there is nothing for SMAA to smear here.
+  private smaa: SMAAPass | null = null;
+
+  // ---- Quality ladder (see quality.ts) ----
+  private quality: QualityProfile;
+  private qualityChoice: QualityChoice;
+  private tuner: QualityAutoTuner;
+  private onQualityChange: ((p: QualityProfile) => void) | null = null;
+  /** Composed-frame counter, for the shadow-rebuild cadence. */
+  private frameNo = 0;
+  /** Force the next composed frame to rebuild the shadow map regardless of the
+   *  preset's cadence — set whenever the map is destroyed. */
+  private shadowDirty = true;
+  private lastFrameAt = 0;
+  /** Wall-clock deadline before which the tuner ignores every frame. */
+  private warmupUntil = 0;
+  /** Set by beginTuning() (or, as a fallback, by the end of prewarm) — the
+   *  moment the player is actually looking at the game. */
+  private tuningArmed = false;
+
+  /** The effective device pixel ratio: the display's, capped by the preset. */
+  private pixelRatio(): number {
+    return Math.min(devicePixelRatio || 1, this.quality.pixelRatioCap) * this.renderScale;
+  }
+
+  /** Current preset (settings UI reads this). */
+  get qualityProfile(): QualityProfile {
+    return this.quality;
+  }
+
+  /** "auto" or the pinned preset name (settings UI reads this). */
+  get qualitySetting(): QualityChoice {
+    return this.qualityChoice;
+  }
+
+  /** Fired whenever the preset actually changes, including auto-detect moves,
+   *  so the settings row can repaint itself without polling. */
+  setQualityListener(fn: ((p: QualityProfile) => void) | null): void {
+    this.onQualityChange = fn;
+  }
+
+  /**
+   * MANUAL OVERRIDE (settings row). "auto" hands control back to the tuner,
+   * starting from whatever is on screen now.
+   */
+  setQuality(choice: QualityChoice): void {
+    this.qualityChoice = choice;
+    saveQualityChoice(choice);
+    if (choice === "auto") {
+      this.tuner.reset(this.quality.name);
+      return;
+    }
+    this.tuner.reset(choice);
+    this.applyQuality(QUALITY_PRESETS[choice]);
+  }
+
+  /**
+   * HAND THE AUTO-TUNER OVER TO REAL GAMEPLAY.
+   *
+   * Until this is called the tuner is inert: it neither samples nor changes
+   * anything. Call it at the exact moment the player starts seeing frames —
+   * in main3d.ts that is immediately after `await renderer.prewarm(...)`
+   * returns, on the same line as hiding #loading:
+   *
+   *     await renderer.prewarm(state, ...);
+   *     renderer.beginTuning();          // <-- here
+   *     loadingEl.classList.add("done");
+   *
+   * prewarm() calls this itself as a fallback, so a host that never wires it up
+   * still gets a tuner armed at the end of prewarm rather than at the first
+   * compile frame. Calling it again is safe and simply restarts the warm-up
+   * window, which is what a host wants if it shows a menu in between.
+   */
+  beginTuning(): void {
+    this.tuningArmed = true;
+    this.warmupUntil = 0; // re-armed on the next composed frame
+    this.lastFrameAt = 0;
+  }
+
+  /**
+   * Push a profile into the live pipeline.
+   *
+   * Everything touched here is reallocation of buffers or a pass toggle —
+   * deliberately NOT anything that changes a material's program. Light-pool
+   * sizes in particular are read once when the pools are first built (during
+   * prewarm, behind the loading screen) and are left alone afterwards: a
+   * forward renderer compiles a program per light count, so resizing a pool
+   * mid-run is exactly the multi-second shader stall this work exists to kill.
+   */
+  private applyQuality(p: QualityProfile): void {
+    const prev = this.quality;
+    this.quality = p;
+
+    if (p.pixelRatioCap !== prev.pixelRatioCap) this.resize(this.lastW, this.lastH);
+
+    if (p.msaaSamples !== prev.msaaSamples) {
+      for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) {
+        rt.samples = p.msaaSamples;
+        rt.dispose(); // forces reallocation with the new sample count
+      }
+    }
+
+    if (this.smaa) this.smaa.enabled = p.smaa;
+
+    // Push the AO configuration UNCONDITIONALLY, not only when the pass is on.
+    // Gating it on `p.gtao` left the buffers sized for whatever rung was
+    // visited last, so a profile's gtaoScale/gtaoDenoiseScale silently did not
+    // describe the pass whenever it was entered with AO off — a field that
+    // lies. The calls are cheap and idempotent while the pass is disabled.
+    this.gtao.enabled = p.gtao;
+    this.gtao.setResolutionScales(p.gtaoScale, p.gtaoDenoiseScale);
+    this.gtao.updateGtaoMaterial({ samples: p.gtaoSamples });
+    this.gtao.updatePdMaterial({ samples: p.gtaoDenoiseSamples });
+
+    this.bloom.enabled = p.bloom;
+    this.bloom.setScale(p.bloomScale);
+
+    if (p.shadowMapSize !== prev.shadowMapSize) {
+      this.renderer.shadowMap.enabled = p.shadowMapSize > 0;
+      if (p.shadowMapSize > 0) {
+        this.key.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize);
+        // The map is only reallocated at the new size if the old one is gone.
+        this.key.shadow.map?.dispose();
+        this.key.shadow.map = null;
+        // ...AND THE NEXT COMPOSED FRAME MUST REBUILD IT, WHATEVER THE CADENCE.
+        //
+        // Without this the frame after a preset change composed with
+        // key.shadow.map === null: three.js binds its 1x1 emptyTexture for
+        // directionalShadowMap, the PCF compare returns 0, and the key light
+        // reads as fully occluded. Measured by gl.readPixels of the real
+        // backbuffer: 71.9 mean luminance with a map vs 47.0 without — one
+        // frame 35% darker, on 12 of 12 disposals into a preset whose
+        // shadowInterval is > 1. It fired on every auto-tuner downgrade, i.e.
+        // exactly when the machine is already slow enough that the black flash
+        // lasts 100 ms rather than 17.
+        this.shadowDirty = true;
+      }
+    }
+
+    this.fxp.setDensity(p.fxDensity);
+    this.ambientFx.setDensity(p.moteDensity);
+
+    this.onQualityChange?.(p);
+  }
 
   // Environment light: PMREM'd per-band gradient sky, cached by band index.
   private pmrem: THREE.PMREMGenerator | null = null;
@@ -570,89 +840,119 @@ export class Renderer3D {
       tint.multiplyScalar(1 / mx);
     }
     const tintGain = opts.tintGain ?? 0.5;
-    // Non-normal terms run at color_fragment (before lighting): pullback or
-    // hero authority, then luminance-band zoning + the vertical 2-tone.
-    let colorGlsl = "";
-    if (desat > 0) {
-      colorGlsl +=
-        `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, ${(1 - desat).toFixed(3)});`;
-    }
-    if (opts.hero) {
-      // HERO AUTHORITY (issue #4): the player owns the value/saturation
-      // budget — ~18% more chroma and ~12% more value than any NPC.
-      colorGlsl +=
-        `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, 1.18) * 1.12;`;
-    }
-    if (opts.value !== undefined && opts.value !== 1) {
-      colorGlsl += `\n  diffuseColor.rgb *= ${opts.value.toFixed(3)};`;
-    }
-    if (tint) {
+    // ---- ONE PROGRAM FOR EVERY CHARACTER IN THE GAME ----------------------
+    //
+    // THIS USED TO BAKE THE NUMBERS INTO THE GLSL, and that was the single
+    // biggest source of the multi-second freezes. Every archetype's rim hex,
+    // tint hex, accent hex, trim hex and five gains were emitted as float
+    // literals, so `variant` (and with it the program cache key) changed for
+    // EVERY monster type. A skeleton, an orc and a tiefling are the same shader
+    // with different constants, but three.js saw three programs — and built
+    // each one the first time that monster walked on screen. Measured on the
+    // reference machine (tools/progkeys.mjs, ULTRA, native res): 55 programs
+    // compiled DURING gameplay, ~32 of them these character variants, and on
+    // ANGLE/D3D11 each build blocks the frame it lands on for a few hundred ms.
+    //
+    // The numbers are now UNIFORMS and every term is emitted UNCONDITIONALLY,
+    // so the shader text is a compile-time constant and `customProgramCacheKey`
+    // is a constant too: all characters share one program per (map, skinning)
+    // shape, which prewarm can enumerate exhaustively.
+    //
+    // "Unconditionally" is safe because every optional term has an EXACT
+    // identity at gain 0 — mix(x, y, 0.0) is x and `+= c * 0.0` is nothing —
+    // so a monster with no trim renders bit-identically to the old build's
+    // no-trim program. Nothing is approximated to win the merge.
+    //
+    // The optional terms are then skipped with `if (uChSomeGain > 0.0)`. That
+    // condition is a UNIFORM, so it is constant across an entire draw call:
+    // every fragment in the batch takes the same branch, there is no warp
+    // divergence, and a mob with no tint/grime/accent/trim pays about what it
+    // paid back when those terms were compiled out of its private program.
+    // The branch is what makes a single shared program affordable.
+    const colorGlsl =
+      // Palette pullback (mobs cede saturation to the hero). uChDesat = 1 - desat.
+      `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, uChDesat);` +
+      // HERO AUTHORITY (issue #4): the player owns the value/saturation budget
+      // — ~18% more chroma and ~12% more value than any NPC. uChHeroSat is 1.0
+      // and uChValue folds in the flat value multiplier for everyone else.
+      `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, uChHeroSat) * uChValue;` +
       // ALBEDO ZONING, archetype pass (issue #3): bright UNSATURATED texels —
-      // the white clay that reads as a 3D-print blank — take on the
-      // archetype's hue (an ogre gets ogre skin, a cultist gets robe dye),
-      // while already-dyed texels (cloth, trim) and dark texels (leather,
-      // metal — the cool lean below owns those) keep their material identity.
-      colorGlsl +=
-        `\n  { float tMx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));` +
-        `\n    float tSat = tMx - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));` +
-        `\n    float tK = (1.0 - smoothstep(0.08, 0.30, tSat)) * smoothstep(0.30, 0.60, tMx);` +
-        `\n    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(${tint.r.toFixed(4)}, ${tint.g.toFixed(4)}, ${tint.b.toFixed(4)}), tK * ${tintGain.toFixed(3)}); }`;
-    }
-    if (opts.grime && opts.grime > 0) {
+      // the white clay that reads as a 3D-print blank — take on the archetype's
+      // hue (an ogre gets ogre skin, a cultist gets robe dye), while
+      // already-dyed texels (cloth, trim) and dark texels (leather, metal — the
+      // cool lean below owns those) keep their material identity.
+      `\n  if (uChTintGain > 0.0) { float tMx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));` +
+      `\n    float tSat = tMx - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));` +
+      `\n    float tK = (1.0 - smoothstep(0.08, 0.30, tSat)) * smoothstep(0.30, 0.60, tMx);` +
+      `\n    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * uChTint, tK * uChTintGain); }` +
       // MATERIAL WEAR (r7 boss pass): the base of the figure carries floor
       // grime — darker, desaturated, leaning warm-dirt — fading out by chest
       // height. Kills the "untextured white cylinder" read at the silhouette's
       // widest point without touching the face/crown.
-      const gr = opts.grime.toFixed(3);
-      colorGlsl +=
-        `\n  { float gK = (1.0 - smoothstep(0.15, 1.05, vChW.y)) * ${gr};` +
-        `\n    vec3 gDirt = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, 0.6) * vec3(0.62, 0.55, 0.47);` +
-        `\n    diffuseColor.rgb = mix(diffuseColor.rgb, gDirt, gK); }`;
-    }
-    colorGlsl +=
+      `\n  if (uChGrime > 0.0) { float gK = (1.0 - smoothstep(0.15, 1.05, vChW.y)) * uChGrime;` +
+      `\n    vec3 gDirt = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, 0.6) * vec3(0.62, 0.55, 0.47);` +
+      `\n    diffuseColor.rgb = mix(diffuseColor.rgb, gDirt, gK); }` +
       `\n  { float chL = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));` +
       `\n    diffuseColor.rgb *= mix(vec3(0.78, 0.85, 1.10), vec3(1.10, 1.01, 0.88), smoothstep(0.22, 0.68, chL));` +
-      `\n    diffuseColor.rgb *= mix(vec3(0.84, 0.88, 1.02), vec3(1.05, 1.02, 0.97), smoothstep(0.05, 1.35, vChW.y)); }`;
-    if (!opts.hero) {
+      `\n    diffuseColor.rgb *= mix(vec3(0.84, 0.88, 1.02), vec3(1.05, 1.02, 0.97), smoothstep(0.05, 1.35, vChW.y)); }` +
       // ALBEDO CEILING (audit r5 blocker: "fullbright white brutes"): bone/
       // ivory texels at ~1.0 albedo saturate the tone-map shoulder under any
       // real light and read as an UNLIT material error. Softly compress the
       // brightest texels toward ~0.84 so even white bone keeps a shading
-      // gradient; the hero keeps its authority boost untouched.
-      colorGlsl +=
-        `\n  { float chMx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));` +
-        `\n    diffuseColor.rgb *= mix(1.0, 0.84 / max(chMx, 1e-4), smoothstep(0.70, 1.04, chMx)); }`;
-    }
+      // gradient; the hero keeps its authority boost untouched (uChCeil = 0).
+      `\n  if (uChCeil > 0.0) { float chMx = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));` +
+      `\n    diffuseColor.rgb *= mix(1.0, 0.84 / max(chMx, 1e-4), smoothstep(0.70, 1.04, chMx)); }`;
     // Normal-dependent terms run at emissivemap_fragment (normal is live):
-    // cavity AO sink, the two-tone rim, and the accent glow.
-    let emisGlsl =
+    // cavity AO sink, the two-tone rim, the accent glow and the trim glint.
+    const emisGlsl =
       `{ diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(-0.7, 0.6, normal.y);\n` +
       `  vec3 rimV = normalize(vViewPosition);\n` +
       `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 3.0);\n` +
       `  float rimSide = smoothstep(-0.45, 0.55, -normal.x * 0.6 + normal.y * 0.55);\n` +
-      `  vec3 rimC = mix(vec3(${col.r.toFixed(4)}, ${col.g.toFixed(4)}, ${col.b.toFixed(4)}), uChWarm, rimSide);\n` +
-      `  totalEmissiveRadiance += rimC * (rimF * ${opts.strength.toFixed(3)});\n`;
-    if (accent) {
+      `  vec3 rimC = mix(uChRim, uChWarm, rimSide);\n` +
+      `  totalEmissiveRadiance += rimC * (rimF * uChRimStr);\n` +
       // Accent rides the mid-fresnel band (trim/edges, not the whole body),
       // breathing at ~1.3Hz so it reads alive at a glance.
-      emisGlsl +=
-        `  float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.0);\n` +
-        `  float accPulse = 0.75 + 0.25 * sin(uChTime * 8.2);\n` +
-        `  totalEmissiveRadiance += vec3(${accent.r.toFixed(4)}, ${accent.g.toFixed(4)}, ${accent.b.toFixed(4)}) * (accF * ${accentGain.toFixed(3)} * accPulse);\n`;
-    }
-    if (trim) {
+      `  if (uChAccentGain > 0.0) {\n` +
+      `    float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.0);\n` +
+      `    float accPulse = 0.75 + 0.25 * sin(uChTime * 8.2);\n` +
+      `    totalEmissiveRadiance += uChAccent * (accF * uChAccentGain * accPulse); }\n` +
       // GOLD TRIM GLINT (r7 boss pass, matches the HUD's gold-on-black
       // language): a steady metallic edge catch on the UPPER body — fresnel
       // edges plus up-facing bevels — so the crown/shoulders read from the
       // gameplay camera, not just a probe angle.
-      emisGlsl +=
-        `  float trF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.2);\n` +
-        `  float trUp = smoothstep(0.25, 0.85, normal.y);\n` +
-        `  float trH = smoothstep(0.55, 1.35, vChW.y);\n` +
-        `  totalEmissiveRadiance += vec3(${trim.r.toFixed(4)}, ${trim.g.toFixed(4)}, ${trim.b.toFixed(4)}) * (max(trF, trUp * 0.55) * trH * ${trimGain.toFixed(3)});\n`;
-    }
-    emisGlsl += `}`;
-    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:w6`;
+      `  if (uChTrimGain > 0.0) {\n` +
+      `    float trF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.2);\n` +
+      `    float trUp = smoothstep(0.25, 0.85, normal.y);\n` +
+      `    float trH = smoothstep(0.55, 1.35, vChW.y);\n` +
+      `    totalEmissiveRadiance += uChTrim * (max(trF, trUp * 0.55) * trH * uChTrimGain); }\n` +
+      `}`;
+    // The per-material uniform block. These values used to be GLSL literals;
+    // they are the ONLY thing that differs between one character and another.
+    const chVals = {
+      uChDesat: { value: 1 - desat },
+      uChHeroSat: { value: opts.hero ? 1.18 : 1 },
+      uChValue: { value: (opts.hero ? 1.12 : 1) * (opts.value ?? 1) },
+      uChTint: { value: tint ?? new THREE.Color(1, 1, 1) },
+      uChTintGain: { value: tint ? tintGain : 0 },
+      uChGrime: { value: opts.grime ?? 0 },
+      uChCeil: { value: opts.hero ? 0 : 1 },
+      uChRim: { value: col },
+      uChRimStr: { value: opts.strength },
+      uChAccent: { value: accent ?? new THREE.Color(0, 0, 0) },
+      uChAccentGain: { value: accent ? accentGain : 0 },
+      uChTrim: { value: trim ?? new THREE.Color(0, 0, 0) },
+      uChTrimGain: { value: trim ? trimGain : 0 },
+    };
+    const chDecl =
+      "uniform float uChDesat;\nuniform float uChHeroSat;\nuniform float uChValue;\n" +
+      "uniform vec3 uChTint;\nuniform float uChTintGain;\nuniform float uChGrime;\n" +
+      "uniform float uChCeil;\nuniform vec3 uChRim;\nuniform float uChRimStr;\n" +
+      "uniform vec3 uChAccent;\nuniform float uChAccentGain;\n" +
+      "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n";
+    // Still one MATERIAL per distinct look (it carries the uniform values), but
+    // every one of them now resolves to the same PROGRAM.
+    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:w7u`;
     g.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material || mesh.userData.noAO) return;
@@ -675,7 +975,10 @@ export class Renderer3D {
               Math.max((c as THREE.MeshStandardMaterial).metalness ?? 0, 0.12);
           }
           c.onBeforeCompile = (shader) => {
-            Object.assign(shader.uniforms, this.chU);
+            // chU is SHARED (one object per uniform, driven per frame for every
+            // character at once); chVals is PER MATERIAL — that split is what
+            // lets one program serve every archetype.
+            Object.assign(shader.uniforms, this.chU, chVals);
             shader.vertexShader = shader.vertexShader
               .replace("#include <common>", "#include <common>\nvarying vec3 vChW;")
               .replace(
@@ -685,7 +988,7 @@ export class Renderer3D {
             shader.fragmentShader = shader.fragmentShader
               .replace(
                 "#include <common>",
-                "#include <common>\nvarying vec3 vChW;\nuniform float uChTime;\nuniform vec3 uChWarm;",
+                `#include <common>\nvarying vec3 vChW;\nuniform float uChTime;\nuniform vec3 uChWarm;\n${chDecl}`,
               )
               .replace(
                 "#include <emissivemap_fragment>",
@@ -696,7 +999,9 @@ export class Renderer3D {
                 `#include <color_fragment>${colorGlsl}`,
               );
           };
-          c.customProgramCacheKey = () => `rim${variant}`;
+          // CONSTANT, deliberately: the shader text no longer depends on any of
+          // `variant`'s numbers, so every character material shares a program.
+          c.customProgramCacheKey = () => "chr1";
           this.rimCache.set(key, c);
         }
         return c;
@@ -761,7 +1066,6 @@ export class Renderer3D {
   // Transient FX lights: a tiny pool of pooled point lights with lifetime
   // intensity envelopes — explosions and magic actually illuminate the world.
   private fxLights: { light: THREE.PointLight; life: number; max: number; peak: number }[] = [];
-  private static FX_LIGHT_POOL = 4;
 
   // Ambient-mote spawn candidates (explored floor tiles near the player),
   // refreshed on a short timer + on explored changes. Flat x,z pairs.
@@ -813,7 +1117,6 @@ export class Renderer3D {
   private torchOrder: number[] = []; // scratch: anchor indices by distance
   private torchDesired = new Set<number>(); // scratch: the pool-sized near set
   private torchBase = 2.2;
-  private static TORCH_POOL_SIZE = 8; // enough live lights that a lit room's walls actually catch fire-light
   // HERO LAMP (critic r2: "add a warm counter-light near the player"): a small
   // warm point light riding the crawler, so the hero zone always holds a
   // readable value peak even between sconces — the biome's identity comes
@@ -1315,10 +1618,38 @@ export class Renderer3D {
   constructor(canvas: HTMLCanvasElement, opts: { look?: "lived"; view?: "close" } = {}) {
     this.look = opts.look ?? null;
     this.viewClose = opts.view === "close";
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // powerPreference: on a laptop with switchable graphics this is what asks
+    // for the discrete part instead of whatever the browser defaults to; on a
+    // single-GPU box it is free. (It must be passed at context creation — it
+    // cannot be set afterwards.)
+    // `antialias` here applies to the DEFAULT framebuffer only. The dungeon
+    // never draws into it directly (every frame goes through the composer, and
+    // SMAA is what antialiases the world now), so it looks like free savings —
+    // but the campfire character-select scene DOES render straight to screen
+    // (charSelect.ts), and this flag is the only AA it has. Measured as its own
+    // two-build A/B at native resolution, 3 alternating reps each: 8.8 ms with
+    // it off vs 10.0 ms with it on — a -12% median whose sample ranges overlap
+    // almost completely (the "on" build's best rep tied the "off" build's).
+    // That is not a win worth a permanently aliased menu, so it stays on.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+
+    // QUALITY. Resolved before anything sized or allocated below reads it: the
+    // composer target's sample count, the AO/bloom buffer scales, the shadow
+    // map edge and the light-pool sizes are all decided here, once.
+    this.qualityChoice = urlQualityOverride() ?? loadQualityChoice();
+    this.quality = QUALITY_PRESETS[
+      this.qualityChoice === "auto" ? guessQuality(this.renderer.getContext()) : this.qualityChoice
+    ];
+    this.tuner = new QualityAutoTuner(this.quality.name);
+
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // The key light's shadow map is rebuilt inside EVERY WebGLRenderer.render()
+    // that sees the scene, so anything that renders the world twice pays for it
+    // twice. Drive it manually — exactly one rebuild per composed frame, from
+    // render() below.
+    this.renderer.shadowMap.autoUpdate = false;
     // Filmic pipeline: linear HDR through the composer, ACES + sRGB applied by
     // OutputPass (and by the renderer itself for direct-to-screen renders like
     // the campfire select scene, which shares this GL context).
@@ -1339,7 +1670,8 @@ export class Renderer3D {
     this.scene.add(this.hemi);
     this.key = new THREE.DirectionalLight(THEME.keyLight, THEME.keyIntensity);
     this.key.castShadow = true;
-    this.key.shadow.mapSize.set(2048, 2048);
+    this.key.shadow.mapSize.set(this.quality.shadowMapSize || 2048, this.quality.shadowMapSize || 2048);
+    if (this.quality.shadowMapSize === 0) this.renderer.shadowMap.enabled = false;
     this.key.shadow.normalBias = 0.035; // kills acne without peter-panning at this scale
     const c = this.key.shadow.camera as THREE.OrthographicCamera;
     c.left = -18; c.right = 18; c.top = 18; c.bottom = -18; c.near = 1; c.far = 60;
@@ -1392,25 +1724,41 @@ export class Renderer3D {
     this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
-    // Post chain. The composer target is multisampled (WebGL2) so geometry AA
-    // survives; HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
+    // Post chain. HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
+    // A DepthTexture rides along so the RenderPass's depth SURVIVES the frame
+    // and GTAO can consume it instead of re-rendering the world (see
+    // WorldGTAOPass.useSharedDepth).
+    //
+    // THE MSAA CLIFF (quality.ts finding 1). This target used to be `samples: 4`.
+    // A 4x multisampled RGBA16F surface at 2880x1704 is ~157 MB of traffic per
+    // frame on a GPU with no dedicated VRAM, and EVERY pass that reads the
+    // target forces a resolve blit on top. Measured on the shipped build at
+    // native resolution: 60 ms/frame with samples=4 vs 9 ms with samples=0 —
+    // 85% of the entire frame, dwarfing every other cost combined. Geometry AA
+    // is now SMAA at the end of the chain, which measured under the noise floor
+    // on the same device. samples comes from the preset purely so a future
+    // discrete-GPU path could opt back in; every shipped preset sets it to 0.
     const rt = new THREE.WebGLRenderTarget(2, 2, {
       type: THREE.HalfFloatType,
-      samples: this.renderer.capabilities.isWebGL2 ? 4 : 0,
+      samples: this.renderer.capabilities.isWebGL2 ? this.quality.msaaSamples : 0,
+      depthTexture: new THREE.DepthTexture(2, 2, THREE.UnsignedIntType),
     });
     this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.gtao = new WorldGTAOPass(this.scene, this.camera, 2, 2);
+    if (this.renderer.capabilities.isWebGL2 && rt.depthTexture) this.gtao.useSharedDepth(rt.depthTexture);
     this.gtao.output = GTAOPass.OUTPUT.Default;
     this.gtao.blendIntensity = 0.85;
+    this.gtao.setResolutionScales(this.quality.gtaoScale, this.quality.gtaoDenoiseScale);
     this.gtao.updateGtaoMaterial({
       radius: 0.55, distanceExponent: 1, thickness: 1, scale: 1.3,
-      samples: 12, distanceFallOff: 1, screenSpaceRadius: false,
+      samples: this.quality.gtaoSamples, distanceFallOff: 1, screenSpaceRadius: false,
     });
     this.gtao.updatePdMaterial({
       lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4,
-      radiusExponent: 1, rings: 2, samples: 8,
+      radiusExponent: 1, rings: 2, samples: this.quality.gtaoDenoiseSamples,
     });
+    this.gtao.enabled = this.quality.gtao;
     this.composer.addPass(this.gtao);
     // Thresholded above the tone-map knee: only emissives, torch cores, and
     // additive FX bloom — the frame itself stays crisp. Wide soft kernel so
@@ -1421,11 +1769,19 @@ export class Renderer3D {
     // Threshold LIFTED to 0.92 (critic r2 blocker): the combat-FX layers are
     // budgeted to peak ~0.9, so their hue passes through untouched — only the
     // rare true-hot pixel (flame cores, the tiny impact core) blooms.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.5, 0.7, 0.92);
+    this.bloom = new ScaledBloomPass(new THREE.Vector2(2, 2), 0.5, 0.7, 0.92);
+    this.bloom.setScale(this.quality.bloomScale);
+    this.bloom.enabled = this.quality.bloom;
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.gradePass = new ShaderPass(GradeShader);
     this.composer.addPass(this.gradePass);
+    // SMAA replaces the render target's MSAA — LAST, so it works on the final
+    // display-referred image (see the field declaration). EffectComposer.setSize
+    // forwards to every pass, so resize() needs no special case for it.
+    this.smaa = new SMAAPass(2, 2);
+    this.smaa.enabled = this.quality.smaa;
+    this.composer.addPass(this.smaa);
   }
 
   async init(
@@ -1440,10 +1796,107 @@ export class Renderer3D {
     // screen front-loads everything so the running game never mid-streams.
     const store = startModelLoad(onProgress);
     this.models = store.models; // LIVE record — fills in as assets land
-    store.onArrive = () => this.scheduleAssetRefresh();
+    store.onArrive = (key) => {
+      this.preuploadTextures(key);
+      this.scheduleAssetRefresh();
+    };
     await (opts.full ? store.complete : store.ready);
     this.scheduleAssetRefresh();
   }
+
+  /**
+   * PUSH A STREAMED MODEL'S TEXTURES TO THE GPU AT ARRIVAL, NOT AT FIRST DRAW.
+   *
+   * three.js uploads a texture lazily, on the first draw that binds it — so a
+   * 1024^2 atlas becomes a synchronous texSubImage2D + mipmap generation on the
+   * exact frame a monster first walks into view, which is to say mid-fight.
+   * With the shader compiles fixed this is what is left: tools/hitchprobe.mjs
+   * on the post-fix build measured 24 texSubImage2D stalls totalling 761 ms
+   * after the loading screen, none of them attributable to program building.
+   *
+   * initTexture() does the same upload on demand. Arrival time is a strictly
+   * better moment for it: with the front-loaded boot (`full`) every arrival is
+   * behind the opaque loading screen, and even when assets stream behind a
+   * running game the cost is spread across arrivals instead of clustering on
+   * the frame a whole pack becomes visible at once.
+   *
+   * BUT IT IS BUDGETED, BECAUSE THE UNBOUNDED VERSION WAS WORSE THAN THE BUG.
+   *
+   * The first cut of this ran on EVERY texture of EVERY arriving model,
+   * including the ~200 GLBs in the manifest that a given floor never draws.
+   * Measured on the reference machine (direct read of
+   * renderer.info.memory.textures, same URL on both builds): 64 resident GL
+   * textures before, 320 after — an estimated 85 MB of uploads becoming
+   * ~1.3 GB, i.e. the entire manifest, on an integrated GPU with no dedicated
+   * VRAM that shares system memory. That buys back 761 ms of lazy-upload stalls
+   * and pays for it with driver eviction and paging of a 1.3 GB working set,
+   * which is the SAME multi-second-stall mechanism this work exists to remove,
+   * plus a context-loss risk on a lower-memory machine.
+   *
+   * So: spend a fixed budget, cheapest-first is not worth the sort — arrival
+   * order is priority order, because the loader's priority wave (hero + core
+   * dungeon shell) arrives first and is exactly what the first floor draws.
+   * Past the cap, everything falls back to three.js's lazy upload, i.e. the
+   * behaviour before any of this existed.
+   */
+  private static readonly PREUPLOAD_BUDGET_BYTES = 160 * 1024 * 1024;
+  private preuploadSpent = 0;
+
+  /** Bytes a texture will occupy once uploaded: RGBA8 plus the ~1/3 the full
+   *  mip chain adds. Returns 0 for a texture with no decoded image yet. */
+  private static textureBytes(t: THREE.Texture): number {
+    const img = t.image as { width?: number; height?: number } | undefined;
+    const w = img?.width ?? 0;
+    const h = img?.height ?? 0;
+    if (!(w > 0 && h > 0)) return 0;
+    return Math.ceil(w * h * 4 * (t.generateMipmaps === false ? 1 : 4 / 3));
+  }
+
+  private preuploadTextures(key: string): void {
+    if (this.preuploadSpent >= Renderer3D.PREUPLOAD_BUDGET_BYTES) return;
+    const m = this.models[key];
+    if (!m) return;
+    const SLOTS = ["map", "normalMap", "emissiveMap", "roughnessMap",
+      "metalnessMap", "aoMap", "alphaMap"] as const;
+    const seen = new Set<THREE.Texture>();
+    m.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.material) return;
+      if (this.preuploadSpent >= Renderer3D.PREUPLOAD_BUDGET_BYTES) return;
+      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        const rec = mat as unknown as Record<string, THREE.Texture | null | undefined>;
+        for (const slot of SLOTS) {
+          const t = rec[slot];
+          if (!t || seen.has(t)) continue;
+          seen.add(t);
+          const bytes = Renderer3D.textureBytes(t);
+          if (this.preuploadSpent + bytes > Renderer3D.PREUPLOAD_BUDGET_BYTES) {
+            this.preuploadSpent = Renderer3D.PREUPLOAD_BUDGET_BYTES; // latch off
+            return;
+          }
+          // Never let a bad texture take the whole asset pipeline down: a
+          // failed upload just means three retries it on first draw, i.e. the
+          // behaviour we had before.
+          try {
+            this.renderer.initTexture(t);
+            this.preuploadSpent += bytes;
+          } catch { /* falls back to lazy upload */ }
+        }
+      }
+    });
+  }
+
+  // TRIED AND REJECTED: uploading every texture `this.scene` references at the
+  // end of prewarm, on the theory that the built floor IS the working set. It
+  // is not — the scene holds cached and fog-hidden meshes that are never drawn,
+  // so the traverse found 98 manifest textures where drawing only ever touches
+  // ~34. Measured cost: resident manifest uploads 64 -> 98, 341 MB -> 515 MB on
+  // a GPU with no dedicated memory. Measured benefit: the first-frame lazy
+  // uploads fell 18 -> 9 in one run of two and the frame itself stayed at
+  // ~120 ms either way (tools/_hitch.mjs). Paying 174 MB for no measurable
+  // change in the thing it was supposed to fix is not a trade; the ~120 ms
+  // handover frame is not texture uploads. See the residual-hitch note in
+  // prewarm().
 
   /**
    * A background asset landed: drop cached meshes built from stand-ins and
@@ -1454,18 +1907,40 @@ export class Renderer3D {
   private assetRefresh: ReturnType<typeof setTimeout> | null = null;
   private scheduleAssetRefresh(): void {
     if (this.assetRefresh !== null) clearTimeout(this.assetRefresh);
-    this.assetRefresh = setTimeout(() => {
-      this.assetRefresh = null;
-      this.builtFloor = -1; // next update() rebuilds the floor with real tiles
-      for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
-      this.playerMeshes.clear();
-      for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
-      this.decoyMeshes.clear();
-      for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
-      this.breakableMeshes.clear();
-      for (const mesh of this.monsters.values()) this.scene.remove(mesh);
-      this.monsters.clear();
-    }, 350);
+    this.assetRefresh = setTimeout(() => this.runAssetRefresh(), 350);
+  }
+
+  private runAssetRefresh(): void {
+    this.assetRefresh = null;
+    this.builtFloor = -1; // next update() rebuilds the floor with real tiles
+    for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
+    this.playerMeshes.clear();
+    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+    this.decoyMeshes.clear();
+    for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
+    this.breakableMeshes.clear();
+    for (const mesh of this.monsters.values()) this.scene.remove(mesh);
+    this.monsters.clear();
+  }
+
+  /**
+   * RUN A PENDING REFRESH *NOW*, INSTEAD OF 350 ms FROM NOW.
+   *
+   * The debounce is right for assets streaming behind a live game and wrong for
+   * boot. main3d awaits init({ full: true }), so by the time prewarm starts the
+   * whole manifest has landed — but the last arrival left a 350 ms timer armed,
+   * which then fired somewhere in the middle of prewarm, AFTER prewarm's own
+   * update() had already built the floor out of those very models. It set
+   * builtFloor = -1 for nothing, and the redundant rebuild was cashed in on the
+   * first gameplay frame: measured as a single 88-105 ms frame in the first
+   * idle window of every vsync-paced run, landing within a second of the
+   * loading screen lifting. Flushing it before prewarm builds anything moves
+   * that work behind the overlay where it belongs.
+   */
+  private flushAssetRefresh(): void {
+    if (this.assetRefresh === null) return;
+    clearTimeout(this.assetRefresh);
+    this.runAssetRefresh();
   }
 
   /**
@@ -1478,9 +1953,257 @@ export class Renderer3D {
    * warmup FX are expired and removed before the screen lifts — zero visual
    * change once play begins.
    */
+  /**
+   * WALK EVERY QUALITY RUNG ONCE, HERE, BEHIND THE LOADING SCREEN.
+   *
+   * GTAO's sample counts are shader DEFINES, and each preset asks for a
+   * different pair (ultra 12/8, high 9/6, balanced 6/4, performance: off), so
+   * the first visit to a rung compiles two fullscreen programs. That is a hitch
+   * delivered by the AUTO-TUNER — which steps down precisely when the machine
+   * is already missing frames, making the stutter land at the worst possible
+   * moment and look like the downgrade itself made things worse. Measured with
+   * tools/_presetcheck.mjs: 128 programs after boot, 132 after cycling the
+   * ladder, and stable forever after. So pay the four here.
+   *
+   * applyQuality is a pure reconfigure (resize + pass settings; the light pools
+   * are deliberately sized once elsewhere), so cycling and restoring is safe.
+   * The host listener is muted for the walk: the settings row must not see four
+   * spurious preset changes during boot.
+   */
+  private prewarmQualityLadder(): void {
+    if (this.lastW <= 2) return; // no real canvas size yet — nothing to size to
+    const active = this.quality;
+    const listener = this.onQualityChange;
+    this.onQualityChange = null;
+    try {
+      for (const name of QUALITY_ORDER) {
+        if (name === active.name) continue;
+        this.applyQuality(QUALITY_PRESETS[name]);
+        this.render();
+      }
+    } finally {
+      this.applyQuality(active);
+      this.onQualityChange = listener;
+    }
+    this.render();
+  }
+
+  /**
+   * THE CHARACTER-MATERIAL ZOO — one mesh per surviving program permutation.
+   *
+   * Once the archetype colors moved into uniforms (applyCharacterShading), the
+   * character programs stopped forking on CONTENT and fork only on SHAPE. The
+   * shape axes are enumerable, so enumerate them instead of hoping the boot
+   * scene happens to contain one of each:
+   *
+   *   map / no map        — USE_MAP. Textured KayKit mobs vs untextured ones.
+   *   skinned / static    — USE_SKINNING. Rigged mobs vs procedural stand-ins.
+   *   plain / hitflash / dissolve / hitflash+dissolve
+   *                       — the injected-shader chain. A mob that is hit gets
+   *                         flash materials; one that dies gets dissolve ones;
+   *                         one that is hit AND dies gets both. None of the
+   *                         three exists at boot, so all three used to compile
+   *                         mid-fight — measured as 12 of the 28 remaining
+   *                         runtime builds.
+   *   front / double side — SIDE forks the DEPTH material (flipSided vs
+   *                         doubleSided). Nothing in src/ builds a double-sided
+   *                         shadow caster, but the KayKit GLBs do (foliage,
+   *                         cloth, banners) and buildEntityMesh sets castShadow
+   *                         on every mesh it finds, so they arrive with the
+   *                         models.
+   *   opaque / alphaTest  — ALPHA_TEST forks the depth material too; same
+   *                         source, alpha-masked GLB materials.
+   *
+   * THE LAST TWO AXES ARE NOT SPECULATIVE. Without them the build's own
+   * [shader-guard] fired during ordinary roaming and fighting on floor 5:
+   * programs 131 -> 136, five synchronous mid-play depth builds, cache-key
+   * boolean masks 144384 / 144384 / 142368 / 142336 / 144416. Decoded against
+   * three's WebGLPrograms.getProgramCacheKeyBooleans: 144384 is
+   * shadowMapEnabled + flipSided + useDepthPacking + opaque; 142368 and 142336
+   * swap flipSided for doubleSided; +32 adds skinning. A separate floor-17 run
+   * caught mask 1025 — an alpha-tested shadow caster.
+   *
+   * COST OF ADDING THEM: the extra rungs are only combined with the `plain`
+   * chain, because the flash/dissolve injections fork the LIT program (via
+   * customProgramCacheKey) and not the depth one, so pairing them with side and
+   * alphaTest would multiply meshes without producing new cache keys.
+   *
+   * The meshes are real (three compiles what it can see), scaled to a few
+   * thousandths of a unit and parked on the camera's focus point: small enough
+   * to be invisible, but inside both the view frustum and the shadow camera, so
+   * the DEPTH-material permutations get built by the same prewarm render pass.
+   * The caller removes them before the loading screen lifts.
+   */
+  private buildCharacterZoo(): THREE.Object3D[] {
+    // Focus point of the iso camera, inverted from the placement in update().
+    const d = THEME.camDir;
+    const len = Math.hypot(d.x, d.y, d.z) || 1;
+    const fx = this.camera.position.x - (d.x / len) * THEME.camDist;
+    const fz = this.camera.position.z - (d.z / len) * THEME.camDist;
+
+    // 1x1 white pixel: only the PRESENCE of a map forks the program, never its
+    // contents, so this stands in for every character texture in the game.
+    const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    tex.needsUpdate = true;
+
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    // A one-bone rig is enough to set USE_SKINNING; every rigged mob in the
+    // game lands on the same program regardless of its real bone count.
+    const skinGeo = geo.clone();
+    const vn = skinGeo.attributes.position.count;
+    const wt = new Float32Array(vn * 4);
+    for (let i = 0; i < vn; i++) wt[i * 4] = 1;
+    skinGeo.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(vn * 4), 4));
+    skinGeo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(wt, 4));
+
+    const out: THREE.Object3D[] = [];
+    // (side, alphaTest) rungs. FrontSide/0 is the common case and carries the
+    // full injected-shader chain; the others exist only to reach their DEPTH
+    // permutations, so they ride `plain`.
+    const SHAPES: Array<{ side: THREE.Side; alphaTest: number; chains: string[] }> = [
+      { side: THREE.FrontSide, alphaTest: 0, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.DoubleSide, alphaTest: 0, chains: ["plain"] },
+      { side: THREE.FrontSide, alphaTest: 0.5, chains: ["plain"] },
+      { side: THREE.DoubleSide, alphaTest: 0.5, chains: ["plain"] },
+    ];
+    for (const mapped of [false, true]) {
+      for (const skinned of [false, true]) {
+        for (const shape of SHAPES) {
+          for (const chain of shape.chains) {
+            const mat = new THREE.MeshStandardMaterial({
+              map: mapped ? tex : null,
+              side: shape.side,
+              // alphaTest > 0 is what sets USE_ALPHATEST; the value is not in
+              // the cache key, only whether it is non-zero.
+              alphaTest: shape.alphaTest,
+            });
+            mat.name = `zoo_${mapped ? "map" : "flat"}`;
+            let mesh: THREE.Mesh;
+            if (skinned) {
+              const bone = new THREE.Bone();
+              const sm = new THREE.SkinnedMesh(skinGeo, mat);
+              sm.add(bone);
+              sm.bind(new THREE.Skeleton([bone]));
+              mesh = sm;
+            } else {
+              mesh = new THREE.Mesh(geo, mat);
+            }
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            const g = new THREE.Group();
+            g.add(mesh);
+            // Same call the real mobs take, so the same rimCache/uniform path
+            // and therefore the same program.
+            this.applyCharacterShading(g, { rim: 0x9fd0ff, strength: 0.8, desat: 0.15, tint: 0xc9a24b });
+            if (chain.includes("flash")) this.applyHitFlash(g, 1, 0);
+            if (chain.includes("dissolve")) makeDissolving(g, 0xffb457);
+            // Sub-pixel, at the focus point: seen by the frustum and the shadow
+            // camera (which is what builds the depth programs), seen by nobody.
+            g.scale.setScalar(0.003);
+            g.position.set(fx, 0.5, fz);
+            this.scene.add(g);
+            out.push(g);
+          }
+        }
+      }
+    }
+    // The geometries and the 1x1 stand-in texture are only needed while the zoo
+    // is resident; the caller releases them (see prewarm). The MATERIALS are
+    // deliberately never disposed — three.js refcounts programs and destroys
+    // them on the last material release, so disposing them would throw away
+    // exactly what this routine just spent the loading screen building.
+    this.zooScrap = [tex, geo, skinGeo];
+    return out;
+  }
+
+  /** Disposable, non-program-bearing leftovers of buildCharacterZoo(). */
+  private zooScrap: Array<THREE.Texture | THREE.BufferGeometry> = [];
+
+  // ---- POST-BOOT SHADER-BUILD GUARD (dev only) --------------------------
+  //
+  // Every program built after the loading screen lifts is a multi-hundred-
+  // millisecond freeze in a live frame, and the regression is SILENT: add one
+  // monster whose material forks the cache key and the hitches quietly come
+  // back. So arm a tripwire. `renderer.info.programs` IS three.js's live
+  // program cache array, so the check is a length compare per frame — free —
+  // and only on growth does it pay for a diff. Off in production: it exists to
+  // fail a dev/probe run loudly, not to spend a player's frame budget.
+  private progGuard: { known: Set<string>; count: number } | null = null;
+
+  private checkProgramGuard(): void {
+    const g = this.progGuard;
+    if (!g) return;
+    const list = this.renderer.info.programs;
+    if (!list || list.length === g.count) return;
+    g.count = list.length;
+    for (const p of list) {
+      const k = `${p.name}::${p.cacheKey}`;
+      if (g.known.has(k)) continue;
+      g.known.add(k);
+      console.warn(
+        `[shader-guard] program built AFTER boot (this is a frame hitch): ${p.name}\n` +
+        `  cacheKey: ${p.cacheKey}\n` +
+        `  Prewarm must cover this permutation — see Renderer3D.prewarm().`,
+      );
+    }
+  }
+
+  /** Arm the guard with everything prewarm produced. Called at the end of
+   *  prewarm; enabled by `?debug` (the capture harnesses all pass it) or a dev
+   *  build, so a normal player never pays for it. */
+  private armProgramGuard(): void {
+    let on = false;
+    try {
+      on = import.meta.env?.DEV === true || new URLSearchParams(location.search).has("debug");
+    } catch { /* no location (worker/test) — leave it off */ }
+    if (!on) return;
+    const list = this.renderer.info.programs ?? [];
+    this.progGuard = {
+      known: new Set(list.map((p) => `${p.name}::${p.cacheKey}`)),
+      count: list.length,
+    };
+    console.info(`[shader-guard] armed: ${list.length} programs prewarmed; any further build will be logged.`);
+  }
+
+  /**
+   * Compile every material in the scene FOR THE BUFFER THE GAME ACTUALLY DRAWS
+   * INTO, in parallel. Two separate bugs lived in the plain
+   * `renderer.compile(scene, camera)` this replaces.
+   *
+   * WRONG PERMUTATION. getParameters() reads the CURRENTLY BOUND render target
+   * to decide tone mapping and output color space (three.module.js:20634 /
+   * :20692 / :20725) and both are in the program cache key. With nothing bound,
+   * compile() built the direct-to-canvas variant (`TONE_MAPPING`, sRGB) — but
+   * every gameplay frame goes through the composer into a render target, which
+   * needs the NoToneMapping/linear variant. So prewarm was warming a set of
+   * programs the game never binds, and the game then built its own set later,
+   * one blocking compile per frame. Binding a composer target first is the fix.
+   *
+   * SERIAL COMPILE. On ANGLE/D3D11 linkProgram is asynchronous, but three.js
+   * defers the expensive half of program creation to onFirstUse() and reaches
+   * it from getUniforms() on the first DRAW — so link-then-immediately-draw
+   * makes the main thread eat every GLSL->HLSL->D3D compile serially.
+   * compileAsync() instead polls KHR_parallel_shader_compile's
+   * COMPLETION_STATUS_KHR and resolves only when every program is genuinely
+   * ready, which is what lets the driver's worker threads do the work.
+   * tools/parallelbench.mjs measured both on this box with the app's own
+   * shaders: 7005 ms of main-thread blocking serial vs 0.1 ms parallel.
+   */
+  private async compileForComposer(): Promise<void> {
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.composer.renderTarget1);
+    try {
+      await this.renderer.compileAsync(this.scene, this.camera);
+    } finally {
+      this.renderer.setRenderTarget(prev);
+    }
+  }
+
   async prewarm(state: GameState, onStep?: (done: number, total: number) => void): Promise<void> {
     const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
     const TOTAL = 3;
+    // Cash in the arrival debounce here, not on the player's first frame.
+    this.flushAssetRefresh();
     // 1) Every band's environment sky (PMREM's own blur programs compile here).
     for (let band = 0; band < 6; band++) {
       const theme = themeForFloor(band * 3 + 1);
@@ -1555,23 +2278,88 @@ export class Renderer3D {
 
     // 3) Compile everything, run one full post pass (GTAO/bloom/output/grade
     //    programs + shadow-pass depth materials), then expire the warmup FX.
-    this.renderer.compile(this.scene, this.camera);
-    this.composer.render();
+    //
+    // THE ZOO STAYS RESIDENT ACROSS BOTH COMPILES BELOW. That is the point of
+    // it: a forward renderer bakes the scene's light count into every lit
+    // program, this scene has exactly two counts (see updateFxLights), and the
+    // warmup props are torn down between them. Anything removed before the
+    // second compile is only ever warmed for the combat count and will rebuild
+    // — mid-fight — the first time it is drawn on an idle frame.
+    // COMPILE THE SAME SCENE TWICE, ONCE PER LIGHT COUNT, AND TEAR NOTHING
+    // DOWN IN BETWEEN. A forward renderer bakes the scene's light count into
+    // every lit program, and this scene has exactly two counts: the FX impact
+    // pool wakes and sleeps AS A GROUP (see updateFxLights), so the world is
+    // either at 14 point lights (combat) or 10 (idle). Anything that is in the
+    // scene for only ONE of the two compiles gets warmed for only one count and
+    // rebuilds itself — mid-fight — the first time it is drawn at the other.
+    // That is why the warmup FX, the streamed prop and the zoo all stay
+    // resident until after the second pass: the earlier ordering expired them
+    // between the compiles and left 21 programs (measured, tools/progkeys.mjs)
+    // whose keys differed from a prewarmed one in exactly one field —
+    // numPointLights 10 vs 14.
+    const zoo = this.buildCharacterZoo();
+    await this.compileForComposer();
+    this.render(); // NOT composer.render — render() arms the manual shadow pass
+
+    // Put the FX light pool to sleep, then do it all again at the idle count.
+    // TWICE, AND THAT IS LOAD-BEARING: updateFxLights only hides the pool once
+    // it OBSERVES that no slot is still live, and a slot expires during the
+    // very call that advances it past its lifetime — so the first call leaves
+    // the group visible and only the second flips it off.
+    this.updateFxLights(31);
+    this.updateFxLights(0.016);
+    await this.compileForComposer();
+    this.render(); // depth/shadow permutations at the idle light count too
+
+    // Only now: expire the warmup FX and drop the props. Materials are
+    // deliberately NOT disposed — disposing would release the very programs
+    // this just warmed (three.js refcounts them and destroys on the last
+    // release). The pooled systems (particles, lights) live for the run.
     for (const o of warm) this.scene.remove(o);
-    // Fast-forward the transient FX well past their lifetimes. Materials are
-    // deliberately NOT disposed: disposing would release the very programs
-    // this warmed. The pooled systems (particles, lights) live for the run.
+    for (const o of zoo) this.scene.remove(o);
+    // Geometry + the 1x1 stand-in texture hold no programs, so releasing them
+    // is free and keeps a routine whose whole subject is memory discipline from
+    // leaking its own scratch.
+    for (const s of this.zooScrap) s.dispose();
+    this.zooScrap = [];
     this.updateParticles(30);
     this.swingArcs.update(30);
     this.decals.update(30);
     this.shocks.update(30);
     this.ribbons.update(30);
-    // Expire the FX light pool (it goes invisible as a group) and compile the
-    // idle light-count program variant too — both counts are now resident.
-    this.updateFxLights(31);
-    this.renderer.compile(this.scene, this.camera);
+    this.prewarmQualityLadder();
+    this.armProgramGuard();
     onStep?.(3, TOTAL);
     await breathe();
+    // Everything above composed frames behind the loading screen. Only NOW may
+    // the auto-tuner start forming an opinion — see beginTuning() and the
+    // warm-up gate in render(). A host that calls beginTuning() itself (the
+    // right thing: it knows when the overlay actually lifts) just restarts the
+    // window from a slightly later, slightly more honest moment.
+    this.beginTuning();
+    // RESIDUAL HITCHES, MEASURED AND NOT FIXED HERE (tools/_hitch.mjs,
+    // vsync-paced so these are real frames a player would feel, not rAF
+    // run-ahead). In the first 25 s of play, threshold 40 ms, every run:
+    //   ~130 ms in : ONE 120-125 ms frame — the handover itself. dPrograms 0,
+    //                and force-uploading every texture the scene references did
+    //                not move it (see the rejected experiment above), so it is
+    //                the browser's first composite of the full HUD plus the
+    //                overlay teardown, not our GPU work.
+    //   ~220 ms in : one 65-80 ms frame, no counter deltas, heap +4 MB — GC.
+    //   ~3.1 s in  : one ~105 ms frame; heap DROPPED 24 MB in one run — a major
+    //                GC of the boot garbage.
+    //   nothing over 40 ms after ~3.9 s.
+    // Programs never move (delta 0 across all of it), so none of this is shader
+    // compilation. Killing the GC pauses means an allocation audit of boot, not
+    // a renderer setting, and it is bounded at ~105 ms in the first four
+    // seconds — versus the 4981 ms worst frame this work started from.
+    // NOT DONE HERE: renderer.debug.checkShaderErrors = false. It looks like
+    // the obvious fix for the multi-second stalls (it drops the synchronous
+    // getProgramParameter(LINK_STATUS) read that forces the driver to finish
+    // linking on the main thread), but tools/progtrace.mjs already established
+    // the stalls are not gl.linkProgram, and an A/B of it here did not beat
+    // the machine's noise. It only moves the stall to first USE of the
+    // program. Leave validation on until something measures a real win.
   }
 
   /** The campfire check-in scene shares this renderer's GL context + streamed
@@ -2009,7 +2797,10 @@ export class Renderer3D {
   resize(w: number, h: number): void {
     this.lastW = w;
     this.lastH = h;
-    const ratio = Math.min(devicePixelRatio || 1, 2) * this.renderScale;
+    // PIXEL RATIO is the preset's biggest lever: every pixel-bound pass costs
+    // its square. The display's own ratio is the ceiling, the preset's cap is
+    // the policy, and the SYSTEM-menu render scale multiplies on top.
+    const ratio = this.pixelRatio();
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     // The composer multiplies by its own pixel ratio (captured from the
@@ -4143,7 +4934,10 @@ export class Renderer3D {
     // any frame even between torch pools, in every band.
     this.heroLampBase = lampWarm ? 1.3 : 1.7;
     if (this.torchPool.length === 0) {
-      for (let i = 0; i < Renderer3D.TORCH_POOL_SIZE; i++) {
+      // Preset-sized, built once (see applyQuality). Enough live lights that a
+      // lit room's walls actually catch fire-light; the baked grid does the
+      // rest, so the lower rungs can afford fewer without the room going flat.
+      for (let i = 0; i < this.quality.torchLights; i++) {
         // Shorter throw than the theme default: each flame owns a tight hot
         // pool; the baked grid carries the wider (wall-shadowed) spill.
         const light = new THREE.PointLight(0xffffff, 0, THEME.torchDistance * 0.8, 2);
@@ -6558,7 +7352,9 @@ export class Renderer3D {
    * world for a beat (snap on, quadratic decay out). */
   private spawnFxLight(x: number, z: number, color: number, peak = 8, max = 0.45, y = 0.9): void {
     if (this.fxLights.length === 0) {
-      for (let i = 0; i < Renderer3D.FX_LIGHT_POOL; i++) {
+      // Pool size comes from the preset, ONCE — see applyQuality's note on why
+      // light counts must not move after prewarm has compiled for them.
+      for (let i = 0; i < this.quality.fxLights; i++) {
         // Throw tightened 9 -> 5.5 (r7 blocker): an impact light is a local
         // punctuation pop, not room lighting — the wide radius let four
         // stacked flashes fuse into one arena-wide clipped pool.
@@ -6769,6 +7565,58 @@ export class Renderer3D {
   }
 
   render(): void {
+    // shadowMap.autoUpdate is off (constructor): arm exactly one rebuild for
+    // this composed frame. three.js clears needsUpdate itself after the first
+    // WebGLRenderer.render() consumes it, so the ~20 fullscreen-quad renders
+    // that follow in the post chain no longer each re-walk the shadow casters.
+    //
+    // SHADOW CADENCE: on the cheaper presets the map is rebuilt every Nth
+    // composed frame instead. The map persists in between, and this camera is a
+    // fixed-angle ortho that only pans, so a one-frame-stale shadow is not
+    // something you can see — but it is a whole extra scene traversal + depth
+    // pass that you do not pay for.
+    this.frameNo++;
+    if (this.quality.shadowMapSize > 0
+      && (this.shadowDirty || this.frameNo % this.quality.shadowInterval === 0)) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.shadowDirty = false;
+    }
     this.composer.render();
+    if (this.progGuard) this.checkProgramGuard();
+
+    // AUTO-DETECT feed. Frame time is measured between composed frames, which
+    // is what the player actually experiences (sim + render + present), not
+    // just the renderer's slice of it. See QualityAutoTuner — it judges the
+    // MEAN over a wall-clock window, because the median of a GPU-bound frame
+    // distribution is not a description of anything a player feels.
+    //
+    // WARMUP GATE: the first few seconds of play are still streaming ~200 GLBs
+    // behind the game and rebuilding floors as they land. Those frames are slow
+    // for reasons no preset can fix, and judging them would downgrade a machine
+    // that is fine. Gate on WALL CLOCK, not a frame count — a frame count takes
+    // longest to reach on exactly the slow machines we most need to judge.
+    //
+    // AND THE GATE STARTS AT beginTuning(), NOT AT THE FIRST COMPOSED FRAME.
+    // This is the bug that made every session on the reference machine end up
+    // pinned to PERFORMANCE. prewarm() composes ~10 frames of its own from
+    // BEHIND the opaque loading screen (the two compile passes, the four rungs
+    // of prewarmQualityLadder). Anchoring the 4 s window to the first of those
+    // expired it roughly 2 s BEFORE the overlay lifted — measured
+    // loadingHidden = 10.0 s against a gate that opened at ~8.3 s — so the
+    // tuner spent its first windows judging shader-compilation frames, scored
+    // two bad windows, stepped down, and `ceiling` made that permanent.
+    // Nothing about those frames was a statement about the hardware.
+    if (this.qualityChoice === "auto" && this.tuningArmed) {
+      const now = performance.now();
+      if (this.warmupUntil === 0) this.warmupUntil = now + 4000;
+      if (now < this.warmupUntil) { this.lastFrameAt = 0; return; }
+      if (this.lastFrameAt !== 0) {
+        const next = this.tuner.sample(now - this.lastFrameAt);
+        if (next && next !== this.quality.name) this.applyQuality(QUALITY_PRESETS[next]);
+      }
+      this.lastFrameAt = now;
+    } else {
+      this.lastFrameAt = 0;
+    }
   }
 }

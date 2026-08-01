@@ -19,6 +19,16 @@ const height = Number(flag("--h", 852));
 // Profiling at DPR 1 measures a machine nobody owns; default to the real thing.
 const dpr = Number(flag("--dpr", 2));
 
+// --vsync: run the way a PLAYER runs, with the compositor pacing rAF.
+//
+// Uncapped is the right default for measuring COST, but it produces a frame
+// distribution no player ever sees: with nothing pacing it, rAF runs ahead of
+// the GPU, the driver queues cheap frames until the swap chain fills, and then
+// one callback blocks for the whole backlog. That is where this harness's
+// spectacular "worst frame" numbers come from — they are a property of the
+// measurement, not of the game. Re-run any worst-frame claim with --vsync
+// before believing it describes a hitch.
+const vsync = process.argv.includes("--vsync");
 const browser = await chromium.launch({
   headless: false, // headless-new still routes through SwiftShader on many boxes
   args: [
@@ -26,8 +36,10 @@ const browser = await chromium.launch({
     "--enable-gpu",
     "--ignore-gpu-blocklist",
     "--enable-gpu-rasterization",
-    "--disable-frame-rate-limit", // uncapped so we measure cost, not vsync
-    "--disable-gpu-vsync",
+    ...(vsync ? [] : [
+      "--disable-frame-rate-limit", // uncapped so we measure cost, not vsync
+      "--disable-gpu-vsync",
+    ]),
   ],
 });
 const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: dpr });
@@ -44,11 +56,44 @@ const gpu = await page.evaluate(() => {
     vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : "unknown",
   };
 });
-console.log("GPU:", JSON.stringify(gpu));
+console.log("GPU:", JSON.stringify(gpu), vsync ? "| VSYNC ON (player pacing)" : "| uncapped");
 
-// Wait for the loading screen to release the game.
-await page.waitForFunction(() => document.documentElement.dataset.assetsSettled === "1", { timeout: 180000 }).catch(() => {});
+// WAIT FOR THE HANDOVER THE PLAYER ACTUALLY SEES, NOT FOR THE MANIFEST.
+//
+// This used to gate on `data-assets-settled="1"`, which src/render3d/assets.ts
+// stamps when the MODEL MANIFEST settles — measured at ~4.2 s, while prewarm
+// keeps compiling behind the opaque overlay until ~10 s. Sampling from 4.2 s
+// therefore put the IDLE window inside the boot compile storm, and rAF frames
+// coalesce while the main thread is blocked: the probe reported things like
+// "medianMs 0.2, fps 5000, worstMs 1155" — a boot artifact, not a frame time.
+// Every idle/worst number this harness ever printed before this change is
+// partly that artifact. main3d.ts adds `.done` to #loading immediately after
+// `await renderer.prewarm(...)` returns, so that class IS the handover.
+await page.waitForFunction(
+  () => document.getElementById("loading")?.classList.contains("done") === true,
+  { timeout: 180000 },
+).catch(() => {});
+// Then wait for the program cache to stop growing — the last stragglers of the
+// ladder walk land just after the overlay lifts, and they are not gameplay.
+await page.waitForFunction(() => {
+  const n = window.__dcc?.renderer?.renderer?.info?.programs?.length ?? 0;
+  const w = window;
+  if (w.__progPrev === n) { w.__progHold = (w.__progHold || 0) + 1; } else { w.__progPrev = n; w.__progHold = 0; }
+  return (w.__progHold || 0) >= 10;
+}, { timeout: 60000, polling: 100 }).catch(() => {});
 await page.waitForTimeout(2500);
+
+// QUALITY PRESET (src/render3d/quality.ts). Without this the run measures
+// whatever auto-detect chose, which is fine for "what does a player get" but
+// useless for comparing rungs. Pinning also stops the tuner from moving the
+// preset out from under a long sample.
+const preset = flag("--preset", "");
+if (preset) {
+  await page.evaluate((p) => window.__dcc?.renderer?.setQuality?.(p), preset);
+  await page.waitForTimeout(1200); // let the reallocation hitch pass
+}
+const activePreset = await page.evaluate(() => window.__dcc?.renderer?.qualityProfile?.name ?? "n/a");
+console.log("PRESET:", activePreset, preset ? "(pinned)" : "(auto)");
 
 // DRAW-CALL ACCOUNTING (this probe used to report "calls: 1").
 // three.js resets renderer.info at the START of every WebGLRenderer.render().
@@ -86,7 +131,9 @@ const sample = async (label) => {
       last = now;
       if (now - start < secs * 1000) requestAnimationFrame(tick);
       else {
+        const elapsed = now - start;
         frames.sort((a, b) => a - b);
+        const q = (p) => +frames[Math.min(frames.length - 1, Math.floor(frames.length * p))].toFixed(2);
         const info = window.__dcc?.renderer?.renderer?.info ?? window.__dcc?.renderer?.info;
         const df = acc ? acc.frames - f0 : 0;
         resolve({
@@ -95,6 +142,16 @@ const sample = async (label) => {
           p95Ms: +frames[Math.floor(frames.length * 0.95)].toFixed(2),
           worstMs: +frames[frames.length - 1].toFixed(2),
           fps: +(1000 / frames[Math.floor(frames.length / 2)]).toFixed(1),
+          // THROUGHPUT, and why it is reported next to the median.
+          // With vsync and the frame-rate limiter both off, rAF is free to run
+          // ahead of the GPU; the CPU queues cheap frames until the swap chain
+          // fills, then blocks for a long one. The result is BIMODAL, and the
+          // median only ever sees the cheap mode — a preset can post a 9 ms
+          // median while actually delivering 22 fps. Frames-per-second of wall
+          // clock is the number the player feels. Trust avgFps over fps.
+          avgFps: +((frames.length * 1000) / elapsed).toFixed(1),
+          meanMs: +(elapsed / frames.length).toFixed(2),
+          pct: { p10: q(0.10), p25: q(0.25), p50: q(0.50), p75: q(0.75), p90: q(0.90), p99: q(0.99) },
           // per COMPOSED frame, summed over every pass (see the note above)
           calls: df ? Math.round((acc.calls - c0) / df) : null,
           ktris: df ? Math.round((acc.tris - t0) / df / 1000) : null,
@@ -116,5 +173,11 @@ await page.keyboard.up("w");
 for (const k of ["Space", "q", "c"]) { await page.keyboard.press(k).catch(() => {}); }
 const fighting = await sample("COMBAT ");
 
-console.log(JSON.stringify({ gpu, idle, moving, fighting }, null, 1));
+// Where auto-detect ENDED UP. Printed separately from the opening PRESET line
+// because the tuner is allowed to move during the run — if these two disagree,
+// the samples above straddle a preset change and should be re-taken.
+const endPreset = await page.evaluate(() => window.__dcc?.renderer?.qualityProfile?.name ?? "n/a");
+console.log("PRESET-END:", endPreset, endPreset === activePreset ? "(unchanged)" : `(MOVED from ${activePreset})`);
+
+console.log(JSON.stringify({ gpu, idle, moving, fighting, preset: { start: activePreset, end: endPreset } }, null, 1));
 await browser.close();

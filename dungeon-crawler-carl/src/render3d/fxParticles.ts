@@ -345,7 +345,28 @@ export class FxParticles {
     this.alphaPool.flush();
   }
 
+  // PARTICLE BUDGET (quality ladder). Below 1, spawns are thinned by an
+  // accumulator rather than a coin flip: `keep` banks the fractional budget and
+  // releases a particle whenever it crosses 1, so a burst of N always yields
+  // ~N*density particles spread EVENLY through the burst. Random rejection at
+  // the same rate would leave some sprays untouched and delete others outright,
+  // which reads as FX flickering in and out rather than as a lighter effect.
+  // Only the PERFORMANCE preset sets this below 1.
+  private density = 1;
+  private keep = 0;
+  setDensity(d: number): void {
+    const next = Math.min(1, Math.max(0.1, d));
+    if (next === this.density) return;
+    this.density = next;
+    this.keep = 0;
+  }
+
   spawn(o: FxSpawn): void {
+    if (this.density < 1) {
+      this.keep += this.density;
+      if (this.keep < 1) return;
+      this.keep -= 1;
+    }
     (o.blend === "alpha" ? this.alphaPool : this.addPool).write(this.now, o);
   }
 
