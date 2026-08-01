@@ -1,5 +1,6 @@
 import type { Rng } from "./rng";
 import type { AbilityId, School, StanceId, UpgradeOffer } from "./abilities";
+import type { GlyphId } from "./glyphs";
 
 export interface Vec2 {
   x: number;
@@ -152,6 +153,26 @@ export interface Player {
   boredT?: number;
   boredTier?: number;
   petUsed?: boolean; // PRODUCER'S PET: the once-per-floor save spent (resets each floor)
+
+  // GLYPHS (ITEMIZATION-V2 §3): sockets live on the SLOT, not the ability —
+  // slots[i] mirrors abilities.slots[i] (2 sockets each; unlock by level),
+  // ultimate has 1, and the bench holds unsocketed finds. Optional for
+  // old-save/snapshot compat; grantGlyph/socketGlyph default-init it.
+  glyphs?: {
+    slots: (GlyphId | null)[][];
+    ultimate: (GlyphId | null)[];
+    bench: GlyphId[];
+  };
+  // Slipstream glyph: seconds of post-movement surge remaining (speed+damage).
+  slipstreamT?: number;
+  // Executioner's Rebate (rule 8): the per-cast refund window + budget.
+  // Transient combat state (same pattern as meleeComboT) — reset each floor.
+  rebateAbility?: AbilityId;
+  rebateT?: number; // seconds left in which a kill still refunds
+  rebateBudget?: number; // refund budget remaining for THIS cast
+  rebateCd0?: number; // the cooldown value set at cast (refund basis)
+  // Rootcutter Shears (boss unique): melee hits since the last snare proc.
+  shearsCount?: number;
 }
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
@@ -384,6 +405,11 @@ export interface Monster {
   // until the whole squad is ready, then FIRE AS ONE (see toysoldier in ai.ts).
   squadId?: number;
   tribe?: string; // Roam-only: which TribeId this monster belongs to, for quest kill-credit
+  // Brandmark glyph: seconds of BRAND remaining, the ability that stamped it,
+  // and the crawler whose OTHER abilities cash it in (+12%).
+  brandT?: number;
+  brandAbility?: AbilityId;
+  brandBy?: number;
 }
 
 // Roam-only: a settlement resident. Static, unarmed, no AI. `role` drives
@@ -483,11 +509,12 @@ export interface Quest {
   state: "offered" | "active" | "complete";
 }
 
-export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service" | "cache";
+export type LootKind = "gold" | "heal" | "item" | "tome" | "key" | "material" | "shrine" | "service" | "cache" | "glyph";
 
 // Crafting materials, dropped by named menaces and spent in the System Shop
-// on legendary signature gear (see catalog.ts).
-export type MaterialId = "elite_trophy" | "boss_sigil";
+// on legendary signature gear (see catalog.ts). refit_shard is the V2
+// dismantle/refit currency ("Scrap Certification") — see dismantleItem.
+export type MaterialId = "elite_trophy" | "boss_sigil" | "refit_shard";
 export type Rarity = "common" | "magic" | "rare" | "epic";
 // Six-slot ARPG spread (backlog #10): weapon/armor carry the build's spine,
 // helm/boots are supporting armor pieces, trinket/charm are the two accessory
@@ -530,7 +557,20 @@ export type PassiveId =
   | "conduit" // crits arc a fraction of the hit to a nearby enemy (magic)
   | "phase" // your dash passes through walls when it can reach the far side
   | "pathfinder" // the stairs are marked on your minimap, explored or not
-  | "venom"; // crits inject a poison stack (the only lootless poison source)
+  | "venom" // crits inject a poison stack (the only lootless poison source)
+  // COMPLETED-work passives (ITEMIZATION-V2 §2.3) — every T2 says something:
+  | "longarm" // Pikeman's Rebuttal: melee hits from range knock the target back
+  | "wrecker" // Demolition Permit: your stagger-breaking hits deal +40%
+  | "served" // Court Order: bolts against UNALERTED monsters always crit
+  | "rent" // Slumlord's Deposit: monsters drop +20% gold
+  | "chaser" // Ambulance Chaser: heal 3% of damage dealt (per-hit cap)
+  | "grounded" // Grounded Suit: above 70% HP, +15% spell power
+  // BOSS UNIQUES (§2.5) — drop-only, one per band boss:
+  | "denycorpse" // Front Desk Bell: kills leave NO corpses; each pays gold + HP
+  | "sumpcrown" // Sump Crown: ground hazards halved; your chill/poison last longer
+  | "snare3" // Rootcutter Shears: every 3rd melee hit SNARES the target
+  | "unmoved" // Loadbearing Girder: knockback immune; mitigation shards back
+  | "spreadburn"; // Furnace Draft: enemies that die burning pass the burn on
 
 export interface Item {
   id: number;
@@ -554,6 +594,7 @@ export interface Loot {
   ability?: AbilityId; // present when kind === "tome": the ability it teaches
   material?: MaterialId; // present when kind === "material"
   service?: string; // present when kind === "service": the purpose taking customers
+  glyph?: GlyphId; // present when kind === "glyph": the modifier stone inside
 }
 
 // The between-floors safe room / System Shop. While non-null, the sim is
@@ -570,6 +611,11 @@ export interface SafeRoom {
   // Consumables have LIMITED per-shop stock now (scarcity — excess gold can no
   // longer buy an infinite HP graft). This counts what's been bought here.
   purchased: Record<string, number>; // catalogId -> units bought in this shop
+  // Same-shop full refund (§4): item ids of GEAR bought in THIS shop sell
+  // back at 100%. An item leaves the list the moment it is modified or
+  // consumed — refit, dismantle, combine (as a component) — so the shop is an
+  // undo button, never a bank or a shard mint. Optional: pre-V2 saves/snaps.
+  boughtThisShop?: number[];
 }
 
 // Sponsor draft: a reward offered between floors. `apply` semantics live in game.ts.
@@ -579,6 +625,7 @@ export interface SafeRoom {
 export type RewardKind =
   | "healFull" | "maxHp" | "damage" | "crit" | "armor" | "item" | "gold" | "bonusTime"
   | "materials" // crafting material toward signature (legendary) gear
+  | "glyph" // a sponsored ability-modifier stone (ITEMIZATION-V2 §3.1)
   | "favor" // an owed ability-upgrade draft (advances the constellation build)
   | "retrain" // unlearn one fork-side node; its ranks return as fresh drafts
   // System Shrine bargains (floor events — never in the sponsor pool):
@@ -607,6 +654,7 @@ export interface Reward {
   amount: number;
   item?: Item; // present when kind === "item"
   material?: MaterialId; // present when kind === "materials"
+  glyph?: GlyphId; // present when kind === "glyph"
   nodeId?: string; // present when kind === "retrain": the node being refunded
   revisionId?: string; // present when kind === "revision": the casting on offer
   source?: "quest"; // Roam only: a settlement quest payout, not a sponsor gift (draft header)
@@ -624,10 +672,12 @@ export interface Projectile {
   pierce?: number; // remaining enemies this projectile can pass through (player bolts)
   hitIds?: number[]; // monsters already struck (so a piercing bolt hits each once)
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
+  forked?: boolean; // Splitfang glyph: this bolt is already a fork (no fork chains)
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
   shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
   school?: School; // damage school (hosts tint magic missiles differently)
   chill?: number; // FROST BOLTS node: slow fraction applied on impact
+  ability?: AbilityId; // casting ability (glyph hooks: brand/accelerant/arc-splice)
 }
 
 /** Axis-aligned room rectangle in tile coordinates (interior tiles only). */
@@ -713,6 +763,12 @@ export interface Strike {
   dmg?: number;
   knockback?: number;
   school?: School;
+  /** Which ability scheduled this blast (V2 §3): echoes are no longer all
+   * Cataclysm — the Reprise glyph schedules NOVA echoes too, and only a
+   * Cataclysm echo may chain EXTINCTION. Also carries the glyph riders
+   * (brand/accelerant) through to the delayed detonation. Optional: older
+   * snapshots/saves read as the legacy "shell = airstrike, echo = cataclysm". */
+  ability?: AbilityId;
 }
 
 // STUNT DOUBLE: a taunting copy of a crawler. Monsters in taunt range hunt it
@@ -886,6 +942,7 @@ export interface FloorWorld {
   encounter: Encounter | null;
   floorEvent: FloorEvent | null;
   goldSurge: boolean;
+  glyphsDroppedThisFloor?: number;
   timeBudget: number;
   timeRemaining: number;
   phase: TimerPhase;
@@ -1007,6 +1064,9 @@ export interface GameState {
   floorEvent: FloorEvent | null;
   // Shrine Greed Clause accepted on this floor: gold drops pay double.
   goldSurge: boolean;
+  // Field glyphs dropped on this floor (V2 §3.5 supply cap). Reset every floor
+  // build; optional so pre-cap saves/snapshots load reading it as 0.
+  glyphsDroppedThisFloor?: number;
 
   // Softlock self-healing: seconds until the next locked-door key audit
   // (auditKeyReachability in game.ts). Optional for snapshot/save compat.

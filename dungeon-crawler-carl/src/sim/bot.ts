@@ -1,6 +1,8 @@
 import { CONFIG } from "./config";
 import { dist, normalize } from "./combat";
-import { buyCatalogItem, chooseReward, chooseUpgrade, setReady, step } from "./game";
+import { buyCatalogItem, chooseReward, chooseUpgrade, dismantleItem, refitCost, refitItem, setReady, socketGlyph, step } from "./game";
+import { glyphSocketCount, glyphMatches, socketLegal } from "./glyphs";
+import { ABILITY_SLOTS } from "./abilities";
 import { Tile, type GameState, type Intent, type Monster, type Vec2 } from "./types";
 
 // Scripted balance bot: a deterministic policy over public sim state that plays
@@ -324,15 +326,60 @@ export interface EncounterMetric {
  * a frugal bot would understate player damage against bosses.
  */
 const SHOP_LADDER = [
+  // The completed-work-by-shop-3 line (V2 §2.6): components first, the combine
+  // clicks the moment the boss-3 trophy gold lands, then the chase ladder.
   "honed_edge", "killer_instinct", "primetime_cleaver", "headliner_cleaver",
   "iron_plating", "showstopper_plate", "blastplate_harness",
   "glass_charm", "ratings_magnet",
+  // Depth padding: a second completed work + support sockets keep late gold live.
+  "crash_helmet", "mosh_pit_helm",
 ];
+
+/** Socket every benched glyph into the first legal, unlocked, tag-matching
+ * socket (V2 §5 Phase B bot policy: socket-first-compatible). */
+function socketBenchGlyphs(state: GameState, playerId: number): void {
+  const p = state.players.find((pl) => pl.id === playerId) ?? state.players[0];
+  const g = p.glyphs;
+  if (!g) return;
+  for (const id of [...g.bench]) {
+    let placed = false;
+    for (let slot = 0; slot <= ABILITY_SLOTS && !placed; slot++) {
+      const ability = slot === ABILITY_SLOTS ? p.abilities.ultimate : p.abilities.slots[slot];
+      if (!ability || !glyphMatches(id, ability)) continue;
+      const sockets = slot === ABILITY_SLOTS ? 1 : glyphSocketCount(p.level, slot);
+      for (let s = 0; s < sockets && !placed; s++) {
+        const arr = slot === ABILITY_SLOTS ? g.ultimate : g.slots[slot];
+        if (arr[s] !== null || !socketLegal(p, slot === ABILITY_SLOTS ? 4 : slot, s, id)) continue;
+        socketGlyph(state, playerId, slot, s, id);
+        placed = arr[s] === id;
+      }
+    }
+  }
+}
 
 function shop(state: GameState, playerId: number): void {
   const p = state.players[0];
   if (p.hp < p.maxHp * 0.6) buyCatalogItem(state, playerId, "field_ration");
+  // Bench first (V2 §2.4): junk commodity drops become refit shards, so the
+  // dismantle economy is priced into the balance contract.
+  for (let i = p.inventory.length - 1; i >= 0; i--) {
+    if (!p.inventory[i].catalogId) dismantleItem(state, playerId, i);
+  }
   for (const id of SHOP_LADDER) buyCatalogItem(state, playerId, id);
+  // REFIT the worn weapon when the shards allow — the "my item stays alive"
+  // verb, exercised so the contract measures the real power curve.
+  const w = p.equipment.weapon;
+  if (w?.catalogId) {
+    const cost = refitCost(w);
+    if (cost && cost.sigils === 0 && (p.materials.refit_shard ?? 0) >= cost.shards && p.gold >= cost.gold + 80) {
+      refitItem(state, playerId, "weapon");
+    }
+  }
+  // A GLYPH CACHE once the gear plan is funded (V2 §3.1): the modifier layer
+  // is real power, so a competent player buys into it — the balance contract
+  // must measure a crawler who has firmware, not one who ignored the shelf.
+  if (p.gold > 200 && glyphSocketCount(p.level) > 0) buyCatalogItem(state, playerId, "glyph_cache");
+  socketBenchGlyphs(state, playerId);
   if (p.gold > 250) buyCatalogItem(state, playerId, "plating_kit"); // spare gold -> permanent HP
 }
 

@@ -777,6 +777,20 @@
       .skill .cpip.on { background: linear-gradient(135deg, #ffe9ad, #c9a24b 55%, #7a6428);
         box-shadow: 0 0 0 1px #7a6428, 0 0 7px rgba(242,193,78,0.6); }
       .skill .cd { display: none; }
+      /* GLYPH PIPS (ITEMIZATION-V2 §3): the slot's firmware, seated in the top
+         frame rail. A live glyph shows its painted stone; an empty socket is a
+         dark well; a DORMANT glyph (wrong tags for the ability now in this
+         slot) reads grey — a bad re-slot is visible from the cockpit. */
+      .skill .gpips { position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 4px; z-index: 3; }
+      .skill .gpip { width: 11px; height: 11px; border-radius: 50%; display: flex;
+        align-items: center; justify-content: center; overflow: hidden;
+        background: radial-gradient(circle at 35% 30%, #1b1610, #0a0705);
+        box-shadow: 0 0 0 1px #3a2f20, inset 0 1px 2px rgba(0,0,0,0.85); }
+      .skill .gpip img { width: 10px; height: 10px; display: block; }
+      .skill .gpip.on { box-shadow: 0 0 0 1px #7a5cc9, 0 0 7px rgba(154,107,208,0.6); }
+      .skill .gpip.dormant img { filter: grayscale(1) brightness(0.45); }
+      body.touch .skill .gpips { display: none; } /* thumbs cover the rail */
       /* Radial cooldown sweep: --cd goes 0 (ready) -> 1 (full cooldown); the
          leading edge carries a thin gold rim so the sweep reads as a dial. */
       .skill .sweep { position: absolute; inset: 1px; border-radius: 5px; z-index: 1;
@@ -1226,6 +1240,11 @@
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .oicon .oglyph { font-size: 26px; color: var(--oc); line-height: 1; }
+      /* Painted art on gift cards (catalog gear, glyph stones) — an <img>, so
+         it must NOT inherit the mask/tint treatment the drawn marks use. */
+      .oicon img.ii { display: block; width: 42px; height: 42px; background: none; mask: none;
+        -webkit-mask: none; }
+      .reward .oribbon + .qpips { margin-left: 5px; }
       .orank { position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
         background: #0e0b09; border: 1px solid var(--oc); color: var(--oc); font-size: 8px;
         letter-spacing: 2px; padding: 1px 5px 0; white-space: nowrap; }
@@ -1287,8 +1306,8 @@
          build tree, framed in the game's dark-emerald + System-gold trim. */
       #saferoom { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.8); z-index: 24; }
-      #saferoom .panel { width: 1060px; max-width: 96vw; height: min(680px, 92vh);
-        display: flex; flex-direction: column;
+      #saferoom .panel { width: 1100px; max-width: 96vw; height: min(760px, 94vh);
+        display: flex; flex-direction: column; position: relative; /* anchors #sr-stamp */
         background: linear-gradient(180deg, var(--raised), var(--stone) 40%);
         border: 1px solid var(--bronze); outline: 1px solid #201812; outline-offset: 3px;
         border-radius: 3px; padding: 14px 18px 12px;
@@ -1314,7 +1333,7 @@
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       #saferoom .tip { color: #a99f8c; font-size: 12px; margin: 7px 0 2px; font-style: italic; }
       #saferoom .tip::before { content: "MORDECAI: "; color: #6da356; font-weight: 700; font-style: normal; }
-      .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 330px;
+      .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 348px;
         gap: 14px; margin-top: 8px; }
       .shop-shelf { overflow-y: auto; padding-right: 6px; }
       .tier-h { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 700;
@@ -1387,6 +1406,24 @@
       .itile.broke .iprice { color: #c0392f; }
       .itile.owned .ibox::before { content: ""; position: absolute; left: 3px; top: 3px;
         width: 5px; height: 5px; background: #6da356; border-radius: 50%; }
+      /* READY TO BUY (r5 minor): the shelf's tempo read. 40 icons at prices
+         within 20 gold of each other carried no signal; a warm ring answers
+         "what can I click right now?" before you hover anything. */
+      .itile.ready .ibox { box-shadow: inset 0 0 0 1px rgba(242,193,78,0.5),
+        0 0 7px rgba(242,193,78,0.18); }
+      .itile.ready .iprice { color: #f2c14e; }
+      .tier-h .tnote.ready { color: #b99648; }
+      /* BUILD LINKAGE: selecting a completed work lights its components (green
+         = in the bag, amber-dashed = the next thing to buy); selecting a
+         component lights what it builds into. */
+      .itile.linked .ibox { outline: 1px solid transparent; }
+      .itile.linked.have .ibox { border-color: #6da356;
+        box-shadow: inset 0 0 0 1px rgba(109,163,86,0.55), 0 0 8px rgba(109,163,86,0.25); }
+      .itile.linked.need .ibox { border-color: #d8a13f; border-style: dashed;
+        box-shadow: 0 0 8px rgba(216,161,63,0.28); }
+      .itile.linked.into .ibox { border-color: #7f6bb0;
+        box-shadow: inset 0 0 0 1px rgba(127,107,176,0.5), 0 0 8px rgba(127,107,176,0.22); }
+      .itile.linked .iprice { color: #cbbfa6; }
       /* Detail pane: the selected item's stats, build tree, and BUY/SELL. */
       .shop-side { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
       .shop-detail { flex: 1; overflow-y: auto; background: rgba(12,9,6,0.55);
@@ -1397,7 +1434,7 @@
       .dstats { font-size: 12px; color: #cbbfa4; line-height: 1.55; }
       .dpassive { font-size: 12px; color: #f2c14e; font-style: italic; margin-top: 6px; }
       .ddesc { font-size: 11px; color: #6f6757; margin-top: 6px; line-height: 1.5; }
-      .dsec { font-size: 9px; letter-spacing: 2.5px; color: #55493a; margin: 12px 0 5px;
+      .dsec { font-size: 9px; letter-spacing: 2.5px; color: #55493a; margin: 9px 0 4px;
         display: flex; align-items: center; gap: 8px; }
       .dsec::after { content: ""; flex: 1; height: 1px; background: #221b15; }
       .dtree { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1409,9 +1446,114 @@
         font-size: 9px; color: #6da356; }
       .dreq { font-size: 11px; margin-top: 3px; }
       .dreq.met { color: #6da356; } .dreq.unmet { color: #c0392f; }
+
+      /* ---- ITEMIZATION V2 ----------------------------------------------
+         QUALITY GEMS: a catalog identity keeps its name and wears its roll as
+         gems (magic 1 / rare 2 / epic 3). Commodity drops keep the old rarity
+         prefix + tint — the two scales never render alike, because they never
+         compare (see §2.1). */
+      .qpips { display: inline-flex; gap: 2px; margin-left: 7px; vertical-align: 2px; }
+      .qpip { width: 6px; height: 6px; background: var(--qc, #f2c14e); transform: rotate(45deg);
+        box-shadow: 0 0 5px var(--qc, #f2c14e), inset 0 0 0 1px rgba(0,0,0,0.45); }
+      .qtile { position: absolute; top: 2px; left: 2px; display: flex; flex-direction: column; gap: 2px; }
+      .qtile i { width: 5px; height: 5px; background: var(--qc, #f2c14e); transform: rotate(45deg);
+        box-shadow: 0 0 4px var(--qc, #f2c14e); }
+      .bag-grid.micro .qtile i { width: 4px; height: 4px; }
+
+      /* BUILD PATH: the LoL tooltip read on ONE line — components ▸ THIS ▸ the
+         signature it feeds. Owned rungs say HAVE, missing ones carry a price,
+         so the card always answers "what do I buy next". */
+      .dpath { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .dpath .prung { width: 40px; text-align: center; }
+      .dpath .prung .itile { margin: 0 auto; width: 40px; }
+      .dpath .prung.self { width: 46px; }
+      .dpath .prung.self .itile { width: 46px; }
+      .dpath .prung.self .itile .ibox { width: 44px; height: 44px; }
+      .dpath .prung.self .itile .ii { width: 36px; height: 36px; }
+      .dpath .pcost { font-size: 8.5px; color: #f2c14e; display: flex; justify-content: center;
+        align-items: center; gap: 2px; letter-spacing: 0.5px; margin-top: 2px; }
+      .dpath .pcost.owned { color: #6da356; }
+      .dpath .pcost .micon { width: 8px; height: 8px; }
+      .dpath .parrow { width: 15px; height: 10px; flex: none; align-self: center;
+        background: #a2794a; margin-bottom: 9px;
+        clip-path: polygon(0 32%, 58% 32%, 58% 0, 100% 50%, 58% 100%, 58% 68%, 0 68%); }
+      .dpath .itile.self .ibox { border-color: #f2c14e;
+        box-shadow: 0 0 12px rgba(242,193,78,0.4), inset 0 0 0 1px rgba(0,0,0,0.6); }
+
+      /* CHASE UNIQUES: drop-only boss gear on its own sub-tab, displayed like
+         a trophy case — you cannot buy it, so nothing here carries a price. */
+      .shop-subtabs .tab.chase.active { color: #e08b7f; box-shadow: inset 0 -2px 0 #c0392f; }
+      .tier-h.chase-h { color: #c0392f; }
+      .chase-list { display: flex; flex-direction: column; gap: 8px; }
+      .chase-row { display: flex; gap: 12px; align-items: center; cursor: pointer;
+        padding: 8px 12px; border: 1px solid #2c1c19; border-radius: 3px;
+        background: linear-gradient(90deg, rgba(40,18,15,0.55), rgba(14,10,8,0.4) 60%); }
+      .chase-row:hover { border-color: #7a2b26; }
+      .chase-row.sel { border-color: #c0392f; box-shadow: 0 0 14px rgba(192,57,47,0.25); }
+      .chase-row .itile { width: 52px; flex: none; cursor: pointer; }
+      .chase-row .itile .ibox { width: 50px; height: 50px; }
+      .chase-row .itile .ii { width: 42px; height: 42px; }
+      .chase-row .cname { font-family: var(--display); font-variant: small-caps;
+        font-size: 15px; letter-spacing: 0.05em; color: #e8ddc8; display: flex;
+        align-items: baseline; gap: 10px; }
+      .chase-row .cstate { font-size: 8.5px; letter-spacing: 2px; color: #9a5a52;
+        border: 1px solid #4a2320; border-radius: 2px; padding: 1px 5px; font-family: var(--body); }
+      .chase-row.owned .cstate { color: #e08b7f; border-color: #7a2b26; }
+      .chase-row .cdesc { font-size: 11.5px; color: #a99f8c; line-height: 1.45; margin-top: 2px;
+        max-width: 74ch; }
+      .chase-row .cboss { font-size: 9px; letter-spacing: 2px; color: #6f6757; margin-top: 3px; }
+      .itile.chase .ibox { border-color: #7a2b26;
+        background: linear-gradient(180deg, #2a1512, #150b09); }
+      .itile.chase.sealed .ii { filter: grayscale(0.55) brightness(0.72); }
+      .itile.chase.sealed .iprice { color: #9a5a52; letter-spacing: 1px; font-size: 8px; }
+      .itile.chase.owned .ibox { border-color: #c0392f;
+        box-shadow: 0 0 14px rgba(192,57,47,0.45), inset 0 0 0 1px rgba(0,0,0,0.6); }
+      .itile.chase.owned .iprice { color: #e08b7f; }
+      .dchase { font-size: 11.5px; color: #d08a7a; line-height: 1.5; margin: 2px 0 6px;
+        border-left: 2px solid #7a2b26; padding-left: 8px; }
+
+      /* THE BENCH: refit + dismantle previews. Costs are stated before the
+         verb, always — the gold-vs-shards call is the safe room's real decision. */
+      .dfoot .bnote { font-size: 10px; color: #6f6757; line-height: 1.45; margin-bottom: 6px;
+        font-style: italic; }
+      .dbtns.bench { margin-top: 6px; }
+      .dbtns .bench-btn { flex: 1; min-width: 0; cursor: pointer; font: inherit;
+        font-size: 10px; font-weight: 700; letter-spacing: 1.2px; padding: 6px 4px;
+        color: #e8ddc8; background: #1d1811; border: 1px solid #4a3a22;
+        display: flex; align-items: center; justify-content: center; gap: 4px; }
+      .dbtns .bench-btn:hover:not(:disabled) { border-color: #f2c14e; color: #f2c14e; filter: none; }
+      .dbtns .bench-btn:disabled { cursor: default; color: #55493a; background: #14100c;
+        border-color: #221b15; font-weight: 400; }
+      .dbtns .bench-btn.scrap:hover { border-color: #8fb0d9; color: #8fb0d9; }
+      .bench-btn .micon { width: 9px; height: 9px; }
+
+      /* ACQUIRED / COMBINED / REFIT stamp — every gold-spending verb ends with
+         a legible "this happened". Lives inside #saferoom (no new zone). */
+      #sr-stamp { position: absolute; left: 50%; top: 54px; transform: translate(-50%, -6px);
+        pointer-events: none; opacity: 0; display: flex; align-items: baseline; gap: 10px;
+        background: linear-gradient(180deg, rgba(20,16,12,0.96), rgba(10,8,6,0.96));
+        border: 1px solid var(--sc, #f2c14e); border-radius: 3px; padding: 7px 18px;
+        box-shadow: 0 0 26px rgba(0,0,0,0.7), 0 0 18px color-mix(in srgb, var(--sc, #f2c14e) 30%, transparent); }
+      #sr-stamp.show { animation: stampin 2.4s ease forwards; }
+      #sr-stamp .verb { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.18em;
+        font-size: 13px; color: var(--sc, #f2c14e); }
+      #sr-stamp .what { font-size: 11.5px; color: #e8ddc8; }
+      @keyframes stampin {
+        0% { opacity: 0; transform: translate(-50%, -14px) scale(0.96); }
+        12% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        78% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -6px) scale(1); }
+      }
       .dprice { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; font-size: 13px; }
       .dprice .full { color: #55493a; text-decoration: line-through; font-size: 11px; }
       .dprice .eff { color: #f2c14e; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+      /* The card's price + action never sit below the fold: the footer sticks
+         to the bottom of the (scrollable) detail pane, over a fade so the
+         content it covers reads as continuing underneath. */
+      .dfoot { position: sticky; bottom: -12px; margin-top: 10px; padding: 8px 0 12px; z-index: 2;
+        background: linear-gradient(180deg, rgba(12,9,6,0) 0%, rgba(12,9,6,0.93) 26%, rgba(12,9,6,0.98) 100%); }
+      .dfoot .dprice { margin-top: 0; }
+      .dfoot .dbtns { margin-top: 8px; }
       .dbtns { display: flex; gap: 8px; margin-top: 10px; }
       .dbtns button { cursor: pointer; flex: 1; font: inherit; font-size: 11px; font-weight: 700;
         letter-spacing: 2px; padding: 8px 0; color: #0a0d0b; background: linear-gradient(180deg, #f2c14e, #c9932e);
@@ -1514,6 +1656,63 @@
       .lslot.ult .lkey { color: #9a6bd0; border-color: #7a5cc9; }
       .lslot .lname { text-align: center; font-size: 9px; color: #6f6757; margin-top: 3px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      /* ---- GLYPH SOCKETS (ITEMIZATION-V2 §3) ---------------------------
+         Sockets belong to the SLOT, not the ability: a re-slot inherits the
+         slot's firmware. Sealed wells print their unlock level; a seated glyph
+         shows its painted stone; a DORMANT one (wrong tags for the ability
+         currently in the slot) goes dark and says why on hover. */
+      .socks { display: flex; justify-content: center; gap: 5px; margin-top: 5px; }
+      .sock { width: 17px; height: 17px; display: flex; align-items: center; justify-content: center;
+        border-radius: 50%; border: 1px solid #3a2f20; background: radial-gradient(circle at 35% 30%,
+          #1b1610, #0b0805); box-shadow: inset 0 1px 3px rgba(0,0,0,0.8); position: relative; }
+      .sock img { width: 14px; height: 14px; display: block; }
+      .sock.filled { border-color: #7a5cc9;
+        box-shadow: 0 0 7px rgba(154,107,208,0.45), inset 0 0 0 1px rgba(0,0,0,0.5); }
+      .sock.filled.dormant { border-color: #443a2c; box-shadow: none; }
+      .sock.filled.dormant img { filter: grayscale(1) brightness(0.5); }
+      .sock.locked { border-style: dashed; border-color: #2b241a; opacity: 0.65; }
+      .sock.locked::after { content: ""; position: absolute; width: 5px; height: 4px;
+        border: 1px solid #4a3d2c; border-bottom: 0; border-radius: 3px 3px 0 0; top: 3px; }
+      .sock.live { cursor: pointer; }
+      .sock.live:hover { border-color: #c9a24b; }
+      .sock.target { border-color: #6da356; animation: sockpulse 1.5s ease-in-out infinite; }
+      @keyframes sockpulse {
+        0%, 100% { box-shadow: 0 0 4px rgba(109,163,86,0.4); }
+        50% { box-shadow: 0 0 11px rgba(109,163,86,0.85); }
+      }
+      /* The bench: everything found and not currently seated. */
+      #sr-glyphs { margin: 2px 0 14px; }
+      #sr-glyphs .ghint { font-weight: 400; letter-spacing: 0; text-transform: none;
+        color: #6f6757; font-size: 10.5px; margin-left: 8px; }
+      .gbench { display: flex; flex-wrap: wrap; gap: 8px; }
+      .gbench.empty { display: block; font-size: 11px; color: #55493a; font-style: italic;
+        line-height: 1.5; max-width: 74ch; }
+      .gchip { width: 108px; padding: 7px 6px 6px; text-align: center; border-radius: 3px;
+        border: 1px solid #2c2418; background: linear-gradient(180deg, rgba(30,22,38,0.7), rgba(12,9,14,0.7)); }
+      .gchip.live { cursor: pointer; }
+      .gchip.live:hover { border-color: #7a5cc9; }
+      .gchip.held { border-color: #b08fd9; background: linear-gradient(180deg, rgba(58,40,80,0.8), rgba(22,15,30,0.8));
+        box-shadow: 0 0 14px rgba(154,107,208,0.4); }
+      .gchip .gbox { width: 34px; height: 34px; margin: 0 auto 4px; display: flex;
+        align-items: center; justify-content: center; }
+      .gchip .gbox img { width: 32px; height: 32px; display: block; }
+      .gchip .gname { font-size: 10px; color: #cbbfa4; letter-spacing: 0.3px; line-height: 1.2; }
+      .gchip .gtags { font-size: 8.5px; color: #6f6757; letter-spacing: 0.5px; margin-top: 2px; }
+      /* The per-ability modifier line inside a constellation card. */
+      .acard .amods { display: flex; align-items: center; gap: 8px; margin: 7px 0 2px; }
+      .acard .amods .socks { margin: 0; }
+      .acard .amodtext { font-size: 10.5px; color: #b08fd9; letter-spacing: 0.2px; }
+      .acard .amodtext.dim { color: #55493a; font-style: italic; }
+      .acard .amodcap { font-size: 9.5px; letter-spacing: 0.5px; color: #d8a13f;
+        border-left: 1px solid #7a5c1e; padding-left: 7px; margin-left: 2px; }
+      #itemtip .tdormant { color: #a08a6a; margin-top: 5px; font-size: 11px; line-height: 1.45;
+        border-left: 2px solid #4a3d2c; padding-left: 7px; }
+      /* RULE 7 breakpoint warning: a capped slot is wasting a glyph's cooldown
+         line while still paying its damage cost. Amber, not red — it is a
+         suboptimal seat, not a broken one. */
+      #itemtip .tcap { color: #d8a13f; margin-top: 5px; font-size: 11px; line-height: 1.45;
+        border-left: 2px solid #7a5c1e; padding-left: 7px; }
       /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
          not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
       .abil-cards { display: block; columns: 2; column-gap: 12px; }
@@ -1711,6 +1910,24 @@
       .stile small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 1.5px; }
       #sheet .progress { margin-top: 10px; font-size: 11px; color: #a99f8c; }
       #sheet .progress b { color: #f2c14e; }
+      #sheet .progress .micon { width: 10px; height: 10px; vertical-align: -1px; }
+      /* MODIFIERS (V2 §3.4): item passives + socketed glyphs — the two build
+         layers that never appear in the stat ledger. */
+      #sheet-mods .mod-row { display: flex; gap: 9px; align-items: center; padding: 3px 8px;
+        background: rgba(0,0,0,0.22); border: 1px solid #241d16; border-radius: 4px; margin-bottom: 4px; }
+      #sheet-mods .mbox { --tc: #b9b2a4; flex: none; width: 26px; height: 26px; display: flex;
+        align-items: center; justify-content: center; }
+      #sheet-mods .mbox img { width: 24px; height: 24px; display: block; }
+      #sheet-mods .socks { margin: 0; flex: none; }
+      #sheet-mods .sock { width: 15px; height: 15px; }
+      #sheet-mods .sock img { width: 12px; height: 12px; }
+      #sheet-mods .mname { font-size: 9px; letter-spacing: 1.2px; color: #a99f8c; }
+      #sheet-mods .mdesc { font-size: 10.5px; color: #b08fd9; line-height: 1.35; }
+      #sheet-mods .mod-row .mdesc:only-child { color: #cbbfa4; }
+      #sheet-mods .mdorm { color: #7d7466; font-style: italic; letter-spacing: 0.5px; }
+      #sheet-mods .mcap { color: #d8a13f; letter-spacing: 0.3px; }
+      #sheet-mods .mod-empty { font-size: 11px; color: #55493a; font-style: italic; line-height: 1.5; }
+      #sheet-mods .mod-open { font-size: 10.5px; color: #6f6757; font-style: italic; padding: 2px 4px; }
       #sheet .progress .bar { margin-top: 5px; border: 1px solid #241d16; }
       #sheet .progress .bar > i { background: linear-gradient(90deg, #3c5f93, #5a87c6); }
       /* Damage rows: ability icon · name/mechanics · [min–max] · CD · DPS. */
@@ -1815,7 +2032,7 @@
       button { cursor: pointer; }
       /* Primary CTAs as ENGRAVED METAL (r4 minor: never a flat mustard slab):
          hot bevel crown, deep shaded foot, inner keyline, embossed label. */
-      .dbtns button:not(.sell):not(:disabled),
+      .dbtns button:not(.sell):not(.bench-btn):not(:disabled),
       #saferoom .descend button, .m-go, #recap-again, #m-t-go {
         color: #241a08 !important;
         background: linear-gradient(180deg, #fff6d4 0%, #ffd970 10%, var(--gold) 45%, #9c7527 78%, #6e5327 96%, #57411e) !important;
@@ -1827,28 +2044,28 @@
         font-weight: 700; letter-spacing: 0.12em;
         text-shadow: 0 1px 0 rgba(255,246,220,0.5), 0 -1px 0 rgba(80,52,12,0.35);
       }
-      .dbtns button:not(.sell):not(:disabled):hover,
+      .dbtns button:not(.sell):not(.bench-btn):not(:disabled):hover,
       #saferoom .descend button:hover, .m-go:hover, #recap-again:hover {
         filter: brightness(1.08); box-shadow: inset 0 1px 0 rgba(255,240,200,0.55),
           0 2px 10px rgba(201,162,75,0.35);
       }
       /* Pressed: the gold darkens and SINKS — bevel collapses, top shadow
          deepens, the button travels 1px. Metal, not a flat fill. */
-      .dbtns button:not(.sell):not(:disabled):active,
+      .dbtns button:not(.sell):not(.bench-btn):not(:disabled):active,
       #saferoom .descend button:active, .m-go:active, #recap-again:active, #m-t-go:active {
         filter: brightness(0.88); transform: translateY(1px);
         border-bottom-width: 1px !important;
         box-shadow: inset 0 3px 6px rgba(60,40,10,0.65), inset 0 0 0 1px rgba(96,62,18,0.4),
           0 1px 2px rgba(0,0,0,0.5);
       }
-      .dbtns button.sell:active, #recap .rfoot .dismiss:active, .m-mini:active,
+      .dbtns button.sell:active, .dbtns .bench-btn:active, #recap .rfoot .dismiss:active, .m-mini:active,
       #keys .kb-reset button:active { transform: translateY(1px);
         box-shadow: inset 0 2px 5px rgba(0,0,0,0.55); }
-      .dbtns button.sell, #recap .rfoot .dismiss, .m-mini, #keys .kb-reset button, #sr-sellall {
+      .dbtns button.sell, .dbtns .bench-btn, #recap .rfoot .dismiss, .m-mini, #keys .kb-reset button, #sr-sellall {
         color: var(--ink-dim); background: linear-gradient(180deg, var(--hover), var(--raised));
         border: 1px solid var(--bronze); border-radius: 3px;
       }
-      .dbtns button.sell:hover, #recap .rfoot .dismiss:hover, .m-mini:hover,
+      .dbtns button.sell:hover, .dbtns .bench-btn:not(:disabled):hover, #recap .rfoot .dismiss:hover, .m-mini:hover,
       #keys .kb-reset button:hover { color: var(--ink); border-color: var(--bronze-hi); filter: none; }
       button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
       /* Item tiles: dark wells, rarity carried by the frame + a faint inner
@@ -2006,15 +2223,15 @@
       .ledger .lic .si { width: 16px; height: 16px; margin: 0 auto; }
       /* Shop detail: a proper item card. Large art in a rarity well up top,
          name + rarity banner, stat block with deltas, flavor in italics. */
-      .shop-detail .dart { --tc: #a99f8c; position: relative; width: 88px; height: 88px;
-        margin: 4px auto 10px; display: flex; align-items: center; justify-content: center;
+      .shop-detail .dart { --tc: #a99f8c; position: relative; width: 74px; height: 74px;
+        margin: 2px auto 8px; display: flex; align-items: center; justify-content: center;
         border: 1px solid color-mix(in srgb, var(--tc) 60%, #241d16); border-radius: 2px;
         background:
           radial-gradient(120% 85% at 50% 112%, color-mix(in srgb, var(--tc) 32%, transparent), transparent 60%),
           linear-gradient(180deg, #1d1712, #100c08);
         box-shadow: inset 0 2px 9px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.7),
           0 0 20px -7px var(--tc); }
-      .shop-detail .dart .ii { width: 76px; height: 76px; display: block;
+      .shop-detail .dart .ii { width: 64px; height: 64px; display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .shop-detail .dart .gem { position: absolute; right: -3px; top: -3px; width: 7px; height: 7px;
@@ -2031,7 +2248,7 @@
         background: rgba(0,0,0,0.4); color: var(--tc, #a99f8c); font-size: 9px; letter-spacing: 2px; }
       .shop-detail .dhave { text-align: center; color: var(--verdant); font-size: 10.5px;
         letter-spacing: 1px; margin: -5px 0 8px; }
-      .dstat-row { display: flex; align-items: baseline; gap: 8px; padding: 2.5px 0;
+      .dstat-row { display: flex; align-items: baseline; gap: 8px; padding: 1.5px 0;
         font-size: 12.5px; }
       .dstat-row .lab { font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.1em; font-size: 11px; color: var(--ink-dim); width: 44px; flex: none; }
@@ -2571,6 +2788,9 @@
             <div class="shop-subtabs">
               <button class="tab active" id="sr-tab-stock">IN STOCK</button>
               <button class="tab" id="sr-tab-all">ALL ITEMS</button>
+              <!-- The drop-only boss uniques (ITEMIZATION-V2 §2.5): a want-list,
+                   not inventory — no prices, because the currency is the fight. -->
+              <button class="tab chase" id="sr-tab-chase">THE CHASE</button>
             </div>
             <div class="shop-shelf" id="sr-shelf"></div>
           </div>
@@ -2587,12 +2807,19 @@
         <div class="sr-page" id="sr-page-abil" style="display:none">
           <div class="sec-label">THE FIVE — your loadout (4 actives + ultimate; re-slotting is a safe-room decision)</div>
           <div class="loadout" id="sr-loadout"></div>
+          <!-- Glyph bench (ITEMIZATION-V2 §3): loose firmware waiting for a
+               socket. Click a glyph, then click a lit socket on the bar above.
+               Lives inside the ABILITIES page — no new screen zone. -->
+          <div id="sr-glyphs"></div>
           <div class="abil-cards" id="sr-abil"></div>
         </div>
         <div class="sr-page" id="sr-page-ach" style="display:none">
           <div class="sec-label" id="sr-ach-count"></div>
           <div class="sr-ach-grid" id="sr-ach"></div>
         </div>
+        <!-- Purchase / bench confirmation stamp (child of the safe-room modal,
+             so it claims no zone of its own). -->
+        <div id="sr-stamp"></div>
         <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span></div>
       </div>
     </div>
@@ -2654,6 +2881,10 @@
             <div class="sheet-sec">EQUIPPED</div>
             <div id="sheet-gear"></div>
             <div class="progress" id="sheet-progress"></div>
+            <!-- The two layers that never show up in the stat ledger: item
+                 passives and socketed glyphs (ITEMIZATION-V2 §3.4). -->
+            <div class="sheet-sec">MODIFIERS <span class="note">passives &amp; glyphs</span></div>
+            <div id="sheet-mods"></div>
           </div>
           <div>
             <div class="sheet-sec">DAMAGE <span class="note" id="sheet-dice"></span></div>

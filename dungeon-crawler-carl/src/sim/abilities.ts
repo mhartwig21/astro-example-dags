@@ -1,5 +1,6 @@
 import { CONFIG } from "./config";
 import { hasPassive, weaponClassOf } from "./items";
+import { clampCooldown, glyphCdr, glyphDamageMult, hasGlyph } from "./glyphs";
 import { chance, createRng, nextFloat, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
 
@@ -47,10 +48,26 @@ export const SCALING: Partial<Record<AbilityId, { ap?: number; sp?: number }>> =
   cataclysm: { sp: 1 },
 };
 
-/** The power an ability scales from (defaults to physical for the untabled). */
+/** Effective spell power: Grounded Suit (V2 §2.3) runs it hotter above the
+ * HP threshold. The one read point every SP consumer shares. */
+export function effectiveSpellPower(p: Player): number {
+  const grounded = hasPassive(p, "grounded") && p.hp > p.maxHp * CONFIG.groundedHpFraction;
+  return p.spellPower * (grounded ? CONFIG.groundedSpellMult : 1);
+}
+
+/** The power an ability scales from (defaults to physical for the untabled).
+ * The ARCANE LENS glyph (rule 5) converts the whole scale to spell power —
+ * an explicit socket beats a default. */
 export function power(p: Player, ability: AbilityId): number {
+  if (hasGlyph(p, ability, "arcane_lens")) return effectiveSpellPower(p);
   const s = SCALING[ability] ?? { ap: 1 };
-  return p.attackPower * (s.ap ?? 0) + p.spellPower * (s.sp ?? 0);
+  return p.attackPower * (s.ap ?? 0) + effectiveSpellPower(p) * (s.sp ?? 0);
+}
+
+/** Dominant school of an ability AS CAST by this player (lens-aware). */
+export function castSchool(p: Player, ability: AbilityId): School {
+  if (hasGlyph(p, ability, "arcane_lens")) return "magic";
+  return abilitySchool(ability);
 }
 
 /** Dominant school of an ability's damage (hit tinting + future resists). */
@@ -289,6 +306,37 @@ export function startingLoadout(): Player["abilities"] {
 
 // ---- Effective ability parameters (pure; read CONFIG + node ranks) ----
 
+/** The constellation nodes that print a % COOLDOWN REDUCTION, per ability, as
+ * [node id, reduction per rank]. The single source the param functions and the
+ * cap readout below both spend — if a node is added, it goes here too. */
+const CDR_NODES: Partial<Record<AbilityId, [string, number]>> = {
+  melee: ["melee.swift", 0.12],
+  dash: ["dash.quick", 0.18],
+  bolt: ["bolt.rapid", 0.15],
+  nova: ["nova.after", 0.15],
+  cutto: ["cut.jump", 0.15],
+};
+
+/**
+ * RULE 7's ledger, for the UI: where an ability's cooldown reduction comes
+ * from and how much of it the cap is EATING. A crawler at the cap keeps a
+ * glyph's damage drawback while its cooldown line does nothing — a hidden trap
+ * unless the panel says so, which is what `wasted` is for.
+ */
+export function abilityCdrBreakdown(p: Player, ability: AbilityId): {
+  rank: number; glyph: number; total: number; applied: number; wasted: number; capped: boolean;
+} {
+  const node = CDR_NODES[ability];
+  const rankCdr = node ? rank(p, node[0]) * node[1] : 0;
+  const glyph = glyphCdr(p, ability);
+  const total = rankCdr + glyph;
+  const applied = Math.min(total, CONFIG.cdrCap);
+  // A cooldown INCREASE (Heavyweight's negative) is never "capped" — rule 7
+  // clamps the floor, not the ceiling.
+  const capped = total > CONFIG.cdrCap;
+  return { rank: rankCdr, glyph, total, applied, wasted: Math.max(0, total - applied), capped };
+}
+
 export function meleeParams(p: Player) {
   // Weapon-class hooks (DESIGN 5.8): swift swings faster, heavy hits harder
   // (and staggers harder) but slower, reach extends the arc's radius. The Mug
@@ -302,9 +350,12 @@ export function meleeParams(p: Player) {
     : wc === "arcane" || wc === "ballistic" ? CONFIG.offclassMeleeDmgMult
     : 1;
   const classCd = wc === "swift" ? CONFIG.swiftMeleeCdMult : wc === "heavy" ? CONFIG.heavyMeleeCdMult : wc === "chaotic" ? 0.95 : 1;
+  // RULE 7 (V2 §3.2): rank CDR + glyph CDR sum ADDITIVELY, one clamp at 40%.
+  // Weapon-class multipliers are identity, not "% cooldown modifiers" — they
+  // stay outside the sum (as do frenzy/tempo, which are temporal buffs).
   return {
-    damageMult: (1 + rank(p, "melee.heavy") * 0.2) * classDmg,
-    cooldown: CONFIG.playerAttackCooldown * (1 - rank(p, "melee.swift") * 0.12) * classCd,
+    damageMult: (1 + rank(p, "melee.heavy") * 0.2) * classDmg * glyphDamageMult(p, "melee"),
+    cooldown: clampCooldown(CONFIG.playerAttackCooldown, rank(p, "melee.swift") * 0.12 + glyphCdr(p, "melee")) * classCd,
     arc: CONFIG.playerAttackArc + rank(p, "melee.arc") * (22 * Math.PI / 180),
     range: CONFIG.playerAttackRange + (wc === "reach" ? CONFIG.reachRangeBonus : wc === "chaotic" ? 0.25 : 0),
     poiseMult: wc === "heavy" ? CONFIG.heavyPoiseMult : 1,
@@ -315,9 +366,10 @@ export function dashParams(p: Player) {
   // THE HEAVY (class revision): mass keeps its own schedule — dash recharges slower.
   const heavy = (p.revisions ?? []).includes("heavy") ? CONFIG.revisionHeavyDashCdMult : 1;
   return {
-    cooldown: CONFIG.dashCooldown * (1 - rank(p, "dash.quick") * 0.18) * heavy,
+    // Rule 7: rank + glyph CDR sum, clamped once at the cap.
+    cooldown: clampCooldown(CONFIG.dashCooldown, rank(p, "dash.quick") * 0.18 + glyphCdr(p, "dash")) * heavy,
     distance: CONFIG.dashDistance * (1 + rank(p, "dash.blink") * 0.3),
-    shockMult: rank(p, "dash.shock") * 0.5, // fraction of dash power dealt along the path
+    shockMult: rank(p, "dash.shock") * 0.5 * glyphDamageMult(p, "dash"), // fraction of dash power dealt along the path
   };
 }
 
@@ -333,19 +385,24 @@ export function boltParams(p: Player) {
   const w = p.equipment.weapon;
   const wc = weaponClassOf(w);
   const rareUp = w && (w.rarity === "rare" || w.rarity === "epic");
+  const sp = effectiveSpellPower(p);
   const profile =
     wc === "ballistic" ? { dmg: p.attackPower * CONFIG.boltBallisticMult, school: "physical" as School, speedMult: CONFIG.boltBallisticSpeedMult, bonusPierce: rareUp ? 1 : 0, cdMult: 1 }
-    : wc === "arcane" ? { dmg: p.spellPower * CONFIG.boltArcaneMult, school: "magic" as School, speedMult: 1, bonusPierce: 0, cdMult: /Wand$/.test(w!.name) ? CONFIG.wandBoltCdMult : 1 }
-    : wc === "chaotic" ? { dmg: Math.max(p.attackPower, p.spellPower) * CONFIG.chaoticBoltMult, school: (p.spellPower > p.attackPower ? "magic" : "physical") as School, speedMult: 1.15, bonusPierce: 0, cdMult: 0.95 }
+    : wc === "arcane" ? { dmg: sp * CONFIG.boltArcaneMult, school: "magic" as School, speedMult: 1, bonusPierce: 0, cdMult: /Wand$/.test(w!.name) ? CONFIG.wandBoltCdMult : 1 }
+    : wc === "chaotic" ? { dmg: Math.max(p.attackPower, sp) * CONFIG.chaoticBoltMult, school: (sp > p.attackPower ? "magic" : "physical") as School, speedMult: 1.15, bonusPierce: 0, cdMult: 0.95 }
     : wc !== null ? { dmg: p.attackPower * CONFIG.boltSidearmMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 } // melee-class sidearm
     : { dmg: p.attackPower * CONFIG.boltDamageMult, school: "physical" as School, speedMult: 1, bonusPierce: 0, cdMult: 1 }; // bare hands
+  // ARCANE LENS glyph (rule 5): an explicit socket beats the weapon's default
+  // profile — the bolt deals MAGIC and scales off spell power, whatever's held.
+  const lens = hasGlyph(p, "bolt", "arcane_lens");
   return {
     count: 1 + rank(p, "bolt.split"),
     // Standing Ovation (chase legendary): +2 pierce on top of tree + weapon.
     pierce: rank(p, "bolt.pierce") + profile.bonusPierce + (hasPassive(p, "skewer") ? CONFIG.skewerBonusPierce : 0),
-    cooldown: CONFIG.boltCooldown * (1 - rank(p, "bolt.rapid") * 0.15) * profile.cdMult,
-    dmg: profile.dmg,
-    school: profile.school,
+    // Rule 7: rank + glyph CDR sum additively, one clamp; class cdMult stays identity.
+    cooldown: clampCooldown(CONFIG.boltCooldown, rank(p, "bolt.rapid") * 0.15 + glyphCdr(p, "bolt")) * profile.cdMult,
+    dmg: (lens ? sp * CONFIG.boltArcaneMult : profile.dmg) * glyphDamageMult(p, "bolt"),
+    school: lens ? ("magic" as School) : profile.school,
     speedMult: profile.speedMult,
     // Frost Bolts (5.11): impacts chill by this slow fraction (0 = node untaken).
     chill: Math.min(CONFIG.chillSlowMax, rank(p, "bolt.frost") * CONFIG.chillSlowPerRank),
@@ -358,8 +415,8 @@ export function novaParams(p: Player) {
   const staff = weaponClassOf(w) === "arcane" && /Staff$/.test(w!.name);
   return {
     radius: CONFIG.novaRadius * (1 + rank(p, "nova.bang") * 0.25) * (staff ? CONFIG.staffAoeRadiusMult : 1),
-    cooldown: CONFIG.novaCooldown * (1 - rank(p, "nova.after") * 0.15),
-    damageMult: CONFIG.novaDamageMult * (1 + rank(p, "nova.conc") * 0.3),
+    cooldown: clampCooldown(CONFIG.novaCooldown, rank(p, "nova.after") * 0.15 + glyphCdr(p, "nova")),
+    damageMult: CONFIG.novaDamageMult * (1 + rank(p, "nova.conc") * 0.3) * glyphDamageMult(p, "nova"),
   };
 }
 
@@ -381,9 +438,19 @@ export function stanceMult(p: Player, kind: StanceId): number {
   return mult;
 }
 
+/** Battle Stance's own numbers. The buff abilities are full citizens of the
+ * glyph layer (V2 §3.2 rule 6): their swap timer routes through the same rule-7
+ * clamp everything else does, so a cooldown-only glyph works here too. */
+export function stanceParams(p: Player) {
+  return {
+    cooldown: clampCooldown(CONFIG.stanceSwapCooldown, glyphCdr(p, "stance")),
+  };
+}
+
 /** What the banked Overcharge does when the next attack spends it. */
 export function overchargeParams(p: Player) {
   return {
+    cooldown: clampCooldown(CONFIG.overchargeCooldown, glyphCdr(p, "overcharge")),
     mult: CONFIG.overchargeDamageMult + rank(p, "overcharge.surge") * 0.25,
     extraBolts: rank(p, "overcharge.volley"),
     echoFrac: rank(p, "overcharge.echo") * 0.4,
@@ -398,7 +465,7 @@ export function orbitParams(p: Player) {
   return {
     blades: CONFIG.orbitBladesBase + rank(p, "orbit.blade") + (encore ? 1 : 0),
     radius: CONFIG.orbitRadius,
-    damageMult: CONFIG.orbitDamageMult * (1 + rank(p, "orbit.razor") * 0.35),
+    damageMult: CONFIG.orbitDamageMult * (1 + rank(p, "orbit.razor") * 0.35) * glyphDamageMult(p, "orbit"),
     spiralRank: rank(p, "orbit.wide"),
     tickSeconds: CONFIG.orbitTickSeconds * (encore ? CONFIG.encoreOrbitTickMult : 1),
   };
@@ -434,7 +501,8 @@ export function airstrikeParams(p: Player) {
     spread: CONFIG.ultAirstrikeSpread
       * (1 + sat * CONFIG.ultAirstrikeSaturationSpread)
       * Math.max(0.1, 1 - rank(p, "air.precision") * CONFIG.ultAirstrikePrecisionSpread),
-    dmgMult: CONFIG.ultAirstrikeDmgMult * (1 + rank(p, "air.payload") * CONFIG.ultAirstrikePayloadDmg),
+    dmgMult: CONFIG.ultAirstrikeDmgMult * (1 + rank(p, "air.payload") * CONFIG.ultAirstrikePayloadDmg) * glyphDamageMult(p, "airstrike"),
+    cooldown: clampCooldown(CONFIG.ultAirstrikeCooldown, glyphCdr(p, "airstrike")),
     loyalty: rank(p, "air.loyalty") > 0,
   };
 }
@@ -447,12 +515,15 @@ export function cataclysmParams(p: Player) {
     knockback: CONFIG.ultCataclysmKnockback * (1 + up * CONFIG.ultCataclysmUpheavalKnock),
     poiseMult: up > 0 ? CONFIG.ultCataclysmUpheavalPoise : 1,
     echoFrac: after > 0 ? CONFIG.ultCataclysmAftermathBase + after * CONFIG.ultCataclysmAftermathPerRank : 0,
+    dmgMult: CONFIG.ultCataclysmDmgMult * glyphDamageMult(p, "cataclysm"),
+    cooldown: clampCooldown(CONFIG.ultCataclysmCooldown, glyphCdr(p, "cataclysm")),
     extinction: rank(p, "cata.extinction") > 0,
   };
 }
 
 export function bulletTimeParams(p: Player) {
   return {
+    cooldown: clampCooldown(CONFIG.ultBulletTimeCooldown, glyphCdr(p, "bullettime")),
     duration: CONFIG.ultBulletTimeDuration + rank(p, "bt.focus") * CONFIG.ultBulletTimeFocusSeconds,
     cdTickMult: 1 + rank(p, "bt.adrenaline") * CONFIG.ultBulletTimeAdrenaline,
     critBonus: rank(p, "bt.deadeye") * CONFIG.ultBulletTimeDeadeyeCrit,
@@ -465,8 +536,8 @@ export function bulletTimeParams(p: Player) {
 export function cutToParams(p: Player) {
   return {
     range: CONFIG.cutToRange * (1 + rank(p, "cut.range") * 0.15),
-    cooldown: CONFIG.cutToCooldown * (1 - rank(p, "cut.jump") * 0.15),
-    dmgMult: CONFIG.cutToDmgMult * (1 + rank(p, "cut.smash") * 0.3),
+    cooldown: clampCooldown(CONFIG.cutToCooldown, rank(p, "cut.jump") * 0.15 + glyphCdr(p, "cutto")),
+    dmgMult: CONFIG.cutToDmgMult * (1 + rank(p, "cut.smash") * 0.3) * glyphDamageMult(p, "cutto"),
     smash: rank(p, "cut.smash") > 0, // arrival staggers non-elites
     match: rank(p, "cut.match") > 0,
   };
@@ -475,9 +546,9 @@ export function cutToParams(p: Player) {
 export function crowdSurfParams(p: Player) {
   return {
     range: CONFIG.surfRange * (1 + rank(p, "surf.chain") * 0.2),
-    cooldown: CONFIG.surfCooldown,
+    cooldown: clampCooldown(CONFIG.surfCooldown, glyphCdr(p, "crowdsurf")),
     stagger: CONFIG.surfStagger + rank(p, "surf.grip") * CONFIG.surfStaggerPerRank,
-    diveFrac: rank(p, "surf.dive") * CONFIG.surfDiveFracPerRank,
+    diveFrac: rank(p, "surf.dive") * CONFIG.surfDiveFracPerRank * glyphDamageMult(p, "crowdsurf"),
     wave: rank(p, "surf.wave") > 0,
   };
 }
@@ -485,7 +556,7 @@ export function crowdSurfParams(p: Player) {
 export function stuntDoubleParams(p: Player) {
   return {
     contract: CONFIG.doubleContract + rank(p, "double.break"),
-    cooldown: CONFIG.doubleCooldown,
+    cooldown: clampCooldown(CONFIG.doubleCooldown, glyphCdr(p, "stuntdouble")),
     tauntRadius: CONFIG.doubleTauntRadius * (1 + rank(p, "double.method") * 0.25),
     mirrorFrac: CONFIG.doubleMirrorFrac,
     explodeFrac: CONFIG.doubleExplodeFrac * (1 + rank(p, "double.pyro") * 0.4),

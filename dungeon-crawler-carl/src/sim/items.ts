@@ -1,6 +1,8 @@
 import { CONFIG, RARITIES } from "./config";
+import { CATALOG, CATALOG_BY_ID, gearAffixes, type CatalogEntry } from "./catalog";
 import { nextFloat, nextInt, pick, type Rng } from "./rng";
 import { EQUIP_SLOTS, type Affixes, type Item, type ItemSlot, type PassiveId, type Player, type Rarity } from "./types";
+import type { School } from "./abilities";
 
 /** True if any equipped item carries the given signature-gear passive.
  * Lives here (not game.ts) so the ability param functions can read it too. */
@@ -47,9 +49,10 @@ const SLOT_NOUNS: Record<ItemSlot, string[]> = {
 export type WeaponClass = "swift" | "heavy" | "reach" | "ballistic" | "arcane" | "chaotic";
 const WEAPON_CLASS_BY_NOUN: Record<string, WeaponClass> = {
   Blade: "swift", Cleaver: "swift", Boxcutter: "swift", Edge: "swift", Wraps: "swift", Runner: "swift", Headliner: "swift",
-  Axe: "heavy", Maul: "heavy",
-  Spear: "reach",
-  Crossbow: "ballistic",
+  Shears: "swift", // Rootcutter Shears (boss unique)
+  Axe: "heavy", Maul: "heavy", Head: "heavy", Permit: "heavy", // Sledge Head / Demolition Permit
+  Spear: "reach", Rebuttal: "reach", // Rebar Spear / Pikeman's Rebuttal
+  Crossbow: "ballistic", Trigger: "ballistic", Order: "ballistic", // Stock and Trigger / Court Order
   Wand: "arcane", Staff: "arcane",
   Mug: "chaotic",
 };
@@ -68,6 +71,9 @@ const RARITY_PREFIX: Record<Rarity, string[]> = {
   epic: ["Apocalyptic", "Sovereign", "Cataclysmic"],
 };
 
+// COMMODITY-ONLY path (ITEMIZATION-V2 §2.1): RARITIES.mult never touches a
+// catalog item — no `catalogId` flows through rarityMult/generateItem. The
+// catalog path multiplies CONFIG.catalogQualityMult over gearAffixes instead.
 function rarityMult(rarity: Rarity): number {
   return RARITIES.find((r) => r.name === rarity)!.mult;
 }
@@ -77,6 +83,12 @@ export function rollRarity(rng: Rng): Rarity {
   let r = nextFloat(rng) * total;
   for (const tier of RARITIES) if ((r -= tier.weight) < 0) return tier.name;
   return "common";
+}
+
+/** QUALITY roll for catalog drops (§2.1): same seeded 64/26/8/2 weights, but
+ * the multiplier applied later is catalogQualityMult, never RARITIES.mult. */
+export function rollCatalogQuality(rng: Rng): Rarity {
+  return rollRarity(rng);
 }
 
 function rollSlot(rng: Rng): ItemSlot {
@@ -126,13 +138,17 @@ const EXTRA_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
 
 export function generateItem(rng: Rng, floor: number, nextId: () => number): Item {
   const slot = rollSlot(rng);
-  const rarity = rollRarity(rng);
+  // V2 (§2.2): commodity gear is DEMOTED to commons/magics — no epic affix
+  // soup. Rarity thrill lives on catalog identities now (quality rolls); a
+  // commodity piece exists to be worn for two floors, then dismantled.
+  const rolled = rollRarity(rng);
+  const rarity: Rarity = rolled === "rare" || rolled === "epic" ? "magic" : rolled;
   const mult = rarityMult(rarity) * SLOT_BUDGET[slot];
 
   // Noun first: the weapon's CLASS decides which school its stats feed.
-  // The System's favorite joke: a sliver of epic weapons are just... a Mug.
+  // The System's favorite joke: a sliver of magic weapons are just... a Mug.
   const noun =
-    slot === "weapon" && rarity === "epic" && nextFloat(rng) < 0.07
+    slot === "weapon" && rarity === "magic" && nextFloat(rng) < 0.05
       ? "Mug"
       : pick(rng, SLOT_NOUNS[slot]);
   const wclass = slot === "weapon" ? WEAPON_CLASS_BY_NOUN[noun] : undefined;
@@ -172,25 +188,121 @@ export function weaponSchoolOf(item: Item): "physical" | "magic" | null {
  * still stash; SWITCHING schools is a decision the player makes by hand
  * (gear coherence: off-class melee swings at offclassMeleeDmgMult, so the
  * game must not walk anyone into the penalty). The Mug matches either side.
+ * `school` (the crawler's dominant school) biases the compare so a caster's
+ * auto-equip stops valuing dead attack power at full price — V2 §1.2.
  */
-export function wantsAutoEquip(item: Item, worn: Item | null | undefined): boolean {
+export function wantsAutoEquip(item: Item, worn: Item | null | undefined, school?: School | null): boolean {
   if (!worn) return true;
   if (item.slot === "weapon" && worn.slot === "weapon") {
     const a = weaponSchoolOf(item);
     const b = weaponSchoolOf(worn);
     if (a !== null && b !== null && a !== b) return false;
   }
-  return itemScore(item) > itemScore(worn);
+  return itemScore(item, school) > itemScore(worn, school);
+}
+
+/**
+ * itemScore bonus per passive, BY TIER (V2 §5 Phase A). A flat +30 made a T2
+ * Grounded Suit and a drop-only boss unique worth exactly the same, so
+ * auto-equip would happily bench a chase item for an advanced piece with a
+ * marginally fatter stat line — the precise failure §1.2 named as the reason
+ * to touch itemScore at all. Chase uniques are the run's want-list; the score
+ * has to know that.
+ */
+const PASSIVE_SCORE_BY_TIER: Record<CatalogEntry["tier"], number> = {
+  consumable: 15, starter: 15, basic: 15, advanced: 25, legendary: 60,
+};
+const PASSIVE_SCORE_DROP_ONLY = 80; // boss uniques: the chase outranks the shelf
+const PASSIVE_SCORE_UNTIERED = 25; // a passive with no catalog identity behind it
+
+function passiveScore(item: Item): number {
+  if (!item.passive) return 0;
+  const entry = item.catalogId ? CATALOG_BY_ID[item.catalogId] : undefined;
+  if (!entry) return PASSIVE_SCORE_UNTIERED;
+  return entry.dropOnly ? PASSIVE_SCORE_DROP_ONLY : PASSIVE_SCORE_BY_TIER[entry.tier];
 }
 
 /** A single scalar used to auto-equip "the better item" and to sort the bag.
- * School-agnostic: both powers count the same (the player curates the build). */
-export function itemScore(item: Item): number {
+ * With no `school` both powers count the same; given the crawler's dominant
+ * school, off-school power counts half. Passives add a tier-scaled bonus. */
+export function itemScore(item: Item, school?: School | null): number {
   const a = item.affixes;
+  const dmgW = school === "magic" ? 1 : 2;
+  const spellW = school === "physical" ? 1 : 2;
   return (
-    (a.damage ?? 0) * 2 + (a.spell ?? 0) * 2 + (a.maxHp ?? 0) * 0.5 +
-    (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300 + (a.armor ?? 0) * 1.5
+    (a.damage ?? 0) * dmgW + (a.spell ?? 0) * spellW + (a.maxHp ?? 0) * 0.5 +
+    (a.speed ?? 0) * 25 + (a.crit ?? 0) * 300 + (a.armor ?? 0) * 1.5 +
+    passiveScore(item)
   );
+}
+
+// ---- ITEMIZATION V2 (§2.1/§2.2): catalog drops with quality on top ----
+
+/** Fallback bonus-affix pools per slot for catalog entries without a curated
+ * `bonusPool` — 3 keys each, readable on a card. */
+const DEFAULT_BONUS_POOL: Record<ItemSlot, (keyof Affixes)[]> = {
+  weapon: ["crit", "speed", "maxHp"],
+  armor: ["maxHp", "speed", "crit"],
+  helm: ["armor", "crit", "maxHp"],
+  boots: ["maxHp", "armor", "crit"],
+  trinket: ["speed", "maxHp", "armor"],
+  charm: ["maxHp", "speed", "crit"],
+};
+
+/**
+ * Materialize a catalog entry's affixes at a given QUALITY (§2.1): the printed
+ * line (gearAffixes: floor-scaled) x catalogQualityMult, plus quality-count
+ * bonus affixes rolled from the item's curated pool at commodity-common
+ * magnitude — a hot roll of the item you already wanted, never affix soup.
+ * NEVER applies RARITIES.mult (that's the commodity path's whole story).
+ */
+export function catalogQualityAffixes(rng: Rng, entry: CatalogEntry, floor: number, quality: Rarity): Affixes {
+  const mult = CONFIG.catalogQualityMult[quality];
+  const base = gearAffixes(entry, floor);
+  const out: Affixes = {};
+  if (base.damage) out.damage = Math.round(base.damage * mult);
+  if (base.spell) out.spell = Math.round(base.spell * mult);
+  if (base.maxHp) out.maxHp = Math.round(base.maxHp * mult);
+  if (base.armor) out.armor = Math.round(base.armor * mult);
+  if (base.speed) out.speed = +(base.speed * Math.min(mult, 1.3)).toFixed(2);
+  if (base.crit) out.crit = +(base.crit * Math.min(mult, 1.3)).toFixed(3);
+  const bonuses = CONFIG.catalogQualityBonusAffixes[quality];
+  const pool = [...(entry.bonusPool ?? DEFAULT_BONUS_POOL[entry.slot ?? "trinket"])];
+  for (let i = 0; i < bonuses && pool.length > 0; i++) {
+    const key = pool.splice(nextInt(rng, 0, pool.length - 1), 1)[0];
+    const roll = rollAffix(rng, key, floor, 1);
+    out[key] = +(((out[key] ?? 0) + roll)).toFixed(key === "speed" ? 2 : key === "crit" ? 3 : 0);
+  }
+  return out;
+}
+
+/** Materialize one catalog entry as a dropped Item at rolled/given quality. */
+export function makeQualityCatalogItem(
+  rng: Rng, entry: CatalogEntry, floor: number, nextId: () => number, quality?: Rarity,
+): Item {
+  const q = quality ?? rollCatalogQuality(rng);
+  return {
+    id: nextId(),
+    slot: entry.slot!,
+    rarity: q, // quality REUSES the rarity field (§2.1 data shape)
+    name: entry.name,
+    affixes: catalogQualityAffixes(rng, entry, floor, q),
+    passive: entry.passive,
+    catalogId: entry.id,
+  };
+}
+
+/**
+ * Roll a catalog drop (§2.2): a seeded entry of the given tier at rolled
+ * quality. Drop-only boss uniques never roll here — the chase is earned in the
+ * arena, not on the loot table.
+ */
+export function rollCatalogDrop(
+  rng: Rng, floor: number, tier: "basic" | "advanced", nextId: () => number,
+): Item {
+  const pool = CATALOG.filter((e) => e.tier === tier && !e.dropOnly && e.slot);
+  const entry = pool[nextInt(rng, 0, pool.length - 1)];
+  return makeQualityCatalogItem(rng, entry, floor, nextId);
 }
 
 /** Human-readable affix lines for the inventory UI, e.g. ["+7 ATK", "+4% crit"]. */

@@ -257,6 +257,18 @@ export class NetClient {
   sellAll(): void {
     this.send({ t: "sellAll" });
   }
+  /** Safe-room bench (ITEMIZATION-V2 §2.4): break a bag item into refit shards. */
+  dismantle(idx: number): void {
+    this.send({ t: "dismantle", idx });
+  }
+  /** Safe-room bench: upgrade an owned item's quality. `ref` = bag index or slot name. */
+  refit(ref: string): void {
+    this.send({ t: "refit", ref });
+  }
+  /** Glyph sockets (V2 §3): slot 0-3 actives, 4 = ultimate. `glyph` null = unsocket. */
+  socket(slotIdx: number, socketIdx: number, glyph: string | null): void {
+    this.send({ t: "socket", slotIdx, socketIdx, glyph });
+  }
   ready(): void {
     this.send({ t: "ready" });
   }

@@ -517,7 +517,96 @@ export const CONFIG = {
   // 0.36 when 40% of drops were health potions; potions are gone (health
   // should be scary — see dropLoot), so this holds gear rates steady.
   lootDropChance: 0.22,
-  componentDropChance: 0.35, // share of equipment drops that are catalog basics
+  componentDropChance: 0.35, // legacy knob (pre-V2 drop table); kept for reference
+
+  // ---- ITEMIZATION V2 (§2): one catalog, rarities on top ----
+  // Quality multipliers for CATALOG items only (§2.1) — a roll ON TOP of the
+  // identity's printed line (gearAffixes). The shipped RARITIES.mult table
+  // below never touches a catalog item: quality compares within a path, never
+  // across (the §2.1 guard test pins catalog-identity-first in CI).
+  catalogQualityMult: { common: 1.0, magic: 1.15, rare: 1.3, epic: 1.5 } as Record<
+    "common" | "magic" | "rare" | "epic", number
+  >,
+  // Bonus affixes materialized at roll time per quality tier (readable, no soup).
+  catalogQualityBonusAffixes: { common: 0, magic: 1, rare: 1, epic: 2 } as Record<
+    "common" | "magic" | "rare" | "epic", number
+  >,
+  // The V2 drop table (§2.2), as cumulative shares of one equipment drop:
+  // 55% catalog COMPONENT at rolled quality, 15% catalog COMPLETED
+  // (floor-gated), 25% commodity gear (commons/magics only), 5% GLYPH (fl 2+).
+  dropComponentShare: 0.55,
+  dropCompletedShare: 0.15,
+  // GLYPH SUPPLY (§3.5): sockets open faster than 5% of 22% of kills can fill
+  // them — nine pips against ~1 glyph per 90 kills left the act-2 rebuild beat
+  // staring at empty wells, which is the direct negation of fast-round
+  // building. The share now roughly doubles the drip and a per-floor cap keeps
+  // a lucky floor from dumping the whole pool at once (supply is steady, not
+  // spiky). Paired with the STAGGERED second sockets below.
+  dropGlyphShare: 0.11,
+  glyphDropsPerFloorCap: 3, // at most this many field glyphs per floor
+  dropCompletedFromFloor: 3, // completed works drop once the shop shelf has them
+  dropGlyphFromFloor: 2,
+  // DISMANTLE / REFIT (§2.4): the refit_shard economy.
+  dismantleShards: { common: 1, magic: 2, rare: 4, epic: 8 } as Record<
+    "common" | "magic" | "rare" | "epic", number
+  >,
+  refitShardCost: { magic: 3, rare: 6, epic: 12 } as Record<"magic" | "rare" | "epic", number>,
+  refitGoldFraction: 0.4, // gold cost = this x the item's totalCost
+  // Boss uniques (§2.5): drop-only chase items, one per band boss.
+  bossUniqueChance: 0.35,
+  // Elite bonus roll (§2.2): the extra drop is a component most of the time.
+  eliteBonusGlyphShare: 0.25,
+
+  // ---- GLYPHS (§3): the ability-modifier layer ----
+  glyphSocket1Level: 4, // socket 1 of every active slot (~floor 2)
+  // SECOND SOCKETS ARE STAGGERED (§3.5), one per slot index: opening all four
+  // at once outran the glyph supply and turned the act-2 beat into four empty
+  // wells. Now the kit grows a socket every couple of levels, so every one of
+  // them has a stone waiting for it.
+  glyphSocket2Levels: [11, 13, 15, 17] as number[],
+  cdrCap: 0.4, // RULE 7: total % cooldown reduction clamps here (LoL-style)
+  refundCapFraction: 0.5, // RULE 8: per-cast refunds total at most this x cooldown
+  glyphArcSpliceFrac: 0.4,
+  glyphSplitfangFrac: 0.45,
+  glyphSplitfangCount: 2,
+  glyphRepriseFrac: 0.4,
+  glyphRepriseDelay: 0.8,
+  glyphBrandDuration: 4,
+  glyphBrandBonus: 0.12,
+  glyphAccelerantFrac: 0.25, // burn total = this x the hit, over burnDuration
+  glyphRebateFrac: 0.3, // refund per qualifying kill, of the set cooldown
+  glyphRebateWindow: 1, // seconds after the cast a kill still counts
+  // THE TEMPO PAIR (§3.3): both are DPS-NEUTRAL by construction — 1.30/1.30
+  // and 0.80/0.80 — so neither is a free stat stick and neither is a trap.
+  // You buy Heavyweight for burst-per-hit and poise breakpoints, Hair Trigger
+  // for uptime and mobility; the `tempo` family stops them sharing a slot to
+  // launder each other's downside into a flat +19% damage (the old 1.35/1.20
+  // vs 0.88/0.80 pair was strictly dominant on all nine sockets).
+  glyphHeavyweightDmgMult: 1.3,
+  glyphHeavyweightCd: 0.3, // joins the rule-7 sum as a cooldown INCREASE
+  glyphHairTriggerCd: 0.2,
+  glyphHairTriggerDmgMult: 0.8,
+  glyphSlipstreamSpeedMult: 1.15,
+  glyphSlipstreamDmgMult: 1.1,
+  glyphSlipstreamDur: 2,
+  glyphCacheFromShop: 2, // the shelf row appears from shop #2 (§4 cadence)
+
+  // ---- New COMPLETED-work passives (§2.3) + boss-unique passives (§2.5) ----
+  longarmMinDist: 1.5, // Pikeman's Rebuttal: melee hits from this far knock back...
+  longarmKnockback: 0.5, // ...this many tiles
+  wreckerBonus: 1.4, // Demolition Permit: stagger-breaking hits deal this mult
+  rentGoldMult: 1.2, // Slumlord's Deposit: monsters drop this much more gold
+  chaserFraction: 0.03, // Ambulance Chaser: heal this slice of damage dealt (leech cap applies)
+  groundedHpFraction: 0.7, // Grounded Suit: above this HP...
+  groundedSpellMult: 1.15, // ...spell power runs this much hotter
+  bellCorpseGold: 4, // Front Desk Bell: gold per denied corpse...
+  bellCorpseHealFraction: 0.01, // ...and this slice of max HP back
+  sumpHazardTakenMult: 0.5, // Sump Crown: ground hazards deal half to the wearer...
+  sumpStatusDurMult: 1.5, // ...and the wearer's chill/poison last this much longer
+  shearsEveryHits: 3, // Rootcutter Shears: every Nth melee hit...
+  shearsSnareSeconds: 0.6, // ...SNARES (heavy chill) the target this long
+  girderReflectFraction: 0.3, // Loadbearing Girder: mitigated damage shards back at this rate
+  spreadburnRadius: 4, // Furnace Draft: a burning death spreads within this many tiles
   // Build-matters pass: gear's share of the power stat. Applied to damage/spell
   // rolls on BOTH drop generation (items.ts rollAffix) and catalog
   // materialization (catalog.ts gearAffixes) so shop/drop tier parity holds.
