@@ -180,6 +180,30 @@ export class Leaderboard {
     return headlines;
   }
 
+  /**
+   * FORGET ME, into the retired JSON boards (COMPETITIVE.md 1.2). These rows
+   * predate accounts and key on the NAME they were submitted under, which is
+   * exactly why deleteAccount could never reach them and a deleted crawler
+   * stayed on a public board forever. The caller hands us every name the
+   * account ever published under; matching is case-insensitive and
+   * whitespace-trimmed, because a board row and an account name were never
+   * normalized against each other.
+   */
+  forgetNames(names: readonly string[]): number {
+    const wanted = new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+    if (wanted.size === 0) return 0;
+    let removed = 0;
+    const strip = (entries: LbEntry[]): LbEntry[] => {
+      const kept = entries.filter((e) => !wanted.has(String(e.name ?? "").trim().toLowerCase()));
+      removed += entries.length - kept.length;
+      return kept;
+    };
+    for (const [day, entries] of this.days) this.days.set(day, strip(entries));
+    for (const [cat, entries] of this.alltime) this.alltime.set(cat, strip(entries));
+    if (removed > 0) this.scheduleSave();
+    return removed;
+  }
+
   private prune(): void {
     if (this.days.size <= MAX_DAYS_KEPT) return;
     const days = [...this.days.keys()].sort(); // ISO dates sort chronologically

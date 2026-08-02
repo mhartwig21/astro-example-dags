@@ -6,14 +6,17 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
-import { Tile, type GameState, type HitEvent, type Player, type Vec2 } from "../sim/types";
+import { Tile, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { roomTemplateById } from "../content/rooms";
 import { mobDefById } from "../content/mobs";
 import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { cataclysmParams, novaParams, orbitBladePos, orbitParams, rank, slotted } from "../sim/abilities";
+import {
+
+  bulwarkParams, cataclysmParams, novaParams, orbitBladePos, orbitHurlPoint, orbitParams, rank, slotted,
+} from "../sim/abilities";
 import { weaponClassOf } from "../sim/items";
 import { heroSkin, type CrawlerSkin } from "../sim/game";
 import { CharSelectScene } from "./charSelect";
@@ -1143,6 +1146,24 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
+  /**
+   * THE RIVAL GHOST (COMPETITIVE.md 4.1). A rival's proof replayed beside you
+   * is the cheapest multiplayer this game will ever ship, and it is only
+   * multiplayer if you can SEE it. A split delta in the corner is a number; a
+   * translucent crawler rounding the corner ahead of you is a race.
+   *
+   * It is a TRAJECTORY, never a shared world: no collision, no loot, no
+   * damage, no lighting contribution. The pose is pushed in from the host each
+   * frame (it comes off a precomputed keyframe track, not a second sim).
+   */
+  private ghostMesh: THREE.Group | null = null;
+  private ghostPose: { x: number; y: number; onFloor: boolean } | null = null;
+  private ghostSkin = "";
+
+  /** Host hook: where the rival is this frame, or null for no ghost. */
+  setGhost(pose: { x: number; y: number; onFloor: boolean } | null): void {
+    this.ghostPose = pose;
+  }
   // Containers that may spawn knocked on their side (place() tipped variants).
   private static TIPPABLE = new Set([
     "barrel_small", "barrel_large", "keg", "keg_decorated", "pot_large", "box_small", "trunk_small_A",
@@ -1156,7 +1177,15 @@ export class Renderer3D {
   private keyMarkers = new Map<number, THREE.Mesh>(); // floating marker over key carriers
   private telegraphs = new Map<number, THREE.Group>(); // ground telegraphs (dim fill + bright rim) under winding-up monsters
   private laneStrips = new Map<number, THREE.Mesh>(); // LANE telegraphs: charger rush + lasher hook
+
   private statusRings = new Map<number, THREE.Mesh>(); // faint ring under statused monsters (5.11)
+  // STAGE CABLES' pin (V2 N2): a per-monster SHACKLE. Control you cannot see
+  // is control you cannot plan around, and this pin deliberately still lets
+  // windups resolve -- so the player has to tell "pinned but winding up" from
+  // "free and closing" inside 0.2s. Deliberately a hard, bracketed cage:
+  // stagger is a grey helpless body with no ground decal, and the two must
+  // never read the same ("the pin is control, not a stun").
+  private pinCages = new Map<number, THREE.Group>();
   private hazardRings = new Map<number, THREE.Mesh>(); // volatile-corpse blast telegraphs
   // Beam-line hazards get real ordnance anatomy (r5 major): a shader strip
   // (taper + streaming noise), a muzzle-flare sprite at the source, an impact
@@ -1491,7 +1520,14 @@ export class Renderer3D {
    * Per-damage-type tint rides userData.flashTintHex (set in emitHits),
    * the fade is exponential, and a per-body 1-2 frame stagger keeps a crowd
    * from strobing as one mass. */
-  private applyHitFlash(mesh: THREE.Group, hitFlash: number, dt = 0): void {
+
+  /** Amortizes the lazy material clone: INJUNCTION enrages the WHOLE floor at
+   * once, and cloning eighty rigs' materials in one frame is exactly the kind
+   * of hitch the perf round spent a week killing. A few per frame lights the
+   * room over ~0.3s against a 12s window -- nobody sees the ramp. */
+  private flashCloneBudget = 0;
+
+  private applyHitFlash(mesh: THREE.Group, hitFlash: number, dt = 0, rage = 0): void {
     const ud = mesh.userData;
     // RENDERER-SIDE ENVELOPE (audit r4): the sim's 120ms hitFlash window is
     // narrower than a human glance (and narrower than a SwiftShader frame) —
@@ -1503,7 +1539,12 @@ export class Renderer3D {
     if (hitFlash > prevHF + 1e-6) env = 1;
     else if (env > 0) { env *= Math.exp(-dt * 8); if (env < 0.02) env = 0; }
     ud.flashEnv = env;
-    if (hitFlash > 0 && !ud.flashMats) {
+
+
+    // Rage alone waits its turn for the clone budget; a real HIT never does.
+    if (rage > 0 && hitFlash <= 0 && !ud.flashMats && this.flashCloneBudget <= 0) return;
+    if ((hitFlash > 0 || rage > 0) && !ud.flashMats) {
+      if (hitFlash <= 0) this.flashCloneBudget--;
       const uFlash = { value: 0 };
       const uTint = { value: new THREE.Color(0xffc9a0) };
       const mats: THREE.MeshStandardMaterial[] = [];
@@ -1564,13 +1605,24 @@ export class Renderer3D {
     if (!uF) return;
     // Per-body stagger (~1-2 frames at 60fps) + exponential fade: hot on the
     // impact frame, easing down the renderer envelope's ~250ms tail.
+
     const stagger = (mesh.id % 3) * 0.009;
     const simF = Math.max(0, Math.min(1, (hitFlash - stagger) / 0.12));
-    const f = Math.max(simF * simF * (0.3 + 0.7 * simF), env * 0.8);
+    const struck = Math.max(simF * simF * (0.3 + 0.7 * simF), env * 0.8);
+    // INJUNCTION's enrage (V2 N3): a SUSTAINED crimson on every enraged body
+    // for the whole window. §3.2 N3 promised "the enrage has its own tint";
+    // what shipped was a reservoir-sampled ember on one monster per ~9 events
+    // across the whole floor, which is a particle, not a tell. The crawler who
+    // bought twelve violent seconds has to be able to see which twelve.
+    const f = Math.max(struck, rage);
     uF.value = f;
     if (ud.flashTintHex !== undefined && f > 0) {
       (ud.flashTintU as { value: THREE.Color }).value.setHex(ud.flashTintHex as number);
       ud.flashTintHex = undefined;
+    } else if (rage > struck) {
+      // Rage owns the tint whenever it is the louder of the two, so a body
+      // that took a hit ten seconds ago does not stay warm-white through it.
+      (ud.flashTintU as { value: THREE.Color }).value.setHex(FX_PAL.stay.mid);
     }
   }
 
@@ -1917,6 +1969,7 @@ export class Renderer3D {
     this.playerMeshes.clear();
     for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
     this.decoyMeshes.clear();
+    if (this.ghostMesh) { this.scene.remove(this.ghostMesh); this.ghostMesh = null; }
     for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
     this.breakableMeshes.clear();
     for (const mesh of this.monsters.values()) this.scene.remove(mesh);
@@ -2266,6 +2319,27 @@ export class Renderer3D {
       makeDissolving(d, 0xffb457);
       addWarm(d, WX + 4, WZ + 2);
     }
+    // The V2 ability rigs. These are built lazily on first cast, so without
+    // a warm entry here the FIRST Brace / Injunction / pin / cable in a run
+    // pays a synchronous program build - exactly the mid-fight hitch this
+    // routine exists to prevent, and the shader-guard caught it doing so on
+    // floor 6. Two of them fork genuinely new programs rather than reusing a
+    // warmed one:
+    //   buildBraceShell's `seams` is the ONLY LineSegments in the renderer,
+    //     so nothing else can build the LINE variant of the basic program.
+    //   buildCableRig's `steel` is a lit MeshStandardMaterial WITHOUT
+    //     flatShading (and with emissive), unlike flat() at the top of this
+    //     file which sets flatShading: true - FLAT_SHADED is in the program
+    //     cache key, so neither the zoo nor the world props cover it. Its
+    //     stakes also castShadow, but that depth permutation is
+    //     plain/opaque/front-sided and the zoo already builds it.
+    // The other two are additive double-sided basic meshes the telegraphs
+    // already cover; they are warmed anyway so a later edit to them cannot
+    // silently reintroduce the hitch.
+    addWarm(this.buildBraceShell(), WX + 6, WZ + 2);
+    addWarm(this.buildStayRig(), WX + 8, WZ + 2);
+    addWarm(this.buildPinCage(), WX + 10, WZ + 2);
+    addWarm(this.buildCableRig(), WX + 12, WZ + 2);
     // buildFxRing adds itself to the scene — track both variants for removal.
     const novaWarm = this.buildFxRing("nova");
     novaWarm.position.set(WX + 6, 0.06, WZ);
@@ -5279,6 +5353,350 @@ export class Renderer3D {
     return group;
   }
 
+  // ---- ABILITIES-V2 verbs: every new press gets a read of its own ----
+  // The rule here is the one the FX round set and the design doc restates:
+  // the player names what happened in 0.2s. So no new verb borrows an
+  // existing silhouette. Bulwark is a CLOSED VOLUME (nothing else in the FX
+  // vocabulary is a shell you stand inside). Stage Cables is a pair of TAUT
+  // LINES at knee height between two driven stakes -- the only FX in the game
+  // with visible tension. Injunction stamps a COURT SEAL on the floor and
+  // leaves the room lit red for as long as you owe for it. And Collapse's
+  // gather runs the vortex INWARD a beat before its own blast runs outward,
+  // so the rework (R1: it is a gather now, not an AoE) is legible from the
+  // cockpit instead of only in the patch notes.
+  private braceShells = new Map<number, THREE.Group>();
+  private stayRigs = new Map<number, THREE.Group>();
+  private cableRigs = new Map<number, THREE.Group>();
+  private prevBulwarkT = new Map<number, number>();
+  private prevBulwarkAbs = new Map<number, number>();
+  private prevInjT = new Map<number, number>();
+  private prevNovaCd = new Map<number, number>();
+  private prevHurlT = new Map<number, number>();
+
+  /** BULWARK's brace: a faceted plate shell + a bright ground seam. Built
+   * from EDGES rather than a wireframe on purpose -- seams read as armor, a
+   * wireframe reads as the debug gizmo the r6 zone pass was called out for. */
+  private buildBraceShell(): THREE.Group {
+    const g = new THREE.Group();
+    const pal = FX_PAL.brace;
+    // Detail 0, not 1: twenty big faces read as PLATES, eighty small ones read
+    // as a wireframe sphere, and a wireframe sphere is a debug gizmo.
+    const geo = new THREE.IcosahedronGeometry(1, 0);
+    const dome = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: pal.rim, transparent: true, opacity: 0.3, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    const seams = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo, 12),
+      new THREE.LineBasicMaterial({
+        color: pal.mid, transparent: true, opacity: 0.75, depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const foot = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.0, 44).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        color: pal.core, transparent: true, opacity: 0.8, depthWrite: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      }),
+    );
+    foot.position.y = -0.52;
+    g.add(dome, seams, foot);
+    g.userData = { dome, seams, foot };
+    g.renderOrder = 6;
+    g.traverse((o) => { o.userData.noAO = true; });
+    return g;
+  }
+
+  /** INJUNCTION's stay: the seal the System stamps on the floor, and the
+   * writ ring counter-rotating over it. Both live only while the clock is
+   * held, because the whole ultimate is "you are paying for this right now". */
+  private buildStayRig(): THREE.Group {
+    const g = new THREE.Group();
+    const pal = FX_PAL.stay;
+    const mat = (hex: number, op: number) => new THREE.MeshBasicMaterial({
+      color: hex, transparent: true, opacity: op, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const seal = new THREE.Mesh(new THREE.RingGeometry(2.1, 2.55, 56).rotateX(-Math.PI / 2), mat(pal.mid, 0.7));
+    seal.position.y = 0.05;
+    const inner = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.4, 40).rotateX(-Math.PI / 2), mat(pal.core, 0.55));
+    inner.position.y = 0.05;
+    // Eight ticks, not twenty-four: a dense ring reads as texture, a sparse
+    // one reads as a MECHANISM -- and this ultimate is a mechanism with a
+    // bill attached.
+    const ticks = new THREE.Group();
+    for (let i = 0; i < 8; i++) {
+      const t = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.16).rotateX(-Math.PI / 2), mat(pal.core, 0.8));
+      const a = (i / 8) * Math.PI * 2;
+      t.position.set(Math.cos(a) * 1.85, 0.06, Math.sin(a) * 1.85);
+      t.rotation.y = -a;
+      ticks.add(t);
+    }
+    g.add(seal, inner, ticks);
+    g.userData = { seal, inner, ticks };
+    g.traverse((o) => { o.userData.noAO = true; o.renderOrder = 6; });
+    return g;
+  }
+
+
+  /**
+   * The per-monster PIN tell (V2 N2). Every comparable game gives a root a
+   * per-unit mark -- LoL's shackles, PoE2's immobilise ring -- because a body
+   * standing still is not a read: half the room is standing still anyway.
+   *
+   * Deliberately a HARD SHACKLE and not a soft halo: a taut ground ring with
+   * four bracket posts standing on it, in rigging teal. Stagger is a grey,
+   * squashed, animating body with nothing on the floor; a chilled body wears
+   * statusRings' soft pulse. This is neither, because "the pin is control, not
+   * a stun" is only a design statement if the two read differently.
+   */
+  private buildPinCage(): THREE.Group {
+    const g = new THREE.Group();
+    const pal = FX_PAL.pin;
+    const mat = (hex: number, op: number): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({
+      color: hex, transparent: true, opacity: op, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    // The taut line on the floor: thin and hard-edged, not a bloom.
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.95, 32).rotateX(-Math.PI / 2), mat(pal.mid, 0.8));
+    ring.position.y = 0.03;
+    g.add(ring);
+    // Four posts: the shackle itself, standing up out of the ring so the mark
+    // survives a crowded floor from the game's camera angle.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const post = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.5), mat(pal.core, 0.85));
+      post.position.set(Math.cos(a) * 0.88, 0.25, Math.sin(a) * 0.88);
+      post.rotation.y = -a + Math.PI / 2;
+      g.add(post);
+    }
+    g.traverse((o) => { o.userData.noAO = true; o.renderOrder = 7; });
+    return g;
+  }
+
+  /** STAGE CABLES: two driven stakes and the lines between them. The cables
+   * are real geometry at knee height (not a ground decal) because the whole
+   * ability is "nothing crosses this" -- a floor tint cannot say that. */
+  private buildCableRig(): THREE.Group {
+    const g = new THREE.Group();
+    const pal = FX_PAL.pin;
+    const steel = new THREE.MeshStandardMaterial({
+      color: 0x39424a, emissive: new THREE.Color(pal.mid), emissiveIntensity: 1.1,
+      roughness: 0.5, metalness: 0.7,
+    });
+    const stakeGeo = new THREE.CylinderGeometry(0.11, 0.14, 1.1, 6);
+    const a = new THREE.Mesh(stakeGeo, steel);
+    const b = new THREE.Mesh(stakeGeo, steel);
+    a.castShadow = b.castShadow = true;
+    const lineMat = new THREE.MeshBasicMaterial({
+      color: pal.mid, transparent: true, opacity: 0.9, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    // Unit-length boxes along +X, scaled to the span each frame.
+    const hi = new THREE.Mesh(new THREE.BoxGeometry(1, 0.075, 0.075), lineMat);
+    const lo = new THREE.Mesh(new THREE.BoxGeometry(1, 0.075, 0.075), lineMat);
+    const field = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), makeLaneMat());
+    (field.material as THREE.ShaderMaterial).uniforms.uColor.value = new THREE.Color(pal.rim);
+    field.position.y = 0.05;
+    field.userData.noAO = true;
+    field.renderOrder = 4;
+    g.add(a, b, hi, lo, field);
+    g.userData = { a, b, hi, lo, field, mat: lineMat };
+    return g;
+  }
+
+  /**
+   * Everything ABILITIES-V2 added that the world has to show: the brace, the
+   * stay, the gather, and the hurled ring leaving home. Reconciled by player
+   * id, torn down the frame the state field goes quiet.
+   */
+  private updateV2Fx(state: GameState, dt: number, time: number): void {
+    const alive = this.scratchSet();
+    for (const p of state.players) {
+      alive.add(p.id);
+      // ---- BULWARK: the brace ----
+      const bt = p.bulwarkT ?? 0;
+      const prevBt = this.prevBulwarkT.get(p.id) ?? 0;
+      const bpal = FX_PAL.brace;
+      if (bt > 0) {
+        let shell = this.braceShells.get(p.id);
+        if (!shell) {
+          shell = this.buildBraceShell();
+          this.scene.add(shell);
+          this.braceShells.set(p.id, shell);
+        }
+        // Dig In widens the cover to the whole party; the shell has to BE the
+        // covered area or the node is a lie the tooltip tells.
+        const cover = Math.max(1.15, bulwarkParams(p).allyRadius || 1.15);
+        const pulse = 0.9 + 0.1 * Math.sin(time * 9);
+        shell.position.set(p.pos.x, 1.0, p.pos.y);
+        shell.scale.set(cover * pulse, cover * 0.72 * pulse, cover * pulse);
+        shell.rotation.y = time * 0.35;
+        const ud = shell.userData as { dome: THREE.Mesh; seams: THREE.LineSegments; foot: THREE.Mesh };
+        // The shell BRIGHTENS as the brace runs out: the last half-second is
+        // the counterplay window, and the AI is not the only one reading it.
+        const spent = 1 - Math.min(1, bt / Math.max(CONFIG.bulwarkSeconds, 1e-3));
+        (ud.dome.material as THREE.MeshBasicMaterial).opacity = 0.26 + 0.18 * spent;
+        (ud.seams.material as THREE.LineBasicMaterial).opacity = 0.6 + 0.35 * spent;
+        (ud.foot.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.4 * Math.abs(Math.sin(time * 6));
+        shell.visible = true;
+        if (prevBt <= 0) {
+          this.fxp.impactFlash(p.pos.x, 1.0, p.pos.y, bpal.core, 1.2);
+          this.fxp.gatherBurst(p.pos.x, 1.0, p.pos.y, bpal.mid);
+          this.fxp.dust(p.pos.x, 0.1, p.pos.y, 8, 0x4a4438);
+          this.spawnFxLight(p.pos.x, p.pos.y, bpal.mid, 3.2, 0.3, 1.0);
+          this.addTrauma(0.1);
+        }
+        const abs = p.bulwarkAbsorbed ?? 0;
+        if (abs > (this.prevBulwarkAbs.get(p.id) ?? 0) + 0.5) {
+          this.fxp.sparks(p.pos.x, 1.1, p.pos.y, bpal.core, 7);
+          (ud.seams.material as THREE.LineBasicMaterial).opacity = 1;
+        }
+        this.prevBulwarkAbs.set(p.id, abs);
+      } else {
+        const shell = this.braceShells.get(p.id);
+        if (shell) { this.scene.remove(shell); this.braceShells.delete(p.id); }
+        if (prevBt > 0) {
+          // Expiry pays out three different ways, so it reads three different
+          // ways: SPITE banks a red-hot charge, Shove throws the room off you,
+          // the plain brace heals.
+          const params = bulwarkParams(p);
+          if (params.shove) {
+            this.shocks.spawn(p.pos.x, p.pos.y, bpal.core, CONFIG.bulwarkShoveRadius * 1.15, 0.4);
+            this.fxp.radialStreaks(p.pos.x, 0.7, p.pos.y, bpal.mid, 18, CONFIG.bulwarkShoveRadius);
+            this.fxp.dust(p.pos.x, 0.15, p.pos.y, 14, 0x4a4438);
+            this.addTrauma(0.3);
+          }
+          if (params.spite && (p.spiteBank ?? 0) > 0) {
+            this.fxp.flash3(p.pos.x, 1.0, p.pos.y, FX_PAL.strike, 1.0);
+            this.fxp.embers(p.pos.x, p.pos.y, FX_PAL.strike.mid, 9, 0.7);
+          } else {
+            this.fxp.column(p.pos.x, p.pos.y, FX_PAL.heal.mid, 7, 1.8);
+          }
+          this.spawnFxLight(p.pos.x, p.pos.y,
+            params.spite ? FX_PAL.strike.mid : FX_PAL.heal.mid, 3.5, 0.35, 1.0);
+        }
+        this.prevBulwarkAbs.delete(p.id);
+      }
+      this.prevBulwarkT.set(p.id, bt);
+
+      // ---- INJUNCTION: the stay ----
+      const it = p.injunctionT ?? 0;
+      const prevIt = this.prevInjT.get(p.id) ?? 0;
+      const spal = FX_PAL.stay;
+      if (it > 0) {
+        let rig = this.stayRigs.get(p.id);
+        if (!rig) { rig = this.buildStayRig(); this.scene.add(rig); this.stayRigs.set(p.id, rig); }
+        rig.position.set(p.pos.x, 0, p.pos.y);
+        const rud = rig.userData as { seal: THREE.Mesh; inner: THREE.Mesh; ticks: THREE.Group };
+        rud.seal.rotation.y = time * 0.5;
+        rud.ticks.rotation.y = -time * 0.8;
+        const beat = 0.55 + 0.45 * Math.abs(Math.sin(time * 2.2));
+        (rud.seal.material as THREE.MeshBasicMaterial).opacity = 0.4 + 0.35 * beat;
+        (rud.inner.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.3 * beat;
+        rig.visible = true;
+        if (prevIt <= 0) {
+          // The loudest cast in the game, on purpose: the design asks the
+          // biggest ultimate to carry the biggest counterplay window, and the
+          // whole floor was just told it has one.
+          this.fxp.flash3(p.pos.x, 0.8, p.pos.y, spal, 2.0);
+          this.fxp.column(p.pos.x, p.pos.y, spal.mid, 14, 3.2);
+          this.shocks.spawn(p.pos.x, p.pos.y, spal.mid, 7, 0.6);
+          this.fxp.radialStreaks(p.pos.x, 0.6, p.pos.y, spal.core, 22, 5.5);
+          this.spawnFxLight(p.pos.x, p.pos.y, spal.mid, 7, 0.7, 1.2);
+          this.addTrauma(0.55);
+        }
+        // The bodies that were told smoulder for the duration, so the price of
+        // the ultimate is visible on the things that will be collecting it.
+        if (Math.random() < dt * 9) {
+          let lit: Monster | null = null;
+          let n = 0;
+          for (const m of state.monsters) {
+            if (m.hp <= 0 || (m.injRageT ?? 0) <= 0) continue;
+            n++;
+            if (Math.random() < 1 / n) lit = m; // reservoir pick: no array churn
+          }
+          if (lit) this.fxp.embers(lit.pos.x, lit.pos.y, spal.mid, 2, 0.35);
+        }
+      } else {
+        const rig = this.stayRigs.get(p.id);
+        if (rig) { this.scene.remove(rig); this.stayRigs.delete(p.id); }
+        if (prevIt > 0) {
+          // Release: the debt comes due, and it comes due INWARD -- the seal
+          // collapses onto the crawler rather than blooming off them.
+          this.fxp.vortex(p.pos.x, p.pos.y, spal.mid, 4.5);
+          this.fxp.impactFlash(p.pos.x, 0.7, p.pos.y, spal.rim, 1.6);
+          this.spawnFxLight(p.pos.x, p.pos.y, spal.rim, 4, 0.4, 1.0);
+          this.addTrauma(0.3);
+        }
+      }
+      this.prevInjT.set(p.id, it);
+
+      // ---- COLLAPSE: the GATHER, a beat before its own blast ----
+      // R1 moved this ability's whole case from "it multiplies by N" to "it
+      // MAKES N". An invisible pull means the rework never reaches the player,
+      // so it takes its own hue and its own direction of travel.
+      const ncd = p.cd.nova ?? 0;
+      if (ncd > (this.prevNovaCd.get(p.id) ?? 0) + 1e-6) {
+        const np = novaParams(p);
+        const pull = FX_PAL.pull;
+        this.fxp.vortex(p.pos.x, p.pos.y, pull.mid, np.gatherRadius);
+        this.fxp.vortex(p.pos.x, p.pos.y, pull.core, np.gatherRadius * 0.75);
+        this.fxp.vortex(p.pos.x, p.pos.y, pull.mid, np.gatherRadius * 0.5);
+        this.fxp.gather(p.pos.x, 0.8, p.pos.y, pull.mid, 1);
+        // The LANDING RING: bodies that get dragged end up on novaGatherRing,
+        // and marking exactly that circle is what turns "some particles moved"
+        // into "the room is now standing here". Small and tight on purpose --
+        // an inward cast must not out-bloom its own detonation.
+        this.fxp.impactFlash(p.pos.x, 0.6, p.pos.y, pull.core, 1.1);
+        this.shocks.spawn(p.pos.x, p.pos.y, pull.mid, CONFIG.novaGatherRing, 0.22);
+        this.spawnFxLight(p.pos.x, p.pos.y, pull.mid, 3.5, 0.3, 0.9);
+        // Kick dust off the bodies the drag actually moved. The sim counted
+        // them, so the FX can never claim a gather that did not happen.
+        if ((state.gatheredLast ?? 0) > 0) {
+          for (const m of state.monsters) {
+            if (m.hp <= 0) continue;
+            const dx = m.pos.x - p.pos.x, dy = m.pos.y - p.pos.y;
+            if (dx * dx + dy * dy > np.gatherRadius * np.gatherRadius) continue;
+            this.fxp.dust(m.pos.x, 0.12, m.pos.y, 3, 0x4a4438);
+          }
+        }
+      }
+      this.prevNovaCd.set(p.id, ncd);
+
+      // ---- ORBIT: the ring leaves home ----
+      // Four small daggers sliding across a dark floor is not a read. The
+      // travelling SAW is: one ribbon down the flight line, a hot core riding
+      // it, and grinding sparks -- so the thing that just left your body is
+      // the brightest object on screen, which is the point of R3.
+      const ht = p.orbitHurlT ?? 0;
+      const hurl = orbitHurlPoint(p);
+      const RIB = -7000 - p.id;
+      if (ht > 0 && (this.prevHurlT.get(p.id) ?? 0) <= 0) {
+        this.fxp.sparks(p.pos.x, 0.8, p.pos.y, 0x9fe8ff, 9, p.orbitHurlDir);
+        this.fxp.impactFlash(p.pos.x, 0.8, p.pos.y, 0xd8f6ff, 0.8);
+        this.ribbons.claim(RIB, 0x9fe8ff, 0.34);
+      }
+      if (hurl) {
+        this.ribbons.push(RIB, hurl.x, 0.62, hurl.y);
+        this.spawnGlow(hurl.x, 0.62, hurl.y, hurl.back ? 0xd8f6ff : 0x9fe8ff, 1.1, 0.16);
+        if (Math.random() < dt * 34) this.fxp.sparks(hurl.x, 0.6, hurl.y, 0xd8f6ff, 2);
+      } else if (ht <= 0 && (this.prevHurlT.get(p.id) ?? 0) > 0) {
+        this.ribbons.release(RIB);
+        this.fxp.impactFlash(p.pos.x, 0.75, p.pos.y, 0xd8f6ff, 0.7); // it comes home
+      }
+      this.prevHurlT.set(p.id, ht);
+    }
+    for (const [id, shell] of this.braceShells) {
+      if (!alive.has(id)) { this.scene.remove(shell); this.braceShells.delete(id); }
+    }
+    for (const [id, rig] of this.stayRigs) {
+      if (!alive.has(id)) { this.scene.remove(rig); this.stayRigs.delete(id); }
+    }
+  }
+
+
   private updateAbilityFx(state: GameState): void {
     this.updateStrikeFx(state);
     // A loot box GRANTED is a delivery: the System sets the box down at the
@@ -5302,12 +5720,23 @@ export class Renderer3D {
       }
       while (blades.length > want) this.scene.remove(blades.pop()!);
       if (op) {
+        // THE HURL (V2 R3): while the ring is away there is no aura, and the
+        // player has to be able to SEE that they spent their bodyguard. So the
+        // blades physically leave -- tightened into a saw around the travelling
+        // point, spinning hot -- and the space around the crawler reads empty.
+
+        const hurl = orbitHurlPoint(p);
         for (let i = 0; i < blades.length; i++) {
-          // Shared with the sim's hit test (incl. Corkscrew spiral radii).
+          // Shared with the sim's hit test (incl. Corkscrew spiral radii) AND
+          // with the 2D host: orbitBladePos returns the travelling saw while
+          // the ring is away, so no renderer can draw a calm orbit during the
+          // throw again.
           const bp = orbitBladePos(p, i);
-          blades[i].position.set(bp.x, 0.75, bp.y);
-          // Nose along the direction of travel (tangent to the ring).
-          blades[i].rotation.y = -Math.atan2(bp.y - p.pos.y, bp.x - p.pos.x);
+          const cx = hurl ? hurl.x : p.pos.x;
+          const cy = hurl ? hurl.y : p.pos.y;
+          blades[i].position.set(bp.x, hurl ? 0.62 : 0.75, bp.y);
+          // Nose along the direction of travel (tangent to whatever it circles).
+          blades[i].rotation.y = -Math.atan2(bp.y - cy, bp.x - cx);
         }
       }
       // Nova/Cataclysm ring: the two ults SHARE the novaFlash flag; the
@@ -5686,6 +6115,62 @@ export class Renderer3D {
       if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
     }
 
+    // THE GHOST, IN THE ROOM. Same body as the crawler it came from, drained of
+    // colour and half there: it has to read as a rival at a glance and never as
+    // something you can hit. It renders only while it shares your floor - a
+    // rival two floors down is information for the rail chip, not a marker
+    // floating through a wall.
+    {
+      const gp = this.ghostPose;
+      if (gp && gp.onFloor) {
+        const skin = Renderer3D.skinIdFor(p, state.seed);
+        if (this.ghostMesh && this.ghostSkin !== skin) {
+          this.scene.remove(this.ghostMesh);
+          this.ghostMesh = null;
+        }
+        if (!this.ghostMesh) {
+          const mesh = this.buildPlayerMesh(skin);
+          mesh.traverse((o) => {
+            const mm = o as THREE.Mesh;
+            if (!mm.isMesh || !mm.material) return;
+            const mats = (Array.isArray(mm.material) ? mm.material : [mm.material]).map((mat) => {
+              const g = mat.clone() as THREE.MeshStandardMaterial;
+              g.transparent = true;
+              g.opacity = 0.45;
+              g.depthWrite = false; // a see-through body must not punch the depth buffer
+              if (g.color) {
+                // Desaturate to its own luminance, then pull it cold. A grey
+                // crawler in a warm torchlit dungeon reads as "not really here"
+                // without needing an outline shader.
+                const l = g.color.r * 0.299 + g.color.g * 0.587 + g.color.b * 0.114;
+                g.color.setRGB(l * 0.72, l * 0.78, l * 0.92);
+              }
+              if (g.emissive) g.emissive.setRGB(0.05, 0.07, 0.11);
+              if (g.map !== undefined) g.metalness = 0;
+              g.roughness = 1;
+              return g;
+            });
+            mm.material = Array.isArray(mm.material) ? mats : mats[0];
+            mm.castShadow = false;
+            mm.receiveShadow = false;
+          });
+          (mesh.userData.play as ((n: string) => void) | undefined)?.("run");
+          mesh.position.set(gp.x, 0, gp.y);
+          this.scene.add(mesh);
+          this.ghostMesh = mesh;
+          this.ghostSkin = skin;
+        }
+        const gm = this.ghostMesh;
+        const dx = gp.x - gm.position.x, dz = gp.y - gm.position.z;
+        if (dx * dx + dz * dz > 4e-4) this.turnTo(gm, Math.atan2(dx, dz), dt);
+        this.smoothTo(gm, gp.x, 0, gp.y, dt);
+        gm.visible = true;
+        (gm.userData.animTick as ((d: number) => void) | undefined)?.(dt);
+      } else if (this.ghostMesh) {
+        this.ghostMesh.visible = false;
+      }
+    }
+
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
     // Meshes are placed once (they don't move); a smashed one vanishes and
     // the sim's hit event supplies the pop. DAMAGED STATE (furniture-feel):
@@ -5826,7 +6311,9 @@ export class Renderer3D {
         }
       }
     }
+
     const sepEase = 1 - Math.exp(-10 * dt);
+    this.flashCloneBudget = 4; // see applyHitFlash: Injunction enrages a FLOOR
     const seen = this.scratchSet();
     for (const mon of state.monsters) {
       seen.add(mon.id);
@@ -5859,8 +6346,13 @@ export class Renderer3D {
         this.scene.add(mesh);
         this.monsters.set(mon.id, mesh);
       }
+
       mesh.visible = inVision(mon.pos);
-      this.applyHitFlash(mesh, mon.hitFlash, dt);
+      // Enraged bodies burn for the duration (see applyHitFlash). Pulsed and
+      // phase-offset per monster so a full room reads as a crowd catching
+      // fire rather than one strobing mass.
+      const rage = (mon.injRageT ?? 0) > 0 ? 0.3 + 0.1 * Math.sin(time * 5 + mon.id) : 0;
+      this.applyHitFlash(mesh, mon.hitFlash, dt, rage);
       const bs = (mesh.userData.baseScale as number) ?? 1;
       {
         // Separation is a pure display offset layered over the sim position:
@@ -6188,6 +6680,29 @@ export class Renderer3D {
         marker.rotation.y = time * 2.2;
         marker.visible = mesh.visible;
       }
+
+      // PINNED (V2 N2): the shackle. Four bracket posts standing on a taut
+      // ring, snapping tight on contact and easing loose as the pin expires.
+      const pinT = mon.pinnedT ?? 0;
+      let cage = this.pinCages.get(mon.id);
+      if (pinT > 0 && mon.hp > 0) {
+        if (!cage) { cage = this.buildPinCage(); this.scene.add(cage); this.pinCages.set(mon.id, cage); }
+        const s = 0.7 * (mon.elite ? CONFIG.eliteScale : mon.veteran ? CONFIG.veteranScale : 1);
+        cage.position.set(mon.pos.x, 0.02, mon.pos.y);
+        cage.scale.setScalar(s);
+        cage.rotation.y = time * 0.35;
+        // Bright and tight while the pin has time on it, fading over the last
+        // half second so "about to be free" is legible BEFORE it is free.
+        const grip = Math.min(1, pinT / 0.5);
+        for (const o of cage.children) {
+          const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          m.opacity = (0.25 + 0.6 * grip) * (0.85 + 0.15 * Math.sin(time * 9 + mon.id));
+        }
+        cage.visible = mesh.visible;
+      } else if (cage) {
+        this.scene.remove(cage);
+        this.pinCages.delete(mon.id);
+      }
       // Status ring (5.11): a faint pulsing halo colored by the dominant
       // effect (burn > poison > chill) — one cheap mesh, sim decides, we tint.
       const st = mon.statuses;
@@ -6224,8 +6739,11 @@ export class Renderer3D {
         if (tel) { this.scene.remove(tel); this.telegraphs.delete(id); }
         const lane = this.laneStrips.get(id);
         if (lane) { this.scene.remove(lane); this.laneStrips.delete(id); }
+
         const ring = this.statusRings.get(id);
         if (ring) { this.scene.remove(ring); this.statusRings.delete(id); }
+        const cage = this.pinCages.get(id);
+        if (cage) { this.scene.remove(cage); this.pinCages.delete(id); }
         if (rebuilt) {
           // Floor change: the whole population turned over — no corpses.
           this.scene.remove(mesh);
@@ -6389,8 +6907,52 @@ export class Renderer3D {
         impact.visible = vis;
         continue;
       }
+      // STAGE CABLES (V2 N2): a LINE hazard, not a disc. Falling through to
+      // the blast branch would have rendered the player's own pin line as a
+      // ticking clown bomb sitting on its midpoint -- the exact "recolored
+      // nova" failure the FX rule exists to stop.
+      if (hz.kind === "cables" && hz.end) {
+        let rig = this.cableRigs.get(hz.id);
+        if (!rig) { rig = this.buildCableRig(); this.scene.add(rig); this.cableRigs.set(hz.id, rig); }
+        const rud = rig.userData as {
+          a: THREE.Mesh; b: THREE.Mesh; hi: THREE.Mesh; lo: THREE.Mesh;
+          field: THREE.Mesh; mat: THREE.MeshBasicMaterial;
+        };
+        // hz.pos is the MIDPOINT (doCables), so the near stake mirrors the far.
+        const sx = 2 * hz.pos.x - hz.end.x, sy = 2 * hz.pos.y - hz.end.y;
+        const span = Math.hypot(hz.end.x - sx, hz.end.y - sy);
+        const yaw = -Math.atan2(hz.end.y - sy, hz.end.x - sx);
+        rud.a.position.set(sx, 0.55, sy);
+        rud.b.position.set(hz.end.x, 0.55, hz.end.y);
+        for (const [line, h] of [[rud.hi, 0.78], [rud.lo, 0.46]] as [THREE.Mesh, number][]) {
+          line.position.set(hz.pos.x, h, hz.pos.y);
+          line.rotation.y = yaw;
+          line.scale.set(span, 1, 1);
+        }
+        rud.field.position.set(hz.pos.x, 0.05, hz.pos.y);
+        rud.field.rotation.y = yaw;
+        rud.field.scale.set(span, 1, hz.radius * 2);
+        // The line is ARMED while the pin phase is running (hz.t counts down
+        // through pin, then the slow field). Armed: taut and humming. Spent:
+        // slack and dim, with only the ground field still working.
+        const armed = hz.t > (hz.total - (hz.pin ?? 0));
+        rud.mat.opacity = armed ? 0.75 + 0.25 * Math.abs(Math.sin(time * 7)) : 0.3;
+        (rud.field.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
+        (rud.field.material as THREE.ShaderMaterial).uniforms.uProg.value = armed ? 0.85 : 0.35;
+        const vis = inVision(hz.pos);
+        rig.visible = vis;
+        // Tension sparks off the line while it is holding something.
+        if (armed && vis && Math.random() < dt * 6) {
+          const k = Math.random();
+          this.fxp.sparks(sx + (hz.end.x - sx) * k, 0.62, sy + (hz.end.y - sy) * k, FX_PAL.pin.core, 2);
+        }
+        continue;
+      }
+      // FAULT LINE / RIFT (V2 U1, R1): player-owned BROKEN GROUND. It reads
+      // through the living-pool shader like every other lingering zone, but in
+      // the owning ability's hue -- Fault Line magma, a Collapse rift void.
       const pool = hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards"
-        || hz.kind === "consecrate";
+        || hz.kind === "consecrate" || hz.kind === "fissure";
       let ring = this.hazardRings.get(hz.id);
       if (!ring) {
         // ZONE MATERIAL REBUILD (r6 major: "flat red/orange floor tints with
@@ -6405,6 +6967,13 @@ export class Renderer3D {
             hz.kind === "roots" ? 0x2e8b57 : // grasping green
             hz.kind === "shards" ? 0xb8b0a0 : // ossuary debris: pale bone scatter
             hz.kind === "consecrate" ? 0xe8c96a : // holy ground: theirs, not yours
+            // RIM, not mid: every shipped pool body is a DEEP color (sludge
+            // 0x5f7020, acid 0x7fb832) because the pool shader adds its own
+            // hot core and the bloom pass adds the halo. A mid-tone body here
+            // lit the whole quadrant and ate the fight inside it.
+            hz.kind === "fissure"
+              ? (hz.ability === "nova" ? FX_PAL.pull.rim : FX_PAL.cataclysm.rim) // yours: void rift vs magma
+              :
             0x7fb832; // acid
           ring = new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(bodyHex));
           ring.userData.pool = true;
@@ -6506,6 +7075,14 @@ export class Renderer3D {
     }
     for (const [id, beam] of this.hazardBeams) {
       if (!hazSeen.has(id)) { this.scene.remove(beam); this.hazardBeams.delete(id); }
+    }
+    for (const [id, rig] of this.cableRigs) {
+      if (!hazSeen.has(id)) {
+        // The line goes slack: one last snap where the stakes were.
+        this.fxp.sparks(rig.position.x, 0.6, rig.position.z, FX_PAL.pin.mid, 3);
+        this.scene.remove(rig);
+        this.cableRigs.delete(id);
+      }
     }
 
     // Windup-bound FX: the spitter's lobbed thorn and the bomber's held bomb
@@ -6877,6 +7454,7 @@ export class Renderer3D {
     this.updateFxLights(dt);
     this.updateDying(dt);
     this.updateAbilityFx(state);
+    this.updateV2Fx(state, dt, time);
 
     // Round-2 FX layers: GPU particle clock, swing arcs, ribbons, decals,
     // shockwaves — then relax the crit bloom kick (camera-space impact frame).

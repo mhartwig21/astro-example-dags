@@ -14,6 +14,7 @@ import { createGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
 import { weaponClassOf, type WeaponClass } from "../src/sim/items";
+import { GLYPH_INFO, type GlyphId } from "../src/sim/glyphs";
 import type { AbilityId } from "../src/sim/abilities";
 
 const COUNT = Number(process.argv[2] ?? 100);
@@ -32,6 +33,7 @@ interface RunSummary {
   hitStepBudget: boolean;
   weaponClass: WeaponClass | null;
   loadout: AbilityId[]; // final 4 slots + ultimate, whatever was equipped at run end
+  glyphs: GlyphId[]; // stones SOCKETED at run end (the bench is not the build)
 }
 
 function runOne(seed: number): RunSummary {
@@ -40,6 +42,13 @@ function runOne(seed: number): RunSummary {
   const hitStepBudget = !r.won && !r.died && r.steps >= MAX_STEPS;
   const p = g.players[0];
   const loadout = [...p.abilities.slots, p.abilities.ultimate].filter((a): a is AbilityId => a != null);
+  // Only what is SOCKETED counts: a stone on the bench modified nothing.
+  const glyphs: GlyphId[] = [];
+  if (p.glyphs) {
+    for (const arr of [...p.glyphs.slots, p.glyphs.ultimate]) {
+      for (const g of arr) if (g) glyphs.push(g);
+    }
+  }
   return {
     seed,
     won: r.won,
@@ -52,6 +61,7 @@ function runOne(seed: number): RunSummary {
     hitStepBudget,
     weaponClass: weaponClassOf(p.equipment.weapon),
     loadout,
+    glyphs,
   };
 }
 
@@ -127,3 +137,26 @@ for (const r of results) {
 }
 console.log("\nwin rate by ability present in final loadout (a run counts toward every ability it had equipped):");
 winRateTable(byAbility);
+
+// The MODIFIER LAYER, measured the same way. Two failure modes matter here and
+// neither shows up in a win rate alone: a stone nobody ever ends a run WEARING
+// is dead weight (it never dropped, or the socket policy scored it at or below
+// zero everywhere), and a stone that shows up in most deep runs is doing the
+// carrying. `n` counts RUNS, not copies — one run wearing two Arc-Splices
+// still counts once.
+const byGlyph = new Map<string, RunSummary[]>();
+for (const r of results) {
+  for (const g of new Set(r.glyphs)) {
+    const key = GLYPH_INFO[g].name;
+    if (!byGlyph.has(key)) byGlyph.set(key, []);
+    byGlyph.get(key)!.push(r);
+  }
+}
+console.log("\nglyphs SOCKETED at run end (usage share + how deep those runs got):");
+for (const [key, runs] of [...byGlyph.entries()].sort((a, b) => b[1].length - a[1].length)) {
+  const share = ((runs.length / COUNT) * 100).toFixed(0);
+  const depth = runs.reduce((acc, r) => acc + r.floorsCleared, 0) / runs.length;
+  console.log(`  ${key.padEnd(22)} n=${String(runs.length).padStart(4)}  ${share.padStart(3)}% of runs  avg floors ${depth.toFixed(1)}`);
+}
+const cold = (Object.keys(GLYPH_INFO) as GlyphId[]).filter((g) => !byGlyph.has(GLYPH_INFO[g].name));
+console.log(`  never socketed (${cold.length}): ${cold.map((g) => GLYPH_INFO[g].name).join(", ") || "none"}`);

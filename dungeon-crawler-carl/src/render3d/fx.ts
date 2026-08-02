@@ -16,7 +16,14 @@ import * as THREE from "three";
 // glance (LoL rule: melee ember, magic violet, nova gold, airstrike arcane).
 export interface AbilityPalette { core: number; mid: number; rim: number }
 export const FX_PAL: Record<
-  "strike" | "crit" | "magic" | "nova" | "cataclysm" | "airstrike" | "frost" | "heal" | "gold",
+  "strike" | "crit" | "magic" | "nova" | "cataclysm" | "airstrike" | "frost" | "heal" | "gold"
+  // ABILITIES-V2 §3.2: the three new verbs each take a hue NOTHING else owns,
+  // because the readability rule is per-ABILITY, not per-family — a brace that
+  // borrowed "frost" and a pin that borrowed "magic" would be two more things
+  // the player has to disambiguate mid-fight. `pull` is Collapse's GATHER,
+  // deliberately violet against its own gold detonation: the two halves of one
+  // cast have to read as two different events or the rework is invisible.
+  | "brace" | "pin" | "stay" | "pull",
   AbilityPalette
 > = {
   strike: { core: 0xfff1d0, mid: 0xffa03c, rim: 0xc23c10 }, // melee: ember orange
@@ -28,6 +35,10 @@ export const FX_PAL: Record<
   frost: { core: 0xe8f6ff, mid: 0x7fd4ff, rim: 0x2a5eb8 },
   heal: { core: 0xeaffe2, mid: 0x5fd08a, rim: 0x1e7a48 },
   gold: { core: 0xfff3d0, mid: 0xf2c14e, rim: 0x9a6a10 },
+  brace: { core: 0xeaf4ff, mid: 0x8fb6e8, rim: 0x24457c }, // Bulwark: cold plate steel
+  pin: { core: 0xe6fbff, mid: 0x46d2c4, rim: 0x115450 }, // Stage Cables: rigging teal
+  stay: { core: 0xffe0d8, mid: 0xe0402e, rim: 0x5e0c07 }, // Injunction: court crimson
+  pull: { core: 0xefe0ff, mid: 0x8b5cf0, rim: 0x2b1274 }, // Collapse's gather: void violet
 };
 
 export const TELEGRAPH_GEO = new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2);

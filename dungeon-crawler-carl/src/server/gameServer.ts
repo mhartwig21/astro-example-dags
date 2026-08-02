@@ -16,6 +16,10 @@ import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
 import { AuthService } from "./auth";
+import { CompetitiveApi } from "./competitiveApi";
+import { TokenService } from "./tokens";
+import { makeExecutor, InlineExecutor } from "./verifyExecutor";
+import { RULES_HASH } from "../sim/rulesHash";
 import { openDb, type PersistDb } from "./db";
 import { Metrics } from "./metrics";
 import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntents, type Player, type Vec2 } from "../sim/types";
@@ -218,6 +222,11 @@ export class GameServer {
   readonly leaderboard: Leaderboard;
   readonly auth: AuthService;
   readonly db: PersistDb | null;
+  /** The verified-run layer (COMPETITIVE.md). Null without a DB - an
+   *  in-memory dev server keeps the old claimed-only boards and nothing else
+   *  changes, which is exactly how the migration is meant to degrade. */
+  readonly competitive: CompetitiveApi | null = null;
+  readonly tokens: TokenService;
   // Capacity telemetry for /health: EMA + max of per-instance tick cost.
   private tickMsEma = 0;
   private tickMsMax = 0;
@@ -244,7 +253,39 @@ export class GameServer {
     // dev runs) means no persistence — everything else behaves as before.
     this.db = dbFile ? openDb(dbFile) : null;
     this.db?.sweepExpired(Date.now());
-    this.auth = new AuthService(this.db);
+    // FORGET ME reaches the retired JSON boards too (COMPETITIVE.md 1.2). They
+    // key on names, not accounts, so nothing inside SQLite can find them.
+    if (this.db) {
+      this.db.onAccountDeleted = (_id, names) => {
+        const n = this.leaderboard.forgetNames(names);
+        if (n > 0) console.log("forget-me: removed " + n + " legacy board row(s)");
+      };
+    }
+    this.tokens = new TokenService(process.env.SESSION_SECRET);
+    this.auth = new AuthService(this.db, process.env, this.tokens);
+    if (this.db) {
+      // Start inline so the first submit after boot is never dropped, then
+      // upgrade to a worker as soon as one proves it can spawn. Verification
+      // NEVER runs on the tick thread in production (COMPETITIVE.md 2.4).
+      this.competitive = new CompetitiveApi({
+        store: this.db.competitive,
+        db: this.db,
+        tokens: this.tokens,
+        executor: new InlineExecutor(),
+        eras: [RULES_HASH],
+      });
+      void makeExecutor().then((exec) => this.competitive?.queue.setExecutor(exec));
+      // One-time import of the retired JSON boards, as CLAIMED rows with no
+      // era stamp: they were recorded under pre-dmath rules by clients whose
+      // Math.sin we now know disagreed across engines. History, not evidence.
+      const legacy = [
+        ...this.leaderboard.getAlltime("deepest"),
+        ...this.leaderboard.getAlltime("fastest"),
+        ...this.leaderboard.getAlltime("kills"),
+      ];
+      const n = this.db.competitive.importLegacyBoard(legacy, 60);
+      if (n > 0) console.log(`imported ${n} legacy board rows as claimed`);
+    }
     this.http = createServer((req, res) => this.onRequest(req, res));
     // permessage-deflate: snapshot JSON is highly repetitive frame-to-frame,
     // so deflate WITH context takeover (the default the browser negotiates)
@@ -291,6 +332,20 @@ export class GameServer {
       this.onTelemetry(req, res);
       return;
     }
+    if (this.competitive) {
+      // The competitive surface owns /runs, /boards, /bands, /crawler,
+      // /events, /rivals and /auth/anon; it returns false for anything else.
+      void this.competitive.handle(req, res).then((handled) => {
+        if (handled) return;
+        this.onRequestRest(req, res);
+      });
+      return;
+    }
+    this.onRequestRest(req, res);
+  }
+
+  private onRequestRest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const url = req.url ?? "/";
     if (url.startsWith("/auth/")) {
       void this.auth.handle(req, res);
       return;
@@ -299,7 +354,12 @@ export class GameServer {
       // Prometheus exposition — Fly scrapes this (fly.toml [metrics]) into
       // the managed Grafana at fly-metrics.net.
       res.writeHead(200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
-      res.end(this.metrics.render());
+      let extra = "";
+      for (const [k, v] of Object.entries(this.competitive?.stats() ?? {})) {
+        extra += `dcc_${k} ${v}
+`;
+      }
+      res.end(this.metrics.render() + extra);
       return;
     }
     if (url === "/health") {
@@ -317,6 +377,10 @@ export class GameServer {
         tickMsMax: +this.tickMsMax.toFixed(1),
         rssMb: Math.round(process.memoryUsage().rss / 1e6),
         uptimeMin: Math.round((Date.now() - this.startedAt) / 60000),
+        rulesEra: RULES_HASH.slice(0, 7),
+        // Verification is the ONE place this design ever feels the box, so
+        // its duty cycle is on the health surface, not buried in a log.
+        ...(this.competitive?.stats() ?? {}),
       }));
       return;
     }
@@ -442,51 +506,47 @@ export class GameServer {
       return;
     }
     if (req.method === "GET") {
+      // READ-ONLY MUSEUM. Every row here is self-reported and predates the
+      // seal, so the response says so on its face and the client is required
+      // to label it. It must never be mixed into THE STANDINGS, which only
+      // shows rows the server re-executed.
       const q = new URL(req.url ?? "/", "http://x").searchParams;
       const cat = q.get("cat");
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+      const legacy = {
+        unsealed: true,
+        legacy: true,
+        note: "UNSEALED · LEGACY — self-reported rows from before verification. Read-only.",
+      };
       if (cat && (ALLTIME_CATS as readonly string[]).includes(cat)) {
-        res.end(JSON.stringify({ cat, entries: this.leaderboard.getAlltime(cat as AlltimeCat).slice(0, 100) }));
+        res.end(JSON.stringify({
+          ...legacy, cat, entries: this.leaderboard.getAlltime(cat as AlltimeCat).slice(0, 100),
+        }));
         return;
       }
       const day = q.get("day") ?? new Date().toISOString().slice(0, 10);
-      res.end(JSON.stringify({ day, entries: this.leaderboard.get(day).slice(0, 100) }));
+      res.end(JSON.stringify({ ...legacy, day, entries: this.leaderboard.get(day).slice(0, 100) }));
       return;
     }
     if (req.method === "POST") {
-      // Self-reported scores from an internet-facing endpoint: bound the blast
-      // radius per client (a browser submits at most a few runs a minute).
-      if (!this.allowSubmit(req)) {
-        res.writeHead(429, cors).end();
-        return;
-      }
-      let body = "";
-      let overflow = false;
-      req.on("data", (chunk) => {
-        body += chunk;
-        if (body.length > 4096) { overflow = true; req.destroy(); }
-      });
-      req.on("end", () => {
-        if (overflow) return;
-        let msg: Record<string, unknown>;
-        try {
-          msg = JSON.parse(body);
-        } catch {
-          res.writeHead(400, cors).end();
-          return;
-        }
-        msg.name = sanitizeName(msg.name); // public surface: clean at ingress
-        if (msg.board === "alltime") {
-          const headlines = this.leaderboard.submitAlltime(msg, Date.now());
-          this.recordRunStats(msg); // account-backed career (see profiles)
-          res.writeHead(200, { "content-type": "application/json", ...cors });
-          res.end(JSON.stringify({ ok: true, headlines }));
-          return;
-        }
-        const rank = this.leaderboard.submit(String(msg.day ?? ""), msg, Date.now());
-        res.writeHead(rank === null ? 400 : 200, { "content-type": "application/json", ...cors });
-        res.end(JSON.stringify(rank === null ? { ok: false } : { ok: true, rank }));
-      });
+      // RETIRED (COMPETITIVE.md 1.2). This was the last unauthenticated write
+      // on the box: a devtools one-liner could put any name on a public board
+      // with any numbers, no proof, no account binding, and - because the
+      // alltime branch called recordRunStats - move a career aggregate while it
+      // was at it. Sealed rows now live in SQLite behind POST /runs, which
+      // replays the submission before it counts. Keeping a forgeable board
+      // alongside a verified one, wearing the same crawler names on the same
+      // host, spends exactly the credibility the seal was built to earn.
+      //
+      // 410 rather than 404: the endpoint EXISTED and is gone on purpose, and
+      // an old client deserves to be told which.
+      res.writeHead(410, { "content-type": "application/json", ...cors });
+      res.end(JSON.stringify({
+        ok: false,
+        error: "gone",
+        detail: "self-reported scores are retired. Submit a replayable proof to POST /runs;"
+          + " the server re-executes it before it counts.",
+      }));
       return;
     }
     res.writeHead(405, cors).end();
@@ -520,33 +580,13 @@ export class GameServer {
     res.end(JSON.stringify(parties));
   }
 
-  // Token-bucket per client IP: burst of 6, refill 6/min. Fly fronts us, so
-  // the real client address arrives in fly-client-ip.
-  private submitBuckets = new Map<string, { tokens: number; at: number }>();
-  private allowSubmit(req: IncomingMessage): boolean {
-    const ip = String(req.headers["fly-client-ip"] ?? req.socket.remoteAddress ?? "?");
-    const now = Date.now();
-    const b = this.submitBuckets.get(ip) ?? { tokens: 6, at: now };
-    b.tokens = Math.min(6, b.tokens + ((now - b.at) / 60_000) * 6);
-    b.at = now;
-    if (b.tokens < 1) { this.submitBuckets.set(ip, b); return false; }
-    b.tokens -= 1;
-    this.submitBuckets.set(ip, b);
-    if (this.submitBuckets.size > 5000) this.submitBuckets.clear(); // memory backstop
-    return true;
-  }
-
-  /** Roll a finished run into the submitting account's career (profiles). */
-  private recordRunStats(msg: Record<string, unknown>): void {
-    const token = typeof msg.token === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(msg.token) ? msg.token : null;
-    if (!token || !this.db) return;
-    this.db.bumpAccountStats(token, {
-      won: msg.won === true,
-      floor: Math.max(1, Math.min(18, Math.floor(Number(msg.floor)) || 1)),
-      kills: Math.max(0, Math.min(100_000, Math.floor(Number(msg.kills)) || 0)),
-      timeSec: Math.max(0, Math.min(6 * 3600, Math.round(Number(msg.timeSec)) || 0)),
-    }, Date.now());
-  }
+  // The per-IP submit bucket and recordRunStats are DELETED, not disabled.
+  // They existed only for the retired self-reported POST /leaderboard, and
+  // recordRunStats was the single path by which an unauthenticated request
+  // could move a career aggregate. A dormant private method is a loaded gun
+  // waiting for a future caller. Career numbers now move in exactly one place:
+  // CompetitiveApi.onVerified, after the server has re-executed the run, and
+  // POST /runs carries its own rate limit and verify-CPU budget.
 
   get port(): number {
     return (this.http.address() as { port: number }).port;
@@ -591,6 +631,7 @@ export class GameServer {
     }
     this.instances.clear();
     this.leaderboard.flush();
+    this.competitive?.close();
     this.db?.close();
     for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();

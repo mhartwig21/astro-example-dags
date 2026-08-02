@@ -71,6 +71,14 @@ const GLYPH_MAT = {
   brandmark: "blood", accelerant: "ember", arcane_lens: "arcane",
   executioners_rebate: "gold", heavyweight_plate: "iron",
   hair_trigger: "gold", slipstream: "frost",
+  // Phase C. The two FAMILY PAIRS are deliberately split across materials so
+  // a socket row never asks the player to tell two same-colored pebbles
+  // apart: the lenses are arcane vs steel, the range pair ember vs wood.
+  static_charge: "gold", demolition_rider: "ember", ballistic_lens: "steel",
+  envenomed: "verdant", cryo_etch: "frost", grave_dividend: "bone",
+  culling_edge: "steel", poise_wrecker: "iron", point_blank: "ember",
+  longshot: "wood", blood_price: "blood", phase_etch: "arcane",
+  understudy_rider: "screen", encore_clause: "gold", cold_open: "frost",
 };
 
 // Field-drop noun -> material (mirrors NOUN_MAT in main3d.ts).

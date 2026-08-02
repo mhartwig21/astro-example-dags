@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import type Database from "better-sqlite3";
+import { CompetitiveStore } from "./competitive";
 
 // PERSISTENCE.md P1: SQLite on the Fly volume. One file (DB_FILE, prod:
 // /data/dcc.sqlite) holds accounts, party membership, and per-character saves,
@@ -109,6 +110,9 @@ CREATE TABLE IF NOT EXISTS account_stats (
 
 export class PersistDb {
   private db: Database.Database;
+  /** Runs, proofs, ladders, events, CP (COMPETITIVE.md MUST-4). Same file,
+   *  same transaction scope, so FORGET ME can erase a career atomically. */
+  readonly competitive: CompetitiveStore;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -116,7 +120,12 @@ export class PersistDb {
     db.pragma("synchronous = NORMAL");
     db.pragma("busy_timeout = 5000");
     db.exec(SCHEMA);
+    // schema_version 2 adds the competitive tables. The bump is informational:
+    // every CREATE is IF NOT EXISTS, so an existing volume upgrades in place
+    // with no downtime and no data movement.
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')").run();
+    this.competitive = new CompetitiveStore(db);
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
   }
 
   touchAccount(id: string, name: string, now: number): void {
@@ -277,13 +286,48 @@ export class PersistDb {
     return row ? { runs: row.runs, wins: row.wins, deepest: row.deepest, kills: row.kills, timeSec: row.time_sec } : null;
   }
 
-  /** Right-to-be-forgotten: the account and everything hanging off it. */
-  deleteAccount(accountId: string): void {
-    this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
-    this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
-    this.db.prepare("DELETE FROM party_members WHERE account_id = ?").run(accountId);
-    this.db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
+  /**
+   * Right-to-be-forgotten: the account and EVERYTHING hanging off it.
+   *
+   * The old version stopped at identities, stats, party seats and the account
+   * row - it never reached the leaderboard, so a deleted account name stayed
+   * on a public board forever. That was a live privacy gap, not a future one,
+   * and it is why board rows had to move onto account ids first. One
+   * transaction, so a crash mid-delete cannot leave half a career behind.
+   */
+  deleteAccount(accountId: string, alsoNames: readonly string[] = []): void {
+    // Captured BEFORE the transaction: competitive.deleteAccount is about to
+    // remove the only record of what this account was ever called, and the
+    // retired JSON boards can only be purged by name.
+    //
+    // `alsoNames` is the crawler name the CLIENT knows. The legacy rows predate
+    // accounts entirely, so for an account with no sealed run there is no link
+    // in the database at all - the browser holding the name is the only thing
+    // that can point at those rows, and refusing to accept it would mean
+    // telling someone their name is unreachable.
+    const names = [...new Set([...this.competitive.displayNamesOf(accountId), ...alsoNames])];
+    this.db.transaction(() => {
+      this.competitive.deleteAccount(accountId);
+      this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM account_tips WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM party_members WHERE account_id = ?").run(accountId);
+      // Telemetry is ANONYMIZED rather than deleted: usage_events is the
+      // balance record (never swept), and the only personal thing in it is
+      // the account id. Nulling it keeps the balance history and removes the
+      // person from it, which is what the request actually asks for.
+      this.db.prepare("UPDATE usage_events SET account_id = NULL WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
+    })();
+    // ...and out to anything that lives outside SQLite. The JSON board is a
+    // separate file with a separate save cycle, so it cannot ride the
+    // transaction; it can only be told, and it must be told.
+    try { this.onAccountDeleted?.(accountId, names); } catch { /* never block a deletion */ }
   }
+
+  /** Set by the game server so FORGET ME cascades past SQLite into the retired
+   *  leaderboard.json (COMPETITIVE.md 1.2). */
+  onAccountDeleted: ((accountId: string, names: string[]) => void) | null = null;
 
   /** False once close() has run — writes after that would throw. */
   isOpen(): boolean {

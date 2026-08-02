@@ -1,6 +1,9 @@
 import { CONFIG, floorBand } from "../sim/config";
 import { Tile, type GameState } from "../sim/types";
-import { knows, novaParams, orbitBladePos, orbitParams } from "../sim/abilities";
+
+import {
+  bulwarkParams, knows, novaParams, orbitBladePos, orbitHurlPoint, orbitParams,
+} from "../sim/abilities";
 import { tileableFogNoise } from "./fogNoise";
 
 const T = CONFIG.tile;
@@ -90,9 +93,19 @@ const COLORS = {
   monsterFlash: "#ffd2cd",
   monsterWindup: "#ff9a3c", // committed to an attack (telegraph)
   monsterStagger: "#8a8aa0", // interrupted and helpless
+
   gold: "#f2c14e",
   heal: "#5fd08a",
   weapon: "#b98bff",
+  // ABILITIES-V2 parity palette. The 3D host owns fidelity; this host owns
+  // TRUTH -- every one of these exists so a V2 ability reads as itself here
+  // instead of reading as nothing (or, worse, as its opposite).
+  pull: "#8b5cf0", // Collapse's gather
+  pin: "#46d2c4", // Stage Cables (rigging teal)
+  stay: "#e0402e", // Injunction (court crimson)
+  brace: "#8fb6e8", // Bulwark (cold plate steel)
+  fissure: "#c2683a", // Fault Line's broken ground
+  barrage: "#f2c14e", // Sponsor Barrage's walking cursor
 };
 
 export interface Camera {
@@ -234,6 +247,54 @@ export function render(
       ctx.stroke();
       continue;
     }
+
+    if (hz.kind === "fissure") {
+      // FAULT LINE (V2 U1): the GROUND is the ultimate, so it gets a tinted
+      // floor RECT -- broken ground is an area you decide not to walk in, and
+      // a rect reads as "this square is taken" faster than a soft blob does.
+      // Chasm's blocking core gets a hard inner square (that part is a wall).
+      const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
+      const r = hz.radius * T;
+      const cx = offX + hz.pos.x * T, cy = offY + hz.pos.y * T;
+      ctx.fillStyle = `rgba(194,104,58,${0.14 + life * 0.2})`;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.strokeStyle = `rgba(255,150,80,${0.35 + life * 0.4})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+      if (hz.blocks) {
+        ctx.fillStyle = "rgba(12,8,6,0.75)";
+        ctx.fillRect(cx - r * 0.4, cy - r * 0.4, r * 0.8, r * 0.8);
+      }
+      continue;
+    }
+    if (hz.kind === "cables" && hz.end) {
+      // STAGE CABLES (V2 N2): "nothing crosses this line" is a LINE. Two taut
+      // rigging cables at the field's half-width, plus the slow field behind
+      // them, so the promise and its footprint are separable at a glance.
+      const ax = offX + (hz.pos.x * 2 - hz.end.x) * T, ay = offY + (hz.pos.y * 2 - hz.end.y) * T;
+      const bx = offX + hz.end.x * T, by = offY + hz.end.y * T;
+      const nx = -(by - ay), ny = bx - ax;
+      const nl = Math.hypot(nx, ny) || 1;
+      const w = hz.radius * T;
+      const ox = (nx / nl) * w, oy = (ny / nl) * w;
+      ctx.fillStyle = "rgba(70,210,196,0.10)";
+      ctx.beginPath();
+      ctx.moveTo(ax + ox, ay + oy);
+      ctx.lineTo(bx + ox, by + oy);
+      ctx.lineTo(bx - ox, by - oy);
+      ctx.lineTo(ax - ox, ay - oy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(120,245,232,0.85)";
+      ctx.lineWidth = 2;
+      for (const s of [0.55, -0.55]) {
+        ctx.beginPath();
+        ctx.moveTo(ax + ox * s, ay + oy * s);
+        ctx.lineTo(bx + ox * s, by + oy * s);
+        ctx.stroke();
+      }
+      continue;
+    }
     if (hz.kind === "puddle" || hz.kind === "sludge" || hz.kind === "roots" || hz.kind === "shards" || hz.kind === "consecrate") {
       const arming = (hz.arm ?? 0) > 0 && hz.total - hz.t < (hz.arm ?? 0);
       const life = Math.min(1, hz.t / Math.max(hz.total, 1e-3));
@@ -325,6 +386,7 @@ export function render(
       ctx.arc(px, py, r * T, 0, Math.PI * 2);
       ctx.stroke();
     }
+
     ctx.fillStyle =
       m.hitFlash > 0 ? COLORS.monsterFlash :
       m.stagger > 0 ? COLORS.monsterStagger :
@@ -332,6 +394,42 @@ export function render(
     ctx.beginPath();
     ctx.arc(px, py, T * 0.32, 0, Math.PI * 2);
     ctx.fill();
+    // INJUNCTION's enrage (V2 N3): the crawler bought twelve violent seconds,
+    // so the bodies collecting on it are visibly the violent ones -- a crimson
+    // wash over the whole body, on EVERY enraged monster, for the duration.
+    if ((m.injRageT ?? 0) > 0) {
+      ctx.fillStyle = "rgba(224,64,46,0.45)";
+      ctx.beginPath();
+      ctx.arc(px, py, T * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,224,216,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, T * 0.36, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // PINNED (Stage Cables): control you cannot see is control you cannot plan
+    // around -- and this pin deliberately lets windups resolve, so the player
+    // has to tell "pinned but winding up" from "free and closing" inside 0.2s.
+    // A HARD SHACKLE (four bracket posts on a taut ring) is deliberately a
+    // different shape from stagger's grey helpless body: the pin is control,
+    // not a stun, and the two must not read the same.
+    if ((m.pinnedT ?? 0) > 0) {
+      const rr = T * 0.44;
+      ctx.strokeStyle = COLORS.pin;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+        const cxp = px + Math.cos(a) * rr, cyp = py + Math.sin(a) * rr;
+        ctx.beginPath();
+        ctx.moveTo(cxp - Math.cos(a) * 4, cyp - Math.sin(a) * 4);
+        ctx.lineTo(cxp + Math.cos(a) * 4, cyp + Math.sin(a) * 4);
+        ctx.stroke();
+      }
+    }
     // HP bar.
     const frac = Math.max(0, m.hp / m.maxHp);
     ctx.fillStyle = "#000";
@@ -339,6 +437,7 @@ export function render(
     ctx.fillStyle = COLORS.monster;
     ctx.fillRect(px - 12, py - T * 0.5, 24 * frac, 4);
   }
+
 
   // Stunt doubles: a ghost outline of a crawler holding its mark.
   for (const dc of state.decoys ?? []) {
@@ -349,10 +448,21 @@ export function render(
     ctx.beginPath();
     ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = "rgba(234,246,255,0.2)";
+    // V2 R8: the double is MORTAL, so its remaining life is a SHRINKING PIP.
+    // A decoy that can die but looks immortal is the roster's biggest lie
+    // rendered as the truth it replaced. (Pre-rework decoys carry no hp and
+    // keep the old solid fill -- they really are invulnerable.)
+    const frac = dc.maxHp ? Math.max(0, (dc.hp ?? 0) / dc.maxHp) : 1;
+    ctx.fillStyle = `rgba(234,246,255,${0.08 + 0.14 * frac})`;
     ctx.beginPath();
-    ctx.arc(dpx, dpy, T * 0.32, 0, Math.PI * 2);
+    ctx.arc(dpx, dpy, T * 0.32 * (dc.maxHp ? 0.35 + 0.65 * frac : 1), 0, Math.PI * 2);
     ctx.fill();
+    if (dc.maxHp) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(dpx - 10, dpy - T * 0.5, 20, 3);
+      ctx.fillStyle = "rgba(234,246,255,0.9)";
+      ctx.fillRect(dpx - 10, dpy - T * 0.5, 20 * frac, 3);
+    }
   }
 
   // Players (whole party; players[0] is the local one).
@@ -370,25 +480,99 @@ export function render(
     ctx.closePath();
     ctx.fill();
   }
-  // Orbit blades (auto ability). Positions shared with the sim's hit test.
+
+  // Orbit blades (auto ability). Positions shared with the sim's hit test --
+  // and, since V2 R3, with the HURL: orbitBladePos returns the travelling saw
+  // while the ring is away, so the space around the crawler reads empty for
+  // exactly as long as the sim says the bodyguard is spent.
   if (knows(p, "orbit")) {
     const op = orbitParams(p);
-    ctx.fillStyle = "#9fe8ff";
+    const hurl = orbitHurlPoint(p);
+    if (hurl) {
+      // The flight line: where the steel went, and that it is coming back.
+      ctx.strokeStyle = hurl.back ? "rgba(216,246,255,0.75)" : "rgba(159,232,255,0.5)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ppx, ppy);
+      ctx.lineTo(offX + hurl.x * T, offY + hurl.y * T);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = hurl ? "#d8f6ff" : "#9fe8ff";
     for (let i = 0; i < op.blades; i++) {
       const bp = orbitBladePos(p, i);
       ctx.beginPath();
-      ctx.arc(ppx + (bp.x - p.pos.x) * T, ppy + (bp.y - p.pos.y) * T, 4, 0, Math.PI * 2);
+      ctx.arc(offX + bp.x * T, offY + bp.y * T, 4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
-  // Nova ring.
+  // COLLAPSE's gather (V2 R1): a FLAT RING at the gather radius that closes
+  // inward, drawn before the blast ring expands out of it. The whole point of
+  // the rework is that the cast moves bodies first; a host that only draws the
+  // blast is drawing the ability it replaced.
   if (p.novaFlash > 0) {
     const np = novaParams(p);
     const prog = 1 - p.novaFlash / 0.3;
+    ctx.strokeStyle = `rgba(139,92,240,${0.85 * (1 - prog)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(ppx, ppy, np.gatherRadius * (1 - prog * 0.75) * T, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inward tick marks: the ring is PULLING, not just shrinking.
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const r0 = np.gatherRadius * (1 - prog * 0.75) * T;
+      ctx.beginPath();
+      ctx.moveTo(ppx + Math.cos(a) * r0, ppy + Math.sin(a) * r0);
+      ctx.lineTo(ppx + Math.cos(a) * (r0 - 7), ppy + Math.sin(a) * (r0 - 7));
+      ctx.stroke();
+    }
+    // ...then the blast.
     ctx.strokeStyle = `rgba(143,216,255,${1 - prog})`;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(ppx, ppy, np.radius * prog * T, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // BULWARK (V2 N1): a brace arc in the facing direction while the plate is up.
+  if ((p.bulwarkT ?? 0) > 0) {
+    const bp2 = bulwarkParams(p);
+    const ang = Math.atan2(p.facing.y, p.facing.x);
+    ctx.strokeStyle = COLORS.brace;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(ppx, ppy, T * 0.55, ang - 0.9, ang + 0.9);
+    ctx.stroke();
+    if (bp2.allyRadius > 0) {
+      ctx.strokeStyle = "rgba(143,182,232,0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(ppx, ppy, bp2.allyRadius * T, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  // SPONSOR BARRAGE (V2 U2): a CURSOR DOT at the aim point, tethered to the
+  // crawler. The channel is 3s of not-fighting at 70% move speed, so the one
+  // thing the host owes the player is "here is what you are paying for."
+  if ((p.barrageT ?? 0) > 0 && p.barrageAim) {
+    const bx = offX + p.barrageAim.x * T, by = offY + p.barrageAim.y * T;
+    ctx.strokeStyle = "rgba(242,193,78,0.45)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(ppx, ppy);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.barrage;
+    ctx.beginPath();
+    ctx.arc(bx, by, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = COLORS.barrage;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, 11, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.fillStyle = p.alive ? COLORS.player : "#555";
@@ -468,14 +652,30 @@ function drawHud(
   ctx.fillRect(10, 40, 220, 74);
   ctx.fillStyle = "#e6e6ec";
   ctx.fillText(`Floor ${state.floor} / ${CONFIG.finalFloor}`, 20, 48);
-  ctx.fillStyle = phaseColor(state);
-  ctx.fillText(`Collapse in ${fmtTime(state.timeRemaining)}  [${state.phase.toUpperCase()}]`, 20, 70);
+
+  // INJUNCTION (V2 N3): a clock that silently stops is a tell only for someone
+  // already staring at it. While the stay holds, the clock says so -- and it
+  // says what it will cost, because the debt is the other half of the button.
+  const stay = p.injunctionT ?? 0;
+  ctx.fillStyle = stay > 0 ? COLORS.stay : phaseColor(state);
+  ctx.fillText(
+    stay > 0
+      ? `STAYED ${fmtTime(state.timeRemaining)}  [${stay.toFixed(1)}s · owes ${Math.round(p.injunctionDebt ?? 0)}s]`
+      : `Collapse in ${fmtTime(state.timeRemaining)}  [${state.phase.toUpperCase()}]`,
+    20, 70,
+  );
   // Timer bar.
   const frac = Math.max(0, Math.min(1, state.timeRemaining / state.timeBudget));
   ctx.fillStyle = "#000";
   ctx.fillRect(20, 92, 200, 8);
-  ctx.fillStyle = phaseColor(state);
+  ctx.fillStyle = stay > 0 ? COLORS.stay : phaseColor(state);
   ctx.fillRect(20, 92, 200 * frac, 8);
+  if (stay > 0) {
+    // The debt, drawn as the slice of bar that is already spoken for.
+    const debt = Math.max(0, Math.min(1, (p.injunctionDebt ?? 0) / Math.max(state.timeBudget, 1e-3)));
+    ctx.fillStyle = "rgba(94,12,7,0.85)";
+    ctx.fillRect(20 + 200 * Math.max(0, frac - debt), 92, 200 * Math.min(frac, debt), 8);
+  }
 
   // Top-right: character stats.
   const rx = viewW - 210;

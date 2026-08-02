@@ -21,11 +21,13 @@ import {
   type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
 } from "./sim/types";
 import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
-import { CONFIG, naturalFloorForLevel } from "./sim/config";
+
+import { CONFIG, FLOOR_BANDS, naturalFloorForLevel } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  abilityCdrBreakdown, knows, nodeOpen, rank, upgradeDef, type AbilityId,
+  abilityCdrBreakdown, knows, nodeOpen, rank, upgradeDef, type AbilityId, type UpgradeDef,
 } from "./sim/abilities";
+import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
@@ -39,8 +41,17 @@ import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
+
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
+// THE COMPETITIVE LAYER (COMPETITIVE.md). The sim owns the codec and the era
+// gate; net/ owns the wire and the ghost worker; ui/social.ts owns the
+// arithmetic. This file owns the screens and the one seam that matters:
+// feeding step() an intent that has already been through the wire format.
+import { RunRecorder, REPLAY_DT, canonicalIntent, type RunProof } from "./sim/replay";
+import { RULES_HASH } from "./sim/rulesHash";
+import { CompetitiveClient, precomputeGhost } from "./net/competitiveClient";
+import * as social from "./ui/social";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -197,8 +208,97 @@ let runMode: RunMode = { kind: "random" };
 // Race (today's 18-floor descent) vs Roam (SETTLEMENTS.md v1). Orthogonal to
 // RunMode: daily/random only ever apply to Race in the menu today.
 let currentRunKind: GameState["runKind"] = "race";
+
 let dailySubmitted = false; // one board submission per run end
 let hasContinue = false; // a mid-run save was restored; the menu offers CONTINUE
+
+// ---- RUN PROOF RECORDING (COMPETITIVE.md MUST-3) ----
+// A proof is the whole run in ~30 KB: the quantized intent of every tick plus
+// every out-of-band sim call. Two hard rules live here.
+//
+//  1. RECORDING MUST NOT CHANGE SIM BEHAVIOUR (brief rule 1). It cannot, by
+//     construction: the loop below feeds step() the DECODED intent whether or
+//     not a recorder exists (canonicalIntent is the same round trip with no
+//     tape), so there is no second code path to drift.
+//  2. A PROOF ALWAYS STARTS FROM THE SEED. A restored save cannot be replayed
+//     - Object.entries iteration order over materials/cooldowns is insertion
+//     order, which createGame reproduces and a deserialized world may not - so
+//     CONTINUE deliberately runs unrecorded and the post-run screen says so.
+let rec: RunRecorder | null = null;
+/** Why this run has no proof, in words the post-run screen prints verbatim. */
+let recBlocked = "";
+/** Ticks of the local run, kept even when nothing is recording - the ghost
+ *  split delta and the band ledger both index off it. */
+let runTicks = 0;
+/** Tick each floor was ENTERED, index 0 = floor 1; -1 for unreached. Same
+ *  shape the verifier derives, so the preview and the sealed row agree. */
+let floorEntryTicks: number[] = [];
+/** Drafts the System offered vs drafts you actually claimed - the EXECUTION
+ *  half of the grade, and the most common quiet mistake in the game. */
+let draftsOffered = 0;
+let draftsClaimed = 0;
+/** Set by the CONTRACTS screen immediately before a ticketed event run. The
+ *  START is what makes an attempt count honest (3.2A). */
+let pendingTicket: { eventId: string; ticket: string; attemptNo: number; scoresCp: boolean } | null = null;
+
+let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
+/** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
+let forcedSeed: number | null = null;
+/** The sealed artifact of the run that just ended, kept for SHARE and for the
+ *  retry that races your own ghost. */
+let runProof: RunProof | null = null;
+
+/**
+ * Arm (or deliberately refuse to arm) the recorder for a run that is starting.
+ * The refusals are as important as the recording: each one produces a sentence
+ * the post-run screen prints, because an unsealed run that never explains
+ * itself is how a player decides the ladder is rigged.
+ */
+function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameState["mode"]): void {
+  rec = null;
+  recBlocked = "";
+  runTicks = 0;
+  runProof = null;
+  runEvent = null;
+
+  // The floor the run STARTS on was entered at tick 0. Without this the very
+  // first split has no left-hand side, and the ghost chip reads NO SPLIT YET
+  // for the whole of floor 1 - which is exactly the floor you race hardest.
+  floorEntryTicks = new Array<number>(CONFIG.finalFloor).fill(-1);
+  if (state.floor >= 1) floorEntryTicks[state.floor - 1] = 0;
+  draftsOffered = 0;
+  draftsClaimed = 0;
+  const ticket = pendingTicket;
+  pendingTicket = null;
+  if (net) {
+    recBlocked = "party runs are hosted by the server — the solo descent is what carries a proof";
+    return;
+  }
+  if (testMode) {
+    recBlocked = "TEST CHAMBER. A test start is structurally ineligible for a board.";
+    return;
+  }
+  if (runKind !== "race") {
+    recBlocked = "ROAM has no clock and no board. Nothing to prove, nothing to seal.";
+    return;
+  }
+  if (ticket) runEvent = { eventId: ticket.eventId, attemptNo: ticket.attemptNo, scoresCp: ticket.scoresCp };
+  rec = new RunRecorder({
+    seed,
+    mode,
+    runKind,
+    startKind: "fresh",
+    playerName: crawlerName(),
+    clientBuild: RULES_HASH.slice(0, 7),
+    eventId: ticket?.eventId,
+    ticket: ticket?.ticket,
+  });
+}
+
+/** One line beside each out-of-band sim call, in the same order the sim sees
+ *  them. Wrapped so the 15 call sites read as one word rather than a null
+ *  check each (COMPETITIVE.md MUST-3, the host contract). */
+const recAct: RunRecorder["action"] = (op, ...args) => { rec?.action(op, ...args); };
 
 function boot(): GameState {
   if (testMode) return createTestGame(testSetup());
@@ -224,6 +324,21 @@ if (testMode) {
 }
 
 let state = net ? createGame(0) : boot(); // net: placeholder until the welcome snapshot
+// A run that did not start at floor 1 in this browser cannot be replayed from
+// its seed, so it is never recorded (COMPETITIVE.md 2.1: proofs always start
+// from createGame, never from a deserialized checkpoint).
+recBlocked = net
+  ? "party runs are hosted by the server — the solo descent is what carries a proof"
+  : testMode
+    ? "TEST CHAMBER. A test start is structurally ineligible for a board."
+    : hasContinue
+      ? "resumed from a save — a proof has to start at floor 1"
+
+      : "";
+// A resumed or test-chamber run never passes through beginRecording, so the
+// starting floor is stamped here too (a test start is not floor 1).
+floorEntryTicks = new Array<number>(CONFIG.finalFloor).fill(-1);
+if (state.floor >= 1 && state.floor <= CONFIG.finalFloor) floorEntryTicks[state.floor - 1] = 0;
 
 // Test-mode debug hook: lets headless verification (CDP-driven) inspect the
 // live sim instead of guessing from pixels. Never set outside ?test.
@@ -236,13 +351,17 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   runMode = mode;
   currentRunKind = runKind;
   dailySubmitted = false;
-  alltimeSubmitted = false;
   telemetrySubmitted = false;
-  const seed = mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed();
+
+  const seed = forcedSeed ?? (mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed());
+  forcedSeed = null;
+  consentEl.classList.remove("on"); // a stale offer never survives into a new run
+  closeSets();
   state = createGame(seed, "coop", runKind);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
+  beginRecording(seed, runKind, state.mode);
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
@@ -401,7 +520,13 @@ nameInput.addEventListener("change", () => {
 
 // Leaderboard API: same origin in production (the game server serves both);
 // in dev the Vite client on :5280 talks to the sibling server on :5281.
-const API_BASE = import.meta.env.DEV ? `http://${location.hostname}:5281` : "";
+
+// ?api=<origin> overrides it, which is how a second dev server (or a
+// production board read from a local build) gets driven during verification.
+const API_BASE = params.get("api")
+  ?? (import.meta.env.DEV ? `http://${location.hostname}:5281` : "");
+/** The competitive wire: proofs out, boards/profiles/events/tickets in. */
+const competitive = new CompetitiveClient(API_BASE);
 
 // ---- Daily challenge links (launch polish #2) ----
 // ?daily=YYYY-MM-DD[&by=&floor=&t=&won=1] turns the DAILY CRAWL card into an
@@ -455,21 +580,54 @@ function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: numb
   return e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`;
 }
 
+/**
+ * The campfire board. It reads the SAME rows THE STANDINGS does, because a
+ * menu that disagrees with the ladder is worse than a menu with no board: the
+ * legacy /leaderboard endpoint still answers, but it knows nothing about seals,
+ * eras or accounts, so a row here would silently contradict the row there.
+ * Falls through to the legacy shape only when the competitive API is dark.
+ */
 async function refreshBoard(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
   const dayEl = document.getElementById("m-board-day")!;
+  try {
+    const kind = boardTab === "today" ? "deepest" : boardTab;
+    const page = (await competitive.board(kind, {
+      event: boardTab === "today" ? "daily" : undefined, limit: 8,
+    })) as social.BoardPage;
+    dayEl.textContent = boardTab === "today" ? (challengeDay ?? dayFromMs(Date.now())) : "ALL-TIME";
+    if (page.entries.length === 0) {
+      list.innerHTML = '<li class="none">no crawlers on this board yet — be the first</li>';
+      return;
+    }
+    list.innerHTML = page.entries.map((r, i) => {
+      const chip = social.sealChip(r.state, r.rulesEra, r.private);
+      return `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
+        `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
+        `<span class="res${r.won ? " win" : ""}">${boardResult(kind, r)}</span></li>`;
+    }).join("");
+    // Names are player-supplied: set via textContent, never innerHTML.
+    const nms = list.querySelectorAll(".nm");
+    page.entries.forEach((r, i) => { nms[i].textContent = r.name; });
+    return;
+  } catch { /* the competitive API is dark: fall back to the legacy board */ }
   if (boardTab !== "today") {
     try {
       const r = await fetch(`${API_BASE}/leaderboard?cat=${boardTab}`);
       if (!r.ok) throw new Error(String(r.status));
       const data = (await r.json()) as { entries: { name: string; floor: number; won: boolean; timeSec: number; kills: number }[] };
-      dayEl.textContent = "ALL-TIME";
-      list.innerHTML = data.entries.length
+      // UNSEALED · LEGACY. These rows predate verification and were
+      // self-reported; they are shown only when the sealed boards are dark, and
+      // they are never allowed to look like the sealed ones.
+      dayEl.textContent = "ALL-TIME · UNSEALED LEGACY";
+      list.innerHTML = (data.entries.length
         ? data.entries.slice(0, 10).map((e, i) =>
             `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
+            `<span class="seal claimed" title="self-reported, from before verification — never replayed">UNSEALED</span>` +
             `<span class="res${e.won ? " win" : ""}">${alltimeRes(boardTab, e)}</span></li>`,
           ).join("")
-        : '<li class="none">nobody has claimed this board yet</li>';
+        : '<li class="none">nobody has claimed this board yet</li>')
+        + '<li class="none">THE STANDINGS are offline — these are legacy, self-reported rows</li>';
       const nms = list.querySelectorAll(".nm");
       data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
     } catch {
@@ -518,49 +676,24 @@ async function refreshBoard(): Promise<void> {
   }
 }
 
-/** Submit a finished daily run (win or wipe). Fire-and-forget; the board is a
- *  bonus, never a blocker. */
-function submitDaily(s: GameState): void {
+/**
+ * THE SELF-REPORTED SUBMITTERS ARE GONE (COMPETITIVE.md 1.2).
+ *
+ * They posted a name and a set of numbers to an unauthenticated endpoint, which
+ * meant a devtools one-liner could do the same with better numbers. The server
+ * now answers that route with 410, and a finished run travels exactly one way:
+ * sealRun() hands the recorded input stream to the verifier, the server REPLAYS
+ * it, and the row it certifies is the only row that exists.
+ *
+ * The daily STREAK is local and stays local - it never needed a board round
+ * trip, and it is a nudge rather than a score.
+ */
+function noteDailyStreak(s: GameState): void {
   if (net || testMode || runMode.kind !== "daily" || !runMode.day || dailySubmitted) return;
   dailySubmitted = true;
-  const p = me(s);
-  void fetch(`${API_BASE}/leaderboard`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      day: runMode.day, name: p.name, floor: s.floor,
-      won: s.status === "won", timeSec: Math.round(s.elapsed), kills: p.kills,
-    }),
-  }).then(async (r) => {
-    if (!r.ok) return;
-    const { rank } = (await r.json()) as { rank: number };
-    const streak = bumpStreak(runMode.day!);
-    pushLogLine(`DAILY CRAWL: rank #${rank} on the board${streak > 1 ? ` · ${streak}-day streak` : ""}.`);
-    const note = document.getElementById("recap-note")!;
-    note.textContent = `daily board: rank #${rank}${streak > 1 ? ` · streak ${streak}` : ""}${note.textContent ? ` · ${note.textContent}` : ""}`;
-  }).catch(() => { /* offline is fine */ });
-}
-
-/** Every finished solo run reports to the all-time boards (win or wipe). */
-let alltimeSubmitted = false;
-function submitAlltime(s: GameState): void {
-  if (net || testMode || alltimeSubmitted || s.runKind === "roam") return;
-  alltimeSubmitted = true;
-  const p = me(s);
-  void fetch(`${API_BASE}/leaderboard`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      board: "alltime", token: ensureToken(), name: p.name, floor: s.floor,
-      won: s.status === "won", timeSec: Math.round(s.elapsed), kills: p.kills,
-    }),
-  }).then(async (r) => {
-    if (!r.ok) return;
-    const { headlines } = (await r.json()) as { headlines: string[] };
-    if (headlines.length > 0) {
-      pushLogLine(`ALL-TIME BOARD: top ten — ${headlines.join(", ").toUpperCase()}.`);
-    }
-  }).catch(() => { /* offline is fine */ });
+  void s;
+  const streak = bumpStreak(runMode.day);
+  if (streak > 1) pushLogLine(`DAILY CRAWL: ${streak}-day streak. The System notices consistency.`);
 }
 
 /** Every finished SOLO run reports its build to usage_events (fire-and-forget)
@@ -689,14 +822,24 @@ document.getElementById("m-forget")!.addEventListener("click", () => {
   void fetch(`${API_BASE}/auth/delete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: ensureToken() }),
+    // The crawler name rides along so the deletion can reach the retired
+    // name-keyed JSON boards: those rows predate accounts, so for a crawler
+    // with no sealed run this browser is the only thing that knows the link.
+    body: JSON.stringify({ token: ensureToken(), names: [crawlerName()] }),
   }).catch(() => { /* best-effort */ });
   try { localStorage.removeItem(SIGNIN_KEY); localStorage.removeItem("dcc:token:v1"); } catch { /* ok */ }
   void initAccountUi();
 });
 void initAccountUi();
 
-/** The CAREER panel: personal bests + recent seasons, from the local ledger. */
+/**
+ * The CAREER panel: personal bests + recent EPISODES, from the local ledger.
+ *
+ * "Season" is load-bearing in a competitive layer and it was doing three jobs:
+ * the 6-8 week ladder period, one run, and this list. It now means exactly one
+ * thing - the ladder period. A single run is an EPISODE, which fits the game
+ * show fiction better than "season" ever did anyway.
+ */
 function renderCareer(): void {
   const panel = document.getElementById("m-career")!;
   const history = loadHistory();
@@ -707,7 +850,7 @@ function renderCareer(): void {
   }
   panel.style.display = "";
   document.getElementById("m-career-sub")!.textContent =
-    `${bests.runs} season${bests.runs === 1 ? "" : "s"} · ${bests.wins} escape${bests.wins === 1 ? "" : "s"}`;
+    `${bests.runs} episode${bests.runs === 1 ? "" : "s"} · ${bests.wins} escape${bests.wins === 1 ? "" : "s"}`;
   document.getElementById("m-career-bests")!.innerHTML =
     `<div class="best"><b>${bests.bestFloor}</b><small>BEST FLOOR</small></div>` +
     `<div class="best"><b>${bests.fastestClearSec !== null ? fmt(bests.fastestClearSec) : "—"}</b><small>FASTEST CLEAR</small></div>` +
@@ -1502,8 +1645,12 @@ function chooseDraft(idx: number): void {
   if (net) {
     net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
   } else {
-    if (p.pendingRewards.length > 0) chooseReward(state, p.id, idx);
-    else chooseUpgrade(state, p.id, idx);
+
+    // Recorded BESIDE the real call, in the same order, so the replay
+    // reproduces the same world (COMPETITIVE.md MUST-3 host contract).
+    if (p.pendingRewards.length > 0) { recAct("reward", idx); chooseReward(state, p.id, idx); }
+    else { recAct("upgrade", idx); chooseUpgrade(state, p.id, idx); }
+    draftsClaimed++;
     flushFeedback(state);
     persistRun(state);
   }
@@ -1589,8 +1736,10 @@ invBag.addEventListener("click", (e) => {
   if (!card || card.dataset.idx === undefined) return;
   const idx = Number(card.dataset.idx);
   audio.play("equip");
+
   if (net) net.equip(idx);
   else {
+    recAct("equip", idx);
     equipFromInventory(state, me(state).id, idx);
     persistRun(state);
   }
@@ -1672,6 +1821,59 @@ function discoverTeaserHtml(s: GameState): string {
   );
 }
 
+/**
+ * ROLE + TAGS, on the card. The registry now carries a single machine-checked
+ * `role` per ability and a tag set the glyph layer routes on — and both are
+ * things a player is expected to reason about (roles are how you notice your
+ * loadout is four `beat` abilities; tags are how you predict where a stone
+ * will light up). Neither was on screen. They are now.
+ */
+function abilityChipsHtml(id: AbilityId): string {
+  const role = ABILITY_INFO[id].role;
+  // A tag that repeats the role is noise: Bullet Time printing
+  // "ULTIMATE · BUFF · ULTIMATE" makes the player look twice to learn nothing.
+  const tags = ABILITY_TAGS[id].filter((t) => t !== "any" && t !== role);
+  return `<div class="achips"><span class="achip role">${role}</span>` +
+    tags.map((t) => `<span class="achip tag">${t}</span>`).join("") + `</div>`;
+}
+
+/**
+ * THE COMPOSED READ (pillar 2's actual test): one sentence that states what
+ * this ability does RIGHT NOW — base verb, the forks you took, the live
+ * numbers off the character sheet, and the glyphs seated in its slot. A kit
+ * that cannot be said in one breath after modification has failed the pillar,
+ * so this line is where that failure would be visible, and it is generated
+ * from state rather than authored per ability precisely so it cannot lie.
+ */
+function composedText(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  const row = buildCharacterSheet(s, p).offense.find((r) => r.id === id);
+  const parts: string[] = [ABILITY_INFO[id].blurb.toLowerCase().replace(/\.$/, "")];
+  if (row?.hit) {
+    parts.push(`${row.hit.min}–${row.hit.max} per hit every ${row.hit.cooldown.toFixed(1)}s`);
+  } else if (row?.note) {
+    parts.push(row.note.toLowerCase().replace(/\.$/, ""));
+  }
+  // Only nodes actually TAKEN, with rank when it is above one — the point is
+  // "what is my build", not "what does the tree contain".
+  const taken = UPGRADES.filter((u) => u.ability === id && rank(p, u.id) > 0)
+    .map((u) => (rank(p, u.id) > 1 ? `${u.title} ${rank(p, u.id)}` : u.title));
+  if (taken.length > 0) parts.push(taken.join(", "));
+  const slotIdx = slotIndexOf(p, id);
+  if (slotIdx >= 0) {
+    const live = glyphsFor(p, id).map((gid) => GLYPH_INFO[gid].name);
+    if (live.length > 0) parts.push(`running ${live.join(" + ")}`);
+  }
+  return parts.join(" · ");
+}
+
+/** Which socket row an ability's glyphs live on (-1 = benched, no sockets). */
+function slotIndexOf(p: Player, id: AbilityId): number {
+  const i = p.abilities.slots.indexOf(id);
+  if (i >= 0) return i;
+  return p.abilities.ultimate === id ? ULT_SLOT : -1;
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -1706,8 +1908,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
   }
   // MODIFIERS (V2 §3): the glyphs this ability is actually running, read off
   // the slot it occupies. A benched ability says so — sockets are the slot's.
-  const slotIdx = p.abilities.slots.indexOf(id) >= 0
-    ? p.abilities.slots.indexOf(id) : p.abilities.ultimate === id ? ULT_SLOT : -1;
+  const slotIdx = slotIndexOf(p, id);
   let mods = "";
   if (slotIdx >= 0) {
     const live = glyphsFor(p, id);
@@ -1731,11 +1932,143 @@ function abilityCard(s: GameState, id: AbilityId): string {
     `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
     `<span class="awhere ${whereCls}">${where}</span>` +
     `</div>` +
+    abilityChipsHtml(id) +
+    `<div class="acomposed"><span class="clbl">AS BUILT</span>${esc(composedText(s, id))}</div>` +
     mods +
     (rows ? `<div class="nrows">${rows}</div>` : "") +
     controls +
     `</div>`
   );
+}
+
+// ---- THE CONSTELLATION, drawn (ABILITIES-V2 §4.3) ------------------------
+// The list view answers "what does this node give me". It cannot answer "is
+// this tree a real decision", because a flat list renders an EXCLUSIVE FORK
+// and a free rider as the same kind of row. §4.3 rebuilt all sixteen graphs
+// around one shape — ENTRY, then FORK xor FORK, then a RIDER, then a CAPSTONE
+// — and that shape is the product. So it gets drawn: `pos` has been carried on
+// every UpgradeDef since the tree shipped, waiting for exactly this.
+//
+// Nothing here decides anything. The sim owns rank/nodeOpen/excludes; this is
+// a projection of them, which is why a fork can never draw as open on a card
+// where the sim would refuse the draft.
+type NodeState = "taken" | "open" | "forked" | "needs";
+
+function nodeStateOf(p: Player, u: UpgradeDef): NodeState {
+  if (rank(p, u.id) > 0) return "taken";
+  if ((u.excludes ?? []).some((x) => rank(p, x) > 0)) return "forked";
+  return nodeOpen(p, u) ? "open" : "needs";
+}
+
+/** Rank pips, reused by both views so a node reads identically in each. */
+function nodePipsHtml(p: Player, u: UpgradeDef): string {
+  const r = rank(p, u.id);
+  if (u.capstone) return `<i class="pip cap${r > 0 ? " on" : ""}"></i>`;
+  return `<i class="pip on"></i>`.repeat(Math.min(r, u.maxRank)) +
+    `<i class="pip over"></i>`.repeat(Math.max(0, r - u.maxRank)) +
+    `<i class="pip"></i>`.repeat(Math.max(0, u.maxRank - r));
+}
+
+/** One ability's star chart: SVG edges under absolutely-placed node tiles, so
+ * the lines scale with the card and the text stays crisp at any width. */
+function constellationCardHtml(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  const info = ABILITY_INFO[id];
+  const nodes = UPGRADES.filter((u) => u.ability === id);
+  if (nodes.length === 0) return "";
+  const byId = new Map(nodes.map((u) => [u.id, u]));
+  let edges = "";
+  for (const u of nodes) {
+    for (const reqId of u.requires ?? []) {
+      const from = byId.get(reqId);
+      if (!from) continue;
+      // An edge is LIVE once its parent is taken, and DEAD once the fork it
+      // feeds has been decided the other way — the road not taken stays on
+      // the chart, greyed, because knowing what you gave up is the decision.
+      const live = rank(p, reqId) > 0;
+      const dead = (u.excludes ?? []).some((x) => rank(p, x) > 0);
+      edges += `<line x1="${from.pos.x}" y1="${from.pos.y}" x2="${u.pos.x}" y2="${u.pos.y}" ` +
+        `class="cedge${dead ? " dead" : live ? " live" : ""}"/>`;
+    }
+  }
+  const marks: string[] = [];
+  const seen = new Set<string>();
+  for (const u of nodes) {
+    for (const x of u.excludes ?? []) {
+      const key = [u.id, x].sort().join("|");
+      if (seen.has(key) || !byId.has(x)) continue;
+      seen.add(key);
+      const o = byId.get(x)!;
+      const decided = rank(p, u.id) > 0 || rank(p, x) > 0;
+      edges += `<line x1="${u.pos.x}" y1="${u.pos.y}" x2="${o.pos.x}" y2="${o.pos.y}" ` +
+        `class="cxbar${decided ? " decided" : ""}"/>`;
+      marks.push(`<div class="cxor${decided ? " decided" : ""}" ` +
+        `style="left:${(u.pos.x + o.pos.x) / 2}%;top:${(u.pos.y + o.pos.y) / 2}%">` +
+        `${decided ? "LOCKED IN" : "PICK ONE"}</div>`);
+    }
+  }
+  const tiles = nodes.map((u) => {
+    const st = nodeStateOf(p, u);
+    const r = rank(p, u.id);
+    const why = st === "forked"
+      ? `fork closed — you took ${(u.excludes ?? []).filter((x) => rank(p, x) > 0)
+        .map((x) => upgradeDef(x)!.title).join(", ")}`
+      : st === "needs"
+        ? `needs ${(u.requires ?? []).filter((x) => rank(p, x) === 0)
+          .map((x) => upgradeDef(x)!.title).join(", ")}`
+        : u.desc(Math.max(1, r));
+    return `<div class="cnode ${st}${u.capstone ? " cap" : ""}" ` +
+      `style="left:${u.pos.x}%;top:${u.pos.y}%" title="${esc(`${u.title} — ${why}`)}">` +
+      `<i class="cgem"></i><span class="cname">${u.title}</span>` +
+      `<span class="npips">${nodePipsHtml(p, u)}</span></div>`;
+  }).join("");
+  const where = whereIs(p, id);
+  return (
+    `<div class="ccard${info.tier === "ultimate" ? " ult" : ""}">` +
+    `<div class="ahead">` +
+    `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+    `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb}</div></div>` +
+    `<span class="awhere ${where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : ""}">${where}</span>` +
+    `</div>` +
+    abilityChipsHtml(id) +
+    `<div class="cgraph">` +
+    `<svg class="cedges" viewBox="0 0 100 100" preserveAspectRatio="none">${edges}</svg>` +
+    tiles + marks.join("") +
+    `</div>` +
+    `<div class="acomposed"><span class="clbl">AS BUILT</span>${esc(composedText(s, id))}</div>` +
+    `</div>`
+  );
+}
+
+/** LIST vs CONSTELLATION, remembered per browser. Two views of one truth:
+ * the list is for reading magnitudes, the chart is for reading SHAPE. */
+type AbilView = "list" | "graph";
+let abilView: AbilView = ((): AbilView => {
+  try { return localStorage.getItem("dcc.abilView") === "graph" ? "graph" : "list"; } catch { return "list"; }
+})();
+
+function setAbilView(v: AbilView): void {
+  abilView = v;
+  try { localStorage.setItem("dcc.abilView", v); } catch { /* private mode */ }
+  for (const el of document.querySelectorAll(".amode")) {
+    el.classList.toggle("on", (el as HTMLElement).dataset.view === v);
+  }
+  if (abilOpen) renderAbilities(state);
+  if (document.getElementById("saferoom")!.style.display !== "none") renderAbilPage(state);
+}
+
+/** The known roster in either view, plus the undiscovered teaser. */
+function abilBodyHtml(s: GameState): string {
+  const p = me(s);
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  const body = abilView === "graph"
+    ? known.map((id) => constellationCardHtml(s, id)).join("")
+    : known.map((id) => abilityCard(s, id)).join("");
+  return body + discoverTeaserHtml(s);
+}
+
+for (const el of document.querySelectorAll(".amode")) {
+  el.addEventListener("click", () => setAbilView((el as HTMLElement).dataset.view as AbilView));
 }
 
 // ---- Glyph socketing: click a bench glyph, then click a lit socket. Clicking
@@ -1760,12 +2093,20 @@ function handleGlyphClick(e: Event): boolean {
     const id = heldGlyph;
     audio.play("equip");
     if (net) net.socket(slotIdx, socketIdx, id);
-    else { socketGlyph(state, p.id, slotIdx, socketIdx, id); flushFeedback(state); persistRun(state); }
+
+    else {
+      recAct("socket", slotIdx, socketIdx, id);
+      socketGlyph(state, p.id, slotIdx, socketIdx, id); flushFeedback(state); persistRun(state);
+    }
     heldGlyph = null;
   } else if (sock.dataset.glyph) {
     audio.play("equip");
     if (net) net.socket(slotIdx, socketIdx, null);
-    else { unsocketGlyph(state, p.id, slotIdx, socketIdx); flushFeedback(state); persistRun(state); }
+
+    else {
+      recAct("unsocket", slotIdx, socketIdx);
+      unsocketGlyph(state, p.id, slotIdx, socketIdx); flushFeedback(state); persistRun(state);
+    }
   }
   renderSafeRoom(state);
   return true;
@@ -1782,12 +2123,13 @@ function handleSlotClick(e: Event, rerender: (s: GameState) => void): void {
   if (net) {
     net.slot(slot, ability);
   } else {
-    if (slot === "ult") setUltimate(state, p.id, ability);
-    else if (slot === "unult") setUltimate(state, p.id, null);
+
+    if (slot === "ult") { recAct("ult", ability); setUltimate(state, p.id, ability); }
+    else if (slot === "unult") { recAct("ult", null); setUltimate(state, p.id, null); }
     else if (slot === "bench") {
       const idx = p.abilities.slots.indexOf(ability);
-      if (idx >= 0) slotAbility(state, p.id, idx, null);
-    } else slotAbility(state, p.id, Number(slot), ability);
+      if (idx >= 0) { recAct("slot", idx, null); slotAbility(state, p.id, idx, null); }
+    } else { recAct("slot", Number(slot), ability); slotAbility(state, p.id, Number(slot), ability); }
     flushFeedback(state);
     persistRun(state);
   }
@@ -1801,9 +2143,8 @@ const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
 function renderAbilities(s: GameState): void {
-  const p = me(s);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  abilGrid.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
+  abilGrid.classList.toggle("graphs", abilView === "graph");
+  abilGrid.innerHTML = abilBodyHtml(s);
   document.getElementById("ach-section")!.style.display =
     CONFIG.achievementsEnabled ? "" : "none";
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
@@ -2043,8 +2384,11 @@ function applyBindings(): void {
   document.getElementById("tm-crawler")!.innerHTML =
     row("inventory", "Inventory") +
     row("abilities", "Loadout & Achievements") +
+
     row("character", "Crawler Profile") +
-    row("draft", "Claim Banked Drafts");
+    row("draft", "Claim Banked Drafts") +
+    `<div class="tm-row" data-act="standings"><span>The Standings</span></div>` +
+    `<div class="tm-row" data-act="careerset"><span>Career &amp; Mastery</span></div>`;
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
@@ -2207,8 +2551,11 @@ window.addEventListener("keydown", (e) => {
     renderKeybinds();
     return;
   }
+
   if (k === "escape") {
-    if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
+    if (ladderEl.classList.contains("on") || careerEl.classList.contains("on")) closeSets();
+    else if (consentEl.classList.contains("on")) consentEl.classList.remove("on");
+    else if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
     else if (draftEl.style.display === "flex") dismissDraftModal(); // picks bank behind the badge
     else if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
@@ -2257,11 +2604,14 @@ for (const tb of topBars) {
     const r = (e.target as HTMLElement).closest<HTMLElement>(".tm-row");
     if (!r?.dataset.act) return;
     closeTopMenus();
+
     if (r.dataset.act === "invite") {
       const ok = await copyText(inviteUrl(joinCode!, rivalsMode));
       pushLogLine(ok ? "Invite link copied — paste it to your crawlers." : "Copy failed — the code is " + joinCode);
       return;
     }
+    if (r.dataset.act === "standings") { await openLadder(); return; }
+    if (r.dataset.act === "careerset") { await openCareerSet(); return; }
     fireAction(r.dataset.act as BindableAction);
   });
 }
@@ -2941,19 +3291,72 @@ function socketRowHtml(p: Player, slotIdx: number, interactive: boolean): string
   return `<div class="socks">${views.map((v, i) => socketHtml(v, slotIdx, i, interactive)).join("")}</div>`;
 }
 
+/**
+ * Which of your five slots this glyph would actually DO something in, said as
+ * slot numbers. With ten stones the bench was a list you could read; at
+ * twenty-five it is a wall, and "where does this go" stops being obvious —
+ * so the panel answers it per chip instead of making the player socket a
+ * stone into each slot in turn to find out. The answer comes from the sim's
+ * own socketLegal + glyphMatches, so it can never disagree with the click.
+ */
+function glyphFitsHtml(p: Player, id: GlyphId): string {
+  const fits: string[] = [];
+  for (let slot = 0; slot <= ULT_SLOT; slot++) {
+    const ability = abilityInSlot(p, slot);
+    if (!ability || !glyphMatches(id, ability)) continue;
+    // Any open socket on that row will take it (family exclusivity is per
+    // socket, so ask the sim about each one rather than guessing).
+    const views = socketViews(p, slot);
+    const ok = views.some((v, i) => !v.locked && !v.glyph && socketLegal(p, slot, i, id));
+    fits.push(`<span class="gfit${ok ? " open" : " full"}">${slot === ULT_SLOT ? "ULT" : slot + 1}</span>`);
+  }
+  if (fits.length === 0) return `<div class="gfits none">dormant in every slot you have</div>`;
+  // An "any"-tagged stone lists all five, which wraps the chip to two rows and
+  // breaks the grid for no information. Say it once instead.
+  if (fits.length > ULT_SLOT) return `<div class="gfits">fits <span class="gfit open">EVERY SLOT</span></div>`;
+  return `<div class="gfits">fits ${fits.join("")}</div>`;
+}
+
 /** The glyph bench: everything found and not currently socketed. */
 function glyphBenchHtml(p: Player, interactive: boolean): string {
   const bench = (p.glyphs?.bench ?? []) as GlyphId[];
+  const found = new Set<GlyphId>([
+    ...bench,
+    ...(p.glyphs?.slots ?? []).flat().filter(Boolean) as GlyphId[],
+    ...(p.glyphs?.ultimate ?? []).filter(Boolean) as GlyphId[],
+  ]);
+  const seen = `<span class="gcount">${found.size} / ${GLYPH_IDS.length} STONES SEEN</span>`;
   if (bench.length === 0) {
-    return `<div class="gbench empty">No loose glyphs. They drop in the dungeon, ` +
+    return seen + `<div class="gbench empty">No loose glyphs. They drop in the dungeon, ` +
       `fall out of band bosses, and the System sells a sealed cache when it feels generous.</div>`;
   }
-  return `<div class="gbench">` + bench.map((id, i) =>
-    `<div class="gchip${heldGlyph === id ? " held" : ""}${interactive ? " live" : ""}" data-bench="${i}" data-glyph="${id}">` +
-    `<div class="gbox">${glyphIconHtml(id)}</div>` +
-    `<div class="gname">${GLYPH_INFO[id].name}</div>` +
-    `<div class="gtags">${glyphTagLine(id)}</div>` +
-    `</div>`).join("") + `</div>`;
+  // FITTING FIRST. The bench is sorted by whether a stone has anywhere to go
+  // right now, then by family (so the two lenses, the two range stones and
+  // the three tempo stones land next to the choice they are competing for),
+  // then by name. Sorting a copy — bench order is save data.
+  const fitsAny = (id: GlyphId): boolean => {
+    for (let slot = 0; slot <= ULT_SLOT; slot++) {
+      const a = abilityInSlot(p, slot);
+      if (a && glyphMatches(id, a)) return true;
+    }
+    return false;
+  };
+  const order = bench.map((id, i) => ({ id, i })).sort((a, b) =>
+    Number(fitsAny(b.id)) - Number(fitsAny(a.id)) ||
+    (GLYPH_INFO[a.id].family ?? "~").localeCompare(GLYPH_INFO[b.id].family ?? "~") ||
+    GLYPH_INFO[a.id].name.localeCompare(GLYPH_INFO[b.id].name));
+  return seen + `<div class="gbench">` + order.map(({ id, i }) => {
+    const info = GLYPH_INFO[id];
+    const dead = !fitsAny(id);
+    return `<div class="gchip${heldGlyph === id ? " held" : ""}${interactive ? " live" : ""}` +
+      `${dead ? " dormant" : ""}" data-bench="${i}" data-glyph="${id}">` +
+      `<div class="gbox">${glyphIconHtml(id)}</div>` +
+      `<div class="gname">${info.name}</div>` +
+      `<div class="gtags">${glyphTagLine(id)}</div>` +
+      (info.family ? `<div class="gfam">${info.family} family</div>` : `<div class="gfam none">—</div>`) +
+      glyphFitsHtml(p, id) +
+      `</div>`;
+  }).join("") + `</div>`;
 }
 
 /** The ABILITIES tab: loadout bar (The Five) + glyph bench + upgrade cards. */
@@ -2979,8 +3382,8 @@ function renderAbilPage(s: GameState): void {
   srGlyphs.innerHTML =
     `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
     glyphBenchHtml(p, canSocket);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  srAbil.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
+  srAbil.classList.toggle("graphs", abilView === "graph");
+  srAbil.innerHTML = abilBodyHtml(s);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -3013,6 +3416,8 @@ srAch.addEventListener("click", (e) => {
   audio.play("buy");
   if (net) net.claimAchievement(id);
   else {
+
+    recAct("claim", id);
     claimAchievementLootBox(state, me(state).id, id);
     flushFeedback(state);
     persistRun(state);
@@ -3164,6 +3569,8 @@ srDetail.addEventListener("click", (e) => {
     audio.play("buy");
     if (net) net.buy(id);
     else {
+
+      recAct("buy", id);
       buyCatalogItem(state, me(state).id, id);
       flushFeedback(state);
       persistRun(state);
@@ -3191,6 +3598,8 @@ srDetail.addEventListener("click", (e) => {
     audio.play("buy");
     if (net) net.refit(raw);
     else {
+
+      recAct("refit", ref);
       refitItem(state, me(state).id, ref);
       flushFeedback(state);
       persistRun(state);
@@ -3207,6 +3616,8 @@ srDetail.addEventListener("click", (e) => {
     audio.play("buy");
     if (net) net.dismantle(idx);
     else {
+
+      recAct("dismantle", idx);
       dismantleItem(state, me(state).id, idx);
       flushFeedback(state);
       persistRun(state);
@@ -3221,6 +3632,8 @@ srDetail.addEventListener("click", (e) => {
     const idx = Number(sellBtn.dataset.sell);
     if (net) net.sell(idx);
     else {
+
+      recAct("sell", idx);
       sellItem(state, me(state).id, idx);
       flushFeedback(state);
       persistRun(state);
@@ -3235,6 +3648,8 @@ srDetail.addEventListener("click", (e) => {
     audio.play("equip");
     if (net) net.equip(idx);
     else {
+
+      recAct("equip", idx);
       equipFromInventory(state, me(state).id, idx);
       flushFeedback(state);
       persistRun(state);
@@ -3270,6 +3685,8 @@ document.getElementById("sr-sellall")!.addEventListener("click", () => {
   audio.play("buy");
   if (net) net.sellAll();
   else {
+
+    recAct("sellAll");
     sellAllItems(state, me(state).id);
     flushFeedback(state);
     persistRun(state);
@@ -3396,6 +3813,8 @@ srDescend.addEventListener("click", () => {
     net.ready(); // modal stays until the whole party is ready (snapshot clears it)
     return;
   }
+
+  recAct("ready");
   setReady(state, me(state).id);
   flushFeedback(state);
   persistRun(state);
@@ -3416,6 +3835,22 @@ const CD_BASE: Partial<Record<AbilityId, number>> = {
   cataclysm: CONFIG.ultCataclysmCooldown, bullettime: CONFIG.ultBulletTimeCooldown,
 };
 
+/**
+ * Hotbar chip labels. The default is the name's LAST word (which is why the
+ * bar reads "Barrage", "Cables", "Double" and that is right), but ABILITIES-V2
+ * renamed two ultimates into last words that carry no meaning on their own:
+ * Fault Line became "Line" and Bullet Time became "Time". The chip is ~58px,
+ * so the fix is a distinctive short word per exception, not a wider chip.
+ */
+const CHIP_LABEL: Partial<Record<AbilityId, string>> = {
+  cataclysm: "Fault",
+  bullettime: "Bullet",
+  injunction: "Stay", // what the ability IS; "Injunction" does not fit the chip
+};
+
+const chipLabel = (id: AbilityId): string =>
+  CHIP_LABEL[id] ?? ABILITY_INFO[id].name.split(" ").pop()!;
+
 function updateSkills(s: GameState): void {
   const p = me(s);
   const slotActions = ["slot1", "slot2", "slot3", "slot4", "ultimate"] as const;
@@ -3427,8 +3862,13 @@ function updateSkills(s: GameState): void {
   // when firmware changes, exactly as it does when the loadout does.
   const glyphKey = [...(p.glyphs?.slots ?? []).map((a) => a.join(",")), (p.glyphs?.ultimate ?? []).join(",")]
     .join("|") + `|L${glyphSocketCount(p.level)}`;
+  // Drafted RANKS ride the key too, now that the chip's tooltip states the
+  // composed behavior: a bar that never rebuilds after a draft would keep
+  // describing the ability you had two levels ago.
+  let rankSum = 0;
+  for (const v of Object.values(p.abilities.ranks)) rankSum += v;
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}|${glyphKey}`;
+    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}|${glyphKey}|r${rankSum}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     // Charge pip rows (r2): banked charges read as gold gem pips seated in
@@ -3447,7 +3887,7 @@ function updateSkills(s: GameState): void {
               ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
               : e.ability === "overcharge" && p.overcharged
                 ? "CHARGED" // banked and waiting for the next attack
-                : ABILITY_INFO[e.ability].name.split(" ").pop())
+                : chipLabel(e.ability))
           : "";
         const pips = e.ability === "dash" ? pipRow(p.dashCharges, CONFIG.dashCharges) : "";
         // GLYPH PIPS (V2 §3): tiny seated gems on the chip's top edge, one per
@@ -3465,7 +3905,13 @@ function updateSkills(s: GameState): void {
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${gpips}${icon}` +
+        // The COMPOSED read, on the chip itself. A player mid-run should not
+        // have to open a panel to answer "what is this key doing right now,
+        // with the ranks I drafted and the stones I seated".
+        const tip = e.ability
+          ? ` title="${esc(`${ABILITY_INFO[e.ability].name} — ${composedText(s, e.ability)}`)}"`
+          : "";
+        return `<div class="${cls}" data-i="${i}"${tip}><span class="key">${bind}</span>${gpips}${icon}` +
           `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +
@@ -3748,6 +4194,23 @@ function drawMinimap(s: GameState): void {
     mmCtx.arc(X(pl.pos.x), Y(pl.pos.y), 2.6, 0, Math.PI * 2);
     mmCtx.fill();
     mmCtx.stroke();
+  }
+
+  // THE GHOST on the chart: a hollow desaturated ring where the rival was at
+  // this tick, drawn only while they are on YOUR floor. It is a trajectory,
+  // never a shared world - no collision, no loot, no damage.
+  if (ghost) {
+    const at = social.ghostAt(ghost, runTicks);
+    if (at && at.floor === s.floor) {
+      mmCtx.save();
+      mmCtx.strokeStyle = "rgba(232,221,200,0.75)";
+      mmCtx.setLineDash([2, 2]);
+      mmCtx.lineWidth = 1.4;
+      mmCtx.beginPath();
+      mmCtx.arc(X(at.x), Y(at.y), 3.4, 0, Math.PI * 2);
+      mmCtx.stroke();
+      mmCtx.restore();
+    }
   }
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
@@ -4781,7 +5244,47 @@ function dismissTutorialOnInput(): void {
     tutorialDismissActive();
   }
 }
+
 window.addEventListener("keydown", dismissTutorialOnInput);
+
+// HOLD TAB for the scoreboard and the splits. Binding the detail to a held key
+// is not a compromise - it is the gesture LoL trained everyone to make, and it
+// means the numbers are THERE for the player who argues about numbers and
+// ABSENT for the player who just wants to press R (COMPETITIVE.md 6.1).
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || recapEl.style.display !== "flex") return;
+  e.preventDefault();
+  recapEl.classList.add("tabbed");
+});
+window.addEventListener("keyup", (e) => {
+  if (e.key === "Tab") recapEl.classList.remove("tabbed");
+});
+document.getElementById("m-standings")!.addEventListener("click", () => { void openLadder(); });
+document.getElementById("m-careerset")!.addEventListener("click", () => { void openCareerSet(); });
+
+// ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
+// characters. It re-dresses the DAILY tile into the challenge that was sent,
+// and the seed it pins is the same dungeon the challenger actually crawled.
+{
+  const code = params.get("c");
+  const ch = code ? social.decodeChallenge(code) : null;
+  if (ch) {
+    const tile = document.getElementById("m-daily")!;
+    const feat = ch.won ? `cleared it in ${social.mmss(ch.timeSec)}`
+      : ch.floor > 0 ? `reached floor ${ch.floor}` : "laid down a run";
+    document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
+    document.getElementById("m-daily-sub")!.textContent =
+      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${ch.kills} kills. Same seed. Beat it.`;
+    tile.addEventListener("click", () => { forcedSeed = ch.seed; }, { capture: true });
+    if (ch.run) {
+      // The code carried a sealed run id: the challenge comes with a ghost.
+      void (async () => {
+        const got = await competitive.proof(ch.run!).catch(() => null);
+        if (got?.bytes && got.playable) await armGhost(got.bytes, ch.by.toUpperCase(), ch.run);
+      })();
+    }
+  }
+}
 window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
 
 /** Slide the active card out NOW (floor transitions, boss intros). Queued
@@ -4798,10 +5301,221 @@ function dismissTutorialForTransition(): void {
 }
 
 // ---- Run recap (backlog #12): the season report card ----
-// Shown once per status edge: won = SEASON FINALE, wipe = IN MEMORIAM. All the
+// Shown once per status edge: won = THE FINALE, wipe = IN MEMORIAM. All the
 // data already lives on Player/GameState; this only formats it.
 const recapEl = document.getElementById("recap")!;
 let recapFor: GameState["status"] | null = null;
+
+// THE VERDICT (COMPETITIVE.md 6). One job: convert the end of a run into the
+// start of the next one, in under eight seconds of reading. Everything on the
+// default face is (a) a grade, (b) the thing that killed you, or (c) a button;
+// the numbers people argue about live behind a held TAB.
+let runGrade: social.RunGrade | null = null;
+let todaysBoard: social.BoardRun[] | null = null;
+let earnedOpen = false;
+/** What the server said about this run, resolving live under the player. */
+let submitResult:
+  | { state: string; runId?: string; reason?: string; attemptNo?: number; scoresCp?: boolean }
+  | null = null;
+
+/** Where this crawler stands on the season ladder. Fetched at run end and
+ *  again the moment a seal lands, so the CP line on the verdict screen can show
+ *  what THIS run actually moved instead of a stale total. */
+let myStanding: social.Standing | null = null;
+let cpBeforeRun: number | null = null;
+
+async function loadStanding(): Promise<void> {
+  try {
+    const token = await accountToken();
+    const prof = (await competitive.profile(token)) as social.ProfileView;
+    myStanding = prof.standing ?? null;
+  } catch {
+    myStanding = null; // offline: the line says so rather than inventing a rank
+  }
+}
+
+/**
+ * IS THIS RUN EVEN RANKABLE? The verifier refuses any proof whose start was not
+ * FRESH (competitiveApi: "a test-mode start is never eligible for a board"), so
+ * a screen that dresses a test-chamber drop-in in ladder furniture is claiming
+ * an authority the server would decline. The second clause catches the same
+ * state from the inside: a run standing on floor 13 that only ever ENTERED one
+ * floor did not walk twelve of them, and no clock it prints is a real time.
+ */
+function runIsRankable(s: GameState): boolean {
+  if (testMode) return false;
+  const entered = floorEntryTicks.filter((t) => t >= 0).length;
+  return entered >= s.floor;
+}
+
+/** Today contract board, cached per run end. It feeds THREE things: the grade
+ *  percentile, the scoreboard comparison column, and RACE THE LEADER. */
+async function loadTodaysBoard(): Promise<void> {
+  try {
+    const page = (await competitive.board("deepest", { event: "daily", limit: 50 })) as social.BoardPage;
+    todaysBoard = page.entries;
+  } catch {
+    todaysBoard = null; // offline: the grade falls back and SAYS it fell back
+  }
+}
+
+/** The four grade meters. Each names its own raw number, so the letter is
+ *  auditable rather than an oracle. */
+function verdictPartsHtml(g: social.RunGrade): string {
+  const weakest = [...g.parts].sort((a, b) => a.score - b.score)[0];
+  return g.parts.map((part) =>
+    `<div class="vpart${part === weakest && part.score < 50 ? " weak" : ""}">` +
+    `<div class="pk">${part.key}<i>${part.score}</i></div>` +
+    `<div class="pbar"><i style="width:${Math.max(2, part.score)}%"></i></div>` +
+    `<div class="pd" title="${esc(part.detail)}">${esc(part.detail)}</div></div>`,
+  ).join("");
+}
+
+/** THE SCOREBOARD: YOU / THE GHOST YOU RACED / TODAY'S #1, sharing rows.
+ *  Comparison is what makes a number mean anything, and the old recap had
+ *  none of it. */
+function scoreboardHtml(s: GameState): string {
+  const p = me(s);
+  const leader = (todaysBoard ?? [])[0] ?? null;
+  const num = (v: number): string | null => (v > 0 ? Math.round(v).toLocaleString() : null);
+  const cols: { head: string; cells: (string | null)[] }[] = [
+    {
+      head: "YOU",
+      cells: [
+        s.status === "won" ? "CLEAR" : `floor ${s.floor}`,
+        fmt(s.elapsed), String(p.kills), Math.round(p.damageTaken).toLocaleString(),
+        Math.round(p.damageDealt).toLocaleString(), p.goldSpent.toLocaleString(), String(p.level),
+      ],
+    },
+  ];
+  // THE GHOST COLUMN ONLY EXISTS WHEN THERE IS A GHOST. A column of seven
+  // em-dashes is not a comparison, it is a promise the screen did not keep -
+  // and it makes a three-column scoreboard ship as two.
+  if (ghost) {
+    cols.push({
+      head: ghost.label.toUpperCase(),
+      cells: [
+        `floor ${ghost.track.floor[ghost.track.floor.length - 1] ?? 1}`,
+        fmt(ghost.ticks / 60), null, null, null, null, null,
+      ],
+    });
+  }
+  // ...and the leader column is filled from the VERIFIER'S OWN NUMBERS. Damage
+  // dealt, damage taken and gold spent are derived during the replay and stored
+  // on the row; printing a dash next to a figure the server demonstrably knows
+  // is how a scoreboard reads unfinished.
+  cols.push({
+    head: leader ? `#1 — ${leader.name.toUpperCase()}` : "TODAY'S #1",
+    cells: leader
+      ? [
+          leader.won ? "CLEAR" : `floor ${leader.floor}`, social.ticksClock(leader.ticks),
+          String(leader.kills), num(leader.damageTaken), num(leader.damageDealt),
+          num(leader.goldSpent), String(leader.level),
+        ]
+      : [null, null, null, null, null, null, null],
+  });
+  const rows = ["RESULT", "TIME", "KILLS", "DAMAGE TAKEN", "DAMAGE DEALT", "GOLD SPENT", "LEVEL"];
+  let html = `<tr><th>&nbsp;</th>${cols.map((c) => `<th>${esc(c.head)}</th>`).join("")}</tr>`;
+  rows.forEach((label, i) => {
+    html += `<tr><td>${label}</td>` + cols.map((c, ci) => {
+      const v = c.cells[i];
+      if (v === null) return `<td class="none">—</td>`;
+      return `<td class="${ci === 0 ? "you" : ""}${v === "CLEAR" ? " win" : ""}">${esc(v)}</td>`;
+    }).join("") + `</tr>`;
+  });
+  return html;
+}
+
+/** THE SPLITS: your time per band against your PB and the board leader, with
+ *  the band where you lost it named. This is what gives the next run a plan
+ *  instead of a vibe. */
+
+function splitsHtml(): string {
+  const ticks = social.bandSplitsFrom(floorEntryTicks, runTicks);
+  // Compare against the bests as they stood BEFORE this run banked its own,
+  // or every split proudly reports a delta of zero against itself.
+  const pb = recapPrevBests;
+  const splits: social.BandSplit[] = ticks.map((t, i) => ({
+    band: i, name: social.bandName(i), ticks: t,
+    pbTicks: pb[i] ?? null, leaderTicks: null,
+  }));
+  const lost = social.worstBand(splits);
+  const scale = Math.max(60, ...splits.map((sp) => Math.max(sp.ticks, sp.pbTicks ?? 0)));
+  return splits.map((sp) => {
+    if (sp.ticks <= 0) {
+      return `<div class="splitrow empty"><span class="sname">${sp.name}</span>` +
+        `<span class="strack"></span><span class="stime">—</span></div>`;
+    }
+
+    const pct = (sp.ticks / scale) * 100;
+    const cleared = bandCleared(sp.band);
+    const pbMark = sp.pbTicks ? `<i class="spb" style="left:${(sp.pbTicks / scale) * 100}%"></i>` : "";
+    // A partial band gets no delta: comparing an unfinished split against a
+    // finished one is the same lie as ranking it.
+    const delta = cleared && sp.pbTicks
+      ? ` <span style="color:${sp.ticks <= sp.pbTicks ? "#6da356" : "#c0392f"}">` +
+        `${social.signedTime((sp.ticks - sp.pbTicks) / 60)}</span>`
+      : cleared ? "" : ` <span style="color:#6f6757">partial</span>`;
+    return `<div class="splitrow${sp.band === lost ? " lost" : ""}">` +
+      `<span class="sname">${sp.name}${sp.band === lost ? " — LOST HERE" : ""}</span>` +
+      `<span class="strack"><i class="sfill" style="width:${Math.min(99, pct)}%"></i>${pbMark}</span>` +
+      `<span class="stime">${social.mmss(sp.ticks / 60)}${delta}</span></div>`;
+  }).join("");
+}
+
+/**
+ * Did this run actually CLEAR a band, or did it just die inside one? The band
+ * boards are "fastest clear of the band three floors", and a run that dies
+ * eight seconds into floor 1 has not set an eight-second UNDERCROFT split - it
+ * has an unfinished one. Banking that as a personal best puts a lie at the top
+ * of a board, so a partial band is shown and never ranked.
+ */
+function bandCleared(band: number): boolean {
+  if (state.status === "won" && band === FLOOR_BANDS.length - 1) return true;
+  const nextBandFirstFloor = (band + 1) * 3 + 1;
+  if (nextBandFirstFloor > CONFIG.finalFloor) return state.status === "won";
+  return (floorEntryTicks[nextBandFirstFloor - 1] ?? -1) >= 0;
+}
+
+const BAND_BEST_KEY = "dcc:bandbests:v1";
+
+/**
+ * THE BAND LEDGER IS A CACHE, NOT AN AUTHORITY (blocker: two sources of truth).
+ *
+ * This browser used to hold its own band personal bests under its own
+ * completeness rule, while the band BOARD read the server's run_bands under a
+ * different one - so the career panel and the board could print different
+ * records for the same crawler and the same band, and both looked official.
+ * The server's verified rows are now the record; this key only exists so an
+ * offline crawler still sees something, and the server response overwrites it
+ * on every load.
+ */
+function storeBandBests(ticks: readonly (number | null)[]): void {
+  try { localStorage.setItem(BAND_BEST_KEY, JSON.stringify(ticks)); } catch { /* cache is a bonus */ }
+}
+
+function loadBandBests(): (number | null)[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(BAND_BEST_KEY) ?? "null") as (number | null)[] | null;
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+/** Returns the bands that just became personal bests - the headline earning. */
+function commitBandBests(): number[] {
+  const ticks = social.bandSplitsFrom(floorEntryTicks, runTicks);
+  const best = loadBandBests();
+  const beaten: number[] = [];
+
+  ticks.forEach((t, i) => {
+    if (t <= 0 || !bandCleared(i)) return;
+    const cur = best[i];
+    if (cur == null || t < cur) { beaten.push(i); best[i] = t; }
+  });
+  storeBandBests(best); // an offline cache; the server response overwrites it
+  return beaten;
+}
 
 function renderRecap(s: GameState): void {
   const p = me(s);
@@ -4825,8 +5539,8 @@ function renderRecap(s: GameState): void {
     title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
     title.className = won ? "win" : "wipe";
     document.getElementById("recap-sub")!.textContent = won
-      ? `SEASON FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
-      : `Season canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+      ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
+      : `Episode canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
   }
   const stats: [string, string][] = [
     [String(p.level), "LEVEL"],
@@ -4848,8 +5562,13 @@ function renderRecap(s: GameState): void {
   document.getElementById("recap-ach")!.innerHTML = ach.length
     ? `${uic("star")} ${ach.map(esc).join(` · ${uic("star")} `)}`
     : "None recorded. The System pretends not to judge.";
-  document.getElementById("recap-gear")!.innerHTML =
-    EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("");
+  // Six rows of "no X equipped" is a third of the column spent saying nothing.
+  // One line says the same thing and tells you WHY.
+  const anyGear = EQUIP_SLOTS.some((slot) => p.equipment[slot]);
+  document.getElementById("recap-gear")!.innerHTML = anyGear
+    ? EQUIP_SLOTS.map((slot) => gearRowHtml(slot, p.equipment[slot])).join("")
+    : `<div class="gear-row none rar-common">nothing equipped — ${
+      s.status === "won" ? "you walked out in what you arrived in" : "the run ended before the first drop"}</div>`;
   const held: { id: AbilityId; ult: boolean }[] = [
     ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ({ id, ult: false })),
     ...(p.abilities.ultimate ? [{ id: p.abilities.ultimate, ult: true }] : []),
@@ -4865,27 +5584,289 @@ function renderRecap(s: GameState): void {
         );
       }).join("")
     : `<div class="rabil">bare hands and bad intentions</div>`;
+
   document.getElementById("recap-note")!.textContent = net
     ? "the server hosts the next season"
-    : won ? "season two is contractually obligated" : "";
+    : "";
   document.getElementById("recap-again")!.style.display = net ? "none" : "";
-  // Daily runs mint a challenge link: same day = same seed = same dungeon.
-  document.getElementById("recap-share")!.style.display =
-    !net && runMode.kind === "daily" && runMode.day ? "" : "none";
+
+  // ---- Beat 1: THE GRADE ------------------------------------------------
+  runGrade = social.gradeRun(
+    {
+
+      floor: s.floor, won, elapsedSec: s.elapsed, kills: p.kills, level: p.level,
+      damageTaken: p.damageTaken, draftsClaimed, draftsOffered,
+      floorsCleared: Math.max(0, floorEntryTicks.filter((t) => t >= 0).length - 1),
+    },
+    loadHistory(), todaysBoard, p.maxHp,
+  );
+  // A test-chamber start is HANDED its depth; it did not earn it, and the
+  // verifier would reject the proof for exactly that reason. The tile says so
+  // rather than letting "floor 13" sit next to "no floor cleared".
+  if (!runIsRankable(s)) {
+    const depth = runGrade.parts.find((part) => part.key === "DEPTH");
+    if (depth) depth.detail = `floor ${s.floor} — started here, not walked`;
+  }
+  const medal = document.getElementById("recap-medal")!;
+  medal.className = `vmedal g-${runGrade.letter}`;
+
+  document.getElementById("recap-letter")!.textContent = runGrade.letter;
+  document.getElementById("recap-score")!.textContent = String(runGrade.score);
+  document.getElementById("recap-basis")!.textContent = runGrade.basis;
+  medal.title = runGrade.basis;
+  document.getElementById("recap-line")!.textContent = runGrade.line;
+  document.getElementById("recap-parts")!.innerHTML = verdictPartsHtml(runGrade);
+
+  // ---- Beat 3: THE DEATH, NAMED ----------------------------------------
+  // Straight off Player.lastHitSrc, which the sim records at the
+  // damagePlayerHit funnel. No heuristic, no correlation, no guessing in a
+  // crowd - and the verifier derives the same field when it seals the row.
+  const deathEl = document.getElementById("recap-death")!;
+  const src = p.lastHitSrc ?? null;
+  if (won) {
+    deathEl.className = "death clear";
+    document.getElementById("recap-death-head")!.textContent =
+      `${CONFIG.finalFloor} FLOORS. NOTHING DOWN THERE KEPT YOU.`;
+    document.getElementById("recap-death-ctx")!.textContent =
+      "The dungeon has your measurements now. So does the network.";
+  } else {
+    deathEl.className = "death";
+    const held: AbilityId[] = [
+      ...p.abilities.slots.filter((a): a is AbilityId => a !== null),
+      ...(p.abilities.ultimate ? [p.abilities.ultimate] : []),
+    ];
+    const ready = held.filter((a) => !(p.cd[a] && p.cd[a]! > 0)).map((a) => ABILITY_INFO[a].name);
+    document.getElementById("recap-death-head")!.innerHTML = src
+      ? `${uic("skull")} ${esc(social.deathHeadline(src))}`
+      : `${uic("skull")} THE COLLAPSE TOOK YOU — no killing blow, just the clock.`;
+    document.getElementById("recap-death-ctx")!.textContent = social.deathContext({
+      ready: ready.slice(0, 3),
+      flasks: p.flaskCharges,
+      unclaimedDrafts: p.pendingRewards.length + p.pendingUpgrades.length + p.upgradeDraftsOwed,
+    });
+  }
+
+  // ---- Beat 2 + 4 (behind TAB) -----------------------------------------
+  document.getElementById("recap-scoreboard")!.innerHTML = scoreboardHtml(s);
+  document.getElementById("recap-splits")!.innerHTML = splitsHtml();
+
+  // ---- Beat 5: WHAT YOU EARNED, and the seal resolving live -------------
+  renderLadderLine(s);
+  renderEarned(s);
+  // ---- Beat 6: the buttons that make sense for THIS run -----------------
+  document.getElementById("recap-race")!.style.display =
+    !net && (todaysBoard ?? []).some((r) => social.playability(r, RULES_HASH.slice(0, 7)).ok) ? "" : "none";
+  document.getElementById("recap-share")!.style.display = net ? "none" : "";
 }
 
-/** Show the recap when the run ends; re-arm when a new run starts. */
+/**
+ * THE LP LINE (6 Beat 5). LoL puts your rank, your LP and the LP this game
+ * moved on the post-game screen, permanently, in the default state - because it
+ * is the reason you queue again. Ours lived inside a collapsed [SHOW THE MATH]
+ * drawer AND only rendered for event runs, so an ordinary run showed no ladder
+ * number at all and the screen had no answer to "what did that do for me".
+ *
+ * Now it is one permanent line beside the seal, and it never lies by omission:
+ * a free seed says "+0 CP" out loud, because "the ladder did not move" is
+ * information, and a blank space is not.
+ */
+function renderLadderLine(s: GameState): void {
+  const el = document.getElementById("recap-ladder")!;
+  if (net) { el.innerHTML = ""; el.className = "ladderline"; el.style.display = "none"; return; }
+  el.style.display = "";
+  if (!runIsRankable(s)) {
+    el.className = "notranked";
+    el.innerHTML = `<b>TEST CHAMBER — NOT RANKED.</b> This run started at depth instead of at the door. ` +
+      `The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points ` +
+      `and no board row here — and the grade above is a rehearsal, not a result.`;
+    return;
+  }
+  el.className = "ladderline";
+  const st = myStanding;
+  if (!st) {
+    el.innerHTML = `<span class="lt">UNRANKED</span>` +
+      `<span class="lnote">the ladder is unreachable — your standing is on the server, and it will ` +
+      `still be there when the signal is back</span>`;
+    return;
+  }
+  // TIERS ARE SUPPRESSED BELOW A POPULATION FLOOR, and the reason is printed.
+  // A BRONZE ENTRANT badge on the last-placed player of a four-account season
+  // is a costume; CP and "rank 4 of 4" is the truth and just as motivating.
+  const tier = st.tier
+    ?? (st.placementRemaining > 0 ? `PLACEMENT — ${st.placementRemaining} TO GO` : "UNRANKED");
+  const rank = st.entrants > 0 && st.rank > 0
+    ? `rank ${st.rank} of ${st.entrants} this season`
+    : "no ranked contract scored yet";
+  // WHAT THIS RUN MOVED. CP scores the FIRST ticketed attempt on a contract and
+  // nothing else, so most runs move it by zero - said plainly, with the reason.
+  let delta: string;
+  if (!runEvent) {
+    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">free seed — contract points ` +
+      `come from contracts, and this run still holds its board row and its splits</span>`;
+  } else if (!runEvent.scoresCp) {
+    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">attempt ${runEvent.attemptNo} — ` +
+      `CP scores your FIRST ticketed attempt only; the board row still updates</span>`;
+  } else if (cpBeforeRun !== null && st.cp > cpBeforeRun) {
+    delta = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>` +
+      `<span class="lnote">attempt 1 on this contract — the run the ladder scores</span>`;
+  } else {
+    delta = `<span class="ldelta">CP PENDING</span><span class="lnote">attempt 1 — it lands when the ` +
+      `seal does, because CP only ever moves on a run the server re-executed</span>`;
+  }
+  const floorNote = !st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor
+    ? `<span class="lnote">tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far</span>`
+    : "";
+  el.innerHTML = `<span class="lt">${esc(tier)}</span>` +
+    `<span class="lcp">${st.cp.toLocaleString()} CP</span>` +
+    `<span>${esc(rank)}</span>${delta}${floorNote}`;
+}
+
+/**
+ * Beat 5. In the default state this is ONE line and a chip; the detail is one
+ * click away. Two states it must handle without lying: an unlinked identity
+ * (no seal, said in the System voice) and a rejection (said plainly and
+ * immediately - a rejection with no explanation is how honest players conclude
+ * the ladder is rigged).
+ */
+function renderEarned(s: GameState): void {
+  const line = document.getElementById("recap-earned")!;
+  const sealEl = document.getElementById("recap-seal")!;
+  const detail = document.getElementById("recap-earned-detail")!;
+  const beaten = recapBandPbs;
+  const bests = careerBests(loadHistory());
+  const rows: string[] = [];
+
+  let headline = "no personal bests this run — the ledger is unmoved";
+  if (beaten.length > 0) {
+    headline = `<b>NEW PB — ${social.bandName(beaten[0])} SPLIT</b>`;
+  } else if (bests && s.floor >= bests.bestFloor && s.status !== "won") {
+    headline = `<b>NEW PB — DEEPEST FLOOR ${s.floor}</b>`;
+  } else if (s.status === "won") {
+    headline = `<b>THE CLEAR IS ON THE BOARD</b>`;
+  }
+  for (const b of beaten) rows.push(`<div class="erow"><span class="pb">NEW PB</span><b>${social.bandName(b)}</b> split</div>`);
+  if (runEvent) {
+    rows.push(
+      `<div class="erow"><b>ATTEMPT ${runEvent.attemptNo}</b> on this contract — ` +
+      (runEvent.scoresCp
+        ? "your FIRST ticketed attempt, so this is the one the ladder scores."
+        : "the board row updates; CP is unchanged, because CP scores attempt 1 only.") +
+      `</div>`,
+    );
+    rows.push(
+      `<div class="cpmath">CP = 40 for finishing + round(1000 · (1 − rank/entrants)^1.5). ` +
+      `Your season score is the sum of your best 10 event results — no decay, ever.</div>`,
+    );
+  }
+  if (submitResult?.reason) rows.push(`<div class="erow">${esc(submitResult.reason)}</div>`);
+  if (recBlocked) rows.push(`<div class="erow">${esc(recBlocked)}</div>`);
+
+  line.innerHTML = `${headline}<span class="caret">${earnedOpen ? "[ HIDE THE MATH ]" : "[ SHOW THE MATH ]"}</span>`;
+  detail.innerHTML = rows.join("") || `<div class="erow">Nothing banked. The System is not impressed, but it is watching.</div>`;
+  detail.style.display = earnedOpen ? "" : "none";
+
+  // The seal, resolving under the reader.
+  if (net) { sealEl.innerHTML = ""; return; }
+  if (recBlocked) {
+    sealEl.innerHTML = `<span class="seal claimed" title="${esc(recBlocked)}">UNSEALED</span>`;
+    return;
+  }
+  if (!submitResult) {
+    sealEl.innerHTML = runProof
+      ? `<span class="seal claimed" title="the proof is recorded but not offered yet">READY TO SUBMIT</span>`
+      : "";
+    return;
+  }
+  // A seal on a rank-1 clear and a seal on an eight-second floor-1 death were
+  // typographically identical, which spends the scarcity that makes the gold
+  // one worth anything. The filled gold seal is for a run HOLDING a board
+  // position; everything else certified gets the hairline.
+  const ranked = !!submitResult.runId && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId);
+  const chip = social.sealChip(
+    (submitResult.state as social.RunState) ?? "claimed",
+    RULES_HASH.slice(0, 7),
+    submitVisibility === "private",
+    ranked ? "ranked" : "plain",
+  );
+  sealEl.innerHTML = `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>`;
+}
+
+/** Seal the recording against the world it produced, then offer it. The offer
+ *  is a CHOICE (8.1): the disclosure card runs once, before the first submit
+ *  this browser ever makes, and two of its three buttons call submitProof. */
+function sealRun(s: GameState): void {
+  if (!rec) return;
+  if (rec.truncated) {
+    recBlocked = "this run outgrew the artifact ceiling — six hours is the limit, and you found it";
+    rec = null;
+    return;
+  }
+  try {
+    runProof = rec.finish(s, me(s).id);
+  } catch {
+    recBlocked = "the recording could not be sealed";
+  }
+  rec = null;
+}
+
+/** Bands that just became personal bests, committed once per run end, and the
+ *  ledger as it stood before this run touched it. */
+let recapBandPbs: number[] = [];
+let recapPrevBests: (number | null)[] = [];
+let submitVisibility: "public" | "private" = "public";
+
+/** Show the recap when the run ends; re-arm when a new run starts.
+ *  Beat 0 — THE FREEZE: hold the killing blow for a beat before the verdict
+ *  lands. The System is a game show; the death deserves the pause. */
 function maybeShowRecap(s: GameState): void {
   if (s.status === "playing") { recapFor = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
+
+  recapPrevBests = loadBandBests();
+  recapBandPbs = net ? [] : commitBandBests();
+  submitResult = null;
+  earnedOpen = false;
   renderRecap(s);
-  recapEl.style.display = "flex";
+  window.setTimeout(() => {
+    if (recapFor !== s.status) return; // a fast R already started the next run
+    recapEl.style.display = "flex";
+    recapEl.classList.remove("tabbed");
+  }, 620);
+  // The board arrives a moment later and upgrades the grade, the scoreboard
+  // and RACE THE LEADER from "the house curve" to a real field.
+  cpBeforeRun = myStanding?.cp ?? null;
+  void Promise.all([loadTodaysBoard(), loadStanding()]).then(() => {
+    if (recapFor === s.status) renderRecap(s);
+  });
+  // ...and the proof is OFFERED, never silently sent (8.1).
+
+  // ...and the proof is OFFERED, never silently sent. If the crawler already
+  // slammed R, the offer is dropped rather than thrown over the next run.
+  if (!net) {
+    window.setTimeout(() => { if (recapFor === s.status) offerProof(); }, 900);
+  }
 }
 
 document.getElementById("recap-dismiss")!.addEventListener("click", () => {
   recapEl.style.display = "none"; // spectate the arena; R still restarts
 });
+document.getElementById("recap-earned")!.addEventListener("click", () => {
+  earnedOpen = !earnedOpen;
+  renderEarned(state);
+});
+document.getElementById("recap-new")!.addEventListener("click", () => {
+  forcedSeed = null;
+  ghost = null;
+  startRun({ kind: "random" }, "race");
+  recapEl.style.display = "none";
+});
+document.getElementById("recap-standings")!.addEventListener("click", () => { void openLadder(); });
+// RUN IT BACK: the same seed, with THIS run as your ghost. The strongest urge
+// a roguelike death produces is "I know this dungeon now", and this button is
+// the only thing on the screen that answers it.
+document.getElementById("recap-again")!.addEventListener("click", () => { void runItBack(); });
+document.getElementById("recap-race")!.addEventListener("click", () => { void raceTheLeader(); });
 // ---- The run card (launch polish #4): the recap as a shareable artifact ----
 // A 1200x630 canvas (link-preview dims) in the Torchlit palette. Cinzel and
 // Alegreya are document fonts, so the canvas can use them directly.
@@ -4903,7 +5884,7 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
     g.font = font; g.fillStyle = color; g.textAlign = "center"; g.fillText(t, 600, y);
   };
   center("◆ DUNGEON CRAWLER CLAUDE ◆", 78, "700 24px Cinzel, serif", "#c9a24b");
-  center(won ? "SEASON FINALE" : "IN MEMORIAM", 168, "700 72px Cinzel, serif", won ? "#f2c14e" : "#c0392f");
+  center(won ? "THE FINALE" : "IN MEMORIAM", 168, "700 72px Cinzel, serif", won ? "#f2c14e" : "#c0392f");
   center(
     won
       ? `${p.name} cleared all ${CONFIG.finalFloor} floors in ${fmt(s.elapsed)}`
@@ -4928,6 +5909,26 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
     g.font = "16px 'Alegreya Sans', sans-serif"; g.fillStyle = "#6f6757";
     g.fillText(l, x, y + 28);
   });
+
+  // THE GRADE, struck into the corner - the card is the artifact people paste
+  // into a chat window, and a report card without its grade is a receipt.
+  if (runGrade) {
+    g.save();
+    g.beginPath();
+    g.arc(112, 112, 54, 0, Math.PI * 2);
+    g.fillStyle = "#14100c";
+    g.fill();
+    g.strokeStyle = "#6e5533"; g.lineWidth = 2; g.stroke();
+    g.font = "700 54px Cinzel, serif";
+    g.fillStyle = runGrade.letter === "S" || runGrade.letter === "A" ? "#f2c14e" : "#b9b2a4";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(runGrade.letter, 112, 116);
+    g.restore();
+  }
+  // THE DEATH, NAMED - the line worth more than every stat tile beside it.
+  if (!won && p.lastHitSrc) {
+    center(social.deathHeadline(p.lastHitSrc), 500, "22px 'Alegreya Sans', sans-serif", "#e2857a");
+  }
   // The build: The Five + the weapon in hand.
   const build = [
     ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ABILITY_INFO[id].name),
@@ -4960,20 +5961,777 @@ document.getElementById("recap-card")!.addEventListener("click", () => {
   }, "image/png");
 });
 
-document.getElementById("recap-share")!.addEventListener("click", async () => {
-  if (runMode.kind !== "daily" || !runMode.day) return;
+// COPY BUILD CODE (8.2, the receipt half). Derived from the run that actually
+// happened - a shared build here is permanently attached to evidence that it
+// worked, where LoL build sites can only offer an aggregate guess.
+document.getElementById("recap-buildcode")!.addEventListener("click", async () => {
   const p = me(state);
-  const q = new URLSearchParams({ daily: runMode.day, by: p.name.slice(0, 24), floor: String(state.floor) });
-  if (state.status === "won") { q.set("won", "1"); q.set("t", String(Math.round(state.elapsed))); }
-  const ok = await copyText(`${location.origin}${location.pathname}?${q}`);
+  const code = social.encodeBuild({
+    level: p.level,
+    ultimate: p.abilities.ultimate,
+    slots: [...p.abilities.slots],
+    ranks: { ...p.abilities.ranks },
+    glyphs: p.glyphs
+      ? { slots: p.glyphs.slots.map((s) => [...s]), ultimate: [...p.glyphs.ultimate] }
+      : null,
+    gear: EQUIP_SLOTS.flatMap((slot) => {
+      const it = p.equipment[slot];
+      return it ? [{ slot, name: it.name, rarity: it.rarity }] : [];
+    }),
+    revisions: [...(p.revisions ?? [])],
+  });
+  const btn = document.getElementById("recap-buildcode")!;
+  const label = btn.textContent;
+  btn.textContent = (await copyText(code)) ? "BUILD CODE COPIED" : "COPY FAILED";
+  setTimeout(() => { btn.textContent = label; }, 1600);
+});
+
+// SHARE (COMPETITIVE.md 8.2): a seed plus a claim is about eighty characters,
+// and it reproduces the whole dungeon - because the dungeon IS the seed. The
+// link carries the same code, so one copy serves chat and browser both.
+document.getElementById("recap-share")!.addEventListener("click", async () => {
+  const p = me(state);
+  const code = social.encodeChallenge({
+    seed: state.seed,
+    ev: runEvent?.eventId,
+    by: p.name,
+    floor: state.floor,
+    won: state.status === "won",
+    timeSec: Math.round(state.elapsed),
+    kills: p.kills,
+    level: p.level,
+    ult: p.abilities.ultimate,
+    run: submitResult?.runId,
+  });
+  const ok = await copyText(`${location.origin}${location.pathname}?c=${code}`);
   const btn = document.getElementById("recap-share")!;
   const label = btn.textContent;
-  btn.textContent = ok ? "COPIED" : "COPY FAILED";
-  setTimeout(() => { btn.textContent = label; }, 1400);
+  btn.textContent = ok ? "CHALLENGE COPIED" : "COPY FAILED";
+  setTimeout(() => { btn.textContent = label; }, 1600);
 });
-document.getElementById("recap-again")!.addEventListener("click", () => {
+
+// ===================== THE COMPETITIVE SURFACE =====================
+// COMPETITIVE.md 4, 5, 6 Beat 5, and 8. Everything below is host-side: the
+// sim owns the codec, the server owns the verdict, and this file owns the
+// screens plus the one honest sentence each state deserves.
+
+const CONSENT_KEY = "dcc:consent:v1";
+const consentEl = document.getElementById("consent")!;
+
+/** The account id the boards key on. An existing token wins - it is the one a
+ *  Discord identity is linked to, and submitting under a fresh id would quietly
+ *  strand a signed-in crawler outside their own career. A browser that has
+ *  never had one asks the SERVER to mint it (2.7.2), because a token the
+ *  client invents is not a rate-limiting subject. */
+async function accountToken(): Promise<string> {
+  const existing = loadToken();
+  if (existing) return existing;
+  try {
+    const minted = await competitive.anonToken();
+    storeToken(minted);
+    return minted;
+  } catch {
+    return ensureToken(); // offline: a local id still runs the local career
+  }
+}
+
+/** Offer the proof. Once per browser this is a disclosure card with three
+ *  buttons; after that it honours the standing choice. Defaulting to public is
+ *  fine - defaulting SILENTLY to public is not. */
+function offerProof(): void {
+  if (!runProof || net) return;
+  let choice: string | null = null;
+  try { choice = localStorage.getItem(CONSENT_KEY); } catch { /* private mode */ }
+  if (choice === "public" || choice === "private") {
+    submitVisibility = choice;
+    void submitProof(choice);
+    return;
+  }
+  if (choice === "no") return;
+  consentEl.classList.add("on");
+}
+
+for (const [id, choice] of [
+  ["consent-public", "public"], ["consent-private", "private"], ["consent-no", "no"],
+] as const) {
+  document.getElementById(id)!.addEventListener("click", () => {
+    try { localStorage.setItem(CONSENT_KEY, choice); } catch { /* best-effort */ }
+    consentEl.classList.remove("on");
+    if (choice === "no") {
+      recBlocked = "not submitted — your choice, and it stays your choice until you change it";
+      renderEarned(state);
+      return;
+    }
+    submitVisibility = choice;
+    void submitProof(choice);
+  });
+}
+
+/**
+ * Submit, then WATCH THE SEAL LAND. The seconds between VERIFYING and a gold
+ * seal are the moment the trust model stops being a paragraph in a design
+ * document and becomes something the player can feel.
+ */
+async function submitProof(visibility: "public" | "private"): Promise<void> {
+  const proof = runProof;
+  if (!proof) return;
+  try {
+    const token = await accountToken();
+    const res = await competitive.submitRun(proof, token, crawlerName(), visibility);
+    submitResult = {
+      state: res.state, runId: res.runId, reason: res.reason,
+      attemptNo: res.attemptNo, scoresCp: res.scoresCp,
+    };
+    renderEarned(state);
+    if (!res.queued) return;
+    // Poll the row until the verdict lands: a handful of small GETs against a
+    // box that already knows the answer within a few seconds.
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 900));
+      const row = (await competitive.run(res.runId, token)) as social.BoardRun;
+      if (row.state !== "verifying" && row.state !== "claimed") {
+        submitResult = { state: row.state, runId: res.runId, reason: row.reason ?? undefined };
+        if (row.state === "verified") {
+          // CP and the board position only exist AFTER certification, so the
+          // ladder line is re-read here rather than guessed at run end.
+          await Promise.all([loadStanding(), loadTodaysBoard()]);
+          pushLogLine("THE SYSTEM RE-RAN YOUR CRAWL. It agrees with you. Sealed.");
+        }
+        renderLadderLine(state);
+        renderEarned(state);
+        return;
+      }
+      if (row.state !== submitResult.state) {
+        submitResult = { ...submitResult, state: row.state };
+        renderEarned(state);
+      }
+    }
+  } catch (err) {
+    submitResult = { state: "claimed", reason: `the board is unreachable (${(err as Error).message})` };
+    renderEarned(state);
+  }
+}
+
+// ---- GHOSTS (4.1) ---------------------------------------------------------
+// A stored proof plus the same seed is a rival playing beside you, live and
+// offline. It never runs on the main thread: the worker replays at 150-250x
+// realtime and streams back a keyframe track, so the frame cost is an array
+// index and a lerp. This project has no spare 4% of a frame for a second sim.
+let ghost: social.GhostState | null = null;
+let ghostNote = "";
+
+/** Load a proof through the era gate and precompute its track. */
+async function armGhost(bytes: Uint8Array, label: string, runId?: string): Promise<boolean> {
+  const reply = await precomputeGhost({ bytes, ghostHz: 10, eras: [RULES_HASH] });
+  if (!reply.ok) {
+    // NEVER step a foreign proof into the current sim to see what happens: it
+    // does not throw, it quietly renders a wrong ghost with a wrong delta, and
+    // the player has no way to detect it.
+
+    ghost = null;
+    ghostNote = reply.reason;
+    // Stated, not silently disabled. A ghost that quietly fails to appear is
+    // how a player concludes the feature is broken; a named era is how they
+    // conclude the game is honest.
+    pushLogLine(`GHOST REFUSED — ${reply.reason}`);
+    showAnnouncement({
+      text: `NO GHOST. ${reply.reason}`,
+      kind: "flavor", priority: "high",
+    });
+    return false;
+  }
+  ghost = {
+    label: label || reply.label, track: reply.track,
+    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId,
+  };
+  ghostNote = "";
+  return true;
+}
+
+/** RUN IT BACK: the same seed, with the run you just played as your ghost.
+ *  The strongest urge a roguelike death produces is "I know this dungeon now",
+ *  and this is the only button on the screen that answers it. */
+async function runItBack(): Promise<void> {
+  const seed = state.seed;
+  const proof = runProof;
   recapEl.style.display = "none";
-  input.onReset?.();
+  recapEl.classList.remove("tabbed");
+  ghost = null;
+  if (proof) {
+    const { encodeProof } = await import("./sim/replay");
+    await armGhost(encodeProof(proof), "YOUR LAST RUN");
+  }
+  forcedSeed = seed;
+  startRun(runMode, currentRunKind);
+  if (ghost) {
+    showAnnouncement({
+      text: "SAME DUNGEON. Your own ghost is on the course with you. Beat yourself.",
+      kind: "flavor", priority: "high",
+    });
+  }
+}
+
+/** RACE THE LEADER: today's number one as your ghost, on today's seed. */
+async function raceTheLeader(): Promise<void> {
+  const era = RULES_HASH.slice(0, 7);
+  const leader = (todaysBoard ?? []).find((r) => social.playability(r, era).ok);
+  if (!leader) return;
+  await raceRun(leader.id, leader.name);
+}
+
+/** Download a sealed run and start the same seed beside it. */
+async function raceRun(runId: string, label: string): Promise<void> {
+  const token = await accountToken();
+  const got = await competitive.proof(runId, token);
+  if (!got.bytes || !got.playable) {
+
+    ghostNote = got.reason ?? "no proof retained for that row";
+    pushLogLine(`GHOST REFUSED — ${ghostNote}`);
+    showAnnouncement({ text: `NO GHOST. ${ghostNote}`, kind: "flavor", priority: "high" });
+    return;
+  }
+  if (!(await armGhost(got.bytes, label, runId))) return;
+  closeSets();
+  recapEl.style.display = "none";
+  forcedSeed = null;
+  startRun({ kind: "daily", day: dayFromMs(Date.now()) }, "race");
+  showAnnouncement({
+    text: `RACING ${label.toUpperCase()}. Same dungeon, same seed. The split is live in the corner.`,
+    kind: "flavor", priority: "high",
+  });
+}
+
+// The rail chip. The ghost collapses to a split delta whenever it is not on
+// your floor, because a rival two floors down is information, not a marker.
+const ghostEl = document.getElementById("ghost")!;
+function updateGhostHud(s: GameState): void {
+  if (!ghost || s.status !== "playing" || net) { ghostEl.classList.remove("on"); return; }
+  ghostEl.classList.add("on");
+  const at = social.ghostAt(ghost, runTicks);
+  const theirFloor = at?.floor ?? ghost.track.floor[ghost.track.floor.length - 1] ?? 1;
+  // THE CHIP IS TITLED BY WHO YOU ARE RACING. "YOUR LAST RUN" is only true for
+  // one of the three ghost sources; a rival's name is the whole reason the
+  // number on this chip matters.
+  document.getElementById("ghost-name")!.textContent = ghost.label;
+  document.getElementById("ghost-where")!.textContent = at ? `· FLOOR ${theirFloor}` : "· RUN OVER";
+
+  // THE LIVE SPLIT. A speedrun clock, not a post-hoc comparison: while you are
+  // still on this floor the number counts UP toward the tick the ghost left it,
+  // green until you pass their exit and red the instant you do. The entry
+  // delta is the fallback for the floors they never reached.
+  //
+  // AND IT STAYS DARK UNTIL THERE IS A SPLIT TO SHOW. On floor 1, before
+  // either of you has left it, there is no prior split on either side - the old
+  // chip printed an unsigned, uncoloured "0.0s" with the caption "you took time
+  // entering floor 1", which is both meaningless and untrue. Until the first
+  // transition the chip shows the TARGET instead: the tick your rival leaves
+  // this floor. That is the number you are actually racing.
+  const theirExit = ghost.floorEntryTicks[s.floor] ?? -1; // they entered floor+1 here
+  const myEntry = floorEntryTicks[s.floor - 1] ?? -1;
+  const entryDelta = s.floor > 1 ? social.splitDelta(ghost, s.floor, myEntry) : null;
+  const live = theirExit >= 0 ? (runTicks - theirExit) / 60 : null;
+  const delta = live ?? entryDelta;
+  const dEl = document.getElementById("ghost-delta")!;
+  const sub = document.getElementById("ghost-sub")!;
+  if (delta === null) {
+    dEl.className = "gdelta pending";
+    if (theirFloor < s.floor) {
+      dEl.textContent = "PAST THEIR DEPTH";
+      sub.textContent = `they never got below floor ${theirFloor}`;
+    } else if (theirExit >= 0) {
+      // Cannot happen (live would be set), but keep the branch honest.
+      dEl.textContent = social.mmss(theirExit / 60);
+      sub.textContent = `their floor ${s.floor} exit`;
+    } else {
+      dEl.textContent = "NO SPLIT YET";
+      sub.textContent = `${ghost.label} has not left floor ${s.floor}`;
+    }
+  } else {
+    // Signed AND coloured, both directions. Red is losing time, green is taking
+    // it: a split delta that does not commit to a sign and a colour is a
+    // decoration, not a race.
+    dEl.className = `gdelta ${delta > 0 ? "behind" : "ahead"}`;
+    dEl.textContent = social.signedTime(delta);
+    const who = ghost.label.toUpperCase();
+    sub.textContent = live !== null
+      ? (live > 0
+        ? `past ${who}'s floor ${s.floor} exit`
+        : `${who} leaves floor ${s.floor} at ${social.mmss(theirExit / 60)}`)
+      : delta > 0
+        ? `you entered floor ${s.floor} behind ${who}`
+        : `you entered floor ${s.floor} ahead of ${who}`;
+  }
+  // One pip per floor: green where you took time, red where you gave it back.
+  let pips = "";
+  for (let f = 1; f <= CONFIG.finalFloor; f++) {
+    const d = social.splitDelta(ghost, f, floorEntryTicks[f - 1] ?? -1);
+    const cls = d === null ? "" : d > 0 ? "behind" : "ahead";
+    pips += `<i class="${cls}${f === s.floor ? " now" : ""}"></i>`;
+  }
+  document.getElementById("ghost-splits")!.innerHTML = pips;
+}
+
+// ---- THE STANDINGS (3) ----------------------------------------------------
+const ladderEl = document.getElementById("ladder")!;
+const careerEl = document.getElementById("career")!;
+let ladderTab: "contracts" | "alltime" | "bands" | "rivals" = "contracts";
+let alltimeTab = "deepest";
+
+let myAccount = "";
+/** Crawlers the System has pointed you at, plus anyone you follow. They light
+ *  up on every board, because a ladder is only contested if you can find the
+ *  person you are contesting it WITH. */
+const rivalAccounts = new Set<string>();
+let events: social.EventsView | null = null;
+const ERA = RULES_HASH.slice(0, 7);
+
+function closeSets(): void {
+  ladderEl.classList.remove("on");
+  careerEl.classList.remove("on");
+}
+
+/** Result column per board - each board brags differently. */
+
+function boardResult(kind: string, r: social.BoardRun): string {
+  // EXACT CLOCKS WHERE THE ORDER DEPENDS ON THEM. Splits and clear times are
+  // stored as tick counts; printing them to the whole second throws that
+  // precision away at the exact moment it decides a rank, and four crawlers
+  // printing "1:45" at the top of a band board makes the order look arbitrary
+  // because to the reader it is. Centiseconds cost nothing - the data was
+  // always this precise.
+  if (kind === "band") return r.bandTicks ? social.ticksClock(r.bandTicks) : "—";
+  if (kind === "kills") return `${r.kills.toLocaleString()} kills`;
+  if (kind === "fastest" || kind === "contracts") {
+    return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor}`;
+  }
+  return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor} · ${fmt(r.timeSec)}`;
+}
+
+/** The key for the row colours, plus whatever tiebreak this board sorts on.
+ *  A competitive board that colour-codes rows without a legend teaches players
+ *  to guess, and one that will not say how it broke a tie is asking them to
+ *  assume it did not. */
+function rowKeyHtml(tiebreak = ""): string {
+  return `<div class="rowkey"><i class="kyou">YOU</i><i class="kriv">YOUR RIVAL</i>` +
+    (tiebreak ? `<i class="ktie">ties broken by ${esc(tiebreak)}</i>` : "") + `</div>`;
+}
+
+/**
+ * One board row. It carries the seal AND the era, and when a run is not
+ * raceable it says WHY on the button instead of greying out - a silent disable
+ * is how a player concludes the ladder is broken.
+ */
+function boardRowHtml(
+  r: social.BoardRun, i: number, kind: string, extra = "",
+  weight: social.SealWeight = "ranked",
+): string {
+  const chip = social.sealChip(r.state, r.rulesEra, r.private, weight);
+  const play = social.playability(r, ERA);
+
+  const mine = r.accountId === myAccount;
+  const rival = !mine && rivalAccounts.has(r.accountId);
+  const sub = [
+    r.rulesEra ? `era ${r.rulesEra}` : "unstamped",
+    r.attemptNo ? `attempt ${r.attemptNo}` : null,
+    r.ultimate ? ABILITY_INFO[r.ultimate as AbilityId]?.name ?? r.ultimate : null,
+    r.partySize > 1 ? `party of ${r.partySize}` : null,
+    extra || null,
+  ].filter(Boolean).join(" · ");
+  const acts = play.ok
+    ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
+    : `<button disabled title="${esc(play.why)}">RACE</button>`;
+
+  // The colour is backed up by a word: a legend under the tab bar answers it
+  // once, and the tag answers it on the row itself.
+  const tag = mine ? `<span class="rtag you">YOU</span>`
+    : rival ? `<span class="rtag rival">RIVAL</span>` : "";
+  return `<li class="brow${mine ? " you" : ""}${rival ? " rival" : ""}${i < 3 ? ` top${i + 1}` : ""}">` +
+    `<span class="rank">${i + 1}</span>` +
+    `<span class="who"><b>${esc(r.name)}${tag}</b><span class="sub">${esc(sub)}</span></span>` +
+    `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
+    `<span class="res${r.won ? " win" : ""}">${boardResult(kind, r)}</span>` +
+    `<span class="acts">${acts}</span></li>`;
+}
+
+function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string {
+
+  const label = kind === "daily" ? "TODAY'S CONTRACT" : "THE WEEKLY CONTRACT";
+  const blurb = kind === "daily"
+    ? "One dungeon. Every crawler. Unlimited attempts — but the ladder scores your FIRST."
+    : "A harder fixed seed, open all week. The Clash analogue, minus the five friends free at 8pm.";
+  return `<div class="contract${kind === "weekly" ? " weekly" : ""}">` +
+    `<div class="ctag">◆ ${kind === "daily" ? "DAILY" : "WEEKLY"} · SEASON ${esc(events?.season ?? "")} ◆</div>` +
+    `<h3>${label}</h3>` +
+    `<div class="cmeta">seed <b>${e.seed}</b> · <b>${e.entrants}</b> entrant${e.entrants === 1 ? "" : "s"}` +
+    ` · closes in <b>${social.untilText(e.closesAt)}</b></div>` +
+    `<div class="crule">${blurb}</div>` +
+    (e.frozen
+      ? `<div class="cfrozen">PATCH DAY. This contract is closed early. The lawyers apologize.</div>` +
+        `<button class="cgo" disabled>CLOSED</button>`
+      : `<button class="cgo" data-enter="${esc(e.id)}">ENTER THE CONTRACT ▶</button>`) +
+    `</div>`;
+}
+
+async function renderLadder(): Promise<void> {
+  const body = document.getElementById("ladder-body")!;
+  document.getElementById("ladder-sub")!.textContent =
+    `rules era ${ERA} — every ranked row is a proof the server re-executed, not a number it was told`;
+  body.innerHTML = `<ul class="board"><li class="none">the network is counting…</li></ul>`;
+  try {
+    if (!events) events = (await competitive.events()) as social.EventsView;
+  } catch {
+    body.innerHTML = `<ul class="board"><li class="none">the board is offline — the server keeps the ` +
+      `score, and it will still be there when the signal is back</li></ul>`;
+    return;
+  }
+  if (ladderTab === "contracts") {
+    const page = (await competitive.board("deepest", { event: "daily", limit: 25 })
+      .catch(() => ({ entries: [] }))) as social.BoardPage;
+    body.innerHTML =
+      `<div class="contracts">${contractCardHtml(events.daily, "daily")}` +
+      `${contractCardHtml(events.weekly, "weekly")}</div>` +
+      `<div class="rsec" style="margin-top:18px;color:var(--gold);letter-spacing:2px;` +
+
+      `font-family:var(--display);font-variant:small-caps">TODAY'S STANDINGS — ${esc(events.daily.day)}</div>` +
+      rowKeyHtml("depth, then the faster run, then the earlier submission") +
+      `<ul class="board">${page.entries.slice(0, 9).map((r, i) => boardRowHtml(r, i, "deepest")).join("")
+        || `<li class="none">nobody has signed today's contract yet. Be the name at the top.</li>`}</ul>`;
+    return;
+  }
+  if (ladderTab === "alltime") {
+    const page = (await competitive.board(alltimeTab, { limit: 25 })
+      .catch(() => ({ entries: [] }))) as social.BoardPage;
+    body.innerHTML =
+      `<div class="settabs" style="justify-content:flex-start;gap:18px;border:0;margin-bottom:8px">` +
+      ["deepest", "fastest", "kills", "contracts"].map((k) =>
+        `<button class="settab${k === alltimeTab ? " active" : ""}" data-ab="${k}">${k.toUpperCase()}</button>`).join("") +
+      `</div>` +
+      rowKeyHtml(alltimeTab === "kills"
+        ? "kill count, then the earlier submission"
+        : "the exact tick count, then the earlier submission") +
+      `<ul class="board">${page.entries.length
+        ? page.entries.map((r, i) => boardRowHtml(r, i, alltimeTab)).join("")
+        : `<li class="none">this museum is empty. The first exhibit is yours to donate.</li>`}</ul>` +
+      `<div class="gate">All-time boards never reset — they CHIP THE ERA instead. A row stamped ` +
+      `<b>era ${esc(ERA)}</b> was earned under exactly the rules you are playing now; an older stamp was ` +
+      `earned under different numbers, and the board says so rather than quietly blending a year of ` +
+      `patches together and calling it a record.</div>`;
+    return;
+  }
+  if (ladderTab === "bands") {
+    const boards = await Promise.all([0, 1, 2, 3, 4, 5].map((b) =>
+      competitive.bandBoard(b, 5).catch(() => ({ entries: [] }))));
+    body.innerHTML =
+      rowKeyHtml("the exact tick count, then the earlier certification") +
+      `<div class="bandgrid">` + boards.map((raw, b) => {
+      const rows = (raw as { entries: social.BoardRun[] }).entries;
+      const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
+      return `<div><h4>${social.bandName(b)}</h4>` +
+        // THE PREDICATE, ON THE BOARD. A split is only a record if the run
+        // WALKED OUT of the band: entered every floor in it and left the last
+        // one. Without that rule the optimal play for a band record is to step
+        // into the band and die, and the top of every board is an
+        // eight-second death.
+        `<div class="bandsub">fastest sealed TRAVERSAL of floors ${b * 3 + 1}–${last} — ` +
+        `every floor entered and floor ${last} left behind</div>` +
+        `<ul class="board">${rows.length
+          ? rows.map((r, i) => boardRowHtml(r, i, "band",
+              r.won ? "full clear" : `ran on to F${r.floor}`)).join("")
+          : `<li class="none">no sealed traversals here yet</li>`}</ul></div>`;
+    }).join("") + `</div>` +
+      `<div class="gate">Dying on floor 11 does not make you bad at the game — it makes you a crawler ` +
+      `who still holds the RUINS split. Every run passes through several bands, so these are the boards ` +
+      `you can actually win, and the splits cost nothing: the verifier already knows the tick of every ` +
+      `floor transition as it replays you. A band you died INSIDE still appears on your own splits — it ` +
+      `is a true thing that happened — but it is never a record, because a record has to be a band you ` +
+      `got out of.</div>`;
+    return;
+  }
+  const token = await accountToken();
+  const rc = (await competitive.rivalContract(token).catch(() => null)) as social.RivalContract | null;
+  if (!rc || !rc.rival) {
+    body.innerHTML = `<div class="gate">NO CONTRACT ISSUED. The System pairs you with a crawler near ` +
+
+      `your contract points and puts you both on today's seed — but it needs somebody near your CP to pair ` +
+      `you WITH. Sign a contract, bank a score, and the matchmaking has something to work with. There is ` +
+      `no queue and no lobby: you wake up with a rival.</div>`;
+    return;
+  }
+  const theirs = rc.rivalRun;
+  const them = rc.rival.name ?? "A RIVAL CRAWLER";
+  const h = rc.head;
+  // THE LEDGER. A pairing with no memory is not a rivalry, and the season-long
+  // head-to-head against a NAMED opponent is a thing LoL has never shown you:
+  // its match history knows who was in the lobby, never who you keep losing to.
+  const ledger = h && h.played > 0
+    ? `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">HEAD TO HEAD — ${esc(them.toUpperCase())}</div>` +
+      `<div class="h2h">` +
+        `<div class="h2hc win"><b>${h.mine}</b><small>YOU</small></div>` +
+        `<div class="h2hc draw"><b>${h.drawn}</b><small>DRAWN</small></div>` +
+        `<div class="h2hc loss"><b>${h.theirs}</b><small>THEM</small></div>` +
+      `</div>` +
+      `<div class="h2hlist">` + h.recent.map((r) =>
+        `<div class="h2hrow ${r.result}"><span class="ev">${esc(r.eventId)}</span>` +
+        `<span class="sc">F${r.mineFloor} · ${social.ticksClock(r.mineTicks)} ` +
+        `&nbsp;vs&nbsp; F${r.theirFloor} · ${social.ticksClock(r.theirTicks)}</span>` +
+        `<span class="vd">${r.result === "won" ? "YOU TOOK IT" : r.result === "lost" ? "THEY TOOK IT" : "DEAD HEAT"}</span></div>`,
+      ).join("") + `</div>` +
+      `<div class="cnamesub" style="margin-top:8px">Only contested contracts count — an event only one ` +
+      `of you finished is a walkover, and a walkover is not a win.</div>`
+    : `<div class="gate" style="margin-top:18px">NO HISTORY YET. The ledger fills the first time you both ` +
+      `seal a run on the same contract. Until then this is an introduction, not a rivalry.</div>`;
+  body.innerHTML =
+    `<div class="contract"><div class="ctag">◆ CONTRACT ISSUED ◆</div>` +
+    `<h3>${esc(them)}</h3>` +
+    `<div class="cmeta">their season score <b>${rc.rival.cp}</b> CP · yours <b>${rc.myCp}</b> CP ` +
+    `· resolves in <b>${social.untilText(rc.resolvesAt)}</b></div>` +
+    `<div class="crule">You both play today's seed whenever you like. The better SEALED run takes the ` +
+    `contract. No lobby, no queue, nobody has to be online at the same time as anybody.</div>` +
+    (theirs
+      ? `<button class="cgo" data-race="${esc(theirs.id)}" data-label="${esc(theirs.name)}">RACE THEIR GHOST ▶</button>`
+      : `<button class="cgo" data-enter="${esc(rc.eventId)}">TAKE THE CONTRACT ▶</button>`) +
+    `</div>` +
+    (theirs
+      ? `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
+        `font-variant:small-caps;letter-spacing:2px">THEIR RUN SO FAR</div>` +
+        rowKeyHtml() +
+        `<ul class="board">${boardRowHtml(theirs, 0, "deepest")}</ul>`
+      : "") +
+    ledger +
+    // THE STAKE AND THE PAIRING RULE, both stated. A competitive surface that
+    // leaves either as folklore gets folklore back.
+    `<div class="gate" style="margin-top:16px"><b>THE STAKE:</b> ${esc(rc.stake)}<br>` +
+    `<b>THE PAIRING:</b> ${esc(rc.pairing)}</div>`;
+}
+
+/** Who lights up. Cheap enough to refresh whenever a set opens: one query the
+ *  server answers off a sorted array, plus the follow list on the profile. */
+async function refreshRivals(): Promise<void> {
+  try {
+    const rc = (await competitive.rivalContract(myAccount)) as social.RivalContract;
+    if (rc.rival) rivalAccounts.add(rc.rival.accountId);
+    const prof = (await competitive.profile(myAccount)) as social.ProfileView;
+    for (const id of prof.following ?? []) rivalAccounts.add(id);
+  } catch { /* no rivals is a state, not an error */ }
+}
+
+async function openLadder(): Promise<void> {
+  myAccount = await accountToken();
+  await refreshRivals();
+  closeSets();
+  recapEl.style.display = "none";
+  ladderEl.classList.add("on");
+  await renderLadder();
+}
+
+document.getElementById("ladder-close")!.addEventListener("click", closeSets);
+document.getElementById("career-close")!.addEventListener("click", closeSets);
+ladderEl.addEventListener("click", (e) => {
+  const el = e.target as HTMLElement;
+  const tab = el.closest("[data-lt]") as HTMLElement | null;
+  if (tab) {
+    ladderTab = (tab.dataset.lt ?? "contracts") as typeof ladderTab;
+    ladderEl.querySelectorAll("[data-lt]").forEach((b) => b.classList.toggle("active", b === tab));
+    void renderLadder();
+    return;
+  }
+  const ab = el.closest("[data-ab]") as HTMLElement | null;
+  if (ab) { alltimeTab = ab.dataset.ab ?? "deepest"; void renderLadder(); return; }
+  const race = el.closest("[data-race]") as HTMLElement | null;
+  if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "RIVAL"); return; }
+  const enter = el.closest("[data-enter]") as HTMLElement | null;
+  if (enter) void enterContract(enter.dataset.enter!);
+});
+
+/** ENTER THE CONTRACT. The START is observed, which is what makes an attempt
+ *  count honest and closes practise-offline-then-submit-the-winner (3.2A). */
+async function enterContract(eventId: string): Promise<void> {
+  try {
+    const token = await accountToken();
+    const t = await competitive.startEvent(eventId, token);
+    pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
+    closeSets();
+    closeMenu();
+    ghost = null;
+    forcedSeed = t.seed;
+    startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
+    showAnnouncement({
+      text: t.scoresCp
+        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
+        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
+      kind: "flavor", priority: "high",
+    });
+
+  } catch (err) {
+    pushLogLine(`CONTRACT REFUSED — ${(err as Error).message}`);
+    showAnnouncement({
+      text: `THE CONTRACT WAS REFUSED. ${(err as Error).message}`,
+      kind: "flavor", priority: "high",
+    });
+  }
+}
+
+// ---- THE CRAWLER (5.2) ----------------------------------------------------
+// The numbers worth staring at. The histogram is the most interesting chart
+// this game can draw: a whole career in one glance, and the answer to the only
+// question a roguelike player actually asks about themselves.
+
+const ULT_LANES: AbilityId[] = ["airstrike", "cataclysm", "bullettime"];
+
+function histogramHtml(byFloor: number[]): string {
+  const max = Math.max(1, ...byFloor);
+  let bars = "";
+  let axis = "";
+  for (let f = 1; f <= CONFIG.finalFloor; f++) {
+    const n = byFloor[f - 1] ?? 0;
+    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 118));
+    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}px" ` +
+      `title="${n} run${n === 1 ? "" : "s"} ended on floor ${f}">${n > 0 ? `<i>${n}</i>` : ""}</div>`;
+    axis += `<span>${f}</span>`;
+  }
+  return `<div class="histo">${bars}</div><div class="histax">${axis}</div>` +
+    `<div class="bandstrip">${[0, 1, 2, 3, 4, 5].map((b) => `<span>${social.bandName(b)}</span>`).join("")}</div>`;
+}
+
+function masteryHtml(rows: { ultimate: string; xp: number }[]): string {
+  const byId = new Map(rows.map((r) => [r.ultimate, r.xp]));
+  return ULT_LANES.map((id) => {
+    const m = social.masteryLevel(byId.get(id) ?? 0);
+    const info = ABILITY_INFO[id];
+    return `<div class="mrow">` +
+      `<i class="mic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+      `<div><div class="mname">${esc(info?.name ?? id)}</div>` +
+      `<div class="mbar"><i style="width:${Math.round((m.into / m.need) * 100)}%"></i></div></div>` +
+      `<div class="mlvl">LVL ${m.level}<small>${m.into} / ${m.need}</small></div></div>`;
+  }).join("");
+}
+
+function ledgerHtml(rows: [string, string][]): string {
+  return `<table class="ledger">` + rows.map(([k, v]) =>
+    `<tr><td class="lk">${k}</td><td class="ld"><i></i></td><td class="lv">${v}</td></tr>`).join("") + `</table>`;
+}
+
+async function renderCareerSet(): Promise<void> {
+  const body = document.getElementById("career-body")!;
+  const history = loadHistory();
+  const bests = careerBests(history);
+  const token = await accountToken();
+  let prof: social.ProfileView | null = null;
+  try { prof = (await competitive.profile(token)) as social.ProfileView; } catch { /* offline */ }
+
+  // The histogram takes whichever ledger has more runs in it and SAYS WHICH.
+  // The server sees every device but only sealed runs; this browser sees every
+  // run but only this browser. Silently picking one and labelling it "your
+  // career" would be the same lie the whole design is built to avoid.
+  const local = new Array<number>(CONFIG.finalFloor).fill(0);
+  for (const r of history) if (r.floor >= 1 && r.floor <= CONFIG.finalFloor) local[r.floor - 1]++;
+  const localN = local.reduce((a, b) => a + b, 0);
+  const serverN = (prof?.deathsByFloor ?? []).reduce((a, b) => a + b, 0);
+  const useServer = serverN > localN;
+  const byFloor = useServer ? prof!.deathsByFloor : local;
+  const histoSource = useServer
+    ? `${serverN} sealed runs, every device`
+    : `${localN} runs recorded in this browser`;
+  const st = prof?.standing;
+  const tier = st?.tier
+    ?? (st && st.placementRemaining > 0 ? `PLACEMENT — ${st.placementRemaining} TO GO` : "UNRANKED");
+  const rankLine = st && st.entrants > 0 && st.rank > 0
+    ? `rank ${st.rank} of ${st.entrants} this season`
+    : "no ranked contract scored yet";
+  // TIER NAMES NEED A POPULATION. Below the floor the chip reads UNRANKED and
+  // the System says what unlocks the names, because "BRONZE ENTRANT, rank 4 of
+  // 4" is a costume worn by a season with four people in it.
+  const tierNote = st && !st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor
+    ? ` · tier names unlock at ${st.tierFloor} ranked crawlers (${st.entrants} so far)`
+    : "";
+
+  // BAND PERSONAL BESTS COME FROM THE SERVER - the same verified rows, under
+  // the same traversal predicate, as the band board. The local ledger is only
+  // the offline fallback, and it is overwritten by the server on every load.
+  let bandBests = loadBandBests();
+  let bandBestsNote = "from this browser only — the server career is offline, so these are unsealed.";
+  if (prof?.bandBests) {
+    bandBests = prof.bandBests;
+    storeBandBests(bandBests);
+    bandBestsNote = "sealed traversals only — every floor in the band entered and the last one left. "
+      + "The same rows, and the same rule, as the BANDS board.";
+  }
+
+  document.getElementById("career-sub")!.textContent = prof
+    ? `season ${prof.season} · rules era ${ERA}`
+    : `this browser ledger only — the server career is offline`;
+
+  const totalSec = history.reduce((a, r) => a + r.timeSec, 0);
+  body.innerHTML =
+    `<div class="cheadline">` +
+      `<div class="ctier"><b>${esc(tier)}</b><small>${esc(rankLine)}</small></div>` +
+      `<div><div class="cname">${esc(prof?.name ?? crawlerName())}</div>` +
+      `<div class="cnamesub">${st ? `${st.cp} contract points · best 10 events count · no decay, ever${tierNote}` : "contract points arrive with your first sealed contract"}</div></div>` +
+      `<div class="cseals"><b>${prof?.seals ?? 0}</b><small>SEALS</small></div>` +
+    `</div>` +
+    `<div class="rsec" style="margin:18px 0 4px;color:var(--gold);font-family:var(--display);` +
+    `font-variant:small-caps;letter-spacing:2px">WHERE YOU DIE</div>` +
+
+    `<div class="cnamesub" style="margin-bottom:16px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
+    `This is the whole career in a glance, and the only chart that tells you where to practise.</div>` +
+    histogramHtml(byFloor) +
+    `<div class="tcols" style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px">` +
+      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
+      `letter-spacing:2px">THE NUMBERS</div>` +
+      ledgerHtml([
+        ["RUNS FINISHED", String(bests?.runs ?? 0)],
+        ["ESCAPES", String(bests?.wins ?? 0)],
+        ["DEEPEST FLOOR", String(Math.max(prof?.deepest ?? 0, bests?.bestFloor ?? 0))],
+        ["FASTEST CLEAR", bests?.fastestClearSec != null ? fmt(bests.fastestClearSec) : "—"],
+        ["MOST KILLS IN A RUN", (bests?.mostKills ?? 0).toLocaleString()],
+        ["CAREER KILLS", (prof?.career?.kills ?? 0).toLocaleString()],
+        ["PEAK VIEWERS", (bests?.peakViewers ?? 0).toLocaleString()],
+        ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
+      ]) +
+      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
+      `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
+      `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
+      masteryHtml(prof?.mastery ?? []) + `</div>` +
+      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
+      `letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
+      `<div class="cnamesub" style="margin-bottom:6px">${bandBestsNote}</div>` +
+      `<div>${bandBests.map((t, i) => {
+        const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
+        return `<div class="splitrow${t ? "" : " empty"}"><span class="sname">${social.bandName(i)}</span>` +
+          `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
+          `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`;
+      }).join("")}</div>` +
+      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
+      (social.milestonesFrom(history).map((m) =>
+        `<div class="mstone"><div class="mdate">${new Date(m.at).toISOString().slice(0, 10)}</div>` +
+        `<div><div class="mtitle">${esc(m.title)}</div><div class="mdetail">${esc(m.detail)}</div></div></div>`,
+      ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
+      `</div>` +
+    `</div>` +
+    (prof && prof.recent.length
+      ? `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
+        `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS — KEPT PLAYABLE REGARDLESS OF BOARD POSITION</div>` +
+        `<ul class="board">${prof.recent.map((r, i) =>
+          // These are YOUR last runs, not a board: a hairline seal, because a
+          // certified run that holds no position is not a trophy.
+          boardRowHtml(r, i, "deepest", social.ago(r.at), "plain")).join("")}</ul>`
+      : "");
+}
+
+async function openCareerSet(): Promise<void> {
+  myAccount = await accountToken();
+  await refreshRivals();
+  closeSets();
+  recapEl.style.display = "none";
+  careerEl.classList.add("on");
+  await renderCareerSet();
+}
+careerEl.addEventListener("click", (e) => {
+  const race = (e.target as HTMLElement).closest("[data-race]") as HTMLElement | null;
+  if (race) void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN");
 });
 
 // RIVALS: the downed overlay — your 15 seconds, front and center.
@@ -5078,12 +6836,21 @@ function updateHud(s: GameState): void {
   }
   // Top-left: floor + the collapse clock (phase color via semantic classes).
   setHudText(hhFloor, "floor", String(s.floor));
+
   setHudText(hhTime, "time", fmt(s.timeRemaining));
-  setHudText(hhPhase, "phase", s.phase.toUpperCase());
-  if (hudCache.phaseCls !== s.phase) {
-    hudCache.phaseCls = s.phase;
-    hhPhase.className = `hh-phase ${s.phase}`;
-    hhCollapse.className = `bar hh-collapse ${s.phase}`;
+  // INJUNCTION (V2 N3): while the stay holds, the clock says so and says what
+  // it will cost. The freeze is the visible half of the button; the DEBT is
+  // the half the crawler forgets, so it rides on the same row.
+  const stayT = p.injunctionT ?? 0;
+  const phaseKey = stayT > 0 ? "stayed" : s.phase;
+  setHudText(
+    hhPhase, "phase",
+    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s` : s.phase.toUpperCase(),
+  );
+  if (hudCache.phaseCls !== phaseKey) {
+    hudCache.phaseCls = phaseKey;
+    hhPhase.className = `hh-phase ${phaseKey}`;
+    hhCollapse.className = `bar hh-collapse ${phaseKey}`;
   }
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
   hhCollapseFill.style.width = `${tf * 100}%`;
@@ -5499,6 +7266,11 @@ async function main(): Promise<void> {
     const draftPending = rewardN > 0 || upgradeN > 0;
     const inSafeRoom = state.safeRoom !== null;
     const inSafe = inSafeRoom || !!lp.safeRoom;
+
+    // EXECUTION, half of it: count what the System OFFERED, so the post-run
+    // grade can hold you to what you left unclaimed.
+    if (rewardN > prevRewardN) draftsOffered += rewardN - prevRewardN;
+    if (upgradeN > prevUpgradeN) draftsOffered += upgradeN - prevUpgradeN;
     if (rewardN > prevRewardN) { draftChain = true; openDraftModal(); }
     else if (upgradeN > 0 && prevUpgradeN === 0 && (inSafe || draftChain)) openDraftModal();
     else if (inSafe && !prevInSafe && draftPending) { draftChain = true; openDraftModal(); }
@@ -5548,21 +7320,42 @@ async function main(): Promise<void> {
       if (menuOpen || invOpen || abilOpen || sheetOpen || kbOpen || draftEl.style.display === "flex" || inSafeRoom
         || dlgOpen || settlementShopOpen) acc = 0; // Roam: conversation + outfitter pause like the safe room
       if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); acc = 0; } // kill pop
+
       while (acc >= SIM_DT) {
-        step(state, sampleIntent(SIM_DT), SIM_DT);
+        // THE RECORDING SEAM (COMPETITIVE.md MUST-3). The intent goes through
+        // the wire format BEFORE the sim sees it, whether or not a recorder is
+        // armed - canonicalIntent is the identical round trip with no tape. So
+        // the sim consumes byte-identical values in both cases and recording
+        // cannot change what happens, by construction rather than by care.
+        // A ping is free-position input that cannot survive an 8-bit heading,
+        // so it rides the action list and is re-attached here, exactly the way
+        // ReplaySession re-attaches it on the far side.
+        const rawIntent = sampleIntent(SIM_DT);
+        const intent = rec ? rec.record(rawIntent) : canonicalIntent(rawIntent);
+        if (rawIntent.ping) intent.ping = rawIntent.ping;
+        step(state, intent, REPLAY_DT);
+        runTicks++;
         for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
         acc -= SIM_DT;
-        if (state.floor !== lastFloor) { lastFloor = state.floor; persistRun(state); }
+        if (state.floor !== lastFloor) {
+          lastFloor = state.floor;
+          // The split ledger, live: the tick a floor was entered is the whole
+          // basis of the band boards and of the ghost delta.
+          if (state.floor >= 1 && floorEntryTicks[state.floor - 1] === -1) {
+            floorEntryTicks[state.floor - 1] = runTicks;
+          }
+          persistRun(state);
+        }
         if (state.status !== lastStatus) {
           lastStatus = state.status;
           persistRun(state);
           if (state.status !== "playing") {
-            submitDaily(state); // daily runs report to the board
-            submitAlltime(state); // every finished run reports all-time
-            submitTelemetry(state); // ...and its build to the balance record
+            noteDailyStreak(state); // a local nudge; boards are earned by proof
+            submitTelemetry(state); // the build goes to the balance record
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
+            sealRun(state); // ...and the proof goes to the verifier
           }
         }
       }
@@ -5647,6 +7440,16 @@ async function main(): Promise<void> {
       // frozen backdrop world stays un-rendered until the menu closes.
       charSelect.frame(now / 1000);
     } else {
+      // THE GHOST, IN THE ROOM (4.1). One array index and a lerp - the track
+      // was precomputed off-thread, so a visible rival costs nothing per frame.
+      // It shows only while it shares your floor; the rail chip carries it the
+      // rest of the time.
+      if (ghost && state.status === "playing" && !net) {
+        const at = social.ghostAt(ghost, runTicks);
+        renderer.setGhost(at ? { x: at.x, y: at.y, onFloor: at.floor === state.floor } : null);
+      } else {
+        renderer.setGhost(null);
+      }
       renderer.update(state, now / 1000);
       renderer.render();
     }
@@ -5656,7 +7459,9 @@ async function main(): Promise<void> {
     updateHud(state);
     updateDowned(state);
     maybeShowRecap(state);
+
     updateSkills(state);
+    updateGhostHud(state);
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);
