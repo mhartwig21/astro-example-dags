@@ -20,18 +20,32 @@ against `main` needs its transcendentals converted before it merges here**, and
 
 ---
 
-## 0. Integration debt — owed first
+## 0. Integration debt — PAID
 
-**`abilities2.test.ts` §6.4.9(i) fails at floor 12.** A Sponsor Barrage window
-costs 300 damage against 52 for playing normally. Neither track had this alone;
-it is a real cross-track interaction, not a merge error. Standing still for 3s
-at 70% move speed is affordable against V1 trash and unaffordable against a V2
-boss with a shield pool the barrage cannot burst. The abilities design
-pre-registered a ladder (3s -> 2s -> cut the channel); 2s measures 269 vs 153
-and still fails, so **channel length is not the lever** and this wants
-diagnosis, not tuning. Decide it as a design question across both docs
-(`ITEMIZATION-V2.md` / `BOSSES-V2.md` §2.4 counterplay windows), not by
-weakening whichever side is easier to edit.
+**`abilities2.test.ts` §6.4.9(i) is green.** The suite is clean.
+
+The red was not the cross-track interaction the merge commit guessed at. It was
+never the boss: across the 13 floor-12 windows a boss *was* present in all of
+them, and dealt 22 of the 352 damage — all 22 on the arm that was **not**
+channelling. `shieldHp` was 0 in 12 of the 13, the one plated boss took nothing
+in its window, and `ap.track`/`ap.band` were 0 in every fixture, so Precision
+Strike never snapped a shell anywhere. The 300 was trash: `shot` 200,
+`swarmer` 70, one blast for 30 that both arms ate identically.
+
+What was broken was the RULER, in two measurable ways: 13 windows could not
+resolve the claim (the same fixture on neighbouring seed bases read 101v104,
+119v240, 179v418 — the shipped base was the outlier of four), and the "playing
+normally" arm was itself pressing the ultimate in 21 of 81 windows, which makes
+it a barrage-vs-barrage comparison. No sim rule moved; the fixture was rebuilt.
+Details and the falsification check are in the §6.4.9 comment and
+ABILITIES-V2 §6.9.
+
+**Carried forward as a watch item:** the barrage's affordability is bought by
+its lethality, and shells stop one-shotting the median mob around floor 12
+(0.56 shells-to-kill at floor 8, 1.34 at floor 12). Floors 14–16 sit near
+parity. If a later band pushes clause (i) past 1.0, the lever is shell damage
+at depth, not channel length — the pre-registered 3s -> 2s ladder is aimed at
+the wrong axis and measuring it (269 vs 153 at 2s) confirmed that.
 
 ---
 
