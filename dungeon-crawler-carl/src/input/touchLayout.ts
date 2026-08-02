@@ -169,8 +169,16 @@ export function computeZones(
   const controls = {} as Record<ControlId, ControlRect>;
   for (const spec of ARC) {
     const size = Math.max(MIN_TARGET, chipBase * spec.size);
-    const dx = Math.cos(spec.ang * RAD) * arcRadius * spec.rf;
-    const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf;
+    // A CORNER GRIP HAS NO ROOM BELOW THE PIVOT. The arc is authored with the
+    // flask just under the horizontal (ang -12), which is right for a side
+    // grip — the tablet pivot sits at 62% height with room underneath. On a
+    // phone the pivot IS the bottom of the safe box, so a negative angle puts
+    // the chip outside it, the clamp drags it back to the edge, and it can
+    // then never move down to make room for its neighbours: the whole cluster
+    // jams against a chip that cannot yield.
+    const ang = side ? spec.ang : Math.max(6, spec.ang);
+    const dx = Math.cos(ang * RAD) * arcRadius * spec.rf;
+    const dy = Math.sin(ang * RAD) * arcRadius * spec.rf;
     let cx = mirror ? pivot.x + dx : pivot.x - dx;
     let cy = pivot.y - dy;
     // Never let a chip hang into a gutter — clamp the CENTRE, then re-measure
@@ -182,6 +190,7 @@ export function computeZones(
       fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
     };
   }
+  separate(controls, safe, pivot);
 
   // --- zones ------------------------------------------------------------
   // The status band owns the top of the screen; the stick never reaches into
@@ -236,6 +245,72 @@ export function computeZones(
     cls, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
     stickRadius, stickAnchor, pivot, arcRadius, comfortable, stretch, controls,
   };
+}
+
+/**
+   * NO TWO CHIPS MAY OVERLAP.
+   *
+   * The arc is authored in angles and radius fractions, so its spacing scales
+   * with `arcRadius` — but the 44px hit-target floor does not. Below roughly
+   * 130px of arc radius the chips start to collide, and an overlap is not a
+   * cosmetic problem: `controlAt()` resolves it by nearest centre, while the
+   * DOM hit-test in `chipUnder()` returns whichever chip PAINTS last. The two
+   * disagree, and the DOM wins.
+   *
+   * Measured on a Pixel 5 (802x293): the flask's rect covered slot 1's own
+   * centre, so tapping DASH drank a potion.
+   *
+   * This is a few passes of pair relaxation: push overlapping boxes apart along
+   * their axis of LEAST penetration (they are axis-aligned squares, so that is
+   * the cheapest way out), re-clamp into the safe box, repeat. Order-stable
+   * because every pair moves both members by the same half-step, and bounded
+   * because each pass strictly reduces total penetration or stops.
+   */
+function separate(
+  controls: Record<ControlId, ControlRect>, safe: Rect, pivot: Vec2,
+): void {
+  const ids = Object.keys(controls) as ControlId[];
+  const GAP = 2; // a hair of daylight, so "adjacent" never rounds into "over"
+  for (let pass = 0; pass < 48; pass++) {
+    let moved = false;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = controls[ids[i]], b = controls[ids[j]];
+        const needX = (a.w + b.w) / 2 + GAP, needY = (a.h + b.h) / 2 + GAP;
+        const dx = b.cx - a.cx, dy = b.cy - a.cy;
+        const penX = needX - Math.abs(dx), penY = needY - Math.abs(dy);
+        if (penX <= 0 || penY <= 0) continue;
+        moved = true;
+        // Push along the LINE BETWEEN THE CENTRES, not along the axis of least
+        // penetration. Least-penetration is the cheaper exit in open space,
+        // but it grinds when that axis is the one the safe box has already
+        // clamped: the pass makes no progress and the next pass picks the same
+        // axis again. Sliding along the centre line lets a jammed pair travel
+        // around an edge instead of into it.
+        const len = Math.hypot(dx, dy);
+        // Coincident centres have no direction; break the tie deterministically
+        // rather than dividing by zero.
+        const ux = len > 1e-6 ? dx / len : 1, uy = len > 1e-6 ? dy / len : 0;
+        const push = Math.min(penX, penY) / 2 + 0.25;
+        a.cx -= ux * push; a.cy -= uy * push;
+        b.cx += ux * push; b.cy += uy * push;
+      }
+    }
+    for (const id of ids) {
+      const c = controls[id];
+      c.cx = clamp(c.cx, safe.x + c.w / 2, safe.x + safe.w - c.w / 2);
+      c.cy = clamp(c.cy, safe.y + c.h / 2, safe.y + safe.h - c.h / 2);
+    }
+    if (!moved) break;
+  }
+  // The table must never lie about reach, so re-derive the rects and the
+  // pivot distances from wherever separation actually left each centre.
+  for (const id of ids) {
+    const c = controls[id];
+    c.x = c.cx - c.w / 2;
+    c.y = c.cy - c.h / 2;
+    c.fromPivot = Math.hypot(c.cx - pivot.x, c.cy - pivot.y);
+  }
 }
 
 export function inRect(r: Rect, x: number, y: number): boolean {

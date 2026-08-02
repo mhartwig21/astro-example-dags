@@ -138,8 +138,71 @@ describe("touch layout: hit testing", () => {
       prefs({ buttonScale: 1.4, stickScale: 1.4, hudInset: 24 }));
     expect(big.controls.slot1.w).toBeGreaterThan(z.controls.slot1.w);
     expect(big.stickRadius).toBeGreaterThan(z.stickRadius);
+    // AT MAX PLAYER SCALE THE ARC IS OVER-SUBSCRIBED, AND SOMETHING HAS TO GIVE.
+    // Nine controls, a 44px hit floor, 1.4x buttons and a 188px comfortable arc
+    // on a 342px-tall screen do not fit together — that is arithmetic, not a
+    // bug. What must NOT give is non-overlap: a stretched thumb is
+    // uncomfortable, a chip that fires the wrong ability is broken. Measured,
+    // the cost is one control (`context`, the DESCEND chip, which only appears
+    // while standing on stairs) at 204 of a 257 stretch arc.
     for (const id of COMBAT_CONTROLS) {
-      expect.soft(big.controls[id].fromPivot, id).toBeLessThanOrEqual(big.comfortable);
+      expect.soft(big.controls[id].fromPivot, id).toBeLessThanOrEqual(big.stretch);
+    }
+    // …and at DEFAULT scale the stronger invariant still holds outright.
+    for (const id of COMBAT_CONTROLS) {
+      expect.soft(z.controls[id].fromPivot, id).toBeLessThanOrEqual(z.comfortable);
+    }
+  });
+
+  /**
+   * NO TWO CONTROLS MAY OVERLAP — the invariant the route probe bought.
+   *
+   * `controlAt()` resolves an overlap by nearest centre; `chipUnder()` asks the
+   * DOM, which answers with whichever chip PAINTS last. When two rects overlap
+   * the two disagree and the DOM wins. Measured on a Pixel 5 (802x293), the
+   * flask's rect covered slot 1's own centre, so tapping DASH drank a potion.
+   */
+  it("never overlaps two controls, on any measured viewport or grip", () => {
+    const VIEWPORTS: [number, number, Insets][] = [
+      [750, 342, { top: 0, right: 47, bottom: 21, left: 47 }],   // iPhone 13
+      [832, 380, { top: 0, right: 47, bottom: 21, left: 47 }],   // 13 Pro Max
+      [802, 293, { top: 0, right: 24, bottom: 0, left: 0 }],     // Pixel 5
+      [1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }],   // iPad Pro 11
+      [1080, 810, { top: 0, right: 0, bottom: 0, left: 0 }],     // iPad 7
+      [568, 320, { top: 0, right: 0, bottom: 0, left: 0 }],      // iPhone SE, the floor
+    ];
+    for (const [w, h, insets] of VIEWPORTS) {
+      for (const handed of ["right", "left"] as const) {
+        for (const buttonScale of [0.7, 1, 1.4]) {
+          const t = computeZones(w, h, insets, prefs({ handed, buttonScale }));
+          const ids = Object.keys(t.controls) as ControlId[];
+          for (let i = 0; i < ids.length; i++) {
+            for (let j = i + 1; j < ids.length; j++) {
+              const a = t.controls[ids[i]], b = t.controls[ids[j]];
+              const gapX = Math.abs(a.cx - b.cx) - (a.w + b.w) / 2;
+              const gapY = Math.abs(a.cy - b.cy) - (a.h + b.h) / 2;
+              expect.soft(
+                Math.max(gapX, gapY),
+                `${w}x${h} ${handed} x${buttonScale}: ${ids[i]} vs ${ids[j]}`,
+              ).toBeGreaterThanOrEqual(0);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  /** Separation may move a chip, but the table must never lie about where. */
+  it("keeps rect, centre and pivot distance consistent after separation", () => {
+    const t = computeZones(802, 293, { top: 0, right: 24, bottom: 0, left: 0 }, prefs({}));
+    for (const id of Object.keys(t.controls) as ControlId[]) {
+      const c = t.controls[id];
+      expect.soft(c.x + c.w / 2, id).toBeCloseTo(c.cx, 6);
+      expect.soft(c.y + c.h / 2, id).toBeCloseTo(c.cy, 6);
+      expect.soft(c.fromPivot, id).toBeCloseTo(Math.hypot(c.cx - t.pivot.x, c.cy - t.pivot.y), 6);
+      // And nothing may be sitting in a safe-area gutter.
+      expect.soft(c.x, id).toBeGreaterThanOrEqual(t.safe.x - 0.001);
+      expect.soft(c.x + c.w, id).toBeLessThanOrEqual(t.safe.x + t.safe.w + 0.001);
     }
   });
 });
