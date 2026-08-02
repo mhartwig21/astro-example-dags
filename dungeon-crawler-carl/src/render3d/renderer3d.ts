@@ -931,16 +931,23 @@ export class Renderer3D {
     const emisGlsl =
       `{ diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(-0.7, 0.6, normal.y);\n` +
       `  vec3 rimV = normalize(vViewPosition);\n` +
-      `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 3.0);\n` +
+      // EDGE, NOT AURA (owner note: "a weird shine around the character").
+      // At power 3.0 the fresnel term still carries real energy a third of the
+      // way across the body, so the rim read as a glow welded to the figure
+      // rather than a light catching its edge. 5.0 collapses it onto the true
+      // silhouette; the strengths below are retuned to match.
+      `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 5.0);\n` +
       `  float rimSide = smoothstep(-0.45, 0.55, -normal.x * 0.6 + normal.y * 0.55);\n` +
       `  vec3 rimC = mix(uChRim, uChWarm, rimSide);\n` +
       `  totalEmissiveRadiance += rimC * (rimF * uChRimStr);\n` +
-      // Accent rides the mid-fresnel band (trim/edges, not the whole body),
-      // breathing at ~1.3Hz so it reads alive at a glance.
+      // Class accent: a tight edge catch, NOT a second rim. It used to run at
+      // power 2.0 — wider than the rim it sat under — and pulse at ~1.3Hz, so
+      // the two stacked into a breathing halo. A pulsing glow on the player's
+      // body is a selection highlight, which is what made this read arcade
+      // rather than lit. Steady now, tighter than the rim, and quiet.
       `  if (uChAccentGain > 0.0) {\n` +
-      `    float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.0);\n` +
-      `    float accPulse = 0.75 + 0.25 * sin(uChTime * 8.2);\n` +
-      `    totalEmissiveRadiance += uChAccent * (accF * uChAccentGain * accPulse); }\n` +
+      `    float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 6.0);\n` +
+      `    totalEmissiveRadiance += uChAccent * (accF * uChAccentGain); }\n` +
       // GOLD TRIM GLINT (r7 boss pass, matches the HUD's gold-on-black
       // language): a steady metallic edge catch on the UPPER body — fresnel
       // edges plus up-facing bevels — so the crown/shoulders read from the
@@ -960,7 +967,12 @@ export class Renderer3D {
       uChTint: { value: tint ?? new THREE.Color(1, 1, 1) },
       uChTintGain: { value: tint ? tintGain : 0 },
       uChGrime: { value: opts.grime ?? 0 },
-      uChCeil: { value: opts.hero ? 0 : 1 },
+      // The albedo ceiling now applies to the HERO TOO. Exempting him meant a
+      // pale skin (the mage's white robe) sat at ~1.0 albedo, saturated the
+      // tone-map shoulder and lost its shading gradient — a lit figure with no
+      // form reads as the same "shine" the rim was adding. His authority comes
+      // from uChHeroSat/uChValue below, which are untouched.
+      uChCeil: { value: 1 },
       uChRim: { value: col },
       uChRimStr: { value: opts.strength },
       uChAccent: { value: accent ?? new THREE.Color(0, 0, 0) },
@@ -3224,12 +3236,16 @@ export class Renderer3D {
       // class-colored trim glow — the player reads FIRST in any crowd.
       // Stored on userData so late attachments (headgear, grafted weapons)
       // inherit the exact same treatment instead of swallowing the rim.
+      // Rim strength is EMISSIVE energy and bloom thresholds at 0.92, so 1.45
+      // on a near-white rim did not light the hero — it lit a halo around him.
+      // 0.42 under the tightened falloff keeps the silhouette separated from
+      // the floor without crossing the bloom threshold on its own.
       const shade = {
         rim: 0xcfe0ff,
-        strength: 1.45,
+        strength: 0.42,
         hero: true,
         accent: Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff,
-        accentGain: 0.62,
+        accentGain: 0.2,
       };
       model.userData.charShade = shade;
       this.applyCharacterShading(model, shade);
@@ -3240,7 +3256,10 @@ export class Renderer3D {
       // inside the warm impact pools. One PointLight per player; cheap.
       {
         const gs = model.scale.x || 1;
-        const kick = new THREE.PointLight(0x9fd0ff, 1.05, 4.5, 2);
+        // Halved (owner note): with the rim and the accent both firing, this
+        // third hero-only source was double-counting the same separation job
+        // and washing the crawler's own albedo cool.
+        const kick = new THREE.PointLight(0x9fd0ff, 0.5, 4.5, 2);
         kick.position.set(-0.55 / gs, 2.0 / gs, -0.5 / gs);
         kick.userData.noAO = true;
         model.add(kick);
