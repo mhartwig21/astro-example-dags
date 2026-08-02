@@ -1,0 +1,164 @@
+[
+  {
+    "dev": "iphone13-land",
+    "name": "cold start: a resting stick affordance is on screen before any finger lands",
+    "pass": false,
+    "detail": "#t-ghost {\"on\":false,\"w\":0,\"h\":0,\"x\":0,\"y\":0,\"op\":0.34,\"cls\":\"tl\"}; body=\"phone touch modal\" #t-layer display=none"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "cold start: the touch controls a player can actually press at rest",
+    "pass": null,
+    "detail": "[{\"id\":\"tb-system\",\"txt\":\"System\",\"w\":44,\"h\":46,\"hits\":false},{\"id\":\"tb-crawler\",\"txt\":\"Crawler\",\"w\":44,\"h\":46,\"hits\":false}]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "walk: the stick moves the crawler in all 8 directions (open floor)",
+    "pass": false,
+    "detail": "E 0t / SE 0t / S 0t / SW 0t / W 0t / NW 0t / N 0t / NE 0t"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "walk: the crawler goes where the thumb pushed (screen-space angular error)",
+    "pass": false,
+    "detail": "0/8 measurable, worst n/a° — E n/a / SE n/a / S n/a / SW n/a / W n/a / NW n/a / N n/a / NE n/a"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: the indicator appears on pointerdown",
+    "pass": false,
+    "detail": "{\"exists\":false,\"visible\":false}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: a cancel affordance is DRAWN while aiming",
+    "pass": false,
+    "detail": "{\"t-ocancel\":{\"on\":false,\"op\":0,\"x\":0,\"y\":0,\"w\":0,\"h\":0,\"cls\":\"tl\"},\"t-cancel\":{\"on\":false,\"op\":0,\"x\":0,\"y\":0,\"w\":0,\"h\":0,\"cls\":\"tl\"}}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: returning to the origin cancels, and the affordance lights first",
+    "pass": false,
+    "detail": "cd {}->{}, ✕ {\"cls\":\"tl\",\"armed\":false}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "cast while moving: movement survives the second finger",
+    "pass": false,
+    "detail": "E 0t / W 0t / S 3.28t / N 4.28t"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "cast while moving: the layer's own verdict for the aimed cast",
+    "pass": false,
+    "detail": "verdicts per direction: none | none | none | none"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "target: how much of the ring around the crawler is world-tappable",
+    "pass": false,
+    "detail": "r=2.5: 9/16 tappable [stick] | r=4.5: 5/16 tappable [context,slot2,stick,lock]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "target: tapping a monster locks it AND draws the lock",
+    "pass": false,
+    "detail": "no bearing at 3.2 tiles projects into the world zone"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: the dash chip fires while the stick is held and a pack is on top",
+    "pass": false,
+    "detail": "2/6 reps spent a charge (dash in slot 1)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: flick-to-dash fires at a realistic thumb amplitude",
+    "pass": false,
+    "detail": "0.8R: 0/4 / 1.2R: 0/4 / 1.6R: 4/4 / 2.2R: 4/4 (R=67px, so 1.2R = 80px of thumb travel)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: a hard turn / thumb stir does NOT dash",
+    "pass": true,
+    "detail": "0/4 stirs dashed"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "feel: pressing a chip with no charge is REFUSED, not silently swallowed",
+    "pass": true,
+    "detail": "verdicts [\"refused\"], indicator drawn on a dead chip=false, shake el=null"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "loot: a kill drops, the crawler collects, and the pickup is fed back",
+    "pass": false,
+    "detail": "drops {\"n\":46,\"kind\":\"service\"}; gold 9411->9411 bag 0->0; #pickstrip {\"on\":false,\"w\":0,\"h\":0,\"x\":59,\"y\":243,\"op\":1,\"cls\":\"\"}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "interact: the context chip appears on the stairs and a finger hits it",
+    "pass": false,
+    "detail": "{\"on\":false,\"display\":\"none\",\"cls\":\"\",\"txt\":\"Descend\",\"x\":0,\"y\":0,\"w\":0,\"h\":0,\"hits\":false,\"body\":\"phone touch modal\",\"diag\":{\"stairs\":{\"x\":13.5,\"y\":17.5},\"pos\":{\"x\":14,\"y\":18}}}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: the safe room opened",
+    "pass": true,
+    "detail": "on screen"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a shelf tile is reachable by a finger",
+    "pass": true,
+    "detail": "50x67 at (95,230) \"×360\""
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: how much shelf a finger sees at once",
+    "pass": null,
+    "detail": "11/66 tiles fully on screen; 1 rows of navigation eating ~13% of the panel height"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: BUY is reachable after selecting a tile",
+    "pass": true,
+    "detail": "580x44 at (375,238)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a FINGER on BUY spends gold",
+    "pass": true,
+    "detail": "gold 19945->19885"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: there is a reachable way out",
+    "pass": true,
+    "detail": "[{\"txt\":\"DESCEND ▼\",\"w\":129,\"h\":44,\"x\":371,\"y\":282,\"hits\":true}]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a finger actually leaves it",
+    "pass": true,
+    "detail": "#saferoom closed=true"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: a phone player can open the character sheet with a finger",
+    "pass": false,
+    "detail": "tried 4 pressable controls: [\"tb-system:System\",\"tb-crawler:Crawler\",\"tp-x:✕\",\"tp-done:BANK IT FOR \"]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: nothing is clipped off the side of the glass",
+    "pass": true,
+    "detail": "panel 750x342 in 750x342; 0 cells past a horizontal edge; scrollers [{\"cls\":\"panel tpanel\",\"sy\":1272,\"sx\":0}]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: a finger closes it",
+    "pass": true,
+    "detail": "close 46x46 at (111,54); closed=true"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,47,21,47\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,47,21,47\", waiting until \"load\"\u001b[22m\n",
+    "errs": []
+  },
+  {
+    "device": "iphone13promax-land",
+    "scene": "combat",
+    "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,47,21,47\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,47,21,47\", waiting until \"load\"\u001b[22m\n",
+    "errs": []
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=24,0,20,0\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=24,0,20,0\", waiting until \"load\"\u001b[22m\n",
+    "errs": []
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "combat",
+    "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,24,0,0\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5370/iso.html?test&debug=1&abilities=all&eagerassets&quality=performance&floor=6&level=14&seed=77&safe=0,24,0,0\", waiting until \"load\"\u001b[22m\n",
+    "errs": []
+  }
+]

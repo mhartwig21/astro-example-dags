@@ -1,0 +1,54 @@
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m277[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5420[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m11:21:33[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:25:16[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:25:47[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:25:52[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:26:01[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:26:11[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:26:19[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:27:16[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:28:06[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:28:20[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:28:31[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:13[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:19[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:24[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:29[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:41[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:44[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:50[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:54[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:29:57[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:30:02[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:30:09[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:30:18[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:30:25[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:30:38[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touch.ts[22m
+[2m11:32:47[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchLayout.ts[22m
+[2m11:38:39[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2miso.html[22m
+[2m11:38:44[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/ui/panelTouch.ts[22m
+[2m11:38:51[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchShell.ts[22m
+[2m11:39:11[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchShell.ts[22m
+[2m11:39:14[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchShell.ts[22m
+[2m11:39:29[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:39:38[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:39:52[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:41:34[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/movement.ts[22m
+[2m11:41:34[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/movement.ts[22m
+[2m11:41:34[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/config.ts[22m
+[2m11:41:35[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/config.ts[22m
+[2m11:41:35[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/tips.ts[22m
+[2m11:41:35[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/tips.ts[22m
+[2m11:41:35[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/tips.ts[22m
+[2m11:53:09[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/bindings.ts[22m
+[2m11:53:09[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:56:02[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/aimSpec.ts[22m
+[2m11:56:13[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:56:21[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m12:02:02[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/input/touchShell.ts[22m
+[2m12:02:17[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2miso.html[22m

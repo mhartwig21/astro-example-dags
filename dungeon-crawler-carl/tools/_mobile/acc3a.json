@@ -1,0 +1,182 @@
+[
+  {
+    "dev": "iphone13-land",
+    "name": "cold start: a resting stick affordance is on screen before any finger lands",
+    "pass": false,
+    "detail": "#t-stick={\"on\":false,\"w\":0,\"h\":0,\"x\":0,\"y\":0,\"op\":1} ghost={\"on\":false,\"w\":0,\"h\":0,\"x\":0,\"y\":0,\"op\":0.34}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "walk: the stick moves the crawler in all 8 directions",
+    "pass": false,
+    "detail": "tiles: E 0 / SE 0 / S 0 / SW 5.14 / W 3.2 / NW 0 / N 3.45 / NE 0"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "walk: the crawler goes where the thumb pushed (screen-space angular error)",
+    "pass": false,
+    "detail": "worst 90.0° — E n/a / SE n/a / S 90° / SW n/a / W n/a / NW n/a / N n/a / NE n/a"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: the indicator appears on pointerdown",
+    "pass": true,
+    "detail": "{\"exists\":true,\"visible\":true}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: the indicator tracks the drag",
+    "pass": true,
+    "detail": "indicator moved 8.806 (from {\"x\":43.727,\"z\":48.724,\"r\":1.571} to {\"x\":39.727,\"z\":50.49,\"r\":-2.863})"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: a cancel affordance is drawn while AIMING",
+    "pass": false,
+    "detail": "[]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "aim: dragging back to the origin cancels (no cooldown, no charge spent)",
+    "pass": true,
+    "detail": "cd before {} after {}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "cast while moving: movement survives the second finger",
+    "pass": true,
+    "detail": "E 4.89t / W 5.61t / S 5.08t / N 4.47t"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "cast while moving: the aimed cast actually fires",
+    "pass": false,
+    "detail": "0/4 directions produced a cooldown"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "target: a monster next to the crawler is tappable at all (in the world zone, not under a chip)",
+    "pass": false,
+    "detail": "mob0 {\"x\":489,\"y\":244,\"zone\":\"world\",\"ctl\":\"slot1\",\"on\":true} mob1 {\"x\":303,\"y\":236,\"zone\":\"stick\",\"ctl\":null,\"on\":true}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "target: tapping a monster locks it AND draws the lock",
+    "pass": false,
+    "detail": "{\"locked\":null,\"vis\":false,\"at\":null,\"want\":84}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "target: tapping empty ground clears the lock",
+    "pass": true,
+    "detail": "{\"locked\":null}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: the dash chip fires while the stick is held and a pack is on top",
+    "pass": true,
+    "detail": "6/6 reps spent a dash charge (dash in slot 1)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: flick-to-dash fires under pressure",
+    "pass": false,
+    "detail": "0/6 flicks spent a charge"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "dodge: a hard turn / thumb stir does NOT dash",
+    "pass": true,
+    "detail": "0/4 stirs dashed"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "potion: the flask chip drinks as a THIRD simultaneous finger",
+    "pass": true,
+    "detail": "hp 134->447 (max 447), charges 3->3"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "loot: picking up gold is fed back on screen",
+    "pass": false,
+    "detail": "gold 9383->9383; #pickstrip {\"on\":false,\"txt\":\"\",\"x\":59,\"y\":243,\"w\":0,\"h\":0}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "interact: the context chip appears on the stairs with a verb, and a finger hits it",
+    "pass": false,
+    "detail": "{\"on\":false,\"txt\":\"Descend\",\"x\":0,\"y\":0,\"w\":0,\"h\":0,\"hits\":false,\"hitEl\":\"CANVAS#game\"}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: the safe room opened",
+    "pass": true,
+    "detail": "on screen"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a shelf tile is reachable by a finger",
+    "pass": true,
+    "detail": "50x67 at (95,230) \"×360\""
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: how much of the shelf a finger can see at once",
+    "pass": null,
+    "detail": "11/66 tiles fully on screen, 0px of hidden scroll"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: BUY is reachable after selecting a tile",
+    "pass": true,
+    "detail": "580x44 at (375,238)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a FINGER on BUY spends gold",
+    "pass": true,
+    "detail": "gold 20000->19940, bag 0->0"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "shop: a close control exists and a finger hits it",
+    "pass": false,
+    "detail": "none"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: there is a touch path to open the character sheet",
+    "pass": false,
+    "detail": "no touch control opened #sheet (tried nothing found)"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: its numbers fit / are reachable",
+    "pass": false,
+    "detail": "panel 750x342 in 750x342; 24 cells past the viewport edge; scrollers [{\"cls\":\"panel tpanel\",\"sy\":1244,\"sx\":0}]"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: a finger drag scrolls it",
+    "pass": true,
+    "detail": "scrollTop 0 -> 104"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "sheet: a finger closes it",
+    "pass": false,
+    "detail": "close 46x46 at (111,54); closed=false"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "authority: a modal opening mid-aim does not queue a cast that detonates on close",
+    "pass": true,
+    "detail": "cd pre {\"dash\":0,\"melee\":0} / during {\"dash\":0,\"melee\":0} / after close {\"dash\":0,\"melee\":0}"
+  },
+  {
+    "dev": "iphone13-land",
+    "name": "readability: on-screen monsters not covered by chrome",
+    "pass": true,
+    "detail": "0/0 visible monsters sit under an opaque HUD element; chrome covers ~14% of the viewport"
+  }
+]
