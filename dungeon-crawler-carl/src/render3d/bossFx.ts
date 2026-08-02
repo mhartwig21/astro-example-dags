@@ -302,6 +302,7 @@ const ARENA_FRAG = /* glsl */ `
   uniform float uOut;   // 0 contracting warning, 1 expanding sweep
   uniform float uSpoke; // radial spokes: RESERVED, see below
   uniform float uGap;   // >0: THE SEAL OPENS — four arcs retreating, not a ring
+  uniform float uTicks; // >0: THE THRESHOLD SEAL — this band's glyph count
   uniform float uDim;
   varying vec2 vUv;
   void main() {
@@ -334,14 +335,36 @@ const ARENA_FRAG = /* glsl */ `
       float open = smoothstep(0.0, 0.16 + 0.34 * uProg, g);
       band *= open; edge *= open; chev *= open; swept *= open;
     }
+    // THE THRESHOLD SEAL IS AUTHORED (r6 major). Across all eight bosses of
+    // the last round the approach and intro seals were the same fat pure-white
+    // ellipse: same stroke weight, same colour, no material, no glyphs, no tie
+    // to the band or the ask — the single most-repeated element in the boss
+    // presentation and the least authored. Two things fix it and both are
+    // here. (1) GLYPHS: uTicks hard bars stand across the ring, one per BAND,
+    // so the Undercroft's seal is a single mark and the Approach's is six —
+    // countable, and the same count the floor plate shows. (2) The ring stops
+    // going WHITE: with glyphs on, the core mix is halved and the gain comes
+    // down, so the ASK's own hue survives the additive pass and a
+    // break-the-shield threshold is visibly not a survive-the-storm one.
+    float tick = 0.0;
+    if (uTicks > 0.0) {
+      float seg = 6.28318530718 / uTicks;
+      float t = abs(fract(ang / seg + 0.5) - 0.5) * 2.0;   // 0 at each glyph
+      float across = smoothstep(0.09, 0.0, t);
+      float along = smoothstep(0.13, 0.0, abs(r - front)); // the bar's length
+      tick = across * along;
+    }
+    float glyphed = step(0.5, uTicks);
     float fade = 1.0 - smoothstep(0.55, 1.0, uProg);
     // EXPOSURE BUDGET (capture review): at arena scale this disc covers most of
     // the screen, and it is ADDITIVE. The first cut filled its interior and
     // detonated the bloom pass — the intermission read as a lens flare with a
     // health bar on it. The beat is the travelling FRONT; everything behind it
     // is a whisper, so the arena stays legible while the board is re-dealt.
-    float a = clamp((edge * 0.34 + band * 0.05 + chev * 0.14 + spoke * 0.3) * fade, 0.0, 0.44) * uDim;
-    vec3 col = mix(uColor, uCore, clamp(edge * 1.4 + chev, 0.0, 1.0)) * (0.8 + 1.5 * edge + 0.8 * chev);
+    float a = clamp((edge * mix(0.34, 0.2, glyphed) + band * 0.05 + chev * 0.14
+                     + spoke * 0.3 + tick * 0.42) * fade, 0.0, 0.44) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(edge * mix(1.4, 0.55, glyphed) + chev + tick, 0.0, 1.0))
+             * (mix(0.8, 0.7, glyphed) + mix(1.5, 0.6, glyphed) * edge + 0.8 * chev + 1.4 * tick);
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
@@ -352,7 +375,7 @@ export function makeArenaMat(): THREE.ShaderMaterial {
       uColor: { value: new THREE.Color(ASK_PAL.arena.mid) },
       uCore: { value: new THREE.Color(ASK_PAL.arena.core) },
       uTime: { value: 0 }, uProg: { value: 0 }, uOut: { value: 0 },
-      uSpoke: { value: 0 }, uGap: { value: 0 }, uDim: { value: 1 },
+      uSpoke: { value: 0 }, uGap: { value: 0 }, uTicks: { value: 0 }, uDim: { value: 1 },
     },
     vertexShader: VERT,
     fragmentShader: ARENA_FRAG,
@@ -796,6 +819,73 @@ const WIPE_FRAG = /* glsl */ `
     gl_FragColor = vec4(col, a);
   }`;
 
+// ---------------------------------------------------------------------------
+// SEED BED (BLOOM / SEED HEAD / GROUNDWATER BLOOM) — r6 BLOCKER.
+//
+// The finding: "THE POLLINATOR'S FIGHT BEAT DRAWS NOTHING." Its `-3fight`
+// capture probed `shapes:{}` while the sim was emitting `telegraph:BLOOM` —
+// because the `swarm` case in `telegraph()` was a particle burst and a ring of
+// embers and NO GEOMETRY AT ALL. The one survive-the-storm boss in the set had
+// no storm on screen: no armed pods, no spore silhouette, one thin green arc
+// with half of it behind a tree. A named signature that resolves to zero
+// shapes is the same failure as having no kit.
+//
+// Its own silhouette, and it is the one thing on the ground that is not a line
+// or a front: a SCATTER of pods. The disc is cut into cells, each cell holds
+// one hash-jittered pod, and every pod is the same object the hazard renderer
+// already draws (makeSporeMat's language — petal SEAMS that spread as it arms
+// over a core that swells), so the telegraph and the thing it telegraphs speak
+// the same sentence. Reduced to a black-and-white mask it is a spatter of
+// small round blobs across the arena: unmistakable next to chevroned bars
+// (lanes), converging cords, a cracking dome, corner brackets at the walls
+// (props), a lit grid (cells), a pinwheel (burrow) or a concentric front
+// (ring). Nothing else in the game is DISCONTINUOUS.
+// ---------------------------------------------------------------------------
+const SEED_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uCore;
+  uniform float uTime;
+  uniform float uProg;
+  uniform float uDim;
+  uniform float uN;     // pods across the disc (the sim's own count)
+  varying vec2 vUv;
+  float h21(vec2 p) {
+    return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453);
+  }
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    // The bed grid. More pods = a finer grid, so "value" is legible as DENSITY.
+    float g = clamp(uN, 3.0, 7.0);
+    vec2 c = floor(p * g);
+    vec2 f = p * g - c - 0.5;
+    // Hash-jitter each pod inside its own cell; stable for the beat's life.
+    vec2 j = vec2(h21(c), h21(c + 17.0)) - 0.5;
+    vec2 d = f - j * 0.62;
+    float pr = length(d);
+    // Pods SWELL as the beat runs — the countdown is the silhouette.
+    float rad = mix(0.16, 0.34, uProg);
+    float body = smoothstep(rad, rad * 0.55, pr);
+    float rim = smoothstep(0.05, 0.0, abs(pr - rad));
+    // PETAL SEAMS: three cuts that open across the pod as it arms, exactly the
+    // read makeSporeMat gives the live hazard.
+    float ang = atan(d.y, d.x);
+    float seam = smoothstep(0.86, 1.0, abs(sin(ang * 1.5 + h21(c + 3.0) * 6.28)))
+               * body * smoothstep(0.15, 0.75, uProg);
+    // A core that comes up late: the pod is about to go.
+    float core = smoothstep(rad * 0.42, 0.0, pr) * smoothstep(0.35, 1.0, uProg);
+    // Thin out toward the rim so the bed sits inside the arena, not on it.
+    float bed = 1.0 - smoothstep(0.72, 1.0, r);
+    float fade = 1.0 - smoothstep(0.78, 1.0, uProg);
+    float a = clamp((body * 0.28 + rim * 0.6 + core * 0.5 - seam * 0.5)
+                    * bed * fade, 0.0, 0.8) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(rim * 1.2 + core, 0.0, 1.0))
+             * (0.85 + 1.6 * rim + 1.4 * core);
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
+
 function makeQuadMat(frag: string, extra: Record<string, { value: unknown }>): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -825,6 +915,7 @@ export const makeCellsMat = (): THREE.ShaderMaterial =>
 export const makeSetMat = (): THREE.ShaderMaterial => makeQuadMat(SET_FRAG, {});
 export const makeBurrowMat = (): THREE.ShaderMaterial => makeQuadMat(BURROW_FRAG, {});
 export const makeWipeMat = (): THREE.ShaderMaterial => makeQuadMat(WIPE_FRAG, {});
+export const makeSeedMat = (): THREE.ShaderMaterial => makeQuadMat(SEED_FRAG, { uN: { value: 5 } });
 export const makeMarkMat = (): THREE.ShaderMaterial => {
   const m = makeQuadMat(MARK_FRAG, { uLeft: { value: 1 }, uGain: { value: 1 } });
   // DEPTH-TEST FREE, for exactly the reason the tether cords are (r5 blocker).
@@ -907,10 +998,10 @@ interface ArenaBeat {
 }
 
 /** The ground-plane silhouettes, one pool per shape (§ THE ASK SILHOUETTES). */
-type ShapeKind = "lanes" | "props" | "cells" | "set" | "burrow" | "wipe";
+type ShapeKind = "lanes" | "props" | "cells" | "set" | "burrow" | "wipe" | "seed";
 const SHAPE_MAT: Record<ShapeKind, () => THREE.ShaderMaterial> = {
   lanes: makeLanesMat, props: makePropsMat, cells: makeCellsMat, set: makeSetMat,
-  burrow: makeBurrowMat, wipe: makeWipeMat,
+  burrow: makeBurrowMat, wipe: makeWipeMat, seed: makeSeedMat,
 };
 interface ShapeBeat {
   mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number; kind: ShapeKind;
@@ -974,6 +1065,19 @@ export class BossFx {
   private zoomWant = 1;
   private orbitWant = 0;
   private orbitHold = 0;
+  /**
+   * THE PUNISH WINDOW OWNS THE FRAME WHILE IT IS OPEN (r6 blocker).
+   *
+   * §5.5 pulls the camera back one step per phase, so by the time the window
+   * arrives the shot has widened twice — and the capture review measured the
+   * punish beat as the WIDEST camera of the six, with the whole encounter at
+   * ~15% of a 1600x900 frame and the boss a featureless blown-white blob. §7.4
+   * calls this "the one beat that most needs to read". It is an UNLOAD: it
+   * pushes in past every phase pull-back, and holds that for the window's own
+   * length so the next phase edge cannot take the frame back mid-beat.
+   */
+  private static readonly PUNISH_ZOOM = 0.72;
+  private punishFrameT = 0;
   // Measured against a 1600x900 capture at the shipped ortho half-height: the
   // plate owns the top ~250px, a boss rig stands ~3 units, and this pair puts
   // its feet near 55% down the frame with its head clear of the panel by a
@@ -1049,7 +1153,14 @@ export class BossFx {
    */
   private static readonly EXPOSURE_FLOOR = 0.62;
   /** Past this the divisor stops growing: a governor that saturates is a clamp. */
-  private static readonly LOAD_MAX = 1.5;
+  private static readonly LOAD_MAX = 1.2;
+  /**
+   * ...and below THIS it charges nothing at all (r6). A governor charges
+   * OVERLAP: one beat firing on its own is the fight working, not a frame in
+   * trouble. Sized so a single typical beat (cost 0.35-0.5) is free and the
+   * second one inside the same half-second starts paying.
+   */
+  private static readonly LOAD_FREE = 0.5;
   /**
    * ...and the punish rig never goes below THIS. §7.4 calls the punish window
    * "the one beat that most needs to read", and it was subject to the governor
@@ -1191,7 +1302,27 @@ export class BossFx {
     // fight/phase/punish/kill half of both capture runs measured 0.45 exactly.
     // The MEASURED term keeps its coefficients — a clipping frame is still a
     // clipping frame, and that is the case the governor was written for.
-    const k = 1 / (1 + Math.min(BossFx.LOAD_MAX, load) * 0.9 + over);
+    // r6 MAJOR — IT WAS STILL SATURATED, JUST AT A HIGHER NUMBER. Across all
+    // eight bosses of the last capture round the fight/phase/punish/kill
+    // probes read 0.62, 0.62, 0.62, 0.62, 0.62, 0.63, 0.62, 0.65 — pinned at
+    // the new floor on ~20 of 32 frames. r5 diagnosed "a governor that
+    // saturates is a clamp" and then moved the floor 0.45 -> 0.62; the clamp
+    // moved and did not go away, so every fight frame in the round ran at 62%
+    // of authored brightness for a reason with nothing to do with the beat.
+    //
+    // The cause is arithmetic, not taste: at LOAD_MAX 1.5 and a coefficient of
+    // 0.9 the load term alone reaches 1/(1+1.35) = 0.43, i.e. it dives THROUGH
+    // the floor, so the floor becomes the operating point the moment two beats
+    // overlap — which in a boss fight is most of the time.
+    //
+    // A governor charges OVERLAP. One beat is not an exposure problem, so the
+    // first LOAD_FREE of load is free, the coefficient comes down, and the cap
+    // comes down with it — the worst case the LOAD term can now produce is
+    // 1/(1 + (1.2-0.5)*0.7) = 0.68, above the floor. The floor is therefore
+    // reachable only through the MEASURED term, which is the case it exists
+    // for: a genuinely clipping neighbourhood still gets gripped, hard.
+    const charged = Math.max(0, Math.min(BossFx.LOAD_MAX, load) - BossFx.LOAD_FREE);
+    const k = 1 / (1 + charged * 0.7 + over);
     // AND A FLOOR. The thing being scaled is how hard a beat may BURN, and a
     // beat scaled to a quarter is a beat the player does not see at all —
     // which is the failure mode the governor was written to fix, arriving from
@@ -1323,7 +1454,11 @@ export class BossFx {
     this.deps.light(x, z, pal.mid, 5 * k, 1.4, 2.4);
     this.deps.fxp.column(x, z, pal.mid, 18, 3.4);
     this.deps.fxp.vortex(x, z, pal.core, 3.0);
-    this.arenaBeat(x, z, 6, pal, 1.5, 0); // the seal closing: contracting
+    // The seal closing: contracting, and carrying this BAND's glyph count (r6
+    // major) — the approach's threshold and the reveal's seal are the same
+    // object, so they wear the same marks.
+    this.arenaBeat(x, z, 6, pal, 1.5, 0, 0, 0,
+      Math.max(1, Math.min(6, Math.round((this.world?.floor ?? 3) / 3))));
     this.deps.bloom(0.22 * k);
   }
 
@@ -1472,12 +1607,23 @@ export class BossFx {
         this.deps.light(x, z, pal.mid, 5 * k, 0.45, 0.9);
         break;
       case "swarm":
-        // BLOOM / QUOTA: bodies or pods are about to exist. Scatter outward,
-        // low and wide, so the eye goes to the GROUND where they will land.
-        this.deps.fxp.burst(x, z, pal.mid, 18);
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 + 0.4;
-          this.deps.fxp.embers(x + Math.cos(a) * 1.6, z + Math.sin(a) * 1.6, pal.core, 3, 0.8);
+        // BLOOM / SEED HEAD: pods are about to exist, and now you can SEE the
+        // bed they are about to exist in.
+        //
+        // r6 BLOCKER — this case had no geometry at all. The Pollinator's own
+        // headline frame probed `shapes:{}` with the sim emitting
+        // `telegraph:BLOOM`: eighteen particles and a light, on the one
+        // survive-the-storm boss in the roster. The SEED silhouette is a
+        // scatter of swelling pods with petal seams — the same language
+        // `makeSporeMat` gives the live hazard — so the telegraph and the
+        // thing it telegraphs are one sentence, and the beat has a mask.
+        this.shapeBeat("seed", x, z, 8.5, pal, 1.5, (m) => {
+          m.uniforms.uN.value = Math.max(3, Math.min(7, 2 + n));
+        });
+        this.deps.fxp.burst(x, z, pal.mid, 12);
+        for (let i = 0; i < Math.min(6, n); i++) {
+          const a = (i / Math.max(1, Math.min(6, n))) * Math.PI * 2 + 0.4;
+          this.deps.fxp.embers(x + Math.cos(a) * 3.2, z + Math.sin(a) * 3.2, pal.core, 3, 0.8);
         }
         this.deps.light(x, z, pal.mid, 6 * k, 0.5, 0.9);
         break;
@@ -1503,7 +1649,52 @@ export class BossFx {
         this.deps.shocks.spawn(x, z, pal.mid, 3.4, 0.45);
         this.deps.fxp.burst(x, z, pal.mid, 12);
     }
+    // ---- THE LANES THE SIM ACTUALLY LAID, WHATEVER THE ASK'S SHAPE IS ------
+    //
+    // r6 BLOCKER. The Permit Office's STOP-WORK ORDER is "one locked lane per
+    // unbroken stamp, so breaking a stamp deletes a lane" (§5.9) — the whole
+    // point of the boss — and its `-3fight` probe read
+    // `shapes:{shell,column,reticle,shaft,plate:4}` with no `lanes` entry at
+    // all. The ask silhouette was drawing (it is a break-the-shield boss, so
+    // it wears the dome) and the mechanic was not, because the ask table has
+    // exactly one shape per label and this beat is genuinely two things.
+    //
+    // So: if the sim laid BEAM hazards on this frame and the ask's own shape
+    // is not already lanes, the lanes are drawn too, in the ask's own hue.
+    // This is not a special case for one boss — it is the rule that a
+    // telegraph must show the ground it locked, and it applies to every kit
+    // that fires beams from behind another ask's silhouette.
+    if (sig.shape !== "lanes") {
+      const beams = this.beamsNear(x, z);
+      if (beams.n > 0) {
+        this.shapeBeat("lanes", x, z, 8.5, pal, 1.1, (mm) => {
+          mm.uniforms.uN.value = Math.max(1, Math.min(8, beams.n));
+          mm.uniforms.uAng.value = beams.heading;
+          mm.uniforms.uW.value = beams.n >= 5 ? 0.1 : 0.14;
+        });
+      }
+    }
     if (sig.trauma) this.deps.trauma(sig.trauma);
+  }
+
+  /** Beam hazards the sim laid around this beat: how many, and which way. */
+  private beamsNear(x: number, z: number): { n: number; heading: number } {
+    const s = this.world;
+    if (!s) return { n: 0, heading: 0 };
+    let n = 0, heading = 0, bestD = 8.5;
+    for (const h of s.hazards) {
+      if (h.kind !== "beam" || !h.end) continue;
+      // Only FRESH ones: a beam past its arm is a lane that already fired.
+      if (h.arm !== undefined && h.t < h.arm * 0.35) continue;
+      const d = Math.hypot(h.pos.x - x, h.pos.y - z);
+      if (d > bestD + 4) continue;
+      n++;
+      if (d <= bestD) {
+        bestD = d;
+        heading = Math.atan2(h.end.y - h.pos.y, h.end.x - h.pos.x);
+      }
+    }
+    return { n, heading };
   }
 
   /**
@@ -1577,8 +1768,23 @@ export class BossFx {
     // transient shield dome that covers it completely. A dome is a sentence
     // about the last beat; this is the sentence about this one.
     for (const sh of this.shells) { sh.life = sh.max; sh.mesh.visible = false; }
+    // ...AND SO DOES THE TELL IT ANSWERS (r6 blocker). The punish TELL draws
+    // the window family's shaft at the boss's position one beat earlier; the
+    // window's own rig follows the BODY. A boss that walked in between left
+    // the two anchored ~12 tiles apart, so "the shape converges on the core"
+    // converged on nothing, in the frame §7.4 calls the one that most needs to
+    // read. The window retires the tell's shaft: one beat, one anchor.
+    for (const sf of this.shafts) { sf.life = sf.max; sf.group.visible = false; }
     const pal = ASK_PAL.window;
     const k = this.budget(0.35);
+    // THE WINDOW TAKES THE FRAME BACK (r6 blocker). §5.5's "pull back one step
+    // per phase" had by the punish beat pulled back twice, so the widest
+    // camera in the encounter was the beat that most needs to read: the whole
+    // fight occupied ~15% of a 1600x900 frame and the boss was a featureless
+    // blob. The window is an UNLOAD — it pushes in, hard, and it holds the
+    // anchor on the boss for its own duration.
+    this.zoomWant = BossFx.PUNISH_ZOOM;
+    this.punishFrameT = Math.max(this.punishFrameT, span);
     this.deps.fxp.impactFlash(x, 1.2, z, pal.core, 0.9);
     // THE LIGHT SITS ON THE GROUND, NOT ON THE BODY (r5 major). At peak 5.5,
     // 1.7 units up and centred on the boss, this was the light that took The
@@ -2025,7 +2231,7 @@ export class BossFx {
   /** Pooled arena ring (contracting warning / expanding sweep). */
   private arenaBeat(
     x: number, z: number, radius: number, pal: BossPalette, dur: number, out: 0 | 1,
-    spoke: 0 | 1 = 0, gap: 0 | 1 = 0,
+    spoke: 0 | 1 = 0, gap: 0 | 1 = 0, ticks = 0,
   ): void {
     let slot = this.beats.find((b) => b.life >= b.max);
     if (!slot) {
@@ -2054,6 +2260,7 @@ export class BossFx {
     slot.mat.uniforms.uProg.value = 0;
     slot.mat.uniforms.uSpoke.value = spoke;
     slot.mat.uniforms.uGap.value = gap;
+    slot.mat.uniforms.uTicks.value = ticks;
   }
 
   // -------------------------------------------------------------------------
@@ -2088,6 +2295,12 @@ export class BossFx {
       this.focusT = Math.max(0, this.focusT - dt);
       if (this.focusT <= 0) this.focus = null;
     }
+    // The punish window's push-in outranks every phase pull-back for as long
+    // as the window is open (r6 blocker) — see PUNISH_ZOOM.
+    if (this.punishFrameT > 0) {
+      this.punishFrameT = Math.max(0, this.punishFrameT - dt);
+      this.zoomWant = BossFx.PUNISH_ZOOM;
+    }
     // Where the renderer takes its luminance sample (see measureBossExposure).
     this.starPos = star ? { x: star.pos.x, y: star.pos.y } : this.focus;
     if (!star && !this.focus) this.zoomWant = 1;
@@ -2113,8 +2326,14 @@ export class BossFx {
     const holding = this.focusT > 0; // the kill beat's held frame
     const wantBias = engaged || revealing || holding ? BossFx.ENC_BIAS
       : approach ? BossFx.APR_BIAS : 0;
-    const wantDrop = engaged || revealing || holding ? BossFx.ENC_DROP
+    let wantDrop = engaged || revealing || holding ? BossFx.ENC_DROP
       : approach ? BossFx.APR_DROP : 0;
+    // ...and the WINDOW centres its subject (r6 blocker). The drop exists to
+    // get the fight out from under the health plate, which is a problem at the
+    // fight's normal zoom; at the window's push-in it instead pushed the boss
+    // into the ability bar at the bottom of the frame. The one beat that has
+    // to read gets the middle of the picture.
+    if (this.punishFrameT > 0) wantDrop *= 0.42;
     // §5.2 asks the approach to PULL BACK on arena entry, and it never did.
     if (approach && !revealing) this.zoomWant = 1.12;
     // Eased, and slowly: the frame settling is not a beat, it is the shot.
@@ -2217,6 +2436,11 @@ export class BossFx {
       (this.seal.mat.uniforms.uCore.value as THREE.Color).setHex(pal.core);
       this.seal.mat.uniforms.uTime.value = time;
       this.seal.mat.uniforms.uDim.value = Math.max(dim, 0.8);
+      // ONE GLYPH PER BAND (r6 major): the Undercroft's threshold carries a
+      // single mark, THE APPROACH's carries six. Countable, and the same
+      // number the floor plate is showing.
+      this.seal.mat.uniforms.uTicks.value =
+        Math.max(1, Math.min(6, Math.round(state.floor / 3)));
       // A slow CONTRACT-and-reset: the only ring in the game that closes, on
       // a breath rather than on a beat.
       this.seal.mat.uniforms.uProg.value = (this.approachT % 2.6) / 2.6;
@@ -2449,8 +2673,21 @@ export class BossFx {
 
       // ---- PUNISH BEACON (V4). The boss is helpless; this beat owns vertical
       // space nothing else in the game uses, so it can never be missed.
+      //
+      // ...AND IT IS EXCLUSIVE TO IT (r6 blocker). Shipped, the condition was
+      // `m.stagger > 0 || windupKind === "punish" || held` — and `m.stagger`
+      // is set by a PLATE BREAK (1.2s), a SHIELD BREAK (1.6s), a poise
+      // interrupt and a floodgate. So the probe found `shaft`+`reticle`
+      // drawing in the -3fight frames of four bosses and the -4phase frames of
+      // five: the one silhouette in the game that means "the window is open"
+      // was on screen during three of the six beats, identifying nothing. r4
+      // moved OVER-COMMIT onto this shape precisely so the tell and the window
+      // would speak one sentence a beat apart; a shape that speaks it
+      // constantly is not speaking. The rig is now the WINDOW's alone —
+      // `marked` is written by `punishOpen` and by nothing else — plus the
+      // punish TELL's own windup, which is the same sentence one beat earlier.
       const held = this.marked.get(m.id);
-      if ((m.stagger ?? 0) > 0 || (m.windupKind === "punish" && m.windup > 0) || held) {
+      if ((m.windupKind === "punish" && m.windup > 0) || held) {
         punishSeen.add(m.id);
         let rig = this.punish.get(m.id);
         if (!rig) {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { createGame, restoreGame, createTestGame } from "../src/sim/game";
+import { createGame, damageMonster, restoreGame, createTestGame, step } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { ARCHETYPES, CONFIG, naturalFloorForLevel } from "../src/sim/config";
 import { meleeParams } from "../src/sim/abilities";
@@ -199,6 +199,51 @@ describe("balance bot: boss difficulty", () => {
         ).toBeGreaterThanOrEqual(b.minTtk);
       }
     }
+  });
+
+  // ---- THE FINALE CAN BE KILLED (r6 blocker) -------------------------------
+  //
+  // The Sponsor ended a 70s bot fight at 100% HP with 0/2 seeds killed — and
+  // ABLATING ITS OWN KIT ended the same fight at 20% with 1/2 killed, i.e. the
+  // last boss in the game was strictly harder WITH its identity than without
+  // it, and the shape of that difficulty was a stalemate the player loses on
+  // the collapse clock. BRAND ACTIVATION's tethered placements refilled the
+  // school-locked pool faster than a correct-school rotation could strip it.
+  //
+  // Nothing above would have caught it: `minTtk` is a LOWER bound on fight
+  // length, so a boss that never dies passes it. This is the upper bound, and
+  // it is deliberately generous (the §6.2 target for a finale is 120s) — it
+  // asserts KILLABLE, not fast.
+  // Measured directly rather than through a full bot run, because a bot that
+  // dies on the way to floor 18 records no encounter at all and would pass a
+  // run-level assertion by never reaching the fight. This applies a correct-
+  // school rotation at a fixed rate and asks the only question that matters:
+  // does the health bar move at all?
+  it("the finale is killable: a correct-school rotation strips the pool", () => {
+    const g = restoreGame({
+      seed: 7, floor: CONFIG.finalFloor,
+      player: { hp: 1100, level: 19, xp: 0, xpToNext: 99999, gold: 0, bonusDamage: 250, bonusMaxHp: 700 },
+    });
+    const boss = g.monsters.find((m) => m.kind === "boss");
+    if (!boss || boss.bossId !== "sponsor") return; // this seed drew another finale
+    boss.introduced = true;
+    const p = g.players[0];
+    p.pos = { x: boss.pos.x + 2, y: boss.pos.y };
+    const start = boss.hp;
+    for (let i = 0; i < 120 * 60; i++) {
+      p.hp = p.maxHp; p.alive = true; p.downedT = 0;
+      if (g.status !== "playing") g.status = "playing";
+      p.pos = { x: boss.pos.x + 2, y: boss.pos.y };
+      // 240 dps in whatever school the brand is currently accepting — the
+      // rotation the fight is asking the player to run.
+      damageMonster(g, p, boss, 4, { allowCrit: false, school: boss.shieldSchool ?? "physical" });
+      step(g, { move: { x: 0, y: 0 }, useStairs: false }, 1 / 60);
+      if (boss.hp <= 0) break;
+    }
+    expect(
+      boss.hp / start,
+      `The Sponsor ended 120s of a correct-school rotation at ${(boss.hp / start * 100).toFixed(0)}% HP`,
+    ).toBeLessThan(0.5);
   });
 
   it("bosses hit back: reference fights cost real health", () => {

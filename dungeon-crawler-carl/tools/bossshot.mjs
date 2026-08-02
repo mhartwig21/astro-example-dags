@@ -336,12 +336,32 @@ async function guard(opts = {}) {
       }
     }
     const b = window.__dcc && window.__dcc.state.monsters.find((m) => m.kind === "boss");
+    // LAID OUT AND ON SCREEN, but deliberately NOT opacity-gated: the beat
+    // line's entrance keyframe starts at opacity 0, and a getComputedStyle
+    // taken while that 0.32s animation is at 0% reports 0 for a line that is
+    // about to be perfectly visible. Rects catch the only thing that matters
+    // here — an element inside a display:none panel has none.
+    const txt = (id) => {
+      const e = document.getElementById(id);
+      if (!e || e.getClientRects().length === 0) return "";
+      return (e.textContent || "").trim();
+    };
     return {
       bf: !!window.__bf, tok: window.__bfBoot, want: tok,
       loading: !!el && el.style.display !== "none" && !el.classList.contains("done"),
       dead: !!window.__dcc && window.__dcc.state.status !== "playing",
       modal: blocker || document.body.classList.contains("modal") ? (blocker || "body.modal") : null,
       bossHp: b ? b.hp : -1,
+      // THE CAPTURE HONESTY RULE, MECHANISED THIRD (r6). What the SCREEN says
+      // this beat is — the plate's live line and the call-out layer, read at
+      // the moment the shutter opens. `wantBeat` below asserts the frame
+      // contains the beat its filename claims, which is the check that would
+      // have caught `permitoffice-3fight` (filed as STOP-WORK ORDER, pixels
+      // reading THE COMMERCIAL BREAK / YOU DID THAT) and
+      // `zoningboard-3fight` (filed as SETBACK REQUIRED, same intermission).
+      beat: txt("bb-beat"),
+      callWord: txt("bc-word"),
+      callSub: txt("bc-sub"),
     };
   }, bootToken);
   if (!st.bf || st.tok !== st.want || st.loading) {
@@ -360,6 +380,26 @@ async function guard(opts = {}) {
   if (opts.bossAlive && !(st.bossHp > 0)) {
     throw new Error("BOSS IS DEAD — refusing to shoot a corpse as a live beat");
   }
+  // ...AND THE FRAME MUST CONTAIN THE BEAT ITS FILENAME CLAIMS (r6 major).
+  //
+  // `permitoffice-3fight.png` was filed as STOP-WORK ORDER and its pixels read
+  // THE COMMERCIAL BREAK / THE BOARD IS BEING RE-DEALT / YOU DID THAT;
+  // `zoningboard-3fight.png` was filed as SETBACK REQUIRED and showed the same
+  // intermission. In both cases the SIM had emitted the claimed telegraph — the
+  // hunt was honest — and then an intermission crossed in the frames between
+  // the hunt returning and the shutter opening, and took the HUD with it. A
+  // capture is evidence about a FRAME, not about a step, so the guard reads
+  // the screen: the plate's live beat line or the call-out has to still be the
+  // beat being claimed.
+  if (opts.wantBeat) {
+    const want = String(opts.wantBeat).toUpperCase();
+    const on = `${st.beat} | ${st.callWord} | ${st.callSub}`.toUpperCase();
+    if (!on.includes(want)) {
+      throw new Error(
+        `BEAT MISMATCH — claims "${want}", screen reads "${st.beat}" / "${st.callWord}"`);
+    }
+  }
+  return st;
 }
 
 /** Age the frozen frame by `ms` so a just-fired beat is at its peak, then shoot. */
@@ -408,7 +448,7 @@ async function shoot(name, ageMs = 260, opts = {}) {
   // approach's own camera move was a third applied in every capture and why
   // the kill frame's topple had not started. One frame of slack per step.
   await page.waitForTimeout(Math.min(20000, Math.max(420, (ageMs / 16) * 18 + 250)));
-  await guard(opts);
+  const before = await guard(opts);
   // FREEZE THE BEAT (r3 blocker 1). Every boss beat now expires on the FRAME
   // clock, which this harness has stopped; __dcc.hold pushes every live
   // deadline out past the shutter as well, and a self-re-arming rAF keeps it
@@ -454,6 +494,38 @@ async function shoot(name, ageMs = 260, opts = {}) {
   });
   console.log("      on-screen " + JSON.stringify(probe));
   await page.screenshot({ path, timeout: 240000 });
+  // ---- THE PROBE IS RE-READ AFTER THE SHUTTER (r6 blocker) -----------------
+  //
+  // `rentcollector-6kill.png`'s probe reported `call:"THE RENT COLLECTOR",
+  // callOn:"1"` and the band of pixels it names contains nothing — the probe
+  // described a moment that was true when it ran and false by the time the
+  // compositor got there (a screenshot costs 3-20 seconds of wall time, and
+  // the HUD's own deadlines are not frozen by the virtual clock the way the
+  // renderer's rigs are). A probe taken only BEFORE the shutter is a claim
+  // about a frame nobody saved. This one brackets it, and any disagreement is
+  // printed loudly rather than silently filed as evidence.
+  const after = await page.evaluate(() => {
+    const css = (sel, prop) => {
+      const e = document.querySelector(sel);
+      return e ? getComputedStyle(e)[prop] : null;
+    };
+    const fx = window.__dcc.renderer.bossFx;
+    return {
+      call: (document.getElementById("bc-word") || {}).textContent || "",
+      callOn: css("#bosscall", "opacity"),
+      beat: (document.getElementById("bb-beat") || {}).textContent || "",
+      card: css("#bossintro", "display") === "block"
+        ? Number(css("#bossintro", "opacity")).toFixed(2) : "off",
+      shapes: fx.liveShapes ? fx.liveShapes() : null,
+    };
+  });
+  const drifted = after.call !== probe.call || after.callOn !== probe.callOn ||
+    JSON.stringify(after.shapes) !== JSON.stringify(probe.shapes);
+  if (drifted) {
+    console.log("      !! DRIFT ACROSS THE SHUTTER — the saved frame is the AFTER column");
+    console.log("      after     " + JSON.stringify(after));
+  }
+  probe.after = after;
   // DISARM THE HOLD, then FLUSH (recon fix). Two harness defects, one cause:
   //   1. `__bfHold` armed a self-re-arming rAF that was never set false, so
   //      from the first capture onward every live rig had its lifetime pinned
@@ -652,8 +724,40 @@ async function captureBoss(id, info) {
     tele = await hunt(["telegraph"], 2400, { label: true, holdHp: true, floorHp: 0.5 });
   }
   console.log("  fight: " + JSON.stringify(tele));
-  await shoot(id + "-3fight", 300, { bossAlive: true });
-  row.beats.fight = tele.done === "event" ? tele.label : tele.done;
+  // ...and the frame has to still BE that beat when the shutter opens.
+  //
+  // A MISMATCH RE-HUNTS; IT DOES NOT ABANDON THE BOSS (r6). The Sump King's
+  // SLUICE GATE and the punish tell come round within a beat of each other, so
+  // the beat-assertion fired on all three attempts and cost the run every
+  // sumpking frame — the honesty rule working correctly and the harness
+  // handling it badly. The hunt is cheap; re-hunt the headline and try again,
+  // and only if it will genuinely not hold still does the frame get filed
+  // under its own honest name (`-3fight-MISSED`) so nothing is mis-labelled.
+  let fightShot = null;
+  for (let attempt = 0; attempt < 3 && !fightShot; attempt++) {
+    if (attempt > 0) {
+      await flush(1200);
+      tele = HEADLINE[id]
+        ? await hunt(["telegraph"], 2400, { label: true, prefer: HEADLINE[id], holdHp: true, floorHp: 0.5 })
+        : await hunt(["telegraph"], 2400, { label: true, holdHp: true, floorHp: 0.5 });
+      console.log("  fight (retry " + attempt + "): " + JSON.stringify(tele));
+    }
+    try {
+      fightShot = await shoot(id + "-3fight", 220, {
+        bossAlive: true,
+        wantBeat: tele.done === "event" ? tele.label : undefined,
+      });
+    } catch (e) {
+      if (!String(e.message).startsWith("BEAT MISMATCH")) throw e;
+      console.error("  " + e.message);
+    }
+  }
+  if (!fightShot) {
+    await shoot(id + "-3fight-MISSED", 220, { bossAlive: true });
+    row.beats.fight = "MISSED:" + (tele.label || tele.done);
+  } else {
+    row.beats.fight = tele.done === "event" ? tele.label : tele.done;
+  }
   row.fightHp = tele.hp;
 
   // 4) THE PHASE EDGE + the intermission that re-deals the board. Reached by
@@ -700,7 +804,12 @@ async function captureBoss(id, info) {
     p.bonusDamage = (p.bonusDamage || 0) * 3 + 400;
   });
   await flush();
-  const killed = await hunt(["__never__"], 14000, {}); // runs to "dead"
+  // `reach: 1.6` — the driver strafes at 2.6 tiles, which is outside melee
+  // range on the big finale rigs, so a boss whose shield taxes everything
+  // except a landed swing (The Sponsor) took ~300 damage in 230 sim-seconds
+  // while the real bot kills the same boss in 103s. The kill segment closes
+  // properly. It changes how the harness FIGHTS, never what the boss does.
+  const killed = await hunt(["__never__"], 14000, { reach: 1.6 }); // runs to "dead"
   const kill = await page.evaluate((d) => {
     const st = window.__dcc.state;
     const b = st.monsters.find((m) => m.kind === "boss");

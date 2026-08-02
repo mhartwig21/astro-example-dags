@@ -614,6 +614,11 @@ export interface Monster {
   // "Stand here and commit" and "this floor is on fire" cannot both be true:
   // a helpless boss does not get to keep running an arena-wide burn.
   punishQuietT?: number;
+  /** Telegraphed heavies this boss committed that caught NOBODY (r6): the
+   *  READ counter behind 2.2's shared mechanic-completion phase edge. */
+  reads?: number;
+  /** Its one mechanic-completion phase edge has fired (2.2 is one per fight). */
+  readPhase?: boolean;
   // Phase machine: the last reason a phase advanced, and the cap. Bosses run
   // 0..2 (band) or 0..3 (finale); mechanic/timer/positional triggers share the
   // same counter as the HP gates so the fight never double-counts a beat.

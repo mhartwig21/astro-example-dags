@@ -92,11 +92,19 @@ describe("band-boss ladder", () => {
     // mechanics) — the fights get HARDER while getting SHORTER. Measured: at
     // the old pools the bot's floor-3 clear rate fell to 15/32; with the
     // correction it is 27/32 against a 26/32 pre-V2 control.
-    expect(CONFIG.bandBossHp[0]).toBe(1050); // floor 3: was 1500 (-30%)
+    // ...AND THE TEACHING BAND'S CUT WAS TAKEN BACK (r6 blocker). The 30% came
+    // off before the r5 punish rework, and after it floor 3 measured an 11-14s
+    // fight with 0.0 punish windows opened on two of the three candidates —
+    // the band whose whole job is teaching the grammar was ending before its
+    // most important beat could exist. §6.4's own sentence names both levers
+    // and both are pulled: the pool goes back to 1500 AND the two silent
+    // candidates' punish counts come down (BOSS_PUNISH). Bands 2-6 are
+    // untouched: their fights measured 22-69s, inside the target.
+    expect(CONFIG.bandBossHp[0]).toBe(1500); // floor 3: back to the pre-r4 pool
     expect(CONFIG.bandBossHp[1]).toBe(4320); // floor 6: was 5400 (-20%)
     expect(CONFIG.bandBossHp[3]).toBe(14690); // floor 12: was 18360 (-20%)
     // The shape of the ladder is unchanged: each band is still a real step up.
-    expect(CONFIG.bandBossHp[4] / CONFIG.bandBossHp[0]).toBeGreaterThan(15);
+    expect(CONFIG.bandBossHp[4] / CONFIG.bandBossHp[0]).toBeGreaterThan(12);
   });
 
   it("the floor-3 opener is gentle: small pool, softer hits, no Ground Slam", () => {

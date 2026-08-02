@@ -316,9 +316,18 @@ const PUNISH_FALLBACK: BossPunishRule = {
 };
 
 export const BOSS_PUNISH: Record<BossId, BossPunishRule> = {
+  // THE TEACHING BAND'S WINDOW HAS TO COME ROUND INSIDE THE TEACHING BAND'S
+  // FIGHT (r6 blocker). Measured: 0.0 punish windows per fight on The Temp and
+  // The Rent Collector, because a floor-3 fight lasted 11-14s and their own
+  // verbs come round every 6-8s. The count is 2 here and nowhere else: this is
+  // the band that exists to teach the beat, so the beat has to happen twice.
+  // ...but NOT the Concierge, whose window is its own MECHANIC (the empty
+  // ledger) and which already measured 1.0 windows per fight. Dropping its
+  // count would let the shared count fire first and then rate-limit the beat
+  // the player earned, which is the opposite of what §2.2 asks for.
   concierge: { tell: "UNRECONCILED", core: "THE OPEN LEDGER", after: 4 },
-  rentcollector: { tell: "OVERDRAWN", core: "THE EMPTY TILL", after: 3 },
-  temp: { tell: "UNSUPERVISED", core: "NO ONE TO ASK", after: 3 },
+  rentcollector: { tell: "OVERDRAWN", core: "THE EMPTY TILL", after: 2 },
+  temp: { tell: "UNSUPERVISED", core: "NO ONE TO ASK", after: 2 },
   sumpking: { tell: "OUT OF HIS DEPTH", core: "THE DRY THRONE", after: 4 },
   inspector: { tell: "CITATION VOID", core: "THE BLANK PAD", after: 3 },
   greasetrap: { tell: "BACKFLOW", core: "THE TRAP CORE", after: 4 },
@@ -478,6 +487,8 @@ const SALT_BOSS = 0x0b0551;
 const SALT_MUT = 0x0117a7;
 const SALT_MUT2 = 0x0117a8;
 const SALT_ARENA = 0x0a2e4a;
+/** The ARENA DIRECTOR's room verb (game.ts `roomScript`) — seeded per run. */
+export const SALT_ROOM = 0x2004e3;
 
 /**
  * V9 — SEEDED BOSS SELECTION. One of the band's three candidates, drawn from
@@ -523,6 +534,21 @@ export interface BossMutatorInfo {
    * now prefers an ask-changer for the FIRST slot wherever one is legal.
    */
   changesAsk?: boolean;
+  /**
+   * Tickets in the first-slot draw (default 1) — r6 blocker, and the reason
+   * `changesAsk` is no longer what buys them.
+   *
+   * r5 handed every ask-changer three tickets. Measured over a 4,000-seed
+   * sweep afterwards, SPONSORED landed on 90.6% of runs and 26.2% of every
+   * slot drawn — more than twice any other — because it is the only shaper
+   * legal almost everywhere, while RETROFIT (5.6%) and UNDERSTUDIED (4.2%)
+   * stayed the two rarest draws. The weighting went to the one shaper whose
+   * measured effect was a stat line and away from the one layer a critic could
+   * photograph actually changing a fight. So the tickets are DECLARED, not
+   * derived: the conditional shapers carry them, and SPONSORED (fixed this
+   * round, but common) draws at ordinary weight.
+   */
+  tickets?: number;
 }
 
 export const BOSS_MUTATORS: BossMutatorInfo[] = [
@@ -536,7 +562,7 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
   },
   {
     id: "sponsored", label: "SPONSORED",
-    note: "A hazard-immune bubble it must be pulled out of. Move the fight, not just yourself.",
+    note: "It defends a placement. Pull it off its mark and hold it out there, or fight it at half damage.",
     // It changes WHERE the fight happens, which is a verb: the counterplay is
     // "move the fight", and on a boss that can move it is a real one.
     changesAsk: true,
@@ -567,12 +593,14 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
     // reads `m.signature` — so this stays legal wherever a signature exists,
     // and `bosses.test.ts` pins that the routing holds.
     legal: (def) => !!def.signature,
+    tickets: 3, // r6: the one ask-changer a critic could photograph working
   },
   {
     id: "understudied", label: "UNDERSTUDIED",
     note: "Its armour comes back once at half health. The break-window happens twice.",
     changesAsk: true,
     legal: (def) => !!def.plates || !!def.shield,
+    tickets: 3,
   },
   {
     id: "liveaudience", label: "LIVE AUDIENCE",
@@ -619,8 +647,11 @@ export function rollBossMutators(
   // Three tickets takes the shapers' combined share from ~25% to ~50% where
   // both are legal and from ~14% to ~33% where only one is, and every other
   // mutator still draws.
-  const shapers = legal.filter((m) => m.changesAsk);
-  const pool = [...legal, ...shapers, ...shapers];
+  // TICKETS ARE DECLARED, NOT DERIVED (r6 blocker — see BossMutatorInfo.tickets).
+  const pool: BossMutatorInfo[] = [];
+  for (const mut of legal) {
+    for (let t = 0; t < Math.max(1, mut.tickets ?? 1); t++) pool.push(mut);
+  }
   const first = pool[bossHash(seed, def.band, SALT_MUT) % pool.length];
   const out: BossMutator[] = [first.id];
   if (floor >= CONFIG.bossMutatorSecondFromFloor || bonus) {

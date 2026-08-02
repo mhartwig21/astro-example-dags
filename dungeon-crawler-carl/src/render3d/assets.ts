@@ -115,9 +115,24 @@ export const MODEL_MANIFEST: Record<string, string> = {
   // the KayKit collection (ASSETS.md unchanged — no new art). Where a body is
   // shared with a trash kind it is deliberately NOT that band's trash, so a
   // boss never silhouettes like the mobs standing next to it.
+  //
+  // r6 BLOCKER — TWO OF THE THREE TEACHING-BAND BOSSES HAD NO BODY AT ALL.
+  // `extradition.glb` and `stuntdouble_cast.glb` are HERO_CLIP_MANIFEST
+  // entries: ASSETS.md describes the first as "armature + animation only, NO
+  // MESH", and both exist to graft an ability clip onto the adventurer rig.
+  // Pointed at as BODIES they load, bind, animate and draw nothing — so The
+  // Rent Collector, the first boss most players ever meet, was an empty white
+  // seal over bare floor at its own reveal, and The Temp was the same. The
+  // capture review called it "per-boss, not systemic" and it was exactly that:
+  // two rows in this table pointing at files that are not characters.
+  // `CLIP_ONLY_MODELS` below is the guard, and `assets.test.ts` fails on it.
   monster_bossid_concierge: "/assets/characters/necromancer.glb",
-  monster_bossid_rentcollector: "/assets/characters/extradition.glb",
-  monster_bossid_temp: "/assets/characters/stuntdouble_cast.glb",
+  // A collector, and a hoarder is what a collector becomes. Shared with
+  // monster_filcher, which is a mid-run thief kind and never undercroft trash.
+  monster_bossid_rentcollector: "/assets/characters/hoarder.glb",
+  // A temp in a costume, and its TRANSFORMATION CLAUSE is the reveal of
+  // whatever is under it. Shared with monster_suitguy — a floor-18 kind.
+  monster_bossid_temp: "/assets/characters/beast_costume.glb",
   monster_bossid_sumpking: "/assets/characters/black_knight.glb",
   monster_bossid_inspector: "/assets/characters/paladin_helmet.glb",
   monster_bossid_greasetrap: "/assets/characters/skeleton_golem.glb",

@@ -31,8 +31,8 @@ import {
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import {
-  bandForBossFloor, bandSignatureLabel, bossDef, bossMutatorInfo, bossPunishRule,
-  drawBossEncounter, type BossDef,
+  bandForBossFloor, bandSignatureLabel, bossDef, bossHash, bossMutatorInfo, bossPunishRule,
+  drawBossEncounter, SALT_ROOM, type BossDef,
 } from "./bosses";
 // (bossDef is the roster lookup for name cards; drawBossEncounter is the draw)
 import { ACHIEVEMENTS } from "./achievements";
@@ -2348,7 +2348,27 @@ export function advanceBossPhase(state: GameState, boss: Monster, reason: BossPh
  * So: advance the phase if there is one left, and otherwise still run THE
  * COMMERCIAL BREAK. The player did the thing; the fight says so either way.
  */
+/**
+ * THE AMBIENT BUDGET, SPENT BY THE KIT (r6 blocker).
+ *
+ * The ablation measured the shared chassis carrying 8 of 18 fights to within
+ * 8% of the real one and making 11 of 18 HARDER with the boss's own kit
+ * deleted — a boss's identity was, on average, a discount, because the kit's
+ * verbs are telegraphed (and therefore dodgeable) while the chassis's radial
+ * volley and hazard rain are not. Cutting the chassis alone would have made
+ * every boss floor limper; the budget has to LAND somewhere, and the place it
+ * belongs is the beat with a tell on it. Every kit-owned hazard's damage runs
+ * through here, so the trade is ONE number and the ablation can be re-measured
+ * against it rather than against eleven hand-tuned ones.
+ */
+function kitDmg(m: Monster, mult: number): number {
+  return m.damage * mult * CONFIG.bossKitDmgMult;
+}
+
 export function bossMechanicBeat(state: GameState, m: Monster): void {
+  // A kit that fires its OWN mechanic edge satisfies §2.2 on its own, so the
+  // shared READ edge (ai.ts `stepBoss`) stands down for the rest of the fight.
+  m.readPhase = true;
   if (advanceBossPhase(state, m, "mechanic")) return;
   bossIntermission(state, m);
   bossEvent(state, {
@@ -2651,6 +2671,70 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
 }
 
 /**
+ * CONTROLLED DEMOLITION (The Condemned Architect, floor 12) — r6 blocker.
+ *
+ * The ablation caught this boss producing BYTE-IDENTICAL numbers with its own
+ * kit deleted: 0% damage delta, boss HP 7% both ways, hazards 48/48, the same
+ * four labels. Its kit had exactly one branch and that branch gated on
+ * `cover <= 2` — a condition a real fight never reached, because nothing in
+ * the fight was destroying cover on purpose. The headline use-the-arena boss
+ * was the bare chassis wearing a name, and it was WAITING for the cover to be
+ * gone instead of DEMOLISHING it.
+ *
+ * So the verb fires on a clock and takes the cover down itself. It picks the
+ * pieces nearest the crawlers (the ones actually being used), telegraphs each
+ * with the shipped debris blast, and the blast is what fells them — the cover
+ * you are standing behind is the thing that is about to be dangerous. That
+ * makes the positional edge below reachable in play instead of theoretical.
+ */
+export function bossDemolition(state: GameState, m: Monster): void {
+  const cover = (state.breakables ?? [])
+    .filter((b) => b.footprint && !b.onBreak && b.hp > 0)
+    .sort((a, b) => nearestPlayerDist(state, a.pos) - nearestPlayerDist(state, b.pos))
+    .slice(0, CONFIG.architectDemoCount);
+  // Nothing left standing: it condemns the ground the crawlers are on instead,
+  // so the beat still exists on a stripped arena (and still reads as the same
+  // sentence — this room is coming down).
+  const marks: Vec2[] = cover.map((b) => ({ x: b.pos.x, y: b.pos.y }));
+  if (marks.length === 0) {
+    for (const p of state.players) {
+      if (p.alive && dist(m.pos, p.pos) <= CONFIG.monsterAggroRange * 2.5) {
+        marks.push({ x: p.pos.x, y: p.pos.y });
+      }
+    }
+  }
+  for (const pos of marks) {
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.architectDemoDelay,
+      total: CONFIG.architectDemoDelay,
+      radius: CONFIG.architectDemoRadius,
+      damage: kitDmg(m, CONFIG.architectDemoDmgMult),
+      kind: "blast",
+      flavor: "debris",
+      srcId: m.id, // its masonry EATS cover where it lands
+    });
+  }
+  announceSignature(state, m, "CONTROLLED DEMOLITION. It is taking your cover down on a schedule. Spend it before it spends you.");
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: "CONTROLLED DEMOLITION", value: marks.length,
+    pos: { x: m.pos.x, y: m.pos.y },
+  });
+}
+
+/** Distance from a point to the nearest living crawler (arena targeting). */
+function nearestPlayerDist(state: GameState, pos: Vec2): number {
+  let best = 1e9;
+  for (const p of state.players) {
+    if (!p.alive) continue;
+    best = Math.min(best, dist(p.pos, pos));
+  }
+  return best;
+}
+
+/**
  * FLAME SWEEP (floor 15, THE IRONWORKS): a wall of fire advances row by row
  * toward the boss's target — each row telegraphs, then erupts a beat after
  * the one before it. The lane is the danger; pick a gap and commit.
@@ -2756,7 +2840,7 @@ export function bossCitation(state: GameState, m: Monster): void {
       total: CONFIG.citationArm + CONFIG.beamFadeSeconds,
       arm: CONFIG.citationArm,
       radius: CONFIG.citationWidth,
-      damage: m.damage * CONFIG.citationDmgMult,
+      damage: kitDmg(m, CONFIG.citationDmgMult),
       kind: "beam",
       trackId: i === 0 ? prey.id : undefined, // the first lane LOCKS ON
     });
@@ -2773,7 +2857,7 @@ export function bossCitation(state: GameState, m: Monster): void {
         total: CONFIG.citationArm + CONFIG.condemnDuration,
         arm: CONFIG.citationArm,
         radius: 1.2,
-        damage: Math.max(1, m.damage * CONFIG.condemnDmgMult),
+        damage: Math.max(1, kitDmg(m, CONFIG.condemnDmgMult)),
         kind: "sludge",
         tick: 0,
       });
@@ -2819,7 +2903,7 @@ export function seedSporePod(state: GameState, m: Monster, at: Vec2): void {
     total: CONFIG.bloomArm,
     arm: CONFIG.bloomArm,
     radius: CONFIG.bloomRadius,
-    damage: m.damage * CONFIG.bloomDmgMult,
+    damage: kitDmg(m, CONFIG.bloomDmgMult),
     kind: "spore",
     srcId: m.id, // so a bloomed pod knows whose garden it is
   });
@@ -2882,7 +2966,7 @@ export function bossFissureFan(state: GameState, m: Monster, lanes: number, radi
         t: CONFIG.fissureStepDelay * i + 0.25,
         total: CONFIG.fissureStepDelay * i + 0.25,
         radius: CONFIG.fissureRadius,
-        damage: m.damage * CONFIG.fissureDmgMult,
+        damage: kitDmg(m, CONFIG.fissureDmgMult),
         kind: "blast",
         flavor: "debris",
       });
@@ -2919,7 +3003,7 @@ export function bossLattice(state: GameState, m: Monster): void {
       total: arm + CONFIG.beamFadeSeconds,
       arm,
       radius: CONFIG.latticeWidth,
-      damage: m.damage * CONFIG.latticeDmgMult,
+      damage: kitDmg(m, CONFIG.latticeDmgMult),
       kind: "beam",
     });
   }
@@ -2996,7 +3080,7 @@ export function bossStopWork(state: GameState, m: Monster): void {
       total: arm + CONFIG.beamFadeSeconds,
       arm,
       radius: CONFIG.stopWorkWidth,
-      damage: m.damage * CONFIG.stopWorkDmgMult,
+      damage: kitDmg(m, CONFIG.stopWorkDmgMult),
       kind: "beam",
     });
   }
@@ -3094,7 +3178,7 @@ export function bossSluice(state: GameState, m: Monster): void {
         total: arm + CONFIG.floodDuration,
         arm,
         radius: CONFIG.sluiceRadius,
-        damage: m.damage * CONFIG.sluiceDmgMult,
+        damage: kitDmg(m, CONFIG.sluiceDmgMult),
         kind: "sludge",
         tick: 0,
       });
@@ -3148,7 +3232,7 @@ export function bossMotion(state: GameState, m: Monster): void {
       total: arm + CONFIG.beamFadeSeconds,
       arm,
       radius: CONFIG.motionWidth,
-      damage: m.damage * CONFIG.motionDmgMult,
+      damage: kitDmg(m, CONFIG.motionDmgMult),
       kind: "beam",
     });
   }
@@ -3196,7 +3280,7 @@ export function bossSetback(state: GameState, m: Monster): void {
         total: CONFIG.setbackArm + CONFIG.setbackDuration,
         arm: CONFIG.setbackArm,
         radius: CONFIG.setbackWidth,
-        damage: m.damage * CONFIG.setbackDmgMult,
+        damage: kitDmg(m, CONFIG.setbackDmgMult),
         kind: "shards",
         tick: 0,
       });
@@ -3294,7 +3378,7 @@ export function bossShotList(state: GameState, m: Monster): void {
         total: CONFIG.showrunnerShotArm + CONFIG.showrunnerShotDwell,
         arm: CONFIG.showrunnerShotArm,
         radius: CONFIG.showrunnerShotRadius,
-        damage: m.damage * CONFIG.showrunnerShotDmgMult,
+        damage: kitDmg(m, CONFIG.showrunnerShotDmgMult),
         kind: "shards",
         tick: 0,
       });
@@ -3339,7 +3423,7 @@ export function bossCrossPromotion(state: GameState, m: Monster): void {
       total: CONFIG.sponsorSpotArm + CONFIG.beamFadeSeconds,
       arm: CONFIG.sponsorSpotArm,
       radius: CONFIG.sponsorSpotWidth,
-      damage: m.damage * CONFIG.sponsorSpotDmgMult,
+      damage: kitDmg(m, CONFIG.sponsorSpotDmgMult),
       kind: "beam",
     });
   }
@@ -3361,6 +3445,12 @@ export function bossBrandActivation(state: GameState, m: Monster): void {
     pylon.eliteName = "BRAND ACTIVATION";
     pylon.hp = pylon.maxHp = Math.max(1, Math.round(pylon.maxHp * CONFIG.sponsorPylonHpMult));
     pylon.speed = 0; // a placement, not a bodyguard
+    // ...AND IT PUMPS THE POOL AND NOTHING ELSE (r6 blocker). `sentinel`
+    // carries `aura: "shield"`, so every placement was ALSO radiating the
+    // darling shield onto the body — a fourth anchor stacked on the school
+    // lock, the pool regen and the council's tether tax, on the last boss in
+    // the game. One placement, one job.
+    pylon.aura = undefined;
     // ...AND IT DOES NO DAMAGE. §6.2: "adds create DECISIONS, not damage", and
     // a floor-18 sentinel's lock-on beam is a 949-point hit — four times the
     // per-hit budget on its own (caught by bosses.test.ts's damage-budget
@@ -4099,13 +4189,40 @@ export function damageMonster(
     hit(state, m.pos, 0, "enemy", { school: opts.school, resisted: true });
     return;
   }
+  // BURSTING A PLACEMENT HOLDS THE POOL IT IS PUMPING (r6 blocker).
+  //
+  // The Sponsor ended a 70s bot fight at 100% HP, 0/2 seeds killed, and
+  // ABLATING ITS OWN KIT ended the same fight at 20% with 1/2 killed — the
+  // last boss in the game was a stalemate the player loses on the clock,
+  // because BRAND ACTIVATION's tethered placements refilled the school-locked
+  // pool faster than a correct-school rotation could strip it. The pool now
+  // stops regenerating the moment a placement is being burst, so "kill the
+  // placements" is a real answer with an immediate read instead of a race the
+  // arithmetic had already decided. Same rule as damaging the pool itself.
+  if (m.tetherId && dmg > 0) {
+    const anchor = state.monsters.find((o) => o.id === m.tetherId);
+    if (anchor && (anchor.shieldMax ?? 0) > 0) anchor.shieldRegenT = CONFIG.shieldRegenDelay;
+  }
   // V2 — SHIELD POOL: absorb-HP in front of the health bar that regrows unless
   // it is being broken. The Sponsor's only erodes to ONE school — Diablo's
   // "immune to X" wearing a sponsorship joke, not a different genre.
   if ((m.shieldHp ?? 0) > 0 && dmg > 0) {
     const school = opts.school ?? "physical";
     if (m.shieldSchool && m.shieldSchool !== school) {
-      dmg = 1; // the brand holds. Bring the other school.
+      // THE BRAND HOLDS — IT DOES NOT MAKE THE FIGHT UNWINNABLE (r6 blocker).
+      //
+      // `dmg = 1` on a 34,000 HP finale is not "adapt the rotation", it is a
+      // wall: the school flips at every PHASE edge and the phases are HP-gated,
+      // so a party whose damage is mostly the other school can never move the
+      // bar far enough to flip it back. Measured with the capture harness's
+      // fully-kitted crawler: 230 sim-seconds, boss at 33,984 / 34,000.
+      //
+      // The pool still refuses the wrong school outright — that is the whole
+      // mechanic and it is untouched. What changes is that the wrong school
+      // reaches the BODY at a heavy tax instead of being flattened to a single
+      // point, so a correct rotation is four times better (still the fight's
+      // ask) and a wrong one is slow rather than impossible.
+      dmg = Math.max(1, Math.round(dmg * CONFIG.brandOffSchoolMult));
       guarded = true;
     } else {
       const absorbed = Math.min(m.shieldHp!, dmg);
@@ -4154,7 +4271,15 @@ export function damageMonster(
   // (the council format), running conveyors (The Line Supervisor), and the
   // SPONSORED mutator's hazard-immune bubble it has to be pulled out of.
   if (m.kind === "boss") {
-    if (state.monsters.some((o) => o.hp > 0 && o.tetherId === m.id)) {
+    // ...BUT NOT ON TOP OF A SCHOOL LOCK (r6 blocker, the other half). The
+    // Sponsor carries BOTH: a shield pool that only one school erodes AND
+    // tethered placements. Stacked, the wrong school did 1 damage and the
+    // right school did `boardShieldMult` of a number that then had to out-pace
+    // the placements' regen — 70s of bot fight ended at 100% HP, 0/2 seeds
+    // killed, and ablating the Sponsor's own kit made the fight WINNABLE.
+    // A boss gets one armour mechanic. The school lock IS the Sponsor's; its
+    // placements pump the pool and that is their whole job.
+    if (!m.shieldSchool && state.monsters.some((o) => o.hp > 0 && o.tetherId === m.id)) {
       dmg = Math.max(1, Math.round(dmg * CONFIG.boardShieldMult));
       guarded = true;
     }
@@ -7048,25 +7173,14 @@ function arenaDirector(state: GameState, dt: number): void {
       announce(state, "boss", "The LIVE AUDIENCE is throwing things. Legal says that's on you now.");
     }
   }
-  if (arena !== 2 && arena !== 3 && arena !== 5) return; // 6 / 9 / 15 have directors
-  // ---- THE ROOM IS THE ARENA'S, NOT THE BAND'S (acceptance r5, major) -----
-  // Shipped, the director fired ONE script per band at all three of that
-  // band's bosses: whichever boss floor 9 drew, the garden regrew roots, and
-  // whichever floor 15 drew, the wall vented flame. Captured consequence: The
-  // Safety Officer — a boss with no `signature` in its BossDef at all — spent
-  // its punish frame inside a flamewall visually indistinguishable from The
-  // Furnace Marshal's own FLAME SWEEP. Half the ground FX on three of the six
-  // boss floors was band-fixed, which is variety subtracted from exactly the
-  // layer §4 is selling.
-  //
-  // So the room's verb comes from the ARENA VARIANT (which is itself drawn per
-  // run from the boss's legal set, §4.3) and it may never be the boss's OWN
-  // signature — the room answers the boss, it does not echo it. Same three
-  // shipped helpers, same telegraph grammar, three times the combinations and
-  // zero chance of the room impersonating the fight.
-  const script = roomScript(state.arenaVariant, boss.signature);
+  // THE TEACHING BAND KEEPS ITS PRISTINE ROOM. Everything else has a director:
+  // §7.1 asked for all boss floors and shipped three, which is why THE RUINS
+  // and THE APPROACH were rooms that did nothing while THE GARDEN was on fire.
+  if (arena < 2) return;
+  const script = roomScript(state.seed, arena, state.arenaVariant, boss.signature);
   const interval = script === "flood" ? CONFIG.directorFloodInterval
     : script === "roots" ? CONFIG.directorRegrowInterval
+    : script === "debris" ? CONFIG.directorDebrisInterval
     : CONFIG.directorVentInterval;
   if (!crossed(interval)) return;
   const first = (state.arenaT ?? 0) < interval * 1.5;
@@ -7076,6 +7190,9 @@ function arenaDirector(state: GameState, dt: number): void {
   } else if (script === "roots") {
     bossRootGrasp(state, boss);
     if (first) announce(state, "boss", "The room REGROWS as fast as you trample it. Keep your feet moving.");
+  } else if (script === "debris") {
+    bossDebrisRain(state, boss);
+    if (first) announce(state, "boss", "The ceiling is SHEDDING on its own. Watch the floor for what's about to be on it.");
   } else {
     bossFlameSweep(state, boss);
     if (first) announce(state, "boss", "The wall vents EXHALE on a rhythm. Learn the room's breathing.");
@@ -7083,20 +7200,66 @@ function arenaDirector(state: GameState, dt: number): void {
 }
 
 /**
- * The ROOM's own verb, by arena layout — and never the boss's. PILLARED rooms
- * have things overhead to fail; OPEN rooms have nothing to hide behind, so the
- * room sweeps; SPLIT rooms have a low half that fills. If the draw would hand
- * the room the boss's own signature it steps one along, which is what keeps
- * the Marshal's sweeps and the vents' sweeps from being the same sentence.
+ * The ROOM's own verb — SEEDED per run, constrained to the BAND, and never the
+ * boss's own signature.
+ *
+ * r6 blocker. r5 decoupled the room's verb from the boss's signature by keying
+ * it to the ARENA VARIANT, and in doing so lost the BAND: the variant→script
+ * map below used to be fixed (open→flamewall, pillared→roots, split→flood), so
+ * it was not seeded at all, there were three room verbs in the whole game, and
+ * every floor-9 boss measured (topiary, zoningboard, pollinator) ran FLAME
+ * SWEEP — the Ironworks' wall of fire, in THE GARDEN, six floors early. A
+ * capture of a break-the-shield boss's own headline frame was 60% orange
+ * flamewall with the hedge shell invisible behind it.
+ *
+ * So: each band owns a PALETTE of room verbs that belong to that band's art
+ * direction (a garden is irrigated and it regrows; a foundry vents and drops
+ * slag; the sewers flood and the drowned come up with it), the pick inside
+ * that palette is a seeded hash of (runSeed, band) so it differs across runs,
+ * and the boss's own signature is removed from the palette first so the room
+ * still answers the fight rather than echoing it. A band can no longer fire
+ * the NEXT band's signature at all — that is now a property of the table, not
+ * of a runtime check.
  */
+type RoomScript = "flood" | "roots" | "flamewall" | "debris";
+
+/**
+ * Every entry is either the band's OWN element or one from a band the player
+ * has already been through — a room may reach backwards for a verb, never
+ * forwards, so no floor can preview the next band's signature.
+ *
+ * `graverising` is deliberately absent: it needs a corpse in reach, so a room
+ * that drew it would silently do nothing for whole fights, and a director that
+ * can no-op is worse than one with fewer verbs.
+ */
+const BAND_ROOM_SCRIPTS: Record<number, RoomScript[]> = {
+  // 1 THE UNDERCROFT — the crypt is falling in. (No director runs here: the
+  // teaching band's room stays pristine. Kept for completeness.)
+  1: ["debris"],
+  // 2 THE SEWERS — it takes on water, and the vault above it sheds brick.
+  2: ["flood", "debris"],
+  // 3 THE GARDEN — regrowth, and irrigation. It never burns.
+  3: ["roots", "flood"],
+  // 4 THE RUINS — masonry, and what has grown up through it.
+  4: ["debris", "roots"],
+  // 5 THE IRONWORKS — the vents exhale, and the gantries shed. It never floods.
+  5: ["flamewall", "debris"],
+  // 6 THE APPROACH — the finale's stage strikes any set already used.
+  6: ["debris", "flamewall", "flood"],
+};
+
 function roomScript(
+  seed: number, band: number,
   variant: GameState["arenaVariant"], bossSig: Monster["signature"],
-): "flood" | "roots" | "flamewall" {
-  const order: ("flood" | "roots" | "flamewall")[] =
-    variant === "pillared" ? ["roots", "flamewall", "flood"]
-    : variant === "split" ? ["flood", "roots", "flamewall"]
-    : ["flamewall", "flood", "roots"];
-  return order.find((s) => s !== bossSig) ?? order[0];
+): RoomScript {
+  const palette = BAND_ROOM_SCRIPTS[band] ?? ["debris"];
+  // The room never speaks the boss's own sentence.
+  const legal = palette.filter((s) => s !== bossSig);
+  const pool = legal.length > 0 ? legal : palette;
+  // Seeded per RUN, and nudged by the layout so the same seed's pillared and
+  // split draws of one band do not always breathe the same way.
+  const variantSalt = variant === "pillared" ? 1 : variant === "split" ? 2 : 0;
+  return pool[bossHash(seed, band, SALT_ROOM + variantSalt) % pool.length];
 }
 
 /** Distance from a point to the segment a-b (beam hazards hit by half-width). */

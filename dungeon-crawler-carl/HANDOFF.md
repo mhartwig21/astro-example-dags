@@ -74,20 +74,40 @@ eighteen. All of that is closed, with the presentation half (approach framing,
 the shield shell, the exposure governor, the boss's death, the kill card, the
 arena lift) beside it.
 
+**ROUND 6 (fix round) is in — see `BOSSES-V2.md` §5.12 for the full receipt.**
+Two of its blockers were found by MEASUREMENT, not by looking at frames, and
+those two are the shape of the round: an ablation harness
+(`tools/_ed2ablate.ts`) showing the shared chassis carrying most of the roster,
+and a bot run showing the last boss in the game could not be killed. Also
+closed: two teaching-band bosses that had NO MESH (their manifest rows pointed
+at animation-only clip files), the Pollinator's headline beat drawing zero
+geometry, the punish silhouette leaking into three of the six beats, the room
+firing the wrong band's element, and the exposure governor still pinned at its
+floor. The capture harness now asserts the frame contains the beat its filename
+claims and brackets the shutter with a before/after probe.
+
 **Still open going in to the next capture round, honestly:**
 
-- **The approach's boss silhouette is improved but not proven.** The seal is
-  bounded and carried ON the boss, the arena is revealed and lit, the gate no
-  longer stands on the boss's mark, the boss is no longer fog-culled and no
-  longer lies face-down waiting — but in the last capture the body still does
-  not read cleanly at twelve tiles under a point light. The remaining lever is
-  a rim/outline pass on the character material rather than a lamp, which is a
-  shader change wider than a fix round can verify.
-- **The Topiary Warden's phase beat still times out in the harness** (the other
-  ten land). Its mechanic edge is repeatable now; the hunt does not reach it.
-- **`abilities2.test.ts` §6.4.9(i) is still red**, exactly as §0 describes. It
-  fails identically without this round's changes (measured: 300 vs 52 before,
-  494 vs 207 after — the ratio nearly halved, the assertion did not pass).
+- **The ablation bar is not fully met.** "Deleting a kit makes each fight
+  EASIER" now holds on 11 of 18 (was 5), with 7 bosses still measuring SAFER
+  with their own kit. The residual is structural and named in §5.12: a kit that
+  opens punish windows donates ~3s of quiet per window, and on those seven the
+  kit's telegraphed verbs do not out-threaten what the chassis would have done
+  in that time. Per-boss verb tuning with its own measurement pass.
+- **The Sponsor's kill beat is not photographed.** The sim change is measured
+  (bot kill at 102.9s, asserted in `balance.test.ts`), but `bossshot.mjs`'s
+  strafe-and-swing driver cannot put it down inside the capture budget. Reported
+  as a missing frame rather than staged.
+- **Presentation still open**: the Sump King's sluice gates render as
+  untextured quads; the Showrunner's safe wedge has no camera language; the
+  corpse reads hot rather than dead; the loot ring is camouflaged in the
+  Marshal's crate-strewn arena; the Marshal's rig goes prone mid-fight; floors
+  12 and 18 share a dressing palette; the four band signatures still separate
+  by hue more than by silhouette.
+- **`abilities2.test.ts` §6.4.9(i)** is GREEN again as of this round's chassis
+  rebalance, but §0's design question (Barrage's channel vs a boss shield pool
+  the barrage cannot burst) was not answered — it stopped failing, which is not
+  the same thing.
 
 ## 2. Mobile — precision problems in the spec
 

@@ -1293,6 +1293,29 @@ function fadeOutLogLine(el: HTMLElement): void {
   setTimeout(() => { el.remove(); updateLogChrome(); }, 350);
 }
 
+/**
+ * Is the boss segment's HUSH on? — an un-introduced boss inside the approach
+ * radius (§5.1), the ringside freeze, or a live introduced boss. Deliberately
+ * wider than `bossSegmentLive()`: the approach IS the beat this exists for.
+ */
+function bossHushLive(): boolean {
+  if (state.encounter) return true;
+  const p = state.players[0];
+  for (const m of state.monsters) {
+    if (m.kind !== "boss" || m.hp <= 0) continue;
+    if (m.introduced) return true;
+    if (p && Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y) <= CONFIG.bossApproachRadius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Lines the hush lets through: the fight, and anything the fight caused. */
+function isFightLine(text: string): boolean {
+  return !/^(ACHIEVEMENT|The Show|SPONSOR|Viewers|FAVORITE|\d+ ACHIEVEMENTS)/i.test(text);
+}
+
 function pushLogLine(text: string): void {
   log.push(text);
   // The ringside title card owns the boss-intro moment — no third echo in the
@@ -1301,7 +1324,17 @@ function pushLogLine(text: string): void {
   // COURTESY EXPLANATIONs own the top-left tutorial card — echoing the same
   // paragraph into the visible feed doubles UI noise during play (r4 major:
   // one canonical surface per system message). The archive keeps the line.
-  if (text.startsWith("COURTESY EXPLANATION")) return;
+  // ---- §5.1's HUSH, IN THE FRAME (r6 major) --------------------------------
+  // The approach's whole job is to be quiet: the audio bus ducks to a drone
+  // 34 tiles out, and the picture did the opposite. `permitoffice-1approach`
+  // and `marshal-1approach` both filed the reveal with the LIVE FEED filling
+  // the lower-left quarter of the frame with five lines of ACHIEVEMENT (Carl)
+  // chatter — payout notices, over the beat that exists to make the room feel
+  // held. The hush is now a property of the SEGMENT, not of the audio bus: once
+  // the approach has begun, the feed carries the fight and nothing else.
+  // Nothing is lost — every line is still in the archive `log` array and on
+  // the recap screen, which is where a payout receipt belongs.
+  if (bossHushLive() && !isFightLine(text)) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
   el.textContent = text;
@@ -1765,8 +1798,14 @@ function applyBossEvents(events: BossEvent[]): void {
           // on the kill card; so does this now, with DEFEATED demoted to the
           // subtitle where it belongs.
           const title = (bossMarqueeName || "THE BOSS").toUpperCase();
-          postBossCall(title, "DEFEATED — THE SEAL OPENS", 3.2, false, "defeat");
-          postBossBeat("DEFEATED", 2.5, true);
+          // ...AND IT OUTLASTS THE BEAT (r6 blocker). At 3.2s the payoff
+          // headline was the shortest-lived thing in the kill frame and it
+          // landed in about one capture in three. This is the one screen a
+          // short-session game guarantees the player reads; it holds for the
+          // whole aftermath — the corpse settling, the ringside arcs flying
+          // and the drops landing — not for three seconds of it.
+          postBossCall(title, "DEFEATED — THE SEAL OPENS", 5.4, false, "defeat");
+          postBossBeat("DEFEATED", 4.0, true);
           // THE KILL BEAT owns the frame (r3 blocker): for its duration the
           // floating damage numbers stand down, so the last image of the fight
           // is the corpse, the sweeps and the loot — not eight numerals, several
@@ -1796,7 +1835,17 @@ function updateBossBar(s: GameState): void {
   // The call-out layer runs on its own clock and outside the plate, so it is
   // retired here rather than inside the plate's own bookkeeping (which
   // early-returns the moment nothing is engaged).
-  if (bossCallUntil > 0 && hudNow > bossCallUntil) {
+  // ...AND IT DOES NOT RETIRE WHILE THE SHUTTER IS OPEN (r6 blocker). The kill
+  // card landed in roughly one capture in three, and `shoot()`'s probe read
+  // `call:"THE RENT COLLECTOR", callOn:"1"` over a band of pixels containing
+  // nothing — because `hold()` pushes `bossCallUntil` out only if the call-out
+  // is still live when it is called, and `hold()` is called AFTER the frame
+  // has been aged. A 1,800ms age on a 3,200ms card leaves 1.4s of margin, and
+  // a beat that expires in the gap between the age and the hold is retired
+  // here before the shutter opens. The capture hold means exactly one thing —
+  // do not let a beat END while the camera is open — so it is honoured here
+  // too. Nothing is invented: a card that never posted does not appear.
+  if (bossCallUntil > 0 && hudNow > bossCallUntil && hudNow >= captureHold) {
     bossCallUntil = 0;
     bossCallRank = 0;
     bossCallEl.classList.remove("on");
@@ -1807,6 +1856,10 @@ function updateBossBar(s: GameState): void {
   // straight on top of the collapse announcement inside one plate. The CSS
   // steps the headline down for the duration; both stay readable.
   document.body.classList.toggle("bosscalling", bossCallUntil > hudNow);
+  // ...and for the WHOLE segment the System's headline band lives low (r6
+  // major): a non-boss high-priority line must not park itself over the
+  // telegraph the player is being asked to read.
+  document.body.classList.toggle("bossseg", bossSegmentLive());
   // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
   // ringside freeze the NAME CARD owns the introduction, so the health plate
   // stays down until the fight actually starts. It was colliding with the
@@ -6076,6 +6129,15 @@ const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
   critical: ["boss", "progress", "achievement", "tip"],
 };
 
+/**
+ * Is a boss SEGMENT on air? — the ringside freeze, or an introduced boss still
+ * standing. The centre band belongs to the fight for its whole duration.
+ */
+function bossSegmentLive(): boolean {
+  if (state.encounter) return true;
+  return state.monsters.some((m) => m.kind === "boss" && m.hp > 0 && m.introduced);
+}
+
 function showAnnouncement(a: Announcement): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
@@ -6088,6 +6150,36 @@ function showAnnouncement(a: Announcement): void {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
     if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
+    // ---- THE SEGMENT HUSHES THE REST OF THE SHOW (r6 major x2) -------------
+    //
+    // Two findings, one cause. (1) "RULES VIOLATION: the key left the arena of
+    // play" — a line about a key, nothing to do with the fight — occupied the
+    // MIDDLE of the frame in both `rentcollector-3fight` and
+    // `pollinator-3fight`. (2) The Sponsor's own "BRAND ACTIVATION. The
+    // placements are pumping the shield..." appeared in a large opaque
+    // bordered banner parked dead centre over the playfield AND identically in
+    // the live feed, with the banner sitting on top of the CROSS-PROMOTION
+    // lanes it was describing.
+    //
+    // The collapse clock already HOLDS while an introduced boss is alive (r5)
+    // on the principle that the System does not cut away from its own marquee
+    // segment. This is the same rule for the same reason: while the segment is
+    // live the centre band belongs to the boss's own call-out layer, and every
+    // other high-priority line steps down to the ticker rather than covering
+    // the mechanic it is talking about. BOSS lines are not lost either — they
+    // are already on `#bossbar`'s beat line and in `#bosscall`, which is the
+    // channel built for them and the one that does not sit on the arena.
+    // A BOSS line during a live segment is a DUPLICATE by construction — the
+    // beat that raised it already owns `#bossbar`'s beat line and, for the
+    // three headline beats, `#bosscall`. It steps down to the ticker.
+    if (a.kind === "boss" && bossSegmentLive()) {
+      showAnnouncement({ ...a, priority: "normal" });
+      return;
+    }
+    // Everything else keeps its banner but not the middle of the arena: the
+    // `bossseg` body class parks the headline band low while the segment runs
+    // (see iso.html), so a line about a key that left the arena of play can no
+    // longer sit on top of the telegraph the player is reading.
     showBanner(a);
     return;
   }

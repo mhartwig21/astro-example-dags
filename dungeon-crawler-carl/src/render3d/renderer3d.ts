@@ -7888,10 +7888,23 @@ export class Renderer3D {
       // Screen-up, on the ground plane, is the reverse of the camera's own
       // horizontal heading: move the anchor that way and everything else in
       // the frame slides down.
+      //
+      // ...AND IT IS A SCREEN-SPACE MOVE, SO IT SCALES WITH THE ZOOM (r6
+      // major). `drop` is in WORLD units and the ortho half-height is
+      // multiplied by `bossFx.zoom`, so the same drop slides the frame further
+      // the closer the camera is. r5 pushed the reveal from zoom 0.78 to 0.52
+      // — a 33% tighter shot — and the framing bias did not come with it, so
+      // the same number that seated the fight nicely at 1.0 threw the boss off
+      // the TOP of the viewport at 0.52: `greasetrap-2intro` cuts the boss's
+      // head off against the top edge, while `rentcollector-2intro` and
+      // `sponsor-2intro` (whose bodies sit lower in their rigs) end up behind
+      // the card's lower letterbox band. Multiplying by the zoom makes the
+      // drop a constant fraction of the FRAME, which is what it always meant.
+      const k = drop * this.bossFx.zoom;
       const hx = d.x / Math.hypot(d.x, d.z);
       const hz = d.z / Math.hypot(d.x, d.z);
-      ax -= hx * drop;
-      az -= hz * drop;
+      ax -= hx * k;
+      az -= hz * k;
     }
     const cosO = Math.cos(orbit), sinO = Math.sin(orbit);
     const dirX = (d.x * cosO - d.z * sinO) / len;

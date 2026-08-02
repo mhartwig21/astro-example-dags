@@ -12,7 +12,7 @@ import { flowDir, flowUphill, tileLos } from "./pathfield";
 import { applyStatus } from "./status";
 import {
   advanceBossPhase, applyPlayerKnockback, bossBloom, bossBrandActivation, bossCitation,
-  bossConveyorRun, bossCrossPromotion, bossDebrisRain,
+  bossConveyorRun, bossCrossPromotion, bossDebrisRain, bossDemolition,
   bossEvent, bossExposeCore, bossFissureFan, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossGreasePull,
   bossHedgeRegrow,
   bossLateFee, bossLattice, bossMechanicBeat, bossMotion, bossPunishVent, bossReconvene, bossRootGrasp,
@@ -368,6 +368,10 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
 function bossWhiff(m: Monster): void {
   if (m.kind !== "boss") return;
   m.heat = (m.heat ?? 0) + CONFIG.bossPunishWhiffHeat;
+  // ...AND IT COUNTS TOWARD THE FIGHT'S ONE MECHANIC EDGE (r6 major). See
+  // `readsEarnAPhase` below: §2.2 makes a mechanic-completion phase a HARD
+  // rule, one per fight, and it fired on 11 of 18 in real play.
+  m.reads = (m.reads ?? 0) + 1;
 }
 
 /** Dark Ritual lands (boss tier 3 only): a long-telegraphed, arena-scale AoE —
@@ -1132,13 +1136,35 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // for real (shipped breakables + SMASH_KINDS, zero new verbs). When the
   // cover runs out it starts a Controlled Demolition: POSITIONAL phase, an
   // interrupt stake, and a punish window if you win it.
+  // ...r6 BLOCKER: it was WAITING for the cover to be gone. `cover <= 2` was
+  // its only branch, a fight never destroyed that much cover on its own, and
+  // the ablation measured the whole encounter byte-identical with the kit
+  // deleted (0% damage delta, 48/48 hazards, the same four labels). A
+  // use-the-arena boss whose verb never fires is the chassis wearing a name.
+  // The demolition is on a CLOCK now and it takes the cover down itself.
   architect(state, m, ctx) {
-    const cover = (state.breakables ?? []).reduce((n, b) => n + (b.footprint && !b.onBreak ? 1 : 0), 0);
+    const cover = (state.breakables ?? []).reduce(
+      (n, b) => n + (b.footprint && !b.onBreak && b.hp > 0 ? 1 : 0), 0);
+    // NOTHING LEFT TO HIDE BEHIND — the positional edge, now genuinely
+    // reachable because the boss is the thing that got it there.
     if (cover <= 2 && !m.bossCount && ctx.d <= CONFIG.ritualRange) {
       m.bossCount = 1;
       advanceBossPhase(state, m, "positional");
       beginBossWindup(state, m, "ritual", CONFIG.ritualWindup, "CONTROLLED DEMOLITION");
       announce2(state, "NOTHING LEFT TO HIDE BEHIND. CONTROLLED DEMOLITION — stagger it or wear the building.", "high");
+      return true;
+    }
+    // ON THE OFF-BEAT, like the Sump King's sluices: the band signature keeps
+    // `sigCd` (DEBRIS RAIN is still the room coming down on you) and the
+    // demolition fires in the GAP between rains, so the two ground verbs never
+    // land on the same frame and the rain's own test still holds.
+    if (
+      (m.sigCd ?? 0) > 0 && (m.affixCd ?? 0) === 0 &&
+      ctx.d <= CONFIG.monsterAggroRange * 2.5
+    ) {
+      m.affixCd = CONFIG.architectDemoCooldown / (1 + (m.phase ?? 0) * 0.3);
+      m.heat = (m.heat ?? 0) + 1;
+      bossDemolition(state, m);
       return true;
     }
     return false;
@@ -1241,8 +1267,15 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     // CAMERA MOVE — the finale's own recurring verb. 7% identity share
     // measured; the kit returned false every other step and the shared chassis
     // ran the whole fight. Its ask is USE-THE-ARENA, so the arena is the verb.
-    if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
-      m.sigCd = CONFIG.showrunnerCueCooldown / (1 + (m.phase ?? 0) * 0.25);
+    // ON ITS OWN TRACK (r6 blocker). Shipped, CAMERA MOVE spent `sigCd` — the
+    // same counter the band signature uses — so every cue the Showrunner
+    // called DELETED a band signature that would otherwise have fired, and the
+    // ablation measured the finale's own kit making its fight 146% SAFER than
+    // the bare chassis. A boss's identity may add to the fight; it must not
+    // buy itself out of the fight. Same off-beat pattern as the Sump King's
+    // sluices and the Architect's demolition: the cue fires in the GAP.
+    if ((m.sigCd ?? 0) > 0 && (m.affixCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
+      m.affixCd = CONFIG.showrunnerCueCooldown / (1 + (m.phase ?? 0) * 0.25);
       m.heat = (m.heat ?? 0) + 1;
       bossShotList(state, m);
       return true;
@@ -1429,8 +1462,16 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // V8 — tethered adds FEED it. Ignoring the wave stalls the fight.
   // The feed is CAPPED at four cords: the ask is "handle the wave", not "out-
   // heal an unbounded stack" — an uncapped Concierge simply never dies.
+  // ...AND A CORD FEEDS ONE THING (r6 blocker). The Sponsor's placements were
+  // pumping the SHIELD POOL (their stated job), reducing body damage through
+  // the council's shield tax, AND healing the body on this shared chassis
+  // line — three anchors on one boss. Measured: 230 sim-seconds of a
+  // fully-kitted crawler left the last boss in the game at 34,000 / 34,000 HP,
+  // i.e. exactly full, because the tether heal alone out-paced everything that
+  // got through the school lock. A boss with a shield POOL has its cords
+  // feeding that pool; the body is the player's to take.
   const tethers = Math.min(4, liveTethers(state, m));
-  if (tethers > 0 && m.hp < m.maxHp) {
+  if (tethers > 0 && m.hp < m.maxHp && !(m.shieldMax ?? 0)) {
     const heal = m.maxHp * CONFIG.tetherHealPerSec * tethers * dt;
     m.hp = Math.min(m.maxHp, m.hp + heal);
   }
@@ -1489,6 +1530,32 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     m.heat = 0;
     m.punishCd = CONFIG.bossPunishRecovery;
     beginBossWindup(state, m, "punish", CONFIG.bossPunishWindup, rule.tell);
+    return;
+  }
+
+  // §2.2's HARD RULE, FOR THE BOSSES WHOSE KIT CANNOT SATISFY IT (r6 major).
+  //
+  // "At least one phase per fight must be MECHANIC-COMPLETION triggered, so
+  // the player's play — not their damage — advances the story." Measured in
+  // real play it fired on 11 of 18: the Sump King, the Inspector, the
+  // Architect, the Foundation, the Line Supervisor, the Safety Officer and the
+  // Showrunner all showed `phases: hp` only across two seeds and seventy
+  // seconds, because their mechanic edges are gated on arena states a real
+  // fight rarely reaches (every floodgate down, every conveyor broken, every
+  // pillar gone).
+  //
+  // The shared edge is the READ, which is the one thing every one of those
+  // fights actually asks for: `m.reads` counts telegraphed heavies this boss
+  // committed that caught NOBODY — dodged lanes, walked-out channels, slams
+  // that hit floor. Enough of them and the fight visibly answers. It fires at
+  // most ONCE (`readPhase`), it never pre-empts a kit's own mechanic edge (a
+  // kit that has already fired one sets `readPhase` itself via
+  // bossMechanicBeat), and it is strictly the player's doing, which is the
+  // whole point of §2.2.
+  if (m.introduced && !m.readPhase && (m.reads ?? 0) >= CONFIG.bossReadsForPhase) {
+    m.readPhase = true;
+    announce2(state, "IT HAS COMMITTED TO NOTHING BUT AIR. That is a read, and reads move this fight.");
+    bossMechanicBeat(state, m);
     return;
   }
 
@@ -1604,8 +1671,20 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // Phase 1+ the Rent Collector stops collecting and starts EVICTING: the
   // same swing, but it launches you (the shipped knockback verb).
   const meleeKind = m.bossId === "rentcollector" && (m.phase ?? 0) >= 1 ? "punch" : "melee";
+  // SPONSORED (mutator) — IT DEFENDS THE PLACEMENT (r6 blocker). Shipped, the
+  // anti-kite chase walked the boss out of its own bubble unprompted, so on
+  // bands 4-6 the bubble held for 3-15% of the fight and the mutator was a
+  // fight-lengthener with no verb. Past the leash it turns around: the player
+  // CAN pull it off the mark, but only by holding the fight out at the edge,
+  // and the moment they disengage it goes home. That is the "move the fight,
+  // not just yourself" the counterplay sentence has always claimed.
+  const leashed = !!m.bossMutators?.includes("sponsored") && !!m.home &&
+    d > m.attackRange && dist(m.pos, m.home) > CONFIG.sponsoredLeash;
   if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, meleeKind, windup);
-  else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * chase * dt, isWalkable);
+  else if (leashed) {
+    const back = normalize({ x: m.home!.x - m.pos.x, y: m.home!.y - m.pos.y });
+    moveWithCollision(state.map, m.pos, back, m.speed * dt, isWalkable);
+  } else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * chase * dt, isWalkable);
   // ...and the radial volley is suppressed for the window too. A boss that is
   // "briefly helpless" while a ring of ten bolts leaves its body is not
   // helpless; it is a turret with a reticle on it (r5 blocker).

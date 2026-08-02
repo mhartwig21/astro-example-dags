@@ -499,9 +499,14 @@ export const CONFIG = {
   // Layer 3 — arena directors: the ROOM acts on a rhythm while the boss
   // lives, reusing the signature helpers on the arena's own metronome
   // (deliberately slower than the boss's sigCd — layered, not doubled).
-  directorFloodInterval: 14, // floor 6: the sump RISES on its own schedule
-  directorRegrowInterval: 16, // floor 9: the garden REGROWS
-  directorVentInterval: 12, // floor 15: the wall vents EXHALE flame rows
+  // The verb is drawn per RUN from the BAND's own palette (game.ts
+  // BAND_ROOM_SCRIPTS) — the sewers flood, the garden regrows, the ironworks
+  // vents. r6 blocker: keying it to the arena VARIANT made it unseeded and
+  // band-blind, and every measured floor-9 boss ran the Ironworks' FLAME SWEEP.
+  directorFloodInterval: 14, // the room TAKES ON WATER
+  directorRegrowInterval: 16, // the room REGROWS
+  directorVentInterval: 12, // the wall vents EXHALE flame rows
+  directorDebrisInterval: 15, // the ceiling SHEDS
 
   // RIVALS (competitive race mode): up to 4 hostile crawlers, individual
   // descent through concurrent floor worlds, first FINAL-BOSS kill wins.
@@ -759,7 +764,7 @@ export const CONFIG = {
   bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
-  bossSlamCooldown: 6.5, // seconds between slams (independent of melee/volley)
+  bossSlamCooldown: 8.0, // seconds between slams (independent of melee/volley)
   bossSlamHasteT2: 0.65, // tier 2+ slam-cooldown multiplier (the tier-2 escalation)
   bossSlamDmgMult: 0.85, // relative to the boss's own damage stat (it's a BONUS hit)
   ritualRange: 9, // tiles: the boss will channel from anywhere in the arena
@@ -1249,14 +1254,33 @@ export const CONFIG = {
   // floor-12 arenas (~300 -> ~1100); floors 6 and 12 keep their pre-band
   // values (5400 / 18360). Floor 3 is early-game and deliberately GENTLE.
   // Target: a real 15-25s arena fight, not a speed bump.
-  bandBossHp: [1050, 4320, 8400, 14690, 21600],
+  // r6 BLOCKER — THE TEACHING BAND WAS A TRASH PACK WITH A NAME CARD. Measured
+  // TTK with the crawler the capture harness uses (test mode, level 6+floor,
+  // abilities=all): concierge 12s, temp 11s, rentcollector 14s, against the
+  // §6.2 target of 45-90s — and punish windows OPENED PER FIGHT of 0.0 on two
+  // of the three, because the boss's own count (BOSS_PUNISH.after) cannot come
+  // round inside twelve seconds. The band whose stated job is teaching the
+  // grammar was ending before the grammar's most important beat existed. Both
+  // levers in §6.4's own sentence are pulled: band 1 gets its 30% back (1050 ->
+  // 1500, the pre-r4 pool) AND the three band-1 bosses' punish counts come down
+  // to 2 (bosses.ts BOSS_PUNISH), so the window lands twice inside the fight
+  // rather than never. `minTtk` (12/15/20s) is a LOWER bound and is unaffected.
+  bandBossHp: [1500, 4320, 8400, 14690, 21600],
   bandBossDmgMult: [0.5, 0.7, 0.7, 0.7, 0.7], // x bossDamage per arena
   bandBossXpMult: [0.2, 0.4, 0.4, 0.4, 0.4], // x bossXp per arena
   cityBossAdds: 2, // ranged escorts
   // Ordinary-crowd share on a boss floor: thinner mid-run so the arena fight
   // stays the show; the final band keeps the deep-dungeon density story.
+  // r6 MAJOR — A FLOOR-15 BOSS ARENA HELD 145-151 LIVE BODIES (measured
+  // maxAdds, ablation log). Whatever a boss's ask is, the thing the player is
+  // actually reading at depth is a mob FIELD: the kill-the-adds bosses were
+  // indistinguishable from the others by add pressure, because every boss
+  // floor already carried more bodies than any mechanic spawns. The deep-floor
+  // share comes down to where the boss's OWN wave is the pressure the player
+  // notices. `bossFloorCrowd` (the mid-run share) is untouched — it was never
+  // the problem — and nothing here changes the wave sizes the mechanics use.
   bossFloorCrowd: 0.5,
-  bossFloorCrowdDeep: 0.8,
+  bossFloorCrowdDeep: 0.5,
   bossFloorCrowdDeepFrom: 13,
 
   // SIGNATURE boss mechanics — one themed ability per band-end arena, layered
@@ -1384,8 +1408,21 @@ export const CONFIG = {
   // balance.test.ts's boss suite (minTtk 12/15/20s, "bosses hit back") — both
   // still hold, because what was removed is ambient chip, not the telegraphed
   // hits the damage budget is written about.
-  bossVolleyCooldown: 3.4,
-  bossVolleyCount: 10, // projectiles per radial volley
+  //
+  // r6 BLOCKER — THE CHASSIS WAS STILL THE FIGHT. The ablation (delete
+  // BOSS_KITS[id], 2 seeds x 70s, bot-driven) measured the shared chassis
+  // carrying 8 of 18 fights to within 8% of the real one and making 11 of 18
+  // HARDER without the boss's own kit — i.e. a boss's identity was, on
+  // average, a DISCOUNT. The cause is not subtle: the radial volley is 10
+  // undodgeable bolts every 3.4s and the rain is a blast per crawler every
+  // 6.5s, which no kit verb can out-threaten because every kit verb is
+  // telegraphed and therefore dodgeable. So the ambient budget comes out of
+  // the chassis and goes into the kits (bossKitDmgMult below): the volley is
+  // 6 bolts on a 4.6s clock (-58% ambient chip), the rain is on 9s (-28%),
+  // and the slam is on 8s. Measured against balance.test.ts's boss suite and
+  // re-ablated; the receipt is in BOSSES-V2.md §5.12.
+  bossVolleyCooldown: 4.6,
+  bossVolleyCount: 6, // projectiles per radial volley
   // Boss phases: crossing 2/3 and 1/3 HP enrages — faster chase, denser volleys.
   bossPhaseSpeedMult: 1.15, // per phase
   bossPhaseVolleyBonus: 4, // extra projectiles per phase
@@ -1399,7 +1436,7 @@ export const CONFIG = {
   bossWaveAddsPerPhase: 2, // ...plus this many more per phase reached
   // From phase 1, the arena itself attacks: telegraphed blast hazards rain on
   // each crawler's position — standing still through the enrage is a choice.
-  bossHazardCooldown: 6.5, // seconds between hazard volleys (phase >= 1)
+  bossHazardCooldown: 9.0, // seconds between hazard volleys (phase >= 1)
   bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
   bossHazardRadius: 1.7, // tiles
   bossHazardDmgMult: 1.1, // relative to the boss's damage stat
@@ -1410,6 +1447,13 @@ export const CONFIG = {
   // arena shape — variety across runs was literally zero. The knobs below are
   // the price of the fix: mechanics that add real seconds to a fight, paid for
   // by taking HP back out (see bandBossHp above and BALANCE-NOTES.md).
+
+  // THE OTHER HALF OF THE CHASSIS CUT (r6 blocker). Every kit-owned hazard's
+  // damage runs through `kitDmg` (game.ts) and is scaled by this, so the
+  // ambient chip the chassis stopped dealing lands on the beats that have a
+  // TELL on them instead. One number, so the ablation is re-measurable against
+  // it rather than against eleven hand-tuned per-boss multipliers.
+  bossKitDmgMult: 1.5,
 
   // -- Verb V1: breakable plates / weak points.
   // Plate pools are a fraction of the boss's own HP, so they scale with the
@@ -1437,6 +1481,10 @@ export const CONFIG = {
   // rhythm you can learn needs a gap you can feel; 9s puts the window at
   // roughly one beat per phase-and-a-bit rather than one every three seconds.
   bossPunishRecovery: 9,
+  // §2.2's mechanic-completion phase edge, for the seven bosses whose own kit
+  // gates it on an arena state a real fight rarely reaches (r6 major). This
+  // many telegraphed heavies dodged clean and the fight answers — once.
+  bossReadsForPhase: 6,
   // §5.1 THE APPROACH, in the world. Within this many tiles of an unmet boss
   // the fog comes off the ground it is standing on, so the beat has a
   // SILHOUETTE in it — ten of ten r5 captures had no boss in frame at all,
@@ -1622,6 +1670,15 @@ export const CONFIG = {
   latticeStagger: 0.45, // seconds between each line arming (the sequence)
   latticeWidth: 0.8,
   latticeDmgMult: 0.75,
+  // The Condemned Architect: CONTROLLED DEMOLITION on a CLOCK (r6 blocker).
+  // Shipped, its only kit branch gated on `cover <= 2` and a fight never got
+  // there, so the ablation measured the encounter byte-identical without it.
+  // It fells the cover the crawlers are actually using, on its own rhythm.
+  architectDemoCooldown: 7.5,
+  architectDemoCount: 3, // pieces marked per demolition (nearest the crawlers)
+  architectDemoDelay: 1.35, // telegraph before the span comes down
+  architectDemoRadius: 2.1,
+  architectDemoDmgMult: 0.8,
   // The Zoning Board: SETBACK REQUIRED — every seated member condemns a collar
   // of ground around its own chair, so the kill order is also a route.
   setbackCooldown: 7.5,
@@ -1639,22 +1696,39 @@ export const CONFIG = {
   showrunnerSets: ["flood", "roots", "debris", "flamewall"] as const,
   // ...and CAMERA MOVE is its per-beat verb: only the wedge it is shooting is
   // safe ground. The one beat in the game whose read is the SAFE ground.
-  showrunnerCueCooldown: 8,
-  showrunnerShotArc: 2.1, // radians of arena that stay clean
+  // r6 BLOCKER — the Showrunner ablated to a 0% damage delta: one of the three
+  // finales was the bare chassis with a caption. CAMERA MOVE laid a wedge of
+  // safe ground and then let the player stroll into it, because the wedge was
+  // a third of the arena, the unsafe ground only dwelt 1.6s and the cue came
+  // round every 8s. The stake is real now: a narrower shot, ground that stays
+  // struck long enough that being outside it costs something, and a cue that
+  // comes round often enough to be the fight's metronome.
+  showrunnerCueCooldown: 6.5,
+  showrunnerShotArc: 1.7, // radians of arena that stay clean
   showrunnerShotRings: 3,
   showrunnerShotRadius: 0.95,
   showrunnerShotArm: 1.35,
-  showrunnerShotDwell: 1.6,
-  showrunnerShotDmgMult: 0.34,
+  showrunnerShotDwell: 2.4,
+  showrunnerShotDmgMult: 0.4,
   // The Sponsor (finale): Brand Integration — a shield only one school erodes.
   sponsorShieldFraction: 0.22,
+  // Wrong-school damage past a school-locked pool (r6 blocker). The pool still
+  // refuses it outright; the BODY takes this fraction, so an off-school build
+  // is four times slower rather than mathematically incapable.
+  brandOffSchoolMult: 0.25,
   // ...and BRAND ACTIVATION is its per-beat verb: tethered placements that
   // pump the pool, so break-the-shield finally has a reason to look away.
   sponsorPylons: 2,
   sponsorPylonRing: 4.5,
   sponsorPylonHpMult: 0.55,
   sponsorPylonCooldown: 13,
-  sponsorPylonRegenMult: 3.2, // shield regen while any placement stands
+  // r6 BLOCKER — THE FINALE COULD NOT BE KILLED. At 3.2x the placements
+  // refilled the school-locked pool faster than a correct-school rotation
+  // stripped it: 70s bot fight, 100% HP, 0/2 seeds killed, and 20% / 1-of-2
+  // with the Sponsor's OWN KIT ablated. 1.6x is a real tax on ignoring the
+  // placements and is no longer a wall; the other half of the fix is that
+  // damaging a placement now holds the pool outright (damageMonster).
+  sponsorPylonRegenMult: 1.6, // shield regen while any placement stands
   // ...and CROSS-PROMOTION is the beat between them: two branded lanes through
   // wherever the crawler is standing. The finale needed a verb it commits on a
   // clock rather than only at a phase edge (census: 3% identity share).
@@ -1670,8 +1744,23 @@ export const CONFIG = {
   audienceCount: 3,
   audienceDmgMult: 0.7,
   // SPONSORED mutator: a hazard-immune bubble the boss must be pulled out of.
+  // r6 BLOCKER — the most common mutator in the game was a stat line. SPONSORED
+  // landed on 90.6% of runs and 26.2% of every slot drawn (4,000-seed sweep),
+  // and measured bubble occupancy was bimodal with neither half a verb: 79-100%
+  // on bands 1-2 (a permanent 75% damage cut with the boss parked in it) and
+  // 3-15% on bands 4-6, where the anti-kite CHASE walked the boss out of its
+  // own bubble unprompted and the mutator did nothing at all except lengthen
+  // the fight (temp dmgTaken 30 -> 287, showrunner 638 -> 4,135).
+  //
+  // Two changes. The cut halves (0.25 -> 0.5), so a bubble the player has not
+  // answered is a tax rather than a wall. And the boss now DEFENDS the
+  // placement: past the leash it turns around and walks back, so it can be
+  // pulled off its mark but not led round the arena — the counterplay is to
+  // hold the fight out at the edge, which is the "move the fight" the mutator's
+  // own counterplay sentence promises and never delivered.
   sponsoredBubbleRadius: 4.5,
-  sponsoredDamageMult: 0.25, // damage it takes while it stands in its own bubble
+  sponsoredLeash: 9.5, // how far off `home` it will be led before it turns back
+  sponsoredDamageMult: 0.5, // damage it takes while it stands in its own bubble
 } as const;
 
 // Enemy archetype stat multipliers (relative to the per-floor base) + behavior.
