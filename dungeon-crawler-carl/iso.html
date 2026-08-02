@@ -363,7 +363,13 @@
          NOTE: #banner is taken (the SYSTEM/CRAWLER menu buttons up top) — this
          layer is #headline. max() keeps it clear of the upper chips on short viewports. */
       #headline { position: fixed; top: max(19%, 152px); left: 50%; transform: translateX(-50%);
-        pointer-events: none; display: flex; flex-direction: column; align-items: center; }
+        pointer-events: none; display: flex; flex-direction: column; align-items: center;
+        transition: top 0.3s ease; }
+      /* The BOSSES-V2 health plate is taller than the old one — mutator tags, a
+         shield rail, plate chips and the live beat line all stack under the
+         bar. While it is up, the System's headline band steps down so the two
+         never share pixels (host toggles body.bossplate). */
+      body.bossplate #headline { top: max(28%, 232px); }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
@@ -502,8 +508,13 @@
       /* Lower-third staging (r3 major): the card sits BELOW center so the
          menace being introduced is framed above it, never hidden behind its
          own title text. */
+      /* isolation: the scrim below is a ::before at z-index -1. Without a
+         stacking context of its own that -1 escapes the element entirely and
+         lands BEHIND the canvas, which is exactly what a capture caught: a
+         world barrel compositing on top of the epithet line. */
       #bossintro { position: fixed; top: max(58%, 420px); left: 50%; transform: translateX(-50%);
-        display: none; text-align: center; pointer-events: none; z-index: 20; }
+        display: none; text-align: center; pointer-events: none; z-index: 20;
+        isolation: isolate; }
       /* Scrim band (r2): a feathered horizontal gradient — 0 at the wings,
          ~60% alpha through the title — never a hard-edged grey slab. */
       #bossintro::before { content: ""; position: absolute; inset: -44px -50vw; z-index: -1;
@@ -537,16 +548,48 @@
         border: 1px solid #241a08; }
       #bossintro .bi-affix::before { left: -16px; }
       #bossintro .bi-affix::after { right: -16px; }
-      #bossintro.show { display: block;
-        animation: bi-in 0.45s ease-out, bi-out 0.5s ease 3s forwards; }
+      /* BOSSES V2 §5.3 — the EPITHET. Small caps under the title, engraved,
+         the line that tells you what this thing IS before it moves. */
+      #bossintro .bi-epithet { margin-top: 6px; color: #cbb996;
+        font-family: var(--display); font-variant: small-caps;
+        font-size: 14px; letter-spacing: 0.26em;
+        text-shadow: 0 1px 2px #000; }
+      /* MUTATOR TAGS: what is different about THIS run. Hades keeps repeated
+         runs fresh by NAMING the variation, so these are loud on purpose. */
+      #bossintro .bi-muts { display: flex; justify-content: center; gap: 10px;
+        margin-top: 12px; flex-wrap: wrap; }
+      #bossintro .bi-muts:empty { display: none; }
+      #bossintro .bi-muts i { font-style: normal; padding: 3px 12px;
+        background: linear-gradient(180deg, rgba(58,22,14,0.95), rgba(24,9,6,0.95));
+        border: 1px solid #a8542e; border-radius: 2px;
+        color: #ffc79a; font-family: var(--display); font-variant: small-caps;
+        font-size: 12px; letter-spacing: 0.24em;
+        box-shadow: 0 0 14px rgba(200,90,40,0.35), inset 0 1px 0 rgba(255,200,160,0.14); }
+      /* THE SYSTEM'S LINE: one deadpan sentence, in this boss's own voice. */
+      #bossintro .bi-line { margin-top: 14px; max-width: 46ch; margin-left: auto;
+        margin-right: auto; color: #9fd8e8; font-size: 13px; font-style: italic;
+        letter-spacing: 0.04em; line-height: 1.5; text-shadow: 0 1px 3px #000; }
+      #bossintro .bi-line:empty { display: none; }
+      /* THE CARD'S LIFETIME IS THE SIM'S, NOT THE WALL CLOCK'S (r3 blocker).
+         The card used to self-fade on `bi-out ... 3s forwards`, i.e. on REAL
+         time, while the ringside freeze it belongs to runs on the sim's own
+         encounter timer. Any client slower than the animation — a stall, a
+         long GC, a SwiftShader capture — lost the marquee beat of the whole
+         encounter while the freeze was still running underneath it. Now the
+         host drives --bi-fade off `encounter.timeLeft`, so the card is up for
+         exactly as long as the beat is, on any machine. */
+      #bossintro.show { display: block; opacity: var(--bi-fade, 1);
+        animation: bi-in 0.45s ease-out; }
       #bossintro.show .bi-name { animation: bi-name-in 0.6s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
       #bossintro.show .bi-kicker { animation: bi-fade 0.5s ease 0.08s both; }
+      #bossintro.show .bi-epithet { animation: bi-fade 0.5s ease 0.22s both; }
       #bossintro.show .bi-affix { animation: bi-fade 0.5s ease 0.32s both; }
+      #bossintro.show .bi-muts { animation: bi-fade 0.5s ease 0.46s both; }
+      #bossintro.show .bi-line { animation: bi-fade 0.6s ease 0.62s both; }
       @keyframes bi-in {
         from { opacity: 0; transform: translateX(-50%) scale(1.15); }
         to { opacity: 1; transform: translateX(-50%) scale(1); }
       }
-      @keyframes bi-out { to { opacity: 0; } }
       @keyframes bi-name-in { from { opacity: 0; transform: scale(1.3); letter-spacing: 0.18em; } }
       @keyframes bi-fade { from { opacity: 0; transform: translateY(6px); } }
       /* Letterbox bars: the broadcast cuts to the title card (host toggles .on
@@ -558,10 +601,10 @@
       #letterbox i { position: absolute; left: 0; right: 0; height: 88px; }
       #letterbox .lb-top { top: 0; background: linear-gradient(180deg,
           rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
-        animation: lb-top-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+        opacity: var(--bi-fade, 1); animation: lb-top-in 0.4s ease-out both; }
       #letterbox .lb-bot { bottom: 0; background: linear-gradient(0deg,
           rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
-        animation: lb-bot-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+        opacity: var(--bi-fade, 1); animation: lb-bot-in 0.4s ease-out both; }
       #letterbox i::after { content: ""; position: absolute; left: 0; right: 0; height: 1px;
         background: linear-gradient(90deg, transparent, rgba(201,162,75,0.75) 16%,
           rgba(201,162,75,0.75) 84%, transparent);
@@ -575,9 +618,17 @@
         display: none; pointer-events: none; z-index: 18; mix-blend-mode: screen;
         background: radial-gradient(circle, rgba(255,216,150,0.55) 0%,
           rgba(255,186,116,0.22) 38%, rgba(255,170,100,0) 66%); }
+      /* --bi-spot is the EXPOSURE governor's grip on the key light (r3
+         blocker): on a bright arena floor a 55%-alpha screen-blended disc over
+         the boss is what turns the star of the introduction into a white
+         ellipse. The host measures the frame and turns this down. */
       #bossspot.on { display: block;
-        animation: spot-in 0.5s ease-out both, bi-out 0.5s ease 3s forwards; }
-      @keyframes spot-in { from { opacity: 0; transform: scale(0.8); } }
+        opacity: calc(var(--bi-fade, 1) * var(--bi-spot, 1));
+        animation: spot-in 0.5s ease-out; }
+      @keyframes spot-in {
+        from { opacity: 0; transform: scale(0.8); }
+        to { transform: scale(1); }
+      }
       @keyframes lb-top-in { from { transform: translateY(-100%); } }
       @keyframes lb-bot-in { from { transform: translateY(100%); } }
       /* Broadcast cut (r2): while the letterbox rides the title card the HUD
@@ -651,7 +702,134 @@
       #bossbar .bb-break { position: absolute; top: 0; bottom: 0; width: 2px;
         margin-left: -1px; z-index: 2; background: rgba(10,7,5,0.95);
         box-shadow: 0 0 0 1px rgba(168,133,79,0.45); }
-      #bossbar.elite .bb-break, #bossbar.elite .bb-pips { display: none; }
+      #bossbar.elite .bb-break, #bossbar.elite .bb-pips,
+      #bossbar.elite .bb-muts, #bossbar.elite .bb-plates,
+      #bossbar.elite .bb-shield, #bossbar.elite .bb-beat { display: none; }
+      /* ---- BOSSES V2 plate additions -------------------------------------
+         The plate has to answer four questions at a glance while the player
+         is dodging: how much shield, how many weak points, which phase, and
+         what is different about THIS run. Each gets its own row; none of them
+         shares pixels with another. */
+      /* MUTATOR TAGS — the run-to-run variation, named. */
+      #bossbar .bb-muts { display: flex; justify-content: center; gap: 6px;
+        margin-top: 4px; flex-wrap: wrap; }
+      #bossbar .bb-muts:empty { display: none; }
+      #bossbar .bb-muts i { font-style: normal; padding: 1px 7px;
+        background: rgba(58,22,14,0.9); border: 1px solid #a8542e; border-radius: 2px;
+        color: #ffc79a; font-size: 9px; letter-spacing: 1.6px; font-weight: 700; }
+      /* SHIELD POOL — a thinner cyan rail ABOVE the health bar. Regen shows
+         as the fill crawling back up, which is the whole counterplay clock. */
+      #bossbar .bb-shield { position: relative; height: 6px; margin-top: 6px;
+        display: none; border: 1px solid #000; overflow: visible;
+        background: linear-gradient(180deg, #04070a, #0a1620);
+        box-shadow: 0 0 0 1px rgba(70,130,170,0.5), inset 0 1px 2px rgba(0,0,0,0.9); }
+      #bossbar .bb-shield.on { display: block; }
+      #bossbar .bb-shield > i { position: absolute; inset: 1px auto 1px 1px; display: block;
+        background: linear-gradient(180deg, #d8f4ff, #62d8ff 40%, #1f7fc0);
+        box-shadow: 0 0 8px rgba(98,216,255,0.7); transition: width 0.1s linear; }
+      /* The SCHOOL LOCK tag (The Sponsor): the one thing that works, named. */
+      #bossbar .bb-shield > b { position: absolute; right: 2px; top: -13px;
+        font-size: 9px; letter-spacing: 1.6px; color: #9fe4ff; font-weight: 700; }
+      #bossbar .bb-shield.school-magic > i {
+        background: linear-gradient(180deg, #efe2ff, #a46bff 40%, #5426b8);
+        box-shadow: 0 0 8px rgba(164,107,255,0.7); }
+      #bossbar .bb-shield.school-magic > b { color: #d6bcff; }
+      #bossbar .bb-shield.school-physical > i {
+        background: linear-gradient(180deg, #ffe6c8, #ffb057 40%, #a8541a);
+        box-shadow: 0 0 8px rgba(255,176,87,0.7); }
+      #bossbar .bb-shield.school-physical > b { color: #ffcc99; }
+      /* PLATE CHIPS — one per weak point. Broken ones stay, struck through:
+         progress you can SEE is worth more than a chip that vanishes. */
+      #bossbar .bb-plates { display: flex; justify-content: center; gap: 6px;
+        margin-top: 6px; flex-wrap: wrap; }
+      #bossbar .bb-plates:empty { display: none; }
+      #bossbar .bb-plates i { font-style: normal; position: relative;
+        padding: 1px 8px; border-radius: 2px; font-size: 9px; letter-spacing: 1.4px;
+        font-weight: 700; color: #f3e3bd;
+        background: linear-gradient(180deg, rgba(46,38,26,0.95), rgba(18,14,9,0.95));
+        border: 1px solid #8a6d3b; box-shadow: inset 0 1px 0 rgba(255,235,190,0.12); }
+      #bossbar .bb-plates i.school-magic { border-color: #7a4fd0; color: #d6bcff; }
+      #bossbar .bb-plates i.school-physical { border-color: #b8763a; color: #ffcc99; }
+      #bossbar .bb-plates i.broken { color: #6b6155; border-color: #3a332a;
+        background: rgba(10,8,6,0.9); text-decoration: line-through; }
+      /* THE LIVE BEAT — the named signature committing right now. Gold, and
+         it POPS, because §7.4 says the punish window is the beat that most
+         needs to read, and this line is where that beat says so. */
+      #bossbar .bb-beat { min-height: 0; margin-top: 5px; text-align: center;
+        font-family: var(--display); font-variant: small-caps; font-size: 13px;
+        letter-spacing: 0.22em; color: #ffd98a; text-shadow: 0 0 12px rgba(255,190,90,0.7), 0 1px 2px #000; }
+      #bossbar .bb-beat:empty { display: none; }
+      #bossbar .bb-beat.pop { animation: bb-beat-pop 0.32s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      #bossbar .bb-beat.punish { color: #fff3c4; font-size: 15px;
+        text-shadow: 0 0 20px rgba(255,215,120,0.95), 0 1px 2px #000; }
+      @keyframes bb-beat-pop { from { transform: scale(1.5); opacity: 0; } }
+      /* ---- THE CALL-OUT (capture review, round 2) --------------------------
+         §7.4 names the punish window "the one beat that most needs to read",
+         and it was being rendered as a small grey line INSIDE the boss panel,
+         clipped by the panel's own bottom edge. A beat printed underneath the
+         furniture is not a beat. The three moments the fight most needs the
+         player to see — the punish window, the intermission, and a phase edge
+         the PLAYER caused — now own their own layer, outside every panel, at
+         announcement contrast, in the dead centre of the screen where the eye
+         already is during a fight.
+         Zone: between the headline band and the boss intro card; only one of
+         the three is ever up, and it outranks nothing else because nothing
+         else occupies this band. */
+      #bosscall { position: fixed; top: max(27%, 236px); left: 50%;
+        transform: translateX(-50%) scale(0.86); opacity: 0; pointer-events: none;
+        z-index: 18; text-align: center; white-space: nowrap;
+        transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      #bosscall.on { opacity: 1; transform: translateX(-50%) scale(1); }
+      #bosscall b { display: block; font-family: var(--display); font-weight: 900;
+        font-size: 40px; letter-spacing: 0.1em; font-variant: small-caps;
+        color: #fff6d2; -webkit-text-stroke: 1px rgba(0,0,0,0.85);
+        text-shadow: 0 0 26px rgba(255,205,110,0.95), 0 0 60px rgba(255,160,40,0.5),
+          0 3px 6px rgba(0,0,0,0.9); }
+      #bosscall i { display: block; font-style: normal; margin-top: 2px;
+        font-size: 13px; letter-spacing: 0.32em; color: #f0d79a;
+        text-shadow: 0 0 12px rgba(0,0,0,0.95), 0 1px 3px #000; }
+      /* A feathered scrim so the words survive a bright arena floor. Same
+         stacking-context rule as the intro card: isolate, or the -1 escapes. */
+      #bosscall { isolation: isolate; }
+      #bosscall::before { content: ""; position: absolute; inset: -26px -34vw; z-index: -1;
+        background: radial-gradient(ellipse at center,
+          rgba(6,4,2,0.72) 0%, rgba(6,4,2,0.45) 45%, rgba(6,4,2,0) 78%); }
+      #bosscall.on b { animation: bc-punch 0.34s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      @keyframes bc-punch { from { transform: scale(1.4); filter: brightness(2.2); } }
+      /* THE COMMERCIAL BREAK reads COOL, so it can never be mistaken for the
+         punish window's gold "this is yours to take". */
+      #bosscall.cool b { color: #dff2ff;
+        text-shadow: 0 0 26px rgba(150,215,255,0.95), 0 0 60px rgba(60,150,220,0.5),
+          0 3px 6px rgba(0,0,0,0.9); }
+      #bosscall.cool i { color: #b9d8ee; }
+      /* ENRAGE: the System losing patience reads on the whole plate, not on a
+         chip — the frame itself starts running hot. */
+      #bossbar.enraged { border-color: #c0562a;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 0 30px rgba(190,60,20,0.5),
+          0 0 26px rgba(200,70,25,0.45); animation: bb-enrage 1.5s ease-in-out infinite; }
+      @keyframes bb-enrage { 50% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55),
+        inset 0 0 38px rgba(220,80,30,0.62), 0 0 34px rgba(220,90,35,0.6); } }
+      /* THE COMMERCIAL BREAK: untargetable, so the plate says so instead of
+         letting the player keep swinging at a number that will not move.
+         DESATURATE, NEVER DRAIN (capture review): the first cut ran
+         brightness(0.55) over the whole bar, which pushed the fill down to the
+         track's own value and made a mid-fight intermission read as a DEATH —
+         a boss at 70% looked like a boss at zero. The fill now holds its real
+         value and only loses its colour, and a hatched overlay says "frozen". */
+      #bossbar.intermission .bar { filter: saturate(0.18); }
+      /* The fill keeps its VALUE and gets a cold, high-contrast treatment, so
+         "70% health, frozen" never reads as "dead". Desaturating it alone left
+         a grey bar on a grey track, which is the same picture as empty. */
+      #bossbar.intermission #bb-fill { filter: none; opacity: 1;
+        background: linear-gradient(180deg, #dceaf6, #8fb6d4 55%, #5b86a8) !important; }
+      #bossbar.intermission #bb-fill::after { display: none; }
+      #bossbar.intermission #bb-ghost { background: rgba(150,190,220,0.35); }
+      #bossbar.intermission .bb-track::after { content: ""; position: absolute;
+        inset: 0; pointer-events: none; background: repeating-linear-gradient(115deg,
+          rgba(190,214,232,0.22) 0 5px, rgba(0,0,0,0) 5px 11px); }
+      #bossbar.intermission { border-color: #6f8ea8;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 0 26px rgba(90,140,180,0.4),
+          0 0 22px rgba(90,140,180,0.35); }
       /* Phase pips 1.5x (r3 minor): lit EMBER vs dark SOCKET must read from
          across the arena, not differ by a hint of tint. */
       #bossbar .bb-pips { display: flex; justify-content: center; gap: 12px; margin-top: 8px; }
@@ -3368,19 +3546,41 @@
         <span class="bb-name" id="bb-name"></span>
         <span class="bb-affix" id="bb-affix"></span>
       </div>
+      <!-- BOSSES V2 §5.3: what is different about THIS run. Mutators are the
+           reason a boss you have beaten is not the boss you beat. -->
+      <div class="bb-muts" id="bb-muts"></div>
+      <!-- V2 shield pool: absorb-HP rides ABOVE the health bar, so "burst the
+           shield inside the regen gap" is one glance, not two. -->
+      <div class="bb-shield" id="bb-shield"><i id="bb-shield-fill"></i><b id="bb-shield-tag"></b></div>
       <div class="bar">
         <span class="bb-track"><i id="bb-ghost"></i><i id="bb-fill"></i>
           <span class="bb-break" style="left: 66.67%"></span>
           <span class="bb-break" style="left: 33.33%"></span></span>
       </div>
+      <!-- V1 plates: one chip per weak point, school-tinted, struck through
+           when broken. The pip row below stays the PHASE machine. -->
+      <div class="bb-plates" id="bb-plates"></div>
       <div class="bb-pips" id="bb-pips"></div>
+      <!-- The live beat: whatever the boss is committing right now, named.
+           The punish window owns this line outright when it opens. -->
+      <div class="bb-beat" id="bb-beat"></div>
     </div>
+    <!-- BOSSES V2 — THE CALL-OUT. The punish window, the intermission and a
+         player-caused phase edge get their own layer OUTSIDE every panel, so
+         the beat that most needs to read is never printed under one. -->
+    <div id="bosscall"><b id="bc-word"></b><i id="bc-sub"></i></div>
     <div id="bossspot"></div>
     <div id="letterbox"><i class="lb-top"></i><i class="lb-bot"></i></div>
+    <!-- BOSSES V2 §5.3 — THE NAME CARD. Not a toast: a designed stone plate
+         carrying title, epithet, the fight's ASK, the mutators that make this
+         run's version different, and the System's one deadpan line. -->
     <div id="bossintro">
-      <div class="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
+      <div class="bi-kicker" id="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
       <div class="bi-name" id="bi-name"></div>
+      <div class="bi-epithet" id="bi-epithet"></div>
       <div class="bi-affix" id="bi-affix"></div>
+      <div class="bi-muts" id="bi-muts"></div>
+      <div class="bi-line" id="bi-line"></div>
     </div>
     <div id="show">
       <div class="chips">

@@ -55,6 +55,13 @@ const TEL_FRAG = /* glsl */ `
   uniform float uProg; // windup progress 0..1 (1 = strike lands)
   uniform float uTime;
   uniform float uBoss; // 0 trash, 1 elite/boss (heavier vocabulary)
+  // DEMOTION (BOSSES-V2 r3 minor). A boss fight draws TWO ground shapes at
+  // once: this shared disc, and the ASK silhouette that says which fight it
+  // is. The disc was winning — a dodge-the-lane capture led with a white ring
+  // and the lanes came second. When an ask silhouette is live the disc drops
+  // to a low-contrast BASE: the dark backing plate and the rim survive (they
+  // are the reach promise), the glow layers step aside.
+  uniform float uDemote;
   varying vec2 vUv;
   float telH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
   float telN(vec2 q) {
@@ -108,7 +115,8 @@ const TEL_FRAG = /* glsl */ `
     float innerA = uBoss * (rim2 * 0.5 + waves * smoothstep(0.55, 0.08, r) * 0.2 * uProg);
     // READABILITY FLOOR: a dark backing plate under the interior pins local
     // contrast so the glow layers read over bright floors and FX bloom.
-    float glowA = rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad;
+    float glowA = (rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad)
+                * mix(1.0, 0.3, uDemote);
     float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);
     float alpha = clamp(glowA + darkA, 0.0, 0.94);
     // HDR rim (audit r4): the edge runs 2-3x over white at commit so the ring
@@ -187,6 +195,7 @@ export function makeTelegraphMat(): THREE.ShaderMaterial {
       uProg: { value: 0 },
       uTime: { value: 0 },
       uBoss: { value: 0 },
+      uDemote: { value: 0 },
     },
     vertexShader: TEL_VERT,
     fragmentShader: TEL_FRAG,

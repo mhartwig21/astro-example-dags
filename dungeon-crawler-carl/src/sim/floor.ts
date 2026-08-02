@@ -1,5 +1,5 @@
 import { CONFIG } from "./config";
-import { Tile, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
+import { Tile, type ArenaVariant, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
 import { nextInt, type Rng } from "./rng";
 import { ROOM_TEMPLATES, validateTemplate } from "../content/rooms";
 import { dhypot } from "./dmath";
@@ -134,7 +134,16 @@ function lockStairsRoom(
  * >= LOCKED_FLOOR_MIN the stairs room is sealed behind locked doors (a key
  * carrier is assigned when monsters spawn; see game.ts).
  */
-export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" = "race"): FloorMap {
+export function generateFloor(
+  rng: Rng, floor: number, runKind: "race" | "roam" = "race",
+  // BOSSES V2 §4.3: the arena LAYOUT this floor drew (bosses.ts). Mapgen owns
+  // the only part of a variant that is genuinely geometry — how big the room
+  // is. What goes INSIDE it (destructible cover, chokepoint runs, interactive
+  // props) is stocked by game.ts out of the shipped `breakables` plumbing, so
+  // a new layout can never break a mapgen invariant. Absent = the shipped
+  // 19x19 square, which is exactly the OPEN variant minus its size bonus.
+  arenaVariant?: ArenaVariant,
+): FloorMap {
   const roam = runKind === "roam";
   const w = roam ? CONFIG.roamFloorGridW : CONFIG.floorGridW;
   const h = roam ? CONFIG.roamFloorGridH : CONFIG.floorGridH;
@@ -228,7 +237,10 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
     (floor >= CONFIG.finalFloor ||
       (floor >= CONFIG.bossFloorEvery && floor % CONFIG.bossFloorEvery === 0));
   if (bossFloor) {
-    const size = CONFIG.bossArenaSize;
+    // OPEN arenas are WIDER: with no cover to hide behind, lanes and storms
+    // need floor to be dodged across. PILLARED/SPLIT keep the shipped size —
+    // their content is what changes the movement problem.
+    const size = CONFIG.bossArenaSize + (arenaVariant === "open" ? CONFIG.arenaOpenSizeBonus : 0);
     const c = center(rooms[farthestIdx]);
     const arena: Room = {
       x: Math.max(1, Math.min(w - size - 1, c.x - Math.floor(size / 2))),

@@ -1,0 +1,14 @@
+[
+{"file":"src/sim/ai.ts",
+ "old":"  bossEvent, bossExposeCore, bossFissureFan, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossGreasePull,\n  bossLateFee, bossLattice, bossMotion, bossPunishVent, bossRootGrasp, bossShowSetChange,\n  bossSluice, bossStopWork,",
+ "new":"  bossEvent, bossExposeCore, bossFissureFan, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossGreasePull,\n  bossHedgeRegrow,\n  bossLateFee, bossLattice, bossMotion, bossPunishVent, bossRootGrasp, bossShowSetChange,\n  bossSluice, bossStopWork,"},
+{"file":"src/sim/ai.ts",
+ "old":"import type { BossId, GameState, Monster, Player, Vec2 } from \"./types\";",
+ "new":"import { bandSignatureLabel } from \"./bosses\";\nimport type { BossId, GameState, Monster, Player, Vec2 } from \"./types\";"},
+{"file":"src/sim/ai.ts",
+ "old":"  if (kind === \"pull\") {\n    bossGreasePull(state, m);\n    return;\n  }",
+ "new":"  if (kind === \"pull\") {\n    bossGreasePull(state, m);\n    return;\n  }\n  if (kind === \"regrow\") {\n    // The Topiary Warden re-walls its shield pool. Interrupted mid-channel\n    // (poise stagger, like every other channel) it never lands — which is the\n    // whole break-the-shield ask made into one decision.\n    bossHedgeRegrow(state, m);\n    return;\n  }"},
+{"file":"src/sim/ai.ts",
+ "old":"const BOSS_KITS: Partial<Record<BossId, BossKit>> = {",
+ "new":"/**\n * Every roster id must appear here. `bosses.test.ts` asserts it: the round-3\n * acceptance review found the Topiary Warden and the Furnace Marshal — a\n * headline break-the-shield and a headline burst-the-window — falling through\n * to the bare chassis with a band-generic beat line, and nothing in the build\n * said so. A missing kit is now a failing test, not a screenshot.\n */\nexport const BOSS_KITS: Record<BossId, BossKit> = {"}
+]

@@ -1,0 +1,17 @@
+[
+{"file":"src/sim/game.ts",
+ "old":"  bandForBossFloor, bossDef, bossMutatorInfo, drawBossEncounter, type BossDef,\n} from \"./bosses\";",
+ "new":"  bandForBossFloor, bandSignatureLabel, bossDef, bossMutatorInfo, drawBossEncounter,\n  type BossDef,\n} from \"./bosses\";"},
+{"file":"src/sim/game.ts",
+ "old":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId, label: \"FLOOD SURGE\",\n    value: CONFIG.floodPools, pos: { x: m.pos.x, y: m.pos.y },",
+ "new":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId,\n    // The HAZARD is shared; the NAME is identity (bandSignatureLabel). Three\n    // floor-9 bosses with three different asks were all reading ENTANGLING\n    // ROOTS, which is the readout saying they are the same fight.\n    label: bandSignatureLabel(\"flood\", m.bossId),\n    value: CONFIG.floodPools, pos: { x: m.pos.x, y: m.pos.y },"},
+{"file":"src/sim/game.ts",
+ "old":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId, label: \"ENTANGLING ROOTS\",\n    value: spots.length, pos: { x: m.pos.x, y: m.pos.y },",
+ "new":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId,\n    label: bandSignatureLabel(\"roots\", m.bossId),\n    value: spots.length, pos: { x: m.pos.x, y: m.pos.y },"},
+{"file":"src/sim/game.ts",
+ "old":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId, label: \"DEBRIS RAIN\",\n    value: CONFIG.debrisCount, pos: { x: m.pos.x, y: m.pos.y },",
+ "new":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId,\n    label: bandSignatureLabel(\"debris\", m.bossId),\n    value: CONFIG.debrisCount, pos: { x: m.pos.x, y: m.pos.y },"},
+{"file":"src/sim/game.ts",
+ "old":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId, label: \"FLAME SWEEP\",\n    value: CONFIG.flameRows, pos: { x: m.pos.x, y: m.pos.y },",
+ "new":"    kind: \"telegraph\", monsterId: m.id, bossId: m.bossId,\n    label: bandSignatureLabel(\"flamewall\", m.bossId),\n    value: CONFIG.flameRows, pos: { x: m.pos.x, y: m.pos.y },"}
+]

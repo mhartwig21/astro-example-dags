@@ -6,7 +6,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
-import { Tile, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
+import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { roomTemplateById } from "../content/rooms";
@@ -37,6 +37,8 @@ import {
   saveQualityChoice, urlQualityOverride, type QualityChoice, type QualityProfile,
 } from "./quality";
 import { FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+import { BossFx } from "./bossFx";
+import { ASK_PAL, bossFamily } from "./bossSignatures";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -256,6 +258,21 @@ interface CanopyEntry {
 // treatment at build time (see the smashables sync).
 const BREAKABLE_DAMAGED: Record<string, string> = {
   table_round_medium: "table_medium_broken",
+};
+
+// BOSSES V2 (capture round 2) — arena furniture keys are GAMEPLAY keys, not
+// asset keys: the sim writes "drain" / "vent" / "shutdown" / "barricade" /
+// "rubble" because that is what the mechanic is called. None of those exist in
+// the KayKit pool, so modelInstance returned null and the props rendered as
+// nothing at all — which is why a Sump King capture had "no floodgate, no
+// drain prop in frame" for a boss whose entire ask is the floodgates.
+const BREAKABLE_MODEL: Record<string, string> = {
+  drain: "floor_tile_grate_open", // FLOODGATE: a grate the level runs out of
+  vent: "fuel_a_barrels", // WALL VENT: pressure plant
+  shutdown: "anvil", // CONVEYOR control: heavy machinery
+  collapse: "pillar",
+  barricade: "crates_stacked",
+  rubble: "rubble_half",
 };
 
 const WINDUP_CLIP: Record<string, string> = {
@@ -1346,6 +1363,19 @@ export class Renderer3D {
   private ribbons = new TrailRibbons();
   private decals = new GroundDecals();
   private shocks = new Shockwaves();
+  // BOSSES V2 §5: the encounter's own stage manager — plates, shield shells,
+  // tether cords, punish beacons, per-boss signature beats, and the camera
+  // intent the fight is allowed to borrow. Everything it needs from the
+  // renderer arrives through this dependency bundle, so the boss layer never
+  // reaches into scene-graph internals.
+  readonly bossFx = new BossFx({
+    fxp: this.fxp,
+    shocks: this.shocks,
+    decals: this.decals,
+    light: (x, z, hex, peak, max, y) => this.spawnFxLight(x, z, hex, peak, max, y),
+    trauma: (a) => this.addTrauma(a),
+    bloom: (a) => { this.bloomKick = Math.min(1.4, this.bloomKick + a); },
+  });
   private dustTint = 0x3a332c; // floor-ambient dust color, set per floor build
   private bloomBase = -1;
   private bloomKick = 0;
@@ -1774,6 +1804,7 @@ export class Renderer3D {
     this.wl.uWlNoise.value = this.fogBank.noiseTexture;
     // Round-2 combat FX layers ride the scene root (world-space effects).
     this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group);
+    this.scene.add(this.bossFx.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
     // Post chain. HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
@@ -2885,7 +2916,28 @@ export class Renderer3D {
     this.aspect = w / h;
     // "close" view: a third more zoomed in — furnishing and character read
     // bigger; you see less of the floor at once.
-    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1);
+    this.lastProjHH = -1; // the aspect moved: force the rebuild
+    this.applyProjection();
+  }
+
+  /** Last half-height actually pushed to the camera (see applyProjection). */
+  private lastProjHH = -1;
+
+  /**
+   * The ortho frame. BOSSES V2 §5.5 lets the boss layer BORROW it — wider one
+   * step per phase transition (the arena is more dangerous, so show more of
+   * it), tighter on the intermission — and `bossFx.zoom` eases back to 1 the
+   * moment the beat is over. Re-applied every frame because the boss zoom is
+   * continuous, unlike the one-shot `viewClose` setting.
+   */
+  private applyProjection(): void {
+    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) * this.bossFx.zoom;
+    // The boss zoom eases continuously, so this is called every frame — but
+    // rebuilding the projection matrix (and dirtying the frustum) when nothing
+    // moved is pure waste, and the last perf round was won on exactly this
+    // kind of thing.
+    if (Math.abs(hh - this.lastProjHH) < 1e-4) return;
+    this.lastProjHH = hh;
     const hw = hh * this.aspect;
     this.camera.left = -hw; this.camera.right = hw;
     this.camera.top = hh; this.camera.bottom = -hh;
@@ -5879,6 +5931,26 @@ export class Renderer3D {
     return s;
   }
 
+  /**
+   * BOSSES V2 §7.4 — consume the sim's typed boss beats. The host buffers
+   * them across sub-steps (exactly like hits) and hands them over BEFORE
+   * update(), so a phase edge stages in the same frame it happened in.
+   */
+  bossEvents(events: BossEvent[]): void {
+    for (const e of events) this.bossFx.beat(e);
+  }
+
+  /** Seconds of hit-stop the boss layer wants this frame (§5.5/§5.7). */
+  get bossSlowmo(): number { return this.bossFx.slowmo; }
+
+  /** §5.7 — draw the ringside loot arc from the corpse to where a drop landed. */
+  /** Capture hold (tools/bossshot.mjs): keep live boss rigs up for `seconds`. */
+  holdBossBeats(seconds: number): void { this.bossFx.hold(seconds); }
+
+  bossLootArc(fromX: number, fromZ: number, toX: number, toZ: number, hex: number): void {
+    this.bossFx.lootArc(fromX, fromZ, toX, toZ, hex);
+  }
+
   update(state: GameState, time: number): void {
     this.setPoolI = 0;
     // Rebuild cached floor geometry on descent, on in-place tile mutations
@@ -6188,7 +6260,8 @@ export class Renderer3D {
       }
       if (!this.breakableMeshes.has(b.id)) {
         const swap = damaged ? BREAKABLE_DAMAGED[b.key] : undefined;
-        const obj = this.modelInstance(swap && this.models[swap] ? swap : b.key);
+        const asset = BREAKABLE_MODEL[b.key] ?? b.key;
+        const obj = this.modelInstance(swap && this.models[swap] ? swap : asset);
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
@@ -6227,6 +6300,12 @@ export class Renderer3D {
       }
       return false;
     };
+
+    // BOSSES V2 §5 — the encounter's persistent rigs (plates, shield shells,
+    // tether cords, punish beacons) reconcile here, one pass, sharing the
+    // same fog gate every other entity uses. Everything else about the boss
+    // layer is edge-triggered off state.bossEvents.
+    this.bossFx.update(state, dt, time, (m: Monster) => inVision(m.pos));
 
     // Roam settlement residents: id-keyed mesh pool over the full roster
     // (state.npcs; v1 snapshots only carried the singular state.npc).
@@ -6627,6 +6706,13 @@ export class Renderer3D {
           mon.windupKind === "vent" ? CONFIG.slagVentRadius :
           mon.windupKind === "hex" ? 0.6 :
           mon.windupKind === "morph" ? 0.9 :
+          // ---- BOSSES V2 windups. Each one covers what it will actually do,
+          // because a telegraph whose disc lies about its reach is worse than
+          // no telegraph at all.
+          mon.windupKind === "punish" ? CONFIG.bossSlamRadius * 0.8 :
+          mon.windupKind === "latefee" ? 3.2 :
+          mon.windupKind === "bloom" ? CONFIG.bloomRadius * 2.2 :
+          mon.windupKind === "pull" ? CONFIG.greasePullRange * 0.55 :
           mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
@@ -6641,12 +6727,23 @@ export class Renderer3D {
           mon.windupKind === "slam" ? 0xff2020 :
           mon.windupKind === "ritual" ? 0x8800ee :
           mon.windupKind === "hex" ? 0xa64ca6 :
-          mon.windupKind === "morph" ? 0xd8d0a8 : 0xff5030;
+          mon.windupKind === "morph" ? 0xd8d0a8 :
+          // ---- BOSSES V2: the tell wears the fight's ASK color (bossFx.ts),
+          // so a player who has learned "gold means unload" or "green means
+          // storm" reads the disc before they read the boss.
+          mon.windupKind === "punish" ? ASK_PAL.window.mid :
+          mon.windupKind === "latefee" ? ASK_PAL.window.mid :
+          mon.windupKind === "bloom" ? ASK_PAL.storm.mid :
+          mon.windupKind === "pull" ? ASK_PAL.arena.mid :
+          mon.kind === "boss" ? ASK_PAL[bossFamily(mon.bossId)].mid : 0xff5030;
         const tm = tel.userData.telMat as THREE.ShaderMaterial;
         (tm.uniforms.uColor.value as THREE.Color).setHex(telColor);
         tm.uniforms.uProg.value = prog;
         tm.uniforms.uTime.value = time + mon.id * 0.7; // desync neighboring tells
         tm.uniforms.uBoss.value = mon.kind === "boss" || mon.elite ? 1 : 0;
+        // The ASK silhouette outranks the shared disc while it is up (r3 minor).
+        tm.uniforms.uDemote.value =
+          mon.kind === "boss" && this.bossFx.silhouetteLive ? 1 : 0;
         tel.visible = mesh.visible;
         // CAST ANTICIPATION: motes gather INTO the body while the tell runs —
         // the caster visibly draws power before the strike fires.
@@ -6948,6 +7045,38 @@ export class Renderer3D {
         }
         continue;
       }
+      // SPORE PODS (BOSSES V2 §7.4 — the Pollinator's new Hazard.kind). Its
+      // own primitive, not a sludge recolor: petal seams that SPREAD and a
+      // core that swells as the pod arms, so "this is about to open and seed
+      // two more" reads from the silhouette without a timer. Pods that go off
+      // seed pods, so the arena saturates if the player ignores them — the
+      // read has to survive twenty of these on screen at once.
+      if (hz.kind === "spore") {
+        let pod = this.hazardRings.get(hz.id);
+        if (!pod) {
+          pod = new THREE.Mesh(TELEGRAPH_GEO, this.bossFx.sporeMat(hz.id));
+          pod.renderOrder = 5;
+          pod.userData.noAO = true;
+          pod.userData.spore = true;
+          this.scene.add(pod);
+          this.hazardRings.set(hz.id, pod);
+        }
+        const armT = hz.arm ?? 0;
+        const elapsed = hz.total - hz.t;
+        const sm = pod.material as THREE.ShaderMaterial;
+        sm.uniforms.uTime.value = time + (hz.id % 11) * 0.53;
+        sm.uniforms.uArm.value = armT > 0 ? Math.min(1, elapsed / armT) : 1;
+        sm.uniforms.uDry.value = 1 - Math.min(1, hz.t / Math.max(hz.total, 1e-3));
+        pod.position.set(hz.pos.x, 0.07, hz.pos.y);
+        pod.scale.setScalar(hz.radius);
+        pod.visible = inVision(hz.pos);
+        // Pollen drifts off a live pod: the garden is BREATHING, and the motes
+        // mark the ground the pod will claim when it opens.
+        if (pod.visible && Math.random() < dt * 5) {
+          this.fxp.embers(hz.pos.x, hz.pos.y, ASK_PAL.storm.core, 1, hz.radius * 0.9);
+        }
+        continue;
+      }
       // FAULT LINE / RIFT (V2 U1, R1): player-owned BROKEN GROUND. It reads
       // through the living-pool shader like every other lingering zone, but in
       // the owning ability's hue -- Fault Line magma, a Collapse rift void.
@@ -7068,7 +7197,11 @@ export class Renderer3D {
       }
     }
     for (const [id, ring] of this.hazardRings) {
-      if (!hazSeen.has(id)) { this.scene.remove(ring); this.hazardRings.delete(id); }
+      if (!hazSeen.has(id)) {
+        this.scene.remove(ring);
+        this.hazardRings.delete(id);
+        if (ring.userData.spore) this.bossFx.releaseSpore(id);
+      }
     }
     for (const [id, bomb] of this.hazardBombs) {
       if (!hazSeen.has(id)) { this.scene.remove(bomb); this.hazardBombs.delete(id); }
@@ -7477,14 +7610,56 @@ export class Renderer3D {
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
     const anchor = this.playerMeshes.get(p.id)?.position;
-    const ax = anchor ? anchor.x : p.pos.x;
-    const az = anchor ? anchor.z : p.pos.y;
+    let ax = anchor ? anchor.x : p.pos.x;
+    let az = anchor ? anchor.z : p.pos.y;
+    // BOSSES V2 §5.2/§5.3 — THE REVEAL. During the ringside beat the camera
+    // ORBITS: the anchor slides toward the boss and the fixed iso direction
+    // gains a yaw offset, so the introduction ends on a silhouette instead of
+    // a static three-quarter. It eases back to zero the moment the beat ends —
+    // §5.5's rule is that normal combat gets no camera work at all.
+    const orbit = this.bossFx.orbit;
+    // BOSSES V2 (capture round 2) — ENCOUNTER FRAMING. The health plate owns
+    // the top of the screen and the boss stands UP-SCREEN of the crawler, so
+    // every fight shot had the star of the fight behind its own UI panel. The
+    // fix is two camera moves the boss layer asks for and this applies, since
+    // this is where camDir lives:
+    //   1) slide the anchor part-way to the boss, so the PAIR is the subject
+    //   2) push the anchor along SCREEN-UP, which slides the whole framing
+    //      DOWN the screen and out from under the panel
+    // Both ease to zero the moment the fight ends.
+    const bias = this.bossFx.frameBias;
+    const drop = this.bossFx.frameDrop;
+    if (bias > 1e-3 || Math.abs(orbit) > 1e-3) {
+      const star = state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+      if (star) {
+        // The reveal's orbit bias and the fight's framing bias are the same
+        // move; take whichever is asking for more rather than stacking them.
+        const k = Math.max(bias, Math.min(1, Math.abs(orbit) / 0.55) * 0.45);
+        ax += (star.pos.x - ax) * k;
+        az += (star.pos.y - az) * k;
+      }
+    }
+    if (drop > 1e-3) {
+      // Screen-up, on the ground plane, is the reverse of the camera's own
+      // horizontal heading: move the anchor that way and everything else in
+      // the frame slides down.
+      const hx = d.x / Math.hypot(d.x, d.z);
+      const hz = d.z / Math.hypot(d.x, d.z);
+      ax -= hx * drop;
+      az -= hz * drop;
+    }
+    const cosO = Math.cos(orbit), sinO = Math.sin(orbit);
+    const dirX = (d.x * cosO - d.z * sinO) / len;
+    const dirZ = (d.x * sinO + d.z * cosO) / len;
     this.camera.position.set(
-      ax + (d.x / len) * dist + sx,
+      ax + dirX * dist + sx,
       (d.y / len) * dist,
-      az + (d.z / len) * dist + sz,
+      az + dirZ * dist + sz,
     );
     this.camera.lookAt(ax, 0, az);
+    // The boss layer's zoom is continuous, so the frame is re-derived every
+    // composed frame rather than only on resize.
+    this.applyProjection();
     // Shadow texel snap: quantize the key rig's anchor in shadow-plane
     // coordinates so the map samples the same texels while the camera glides —
     // kills the edge shimmer/crawl on every wall as the player moves.
@@ -8142,6 +8317,67 @@ export class Renderer3D {
     return this.w2sOut;
   }
 
+  // -------------------------------------------------------------------------
+  // THE MEASURED EXPOSURE GOVERNOR (BOSSES-V2 r3 blocker).
+  //
+  // §5.9 shipped a governor that added up a DECLARED cost per beat. It could
+  // not see the case that actually broke: the arena floor itself. The Topiary
+  // Warden on floor 9's bright forest was a solid white ellipse in its own
+  // reveal and an unreadable white sphere in combat, while the identical
+  // budget held fine on the dark brick arenas — because a budget of beats has
+  // no idea how bright the room already is.
+  //
+  // So it measures. After the composed frame, an 8x8 block of the FINAL,
+  // display-referred image around the boss's screen position is read back and
+  // reduced to a mean luma plus a saturated-pixel fraction. That is the actual
+  // thing the review asked about ("does the boss silhouette blow out"), it
+  // counts a bright floor automatically, and it costs one 64-pixel readback —
+  // only while a boss is on screen, and only every 4th frame.
+  // -------------------------------------------------------------------------
+  private lumBuf = new Uint8Array(8 * 8 * 4);
+  private lumTick = 0;
+
+  /**
+   * 0..1 — how hard the boss layer should pull its bloom kicks, light peaks
+   * and additive rig alphas back this frame. 1 = a dark arena with headroom to
+   * spare; ~0.25 = the neighbourhood is already at the top of the range.
+   * Consumed by BossFx (shaders + light peaks) and by the intro key light.
+   */
+  get bossExposureScale(): number { return this.bossFx.exposureScale; }
+
+  private measureBossExposure(): void {
+    const star = this.bossFx.starPos;
+    if (!star) { this.bossFx.setMeasuredLuma(0, 0); return; }
+    if ((this.lumTick = (this.lumTick + 1) & 3) !== 0) return;
+    const sp = this.worldToScreen(star.x, 1.6, star.y);
+    if (!sp.visible) return;
+    const gl = this.renderer.getContext();
+    const size = this.renderer.getSize(this.w2sSize);
+    const ratio = this.renderer.getPixelRatio();
+    // GL's origin is bottom-left; worldToScreen hands back CSS pixels top-left.
+    const px = Math.round(sp.x * ratio) - 4;
+    const py = Math.round((size.y - sp.y) * ratio) - 4;
+    const w = Math.round(size.x * ratio), h = Math.round(size.y * ratio);
+    if (px < 0 || py < 0 || px + 8 > w || py + 8 > h) return;
+    // Reading the DEFAULT framebuffer, in the same task as the draw that filled
+    // it — valid without preserveDrawingBuffer, and it is the presented image,
+    // so tone mapping, bloom and the grade are all already in the numbers.
+    try {
+      this.renderer.setRenderTarget(null);
+      gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, this.lumBuf);
+    } catch {
+      return; // a context loss mid-frame is not worth a crash over a governor
+    }
+    let sum = 0, hot = 0;
+    for (let i = 0; i < 64; i++) {
+      const r = this.lumBuf[i * 4], g2 = this.lumBuf[i * 4 + 1], b = this.lumBuf[i * 4 + 2];
+      const l = (r * 0.2126 + g2 * 0.7152 + b * 0.0722) / 255;
+      sum += l;
+      if (l > 0.93) hot++;
+    }
+    this.bossFx.setMeasuredLuma(sum / 64, hot / 64);
+  }
+
   render(): void {
     // shadowMap.autoUpdate is off (constructor): arm exactly one rebuild for
     // this composed frame. three.js clears needsUpdate itself after the first
@@ -8161,6 +8397,7 @@ export class Renderer3D {
     }
     this.composer.render();
     if (this.progGuard) this.checkProgramGuard();
+    this.measureBossExposure();
 
     // AUTO-DETECT feed. Frame time is measured between composed frames, which
     // is what the player actually experiences (sim + render + present), not

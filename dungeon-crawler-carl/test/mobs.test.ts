@@ -2,9 +2,24 @@ import { describe, expect, it } from "vitest";
 import { applyPlayerKnockback, createGame, createTestGame, damageMonster, damagePlayerHit, step } from "../src/sim/game";
 import { CONFIG } from "../src/sim/config";
 import { dist } from "../src/sim/combat";
-import type { GameState, Intent, Monster, Vec2 } from "../src/sim/types";
+import type { BossId, GameState, Intent, Monster, Vec2 } from "../src/sim/types";
+import { bandForBossFloor, pickBandBoss, rollBossMutators } from "../src/sim/bosses";
 
 const DT = 1 / 60;
+
+/** BOSSES V2: a band's boss is DRAWN, so tests that need a SPECIFIC one hunt
+ *  a seed whose (pure, cheap) draw produces it — and skip RETROFIT draws,
+ *  which deliberately swap the signature out from under it. */
+function seedForBoss(id: BossId, floor: number): number {
+  const band = bandForBossFloor(floor);
+  for (let seed = 1; seed < 50_000; seed++) {
+    const def = pickBandBoss(seed, band);
+    if (def.id !== id) continue;
+    if (rollBossMutators(seed, floor, def).includes("retrofit")) continue;
+    return seed;
+  }
+  throw new Error(`no seed draws ${id} on floor ${floor}`);
+}
 
 function idle(): Intent {
   return { move: { x: 0, y: 0 }, attack: false, useStairs: false };
@@ -900,31 +915,45 @@ describe("the pack playbook", () => {
 });
 
 describe("boss layers", () => {
-  it("layer 2: the finale gains borrowed signatures at phase edges (the greatest-hits reel)", () => {
-    const g = createTestGame({ seed: 7, floor: 18, level: 18 });
+  it("layer 2: THE SHOWRUNNER re-dresses the set at every phase (the greatest-hits reel, earned)", () => {
+    // BOSSES V2: the finale's greatest-hits reel stopped being a hardcoded
+    // `if (floor >= finalFloor)` and became one boss's KIT — The Showrunner,
+    // whose whole ask is "the counterplay is whatever that band taught you".
+    const seed = seedForBoss("showrunner", CONFIG.finalFloor);
+    const g = createTestGame({ seed, floor: CONFIG.finalFloor, level: 18 });
     const boss = g.monsters.find((m) => m.kind === "boss")!;
+    expect(boss.bossId).toBe("showrunner");
     g.monsters = [boss];
     boss.introduced = true;
     g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
     boss.bossTier = undefined; // no ritual windup swallowing the brain steps
-    expect(boss.signature).toBeUndefined(); // clean kit at full HP
-    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    const sets: (string | undefined)[] = [];
     run(g, 0.1);
-    expect(boss.signature).toBe("debris"); // the Architect's set
-    boss.hp = Math.floor(boss.maxHp * 0.2); // phase 2
-    boss.windup = 0; // clear any committed swing so the brain runs
-    boss.windupKind = undefined;
-    run(g, 0.1);
-    expect(boss.signature).toBe("flamewall"); // the Marshal's encore
+    sets.push(boss.signature); // the opening set
+    for (const frac of [0.5, 0.2, 0.05]) {
+      boss.hp = Math.max(1, Math.floor(boss.maxHp * frac));
+      boss.invulnT = 0; // skip the intermission; it has its own coverage
+      boss.windup = 0;
+      boss.windupKind = undefined;
+      run(g, 0.1);
+      boss.invulnT = 0;
+      run(g, 0.1);
+      sets.push(boss.signature);
+    }
+    // Every phase is a DIFFERENT band's set — that is the whole encounter.
+    expect(new Set(sets).size).toBeGreaterThanOrEqual(3);
+    expect(sets.every((s) => CONFIG.showrunnerSets.includes(s as never))).toBe(true);
   });
 
   it("layer 2: band bosses alternate own/borrowed signatures from phase 1", () => {
-    const g = createTestGame({ seed: 7, floor: 15, level: 16 });
+    // Pinned to the Furnace Marshal: with the V2 pool, floor 15 draws one of
+    // three, and only the ones that CARRY a band signature can alternate.
+    const g = createTestGame({ seed: seedForBoss("marshal", 15), floor: 15, level: 16 });
     const boss = g.monsters.find((m) => m.kind === "boss")!;
     g.monsters = [boss];
     boss.introduced = true;
     g.players[0].pos = { x: boss.pos.x + 5, y: boss.pos.y };
-    boss.hp = Math.floor(boss.maxHp * 0.5); // phase 1
+    boss.phase = 1; // straight to phase 1 (an HP gate would open an intermission)
     const alts: boolean[] = [];
     for (let i = 0; i < 3; i++) {
       boss.sigCd = 0;

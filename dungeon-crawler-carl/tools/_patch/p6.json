@@ -1,0 +1,17 @@
+[
+{"file":"iso.html",
+ "old":"      #bossintro.show { display: block;\n        animation: bi-in 0.45s ease-out, bi-out 0.5s ease 3s forwards; }",
+ "new":"      /* THE CARD'S LIFETIME IS THE SIM'S, NOT THE WALL CLOCK'S (r3 blocker).\n         The card used to self-fade on `bi-out ... 3s forwards`, i.e. on REAL\n         time, while the ringside freeze it belongs to runs on the sim's own\n         encounter timer. Any client slower than the animation — a stall, a\n         long GC, a SwiftShader capture — lost the marquee beat of the whole\n         encounter while the freeze was still running underneath it. Now the\n         host drives --bi-fade off `encounter.timeLeft`, so the card is up for\n         exactly as long as the beat is, on any machine. */\n      #bossintro.show { display: block; opacity: var(--bi-fade, 1);\n        animation: bi-in 0.45s ease-out; }"},
+{"file":"iso.html",
+ "old":"      @keyframes bi-out { to { opacity: 0; } }\n",
+ "new":""},
+{"file":"iso.html",
+ "old":"        animation: lb-top-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }",
+ "new":"        opacity: var(--bi-fade, 1); animation: lb-top-in 0.4s ease-out both; }"},
+{"file":"iso.html",
+ "old":"        animation: lb-bot-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }",
+ "new":"        opacity: var(--bi-fade, 1); animation: lb-bot-in 0.4s ease-out both; }"},
+{"file":"iso.html",
+ "old":"      #bossspot.on { display: block;\n        animation: spot-in 0.5s ease-out both, bi-out 0.5s ease 3s forwards; }\n      @keyframes spot-in { from { opacity: 0; transform: scale(0.8); } }",
+ "new":"      #bossspot.on { display: block; opacity: var(--bi-fade, 1);\n        animation: spot-in 0.5s ease-out; }\n      @keyframes spot-in {\n        from { opacity: 0; transform: scale(0.8); }\n        to { transform: scale(1); }\n      }"}
+]

@@ -54,7 +54,7 @@ import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntent
 //         full=true carries map + fog (join/floor change/doors unlocking);
 //         otherwise DYNAMIC — no map/fog, the client keeps its cached world
 //         and reveals fog locally (see snapshot.ts). Halves the payload.
-//     { t: "events", events, announcements, hits }     this tick's transients
+//     { t: "events", events, announcements, hits, bossEvents }  this tick's transients
 
 export const TICK_HZ = 30;
 export const SNAPSHOT_EVERY = 2; // full snapshot every N ticks (15/s)
@@ -1041,8 +1041,8 @@ export class GameServer {
     }
 
     const s = inst.state;
-    if (s.events.length || s.announcements.length || s.hits.length) {
-      this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
+    if (s.events.length || s.announcements.length || s.hits.length || (s.bossEvents?.length ?? 0) > 0) {
+      this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits, bossEvents: s.bossEvents });
     }
     if (inst.tick % SNAPSHOT_EVERY === 0) {
       // FULL (map + fog) only when the client's world identity changes —
@@ -1084,11 +1084,12 @@ export class GameServer {
    *  clear the channels — the next step() would silently wipe them. */
   private flushTransients(inst: Instance): void {
     const s = inst.state;
-    if (s.events.length || s.announcements.length || s.hits.length) {
-      this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits });
+    if (s.events.length || s.announcements.length || s.hits.length || (s.bossEvents?.length ?? 0) > 0) {
+      this.broadcast(inst, { t: "events", events: s.events, announcements: s.announcements, hits: s.hits, bossEvents: s.bossEvents });
       s.events = [];
       s.announcements = [];
       s.hits = [];
+      s.bossEvents = [];
     }
   }
 

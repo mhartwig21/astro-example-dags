@@ -1,0 +1,21 @@
+[
+{"file":"src/main3d.ts",
+ "old":"        postBossCall(\"UNLOAD\", e.label ?? \"EXPOSED CORE\", e.duration ?? 2.2);",
+ "new":"        postBossCall(\"UNLOAD\", e.label ?? \"EXPOSED CORE\", e.duration ?? 2.2, false, \"punish\");",
+ "count":1},
+{"file":"src/main3d.ts",
+ "old":"        postBossCall(\"THE COMMERCIAL BREAK\", \"THE BOARD IS BEING RE-DEALT\",\n          e.duration ?? 2, true);",
+ "new":"        postBossCall(\"THE COMMERCIAL BREAK\", \"THE BOARD IS BEING RE-DEALT\",\n          e.duration ?? 2, true, \"intermission\");"},
+{"file":"src/main3d.ts",
+ "old":"        if (e.label === \"DEFEATED\") {\n          postBossCall(\"DEFEATED\", \"THE SEAL OPENS\", 2.5);\n          postBossBeat(\"DEFEATED\", 2.5, true);\n        } else if (e.reason === \"mechanic\") {\n          postBossCall(\"YOU DID THAT\", `PHASE ${(e.phase ?? 0) + 1}`, 1.8);\n          postBossBeat(\"YOU DID THAT\", 1.8, true);",
+ "new":"        if (e.label === \"DEFEATED\") {\n          postBossCall(\"DEFEATED\", \"THE SEAL OPENS\", 2.5, false, \"defeat\");\n          postBossBeat(\"DEFEATED\", 2.5, true);\n          // THE KILL BEAT owns the frame (r3 blocker): for its duration the\n          // floating damage numbers stand down, so the last image of the fight\n          // is the corpse, the sweeps and the loot — not eight numerals, several\n          // of them reading \"0!\", stacked over the body.\n          killBeatUntil = hudNow + 2600;\n        } else if (e.reason === \"mechanic\") {\n          postBossCall(\"YOU DID THAT\", `PHASE ${(e.phase ?? 0) + 1}`, 1.8, false, \"phase\");\n          postBossBeat(\"YOU DID THAT\", 1.8, true);"},
+{"file":"src/main3d.ts",
+ "old":"let payoffAt: { x: number; y: number; until: number } | null = null;\nconst payoffSeen = new Set<number>();",
+ "new":"let payoffAt: { x: number; y: number; until: number } | null = null;\nconst payoffSeen = new Set<number>();\n/**\n * While this is in the future the kill beat owns the frame: combat numerals are\n * suppressed so the corpse, the twin sweeps and the ringside arcs are the whole\n * image (r3 blocker — the kill captures were a pile of numerals over an empty\n * floor, with no visible loot at all).\n */\nlet killBeatUntil = 0;"},
+{"file":"src/main3d.ts",
+ "old":"function stageBossPayoff(s: GameState, events: BossEvent[]): void {\n  for (const e of events) {\n    if (e.kind === \"phase\" && e.label === \"DEFEATED\" && e.pos) {\n      payoffAt = { x: e.pos.x, y: e.pos.y, until: performance.now() + 2600 };\n      payoffSeen.clear();\n    }\n  }\n  if (!payoffAt) return;\n  if (performance.now() > payoffAt.until) { payoffAt = null; return; }",
+ "new":"function stageBossPayoff(s: GameState, events: BossEvent[]): void {\n  for (const e of events) {\n    if (e.kind === \"phase\" && e.label === \"DEFEATED\" && e.pos) {\n      // On the FRAME CLOCK, like every other boss beat. On the wall clock the\n      // window could expire before a slow client had even presented the frame\n      // the boss died on, which is why the capture round found real drops in\n      // the log (54, 27, 25 items) and not one arc on screen.\n      payoffAt = { x: e.pos.x, y: e.pos.y, until: hudNow + 3200 };\n      payoffSeen.clear();\n    }\n  }\n  if (!payoffAt) return;\n  if (hudNow > payoffAt.until) { payoffAt = null; return; }"},
+{"file":"src/main3d.ts",
+ "old":"    if (frameBoss.length > 0) {\n      renderer.bossEvents(frameBoss);\n      applyBossEvents(frameBoss);\n      stageBossPayoff(state, frameBoss);\n    }",
+ "new":"    if (frameBoss.length > 0) {\n      renderer.bossEvents(frameBoss);\n      applyBossEvents(frameBoss);\n    }\n    // EVERY frame, not only the ones carrying a beat (r3 blocker). The DEFEATED\n    // record arrives on the frame the boss dies; the drops it pays out land on\n    // LATER frames, and those frames carry no boss events at all — so gating\n    // this call on `frameBoss.length` meant the arcs were staged for exactly\n    // the loot that already existed, i.e. none of it.\n    stageBossPayoff(state, frameBoss);"}
+]

@@ -1,5 +1,9 @@
 import { CONFIG } from "../sim/config";
-import type { Announcement, GameState, HitEvent, HitKind, StatusKind } from "../sim/types";
+// The signature TABLE only (bossSignatures.ts imports nothing but types) —
+// the audio director must not drag three.js into the 2D host's bundle to
+// find out how a boss's tell is pitched.
+import { signatureFor } from "../render3d/bossSignatures";
+import type { Announcement, BossEvent, GameState, HitEvent, HitKind, StatusKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
 
@@ -42,6 +46,29 @@ const PACK_RADIUS = CONFIG.monsterAggroRange;
 const PACK_SIZE = 3;
 const BATTLE_LINGER = 6; // seconds of quiet before battle music stands down
 const BOSS_EARSHOT = 26; // a living boss within this range owns the soundtrack
+// BOSSES V2 §5.1 — THE APPROACH. A boss that exists but has not been
+// introduced yet, this close, means the party is in the corridor. The bed
+// ducks to a drone and stays there until the ringside reveal.
+const APPROACH_RANGE = 34;
+const APPROACH_DUCK = 0.22;
+
+/**
+ * BOSSES V2 §5.4 — the boss beat sound map. Semantic reuse of shipped clips,
+ * because the game has no boss-specific audio and inventing files is not this
+ * round's job. What makes them read as DIFFERENT beats is the pairing plus
+ * the per-boss playback rate on the telegraph.
+ */
+const BEAT_SOUNDS: Record<BossEvent["kind"], SoundId | null> = {
+  intro: "boss_intro",
+  phase: "band_sting", // the phase-transition stinger §5.4 asked for
+  intermission: "sponsor", // THE COMMERCIAL BREAK, and the clip is literally a jingle
+  punish: "crit", // the unload window: the fattest impact clip we own
+  plate: "item", // armour coming off, metal on stone
+  shieldbreak: "door_unlock", // a lock giving way
+  enrage: "warning",
+  prop: "door_unlock",
+  telegraph: "tell", // pitched per boss — see signatureFor()
+};
 
 /** The final floor gets the colossal theme; city-boss arenas rotate the rest. */
 function bossTrack(floor: number): SoundId {
@@ -81,11 +108,19 @@ export class AudioDirector {
   // Loot drops already chimed (worthy drops ring once; cleared on descent).
   private chimed = new Set<number>();
   private battleUntil = 0; // state.elapsed until which the battle bed persists
+  private ducked = false; // §5.1: the approach duck is riding
 
   constructor(private sink: AudioSink) {}
 
-  /** Call once per render frame with the frame's buffered feedback. */
-  frame(state: GameState, hits: HitEvent[], announcements: Announcement[], localId: number): void {
+  /**
+   * Call once per render frame with the frame's buffered feedback.
+   * `bossEvents` is the BOSSES-V2 §7.4 channel, buffered by the host across
+   * sub-steps exactly like hits and announcements.
+   */
+  frame(
+    state: GameState, hits: HitEvent[], announcements: Announcement[], localId: number,
+    bossEvents: BossEvent[] = [],
+  ): void {
     const p = state.players.find((pl) => pl.id === localId) ?? state.players[0];
     if (!p) return;
 
@@ -141,6 +176,38 @@ export class AudioDirector {
       });
     }
     this.pinged = pinged;
+
+    // BOSSES V2 §5.4 — the boss beats. Each one is a single, unmissable cue,
+    // positioned like combat hits so an off-screen telegraph is still audible
+    // (the 0.2s rule is easier to hit with sound than with pixels, which is
+    // exactly why every named signature gets its own pitch).
+    for (const be of bossEvents) {
+      const id = BEAT_SOUNDS[be.kind];
+      if (!id) continue;
+      const bx = be.pos?.x ?? p.pos.x, by = be.pos?.y ?? p.pos.y;
+      const dx = bx - p.pos.x, dy = by - p.pos.y;
+      const d = Math.hypot(dx, dy);
+      if (d > EARSHOT * 1.6) continue;
+      const opts = {
+        gain: 1 / (1 + d / 14),
+        pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+        force: true, // one cue per sim beat; the caller IS the rate limit
+        rate: be.kind === "telegraph" ? signatureFor(be.label, be.bossId).rate : 1,
+      };
+      this.sink.play(id, opts);
+      // Crowd swell on the beats the crowd would actually react to: the
+      // reveal's downbeat, a phase the PLAYER caused, and the punish window.
+      if (
+        be.kind === "intro" ||
+        be.kind === "punish" ||
+        (be.kind === "phase" && be.reason === "mechanic")
+      ) this.sink.play("crowd");
+      // The kill: the sim marks it as a phase edge labelled DEFEATED.
+      if (be.kind === "phase" && be.label === "DEFEATED") {
+        this.sink.play("kill", { gain: 1, force: true });
+        this.sink.play("crowd");
+      }
+    }
 
     // A multi-kill this step: the crowd loves it. (Throttled in the engine.)
     if (state.killsThisStep >= 3) this.sink.play("crowd");
@@ -232,20 +299,38 @@ export class AudioDirector {
     // A living boss nearby owns the soundtrack outright.
     let pack = 0;
     let bossNear = false;
+    let approaching = false; // §5.1: a boss we have not been introduced to yet
+    let finalPhase = false; // §5.4: the low-HP layer
     for (const m of state.monsters) {
       if (m.hp <= 0) continue;
       const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
-      if (m.kind === "boss" && d <= BOSS_EARSHOT) bossNear = true;
+      if (m.kind === "boss") {
+        if (d <= BOSS_EARSHOT) bossNear = true;
+        if (!m.introduced && d <= APPROACH_RANGE) approaching = true;
+        if (m.introduced && (m.phase ?? 0) >= (m.maxPhase ?? 2)) finalPhase = true;
+      }
       if (d <= PACK_RADIUS) pack++;
     }
     if (combat || pack >= PACK_SIZE) this.battleUntil = state.elapsed + BATTLE_LINGER;
+
+    // §5.1 — THE APPROACH. Ambient ducks to a single drone in the corridor
+    // into an arena, and comes back up the instant the reveal fires. This is
+    // the run's last quiet moment, and quiet is the whole point of it.
+    const wantDuck = approaching && !bossNear && state.encounter === null;
+    if (wantDuck !== this.ducked) {
+      this.ducked = wantDuck;
+      this.sink.duck?.(wantDuck ? APPROACH_DUCK : 1);
+    }
 
     // Music bed follows the run's mood; the engine crossfades on change and
     // no-ops when the requested track isn't present.
     this.sink.music(
       cur.status !== "playing" ? null
       : cur.inSafeRoom ? "music_safe"
-      : bossNear ? bossTrack(state.floor)
+      // §5.4 — the LOW-HP LAYER: on the final phase every boss escalates to
+      // the colossal bed, whatever floor it is on. The finale's theme stops
+      // being the finale's and starts meaning "this one is nearly over".
+      : bossNear ? (finalPhase ? "music_boss_colossal" : bossTrack(state.floor))
       : cur.phase === "collapse" ? "music_collapse"
       : state.elapsed < this.battleUntil ? BATTLE_TRACKS[state.floor % BATTLE_TRACKS.length]
       : "music_dungeon",
