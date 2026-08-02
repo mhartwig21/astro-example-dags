@@ -33,11 +33,21 @@ import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
+import { TouchShell } from "./input/touchShell";
+import { HudLayout, parseSafeOverride } from "./ui/hudLayout";
+import {
+  Segmented, attachPanel, hideSheet, showSheet, sheetOpen as mathSheetOpen,
+} from "./ui/panelTouch";
+import { Haptics } from "./input/haptics";
+import { pickTarget, tapTarget } from "./input/targeting";
+import { aimSpecFor, castRange, type AimShape } from "./input/aimSpec";
+import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
   ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
-  loadTouch, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
-  type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref,
+  loadTouch, loadTouchPrefs, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
+  saveTouchPrefs,
+  type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref, type TouchPrefs,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
@@ -81,6 +91,12 @@ const isPhone = lookParams.has("phone")
   : (window.matchMedia?.("(pointer: coarse)").matches ?? false) &&
     Math.min(screen.width, screen.height) < 500;
 if (isPhone) document.body.classList.add("phone");
+// HEADLESS VERIFICATION HOOKS (MOBILE.md 4.1 / 4.3). Chromium reports env()
+// as 0 under device emulation, so ?safe=t,r,b,l seeds the four --sa-* values
+// the whole HUD derives from — which is how the battery can assert "given the
+// browser reports inset N, does every HUD rect clear N". ?uiclass= forces a
+// device class. Neither does anything unless the URL asks.
+HudLayout.applySafeOverride(parseSafeOverride(lookParams.get("safe")));
 // A small screen defaults to the CLOSE framing (readability) — an explicit
 // saved choice or ?view= override still wins.
 let camView: CamView = lookParams.get("view") === "close"
@@ -407,23 +423,75 @@ function touchWanted(): boolean {
   return touchPref === "on" || (touchPref === "auto" && coarsePointer);
 }
 let touchMode = touchWanted();
+const touchPrefs: TouchPrefs = loadTouchPrefs();
 const touch = new TouchController();
-const tStickEl = document.getElementById("t-stick")!;
+const haptics = new Haptics();
+haptics.level = touchPrefs.haptics;
 const tStairsEl = document.getElementById("t-stairs")!;
-touch.bind(document.getElementById("t-stickzone")!, document.getElementById("skills")!, tStairsEl);
-touch.onStick = (origin, nub) => {
-  if (!origin) { tStickEl.style.display = "none"; return; }
-  tStickEl.style.display = "block";
-  tStickEl.style.left = `${origin.x}px`;
-  tStickEl.style.top = `${origin.y}px`;
-  (tStickEl.firstElementChild as HTMLElement).style.transform = `translate(${nub.x}px, ${nub.y}px)`;
+// ONE router, bound at the document in the capture phase: the world zone owns
+// no element, so a per-element binding could never see a tap on the dungeon
+// floor. Mouse events are never claimed, so desktop play is untouched.
+touch.bind(document, document.body);
+touch.castModes = [...touchPrefs.castMode];
+touch.flickDash = touchPrefs.flickDash;
+touch.twoFingerDash = touchPrefs.twoFingerDash;
+touch.stick.recenter = touchPrefs.stickRecenter;
+// A chip on cooldown REFUSES at pointerdown (buzz + shake) instead of running
+// the whole gesture and silently doing nothing.
+touch.canCast = (slot) => {
+  const p = me(state);
+  if (slot === 0) return true; // the basic attack chip is hold-to-repeat
+  const ab = slot < ABILITY_SLOTS ? p.abilities.slots[slot] : p.abilities.ultimate;
+  if (!ab) return false;
+  if (ab === "dash") return p.dashCharges > 0;
+  return (p.cd[ab] ?? 0) <= 0;
 };
+// Transient System cards park inside the movement thumb arc on a phone. A
+// gameplay press dismisses them rather than being eaten by one.
+touch.onGameplayInput = () => {
+  const card = document.getElementById("tutorial");
+  if (card && card.style.display !== "none" && card.childElementCount > 0) {
+    (card.querySelector(".tut-dismiss") as HTMLElement | null)?.click();
+  }
+};
+// THE HUD'S HALF OF THE ZONE TABLE. The cluster, the map chip and the XP rail
+// are placed from the SAME table the touch zones come from, so the paint and
+// the hit-testing cannot disagree (src/ui/hudLayout.ts).
+const hud = new HudLayout({
+  opacity: touchPrefs.opacity,
+  onMap: () => toggleMinimapExpand(),
+});
+const touchShell = new TouchShell({
+  controller: touch, haptics, prefs: touchPrefs, opacity: touchPrefs.opacity,
+  onLayout: (z) => {
+    hud.apply(z, touchPrefs.opacity);
+    const forced = lookParams.get("uiclass");
+    if (forced) document.body.dataset.uiclass = forced;
+  },
+});
 function applyTouchMode(): void {
   touchMode = touchWanted();
   document.body.classList.toggle("touch", touchMode);
+  document.documentElement.style.setProperty("--hud-pad", `${touchPrefs.hudInset}px`);
+  document.body.classList.toggle("handed-left", touchPrefs.handed === "left");
   touch.setEnabled(touchMode); // OFF must not queue casts (touch-screen laptops)
+  if (touchMode) touchShell.relayout();
 }
 applyTouchMode();
+/** Re-read every touch pref into the live layer (called by the K panel). */
+function applyTouchPrefs(): void {
+  saveTouchPrefs(touchPrefs);
+  haptics.level = touchPrefs.haptics;
+  touch.castModes = [...touchPrefs.castMode];
+  touch.flickDash = touchPrefs.flickDash;
+  touch.twoFingerDash = touchPrefs.twoFingerDash;
+  touch.stick.recenter = touchPrefs.stickRecenter;
+  stickyLock = touchPrefs.stickyLock;
+  touchShell.setPrefs(touchPrefs, touchPrefs.opacity);
+  hud.setOpacity(touchPrefs.opacity);
+  document.documentElement.style.setProperty("--hud-pad", `${touchPrefs.hudInset}px`);
+  document.body.classList.toggle("handed-left", touchPrefs.handed === "left");
+}
 // Bare-canvas touches must NOT become compatibility mouse events: the browser
 // would synthesize mousedown (the LMB = slot-1 alias — a phantom attack) and
 // mousemove (pinning stale mouse aim + flipping device arbitration to "mouse").
@@ -1272,20 +1340,11 @@ const fxLayer = document.getElementById("fx")!;
 const toastLayer = document.getElementById("toasts")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
-// Touch: tapping the minimap drops a party ping there (inverse of the
-// drawMinimap transform: pad 6, uniform tile scale).
-minimap.addEventListener("pointerdown", (e) => {
-  if (!touchMode) return;
-  const r = minimap.getBoundingClientRect();
-  if (r.width === 0 || r.height === 0 || mmView.s <= 0) return;
-  const cx = (e.clientX - r.left) * (minimap.width / r.width);
-  const cy = (e.clientY - r.top) * (minimap.height / r.height);
-  touchEdges.ping = {
-    x: Math.max(0, Math.min(state.map.w - 1, (cx - mmView.ox) / mmView.s)),
-    y: Math.max(0, Math.min(state.map.h - 1, (cy - mmView.oy) / mmView.s)),
-  };
-  e.preventDefault();
-});
+// The minimap USED to eat the movement thumb: it sits inside the left stick
+// zone on a phone, and a stick gesture there dropped a party ping instead of
+// walking (measured: 0.05 tiles of movement, pings 0 -> 1, every device). The
+// ping moved to a world-zone long press, and the touch router now claims the
+// minimap rectangle for the stick. Mouse play never had this binding.
 
 // ---- The Show: audience bar + sponsor draft ----
 const statViewers = document.getElementById("stat-viewers")!;
@@ -1347,6 +1406,10 @@ function hideOverlay(el: HTMLElement): void {
     const open = modalEls.some((el) =>
       el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
     document.body.classList.toggle("modal", open);
+    // THE MODAL GATE. A panel opening refunds every live gameplay gesture and
+    // marks its pointers dead, so a drag that was mid-aim cannot resolve as a
+    // cast that detonates the instant the panel closes (measured: it did).
+    touch.setModalOpen(open, performance.now());
   };
   const modalObserver = new MutationObserver(syncModal);
   for (const el of modalEls) {
@@ -2090,8 +2153,27 @@ function renderInventory(s: GameState): void {
     : `<div class="item empty rar-common">Bag is empty</div>`;
 }
 
+/**
+ * EQUIPPED and BAG stayed side by side at 301px each even on a 750px phone,
+ * with 32px item rows and 160px of hidden scroll (MOBILE.md 1.3). Same fix as
+ * the shop: full-size panes, one at a time, gated to the phone classes.
+ */
+let invSeg: Segmented | null = null;
+function ensureInvSegments(): void {
+  if (invSeg) return;
+  const cols = invEl.querySelector(".cols") as HTMLElement | null;
+  const panes = cols ? Array.from(cols.children) as HTMLElement[] : [];
+  if (!cols || panes.length < 2) return;
+  invSeg = new Segmented([
+    { id: "eq", label: "EQUIPPED", pane: panes[0] },
+    { id: "bag", label: "BAG", pane: panes[1] },
+  ]);
+  cols.parentElement?.insertBefore(invSeg.el, cols);
+}
+
 function toggleInventory(): void {
   invOpen = !invOpen;
+  ensureInvSegments();
   if (invOpen) { renderInventory(state); showOverlay(invEl); }
   else hideOverlay(invEl);
 }
@@ -2292,7 +2374,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
     mods = `<div class="amods"><span class="amodtext dim">benched — glyphs live on the SLOT, so this inherits whatever it lands in</span></div>`;
   }
   return (
-    `<div class="acard${info.tier === "ultimate" ? " ult" : ""}">` +
+    `<div class="acard${info.tier === "ultimate" ? " ult" : ""}" data-ab="${id}">` +
     `<div class="ahead">` +
     `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
     `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
@@ -2448,6 +2530,12 @@ function handleGlyphClick(e: Event): boolean {
     const id = chip.dataset.glyph as GlyphId;
     heldGlyph = heldGlyph === id ? null : id;
     renderSafeRoom(state);
+    // Picking a glyph up lights every socket that can take it — and on a phone
+    // the bench you just tapped is BELOW those sockets, so the whole point of
+    // the pending state is off screen at the moment it turns on. Follow it.
+    if (heldGlyph && document.body.classList.contains("touch")) {
+      srLoadout.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
     return true;
   }
   const sock = el.closest(".sock.live") as HTMLElement | null;
@@ -2508,6 +2596,48 @@ const achGrid = document.getElementById("ach-grid")!;
 const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
+/**
+ * THE CONSTELLATION'S REAL FAILURE WAS NAVIGATION.
+ *
+ * Four rounds called this "a fixed-size spine scaled down until it is
+ * unreadable". Measured, that was wrong on both counts: `#abil .grid` is a
+ * two-column block flow of 332px ability cards, entirely legible, and its only
+ * interactive elements — the SLOT/BENCH buttons — already clear 44px. The 8x8
+ * rank pips are display only; ranks come from level-up drafts, not from
+ * tapping the chart.
+ *
+ * What actually broke was reach: a 1,492px card grid inside a 295px panel,
+ * 1,847px of total scroll once achievements and run stats are counted, and no
+ * way to get to a named ability except thumbing through everything. So the fix
+ * is an index, not a canvas rewrite and not pan-and-pinch: a sticky rail of
+ * every ability you know, one tap to its card.
+ */
+let abilRail: HTMLElement | null = null;
+function buildAbilRail(): void {
+  const panel = abilEl.querySelector(".panel");
+  if (!panel) return;
+  if (!abilRail) {
+    abilRail = document.createElement("div");
+    abilRail.className = "tp-rail";
+    abilRail.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest("button[data-jump]") as HTMLElement | null;
+      if (!b) return;
+      e.preventDefault();
+      const card = abilGrid.querySelector(`.acard[data-ab="${b.dataset.jump}"]`);
+      card?.scrollIntoView({ block: "start", behavior: "smooth" });
+      for (const k of Array.from(abilRail!.children)) k.classList.toggle("on", k === b);
+    });
+    panel.insertBefore(abilRail, abilGrid);
+  }
+  const known = Array.from(abilGrid.querySelectorAll<HTMLElement>(".acard[data-ab]"))
+    .map((c) => c.dataset.ab!);
+  abilRail.innerHTML = known.map((id) =>
+    `<button type="button" data-jump="${id}" aria-label="${ABILITY_INFO[id as AbilityId].name}" ` +
+    `title="${ABILITY_INFO[id as AbilityId].name}">` +
+    `<i style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+    `</button>`).join("");
+}
+
 function renderAbilities(s: GameState): void {
   abilGrid.classList.toggle("graphs", abilView === "graph");
   abilGrid.innerHTML = abilBodyHtml(s);
@@ -2543,7 +2673,7 @@ function renderAbilities(s: GameState): void {
 
 function toggleAbilities(): void {
   abilOpen = !abilOpen;
-  if (abilOpen) { renderAbilities(state); showOverlay(abilEl); }
+  if (abilOpen) { renderAbilities(state); buildAbilRail(); showOverlay(abilEl); }
   else hideOverlay(abilEl);
 }
 
@@ -2780,9 +2910,201 @@ function renderKeybinds(): void {
     .join("");
 }
 
+// ---- CONTROLS tab: the touch customisation surface (MOBILE.md 6) ----------
+// Rendered into the K panel with the panel's own row classes, so it inherits
+// the styling and adds no CSS. Every control is a 44px-tall row on touch.
+let kbTouchCfg: HTMLElement | null = null;
+
+function touchSettingRows(): { id: string; name: string; hint: string; value: string }[] {
+  const pct = (v: number): string => `${Math.round(v * 100)}%`;
+  const onOff = (v: boolean): string => (v ? "ON" : "OFF");
+  const rows = [
+    { id: "handed", name: "Handedness", hint: "mirrors the stick, the cluster and every HUD anchor", value: touchPrefs.handed.toUpperCase() },
+    { id: "stickScale", name: "Stick size", hint: "floating stick radius", value: pct(touchPrefs.stickScale) },
+    { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
+    { id: "opacity", name: "Control opacity", hint: "idle only — controls go full while pressed", value: pct(touchPrefs.opacity) },
+    { id: "hudInset", name: "Safe-area padding", hint: "extra margin on top of the notch inset", value: `${touchPrefs.hudInset}px` },
+    { id: "haptics", name: "Haptics", hint: "LIGHT keeps only press / cast / cancel", value: touchPrefs.haptics.toUpperCase() },
+    { id: "tapToMove", name: "Tap to move", hint: "tap ground to walk, tap a monster to lock and swing", value: onOff(touchPrefs.tapToMove) },
+    { id: "stickRecenter", name: "Stick recentring", hint: "the origin follows a thumb that drifts", value: onOff(touchPrefs.stickRecenter) },
+    { id: "flickDash", name: "Flick to dash", hint: "flick the movement stick to dash", value: onOff(touchPrefs.flickDash) },
+    { id: "twoFingerDash", name: "Two-finger dash", hint: "tap the world with two fingers to dash", value: onOff(touchPrefs.twoFingerDash) },
+    { id: "stickyLock", name: "Sticky target lock", hint: "the LOCK chip keeps its target through taps", value: onOff(touchPrefs.stickyLock) },
+  ];
+  // Slot 0 is the basic attack: hold-to-repeat, no mode to choose.
+  const slotName = ["", "Slot 2", "Slot 3", "Slot 4", "Ultimate"];
+  for (let i = 1; i < 5; i++) {
+    rows.push({
+      id: `castMode${i}`, name: `Cast mode — ${slotName[i]}`,
+      hint: i === 4 ? "AIM-ONLY forces a drag: an ultimate you cannot fat-finger" : "tap-release shows the range, release fires",
+      value: touchPrefs.castMode[i].toUpperCase(),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Split the K panel into KEYS and CONTROLS pages.
+ *
+ * Everything that was already in the panel keeps its markup and its handlers —
+ * the rows are MOVED, not rebuilt — so the desktop keybinding UI is unchanged
+ * and nothing that queries `.kb-row` or `#kb-rows` has to know this happened.
+ * On a coarse pointer CONTROLS opens first, because a player on glass did not
+ * come here to rebind W.
+ */
+let kbPages: { tabs: HTMLElement; keys: HTMLElement; controls: HTMLElement } | null = null;
+function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
+  if (kbPages) return kbPages;
+  const panel = keysEl.querySelector(".panel") as HTMLElement | null;
+  const hint = panel?.querySelector(".hint");
+  if (!panel || !hint) return null;
+  const page = (id: string): HTMLElement => {
+    const e = document.createElement("div");
+    e.className = "kb-page";
+    e.id = id;
+    return e;
+  };
+  const keys = page("kb-page-keys");
+  const controls = page("kb-page-controls");
+  // Everything between the hint and the credits is keyboard/settings content.
+  const moving: HTMLElement[] = [];
+  for (let n = hint.nextElementSibling; n; n = n.nextElementSibling) {
+    if (n.classList.contains("credits")) break;
+    moving.push(n as HTMLElement);
+  }
+  for (const n of moving) keys.appendChild(n);
+  const tabs = document.createElement("div");
+  tabs.className = "kb-tabs";
+  for (const [id, label] of [["keys", "KEY BINDINGS"], ["controls", "CONTROLS"]]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.kbtab = id;
+    b.textContent = label;
+    tabs.appendChild(b);
+  }
+  tabs.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest("[data-kbtab]") as HTMLElement | null;
+    if (b) { e.preventDefault(); showKbPage(b.dataset.kbtab!); }
+  });
+  hint.after(tabs, keys, controls);
+  kbPages = { tabs, keys, controls };
+  // A player on glass came for the control layout, not for W.
+  showKbPage(document.body.classList.contains("touch") ? "controls" : "keys");
+  return kbPages;
+}
+
+function showKbPage(id: string): void {
+  if (!kbPages) return;
+  kbPages.keys.classList.toggle("on", id === "keys");
+  kbPages.controls.classList.toggle("on", id === "controls");
+  for (const b of Array.from(kbPages.tabs.children) as HTMLElement[]) {
+    b.classList.toggle("on", b.dataset.kbtab === id);
+  }
+}
+
+function renderTouchSettings(): void {
+  const pages = ensureKbPages();
+  if (!kbTouchCfg) {
+    kbTouchCfg = document.createElement("div");
+    kbTouchCfg.id = "kb-touchcfg";
+    (pages?.controls ?? keysEl.querySelector(".panel"))?.appendChild(kbTouchCfg);
+    kbTouchCfg.addEventListener("click", (e) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-tp]");
+      if (!key) return;
+      e.preventDefault();
+      // A stepper says which way; a pick says which value. Everything else
+      // still cycles, which is right for the per-slot cast modes (three
+      // states, and the label explains what each one costs you).
+      if (key.dataset.set !== undefined) setTouchPref(key.dataset.tp!, key.dataset.set);
+      else stepTouchPref(key.dataset.tp!, Number(key.dataset.dir ?? 1));
+      applyTouchPrefs();
+      renderTouchSettings();
+    });
+  }
+  // Thumb length varies more than screen size does, so the layout is a
+  // setting rather than a constant. Numeric prefs get a real -/+ stepper with
+  // 46px targets instead of a value you cycle by tapping it eleven times, and
+  // the two-state prefs get a pair of pick buttons where the CURRENT state is
+  // visible without reading — a cycling label tells you where you are but
+  // never where you can go.
+  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset"]);
+  const PICKS: Record<string, string[]> = {
+    handed: ["RIGHT", "LEFT"],
+    haptics: ["OFF", "LIGHT", "FULL"],
+    tapToMove: ["ON", "OFF"], stickRecenter: ["ON", "OFF"],
+    flickDash: ["ON", "OFF"], twoFingerDash: ["ON", "OFF"], stickyLock: ["ON", "OFF"],
+  };
+  kbTouchCfg.innerHTML =
+    `<div class="ctl-note">` +
+    (touchMode
+      ? "Changes apply live — the cluster behind this panel moves as you set it."
+      : "Touch controls are currently OFF; these still save.") +
+    `</div>` +
+    touchSettingRows().map((r) => {
+      const control = NUMERIC.has(r.id)
+        ? `<span class="ctl-val">${r.value}</span>` +
+          `<span class="ctl-step">` +
+          `<button type="button" data-tp="${r.id}" data-dir="-1" aria-label="less">−</button>` +
+          `<button type="button" data-tp="${r.id}" data-dir="1" aria-label="more">+</button></span>`
+        : PICKS[r.id]
+          ? `<span class="ctl-pick">` + PICKS[r.id].map((v) =>
+            `<button type="button" data-tp="${r.id}" data-set="${v}"` +
+            `${v === r.value ? ' class="on"' : ""}>${v}</button>`).join("") + `</span>`
+          : `<span class="ctl-pick"><button type="button" data-tp="${r.id}">${r.value}</button></span>`;
+      return `<div class="ctl-row"><span class="ctl-name">${r.name}<small>${r.hint}</small></span>` +
+        control + `</div>`;
+    }).join("");
+}
+
+/** A named pick, straight from a button. The pref is the source of truth. */
+function setTouchPref(id: string, raw: string | undefined): void {
+  if (raw === undefined) return;
+  const v = raw.toLowerCase();
+  if (id === "handed") touchPrefs.handed = v === "left" ? "left" : "right";
+  else if (id === "haptics" && (v === "off" || v === "light" || v === "full")) {
+    touchPrefs.haptics = v;
+  } else if (id === "tapToMove") touchPrefs.tapToMove = v === "on";
+  else if (id === "stickRecenter") touchPrefs.stickRecenter = v === "on";
+  else if (id === "flickDash") touchPrefs.flickDash = v === "on";
+  else if (id === "twoFingerDash") touchPrefs.twoFingerDash = v === "on";
+  else if (id === "stickyLock") touchPrefs.stickyLock = v === "on";
+}
+
+/**
+ * One press moves one pref one notch. `dir` is +1 or -1 so a stepper can walk
+ * BACK — the old cycle-only version made "I went one too far on button size"
+ * a ten-tap round trip, which is exactly the kind of thing that stops a player
+ * tuning their layout at all.
+ */
+function stepTouchPref(id: string, dir = 1): void {
+  const cycle = <T>(list: T[], cur: T): T =>
+    list[(list.indexOf(cur) + (dir >= 0 ? 1 : list.length - 1)) % list.length];
+  const step = (v: number, lo: number, hi: number, by: number): number => {
+    const n = v + by * (dir >= 0 ? 1 : -1);
+    // Clamp rather than wrap: a stepper that jumps from 140% to 70% because
+    // you pressed + once too often is a bug you feel, not a feature.
+    return Math.round(Math.min(hi, Math.max(lo, n)) * 100) / 100;
+  };
+  if (id === "handed") touchPrefs.handed = touchPrefs.handed === "right" ? "left" : "right";
+  else if (id === "stickScale") touchPrefs.stickScale = step(touchPrefs.stickScale, 0.7, 1.4, 0.1);
+  else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
+  else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
+  else if (id === "hudInset") touchPrefs.hudInset = step(touchPrefs.hudInset, 0, 32, 4);
+  else if (id === "haptics") touchPrefs.haptics = cycle(["off", "light", "full"] as const, touchPrefs.haptics);
+  else if (id === "tapToMove") touchPrefs.tapToMove = !touchPrefs.tapToMove;
+  else if (id === "stickRecenter") touchPrefs.stickRecenter = !touchPrefs.stickRecenter;
+  else if (id === "flickDash") touchPrefs.flickDash = !touchPrefs.flickDash;
+  else if (id === "twoFingerDash") touchPrefs.twoFingerDash = !touchPrefs.twoFingerDash;
+  else if (id === "stickyLock") touchPrefs.stickyLock = !touchPrefs.stickyLock;
+  else if (id.startsWith("castMode")) {
+    const i = Number(id.slice("castMode".length));
+    touchPrefs.castMode[i] = cycle(["tap-release", "tap", "aim-only"] as const, touchPrefs.castMode[i]);
+  }
+}
+
 function toggleKeybinds(): void {
   kbOpen = !kbOpen;
-  if (kbOpen) { renderKeybinds(); showOverlay(keysEl); }
+  if (kbOpen) { renderKeybinds(); renderTouchSettings(); showOverlay(keysEl); }
   else hideOverlay(keysEl);
   listening = null;
   input.captureMode = false;
@@ -2919,6 +3241,9 @@ window.addEventListener("keydown", (e) => {
   }
 
   if (k === "escape") {
+    // The derivation sheet is the innermost thing on screen, so it unwinds
+    // first — Escape must never skip a layer.
+    if (mathSheetOpen()) { hideSheet(); return; }
     if (ladderEl.classList.contains("on") || careerEl.classList.contains("on")) closeSets();
     else if (consentEl.classList.contains("on")) consentEl.classList.remove("on");
     else if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
@@ -3489,9 +3814,41 @@ function renderShopDetail(s: GameState): void {
   srDetail.innerHTML = html;
 }
 
+/**
+ * ONE PANE AT A TIME, where two do not fit.
+ *
+ * `.shop-body` is a two-track grid with the bag nested in the right track. On
+ * a 342-tall iPhone that put `#sr-bag` at y=363 — the player's own inventory
+ * 21px BELOW the viewport — while the detail pane hid 178px of its 176px-tall
+ * box (MOBILE.md 1.3). Shrinking the tracks until everything "fits" makes all
+ * three illegible; a segmented control keeps them full size and shows one.
+ * CSS gates it to the two phone classes, so a tablet is untouched.
+ */
+let shopSeg: Segmented | null = null;
+function ensureShopSegments(): void {
+  if (shopSeg) return;
+  const body = srEl.querySelector(".shop-body") as HTMLElement | null;
+  const shelf = srEl.querySelector(".shelf-col") as HTMLElement | null;
+  const detail = srEl.querySelector(".shop-detail") as HTMLElement | null;
+  const bag = srEl.querySelector(".shop-bag") as HTMLElement | null;
+  if (!body || !shelf || !detail || !bag) return;
+  shopSeg = new Segmented([
+    { id: "shelf", label: "SHELF", pane: shelf },
+    { id: "detail", label: "DETAIL", pane: detail },
+    { id: "bag", label: "BAG", pane: bag },
+  ]);
+  body.parentElement?.insertBefore(shopSeg.el, body);
+}
+
+/** Selecting anything on the shelf is a request to READ it: follow the tap. */
+function shopFocusDetail(): void {
+  shopSeg?.show("detail");
+}
+
 function renderSafeRoom(s: GameState): void {
   const room = shopRoomOf(s);
   if (!room) return;
+  ensureShopSegments();
   const p = me(s);
   // Settlement outfitter: same panel, the settlement's voice on the chrome —
   // and no DESCEND (you're mid-floor; the exit is the door you came in by).
@@ -3516,6 +3873,8 @@ function renderSafeRoom(s: GameState): void {
   // Top-level tab dispatch.
   srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
   if (srTab === "ach" && !CONFIG.achievementsEnabled) srTab = "shop";
+  // The segmented pane control only makes sense on the SHOP page.
+  srEl.classList.toggle("sr-shop", srTab === "shop");
   srTabShop.classList.toggle("active", srTab === "shop");
   srTabAbil.classList.toggle("active", srTab === "abil");
   srTabAch.classList.toggle("active", srTab === "ach");
@@ -3922,6 +4281,7 @@ srShelf.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-id], .chase-row[data-id]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "catalog", id: tile.dataset.id! };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -4035,6 +4395,7 @@ srEquipped.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-slot]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "equipped", slot: tile.dataset.slot as ItemSlot };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -4042,6 +4403,7 @@ srBag.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-bag]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "bag", idx: Number(tile.dataset.bag) };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -4292,7 +4654,13 @@ function updateSkills(s: GameState): void {
           `<span class="sweep"></span><span class="flashfx"></span>` +
           `</div>`
         : "");
+    // The rebuild replaced every chip ELEMENT, so the zone table's placement
+    // went with them; an unplaced chip collapses into the top-left corner.
+    // Re-measure too, or the router keeps hit-testing against dead rects.
+    hud.placeCluster();
+    touchShell.measureChips();
   }
+  syncIngame();
   const chips = skillsEl.querySelectorAll(".skill[data-i]");
   entries.forEach((e, i) => {
     const chip = chips[i] as HTMLElement | undefined;
@@ -7343,6 +7711,18 @@ if (new URLSearchParams(location.search).has("debug")) {
         renderer.holdBossBeats(seconds);
       },
       release: () => { captureHold = 0; },
+      // Touch layer, for the device harness: the live zone table, the routing
+      // decision for a point, and the lock/pref state the battery asserts on.
+      touch: {
+        zones: touch.zones,
+        prefs: touchPrefs,
+        route: (x: number, y: number) => touch.debugRoute(x, y),
+        lastWorldTap,
+        clickMoveTarget: clickMove.target,
+        lockedTargetId,
+        stickyLock,
+        relayout: () => touchShell.relayout(),
+      },
     }),
   });
 }
@@ -7373,26 +7753,45 @@ let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
-/** Drag-aim telegraph shape by ability: dashes arrow, AoEs ring, else a line. */
-const TELEGRAPH_RING = new Set<AbilityId>(["nova", "cataclysm", "crowdsurf", "airstrike"]);
-function telegraphShape(a: AbilityId | null): "line" | "ring" | "arrow" {
-  if (a === "dash") return "arrow";
-  if (a && TELEGRAPH_RING.has(a)) return "ring";
-  return "line";
+
+/** The slot holding dash, or -1. Gestures cast a SLOT; they never add a rule. */
+function dashSlot(p: Player): number {
+  const i = p.abilities.slots.indexOf("dash");
+  if (i >= 0) return i;
+  return p.abilities.ultimate === "dash" ? ABILITY_SLOTS : -1;
 }
 
-/** Direction to the nearest living monster in reach — controller quick-cast. */
-function autoAimDir(range = 8): Vec2 | null {
-  const p = me(state);
-  let best: Vec2 | null = null;
-  let bestD = range * range;
-  for (const m of state.monsters) {
-    if (m.hp <= 0) continue;
-    const dx = m.pos.x - p.pos.x, dy = m.pos.y - p.pos.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestD && d > 1e-4) { bestD = d; best = { x: dx, y: dy }; }
+/**
+ * The renderer draws three shapes today; the aim spec knows six. Map down here
+ * so the geometry work in renderer3d.ts can land independently of this file.
+ */
+function rendererShape(s: AimShape): "line" | "ring" | "arrow" | null {
+  switch (s) {
+    case "ring": case "scatter": return "ring";
+    case "arrow": return "arrow";
+    case "line": case "chain": case "cone": return "line";
+    default: return null;
   }
-  return best;
+}
+
+/**
+ * Smart cast: no explicit aim means "the target I most likely meant", not
+ * "whatever is nearest". Locked > damaged in the last 3 s > lowest HP fraction
+ * inside the ability REAL range, with a facing-cone weight. Dormant ambushers
+ * are excluded — the old autoAimDir aimed at furniture that had not woken up.
+ */
+function smartAim(slot: number): Vec2 | null {
+  const p = me(state);
+  const ab = abilityInSlot(p, slot);
+  const t = pickTarget(state.monsters, {
+    from: p.pos, facing: p.facing,
+    range: Math.max(2.5, castRange(ab, p)),
+    lockedId: lockedTargetId,
+    lastDamagedId,
+    lastDamagedAge: performance.now() / 1000 - lastDamagedAt,
+  });
+  if (!t) return null;
+  return { x: t.pos.x - p.pos.x, y: t.pos.y - p.pos.y };
 }
 
 // Controller poll runs at FRAME level, not per sim step: panel buttons must
@@ -7413,19 +7812,181 @@ function pollPad(): void {
 // Touch runs the same frame-level rhythm as the pad; one-shot drag casts and
 // button taps accumulate here until the next sampleIntent consumes them.
 let touchHeld: ReturnType<TouchController["sample"]> = null;
-const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; attack: boolean; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
-  casts: [], attack: false, flask: false, stairs: false, ping: null,
-};
+const touchEdges = createTouchEdges();
+// Target lock lives in the HOST, not the sim: it changes which direction an
+// ordinary Intent.aim points, and nothing else.
+let lockedTargetId: number | null = null;
+let stickyLock = touchPrefs.stickyLock;
+let lastDamagedId: number | null = null;
+let lastDamagedAt = -Infinity;
+/** Bag size last frame: growth is a pickup, and a pickup gets a tick. */
+let lastBagCount = 0;
+/** Harness/debug only: what the last world tap resolved to. */
+let lastWorldTap: { x: number; y: number; long: boolean; ground: Vec2 | null } | null = null;
+
 function pollTouch(): void {
   touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
-  if (touchHeld) {
-    touchEdges.casts.push(...touchHeld.castEdges);
-    // Attack accumulates like the other edges so a tap while a panel has the
-    // sim paused still lands on resume (held state keeps re-arming it).
-    touchEdges.attack ||= touchHeld.castHeld[0];
-    touchEdges.flask ||= touchHeld.flaskEdge;
-    touchEdges.stairs ||= touchHeld.stairsEdge;
+  if (!touchHeld) return;
+  // Edges ACCUMULATE (input/touchIntent.ts): a tap taken while a panel has
+  // the sim paused must still land when the world thaws.
+  accumulateTouch(touchEdges, touchHeld);
+  if (touchHeld.lockToggleEdge) {
+    // The LOCK chip is a sticky-lock toggle: on for a boss fight, off for a
+    // pack. Clearing it drops whatever was held.
+    stickyLock = !stickyLock;
+    if (!stickyLock) lockedTargetId = null;
+    touchPrefs.stickyLock = stickyLock;
+    saveTouchPrefs(touchPrefs);
+    touchShell.setLocked(stickyLock);
+    haptics.fire("lock");
   }
+  if (touchHeld.mapEdge) toggleMinimapExpand();
+  // World-zone taps: the host owns the raycast, so the sim stays screen-blind.
+  for (const tap of touchHeld.worldTaps) {
+    const g = renderer.screenToGround(tap.x, tap.y);
+    lastWorldTap = { x: tap.x, y: tap.y, long: tap.long, ground: g };
+    if (!g) continue;
+    if (tap.long) { touchEdges.ping = g; continue; }
+    // Which monster did that finger mean? The GROUND point under a tap is not
+    // the monster it landed on: a body is drawn about 0.8 units up, so the ray
+    // through its chest hits the floor a tile or two BEHIND its feet. Ask the
+    // screen first (nearest projected body inside a thumb radius), and keep the
+    // ground-plane test as the fallback for anything the camera cannot project.
+    const mob = screenTapTarget(tap.x, tap.y) ?? tapTarget(state.monsters, g, 1.0);
+    if (mob) {
+      // Tap a monster: lock it AND swing at it (Wild Rift tap-to-attack).
+      lockedTargetId = lockedTargetId === mob.id && !stickyLock ? null : mob.id;
+      touchEdges.attack = true;
+      haptics.fire("lock");
+    } else if (touchPrefs.tapToMove) {
+      // Tap empty ground: Diablo walk-to-point, through the click-move path
+      // that already exists and is already tested.
+      clickMove.target = { x: g.x, y: g.y };
+      clickMove.holding = false;
+      clickMove.stall = 0;
+      if (!stickyLock) lockedTargetId = null;
+    }
+  }
+  // The controller reuses its buffers; release them now that they are copied.
+  touch.endFrame();
+}
+
+/** Thumb radius (CSS px) around a tap that still counts as "on that monster". */
+const TAP_BODY_RADIUS = 46;
+
+/** Nearest living monster whose body projects within a thumb of (x, y). */
+function screenTapTarget(x: number, y: number): { id: number } | null {
+  let best: { id: number } | null = null;
+  let bestD = TAP_BODY_RADIUS * TAP_BODY_RADIUS;
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.dormant) continue;
+    const p = renderer.worldToScreen(m.pos.x, 0.8, m.pos.y);
+    if (!p.visible) continue;
+    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d < bestD) { bestD = d; best = m; }
+  }
+  return best;
+}
+
+/**
+ * THE MAP CHIP'S DESTINATION.
+ *
+ * On a phone the minimap puck is not drawn at all: 114px of a 342px-tall
+ * screen is a third of the height for a chart you glance at between fights,
+ * and the old puck sat inside the movement thumb's arc anyway (MOBILE.md 1.2).
+ * The chip in the cluster — inside `comfortable` — opens this instead.
+ *
+ * The chart is a canvas, so blowing it up with a transform would turn a floor
+ * plan to mush. The BACKING STORE is resized and the static cache invalidated,
+ * and the next frame redraws the chart at the new resolution.
+ */
+function toggleMinimapExpand(): void {
+  const on = !document.body.classList.contains("mapbig");
+  document.body.classList.toggle("mapbig", on);
+  const side = on
+    ? Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.74)
+    : 150;
+  if (minimap.width !== side) {
+    minimap.width = side;
+    minimap.height = side;
+    minimap.style.width = `${side}px`;
+    minimap.style.height = `${side}px`;
+    mmKey = ""; // force the static layer to rebuild at the new resolution
+  }
+}
+// Anywhere on the expanded chart closes it — there is nothing else to press.
+for (const id of ["mapbig-scrim", "minimap-frame"]) {
+  document.getElementById(id)?.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("mapbig")) return;
+    e.preventDefault();
+    toggleMinimapExpand();
+  });
+}
+
+// ---- TOUCH-FIRST PANELS (MOBILE.md 4.5) ----------------------------------
+// Every one of these measured ZERO close controls and tap-outside-closes
+// false: on a phone with no keyboard, opening one ended the session. They now
+// close three ways, and all three call the SAME close the keyboard calls, so
+// Escape, the ✕ and a swipe can never drift apart.
+//
+// Deliberately NOT wired: the safe room and the recap. Their exit is a game
+// decision (DESCEND, NEW SEASON), not a dismissal, and a ✕ on a shop would
+// read as "leave without descending", which is not a thing you can do. Their
+// buttons are held to the same 44px floor in CSS instead.
+// A panel closing takes its derivation sheet with it: a sheet left standing
+// over the dungeon would be a modal nothing can dismiss.
+attachPanel(invEl, { close: () => { hideSheet(); if (invOpen) toggleInventory(); } });
+attachPanel(abilEl, { close: () => { hideSheet(); if (abilOpen) toggleAbilities(); } });
+attachPanel(sheetEl, { close: () => { hideSheet(); if (sheetOpen) toggleSheet(); } });
+attachPanel(keysEl, { close: () => { hideSheet(); if (kbOpen) toggleKeybinds(); } });
+// A draft is dismissible — the picks bank behind the badge — so its bar says
+// so rather than pretending the choice went away.
+attachPanel(draftEl, {
+  close: () => { if (draftEl.style.display === "flex") dismissDraftModal(); },
+  done: "BANK IT FOR LATER",
+});
+
+/**
+ * HOVER BECOMES A TAP SHEET.
+ *
+ * The crawler profile says "hover anything for the math"; touch has no hover,
+ * so on a phone the entire derivation layer was invisible (MOBILE.md 1.3).
+ * Every one of those derivations is already a `title` attribute, so one
+ * delegated handler converts the whole layer at once — the stat ledger, the
+ * damage table's crit and DPS columns, item tooltips, socket reasons — with no
+ * per-site work and nothing for a future row to forget.
+ */
+for (const panel of [sheetEl, invEl, abilEl, srEl]) {
+  panel.addEventListener("click", (e) => {
+    if (!document.body.classList.contains("touch")) return;
+    const t = (e.target as HTMLElement).closest("[title]") as HTMLElement | null;
+    const tip = t?.getAttribute("title");
+    if (!t || !tip) return;
+    // Anything with its own verb keeps it: a tooltip must never eat a button.
+    if (t.closest("button, .tab, .itile, .sock, .gchip, .acard .nrow")) return;
+    e.preventDefault();
+    const label = (t.querySelector(".lab") ?? t.querySelector("small") ?? t).textContent ?? "";
+    showSheet(label.trim().slice(0, 40) || "THE MATH", `<div class="tsrow">${tip}</div>`);
+  });
+}
+
+/**
+ * body.ingame — the landscape gate's real scope.
+ *
+ * The rotate card used to cover the campfire menu, the leaderboard, the recap
+ * and the shop, all of which read BETTER in portrait; a phone player's first
+ * screen was a rotate card over a menu they could not reach (MOBILE.md 4.4).
+ * Gameplay is the only thing that needs the widescreen twin-thumb layout.
+ * Cached, because this runs once a frame from updateSkills.
+ */
+let ingameFlag = false;
+function syncIngame(): void {
+  const b = document.body;
+  const on = state.status === "playing" &&
+    !b.classList.contains("modal") && !b.classList.contains("checkin");
+  if (on === ingameFlag) return;
+  ingameFlag = on;
+  b.classList.toggle("ingame", on);
 }
 
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
@@ -7447,24 +8008,10 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   }
   // Touch merge: stick moves (same iso rotation), the attack chip holds
   // cast[0], and released taps/drag-casts land as one-shot edges. A drag
-  // brings its own aim; a tap leaves aim null for the auto-aim below.
-  let touchCastAim = false;
-  if (touchHeld) {
-    if (touchHeld.move) intent.move = isoRotate(touchHeld.move);
-    if (intent.cast) {
-      if (touchEdges.attack) intent.cast[0] = true;
-      for (const c of touchEdges.casts) {
-        intent.cast[c.slot] = true;
-        if (c.aim) { intent.aim = isoRotate(c.aim); touchCastAim = true; }
-      }
-    }
-    if (touchEdges.flask) intent.flask = true;
-    if (touchEdges.stairs) intent.useStairs = true;
-    if (touchEdges.ping) intent.ping = touchEdges.ping;
-    touchEdges.casts.length = 0;
-    touchEdges.attack = touchEdges.flask = touchEdges.stairs = false;
-    touchEdges.ping = null;
-  }
+  // brings its own aim; a tap leaves aim null for the smart cast below.
+  const touchCastAim = applyTouchEdges(intent, touchHeld, touchEdges, {
+    isoRotate, dashSlot: dashSlot(me(state)),
+  });
   // AIM is exclusive: an explicit source (touch drag, pad right stick) wins
   // outright; otherwise the mouse aims only if it was touched more recently
   // than pad/touch (device arbitration — a parked cursor must not pin the
@@ -7483,10 +8030,10 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
   }
-  // Quick-cast: casting without an explicit aim on pad/touch snaps to the
-  // nearest living monster (Wild Rift-style). Facing still covers whiffs.
+  // Smart cast: casting without an explicit aim resolves at the prioritised
+  // target (input/targeting.ts). Facing still covers whiffs.
   if ((padRecent || touchRecent) && !intent.aim && intent.cast?.some(Boolean)) {
-    const snap = autoAimDir();
+    const snap = smartAim(intent.cast.findIndex(Boolean));
     if (snap) intent.aim = snap;
   }
   // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
@@ -7498,14 +8045,17 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   }
   // Diablo-style mouse movement (opt-in): LMB on ground walks, LMB on a
   // monster attacks. Pure input interpretation — the intent stays ordinary.
-  if (mouseClickMove) {
+  // Touch tap-to-move rides the SAME autopilot, with no cursor and no button:
+  // the tap set clickMove.target, and stick input clears it through the
+  // keyboardMove flag below — direct control always wins, with no blending.
+  if (mouseClickMove || (touchMode && touchPrefs.tapToMove)) {
     const p = me(state);
-    const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
+    const g = mouseClickMove && input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
     const hover = !!g && state.monsters.some(
       (m) => m.hp > 0 && (m.pos.x - g.x) ** 2 + (m.pos.y - g.y) ** 2 <= 0.55 * 0.55,
     );
     const out = stepClickMove(clickMove, {
-      playerPos: p.pos, cursorWorld: g, lmbHeld: input.lmbHeld, hoverMonster: hover,
+      playerPos: p.pos, cursorWorld: g, lmbHeld: mouseClickMove ? input.lmbHeld : false, hoverMonster: hover,
       keyboardMove: intent.move.x !== 0 || intent.move.y !== 0, dt,
     });
     if (out.move) intent.move = out.move;
@@ -7804,11 +8354,19 @@ async function main(): Promise<void> {
     // chip (shown only while standing on the stairs tile).
     if (touchMode) {
       const p = me(state);
-      if (touchHeld && touchHeld.aimingSlot >= 0 && touchHeld.aimDir) {
-        const ab = touchHeld.aimingSlot < 4
-          ? p.abilities.slots[touchHeld.aimingSlot]
-          : p.abilities.ultimate;
-        renderer.setAimIndicator(telegraphShape(ab), p.pos, isoRotate(touchHeld.aimDir));
+      // THE INDICATOR APPEARS ON POINTERDOWN, in the same frame — not after
+      // the drag slop. On press you see the ability REAL reach (from its own
+      // params, so glyphs and ranks change the drawn shape); the drag only
+      // changes its direction. While the gesture sits in its CANCEL state the
+      // telegraph goes away, which is the one unambiguous "this will not fire"
+      // signal available before the renderer grows a dashed form.
+      const liveSlot = touchHeld
+        ? (touchHeld.aimingSlot >= 0 ? touchHeld.aimingSlot : touchHeld.pressedSlot)
+        : -1;
+      if (liveSlot >= 0 && !(touchHeld && touchHeld.aimCancel)) {
+        const spec = aimSpecFor(abilityInSlot(p, liveSlot), p);
+        const dir = touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : p.facing;
+        renderer.setAimIndicator(rendererShape(spec.shape), p.pos, dir);
       } else {
         renderer.setAimIndicator(null);
       }
@@ -7840,6 +8398,43 @@ async function main(): Promise<void> {
       }
       if (strong > 0) gamepad.rumble(strong, 0.2, 130);
       else if (weak > 0) gamepad.rumble(0, weak, 60);
+    }
+
+    // Touch haptics ride the same per-frame feedback buffers the rumble does,
+    // rate-limited to one pulse per 60 ms inside Haptics. The same loop keeps
+    // the "last thing I damaged" note that feeds smart cast priority: hits
+    // carry a position, not a monster id, so the nearest body to the impact is
+    // the credit — good enough to make finishing a kill feel intentional.
+    if (touchMode && frameHits.length > 0) {
+      const p = me(state);
+      let ev: "hurt" | "kill" | null = null;
+      for (const h of frameHits) {
+        if (h.kind === "player") {
+          if (h.amount > p.maxHp * 0.12) ev = "hurt";
+          continue;
+        }
+        const hitMob = tapTarget(state.monsters, h.pos, 0.9);
+        if (hitMob) { lastDamagedId = hitMob.id; lastDamagedAt = performance.now() / 1000; }
+        if (h.killed && ev !== "hurt") ev = "kill";
+      }
+      if (ev) haptics.fire(ev);
+      // A locked target that died stops being a target.
+      if (lockedTargetId !== null && !state.monsters.some((m) => m.id === lockedTargetId && m.hp > 0)) {
+        lockedTargetId = null;
+      }
+    }
+    if (touchMode && frameAnns.length > 0) {
+      for (const a of frameAnns) {
+        if (a.kind === "levelup") { haptics.fire("levelup"); break; }
+      }
+    }
+    // Loot needs no input — the sim collects inside pickupRadius. What it
+    // needed was an ACKNOWLEDGEMENT: a thumb covering half a phone screen
+    // cannot see a small pickup toast behind it.
+    if (touchMode) {
+      const bag = me(state).inventory.length;
+      if (bag > lastBagCount) haptics.fire("pickup");
+      lastBagCount = bag;
     }
 
     // Particles + shake use world space, so they can fire before the camera moves.

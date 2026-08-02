@@ -42,6 +42,27 @@
         --arcane: #9a6bd0; --lore: #5a87c6;
         --display: "Cinzel", "Palatino Linotype", Georgia, serif;
         --body: "Alegreya Sans", "Segoe UI", system-ui, sans-serif;
+        /* SAFE AREAS, PUBLISHED ONCE (MOBILE.md 4.3). Every fixed HUD box
+           offsets by var(--gut-*) — never a raw pixel, and never a 12px floor
+           smaller than the real inset, which is how every device in the
+           battery used to fail. src/input/touchLayout.ts reads the same four
+           numbers back through getComputedStyle, so the touch ZONES and the
+           PAINT cannot disagree. ?safe=t,r,b,l overrides them for the headless
+           battery, because Chromium reports env() as 0 under emulation and
+           "does every rect clear the inset the browser reports" is the only
+           half of this that is ours to test. */
+        --sa-t: env(safe-area-inset-top, 0px);
+        --sa-r: env(safe-area-inset-right, 0px);
+        --sa-b: env(safe-area-inset-bottom, 0px);
+        --sa-l: env(safe-area-inset-left, 0px);
+        --hud-pad: 12px;               /* player-adjustable 0-32px, K panel */
+        --gut-t: calc(var(--sa-t) + var(--hud-pad));
+        --gut-r: calc(var(--sa-r) + var(--hud-pad));
+        --gut-b: calc(var(--sa-b) + var(--hud-pad));
+        --gut-l: calc(var(--sa-l) + var(--hud-pad));
+        --hud-scale: 1;                /* chrome scale, from the short edge */
+        --band-h: 56px;                /* the top status band */
+        --chip-op: 1;                  /* idle control opacity */
         /* Shared material grain: warm low-alpha noise tile — layered under
            panel gradients so slabs read as stone, not flat CSS fills. Baked
            PNG (tools/gen-noise-png.mjs), NOT an feTurbulence SVG: the live
@@ -78,8 +99,8 @@
         box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), inset 0 0 0 1px rgba(0,0,0,0.65),
           inset 0 -8px 14px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.55);
         padding: 8px 12px; border-radius: 4px; font-size: 13px; line-height: 1.5; }
-      #hud-tl { top: 12px; left: 12px; }
-      #hud-tr { top: 12px; right: 12px; text-align: right; min-width: 190px; }
+      #hud-tl { top: var(--gut-t); left: var(--gut-l); }
+      #hud-tr { top: var(--gut-t); right: var(--gut-r); text-align: right; min-width: 190px; }
       /* Cockpit plaques (glass, rule four): Cinzel small-caps labels, tabular
          data, semantic color ONLY on meaning — no more inline-hex text soup. */
       .hh-row { display: flex; align-items: baseline; gap: 7px; line-height: 1.35; }
@@ -177,7 +198,7 @@
          small-caps header — that exists ONLY while lines are live (.live is
          host-managed, so no bordered empty rectangle can ever render).
          Capped at 3 lines; each fades after ~5s (LOG_HOLD_MS, main3d). */
-      #hud-log { bottom: 12px; left: 12px; font-size: 12px; color: #b3ab99; max-width: 60ch;
+      #hud-log { bottom: var(--gut-b); left: var(--gut-l); font-size: 12px; color: #b3ab99; max-width: 60ch;
         min-width: 24ch; background: none; border: none; box-shadow: none; padding: 0;
         transition: opacity 0.4s ease; }
       #hud-log:not(.live) { opacity: 0; }
@@ -210,7 +231,7 @@
          2026-07-09) — SYSTEM (configuration) and CRAWLER (in-run panels).
          On the fight screen, so glass chips + glass dropdowns (rule four);
          key hints live on the dropdown rows and in the K panel. */
-      #banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      #banner { position: fixed; top: var(--gut-t); left: 50%; transform: translateX(-50%);
         display: flex; gap: 8px; align-items: center; z-index: 6; }
       /* Test-chamber tag re-skinned as the floor's BROADCAST TITLE CARD (r4
          major: no gray debug chips in the System's gold chrome) — gold
@@ -415,7 +436,7 @@
          return in combat, not a peripheral rail. Color-tagged by kind. Grows
          upward (column-reverse) so new arrivals stack toward #cockpit, and
          overflow fades the oldest line instead of yanking it. */
-      #toasts { position: fixed; bottom: 132px; left: 50%; transform: translateX(-50%);
+      #toasts { position: fixed; bottom: calc(var(--gut-b) + 120px); left: 50%; transform: translateX(-50%);
         pointer-events: none; display: flex; flex-direction: column-reverse; gap: 4px;
         align-items: center; max-width: 52ch; }
       .toast { --tc: #c9a24b; background: rgba(12,10,20,0.8); border-bottom: 2px solid var(--tc);
@@ -429,7 +450,7 @@
 
       /* Minimap: framed like an instrument, not a raw canvas — bronze bezel,
          corner-cap diamonds, inner vignette (house frame language). */
-      #minimap-frame { position: fixed; right: 12px; bottom: 12px; padding: 4px;
+      #minimap-frame { position: fixed; right: var(--gut-r); bottom: var(--gut-b); padding: 4px;
         background: var(--noise), linear-gradient(180deg, rgba(46,36,26,0.92), rgba(14,11,9,0.94));
         border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
         border-radius: 3px;
@@ -843,7 +864,7 @@
       /* Action bar (D4/WoW cockpit): globe + slots + XP strip. bottom leaves
          safe-area room for the XP strip riding 14px below the slots (r3
          minor: the lower gold trim was clipped by the viewport edge). */
-      #cockpit { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+      #cockpit { position: fixed; bottom: calc(var(--gut-b) + 10px); left: 50%; transform: translateX(-50%);
         display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
       /* Banked-draft badge: level-ups no longer hijack the screen mid-fight —
          they wait here until the crawler claims them (see draft flow, main3d). */
@@ -858,86 +879,215 @@
         50% { box-shadow: 0 0 18px rgba(201,162,75,0.45); } }
       #skills { display: flex; gap: 8px; }
 
-      /* ---- Touch controls (Wild Rift-style) — body.touch gates all of it.
-         Glass, not stone (rule four): everything here overlays the fight.
-         The EXISTING skill chips become the ability cluster (bottom-right
-         arc, attack enlarged in the corner); pointer handlers delegate on
-         the container so per-frame chip rebuilds never orphan a press. ---- */
+      /* ============ TOUCH LAYOUT — cluster, bands, device classes ==========
+         MOBILE.md §4. Two rules govern the whole block:
+
+           1. CSS owns the SKIN; `src/input/touchLayout.ts` owns the PLACE, and
+              `src/ui/hudLayout.ts` writes it onto each chip as width/height
+              plus one transform. NOTHING HERE HARDCODES AN ARC — a hardcoded
+              arc is precisely why the measured chip distances from the corner
+              pivot were identical on a 293-tall Pixel 5 and a 380-tall
+              iPhone 13 Pro Max: one fixed arc, five device shapes (§1.5).
+           2. Every fixed box offsets by var(--gut-*). The block this replaced
+              used raw pixels on five elements and 12px floors on four more,
+              and every device in the battery failed the safe-area check.
+
+         `body[data-uiclass]` is the device class (compact | phone | tablet-s |
+         tablet-l), written by hudLayout from the same table the zones use.
+         `body.handed-left` mirrors the lot — because zones are data, mirroring
+         is arithmetic, not a second stylesheet. ---- */
       #game { touch-action: none; }
       #touch { display: none; }
       body.touch #touch { display: block; }
-      #t-stickzone { position: fixed; left: 0; top: 15%; bottom: 0; width: 44%;
-        touch-action: none; z-index: 4; }
-      #t-stick { position: fixed; width: 124px; height: 124px; margin: -62px 0 0 -62px;
-        border: 2px solid rgba(255,255,255,0.22); border-radius: 50%;
-        background: rgba(0,0,0,0.28); display: none; pointer-events: none; z-index: 5; }
-      #t-stick .t-nub { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px;
-        margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(201,162,75,0.45);
-        border: 1px solid rgba(242,193,78,0.7); }
-      #t-stairs { position: fixed; right: 252px; bottom: 130px; display: none;
-        background: rgba(0,0,0,0.55); color: var(--gold-hi); border: 1px solid var(--gold);
-        border-radius: 12px; padding: 14px 22px; font-family: "Cinzel", serif;
-        font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-        z-index: 5; touch-action: none; box-shadow: 0 0 18px rgba(201,162,75,0.25); }
+      /* Superseded by #t-layer (touchShell.ts), which paints the floating
+         stick, the resting ghost ring and the CANCEL band. Left in the markup
+         so nothing that queries them breaks; never shown. */
+      #t-stickzone, #t-stick { display: none !important; }
+
+      /* ---- the ability cluster ----
+         #cockpit stops being a flex rail and becomes a pass-through frame, so
+         every chip is a viewport-fixed box the zone table addresses directly.
+         The chips keep their gold-frame plate; only the shape changes. */
+      body.touch #cockpit, body.touch #skills { display: contents; }
+      /* `display: contents` removes the BOX, and with it every rule that
+         dimmed the cluster by setting opacity on #cockpit — cinematics, the
+         modal scrim, the check-in. Those states are re-attached to the chips
+         themselves, which are the things that actually paint. (visibility
+         inherits through display:contents, so body.checkin still works.) */
+      body.touch.cine #skills .skill, body.touch.cine #t-map,
+      body.touch.cine #t-stairs { opacity: 0; transition: opacity 0.3s ease; }
+      body.touch.modal #skills .skill, body.touch.modal #t-map {
+        opacity: calc(var(--chip-op) * 0.35); filter: saturate(0.55) brightness(0.85); }
+      body.touch.checkin #skills .skill, body.touch.checkin #t-map { visibility: hidden; }
+      body.touch #skills .skill { position: fixed; left: 0; top: 0; margin: 0;
+        width: 62px; height: 62px; border-radius: 50%; pointer-events: auto;
+        touch-action: none; opacity: var(--chip-op); will-change: transform;
+        transition: opacity 110ms linear; }
+      body.touch #skills .skill:active, body.touch #skills .skill.press { opacity: 1; }
+      body.touch #skills .skill .key { display: none; }   /* no keycaps under a thumb */
+      body.touch #skills .skill .label { display: none; } /* icons + sweeps only */
+      body.touch #skills .skill .icon { width: 52%; height: 52%; }
+      /* Pips ride INSIDE the disc. Hung off the bottom edge they were the first
+         thing the viewport clipped: the flask, dash and attack pip rows all sat
+         below the fold on iPhone 13 landscape (r0). */
+      body.touch #skills .skill .cpips { bottom: 6px; }
+      body.touch #skills .skill .gpips { top: 5px; }
+      /* The ultimate reads as the ultimate — a warmer rim, so the one chip that
+         must never be fat-fingered is also the one that looks different. */
+      body.touch #skills .skill.ult { border-color: var(--gold);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.2),
+          inset 0 0 16px rgba(0,0,0,0.5), 0 0 16px -3px rgba(242,193,78,0.55),
+          0 3px 10px rgba(0,0,0,0.55); }
+
+      /* ---- chips this layer owns: MAP, and the context pill ---- */
+      #hud-chips { display: none; }
+      body.touch #hud-chips { display: block; position: fixed; inset: 0;
+        pointer-events: none; z-index: 5; }
+      body.modal #hud-chips, body.checkin #hud-chips { display: none; }
+      #t-map { position: fixed; left: 0; top: 0; display: flex; padding: 0;
+        align-items: center; justify-content: center; pointer-events: auto;
+        touch-action: none; opacity: var(--chip-op); border-radius: 50%;
+        background: var(--noise), linear-gradient(180deg, #241c14, #100c09 60%);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid #16100a; outline-offset: 1px; will-change: transform;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.14),
+          0 3px 10px rgba(0,0,0,0.55); }
+      #t-map .uic { width: 44%; height: 44%; background: var(--gold);
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      #t-map:active { opacity: 1; }
+      /* The context chip is a labelled pill, transform-centred on its arc point
+         by hudLayout — so left/right/bottom must not fight the transform. */
+      #t-stairs { position: fixed; left: 0; top: 0; right: auto; bottom: auto;
+        display: none; white-space: nowrap; z-index: 6; pointer-events: auto;
+        background: rgba(8,6,4,0.84); color: var(--gold-hi); border: 1px solid var(--gold);
+        border-radius: 999px; padding: 13px 20px; font-family: "Cinzel", serif;
+        font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+        touch-action: none; box-shadow: 0 0 18px rgba(201,162,75,0.25); }
       body.touch #t-stairs.on { display: block; }
-      body.touch #cockpit { left: auto; right: 10px; bottom: 10px; transform: none;
-        flex-direction: column; align-items: flex-end; }
-      body.touch #skills { position: relative; display: block; width: 320px; height: 256px; }
-      body.touch #skills .skill { position: absolute; pointer-events: auto; touch-action: none;
-        width: 62px; height: 62px; border-radius: 50%; }
-      body.touch #skills .skill[data-i="0"] { width: 94px; height: 94px; right: 0; bottom: 0; }
-      body.touch #skills .skill[data-i="1"] { right: 156px; bottom: 8px; }
-      body.touch #skills .skill[data-i="2"] { right: 132px; bottom: 92px; }
-      body.touch #skills .skill[data-i="3"] { right: 72px; bottom: 152px; }
-      body.touch #skills .skill[data-i="4"] { width: 70px; height: 70px; right: 0; bottom: 178px; }
-      body.touch #skills #flask-chip { right: 244px; bottom: 0; }
-      body.touch #skills .skill .key { display: none; } /* no keycaps under thumbs */
-      /* Above the stick zone (z 4) — tapping the minimap pings, not walks. */
-      body.touch #minimap-frame { left: 12px; top: 96px; right: auto; bottom: auto; z-index: 5;
-        touch-action: manipulation; }
-      /* Fat-finger insurance on menus + safe-area breathing room. */
+
+      /* ---- the top status band ----
+         Everything transient lives up here, above the world and clear of both
+         thumbs. Measured before: the System's courtesy card covered x 12-234,
+         y 96-266 of a 750x342 viewport — dead centre of the movement thumb's
+         arc, so the first tutorial of the run ate the stick (§1.2). */
+      body.touch #show { top: calc(var(--gut-t) + 34px); }
+      /* The card takes the full safe width of the band and sits OVER the
+         banner. Two reasons: a 44ch column on a 342px-tall screen is 200px of
+         card (58% of the height), and the thing it would otherwise cover is
+         the SYSTEM/CRAWLER menu buttons, which are the least urgent chrome on
+         screen while the System is explaining a mechanic. Full width reflows
+         the same text into ~90px.
+         Everything except the dismiss button is pointer-events: none, so a
+         thumb that lands on the card still reaches the stick underneath — and
+         any gameplay press auto-dismisses it (touch.onGameplayInput). */
+      /* The card spans the band BETWEEN the two plaques, whose widths are
+         measured once per layout change. Full-bleed was the first attempt and
+         it buried the FLOOR / COLLAPSE plaque — and the collapse clock is a
+         headline mechanic, not chrome. What it covers instead is the
+         SYSTEM/CRAWLER menu bar, which is the least urgent thing on screen
+         while the System is explaining a mechanic. */
+      body.touch #tutorial { top: var(--gut-t); left: var(--card-x, 12px);
+        right: auto; width: var(--card-w, 40vw); max-width: none;
+        transform: none; text-align: left; pointer-events: none; z-index: 7; }
+      body.touch #tutorial .tut { pointer-events: none; }
+      body.touch #tutorial .tut-dismiss { pointer-events: auto; width: auto;
+        float: right; min-width: 120px; min-height: 44px; padding: 0 22px; margin-top: 4px; }
+      body.touch #tutorial .tut-body { overflow: hidden; }
+      /* Toasts drop to the bottom-centre GUTTER — the strip between the stick
+         zone and the cluster, which is the one place on a landscape phone that
+         neither thumb ever covers, and which is where the eye already is. */
+      body.touch #toasts { bottom: calc(var(--gut-b) + 6px); top: auto;
+        max-width: min(38ch, calc(100vw - var(--stick-w, 180px) * 2 - 32px)); }
+      body.touch #hud-log { display: none; } /* the toast rail carries it */
+
+      /* ---- plaques and the XP under-rail ---- */
+      body.touch #hud-tl, body.touch #hud-tr { font-size: calc(13px * var(--hud-scale)); }
+      /* #xpbar measured 4px BELOW the viewport on phone AND tablet: it lived at
+         bottom:-14px inside #cockpit, i.e. permanently invisible. On touch it
+         becomes an under-rail of the HP block, placed from that block's
+         measured box once per layout change (hudLayout.placeXpRail). */
+      body.touch #xpbar { position: fixed; left: auto; bottom: auto;
+        right: var(--gut-r); top: var(--xp-top, 96px); width: var(--xp-w, 190px);
+        height: 4px; z-index: 3; }
+
+      /* ---- the minimap ----
+         It used to sit at left:12 top:96 — inside the movement thumb's arc, so
+         a stick gesture dropped a party ping instead of walking (§1.2). It is
+         DISPLAY ONLY now, and on a phone it is not shown at all: 114px of a
+         342px-tall screen is a third of the height for a chart you glance at
+         between fights. The MAP chip sits in the cluster, inside `comfortable`,
+         and opens the full-screen version where the chart is actually legible.
+         This is the §4.2 split — puck for display, chip for control — with the
+         puck dropped on the two classes that cannot afford it. */
+      body.touch #minimap-frame { pointer-events: none; touch-action: none; }
+      body.touch[data-uiclass="compact"] #minimap-frame,
+      body.touch[data-uiclass="phone"] #minimap-frame { display: none; }
+      body.touch[data-uiclass="tablet-s"] #minimap-frame,
+      body.touch[data-uiclass="tablet-l"] #minimap-frame {
+        left: auto; right: var(--gut-r); top: calc(var(--xp-top, 96px) + 14px);
+        bottom: auto; z-index: 3; transform: scale(0.85); transform-origin: top right; }
+
+      /* ---- the full-screen map (where the MAP chip goes) ---- */
+      #mapbig-scrim { display: none; position: fixed; inset: 0; z-index: 25;
+        background: rgba(4,4,8,0.86); }
+      body.mapbig #mapbig-scrim { display: block; }
+      body.mapbig #minimap-frame { display: block !important; position: fixed;
+        left: 50%; top: 50%; right: auto; bottom: auto; z-index: 26;
+        transform: translate(-50%, -50%); transform-origin: center;
+        pointer-events: auto; }
+      body.mapbig #minimap-frame::after { content: "TAP ANYWHERE TO CLOSE";
+        position: absolute; left: 50%; bottom: -30px; transform: translateX(-50%);
+        width: auto; height: auto; margin: 0; background: none; border: 0;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.18em;
+        font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+
+      /* ---- DEVICE CLASSES ----
+         The class picks the POSTURE. Everything numeric inside it is a
+         continuous function of the short edge (touchLayout.ts + --hud-scale),
+         which is what stops an 11-inch and a 13-inch tablet sharing a geometry.
+
+         COMPACT is Pixel 5 landscape: 802x293, where the old cluster was
+         234x188 — 64% of the screen height — and the ultimate chip sat level
+         with the HP bar. Anything under ~320 CSS px on the short edge had no
+         working layout at all before this class existed. */
+      /* NOTE: --hud-pad is NOT overridden per class. It is a player pref
+         (TouchPrefs.hudInset) and the host writes it onto :root; a class-level
+         override would set it on <body> instead, win for every descendant, and
+         silently disagree with the hudInset the ZONE table was computed from.
+         Measured on compact: CSS said 8px, the zones said 12px. */
+      body[data-uiclass="compact"] #hud-tl, body[data-uiclass="compact"] #hud-tr {
+        padding: 5px 9px; font-size: calc(12px * var(--hud-scale)); line-height: 1.3; }
+      body[data-uiclass="compact"] .hh-big { font-size: 14px; }
+      body[data-uiclass="compact"] .hh-label { font-size: 9.5px; }
+      /* The three broadcast counters are flavour and they are all in the
+         crawler profile; HYPE is a mechanic (frenzy), so it is what stays. */
+      body[data-uiclass="compact"] #show .chips { display: none; }
+      body[data-uiclass="compact"] #show { top: calc(var(--gut-t) + 30px); gap: 2px; }
+      body[data-uiclass="compact"] #show .hypebar { width: 156px; height: 9px; }
+      body[data-uiclass="compact"] .topbtn { padding: 6px 11px; font-size: 10px; }
+      body[data-uiclass="compact"] #tutorial { max-width: min(36ch, 52vw); }
+      body[data-uiclass="compact"] .tut-body { font-size: 11.5px; padding: 8px 10px; }
+      body[data-uiclass="phone"] #show .hypebar { width: 200px; }
+
+      /* Fat-finger insurance on the menus that are not full panels. */
       @media (pointer: coarse) {
-        .tm-row { padding: 12px 12px; }
-        .topbtn { padding: 10px 22px; }
-        #banner { top: max(12px, env(safe-area-inset-top)); }
-        #hud-tl { left: max(12px, env(safe-area-inset-left)); }
-        #hud-tr { right: max(12px, env(safe-area-inset-right)); }
-        body.touch #cockpit { right: max(10px, env(safe-area-inset-right));
-          bottom: max(10px, env(safe-area-inset-bottom)); }
+        .tm-row { padding: 12px 12px; min-height: 44px; }
+        .topbtn { padding: 11px 20px; min-height: 44px; }
       }
-      /* ---- PHONE compaction (body.phone: coarse pointer + short edge < 500px).
-         The iPad cluster eats half an iPhone screen — scale it ~0.73, shrink
-         the chrome, and require landscape (#rotate gate below). The camera
-         defaults to CLOSE view on phones (main3d, loadCamView fallback). ---- */
-      body.phone #skills { width: 234px; height: 188px; }
-      body.phone #skills .skill { width: 46px; height: 46px; }
-      body.phone #skills .skill .label { display: none; } /* icons + sweeps only */
-      body.phone #skills .skill[data-i="0"] { width: 70px; height: 70px; }
-      body.phone #skills .skill[data-i="1"] { right: 114px; bottom: 6px; }
-      body.phone #skills .skill[data-i="2"] { right: 97px; bottom: 67px; }
-      body.phone #skills .skill[data-i="3"] { right: 53px; bottom: 111px; }
-      body.phone #skills .skill[data-i="4"] { width: 52px; height: 52px; right: 0; bottom: 130px; }
-      body.phone #skills #flask-chip { right: 180px; bottom: 0; }
-      body.phone #t-stairs { right: 186px; bottom: 88px; padding: 10px 14px; font-size: 11px; }
-      body.phone #minimap-frame { transform: scale(0.72); transform-origin: top left; }
-      body.phone .topbtn { padding: 7px 12px; font-size: 10px; }
-      /* #show centers itself with translateX(-50%) — the scale must COMPOSE
-         with it, not replace it (a bare scale() shoved the chips right). */
-      body.phone #show { transform: translateX(-50%) scale(0.85); transform-origin: top center; }
-      body.phone #hud-tl, body.phone #hud-tr { font-size: 11px; }
-      body.phone #hud-log { display: none; } /* the ticker covers it; no room */
-      body.phone #ticker { max-width: 30ch; font-size: 11px; }
-      /* Landscape gate: the iso view + twin-thumb layout need width. Glass
-         plate over everything (z 40 — above even the menu at 28). */
+
+      /* ---- the landscape gate: GAMEPLAY ONLY ----
+         The campfire menu, the shop, the recap and the leaderboards read BETTER
+         in portrait, and the old gate walled all of them off — a phone player's
+         first screen was a rotate card over a menu (§4.4). `body.ingame` is set
+         by the host only while a run actually owns the screen. */
       #rotate { display: none; }
       @media (orientation: portrait) {
-        body.phone #rotate { display: flex; position: fixed; inset: 0; z-index: 40;
+        body.phone.ingame #rotate { display: flex; position: fixed; inset: 0; z-index: 40;
           background: rgba(10,8,6,0.97); flex-direction: column; align-items: center;
-          justify-content: center; gap: 14px; text-align: center; }
+          justify-content: center; gap: 14px; text-align: center;
+          padding: var(--gut-t) var(--gut-r) var(--gut-b) var(--gut-l); }
       }
-      #rotate b { font-family: "Cinzel", serif; font-size: 20px; letter-spacing: 0.14em;
-        color: var(--gold-hi); text-transform: uppercase; }
-      #rotate span { color: var(--ink-dim); font-size: 14px; max-width: 34ch; }
       /* Ability chips (r2 hotbar): ~64px BEVELED GOLD frames — engraved
          bronze-gold border, inner black keyline, top bevel light — keycap
          seated in the frame's top edge, radial cooldown wipes, charge pip
@@ -1088,6 +1238,8 @@
       #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #3c5f93, #5a87c6);
         width: 0%; box-shadow: inset -2px 0 0 rgba(220,235,255,0.6), inset 0 1px 0 rgba(255,255,255,0.25); }
       #keys .credits { margin-top: 10px; color: #6f6757; font-size: 10px; }
+
+      #sheet .hint .tapword { display: none; }
 
       /* Inventory panel */
       #inv { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -3487,6 +3639,402 @@
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: var(--bronze); border-radius: 4px; }
       ::-webkit-scrollbar-track { background: var(--stone); }
+
+      /* ============ TOUCH-FIRST PANELS (MOBILE.md §4.5) ====================
+         Measured before this block existed: ZERO close controls on every panel
+         (`#inv`, `#sheet` and `#abil` contained no <button> at all), tap-
+         outside-closes false everywhere, the shop's bag rendering at y=363 on
+         a 342-tall viewport — the player's own inventory 21px BELOW the
+         screen — 8 of 8 shop controls under 44px, the sheet resolving 799px of
+         grid tracks inside a 708px container, and the inventory keeping two
+         301px columns on a 750px phone. On a phone with no keyboard, opening
+         any of them ended the session.
+
+         The rules, applied uniformly: nothing overhangs the safe box, every
+         panel closes three ways, every control clears 44px, and where two
+         panes cannot fit, one shows at a time. ---- */
+      @media (pointer: coarse) {
+        /* Panels live INSIDE the safe box and scroll internally. The shop used
+           to overhang the viewport by 4px at the top and 4px at the bottom
+           simultaneously, which is the geometry of a panel that was never told
+           how big the screen is. */
+        #inv, #abil, #sheet, #keys, #saferoom, #draft, #recap, #menu {
+          padding: var(--gut-t) var(--gut-r) var(--gut-b) var(--gut-l);
+          align-items: stretch; justify-content: stretch; }
+        /* box-sizing: border-box is NOT global in this stylesheet, so
+           `height: 100%` plus the panel's own padding and border overhung the
+           viewport by 49px on every panel measured (r3). Set it here rather
+           than globally: a blanket `* { box-sizing }` would silently resize
+           several hundred desktop rules that were authored against content-box. */
+        #inv > .panel, #abil > .panel, #sheet > .panel, #keys > .panel,
+        #saferoom > .panel, #draft > .panel, #recap > .panel, #menu > .panel {
+          box-sizing: border-box;
+          width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+          margin: 0; overflow-y: auto; overflow-x: hidden;
+          -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+          position: relative; }
+        /* Bottom room ONLY for the panels that actually carry a DONE bar.
+           The shop and the recap exit through DESCEND / NEW SEASON, and
+           reserving the bar's height for them left a strip of dead stone
+           across the foot of the tablet shop. */
+        #inv > .panel, #abil > .panel, #sheet > .panel,
+        #keys > .panel, #draft > .panel { padding-bottom: 62px; }
+
+        /* --- the three ways out ---
+           A ✕ that mirrors with the grip, and a DONE bar that cannot be missed
+           the way a corner glyph can. Backdrop tap and swipe-down live in
+           src/ui/panelTouch.ts, which calls the SAME close the keyboard calls —
+           one close path per panel, so Escape and a swipe cannot drift apart. */
+        /* 46, not 44: the panel opens with a scale(0.96) keyframe, so a 44px
+           control genuinely measures 42 for the first 160ms — and a thumb that
+           lands during the open animation is the common case, not the rare one. */
+        .tp-x { position: sticky; float: right; top: 0; z-index: 12;
+          box-sizing: border-box; width: 46px; height: 46px; margin: -6px -6px 0 8px; padding: 0;
+          display: flex; align-items: center; justify-content: center;
+          font-family: var(--display); font-size: 17px; line-height: 1;
+          color: var(--ink-dim); cursor: pointer; border-radius: 3px;
+          background: linear-gradient(180deg, #241c14, #100c09);
+          border: 1px solid #6e5533; box-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+        .tp-x:active { color: var(--gold-hi); border-color: var(--gold); }
+        body.handed-left .tp-x { float: left; margin: -6px 8px 0 -6px; }
+        .tp-done { position: absolute; left: 0; right: 0; bottom: 0; z-index: 12;
+          height: 52px; border: 0; border-top: 1px solid var(--bronze); cursor: pointer;
+          background: linear-gradient(180deg, rgba(36,28,20,0.97), rgba(12,9,7,0.99));
+          color: var(--gold-hi); font-family: var(--display); font-variant: small-caps;
+          letter-spacing: 0.18em; font-size: 14px; }
+        .tp-done:active { background: linear-gradient(180deg, #3a2d1b, #1a140d); }
+        /* The bar is pinned to the panel, and the panel is already inside the
+           gutter, so it can never land under a home indicator. */
+        .tpanel { transition: transform 140ms cubic-bezier(0.2, 0.9, 0.25, 1); }
+        /* NO SCALE-IN ON A FULL-SCREEN PANEL.
+           `panel-in` opens with scale(0.96), which on a desktop is a 160ms
+           flourish on a floating card. On a phone the panel IS the screen, so
+           all the flourish does is make every control inside it 4% smaller
+           than its own CSS for the first 160ms — measured: 44px segmented tabs
+           and a 44px ✕ reading 42. A thumb arriving during the open animation
+           is the common case, not the rare one. The fade stays; the scale goes. */
+        #inv > .panel, #abil > .panel, #sheet > .panel, #keys > .panel,
+        #saferoom > .panel, #draft > .panel, #recap > .panel, #menu > .panel {
+          animation-name: overlay-in; }
+
+        /* --- 44px everywhere ---
+           Not "most controls": the probe counts every button, tab, row, cell
+           and card in the panel, and the exit gate is zero under 44. */
+        #saferoom button, #inv button, #sheet button, #abil button,
+        #keys button, #draft button, #recap button, #menu button { min-height: 44px; }
+        .shop-tabs .tab, .shop-subtabs .tab { min-height: 44px; padding: 12px 8px; }
+        /* SELL ALL lives inside a one-line section label; at 44px it is
+           taller than its own line box and it overflowed UPWARD onto the
+           EQUIPPED row (iPad capture). The label becomes a flex row so the
+           button sets the row height instead of escaping it. */
+        .shop-bag .sec-label { display: flex; align-items: center; gap: 10px;
+          min-height: 48px; }
+        #sr-sellall { min-height: 44px; min-width: 96px; padding: 0 14px;
+          margin-left: auto; box-sizing: border-box; }
+        #sr-descend { min-height: 50px; padding: 0 26px; }
+        .dbtns button, .bench-btn { min-height: 46px; width: 100%; box-sizing: border-box; }
+        /* The BUY footer is `position: sticky; bottom: -12px`, which pins it to
+           the bottom of the SCROLLER — so on a card shorter than the pane it
+           landed on top of the item's own name and price (r3 capture). A flex
+           column puts it at the bottom by layout instead, where it cannot
+           overlap anything, and it still never leaves the screen. */
+        .shop-detail { display: flex; flex-direction: column; }
+        /* flex-shrink defaults to 1, so in a fixed-height column every card
+           section — art, name, stat block — got squeezed and the item's own
+           name clipped (r4). The column exists ONLY to push the footer down;
+           nothing else in it may resize. */
+        .shop-detail > * { flex: 0 0 auto; }
+        .shop-detail .dfoot { position: static; margin-top: auto; bottom: auto; }
+        .dbtns { display: flex; flex-direction: column; gap: 8px; }
+        .item { min-height: 44px; padding: 11px 12px; }
+        .bag-grid { gap: 8px; }
+        .bag-grid .itile { width: 46px; }
+        .bag-grid .itile .ibox { width: 46px; height: 46px; }
+        .bag-grid .itile .ii { width: 36px; height: 36px; }
+        .bag-grid.dense .itile, .bag-grid.micro .itile { width: 46px; }
+        .bag-grid.dense .itile .ibox, .bag-grid.micro .itile .ibox { width: 46px; height: 46px; }
+        .bag-grid.dense .itile .ii, .bag-grid.micro .itile .ii { width: 34px; height: 34px; }
+        .shop-shelf .itile { width: 62px; }
+        .shop-shelf .itile .ibox { width: 62px; height: 62px; }
+        .shop-shelf .itile .ii { width: 50px; height: 50px; }
+        .kb-row { min-height: 48px; align-items: center; }
+        /* Text fields are tap targets too — the crawler-name box measured
+           202x25 on an iPad, and a party code you cannot reliably tap into is
+           a party you do not join. */
+        #menu input, #inv input, #keys input, #saferoom input,
+        #menu select, #keys select { min-height: 46px; box-sizing: border-box;
+          font-size: 16px; }
+        .kb-key { min-height: 44px; min-width: 64px; display: inline-flex;
+          align-items: center; justify-content: center; }
+
+        /* --- glyph socketing: tap-tap, with a pending state you can see ---
+           Nothing here uses HTML5 drag events (they do not fire on touch), so
+           socketing was already click-based; what it lacked was a target a
+           thumb can hit and a legible "glyph in hand" state. The well stays
+           17px visually — it is jewellery on a chip — and grows a 44px hit
+           box around it. */
+        .socks { gap: 2px; }
+        .sock { width: 44px; height: 44px; border-width: 0; background: none;
+          box-shadow: none; }
+        .sock::before { content: ""; position: absolute; left: 50%; top: 50%;
+          width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+          border: 1px solid #3a2f20; box-shadow: inset 0 1px 3px rgba(0,0,0,0.8);
+          background: radial-gradient(circle at 35% 30%, #1b1610, #0b0805); }
+        .sock img { width: 18px; height: 18px; position: relative; z-index: 1; }
+        .sock.filled::before { border-color: #7a5cc9; box-shadow: 0 0 9px rgba(154,107,208,0.5); }
+        .sock.filled.dormant::before { border-color: #443a2c; box-shadow: none; }
+        .sock.locked::before { border-style: dashed; border-color: #2b241a; }
+        .sock.locked::after { top: 50%; margin-top: -12px; }
+        .sock.target::before { border-color: #6da356; border-width: 2px; }
+        .gchip { width: 124px; min-height: 44px; padding: 10px 8px 9px; }
+        .gchip .gbox { width: 40px; height: 40px; }
+        .gchip .gbox img { width: 38px; height: 38px; }
+        /* HELD reads across the panel, not just on the chip: the sockets that
+           can take it pulse, and the bench chip carries a caption saying so. */
+        .gchip.held::after { content: "IN HAND — TAP A LIT SOCKET"; display: block;
+          margin-top: 6px; font-family: var(--display); font-variant: small-caps;
+          letter-spacing: 0.1em; font-size: 9px; color: #b08fd9; }
+
+        /* --- the sheet: stacked, and the math is a tap away ---
+           799px of tracks in a 708px container severed the DAMAGE table's CD
+           and DPS columns at the viewport edge. It already fits on a tablet,
+           so only the two phone classes stack. */
+        #sheet .hint .hoverword { display: none; }
+        #sheet .hint .tapword { display: inline; }
+        #inv .cols, #sheet .sheet-cols, #sheet .sheet-duo { gap: 12px; }
+        /* --- the constellation: a picker rail, not 1,847px of thumbing ---
+           The cards were always legible (332px wide, every SLOT/BENCH button
+           over 44px); the failure was navigation — a 1,492px card grid inside
+           a 295px panel with no index and no way to reach a named ability. */
+        #abil .tp-rail { position: sticky; top: 0; z-index: 11; display: flex;
+          gap: 6px; overflow-x: auto; overscroll-behavior-x: contain;
+          padding: 8px 0; margin-bottom: 8px; scrollbar-width: none;
+          background: linear-gradient(180deg, #171310 72%, rgba(23,19,16,0)); }
+        #abil .tp-rail::-webkit-scrollbar { display: none; }
+        #abil .tp-rail button { flex: none; min-height: 46px; min-width: 46px;
+          padding: 0 8px; display: flex; align-items: center; justify-content: center;
+          border-radius: 3px; cursor: pointer; background: #221b15;
+          border: 1px solid #3a2f20; }
+        #abil .tp-rail button.on { border-color: var(--gold); background: #2c241b; }
+        #abil .tp-rail button i { width: 26px; height: 26px; background: var(--gold);
+          mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+          -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat;
+          -webkit-mask-position: center; }
+        #abil .acard { scroll-margin-top: 64px; }
+
+        /* --- segmented panes ---
+           Where two tracks cannot fit, one shows at a time. This is the shop's
+           SHELF / DETAIL / BAG and the inventory's EQUIPPED / BAG. */
+        .tp-seg { display: none; gap: 6px; margin: 8px 0 6px; }
+        .tp-seg button { flex: 1; min-height: 44px; cursor: pointer;
+          font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+          font-size: 12px; color: var(--ink-faint); border-radius: 3px;
+          background: #17120d; border: 1px solid #2c2418; }
+        .tp-seg button.on { color: var(--gold-hi); background: #2c241b;
+          border-color: var(--gold); }
+        .tp-seg button[data-badge]:not([data-badge=""])::after {
+          content: attr(data-badge); margin-left: 6px; font-size: 10px;
+          color: var(--ink-faint); }
+      }
+
+      /* --- THE SHOP, MADE TO FIT ---
+         Two separate failures in r2. First, the panel scrolled as one document,
+         so DESCEND rode in normal flow and landed on top of the detail pane's
+         sticky BUY footer. The panel is now a flex column that does not scroll;
+         the ACTIVE PANE scrolls, and DESCEND is the last row, pinned by the
+         layout rather than by luck. Second, every piece of chrome was still
+         desktop-sized: "SAFE ROOM" wrapped to two lines and the header alone
+         ate a third of a 342px viewport. */
+      body[data-uiclass="compact"] #saferoom > .panel,
+      body[data-uiclass="phone"] #saferoom > .panel {
+        display: flex; flex-direction: column; overflow: hidden;
+        padding: 10px 12px 0; }
+      body[data-uiclass="compact"] #saferoom .shop-body,
+      body[data-uiclass="phone"] #saferoom .shop-body,
+      body[data-uiclass="compact"] #saferoom .sr-page,
+      body[data-uiclass="phone"] #saferoom .sr-page { flex: 1; min-height: 0; overflow: hidden; }
+      body[data-uiclass="compact"] #saferoom .sr-page,
+      body[data-uiclass="phone"] #saferoom .sr-page { overflow-y: auto; }
+      body[data-uiclass="compact"] #saferoom .seg-on,
+      body[data-uiclass="phone"] #saferoom .seg-on {
+        display: flex; flex-direction: column; height: 100%; min-height: 0;
+        overflow-y: auto; overscroll-behavior: contain; }
+      body[data-uiclass="compact"] #saferoom .shop-shelf,
+      body[data-uiclass="phone"] #saferoom .shop-shelf { flex: 1; min-height: 0; }
+      body[data-uiclass="compact"] #saferoom .descend,
+      body[data-uiclass="phone"] #saferoom .descend { flex: none; margin: 6px 0 0;
+        padding: 6px 0 calc(var(--sa-b) + 6px); }
+      /* Chrome compression. Every number here comes from a measured overflow. */
+      body[data-uiclass="compact"] #saferoom h2,
+      body[data-uiclass="phone"] #saferoom h2 { font-size: 12px; white-space: nowrap; }
+      body[data-uiclass="compact"] .shop-head,
+      body[data-uiclass="phone"] .shop-head { gap: 8px; padding-bottom: 4px; }
+      body[data-uiclass="compact"] .shop-tabs,
+      body[data-uiclass="phone"] .shop-tabs { gap: 8px; }
+      body[data-uiclass="compact"] .shop-tabs .tab,
+      body[data-uiclass="phone"] .shop-tabs .tab { font-size: 10.5px; padding: 12px 4px; }
+      /* Mordecai's tip is flavour and it is one line of a five-line budget. */
+      body[data-uiclass="compact"] #saferoom .tip { display: none; }
+      body[data-uiclass="compact"] .shop-detail .dart,
+      body[data-uiclass="phone"] .shop-detail .dart { width: 56px; height: 56px; }
+      body[data-uiclass="compact"] .shop-detail .dart .ii,
+      body[data-uiclass="phone"] .shop-detail .dart .ii { width: 48px; height: 48px; }
+      body[data-uiclass="compact"] .tp-seg,
+      body[data-uiclass="phone"] .tp-seg { margin: 6px 0 4px; flex: none; }
+      body[data-uiclass="compact"] .tp-seg button,
+      body[data-uiclass="phone"] .tp-seg button { font-size: 11px; }
+      /* The segmented control belongs to the SHOP page. On ABILITIES and
+         ACHIEVEMENTS it is three buttons that do nothing (r2: it rendered
+         above the glyph bench). The host toggles this class per tab. */
+      #saferoom:not(.sr-shop) .tp-seg { display: none !important; }
+
+      /* --- one pane at a time, on the two classes that cannot hold two --- */
+      body[data-uiclass="compact"] .tp-seg,
+      body[data-uiclass="phone"] .tp-seg { display: flex; }
+      body[data-uiclass="compact"] #saferoom .shop-body,
+      body[data-uiclass="phone"] #saferoom .shop-body { display: block; }
+      /* `display: contents` dissolves the .shop-side wrapper so DETAIL and BAG
+         become siblings of the shelf — a segmented control needs three peers,
+         and this gets them without restructuring the markup the desktop uses. */
+      body[data-uiclass="compact"] #saferoom .shop-side,
+      body[data-uiclass="phone"] #saferoom .shop-side { display: contents; }
+      body[data-uiclass="compact"] #saferoom .shelf-col,
+      body[data-uiclass="compact"] #saferoom .shop-detail,
+      body[data-uiclass="compact"] #saferoom .shop-bag,
+      body[data-uiclass="phone"] #saferoom .shelf-col,
+      body[data-uiclass="phone"] #saferoom .shop-detail,
+      body[data-uiclass="phone"] #saferoom .shop-bag,
+      body[data-uiclass="compact"] #inv .cols > div,
+      body[data-uiclass="phone"] #inv .cols > div { display: none; }
+      /* The show rules MIRROR the hide rules' structure exactly, plus the
+         class. Anything less specific loses to its own hide rule: `… #inv
+         .cols > div` has two type selectors to `… #inv .seg-on`'s one, and at
+         equal id/class counts the extra type selector decides. That is what
+         rendered the inventory's EQUIPPED pane as an empty box. */
+      body[data-uiclass="compact"] #saferoom .shelf-col.seg-on,
+      body[data-uiclass="compact"] #saferoom .shop-detail.seg-on,
+      body[data-uiclass="compact"] #saferoom .shop-bag.seg-on,
+      body[data-uiclass="phone"] #saferoom .shelf-col.seg-on,
+      body[data-uiclass="phone"] #saferoom .shop-detail.seg-on,
+      body[data-uiclass="phone"] #saferoom .shop-bag.seg-on,
+      body[data-uiclass="compact"] #inv .cols > div.seg-on,
+      body[data-uiclass="phone"] #inv .cols > div.seg-on { display: block; }
+      body[data-uiclass="compact"] #inv .cols,
+      body[data-uiclass="phone"] #inv .cols { display: block; }
+      /* Stacked sheet + single-column constellation on the phone classes. */
+      body[data-uiclass="compact"] #sheet .sheet-cols,
+      body[data-uiclass="phone"] #sheet .sheet-cols,
+      body[data-uiclass="compact"] #sheet .sheet-duo,
+      body[data-uiclass="phone"] #sheet .sheet-duo { grid-template-columns: 1fr; }
+      body[data-uiclass="compact"] #abil .grid,
+      body[data-uiclass="phone"] #abil .grid { columns: 1; }
+      body[data-uiclass="compact"] #abil .ach-grid,
+      body[data-uiclass="phone"] #abil .ach-grid { grid-template-columns: 1fr; }
+      /* The draft's cards sit under the CASTING thumb, mirrored with the grip
+         (r4 showed them occupying the left half of a tablet — the far side). */
+      body.touch #draft { justify-content: flex-end; }
+      body.touch.handed-left #draft { justify-content: flex-start; }
+
+      /* --- HEADER BLOCKS, ON A SCREEN THAT CANNOT AFFORD THEM ---
+         Measured at dpr 3 off the r2 captures. The menu's title block is
+         147 CSS px of a 342px-tall viewport — 43% of the screen spent on the
+         game's own name — which is what puts NEW RUN, PARTY, RIVALS, ROAM and
+         TEST CHAMBER below the fold. The name is on the tab and the loading
+         screen; here it is decoration, and the modes are the screen. */
+      body[data-uiclass="compact"] #menu h1,
+      body[data-uiclass="phone"] #menu h1 { font-size: 17px; letter-spacing: 3px; margin: 2px 0; }
+      body[data-uiclass="compact"] #menu .m-kicker { display: none; }
+      body[data-uiclass="compact"] #menu .m-sub,
+      body[data-uiclass="phone"] #menu .m-sub { font-size: 11px; margin-bottom: 8px; }
+      body[data-uiclass="compact"] #menu .m-name-row,
+      body[data-uiclass="phone"] #menu .m-name-row { margin-bottom: 8px; }
+      body[data-uiclass="compact"] #menu input,
+      body[data-uiclass="phone"] #menu input { min-height: 44px; }
+      /* Two columns of mode tiles on a 750px phone means neither is legible;
+         the leaderboard rail moves below the modes, where it belongs on a
+         screen you scroll. */
+      body[data-uiclass="compact"] #menu .m-cols,
+      body[data-uiclass="phone"] #menu .m-cols { grid-template-columns: 1fr; gap: 12px; }
+      /* The other panels' headers, trimmed the same way — the hint line is
+         keyboard instructions on a device with no keyboard. */
+      body[data-uiclass="compact"] #sheet .hint,
+      body[data-uiclass="compact"] #abil .hint,
+      body[data-uiclass="compact"] #inv .hint { font-size: 10.5px; margin-bottom: 6px; }
+      body[data-uiclass="compact"] #sheet h2,
+      body[data-uiclass="compact"] #abil h2,
+      body[data-uiclass="compact"] #inv h2 { font-size: 13px; }
+      body[data-uiclass="compact"] #sheet .hint kbd,
+      body[data-uiclass="phone"] #sheet .hint kbd,
+      body[data-uiclass="compact"] #abil .hint kbd,
+      body[data-uiclass="phone"] #abil .hint kbd,
+      body[data-uiclass="compact"] #inv .hint kbd,
+      body[data-uiclass="phone"] #inv .hint kbd { display: none; }
+
+      /* ============ THE DERIVATION SHEET ==================================
+         The crawler profile said "hover anything for the math". Touch has no
+         hover, so the entire derivation layer was invisible on glass (§1.3).
+         A tap on a row now raises this from the bottom edge, where the thumb
+         already is. One element, reused. */
+      #tsheet { position: fixed; inset: 0; z-index: 32; display: none; }
+      #tsheet.on { display: block; }
+      #tsheet .ts-scrim { position: absolute; inset: 0; background: rgba(4,4,8,0.55); }
+      #tsheet .ts-box { position: absolute; left: 0; right: 0; bottom: 0;
+        max-height: 72vh; overflow-y: auto; overscroll-behavior: contain;
+        padding: 6px var(--gut-r) calc(var(--gut-b) + 10px) var(--gut-l);
+        background: linear-gradient(180deg, var(--raised), var(--stone) 46%);
+        border-top: 1px solid var(--bronze);
+        box-shadow: 0 -18px 50px rgba(0,0,0,0.7);
+        animation: ts-rise 0.17s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      @keyframes ts-rise { from { transform: translateY(28px); opacity: 0; } }
+      #tsheet .ts-grip { width: 42px; height: 4px; border-radius: 2px; margin: 4px auto 8px;
+        background: var(--bronze); }
+      #tsheet .ts-title { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.12em; font-size: 15px; color: var(--gold-hi); margin-bottom: 6px; }
+      #tsheet .ts-body { font-size: 13px; color: var(--ink); line-height: 1.55; }
+      #tsheet .ts-body .tsrow { display: flex; justify-content: space-between; gap: 12px;
+        padding: 7px 0; border-bottom: 1px solid #241d16; }
+      #tsheet .ts-body .tsrow b { color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+      #tsheet .ts-close { width: 100%; min-height: 48px; margin-top: 12px; cursor: pointer;
+        background: #221b15; border: 1px solid #6e5533; border-radius: 3px;
+        color: var(--ink-dim); font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.16em; }
+      @media (prefers-reduced-motion: reduce) {
+        #tsheet .ts-box { animation: none; }
+        .tpanel { transition: none; }
+      }
+
+      /* ============ THE CONTROLS TAB (MOBILE.md §6) =======================
+         Thumb length varies more than screen size does, so the layout is a
+         setting, not a constant. Every row here is a tap target, because a
+         slider is a menu on a phone and this is a game, not a preferences app. */
+      #keys .kb-tabs { display: flex; gap: 6px; margin: 4px 0 12px; }
+      #keys .kb-tabs button { flex: 1; min-height: 44px; cursor: pointer;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        font-size: 12px; color: var(--ink-faint); border-radius: 3px;
+        background: #17120d; border: 1px solid #2c2418; }
+      #keys .kb-tabs button.on { color: var(--gold-hi); background: #2c241b; border-color: var(--gold); }
+      #keys .kb-page { display: none; }
+      #keys .kb-page.on { display: block; }
+      .ctl-row { display: flex; align-items: center; gap: 12px; padding: 9px 0;
+        border-bottom: 1px solid #241d16; }
+      .ctl-row .ctl-name { flex: 1; font-size: 13px; color: var(--ink); }
+      .ctl-row .ctl-name small { display: block; color: var(--ink-faint); font-size: 11px;
+        line-height: 1.35; margin-top: 2px; }
+      .ctl-row .ctl-val { min-width: 74px; text-align: right; font-variant-numeric: tabular-nums;
+        color: var(--gold-hi); font-weight: 700; font-size: 13px; }
+      .ctl-step { display: flex; gap: 6px; }
+      .ctl-step button, .ctl-pick button { min-width: 46px; min-height: 46px; cursor: pointer;
+        background: #221b15; border: 1px solid #6e5533; border-radius: 3px;
+        color: var(--ink); font-size: 15px; line-height: 1; }
+      .ctl-step button:active, .ctl-pick button:active { border-color: var(--gold); color: var(--gold-hi); }
+      .ctl-pick { display: flex; gap: 6px; }
+      .ctl-pick button { padding: 0 12px; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; font-size: 12px; }
+      .ctl-pick button.on { background: #2c241b; border-color: var(--gold); color: var(--gold-hi); }
+      /* The live preview: the cluster is already on screen behind the panel,
+         so a size change is visible the moment it is made. */
+      #keys .ctl-note { color: var(--ink-faint); font-size: 11px; font-style: italic;
+        line-height: 1.5; margin: 10px 0 2px; }
     </style>
   </head>
   <body>
@@ -3728,7 +4276,7 @@
     <div id="sheet">
       <div class="panel">
         <h2>◆ CRAWLER PROFILE <span class="sub" id="sheet-sub"></span></h2>
-        <div class="hint">The System's file on you · hover anything for the math ·
+        <div class="hint">The System's file on you · <span class="hoverword">hover</span><span class="tapword">tap</span> anything for the math ·
           <kbd id="sheet-close-key">P</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
         <!-- r3 rebalance: ATTRIBUTES rides the right column beside DEFENSE so
              neither column dies early — the left is the armory, the right is
@@ -3778,6 +4326,7 @@
       <button id="t-stairs">Descend</button>
     </div>
     <!-- Phone landscape gate (body.phone + portrait orientation, see CSS). -->
+    <div id="mapbig-scrim"></div>
     <div id="rotate">
       <b>Rotate Your Device</b>
       <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>

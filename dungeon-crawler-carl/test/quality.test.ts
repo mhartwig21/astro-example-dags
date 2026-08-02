@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  QUALITY_ORDER, QUALITY_PRESETS, QualityAutoTuner, type QualityName,
+  QUALITY_ORDER, QUALITY_PRESETS, QualityAutoTuner, guessQuality, type QualityName,
 } from "../src/render3d/quality";
 
 /** Feed the tuner `seconds` of frames at a steady frame time. */
@@ -163,5 +163,34 @@ describe("quality auto-tuner", () => {
     expect(t.current).toBe("balanced");
     run(t, 4, 120);
     expect(t.current).toBe("balanced");
+  });
+});
+
+
+describe("quality: a phone is a phone even when it will not say so", () => {
+  it("a coarse pointer on a short screen picks PERFORMANCE without the GL extension", () => {
+    // Safari exposes no WEBGL_debug_renderer_info, so the renderer string is
+    // empty; before this branch existed, an iPhone fell through to "cores > 4"
+    // and booted at ULTRA with no pixel-ratio cap at dpr 3.
+    expect(guessQuality(null, { coarse: true, shortEdge: 390 })).toBe("performance");
+    expect(guessQuality(null, { coarse: true, shortEdge: 342 })).toBe("performance");
+  });
+
+  it("a tablet picks BALANCED — the measured 60 fps rung", () => {
+    expect(guessQuality(null, { coarse: true, shortEdge: 834 })).toBe("balanced");
+    expect(guessQuality(null, { coarse: true, shortEdge: 810 })).toBe("balanced");
+  });
+
+  it("a desktop touchscreen is not a phone", () => {
+    expect(guessQuality(null, { coarse: true, shortEdge: 1440 })).not.toBe("performance");
+    expect(guessQuality(null, {})).not.toBe("performance");
+  });
+
+  it("an explicit renderer string still wins where the browser provides one", () => {
+    const gl = {
+      getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1 }),
+      getParameter: () => "Adreno (TM) 650",
+    } as unknown as WebGL2RenderingContext;
+    expect(guessQuality(gl, { coarse: false, shortEdge: 2000 })).toMatch(/performance|balanced/);
   });
 });

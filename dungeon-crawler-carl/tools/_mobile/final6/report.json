@@ -1,0 +1,522 @@
+[
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\final6\\ipadpro11-land-combat.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": {
+      "body": "touch",
+      "dpr": 2,
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 1088,
+          "y": 728,
+          "w": 96,
+          "h": 96,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 964,
+          "y": 752,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 988,
+          "y": 668,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 1048,
+          "y": 608,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 1112,
+          "y": 574,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 876,
+          "y": 760,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 125,
+        "w": 525,
+        "h": 709,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 160,
+        "h": 160,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 864,
+        "y": 568,
+        "w": 320,
+        "h": 256,
+        "vis": true
+      },
+      "player": {
+        "x": 63.336,
+        "y": 3.043,
+        "hp": 412,
+        "facing": {
+          "x": 1,
+          "y": -0.07
+        }
+      },
+      "floor": 6,
+      "panelsOpen": []
+    },
+    "measure": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 18.02 tiles; stick visual on press = true; the finger at (215,600) actually lands on DIV#t-stickzone."
+      },
+      {
+        "name": "move: stick on clear ground",
+        "verdict": "PASS",
+        "detail": "moved 16.15 tiles from (358,734) over DIV#t-stickzone.; stick visual = true"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "PASS",
+        "detail": "minimap 160x160 at (92,176) is inside the stick zone (hit: CANVAS#minimap.); moved 15.19 tiles, stick shown = true, pings 0->0"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "PASS",
+        "detail": "pack hp 8747 -> 8675"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "PASS",
+        "detail": "cooldowns started: dash"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "PASS",
+        "detail": "fired bolt; facing changed=true; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "PASS",
+        "detail": "kept moving 1.54 tiles with a second finger on the chips; the stick finger at (358,734) landed on DIV#t-stickzone. (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "PASS",
+        "detail": "charges 3->2, hp 165->309"
+      },
+      {
+        "name": "dodge: the dash chip",
+        "verdict": "PASS",
+        "detail": "dash is ability slot 1; moved 3.20 tiles"
+      },
+      {
+        "name": "dodge: FLICK the movement stick",
+        "verdict": "PASS",
+        "detail": "charges 2->1, cd.dash 0.00->0.64"
+      },
+      {
+        "name": "dodge: TWO-FINGER world tap",
+        "verdict": "PASS",
+        "detail": "at (725,524); charges 2->1, cd.dash 0.23"
+      },
+      {
+        "name": "dodge: a SLOW two-finger drag does not dash",
+        "verdict": "PASS",
+        "detail": "charges 2->2"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h44) abilities(h44) character(h44) draft(h44) | inventory opened=true, bottom overflows viewport by 0px, close controls: [NONE] | tap-outside closes = false"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics: a chip press pulses",
+        "verdict": "PASS",
+        "detail": "navigator.vibrate calls during one tap: [8,14]"
+      },
+      {
+        "name": "cancel: the labelled band",
+        "verdict": "PASS",
+        "detail": "band 409x68 at (773,175); shown on aim=true; armed inside=true; cooldowns started=[]"
+      },
+      {
+        "name": "world: tap to move",
+        "verdict": "PASS",
+        "detail": "tapped (725,487); the tap became a move order to {\"x\":63.52418150005307,\"y\":3.029873040147221} (3.45 tiles away); walked 3.26; target later = null (cleared = arrived, or the straight line was blocked: clickMove steers, it does not path)"
+      },
+      {
+        "name": "world: long press pings",
+        "verdict": "PASS",
+        "detail": "pings 0->1 (1 still alive); the hold resolved as {\"x\":745,\"y\":487,\"long\":true,\"ground\":{\"x\":67.06803302242469,\"y\":2.5176920671212706}}; ping at {\"pos\":{\"x\":67.06803302242469,\"y\":2.5176920671212706},\"t\":5.6}"
+      },
+      {
+        "name": "world: tap a monster locks it",
+        "verdict": "PASS",
+        "detail": "tapped monster 179 at (637,396); lockedTargetId=179; the tap resolved as {\"x\":637,\"y\":396,\"long\":false,\"ground\":{\"x\":63.43259922694174,\"y\":1.9870124551930122}}"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: cockpit bottom 10<20; banner top 12<24; hud-tl top 12<24; hud-tr top 12<24; xpbar bottom -4<20"
+      },
+      {
+        "name": "modal: opens mid-aim, then the finger lifts",
+        "verdict": "PASS",
+        "detail": "modal opened mid-drag=true; the release point sits over DIV#.panel; casts while the modal was up: none; casts once it closed: none; modal still open after release=true"
+      },
+      {
+        "name": "perf: heap growth over 240 idle frames",
+        "verdict": "INFO",
+        "detail": "{\"supported\":true,\"deltaBytes\":0,\"frames\":240}"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":2,\"backbuffer\":\"1194x834\"}"
+      }
+    ],
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\final6\\iphone13-land-combat.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": {
+      "body": "phone touch",
+      "dpr": 3,
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 668,
+          "y": 260,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 578,
+          "y": 278,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 595,
+          "y": 217,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 639,
+          "y": 173,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 686,
+          "y": 148,
+          "w": 54,
+          "h": 54,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 512,
+          "y": 284,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 51,
+        "w": 330,
+        "h": 291,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 115,
+        "h": 115,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 506,
+        "y": 144,
+        "w": 234,
+        "h": 188,
+        "vis": true
+      },
+      "player": {
+        "x": 53.645,
+        "y": 10.62,
+        "hp": 332,
+        "facing": {
+          "x": 1,
+          "y": 0
+        }
+      },
+      "floor": 6,
+      "panelsOpen": []
+    },
+    "measure": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 16.76 tiles; stick visual on press = true; the finger at (135,246) actually lands on BUTTON#.tut-dismiss"
+      },
+      {
+        "name": "move: stick on clear ground",
+        "verdict": "PASS",
+        "detail": "moved 15.87 tiles from (225,301) over DIV#t-stickzone.; stick visual = true"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "PASS",
+        "detail": "minimap 115x115 at (70,154) is inside the stick zone (hit: CANVAS#minimap.); moved 15.71 tiles, stick shown = true, pings 0->0"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "PASS",
+        "detail": "pack hp 8747 -> 8607"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "PASS",
+        "detail": "cooldowns started: dash"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "PASS",
+        "detail": "fired bolt; facing changed=true; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "PASS",
+        "detail": "kept moving 1.54 tiles with a second finger on the chips; the stick finger at (225,301) landed on DIV#t-stickzone. (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "PASS",
+        "detail": "charges 3->2, hp 165->279"
+      },
+      {
+        "name": "dodge: the dash chip",
+        "verdict": "PASS",
+        "detail": "dash is ability slot 1; moved 3.20 tiles"
+      },
+      {
+        "name": "dodge: FLICK the movement stick",
+        "verdict": "PASS",
+        "detail": "charges 2->1, cd.dash 0.00->0.14"
+      },
+      {
+        "name": "dodge: TWO-FINGER world tap",
+        "verdict": "PASS",
+        "detail": "at (448,210); charges 2->1, cd.dash 0.42"
+      },
+      {
+        "name": "dodge: a SLOW two-finger drag does not dash",
+        "verdict": "PASS",
+        "detail": "charges 2->2"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h44) abilities(h44) character(h44) draft(h44) | inventory opened=true, bottom overflows viewport by 0px, close controls: [NONE] | tap-outside closes = false"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics: a chip press pulses",
+        "verdict": "PASS",
+        "detail": "navigator.vibrate calls during one tap: [8,14]"
+      },
+      {
+        "name": "cancel: the labelled band",
+        "verdict": "PASS",
+        "detail": "band 257x44 at (481,80); shown on aim=true; armed inside=true; cooldowns started=[]"
+      },
+      {
+        "name": "world: tap to move",
+        "verdict": "PASS",
+        "detail": "tapped (448,165); the tap became a move order to {\"x\":55.021222633112565,\"y\":10.61496157325467} (2.45 tiles away); walked 1.80; target later = {\"x\":55.021222633112565,\"y\":10.61496157325467} (cleared = arrived, or the straight line was blocked: clickMove steers, it does not path)"
+      },
+      {
+        "name": "world: long press pings",
+        "verdict": "PASS",
+        "detail": "pings 0->1 (1 still alive); the hold resolved as {\"x\":468,\"y\":165,\"long\":true,\"ground\":{\"x\":55.61108154280057,\"y\":8.209499490657873}}; ping at {\"pos\":{\"x\":55.61108154280057,\"y\":8.209499490657873},\"t\":5.5}"
+      },
+      {
+        "name": "world: tap a monster locks it",
+        "verdict": "PASS",
+        "detail": "tapped monster 74 at (448,161); lockedTargetId=74; the tap resolved as {\"x\":448,\"y\":161,\"long\":false,\"ground\":{\"x\":54.99096782243001,\"y\":8.527669236897752}}"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: minimap-frame left 12<47; cockpit right 10<47; cockpit bottom 10<21; hud-tl left 12<47; hud-tr right 12<47; xpbar right 10<47; xpbar bottom -4<21"
+      },
+      {
+        "name": "modal: opens mid-aim, then the finger lifts",
+        "verdict": "PASS",
+        "detail": "modal opened mid-drag=true; the release point sits over DIV#.item; casts while the modal was up: none; casts once it closed: none; modal still open after release=true"
+      },
+      {
+        "name": "perf: heap growth over 240 idle frames",
+        "verdict": "INFO",
+        "detail": "{\"supported\":true,\"deltaBytes\":0,\"frames\":240}"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":3,\"backbuffer\":\"750x342\"}"
+      }
+    ],
+    "aim": null,
+    "aimDiff": null
+  }
+]

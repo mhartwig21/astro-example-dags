@@ -1,0 +1,1799 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "file": "tools\\_hud\\r0\\iphone13-land-combat.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch",
+      "panels": {}
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "shop",
+    "file": "tools\\_hud\\r0\\iphone13-land-shop.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "saferoom"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "saferoom": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 0,
+            "y": -4,
+            "w": 750,
+            "h": 349
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 4,
+            "left": 0,
+            "top": 4,
+            "scrollX": 0,
+            "scrollY": 60,
+            "overflowX": "visible",
+            "overflowY": "visible"
+          },
+          "targets": {
+            "n": 8,
+            "under44": 8,
+            "smallest": {
+              "t": "sr-sellall",
+              "w": 68,
+              "h": 18
+            },
+            "examples": [
+              {
+                "t": "sr-tab-shop",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-abil",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-ach",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-stock",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-all",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-chase",
+                "w": 83,
+                "h": 24
+              },
+              {
+                "t": "sr-sellall",
+                "w": 68,
+                "h": 18
+              },
+              {
+                "t": "sr-descend",
+                "w": 187,
+                "h": 41
+              }
+            ]
+          },
+          "closers": [
+            "SYSTEM SHOP",
+            "ABILITIES",
+            "ACHIEVEMENTS",
+            "IN STOCK",
+            "ALL ITEMS",
+            "THE CHASE",
+            "SELL ALL",
+            "DESCEND ▼"
+          ],
+          "cols": {
+            ".shop-body": {
+              "display": "grid",
+              "cols": "350px 348px",
+              "columnCount": "auto",
+              "w": 712,
+              "children": [
+                350,
+                348
+              ]
+            }
+          },
+          "shop": {
+            "shelf": {
+              "x": 19,
+              "y": 111,
+              "w": 350,
+              "h": 156
+            },
+            "detail": {
+              "x": 383,
+              "y": 79,
+              "w": 348,
+              "h": 176
+            },
+            "bag": {
+              "x": 396,
+              "y": 363,
+              "w": 322,
+              "h": 40
+            },
+            "shelfRows": [
+              {
+                "x": 19,
+                "y": 113,
+                "w": 344,
+                "h": 14
+              },
+              {
+                "x": 19,
+                "y": 134,
+                "w": 344,
+                "h": 199
+              },
+              {
+                "x": 19,
+                "y": 345,
+                "w": 344,
+                "h": 14
+              },
+              {
+                "x": 19,
+                "y": 366,
+                "w": 344,
+                "h": 199
+              }
+            ],
+            "buyButtons": [],
+            "detailScroll": {
+              "right": 0,
+              "bottom": 0,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 178,
+              "overflowX": "auto",
+              "overflowY": "auto"
+            },
+            "tabs": [
+              {
+                "t": "SYSTEM SHOP",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "ABILITIES",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "ACHIEVEMENTS",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "IN STOCK",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "ALL ITEMS",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "THE CHASE",
+                "w": 83,
+                "h": 24
+              }
+            ]
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "sheet",
+    "file": "tools\\_hud\\r0\\iphone13-land-sheet.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "sheet"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "sheet": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 0,
+            "y": 2,
+            "w": 750,
+            "h": 339
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 89,
+            "scrollY": 383,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 0,
+            "under44": 0,
+            "smallest": null,
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".sheet-cols": {
+              "display": "grid",
+              "cols": "305px 494.25px",
+              "columnCount": "auto",
+              "w": 708,
+              "children": [
+                305,
+                494
+              ]
+            },
+            ".sheet-duo": {
+              "display": "grid",
+              "cols": "228.25px 250px",
+              "columnCount": "auto",
+              "w": 494,
+              "children": [
+                228,
+                250
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "constellation",
+    "file": "tools\\_hud\\r0\\iphone13-land-constellation.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "abil"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "abil": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 16,
+            "y": 31,
+            "w": 717,
+            "h": 295
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 1847,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 13,
+            "under44": 0,
+            "smallest": {
+              "t": "acard",
+              "w": 332,
+              "h": 174
+            },
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".grid": {
+              "display": "block",
+              "cols": "none",
+              "columnCount": "2",
+              "w": 677,
+              "children": [
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332,
+                332
+              ]
+            }
+          },
+          "constellation": {
+            "grid": {
+              "x": 37,
+              "y": 101,
+              "w": 677,
+              "h": 1492
+            },
+            "overflow": {
+              "right": 0,
+              "bottom": 1251,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "visible",
+              "overflowY": "visible"
+            },
+            "cards": [
+              {
+                "x": 37,
+                "y": 101,
+                "w": 332,
+                "h": 221
+              },
+              {
+                "x": 37,
+                "y": 336,
+                "w": 332,
+                "h": 246
+              },
+              {
+                "x": 37,
+                "y": 596,
+                "w": 332,
+                "h": 292
+              },
+              {
+                "x": 37,
+                "y": 901,
+                "w": 332,
+                "h": 281
+              },
+              {
+                "x": 37,
+                "y": 1195,
+                "w": 332,
+                "h": 174
+              },
+              {
+                "x": 37,
+                "y": 1383,
+                "w": 332,
+                "h": 210
+              }
+            ],
+            "nodes": [
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 12,
+                "h": 12
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              }
+            ],
+            "colStyle": "2"
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "inventory",
+    "file": "tools\\_hud\\r0\\iphone13-land-inventory.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "inv"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "inv": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 57,
+            "y": 26,
+            "w": 636,
+            "h": 306
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 160,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 10,
+            "under44": 2,
+            "smallest": {
+              "t": "item",
+              "w": 289,
+              "h": 32
+            },
+            "examples": [
+              {
+                "t": "item",
+                "w": 289,
+                "h": 32
+              },
+              {
+                "t": "item",
+                "w": 289,
+                "h": 32
+              }
+            ]
+          },
+          "closers": [],
+          "cols": {
+            ".cols": {
+              "display": "grid",
+              "cols": "301px 301px",
+              "columnCount": "auto",
+              "w": 595,
+              "children": [
+                289,
+                289
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "file": "tools\\_hud\\r0\\ipadpro11-land-combat.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch",
+      "panels": {}
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "shop",
+    "file": "tools\\_hud\\r0\\ipadpro11-land-shop.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "saferoom"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "saferoom": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 28,
+            "y": 23,
+            "w": 1138,
+            "h": 788
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "visible",
+            "overflowY": "visible"
+          },
+          "targets": {
+            "n": 8,
+            "under44": 8,
+            "smallest": {
+              "t": "sr-sellall",
+              "w": 68,
+              "h": 18
+            },
+            "examples": [
+              {
+                "t": "sr-tab-shop",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-abil",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-ach",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-stock",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-all",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-chase",
+                "w": 83,
+                "h": 24
+              },
+              {
+                "t": "sr-sellall",
+                "w": 68,
+                "h": 18
+              },
+              {
+                "t": "sr-descend",
+                "w": 187,
+                "h": 41
+              }
+            ]
+          },
+          "closers": [
+            "SYSTEM SHOP",
+            "ABILITIES",
+            "ACHIEVEMENTS",
+            "IN STOCK",
+            "ALL ITEMS",
+            "THE CHASE",
+            "SELL ALL",
+            "DESCEND ▼"
+          ],
+          "cols": {
+            ".shop-body": {
+              "display": "grid",
+              "cols": "738px 348px",
+              "columnCount": "auto",
+              "w": 1100,
+              "children": [
+                738,
+                348
+              ]
+            }
+          },
+          "shop": {
+            "shelf": {
+              "x": 47,
+              "y": 138,
+              "w": 738,
+              "h": 595
+            },
+            "detail": {
+              "x": 799,
+              "y": 106,
+              "w": 348,
+              "h": 467
+            },
+            "bag": {
+              "x": 812,
+              "y": 681,
+              "w": 322,
+              "h": 40
+            },
+            "shelfRows": [
+              {
+                "x": 47,
+                "y": 140,
+                "w": 732,
+                "h": 14
+              },
+              {
+                "x": 47,
+                "y": 161,
+                "w": 732,
+                "h": 71
+              },
+              {
+                "x": 47,
+                "y": 244,
+                "w": 732,
+                "h": 14
+              },
+              {
+                "x": 47,
+                "y": 265,
+                "w": 732,
+                "h": 71
+              }
+            ],
+            "buyButtons": [],
+            "detailScroll": {
+              "right": 0,
+              "bottom": 0,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "auto",
+              "overflowY": "auto"
+            },
+            "tabs": [
+              {
+                "t": "SYSTEM SHOP",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "ABILITIES",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "ACHIEVEMENTS",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "IN STOCK",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "ALL ITEMS",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "THE CHASE",
+                "w": 83,
+                "h": 24
+              }
+            ]
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "sheet",
+    "file": "tools\\_hud\\r0\\ipadpro11-land-sheet.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "sheet"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "sheet": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 121,
+            "y": 98,
+            "w": 952,
+            "h": 654
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 0,
+            "under44": 0,
+            "smallest": null,
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".sheet-cols": {
+              "display": "grid",
+              "cols": "305px 627px",
+              "columnCount": "auto",
+              "w": 912,
+              "children": [
+                293,
+                602
+              ]
+            },
+            ".sheet-duo": {
+              "display": "grid",
+              "cols": "361px 250px",
+              "columnCount": "auto",
+              "w": 602,
+              "children": [
+                347,
+                240
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "constellation",
+    "file": "tools\\_hud\\r0\\ipadpro11-land-constellation.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "abil"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "abil": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 231,
+            "y": 79,
+            "w": 732,
+            "h": 692
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 1433,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 13,
+            "under44": 0,
+            "smallest": {
+              "t": "acard",
+              "w": 339,
+              "h": 174
+            },
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".grid": {
+              "display": "block",
+              "cols": "none",
+              "columnCount": "2",
+              "w": 691,
+              "children": [
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339,
+                339
+              ]
+            }
+          },
+          "constellation": {
+            "grid": {
+              "x": 251,
+              "y": 149,
+              "w": 691,
+              "h": 1492
+            },
+            "overflow": {
+              "right": 0,
+              "bottom": 807,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "visible",
+              "overflowY": "visible"
+            },
+            "cards": [
+              {
+                "x": 251,
+                "y": 149,
+                "w": 339,
+                "h": 221
+              },
+              {
+                "x": 251,
+                "y": 384,
+                "w": 339,
+                "h": 246
+              },
+              {
+                "x": 251,
+                "y": 643,
+                "w": 339,
+                "h": 292
+              },
+              {
+                "x": 251,
+                "y": 949,
+                "w": 339,
+                "h": 281
+              },
+              {
+                "x": 251,
+                "y": 1243,
+                "w": 339,
+                "h": 174
+              },
+              {
+                "x": 251,
+                "y": 1430,
+                "w": 339,
+                "h": 210
+              }
+            ],
+            "nodes": [
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 12,
+                "h": 12
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              }
+            ],
+            "colStyle": "2"
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "inventory",
+    "file": "tools\\_hud\\r0\\ipadpro11-land-inventory.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "inv"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "inv": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 279,
+            "y": 195,
+            "w": 636,
+            "h": 459
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 10,
+            "under44": 2,
+            "smallest": {
+              "t": "item",
+              "w": 289,
+              "h": 32
+            },
+            "examples": [
+              {
+                "t": "item",
+                "w": 289,
+                "h": 32
+              },
+              {
+                "t": "item",
+                "w": 289,
+                "h": 32
+              }
+            ]
+          },
+          "closers": [],
+          "cols": {
+            ".cols": {
+              "display": "grid",
+              "cols": "301px 301px",
+              "columnCount": "auto",
+              "w": 595,
+              "children": [
+                289,
+                289
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "combat",
+    "file": "tools\\_hud\\r0\\pixel5-land-combat.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 802,
+        "h": 293
+      },
+      "dpr": 2.75,
+      "body": "phone touch",
+      "panels": {}
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "shop",
+    "file": "tools\\_hud\\r0\\pixel5-land-shop.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "panelsOpen": [
+      "saferoom"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 802,
+        "h": 293
+      },
+      "dpr": 2.75,
+      "body": "phone touch modal",
+      "panels": {
+        "saferoom": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 802,
+            "h": 293
+          },
+          "panel": {
+            "x": 0,
+            "y": -5,
+            "w": 802,
+            "h": 303
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 5,
+            "left": 0,
+            "top": 5,
+            "scrollX": 0,
+            "scrollY": 77,
+            "overflowX": "visible",
+            "overflowY": "visible"
+          },
+          "targets": {
+            "n": 8,
+            "under44": 8,
+            "smallest": {
+              "t": "sr-sellall",
+              "w": 68,
+              "h": 18
+            },
+            "examples": [
+              {
+                "t": "sr-tab-shop",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-abil",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-ach",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "sr-tab-stock",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-all",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "sr-tab-chase",
+                "w": 83,
+                "h": 24
+              },
+              {
+                "t": "sr-sellall",
+                "w": 68,
+                "h": 18
+              },
+              {
+                "t": "sr-descend",
+                "w": 187,
+                "h": 41
+              }
+            ]
+          },
+          "closers": [
+            "SYSTEM SHOP",
+            "ABILITIES",
+            "ACHIEVEMENTS",
+            "IN STOCK",
+            "ALL ITEMS",
+            "THE CHASE",
+            "SELL ALL",
+            "DESCEND ▼"
+          ],
+          "cols": {
+            ".shop-body": {
+              "display": "grid",
+              "cols": "402px 348px",
+              "columnCount": "auto",
+              "w": 764,
+              "children": [
+                402,
+                348
+              ]
+            }
+          },
+          "shop": {
+            "shelf": {
+              "x": 19,
+              "y": 110,
+              "w": 402,
+              "h": 110
+            },
+            "detail": {
+              "x": 435,
+              "y": 78,
+              "w": 348,
+              "h": 176
+            },
+            "bag": {
+              "x": 448,
+              "y": 362,
+              "w": 322,
+              "h": 40
+            },
+            "shelfRows": [
+              {
+                "x": 19,
+                "y": 112,
+                "w": 396,
+                "h": 14
+              },
+              {
+                "x": 19,
+                "y": 133,
+                "w": 396,
+                "h": 135
+              },
+              {
+                "x": 19,
+                "y": 280,
+                "w": 396,
+                "h": 14
+              },
+              {
+                "x": 19,
+                "y": 301,
+                "w": 396,
+                "h": 135
+              }
+            ],
+            "buyButtons": [],
+            "detailScroll": {
+              "right": 0,
+              "bottom": 0,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 178,
+              "overflowX": "auto",
+              "overflowY": "auto"
+            },
+            "tabs": [
+              {
+                "t": "SYSTEM SHOP",
+                "w": 102,
+                "h": 27
+              },
+              {
+                "t": "ABILITIES",
+                "w": 73,
+                "h": 27
+              },
+              {
+                "t": "ACHIEVEMENTS",
+                "w": 119,
+                "h": 27
+              },
+              {
+                "t": "IN STOCK",
+                "w": 72,
+                "h": 24
+              },
+              {
+                "t": "ALL ITEMS",
+                "w": 76,
+                "h": 24
+              },
+              {
+                "t": "THE CHASE",
+                "w": 83,
+                "h": 24
+              }
+            ]
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "sheet",
+    "file": "tools\\_hud\\r0\\pixel5-land-sheet.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "panelsOpen": [
+      "sheet"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 802,
+        "h": 293
+      },
+      "dpr": 2.75,
+      "body": "phone touch modal",
+      "panels": {
+        "sheet": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 802,
+            "h": 293
+          },
+          "panel": {
+            "x": 0,
+            "y": -1,
+            "w": 802,
+            "h": 296
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 1,
+            "left": 0,
+            "top": 1,
+            "scrollX": 37,
+            "scrollY": 426,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 0,
+            "under44": 0,
+            "smallest": null,
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".sheet-cols": {
+              "display": "grid",
+              "cols": "305px 494.25px",
+              "columnCount": "auto",
+              "w": 760,
+              "children": [
+                305,
+                494
+              ]
+            },
+            ".sheet-duo": {
+              "display": "grid",
+              "cols": "228.25px 250px",
+              "columnCount": "auto",
+              "w": 494,
+              "children": [
+                228,
+                250
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "constellation",
+    "file": "tools\\_hud\\r0\\pixel5-land-constellation.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "panelsOpen": [
+      "abil"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 802,
+        "h": 293
+      },
+      "dpr": 2.75,
+      "body": "phone touch modal",
+      "panels": {
+        "abil": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 802,
+            "h": 293
+          },
+          "panel": {
+            "x": 20,
+            "y": 13,
+            "w": 762,
+            "h": 266
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 1888,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 13,
+            "under44": 0,
+            "smallest": {
+              "t": "acard",
+              "w": 353,
+              "h": 182
+            },
+            "examples": []
+          },
+          "closers": [],
+          "cols": {
+            ".grid": {
+              "display": "block",
+              "cols": "none",
+              "columnCount": "2",
+              "w": 720,
+              "children": [
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353,
+                353
+              ]
+            }
+          },
+          "constellation": {
+            "grid": {
+              "x": 41,
+              "y": 86,
+              "w": 720,
+              "h": 1554
+            },
+            "overflow": {
+              "right": 0,
+              "bottom": 1347,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "visible",
+              "overflowY": "visible"
+            },
+            "cards": [
+              {
+                "x": 41,
+                "y": 86,
+                "w": 353,
+                "h": 231
+              },
+              {
+                "x": 41,
+                "y": 331,
+                "w": 353,
+                "h": 257
+              },
+              {
+                "x": 41,
+                "y": 601,
+                "w": 353,
+                "h": 304
+              },
+              {
+                "x": 41,
+                "y": 919,
+                "w": 353,
+                "h": 293
+              },
+              {
+                "x": 41,
+                "y": 1226,
+                "w": 353,
+                "h": 182
+              },
+              {
+                "x": 41,
+                "y": 1421,
+                "w": 353,
+                "h": 219
+              }
+            ],
+            "nodes": [
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 13,
+                "h": 13
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              }
+            ],
+            "colStyle": "2"
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "inventory",
+    "file": "tools\\_hud\\r0\\pixel5-land-inventory.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "panelsOpen": [
+      "inv"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 802,
+        "h": 293
+      },
+      "dpr": 2.75,
+      "body": "phone touch modal",
+      "panels": {
+        "inv": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 802,
+            "h": 293
+          },
+          "panel": {
+            "x": 70,
+            "y": 7,
+            "w": 662,
+            "h": 278
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 200,
+            "overflowX": "auto",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 10,
+            "under44": 2,
+            "smallest": {
+              "t": "item",
+              "w": 301,
+              "h": 33
+            },
+            "examples": [
+              {
+                "t": "item",
+                "w": 301,
+                "h": 33
+              },
+              {
+                "t": "item",
+                "w": 301,
+                "h": 33
+              }
+            ]
+          },
+          "closers": [],
+          "cols": {
+            ".cols": {
+              "display": "grid",
+              "cols": "301px 301px",
+              "columnCount": "auto",
+              "w": 620,
+              "children": [
+                301,
+                301
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  }
+]

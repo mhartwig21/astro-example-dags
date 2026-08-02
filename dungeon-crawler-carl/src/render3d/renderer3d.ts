@@ -1720,7 +1720,15 @@ export class Renderer3D {
     // map edge and the light-pool sizes are all decided here, once.
     this.qualityChoice = urlQualityOverride() ?? loadQualityChoice();
     this.quality = QUALITY_PRESETS[
-      this.qualityChoice === "auto" ? guessQuality(this.renderer.getContext()) : this.qualityChoice
+      this.qualityChoice === "auto"
+        ? guessQuality(this.renderer.getContext(), {
+          // Safari does not expose WEBGL_debug_renderer_info, so on an iPhone
+          // the renderer string is empty and the mobile branch never fires.
+          // These two facts are not gated by anything.
+          coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
+          shortEdge: Math.min(screen?.width ?? innerWidth, screen?.height ?? innerHeight),
+        })
+        : this.qualityChoice
     ];
     this.tuner = new QualityAutoTuner(this.quality.name);
 
