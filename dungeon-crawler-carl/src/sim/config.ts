@@ -1369,7 +1369,22 @@ export const CONFIG = {
   bossDamage: 52,
   bossSpeed: 2.2,
   bossXp: 500,
-  bossVolleyCooldown: 2.4,
+  // ---- THE CHASSIS IS NOT THE FIGHT (acceptance r5, major) ---------------
+  // Measured identity-verb share of committed actions, per boss over 75s:
+  // median ~18%, worst 0% (Zoning Board) and 3% (The Sponsor). On top of that
+  // EVERY boss fired a 10-18 projectile radial volley every 2.4s — 152 to 608
+  // projectiles per fight — a ground slam every 6.5s and hazard rain every 5s.
+  // The moment-to-moment texture of all eighteen fights was the same four
+  // systems, with identity riding one ability on a 6-9s cooldown.
+  //
+  // Half the answer was to give the three silent bosses verbs (they have them
+  // now); the other half is to stop the chassis talking over the ones that
+  // already had them. The volley comes round 40% less often and the rain 30%
+  // less, so a boss's OWN beat is what lands between them. Re-measured against
+  // balance.test.ts's boss suite (minTtk 12/15/20s, "bosses hit back") — both
+  // still hold, because what was removed is ambient chip, not the telegraphed
+  // hits the damage budget is written about.
+  bossVolleyCooldown: 3.4,
   bossVolleyCount: 10, // projectiles per radial volley
   // Boss phases: crossing 2/3 and 1/3 HP enrages — faster chase, denser volleys.
   bossPhaseSpeedMult: 1.15, // per phase
@@ -1384,7 +1399,7 @@ export const CONFIG = {
   bossWaveAddsPerPhase: 2, // ...plus this many more per phase reached
   // From phase 1, the arena itself attacks: telegraphed blast hazards rain on
   // each crawler's position — standing still through the enrage is a choice.
-  bossHazardCooldown: 5, // seconds between hazard volleys (phase >= 1)
+  bossHazardCooldown: 6.5, // seconds between hazard volleys (phase >= 1)
   bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
   bossHazardRadius: 1.7, // tiles
   bossHazardDmgMult: 1.1, // relative to the boss's damage stat
@@ -1413,9 +1428,26 @@ export const CONFIG = {
   // -- Verb V4: the punish window. Every V2 boss over-commits on a readable
   // count and becomes briefly helpless — the slagbreaker's vent, at boss
   // scale. This is what makes a fight a rhythm you learn, not a wall you erode.
-  bossPunishAfter: 3, // signature commits before the over-extension
+  bossPunishAfter: 3, // fallback count; per boss in BOSS_PUNISH (bosses.ts)
   bossPunishWindow: 2.2, // seconds of self-stagger (the unload)
   bossPunishWindup: 0.8, // telegraph before the over-commit resolves
+  // A FLOOR ON HOW OFTEN THE WINDOW COMES ROUND (r5 blocker). Measured over
+  // 75s per boss on the shared counter: The Pollinator opened 21 windows and
+  // spent 44.7s of the fight staggered — 60% of its own fight helpless. A
+  // rhythm you can learn needs a gap you can feel; 9s puts the window at
+  // roughly one beat per phase-and-a-bit rather than one every three seconds.
+  bossPunishRecovery: 9,
+  // §5.1 THE APPROACH, in the world. Within this many tiles of an unmet boss
+  // the fog comes off the ground it is standing on, so the beat has a
+  // SILHOUETTE in it — ten of ten r5 captures had no boss in frame at all,
+  // because the rim light was lighting the fog plane above an unlit body.
+  // Deliberately a THRESHOLD, not the arena: the seal reveals the room.
+  bossApproachRadius: 22,
+  bossApproachReveal: 3.5,
+  // THE READ PAYS: a telegraphed heavy that catches nobody is worth this much
+  // of the count on its own. At 1 a clean dodge is worth a whole committed
+  // verb, which is the point — the window is caused, not waited for.
+  bossPunishWhiffHeat: 1,
 
   // -- §5.7 RINGSIDE. The boss payout is thrown out onto a ring rather than
   // dropped under the body. Tuned against the shipped arena radii (the tightest
@@ -1432,7 +1464,14 @@ export const CONFIG = {
   bossEnrageStackSeconds: 10, // seconds per additional stack after that
   bossEnrageDmgPerStack: 0.12, // +damage per stack (multiplicative on the stat)
   bossEnrageMaxStacks: 8,
-  mutatorOvertimeFraction: 0.4, // OVERTIME: deadline x this
+  // OVERTIME: deadline x this. Was 0.4 — i.e. a 60s deadline against fight
+  // lengths BALANCE-NOTES measures at 16-52s, so the mutator whose whole pitch
+  // is "this is a race" fired in ZERO of the measured trials (tools/_encmut.ts:
+  // enrage=0, always, including with overtime applied) while drawing 15-35% of
+  // encounters. 0.22 puts the deadline at 33s, just under the measured median
+  // (36.6s on floor 6, 51.6s on floor 12): a clean fast kill still beats it,
+  // and a slow one is genuinely racing.
+  mutatorOvertimeFraction: 0.22,
 
   // -- Verb V6: intermission ("THE COMMERCIAL BREAK"). The boss goes briefly
   // untargetable, a shockwave CLEARS live hazards, and the adds wave arrives
@@ -1443,6 +1482,10 @@ export const CONFIG = {
   tetherHealPerSec: 0.003, // fraction of boss maxHp per second per live tether
   tetherRange: 12, // tiles: past this the cord snaps (it stops feeding)
   mutatorUnionReviveDelay: 4.5, // UNION RULES: seconds before an add gets back up
+  // REDACTED (measured, r5): shorter tells, paid for with TEMPO rather than
+  // with a quieter fight. The punish tell is exempt — see beginBossWindup.
+  mutatorRedactedTell: 0.6,
+  mutatorRedactedTempo: 1.25,
 
   // -- V9/V10 selection + mutators.
   bossMutatorFromFloor: 6, // floor 3 stays pristine (mirrors "floor 1 stays pristine")
@@ -1579,10 +1622,49 @@ export const CONFIG = {
   latticeStagger: 0.45, // seconds between each line arming (the sequence)
   latticeWidth: 0.8,
   latticeDmgMult: 0.75,
+  // The Zoning Board: SETBACK REQUIRED — every seated member condemns a collar
+  // of ground around its own chair, so the kill order is also a route.
+  setbackCooldown: 7.5,
+  setbackRadius: 2.2,
+  setbackSegments: 7,
+  setbackWidth: 0.85,
+  setbackArm: 1.0,
+  setbackDuration: 3.2,
+  setbackDmgMult: 0.5,
+  // ...and the board REFILLS once cleared, one seat fewer each session, so the
+  // format's mechanic-completion beat repeats instead of firing once (§2.2).
+  boardSessions: 3,
+  boardReconveneDelay: 6,
   // The Showrunner (finale): the set is re-dressed at every phase edge.
   showrunnerSets: ["flood", "roots", "debris", "flamewall"] as const,
+  // ...and CAMERA MOVE is its per-beat verb: only the wedge it is shooting is
+  // safe ground. The one beat in the game whose read is the SAFE ground.
+  showrunnerCueCooldown: 8,
+  showrunnerShotArc: 2.1, // radians of arena that stay clean
+  showrunnerShotRings: 3,
+  showrunnerShotRadius: 0.95,
+  showrunnerShotArm: 1.35,
+  showrunnerShotDwell: 1.6,
+  showrunnerShotDmgMult: 0.34,
   // The Sponsor (finale): Brand Integration — a shield only one school erodes.
   sponsorShieldFraction: 0.22,
+  // ...and BRAND ACTIVATION is its per-beat verb: tethered placements that
+  // pump the pool, so break-the-shield finally has a reason to look away.
+  sponsorPylons: 2,
+  sponsorPylonRing: 4.5,
+  sponsorPylonHpMult: 0.55,
+  sponsorPylonCooldown: 13,
+  sponsorPylonRegenMult: 3.2, // shield regen while any placement stands
+  // ...and CROSS-PROMOTION is the beat between them: two branded lanes through
+  // wherever the crawler is standing. The finale needed a verb it commits on a
+  // clock rather than only at a phase edge (census: 3% identity share).
+  sponsorSpotCooldown: 9,
+  sponsorSpotLanes: 2,
+  sponsorSpotSpread: 0.55, // radians between the lanes
+  sponsorSpotLength: 12,
+  sponsorSpotWidth: 0.85,
+  sponsorSpotArm: 1.0,
+  sponsorSpotDmgMult: 0.55, // inside the 25%-of-pool telegraphed-hit budget
   // LIVE AUDIENCE mutator: the crowd throws things on a rhythm.
   audienceInterval: 5.5,
   audienceCount: 3,

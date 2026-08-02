@@ -975,11 +975,31 @@ describe("boss layers", () => {
     boss.introduced = true;
     boss.sigCd = 9999; // the SIGNATURE can't fire — anything that appears is the ROOM
     boss.healCd = 9999;
+    boss.bossTier = undefined; // no slam either
     boss.phase = 0;
     g.players[0].pos = { x: boss.pos.x + 6, y: boss.pos.y };
     g.hazards = [];
-    for (let t = 0; t < CONFIG.directorFloodInterval + 1; t += DT) {
-      boss.sigCd = 9999; // hold it every step
+    // LIVE AUDIENCE also rides the director and throws plain `blast`, which
+    // would answer "did the room act?" without saying anything about the
+    // room's SCRIPT. Off, so what is left is the script.
+    boss.bossMutators = undefined;
+    // The room's clock is whichever script the ARENA VARIANT drew (r5), so run
+    // past the longest of the three rather than past the flood's alone.
+    const roomInterval = Math.max(
+      CONFIG.directorFloodInterval, CONFIG.directorRegrowInterval, CONFIG.directorVentInterval);
+    // Collected ACROSS the run: an armed root zone outlives its telegraph by
+    // seconds, not minutes, so sampling only the final frame measures the
+    // hazard's lifetime rather than the director's clock.
+    const roomSaw = new Set<string>();
+    for (let t = 0; t < roomInterval + 4; t += DT) {
+      // Hold the BOSS off entirely every step: its own kit fires on affixCd
+      // (the Sump King vents its sluices in the GAP between surges), so
+      // without this the hazards on the floor are the boss's, not the room's.
+      boss.sigCd = 9999;
+      boss.affixCd = 9999;
+      boss.slamCd = 9999;
+      boss.ritualCd = 9999;
+      boss.healCd = 9999;
       boss.hp = boss.maxHp; // no phases
       // Keep the crawler standing too: depth tempo gives the floor-6 boss
       // ~10% faster swings, enough to drop an idle level-8 crawler before
@@ -987,8 +1007,26 @@ describe("boss layers", () => {
       // not the crawler's health bar.
       g.players[0].hp = g.players[0].maxHp;
       step(g, idle(), DT);
+      for (const h of g.hazards) roomSaw.add(String(h.kind));
     }
-    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(true); // the sump ROSE
+    // THE ROOM ACTED. Which verb it used is the ARENA's business now, not the
+    // band's (r5 major): shipped, the director fired one fixed script at all
+    // three of a band's bosses, so whichever boss floor 9 drew the garden
+    // regrew roots and whichever floor 15 drew the wall vented flame — and a
+    // Safety Officer with no signature of its own spent its punish frame
+    // inside a flamewall indistinguishable from the Furnace Marshal's own.
+    // The script comes from the arena VARIANT now and may never be the boss's
+    // own signature, so this asserts the room spoke, and that it did not speak
+    // in the boss's voice.
+    expect(roomSaw.size).toBeGreaterThan(0); // the room DID something
+    const roomKinds = roomSaw;
+    const bossVoice: Record<string, string> = {
+      flood: "sludge", roots: "roots", flamewall: "shards",
+      // `debris` is deliberately absent: it lays plain `blast`, which the
+      // LIVE AUDIENCE mutator also throws, so it cannot identify a speaker.
+    };
+    const own = boss.signature ? bossVoice[boss.signature] : undefined;
+    if (own) expect(roomKinds.has(own)).toBe(false);
     // Kill the boss: the director's clock stops with the show.
     boss.hp = 0;
     run(g, 0.2);
@@ -996,7 +1034,7 @@ describe("boss layers", () => {
     const t0 = g.arenaT ?? 0;
     run(g, 2);
     expect(g.arenaT ?? 0).toBe(t0); // no boss, no director
-    expect(g.hazards.some((h) => h.kind === "sludge")).toBe(false);
+    expect(g.hazards.length).toBe(0);
   });
 
   it("layer 1: The Foreman clocks in on floor 14 with elite plumbing", () => {

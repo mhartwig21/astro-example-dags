@@ -52,7 +52,7 @@ import {
 import { Renderer3D } from "./render3d/renderer3d";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
+import { clearRun, loadRun, saveRun, seedBossMemory, seedTips, type RunMode } from "./persist/save";
 
 import { careerBests, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
@@ -376,6 +376,10 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   consentEl.classList.remove("on"); // a stale offer never survives into a new run
   closeSets();
   state = createGame(seed, "coop", runKind);
+  // BOSSES V2 §4.1/§4.4 — hand the new run what this browser remembers about
+  // bosses BEFORE any boss floor is built, so the anti-repeat rule and the
+  // "it remembers you" escalation are live rather than dead code.
+  seedBossMemory(state);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
@@ -1550,6 +1554,9 @@ let bossLastNow = 0;
 // it rides the announcement channel and never fights this line for the space.)
 let bossBeatUntil = 0;
 let bossBeatKey = "";
+/** The engaged boss's announcer name, kept so the KILL CARD can print it —
+ *  the plate is already gone by the time DEFEATED lands (r5 major). */
+let bossMarqueeName = "";
 /**
  * The RENDER clock, stamped at the top of every frame. The boss beat line and
  * the call-out both expire against this rather than performance.now(), for the
@@ -1684,10 +1691,13 @@ function stageBossPayoff(s: GameState, events: BossEvent[]): void {
   for (const l of s.loot) {
     if (payoffSeen.has(l.id)) continue;
     const dx = l.pos.x - payoffAt.x, dy = l.pos.y - payoffAt.y;
-    // The ring is CONFIG.bossLootRing + jitter out (§5.7); this reaches past
-    // it with room for the arena's own scatter, and stops well short of the
-    // wave drops littering the rest of the room.
-    if (dx * dx + dy * dy > 49) continue; // not this boss's payout
+    // The ring is CONFIG.bossLootRing + jitter out (§5.7). r5: this was 49
+    // (a SEVEN tile radius), which swept in every wave-add drop littering the
+    // arena — so the Showrunner's kill staged twelve beacons across a disc
+    // wider than the shot and the frame contained one of them. 4.4 tiles is
+    // the ring plus its jitter plus a tile of walkability pull-back, and
+    // nothing else.
+    if (dx * dx + dy * dy > 19.4) continue; // not this boss's payout
     payoffSeen.add(l.id);
     const hue = l.kind === "material" ? 0xffd98a
       : l.kind === "tome" ? 0xb98bff
@@ -1712,6 +1722,9 @@ function applyBossEvents(events: BossEvent[]): void {
         // label is half of why a fight has an identity; a line that has
         // already gone by the time the hazard lands names nothing.
         if (e.label) postBossBeat(e.label, Math.max(2.6, (e.duration ?? 0) + 1.6));
+        // THE SCHOOL LOCK FLIPPED — so the sentence describing the OLD lock
+        // stops being true, and stops being on screen (r5 major).
+        if (e.label?.startsWith("BRAND:")) clearStaleBanner("BRAND INTEGRATION");
         break;
       case "punish":
         // The unload window. It owns the CALL-OUT layer outright, at
@@ -1743,13 +1756,29 @@ function applyBossEvents(events: BossEvent[]): void {
         // A mechanic-triggered phase is the player's own doing (§2.2) and
         // must read louder than an HP gate ever does.
         if (e.label === "DEFEATED") {
-          postBossCall("DEFEATED", "THE SEAL OPENS", 2.5, false, "defeat");
+          // THE NAME IS THE PAYOFF (r5 major). The strongest frame in the last
+          // round was the Marshal's kill — DEFEATED / THE SEAL OPENS, the HYPE
+          // bar filling, nine ringside beacons — and the one thing missing from
+          // it was WHICH BOSS. For a game whose stated problem is "you do not
+          // remember which boss you fought", the kill card is the one screen
+          // guaranteed to be read, and it said nothing. Diablo names the unique
+          // on the kill card; so does this now, with DEFEATED demoted to the
+          // subtitle where it belongs.
+          const title = (bossMarqueeName || "THE BOSS").toUpperCase();
+          postBossCall(title, "DEFEATED — THE SEAL OPENS", 3.2, false, "defeat");
           postBossBeat("DEFEATED", 2.5, true);
           // THE KILL BEAT owns the frame (r3 blocker): for its duration the
           // floating damage numbers stand down, so the last image of the fight
           // is the corpse, the sweeps and the loot — not eight numerals, several
           // of them reading "0!", stacked over the body.
           killBeatUntil = hudNow + 2600;
+          // ...AND THE ONES ALREADY IN FLIGHT GO WITH THEM (r5 blocker). The
+          // suppression only ever stopped NEW numerals, so the killing blow's
+          // own burst — the biggest numbers of the fight — stayed on screen
+          // for its whole 800ms arc, stacked across the corpse's torso in
+          // every kill capture ("696!" "1100!" "670" over The Showrunner).
+          // The last image of a fight is the body, not the receipt.
+          clearDamageNumbers();
         } else if (e.reason === "mechanic") {
           postBossCall("YOU DID THAT", `PHASE ${(e.phase ?? 0) + 1}`, 1.8, false, "phase");
           postBossBeat("YOU DID THAT", 1.8, true);
@@ -1772,6 +1801,12 @@ function updateBossBar(s: GameState): void {
     bossCallRank = 0;
     bossCallEl.classList.remove("on");
   }
+  // ...and while it IS live it owns its band outright (r5 blocker). The
+  // call-out and the System's headline banner were both parked at ~27-28% of
+  // the viewport, so the finale's phase edge composited THE COMMERCIAL BREAK
+  // straight on top of the collapse announcement inside one plate. The CSS
+  // steps the headline down for the duration; both stay readable.
+  document.body.classList.toggle("bosscalling", bossCallUntil > hudNow);
   // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
   // ringside freeze the NAME CARD owns the introduction, so the health plate
   // stays down until the fight actually starts. It was colliding with the
@@ -1887,6 +1922,9 @@ function updateBossBar(s: GameState): void {
   document.body.classList.add("bossplate");
   bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
+  // Remembered for the KILL CARD: the plate is retired the instant the boss
+  // dies, so the payoff screen has nowhere else to read the name from (r5).
+  if (target.kind === "boss") bossMarqueeName = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
   // the party has stuck to it (burn/poison/chill uptime at a glance).
   bbAffix.innerHTML = (target.affix ? target.affix.toUpperCase() + " " : "") + statusChips(target.statuses);
@@ -5725,6 +5763,16 @@ function dmgAnimate(rec: DmgLive): void {
  * OFFSET from that live projection, and the separation pass runs AFTER both —
  * on the pixels the player will actually see, every frame, not once.
  */
+/** Retire every numeral in flight, now (the kill beat — r5 blocker). */
+function clearDamageNumbers(): void {
+  for (const r of dmgLive) {
+    r.el.style.visibility = "hidden";
+    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(r.el);
+    else r.el.remove();
+  }
+  dmgLive.length = 0;
+}
+
 function updateDamageNumbers(): void {
   if (dmgLive.length === 0) return;
   const now = fxClockMs;
@@ -6097,6 +6145,31 @@ function showBanner(a: Announcement, cls = "ann banner"): void {
     const next = bannerQueue.shift();
     if (next) showBanner(next.a, next.cls);
   }, BANNER_HOLD_MS);
+}
+
+/**
+ * RETIRE A HEADLINE THAT IS NO LONGER TRUE (acceptance r5, major).
+ *
+ * Captured on the finale: "BRAND INTEGRATION: this segment is sponsored by
+ * STEEL. Nothing else scratches it." was still on screen over a live shield
+ * rail reading MAGIC ONLY, in the same frame. The plate was honest (it reads
+ * `shieldSchool` directly); the high-priority announcement from the PREVIOUS
+ * phase simply outlived the rule it described. On a fight whose entire ask is
+ * "which school works right now", two contradictory answers in one frame is
+ * the fight failing to communicate its own mechanic.
+ *
+ * A banner is a statement about the CURRENT state, so a beat that changes that
+ * state clears it — including anything still queued behind it.
+ */
+function clearStaleBanner(match: string): void {
+  for (let i = bannerQueue.length - 1; i >= 0; i--) {
+    if (bannerQueue[i].a.text.includes(match)) bannerQueue.splice(i, 1);
+  }
+  for (const el of [...bannerLayer.children]) {
+    if (!el.textContent?.includes(match)) continue;
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 400);
+  }
 }
 
 // Tutorial cards (kind:"tip"): D4-style dismissible explainer, one at a time.
@@ -7755,10 +7828,17 @@ function updateHud(s: GameState): void {
   // it will cost. The freeze is the visible half of the button; the DEBT is
   // the half the crawler forgets, so it rides on the same row.
   const stayT = p.injunctionT ?? 0;
-  const phaseKey = stayT > 0 ? "stayed" : s.phase;
+  // ...and the boss segment HOLDS it outright (r5 major). The capture round
+  // found `0:00 COLLAPSE` in red beside the punish window on three floors with
+  // the run healthy — a fail-state advertised next to every headline moment.
+  // The sim stopped the clock; this is the chip telling the truth about why.
+  const heldClock = !!s.timerHeld && stayT <= 0;
+  const phaseKey = stayT > 0 ? "stayed" : heldClock ? "stayed" : s.phase;
   setHudText(
     hhPhase, "phase",
-    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s` : s.phase.toUpperCase(),
+    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s`
+      : heldClock ? "SEGMENT — CLOCK HELD"
+      : s.phase.toUpperCase(),
   );
   if (hudCache.phaseCls !== phaseKey) {
     hudCache.phaseCls = phaseKey;

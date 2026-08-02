@@ -2681,10 +2681,30 @@ describe("boss phases", () => {
     const p = g.players[0];
     p.pos = { x: boss.pos.x + 5, y: boss.pos.y };
     boss.hp = Math.floor(boss.maxHp * 0.5); // -> phase 1 on the next step
-    step(g, idle(), 1 / 60);
     // Phase 1 ALSO starts the finale's greatest-hits reel (borrowed debris,
     // boss layer 2) — filter the RAIN by its distinctive fuse length.
-    const rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
+    //
+    // ...and since the r5 kit round the finale bosses COMMIT A VERB OF THEIR
+    // OWN on the phase edge (the census found The Showrunner emitting four
+    // telegraphs in seventy-five seconds because its kit returned false every
+    // step and the chassis ran the whole fight). A kit that commits the step
+    // is the chassis correctly standing down, so the rain lands on one of the
+    // next frames rather than on this exact one. Same assertion, same fuse,
+    // same aim — it just stops requiring that the boss have nothing to say.
+    let rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
+    // 200 steps (~3.3s): the phase edge itself runs an INTERMISSION (1.6s of
+    // invulnT, during which the chassis is deliberately silent) and the r5
+    // finale kits commit their own verb on the edge, so the rain lands a
+    // couple of seconds after the gate rather than on its frame.
+    for (let i = 0; i < 200 && rain.length === 0; i++) {
+      // An immortal observer: a level-10 crawler at 100 hp on floor 18 is
+      // dead inside half a second, and a downed crawler stops the world
+      // (step() early-returns), which would silently turn "the rain never
+      // came" into "the sim stopped running".
+      p.hp = p.maxHp; p.alive = true; p.downedT = 0; g.status = "playing";
+      step(g, idle(), 1 / 60);
+      rain = g.hazards.filter((h) => h.kind === "blast" && Math.abs(h.total - CONFIG.bossHazardDelay) < 0.01);
+    }
     expect(rain.length).toBeGreaterThanOrEqual(1);
     // Aimed at where the crawler WAS standing — moving out is the dodge.
     expect(rain.some((h) => Math.abs(h.pos.x - p.pos.x) < 0.5 && Math.abs(h.pos.y - p.pos.y) < 0.5)).toBe(true);

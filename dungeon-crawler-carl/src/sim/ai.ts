@@ -5,16 +5,18 @@ import { dist, normalize } from "./combat";
 // additionally blocks monsters from wandering/chasing into the sanctuary.
 import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
-import { bandSignatureLabel } from "./bosses";
+import { bandSignatureLabel, bossPunishRule } from "./bosses";
 import type { BossId, GameState, Monster, Player, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
 import { flowDir, flowUphill, tileLos } from "./pathfield";
 import { applyStatus } from "./status";
 import {
-  advanceBossPhase, applyPlayerKnockback, bossBloom, bossCitation, bossConveyorRun, bossDebrisRain,
+  advanceBossPhase, applyPlayerKnockback, bossBloom, bossBrandActivation, bossCitation,
+  bossConveyorRun, bossCrossPromotion, bossDebrisRain,
   bossEvent, bossExposeCore, bossFissureFan, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossGreasePull,
   bossHedgeRegrow,
-  bossLateFee, bossLattice, bossMotion, bossPunishVent, bossRootGrasp, bossShowSetChange,
+  bossLateFee, bossLattice, bossMechanicBeat, bossMotion, bossPunishVent, bossReconvene, bossRootGrasp,
+  bossSetback, bossShotList, bossShowSetChange,
   bossSluice, bossStopWork,
   breakResidentScene, damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, makeBossAdd, nearestPlayer, raiseCorpse,
   summonMinion, tauntingDecoy,
@@ -250,8 +252,18 @@ function beginBossWindup(
   state: GameState, m: Monster, kind: NonNullable<Monster["windupKind"]>, seconds: number, label?: string,
 ): void {
   let t = seconds;
-  if (m.bossMutators?.includes("redacted")) {
-    t = Math.max(0.25, seconds * 0.6);
+  // REDACTED, MEASURED (acceptance r5, major). The mutator's note says
+  // "shorter telegraphs" and it INVERTED its own difficulty: on The Safety
+  // Officer over 60s it measured 29,089 damage taken against 150,554 clean
+  // (-81%) and 82 hazards against 183 (-55%). The mechanism was the PUNISH
+  // tell — shortening it only got the boss to its own helplessness sooner, and
+  // a storm boss that spends the fight staggered has no storm. So:
+  //   * the punish windup is never redacted (it is the one tell whose job is
+  //     to be READ, and it ends in the boss being wide open either way), and
+  //   * the boss pays for the shorter tells by COMMITTING MORE OFTEN (see the
+  //     redacted tempo in stepMonster) instead of by doing less.
+  if (m.bossMutators?.includes("redacted") && kind !== "punish") {
+    t = Math.max(0.25, seconds * CONFIG.mutatorRedactedTell);
     if (label) announce2(state, `[REDACTED FEED] Next: ${label}.`);
   }
   beginWindup(m, kind, t);
@@ -327,9 +339,11 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
   // The double dives on the slam too (players in the radius still get spared —
   // one professional sacrifice per blast).
   if (decoySoak(state, m.pos, radius, dmg)) return;
+  let caught = 0;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > radius) continue;
+    caught++;
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
     if (damagePlayerHit(state, player, dmg, { dir, src: m })) {
       handlePlayerDeath(state, player, `${player.name} stood in the blast radius. The System rolls the replay.`);
@@ -339,6 +353,21 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
       applyPlayerKnockback(player, dir, m.kind === "boss" ? CONFIG.bossSlamKnockback : CONFIG.slamKnockback);
     }
   }
+  // THE READ PAYS (r5 blocker, V4). A boss slam that catches NOBODY is the
+  // player having seen it and left, and that is the only thing in this fight
+  // that should shorten the wait for the punish window. See bossHeat.
+  if (caught === 0) bossWhiff(m);
+}
+
+/**
+ * A boss committed a telegraphed heavy and it landed on nobody. Under the
+ * shipped rule this was worth exactly nothing — the punish window came round
+ * on a fixed count whatever the player did, which is why round 5 called it a
+ * metronome. It is now the fastest way to open one.
+ */
+function bossWhiff(m: Monster): void {
+  if (m.kind !== "boss") return;
+  m.heat = (m.heat ?? 0) + CONFIG.bossPunishWhiffHeat;
 }
 
 /** Dark Ritual lands (boss tier 3 only): a long-telegraphed, arena-scale AoE —
@@ -359,6 +388,8 @@ function resolveRitualStrike(state: GameState, m: Monster): void {
   }
   if (caught > 0) {
     state.announcements.push({ text: "THE RITUAL LANDS. That's going to leave a mark.", kind: "boss", priority: "normal" });
+  } else {
+    bossWhiff(m); // a channel you walked out of is a window you bought
   }
 }
 
@@ -780,10 +811,36 @@ interface BossCtx {
   toPlayer: Vec2;
   windup: number; // the floor's depth-scaled base windup
   moveSpeed: number;
+  /** This step's dt. Kits that run a clock of their own need it, and a kit
+   *  that hardcodes 1/60 is a kit that behaves differently on the server. */
+  dt: number;
 }
 
 /** A per-boss ability block. Returns true if it committed the step. */
 type BossKit = (state: GameState, m: Monster, ctx: BossCtx) => boolean;
+
+/**
+ * Cast a band signature THROUGH `m.signature` (acceptance r5, major).
+ *
+ * RETROFIT's whole promise is "its signature is another band's — a familiar
+ * boss with an unfamiliar telegraph", and it mutates exactly one field:
+ * `m.signature` (applyBossDraw). The Furnace Marshal's kit called
+ * `bossFlameSweep` and `bossDebrisRain` BY NAME and never read that field, so
+ * one capture held the contradiction in a single frame — the RETROFIT chip on
+ * the name card over a beat line reading FLAME SWEEP. Every kit that fires a
+ * band signature routes here now, so a retrofitted boss really does telegraph
+ * somebody else's mechanic and the label follows it (bandSignatureLabel keys
+ * off the signature, so the fight even has its own WORD for the borrowed one).
+ */
+function castBandSignature(
+  state: GameState, m: Monster, sig: NonNullable<Monster["signature"]>,
+): void {
+  if (sig === "flood") bossFloodSurge(state, m);
+  else if (sig === "roots") bossRootGrasp(state, m);
+  else if (sig === "debris") bossDebrisRain(state, m);
+  else if (sig === "flamewall") bossFlameSweep(state, m);
+  else bossGraveRaise(state, m);
+}
 
 /** How many tethered adds are still feeding this boss (V8). */
 function liveTethers(state: GameState, boss: Monster): number {
@@ -806,10 +863,16 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // bossGraveRaise). Clear the ledger and it panics into a long
   // reconciliation: the mechanic phase, and the punish window.
   concierge(state, m, ctx) {
-    if ((m.bossCount ?? 0) > 0 && liveTethers(state, m) === 0 && !m.punishArmed && (m.phase ?? 0) < (m.maxPhase ?? 2)) {
+    // THE LEDGER EMPTIES AGAIN, AND AGAIN (r5 major). Gated on the phase
+    // counter this fired exactly once per fight and then never — but the
+    // ledger REFILLS every time it checks someone in, so the beat the player
+    // earns by clearing it has to be repeatable. Bounded by the punish
+    // recovery clock, which is the same beat's own cooldown.
+    if ((m.bossCount ?? 0) > 0 && liveTethers(state, m) === 0 && !m.punishArmed &&
+        (m.punishCd ?? 0) <= 0) {
       m.punishArmed = true;
       announce2(state, "THE LEDGER IS EMPTY. The Concierge has to RECONCILE, and it cannot do that and fight.");
-      advanceBossPhase(state, m, "mechanic");
+      bossMechanicBeat(state, m);
       return true;
     }
     // RING FOR SERVICE. The audit's finding on this boss was that with no
@@ -990,11 +1053,14 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     // THE HEDGE IS DOWN AND STAYING DOWN. The player won the regrow race, so
     // the fight advances on their play, not on their damage (§2.2's rule that
     // at least one phase edge per fight is mechanic-triggered).
-    if (pool > 0 && (m.shieldHp ?? 0) <= 0 && !m.punishArmed && (m.bossCount ?? 0) === 0) {
-      m.bossCount = 1;
+    // ...and it can happen AGAIN (r5 major): the hedge regrows, so winning the
+    // regrow race is a repeatable achievement and the beat that acknowledges
+    // it used to fire once per fight. Bounded by the punish recovery clock.
+    if (pool > 0 && (m.shieldHp ?? 0) <= 0 && !m.punishArmed && (m.punishCd ?? 0) <= 0) {
+      m.bossCount = (m.bossCount ?? 0) + 1;
       m.punishArmed = true;
       announce2(state, "THE HEDGE IS GONE AND IT CANNOT GROW IT BACK IN TIME. Nothing between you and the Warden. Prune it.");
-      advanceBossPhase(state, m, "mechanic");
+      bossMechanicBeat(state, m);
       return true;
     }
     return false;
@@ -1004,11 +1070,39 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // variant). The aides shield the body and each death hands its verb over
   // (reapDead), so killing the wrong one first makes the fight worse. The kit
   // itself is quiet: the aides ARE the mechanic.
-  zoningboard(state, m) {
-    if (liveTethers(state, m) === 0 && (m.bossCount ?? 0) === 0) {
-      m.bossCount = 1;
-      announce2(state, "THE BOARD IS ADJOURNED. It has every verb they had, and nobody left to hide behind.");
-      advanceBossPhase(state, m, "mechanic");
+  zoningboard(state, m, ctx) {
+    const seats = liveTethers(state, m);
+    if (seats === 0) {
+      if ((m.bossCount ?? 0) === 0) {
+        m.bossCount = 1;
+        m.bossTimer = CONFIG.boardReconveneDelay;
+        announce2(state, "THE BOARD IS ADJOURNED. It has every verb they had, and nobody left to hide behind.");
+        advanceBossPhase(state, m, "mechanic");
+        return true;
+      }
+      // ...AND IT RECONVENES (r5). The format's mechanic-completion edge fired
+      // exactly once and a 9,000-step driven hunt at 30% HP found no second
+      // one — so the beat §2.2 requires ("the player's play advances the
+      // story") existed for one moment of one fight. Clearing the board now
+      // refills it, one chair fewer each session, behind the same COMMERCIAL
+      // BREAK. The last session is a genuine one-on-one.
+      m.bossTimer = Math.max(0, (m.bossTimer ?? 0) - ctx.dt);
+      if ((m.bossTimer ?? 0) <= 0 && (m.bossCount ?? 1) < CONFIG.boardSessions) {
+        const refill = Math.max(1, 3 - (m.bossCount ?? 1));
+        m.bossCount = (m.bossCount ?? 1) + 1;
+        m.bossTimer = CONFIG.boardReconveneDelay;
+        bossReconvene(state, m, refill);
+        return true;
+      }
+    }
+    // SETBACK REQUIRED — its OWN verb, and the census said it had none: 0%
+    // identity share over 75s, with a renamed borrowed band hazard standing in
+    // for the Board's mechanic. Every seated member owns the ground around its
+    // own chair, so the kill order becomes a route rather than a list.
+    if (seats > 0 && (m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
+      m.sigCd = CONFIG.setbackCooldown / (1 + (m.phase ?? 0) * 0.3);
+      m.heat = (m.heat ?? 0) + 1;
+      bossSetback(state, m);
       return true;
     }
     return false;
@@ -1018,10 +1112,10 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // and it WILTS (mechanic phase + punish window); ignore it and drown in it.
   pollinator(state, m, ctx) {
     const pods = state.hazards.reduce((n, h) => n + (h.kind === "spore" ? 1 : 0), 0);
-    if ((m.bossCount ?? 0) > 0 && pods === 0 && !m.punishArmed) {
+    if ((m.bossCount ?? 0) > 0 && pods === 0 && !m.punishArmed && (m.punishCd ?? 0) <= 0) {
       m.punishArmed = true;
       announce2(state, "THE GARDEN IS CLEAR. It WILTS. This is the window you bought.");
-      advanceBossPhase(state, m, "mechanic");
+      bossMechanicBeat(state, m);
       return true;
     }
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
@@ -1089,12 +1183,19 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       // BORROWED cast is not a sweep, so it never advances the count. The count
       // the epithet promises is a count of its OWN fire, which is the only way
       // "three sweeps, then it has to breathe" survives the escalation.
+      // RETROFIT-AWARE (r5): the sweep is `m.signature`, not the literal
+      // bossFlameSweep — so a retrofitted Marshal really does fight with
+      // another band's telegraph, and its COUNT counts whatever its own wall
+      // has become. The borrowed alternate is still the band below whatever
+      // it is wearing, so the escalation reads the same either way.
+      const own = m.signature ?? "flamewall";
       if ((m.phase ?? 0) >= 1 && (m.sigAlt = !m.sigAlt)) {
-        bossDebrisRain(state, m);
+        castBandSignature(state, m, BORROWED[own] ?? "debris");
         return true;
       }
       m.bossCount = (m.bossCount ?? 0) + 1;
-      bossFlameSweep(state, m);
+      m.heat = (m.heat ?? 0) + 1; // its OWN verb feeds its OWN count (V4)
+      castBandSignature(state, m, own);
       return true;
     }
     return false;
@@ -1127,10 +1228,24 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // THE SHOWRUNNER — ask: use-the-arena. Every phase RE-DRESSES the set into
   // a band you have already beaten, behind an intermission. The whole run was
   // the tutorial, and this is the exam.
-  showrunner(state, m) {
-    if ((m.bossTimer ?? -1) !== (m.phase ?? 0)) {
-      m.bossTimer = m.phase ?? 0;
+  showrunner(state, m, ctx) {
+    // The set change is the PHASE beat and stays one-shot per phase; it moved
+    // off `bossTimer` because CAMERA MOVE now owns that counter as its cue
+    // number (r5 — two beats sharing one scratch field is how the finale ended
+    // up with four telegraphs in seventy-five seconds).
+    if ((m.bossCount ?? -1) !== (m.phase ?? 0)) {
+      m.bossCount = m.phase ?? 0;
       bossShowSetChange(state, m);
+      return true;
+    }
+    // CAMERA MOVE — the finale's own recurring verb. 7% identity share
+    // measured; the kit returned false every other step and the shared chassis
+    // ran the whole fight. Its ask is USE-THE-ARENA, so the arena is the verb.
+    if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
+      m.sigCd = CONFIG.showrunnerCueCooldown / (1 + (m.phase ?? 0) * 0.25);
+      m.heat = (m.heat ?? 0) + 1;
+      bossShotList(state, m);
+      return true;
     }
     return false;
   },
@@ -1138,7 +1253,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // THE SPONSOR — ask: break-the-shield. Brand Integration flips which school
   // its shield accepts at every phase and refills it. Diablo's "immune to X"
   // in a sponsorship jacket: adapt the rotation, never change genre.
-  sponsor(state, m) {
+  sponsor(state, m, ctx) {
     if ((m.bossTimer ?? -1) !== (m.phase ?? 0)) {
       m.bossTimer = m.phase ?? 0;
       m.shieldSchool = (m.phase ?? 0) % 2 === 0 ? "physical" : "magic";
@@ -1148,6 +1263,35 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
         kind: "telegraph", monsterId: m.id, bossId: m.bossId,
         label: `BRAND: ${m.shieldSchool.toUpperCase()}`, pos: { x: m.pos.x, y: m.pos.y },
       });
+      return true;
+    }
+    // BRAND ACTIVATION — the finale's own recurring verb. Measured identity
+    // share before this: 3%, the worst in the roster, on the last boss in the
+    // game. The placements are tethered, they pump the pool, and they are the
+    // reason break-the-shield finally has somewhere else to look.
+    const live = liveTethers(state, m);
+    if (live < CONFIG.sponsorPylons && (m.affixCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
+      m.affixCd = CONFIG.sponsorPylonCooldown;
+      m.heat = (m.heat ?? 0) + 1;
+      bossBrandActivation(state, m);
+      return true;
+    }
+    // CROSS-PROMOTION — the beat on the clock. Without it the Sponsor's only
+    // verbs were a phase-edge school flip and a placement drop gated on the
+    // player having cleared the last one, so a party that ignored the pylons
+    // saw the finale commit nothing of its own for the whole fight.
+    if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.bossArenaSize) {
+      m.sigCd = CONFIG.sponsorSpotCooldown / (1 + (m.phase ?? 0) * 0.25);
+      m.heat = (m.heat ?? 0) + 1;
+      bossCrossPromotion(state, m);
+      return true;
+    }
+    // While a placement stands the pool refills faster than a correct-school
+    // rotation strips it: the shield is not the ask on its own, the ORDER is.
+    if (live > 0 && (m.shieldMax ?? 0) > 0 && (m.shieldRegenT ?? 0) <= 0) {
+      m.shieldHp = Math.min(m.shieldMax!,
+        (m.shieldHp ?? 0) + m.shieldMax! * CONFIG.shieldRegenPerSec *
+          (CONFIG.sponsorPylonRegenMult - 1) * ctx.dt);
     }
     return false;
   },
@@ -1228,6 +1372,37 @@ const BORROWED: Partial<Record<NonNullable<Monster["signature"]>, Monster["signa
 };
 
 /**
+ * V5 — HARD ENRAGE, on the SEGMENT's clock (r5).
+ *
+ * Lifted out of `stepBoss` because `stepBoss` is not reached while the boss is
+ * staggered, mid-windup or lifted out by an intermission — so the deadline was
+ * measuring "seconds the boss spent swinging" rather than "seconds this
+ * segment has been on air", which is what OVERTIME is a mutator about. With
+ * the r5 punish rework opening genuine windows, the drift was several seconds
+ * a minute and the mutator's own test could not reach two stacks in twenty-one.
+ */
+function tickBossEnrage(state: GameState, m: Monster, dt: number): void {
+  if (!m.introduced) return;
+  m.fightT = (m.fightT ?? 0) + dt;
+  const deadline = CONFIG.bossEnrageDeadline *
+    (m.bossMutators?.includes("overtime") ? CONFIG.mutatorOvertimeFraction : 1);
+  const over = (m.fightT ?? 0) - deadline;
+  if (over <= 0) return;
+  const want = Math.min(CONFIG.bossEnrageMaxStacks, 1 + Math.floor(over / CONFIG.bossEnrageStackSeconds));
+  while ((m.enrageStacks ?? 0) < want) {
+    m.enrageStacks = (m.enrageStacks ?? 0) + 1;
+    m.damage *= 1 + CONFIG.bossEnrageDmgPerStack;
+    bossEvent(state, {
+      kind: "enrage", monsterId: m.id, bossId: m.bossId, value: m.enrageStacks,
+      pos: { x: m.pos.x, y: m.pos.y },
+    });
+    if (m.enrageStacks === 1) {
+      announce2(state, "The System is LOSING PATIENCE with this segment. Finish it, Crawlers.", "high");
+    }
+  }
+}
+
+/**
  * THE CHASSIS. Order is the order the player experiences it: intermission,
  * then the fight-length clock, then the sustain layers (shield regen, tether
  * feed), then the punish window, then this boss's OWN verb, and only then the
@@ -1240,31 +1415,6 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   if ((m.invulnT ?? 0) > 0) {
     m.invulnT = Math.max(0, (m.invulnT ?? 0) - dt);
     return;
-  }
-
-  // V5 — HARD ENRAGE. Nothing bounded fight length before this: a fight could
-  // literally run forever. Past the deadline the System stops pretending to
-  // be patient. It should almost never fire for a competent player, and it
-  // reads as the broadcast slot running out, not as a fail-state.
-  if (m.introduced) {
-    m.fightT = (m.fightT ?? 0) + dt;
-    const deadline = CONFIG.bossEnrageDeadline *
-      (m.bossMutators?.includes("overtime") ? CONFIG.mutatorOvertimeFraction : 1);
-    const over = (m.fightT ?? 0) - deadline;
-    if (over > 0) {
-      const want = Math.min(CONFIG.bossEnrageMaxStacks, 1 + Math.floor(over / CONFIG.bossEnrageStackSeconds));
-      while ((m.enrageStacks ?? 0) < want) {
-        m.enrageStacks = (m.enrageStacks ?? 0) + 1;
-        m.damage *= 1 + CONFIG.bossEnrageDmgPerStack;
-        bossEvent(state, {
-          kind: "enrage", monsterId: m.id, bossId: m.bossId, value: m.enrageStacks,
-          pos: { x: m.pos.x, y: m.pos.y },
-        });
-        if (m.enrageStacks === 1) {
-          announce2(state, "The System is LOSING PATIENCE with this segment. Finish it, Crawlers.", "high");
-        }
-      }
-    }
   }
 
   // V2 — the shield pool regrows once it has been left alone (the regen GAP
@@ -1304,15 +1454,41 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   if (m.bossMutators?.includes("understudied") && !m.tetherRevived && frac <= 0.5) {
     m.tetherRevived = true;
     if (m.plates) for (const pl of m.plates) { pl.broken = false; pl.hp = pl.maxHp; }
-    if ((m.shieldMax ?? 0) > 0) m.shieldHp = m.shieldMax;
-    announce2(state, "THE UNDERSTUDY STEPS IN. It is wearing the armour again. Do that again.");
+    if ((m.shieldMax ?? 0) > 0) { m.shieldHp = m.shieldMax; m.shieldRegenT = 0; }
+    // ...AND IT COMES BACK SHARPER (r5, measured). Shipped, the understudy's
+    // second armour measured MILDER than no mutator at all on the Topiary
+    // Warden (-13% hazards, boss ending at 24% against 41% clean) — because
+    // handing a break-the-shield boss its pool back mostly hands the player a
+    // second free break window. A repeated ask has to be a repeated ASK: the
+    // stand-in resets its own verb and takes the phase-edge step-up, so the
+    // second window is fought for at the tempo of the fight it interrupts.
+    m.sigCd = 0;
+    m.speed *= CONFIG.bossPhaseSpeedMult;
+    announce2(state, "THE UNDERSTUDY STEPS IN. It is wearing the armour again, and it has been watching. Do that again.");
   }
 
-  // V4 — THE PUNISH WINDOW. Every V2 boss over-commits on a readable count.
-  if (m.introduced && ((m.heat ?? 0) >= CONFIG.bossPunishAfter || m.punishArmed)) {
+  // V4 — THE PUNISH WINDOW, and it is now something the player CAUSES.
+  //
+  // r5 blocker: this fired off a shared `m.heat` that every slam, ritual and
+  // hazard tick incremented, at one threshold, with one label, on all eighteen
+  // bosses — 21 windows and 44.7 helpless seconds out of 75 on The Pollinator.
+  // Three things changed and they are all here or in bossPunishRule:
+  //   * only the boss's OWN verbs and the player's own reads feed the count
+  //     (the chassis feeds nothing — see the deleted `m.heat++` lines below),
+  //   * the count and the WORD are per boss (BOSS_PUNISH),
+  //   * and a window cannot come round again inside bossPunishRecovery, so a
+  //     boss is never helpless for most of its own fight.
+  // A kit-armed window (the Marshal's own three-sweep count, the Concierge's
+  // empty ledger) is a MECHANIC the player completed and skips the cooldown:
+  // that path was always the model, and it is never rate-limited.
+  if ((m.punishCd ?? 0) > 0) m.punishCd = Math.max(0, (m.punishCd ?? 0) - dt);
+  const rule = bossPunishRule(m.bossId);
+  if (m.introduced &&
+      (m.punishArmed || ((m.heat ?? 0) >= rule.after && (m.punishCd ?? 0) <= 0))) {
     m.punishArmed = false;
     m.heat = 0;
-    beginBossWindup(state, m, "punish", CONFIG.bossPunishWindup, "OVER-COMMIT");
+    m.punishCd = CONFIG.bossPunishRecovery;
+    beginBossWindup(state, m, "punish", CONFIG.bossPunishWindup, rule.tell);
     return;
   }
 
@@ -1325,7 +1501,8 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // ALTERNATES its own signature with the PREVIOUS band's — the fight
   // escalates in MECHANICS, not numbers. Gated on `introduced` so the arena
   // never starts cooking before the ringside reveal.
-  if (m.signature && m.introduced && (m.sigCd ?? 0) === 0 && d <= CONFIG.monsterAggroRange * 2.5) {
+  if (m.signature && m.introduced && (m.sigCd ?? 0) === 0 &&
+      (m.punishQuietT ?? 0) <= 0 && d <= CONFIG.monsterAggroRange * 2.5) {
     let sig = m.signature;
     if ((m.phase ?? 0) >= 1) {
       const borrowed = BORROWED[m.signature];
@@ -1364,9 +1541,12 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   }
   // Tier 3: Dark Ritual — a long channelled cast, its own cooldown, arena-scale
   // AoE. The one attack worth a genuine "stagger it now or eat a big hit".
-  if ((m.bossTier ?? 0) >= 3 && (m.ritualCd ?? 0) === 0 && d <= CONFIG.ritualRange) {
+  if ((m.bossTier ?? 0) >= 3 && (m.ritualCd ?? 0) === 0 && d <= CONFIG.ritualRange &&
+      (m.punishQuietT ?? 0) <= 0) {
     m.ritualCd = CONFIG.ritualCooldown;
-    m.heat = (m.heat ?? 0) + 1;
+    // NO HEAT (r5). The ritual is chassis — every tier-3 boss has one, and a
+    // counter that every shared verb feeds is a metronome, not a rhythm. What
+    // the ritual CAN do for the count is whiff (see resolveRitualStrike).
     // The channel is chassis; the NAME is identity (see RITUAL_LABEL).
     const label = (m.bossId && RITUAL_LABEL[m.bossId]) || "DARK RITUAL";
     beginBossWindup(state, m, "ritual", CONFIG.ritualWindup, label);
@@ -1378,13 +1558,18 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // see resolveStrike; a stationary boss never commits one at all.)
   if ((m.bossTier ?? 0) >= 1 && (m.slamCd ?? 0) === 0 && d <= CONFIG.bossSlamRange) {
     m.slamCd = CONFIG.bossSlamCooldown * ((m.bossTier ?? 1) >= 2 ? CONFIG.bossSlamHasteT2 : 1);
-    m.heat = (m.heat ?? 0) + 1; // slams are part of THE COUNT (V4)
+    // NO HEAT AT COMMIT (r5). A slam that LANDS is the boss winning and must
+    // not shorten its own punishment; a slam that catches nobody pays the
+    // count in full (resolveSlamStrike -> bossWhiff). Same verb, opposite
+    // meaning, and the difference is the read the player made.
     beginBossWindup(state, m, "slam", CONFIG.bossSlamWindup);
     return;
   }
   // Phase 1+: HAZARD RAIN — telegraphed blasts on each crawler's position
   // (healCd is unused on bosses; it paces the rain). Keep moving or eat it.
-  if ((m.phase ?? 0) >= 1 && m.healCd === 0) {
+  // SUPPRESSED while the punish window is open (r5 blocker): the game cannot
+  // say "stand here and commit" and "this floor kills you" in the same breath.
+  if ((m.phase ?? 0) >= 1 && m.healCd === 0 && (m.punishQuietT ?? 0) <= 0) {
     m.healCd = CONFIG.bossHazardCooldown;
     for (const target of state.players) {
       if (!target.alive || dist(m.pos, target.pos) > CONFIG.monsterAggroRange * 2.5) continue;
@@ -1421,7 +1606,10 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   const meleeKind = m.bossId === "rentcollector" && (m.phase ?? 0) >= 1 ? "punch" : "melee";
   if (d <= m.attackRange && m.attackCooldown === 0) beginWindup(m, meleeKind, windup);
   else if (d > m.attackRange) moveWithCollision(state.map, m.pos, toPlayer, m.speed * chase * dt, isWalkable);
-  if (m.shootCd === 0 && d < CONFIG.monsterAggroRange * 2.5) {
+  // ...and the radial volley is suppressed for the window too. A boss that is
+  // "briefly helpless" while a ring of ten bolts leaves its body is not
+  // helpless; it is a turret with a reticle on it (r5 blocker).
+  if (m.shootCd === 0 && (m.punishQuietT ?? 0) <= 0 && d < CONFIG.monsterAggroRange * 2.5) {
     m.shootCd = Math.max(1.2, CONFIG.bossVolleyCooldown - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
     const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
     for (let i = 0; i < count; i++) {
@@ -1443,10 +1631,26 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.shieldT ?? 0) > 0) m.shieldT = Math.max(0, (m.shieldT ?? 0) - dt);
   if ((m.riposteT ?? 0) > 0) m.riposteT = Math.max(0, (m.riposteT ?? 0) - dt);
   if (m.attackCooldown > 0) m.attackCooldown = Math.max(0, m.attackCooldown - dt * (frenzied ? CONFIG.drumFrenzyHaste : 1));
+  // REDACTED buys its shorter tells with TEMPO, not with a quieter fight: the
+  // boss's own verbs come round faster, so the mutator asks the player to read
+  // the ticker under more pressure rather than under less (r5, measured).
+  if (m.bossMutators?.includes("redacted")) {
+    const extra = dt * (CONFIG.mutatorRedactedTempo - 1);
+    if ((m.sigCd ?? 0) > 0) m.sigCd = Math.max(0, (m.sigCd ?? 0) - extra);
+    if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - extra);
+    if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - extra);
+  }
   if (m.shootCd > 0) m.shootCd = Math.max(0, m.shootCd - dt);
   if (m.healCd > 0) m.healCd = Math.max(0, m.healCd - dt);
   if (m.blinkCd > 0) m.blinkCd = Math.max(0, m.blinkCd - dt);
   if ((m.affixCd ?? 0) > 0) m.affixCd = Math.max(0, (m.affixCd ?? 0) - dt);
+  // THE QUIET WINDOW (V4, r5 blocker). While this runs the boss lays no new
+  // ground, fires no volley and the ARENA DIRECTOR holds its breath, so the
+  // beat the doc calls "the one that most needs to read" is not photographed
+  // inside a ten-tile wall of live fire.
+  if ((m.punishQuietT ?? 0) > 0) m.punishQuietT = Math.max(0, (m.punishQuietT ?? 0) - dt);
+  // The SEGMENT clock, ungated by whatever the boss is currently unable to do.
+  if (m.kind === "boss") tickBossEnrage(state, m, dt);
   if ((m.surgeT ?? 0) > 0) m.surgeT = Math.max(0, (m.surgeT ?? 0) - dt);
   if ((m.slamCd ?? 0) > 0) m.slamCd = Math.max(0, (m.slamCd ?? 0) - dt);
   if ((m.ritualCd ?? 0) > 0) m.ritualCd = Math.max(0, (m.ritualCd ?? 0) - dt);
@@ -1642,7 +1846,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // override (§7.1). Chase, volley, slam, phases, plates, shields, tethers
     // and the punish window are shared — they were the good part; each boss
     // supplies only its own ability block, exactly as the trash kinds do.
-    stepBoss(state, m, dt, { d, hunt: player, toPlayer, windup, moveSpeed });
+    stepBoss(state, m, dt, { d, hunt: player, toPlayer, windup, moveSpeed, dt });
     return;
   }
 

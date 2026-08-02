@@ -1,4 +1,4 @@
-import type { GameState, Item, Player } from "../sim/types";
+import type { BossId, GameState, Item, Player } from "../sim/types";
 import { toRoamSave, type RoamSaveState } from "../sim/npc";
 
 // Log on/off seam. In single-player we persist the whole run to localStorage so a
@@ -8,6 +8,76 @@ import { toRoamSave, type RoamSaveState } from "../sim/npc";
 
 const KEY = "dcc:save:v1";
 const TIPS_KEY = "dcc:tips:v1";
+const BOSS_KEY = "dcc:bosses:v1";
+
+// ---------------------------------------------------------------------------
+// BOSSES V2 §4.1/§4.4 — THE CROSS-RUN BOSS MEMORY (acceptance r5, blocker).
+//
+// The sim has always READ `save.bosses` (restoreGame) and MAINTAINED
+// `state.bossLineup` / `state.bossDefeats` (applyBossDraw / reapDead), and no
+// host had ever written either one back. `grep -rn '\.bosses\s*=' src/`
+// returned zero hits, so two of the four variety layers — Layer 1's anti-repeat
+// rule (`pickBandBoss`'s `prevId`) and Layer 4's 2nd/5th-meeting escalation —
+// were inert code. With a fresh seed per run the draw is uniform 1-in-3 per
+// band: a player replaying floor 3 sees the same boss back-to-back one run in
+// three, which is the exact case the anti-repeat rule exists to kill and the
+// owner's stated problem ("the same boss appearing every run is the enemy").
+//
+// It is a BROWSER-LEVEL ledger, exactly like the first-contact tips above and
+// for the same reason: the run save dies with the run, and "which boss did the
+// LAST run serve" has to outlive it. It is tiny (six band slots + eighteen
+// counters), it is a read-only input to a PURE draw, and a browser with no
+// ledger gets precisely the shipped seeded lineup.
+// ---------------------------------------------------------------------------
+
+export interface BossMemory {
+  lastLineup?: Record<string, BossId>;
+  defeats?: Record<string, number>;
+}
+
+/** What this browser remembers about bosses across runs. */
+export function bossMemory(): BossMemory {
+  try {
+    const raw = localStorage.getItem(BOSS_KEY);
+    if (!raw) return {};
+    const m = JSON.parse(raw) as BossMemory;
+    return {
+      lastLineup: m.lastLineup && typeof m.lastLineup === "object" ? m.lastLineup : undefined,
+      defeats: m.defeats && typeof m.defeats === "object" ? m.defeats : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Hand the memory to a freshly created run, BEFORE its first boss floor is
+ * built. `restoreGame` already does this for a resumed run from the save's own
+ * copy; this is the other half — a NEW run, which is the only case the
+ * anti-repeat rule was ever about.
+ */
+export function seedBossMemory(state: GameState): void {
+  const m = bossMemory();
+  if (m.lastLineup) state.bossPrevLineup = { ...m.lastLineup };
+  if (m.defeats) state.bossDefeats = { ...m.defeats };
+}
+
+/**
+ * Fold this run's lineup and defeat counts back into the ledger. Merged, never
+ * replaced: a run that reached floor 3 and stopped must not erase what the
+ * previous run learned about floor 18.
+ */
+export function recordBossMemory(state: GameState): void {
+  try {
+    const prev = bossMemory();
+    const lastLineup = { ...(prev.lastLineup ?? {}), ...(state.bossLineup ?? {}) };
+    const defeats = { ...(prev.defeats ?? {}), ...(state.bossDefeats ?? {}) };
+    if (Object.keys(lastLineup).length === 0 && Object.keys(defeats).length === 0) return;
+    localStorage.setItem(BOSS_KEY, JSON.stringify({ lastLineup, defeats }));
+  } catch {
+    // Best-effort, like the run save.
+  }
+}
 
 // First-contact tips (tips.ts) are once-EVER, not once-per-run: this browser-
 // level ledger outlives individual saves (a new run mints a fresh character,
@@ -95,6 +165,11 @@ export interface SaveData {
   };
   show: { hype: number; viewers: number; favorites: number; sponsors: number };
   status: GameState["status"];
+  // BOSSES V2 §4 — the cross-run memory, round-tripped so a RESUMED run keeps
+  // the anti-repeat lineup and the defeat counts it was drawn against. The
+  // browser ledger above is what carries it between runs; this is what carries
+  // it across a page refresh mid-run.
+  bosses?: BossMemory;
 }
 
 /**
@@ -143,6 +218,15 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
         sponsors: p.sponsors,
       },
       status: state.status,
+      // The run save persists the draw's INPUTS (bossPrevLineup), never its
+      // outputs: `restoreGame` regenerates the floor from (seed, floor), so
+      // handing a resume this run's OWN lineup as "last run's" would step the
+      // anti-repeat rule off it and rebuild the floor around a different boss.
+      // The browser ledger below is where the outputs go.
+      bosses: {
+        lastLineup: state.bossPrevLineup ? { ...state.bossPrevLineup } : undefined,
+        defeats: state.bossDefeats ? { ...state.bossDefeats } : undefined,
+      },
   };
 }
 
@@ -152,6 +236,7 @@ export function saveRun(state: GameState, mode?: RunMode): void {
     const data = toSaveData(state, state.players[0], mode);
     localStorage.setItem(KEY, JSON.stringify(data));
     recordTips(data.player.tipsSeen); // the once-ever ledger outlives this save
+    recordBossMemory(state); // ...and so does the boss lineup (§4.1 anti-repeat)
   } catch {
     // Persistence is best-effort in the slice; ignore quota/availability errors.
   }

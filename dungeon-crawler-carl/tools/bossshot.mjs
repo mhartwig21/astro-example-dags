@@ -51,6 +51,14 @@ if (!BASE || !OUT) {
   process.exit(2);
 }
 const ONLY = (flag("only", "") || "").split(",").filter(Boolean);
+// SEED override. The plan below picks the FIRST seed that draws each boss,
+// which pins every capture to one arena + one mutator roll — fine for "does
+// this boss have a beat", useless for "does the SAME boss differ across runs".
+// --seed=N forces the run seed (use with --only= and a seed you have checked
+// actually draws that boss), and --tag=x suffixes the filenames so two runs of
+// the same boss do not overwrite each other.
+const SEED = Number(flag("seed", "0")) || 0;
+const TAG = flag("tag", "") || "";
 const SWIFT = process.argv.includes("--swiftshader");
 mkdirSync(OUT, { recursive: true });
 console.log("base=" + BASE + " out=" + OUT + " gl=" + (SWIFT ? "swiftshader" : "angle/d3d11"));
@@ -111,6 +119,7 @@ const plan = await page.evaluate(async (bands) => {
   return out;
 }, BANDS);
 const roster = Object.entries(plan).filter((e) => ONLY.length === 0 || ONLY.includes(e[0]));
+if (SEED) for (const [, info] of roster) info.seed = SEED;
 console.log("roster: " + roster.length + " bosses");
 
 // ---------------------------------------------------------------------------
@@ -200,8 +209,19 @@ const DRIVER2 = String.raw`
 
   // Keep the world turning with the boss gone (the aftermath: corpse settling,
   // loot landing, the ringside arc flying).
+  // The crawler is kept on their feet across the aftermath for exactly the
+  // reason bf.tick and flush() already do it: a stationary crawler dies in
+  // about two seconds on a boss floor (BOSSES-V2 6.1), and on floors 9+ the
+  // surviving trash killed the crawler DURING the 70-step settle — so the
+  // kill beat was lost behind THE VERDICT three attempts running (topiary,
+  // this run). Nothing here revives the BOSS or invents a drop: the corpse,
+  // the sigil and the ringside arc are all still the sim's.
   bf.idle = function (n) {
     for (var i = 0; i < n; i++) {
+      var st = window.__dcc.state;
+      var p = st.players[0];
+      if (p) { p.hp = p.maxHp; p.alive = true; p.downedT = 0; }
+      if (st.status !== "playing") st.status = "playing";
       window.__dcc.step({ move: { x: 0, y: 0 }, useStairs: false }, 1 / 60);
       bf.pump(true);
     }
@@ -367,7 +387,7 @@ async function hunt(want, maxSteps, opts, budgetMs = 240000) {
 }
 async function shoot(name, ageMs = 260, opts = {}) {
   await guard(opts);
-  const path = OUT + "/" + name + ".png";
+  const path = OUT + "/" + name + TAG + ".png";
   console.log("    [" + el() + "] shooting " + name);
   await page.evaluate((ms) => {
     // Aged in slices across real frames: one big jump would run every FX
@@ -381,7 +401,13 @@ async function shoot(name, ageMs = 260, opts = {}) {
     };
     step();
   }, ageMs);
-  await page.waitForTimeout(420);
+  // THE AGEING NEEDS WALL TIME TO HAPPEN IN (r5). The stepper above advances
+  // the virtual clock 16ms per PRESENTED frame, so a 1,600ms age needs ~100
+  // real frames — and this used to wait a flat 420ms, i.e. ~25 frames on the
+  // GPU path. Every ageMs above ~400 was silently truncated, which is why the
+  // approach's own camera move was a third applied in every capture and why
+  // the kill frame's topple had not started. One frame of slack per step.
+  await page.waitForTimeout(Math.min(20000, Math.max(420, (ageMs / 16) * 18 + 250)));
   await guard(opts);
   // FREEZE THE BEAT (r3 blocker 1). Every boss beat now expires on the FRAME
   // clock, which this harness has stopped; __dcc.hold pushes every live
@@ -478,17 +504,30 @@ async function flush(ms = 4000) {
 }
 
 /** The signature each fight is ABOUT, where it is not simply the first fired. */
+// r5: one row for EVERY boss. Without them "whatever fired first" is often the
+// PUNISH TELL — every boss has one, it comes round on its own clock, and it
+// already gets its own frame at -5punish. A -3fight frame showing the punish
+// telegraph is a frame of the wrong beat, which is what made the last round
+// score The Safety Officer as "no fight of its own" when it has a lattice.
 const HEADLINE = {
-  sumpking: "SLUICE GATE",          // the floodgates, not the shipped surge
-  marshal: "FLAME SWEEP",           // its own wall of fire, not a borrowed one
-  showrunner: "SET: FLOOD",         // the set change, not the set it changed to
-  greasetrap: "THE PIT PULLS",
-  topiary: "ENTANGLING ROOTS",
-  standards: "MOTION CARRIED",
-  sponsor: "BRAND: PHYSICAL",
-  permitoffice: "STOP-WORK ORDER",
   concierge: "RING FOR SERVICE",
+  rentcollector: "LATE FEE",
+  temp: "OVERREACH",
+  sumpking: "SLUICE GATE",          // the floodgates, not the shipped surge
+  inspector: "CITATION",
+  greasetrap: "THE PIT PULLS",
+  topiary: "HEDGE REGROWTH",        // its OWN verb, not the band's roots
+  zoningboard: "SETBACK REQUIRED",
+  pollinator: "BLOOM",
   architect: "DEBRIS RAIN",
+  permitoffice: "STOP-WORK ORDER",
+  foundation: "FISSURE",
+  marshal: "FLAME SWEEP",           // its own wall of fire, not a borrowed one
+  linesupervisor: "PRODUCTION QUOTA",
+  safetyofficer: "COMPLIANCE LATTICE",
+  showrunner: "CAMERA MOVE",        // the beat on the clock, not the phase edge
+  standards: "MOTION CARRIED",
+  sponsor: "CROSS-PROMOTION",
 };
 
 const report = [];
@@ -521,7 +560,10 @@ async function captureBoss(id, info) {
     p.pos.x = b.pos.x + 9.5; p.pos.y = b.pos.y + 9.5;
     p.facing.x = -0.7; p.facing.y = -0.7;
   });
-  await shoot(id + "-1approach", 500);
+  // Aged past the approach's own framing move (r5): the anchor slides half
+  // the way to the boss and the shot widens a step, and at 500ms of a frozen
+  // clock the camera was still in the corridor when the shutter opened.
+  await shoot(id + "-1approach", 1600);
   row.beats.approach = true;
 
   // 2) INTRO. Walk in and let the SIM raise its own encounter. The ringside
@@ -672,7 +714,14 @@ async function captureBoss(id, info) {
   if (kill.done !== "dead" || kill.bossHp > 0) {
     throw new Error("KILL BEAT NOT REACHED (" + kill.done + ", hp " + kill.bossHp + ")");
   }
-  const killShot = await shoot(id + "-6kill", 420);
+  // AGED PAST THE TOPPLE (r5 blocker, the harness half). The boss's death is
+  // staged on the RENDER clock — the topple runs over 0.75s and the dissolve
+  // starts at 0.12s and takes 1.5s — and this harness advances that clock by
+  // ~0.4ms per presented frame. At 420ms the shutter opened 0.4 seconds into a
+  // 2-second beat, which is most of why every kill capture in the last round
+  // showed a live mesh standing upright: the corpse had not had time to fall.
+  // 1800ms puts the frame at the moment the body is DOWN and burning.
+  const killShot = await shoot(id + "-6kill", 1800);
   row.killShells = killShot.shells;
   row.killPlates = killShot.plates;
   row.killLoot = killShot.loot;

@@ -229,6 +229,58 @@ export const BOSS_SIGNATURES: Record<string, BossSignatureFx> = {
   // shell — the dome, closing back up — and nothing else in the game does that.
   "HEDGE REGROWTH": { family: "shield", shape: "shell", rate: 0.76, trauma: 0.14 },
 
+  // ---- THE THREE FINALE/COUNCIL VERBS THAT DID NOT EXIST (r5 blocker) -------
+  // The census found the Zoning Board, The Showrunner and The Sponsor
+  // committing no verb of their own in play (identity share 0%, 7% and 3%),
+  // with the shared chassis running the whole fight. Each has one now, and
+  // each wears the silhouette of its own ask.
+  //
+  // SETBACK REQUIRED: brackets CLAMPED on the seated members — the ground
+  // around each chair, which is the ground you have to stand on to reach it.
+  // Prop-anchored, because "that body's ground" is a place, not a body.
+  "SETBACK REQUIRED": { family: "adds", shape: "props", rate: 0.98, trauma: 0.12 },
+  // CAMERA MOVE: the flats slide in and everything outside the shot is struck.
+  // The only beat in the game whose read is the SAFE ground.
+  "CAMERA MOVE": { family: "arena", shape: "set", rate: 1.08, trauma: 0.18 },
+  // BRAND ACTIVATION: cords out to the placements pumping the pool. Shield
+  // family, because the pool is what they are for.
+  "BRAND ACTIVATION": { family: "shield", shape: "cords", rate: 1.24, trauma: 0.14 },
+  // CROSS-PROMOTION: two branded lanes through wherever you are standing. The
+  // Sponsor's beat ON THE CLOCK — the census found its only other verbs were a
+  // phase-edge school flip and a placement drop the player had to earn.
+  "CROSS-PROMOTION": { family: "shield", shape: "lanes", rate: 1.38, trauma: 0.12 },
+
+  // ---- THE PUNISH TELL, PER BOSS (r5 blocker) ------------------------------
+  // Shipped, all eighteen bosses fired the window with the same label
+  // (OVER-COMMIT), the same core word (EXPOSED CORE) and the same HUD call-out
+  // — "one sentence spoken eighteen ways", which is the definition of the
+  // reskin this table exists to forbid. Each boss owns its own word now
+  // (BOSS_PUNISH in bosses.ts) and each word owns its own PITCH here.
+  //
+  // The SHAPE is deliberately shared and must stay shared: the shaft standing
+  // up with a reticle closing on it is one sentence — "a window is opening
+  // HERE" — and a player who learns it on floor 3 has to read it instantly on
+  // floor 18. Shared shape across eighteen bosses is correct here and only
+  // here; everything that makes it THIS boss's window is the word and the tone.
+  UNRECONCILED: { family: "window", shape: "column", rate: 0.86 },
+  OVERDRAWN: { family: "window", shape: "column", rate: 1.34 },
+  UNSUPERVISED: { family: "window", shape: "column", rate: 1.46 },
+  "OUT OF HIS DEPTH": { family: "window", shape: "column", rate: 0.74 },
+  "CITATION VOID": { family: "window", shape: "column", rate: 1.18 },
+  BACKFLOW: { family: "window", shape: "column", rate: 0.68 },
+  "OVER-PRUNED": { family: "window", shape: "column", rate: 1.06 },
+  "OUT OF ORDER": { family: "window", shape: "column", rate: 0.94 },
+  "SEEDED OUT": { family: "window", shape: "column", rate: 1.28 },
+  "LOAD SHIFT": { family: "window", shape: "column", rate: 0.62 },
+  "FILING ERROR": { family: "window", shape: "column", rate: 1.12 },
+  SETTLING: { family: "window", shape: "column", rate: 0.58 },
+  VENTING: { family: "window", shape: "column", rate: 0.9 },
+  "LINE JAM": { family: "window", shape: "column", rate: 1.4 },
+  "NON-COMPLIANT": { family: "window", shape: "column", rate: 1.22 },
+  "DEAD AIR": { family: "window", shape: "column", rate: 0.52 },
+  "MOTION FAILS": { family: "window", shape: "column", rate: 1.0 },
+  "AD BREAK OVERRUN": { family: "window", shape: "column", rate: 1.52 },
+
   // ---- shared chassis verbs (any boss can commit these) ---------------------
   // The generic channel, for a boss with no name of its own for it. Every
   // shipped boss now has one (RITUAL_LABEL in ai.ts): this is the fallback.

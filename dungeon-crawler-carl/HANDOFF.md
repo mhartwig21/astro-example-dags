@@ -64,6 +64,31 @@ Harness: `tools/bossshot.mjs`. Do not trust a capture that does not visibly
 contain the beat it claims — several earlier ones did not, which is how a
 5.5 round got mistaken for a 7.
 
+**ROUND 5 (fix round) is in — see `BOSSES-V2.md` §5.11 for the full receipt.**
+The shape of that review is the finding: eleven of its twelve blockers were
+not presentation defects. The boss body was keyed to the FLOOR (eighteen
+bosses, six models), no host ever wrote `SavedProgress.bosses` (two of the four
+variety layers were dead code), `sponsored` was legal on a boss that cannot
+move, and the punish window arrived on a shared metronome with one label on all
+eighteen. All of that is closed, with the presentation half (approach framing,
+the shield shell, the exposure governor, the boss's death, the kill card, the
+arena lift) beside it.
+
+**Still open going in to the next capture round, honestly:**
+
+- **The approach's boss silhouette is improved but not proven.** The seal is
+  bounded and carried ON the boss, the arena is revealed and lit, the gate no
+  longer stands on the boss's mark, the boss is no longer fog-culled and no
+  longer lies face-down waiting — but in the last capture the body still does
+  not read cleanly at twelve tiles under a point light. The remaining lever is
+  a rim/outline pass on the character material rather than a lamp, which is a
+  shader change wider than a fix round can verify.
+- **The Topiary Warden's phase beat still times out in the harness** (the other
+  ten land). Its mechanic edge is repeatable now; the hunt does not reach it.
+- **`abilities2.test.ts` §6.4.9(i) is still red**, exactly as §0 describes. It
+  fails identically without this round's changes (measured: 300 vs 52 before,
+  494 vs 207 after — the ratio nearly halved, the assertion did not pass).
+
 ## 2. Mobile — precision problems in the spec
 
 Design doc `MOBILE.md` (~1,301 lines), audit-first: `tools/mobileshot.mjs`

@@ -68,8 +68,11 @@ const MONSTER_WIRE_OMIT = [
   // — bossId, bossMutators, plates, shieldHp/shieldMax, invulnT, tetherId,
   // enrageStacks, maxPhase, phase — deliberately stays on the wire: a boss
   // whose identity is not in the snapshot desyncs the moment a phase lands.
-  "bossCount", "bossTimer", "punishArmed", "fightT", "shieldRegenT",
+  "bossCount", "bossTimer", "punishArmed", "punishCd", "fightT", "shieldRegenT",
   "phaseReason", "lockbox", "tetherRevived",
+  // punishQuietT stays OFF this list on purpose: it is the reason the arena
+  // has gone quiet, and a client that cannot see it draws a burning floor
+  // under a window the server says is safe.
 ] as const satisfies readonly (keyof Monster)[];
 
 function wireMonster(m: Monster): Monster {

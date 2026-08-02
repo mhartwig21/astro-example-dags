@@ -273,6 +273,80 @@ export const BOSS_POOL: Record<number, BossDef[]> = {
 };
 
 // ---------------------------------------------------------------------------
+// THE PUNISH WINDOW, IN EACH BOSS'S OWN VOICE (acceptance r5, blocker).
+//
+// The measurement that opened this: `stepBoss` fired the window off a single
+// shared `m.heat` counter that every slam, ritual, hazard tick and band
+// signature incremented, at one threshold (3), with one telegraph label
+// (OVER-COMMIT), one core word (EXPOSED CORE) and one HUD call-out — on all
+// eighteen bosses. Over 75s per boss: The Pollinator opened 21 windows and
+// spent 44.7 of 75 seconds staggered; Sump King, Grease Trap, Permit Office
+// and Standards Board opened 10 each. There was nothing to learn, because the
+// window was not caused by a read the player made — it arrived on a count.
+//
+// Three changes, and they are all in service of one sentence: THE WINDOW IS
+// SOMETHING YOU CAUSE.
+//
+//  1. The count is the boss's OWN verbs. The chassis (ground slam, the tier-3
+//     ritual, hazard rain) no longer feeds it at all — only a kit verb, a
+//     named band signature, and the two things below.
+//  2. THE READ PAYS. A telegraphed heavy that catches NOBODY — you saw it and
+//     left — advances the count by a whole extra step. Dodging is not merely
+//     not-being-hit any more; it is progress toward the window.
+//  3. Every boss owns its own WORD for it and its own count. `tell` is the
+//     telegraph label (the FX table keys off it, so the shaft is the boss's),
+//     `core` is what the exposed weak point is called, and `after` is how many
+//     committed verbs this particular boss can spend before it over-extends.
+//
+// Plus `CONFIG.bossPunishRecovery`, a floor on how often a window may come
+// round at all, so no boss is ever helpless for most of its own fight again.
+// ---------------------------------------------------------------------------
+
+export interface BossPunishRule {
+  /** This boss's word for the over-commit — the telegraph label AND the HUD tell. */
+  tell: string;
+  /** What the exposed weak point is called once the window is open. */
+  core: string;
+  /** Committed verbs (or reads the player won) before it over-extends. */
+  after: number;
+}
+
+const PUNISH_FALLBACK: BossPunishRule = {
+  tell: "OVER-COMMIT", core: "EXPOSED CORE", after: CONFIG.bossPunishAfter,
+};
+
+export const BOSS_PUNISH: Record<BossId, BossPunishRule> = {
+  concierge: { tell: "UNRECONCILED", core: "THE OPEN LEDGER", after: 4 },
+  rentcollector: { tell: "OVERDRAWN", core: "THE EMPTY TILL", after: 3 },
+  temp: { tell: "UNSUPERVISED", core: "NO ONE TO ASK", after: 3 },
+  sumpking: { tell: "OUT OF HIS DEPTH", core: "THE DRY THRONE", after: 4 },
+  inspector: { tell: "CITATION VOID", core: "THE BLANK PAD", after: 3 },
+  greasetrap: { tell: "BACKFLOW", core: "THE TRAP CORE", after: 4 },
+  topiary: { tell: "OVER-PRUNED", core: "THE BARE TRUNK", after: 3 },
+  zoningboard: { tell: "OUT OF ORDER", core: "NO QUORUM", after: 3 },
+  pollinator: { tell: "SEEDED OUT", core: "THE SPENT HEAD", after: 5 },
+  architect: { tell: "LOAD SHIFT", core: "THE WEAK SPAN", after: 3 },
+  permitoffice: { tell: "FILING ERROR", core: "THE UNSTAMPED FORM", after: 4 },
+  foundation: { tell: "SETTLING", core: "THE CRACKED FOOTING", after: 4 },
+  marshal: { tell: "VENTING", core: "THE FURNACE CORE", after: 3 },
+  linesupervisor: { tell: "LINE JAM", core: "THE STOPPED BELT", after: 3 },
+  safetyofficer: { tell: "NON-COMPLIANT", core: "THE OPEN CAGE", after: 3 },
+  showrunner: { tell: "DEAD AIR", core: "THE EMPTY STAGE", after: 4 },
+  standards: { tell: "MOTION FAILS", core: "THE EMPTY CHAIR", after: 4 },
+  sponsor: { tell: "AD BREAK OVERRUN", core: "THE UNSOLD SLOT", after: 4 },
+};
+
+/** This boss's punish identity — total, pure, safe on an unknown id. */
+export function bossPunishRule(id?: BossId): BossPunishRule {
+  return (id && BOSS_PUNISH[id]) || PUNISH_FALLBACK;
+}
+
+/** Every punish tell the sim can emit (host FX + sound tables read this). */
+export function allPunishTells(): string[] {
+  return [...new Set(Object.values(BOSS_PUNISH).map((r) => r.tell))];
+}
+
+// ---------------------------------------------------------------------------
 // THE BAND SIGNATURES, IN EACH BOSS'S OWN VOICE.
 //
 // Acceptance review, round 3: "ENTANGLING ROOTS" was the live beat line on the
@@ -438,6 +512,17 @@ export interface BossMutatorInfo {
   legal?: (def: BossDef) => boolean;
   /** Both of these spawn bodies; never draw two adds mutators together. */
   addsPressure?: boolean;
+  /**
+   * It changes the boss's VERB LIST, not the ambient pressure around it
+   * (acceptance r5, major). Measured across a 1,000-seed sweep: only
+   * `retrofit` and `understudied` change what the fight ASKS, and they were
+   * the two RAREST draws (4-10%) because they are the two with legality
+   * conditions — while the six ambient-pressure affixes drew at 13-36%. If
+   * the mutator layer is the answer to "why is THIS run different?", the
+   * mutators that answer it cannot be the ones you almost never see. The draw
+   * now prefers an ask-changer for the FIRST slot wherever one is legal.
+   */
+  changesAsk?: boolean;
 }
 
 export const BOSS_MUTATORS: BossMutatorInfo[] = [
@@ -452,6 +537,19 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
   {
     id: "sponsored", label: "SPONSORED",
     note: "A hazard-immune bubble it must be pulled out of. Move the fight, not just yourself.",
+    // It changes WHERE the fight happens, which is a verb: the counterplay is
+    // "move the fight", and on a boss that can move it is a real one.
+    changesAsk: true,
+    // ...WHICH A BOSS THAT CANNOT MOVE CAN NEVER BE PULLED OUT OF (r5 blocker).
+    // The counterplay sentence is positional and `def.stationary` bosses have
+    // `speed = 0` (applyBossDraw), so on The Grease Trap the bubble was simply
+    // permanent damage reduction with no answer: measured over 60s of fixed
+    // 200 dps it ended at 98% HP with 1,231 damage landed against 34% and
+    // 4,151 clean — a 70% cut with nothing the player can do about it. A
+    // mutator must change what the player DOES; one whose only verb the boss
+    // is incapable of offering is a stat line, and stat-line mutators are
+    // banned by this table's own rule.
+    legal: (def) => !def.stationary,
   },
   {
     id: "overtime", label: "OVERTIME",
@@ -460,11 +558,20 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
   {
     id: "retrofit", label: "RETROFIT",
     note: "Its signature is another band's. A familiar boss with an unfamiliar telegraph.",
+    changesAsk: true,
+    // A kit that calls its band signature BY NAME cannot be retrofitted: the
+    // Marshal's `marshal` kit calls bossFlameSweep directly and never reads
+    // `m.signature` (the only thing retrofit mutates), so the name card
+    // promised "its signature is another band's" over a fight firing its own.
+    // Kits now route their signature cast through `castBandSignature`, which
+    // reads `m.signature` — so this stays legal wherever a signature exists,
+    // and `bosses.test.ts` pins that the routing holds.
     legal: (def) => !!def.signature,
   },
   {
     id: "understudied", label: "UNDERSTUDIED",
     note: "Its armour comes back once at half health. The break-window happens twice.",
+    changesAsk: true,
     legal: (def) => !!def.plates || !!def.shield,
   },
   {
@@ -496,7 +603,25 @@ export function rollBossMutators(
   if (floor < CONFIG.bossMutatorFromFloor) return []; // the teaching band stays clean
   const legal = BOSS_MUTATORS.filter((m) => !m.legal || m.legal(def));
   if (legal.length === 0) return [];
-  const first = legal[bossHash(seed, def.band, SALT_MUT) % legal.length];
+  // THE FIRST SLOT PREFERS AN ASK-CHANGER (r5 major). Uniform over `legal`,
+  // the two mutators that actually change what the fight asks drew 4-10% of
+  // encounters because they are the two with legality conditions; the six
+  // ambient-pressure affixes drew 13-36%. Against the Hades bar that is
+  // Diablo's affix roll, not Extreme Measures. The pool is still drawn from
+  // the same seeded hash and is still deterministic — it just looks at the
+  // ask-changers first, and falls through to the full legal set for a boss
+  // that can carry none of them.
+  // WEIGHTED, not filtered: an ask-changer gets three tickets in the same
+  // seeded draw. Restricting the first slot to shapers outright was worse than
+  // the problem — a boss with exactly one legal shaper (The Condemned
+  // Architect: `retrofit` legal, `understudied` not) would then draw that one
+  // mutator EVERY run, which is variety subtracted in the name of variety.
+  // Three tickets takes the shapers' combined share from ~25% to ~50% where
+  // both are legal and from ~14% to ~33% where only one is, and every other
+  // mutator still draws.
+  const shapers = legal.filter((m) => m.changesAsk);
+  const pool = [...legal, ...shapers, ...shapers];
+  const first = pool[bossHash(seed, def.band, SALT_MUT) % pool.length];
   const out: BossMutator[] = [first.id];
   if (floor >= CONFIG.bossMutatorSecondFromFloor || bonus) {
     // Never two that both add adds, and never the same one twice.

@@ -275,6 +275,65 @@ const BREAKABLE_MODEL: Record<string, string> = {
   rubble: "rubble_half",
 };
 
+/**
+ * ARENA DRESSING IS AUTHORED SPACE, NOT A GRID STAMP (acceptance r5, major).
+ *
+ * Captured: "two straight rows of ~14 identical crate+barrel props marching
+ * across the arena" (the Grease Trap's SPLIT barricade) and "30+ identical red
+ * pallets scattered on a uniform grid" (the Marshal's PILLARED lattice). The
+ * sim's layout was fine — a barricade run IS a straight line, that is what it
+ * is for — but every piece of it rendered as the same mesh at the same yaw and
+ * the same scale, which is what §2.1 calls a featureless square wearing props.
+ *
+ * The cheap half of the fix is here: each arena cover key resolves to a POOL,
+ * indexed by the breakable's own id, and every piece takes a seeded yaw and a
+ * scale wobble. One straight run becomes a barricade somebody BUILT out of
+ * whatever was to hand.
+ *
+ * The other half is that the pool is keyed by BAND (§32: "arenas do not match
+ * their fights"), so floor 3's cover is crypt furniture, floor 6's is sewer
+ * plant, floor 15's is ironworks stock — the arena is the one place eighteen
+ * identities can be cheaply separated given a shared body roster.
+ */
+const BREAKABLE_POOL: Record<number, Record<string, string[]>> = {
+  // THE UNDERCROFT — a mortuary storeroom.
+  1: {
+    pillar: ["column", "gravestone", "pillar"],
+    barricade: ["crates_stacked", "trunk_small_A", "box_small", "barrel_small"],
+    rubble: ["rubble_half", "rubble_large", "sword_shield_broken"],
+  },
+  // THE SEWERS — plant and pallet.
+  2: {
+    pillar: ["pillar", "fuel_a_barrels", "column"],
+    barricade: ["barrel_large", "crates_stacked", "food_barrel_fish", "barrel_small_stack"],
+    rubble: ["rubble_half", "rubble_large", "barrel_small"],
+  },
+  // THE GARDEN — the overgrowth took the masonry back.
+  3: {
+    pillar: ["tree_dead_medium", "column", "forest_rock_3_c"],
+    barricade: ["forest_bush_1_a", "forest_rock_1_a", "crates_stacked", "forest_bush_2_a"],
+    rubble: ["forest_rock_1_a", "rubble_half", "forest_rock_6_a"],
+  },
+  // THE RUINS — the building is the hazard.
+  4: {
+    pillar: ["column", "pillar", "rubble_large"],
+    barricade: ["rubble_large", "crates_stacked", "column", "rubble_half"],
+    rubble: ["rubble_large", "rubble_half", "column"],
+  },
+  // THE IRONWORKS — stock, fuel and tooling.
+  5: {
+    pillar: ["anvil", "fuel_a_barrels", "pillar"],
+    barricade: ["crate_large_decorated", "fuel_a_barrels", "crates_stacked", "barrel_large"],
+    rubble: ["rubble_half", "barrel_small", "rubble_large"],
+  },
+  // THE APPROACH — a set, struck and re-struck.
+  6: {
+    pillar: ["column", "pillar", "anvil"],
+    barricade: ["crate_large_decorated", "crates_stacked", "trunk_small_A", "barrel_large"],
+    rubble: ["rubble_large", "rubble_half", "sword_shield_broken"],
+  },
+};
+
 const WINDUP_CLIP: Record<string, string> = {
   shot: "shoot",
   slam: "spin", // the 2H overhead spin reads as a wide AoE, not a jab
@@ -324,6 +383,12 @@ export class Renderer3D {
   private key: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   private ambientLight: THREE.AmbientLight;
+  // The band mood's own fill levels, and how far the ARENA LIFT is currently
+  // above them (0..1). See updateArenaLight — r5 major, "35-70% of every
+  // fight frame is dead black".
+  private moodAmbient = 0;
+  private moodHemi = 0;
+  private arenaLift = 0;
   private rim: THREE.DirectionalLight; // cool accent from behind-left (no shadow)
 
   // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB) -> Grade -> SMAA.
@@ -1223,6 +1288,8 @@ export class Renderer3D {
     // over `dur`), and an optional elite/boss death beat (scale swell timer).
     dissolve?: { u: { value: number }; delay: number; dur: number };
     beat?: number;
+    /** Boss only (r5): seconds into the scripted topple. See updateDying. */
+    fall?: number;
   }[] = [];
   // Recent overkill killing blows (from emitHits) waiting to claim the corpse
   // the next reconcile removes near their position. Short-lived by design.
@@ -1248,7 +1315,14 @@ export class Renderer3D {
   // base = the prop's placed scale; reveal eases it in as its tile's fog
   // dissipates (no more visibility popping).
   private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3 }[] = [];
+  /** Props tall enough to hide a fight (r5 major) — see updateTallProps. */
+  private tallProps: {
+    obj: THREE.Object3D; x: number; z: number;
+    base: THREE.Vector3; f: number; target: number;
+  }[] = [];
   private stairsObj: THREE.Object3D | null = null;
+  /** A living boss is standing on the stairs mark — the gate stands down (r5). */
+  private bossSealed = false;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
   // reset): when a rebuild re-creates the fog bank for a world the player is
@@ -3211,13 +3285,20 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef): THREE.Group {
+  private buildMonsterMesh(
+    kind: keyof typeof THEME.archetype, floor: number, elite?: boolean,
+    def?: CustomMobDef, bossId?: string,
+  ): THREE.Group {
     const spec = THEME.archetype[kind];
-    // A crafted def's chosen body wins; then a floor-named menace (city
-    // bosses + the finale), then an elite skin variant when one exists (the
+    // A crafted def's chosen body wins; then THE BOSS'S OWN BODY (r5 blocker:
+    // eighteen named bosses were rendering as the six floor-keyed models, so
+    // the one thing the eye locks onto was the only thing the variety system
+    // could not change); then the floor-named menace as the fallback for a
+    // boss with no roster id; then an elite skin variant when one exists (the
     // Creepy animatronic), then the archetype model, then the fallbacks.
     const model =
       (def?.skin ? this.modelInstance(def.skin) : null) ??
+      (kind === "boss" && bossId ? this.modelInstance(`monster_bossid_${bossId}`) : null) ??
       (kind === "boss" ? this.modelInstance(`monster_boss_${floor}`) : null) ??
       (elite ? this.modelInstance(`monster_${kind}_elite`) : null) ??
       this.modelInstance(`monster_${kind}`) ??
@@ -3529,6 +3610,10 @@ export class Renderer3D {
     this.hemi.color.set(mood.hemiSky);
     this.hemi.groundColor.set(mood.hemiGround);
     this.hemi.intensity = mood.hemiIntensity;
+    // Remembered so the ARENA LIFT (updateArenaLight) has something to return
+    // to. The band's mood is the floor's; the lift is the segment's.
+    this.moodAmbient = mood.ambientIntensity;
+    this.moodHemi = mood.hemiIntensity;
     this.key.color.set(mood.key);
     this.key.intensity = mood.keyIntensity;
     this.rim.color.set(mood.rim);
@@ -4316,6 +4401,7 @@ export class Renderer3D {
     this.stairsObj = gate;
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
     this.propEntries = []; // reset BEFORE the stamps below register into it
+    this.tallProps = [];
     // CRAFTED ROOM props: each stamp the mapgen recorded places its
     // template's cosmetic dressing (the WALLS are already real tiles; these
     // are the barrels and clutter that make the design read). Footprint-
@@ -4423,6 +4509,25 @@ export class Renderer3D {
       if (!tipped) obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
       this.floorGroup.add(obj);
       this.propEntries.push({ obj, tile: Math.floor(y) * map.w + Math.floor(x) });
+      // ---- CAMERA COURTESY FOR TALL PROPS (acceptance r5, major) ----------
+      // `updateCanopy` has shrunk occluding foliage since the open-air pass —
+      // but it only ever registered the INSTANCED terrain masses (cluster* /
+      // accent*), never the per-room props `place()` puts down. The Garden's
+      // trees come from `theme.props`, so on floor 9 four to six of them stood
+      // between the fixed iso camera and the fight with nothing handling them:
+      // the Topiary Warden's punish window fired behind three trees with the
+      // crawler behind a fourth, and its kill frame put the corpse and half
+      // the loot ring behind a hedge bank. "Floor 9 is unplayable as staged."
+      //
+      // Registered here at DRESS time (never per frame) and eased by
+      // updateTallProps with the same diagonal-cone predicate the canopy uses.
+      const hgt = scaled.max.y - scaled.min.y;
+      if (hgt > 1.35) {
+        this.tallProps.push({
+          obj, x: obj.position.x, z: obj.position.z,
+          base: obj.scale.clone(), f: 1, target: 1,
+        });
+      }
       return true;
     };
 
@@ -5185,7 +5290,17 @@ export class Renderer3D {
         else e.obj.scale.copy(e.base);
       }
     }
-    if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
+    // THE BOSS STANDS ON ITS OWN MARK, AND THE MARK IS THE STAIRS (r5 blocker).
+    // `spawnMonsters` places every band boss and the finale at `map.stairs`,
+    // and the stairs GATE is a full-height arch — so the star of the encounter
+    // spends the approach standing inside a piece of architecture, which is
+    // most of why ten of ten approach captures had no boss silhouette in them
+    // even after the fog came off the threshold. The gate is not usable while
+    // a boss lives (the arena is sealed until it falls), so it stands down for
+    // the duration and comes back with the seal.
+    if (this.stairsObj) {
+      this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6 && !this.bossSealed;
+    }
   }
 
   // ---- Ability visuals (orbit blades + nova ring) ----
@@ -6294,16 +6409,30 @@ export class Renderer3D {
       }
       if (!this.breakableMeshes.has(b.id)) {
         const swap = damaged ? BREAKABLE_DAMAGED[b.key] : undefined;
-        const asset = BREAKABLE_MODEL[b.key] ?? b.key;
+        // ONE PIECE, NOT ONE STAMP (r5 major). A stable per-entity hash picks
+        // this band's variant, its yaw and its scale wobble — so a barricade
+        // run reads as something somebody piled up rather than as fourteen
+        // copies of one crate at zero degrees.
+        const hash = (b.id * 2654435761) >>> 0;
+        const pool = BREAKABLE_POOL[floorBand(state.floor)]?.[b.key];
+        const picked = pool
+          ? (pool.find((k, i) => i === hash % pool.length && !!this.models[k])
+             ?? pool.find((k) => !!this.models[k]))
+          : undefined;
+        const asset = picked ?? BREAKABLE_MODEL[b.key] ?? b.key;
         const obj = this.modelInstance(swap && this.models[swap] ? swap : asset);
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
           // Blocking furniture fills its tile; clutter stays hand-sized.
-          obj.scale.multiplyScalar((b.footprint ? 0.85 : 0.45) / fp);
+          // ±14% wobble so a row of them has a silhouette instead of a pitch.
+          const wob = 0.86 + ((hash >>> 8) % 29) / 100;
+          obj.scale.multiplyScalar(((b.footprint ? 0.85 : 0.45) * wob) / fp);
+          // Seeded yaw on EVERYTHING, not only the damaged pieces: grid-aligned
+          // rotation is most of what made the arena read as a level editor.
+          obj.rotation.y = ((hash >>> 3) % 628) / 100;
           if (damaged && !(swap && this.models[swap])) {
             // No broken model in the kit: one good hit knocks it askew.
-            obj.rotation.y = ((b.id * 2654435761) % 628) / 100;
             obj.rotation.z = 0.09;
           }
           const sc = new THREE.Box3().setFromObject(obj);
@@ -6331,6 +6460,16 @@ export class Renderer3D {
         if (!pl.alive) continue;
         const dx = pos.x - pl.pos.x, dy = pos.y - pl.pos.y;
         if (dx * dx + dy * dy <= vis2) return true;
+      }
+      return false;
+    };
+    /** Within `r` tiles of any living crawler — the approach band (r5). */
+    const nearAnyPlayer = (pos: Vec2, r: number): boolean => {
+      const r2 = r * r;
+      for (const pl of state.players) {
+        if (!pl.alive) continue;
+        const dx = pos.x - pl.pos.x, dy = pos.y - pl.pos.y;
+        if (dx * dx + dy * dy <= r2) return true;
       }
       return false;
     };
@@ -6440,7 +6579,7 @@ export class Renderer3D {
       }
       if (!mesh) {
         mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite,
-          mon.defId ? mobDefById(mon.defId) : undefined);
+          mon.defId ? mobDefById(mon.defId) : undefined, mon.bossId);
         mesh.userData.simKind = mon.kind;
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
@@ -6460,7 +6599,26 @@ export class Renderer3D {
         this.monsters.set(mon.id, mesh);
       }
 
-      mesh.visible = inVision(mon.pos);
+      // ---- THE APPROACH OWES A SILHOUETTE (acceptance r5, blocker) --------
+      // §5.1 stages an approach — the bed ducks to a drone, the boss carries a
+      // rim light, the seal breathes at the threshold — and in ten of ten
+      // captures there was NO BOSS ANYWHERE IN FRAME, because an un-introduced
+      // boss standing beyond the crawler's vision radius is fog-culled like
+      // any other body. All of §5.1's dread was being staged on an invisible
+      // object. Diablo shows you the Butcher's room before the fight starts.
+      //
+      // A boss inside the approach band is drawn whatever the fog says. It is
+      // still unlit and still un-introduced: what the player gets is a shape
+      // in the dark, which is the entire point of the beat.
+      //
+      // NOT gated on `!introduced`: the sim raises the encounter at
+      // `encounterRevealRadius`, which is INSIDE the approach band, so gating
+      // on it turned the boss off again the moment the approach was working —
+      // and the fight frames have the same problem the other way (a boss that
+      // steps one tile out of the crawler's vision blinks out mid-swing).
+      // A living boss within the approach band is on screen, full stop.
+      mesh.visible = inVision(mon.pos) ||
+        (mon.kind === "boss" && mon.hp > 0 && nearAnyPlayer(mon.pos, 30));
       // Enraged bodies burn for the duration (see applyHitFlash). Pulsed and
       // phase-offset per monster so a full room reads as a crowd catching
       // fire rather than one strobing mass.
@@ -6530,7 +6688,15 @@ export class Renderer3D {
         if (mon.dormant) {
           ud.revealed = true; // don't double-awaken on the reveal that follows
           ud.wasDormant = true;
-          playM(mon.kind === "greeter" ? "dormant_stand" : "dormant_floor");
+          // A BOSS WAITS STANDING (acceptance r5, blocker). `dormant_floor`
+          // lays the rig flat on the ground, and every band boss spawns
+          // dormant on its mark — so through the whole of §5.1's approach the
+          // "silhouette in the dark" the beat is built around was a body lying
+          // face-down inside its own threshold ring, invisible at iso from
+          // twelve tiles. Ten of ten approach captures reported no boss in
+          // frame and this is why. Trash still ambushes from the floor; the
+          // marquee is on its feet before you walk in.
+          playM(mon.kind === "greeter" || mon.kind === "boss" ? "dormant_stand" : "dormant_floor");
         } else {
         if (ud.wasDormant) {
           ud.wasDormant = false;
@@ -6919,14 +7085,41 @@ export class Renderer3D {
             this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 12);
             this.addTrauma(boss ? 0.5 : 0.32);
           }
-          const delay = (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
-          const dur = 0.55;
+          // ---- A BOSS HAS TO FALL (acceptance r5, blocker) ----------------
+          // Captured across the whole roster: at DEFEATED the corpse was the
+          // LIVE MESH — standing upright, unposed, at full scale and full
+          // brightness, with two to four damage numbers stacked across its
+          // torso. Nothing dissolved, ragdolled, shattered or fell. The one
+          // boss that read as dying did so because a light column happened to
+          // sit over it, which is luck, not staging.
+          //
+          // Two causes. The dissolve waited 0.8s for a death CLIP that most of
+          // the KayKit boss bodies do not carry (the fuzzy clip matcher finds
+          // nothing and the rig simply keeps its idle pose), and nothing else
+          // in the pipeline ever moved the body. So a boss now FALLS on its
+          // own — a scripted topple layered over whatever clip does exist —
+          // and it starts eroding almost immediately, because the kill frame
+          // is the frame the player is looking at.
+          const boss = mesh.userData.simKind === "boss";
+          const delay = boss ? 0.12 : (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
+          const dur = boss ? 1.5 : 0.55;
           this.dying.push({
             mesh, t: Math.max((rigged ? 1.1 : 0.7) + (fling ? 0.4 : 0), delay + dur + 0.05),
             rigged, fling,
             dissolve: { u: makeDissolving(mesh, bigDeath ? 0xffb457 : 0x9fc4ff), delay, dur },
             beat: bigDeath ? 0 : undefined,
+            // The topple: seconds elapsed. Only a boss gets one — an elite's
+            // death clip reads fine at its scale, and a room of toppling
+            // trash would read as a physics bug.
+            fall: boss ? 0 : undefined,
           });
+          if (boss) {
+            const mx = mesh.position.x, mz = mesh.position.z;
+            // It comes apart as it goes down: masonry-scale gibs in its own
+            // silhouette's footprint, not a particle spray.
+            this.fxp.gibs(mx, mz, 0xc0552e, 22);
+            this.fxp.smoke(mx, 1.2, mz, 12, 0x5a4636);
+          }
         }
       }
     }
@@ -7675,7 +7868,14 @@ export class Renderer3D {
     const bias = this.bossFx.frameBias;
     const drop = this.bossFx.frameDrop;
     if (bias > 1e-3 || Math.abs(orbit) > 1e-3) {
-      const star = state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+      // ...OR THE CORPSE (r5 blocker). Every framing term used to key off a
+      // boss with hp > 0, so the payoff — twelve ringside beacons, the seal
+      // opening, the HYPE bar filling — fired on the exact frame the camera
+      // snapped back to the crawler and left the ring outside the shot.
+      const held = this.bossFx.focus;
+      const star = held
+        ? { pos: { x: held.x, y: held.y } }
+        : state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
       if (star) {
         // The reveal's orbit bias and the fight's framing bias are the same
         // move; take whichever is asking for more rather than stacking them.
@@ -7740,6 +7940,88 @@ export class Renderer3D {
 
     // Camera courtesy: shrink foliage that hides the action (open-air only).
     this.updateCanopy(state, ax, az, dt);
+    // ...and the per-room props, on every floor (r5 major: THE WHOLE GARDEN
+    // BAND IS PLAYED BEHIND TREES).
+    this.updateTallProps(state, ax, az, dt);
+    // The arena lights up when the seal closes (r5 major: dead-black frames).
+    this.updateArenaLight(state, dt);
+  }
+
+  /**
+   * ARENA LIFT (acceptance r5, major). Measured on the captures: 35-70% of
+   * every boss fight frame was dead black — the arena a small lit puddle in an
+   * unlit void, the health plate floating in the empty half, the finale ~70%
+   * dark. The sim now reveals the arena's fog when the seal closes; this is
+   * the other half, because a revealed room that is still unlit is still a
+   * black room.
+   *
+   * It is the band mood's own fill, raised — not a new light and not a colour
+   * change, so the floor keeps its identity and nothing in the grade moves.
+   * It eases in over about a second (a stage coming up, not a light switch)
+   * and eases straight back out when the fight ends.
+   */
+  private updateArenaLight(state: GameState, dt: number): void {
+    // ...and the stairs gate stands down for as long as a boss is alive on
+    // the floor at all (introduced or not): it is standing ON the arch.
+    this.bossSealed = state.monsters.some((m) => m.kind === "boss" && m.hp > 0);
+    const want = state.monsters.some(
+      (m) => m.kind === "boss" && m.hp > 0 && m.introduced) ? 1 : 0;
+    if (Math.abs(this.arenaLift - want) < 1e-3 && this.arenaLift === want) return;
+    this.arenaLift += (want - this.arenaLift) * Math.min(1, dt * 1.4);
+    if (Math.abs(this.arenaLift - want) < 1e-3) this.arenaLift = want;
+    // +55% fill and +35% sky. Enough that the far half of the arena is
+    // architecture instead of void; nowhere near enough to flatten the
+    // torch-pool contrast the band's mood is built on.
+    this.ambientLight.intensity = this.moodAmbient * (1 + 0.55 * this.arenaLift);
+    this.hemi.intensity = this.moodHemi * (1 + 0.35 * this.arenaLift);
+  }
+
+  /**
+   * The canopy courtesy, extended to per-room props (r5 major).
+   *
+   * `updateCanopy` only ever registered the INSTANCED open-air terrain masses,
+   * so the Garden's own trees — placed by `place()` from `theme.props` — were
+   * never handled. Captured: the Topiary Warden's punish window behind three
+   * trees with the crawler behind a fourth; its kill frame with the corpse and
+   * half the loot ring behind a hedge bank; trees over the Zoning Board's
+   * disc. Same diagonal-cone test, same ease, applied to anything tall enough
+   * to hide a body.
+   */
+  private updateTallProps(state: GameState, ax: number, az: number, dt: number): void {
+    if (this.tallProps.length === 0) return;
+    const SQ2 = Math.SQRT1_2;
+    const ents = this.canopyEnts;
+    ents.length = 0;
+    for (const p of state.players) if (p.alive) ents.push(p.pos);
+    for (const mo of state.monsters) {
+      if (mo.hp <= 0) continue;
+      // The BOSS always earns a clear shot, wherever it is standing.
+      if (mo.kind === "boss" ||
+          (Math.abs(mo.pos.x - ax) < 14 && Math.abs(mo.pos.y - az) < 10)) ents.push(mo.pos);
+    }
+    const k = Math.min(1, dt * 9);
+    for (const c of this.tallProps) {
+      let blocked = false;
+      for (const e of ents) {
+        const vx = c.x - e.x, vz = c.z - e.y;
+        const u = (vx + vz) * SQ2; // along the camera diagonal (toward it)
+        const w = (vx - vz) * SQ2; // across it
+        // A slightly deeper cone than the canopy's: a tree is taller than a
+        // terrain clump, so it occludes from further down-screen.
+        if (u > -0.9 && u < 3.4 && Math.abs(w) < 1.35) { blocked = true; break; }
+      }
+      // 0.28 rather than the canopy's 0.12: a room prop shrinking to nothing
+      // reads as a bug, and at ~a quarter height the trunk still marks where
+      // the tree is while the fight behind it is entirely legible.
+      c.target = blocked ? 0.28 : 1;
+      if (Math.abs(c.f - c.target) < 0.004) {
+        if (c.f === c.target) continue;
+        c.f = c.target;
+      } else {
+        c.f += (c.target - c.f) * k;
+      }
+      c.obj.scale.set(c.base.x * c.f, c.base.y * c.f, c.base.z * c.f);
+    }
   }
 
   /**
@@ -8161,6 +8443,22 @@ export class Renderer3D {
         const p = Math.min(1, d.beat / 0.42);
         const bs = (d.mesh.userData.baseScale as number) ?? d.mesh.scale.x;
         d.mesh.scale.setScalar(bs * (1 + 0.15 * Math.sin(p * Math.PI)));
+      }
+      // THE TOPPLE (r5 blocker). A boss falls whether or not its rig carries a
+      // death clip — most of the KayKit boss bodies do not, which is why every
+      // kill capture in the round was a live mesh standing at full height. It
+      // pitches away over ~0.75s on an ease-out (fast at the start, settling
+      // at the end, like weight), sinks as it goes, and squashes a little at
+      // the floor so the last silhouette is unmistakably a body DOWN.
+      if (d.fall !== undefined && !d.fling) {
+        d.fall += dt;
+        const p = Math.min(1, d.fall / 0.75);
+        const ease = 1 - (1 - p) * (1 - p);
+        d.mesh.rotation.x = -ease * 1.42; // ~81 degrees, away from the camera
+        d.mesh.rotation.z = ease * 0.18; // a slight roll: never a clean hinge
+        d.mesh.position.y = -ease * 0.22;
+        const bs = (d.mesh.userData.baseScale as number) ?? 1;
+        d.mesh.scale.y = bs * (1 - 0.12 * ease);
       }
       this.dying[dw++] = d;
     }

@@ -605,6 +605,15 @@ export interface Monster {
   // committed signatures; the window itself is plain `stagger`, so every
   // existing "the boss is helpless" rule composes for free.
   punishArmed?: boolean;
+  // Seconds until this boss may over-commit AGAIN. Round 5 measured The
+  // Pollinator spending 44.7s of a 75s fight staggered (21 windows) because
+  // every slam, ritual and hazard tick fed one shared counter; a boss that is
+  // helpless most of the fight has no rhythm to learn.
+  punishCd?: number;
+  // ...and while THIS is running the boss's own standing ground is SUPPRESSED.
+  // "Stand here and commit" and "this floor is on fire" cannot both be true:
+  // a helpless boss does not get to keep running an arena-wide burn.
+  punishQuietT?: number;
   // Phase machine: the last reason a phase advanced, and the cap. Bosses run
   // 0..2 (band) or 0..3 (finale); mechanic/timer/positional triggers share the
   // same counter as the HP gates so the fight never double-counts a beat.
@@ -1273,6 +1282,11 @@ export interface GameState {
   timeRemaining: number; // seconds left; can go negative once collapsing
   phase: TimerPhase;
   collapseElapsed: number; // seconds spent in the collapse phase
+  // The clock is HELD while an introduced boss is alive (r5): the System does
+  // not cut away from its own marquee segment, and a false fail-state next to
+  // every headline moment was the read the capture round objected to. Hosts
+  // show the clock as held rather than as running out.
+  timerHeld?: boolean;
   // TIME LOAN (shrine): seconds the NEXT floor's budget owes the System.
   // Collected (and cleared) by buildFloor. Not persisted — a reload forgives
   // the debt, which the System would never admit to.

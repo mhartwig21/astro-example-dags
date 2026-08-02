@@ -94,14 +94,45 @@ export const MODEL_MANIFEST: Record<string, string> = {
   // Mystery Monthly mob-grade character in the collection takes the stage.
   monster_foreman: "/assets/characters/combat_mech.glb",
   monster_boss: "/assets/characters/skeleton_warrior.glb",
-  // Band-boss arenas + the finale get named menaces (keyed by floor). All are
-  // reuses of characters already in the cast — no new asset files.
-  monster_boss_3: "/assets/characters/necromancer.glb", // The Crypt Concierge
-  monster_boss_6: "/assets/characters/black_knight.glb", // The Sump King
-  monster_boss_9: "/assets/characters/plant_warrior.glb", // The Topiary Warden
-  monster_boss_12: "/assets/characters/frost_golem.glb", // The Condemned Architect
-  monster_boss_15: "/assets/characters/orc_brute.glb", // The Furnace Marshal
+  // Band-boss arenas + the finale get named menaces (keyed by FLOOR). Kept
+  // only as the fallback for a boss with no roster id (a crafted def, a
+  // champion, a save from before the roster shipped) — see below.
+  monster_boss_3: "/assets/characters/necromancer.glb",
+  monster_boss_6: "/assets/characters/black_knight.glb",
+  monster_boss_9: "/assets/characters/plant_warrior.glb",
+  monster_boss_12: "/assets/characters/frost_golem.glb",
+  monster_boss_15: "/assets/characters/orc_brute.glb",
   monster_boss_18: "/assets/characters/demon_lord.glb",
+  // ---- THE BODY IS THE BOSS, NOT THE FLOOR (acceptance r5, blocker) -------
+  // Eighteen named bosses rendered as SIX models, because `buildMonsterMesh`
+  // resolved `monster_boss_${floor}`. On floor 3 — the floor a short-session
+  // player replays most — The Crypt Concierge, The Rent Collector and The Temp
+  // were the same necromancer mesh differing only by name plate and rim hue,
+  // so every layer of the seeded-variety system was invisible to the eye: the
+  // one thing the eye locks onto was band-fixed.
+  //
+  // One row per roster id, all eighteen distinct FILES, all already shipped in
+  // the KayKit collection (ASSETS.md unchanged — no new art). Where a body is
+  // shared with a trash kind it is deliberately NOT that band's trash, so a
+  // boss never silhouettes like the mobs standing next to it.
+  monster_bossid_concierge: "/assets/characters/necromancer.glb",
+  monster_bossid_rentcollector: "/assets/characters/extradition.glb",
+  monster_bossid_temp: "/assets/characters/stuntdouble_cast.glb",
+  monster_bossid_sumpking: "/assets/characters/black_knight.glb",
+  monster_bossid_inspector: "/assets/characters/paladin_helmet.glb",
+  monster_bossid_greasetrap: "/assets/characters/skeleton_golem.glb",
+  monster_bossid_topiary: "/assets/characters/plant_warrior.glb",
+  monster_bossid_zoningboard: "/assets/characters/lorekeeper.glb",
+  monster_bossid_pollinator: "/assets/characters/beast.glb",
+  monster_bossid_architect: "/assets/characters/frost_golem.glb",
+  monster_bossid_permitoffice: "/assets/characters/clanker.glb",
+  monster_bossid_foundation: "/assets/characters/4gtn_forgotten.glb",
+  monster_bossid_marshal: "/assets/characters/orc_brute.glb",
+  monster_bossid_linesupervisor: "/assets/characters/combat_mech.glb",
+  monster_bossid_safetyofficer: "/assets/characters/paladin.glb",
+  monster_bossid_showrunner: "/assets/characters/demon_lord.glb",
+  monster_bossid_standards: "/assets/characters/4gtn.glb",
+  monster_bossid_sponsor: "/assets/characters/animatronic_creepy.glb",
   // Armory sources: the 1.0 adventurer GLBs. They carry the weapon/shield
   // meshes weaponry.ts grafts onto hands, AND they are the barbarian/mage/
   // rogue hero skins (heroSkin in sim/game.ts) now that monsters wear the

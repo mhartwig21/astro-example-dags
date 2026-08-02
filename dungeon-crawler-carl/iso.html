@@ -401,6 +401,14 @@
          bar. While it is up, the System's headline band steps down so the two
          never share pixels (host toggles body.bossplate). */
       body.bossplate #headline { top: max(28%, 232px); }
+      /* ...AND THE CALL-OUT OUTRANKS IT (acceptance r5, blocker). #headline at
+         max(28%,232px) and #bosscall at max(27%,236px) are the same band, so
+         at the Showrunner's phase edge "THE COMMERCIAL BREAK" composited
+         directly on top of the collapse announcement inside one bordered
+         plate and the highest-priority beat of the finale was illegible.
+         While a call-out is live the System's headline band steps down to its
+         own zone — nothing is lost, and the two never share pixels. */
+      body.bosscalling #headline { top: max(44%, 372px); }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);

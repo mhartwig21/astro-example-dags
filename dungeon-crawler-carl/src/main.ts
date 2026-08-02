@@ -11,7 +11,7 @@ import { GamepadController } from "./input/gamepad";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import { loadGamepad, loadMouseMove } from "./input/bindings";
 import { render, updateCamera, type Camera } from "./render/renderer";
-import { clearRun, loadRun, saveRun, seedTips } from "./persist/save";
+import { clearRun, loadRun, saveRun, seedBossMemory, seedTips } from "./persist/save";
 
 const SIM_HZ = 60;
 const SIM_DT = 1 / SIM_HZ;
@@ -74,6 +74,7 @@ function startFresh(): GameState {
   }
   clearRun();
   const g = createGame(freshSeed());
+  seedBossMemory(g); // §4.1 anti-repeat: what the LAST run's lineup was
   seedTips(g.players[0]); // first-contact tips are once EVER, not once per run
   saveRun(g);
   return g;
