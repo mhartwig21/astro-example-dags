@@ -1384,27 +1384,19 @@ document.body.appendChild(btVignette);
 canvas.style.transition = "filter 220ms ease-out";
 let btGradeOn = false;
 /**
- * THE RUN-END GRADE (COMPETITIVE.md 6.2 Beat 0). The same lens the bullet-time
- * grade uses, pushed further and held: the dungeon drains of colour and dims
- * behind the verdict instead of carrying on at full brightness underneath an
- * rgba(4,4,8,0.82) scrim. Beat 0 asks to "hold the killing blow, desaturate,
- * then the banner"; shipped, it was a bare setTimeout and nothing else, so the
- * run did not END - a dialog just opened over it.
+ * The screen grade belongs to BULLET TIME and nothing else. A run-end variant
+ * (grayscale 0.66, brightness 0.6, held for as long as the verdict was up) was
+ * added and reverted: with the scrim already at 82% it drained the dungeon to
+ * near-black, so the world the player had just been fighting in stopped
+ * existing behind the card.
  */
-let verdictGradeOn = false;
 let gradeApplied = "";
 function applyScreenGrade(): void {
-  const want = verdictGradeOn
-    ? "grayscale(0.66) saturate(0.3) brightness(0.6) contrast(1.04)"
-    : btGradeOn ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
+  const want = btGradeOn ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
   if (want === gradeApplied) return;
   gradeApplied = want;
-  // The death grade is slower than the bullet-time lens on purpose: this one
-  // is a curtain, not a gear change.
-  canvas.style.transition = `filter ${verdictGradeOn ? 520 : 220}ms ease-out`;
-  btVignette.style.transition = `opacity ${verdictGradeOn ? 520 : 220}ms ease-out`;
   canvas.style.filter = want;
-  btVignette.style.opacity = verdictGradeOn || btGradeOn ? "1" : "0";
+  btVignette.style.opacity = btGradeOn ? "1" : "0";
 }
 function updateBulletTimeGrade(s: GameState): void {
   const on = s.bulletTimeLeft > 0;
@@ -7017,30 +7009,22 @@ function renderEarned(s: GameState): void {
   renderSeal();
 }
 
-/** The word on the block last time we drew it, so the strike lands ONCE - on
- *  the transition into a terminal state, not on every re-render. */
+/** The word on the block last time we drew it, so a state change is detected
+ *  once - on the transition into a terminal state, not on every re-render. */
 let sealWordShown = "";
 
 /**
- * THE SEAL MOMENT HAS TO HAPPEN ON SCREEN (blocker 6, 6.2 Beat 5: "watching the
- * seal land is two genuinely satisfying seconds").
+ * THE SEAL STATE HAS TO BE READABLE ON SCREEN (blocker 6). Instrumented on the
+ * shipping build: at t+0 the block carried `vseal pending`, and by t+900ms it
+ * already read `vseal verified ranked`. The pending state was never visible for
+ * a single painted frame, so the player could not tell that the server had done
+ * anything at all.
  *
- * Instrumented on the shipping build: at t+0 the block carried
- * `vseal pending` while the verdict card was still at opacity 0 mid entrance,
- * and by t+900ms it already read `vseal verified ranked`. So the strike fired -
- * `paintSeal` staged it correctly - into a frame where the pending state had
- * never been visible for a single painted frame. There was no moment. The
- * animation was right and it had nothing to land ON.
- *
- * Both halves are timing, and both are fixed here rather than in the CSS:
- *
- *  - `verdictVisibleAt` is when the card actually reaches the screen, not when
- *    the run ended. A dwell measured from the status edge is spent behind a
- *    letterbox.
- *  - A terminal verdict that arrives inside the floor is HELD, not dropped:
- *    the pending block keeps breathing and the strike is re-issued the instant
- *    the floor expires, so the sequence a player sees is always
- *    VERIFYING -> (beat) -> SEALED and never a single frame of either.
+ * `verdictVisibleAt` is when the card actually reaches the screen, and a
+ * terminal verdict that arrives before the pending block has had its floor is
+ * HELD rather than dropped, so the sequence a player sees is always
+ * VERIFYING -> SEALED and never a single frame of either. That is legibility,
+ * not staging: nothing animates, the words simply stay put long enough to read.
  */
 let verdictVisibleAt = 0;
 /** When the currently-shown non-terminal block became visible. */
@@ -7048,16 +7032,9 @@ let sealPendingSince = 0;
 let sealHoldTimer: number | null = null;
 
 /**
- * THE SEAL, DRAMATISED (6 Beat 5).
- *
- * The server re-executing a fifteen-minute run and certifying it is the one
- * thing League of Legends cannot copy, and it shipped as a 10.5px chip parked
- * at the far right of a hairline row - smaller than the body copy, smaller
- * than the death headline - swapping VERIFYING for SEALED by innerHTML with no
- * transition, no scale and no sound. Buying a helmet in the safe room got a
- * 2.4s staged stamp with glow and a coloured border. This is the correction:
- * a block sized to what it certifies, one sentence of System voice, and a
- * strike that lands exactly once.
+ * THE SEAL (6 Beat 5). A block rather than a 10.5px chip, because the reason a
+ * submission was refused has to be readable on the default face rather than
+ * parked in a title=. One kicker, one word, one sentence of System voice.
  */
 function renderSeal(): void {
   const el = document.getElementById("recap-seal")!;
@@ -7116,8 +7093,8 @@ function signInAvailable(): boolean {
   return authProviders.length > 0 && !loadSignin();
 }
 
-/** Draw the seal block, staging the strike exactly once — on the transition
- *  INTO a terminal state, never on a re-render. */
+/** Draw the seal block, changing state exactly once — on the transition INTO a
+ *  terminal state, never on a re-render. */
 function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
   // THE FLOOR UNDER THE PENDING STATE (blocker 6). A terminal verdict that
   // arrives before the pending block has been visible for SEAL_MIN_PENDING_MS
@@ -7161,12 +7138,10 @@ function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
   if (link) {
     link.addEventListener("click", () => beginSignIn(authProviders[0]));
   }
-  // The strike is for the moment the verdict ARRIVES - not for the first paint
-  // of a block that has been sitting at CLAIMED since the screen opened.
+  // The verdict ARRIVING is worth a sound - it is the one moment on this screen
+  // the player did not already know about. The 1.9s scale/flood/ring "strike"
+  // that used to ride along with it is gone: the block changes state, plainly.
   if (!first && v.terminal) {
-    void el.offsetWidth; // restart the keyframes
-    el.classList.add("strike");
-    window.setTimeout(() => el.classList.remove("strike"), 2000);
     audio.play(v.cls.includes("rejected") ? "warning" : "achievement");
   }
 }
@@ -7198,43 +7173,22 @@ let recapPrevCareer: ReturnType<typeof careerBests> = null;
 let submitVisibility: "public" | "private" = "public";
 
 /**
- * BEAT 0 — THE FREEZE (COMPETITIVE.md 6.2). "Hold the killing blow,
- * desaturate, then the banner."
+ * NO BEAT 0. An elevation round staged the run's end as a cinematic: a 0.6s
+ * hit-stop, `body.cine` to pull the entire HUD out of frame, the boss-intro
+ * letterbox, and a 520ms grayscale/dim lens held on the canvas for as long as
+ * the card was up. Between the lens and a radial scrim the dungeon behind the
+ * verdict went to near-black, and the player sat through ~760ms of directed
+ * nothing before the screen they came for arrived.
  *
- * What shipped was `setTimeout(() => recapEl.style.display = 'flex', 620)` and
- * nothing else: no hit-stop, no desaturate, no letterbox, no HUD cut. The
- * frame loop kept calling updateHud, drawMinimap and updateShowHud after the
- * status edge, so the live world, the FLOOR/COLLAPSE panel, the SYSTEM strip,
- * the Hype bar, the HP bar and the whole ability cockpit stayed lit behind an
- * 82% scrim - a player death, the most common terminal event in a roguelike,
- * got none of the treatment a boss INTRODUCTION gets.
- *
- * Every tool used here already existed in this file for that boss beat.
+ * It is reverted. The run ends, the card comes up on the same short timer it
+ * always did, and the world stays visible behind it. The letterbox, the
+ * screen grade and `body.cine` still belong to the boss beat that authored
+ * them — the verdict simply stopped borrowing them.
  */
-function beginVerdictFreeze(s: GameState): void {
-  hitStop = Math.max(hitStop, s.status === "won" ? 0.36 : 0.6);
-  document.body.classList.add("cine");   // the HUD leaves frame entirely
-  letterboxEl.classList.add("on");       // the broadcast cuts to the card
-  document.documentElement.style.setProperty("--bi-fade", "1");
-  verdictGradeOn = true;
-  applyScreenGrade();
-}
-
-function endVerdictFreeze(): void {
-  verdictGradeOn = false;
-  applyScreenGrade();
-  document.body.classList.remove("cine");
-  letterboxEl.classList.remove("on");
-  document.documentElement.style.removeProperty("--bi-fade");
-}
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
 function maybeShowRecap(s: GameState): void {
-  if (s.status === "playing") {
-    if (recapFor !== null) endVerdictFreeze();
-    recapFor = null;
-    return;
-  }
+  if (s.status === "playing") { recapFor = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
 
@@ -7253,10 +7207,9 @@ function maybeShowRecap(s: GameState): void {
   verdictVisibleAt = 0;
   sealPendingSince = 0;
   if (sealHoldTimer !== null) { window.clearTimeout(sealHoldTimer); sealHoldTimer = null; }
-  beginVerdictFreeze(s);
   renderRecap(s);
-  // Beat 0 holds, THEN the banner. A win gets a shorter hold: the player
-  // already knows what happened, and the plate is the payoff.
+  // One short beat between the killing blow and the card — enough that the
+  // verdict does not land on top of the hit that caused it, and no more.
   window.setTimeout(() => {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
@@ -7265,7 +7218,7 @@ function maybeShowRecap(s: GameState): void {
     // when the run ended (blocker 6).
     verdictVisibleAt = performance.now();
     sealPendingSince = verdictVisibleAt + social.SEAL_CASCADE_MS;
-  }, s.status === "won" ? 560 : 760);
+  }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
   cpBeforeRun = myStanding?.cp ?? null;
@@ -9916,24 +9869,14 @@ async function main(): Promise<void> {
     for (const a of frameAnns) showAnnouncement(a);
     updateDowned(state);
     maybeShowRecap(state);
-    // THE RUN ENDING IS A BEAT, NOT A DIALOG OPENING (6 Beat 0). Everything
-    // below this line draws the LIVE HUD, and it all kept running after the
-    // status edge - the FLOOR/COLLAPSE panel, the SYSTEM/CRAWLER/VIEWERS
-    // strip, the Hype bar, the HP bar, the ability cockpit and the minimap
-    // were being recomputed and redrawn behind the verdict for its entire
-    // life. body.cine takes them out of frame; this stops them being computed
-    // at all, and it is also what keeps the boss code from tearing down the
-    // letterbox the freeze just raised.
-    if (state.status === "playing") {
-      updateHud(state);
-      updateSkills(state);
-      updateGhostHud(state);
-      updateGhostPlate(state);
-      updateShowHud(state);
-      updateBossBar(state);
-      drawMinimap(state);
-      updateRoamUi(state);
-    }
+    updateHud(state);
+    updateSkills(state);
+    updateGhostHud(state);
+    updateGhostPlate(state);
+    updateShowHud(state);
+    updateBossBar(state);
+    drawMinimap(state);
+    updateRoamUi(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
