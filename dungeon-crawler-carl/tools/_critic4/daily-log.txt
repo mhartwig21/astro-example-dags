@@ -1,0 +1,27 @@
+
+===== t+0ms =====
+{"recapVisible":true,"recapOpacity":"0","sealText":"NOTHING HAS LEFT THIS MACHINEREADY TO SUBMITTwenty-odd kilobytes that reproduce this run e","sealClass":"vseal pending"}
+
+===== t+900ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== t+1800ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== t+3000ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== t+5000ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== t+8000ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== t+12000ms =====
+{"recapVisible":true,"recapOpacity":"1","sealText":"THE SYSTEM RE-RAN YOUR CRAWLSEALEDEvery input, replayed on the System's own machine. Same ","sealClass":"vseal verified ranked"}
+
+===== server after run =====
+{
+ "boards": "{\"kind\":\"contracts\",\"eventId\":null,\"rulesEra\":\"2804176\",\"splitGate\":20,\"archetypeEntrants\":null,\"entries\":[],\"verified\":[],\"unproven\":[],\"note\":\"entries are runs this server re-executed and certified. unproven rows were stored exactly as a client reported them, hold no rank, and are never a result.\"}",
+ "health": "ERR TypeError: Failed to fetch"
+}

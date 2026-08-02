@@ -1,0 +1,461 @@
+
+===== front door =====
+{
+ "seed": 2698932116,
+ "runEvent": {
+  "eventId": "daily-2026-08-02",
+  "attemptNo": 1,
+  "scoresCp": true
+ }
+}
+
+===== mid-run state =====
+{
+ "floor": 1,
+ "elapsed": 1.9,
+ "hp": 100,
+ "kills": 0
+}
+
+===== end state =====
+{
+ "status": "playing",
+ "floor": 1
+}
+
+===== verdict text @0ms =====
+LADDER: 
+SEAL: 
+MARK: 
+BANKED: 
+EARNED: what you earned▾
+
+===== verdict text @1200ms =====
+LADDER: 
+SEAL: 
+MARK: 
+BANKED: 
+EARNED: what you earned▾
+
+===== verdict text @3500ms =====
+LADDER: 
+SEAL: 
+MARK: 
+BANKED: 
+EARNED: what you earned▾
+
+===== verdict text @7000ms =====
+LADDER: 
+SEAL: 
+MARK: 
+BANKED: 
+EARNED: what you earned▾
+
+===== verdict text @12000ms =====
+LADDER: 
+SEAL: 
+MARK: 
+BANKED: 
+EARNED: what you earned▾
+
+===== FULL PANEL TEXT =====
+
+        
+        THE FINALETHE NETWORK IS BROADCASTING THIS ONE AGAIN
+        
+
+          
+            —
+            
+          
+          
+            
+            
+            
+            
+          
+        
+        
+          
+          
+        
+        
+        
+          
+            
+            
+            
+            
+          
+          
+            
+            
+            
+            
+            
+              what you earned▾
+            
+            
+          
+        
+        
+        
+          
+            RUN IT BACK Rsame seed · your own ghost on the course
+          
+          NEW CONTRACTa dungeon nobody has seen
+          RACE THE LEADERtoday's #1 as your ghost
+          
+            SHARE THIS RUN
+            STANDINGS
+            WATCH THE ARENA
+          
+          
+        
+        HOLD TAB — SCOREBOARD, SPLITS AND THE BUILD
+      
+
+===== panel geometry =====
+{
+ "viewport": [
+  1600,
+  900
+ ],
+ "panel": [
+  0,
+  0
+ ],
+ "at": [
+  0,
+  0
+ ],
+ "share": "0%",
+ "scrolls": false
+}
+
+===== TAB PANEL TEXT =====
+
+        
+        THE FINALETHE NETWORK IS BROADCASTING THIS ONE AGAIN
+        
+
+          
+            —
+            
+          
+          
+            
+            
+            
+            
+          
+        
+        
+          
+          
+        
+        
+        
+          
+            
+            
+            
+            
+          
+          
+            
+            
+            
+            
+            
+              what you earned▾
+            
+            
+          
+        
+        
+        
+          
+            RUN IT BACK Rsame seed · your own ghost on the course
+          
+          NEW CONTRACTa dungeon nobody has seen
+          RACE THE LEADERtoday's #1 as your ghost
+          
+            SHARE THIS RUN
+            STANDINGS
+            WATCH THE ARENA
+          
+          
+        
+        HOLD TAB — SCOREBOARD, SPLITS AND THE BUILD
+      
+
+===== MATH DRAWER =====
+
+        
+        THE FINALETHE NETWORK IS BROADCASTING THIS ONE AGAIN
+        
+
+          
+            —
+            
+          
+          
+            
+            
+            
+            
+          
+        
+        
+          
+          
+        
+        
+        
+          
+            
+            
+            
+            
+          
+          
+            
+            
+            
+            
+            
+              what you earned▾
+            
+            
+          
+        
+        
+        
+          
+            RUN IT BACK Rsame seed · your own ghost on the course
+          
+          NEW CONTRACTa dungeon nobody has seen
+          RACE THE LEADERtoday's #1 as your ghost
+          
+            SHARE THIS RUN
+            STANDINGS
+            WATCH THE ARENA
+          
+          
+        
+        HOLD TAB — SCOREBOARD, SPLITS AND THE BUILD
+      
+
+===== STANDINGS contracts =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+◆ DAILY · SEASON S5 ◆
+TODAY'S CONTRACT
+seed 2698932116 · 2 entrants · closes in 8h 57m
+One dungeon. Every crawler. Unlimited attempts — but the ladder scores your FIRST.
+ENTER THE CONTRACT ▶
+◆ WEEKLY · SEASON S5 ◆
+THE WEEKLY CONTRACT
+seed 118150008 · 0 entrants · closes in 8h 57m
+A harder fixed seed, open all week. The Clash analogue, minus the five friends free at 8pm.
+ENTER THE CONTRACT ▶
+TODAY'S STANDINGS — 2026-08-02
+YOU
+YOUR RIVAL
+ties broken by depth, then the faster run, then the earlier submission
+1
+DONUT HOLES
+era 2804176 · signed attempt 2
+SEALED
+floor 4 · 1:19
+RACE
+2
+Carl
+era 2804176 · signed attempt 4
+SEALED
+floor 1 · 2:06
+RACE
+UNPROVEN CLAIMS — BELOW THE BOARD
+Stored exactly as a client reported them and never re-executed. They hold no rank, they are not printed as results, and the top of every board is verified-only — a claim sitting where a proof should be is worth less than an empty row.
+—
+Carl
+no era — never certified · signed attempt 1
+CLAIMED
+floor 1 · 0:00
+RACE
+
+===== STANDINGS alltime =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+DEEPEST
+FASTEST
+KILLS
+CONTRACTS
+YOU
+YOUR RIVAL
+ties broken by the exact tick count, then the earlier submission
+this museum is empty. The first exhibit is yours to donate.
+All-time boards never reset — they CHIP THE ERA instead. A row stamped era 2804176 was earned under exactly the rules you are playing now; an older stamp was earned under different numbers, and the board says so rather than quietly blending a year of patches together and calling it a record.
+
+===== STANDINGS bands =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+YOU
+YOUR RIVAL
+ties broken by the exact tick count, then the earlier certification
+THE UNDERCROFT
+fastest sealed TRAVERSAL of floors 1–3 — every floor entered and floor 3 left behind
+1
+DONUT HOLES
+era 2804176 · signed attempt 2 · ran on to F4
+SEALED
+1:19.45
+RACE
+THE SEWERS
+fastest sealed TRAVERSAL of floors 4–6 — every floor entered and floor 6 left behind
+no sealed traversals here yet
+THE GARDEN
+fastest sealed TRAVERSAL of floors 7–9 — every floor entered and floor 9 left behind
+no sealed traversals here yet
+THE RUINS
+fastest sealed TRAVERSAL of floors 10–12 — every floor entered and floor 12 left behind
+no sealed traversals here yet
+THE IRONWORKS
+fastest sealed TRAVERSAL of floors 13–15 — every floor entered and floor 15 left behind
+no sealed traversals here yet
+THE APPROACH
+fastest sealed TRAVERSAL of floors 16–18 — every floor entered and floor 18 left behind
+no sealed traversals here yet
+Dying on floor 11 does not make you bad at the game — it makes you a crawler who still holds the RUINS split. Every run passes through several bands, so these are the boards you can actually win, and the splits cost nothing: the verifier already knows the tick of every floor transition as it replays you. A band you died INSIDE still appears on your own splits — it is a true thing that happened — but it is never a record, because a record has to be a band you got out of.
+
+===== STANDINGS rivals =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+NO CONTRACT ISSUED. The System pairs you with a crawler near your contract points and puts you both on today's seed — but it needs somebody near your CP to pair you WITH. Sign a contract, bank a score, and the matchmaking has something to work with. There is no queue and no lobby: you wake up with a rival.
+HOW THE PAIRING WORKS
+THE PAIRING: nearest season CP on today's seed, recomputed every day. A nightly sort over the accounts on this box — no queue, no wait, no lobby, and nobody has to be online at the same time as anybody.
+THE STAKE: the head-to-head ledger and the board row. No CP changes hands — contract points are a record of what you did, not a wager, and a ladder that confiscates them turns every pairing into a reason not to play.
+WHAT DECIDES IT: the better SEALED run. An unproven claim does not take a contract off anybody.
+
+===== CAREER =====
+CLOSE ESC
+◆ PERSONNEL FILE ◆
+THE CRAWLER
+season S5 · rules era 2804176
+PLACEMENT — 3 TO GO
+no ranked contract scored yet
+Carl
+0 contract points · best 10 events count · no decay, ever
+0
+SEALS
+WHERE YOU DIE
+Eighteen floors, one bar each — 0 runs recorded in this browser. This is the whole career in a glance, and the only chart that tells you where to practise. Gold bars are floors 13+ — THE IRONWORKS and THE APPROACH, where a death costs the most. Counted from this browser alone — the tier, contract points and seal count above come from the server, which only ever sees sealed runs.
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+THE UNDERCROFT
+THE SEWERS
+THE GARDEN
+THE RUINS
+THE IRONWORKS
+THE APPROACH
+THE LEDGERS
+THE SEALED RECORD
+runs the server re-executed and certified, across every device you have ever signed in on. These are the numbers a board row can be checked against.
+SEALS	
+	0
+DEEPEST FLOOR	
+	0
+CAREER KILLS	
+	0
+ESCAPES	
+	0
+FASTEST SEALED CLEAR	
+	—
+THIS BROWSER'S LEDGER
+every run this device finished, sealed or not, signed in or not — capped at the last 60. It counts more runs than the record above and proves fewer of them.
+EPISODES FILED	
+	0
+RUNS ON THE LEDGER	
+	0
+ESCAPES	
+	0
+DEEPEST FLOOR	
+	0
+FASTEST CLEAR	
+	—
+MOST KILLS IN A RUN	
+	0
+PEAK VIEWERS	
+	0
+TIME IN THE DUNGEON	
+	0 min
+MASTERY
+One level per ultimate, from SEALED runs, weighted by depth. Every point of it is backed by a replayable proof.
+Sponsor Barrage
+LVL 0
+0 / 60
+Fault Line
+LVL 0
+0 / 60
+Bullet Time
+LVL 0
+0 / 60
+PERSONAL BESTS — BAND SPLITS
+sealed traversals only — every floor in the band entered and the last one left. The same rows, and the same rule, as the BANDS board.
+bars are TIME IN THE BAND — shorter is better, and your quickest traversal is the gold one
+THE UNDERCROFT
+—
+THE SEWERS
+—
+THE GARDEN
+—
+THE RUINS
+—
+THE IRONWORKS
+—
+THE APPROACH
+—
+MILESTONES
+nothing engraved yet — finish a run and the timeline starts
+MORE BELOW

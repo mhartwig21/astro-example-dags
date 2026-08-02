@@ -1,0 +1,147 @@
+
+===== THE SEALED VERDICT =====
+LADDER : PLACEMENT — 3 TO GO | 0 CP this season | +0 CP | no ranked contract scored yet | attempt 3 on this contract — CP scores your FIRST ticketed attempt only. The board row still updates, and so do the splits.
+SEAL   : THE SYSTEM RE-RAN YOUR CRAWL | SEALED | Every input, replayed on the System's own machine. Same dungeon, same damage, same death — and it holds a position on DEEPEST — TODAY'S CONTRACT, DEEPEST — ALL-TIME, KILLS — TODAY'S CONTRACT and 1 more. Rules era 2804176.
+MARK   : ◆ THE MARK ◆ | CARL | FLOOR 1 · 2:05.73 · 0 kills | level with the leader — they were −0.3s on the clock | today's contract, sealed rows only
+EARNED : no personal bests this run — the ledger above is what it moved[ SHOW THE MATH ]
+sealClass: vseal verified ranked
+submitResult: {"state":"verified","runId":"2026-08-02-f7fh9bpf-60614","boards":["deepest@daily-2026-08-02","deepest","kills@daily-2026-08-02","kills"]}
+
+===== BLOCKER 1 — the seal names these boards, and here is what is in them =====
+{
+ "boardsOnTheRow": [
+  "deepest@daily-2026-08-02",
+  "deepest",
+  "kills@daily-2026-08-02",
+  "kills"
+ ],
+ "boardCounts": {
+  "deepest": {
+   "allTime": 1,
+   "todaysContract": 1
+  },
+  "kills": {
+   "allTime": 1,
+   "todaysContract": 1
+  },
+  "fastest": {
+   "allTime": 0,
+   "todaysContract": 0
+  },
+  "contracts": {
+   "allTime": 0,
+   "todaysContract": 0
+  }
+ }
+}
+
+===== BLOCKER 5/15/20 — what a board row now carries =====
+{
+ "id": "2026-08-02-f7fh9bpf-60614",
+ "name": "Carl",
+ "publicId": "e28c4a2611d272c1",
+ "eventId": "daily-2026-08-02",
+ "state": "verified",
+ "reason": null,
+ "rulesEra": "2804176",
+ "mode": "coop",
+ "runKind": "race",
+ "playable": true,
+ "film": "retained",
+ "won": false,
+ "floor": 1,
+ "timeSec": 126,
+ "ticks": 7544,
+ "kills": 0,
+ "level": 1,
+ "ultimate": null,
+ "partySize": 1,
+ "attemptNo": 3,
+ "private": false,
+ "damageDealt": 0,
+ "damageTaken": 100,
+ "goldSpent": 0,
+ "bandSplits": [
+  7544,
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "death": null,
+ "build": {
+  "level": 1,
+  "ultimate": null,
+  "slots": [
+   "melee",
+   "dash",
+   "bolt",
+   null
+  ],
+  "ranks": {},
+  "glyphs": {
+   "slots": [
+    [
+     null,
+     null
+    ],
+    [
+     null,
+     null
+    ],
+    [
+     null,
+     null
+    ],
+    [
+     null,
+     null
+    ]
+   ],
+   "ultimate": [
+    null
+   ]
+  },
+  "gear": [],
+  "revisions": []
+ },
+ "verifiedAt": 1785687667136,
+ "at": 1785687660614
+}
+
+===== BLOCKER 8 — the standings, with a sealed row on them =====
+contracts  frame 1234x912  emptyBelow=0px (0%)  rows=1
+alltime    frame 1234x912  emptyBelow=0px (0%)  rows=1
+bands      frame 1234x912  emptyBelow=0px (0%)  rows=0
+rivals     frame 1234x912  emptyBelow=0px (0%)  rows=0
+
+===== BLOCKER 7 — is a row identifiable? =====
+Carl#E28CYOU | era 2804176 · signed attempt 3
+
+===== BLOCKER 5 — the verifier-derived detail, rendered =====
+SPLITS
+THE UNDERCROFT
+2:05.73
+THE BUILD
+Melee · Dash · Bolt
+0 ranks
+THE NUMBERS
+DAMAGE DEALT
+—
+DAMAGE TAKEN
+100
+GOLD SPENT
+—
+LEVEL
+1
+Every figure here was derived by the verifier while it re-executed this run. The crawler asserted none of it.
+
+===== BLOCKER 4 — does the chart agree with the ledger under it? =====
+{
+ "histogramCaption": "1 run recorded in this browser",
+ "ledgers": [
+  "THE SEALED RECORD | runs the server re-executed and certified, across every device you have ever signed in on. These are the numbers a board row can be checked against. | SEALS\t | \t1 | DEEPEST FLOOR\t | \t1 | CAREER KILLS\t | \t0 | ESCAPES\t | \t0 | FASTEST SEALED CLEAR\t | \t—",
+  "THIS BROWSER'S LEDGER | every run this device finished, sealed or not, signed in or not — capped at the last 60. It counts more runs than the record above and proves fewer of them. | EPISODES FILED\t | \t1 | RUNS ON THE LEDGER\t | \t1 | ESCAPES\t | \t0 | DEEPEST FLOOR\t | \t1 | FASTEST CLEAR\t | \t— | MOST KILLS IN A RUN\t | \t0 | PEAK VIEWERS\t | \t849 | TIME IN THE DUNGEON\t | \t2 min"
+ ]
+}

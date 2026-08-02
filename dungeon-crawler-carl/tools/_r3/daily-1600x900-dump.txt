@@ -1,0 +1,132 @@
+
+===== BLOCKER 2 — what the DOOR promises an account with no identity =====
+{
+ "sameDungeonAsTheContract": true,
+ "runEvent": {
+  "eventId": "daily-2026-08-02",
+  "attemptNo": 1,
+  "scoresCp": true
+ },
+ "contractNote": null
+}
+
+===== THE VERDICT, as it reads =====
+SUB    : Episode canceled on floor 1 · run time 0:02 · the crowd demands a rerun
+BASIS  : GRADED AGAINST | THE HOUSE CURVE — no crowd yet
+LADDER : NO ROW, NO SPLIT, NO POINTS. The System replayed this run and did not get the run you claimed, so nothing from it enters the ledger — not the board row, not the band splits, not a single contract point. Your season stands where the runs it was earned on left it: 0 CP.
+SEAL   : THE SYSTEM DISAGREES WITH YOU | REFUSED | The replay did not produce the run you claimed — you claimed the run ended in a death; the replay ended as "playing". The row does not stand.
+MARK   : ◆ THE MARK ◆ | NOBODY HAS SET ONE | no sealed row on today's contract, and nothing in this browser's ledger | the first crawler to finish today sets the mark everyone else reads
+BANKED : EPISODE#1filedTIME IN THE DUNGEON0 min+1NEXT: REACH FLOOR 3 — THE UNDERCROFT — your deepest is 1
+EARNED : nothing banked — the System refused the recording, so no record stands on it[ SHOW THE MATH ]
+
+===== BLOCKER 2 — is there a control beside the demand? =====
+{
+ "sealText": "THE SYSTEM DISAGREES WITH YOU | REFUSED | The replay did not produce the run you claimed — you claimed the run ended in a death; the replay ended as \"playing\". The row does not stand.",
+ "linkButtonExists": false,
+ "linkButtonLabel": null,
+ "deadSentenceLINKANIDENTITY": false
+}
+
+===== BLOCKER 3 — the rejection sentence =====
+{
+ "refused": true,
+ "printsARawFieldToken": false,
+ "sealLine": "The replay did not produce the run you claimed — you claimed the run ended in a death; the replay ended as \"playing\". The row does not stand."
+}
+
+===== BLOCKER 12 — the basis, measured =====
+{
+ "width": 232,
+ "height": 67,
+ "setFontSize": "13px",
+ "setColor": "rgb(232, 221, 200)",
+ "wrappedLines": 1,
+ "hasContainer": true,
+ "capChipShown": false
+}
+
+===== BLOCKER 11 — do the surfaces agree about the clock? =====
+{
+ "headline": "0:02",
+ "ticks": null,
+ "earnedPointsAt": null
+}
+
+===== BLOCKER 6 — every button in #recap =====
+recap-earned : nothing banked — the System refused the recording, so no record stands on it[ SHOW THE MATH ]
+recap-again : RUN IT BACK / R / same seed · your own ghost on the course
+recap-new : NEW CONTRACT / a dungeon nobody has seen
+recap-race : RACE THE LEADERtoday's #1 as your ghost
+recap-share : SHARE THIS RUN
+recap-standings : STANDINGS
+recap-dismiss : CLOSE THIS CARD
+share-copy : COPY THE CHALLENGE LINK
+share-save : SAVE THE CARD
+share-close : CLOSE
+recap-buildcode : COPY BUILD CODE
+
+===== BLOCKER 10 — does the TAB sheet duplicate its own left column? =====
+{
+ "sections": [
+  "THE SCOREBOARD",
+  "THE SPLITS",
+  "WHAT THIS RUN TOOK OFF THE SHOW",
+  "ACHIEVEMENTS",
+  "THE BUILD"
+ ],
+ "finalStatsGridStillPresent": false,
+ "showTiles": [
+  "GOLD BANKED",
+  "VIEWERS",
+  "FAVORITES",
+  "SPONSORS"
+ ]
+}
+
+===== BLOCKER 8 — the standings frame across tabs =====
+contracts  frame 1234x504  bottom y=522  emptyBelow=378px (42% of viewport)  bodyH=320
+alltime    frame 1234x504  bottom y=522  emptyBelow=378px (42% of viewport)  bodyH=320
+bands      frame 1234x504  bottom y=522  emptyBelow=378px (42% of viewport)  bodyH=320
+rivals     frame 1234x504  bottom y=522  emptyBelow=378px (42% of viewport)  bodyH=320
+
+===== BLOCKER 1 — does the ALL-TIME board the seal names have rows in it? =====
+{
+ "GET /boards/deepest entries": 0,
+ "GET /boards/kills entries": 0,
+ "firstRowCarriesRunKind": null,
+ "firstRowCarriesFilmState": null,
+ "firstRowPartySize": null
+}
+
+===== BLOCKER 7 — is a row identifiable? =====
+
+
+===== BLOCKER 5 — the verifier-derived detail, rendered =====
+(no detail panel on any row)
+
+===== BLOCKER 9 — explanation vs data, by area =====
+contracts  prose 4% of the body, 30 words
+alltime    prose 10% of the body, 27 words
+bands      prose 20% of the body, 62 words
+rivals     prose 14% of the body, 40 words
+
+===== BLOCKER 4 — does the chart agree with the ledger under it? =====
+{
+ "histogramCaption": "1 runs recorded in this browser",
+ "ledgers": [
+  "THE SEALED RECORD | runs the server re-executed and certified, across every device you have ever signed in on. These are the numbers a board row can be checked against. | SEALS\t | \t0 | DEEPEST FLOOR\t | \t0 | CAREER KILLS\t | \t0 | ESCAPES\t | \t0 | FASTEST SEALED CLEAR\t | \t—",
+  "THIS BROWSER'S LEDGER | every run this device finished, sealed or not, signed in or not — capped at the last 60. It counts more runs than the record above and proves fewer of them. | EPISODES FILED\t | \t1 | RUNS ON THE LEDGER\t | \t1 | ESCAPES\t | \t0 | DEEPEST FLOOR\t | \t1 | FASTEST CLEAR\t | \t— | MOST KILLS IN A RUN\t | \t0 | PEAK VIEWERS\t | \t246 | TIME IN THE DUNGEON\t | \t0 min"
+ ]
+}
+
+===== contrast (target 4.5:1) =====
+
+
+===== BLOCKER 12 — contrast on the explanation layer =====
+PASS   14.58:1     13px  #recap .vbasis .bv
+PASS    5.45:1    9.5px  #recap .vbasis .bk
+PASS    5.45:1     12px  #recap .vpart .pd
+PASS     7.5:1     13px  #recap .rhint
+PASS    5.45:1     13px  #recap .rminor button
+PASS    7.35:1   11.5px  #recap .vseal .vk
+PASS   11.37:1     13px  #recap .vseal .vl

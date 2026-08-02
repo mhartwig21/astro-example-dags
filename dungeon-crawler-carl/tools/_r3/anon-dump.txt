@@ -1,0 +1,30 @@
+
+===== BLOCKER 2 — THE DOOR, for an account the System cannot name =====
+{
+ "runEvent": {
+  "eventId": "daily-2026-08-02",
+  "attemptNo": 1,
+  "scoresCp": false
+ },
+ "contractNote": null
+}
+
+===== BLOCKER 2 — THE EXIT =====
+{
+ "sealClass": "vseal claimed",
+ "sealText": "STORED AS REPORTED | CLAIMED | Not replayed. unsealed. The System does not put its name on an anonymous claim — verification costs this box real CPU, and it is spent on crawlers it can name. | LINK AN IDENTITY | one click, one provider. Verification costs the System real CPU, so it is spent on crawlers it can name — and the run you just played is the one it starts with.",
+ "ladder": "PLACEMENT — 3 TO GO | 0 CP this season | +0 CP | no ranked contract scored yet | attempt 1 on this contract — CP scores your FIRST ticketed attempt only. The board row still updates, and so do the splits.",
+ "linkButtonExists": true,
+ "linkButtonLabel": "LINK AN IDENTITY",
+ "linkButtonBox": [
+  195,
+  36
+ ],
+ "submitResult": {
+  "state": "claimed",
+  "runId": "2026-08-02-xk0du52r-79180",
+  "reason": "unsealed. The System does not put its name on an anonymous claim — verification costs this box real CPU, and it is spent on crawlers it can name.",
+  "attemptNo": 1,
+  "needsIdentity": true
+ }
+}

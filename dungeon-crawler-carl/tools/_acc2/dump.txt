@@ -1,0 +1,555 @@
+
+===== run kind =====
+{"floor":1,"status":"playing"}
+
+===== seal @1500ms =====
+NO PROOF OFFERED
+UNSEALED
+no proof was recorded for this run, so there is nothing to certify
+
+===== seal @5000ms =====
+NO PROOF OFFERED
+UNSEALED
+no proof was recorded for this run, so there is nothing to certify
+
+===== seal @11000ms =====
+NO PROOF OFFERED
+UNSEALED
+no proof was recorded for this run, so there is nothing to certify
+
+===== VERDICT real (default) =====
+scrollH=669 clientH=669
+D
+8
+vs TODAY'S 10 · THE HOUSE CURVE
+IN MEMORIAM
+Episode canceled on floor 1 · run time 0:00 · the crowd demands a rerun
+THAT WAS UNWATCHABLE. You did not go deep enough to matter. The cameras were still warming up.
+DEPTH
+0
+floor 1
+TEMPO
+0
+0s alive, no floor cleared
+SURVIVAL
+0
+a health bar lasted you 0s
+EXECUTION
+30
+0.0 kills/min · 0/0 drafts claimed
+THE COLLAPSE TOOK YOU — no killing blow, just the clock.
+Melee, Dash and Bolt were up. You died holding 3 flasks.
+UNRANKED
+2,407 CP
+rank 4 of 4 this season
++0 CP
+free seed — contract points come from contracts, and this run still holds its board row and its splits
+tier names unlock at 60 ranked crawlers — 4 so far
+NO PROOF OFFERED
+UNSEALED
+no proof was recorded for this run, so there is nothing to certify
+no personal bests this run — the ledger is unmoved[ SHOW THE MATH ]
+RUN IT BACK
+R
+same seed · your own ghost on the course
+NEW CONTRACT
+a dungeon nobody has seen
+RACE THE LEADER
+today's #1 as your ghost
+SHARE THIS RUN
+STANDINGS
+WATCH THE ARENA
+HOLD TAB — SCOREBOARD, SPLITS AND THE BUILD
+
+===== VERDICT math open =====
+Nothing banked. The System is not impressed, but it is watching.
+
+===== TAB real =====
+◆ THE TAPE ◆
+THE POST-RUN SCOREBOARD
+held open by TAB — every number this run produced, and what it is worth beside your own bests and the crawler at the top of the board
+THE SCOREBOARD
+ 	YOU	#1 — DONUT HOLES
+RESULT	floor 1	CLEAR
+TIME	0:00	15:02.00
+KILLS	0	641
+DAMAGE TAKEN	0	6,703
+DAMAGE DEALT	0	124,608
+GOLD SPENT	0	3,962
+LEVEL	1	34
+THE SPLITS
+THE UNDERCROFT
+—
+THE SEWERS
+—
+THE GARDEN
+—
+THE RUINS
+—
+THE IRONWORKS
+—
+THE APPROACH
+—
+| the board leader
+FINAL STATS
+1
+LEVEL
+0
+KILLS
+0
+DAMAGE DEALT
+0
+DAMAGE TAKEN
+ 0
+GOLD BANKED
+ 0
+GOLD SPENT
+SEASON RATINGS
+180
+VIEWERS
+0
+FAVORITES
+0
+SPONSORS
+ACHIEVEMENTS
+None recorded. The System pretends not to judge.
+THE BUILD
+nothing equipped — the run ended before the first drop
+Melee
+base
+Dash
+base
+Bolt
+base
+COPY BUILD CODE
+A build code is a RECEIPT, not a guess: it is derived from the run that actually happened, so whoever you send it to gets the loadout AND the evidence it worked.
+
+===== STANDINGS contracts (CONTRACTS) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+◆ DAILY · SEASON S5 ◆
+TODAY'S CONTRACT
+seed 2698932116 · 9 entrants · closes in 10h 55m
+One dungeon. Every crawler. Unlimited attempts — but the ladder scores your FIRST.
+ENTER THE CONTRACT ▶
+◆ WEEKLY · SEASON S5 ◆
+THE WEEKLY CONTRACT
+seed 118150008 · 0 entrants · closes in 10h 55m
+A harder fixed seed, open all week. The Clash analogue, minus the five friends free at 8pm.
+ENTER THE CONTRACT ▶
+TODAY'S STANDINGS — 2026-08-02
+YOU
+YOUR RIVAL
+ties broken by depth, then the faster run, then the earlier submission
+1
+Donut Holes
+era 2804176 · attempt 1 · Sponsor Barrage
+SEALED
+CLEAR · 15:02.00
+RACE
+2
+Mordecai
+era 2804176 · attempt 2 · Fault Line
+SEALED
+CLEAR · 17:24.00
+RACE
+3
+Katia
+era 2804176 · attempt 1 · Bullet Time
+SEALED
+floor 16 · 21:50
+RACE
+4
+Prince Maestro
+era 2804176 · attempt 5 · Sponsor Barrage
+SEALED
+floor 15 · 19:48
+RACE
+5
+Signet
+era 2804176 · attempt 3 · Fault Line
+SEALED · PRIVATE
+floor 14 · 18:16
+RACE
+6
+Carl
+era 2804176 · attempt 3 · Fault Line
+SEALED
+floor 13 · 17:22
+RACE
+7
+Ferdinand
+era 2804176 · attempt 1 · Sponsor Barrage
+SEALED
+floor 12 · 16:38
+RACE
+8
+Elle Blue
+era 2804176 · attempt 8 · Bullet Time
+SEALED
+floor 11 · 15:47
+RACE
+9
+Bautista
+era 2804176 · attempt 4 · Bullet Time
+SEALED
+floor 5 · 8:32
+RACE
+UNPROVEN CLAIMS — BELOW THE BOARD
+Stored exactly as a client reported them and never re-executed. They hold no rank, they are not printed as results, and the top of every board is verified-only — a claim sitting where a proof should be is worth less than an empty row.
+—
+Vespa
+no era — never certified · attempt 2 · Fault Line
+CLAIMED
+floor 9 · 13:32
+RACE
+MORE BELOW
+
+===== STANDINGS alltime (ALL-TIME) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+DEEPEST
+FASTEST
+KILLS
+CONTRACTS
+YOU
+YOUR RIVAL
+ties broken by the exact tick count, then the earlier submission
+1
+The Quartermaster
+era 2804176 · Sponsor Barrage
+SEALED
+CLEAR · 13:58.00
+RACE
+2
+Odette Vance
+era 2804176 · Fault Line
+SEALED
+CLEAR · 14:31.00
+RACE
+3
+Donut Holes
+era 2804176 · Sponsor Barrage
+SEALED
+CLEAR · 15:02.00
+RACE
+4
+Carl
+era 2804176 · Fault Line
+SEALED
+CLEAR · 18:40.00
+RACE
+5
+Katia
+era 2804176 · Bullet Time
+SEALED
+floor 17 · 23:22
+RACE
+6
+Ferdinand
+era 2804176 · Sponsor Barrage
+SEALED
+floor 15 · 19:40
+RACE
+All-time boards never reset — they CHIP THE ERA instead. A row stamped era 2804176 was earned under exactly the rules you are playing now; an older stamp was earned under different numbers, and the board says so rather than quietly blending a year of patches together and calling it a record.
+MORE BELOW
+
+===== STANDINGS bands (BANDS) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+YOU
+YOUR RIVAL
+ties broken by the exact tick count, then the earlier certification
+THE UNDERCROFT
+fastest sealed TRAVERSAL of floors 1–3 — every floor entered and floor 3 left behind
+1
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+0:51.36
+RACE
+2
+Carl
+era 2804176 · Fault Line · ran on to F6
+SEALED
+0:52.78
+RACE
+3
+Ferdinand
+era 2804176 · Sponsor Barrage · ran on to F15
+SEALED
+0:54.16
+RACE
+4
+Bautista
+era 2804176 · attempt 4 · Bullet Time · ran on to F5
+SEALED
+0:55.13
+RACE
+5
+Odette Vance
+era 2804176 · Fault Line · full clear
+SEALED
+1:02.76
+RACE
+THE SEWERS
+fastest sealed TRAVERSAL of floors 4–6 — every floor entered and floor 6 left behind
+1
+Ferdinand
+era 2804176 · Sponsor Barrage · ran on to F15
+SEALED
+1:03.43
+RACE
+2
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+1:04.58
+RACE
+3
+Carl
+era 2804176 · Bullet Time · ran on to F8
+SEALED
+1:47.28
+RACE
+4
+Odette Vance
+era 2804176 · Fault Line · full clear
+SEALED
+2:00.86
+RACE
+5
+Prince Maestro
+era 2804176 · attempt 5 · Sponsor Barrage · ran on to F15
+SEALED
+2:02.83
+RACE
+THE GARDEN
+fastest sealed TRAVERSAL of floors 7–9 — every floor entered and floor 9 left behind
+1
+Ferdinand
+era 2804176 · Sponsor Barrage · ran on to F15
+SEALED
+1:22.46
+RACE
+2
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+1:42.43
+RACE
+3
+Carl
+era 2804176 · Fault Line · full clear
+SEALED
+2:27.80
+RACE
+4
+Odette Vance
+era 2804176 · Fault Line · full clear
+SEALED
+2:52.05
+RACE
+5
+Mordecai
+era 2804176 · attempt 2 · Fault Line · full clear
+SEALED
+2:57.34
+RACE
+THE RUINS
+fastest sealed TRAVERSAL of floors 10–12 — every floor entered and floor 12 left behind
+1
+Ferdinand
+era 2804176 · Sponsor Barrage · ran on to F15
+SEALED
+1:51.66
+RACE
+2
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+2:01.15
+RACE
+3
+Signet
+era 2804176 · attempt 3 · Fault Line · ran on to F14
+SEALED · PRIVATE
+3:19.94
+RACE
+4
+The Quartermaster
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+3:33.11
+RACE
+5
+Prince Maestro
+era 2804176 · attempt 5 · Sponsor Barrage · ran on to F15
+SEALED
+3:51.73
+RACE
+THE IRONWORKS
+fastest sealed TRAVERSAL of floors 13–15 — every floor entered and floor 15 left behind
+1
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+2:19.19
+RACE
+2
+Katia
+era 2804176 · Bullet Time · ran on to F17
+SEALED
+3:50.01
+RACE
+3
+The Quartermaster
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+4:39.73
+RACE
+4
+Mordecai
+era 2804176 · attempt 2 · Fault Line · full clear
+SEALED
+4:51.64
+RACE
+5
+Carl
+era 2804176 · Fault Line · full clear
+SEALED
+5:54.55
+RACE
+THE APPROACH
+fastest sealed TRAVERSAL of floors 16–18 — every floor entered and floor 18 left behind
+1
+Donut Holes
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+2:12.56
+RACE
+2
+The Quartermaster
+era 2804176 · Sponsor Barrage · full clear
+SEALED
+4:29.55
+RACE
+3
+Mordecai
+era 2804176 · attempt 2 · Fault Line · full clear
+SEALED
+5:23.53
+RACE
+4
+Carl
+era 2804176 · Fault Line · full clear
+SEALED
+6:32.68
+RACE
+5
+Odette Vance
+era 2804176 · Fault Line · full clear
+SEALED
+8:32.61
+RACE
+Dying on floor 11 does not make you bad at the game — it makes you a crawler who still holds the RUINS split. Every run passes through several bands, so these are the boards you can actually win, and the splits cost nothing: the verifier already knows the tick of every floor transition as it replays you. A band you di
+
+===== STANDINGS rivals (RIVALS) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+◆ CONTRACT ISSUED ◆
+Donut Holes
+their season score 3149 CP · yours 2407 CP · resolves in 10h 54m
+You both play today's seed whenever you like. The better SEALED run takes the contract. No lobby, no queue, nobody has to be online at the same time as anybody.
+RACE THEIR GHOST ▶
+THEIR RUN SO FAR
+YOU
+YOUR RIVAL
+—
+Donut Holes
+era 2804176 · attempt 1 · Sponsor Barrage
+SEALED
+CLEAR · 15:02.00
+RACE
+HEAD TO HEAD — DONUT HOLES
+0
+YOU
+0
+DRAWN
+1
+THEM
+daily-2026-08-02
+F13 · 17:22.00  vs  F18 · 15:02.00
+THEY TOOK IT
+Only contested contracts count — an event only one of you finished is a walkover, and a walkover is not a win.
+THE STAKE: the head-to-head ledger and the board row. No CP changes hands - CP is a record, not a wager.
+THE PAIRING: nearest season CP on today's seed, recomputed every day. No queue, no lobby, nobody has to be online.
+MORE BELOW
+
+===== row click -> brow =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+◆ CONTRACT ISSUED ◆
+Donut Holes
+their season score 3149 CP · yours 2407 CP · resolves in 10h 54m
+You both play today's seed whenever you like. The better SEALED run takes the contract. No lobby, no queue, nobody has to be online at the same time as anybody.
+RACE THEIR GHOST ▶
+THEIR RUN SO FAR
+YOU
+YOUR RIVAL
+—
+Donut Holes
+era 2804176 · attempt 1 · Sponsor Barrage
+SEALED
+CLEAR · 15:02.00
+RACE
+HEAD TO HEAD — DONUT HOLES
+0
+YOU
+0
+DRAWN
+1
+THEM
+daily-2026-08-02
+F13 · 17:22.00  vs  F18 · 15:02.00
+THEY TOOK IT
+Only contested contracts count — an event only one of you finished is a walkover, and a walkover is not a win.
+THE STAKE: the head-to-head ledger and the board row. No CP changes hands - CP is a record, not a wager.
+THE PAIRING: nearest season CP on today's seed, recomputed every day. No queue, no lobby, nobody has to be online.
+MORE BELOW
+
+===== CAREER =====
+CLOSE ESC
+◆ PERSONNEL FILE ◆
+THE CRAWLER
+MORE BELOW

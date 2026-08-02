@@ -1,0 +1,264 @@
+
+===== VERDICT floor5 death (default) =====
+classes= scrollHeight=648 clientHeight=648
+        [b] D
+        [small] 8
+      [div.vbasis] vs THE HOUSE CURVE — no crowd yet
+      [h2.wipe] IN MEMORIAM
+      [div.rsub] Episode canceled on floor 5 · run time 0:00 · the crowd demands a rerun
+      [div.vline] THAT WAS UNWATCHABLE. You did not go deep enough to matter. The cameras were still warming up.
+          [div.pk] DEPTH
+            [i] 0
+          [div.pd] floor 5 — started here, not walked
+          [div.pk] TEMPO
+            [i] 0
+          [div.pd] 0s alive, no floor cleared
+          [div.pk] SURVIVAL
+            [i] 0
+          [div.pd] a health bar lasted you 0s
+          [div.pk] EXECUTION
+            [i] 30
+          [div.pd] 0.0 kills/min · 0/0 drafts claimed
+    [div.dhead] THE COLLAPSE TOOK YOU — no killing blow, just the clock.
+    [div.dctx] Melee, Dash and Bolt were up. You died holding 3 flasks.
+  [div.notranked] This run started at depth instead of at the door. The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points and no board row here — and the grade above is a rehearsal, not a result.
+    [b] TEST CHAMBER — NOT RANKED.
+    [div.vk] NO PROOF OFFERED
+    [div.vw] UNSEALED
+    [div.vl] TEST CHAMBER. A test start is structurally ineligible for a board.
+    [button.eline] nothing banked — a run that started at depth moves no ledger
+      [span.caret] [ SHOW THE MATH ]
+      [b] RUN IT BACK
+        [kbd] R
+      [small] same seed · your own ghost on the course
+      [b] NEW CONTRACT
+      [small] a dungeon nobody has seen
+      [button] SHARE THIS RUN
+      [button] STANDINGS
+      [button] WATCH THE ARENA
+  [div.rhint] HOLD — SCOREBOARD, SPLITS AND THE BUILD
+    [kbd] TAB
+
+
+===== VERDICT TAB =====
+classes=tabbed scrollHeight=648 clientHeight=648
+        [b] D
+        [small] 8
+      [div.vbasis] vs THE HOUSE CURVE — no crowd yet
+      [h2.wipe] IN MEMORIAM
+      [div.rsub] Episode canceled on floor 5 · run time 0:00 · the crowd demands a rerun
+      [div.vline] THAT WAS UNWATCHABLE. You did not go deep enough to matter. The cameras were still warming up.
+          [div.pk] DEPTH
+            [i] 0
+          [div.pd] floor 5 — started here, not walked
+          [div.pk] TEMPO
+            [i] 0
+          [div.pd] 0s alive, no floor cleared
+          [div.pk] SURVIVAL
+            [i] 0
+          [div.pd] a health bar lasted you 0s
+          [div.pk] EXECUTION
+            [i] 30
+          [div.pd] 0.0 kills/min · 0/0 drafts claimed
+    [div.dhead] THE COLLAPSE TOOK YOU — no killing blow, just the clock.
+    [div.dctx] Melee, Dash and Bolt were up. You died holding 3 flasks.
+  [div.notranked] This run started at depth instead of at the door. The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points and no board row here — and the grade above is a rehearsal, not a result.
+    [b] TEST CHAMBER — NOT RANKED.
+    [div.vk] NO PROOF OFFERED
+    [div.vw] UNSEALED
+    [div.vl] TEST CHAMBER. A test start is structurally ineligible for a board.
+    [button.eline] nothing banked — a run that started at depth moves no ledger
+      [span.caret] [ SHOW THE MATH ]
+      [b] RUN IT BACK
+        [kbd] R
+      [small] same seed · your own ghost on the course
+      [b] NEW CONTRACT
+      [small] a dungeon nobody has seen
+      [button] SHARE THIS RUN
+      [button] STANDINGS
+      [button] WATCH THE ARENA
+  [div.rhint] HOLD — SCOREBOARD, SPLITS AND THE BUILD
+    [kbd] TAB
+
+
+===== earn expand target =====
+null
+
+===== VERDICT earned expanded =====
+classes= scrollHeight=648 clientHeight=648
+        [b] D
+        [small] 8
+      [div.vbasis] vs THE HOUSE CURVE — no crowd yet
+      [h2.wipe] IN MEMORIAM
+      [div.rsub] Episode canceled on floor 5 · run time 0:00 · the crowd demands a rerun
+      [div.vline] THAT WAS UNWATCHABLE. You did not go deep enough to matter. The cameras were still warming up.
+          [div.pk] DEPTH
+            [i] 0
+          [div.pd] floor 5 — started here, not walked
+          [div.pk] TEMPO
+            [i] 0
+          [div.pd] 0s alive, no floor cleared
+          [div.pk] SURVIVAL
+            [i] 0
+          [div.pd] a health bar lasted you 0s
+          [div.pk] EXECUTION
+            [i] 30
+          [div.pd] 0.0 kills/min · 0/0 drafts claimed
+    [div.dhead] THE COLLAPSE TOOK YOU — no killing blow, just the clock.
+    [div.dctx] Melee, Dash and Bolt were up. You died holding 3 flasks.
+  [div.notranked] This run started at depth instead of at the door. The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points and no board row here — and the grade above is a rehearsal, not a result.
+    [b] TEST CHAMBER — NOT RANKED.
+    [div.vk] NO PROOF OFFERED
+    [div.vw] UNSEALED
+    [div.vl] TEST CHAMBER. A test start is structurally ineligible for a board.
+    [button.eline] nothing banked — a run that started at depth moves no ledger
+      [span.caret] [ SHOW THE MATH ]
+      [b] RUN IT BACK
+        [kbd] R
+      [small] same seed · your own ghost on the course
+      [b] NEW CONTRACT
+      [small] a dungeon nobody has seen
+      [button] SHARE THIS RUN
+      [button] STANDINGS
+      [button] WATCH THE ARENA
+  [div.rhint] HOLD — SCOREBOARD, SPLITS AND THE BUILD
+    [kbd] TAB
+
+
+===== VERDICT floor15 death =====
+classes= scrollHeight=648 clientHeight=648
+        [b] D
+        [small] 8
+      [div.vbasis] vs THE HOUSE CURVE — no crowd yet
+      [h2.wipe] IN MEMORIAM
+      [div.rsub] Episode canceled on floor 15 · run time 0:00 · the crowd demands a rerun
+      [div.vline] THAT WAS UNWATCHABLE. You did not go deep enough to matter. The cameras were still warming up.
+          [div.pk] DEPTH
+            [i] 0
+          [div.pd] floor 15 — started here, not walked
+          [div.pk] TEMPO
+            [i] 0
+          [div.pd] 0s alive, no floor cleared
+          [div.pk] SURVIVAL
+            [i] 0
+          [div.pd] a health bar lasted you 0s
+          [div.pk] EXECUTION
+            [i] 30
+          [div.pd] 0.0 kills/min · 0/0 drafts claimed
+    [div.dhead] THE COLLAPSE TOOK YOU — no killing blow, just the clock.
+    [div.dctx] Melee, Dash and Bolt were up. You died holding 3 flasks.
+  [div.notranked] This run started at depth instead of at the door. The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points and no board row here — and the grade above is a rehearsal, not a result.
+    [b] TEST CHAMBER — NOT RANKED.
+    [div.vk] NO PROOF OFFERED
+    [div.vw] UNSEALED
+    [div.vl] TEST CHAMBER. A test start is structurally ineligible for a board.
+    [button.eline] nothing banked — a run that started at depth moves no ledger
+      [span.caret] [ SHOW THE MATH ]
+      [b] RUN IT BACK
+        [kbd] R
+      [small] same seed · your own ghost on the course
+      [b] NEW CONTRACT
+      [small] a dungeon nobody has seen
+      [button] SHARE THIS RUN
+      [button] STANDINGS
+      [button] WATCH THE ARENA
+  [div.rhint] HOLD — SCOREBOARD, SPLITS AND THE BUILD
+    [kbd] TAB
+
+
+===== VERDICT win =====
+classes=won scrollHeight=709 clientHeight=709
+    [b] THE FINALE
+    [small] THE NETWORK IS BROADCASTING THIS ONE AGAIN
+        [b] D
+        [small] 8
+      [div.vbasis] vs THE HOUSE CURVE — no crowd yet
+      [h2.win] YOU ESCAPED THE DUNGEON
+      [div.rsub] THE FINALE · all 18 floors cleared · run time 0:00 · Carl, Crawler
+      [div.vline] YOU WALKED OUT. on paper, at least.
+          [div.pk] DEPTH
+            [i] 0
+          [div.pd] floor 18 — started here, not walked
+          [div.pk] TEMPO
+            [i] 0
+          [div.pd] 0s alive, no floor cleared
+          [div.pk] SURVIVAL
+            [i] 0
+          [div.pd] a health bar lasted you 0s
+          [div.pk] EXECUTION
+            [i] 30
+          [div.pd] 0.0 kills/min · 0/0 drafts claimed
+    [div.dhead] 18 FLOORS. NOTHING DOWN THERE KEPT YOU.
+    [div.dctx] The dungeon has your measurements now. So does the network.
+  [div.notranked] This run started at depth instead of at the door. The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points and no board row here — and the grade above is a rehearsal, not a result.
+    [b] TEST CHAMBER — NOT RANKED.
+    [div.vk] NO PROOF OFFERED
+    [div.vw] UNSEALED
+    [div.vl] TEST CHAMBER. A test start is structurally ineligible for a board.
+    [button.eline] nothing banked — a run that started at depth moves no ledger
+      [span.caret] [ SHOW THE MATH ]
+      [b] RUN IT BACK
+        [kbd] R
+      [small] same seed · beat the time you just set
+      [b] NEW CONTRACT
+      [small] a dungeon nobody has seen
+      [button] SHARE THIS RUN
+      [button] STANDINGS
+      [button] WATCH THE ARENA
+  [div.rhint] HOLD — SCOREBOARD, SPLITS AND THE BUILD
+    [kbd] TAB
+
+
+===== STANDINGS contracts (ok) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+the network is counting…
+MORE BELOW
+
+===== STANDINGS alltime (no tab alltime) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+the board is offline — the server keeps the score, and it will still be there when the signal is back
+MORE BELOW
+
+===== STANDINGS bands (ok) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+the network is counting…
+MORE BELOW
+
+===== STANDINGS rivals (ok) =====
+CLOSE ESC
+◆ THE NETWORK KEEPS SCORE ◆
+THE STANDINGS
+rules era 2804176 — every ranked row is a proof the server re-executed, not a number it was told
+CONTRACTS
+ALL-TIME
+BANDS
+RIVALS
+the network is counting…
+MORE BELOW
+
+===== CAREER (ok) =====
+CLOSE ESC
+◆ PERSONNEL FILE ◆
+THE CRAWLER
+MORE BELOW

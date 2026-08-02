@@ -1,0 +1,152 @@
+
+===== WARN =====
+never left playing
+
+===== death t+0ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+600ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+1200ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+2000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+3200ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+5000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+8000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== death t+12000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "title": "",
+ "sub": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": ""
+}
+
+===== FIT verdict @1600x900 =====
+clean (13 candidates examined)
+
+===== FIT verdict/TAB @1600x900 =====
+clean (13 candidates examined)
+
+===== TAB text =====
+SYSTEM CRAWLER Floor 1 / 18 Collapse 1:32 SAFE Level 1 0 12 12 100 / 100 270 viewers Hype ◆ SETTLEMENT ◆ Space Melee Shift Dash Q Bolt C F X Slurp
+
+===== FIT verdict/earned @1600x900 =====
+clean (13 candidates examined)
+
+===== FIT share @1600x900 =====
+clean (13 candidates examined)
+
+===== server after run =====
+{
+ "contracts": "{\"kind\":\"contracts\",\"eventId\":null,\"rulesEra\":\"2804176\",\"splitGate\":20,\"archetypeEntrants\":null,\"entries\":[{\"id\":\"2026-08-02-8yhd4f9q-94507\",\"name\":\"THIEF\",\"publicId\":\"dca020ab56e5f36d\",\"eventId\":null,\"state\":\"verified\",\"reason\":null,\"rulesEra\":\"2804176\",\"mode\":\"coop\",\"runKind\":\"race\",\"playable\":true,\"film\":\"retained\",\"won\":true,\"floor\":18,\"timeSec\":829,\"ticks\":49717,\"kills\":996,\"level\":24,\"ultimate\":\"bullettime\",\"partySize\":1,\"attemptNo\":null,\"private\":false,\"damageDealt\":559221,\"damageTaken\":6538,\"goldSpent\":10985,\"bandSplits\":[4364,6111,6784,9063,11306,12089],\"death\":null,\"build\":{\"level\":24,\"ultimate\":\"bullettime\",\"slots\":[\"melee\",\"dash\",\"bolt\",\"cables\"],\"ranks\":{\"bolt.rapid\":1,\"bolt.frost\":1,\"dash.shock\":1,\"bolt.split\":2,\"dash.blink\":2,\"melee.arc\":2,\"dash.veil\":2,\"bolt.ricochet\":1,\"melee.swift\":2,\"dash.after\":1,\"melee.execute\":1,\"cab.span\":1,\"cab.snap\":1,\"cab.curtain\":1,\"bt.focus\":2",
+ "health": "ERR TypeError: Failed to fetch"
+}

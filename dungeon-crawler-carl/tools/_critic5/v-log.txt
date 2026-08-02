@@ -1,0 +1,208 @@
+
+===== run started =====
+{
+ "floor": 1,
+ "mode": "coop",
+ "runKind": "race",
+ "event": null
+}
+
+===== before the kill =====
+{
+ "floor": 1,
+ "hp": 100,
+ "level": 1,
+ "kills": 0,
+ "elapsed": 1.1500000000000008
+}
+
+===== status =====
+playing
+
+===== t+0ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+700ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+1400ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+2200ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+3200ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+5000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+8000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+12000ms =====
+{
+ "visible": false,
+ "opacity": "1",
+ "letter": "—",
+ "score": "",
+ "title": "",
+ "sub": "",
+ "line": "",
+ "parts": "",
+ "basis": "GRADED AGAINST CAPPED BY DEPTH",
+ "ladder": "",
+ "seal": "",
+ "death": "",
+ "mark": "",
+ "banked": "",
+ "note": "",
+ "again": "RUN IT BACK Rsame seed · your own ghost on the course",
+ "submit": null
+}
+
+===== t+34s (after verification) =====
+{
+ "seal": "",
+ "ladder": "",
+ "note": "",
+ "submit": null
+}
+
+===== FIT verdict @1600x900 =====
+[]
+
+===== TAB fit =====
+[]
+
+===== TAB text =====
+ ◆ THE TAPE ◆ THE POST-RUN SCOREBOARD held open by TAB — every number this run produced, and what it is worth beside your own bests and the crawler at the top of the board THE SCOREBOARD THE SPLITS WHAT THIS RUN TOOK OFF THE SHOW ACHIEVEMENTS THE BUILD COPY BUILD CODE A receipt, not a guess — derived from the run that happened. OPEN THE STANDINGS 
+
+===== share fit =====
+[]

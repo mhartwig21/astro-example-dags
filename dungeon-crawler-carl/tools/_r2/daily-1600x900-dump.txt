@@ -1,0 +1,134 @@
+
+===== BLOCKER 1 — the menu's DAILY CRAWL tile =====
+{
+ "clientSeed": 2698932116,
+ "serverDailyContractSeed": 2698932116,
+ "sameDungeon": true,
+ "runEvent": {
+  "eventId": "daily-2026-08-02",
+  "attemptNo": 4,
+  "scoresCp": false
+ },
+ "ticketed": true
+}
+
+===== BLOCKER 4 — consent card DOCKED =====
+{
+ "viewport": [
+  1600,
+  900
+ ],
+ "panelTop": 12,
+ "panelBottom": 637,
+ "medalTop": 33,
+ "consentTop": 665,
+ "consentButtonsBottom": 867,
+ "verdictFullyOnScreen": true,
+ "medalNotClipped": true,
+ "submitButtonsOnScreen": true,
+ "panelOverlapsCard": 0
+}
+
+===== THE VERDICT, as it reads =====
+LADDER : NO ROW, NO SPLIT, NO POINTS. The System replayed this run and did not get the run you claimed, so nothing from it enters the ledger — not the board row, not the band splits, not a single contract point. Your season stands where the runs it was earned on left it: 0 CP.
+SEAL   : THE SYSTEM DISAGREES WITH YOU | REFUSED | The replay did not produce the run you claimed. claim disagrees with the replay: status
+MARK   : ◆ THE MARK ◆ | DONUT HOLES | FLOOR 4 · 1:19.45 · 42 kills | 3 floors short of the leader | today's contract, sealed rows only
+BANKED : EPISODE#1filedTIME IN THE DUNGEON0 min+1NEXT: REACH FLOOR 3 — THE UNDERCROFT — your deepest is 1
+EARNED : nothing banked — the System refused the recording, so no record stands on it[ SHOW THE MATH ]
+
+===== BLOCKER 2 — what the screen says about a run in this state =====
+{
+ "sealSaysRefused": true,
+ "ladderPlateShown": false,
+ "ladderClass": "notranked",
+ "claimsBoardRow": false,
+ "claimsNewPb": false,
+ "bankedStripShown": false
+}
+
+===== BLOCKER 7 — the default state's footprint =====
+{
+ "viewport": [
+  1600,
+  900
+ ],
+ "panel": [
+  1360,
+  670
+ ],
+ "at": [
+  120,
+  115
+ ],
+ "screenShare": "63.3%",
+ "scrollsInsideItself": false
+}
+
+===== BLOCKER 5 — contrast (target 4.5:1 at these sizes) =====
+PASS    5.45:1   11.5px  #recap .vbasis
+PASS    5.45:1     12px  #recap .vpart .pd
+PASS    8.18:1     12px  #recap .earned .caret
+PASS     7.5:1     13px  #recap .rhint
+PASS    5.45:1     13px  #recap .rminor button
+PASS    5.45:1   11.5px  #recap .mark .msrc
+PASS    7.35:1   11.5px  #recap .vseal .vk
+PASS    5.26:1   10.5px  #recap .banked .bl
+PASS   10.16:1     23px  #recap .death .dhead
+PASS   14.58:1     14px  #recap .vline
+
+===== BLOCKER 12 — GET /boards/deepest =====
+{
+ "keys": [
+  "kind",
+  "eventId",
+  "rulesEra",
+  "splitGate",
+  "archetypeEntrants",
+  "entries",
+  "verified",
+  "unproven",
+  "note"
+ ],
+ "entryKeysCarryAccountId": false,
+ "firstEntry": null,
+ "unprovenCount": 0
+}
+
+===== BLOCKER 10 — the standings frame across tabs =====
+contracts  frame 1234x653  kicker/close overlap 0px
+alltime    frame 1234x504  kicker/close overlap 0px
+bands      frame 1234x562  kicker/close overlap 0px
+rivals     frame 1234x504  kicker/close overlap 0px
+
+===== BLOCKER 3 — THE NUMBERS =====
+THE SEALED RECORD
+runs the server re-executed and certified, across every device you have ever signed in on. These are the numbers a board row can be checked against.
+SEALS	
+	0
+DEEPEST FLOOR	
+	0
+CAREER KILLS	
+	0
+ESCAPES	
+	0
+FASTEST SEALED CLEAR	
+	—
+----
+THIS BROWSER'S LEDGER
+every run this device finished, sealed or not, signed in or not — capped at the last 60. It counts more runs than the record above and proves fewer of them.
+EPISODES FILED	
+	1
+RUNS ON THE LEDGER	
+	1
+ESCAPES	
+	0
+DEEPEST FLOOR	
+	1
+FASTEST CLEAR	
+	—
+MOST KILLS IN A RUN	
+	0
+PEAK VIEWERS	
+	248
+TIME IN THE DUNGEON	
+	0 min

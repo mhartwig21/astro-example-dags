@@ -1,0 +1,5145 @@
+
+===== FIT menu @1600x900 =====
+clean (3 candidates examined)
+
+===== FIT standings/contracts @1600x900 =====
+[
+ {
+  "el": "#ladder",
+  "rect": [
+   0,
+   0,
+   1600,
+   900
+  ],
+  "scrollH": 1061,
+  "clientH": 900,
+  "overflowY": 161,
+  "overflowX": 0,
+  "ov": "auto/auto",
+  "SCROLLBAR": true,
+  "CLIPPED": false,
+  "OFFSCREEN": false
+ },
+ {
+  "el": "div.set-frame",
+  "rect": [
+   210,
+   18,
+   1390,
+   1043
+  ],
+  "scrollH": 1023,
+  "clientH": 1023,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "#ladder-body",
+  "rect": [
+   237,
+   179,
+   1363,
+   1016
+  ],
+  "scrollH": 837,
+  "clientH": 837,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.unproven",
+  "rect": [
+   237,
+   878,
+   1363,
+   1016
+  ],
+  "scrollH": 137,
+  "clientH": 137,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.uhead",
+  "rect": [
+   237,
+   889,
+   1363,
+   904
+  ],
+  "scrollH": 15,
+  "clientH": 15,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.usub",
+  "rect": [
+   237,
+   906,
+   1363,
+   919
+  ],
+  "scrollH": 13,
+  "clientH": 13,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   237,
+   925,
+   1363,
+   1016
+  ],
+  "scrollH": 91,
+  "clientH": 91,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   925,
+   1363,
+   970
+  ],
+  "scrollH": 44,
+  "clientH": 44,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   939,
+   277,
+   955
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   930,
+   1065,
+   964
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   930,
+   1065,
+   947
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   326,
+   933,
+   357,
+   945
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   951,
+   528,
+   961
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.claimed",
+  "rect": [
+   1075,
+   937,
+   1151,
+   957
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res",
+  "rect": [
+   1161,
+   930,
+   1289,
+   964
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1299,
+   936,
+   1353,
+   959
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   936,
+   1353,
+   959
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   970,
+   1363,
+   1016
+  ],
+  "scrollH": 44,
+  "clientH": 44,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   985,
+   277,
+   1001
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   976,
+   1052,
+   1010
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   976,
+   1052,
+   993
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   325,
+   979,
+   355,
+   991
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   997,
+   557,
+   1007
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.aged",
+  "rect": [
+   1062,
+   983,
+   1151,
+   1003
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res",
+  "rect": [
+   1161,
+   976,
+   1289,
+   1010
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1299,
+   982,
+   1353,
+   1005
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   982,
+   1353,
+   1005
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ }
+]
+
+===== FIT standings/alltime @1600x900 =====
+[
+ {
+  "el": "#ladder",
+  "rect": [
+   0,
+   0,
+   1600,
+   900
+  ],
+  "scrollH": 1189,
+  "clientH": 900,
+  "overflowY": 289,
+  "overflowX": 0,
+  "ov": "auto/auto",
+  "SCROLLBAR": true,
+  "CLIPPED": false,
+  "OFFSCREEN": false
+ },
+ {
+  "el": "div.set-frame",
+  "rect": [
+   210,
+   18,
+   1390,
+   1171
+  ],
+  "scrollH": 1151,
+  "clientH": 1151,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "#ladder-body",
+  "rect": [
+   237,
+   179,
+   1363,
+   1144
+  ],
+  "scrollH": 965,
+  "clientH": 965,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.unproven",
+  "rect": [
+   237,
+   805,
+   1363,
+   943
+  ],
+  "scrollH": 137,
+  "clientH": 137,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   237,
+   852,
+   1363,
+   943
+  ],
+  "scrollH": 91,
+  "clientH": 91,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   897,
+   1363,
+   943
+  ],
+  "scrollH": 44,
+  "clientH": 44,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   912,
+   277,
+   928
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   903,
+   1052,
+   937
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   903,
+   1052,
+   920
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   325,
+   906,
+   355,
+   918
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   924,
+   557,
+   934
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.aged",
+  "rect": [
+   1062,
+   910,
+   1151,
+   930
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res",
+  "rect": [
+   1161,
+   903,
+   1289,
+   937
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1299,
+   909,
+   1353,
+   932
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   909,
+   1353,
+   932
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.gate",
+  "rect": [
+   237,
+   953,
+   1363,
+   985
+  ],
+  "scrollH": 30,
+  "clientH": 30,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   312,
+   963,
+   362,
+   975
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   464,
+   963,
+   520,
+   975
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.rsec",
+  "rect": [
+   237,
+   1005,
+   1363,
+   1024
+  ],
+  "scrollH": 19,
+  "clientH": 19,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.otherboards",
+  "rect": [
+   237,
+   1024,
+   1363,
+   1144
+  ],
+  "scrollH": 120,
+  "clientH": 120,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.obrow",
+  "rect": [
+   237,
+   1024,
+   1363,
+   1060
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obk",
+  "rect": [
+   250,
+   1034,
+   360,
+   1050
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obwho",
+  "rect": [
+   372,
+   1034,
+   1104,
+   1050
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obres",
+  "rect": [
+   1116,
+   1034,
+   1266,
+   1050
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obgo",
+  "rect": [
+   1278,
+   1035,
+   1350,
+   1049
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.obrow",
+  "rect": [
+   237,
+   1066,
+   1363,
+   1102
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obk",
+  "rect": [
+   250,
+   1076,
+   360,
+   1092
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obwho",
+  "rect": [
+   372,
+   1076,
+   1104,
+   1092
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obres",
+  "rect": [
+   1116,
+   1076,
+   1266,
+   1092
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obgo",
+  "rect": [
+   1278,
+   1077,
+   1350,
+   1091
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.obrow",
+  "rect": [
+   237,
+   1108,
+   1363,
+   1144
+  ],
+  "scrollH": 34,
+  "clientH": 34,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obk",
+  "rect": [
+   250,
+   1118,
+   360,
+   1134
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obwho",
+  "rect": [
+   372,
+   1118,
+   1104,
+   1134
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obres",
+  "rect": [
+   1116,
+   1118,
+   1266,
+   1134
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.obgo",
+  "rect": [
+   1278,
+   1119,
+   1350,
+   1133
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ }
+]
+
+===== FIT standings/bands @1600x900 =====
+[
+ {
+  "el": "#ladder",
+  "rect": [
+   0,
+   0,
+   1600,
+   900
+  ],
+  "scrollH": 1546,
+  "clientH": 900,
+  "overflowY": 646,
+  "overflowX": 0,
+  "ov": "auto/auto",
+  "SCROLLBAR": true,
+  "CLIPPED": false,
+  "OFFSCREEN": false
+ },
+ {
+  "el": "div.set-frame",
+  "rect": [
+   210,
+   18,
+   1390,
+   1528
+  ],
+  "scrollH": 1508,
+  "clientH": 1508,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "#ladder-body",
+  "rect": [
+   237,
+   179,
+   1363,
+   1501
+  ],
+  "scrollH": 1322,
+  "clientH": 1322,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.bandgrid",
+  "rect": [
+   237,
+   250,
+   1363,
+   1501
+  ],
+  "scrollH": 1251,
+  "clientH": 1251,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   237,
+   673,
+   787,
+   1078
+  ],
+  "scrollH": 405,
+  "clientH": 405,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   237,
+   715,
+   787,
+   1027
+  ],
+  "scrollH": 312,
+  "clientH": 312,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   901,
+   787,
+   964
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   922,
+   277,
+   943
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   907,
+   423,
+   958
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   907,
+   423,
+   924
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   366,
+   910,
+   396,
+   922
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   928,
+   414,
+   955
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   923,
+   501,
+   943
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   925,
+   639,
+   941
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   921,
+   777,
+   944
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   921,
+   717,
+   944
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   921,
+   777,
+   944
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   964,
+   787,
+   1027
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   985,
+   277,
+   1006
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   970,
+   423,
+   1021
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   970,
+   423,
+   987
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   344,
+   973,
+   375,
+   985
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   991,
+   417,
+   1018
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   986,
+   501,
+   1006
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   988,
+   639,
+   1004
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   984,
+   777,
+   1007
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   984,
+   717,
+   1007
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   984,
+   777,
+   1007
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   813,
+   673,
+   1363,
+   1078
+  ],
+  "scrollH": 405,
+  "clientH": 405,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   813,
+   715,
+   1363,
+   1078
+  ],
+  "scrollH": 363,
+  "clientH": 363,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top3",
+  "rect": [
+   813,
+   838,
+   1363,
+   935
+  ],
+  "scrollH": 95,
+  "clientH": 95,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   844,
+   933,
+   929
+  ],
+  "scrollH": 85,
+  "clientH": 85,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   865,
+   931,
+   926
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   813,
+   935,
+   1363,
+   998
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   956,
+   853,
+   977
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   941,
+   999,
+   992
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   941,
+   999,
+   958
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 5,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   973,
+   944,
+   1004,
+   956
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   962,
+   997,
+   989
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   957,
+   1077,
+   977
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   959,
+   1215,
+   975
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   955,
+   1353,
+   978
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   955,
+   1293,
+   978
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   955,
+   1353,
+   978
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   813,
+   998,
+   1363,
+   1078
+  ],
+  "scrollH": 78,
+  "clientH": 78,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1028,
+   853,
+   1049
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1004,
+   999,
+   1072
+  ],
+  "scrollH": 68,
+  "clientH": 68,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1004,
+   999,
+   1021
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   951,
+   1007,
+   981,
+   1019
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1025,
+   995,
+   1069
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1028,
+   1077,
+   1048
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res",
+  "rect": [
+   1087,
+   1030,
+   1215,
+   1046
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1027,
+   1353,
+   1050
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1027,
+   1293,
+   1050
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1027,
+   1353,
+   1050
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   237,
+   1096,
+   787,
+   1501
+  ],
+  "scrollH": 405,
+  "clientH": 405,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "h4",
+  "rect": [
+   237,
+   1096,
+   787,
+   1115
+  ],
+  "scrollH": 19,
+  "clientH": 19,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.bandsub",
+  "rect": [
+   237,
+   1119,
+   787,
+   1132
+  ],
+  "scrollH": 13,
+  "clientH": 13,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   237,
+   1138,
+   787,
+   1450
+  ],
+  "scrollH": 312,
+  "clientH": 312,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top1",
+  "rect": [
+   237,
+   1138,
+   787,
+   1199
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   1161,
+   277,
+   1177
+  ],
+  "scrollH": 19,
+  "clientH": 16,
+  "overflowY": 3,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   1143,
+   423,
+   1194
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   1143,
+   423,
+   1160
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   364,
+   1145,
+   400,
+   1159
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   1164,
+   421,
+   1191
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   1159,
+   501,
+   1179
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   1161,
+   639,
+   1177
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   1157,
+   777,
+   1180
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   1157,
+   717,
+   1180
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   1157,
+   777,
+   1180
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top2",
+  "rect": [
+   237,
+   1199,
+   787,
+   1261
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   1218,
+   277,
+   1241
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   1204,
+   423,
+   1255
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   1204,
+   423,
+   1221
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   323,
+   1207,
+   353,
+   1219
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   1225,
+   422,
+   1252
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   1220,
+   501,
+   1240
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res",
+  "rect": [
+   511,
+   1222,
+   639,
+   1238
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   1218,
+   777,
+   1241
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   1218,
+   717,
+   1241
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   1218,
+   777,
+   1241
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top3",
+  "rect": [
+   237,
+   1261,
+   787,
+   1324
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   1281,
+   277,
+   1304
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   1267,
+   423,
+   1318
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   1267,
+   423,
+   1284
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 5,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   397,
+   1270,
+   428,
+   1282
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   1288,
+   421,
+   1315
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   1283,
+   501,
+   1303
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   1285,
+   639,
+   1301
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   1281,
+   777,
+   1304
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   1281,
+   717,
+   1304
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   1281,
+   777,
+   1304
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   237,
+   1324,
+   787,
+   1387
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   1345,
+   277,
+   1366
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   1330,
+   423,
+   1381
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   1330,
+   423,
+   1347
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   344,
+   1333,
+   375,
+   1345
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   1351,
+   417,
+   1378
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   1346,
+   501,
+   1366
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   1348,
+   639,
+   1364
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   1344,
+   777,
+   1367
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   1344,
+   717,
+   1367
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   1344,
+   777,
+   1367
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.rival",
+  "rect": [
+   237,
+   1387,
+   787,
+   1450
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   247,
+   1408,
+   277,
+   1429
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   287,
+   1393,
+   423,
+   1444
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   287,
+   1393,
+   423,
+   1410
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   316,
+   1396,
+   346,
+   1408
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rtag.rival",
+  "rect": [
+   354,
+   1394,
+   400,
+   1410
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   287,
+   1414,
+   414,
+   1441
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   433,
+   1409,
+   501,
+   1429
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   511,
+   1411,
+   639,
+   1427
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   649,
+   1407,
+   777,
+   1430
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   649,
+   1407,
+   717,
+   1430
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   723,
+   1407,
+   777,
+   1430
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   813,
+   1096,
+   1363,
+   1501
+  ],
+  "scrollH": 405,
+  "clientH": 405,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "h4",
+  "rect": [
+   813,
+   1096,
+   1363,
+   1115
+  ],
+  "scrollH": 19,
+  "clientH": 19,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.bandsub",
+  "rect": [
+   813,
+   1119,
+   1363,
+   1132
+  ],
+  "scrollH": 13,
+  "clientH": 13,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "ul.board",
+  "rect": [
+   813,
+   1138,
+   1363,
+   1450
+  ],
+  "scrollH": 312,
+  "clientH": 312,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top1",
+  "rect": [
+   813,
+   1138,
+   1363,
+   1199
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1161,
+   853,
+   1177
+  ],
+  "scrollH": 19,
+  "clientH": 16,
+  "overflowY": 3,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1143,
+   999,
+   1194
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1143,
+   999,
+   1160
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   940,
+   1145,
+   976,
+   1159
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1164,
+   997,
+   1191
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1159,
+   1077,
+   1179
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   1161,
+   1215,
+   1177
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1157,
+   1353,
+   1180
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1157,
+   1293,
+   1180
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1157,
+   1353,
+   1180
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top2",
+  "rect": [
+   813,
+   1199,
+   1363,
+   1261
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1218,
+   853,
+   1241
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1204,
+   999,
+   1255
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1204,
+   999,
+   1221
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 5,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   973,
+   1207,
+   1004,
+   1219
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1225,
+   997,
+   1252
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1220,
+   1077,
+   1240
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   1222,
+   1215,
+   1238
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1218,
+   1353,
+   1241
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1218,
+   1293,
+   1241
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1218,
+   1353,
+   1241
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.top3",
+  "rect": [
+   813,
+   1261,
+   1363,
+   1324
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1281,
+   853,
+   1304
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1267,
+   999,
+   1318
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1267,
+   999,
+   1284
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   920,
+   1270,
+   951,
+   1282
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1288,
+   993,
+   1315
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1283,
+   1077,
+   1303
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   1285,
+   1215,
+   1301
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1281,
+   1353,
+   1304
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1281,
+   1293,
+   1304
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1281,
+   1353,
+   1304
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow.rival",
+  "rect": [
+   813,
+   1324,
+   1363,
+   1387
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1345,
+   853,
+   1366
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1330,
+   999,
+   1381
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1330,
+   999,
+   1347
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   892,
+   1333,
+   922,
+   1345
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rtag.rival",
+  "rect": [
+   930,
+   1331,
+   976,
+   1347
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1351,
+   990,
+   1378
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1346,
+   1077,
+   1366
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   1348,
+   1215,
+   1364
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1344,
+   1353,
+   1367
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1344,
+   1293,
+   1367
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1344,
+   1353,
+   1367
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "li.brow",
+  "rect": [
+   813,
+   1387,
+   1363,
+   1450
+  ],
+  "scrollH": 61,
+  "clientH": 61,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rank",
+  "rect": [
+   823,
+   1408,
+   853,
+   1429
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.who",
+  "rect": [
+   863,
+   1393,
+   999,
+   1444
+  ],
+  "scrollH": 51,
+  "clientH": 51,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "b",
+  "rect": [
+   863,
+   1393,
+   999,
+   1410
+  ],
+  "scrollH": 17,
+  "clientH": 17,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.rhash",
+  "rect": [
+   942,
+   1396,
+   972,
+   1408
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.sub",
+  "rect": [
+   863,
+   1414,
+   990,
+   1441
+  ],
+  "scrollH": 0,
+  "clientH": 0,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.seal.verified",
+  "rect": [
+   1009,
+   1409,
+   1077,
+   1429
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.res.win",
+  "rect": [
+   1087,
+   1411,
+   1215,
+   1427
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "span.acts",
+  "rect": [
+   1225,
+   1407,
+   1353,
+   1430
+  ],
+  "scrollH": 23,
+  "clientH": 23,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button.rmore",
+  "rect": [
+   1225,
+   1407,
+   1293,
+   1430
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "button",
+  "rect": [
+   1299,
+   1407,
+   1353,
+   1430
+  ],
+  "scrollH": 21,
+  "clientH": 21,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ }
+]
+
+===== FIT standings/rivals @1600x900 =====
+clean (3 candidates examined)
+
+===== FIT row-detail @1600x900 =====
+clean (3 candidates examined)
+
+===== row detail text =====
+◆ CONTRACT ISSUED ◆ Carl their season score 2407 CP · yours 0 CP · resolves in 5h 26m You both play today's seed whenever you like. The better SEALED run takes the contract. No lobby, no queue, nobody has to be online at the same time as anybody. RACE THEIR GHOST ▶ THEIR RUN SO FAR YOU YOUR RIVAL — Carl#F98CRIVAL era 2804176 · signed attempt 3 · Fault Line SEALED floor 13 · 17:22.00 DETAIL RACE NO HISTORY YET. The ledger fills the first time you both seal a run on the same contract. Paired on nearest season CP, recomputed daily. Decided by the better SEALED run. No CP changes hands.
+
+===== FIT career @1600x900 =====
+[
+ {
+  "el": "#career",
+  "rect": [
+   0,
+   0,
+   1600,
+   900
+  ],
+  "scrollH": 1198,
+  "clientH": 900,
+  "overflowY": 298,
+  "overflowX": 0,
+  "ov": "auto/auto",
+  "SCROLLBAR": true,
+  "CLIPPED": false,
+  "OFFSCREEN": false
+ },
+ {
+  "el": "div.set-frame",
+  "rect": [
+   210,
+   18,
+   1390,
+   1180
+  ],
+  "scrollH": 1160,
+  "clientH": 1160,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "#career-body",
+  "rect": [
+   237,
+   126,
+   1363,
+   1153
+  ],
+  "scrollH": 1027,
+  "clientH": 1027,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.tcols",
+  "rect": [
+   237,
+   468,
+   1363,
+   1153
+  ],
+  "scrollH": 685,
+  "clientH": 685,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   237,
+   468,
+   787,
+   1153
+  ],
+  "scrollH": 685,
+  "clientH": 685,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.lgroup",
+  "rect": [
+   237,
+   695,
+   787,
+   965
+  ],
+  "scrollH": 270,
+  "clientH": 270,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "table.ledger",
+  "rect": [
+   237,
+   756,
+   787,
+   965
+  ],
+  "scrollH": 209,
+  "clientH": 209,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "tbody",
+  "rect": [
+   237,
+   756,
+   787,
+   965
+  ],
+  "scrollH": 209,
+  "clientH": 209,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "tr",
+  "rect": [
+   237,
+   887,
+   787,
+   913
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lk",
+  "rect": [
+   237,
+   887,
+   408,
+   913
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.ld",
+  "rect": [
+   408,
+   887,
+   747,
+   913
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lv",
+  "rect": [
+   747,
+   887,
+   787,
+   913
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "tr",
+  "rect": [
+   237,
+   913,
+   787,
+   939
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lk",
+  "rect": [
+   237,
+   913,
+   408,
+   939
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.ld",
+  "rect": [
+   408,
+   913,
+   747,
+   939
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lv",
+  "rect": [
+   747,
+   913,
+   787,
+   939
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "tr",
+  "rect": [
+   237,
+   939,
+   787,
+   965
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lk",
+  "rect": [
+   237,
+   939,
+   408,
+   965
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.ld",
+  "rect": [
+   408,
+   939,
+   747,
+   965
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "td.lv",
+  "rect": [
+   747,
+   939,
+   787,
+   965
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.rsec",
+  "rect": [
+   237,
+   983,
+   787,
+   1002
+  ],
+  "scrollH": 19,
+  "clientH": 19,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.cnamesub",
+  "rect": [
+   237,
+   1002,
+   787,
+   1018
+  ],
+  "scrollH": 16,
+  "clientH": 16,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mrow",
+  "rect": [
+   237,
+   1024,
+   787,
+   1067
+  ],
+  "scrollH": 42,
+  "clientH": 42,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "i.mic",
+  "rect": [
+   237,
+   1032,
+   263,
+   1058
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   277,
+   1032,
+   703,
+   1059
+  ],
+  "scrollH": 27,
+  "clientH": 27,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mname",
+  "rect": [
+   277,
+   1032,
+   703,
+   1050
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mbar",
+  "rect": [
+   277,
+   1054,
+   703,
+   1059
+  ],
+  "scrollH": 5,
+  "clientH": 5,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mlvl",
+  "rect": [
+   713,
+   1030,
+   787,
+   1060
+  ],
+  "scrollH": 30,
+  "clientH": 30,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "small",
+  "rect": [
+   713,
+   1046,
+   787,
+   1060
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mrow",
+  "rect": [
+   237,
+   1067,
+   787,
+   1110
+  ],
+  "scrollH": 42,
+  "clientH": 42,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "i.mic",
+  "rect": [
+   237,
+   1075,
+   263,
+   1101
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   277,
+   1075,
+   703,
+   1102
+  ],
+  "scrollH": 27,
+  "clientH": 27,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mname",
+  "rect": [
+   277,
+   1075,
+   703,
+   1093
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mbar",
+  "rect": [
+   277,
+   1097,
+   703,
+   1102
+  ],
+  "scrollH": 5,
+  "clientH": 5,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mlvl",
+  "rect": [
+   713,
+   1073,
+   787,
+   1103
+  ],
+  "scrollH": 30,
+  "clientH": 30,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "small",
+  "rect": [
+   713,
+   1089,
+   787,
+   1103
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mrow",
+  "rect": [
+   237,
+   1110,
+   787,
+   1153
+  ],
+  "scrollH": 42,
+  "clientH": 42,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "i.mic",
+  "rect": [
+   237,
+   1118,
+   263,
+   1144
+  ],
+  "scrollH": 26,
+  "clientH": 26,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   277,
+   1118,
+   703,
+   1145
+  ],
+  "scrollH": 27,
+  "clientH": 27,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mname",
+  "rect": [
+   277,
+   1118,
+   703,
+   1136
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mbar",
+  "rect": [
+   277,
+   1140,
+   703,
+   1145
+  ],
+  "scrollH": 5,
+  "clientH": 5,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "hidden/hidden",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mlvl",
+  "rect": [
+   713,
+   1116,
+   787,
+   1146
+  ],
+  "scrollH": 30,
+  "clientH": 30,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "small",
+  "rect": [
+   713,
+   1132,
+   787,
+   1146
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   813,
+   468,
+   1363,
+   1153
+  ],
+  "scrollH": 685,
+  "clientH": 685,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mstone",
+  "rect": [
+   819,
+   892,
+   1363,
+   930
+  ],
+  "scrollH": 38,
+  "clientH": 38,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdate",
+  "rect": [
+   834,
+   895,
+   922,
+   927
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   934,
+   895,
+   1363,
+   927
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mtitle",
+  "rect": [
+   934,
+   895,
+   1363,
+   913
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdetail",
+  "rect": [
+   934,
+   913,
+   1363,
+   927
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mstone",
+  "rect": [
+   819,
+   930,
+   1363,
+   968
+  ],
+  "scrollH": 38,
+  "clientH": 38,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdate",
+  "rect": [
+   834,
+   933,
+   922,
+   965
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   934,
+   933,
+   1363,
+   965
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mtitle",
+  "rect": [
+   934,
+   933,
+   1363,
+   951
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdetail",
+  "rect": [
+   934,
+   951,
+   1363,
+   965
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mstone",
+  "rect": [
+   819,
+   968,
+   1363,
+   1006
+  ],
+  "scrollH": 38,
+  "clientH": 38,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdate",
+  "rect": [
+   834,
+   971,
+   922,
+   1003
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   934,
+   971,
+   1363,
+   1003
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mtitle",
+  "rect": [
+   934,
+   971,
+   1363,
+   989
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdetail",
+  "rect": [
+   934,
+   989,
+   1363,
+   1003
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mstone",
+  "rect": [
+   819,
+   1006,
+   1363,
+   1044
+  ],
+  "scrollH": 38,
+  "clientH": 38,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdate",
+  "rect": [
+   834,
+   1009,
+   922,
+   1041
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div",
+  "rect": [
+   934,
+   1009,
+   1363,
+   1041
+  ],
+  "scrollH": 32,
+  "clientH": 32,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mtitle",
+  "rect": [
+   934,
+   1009,
+   1363,
+   1027
+  ],
+  "scrollH": 18,
+  "clientH": 18,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ },
+ {
+  "el": "div.mdetail",
+  "rect": [
+   934,
+   1027,
+   1363,
+   1041
+  ],
+  "scrollH": 14,
+  "clientH": 14,
+  "overflowY": 0,
+  "overflowX": 0,
+  "ov": "visible/visible",
+  "SCROLLBAR": false,
+  "CLIPPED": false,
+  "OFFSCREEN": true
+ }
+]
