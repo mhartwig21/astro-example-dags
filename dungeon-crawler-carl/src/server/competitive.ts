@@ -66,6 +66,7 @@ export interface RunRow {
   seed: number;
   rulesHash: string | null;
   mode: string;
+  runKind: string;
   partySize: number;
   won: boolean;
   floor: number;
@@ -96,6 +97,7 @@ export interface NewRun {
   seed: number;
   rulesHash?: string | null;
   mode?: string;
+  runKind?: string;
   partySize?: number;
   won: boolean;
   floor: number;
@@ -152,7 +154,15 @@ CREATE TABLE IF NOT EXISTS runs (
   event_id      TEXT,
   seed          INTEGER NOT NULL,
   rules_hash    TEXT,
-  mode          TEXT NOT NULL DEFAULT 'solo',
+  -- WHICH GAME, not just which numbers. The era chip answers "under what rules
+  -- was this computed"; nothing answered "which ruleset was played" - and a
+  -- ROAM header replayed cleanly into a certified floor-16 row (see
+  -- verifyWorker.rulesetRefusal). Even after the submit path starts refusing
+  -- roam, an existing certified row has to be auditable and labellable, and no
+  -- consumer - board, share page, band board, a future mobile host - could say
+  -- which game a row was played under.
+  mode          TEXT NOT NULL DEFAULT 'coop',
+  run_kind      TEXT NOT NULL DEFAULT 'race',
   party_size    INTEGER NOT NULL DEFAULT 1,
   won           INTEGER NOT NULL DEFAULT 0,
   floor         INTEGER NOT NULL,
@@ -271,7 +281,7 @@ CREATE TABLE IF NOT EXISTS account_public (
 
 interface RawRun {
   id: string; account_id: string; display_name: string; event_id: string | null;
-  seed: number; rules_hash: string | null; mode: string; party_size: number;
+  seed: number; rules_hash: string | null; mode: string; run_kind: string; party_size: number;
   won: number; floor: number; time_ticks: number; kills: number; level: number;
   ultimate: string | null; band_splits: string | null; death_cause: string | null;
   final_build: string | null; damage_dealt: number; damage_taken: number;
@@ -288,7 +298,8 @@ function parse<T>(s: string | null): T | null {
 function toRow(r: RawRun): RunRow {
   return {
     id: r.id, accountId: r.account_id, displayName: r.display_name, eventId: r.event_id,
-    seed: r.seed, rulesHash: r.rules_hash, mode: r.mode, partySize: r.party_size,
+    seed: r.seed, rulesHash: r.rules_hash, mode: r.mode, runKind: r.run_kind ?? "race",
+    partySize: r.party_size,
     won: !!r.won, floor: r.floor, timeTicks: r.time_ticks, kills: r.kills, level: r.level,
     ultimate: r.ultimate, bandSplits: parse<number[]>(r.band_splits),
     deathCause: parse<unknown>(r.death_cause), finalBuild: parse<unknown>(r.final_build),
@@ -316,6 +327,21 @@ function boardWhere(kind: BoardKind): string {
 
 export interface BoardQuery {
   kind: BoardKind;
+  /**
+   * THE SCOPE, IN THREE STATES, and collapsing it to two is what emptied the
+   * museum. `null` meant `event_id IS NULL`, and `/boards/:kind` with no
+   * `event` param passed `null` - so every event run was excluded from the
+   * all-time boards BY CONSTRUCTION. Live consequence: a sealed daily run was
+   * told by the verdict that it holds a position on DEEPEST and KILLS while
+   * both of those boards returned zero entries and THE STANDINGS printed "this
+   * museum is empty". On the one product whose whole pitch is that the server
+   * does not lie about what a run is worth, the trust element made a claim the
+   * next screen refuted.
+   *
+   *  - `undefined` (absent) - THE MUSEUM: every scope, contracts included.
+   *  - `null` - free seeds only.
+   *  - a string - that event alone.
+   */
   eventId?: string | null;
   /** Only verified rows. Boards show claimed rows below the seal line by
    *  default so a fresh board is not empty on day one (COMPETITIVE.md 3.2B). */
@@ -344,6 +370,12 @@ export class CompetitiveStore {
     const runCols = cols("runs");
     for (const c of ["damage_dealt", "damage_taken", "gold_spent"]) {
       if (!runCols.has(c)) this.db.exec("ALTER TABLE runs ADD COLUMN " + c + " INTEGER NOT NULL DEFAULT 0");
+    }
+    // WHICH GAME WAS PLAYED. Rows written before the column are backfilled to
+    // 'race' because that is the only ruleset the shipping client ever
+    // recorded, and the submit path now refuses every other one at the door.
+    if (!runCols.has("run_kind")) {
+      this.db.exec("ALTER TABLE runs ADD COLUMN run_kind TEXT NOT NULL DEFAULT 'race'");
     }
     if (!cols("run_bands").has("complete")) {
       this.db.exec("ALTER TABLE run_bands ADD COLUMN complete INTEGER NOT NULL DEFAULT 0");
@@ -470,10 +502,15 @@ export class CompetitiveStore {
     const run = this.getRun(runId);
     if (!run || run.state !== "verified") return [];
     const out: string[] = [];
+    // BOTH SCOPES, AND THE PHRASE ON THE SEAL NAMES WHICH ONE. An event run can
+    // hold a position on its contract board AND - now that the museum is not
+    // free-seeds-only - on the all-time board beside it. The `break` here used
+    // to stop at the contract, so the seal printed a bare board name and the
+    // player clicked through to the OTHER board of that name and found it empty.
     for (const kind of BOARD_KINDS) {
-      for (const scope of run.eventId ? [run.eventId, null] : [null]) {
+      for (const scope of run.eventId ? [run.eventId, undefined] : [undefined]) {
         const rows = this.board({ kind, eventId: scope, verifiedOnly: true, limit: depth });
-        if (rows.some((r) => r.id === runId)) { out.push(scope ? kind + "@" + scope : kind); break; }
+        if (rows.some((r) => r.id === runId)) out.push(scope ? kind + "@" + scope : kind);
       }
     }
     for (let band = 0; band < 6; band++) {
@@ -486,15 +523,16 @@ export class CompetitiveStore {
 
   insertRun(r: NewRun): void {
     this.db.prepare(
-      `INSERT INTO runs (id, account_id, display_name, event_id, seed, rules_hash, mode, party_size,
+      `INSERT INTO runs (id, account_id, display_name, event_id, seed, rules_hash, mode, run_kind, party_size,
                          won, floor, time_ticks, kills, level, ultimate, attempt_no, private, state, proof_id, created_at)
-       VALUES (@id, @accountId, @displayName, @eventId, @seed, @rulesHash, @mode, @partySize,
+       VALUES (@id, @accountId, @displayName, @eventId, @seed, @rulesHash, @mode, @runKind, @partySize,
                @won, @floor, @timeTicks, @kills, @level, @ultimate, @attemptNo, @private, @state, @proofId, @createdAt)`,
     ).run({
       ...r,
       eventId: r.eventId ?? null,
       rulesHash: r.rulesHash ?? null,
-      mode: r.mode ?? "solo",
+      mode: r.mode ?? "coop",
+      runKind: r.runKind ?? "race",
       partySize: r.partySize ?? 1,
       won: r.won ? 1 : 0,
       ultimate: r.ultimate ?? null,
@@ -581,11 +619,11 @@ export class CompetitiveStore {
       else { where += " AND event_id = ?"; args.push(q.eventId); }
     }
     where += boardWhere(q.kind);
-    if (q.archetype && this.splitOpen("ultimate", q.archetype, q.eventId ?? null)) {
+    if (q.archetype && this.splitOpen("ultimate", q.archetype, q.eventId)) {
       where += " AND ultimate = ?";
       args.push(q.archetype);
     }
-    if (q.partySize && this.splitOpen("party_size", String(q.partySize), q.eventId ?? null)) {
+    if (q.partySize && this.splitOpen("party_size", String(q.partySize), q.eventId)) {
       where += " AND party_size = ?";
       args.push(q.partySize);
     }
@@ -613,15 +651,15 @@ export class CompetitiveStore {
 
   /** Has this split earned its own board yet? Shown, not hidden: the System
    *  says "THE SPONSOR BOARD OPENS AT 20 ENTRANTS. CURRENT: 17." */
-  splitEntrants(column: "ultimate" | "party_size", value: string, eventId: string | null): number {
-    const evt = eventId === null ? "event_id IS NULL" : "event_id = ?";
-    const args: unknown[] = eventId === null ? [value] : [value, eventId];
+  splitEntrants(column: "ultimate" | "party_size", value: string, eventId?: string | null): number {
+    const evt = eventId === undefined ? "1 = 1" : eventId === null ? "event_id IS NULL" : "event_id = ?";
+    const args: unknown[] = typeof eventId === "string" ? [value, eventId] : [value];
     return (this.db.prepare(
       `SELECT COUNT(DISTINCT account_id) c FROM runs WHERE state = 'verified' AND ${column} = ? AND ${evt}`,
     ).get(...args) as { c: number }).c;
   }
 
-  splitOpen(column: "ultimate" | "party_size", value: string, eventId: string | null): boolean {
+  splitOpen(column: "ultimate" | "party_size", value: string, eventId?: string | null): boolean {
     return this.splitEntrants(column, value, eventId) >= SPLIT_GATE_ENTRIES;
   }
 
@@ -637,7 +675,7 @@ export class CompetitiveStore {
     if (kind === "fastest" || kind === "contracts") {
       if (!candidate.won || candidate.timeTicks <= 0) return false;
     }
-    const rows = this.board({ kind, eventId: candidate.eventId ?? null, verifiedOnly: true, limit: depth });
+    const rows = this.board({ kind, eventId: candidate.eventId ?? undefined, verifiedOnly: true, limit: depth });
     if (rows.length < depth) return true;
     const worst = rows[rows.length - 1];
     switch (kind) {
@@ -1003,6 +1041,46 @@ export class CompetitiveStore {
       this.db.prepare("DELETE FROM account_public WHERE account_id = ?").run(accountId);
     });
     tx();
+  }
+
+  /**
+   * FORGET ME HAS TO REACH THE ROWS THAT HAVE NO ACCOUNT.
+   *
+   * `importLegacyBoard` copies every retired JSON board row into this store
+   * keyed `accountId = "legacy:" + name`, and it runs unconditionally at boot.
+   * `deleteAccount` deletes `WHERE account_id = ?` and the name-based cascade
+   * reached only the JSON file - so after a FORGET ME the JSON row went and the
+   * SQLite copy of the same crawler survived forever, publicly, in the UNPROVEN
+   * shelf on THE STANDINGS. That is exactly the gap 1.2 calls "a LIVE privacy
+   * gap, not a future one", re-opened by the migration that was supposed to
+   * close it.
+   *
+   * Names match case-insensitively on the legacy key AND on the snapshotted
+   * display name, the same way `Leaderboard.forgetNames` matches them, so the
+   * two halves of the cascade cannot disagree about who was forgotten.
+   */
+  deleteByDisplayNames(names: readonly string[]): number {
+    const wanted = new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+    if (wanted.size === 0) return 0;
+    const rows = this.db.prepare(
+      "SELECT id, account_id, display_name FROM runs WHERE account_id LIKE 'legacy:%'",
+    ).all() as { id: string; account_id: string; display_name: string }[];
+    const doomed = rows.filter((r) =>
+      wanted.has(r.display_name.trim().toLowerCase())
+      || wanted.has(r.account_id.slice("legacy:".length).trim().toLowerCase()));
+    if (doomed.length === 0) return 0;
+    const tx = this.db.transaction(() => {
+      const delBands = this.db.prepare("DELETE FROM run_bands WHERE run_id = ?");
+      const delRun = this.db.prepare("DELETE FROM runs WHERE id = ?");
+      const delPublic = this.db.prepare("DELETE FROM account_public WHERE account_id = ?");
+      for (const r of doomed) {
+        delBands.run(r.id);
+        delRun.run(r.id);
+        delPublic.run(r.account_id);
+      }
+    });
+    tx();
+    return doomed.length;
   }
 
   /**

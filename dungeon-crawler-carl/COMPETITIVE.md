@@ -1485,8 +1485,119 @@ And on the screen the player actually reads, §6's own rules applied to §6:
   guessed (`--consent-h`), so the grade medal stops being clipped by the
   viewport edge on the one run per browser where it appears.
 
+### ELEVATION ROUND 3 — the spine stops contradicting itself
+
+Round 2 closed the gap between the document and the code. Round 3 closed the gap
+between **what one surface says and what the next one shows**, and shut two
+exploits that were measured, not reasoned about.
+
+**Two rulesets were reaching a board that presents as verified.**
+
+| Hole | Where it was | What it is now |
+|---|---|---|
+| **An unverified RULESET certified.** `validateProofShape` checks version, hash, seed, ticks, dt, startKind, actions and claim, and never looked at `header.mode` or `header.runKind` — while `ReplaySession` builds the world straight from them (`createGame(seed, mode, runKind)`). Measured: the shipped bot on seed 2024, recorded twice with a 40k-step cap and run through the real `verifyArtifact({requireFreshStart:true})` — **race** → dead on floor 5, 115 kills, 21,038 ticks; **roam** → floor 16, 171 kills, 35,224 ticks, ultimate `injunction`, and the verdict came back **`ok: true`**. Roam floors have no boss gate and a flat 30-minute budget instead of `floorTimeBudget`, so the same policy walks ~4x as far: DEEPEST takes a gold-sealed floor-16 roam row, KILLS is owned outright, and every band board — the boards §3.3 calls the most winnable — falls at ~2x pace. The client refusal existed and was POLITE only (`recBlocked = "ROAM has no clock and no board"`), exactly the pattern §2.5 step 2 says it made structural for test starts | `verifyWorker.rulesetRefusal` | One gate, applied at the door (`competitiveApi.submit`, beside the `startKind` check) **and** inside the worker before `ReplaySession` is constructed, so a hand-rolled artifact never builds a roam world. `runs.run_kind` stores which game was played, and `publicRun` carries `mode` + `runKind`, so an existing certified row can be audited and labelled |
+| **A competitive dimension the verifier never checks was printed inside the seal's frame.** `partySize` was read straight off the query string (`Number(q.get("size") ?? 1)`), stored, returned on the wire, and printed on a SEALED board row as `party of N`. Nothing in `ReplaySession.summary()` or `VerifiedFacts` derives or contradicts it, `certify()` never touches the column — and it is a **board axis**: `board({partySize})` filters `party_size = ?` and `splitEntrants("party_size", …)` counts toward opening the co-op split boards §7.4 defines. Worse than merely unverified: MUST-3 does not record party runs at all, so every `party of N>1` on a proof-verified row was necessarily fabricated. `POST /runs?token=…&size=6` put a solo run on the 5-6 board with the gold seal | `competitiveApi.submit` | A proof attests to ONE crawler's inputs, so a proof-verified row is `partySize: 1`, full stop. The `size` param is gone from the client and ignored by the server. Party rows come only from `insertServerVouched`, where the authoritative sim counted the seats itself, and the row says `counted by the server` |
+
+**Three places the product was telling the player something untrue.**
+
+- **The seal named boards that were empty when you clicked through.** `holdsBoards`
+  answers with SCOPED keys (`deepest@daily-2026-08-02`), `boardsPhrase` stripped
+  the scope with `b.split("@")[0]`, and — the actual bug underneath —
+  `BoardQuery.eventId === null` meant `event_id IS NULL`, which
+  `GET /boards/:kind` passed for every request with no `event` param. **Every
+  event run was excluded from every all-time board by construction**, so the
+  verdict said "it holds a position on DEEPEST, KILLS" while both boards
+  answered `entries: 0` and THE STANDINGS printed "this museum is empty". The
+  scope is now three-state (`undefined` = the museum, `null` = free seeds only,
+  a string = that event), `holdsBoards` reports both scopes, and `boardLabel`
+  prints `DEEPEST — TODAY'S CONTRACT` / `DEEPEST — ALL-TIME`.
+- **A rivals row claimed a film that never existed.** `insertServerVouched`
+  writes `proofId = null` (nobody records a party run) and `playability()` fell
+  through to *"the proof has aged out of retention"* — a deliberate false
+  statement, in the product whose pitch is that it does not make them.
+  `publicRun` now carries `film: "retained" | "expired" | "never"` (retention
+  never clears `proof_id`, so a null id means the film never existed), and the
+  refusal reads *THE SERVER RAN THIS ONE ITSELF*. The winner also finally sees
+  it: `renderSeal` opened with `if (net) { display = "none" }`, so the one
+  genuinely server-authoritative score in the product was the one the player was
+  never shown earning. There is a `vouched` verdict state for it now.
+- **`rejected` was returned for resource and infrastructure failures, and then
+  punished.** The wall-clock ceiling, a replay throw, a worker crash, a closed
+  executor and a failed spawn all answered `rejected` — the state reserved for
+  *the claim was false* — which prints THE SYSTEM DISAGREES WITH YOU and sets a
+  10-minute account cooldown. §2.6d says a capability failure is `unverifiable`,
+  never `rejected`. All six are `unverifiable` now. **And the boundary is stated
+  instead of discovered**: `maxCertifiableTicks(budget, ceiling, usPerTick)`
+  turns the duty cycle into a number of sim-minutes, the submit path refuses past
+  it *before* the clock is spent, and the reason names the limit. `spent()` is
+  wall clock including the duty sleeps, so a 120 s ceiling at 250 ms/s buys
+  ~30 s of CPU — there was a run length past which this ladder called honest
+  players cheats, and nothing stated it.
+
+**FORGET ME regressed, and re-opened the exact gap §1.2 calls live.**
+`importLegacyBoard` copies every legacy row into the competitive store keyed
+`accountId = "legacy:" + name` and runs unconditionally at boot;
+`deleteAccount` only ever matched `account_id`, and the name cascade reached
+only the JSON file. So after a FORGET ME the JSON row went and **the SQLite copy
+of the same crawler survived forever, publicly, in the UNPROVEN shelf on THE
+STANDINGS**. `CompetitiveStore.deleteByDisplayNames` closes it, wired into
+`onAccountDeleted` beside `leaderboard.forgetNames`, matching
+case-insensitively on both the legacy key and the snapshotted display name.
+
+**And on the screen the player reads more than any other:**
+
+- **The rejection prints numbers, not a debug token.** `verifyWorker` concatenated
+  `diffClaim`'s bare identifiers, so the highest-stakes negative moment in the
+  product read *"claim disagrees with the replay: status"*. The verifier holds
+  both sides at that moment; `describeClaimDiff` says *"you claimed 42 kills; the
+  replay counted 39"*. It lives on the server, so no era was spent to fix it.
+- **The default player can act on the demand.** A fresh anonymous token signing
+  the daily got `scoresCp: true` at the door and, at the exit, *"LINK AN
+  IDENTITY"* — a string that existed **only** as a server refusal, with no
+  button, link or OAuth affordance anywhere on the screen. `POST /events/:id/start`
+  answers `linked` now (so the door stops overselling), the submit outcome
+  carries a typed `needsIdentity`, and the seal renders a 195x36 button beside
+  the sentence. Measured: `scoresCp: false` at entry, `linkButtonExists: true`
+  at the verdict.
+- **The career panel stopped calling refused runs sealed.** The WHERE YOU DIE
+  histogram was labelled `${serverN} sealed runs` off `profile.deathsByFloor`,
+  built from ALL runs, while `seals` on the same response counts verified ones —
+  live, the chart read "4 sealed runs" and THE SEALED RECORD 300px below read
+  SEALS 0, because all four were REFUSED. The profile returns
+  `sealedDeathsByFloor` and `refused`; the chart draws certified rows only and
+  names what it left out.
+- **The verifier-derived detail is rendered.** Splits, the full build (gear with
+  rarities, ability ranks, glyph sockets), the named death and the four derived
+  numbers were all on the wire and discarded at render. Every sealed board row
+  has a DETAIL panel, and it says the crawler asserted none of it.
+- Plus: a `#TAG` discriminator on every row (two crawlers named "Carl" sat one
+  row apart with nothing between them), the grade's basis in a plate at 13px in
+  `--ink` instead of 168px of 11px `--ink-faint` wrapping three ways, FINAL STATS
+  deleted from behind TAB (it duplicated the scoreboard's own YOU column) and
+  SEASON RATINGS relabelled to the run it was actually showing, one clock built
+  from one tick count (the headline said 2:05 and the board row said 2:06), the
+  win state given its own plate/medal/exit-block/CTA treatment, WATCH freed from
+  the dismiss button, split boards collapsing into UNCLAIMED SPLITS instead of
+  six empty headers, THE OTHER MUSEUMS filling the 42% of viewport the ALL-TIME
+  tab left as black, and the explanation layer cut from ~90-word essays to one
+  line per surface (measured: 4-20% of the body by area).
+
+**Tests this round added, at the boundary that broke:** `grep -n
+'roam|runKind|partySize' test/competitive.test.ts` returned nothing before it.
+There are now cases for the roam header refused at the door AND in the worker,
+`run_kind`/`mode` stored on a certified row, `POST /runs?size=6` landing as
+`partySize: 1`, a capability failure returning `unverifiable` with the ceiling
+in sim-minutes, an over-long run refused at the door, a sealed contract run
+appearing on the all-time board its seal names, and a legacy row deleted by name.
+
 ### SHOULD
 
+- **WATCH.** The word is no longer spent on dismiss, but there is still no
+  in-browser replay on the verdict: `RUN IT BACK` races your own ghost, and that
+  is the closest the screen gets to "the server re-executed this, here it is".
+  §8.2's REPLAY (the ghost worker with a camera attached — seek = index into the
+  precomputed track) is the missing piece, and it needs a camera target the
+  renderer does not currently expose.
 - **Ghosts** (§4.1). The sim seam is already done by MUST-1; this is a worker that
   precomputes the ghost track, one translucent render pass, and the era gate.
 - **Season CP, tiers, placement** (§3.2C) and the **profile** (§5.2).

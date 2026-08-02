@@ -879,6 +879,21 @@ function loadSignin(): { who: string; provider: string } | null {
 
 /** Wire the menu account row: sign-in buttons per enabled provider, the
  *  signed-in chip with cross-device career stats, sign-out, delete. */
+/**
+ * THE PROVIDERS THIS BUILD CAN ACTUALLY SIGN YOU IN WITH.
+ *
+ * Cached at boot because the VERDICT needs them too, not just the menu:
+ * COMPETITIVE.md 6.2 Beat 5 specifies the unlinked case as a refusal WITH A
+ * BUTTON, and the only sign-in control in the product lived on the menu behind
+ * `display:none`. A screen that demands an action has to be able to offer it.
+ */
+let authProviders: string[] = [];
+/** Send the crawler to a provider, keeping the account token so the identity
+ *  links to the career they already have rather than starting a new one. */
+export function beginSignIn(provider: string): void {
+  location.href = `${API_BASE}/auth/login/${provider}?token=${encodeURIComponent(ensureToken())}`;
+}
+
 async function initAccountUi(): Promise<void> {
   const row = document.getElementById("m-account")!;
   const status = document.getElementById("m-acct-status")!;
@@ -887,6 +902,7 @@ async function initAccountUi(): Promise<void> {
     const r = await fetch(`${API_BASE}/auth/providers`);
     providers = r.ok ? ((await r.json()) as { providers: string[] }).providers : [];
   } catch { /* server unreachable: keep the menu quiet */ }
+  authProviders = providers;
   const signin = loadSignin();
   if (providers.length === 0 && !signin) return; // nothing to offer
   row.style.display = "flex";
@@ -917,9 +933,7 @@ async function initAccountUi(): Promise<void> {
   }
 }
 for (const [btn, prov] of [["m-signin-discord", "discord"], ["m-signin-google", "google"]] as const) {
-  document.getElementById(btn)!.addEventListener("click", () => {
-    location.href = `${API_BASE}/auth/login/${prov}?token=${encodeURIComponent(ensureToken())}`;
-  });
+  document.getElementById(btn)!.addEventListener("click", () => beginSignIn(prov));
 }
 document.getElementById("m-signout")!.addEventListener("click", () => {
   // Full sign-out (shared computers): the identity chip AND the token go.
@@ -6151,7 +6165,7 @@ let earnedOpen = false;
 let submitResult:
   | {
       state: string; runId?: string; reason?: string; attemptNo?: number;
-      scoresCp?: boolean; boards?: string[];
+      scoresCp?: boolean; boards?: string[]; needsIdentity?: boolean;
     }
   | null = null;
 
@@ -6391,6 +6405,16 @@ function commitBandBests(): number[] {
   return beaten;
 }
 
+/** THE ONE CLOCK THIS RUN HAS. Built from the tick count the proof and the
+ *  board row are both built from, so no two surfaces can round it differently. */
+function runClock(s: GameState): string {
+  // ...AND IN THE SAME FORMAT. Rounding a tick count to the whole second here
+  // while the board row prints centiseconds is still two different numbers for
+  // the same run: 2:06 on the headline against 2:05.73 one screen away. The
+  // data was always exact; both surfaces print it exactly.
+  return runTicks > 0 ? social.ticksClock(runTicks) : fmt(s.elapsed);
+}
+
 function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
@@ -6413,25 +6437,32 @@ function renderRecap(s: GameState): void {
       .map((r, i) => `${i + 1}. ${r.name} (F${r.floor} · L${r.level})`)
       .join("  ·  ");
     document.getElementById("recap-sub")!.textContent =
-      `THE RACE IS OVER · run time ${fmt(s.elapsed)} · ${standings}`;
+      `THE RACE IS OVER · run time ${runClock(s)} · ${standings}`;
   } else {
     title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
     title.className = won ? "win" : "wipe";
+    // ONE CLOCK, FROM THE TICK COUNT THE ROW IS BUILT FROM. The headline read
+    // `fmt(s.elapsed)` and the board row read `ticksClock(ticks)`, so the same
+    // run printed "run time 2:05" here and "2:06" one screen away - on the
+    // product whose whole pitch is that its numbers agree with each other.
     document.getElementById("recap-sub")!.textContent = won
-      ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
-      : `Episode canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+      ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${runClock(s)} · ${p.name}, Crawler`
+      : `Episode canceled on floor ${s.floor} · run time ${runClock(s)} · the crowd demands a rerun`;
   }
-  const stats: [string, string][] = [
-    [String(p.level), "LEVEL"],
-    [p.kills.toLocaleString(), "KILLS"],
-    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
-    [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
-    [`${coinIcon} ${p.gold.toLocaleString()}`, "GOLD BANKED"],
-    [`${coinIcon} ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
-  ];
-  document.getElementById("recap-stats")!.innerHTML =
-    stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
+  // THE WIN IS NOT A HUE. The victory plate carries the result itself, so an
+  // eighteen-floor clear and a floor-1 idle death stop differing by a headline
+  // string and a colour token.
+  document.getElementById("recap-plate-sub")!.textContent = won
+    ? `${CONFIG.finalFloor} FLOORS · ${runClock(s)} · ${p.kills.toLocaleString()} KILLS · `
+      + "THE NETWORK IS BROADCASTING THIS ONE AGAIN"
+    : "THE NETWORK IS BROADCASTING THIS ONE AGAIN";
+  // THE SCOREBOARD OWNS THE FIVE NUMBERS. FINAL STATS printed LEVEL, KILLS,
+  // DAMAGE DEALT, DAMAGE TAKEN and GOLD SPENT as tiles 300px to the right of a
+  // scoreboard column printing the same five - the half of the report card 6.3
+  // said to cut, surviving beside the thing that replaced it. Only GOLD BANKED
+  // was unique, and it belongs with the other things this run walked away with.
   document.getElementById("recap-show")!.innerHTML =
+    `<div class="rstat"><b>${coinIcon} ${p.gold.toLocaleString()}</b><small>GOLD BANKED</small></div>` +
     `<div class="rstat viewers"><b>${Math.round(p.viewers).toLocaleString()}</b><small>VIEWERS</small></div>` +
     `<div class="rstat favorites"><b>${Math.floor(p.favorites).toLocaleString()}</b><small>FAVORITES</small></div>` +
     `<div class="rstat sponsors"><b>${p.sponsors}</b><small>SPONSORS</small></div>`;
@@ -6492,7 +6523,13 @@ function renderRecap(s: GameState): void {
 
   document.getElementById("recap-letter")!.textContent = runGrade.letter;
   document.getElementById("recap-score")!.textContent = String(runGrade.score);
-  document.getElementById("recap-basis")!.textContent = runGrade.basis;
+  // THE BASIS, IN A CONTAINER AND AT A SIZE SOMEBODY IS MEANT TO READ. The
+  // ceiling clause is a chip rather than a trailing " · CAPPED BY DEPTH" that
+  // pushed the line to three wraps of 11px --ink-faint under the medal.
+  const capped = runGrade.basis.includes("CAPPED BY DEPTH");
+  document.getElementById("recap-basis-set")!.textContent =
+    runGrade.basis.replace(" · CAPPED BY DEPTH", "").replace(/^vs /, "");
+  document.getElementById("recap-basis-cap")!.toggleAttribute("hidden", !capped);
   medal.title = runGrade.basis;
   document.getElementById("recap-line")!.textContent = runGrade.line;
   document.getElementById("recap-parts")!.innerHTML = verdictPartsHtml(runGrade);
@@ -6613,8 +6650,15 @@ function renderLadderLine(s: GameState): void {
       ?? "a free seed — contract points come from contracts. The board row and the splits still stand.";
   } else if (!runEvent.scoresCp) {
     chip = `<span class="ldelta flat">+0 CP</span>`;
-    note = `attempt ${runEvent.attemptNo} on this contract — CP scores your FIRST ticketed attempt `
-      + `only. The board row still updates, and so do the splits.`;
+    // THE REASON HAS TO BE THE ACTUAL REASON. For an unlinked crawler this
+    // branch printed "CP scores your FIRST ticketed attempt only" on ATTEMPT
+    // ONE - the one sentence that cannot be true about the run in front of
+    // them - because `scoresCp` folded two different noes into one flag.
+    note = submitResult?.needsIdentity || runEvent.attemptNo === 1
+      ? `attempt 1, and the System cannot put its name on it: an anonymous claim earns no seal `
+        + `and no contract points. Link an identity and the next one scores.`
+      : `attempt ${runEvent.attemptNo} on this contract — CP scores your FIRST ticketed attempt `
+        + `only. The board row still updates, and so do the splits.`;
   } else if (cpBeforeRun !== null && st.cp > cpBeforeRun) {
     chip = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>`;
     note = "attempt 1 on this contract — the run the ladder scores. There is no second first impression.";
@@ -6709,7 +6753,10 @@ function renderEarned(s: GameState): void {
   const bests = recapPrevCareer; // the ledger this run found, not the one it joined
   const rows: string[] = [];
 
-  let headline = "no personal bests this run — the ledger below is what it moved";
+  // ...AND IT POINTS AT THE LEDGER THAT IS ACTUALLY THERE. The strip this
+  // sentence refers to (EPISODE / TIME IN THE DUNGEON) sits ABOVE this line in
+  // the DOM, and the copy said "below".
+  let headline = "no personal bests this run — the ledger above is what it moved";
   // A rehearsal banks nothing, and the headline must not claim otherwise. This
   // used to print "THE CLEAR IS ON THE BOARD" on a test-chamber win, directly
   // under the screen's own TEST CHAMBER — NOT RANKED banner.
@@ -6774,9 +6821,24 @@ let sealWordShown = "";
  */
 function renderSeal(): void {
   const el = document.getElementById("recap-seal")!;
-  if (net) { el.style.display = "none"; return; }
-  el.style.display = "";
   const era = RULES_HASH.slice(0, 7);
+  // THE ONE SERVER-AUTHORITATIVE SCORE IN THE PRODUCT WAS THE ONE THE PLAYER
+  // NEVER SAW EARNED. A won RIVALS contract writes a SEALED, era-stamped
+  // contracts row server-side (gameServer, insertServerVouched) — and this
+  // function opened with `if (net) { display = "none"; return; }`, so the
+  // winner's own verdict screen showed no seal at all, minutes after
+  // `recBlocked` told them "party runs are hosted by the server — the solo
+  // descent is what carries a proof". The board and the verdict disagreed
+  // about the same run.
+  if (net) {
+    const iWon = state.mode === "rivals" && state.status === "won"
+      && state.winnerId === me(state).id;
+    if (!iWon) { el.style.display = "none"; return; }
+    el.style.display = "";
+    paintSeal(el, social.verdictSeal("vouched", era));
+    return;
+  }
+  el.style.display = "";
   // A run HOLDING a board position gets the trophy treatment; a run the
   // server replayed and certified that ranks nowhere gets the same truth
   // without the gold flood. Printing them identically spends the scarcity.
@@ -6800,12 +6862,34 @@ function renderSeal(): void {
           (submitResult.state as social.RunState) ?? "claimed",
           submitResult.state === "verified" ? era : null,
           submitVisibility === "private", ranked, submitResult.reason ?? null, held,
+          // THE REFUSAL ARRIVES WITH THE CONTROL (6.2 Beat 5). Typed off the
+          // submit outcome rather than matched out of the prose, so a copy edit
+          // cannot silently take the button away again.
+          !!submitResult.needsIdentity && signInAvailable(),
         );
+  paintSeal(el, v);
+}
+
+/** Is there anything the LINK AN IDENTITY button could actually do? A button
+ *  that goes nowhere is worse than the sentence it replaced. */
+function signInAvailable(): boolean {
+  return authProviders.length > 0 && !loadSignin();
+}
+
+/** Draw the seal block, staging the strike exactly once — on the transition
+ *  INTO a terminal state, never on a re-render. */
+function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
+  const actionHtml = v.action && signInAvailable()
+    ? `<div class="vact"><button id="recap-link" class="vlink">${esc(v.action.label)}</button>` +
+      `<span class="vactnote">${esc(v.action.note)}</span></div>`
+    : "";
   if (v.word === sealWordShown) {
     // Same state, re-rendered (the board arrived, a PB landed): update the
     // copy without restaging the strike.
     el.className = v.cls;
     el.querySelector(".vl")!.textContent = v.line;
+    const act = el.querySelector(".vact");
+    if (!!actionHtml !== !!act) { sealWordShown = ""; paintSeal(el, v); }
     return;
   }
   const first = sealWordShown === "";
@@ -6814,11 +6898,15 @@ function renderSeal(): void {
   el.innerHTML =
     `<div class="vk">${esc(v.kicker)}</div>` +
     `<div class="vw">${esc(v.word)}</div>` +
-    `<div class="vl">${esc(v.line)}</div>`;
+    `<div class="vl">${esc(v.line)}</div>` + actionHtml;
+  const link = el.querySelector("#recap-link");
+  if (link) {
+    link.addEventListener("click", () => beginSignIn(authProviders[0]));
+  }
   // The strike is for the moment the verdict ARRIVES - not for the first paint
   // of a block that has been sitting at CLAIMED since the screen opened.
   if (!first && v.terminal) {
-    void (el as HTMLElement).offsetWidth; // restart the keyframes
+    void el.offsetWidth; // restart the keyframes
     el.classList.add("strike");
     window.setTimeout(() => el.classList.remove("strike"), 2000);
     audio.play(v.cls.includes("rejected") ? "warning" : "achievement");
@@ -7289,6 +7377,7 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
     submitResult = {
       state: res.state, runId: res.runId, reason: res.reason,
       attemptNo: res.attemptNo, scoresCp: res.scoresCp,
+      needsIdentity: res.needsIdentity,
     };
     renderEarned(state);
     if (!res.queued) return;
@@ -7612,7 +7701,10 @@ function boardResult(kind: string, r: social.BoardRun): string {
   if (kind === "fastest" || kind === "contracts") {
     return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor}`;
   }
-  return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor} · ${fmt(r.timeSec)}`;
+  // ...INCLUDING THE UNFINISHED RUNS. `fmt(r.timeSec)` rounded the tick count to
+  // the whole second, so the DEEPEST row read "2:06" beside a splits panel
+  // reading 2:05.73 for the same run, on the same screen.
+  return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor} · ${social.ticksClock(r.ticks)}`;
 }
 
 /** The key for the row colours, plus whatever tiebreak this board sorts on.
@@ -7629,6 +7721,61 @@ function rowKeyHtml(tiebreak = ""): string {
  * raceable it says WHY on the button instead of greying out - a silent disable
  * is how a player concludes the ladder is broken.
  */
+/**
+ * THE VERIFIER-DERIVED DETAIL, RENDERED (COMPETITIVE.md 0: "match history where
+ * every row carries verifier-derived detail — splits, build, cause of death").
+ *
+ * `GET /boards/:kind` already returns, per row: the full build (gear with
+ * rarities, ability ranks, glyph sockets), bandSplits, damageDealt,
+ * damageTaken, goldSpent, level and ultimate. All of it was derived during the
+ * replay, written onto the row at certification, put on the wire — and thrown
+ * away at render, so a board row printed name / era / attempt / chip / result.
+ * None of this costs a request; it is already in the response object.
+ */
+function verifierDetailHtml(r: social.BoardRun): string {
+  if (r.state !== "verified") return "";
+  const cells: string[] = [];
+  const splits = (r.bandSplits ?? []).map((t, i) => t > 0
+    ? `<i><b>${esc(social.bandName(i))}</b>${social.ticksClock(t)}</i>` : "").join("");
+  if (splits) cells.push(`<div class="dgrp"><span class="dlab">SPLITS</span><div class="dsplits">${splits}</div></div>`);
+  const b = r.build;
+  if (b) {
+    const ranks = Object.values(b.ranks ?? {}).reduce((a, n) => a + (n || 0), 0);
+    const glyphs = b.glyphs
+      ? b.glyphs.slots.flat().filter(Boolean).length + b.glyphs.ultimate.filter(Boolean).length : 0;
+    const gear = (b.gear ?? []).map((g) =>
+      `<i class="rar-${esc(String(g.rarity))}">${esc(String(g.name ?? g.slot))}</i>`).join("");
+    const kit = [
+      b.ultimate ? `${ABILITY_INFO[b.ultimate as AbilityId]?.name ?? b.ultimate} · ULT` : null,
+      ...(b.slots ?? []).filter(Boolean).map((s) => ABILITY_INFO[s as AbilityId]?.name ?? String(s)),
+    ].filter(Boolean).join(" · ");
+    cells.push(`<div class="dgrp"><span class="dlab">THE BUILD</span>` +
+      `<div class="dbuild">${esc(kit || "bare hands")}` +
+      `<span class="dmeta">${ranks} rank${ranks === 1 ? "" : "s"}` +
+      (glyphs ? ` · ${glyphs} glyph${glyphs === 1 ? "" : "s"} socketed` : "") + `</span>` +
+      (gear ? `<div class="dgear">${gear}</div>` : "") + `</div></div>`);
+  }
+  const death = r.death;
+  if (death) {
+    cells.push(`<div class="dgrp"><span class="dlab">WHAT ENDED IT</span>` +
+      `<div class="ddeath">${esc(social.deathHeadline(death))}</div></div>`);
+  } else if (r.won) {
+    cells.push(`<div class="dgrp"><span class="dlab">WHAT ENDED IT</span>` +
+      `<div class="ddeath clear">nothing — they walked out</div></div>`);
+  }
+  const nums: [string, string][] = [
+    ["DAMAGE DEALT", r.damageDealt > 0 ? Math.round(r.damageDealt).toLocaleString() : "—"],
+    ["DAMAGE TAKEN", r.damageTaken > 0 ? Math.round(r.damageTaken).toLocaleString() : "—"],
+    ["GOLD SPENT", r.goldSpent > 0 ? Math.round(r.goldSpent).toLocaleString() : "—"],
+    ["LEVEL", String(r.level)],
+  ];
+  cells.push(`<div class="dgrp"><span class="dlab">THE NUMBERS</span><div class="dnums">` +
+    nums.map(([l, v]) => `<i><b>${l}</b>${esc(v)}</i>`).join("") + `</div></div>`);
+  return `<div class="rdet" hidden>${cells.join("")}` +
+    `<div class="dfoot">Every figure here was derived by the verifier while it re-executed this run. ` +
+    `The crawler asserted none of it.</div></div>`;
+}
+
 function boardRowHtml(
   r: social.BoardRun, i: number, kind: string, extra = "",
   weight: social.SealWeight = "ranked",
@@ -7650,17 +7797,31 @@ function boardRowHtml(
     // something; it still is not an observed total, and the word says which.
     r.attemptNo ? `signed attempt ${r.attemptNo}` : null,
     r.ultimate ? ABILITY_INFO[r.ultimate as AbilityId]?.name ?? r.ultimate : null,
-    r.partySize > 1 ? `party of ${r.partySize}` : null,
+    // "party of N" IS SERVER-COUNTED NOW, never self-reported (blocker 15): a
+    // proof attests to one crawler's inputs, so a proof-verified row is always
+    // solo and only the server-vouched rivals path can say otherwise.
+    r.partySize > 1 ? `party of ${r.partySize} · counted by the server` : null,
     extra || null,
   ].filter(Boolean).join(" · ");
-  const acts = play.ok
-    ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
-    : `<button disabled title="${esc(play.why)}">RACE</button>`;
+  const detail = verifierDetailHtml(r);
+  const acts = (detail
+    ? `<button class="rmore" data-more="1" title="splits, build and cause of death, all derived by the verifier">DETAIL</button>`
+    : "")
+    + (play.ok
+      ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
+      : `<button disabled title="${esc(play.why)}">RACE</button>`);
 
   // The colour is backed up by a word: a legend under the tab bar answers it
   // once, and the tag answers it on the row itself.
   const tag = mine ? `<span class="rtag you">YOU</span>`
     : rival ? `<span class="rtag rival">RIVAL</span>` : "";
+  // A DISCRIMINATOR, BECAUSE TWO CRAWLERS SHARE A NAME ON A FOUR-ROW BOARD.
+  // Keying moved to account_id; the DISPLAY did not, so a live capture had rank
+  // 2 "Carl" (a different account, SEALED) directly above an unproven "Carl"
+  // wearing the YOU chip, with nothing between them. The derived public id is
+  // already on every row and is exactly the stable, one-way, non-credential
+  // handle this needs.
+  const hash = r.publicId ? `<span class="rhash">#${esc(r.publicId.slice(0, 4).toUpperCase())}</span>` : "";
   // A NEGATIVE INDEX MEANS "THIS ROW HOLDS NO POSITION". Unproven claims are
   // shown - the board still fills on day one - but they are never handed a
   // rank ordinal, because an ordinal IS the claim that the board endorses it.
@@ -7668,10 +7829,10 @@ function boardRowHtml(
   return `<li class="brow${mine ? " you" : ""}${rival ? " rival" : ""}` +
     `${ranked && i < 3 ? ` top${i + 1}` : ""}">` +
     `<span class="rank">${ranked ? i + 1 : "—"}</span>` +
-    `<span class="who"><b>${esc(r.name)}${tag}</b><span class="sub">${esc(sub)}</span></span>` +
+    `<span class="who"><b>${esc(r.name)}${hash}${tag}</b><span class="sub">${esc(sub)}</span></span>` +
     `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
     `<span class="res${r.won ? " win" : ""}">${boardResult(kind, r)}</span>` +
-    `<span class="acts">${acts}</span></li>`;
+    `<span class="acts">${acts}</span>${detail}</li>`;
 }
 
 /**
@@ -7710,11 +7871,12 @@ function boardListHtml(
     sealed.map((r, i) => boardRowHtml(r, i, kind, extra(r))).join("")
     || `<li class="none">${empty}</li>`}</ul>`;
   if (unproven.length > 0) {
+    // ONE LINE, NOT TWO SENTENCES OF RATIONALE. League never explains itself on
+    // a ranked surface; the copy was good and there was three times too much
+    // of it, loudest exactly where the board was emptiest.
     html += `<div class="unproven">` +
       `<div class="uhead">UNPROVEN CLAIMS — BELOW THE BOARD</div>` +
-      `<div class="usub">Stored exactly as a client reported them and never re-executed. They hold no ` +
-      `rank, they are not printed as results, and the top of every board is verified-only — a claim ` +
-      `sitting where a proof should be is worth less than an empty row.</div>` +
+      `<div class="usub">Never re-executed. No rank, no result.</div>` +
       `<ul class="board">${unproven.map(
         (r, i) => boardRowHtml(r, -1 - i, kind, extra(r), "plain")).join("")}</ul></div>`;
   }
@@ -7738,6 +7900,32 @@ function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string
         `<button class="cgo" disabled>CLOSED</button>`
       : `<button class="cgo" data-enter="${esc(e.id)}">ENTER THE CONTRACT ▶</button>`) +
     `</div>`;
+}
+
+/**
+ * THE OTHER MUSEUMS, ONE LINE EACH. The ALL-TIME tab drew one board and then
+ * stopped, leaving 42% of a 1600x900 viewport as empty black - on a screen with
+ * four boards behind a tab strip and no indication of what was on the other
+ * three. Each line is the current leader of a board you are not looking at,
+ * which is both the missing content and the reason to look.
+ */
+async function otherBoardsStripHtml(current: string): Promise<string> {
+  const kinds = ["deepest", "fastest", "kills", "contracts"].filter((k) => k !== current);
+  const pages = await Promise.all(kinds.map((k) =>
+    competitive.board(k, { limit: 1, verified: true }).catch(() => ({ entries: [] }))));
+  const rows = kinds.map((k, i) => {
+    const top = ((pages[i] as social.BoardPage).entries ?? [])[0] ?? null;
+    return `<button class="obrow" data-ab="${esc(k)}">` +
+      `<span class="obk">${k.toUpperCase()}</span>` +
+      (top
+        ? `<span class="obwho">${esc(top.name)}</span>` +
+          `<span class="obres">${esc(boardResult(k, top))}</span>`
+        : `<span class="obwho none">unclaimed</span><span class="obres none">—</span>`) +
+      `<span class="obgo">OPEN ▸</span></button>`;
+  }).join("");
+  return `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
+    `font-variant:small-caps;letter-spacing:2px">THE OTHER MUSEUMS</div>` +
+    `<div class="otherboards">${rows}</div>`;
 }
 
 async function renderLadder(): Promise<void> {
@@ -7780,54 +7968,71 @@ async function renderLadder(): Promise<void> {
         : "the exact tick count, then the earlier submission") +
       boardListHtml(page, alltimeTab,
         "this museum is empty. The first exhibit is yours to donate.") +
-      `<div class="gate">All-time boards never reset — they CHIP THE ERA instead. A row stamped ` +
-      `<b>era ${esc(ERA)}</b> was earned under exactly the rules you are playing now; an older stamp was ` +
-      `earned under different numbers, and the board says so rather than quietly blending a year of ` +
-      `patches together and calling it a record.</div>`;
+      // ONE LINE. The paragraph that used to live here explained era chipping
+      // at length under a board with four rows on it.
+      `<div class="gate">Never reset — <b>era-chipped</b> instead. A row stamped <b>era ${esc(ERA)}</b> ` +
+      `was earned under the numbers you are playing now; an older stamp says so on its face.</div>` +
+      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
+      // around y=520 with 42% of the viewport empty near-black under it. The
+      // filler is the OTHER three museums, one line each, so the empty space
+      // becomes navigation instead of padding.
+      await otherBoardsStripHtml(alltimeTab);
     return;
   }
   if (ladderTab === "bands") {
     const boards = await Promise.all([0, 1, 2, 3, 4, 5].map((b) =>
       competitive.bandBoard(b, 5).catch(() => ({ entries: [] }))));
+    // A SPLIT BOARD WITH NO ROWS COLLAPSES (COMPETITIVE.md 3.4). Six empty
+    // headers, each carrying a subtitle and the word "none", is the exact
+    // "reads as abandoned" failure the entrant gate exists to prevent - and the
+    // design already solved it: below the gate a split collapses into its
+    // parent and the System says out loud what unlocks it.
+    const live = boards.map((raw, b) => ({ b, rows: (raw as { entries: social.BoardRun[] }).entries }))
+      .filter((x) => x.rows.length > 0);
+    const dark = [0, 1, 2, 3, 4, 5].filter((b) => !live.some((x) => x.b === b));
     body.innerHTML =
       rowKeyHtml("the exact tick count, then the earlier certification") +
-      `<div class="bandgrid">` + boards.map((raw, b) => {
-      const rows = (raw as { entries: social.BoardRun[] }).entries;
-      const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
-      return `<div><h4>${social.bandName(b)}</h4>` +
-        // THE PREDICATE, ON THE BOARD. A split is only a record if the run
-        // WALKED OUT of the band: entered every floor in it and left the last
-        // one. Without that rule the optimal play for a band record is to step
-        // into the band and die, and the top of every board is an
-        // eight-second death.
-        `<div class="bandsub">fastest sealed TRAVERSAL of floors ${b * 3 + 1}–${last} — ` +
-        `every floor entered and floor ${last} left behind</div>` +
-        boardListHtml({ entries: rows }, "band", "no sealed traversals here yet",
-          (r) => (r.won ? "full clear" : `ran on to F${r.floor}`)) + `</div>`;
-    }).join("") + `</div>` +
-      `<div class="gate">Dying on floor 11 does not make you bad at the game — it makes you a crawler ` +
-      `who still holds the RUINS split. Every run passes through several bands, so these are the boards ` +
-      `you can actually win, and the splits cost nothing: the verifier already knows the tick of every ` +
-      `floor transition as it replays you. A band you died INSIDE still appears on your own splits — it ` +
-      `is a true thing that happened — but it is never a record, because a record has to be a band you ` +
-      `got out of.</div>`;
+      // ONE LINE where a 90-word essay used to sit, and it sat loudest on the
+      // emptiest tab in the product.
+      `<div class="gate">Fastest sealed <b>TRAVERSAL</b> of a band: every floor in it entered, and the ` +
+      `last one left behind. A band you died inside is on your splits and is never a record.</div>` +
+      (live.length > 0
+        ? `<div class="bandgrid">` + live.map(({ b, rows }) => {
+          const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
+          return `<div><h4>${social.bandName(b)}</h4>` +
+            `<div class="bandsub">floors ${b * 3 + 1}–${last} · ${rows.length} sealed ` +
+            `traversal${rows.length === 1 ? "" : "s"}</div>` +
+            boardListHtml({ entries: rows }, "band", "no sealed traversals here yet",
+              (r) => (r.won ? "full clear" : `ran on to F${r.floor}`)) + `</div>`;
+        }).join("") + `</div>`
+        : "") +
+      (dark.length > 0
+        ? `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">UNCLAIMED SPLITS</div>` +
+          `<div class="darkbands">` + dark.map((b) => {
+            const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
+            return `<button class="dband" data-enter="${esc(events?.daily.id ?? "")}">` +
+              `<b>${social.bandName(b)}</b><span>floors ${b * 3 + 1}–${last}</span>` +
+              `<i>NOBODY HAS WALKED OUT OF IT YET — TAKE IT ▸</i></button>`;
+          }).join("") + `</div>`
+          + `<div class="gate">${dark.length === 6 ? "All six" : `${dark.length} of the six`} still ` +
+          `unclaimed. These are the most winnable boards in the game: every run passes through several ` +
+          `bands, and the first crawler out of one holds it.</div>`
+        : "");
     return;
   }
   const token = await accountToken();
   const rc = (await competitive.rivalContract(token).catch(() => null)) as social.RivalContract | null;
   if (!rc || !rc.rival) {
-    body.innerHTML = `<div class="gate">NO CONTRACT ISSUED. The System pairs you with a crawler near ` +
-      `your contract points and puts you both on today's seed — but it needs somebody near your CP to pair ` +
-      `you WITH. Sign a contract, bank a score, and the matchmaking has something to work with. There is ` +
-      `no queue and no lobby: you wake up with a rival.</div>` +
-      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
-      `font-variant:small-caps;letter-spacing:2px">HOW THE PAIRING WORKS</div>` +
-      `<div class="gate"><b>THE PAIRING:</b> nearest season CP on today's seed, recomputed every day. ` +
-      `A nightly sort over the accounts on this box — no queue, no wait, no lobby, and nobody has to be ` +
-      `online at the same time as anybody.<br><b>THE STAKE:</b> the head-to-head ledger and the board row. ` +
-      `No CP changes hands — contract points are a record of what you did, not a wager, and a ladder that ` +
-      `confiscates them turns every pairing into a reason not to play.<br><b>WHAT DECIDES IT:</b> the ` +
-      `better SEALED run. An unproven claim does not take a contract off anybody.</div>`;
+    // ONE CARD AND ONE LINE. The three-heading essay (THE PAIRING / THE STAKE /
+    // WHAT DECIDES IT) outweighed the data by area on a tab whose data was
+    // "nothing yet".
+    body.innerHTML = `<div class="contract"><div class="ctag">◆ NO CONTRACT ISSUED ◆</div>` +
+      `<h3>NOBODY TO PAIR YOU WITH</h3>` +
+      `<div class="crule">Seal a run on a contract and the System puts you against the nearest crawler ` +
+      `on contract points, on today's seed. No queue, no lobby, nobody has to be online.</div>` +
+      `<button class="cgo" data-enter="${esc(events?.daily.id ?? "")}">SIGN TODAY'S CONTRACT ▶</button></div>` +
+      `<div class="gate">Decided by the better <b>SEALED</b> run. No CP changes hands.</div>`;
     return;
   }
   const theirs = rc.rivalRun;
@@ -7850,10 +8055,9 @@ async function renderLadder(): Promise<void> {
         `&nbsp;vs&nbsp; F${r.theirFloor} · ${social.ticksClock(r.theirTicks)}</span>` +
         `<span class="vd">${r.result === "won" ? "YOU TOOK IT" : r.result === "lost" ? "THEY TOOK IT" : "DEAD HEAT"}</span></div>`,
       ).join("") + `</div>` +
-      `<div class="cnamesub" style="margin-top:8px">Only contested contracts count — an event only one ` +
-      `of you finished is a walkover, and a walkover is not a win.</div>`
-    : `<div class="gate" style="margin-top:18px">NO HISTORY YET. The ledger fills the first time you both ` +
-      `seal a run on the same contract. Until then this is an introduction, not a rivalry.</div>`;
+      `<div class="cnamesub" style="margin-top:8px">Contested contracts only — a walkover is not a win.</div>`
+    : `<div class="gate" style="margin-top:18px">NO HISTORY YET. The ledger fills the first time you ` +
+      `both seal a run on the same contract.</div>`;
   body.innerHTML =
     `<div class="contract"><div class="ctag">◆ CONTRACT ISSUED ◆</div>` +
     `<h3>${esc(them)}</h3>` +
@@ -7874,10 +8078,11 @@ async function renderLadder(): Promise<void> {
         `<ul class="board">${boardRowHtml(theirs, -1, "deepest")}</ul>`
       : "") +
     ledger +
-    // THE STAKE AND THE PAIRING RULE, both stated. A competitive surface that
-    // leaves either as folklore gets folklore back.
-    `<div class="gate" style="margin-top:16px"><b>THE STAKE:</b> ${esc(rc.stake)}<br>` +
-    `<b>THE PAIRING:</b> ${esc(rc.pairing)}</div>`;
+    // THE STAKE AND THE PAIRING RULE, still stated — a competitive surface that
+    // leaves either as folklore gets folklore back — but as one line, not two
+    // paragraphs sitting under a two-row ledger.
+    `<div class="gate" style="margin-top:16px">Paired on nearest season CP, recomputed daily. ` +
+    `Decided by the better <b>SEALED</b> run. No CP changes hands.</div>`;
 }
 
 /** Who lights up. Cheap enough to refresh whenever a set opens: one query the
@@ -7916,9 +8121,58 @@ ladderEl.addEventListener("click", (e) => {
   if (ab) { alltimeTab = ab.dataset.ab ?? "deepest"; void renderLadder(); return; }
   const race = el.closest("[data-race]") as HTMLElement | null;
   if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "RIVAL"); return; }
+  if (toggleRowDetail(el)) return;
   const enter = el.closest("[data-enter]") as HTMLElement | null;
   if (enter) void enterContract(enter.dataset.enter!);
 });
+
+/** DETAIL opens the verifier's own record of a row: splits, build, cause of
+ *  death, and the four numbers it derived while replaying. Returns true when
+ *  the click was ours. */
+function toggleRowDetail(el: HTMLElement): boolean {
+  const more = el.closest("[data-more]") as HTMLElement | null;
+  if (!more) return false;
+  const det = more.closest(".brow")?.querySelector(".rdet") as HTMLElement | null;
+  if (!det) return true;
+  const open = det.hasAttribute("hidden");
+  det.toggleAttribute("hidden", !open);
+  more.textContent = open ? "HIDE" : "DETAIL";
+  return true;
+}
+
+/**
+ * THE GATE BELONGS AT THE DOOR (6.2 Beat 5, blocker 2).
+ *
+ * The start endpoint used to answer `scoresCp: attemptNo === 1` with no idea
+ * whether the account could ever be sealed, so the front door sold a fresh
+ * anonymous crawler a CP-scoring contract and the exit told them, in a dead
+ * sentence with no control beside it, that the System does not put its name on
+ * an anonymous claim. It answers `linked` now; this is where the player hears
+ * about it, in time to act on it, and the note rides through to the verdict.
+ */
+type SignedContract = {
+  attemptNo: number; scoresCp: boolean; linked?: boolean; unlinkedReason?: string | null;
+};
+
+/** Called BEFORE startRun, because beginRecording consumes the note. */
+function contractNoteFor(t: SignedContract): string | null {
+  return t.linked === false
+    ? `today's contract, signed as attempt ${t.attemptNo} and UNSEALABLE: ${t.unlinkedReason
+      ?? "an anonymous claim earns no seal and no contract points"}`
+    : null;
+}
+
+function contractSigned(t: SignedContract): void {
+  showAnnouncement({
+    text: t.linked === false
+      ? `CONTRACT SIGNED, UNSEALED. Attempt ${t.attemptNo}. Nobody has told the System who you are, so `
+        + "this one cannot be certified and cannot score. The run still counts for you."
+      : t.scoresCp
+        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
+        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
+    kind: "flavor", priority: "high",
+  });
+}
 
 /** ENTER THE CONTRACT. The START is observed, which is what makes an attempt
  *  count honest and closes practise-offline-then-submit-the-winner (3.2A). */
@@ -7927,19 +8181,13 @@ async function enterContract(eventId: string): Promise<void> {
     const token = await accountToken();
     const t = await competitive.startEvent(eventId, token);
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
-    pendingContractNote = null;
+    pendingContractNote = contractNoteFor(t);
     closeSets();
     closeMenu();
     ghost = null;
     forcedSeed = t.seed;
     startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
-    showAnnouncement({
-      text: t.scoresCp
-        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
-        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
-      kind: "flavor", priority: "high",
-    });
-
+    contractSigned(t);
   } catch (err) {
     pushLogLine(`CONTRACT REFUSED — ${(err as Error).message}`);
     showAnnouncement({
@@ -7980,16 +8228,11 @@ async function enterDailyContract(day: string | null): Promise<void> {
     const token = await accountToken();
     const t = await competitive.startEvent(events.daily.id, token);
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
-    pendingContractNote = null;
+    pendingContractNote = contractNoteFor(t);
     forcedSeed = t.seed;
     ghost = null;
     startRun({ kind: "daily", day: events.daily.day }, "race");
-    showAnnouncement({
-      text: t.scoresCp
-        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
-        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
-      kind: "flavor", priority: "high",
-    });
+    contractSigned(t);
   } catch (err) {
     // The dungeon is identical either way - the seed is the day - so the run
     // starts. What changes is that the screen at the end knows the difference.
@@ -8120,12 +8363,28 @@ async function renderCareerSet(): Promise<void> {
   const local = new Array<number>(CONFIG.finalFloor).fill(0);
   for (const r of history) if (r.floor >= 1 && r.floor <= CONFIG.finalFloor) local[r.floor - 1]++;
   const localN = local.reduce((a, b) => a + b, 0);
-  const serverN = (prof?.deathsByFloor ?? []).reduce((a, b) => a + b, 0);
-  const useServer = serverN > localN;
-  const byFloor = useServer ? prof!.deathsByFloor : local;
+  // THE CHART AND THE LEDGER UNDER IT COUNT THE SAME POPULATION NOW.
+  //
+  // `serverN` summed `profile.deathsByFloor`, which the server builds from
+  // `runsByAccount(...)` — ALL rows — while `seals` on the same response is
+  // `runs.filter(state === 'verified').length`. Live: the chart read "4 sealed
+  // runs, every device" and THE SEALED RECORD three hundred pixels below read
+  // SEALS 0 / DEEPEST FLOOR 0 / CAREER KILLS 0, because all four of those runs
+  // were REFUSED. The panel whose stated purpose is "the numbers a board row
+  // can be checked against" was counting refused runs as certified, on its
+  // headline chart, contradicted on the same screen.
+  const sealedByFloor = prof?.sealedDeathsByFloor ?? [];
+  const sealedN = sealedByFloor.reduce((a, b) => a + b, 0);
+  const submittedN = (prof?.deathsByFloor ?? []).reduce((a, b) => a + b, 0);
+  const useServer = sealedN > localN;
+  const byFloor = useServer ? sealedByFloor : local;
+  const refusedN = prof?.refused ?? 0;
   const histoSource = useServer
-    ? `${serverN} sealed runs, every device`
-    : `${localN} runs recorded in this browser`;
+    ? `${sealedN} SEALED run${sealedN === 1 ? "" : "s"}, every device`
+      + (submittedN > sealedN
+        ? ` — ${submittedN - sealedN} more reached the server unproven${refusedN > 0 ? `, ${refusedN} refused` : ""} and are not on this chart`
+        : "")
+    : `${localN} run${localN === 1 ? "" : "s"} recorded in this browser`;
   const st = prof?.standing;
   const tier = st?.tier
     ?? (st && st.placementRemaining > 0 ? `PLACEMENT — ${st.placementRemaining} TO GO` : "UNRANKED");
@@ -8172,10 +8431,9 @@ async function renderCareerSet(): Promise<void> {
     // numbers are true; a reader with no boundary marked assumes one
     // population. And the gold bars had no legend at all.
     `<div class="cnamesub" style="margin-bottom:16px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
-    `This is the whole career in a glance, and the only chart that tells you where to practise. ` +
     `<b style="color:var(--gold)">Gold bars are floors 13+</b> — THE IRONWORKS and THE APPROACH, where a ` +
     `death costs the most. ${useServer
-      ? "Counted from sealed runs across every device, which is a different ledger from the one your browser keeps."
+      ? "Certified rows only, so this chart and THE SEALED RECORD below it count the same runs."
       : "Counted from this browser alone — the tier, contract points and seal count above come from the server, which only ever sees sealed runs."}</div>` +
     histogramHtml(byFloor) +
     `<div class="tcols" style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px">` +
@@ -8269,8 +8527,10 @@ async function openCareerSet(): Promise<void> {
   await renderCareerSet();
 }
 careerEl.addEventListener("click", (e) => {
-  const race = (e.target as HTMLElement).closest("[data-race]") as HTMLElement | null;
-  if (race) void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN");
+  const el = e.target as HTMLElement;
+  const race = el.closest("[data-race]") as HTMLElement | null;
+  if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN"); return; }
+  toggleRowDetail(el);
 });
 
 // RIVALS: the downed overlay — your 15 seconds, front and center.

@@ -260,6 +260,14 @@ export class GameServer {
       this.db.onAccountDeleted = (_id, names) => {
         const n = this.leaderboard.forgetNames(names);
         if (n > 0) console.log("forget-me: removed " + n + " legacy board row(s)");
+        // ...AND THE SQLITE COPY OF THE SAME ROWS. `importLegacyBoard` runs
+        // unconditionally at boot and keys those rows `legacy:<name>`, which no
+        // account-id delete can ever reach - so a forgotten crawler's name
+        // survived in the UNPROVEN shelf on THE STANDINGS forever while the
+        // JSON row it was copied from was gone. The cascade has to reach both
+        // halves or it has not happened.
+        const m = this.db?.competitive.deleteByDisplayNames(names) ?? 0;
+        if (m > 0) console.log("forget-me: removed " + m + " imported legacy row(s)");
       };
     }
     this.tokens = new TokenService(process.env.SESSION_SECRET);

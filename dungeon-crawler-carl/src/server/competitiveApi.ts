@@ -26,7 +26,7 @@ import { decodeProof, MAX_PROOF_BYTES, REPLAY_DT, validateProofShape, type RunPr
 import { RULES_HASH } from "../sim/rulesHash";
 import { dayFromMs } from "../sim/daily";
 import { sanitizeName } from "./names";
-import { executableEras, inflateArtifact } from "./verifyWorker";
+import { executableEras, inflateArtifact, rulesetRefusal } from "./verifyWorker";
 import {
   BOARD_KINDS, RANK_REFUSED_REASON, SPLIT_GATE_ENTRIES, publicIdFor,
   type BoardKind, type CompetitiveStore, type RunRow,
@@ -78,6 +78,15 @@ interface SubmitOutcome {
   reason?: string;
   attemptNo?: number;
   scoresCp?: boolean;
+  /**
+   * THE REFUSAL THAT NEEDS A BUTTON (6.2 Beat 5, blocker 2). "LINK AN IDENTITY"
+   * existed only as a sentence in this file, and the post-run screen printed it
+   * with no control anywhere near it - the ten seconds ended with the game
+   * demanding an action and providing no way to take it. A typed flag beside
+   * the reason is what lets the verdict render the control instead of
+   * string-matching prose that a copy edit would silently break.
+   */
+  needsIdentity?: boolean;
 }
 
 export class CompetitiveApi {
@@ -216,7 +225,9 @@ export class CompetitiveApi {
    */
   async submit(
     artifact: Uint8Array, accountId: string, rawName: string, ip: string,
-    opts: { private?: boolean; partySize?: number } = {},
+    // NO `partySize` HERE ANY MORE: a proof attests to one crawler's inputs,
+    // so party size is not a thing a submitter may assert (blocker 15).
+    opts: { private?: boolean } = {},
   ): Promise<SubmitOutcome | { error: string }> {
     const now = this.now();
     const day = dayFromMs(now);
@@ -289,7 +300,21 @@ export class CompetitiveApi {
 
     const row: RunRow = {
       id: runId, accountId, displayName, eventId, seed: h.seed, rulesHash: null,
-      mode: h.mode, partySize: Math.max(1, Math.min(6, opts.partySize ?? 1)),
+      // WHICH GAME, FROM THE ARTIFACT, NEVER FROM THE QUERY STRING.
+      mode: String(h.mode), runKind: String(h.runKind),
+      // PARTY SIZE IS NOT A SELF-REPORTED FIELD (blocker 15). It arrived as
+      // `Number(q.get("size"))`, was stored, returned on the wire and PRINTED
+      // ON A SEALED BOARD ROW as "party of N" - and nothing in
+      // ReplaySession.summary() or VerifiedFacts derives or contradicts it,
+      // while `board({partySize})` filters on it and `splitEntrants` counts it
+      // toward opening the co-op split boards. Worse: MUST-3 does not record
+      // party runs at all, so every "party of N>1" on a proof-verified row was
+      // necessarily fabricated - `POST /runs?token=...&size=6` put a solo run
+      // on the 5-6 board with the gold seal. A proof is a recording of ONE
+      // crawler's inputs; that is what it can attest to, so that is what the
+      // row says. Party rows come from the server-vouched path, where the
+      // authoritative sim counted the seats itself.
+      partySize: 1,
       won: c.won, floor: c.floor, timeTicks: c.ticks, kills: c.kills, level: c.level,
       ultimate: c.ultimate, bandSplits: null, deathCause: null, finalBuild: null,
       damageDealt: 0, damageTaken: 0, goldSpent: 0,
@@ -298,16 +323,28 @@ export class CompetitiveApi {
     };
 
     // --- can this even be verified? ---------------------------------------
-    const refuse = (reason: string, state: "claimed" | "unverifiable" = "claimed"): SubmitOutcome => {
+    const refuse = (
+      reason: string, state: "claimed" | "unverifiable" = "claimed", needsIdentity = false,
+    ): SubmitOutcome => {
       this.store.insertRun({ ...row, state });
       if (state !== "claimed") this.store.setState(runId, state, reason);
       else if (reason) this.store.setState(runId, "claimed", reason);
-      return { runId, state, queued: false, reason, attemptNo: attemptNo ?? undefined };
+      return { runId, state, queued: false, reason, attemptNo: attemptNo ?? undefined, needsIdentity };
     };
 
     if (h.startKind !== "fresh") {
       return refuse("a test-mode start is never eligible for a board");
     }
+    // THE RULESET GATE, STRUCTURAL AND SERVER-SIDE (blocker 14).
+    // `validateProofShape` never looked at `mode` or `runKind`, and
+    // `ReplaySession` builds the world straight from them - so a ROAM header
+    // replayed honestly to floor 16 with 171 kills and came back CERTIFIED,
+    // taking DEEPEST, owning KILLS, and taking every band board at ~2x pace,
+    // because roam floors have no boss gate and a flat 30-minute budget instead
+    // of `floorTimeBudget`. The client refusal for this was polite only, which
+    // is precisely the pattern 2.5 step 2 says it fixed for test starts.
+    const ruleset = rulesetRefusal(h);
+    if (ruleset) return refuse(ruleset);
     if (!this.eras.includes(h.rulesHash)) {
       // NOT rejected. The row keeps whatever stamp it earned and the player is
       // told plainly, and offered a re-run - the seed is in the artifact, and
@@ -318,8 +355,26 @@ export class CompetitiveApi {
         "unverifiable",
       );
     }
+    // THE DEPTH LIMIT, SAID AT THE DOOR (blocker 21). Verification depth is a
+    // function of box speed and nothing stated it: past the ceiling the run used
+    // to be queued, burn two minutes of wall clock and come back REJECTED - the
+    // ladder calling an honest player a cheat for the length of their run. It is
+    // `unverifiable` now, before a tick is spent, with the boundary printed.
+    if (h.ticks > this.queue.certifiableTicks) {
+      return refuse(
+        "this run is longer than the System can re-execute inside its verification budget — about "
+        + Math.round((this.queue.certifiableTicks * REPLAY_DT) / 60) + " sim-minutes is the ceiling on "
+        + "this machine, and this run is " + Math.round((h.ticks * REPLAY_DT) / 60) + ". Nothing here "
+        + "says the run is false; the row keeps whatever it earned.",
+        "unverifiable",
+      );
+    }
     if (!this.isLinked(accountId)) {
-      return refuse("unsealed. The System does not put its name on an anonymous claim. LINK AN IDENTITY.");
+      return refuse(
+        "unsealed. The System does not put its name on an anonymous claim — verification costs this "
+        + "box real CPU, and it is spent on crawlers it can name.",
+        "claimed", true,
+      );
     }
     const cool = this.cooldown.get(accountId) ?? 0;
     if (now < cool) {
@@ -581,10 +636,22 @@ export class CompetitiveApi {
         return true;
       }
       const attemptNo = this.store.nextAttempt(token, evt.id);
+      // THE GATE BELONGS AT THE DOOR (6.2 Beat 5, blocker 2). This used to
+      // answer `scoresCp: attemptNo === 1` with no idea whether the account
+      // could ever be sealed - so a fresh anonymous crawler was sold a
+      // CP-scoring contract at entry and told at the exit, in a dead sentence
+      // with no control beside it, that the System does not put its name on an
+      // anonymous claim. An unlinked account gets the truth here instead, in
+      // time to do something about it.
+      const linked = this.isLinked(token);
       this.json(res, 200, {
         eventId: evt.id, seed: evt.seed, attemptNo,
         ticket: this.tokens.issueTicket(evt.id, token, attemptNo, now),
-        scoresCp: attemptNo === 1,
+        linked,
+        scoresCp: attemptNo === 1 && linked,
+        unlinkedReason: linked ? null
+          : "an anonymous claim earns no seal and no contract points — verification costs this box CPU, "
+            + "so it is spent on crawlers the System can name. Link an identity and the run seals.",
         rulesHash: evt.rulesHash,
         // The window is STATED rather than discovered. A ticket backs the run
         // that follows it; it is not a permanent licence to submit the best of
@@ -603,7 +670,6 @@ export class CompetitiveApi {
       if (!body) { this.json(res, 413, { error: "artifact too large" }); return true; }
       const out = await this.submit(new Uint8Array(body), token, q.get("name") ?? "", ip, {
         private: q.get("private") === "1",
-        partySize: Number(q.get("size") ?? 1),
       });
       if ("error" in out) { this.json(res, 400, out); return true; }
       this.json(res, 200, out);
@@ -689,7 +755,12 @@ export class CompetitiveApi {
       const archetype = q.get("archetype");
       const size = q.get("size") ? Number(q.get("size")) : null;
       const rows = this.store.board({
-        kind, eventId: eventId ?? null, archetype, partySize: size,
+        // NO `event` PARAM MEANS THE MUSEUM, NOT "FREE SEEDS ONLY". `?? null`
+        // compiled to `event_id IS NULL`, which excluded every contract run
+        // from every all-time board by construction - so DEEPEST and KILLS,
+        // the two boards the verdict's seal names most often, both answered
+        // `entries: 0` while sealed daily rows sat in the table.
+        kind, eventId: eventId ?? undefined, archetype, partySize: size,
         verifiedOnly: q.get("verified") === "1",
         limit: Number(q.get("limit") ?? 50),
       });
@@ -705,7 +776,7 @@ export class CompetitiveApi {
       this.json(res, 200, {
         kind, eventId: eventId ?? null, rulesEra: RULES_HASH.slice(0, 7),
         splitGate: SPLIT_GATE_ENTRIES,
-        archetypeEntrants: archetype ? this.store.splitEntrants("ultimate", archetype, eventId ?? null) : null,
+        archetypeEntrants: archetype ? this.store.splitEntrants("ultimate", archetype, eventId ?? undefined) : null,
         // `entries` is the BOARD: proofs only, so a consumer that reads nothing
         // else cannot render a claim as a rank.
         entries: verified,
@@ -775,7 +846,20 @@ export class CompetitiveApi {
       id: r.id, name: r.displayName, publicId: publicIdFor(r.accountId), eventId: r.eventId,
       state: r.state, reason: r.rejectReason,
       rulesEra: r.rulesHash ? r.rulesHash.slice(0, 7) : null,
+      // WHICH GAME THIS ROW WAS PLAYED UNDER (blocker 20). The era chip answers
+      // "which numbers"; until now nothing answered "which ruleset", so no
+      // consumer could label or audit a row - and the roam exploit lived in
+      // exactly that blind spot.
+      mode: r.mode, runKind: r.runKind,
       playable: !!r.rulesHash && this.eras.includes(r.rulesHash) && !!r.proofId && !r.private,
+      // WHY THERE IS NO FILM, TOLD APART FROM "IT AGED OUT" (blocker 18). A
+      // RIVALS row is inserted verified with `proofId = null` - the film never
+      // existed, because nobody records a party run - and `playability()` fell
+      // through to "the proof has aged out of retention", which is a false
+      // statement to the player in the one product whose pitch is that it does
+      // not make them. `proof_id` is never cleared by retention (sweepProofs
+      // only drops the bytes), so a null id means the row NEVER had a film.
+      film: !r.proofId ? "never" : this.store.getProof(r.proofId) ? "retained" : "expired",
       won: r.won, floor: r.floor, timeSec: Math.round(r.timeTicks * REPLAY_DT),
       ticks: r.timeTicks, kills: r.kills, level: r.level, ultimate: r.ultimate,
       partySize: r.partySize, attemptNo: r.attemptNo, private: r.private,
@@ -792,22 +876,39 @@ export class CompetitiveApi {
    *  can draw: a whole career in one glance. */
   profile(accountId: string, now: number): Record<string, unknown> {
     const runs = this.store.runsByAccount(accountId, 200);
+    const verifiedRuns = runs.filter((r) => r.state === "verified");
+    // TWO HISTOGRAMS, BECAUSE THEY COUNT TWO POPULATIONS (blocker 4). The
+    // career panel labelled `deathsByFloor` "N sealed runs, every device" while
+    // this array was built from ALL runs, and printed SEALS 0 three hundred
+    // pixels below the same chart - four REFUSED runs counted as certified on
+    // the headline chart of the panel whose stated purpose is "the numbers a
+    // board row can be checked against".
     const byFloor = new Array<number>(18).fill(0);
+    const sealedByFloor = new Array<number>(18).fill(0);
     for (const r of runs) if (r.floor >= 1 && r.floor <= 18) byFloor[r.floor - 1]++;
+    for (const r of verifiedRuns) if (r.floor >= 1 && r.floor <= 18) sealedByFloor[r.floor - 1]++;
     const season = seasonIdFor(now);
     const cp = this.store.seasonCp(accountId, season);
     const entrants = this.store.seasonSize(season);
     const rank = this.store.seasonRank(season, accountId);
-    const verified = runs.filter((r) => r.state === "verified");
+    const verified = verifiedRuns;
     const bestFast = verified.filter((r) => r.won).sort((a, b) => a.timeTicks - b.timeTicks)[0] ?? null;
     return {
       publicId: publicIdFor(accountId),
       name: runs[0]?.displayName ?? null,
       seals: verified.length,
+      /** Every row this account has on the server, sealed or not. Named apart
+       *  from `seals` so no consumer can label one with the other's word. */
+      runsSubmitted: runs.length,
+      refused: runs.filter((r) => r.state === "rejected").length,
       career: this.db?.getAccountStats(accountId) ?? null,
       standing: standingFor(cp?.cp ?? 0, rank, entrants, cp?.eventsCounted ?? 0),
       season,
+      /** ALL rows this account submitted, by ending floor. */
       deathsByFloor: byFloor,
+      /** The same chart over CERTIFIED rows only - the population the seal
+       *  count, the CP and the board rows are drawn from. */
+      sealedDeathsByFloor: sealedByFloor,
       // THE ONE SOURCE OF TRUTH for band personal bests. The career panel used
       // to render a localStorage ledger with its own completeness rule, so the
       // profile and the band board could disagree about the same record.

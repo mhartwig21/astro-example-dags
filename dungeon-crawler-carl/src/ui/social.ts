@@ -38,6 +38,17 @@ export interface BoardRun {
   state: RunState;
   reason: string | null;
   rulesEra: string | null;
+  /** WHICH GAME this row was played under - not just which numbers. The era
+   *  chip answers the second question; nothing answered the first, and the roam
+   *  exploit lived in exactly that blind spot. */
+  mode?: string;
+  runKind?: string;
+  /** Whether a film ever existed for this row, and whether it still does.
+   *  "never" is a RIVALS row the authoritative sim decided itself: there was
+   *  nothing to record, and telling the player it "aged out of retention" is a
+   *  false statement in the one product whose pitch is that it does not make
+   *  them. */
+  film?: "retained" | "expired" | "never";
   playable: boolean;
   won: boolean;
   floor: number;
@@ -112,10 +123,19 @@ export interface ProfileView {
   publicId: string;
   name: string | null;
   seals: number;
+  /** Rows on the server, sealed or not. Deliberately a different word from
+   *  `seals`: the career panel labelled a histogram built from ALL runs "N
+   *  sealed runs" and printed SEALS 0 three hundred pixels below it. */
+  runsSubmitted?: number;
+  refused?: number;
   career: { runs: number; wins: number; deepest: number; kills: number; time_sec: number } | null;
   standing: Standing;
   season: string;
+  /** Every row this account submitted, by ending floor. */
   deathsByFloor: number[];
+  /** The same chart over CERTIFIED rows only - the population the seal count,
+   *  the CP and the board rows are drawn from. */
+  sealedDeathsByFloor?: number[];
   /** Band personal bests as the SERVER computes them, from verified rows that
    *  passed the traversal predicate. This is the authority; the localStorage
    *  ledger is only an offline cache of it. */
@@ -782,6 +802,20 @@ export interface VerdictSeal {
   line: string;
   /** Terminal states stamp; pending ones breathe. */
   terminal: boolean;
+  /**
+   * A CONTROL, WHEN THE LINE ASKS FOR AN ACTION (6.2 Beat 5 specified this as a
+   * BUTTON).
+   *
+   * The shipped default player - a fresh anonymous token signing the daily from
+   * the front door - reached the verdict and read "unsealed. The System does
+   * not put its name on an anonymous claim. LINK AN IDENTITY." That string
+   * existed in exactly one place in the tree: as a server refusal. There was no
+   * button, no link, no OAuth affordance anywhere on the screen; the only
+   * sign-in control lived on the MENU and was `display:none` unless providers
+   * were configured. The ten seconds ended with the game demanding an action
+   * and providing no way to take it.
+   */
+  action: { kind: "link"; label: string; note: string } | null;
 }
 
 /**
@@ -790,27 +824,83 @@ export interface VerdictSeal {
  * in the daily-contract deepest board I happened to load", which is how a
  * free-seed run taking rank 1 all-time was told "It ranks nowhere".
  */
-export function boardsPhrase(boards: readonly string[] | null | undefined): string {
-  if (!boards || boards.length === 0) return "";
-  const names = boards.map((b) => {
-    const bare = b.split("@")[0];
-    if (bare.startsWith("band")) return bandName(Number(bare.slice(4)) || 0);
-    return bare.toUpperCase();
-  });
-  const uniq = [...new Set(names)];
-  const shown = uniq.slice(0, 3).join(", ");
-  return uniq.length > 3 ? `${shown} and ${uniq.length - 3} more` : shown;
+/**
+ * NEVER PRINT A BARE BOARD NAME THAT IS NOT THE BOARD THE PLAYER WILL FIND.
+ *
+ * `holdsBoards` answers with SCOPED keys - `deepest@daily-2026-08-02`,
+ * `kills@daily-2026-08-02`, `band0` - and this function used to strip the scope
+ * with `b.split("@")[0]`, so the seal read "it holds a position on DEEPEST,
+ * KILLS, THE UNDERCROFT" and the player clicked through to STANDINGS >
+ * ALL-TIME > DEEPEST and read "this museum is empty". The scope is not
+ * decoration; it IS which board, and this is the one product whose entire pitch
+ * is that the server does not lie about what a run is worth.
+ */
+export function boardLabel(key: string): string {
+  const [bare, scope] = key.split("@");
+  if (bare.startsWith("band")) return `${bandName(Number(bare.slice(4)) || 0)} — BAND BOARD`;
+  const where = !scope ? "ALL-TIME"
+    : scope.startsWith("weekly") ? "THE WEEKLY CONTRACT"
+      : scope.startsWith("daily") ? "TODAY'S CONTRACT"
+        : scope.toUpperCase();
+  return `${bare.toUpperCase()} — ${where}`;
 }
 
+/** Scope suffix for one board key, or "" for a band board (which has no scope
+ *  axis - it is its own board). */
+function boardScope(key: string): string {
+  const [bare, scope] = key.split("@");
+  if (bare.startsWith("band")) return "";
+  return !scope ? "ALL-TIME"
+    : scope.startsWith("weekly") ? "THE WEEKLY CONTRACT"
+      : scope.startsWith("daily") ? "TODAY'S CONTRACT"
+        : scope.toUpperCase();
+}
+
+export function boardsPhrase(boards: readonly string[] | null | undefined): string {
+  if (!boards || boards.length === 0) return "";
+  // GROUPED BY BOARD, SCOPES JOINED. A run that takes DEEPEST on both the
+  // contract and the museum holds two boards and the phrase has to say so - but
+  // "DEEPEST — TODAY'S CONTRACT, DEEPEST — ALL-TIME, KILLS — TODAY'S CONTRACT
+  // and 1 more" is a mouthful that buries the thing worth reading, which is the
+  // NAME of what you took.
+  const byBoard = new Map<string, string[]>();
+  for (const key of boards) {
+    const [bare] = key.split("@");
+    const name = bare.startsWith("band")
+      ? `${bandName(Number(bare.slice(4)) || 0)} — BAND BOARD` : bare.toUpperCase();
+    const scope = boardScope(key);
+    const list = byBoard.get(name) ?? [];
+    if (scope && !list.includes(scope)) list.push(scope);
+    byBoard.set(name, list);
+  }
+  const names = [...byBoard].map(([name, scopes]) =>
+    scopes.length === 0 ? name
+      : scopes.length === 1 ? `${name} — ${scopes[0]}`
+        : `${name} — ${scopes.slice(0, -1).join(", ")} AND ${scopes[scopes.length - 1]}`);
+  const shown = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+}
+
+export const LINK_ACTION = {
+  kind: "link" as const,
+  label: "LINK AN IDENTITY",
+  note: "one click, one provider. Verification costs the System real CPU, so it is spent on crawlers "
+    + "it can name — and the run you just played is the one it starts with.",
+};
+
 export function verdictSeal(
-  state: RunState | "unsubmitted" | "blocked",
+  state: RunState | "unsubmitted" | "blocked" | "vouched",
   era: string | null,
   isPrivate = false,
   ranked = false,
   reason?: string | null,
   boards: readonly string[] | null = null,
+  /** The server says this account has no provider identity, so the seal is
+   *  unreachable until it has one. The refusal now arrives with the control. */
+  needsIdentity = false,
 ): VerdictSeal {
   const eraNote = era ? ` Rules era ${era}.` : "";
+  const link = needsIdentity ? LINK_ACTION : null;
   switch (state) {
     case "verified": {
       const holds = boardsPhrase(boards);
@@ -824,8 +914,27 @@ export function verdictSeal(
           : "Every input, replayed on the System's own machine. Same dungeon, same damage, same death. It ranks nowhere, and it is still true.")
           + (isPrivate ? " Nobody else will ever be handed the film." : "") + eraNote,
         terminal: true,
+        action: null,
       };
     }
+    // THE ONE SCORE THE SERVER VOUCHES FOR ITSELF (1.1). A rivals win writes a
+    // SEALED, era-stamped contracts row server-side — and the player's own
+    // post-run screen suppressed the seal block entirely (`if (net) { display =
+    // "none" }`), after `recBlocked` told them "party runs are hosted by the
+    // server". The one genuinely server-authoritative score in the product was
+    // the one the player was never shown earning.
+    case "vouched":
+      return {
+        cls: "vseal verified ranked vouched",
+        kicker: "THE SYSTEM RAN THIS ONE ITSELF",
+        word: "SEALED",
+        line: "No proof was needed and none exists: this race was decided on the System's own "
+          + "authoritative sim, tick by tick, with the System watching every one of them. It is the "
+          + "only score in the product that never had to be re-executed, because it was never "
+          + `anywhere else.${eraNote}`,
+        terminal: true,
+        action: null,
+      };
     case "verifying":
       return {
         cls: "vseal verifying",
@@ -833,24 +942,43 @@ export function verdictSeal(
         word: "VERIFYING",
         line: "Sixty inputs a second, played back against the same rules you played under. It either agrees with you or it does not.",
         terminal: false,
+        action: null,
       };
     case "rejected":
+      // THE REJECTION CARRIES THE NUMBERS. The verifier holds both sides at the
+      // moment it decides - it knows you claimed 42 kills and the replay
+      // produced 39 - and this block used to print a bare field identifier
+      // ("...claim disagrees with the replay: status") because the reason was
+      // `diffClaim`'s debug output concatenated. A debug token is not an
+      // explanation, and 6.2 Beat 5 is explicit that a rejection with no
+      // explanation is how honest players conclude the ladder is rigged.
       return {
         cls: "vseal rejected",
         kicker: "THE SYSTEM DISAGREES WITH YOU",
         word: "REFUSED",
         line: reason
-          ? `The replay did not produce the run you claimed. ${reason}`
+          ? `The replay did not produce the run you claimed — ${reason}. The row does not stand.`
           : "The replay did not produce the run you claimed, so the row does not stand. The System does not explain twice; it explains once, here.",
         terminal: true,
+        action: null,
       };
     case "unverifiable":
+      // NOT AN ACCUSATION. This state covers an era this build cannot execute
+      // AND a capability failure - the box running out of verification clock,
+      // a worker that could not spawn - and 2.6d is explicit that neither is
+      // `rejected`: the row keeps whatever stamp it earned and the player is
+      // told plainly rather than accused. The reason, when there is one, says
+      // which happened.
       return {
         cls: "vseal aged",
-        kicker: "OUT OF EXECUTABLE ERAS",
+        kicker: "NOT DECIDED",
         word: "UNPROVEN",
-        line: `This run was recorded under rules this build can no longer execute, so it keeps whatever it earned and nothing more.${eraNote}`,
+        line: reason
+          ? `${reason} Nothing here says the run is false — the System could not run it, which is a `
+            + `different sentence and the row keeps whatever it earned.${eraNote}`
+          : `This run was recorded under rules this build can no longer execute, so it keeps whatever it earned and nothing more.${eraNote}`,
         terminal: true,
+        action: link,
       };
     case "blocked":
       return {
@@ -859,6 +987,7 @@ export function verdictSeal(
         word: "UNSEALED",
         line: reason ?? "This run was never offered to the board, so there is nothing for the System to certify.",
         terminal: true,
+        action: link,
       };
     case "unsubmitted":
       // SEALED IS SPENT ONCE, ON THE THING THAT EARNS IT. The pre-submit
@@ -873,6 +1002,7 @@ export function verdictSeal(
         line: "Twenty-odd kilobytes that reproduce this run exactly, written down and waiting. "
           + "The System has not seen a byte of it.",
         terminal: false,
+        action: link,
       };
     default:
       return {
@@ -883,6 +1013,7 @@ export function verdictSeal(
           ? `Not replayed. ${reason}`
           : "Stored exactly as your client reported it and never re-executed, so the System does not put its name on it. Unproven rows never reach the top of a board.",
         terminal: true,
+        action: link,
       };
   }
 }
@@ -893,6 +1024,21 @@ export function verdictSeal(
 export function playability(r: BoardRun, currentEra: string): { ok: boolean; why: string } {
   if (r.private) return { ok: false, why: "PRIVATE — this crawler kept the film" };
   if (r.state !== "verified") return { ok: false, why: "UNPROVEN — only sealed runs are raceable" };
+  // A ROW WITH NO FILM IS NOT A ROW WHOSE FILM EXPIRED. A RIVALS contract is
+  // inserted verified with `proofId = null` because the AUTHORITATIVE sim
+  // decided it and nobody records a party run - and the last branch of this
+  // function told the player "the proof has aged out of retention" about a
+  // proof that never existed. The store's own comment admitted the reuse
+  // ("exactly as they do for a proof that aged out"); it was still a deliberate
+  // false statement, in the product whose whole pitch is that it does not make
+  // them.
+  if (r.film === "never") {
+    return {
+      ok: false,
+      why: "THE SERVER RAN THIS ONE ITSELF — a rivals contract is decided on the authoritative sim, "
+        + "so the row is sealed and there is no film to hand out",
+    };
+  }
   if (!r.rulesEra) return { ok: false, why: "no proof retained for this row" };
   if (r.rulesEra !== currentEra) {
     return { ok: false, why: `RECORDED UNDER RULES ERA ${r.rulesEra} — NOT PLAYABLE ON ERA ${currentEra}` };

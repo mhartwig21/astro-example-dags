@@ -104,7 +104,15 @@ describe("submit -> claimed -> verified", () => {
     await H.api.queue.drain();
     const row = H.api.store.getRun(out.runId)!;
     expect(row.state).toBe("rejected");
-    expect(row.rejectReason).toContain("claim disagrees with the replay");
+    // THE REJECTION CARRIES BOTH SIDES OF EVERY FIELD IT REFUSED. The verifier
+    // holds the claim and the replay at the moment it decides, and this used to
+    // print `diffClaim`'s bare identifiers ("...: status") to the player on the
+    // highest-stakes negative screen in the product. A debug token is not an
+    // explanation (6.2 Beat 5).
+    expect(row.rejectReason).toContain("you claimed floor 18");
+    expect(row.rejectReason).toContain("the replay reached floor");
+    expect(row.rejectReason).toContain("99,999 kills");
+    expect(row.rejectReason).not.toContain("disagrees with the replay: status");
     // A rejection costs time: the next submission is refused for a while.
     const again = await H.api.submit(run(13, 3).bytes, "acct-2", "Cheater", "9.9.9.9");
     if ("error" in again) throw new Error("unexpected error");
@@ -374,7 +382,12 @@ describe("abuse guards (COMPETITIVE.md 2.7)", () => {
     if ("error" in out) throw new Error(out.error);
     expect(out.queued).toBe(false);
     expect(out.state).toBe("claimed");
-    expect(out.reason).toContain("LINK AN IDENTITY");
+    expect(out.reason).toContain("anonymous claim");
+    // ...AND THE REFUSAL IS FLAGGED, NOT JUST WORDED (6.2 Beat 5). "LINK AN
+    // IDENTITY" existed only as prose in the refusal string, so the verdict had
+    // no way to render a control and shipped the demand with no button. A typed
+    // flag is what a copy edit cannot silently take away.
+    expect(out.needsIdentity).toBe(true);
     expect(H.api.queue.depth).toBe(0);
   }, 60_000);
 
@@ -882,4 +895,180 @@ describe("the wire path the browser actually uses", () => {
     expect(b.ok).toBe(true);
     if (a.ok && b.ok) expect(b.summary).toEqual(a.summary);
   }, 60_000);
+});
+
+/**
+ * THE TWO EXPLOITS THIS ROUND CLOSED, AND THE BLIND SPOT THAT ALLOWED THEM.
+ *
+ * `grep -n 'roam|runKind|partySize' test/competitive.test.ts` returned NOTHING
+ * before this block, and test/replay.test.ts uses `runKind: "race"` in both
+ * places it appears. Forty excellent tests, and the one dimension the verifier
+ * never checked was the one dimension nothing asserted. A three-line case in a
+ * file that already builds proofs would have caught both.
+ */
+describe("which GAME a row was played under (COMPETITIVE.md 2.5 step 2)", () => {
+  it("an unverified RULESET never reaches a board that presents as verified", async () => {
+    // MEASURED, not reasoned: the shipped bot on seed 2024, recorded twice with
+    // a 40k-step cap and run through the real verifyArtifact, ended a RACE dead
+    // on floor 5 with 115 kills and ended a ROAM on floor 16 with 171 kills and
+    // a roam-only ultimate - `ok: true`, CERTIFIED. Roam floors have no boss
+    // gate and a flat 30-minute budget instead of floorTimeBudget, so the same
+    // policy walks about four times as far. That row takes DEEPEST, owns KILLS
+    // outright, and takes every band board - the boards 3.3 calls the most
+    // winnable - at roughly 2x pace. `validateProofShape` never looked at
+    // `header.runKind`, and `ReplaySession` builds the world straight from it.
+    H.link("acct-roam");
+    const { proof } = run(101, 3);
+    proof.header.runKind = "roam";
+    const out = await H.api.submit(reseal(proof), "acct-roam", "Wanderer", "7.7.7.1");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(false);
+    expect(out.reason).toContain("ROAM");
+    expect(H.api.queue.depth).toBe(0);
+    expect(H.api.store.getRun(out.runId)!.state).toBe("claimed");
+  }, 60_000);
+
+  it("the worker refuses the same header even if the door is bypassed", async () => {
+    // The gate is applied in BOTH places on purpose: a hand-rolled artifact
+    // must never reach ReplaySession, which would happily build a roam world.
+    const { verifyArtifact } = await import("../src/server/verifyWorker");
+    const { proof } = run(101, 2);
+    proof.header.runKind = "roam";
+    const v = await verifyArtifact({ id: "r", bytes: reseal(proof), budgetMsPerSec: 1000 });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.detail).toContain("ROAM");
+  }, 60_000);
+
+  it("stores WHICH GAME on the row, so a certified row can be audited later", async () => {
+    H.link("acct-kind");
+    const out = await H.api.submit(run(101, 3).bytes, "acct-kind", "Carl", "7.7.7.2");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    const row = H.api.store.getRun(out.runId)!;
+    expect(row.runKind).toBe("race");
+    expect(row.mode).toBe("coop");
+  }, 60_000);
+
+  it("party size is never a self-reported field on a proof-verified row", async () => {
+    // `partySize: Number(q.get("size") ?? 1)` was stored, returned on the wire
+    // and printed as "party of N" beside the gold seal - and NOTHING in
+    // ReplaySession.summary() or VerifiedFacts derives or contradicts it, while
+    // board({partySize}) filters on it and splitEntrants counts it toward
+    // opening the co-op split boards 7.4 defines. Worse than merely unverified:
+    // MUST-3 does not record party runs at all, so every "party of N>1" on a
+    // proof-verified row was necessarily fabricated. POST /runs?size=6 put a
+    // solo run on the 5-6 board with the gold seal.
+    H.link("acct-party");
+    const { Readable } = await import("node:stream");
+    const res = {
+      writeHead() { return res; }, setHeader() { /* no-op */ }, end() { /* no-op */ },
+    } as unknown as import("node:http").ServerResponse;
+    const body = Buffer.from(run(101, 3).bytes);
+    const req = Object.assign(
+      new Readable({ read() { this.push(body); this.push(null); } }),
+      { method: "POST", url: "/runs?token=acct-party&name=Solo&size=6", headers: {}, socket: {} },
+    ) as unknown as import("node:http").IncomingMessage;
+    await H.api.handle(req, res);
+    await H.api.queue.drain();
+    const rows = H.api.store.runsByAccount("acct-party", 5);
+    expect(rows.length).toBe(1);
+    expect(rows[0].partySize).toBe(1);
+  }, 60_000);
+});
+
+describe("a capability failure is UNVERIFIABLE, never REJECTED (2.6d)", () => {
+  it("running out of verification clock does not accuse the player", async () => {
+    // `rejected` is the state reserved for "the claim was false": it prints THE
+    // SYSTEM DISAGREES WITH YOU / REFUSED and costs the account a ten-minute
+    // cooldown. It was returned for the wall-clock ceiling, a replay throw, a
+    // worker crash, a closed executor and a failed spawn. `spent()` is WALL
+    // CLOCK including the duty sleeps, so the ceiling is not theoretical -
+    // there is a run length past which this ladder called honest players
+    // cheats, and nothing stated it.
+    const { verifyArtifact, maxCertifiableTicks } = await import("../src/server/verifyWorker");
+    const v = await verifyArtifact({
+      id: "slow", bytes: run(101, 4).bytes, budgetMsPerSec: 1000, ceilingMs: 1,
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) {
+      expect(v.state).toBe("unverifiable");
+      expect(v.detail).toMatch(/sim-minutes/);
+    }
+    // ...and the boundary is a number the product can print, not folklore.
+    expect(maxCertifiableTicks(250, 120_000, 110)).toBeGreaterThan(60_000);
+    expect(maxCertifiableTicks(250, 120_000, 1000))
+      .toBeLessThan(maxCertifiableTicks(250, 120_000, 110));
+  }, 60_000);
+
+  it("an over-long run is refused at the door, before the clock is spent", async () => {
+    H.link("acct-long");
+    const api = new CompetitiveApi({
+      store: H.db.competitive, db: H.db, tokens: H.tokens, executor: new InlineExecutor(),
+      budgetMsPerSec: 1000, ceilingMs: 1, now: () => H.now,
+    });
+    try {
+      const out = await api.submit(run(101, 3).bytes, "acct-long", "Marathon", "8.8.8.1");
+      if ("error" in out) throw new Error(out.error);
+      expect(out.state).toBe("unverifiable");
+      expect(out.reason).toContain("sim-minutes");
+      expect(out.reason).not.toMatch(/claim|cheat|disagree/i);
+    } finally {
+      api.close();
+    }
+  }, 60_000);
+});
+
+describe("the museum is not free-seeds-only (COMPETITIVE.md 3.2B)", () => {
+  it("a sealed contract run appears on the all-time board the seal names", async () => {
+    // `eventId: null` compiled to `event_id IS NULL`, and /boards/:kind with no
+    // `event` param passed null - so EVERY event run was excluded from every
+    // all-time board by construction. Live: the verdict said the run holds a
+    // position on DEEPEST and KILLS while both boards answered `entries: 0` and
+    // THE STANDINGS printed "this museum is empty".
+    H.link("acct-museum");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 3);
+    proof.header.eventId = evt.id;
+    proof.header.ticket = H.tokens.issueTicket(
+      evt.id, "acct-museum", 1,
+      H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
+    const out = await H.api.submit(reseal(proof), "acct-museum", "Carl", "9.1.1.1");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    expect(H.api.store.getRun(out.runId)!.state).toBe("verified");
+
+    // THE MUSEUM: every scope.
+    const museum = H.db.competitive.board({ kind: "deepest", verifiedOnly: true, limit: 25 });
+    expect(museum.some((r) => r.id === out.runId)).toBe(true);
+    // ...and the seal names BOTH boards it holds, each with its scope, so the
+    // player finds what the phrase promised.
+    const boards = H.db.competitive.holdsBoards(out.runId);
+    expect(boards).toContain("deepest");
+    expect(boards).toContain("deepest@" + evt.id);
+    // Free-seeds-only is still expressible; it is just not the default.
+    expect(H.db.competitive.board({ kind: "deepest", eventId: null, verifiedOnly: true }).length)
+      .toBe(0);
+  }, 60_000);
+});
+
+describe("FORGET ME reaches the rows that have no account", () => {
+  it("deletes the imported legacy copy, not just the JSON row", () => {
+    // importLegacyBoard keys every imported row `legacy:<name>` and runs
+    // unconditionally at boot; deleteAccount only ever matched account_id, and
+    // the name cascade reached the JSON file alone. So after a FORGET ME the
+    // JSON row went and the SQLite copy of the same crawler survived forever,
+    // publicly, in the UNPROVEN shelf on THE STANDINGS - 1.2's "LIVE privacy
+    // gap", re-opened by the migration that was supposed to close it.
+    const store = H.db.competitive;
+    const n = store.importLegacyBoard([
+      { name: "Ghosted", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
+      { name: "Kept", floor: 5, won: false, timeSec: 200, kills: 20, at: H.now },
+    ], 60);
+    expect(n).toBe(2);
+    expect(store.deleteByDisplayNames(["ghosted"])).toBe(1); // case-insensitive
+    const left = store.board({ kind: "deepest", limit: 50 });
+    expect(left.some((r) => r.displayName === "Ghosted")).toBe(false);
+    expect(left.some((r) => r.displayName === "Kept")).toBe(true);
+  });
 });

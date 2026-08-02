@@ -19,7 +19,7 @@
  */
 import type { RunSummary } from "../sim/replay";
 import { RULES_HASH } from "../sim/rulesHash";
-import type { VerifyReply, VerifyRequest } from "./verifyWorker";
+import { maxCertifiableTicks, type VerifyReply, type VerifyRequest } from "./verifyWorker";
 
 /** 25% of one core. The whole budget the box will ever spend on verification. */
 export const VERIFY_BUDGET_MS_PER_SEC = 250;
@@ -146,6 +146,17 @@ export class VerifyQueue {
     return (ticks * this.usPerTick) / 1000;
   }
 
+  /** The longest run this box can re-execute inside its own budget, in ticks.
+   *  Verification depth was a SILENT function of box speed; this is the number
+   *  the submit path refuses against and the screens print (blocker 21). */
+  get certifiableTicks(): number {
+    return maxCertifiableTicks(
+      this.opts.budgetMsPerSec ?? VERIFY_BUDGET_MS_PER_SEC,
+      this.opts.ceilingMs ?? VERIFY_JOB_CEILING_MS,
+      this.usPerTick,
+    );
+  }
+
   /** Returns false when the queue is full and the row must stay `claimed`. */
   enqueue(job: VerifyJob): boolean {
     if (this.closed) return false;
@@ -206,6 +217,10 @@ export class VerifyQueue {
           requireFreshStart: job.requireFreshStart,
           budgetMsPerSec: this.opts.budgetMsPerSec ?? VERIFY_BUDGET_MS_PER_SEC,
           ceilingMs: this.opts.ceilingMs ?? VERIFY_JOB_CEILING_MS,
+          // The live cost model, so the worker can STATE the depth limit before
+          // it spends the clock instead of expressing it as an accusation two
+          // minutes later (COMPETITIVE.md 2.3, blocker 21).
+          usPerTick: this.usPerTick,
         });
         this.running = null;
         this.msTotal += reply.msSpent;

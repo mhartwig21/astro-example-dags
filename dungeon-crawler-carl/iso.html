@@ -1327,6 +1327,35 @@
         letter-spacing: 0.2em; color: var(--ink-faint); }
       #recap.won .vplate::after { content: ""; display: block; height: 3px; margin: 9px auto 0;
         max-width: 460px; border-top: 1px solid var(--gold); border-bottom: 1px solid rgba(0,0,0,0.6); }
+      /* THE WIN STATE IS NOT THE DEATH STATE IN A DIFFERENT COLOUR. An
+         eighteen-floor clear — the rarest and most valuable result the game can
+         produce — used the identical chassis, medal, meter row, block order and
+         button row as a floor-1 idle death, differing by a headline string and
+         a hue. Four things change shape on a clear, not four things change
+         colour:
+           1. the plate carries the RESULT (floors · clock · kills), not a slogan
+           2. the medal wears a laurel ring and a slow sweep — it is a trophy
+           3. the death block becomes a gold EXIT plate with its own rule
+           4. the retry CTA is gold, because RUN IT BACK means something
+              different after a clear                                        */
+      #recap.won .vplate b { font-size: 19px; color: var(--gold-hi);
+        text-shadow: 0 0 26px rgba(242,193,78,0.4); }
+      #recap.won .vplate small { color: var(--gold); font-size: 12px; }
+      #recap.won .vmedal { border-color: var(--gold-hi);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.7), inset 0 2px 14px rgba(255,235,190,0.2),
+          0 0 44px rgba(242,193,78,0.42); }
+      #recap.won .vmedal::before { content: ""; position: absolute; inset: -9px; border-radius: 50%;
+        border: 1px solid rgba(242,193,78,0.5); border-left-color: transparent;
+        border-right-color: transparent; animation: wonring 6s linear infinite; }
+      @keyframes wonring { to { transform: rotate(360deg); } }
+      #recap.won .death { border-color: var(--gold);
+        box-shadow: inset 3px 0 0 var(--gold-hi), 0 0 30px rgba(242,193,78,0.12); }
+      #recap.won .rfoot .primary { color: #14100c;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+        border-color: var(--gold-hi); }
+      #recap.won .rfoot .primary small { color: rgba(20,16,12,0.75); }
+      #recap.won .rfoot .primary kbd { color: #14100c; border-color: rgba(20,16,12,0.5); }
+      @media (prefers-reduced-motion: reduce) { #recap.won .vmedal::before { animation: none; } }
       /* The VERDICT: an engraved headline between side rules (LoL victory bar).
          Wins are GOLD — the Show pays in ratings, not chlorophyll. */
       #recap h2 { margin: 0 0 2px; font-size: 30px; letter-spacing: 0.14em;
@@ -1394,14 +1423,25 @@
       /* The comparison set lives UNDER the coin, never inside it: a grade that
          does not name its population is the exact failure this screen exists
          to avoid, so the label has to be legible, not engraved into the rim. */
-      #recap .vbasis { text-align: center; margin-top: 7px; font-size: 11.5px; line-height: 1.35;
-        letter-spacing: 0.06em; color: var(--ink-faint);
-        font-family: var(--display); font-variant: small-caps;
-        /* It is allowed to be wider than the coin - three wrapped lines under a
-           medal is how the one label that names the grade's population ends up
-           unreadable - and the COLUMN is what widens, so nothing hangs into
-           the panel's padding and loses its first word. */
-        max-width: 100%; }
+      /* MEASURED BEFORE: 168px wide, 11px, --ink-faint, no container, wrapping
+         to three lines in the common CAPPED BY DEPTH case — the one line that
+         stops the letter implying a population it does not have, styled as
+         something nobody is meant to read, directly under the largest element
+         on the screen. It is a PLATE now: a label, the set at 13px in --ink,
+         and the ceiling as its own chip instead of a trailing clause. */
+      #recap .vbasis { margin-top: 10px; min-width: 210px; max-width: 260px;
+        display: flex; flex-direction: column; align-items: center; gap: 3px;
+        padding: 7px 10px 8px; border: 1px solid rgba(110,85,51,0.55); border-radius: 3px;
+        background: linear-gradient(180deg, rgba(34,27,21,0.75), rgba(14,11,8,0.6)); }
+      #recap .vbasis .bk { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.24em; font-size: 9.5px; color: var(--ink-faint); }
+      #recap .vbasis .bv { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.07em; font-size: 13px; line-height: 1.3; text-align: center;
+        color: var(--ink); }
+      #recap .vbasis .bcap { margin-top: 2px; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.18em; font-size: 10px; color: #e8b45c; padding: 1px 7px;
+        border: 1px solid rgba(232,180,92,0.55); border-radius: 2px; }
+      #recap .vbasis .bcap[hidden] { display: none; }
       #recap .vgrade { display: flex; flex-direction: column; align-items: center; }
       #recap .vmedal.g-S { border-color: var(--gold-hi); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
           inset 0 2px 12px rgba(255,235,190,0.18), 0 0 34px rgba(242,193,78,0.35); }
@@ -1462,6 +1502,23 @@
         color: var(--ink-dim); white-space: nowrap; text-align: right; }
       #recap .vseal .vl { grid-column: 1; font-size: 13px; line-height: 1.5; color: var(--ink-dim);
         max-width: 62ch; }
+      /* THE REFUSAL COMES WITH THE CONTROL (6.2 Beat 5). "LINK AN IDENTITY"
+         shipped as a sentence with no button anywhere on the screen — the ten
+         seconds ended with the game demanding an action and providing no way
+         to take it. */
+      #recap .vseal .vact { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
+        margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(110,85,51,0.45); }
+      #recap .vseal .vlink { flex: none; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.2em; font-size: 13px; padding: 8px 16px; cursor: pointer;
+        color: #14100c; background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+        border: 1px solid var(--gold-hi); border-radius: 3px;
+        box-shadow: 0 2px 0 rgba(0,0,0,0.55), 0 0 22px rgba(242,193,78,0.28); }
+      #recap .vseal .vlink:hover { filter: brightness(1.12); }
+      #recap .vseal .vactnote { font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
+      /* THE ONE SCORE THE SERVER RAN ITSELF. Sealed, and visibly not the same
+         object as a replay-certified row: no film exists and none was needed. */
+      #recap .vseal.vouched { border-left-color: var(--arcane); }
+      #recap .vseal.vouched .vk { color: #b08fd9; }
       /* CLAIMED / UNSEALED / READY — hairline, cold, deliberately unexciting. */
       #recap .vseal.pending .vw, #recap .vseal.claimed .vw,
       #recap .vseal.blocked .vw, #recap .vseal.aged .vw { color: var(--ink-faint); font-size: 22px; }
@@ -1890,6 +1947,15 @@
          read as a broken page; high enough that a tab switch does not resize
          the world behind it. */
       #ladder-body { min-height: 320px; }
+      /* THE STANDINGS ARE THE DOCUMENT, NOT A CARD ON IT. Measured at 1600x900
+         before this rule: the frame bottomed out at y=522 on every tab, leaving
+         42% of the viewport as empty near-black under a competitive board. A
+         ranked surface that ends two thirds of the way down the screen reads as
+         a dialog somebody forgot to size. The frame now claims the page; the
+         content that fills it is real (THE OTHER MUSEUMS on all-time, UNCLAIMED
+         SPLITS on bands), because padding an empty board with air is the same
+         failure wearing a taller box. */
+      #ladder .set-frame, #career .set-frame { min-height: calc(100vh - 36px); }
       /* THE FRAME DOES NOT RESIZE UNDER THE CURSOR. `max-width` alone lets the
          frame shrink to its content, so CONTRACTS (~990), BANDS (~1230) and
          RIVALS (~750) each drew a different panel and the whole document
@@ -1961,8 +2027,23 @@
       .brow .rank { font-family: var(--display); font-size: 15px; color: var(--ink-faint);
         text-align: center; font-variant-numeric: tabular-nums; }
       .brow.top1 .rank, .brow.top2 .rank, .brow.top3 .rank { color: var(--gold-hi); }
+      /* YOU IS NOT A TINT SOMEBODY ELSE CAN ALSO WEAR. The champion row carries
+         a gold radial from its left edge, and the YOU row carried a gold
+         gradient from its left edge with a 2px bar — at four rows the board was
+         already ambiguous about who the reader was. YOU gets a 5px bar, a
+         dashed outline and its own chip; nothing else in the product has all
+         three. */
       .brow.you { background: linear-gradient(90deg, rgba(201,162,75,0.16), rgba(34,27,21,0.55) 60%);
-        box-shadow: inset 2px 0 0 var(--gold-hi); }
+        box-shadow: inset 5px 0 0 var(--gold-hi), inset 0 0 0 1px rgba(242,193,78,0.35); }
+      /* THE DISCRIMINATOR. Keying moved to account_id (2.7); the DISPLAY did
+         not, so two crawlers called "Carl" sat one row apart with nothing to
+         tell them apart. The derived public id is stable, one-way and already
+         on the row. */
+      .rhash { margin-left: 7px; font-family: var(--mono, ui-monospace), monospace;
+        font-size: 10px; letter-spacing: 0.06em; color: var(--ink-faint);
+        vertical-align: middle; }
+      .brow.you .rhash { color: rgba(242,193,78,0.7); }
+      .brow.top1 .rhash { font-size: 12px; }
 
       .brow.rival { box-shadow: inset 2px 0 0 var(--arcane);
         background: linear-gradient(90deg, rgba(154,107,208,0.13), rgba(34,27,21,0.55) 60%); }
@@ -2010,6 +2091,34 @@
       .brow .res { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim);
         text-align: right; }
       .brow .res.win { color: var(--verdant); }
+      /* THE VERIFIER-DERIVED DETAIL (COMPETITIVE.md 0). Splits, build, cause of
+         death and the four numbers the replay produced were all on the wire and
+         all discarded at render — the cheapest upgrade available, because the
+         data is already in the response object. It spans the row's full grid so
+         it reads as the row's own record rather than a second row. */
+      .brow { position: relative; }
+      .brow .rdet { grid-column: 1 / -1; margin: 8px 0 2px; padding: 11px 13px;
+        border: 1px solid rgba(110,85,51,0.5); border-left: 3px solid var(--gold);
+        border-radius: 3px; background: linear-gradient(180deg, rgba(12,9,6,0.72), rgba(20,16,12,0.5));
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 20px; }
+      .brow .rdet[hidden] { display: none; }
+      .brow .rdet .dlab { display: block; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.22em; font-size: 9.5px; color: var(--gold); margin-bottom: 3px; }
+      .brow .rdet .dsplits, .brow .rdet .dnums { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+      .brow .rdet .dsplits i, .brow .rdet .dnums i { font-style: normal; font-size: 12px;
+        color: var(--ink); font-variant-numeric: tabular-nums; }
+      .brow .rdet .dsplits i b, .brow .rdet .dnums i b { display: block; font-weight: 400;
+        font-size: 9.5px; letter-spacing: 0.1em; color: var(--ink-faint); }
+      .brow .rdet .dbuild { font-size: 12.5px; color: var(--ink); line-height: 1.45; }
+      .brow .rdet .dmeta { display: block; font-size: 11px; color: var(--ink-faint); }
+      .brow .rdet .dgear { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+      .brow .rdet .dgear i { font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 2px;
+        border: 1px solid currentColor; opacity: 0.9; }
+      .brow .rdet .ddeath { font-size: 12.5px; color: #e2857a; line-height: 1.4; }
+      .brow .rdet .ddeath.clear { color: var(--gold-hi); }
+      .brow .rdet .dfoot { grid-column: 1 / -1; font-size: 10.5px; font-style: italic;
+        color: var(--ink-faint); border-top: 1px solid rgba(110,85,51,0.3); padding-top: 6px; }
+      .brow .acts button.rmore { letter-spacing: 0.14em; }
       .brow .acts { display: flex; gap: 6px; }
       .brow .acts button { background: var(--raised); border: 1px solid var(--bronze);
         color: var(--ink-dim); border-radius: 2px; padding: 3px 9px; font: inherit; font-size: 11px;
@@ -2067,6 +2176,38 @@
          unverified claim ranked #6 all-time and read as a clear. Claimed rows
          are off the ranked list entirely now: no ordinal, no green, and a
          heading that says what they are. */
+      /* THE OTHER MUSEUMS. The ALL-TIME tab drew one board and stopped, leaving
+         42% of a 1600x900 viewport as empty black with no indication of what
+         was on the other three boards behind the tab strip. */
+      .otherboards { display: grid; gap: 6px; }
+      .obrow { display: grid; grid-template-columns: 110px minmax(0, 1fr) 150px 72px; gap: 12px;
+        align-items: center; width: 100%; text-align: left; cursor: pointer;
+        padding: 9px 12px; border: 1px solid rgba(110,85,51,0.5); border-radius: 3px;
+        background: linear-gradient(180deg, rgba(34,27,21,0.5), rgba(20,16,12,0.5));
+        color: var(--ink); font: inherit; }
+      .obrow:hover { border-color: var(--bronze-hi); }
+      .obrow .obk { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.2em;
+        font-size: 12px; color: var(--gold); }
+      .obrow .obwho { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .obrow .obres { font-size: 12.5px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+      .obrow .none { color: var(--ink-faint); font-style: italic; }
+      .obrow .obgo { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
+        font-size: 10.5px; color: var(--ink-faint); text-align: right; }
+      .obrow:hover .obgo { color: var(--gold-hi); }
+      /* A SPLIT BOARD WITH NO ROWS COLLAPSES (3.4). Six empty headers, each
+         with its own subtitle and the word "none", is exactly the "reads as
+         abandoned" failure the entrant gate exists to prevent. */
+      .darkbands { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+      .dband { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
+        padding: 10px 12px; border: 1px dashed rgba(110,85,51,0.65); border-radius: 3px;
+        background: rgba(20,16,12,0.4); color: var(--ink); }
+      .dband:hover { border-style: solid; border-color: var(--gold); }
+      .dband b { display: block; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.12em; font-size: 15px; color: var(--ink-dim); }
+      .dband span { display: block; font-size: 11px; color: var(--ink-faint);
+        font-variant-numeric: tabular-nums; }
+      .dband i { display: block; margin-top: 5px; font-style: normal; font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.14em; font-size: 10.5px; color: var(--gold); }
       .unproven { margin-top: 16px; border-top: 1px dashed rgba(110,85,51,0.55); padding-top: 10px; }
       .unproven > .uhead { font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.2em; font-size: 11.5px; color: var(--ink-faint); }
@@ -4920,12 +5061,22 @@
         <!-- The victory plate. Only drawn on a clear (#recap.won), because the
              rarest outcome in the game must not be the death screen with
              different words. -->
-        <div class="vplate"><b>THE FINALE</b><small>THE NETWORK IS BROADCASTING THIS ONE AGAIN</small></div>
+        <div class="vplate"><b>THE FINALE</b><small id="recap-plate-sub">THE NETWORK IS BROADCASTING THIS ONE AGAIN</small></div>
         <div class="verdict">
 
           <div class="vgrade">
             <div class="vmedal" id="recap-medal"><b id="recap-letter">—</b><small id="recap-score"></small></div>
-            <div class="vbasis" id="recap-basis"></div>
+            <!-- THE BASIS IS THE MECHANISM THAT KEEPS THE GRADE HONEST, and it
+                 shipped as 168px of 11px --ink-faint wrapping to three lines
+                 under the medal, in no container — styled as something nobody
+                 is meant to read, directly beneath the largest element on the
+                 screen. It is the one line that stops the letter from implying
+                 a population it does not have. -->
+            <div class="vbasis" id="recap-basis">
+              <span class="bk">GRADED AGAINST</span>
+              <span class="bv" id="recap-basis-set"></span>
+              <span class="bcap" id="recap-basis-cap" hidden>CAPPED BY DEPTH</span>
+            </div>
           </div>
           <div class="vhead">
             <h2 id="recap-title"></h2>
@@ -4982,7 +5133,11 @@
           <div class="rminor">
             <button id="recap-share">SHARE THIS RUN</button>
             <button id="recap-standings">STANDINGS</button>
-            <button id="recap-dismiss">WATCH THE ARENA</button>
+            <!-- "WATCH" IS NOT A WORD THIS PRODUCT MAY SPEND ON DISMISS. On the
+                 screen whose thesis is "the server re-executed your run", the
+                 only WATCH on offer meant close the panel. It says what it
+                 does now, and the word is free for the thing that earns it. -->
+            <button id="recap-dismiss">CLOSE THIS CARD</button>
           </div>
           <span class="note" id="recap-note"></span>
         </div>
@@ -5025,9 +5180,16 @@
               <div class="splitkey" id="recap-splitkey"></div>
             </div>
             <div>
-              <div class="rsec">FINAL STATS</div>
-              <div class="rstat-grid" id="recap-stats"></div>
-              <div class="rsec">SEASON RATINGS</div>
+              <!-- FINAL STATS IS GONE. It printed LEVEL / KILLS / DAMAGE DEALT
+                   / DAMAGE TAKEN / GOLD SPENT as tiles 300px to the right of
+                   THE SCOREBOARD's YOU column printing the same five numbers.
+                   6.3 said to cut the report card; half of it had survived
+                   beside the thing that replaced it. The scoreboard keeps them,
+                   because only the scoreboard can put them beside somebody
+                   else's. -->
+              <!-- ...and this was labelled SEASON RATINGS while showing THIS
+                   RUN's viewers, favorites and sponsors. -->
+              <div class="rsec">WHAT THIS RUN TOOK OFF THE SHOW</div>
               <div class="rshow" id="recap-show"></div>
               <div class="rsec">ACHIEVEMENTS</div>
               <div class="rach" id="recap-ach"></div>
@@ -5036,9 +5198,7 @@
               <div id="recap-gear"></div>
               <div id="recap-abils"></div>
               <button class="dismiss buildcode" id="recap-buildcode">COPY BUILD CODE</button>
-              <div class="buildnote">A build code is a RECEIPT, not a guess: it is derived from the
-                run that actually happened, so whoever you send it to gets the loadout AND the
-                evidence it worked.</div>
+              <div class="buildnote">A receipt, not a guess — derived from the run that happened.</div>
             </div>
           </div>
         </div>

@@ -332,11 +332,53 @@ describe("the seal is weighted by what it CERTIFIES (6.2)", () => {
     expect(pending.line).not.toMatch(/sealed/i);
   });
 
-  it("boardsPhrase reads board keys as words, and says nothing about nothing", () => {
+  it("never prints a bare board name that is not the board the player will find", () => {
+    // `b.split("@")[0]` threw the SCOPE away, so the seal read "it holds a
+    // position on DEEPEST, KILLS" about rows on the DAILY CONTRACT boards -
+    // and the player clicked through to STANDINGS > ALL-TIME > DEEPEST and read
+    // "this museum is empty". The trust element made a claim the very next
+    // screen refuted, on the one product whose whole pitch is that the server
+    // does not lie about what a run is worth.
     expect(boardsPhrase([])).toBe("");
     expect(boardsPhrase(null)).toBe("");
-    expect(boardsPhrase(["fastest@daily-2026-08-02", "fastest"])).toBe("FASTEST");
+    expect(boardsPhrase(["fastest@daily-2026-08-02"])).toBe("FASTEST — TODAY'S CONTRACT");
+    expect(boardsPhrase(["fastest"])).toBe("FASTEST — ALL-TIME");
+    expect(boardsPhrase(["deepest@weekly-2026-07-27"])).toBe("DEEPEST — THE WEEKLY CONTRACT");
+    expect(boardsPhrase(["band0"])).toContain("BAND BOARD");
+    // Two scopes of the same board are two DIFFERENT boards, and the phrase
+    // must not fold them into one word - it names both, grouped, so the thing
+    // worth reading (WHAT you took) is not buried in repetition.
+    expect(boardsPhrase(["fastest@daily-2026-08-02", "fastest"]))
+      .toBe("FASTEST — TODAY'S CONTRACT AND ALL-TIME");
     expect(boardsPhrase(["deepest", "kills", "band0", "band3"])).toContain("and 1 more");
+  });
+
+  it("a rivals row is sealed WITHOUT a film, and never claims one aged out", () => {
+    // The row is inserted verified with proofId = null because nobody records a
+    // party run; `playability` fell through to "the proof has aged out of
+    // retention" - a proof that never existed. competitive.ts even admitted the
+    // reuse in a comment. It was still a deliberate false statement to the
+    // player.
+    const vouched = playability(boardRow({ film: "never", playable: false }), "abc1234");
+    expect(vouched.ok).toBe(false);
+    expect(vouched.why).not.toMatch(/aged out/i);
+    expect(vouched.why).toContain("THE SERVER RAN THIS ONE ITSELF");
+    // ...and the verdict has a state for it, so the one genuinely
+    // server-authoritative score in the product is shown being earned.
+    const seal = verdictSeal("vouched", "abc1234");
+    expect(seal.word).toBe("SEALED");
+    expect(seal.line).toMatch(/authoritative sim/);
+  });
+
+  it("a refusal that demands an action arrives with the control", () => {
+    // "LINK AN IDENTITY" existed in exactly one place in the tree: as a server
+    // refusal string. No button, no link, no OAuth affordance on the verdict.
+    expect(verdictSeal("claimed", null, false, false, "unsealed.", null, true).action?.kind)
+      .toBe("link");
+    expect(verdictSeal("claimed", null, false, false, "unsealed.").action).toBeNull();
+    // A state the player cannot act on never grows a button.
+    expect(verdictSeal("rejected", null, false, false, "you claimed floor 18", null, true).action)
+      .toBeNull();
   });
 });
 
