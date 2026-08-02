@@ -145,9 +145,9 @@ describe("touch: stick recentring and the flick", () => {
 describe("touch: ability button modes and the cancel band", () => {
   it("a short drag aims; the cancel-home rule only ARMS once you leave", () => {
     const b = new AbilityButton();
-    b.aimRadius = 60;
+    b.aimThrow = 109;
     b.down(1000, 700);
-    b.move(1000, 681); // 19px: past the slop, inside the 34px cancel radius
+    b.move(1000, 681); // 19px: past the slop, inside the 37px cancel radius
     expect(b.state).toBe("aiming");
     const rel = b.up();
     expect(rel.kind).toBe("aimed");
@@ -182,9 +182,9 @@ describe("touch: ability button modes and the cancel band", () => {
     expect(now.down(10, 10)).toBe(true);
   });
 
-  it("the drag fraction is 1.0 at one stick radius and clamps there", () => {
+  it("the drag fraction is 1.0 at one AIM THROW and over-throw is free", () => {
     const b = new AbilityButton();
-    b.aimRadius = 80;
+    b.aimThrow = 80;
     b.down(0, 0);
     b.move(40, 0);
     expect(b.aimFrac).toBeCloseTo(0.5);

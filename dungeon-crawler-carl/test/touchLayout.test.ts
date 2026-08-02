@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  COMBAT_CONTROLS, DEFAULT_LAYOUT_PREFS, MIN_TARGET, computeZones, deviceClass,
-  hitControl, hitZone, inRect, isSideGrip, reachArcs, type ControlId, type Insets,
+  AIM_SLOP, COMBAT_CONTROLS, DEFAULT_LAYOUT_PREFS, MIN_TARGET, READ_BAND,
+  computeZones, deviceClass, hitControl, hitZone, inRect, isSideGrip, reachArcs,
+  type ControlId, type Insets, type ZoneTable,
 } from "../src/input/touchLayout";
 
 /**
@@ -15,7 +16,29 @@ const DEVICES = [
   { name: "iphone13promax-land", w: 832, h: 380, safe: { top: 0, right: 47, bottom: 21, left: 47 } },
   { name: "ipad7-land", w: 1080, h: 810, safe: { top: 0, right: 0, bottom: 0, left: 0 } },
   { name: "ipadpro11-land", w: 1194, h: 834, safe: { top: 24, right: 0, bottom: 20, left: 0 } },
+  { name: "ipadpro129-land", w: 1366, h: 1024, safe: { top: 24, right: 0, bottom: 20, left: 0 } },
 ] as const;
+
+/** Every slider position the four §4.2a invariants must survive. */
+const SLIDERS = [
+  { buttonScale: 0.7, thumbMm: 48, hudInset: 12 },
+  { buttonScale: 1.0, thumbMm: 48, hudInset: 12 },
+  { buttonScale: 1.4, thumbMm: 48, hudInset: 12 },
+  { buttonScale: 1.0, thumbMm: 38, hudInset: 12 },
+  { buttonScale: 1.0, thumbMm: 62, hudInset: 12 },
+  { buttonScale: 1.4, thumbMm: 38, hudInset: 0 },
+  { buttonScale: 1.4, thumbMm: 38, hudInset: 32 },
+  { buttonScale: 0.7, thumbMm: 62, hudInset: 0 },
+] as const;
+
+const hitRect = (z: ZoneTable, id: ControlId) => {
+  const c = z.controls[id];
+  const w = Math.max(MIN_TARGET, c.w), h = Math.max(MIN_TARGET, c.h);
+  return { x: c.cx - w / 2, y: c.cy - h / 2, w, h };
+};
+const overlaps = (a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number }) =>
+  a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
 const prefs = (over: Partial<typeof DEFAULT_LAYOUT_PREFS> = {}) => ({ ...DEFAULT_LAYOUT_PREFS, ...over });
 
@@ -34,12 +57,76 @@ describe("touch layout: device classes and the reach rule", () => {
     expect(isSideGrip("tablet-s")).toBe(true);
   });
 
-  it("reach is a rule of the short edge, not one phone's constant", () => {
-    expect(Math.round(reachArcs(293).comfortable)).toBe(161);
-    expect(Math.round(reachArcs(342).comfortable)).toBe(188);
-    expect(Math.round(reachArcs(380).comfortable)).toBe(209);
-    expect(Math.round(reachArcs(834).comfortable)).toBe(300); // capped
-    expect(reachArcs(342).stretch).toBeCloseTo(1.37 * reachArcs(342).comfortable, 6);
+  /**
+   * REACH IS ANTHROPOMETRY, NOT A SCREEN FRACTION (MOBILE.md §3.2).
+   *
+   * The rejected `clamp(0.55 * shortEdge, 150, 300)` is dimensionally wrong —
+   * it says a bigger slab grants you a longer thumb — and its upper clamp gave
+   * a 10.2", an 11" and a 12.9" iPad the identical number anyway. These are the
+   * §3.2 instance table, to the pixel: phones gain ~31% of arc, tablets lose
+   * 17%, and the three iPads share one PHYSICAL geometry because one hand
+   * holds all three.
+   */
+  it("reach is a hand constant in millimetres, converted per class", () => {
+    expect(Math.round(reachArcs(293, "compact").comfortable)).toBe(234); // was 161
+    expect(Math.round(reachArcs(342, "phone").comfortable)).toBe(274);   // was 188
+    expect(Math.round(reachArcs(380, "phone").comfortable)).toBe(291);   // was 209
+    expect(Math.round(reachArcs(810, "tablet-s").comfortable)).toBe(250); // was 300
+    expect(Math.round(reachArcs(834, "tablet-s").comfortable)).toBe(250);
+    expect(Math.round(reachArcs(1024, "tablet-l").comfortable)).toBe(250);
+    expect(Math.round(reachArcs(293, "compact").stretch)).toBe(293);
+    expect(Math.round(reachArcs(342, "phone").stretch)).toBe(342);
+    expect(Math.round(reachArcs(380, "phone").stretch)).toBe(380);
+    expect(Math.round(reachArcs(834, "tablet-s").stretch)).toBe(344);
+    // A 5th-percentile hand asks for less arc; a 95th-percentile one for more.
+    expect(reachArcs(834, "tablet-s", 38).comfortable)
+      .toBeLessThan(reachArcs(834, "tablet-s", 62).comfortable);
+  });
+
+  /**
+   * THE HAND-SCALE SET, to the pixel (§2.0 / §2.3 / §2.4b / §4.2a).
+   *
+   * The tablet stick gets SMALLER in CSS px and identical in millimetres,
+   * which is the whole point: 88 px on an iPad was a 16.9 mm throw a thumb
+   * cannot make without regripping.
+   */
+  it("stick radius, aim throw, cancel radius and chip size are millimetres", () => {
+    const rows: [string, number, number, number[], number[]][] = [
+      // §2.4b prints compact as 110/37; 18/0.163 = 110.4 and 0.34 x that is
+      // 37.5, which the doc rounds down and Math.round rounds up. Same number.
+      ["compact", 802, 293, [0, 24, 0, 0], [67, 110, 38, 64]],
+      ["phone", 832, 380, [0, 47, 21, 47], [67, 109, 37, 64]],
+      ["tablet-s", 1194, 834, [24, 0, 20, 0], [57, 94, 32, 55]],
+      ["tablet-l", 1366, 1024, [24, 0, 20, 0], [57, 94, 32, 55]],
+    ];
+    for (const [cls, w, h, ins, want] of rows) {
+      const z = computeZones(w, h, { top: ins[0], right: ins[1], bottom: ins[2], left: ins[3] }, prefs());
+      expect(z.cls, `${cls} class`).toBe(cls);
+      expect.soft(Math.round(z.stickRadius), `${cls} R`).toBe(want[0]);
+      expect.soft(Math.round(z.aimThrow), `${cls} aimThrow`).toBe(want[1]);
+      expect.soft(Math.round(z.cancelRadius), `${cls} cancelRadius`).toBe(want[2]);
+      // chipBase before the packing shrink, read off a mid-size chip.
+      expect.soft(Math.round(z.controls.slot1.w), `${cls} chip`).toBeLessThanOrEqual(want[3]);
+    }
+  });
+
+  /**
+   * THE ORDERING THAT MAKES "NO UNDEFINED DIRECTION" STRUCTURAL (§2.4a).
+   *
+   * The 18px -> cancelRadius band cannot exist, so the old "release below the
+   * stick dead zone resolves as a smart cast" special case — unreachable at
+   * defaults and UNDEFINED at other slider positions, because cancelRadius
+   * scaled with buttonScale and the slop did not — is retired.
+   */
+  it("AIM_SLOP < cancelRadius < 0.5 x aimThrow, on every device at every slider", () => {
+    for (const d of DEVICES) {
+      for (const slider of SLIDERS) {
+        const z = computeZones(d.w, d.h, d.safe as Insets, prefs(slider));
+        const tag = `${d.name} x${slider.buttonScale}`;
+        expect.soft(z.cancelRadius, `${tag} slop < cancel`).toBeGreaterThan(AIM_SLOP);
+        expect.soft(z.cancelRadius, `${tag} cancel < half throw`).toBeLessThan(0.5 * z.aimThrow);
+      }
+    }
   });
 
   it("the cluster is NOT one fixed arc: geometry moves with the short edge", () => {
@@ -49,19 +136,96 @@ describe("touch layout: device classes and the reach rule", () => {
     // and a 380-tall Pro Max. They must not be.
     expect(Math.round(small.controls.slot4.fromPivot))
       .not.toBe(Math.round(big.controls.slot4.fromPivot));
-    expect(small.stickRadius).toBeLessThan(big.stickRadius);
+    // The stick is now a MILLIMETRE quantity, so two devices in the same
+    // class share it by design — what must differ is the cluster geometry.
+    expect(small.arcRadius).toBeLessThan(big.arcRadius);
+  });
+});
+
+/**
+ * THE FOUR §4.2a INVARIANTS — asserted, not hoped for.
+ *
+ * They are what makes the side pivot safe to keep rather than something to
+ * argue about again next round, and rules 1 and 4 are the ones that were
+ * missing when the tablet proposal reproduced, deliberately, the exact
+ * geometry the phone audit calls unusable.
+ */
+describe("touch layout: the §4.2a cluster invariants", () => {
+  for (const d of DEVICES) {
+    for (const handed of ["right", "left"] as const) {
+      it(`${d.name} ${handed}: cluster invariants hold at every slider position`, () => {
+        for (const slider of SLIDERS) {
+          const z = computeZones(d.w, d.h, d.safe as Insets, prefs({ handed, ...slider }));
+          const tag = `${d.name} ${handed} x${slider.buttonScale} mm${slider.thumbMm}`;
+          const readFloor = z.safe.y + READ_BAND * z.safe.h;
+          const side = isSideGrip(z.cls);
+
+          // 1. No COMBAT_CONTROLS 44px hit rect inside the top 32% of the safe
+          //    box. That band belongs to the boss health plate, the headline
+          //    banner and the HP rail — what a player READS while the cluster
+          //    is being pressed.
+          for (const id of COMBAT_CONTROLS) {
+            expect.soft(hitRect(z, id).y, `${tag}: ${id} in the read band`)
+              .toBeGreaterThanOrEqual(readFloor - 0.001);
+          }
+
+          // 2. Cluster vertical extent <= 46% of safe.h on side grip, 58% on
+          //    corner (a corner grip has nowhere else to go).
+          const tops = COMBAT_CONTROLS.map((id) => hitRect(z, id).y);
+          const bots = COMBAT_CONTROLS.map((id) => hitRect(z, id).y + hitRect(z, id).h);
+          const extent = Math.max(...bots) - Math.min(...tops);
+          expect.soft(extent / z.safe.h, `${tag}: cluster extent`)
+            .toBeLessThanOrEqual((side ? 0.46 : 0.58) + 0.002);
+
+          // 3. Every combat control inside `comfortable` of its posture pivot.
+          for (const id of COMBAT_CONTROLS) {
+            expect.soft(z.controls[id].fromPivot, `${tag}: ${id} out of reach`)
+              .toBeLessThanOrEqual(z.comfortable + 0.001);
+          }
+
+          // 4. The CANCEL band overlaps no chip and never enters the top 40%.
+          for (const id of Object.keys(z.controls) as ControlId[]) {
+            expect.soft(overlaps(hitRect(z, id), z.cancelBand),
+              `${tag}: cancel band over ${id}`).toBe(false);
+          }
+          expect.soft(z.cancelBand.y, `${tag}: cancel band height`)
+            .toBeGreaterThanOrEqual(z.safe.y + 0.40 * z.safe.h - 0.001);
+        }
+      });
+    }
+  }
+
+  it("posture selects pivot, radius cap AND fan together", () => {
+    const phone = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    const tablet = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, prefs());
+    // Corner grip roots at the bottom outer corner...
+    expect(phone.pivot.y).toBeCloseTo(phone.safe.y + phone.safe.h - 26, 4);
+    // ...the side grip well up the outer edge, where an 11-inch slab is held.
+    expect(tablet.pivot.y).toBeCloseTo(tablet.safe.y + 0.58 * tablet.safe.h, 4);
+    // The ultimate is furthest from a resting thumb on BOTH postures: it is
+    // the topmost of the five slots.
+    for (const z of [phone, tablet]) {
+      for (const id of ["slot0", "slot1", "slot2", "slot3"] as const) {
+        // +2 px of slack: the relaxation pass may nudge a rank by a hair.
+        expect.soft(z.controls.slot4.cy, `${z.cls}: ult above ${id}`)
+          .toBeLessThanOrEqual(z.controls[id].cy + 2);
+      }
+      // ...and the basic attack is the nearest thing to the thumb root.
+      for (const id of ["slot1", "slot2", "slot3", "slot4"] as const) {
+        expect.soft(z.controls.slot0.fromPivot, `${z.cls}: basic nearer than ${id}`)
+          .toBeLessThan(z.controls[id].fromPivot);
+      }
+    }
+    // The side grip fans SYMMETRICALLY about the inboard horizontal: there is
+    // as much cluster below the pivot as above it. A corner grip cannot.
+    const below = Object.values(tablet.controls).filter((c) => c.cy > tablet.pivot.y).length;
+    expect(below).toBeGreaterThanOrEqual(2);
+    expect(Object.values(phone.controls).every((c) => c.cy <= phone.pivot.y + 1)).toBe(true);
   });
 });
 
 describe("touch layout: the reach invariant", () => {
   for (const d of DEVICES) {
-    it(`${d.name}: no in-combat control lies outside comfortable from its pivot`, () => {
-      const z = computeZones(d.w, d.h, d.safe as Insets, prefs());
-      for (const id of COMBAT_CONTROLS) {
-        const c = z.controls[id];
-        expect.soft(c.fromPivot, `${id} on ${d.name}`).toBeLessThanOrEqual(z.comfortable);
-      }
-    });
 
     it(`${d.name}: nothing lands in a safe-area gutter, and every target is 44px`, () => {
       const z = computeZones(d.w, d.h, d.safe as Insets, prefs());
@@ -119,12 +283,22 @@ describe("touch layout: hit testing", () => {
   const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
 
   it("a press between two chips picks the NEAREST CENTRE, not the top one", () => {
-    const a = z.controls.slot2, b = z.controls.slot3;
+    // Pick the CLOSEST pair on this device rather than naming two chips: the
+    // arc is posture-dependent, and a test that hardcodes neighbours is
+    // testing the table, not the resolver.
+    const ids = Object.keys(z.controls) as ControlId[];
+    let pair: [ControlId, ControlId] = ["slot0", "slot1"], best = Infinity;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const d = Math.hypot(z.controls[ids[i]].cx - z.controls[ids[j]].cx,
+          z.controls[ids[i]].cy - z.controls[ids[j]].cy);
+        if (d < best) { best = d; pair = [ids[i], ids[j]]; }
+      }
+    }
+    const a = z.controls[pair[0]], b = z.controls[pair[1]];
     const midX = (a.cx + b.cx) / 2, midY = (a.cy + b.cy) / 2;
-    const nearA = { x: midX + (a.cx - midX) * 0.6, y: midY + (a.cy - midY) * 0.6 };
-    expect(hitControl(z, nearA.x, nearA.y)).toBe("slot2");
-    const nearB = { x: midX + (b.cx - midX) * 0.6, y: midY + (b.cy - midY) * 0.6 };
-    expect(hitControl(z, nearB.x, nearB.y)).toBe("slot3");
+    expect(hitControl(z, midX + (a.cx - midX) * 0.6, midY + (a.cy - midY) * 0.6)).toBe(pair[0]);
+    expect(hitControl(z, midX + (b.cx - midX) * 0.6, midY + (b.cy - midY) * 0.6)).toBe(pair[1]);
   });
 
   it("zones route what the chips do not claim", () => {
@@ -133,24 +307,34 @@ describe("touch layout: hit testing", () => {
     expect(inRect(z.cancelBand, z.cancelBand.x + 2, z.cancelBand.y + 2)).toBe(true);
   });
 
-  it("player scales change the geometry without breaking reach", () => {
+  /**
+   * THE SIZE SLIDER IS A REQUEST, AND THE LAYOUT ANSWERS IT HONESTLY.
+   *
+   * Nine controls, a 44px hit floor and 1.4x buttons do not fit inside a
+   * landscape phone's cluster box — that is arithmetic, not a bug. The old
+   * layout let relaxation resolve it by pushing chips past `comfortable` and
+   * into the movement thumb's zone; both are worse than a smaller chip. So the
+   * request is stepped down until the cluster packs, and what may NEVER give
+   * is reach or non-overlap.
+   */
+  it("the size slider is honoured as far as the hand and the box allow", () => {
+    const small = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 },
+      prefs({ buttonScale: 0.7, stickScale: 0.7 }));
     const big = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 },
       prefs({ buttonScale: 1.4, stickScale: 1.4, hudInset: 24 }));
-    expect(big.controls.slot1.w).toBeGreaterThan(z.controls.slot1.w);
+    expect(small.controls.slot1.w).toBeLessThan(z.controls.slot1.w);
+    expect(big.controls.slot1.w).toBeGreaterThanOrEqual(small.controls.slot1.w);
     expect(big.stickRadius).toBeGreaterThan(z.stickRadius);
-    // AT MAX PLAYER SCALE THE ARC IS OVER-SUBSCRIBED, AND SOMETHING HAS TO GIVE.
-    // Nine controls, a 44px hit floor, 1.4x buttons and a 188px comfortable arc
-    // on a 342px-tall screen do not fit together — that is arithmetic, not a
-    // bug. What must NOT give is non-overlap: a stretched thumb is
-    // uncomfortable, a chip that fires the wrong ability is broken. Measured,
-    // the cost is one control (`context`, the DESCEND chip, which only appears
-    // while standing on stairs) at 204 of a 257 stretch arc.
-    for (const id of COMBAT_CONTROLS) {
-      expect.soft(big.controls[id].fromPivot, id).toBeLessThanOrEqual(big.stretch);
-    }
-    // …and at DEFAULT scale the stronger invariant still holds outright.
-    for (const id of COMBAT_CONTROLS) {
-      expect.soft(z.controls[id].fromPivot, id).toBeLessThanOrEqual(z.comfortable);
+    // The aim throw follows buttonScale, NEVER stickScale (contradiction 2).
+    expect(big.aimThrow).toBeGreaterThan(z.aimThrow);
+    expect(computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 },
+      prefs({ stickScale: 1.4 })).aimThrow).toBeCloseTo(z.aimThrow, 6);
+    // Reach holds outright at EVERY scale — no stretch-arc concession.
+    for (const t of [small, z, big]) {
+      for (const id of COMBAT_CONTROLS) {
+        expect.soft(t.controls[id].fromPivot, `${t.controls[id].w.toFixed(0)}px ${id}`)
+          .toBeLessThanOrEqual(t.comfortable + 0.001);
+      }
     }
   });
 

@@ -82,6 +82,36 @@ export function aimSpecFor(a: AbilityId | null, p: Player): AimSpec {
   }
 }
 
+/**
+ * Shapes the drag PLACES rather than merely points (MOBILE.md §2.4b).
+ *
+ * For `ring`, `scatter` and the landing footprint of `arrow` the drag carries
+ * direction AND distance. For `line`, `cone` and `chain` it is DIRECTION ONLY:
+ * a bolt flies its full derived reach whatever the throw, and pretending
+ * otherwise would invent a game rule in the input layer, which §2.1 forbids.
+ */
+export function isPlacedShape(shape: AimShape): boolean {
+  return shape === "ring" || shape === "scatter" || shape === "arrow";
+}
+
+/**
+ * How far from the crawler a PLACED shape lands, given the drag fraction.
+ *
+ * `dist = (0.15 + 0.85 * frac) * range`, so the shortest committed drag still
+ * clears the crawler's own feet rather than dropping the shape on them. Over-
+ * throw is free: `frac` is already clamped to 1 by the FSM, because the thumb
+ * runs out of screen long before it runs out of intent on a 342px-tall
+ * viewport, and punishing that would be punishing the device.
+ *
+ * Returns 0 for a direction-only shape — the caller draws it at full reach.
+ */
+export function aimPlacement(spec: AimSpec, frac: number): number {
+  if (!isPlacedShape(spec.shape)) return 0;
+  const reach = spec.range > 0 ? spec.range : spec.radius;
+  const f = frac < 0 ? 0 : frac > 1 ? 1 : frac;
+  return (0.15 + 0.85 * f) * reach;
+}
+
 /** Smart-cast reach for target picking: the ability real range, with a floor. */
 export function castRange(a: AbilityId | null, p: Player): number {
   const s = aimSpecFor(a, p);

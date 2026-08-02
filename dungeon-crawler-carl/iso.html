@@ -675,6 +675,25 @@
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.06),
           inset 0 0 24px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.55);
         padding: 6px 16px 10px; }
+      /* THE READ BAND IS A PROMISE THE PLATE HAS TO KEEP TOO (MOBILE.md 4.2a
+         rule 1). The table reserves the top 32% of the safe box for the boss
+         plate, the headline banner and the HP rail, and keeps every combat
+         chip out of it. Measured on glass at `top: 92px`, the plate ran to
+         y=191 on a 342px-tall iPhone — 60% down — and swallowed the cluster's
+         inboard top rank (tools/_mobile/i1/iphone13-land-combat.png).
+         So on a coarse pointer the plate moves INTO the band it owns: it docks
+         under the safe inset, drops its ornament, and while it is up the
+         SYSTEM/CRAWLER row stands down. Those are menu affordances; the plate
+         is a thing you read while your thumb is busy. */
+      @media (pointer: coarse) {
+        #bossbar { top: calc(var(--sa-t, 0px) + var(--hud-pad, 12px));
+          width: min(520px, 56vw); padding: 3px 12px 5px; }
+        #bossbar .bb-row::before, #bossbar .bb-row::after { display: none; }
+        #bossbar .bar { height: 10px; margin-top: 3px; }
+        #bossbar .bb-name { font-size: 14px; }
+        body.bossplate #banner { display: none; }
+        body.bossplate #headline { top: max(34%, 116px); }
+      }
       #bossbar::before { content: ""; position: absolute; top: -4px; left: 50%; margin-left: -4px;
         width: 8px; height: 8px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
@@ -4045,7 +4064,7 @@
       <div class="tb"><button class="topbtn" id="tb-crawler">Crawler</button>
         <div class="topmenu" id="tm-crawler"></div></div>
     </div>
-    <div id="keys">
+    <div id="keys" data-overlay="modal">
       <div class="panel">
         <h2>KEY BINDINGS</h2>
         <div class="hint">Click a key to rebind, then press the new key · aim with the mouse ·
@@ -4122,7 +4141,7 @@
     <!-- BOSSES V2 §5.3 — THE NAME CARD. Not a toast: a designed stone plate
          carrying title, epithet, the fight's ASK, the mutators that make this
          run's version different, and the System's one deadpan line. -->
-    <div id="bossintro">
+    <div id="bossintro" data-overlay="none">
       <div class="bi-kicker" id="bi-kicker">◆ RINGSIDE INTRODUCTION ◆</div>
       <div class="bi-name" id="bi-name"></div>
       <div class="bi-epithet" id="bi-epithet"></div>
@@ -4139,14 +4158,14 @@
       <div class="hyperow"><span class="hlabel">Hype</span>
         <div class="hypebar" id="hype-bar"><i id="hype-fill"></i><em></em><s id="hype-tick"></s></div></div>
     </div>
-    <div id="draft">
+    <div id="draft" data-overlay="modal">
       <div class="panel">
         <h2 id="draft-title">◆ SPONSOR DRAFT</h2>
         <div class="hint" id="draft-hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
         <div class="cards" id="draft-cards"></div>
       </div>
     </div>
-    <div id="abil">
+    <div id="abil" data-overlay="modal">
       <div class="panel">
         <h2>◆ THE CONSTELLATION</h2>
         <div class="hint">Your star chart — level up to brighten ranks, find tomes to chart new stars · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
@@ -4172,7 +4191,7 @@
         </table>
       </div>
     </div>
-    <div id="saferoom">
+    <div id="saferoom" data-overlay="modal">
       <div class="panel">
         <div class="shop-head">
           <h2>◆ SAFE ROOM</h2>
@@ -4229,15 +4248,15 @@
       </div>
     </div>
     <div id="fx"></div>
-    <div id="downed"></div>
-    <div id="itemtip"></div>
+    <div id="downed" data-overlay="none"></div>
+    <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>
     <div id="headline"></div>
     <div id="tutorial"></div>
     <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
     <!-- ROAM: the settlement conversation cut (only the interacting player's
          host shows it; sim session playerId gates rendering). -->
-    <div id="dialogue">
+    <div id="dialogue" data-overlay="modal">
       <i class="dlg-bar top"></i><i class="dlg-bar bot"></i>
       <div class="dlg-stage">
         <div class="dlg-left">
@@ -4263,7 +4282,7 @@
       <div class="sp-rule"></div>
       <div class="sp-sub" id="sp-sub"></div>
     </div>
-    <div id="inv">
+    <div id="inv" data-overlay="modal">
       <div class="panel">
         <h2>INVENTORY</h2>
         <div class="hint">Click a bag item to equip it · <kbd>I</kbd> or <kbd>Esc</kbd> to close (game pauses)</div>
@@ -4273,7 +4292,7 @@
         </div>
       </div>
     </div>
-    <div id="sheet">
+    <div id="sheet" data-overlay="modal">
       <div class="panel">
         <h2>◆ CRAWLER PROFILE <span class="sub" id="sheet-sub"></span></h2>
         <div class="hint">The System's file on you · <span class="hoverword">hover</span><span class="tapword">tap</span> anything for the math ·
@@ -4326,15 +4345,15 @@
       <button id="t-stairs">Descend</button>
     </div>
     <!-- Phone landscape gate (body.phone + portrait orientation, see CSS). -->
-    <div id="mapbig-scrim"></div>
-    <div id="rotate">
+    <div id="mapbig-scrim" data-overlay="modal"></div>
+    <div id="rotate" data-overlay="rotate-gate">
       <b>Rotate Your Device</b>
       <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>
     </div>
 
     <!-- THE VERDICT (COMPETITIVE.md 6). Default state = grade, named death,
          one earned line, buttons. Everything you argue about is behind TAB. -->
-    <div id="recap">
+    <div id="recap" data-overlay="modal">
       <div class="panel">
         <div class="verdict">
 
@@ -4376,7 +4395,7 @@
         <div class="rhint">HOLD <kbd>TAB</kbd> — SCOREBOARD, SPLITS AND THE BUILD</div>
       </div>
 
-      <div id="recap-tab">
+      <div id="recap-tab" data-overlay="modal">
         <div class="sheet set-frame">
           <div class="kicker">◆ THE TAPE ◆</div>
           <h2>THE POST-RUN SCOREBOARD</h2>
@@ -4412,7 +4431,7 @@
         </div>
       </div>
     </div>
-    <div id="loading">
+    <div id="loading" data-overlay="modal">
       <div class="l-frame">
         <div class="l-kicker">◆ INCOMING TRANSMISSION ◆</div>
         <div class="l-title">DUNGEON CRAWLER CLAUDE</div>
@@ -4422,7 +4441,7 @@
         <div class="l-phase" id="loading-phase">ESTABLISHING UPLINK</div>
       </div>
     </div>
-    <div id="menu">
+    <div id="menu" data-overlay="modal">
       <div id="m-skin-label">
         <b id="m-skin-name">THE KNIGHT</b>
         <small>CLICK A CRAWLER OR ← → · COSMETIC ONLY — THE CONSTELLATION IS THE BUILD</small>
@@ -4544,7 +4563,7 @@
     <!-- THE STANDINGS (COMPETITIVE.md 3): seeded contracts, the museum
          boards, per-band splits and rival contracts. After #menu in the DOM
          so it wins the z 28 tie and covers check-in. -->
-    <div id="ladder">
+    <div id="ladder" data-overlay="modal">
       <div class="set-frame">
         <button class="set-close" id="ladder-close">CLOSE <kbd>ESC</kbd></button>
         <div class="kicker">◆ THE NETWORK KEEPS SCORE ◆</div>
@@ -4560,7 +4579,7 @@
       </div>
     </div>
     <!-- THE CRAWLER (COMPETITIVE.md 5.2): the career worth staring at. -->
-    <div id="career">
+    <div id="career" data-overlay="modal">
       <div class="set-frame">
         <button class="set-close" id="career-close">CLOSE <kbd>ESC</kbd></button>
         <div class="kicker">◆ PERSONNEL FILE ◆</div>
@@ -4570,7 +4589,7 @@
       </div>
     </div>
     <!-- CONSENT (COMPETITIVE.md 8.1): once, before the first submit ever. -->
-    <div id="consent">
+    <div id="consent" data-overlay="modal">
 
       <div class="card">
         <div class="kicker">◆ BEFORE YOUR FIRST SUBMISSION ◆</div>

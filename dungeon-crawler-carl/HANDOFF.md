@@ -77,31 +77,48 @@ and glyph socketing. Everything maps onto the SAME `Intent` the keyboard
 produces — no host-side rules.
 
 Design critiques scored **6.5** then **7.0** against an 8.0 bar on six spec
-contradictions. **All six are now DECIDED on paper — `MOBILE.md` §2.0 is the
-decision register and it outranks every other section of that doc.** Nothing is
-implemented against them yet. Summary:
+contradictions. **All six are DECIDED in `MOBILE.md` §2.0 (the decision
+register, which outranks every other section of that doc) and all six are now
+IMPLEMENTED on `trk-mobile`**, each with the test that holds it. Summary:
 
 | # | was | now |
 |---|---|---|
-| 1 | AIMING promoted on `travel > 18px` OR `dwell > 90ms`; a deliberate tap runs 100–300ms | travel only, from a **leaky origin** (`ORIGIN_LEAK = 40 px/s`, frozen on promotion). No time term exists in the ability FSM. §2.4a |
-| 2 | max range = "1.0 stick-radius from the chip"; R was a clamped viewport function spanning 36–123px | `aimThrow = 18mm` (94–110px), its own hand-scale quantity, `buttonScale` not `stickScale`; `cancelRadius = 0.34 × aimThrow`; ordering asserted. §2.4b |
-| 3 | tap ≤ 200ms, long-press 450ms — the 200–450ms band resolved to **nothing** | tap ceiling deleted (`TAP_MS` gone). Release before the 450ms arm = move, after = ping. §2.5a |
-| 4 | `comfortable = clamp(0.55 × shortEdge, 150, 300)` — one formula, and its clamp gave every tablet the same number anyway | reach is anthropometry: `48mm` / `66mm` through a per-class `MM_PER_PX` table. Phones gain 31% of arc, tablets lose 17%. §3.2 |
-| 5 | tablet side pivot at `0.62 H` reproduced the phone layout §1.5 condemns | pivot kept, **fan** fixed: corner grip +6°…+96°, side grip −46°…+46° at `0.58 H`, with four asserted invariants incl. "no combat chip in the top 32% of the safe box". §4.2a |
-| 6 | `setModalOpen(boolean)` over a hand-maintained list of 9 element IDs, missing `#ladder`/`#career`/`#consent`/`#loading`/`#recap-tab`/`#rotate` and every no-event path | refcounted input authority, 8 enumerated suspend reasons driven by `body.modal` + a `test/panels.test.ts` that catches new overlays, + an 8s stuck-pointer reaper. §2.9a |
+| 1 | AIMING promoted on `travel > 18px` OR `dwell > 90ms`; a deliberate tap runs 100–300ms | travel only, from a **leaky origin** (`ORIGIN_LEAK = 40 px/s`, frozen on promotion). No time term exists in the ability FSM. §2.4a — **SHIPPED**: `AbilityButton.move()`; the five speed rows + byte-identical Intent in `test/touchIntent.test.ts` |
+| 2 | max range = "1.0 stick-radius from the chip"; R was a clamped viewport function spanning 36–123px | `aimThrow = 18mm` (94–110px), its own hand-scale quantity, `buttonScale` not `stickScale`; `cancelRadius = 0.34 × aimThrow`; ordering asserted. §2.4b — **SHIPPED**, plus `aimPlacement()` for the placed-shape half |
+| 3 | tap ≤ 200ms, long-press 450ms — the 200–450ms band resolved to **nothing** | tap ceiling deleted (`TAP_MS` gone). Release before the 450ms arm = move, after = ping. §2.5a — **SHIPPED**; 11 durations asserted to produce exactly one Intent each |
+| 4 | `comfortable = clamp(0.55 × shortEdge, 150, 300)` — one formula, and its clamp gave every tablet the same number anyway | reach is anthropometry: `48mm` / `66mm` through a per-class `MM_PER_PX` table. Phones gain 31% of arc, tablets lose 17%. §3.2 — **SHIPPED**, with a 38–62mm player slider |
+| 5 | tablet side pivot at `0.62 H` reproduced the phone layout §1.5 condemns | pivot kept, **fan** fixed: corner grip +6°…+96°, side grip −46°…+46° at `0.58 H`, with four asserted invariants incl. "no combat chip in the top 32% of the safe box". §4.2a — **SHIPPED**; three of four invariants are structural (a cluster box the relaxation pass cannot escape), all four asserted over 6 viewports × 2 hands × 8 slider positions |
+| 6 | `setModalOpen(boolean)` over a hand-maintained list of 9 element IDs, missing `#ladder`/`#career`/`#consent`/`#loading`/`#recap-tab`/`#rotate` and every no-event path | refcounted input authority, 8 enumerated suspend reasons driven by `body.modal` + a `test/panels.test.ts` that catches new overlays, + an 8s stuck-pointer reaper. §2.9a — **SHIPPED**; overlays declare `data-overlay` in the markup and the test parses the screen-zone map |
 
 Four of the six were one mistake: *a quantity set by the hand written as a
 function of the screen.* §2.0 splits hand-scale (mm) from screen-scale
-(viewport fractions) and that split is now load-bearing.
+(viewport fractions) and that split is now load-bearing, and it is what
+`computeZones()` is organised around.
 
-Implementation cost of the resolutions: +2.5 engineer-days (1d in Phase A's
-`touchLayout.ts`, 1.5d in Phase C's FSM + input authority). Total round ~33d.
+**Implementation round 1 landed** — see the commit on `trk-mobile` and the
+"IMPLEMENTED" table at the top of `MOBILE.md`, which also records the three
+places the implementation had to contradict the prose (the corner CANCEL band
+cannot sit above the cluster; `rf` runs past 1.0 on a corner fan; the size
+slider is a request the packer may refuse). Evidence lives in
+`tools/_mobile/i2.log` and `tools/_mobile/i3.log`.
 
-Then: control skin + customisation surface (size/opacity, mirrored left-handed
-layout, and confirm the mobile quality preset auto-selects sanely in
-`src/render3d/quality.ts`), the full device x scene capture matrix, and a
-desktop regression pass — keyboard+mouse movement, casting, aiming, shop and
-panels. Touch is additive; it may not cost the desktop game anything.
+**Still open in this track:**
+
+- §3.1 THE INDICATOR. Untouched this round. `setAimIndicator` still has three
+  shapes (no cone, no scatter), still paints gold `#c9a24b` at 0.42 with no
+  outline, and §1.6 measured its contribution to the frame at or below the
+  scene's own churn. `aimSpec.aimPlacement()` now supplies the placement half
+  of §2.4b, so the geometry is ready for the renderer work.
+- **The boss health plate versus the read band.** §4.2a rule 1 is structural in
+  the zone table, and `tools/_mobile/i1/iphone13-land-combat.png` showed the
+  plate itself running to 60% of the safe height and swallowing the cluster's
+  inboard rank. A compact `(pointer: coarse)` treatment now docks the plate
+  under the safe inset and stands the SYSTEM/CRAWLER row down while it is up;
+  the rest of §4.2's "top HUD collapses on compact" is not done.
+- The device x scene capture matrix beyond `combat` (shop, constellation,
+  sheet, inventory, the four aim scenes) has not been re-shot since the layout
+  moved, and the §8.3 real-hardware gate still owes: `ORIGIN_LEAK` against a
+  real thumb, `MM_PER_PX` against a real panel, and what preset Safari picks.
 
 ## 3. Standing bars
 

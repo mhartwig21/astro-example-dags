@@ -1,8 +1,10 @@
 import type { Vec2 } from "../sim/types";
 import {
-  computeZones, hitControl, hitZone, inRect, DEFAULT_LAYOUT_PREFS,
+  computeZones, hitControl, hitZone, inRect, AIM_SLOP, DEFAULT_LAYOUT_PREFS,
   type ControlId, type Rect, type ZoneTable,
 } from "./touchLayout";
+
+export { AIM_SLOP };
 
 /**
  * Touch controls — the third Intent producer beside keyboard/mouse (input.ts)
@@ -16,13 +18,19 @@ import {
  *              ghost at the last lift, and a flick recogniser that reads RAW
  *              pointer velocity (recentring clamps displacement, so a flick
  *              measured from displacement is unmeasurable).
- *   ability    IDLE -> PRESSED -(travel > 18px)-> AIMING -> CANCEL, with the
- *              transition to AIMING on TRAVEL ALONE. No dwell term: a
- *              deliberate human tap is 100-150 ms of contact, and a dwell
- *              threshold would drop the most-used verb in the game into an
- *              undefined state. Dwell may only reveal the indicator.
- *   world      tap = move/select, tap on a monster = lock + attack, long press
- *              = ping, two fingers inside a budget = dash.
+ *   ability    IDLE -> PRESSED -(travel > AIM_SLOP from a LEAKY origin)->
+ *              AIMING -> CANCEL. TRAVEL ONLY: no time term exists in this
+ *              machine, at any threshold, in any mode. The origin follows the
+ *              finger at ORIGIN_LEAK while PRESSED and freezes on promotion,
+ *              which is what makes a 3-second hold a tap and a 300 px/s drag
+ *              an aim without consulting a clock.
+ *   world      ONE threshold: travel <= TAP_TRAVEL and released before the
+ *              ping arms = move order at any duration; held to LONG_PRESS_MS
+ *              = ping; travel past TAP_TRAVEL aborts both. No dead band.
+ *
+ * INPUT AUTHORITY. Gameplay is live iff the suspend-reason set is empty
+ * (suspend/resume, refcounted, eight enumerated reasons) — plus an 8-second
+ * stuck-pointer reaper for the platform paths that fire no event at all.
  *
  * Every gesture has exactly ONE owner, decided at pointerdown by the
  * precedence in routeDown() and never reassigned. Two fingers are two
@@ -42,14 +50,37 @@ import {
 export const STICK_DEADZONE = 0.14;
 /** Past this many radii from the origin, the origin slides under the thumb. */
 export const RECENTER_AT = 1.35;
-/** Finger travel (px) that turns a chip press into a drag-aim. */
-export const DRAG_SLOP = 18;
-/** Dragging back within this many px of the press cancels the cast. */
-export const CANCEL_RADIUS = 34;
-/** World-zone tap: up inside this long and this short a travel. */
-export const TAP_MS = 200;
+/**
+ * THE PRESS ORIGIN FOLLOWS THE FINGER AT 40 CSS px/s (~6.6 mm/s) WHILE
+ * PRESSED, AND FREEZES ON PROMOTION TO AIMING (MOBILE.md 2.4a).
+ *
+ * Deleting the old dwell term was necessary and not sufficient. A stationary
+ * thumb is not stationary: as the pad flattens under pressure the reported
+ * contact centroid creeps 1-4 mm over 300-800 ms, which is 6-24 CSS px — so a
+ * 500 ms tap crossed a fixed 18 px travel threshold without the player moving
+ * their thumb at all.
+ *
+ * 40 px/s sits above every drift regime and an order of magnitude below every
+ * deliberate one. The consequences are arithmetic, and they are the test rows:
+ * 12 px/s of centroid creep and 30 px/s of bus-and-shaky-hand drift never
+ * promote at any duration; a deliberate slow aim at 100 px/s promotes after
+ * 18/(100-40) = 300 ms; an ordinary 300 px/s drag after 69 ms; a 900 px/s
+ * flick-aim after 21 ms.
+ */
+export const ORIGIN_LEAK = 40;
+/** World-zone tap: this much travel, at ANY duration. There is no tap ceiling. */
 export const TAP_TRAVEL = 16;
-/** World-zone hold that drops a party ping. */
+/**
+ * The ONLY time threshold in the world recogniser (MOBILE.md 2.5a).
+ *
+ * The old pair (tap = up within 200 ms, long press = 450 ms held) left the
+ * 200-450 ms band assigned to nothing — traced in the shipped router it was
+ * literally `else { }` — and that is exactly the band a deliberate tap under
+ * combat load lands in. The failure mode is the worst available: the finger
+ * lifts and the game does not respond, which reads as a dropped input rather
+ * than a rejected one. `TAP_MS` is deleted; a release before the ping arms is
+ * a move order at 40 ms or at 400 ms.
+ */
 export const LONG_PRESS_MS = 450;
 /** Two pointers landing this close together are a two-finger candidate. */
 export const TWO_FINGER_WINDOW = 120;
@@ -72,8 +103,42 @@ export const FLICK_MIN_STEP_R = 0.25;
 export const FLICK_DEBOUNCE_MS = 350;
 /** A queued second cast lives this long, and only one is ever held. */
 export const QUEUE_MS = 250;
-/** After a modal opens or closes, pointers are deaf for this long. */
+/** After the LAST suspend reason clears, pointers are deaf for this long. */
 export const MODAL_GATE_MS = 120;
+/**
+ * A pointer role with no move and no lift for this long is reaped.
+ *
+ * The belt to `hidden`'s braces: iOS Safari does not reliably fire
+ * pointercancel when the page is backgrounded, an incoming call arrives, or
+ * the notification shade is pulled — the captured pointer simply stops
+ * existing and the stick stays pushed. There is no legitimate 8-second
+ * motionless hold in this game (the basic-attack chip repeats on castHeld,
+ * which the reaper releases, and a player genuinely still holding it
+ * re-presses in one frame), so the layer never trusts a pointer to tell it
+ * when it died.
+ */
+export const POINTER_TTL = 8000;
+
+/**
+ * WHY THIS IS A SET AND NOT A BOOLEAN (MOBILE.md 2.9a).
+ *
+ * The shipped fix was `setModalOpen(boolean)` driven by a hand-maintained list
+ * of nine element IDs, which missed six live overlays (#ladder, #career,
+ * #consent, #loading, #recap-tab and #rotate — the one overlay that
+ * deliberately outranks everything), missed every non-full-screen [data-sheet],
+ * and missed every path that fires no DOM event at all. A boolean also
+ * un-suspends on the FIRST close when two reasons overlap: descending opens
+ * the SPONSOR DRAFT on top of the safe room, measured.
+ */
+export type SuspendReason =
+  | "modal"          // body.modal, and ONLY body.modal
+  | "sheet"          // a visible [data-sheet] bottom sheet
+  | "rotate-gate"    // #rotate; z 40, deliberately outranks body.modal
+  | "orientation"    // held until 250ms after the last visualViewport resize
+  | "hidden"         // visibilitychange -> hidden, pagehide, window.blur
+  | "not-playing"    // state.status !== "playing"
+  | "editor"         // CUSTOMISE CONTROLS
+  | "system-gesture"; // contextmenu, iOS gesturestart
 
 export type CastMode = "tap" | "tap-release" | "aim-only";
 
@@ -196,36 +261,75 @@ export class AbilityButton {
   mode: CastMode = "tap-release";
   /** Live CANCEL band rect (screen px); null while none is painted. */
   cancelBand: Rect | null = null;
-  /** Drag length that means "maximum range" — the stick radius. */
-  aimRadius = 60;
-  /** Scales with buttonScale, so it can cross DRAG_SLOP; the FSM copes. */
-  cancelRadius = CANCEL_RADIUS;
+  /**
+   * Drag length that means "maximum range" — its OWN hand-scale quantity
+   * (18 mm, 88-124 CSS px), not the movement stick's radius on the other hand.
+   * Borrowing R made the full-range throw span 36-123 px across the matrix,
+   * and at the small end the entire aim range lived inside the cancel radius:
+   * maximum range and "never mind" were the same gesture (MOBILE.md 2.4b).
+   */
+  aimThrow = 109;
+  /** Set from the zone table: clamp(0.34 * aimThrow, 30, 42). */
+  cancelRadius = 37;
+  /**
+   * The press origin. LEAKY while PRESSED (see ORIGIN_LEAK), FROZEN the
+   * instant the state promotes to AIMING — the aim vector, the range fraction
+   * and the cancel radius are all measured from the frozen point, so the leak
+   * can never distort an aim in progress.
+   */
   private origin: Vec2 | null = null;
   private current: Vec2 = { x: 0, y: 0 };
+  /** Previous reported contact: what the leak chases. See move(). */
+  private last: Vec2 = { x: 0, y: 0 };
+  private lastT = 0;
   private aimOut: Vec2 = { x: 0, y: 0 };
   /**
    * The return-home cancel only ARMS once the thumb has actually left the
-   * cancel radius. Without this, every short aim (slop is 18 px, the cancel
-   * radius 34) would be born already cancelled — the two thresholds cross,
-   * and a state machine that only works at default settings is not one.
+   * cancel radius, so a short aim is never born already cancelled. With the
+   * ordering AIM_SLOP < cancelRadius < 0.5 * aimThrow asserted in
+   * computeZones(), a promotion at 18 px is always INSIDE the cancel radius,
+   * which is exactly why this latch has to exist.
    */
   private armed = false;
 
   /** Returns true when the mode says "fire on touchdown" (tap mode). */
-  down(x: number, y: number): boolean {
+  down(x: number, y: number, t = 0): boolean {
     this.origin = { x, y };
     this.current.x = x; this.current.y = y;
+    this.last.x = x; this.last.y = y;
+    this.lastT = t;
     this.state = "pressed";
     this.armed = false;
     return this.mode === "tap";
   }
 
-  move(x: number, y: number): void {
+  move(x: number, y: number, t = this.lastT): void {
     const o = this.origin;
     if (!o) return;
+    if (this.state === "pressed") {
+      // THE LEAK CHASES THE PREVIOUS CONTACT POINT, NOT THIS ONE.
+      //
+      // Leaking toward the current sample would drag the origin along with a
+      // deliberate flick — the faster the drag, the faster the origin runs
+      // after it, and nothing would ever promote. Chasing where the finger
+      // already WAS makes the origin a rate-limited follower with exactly one
+      // sample of lag, which is the continuous model the numbers above were
+      // derived from: travel grows at (v - ORIGIN_LEAK) for v > ORIGIN_LEAK,
+      // and does not grow at all below it.
+      const dt = Math.max(0, (t - this.lastT) / 1000);
+      const gx = this.last.x - o.x, gy = this.last.y - o.y;
+      const g = Math.hypot(gx, gy);
+      const step = Math.min(g, ORIGIN_LEAK * dt);
+      if (g > 1e-6 && step > 0) { o.x += (gx / g) * step; o.y += (gy / g) * step; }
+    }
+    this.last.x = x; this.last.y = y;
+    this.lastT = t;
     this.current.x = x; this.current.y = y;
     const travel = Math.hypot(x - o.x, y - o.y);
-    if (this.state === "pressed" && travel > DRAG_SLOP) this.state = "aiming";
+    // TRAVEL ONLY. No time term exists in this machine, at any threshold, in
+    // any mode: every platform that has shipped a tap recogniser to a billion
+    // hands agrees that duration does not classify a tap.
+    if (this.state === "pressed" && travel > AIM_SLOP) this.state = "aiming";
     if (travel > this.cancelRadius) this.armed = true;
     if (this.state === "aiming" || this.state === "cancel") {
       const bail = (this.armed && travel <= this.cancelRadius) ||
@@ -243,12 +347,17 @@ export class AbilityButton {
     return this.aimOut;
   }
 
-  /** 0..1 of the ability real range: 1.0 stick-radius of drag = maximum. */
+  /**
+   * 0..1 of the ability real range. OVER-THROW IS FREE: any drag past
+   * `aimThrow` clamps to 1.0, because the thumb runs out of screen long before
+   * it runs out of intent on a 342 px-tall viewport, and punishing that would
+   * be punishing the device.
+   */
   get aimFrac(): number {
     const o = this.origin;
     if (!o) return 0;
     const m = Math.hypot(this.current.x - o.x, this.current.y - o.y);
-    return Math.max(0, Math.min(1, m / Math.max(1, this.aimRadius)));
+    return Math.max(0, Math.min(1, m / Math.max(1, this.aimThrow)));
   }
 
   get inCancel(): boolean { return this.state === "cancel"; }
@@ -261,6 +370,10 @@ export class AbilityButton {
     if (!o) return { kind: "cancel" };
     if (st === "cancel") return { kind: "cancel" };
     if (st === "pressed") {
+      // THE TAP BAND: 0 -> 18 px of leak-corrected travel, at ANY duration.
+      // A 40 ms tap and a 3 s hold-and-release produce a byte-identical
+      // Intent, and test/touchIntent.test.ts asserts equality, not similarity.
+      //
       // aim-only exists so an ultimate can be made to REQUIRE a drag: a
       // release below the slop is a change of mind, not a cheap cast.
       return this.mode === "aim-only" ? { kind: "cancel" } : { kind: "tap" };
@@ -269,11 +382,19 @@ export class AbilityButton {
     const mag = Math.hypot(ax, ay);
     // A drag that went out and came home is a change of heart, not a cast.
     if (this.armed && mag <= this.cancelRadius) return { kind: "cancel" };
-    // ...and a drag whose magnitude died inside the dead zone resolves as a
-    // SMART cast. No path through this machine casts with an undefined
-    // direction; test/touchIntent.test.ts asserts it directly.
-    if (mag < STICK_DEADZONE * this.aimRadius) return { kind: "tap" };
-    return { kind: "aimed", aim: { x: ax, y: ay }, frac: Math.max(0, Math.min(1, mag / Math.max(1, this.aimRadius))) };
+    // A DEFENSIVE FLOOR, DOCUMENTED AS UNREACHABLE BY CONSTRUCTION. The old
+    // "release below the stick dead zone resolves as a smart cast" special
+    // case was unreachable at defaults (0.14 x 55 = 7.7 px, well inside the
+    // 34 px cancel radius) and UNDEFINED at other slider positions, because
+    // cancelRadius scaled with buttonScale and the slop did not. With
+    // AIM_SLOP < cancelRadius asserted, an unarmed release below the slop can
+    // only happen if a host drove move() out of order; it still resolves as a
+    // smart cast rather than a zero-length aim.
+    if (mag < AIM_SLOP) return { kind: "tap" };
+    return {
+      kind: "aimed", aim: { x: ax, y: ay },
+      frac: Math.max(0, Math.min(1, mag / Math.max(1, this.aimThrow))),
+    };
   }
 
   /** Interruption: refund-identical to a cancel-band exit. */
@@ -332,6 +453,8 @@ interface PointerRole {
   t0: number;
   /** LOCAL time of the press: compared only against this.now(). */
   tLocal: number;
+  /** LOCAL time of the last event on this pointer — the TTL reaper reads it. */
+  seen: number;
   moved: number;
   consumed: boolean; // resolved early: the lift must not also produce a tap
   armed?: boolean; // held past the long-press threshold; the ping is armed
@@ -403,7 +526,7 @@ export class TouchController {
   private pressedSlot = -1;
   private attackHeld = false;
   private attackLatch = false; // a tap shorter than one sim step still lands
-  private modalOpen = false;
+  private readonly reasons = new Set<SuspendReason>();
   private gateUntil = -Infinity;
   private queued: { slot: number; at: number } | null = null;
   private twoCandidate: { ids: number[]; t0: number } | null = null;
@@ -432,8 +555,9 @@ export class TouchController {
   setZones(z: ZoneTable): void {
     this.zones = z;
     this.stick.radius = z.stickRadius;
-    this.btn.aimRadius = z.stickRadius;
-    this.btn.cancelRadius = CANCEL_RADIUS;
+    // Two different hands, two different quantities, two different sliders.
+    this.btn.aimThrow = z.aimThrow;
+    this.btn.cancelRadius = z.cancelRadius;
   }
 
   /** DOM-measured chip rects (the chips keep their CSS home; we cache boxes). */
@@ -467,18 +591,49 @@ export class TouchController {
 
   // ---------------------------------------------------------------- gates
   /**
-   * The modal gate (MOBILE.md 2.9). Opening a panel refunds every live
-   * gameplay gesture and marks its pointers DEAD, so the trailing pointerup
-   * cannot resolve as a cast that detonates when the panel closes.
+   * THE INPUT AUTHORITY (MOBILE.md 2.9a). Idempotent per reason; gameplay
+   * input is live iff the reason set is EMPTY.
+   *
+   * Raising ANY reason resolves every live gameplay pointer as cancel —
+   * refund-identical to a cancel-band exit: no cooldown, no charge, no queued
+   * cast, stick zeroed the same frame — and marks those pointerIds dead so the
+   * trailing lift is routed to nothing.
+   *
+   * Explicitly NOT reasons: hit-stop and any sim freeze. The
+   * acknowledge-inside-one-frame rule exists precisely so a press during a
+   * frozen sim looks alive; suspending there would be the opposite of the fix.
    */
-  setModalOpen(open: boolean, now = this.now()): void {
-    if (this.modalOpen === open) return;
-    this.modalOpen = open;
-    this.cancelAll(now);
+  suspend(reason: SuspendReason, now = this.now()): void {
+    if (this.reasons.has(reason)) return;
+    this.reasons.add(reason);
+    this.cancelAll(now, false);
   }
 
-  /** Orientation change / disable / modal: one refund path for all of them. */
-  cancelAll(now = this.now()): void {
+  /**
+   * Clearing the LAST reason starts a MODAL_GATE_MS deaf frame on the local
+   * clock; any pointer still on the glass stays dead until it lifts. Closing a
+   * panel with a finger already down must not start a cast, and a panel must
+   * not accept the same press that dismissed the thing before it.
+   *
+   * Refcounted, so draft-over-safe-room resumes only when BOTH are gone — the
+   * measured case a boolean got wrong.
+   */
+  resume(reason: SuspendReason, now = this.now()): void {
+    if (!this.reasons.delete(reason)) return;
+    if (this.reasons.size === 0) this.gateUntil = now + MODAL_GATE_MS;
+  }
+
+  get suspended(): boolean { return this.reasons.size > 0; }
+  /** Debug/harness: which reasons are holding input right now. */
+  suspendReasons(): SuspendReason[] { return [...this.reasons]; }
+
+  /** Compat shim for the one caller that only knows about panels. */
+  setModalOpen(open: boolean, now = this.now()): void {
+    if (open) this.suspend("modal", now); else this.resume("modal", now);
+  }
+
+  /** Orientation change / disable / suspend: one refund path for all of them. */
+  cancelAll(now = this.now(), gate = true): void {
     if (this.aimingSlot >= 0 || this.pressedSlot >= 0) {
       this.btn.interrupt();
       this.onFeedback?.({ kind: "cancel", slot: this.aimingSlot >= 0 ? this.aimingSlot : this.pressedSlot });
@@ -494,7 +649,7 @@ export class TouchController {
     }
     this.stick.up();
     this.onStick?.(null, ZERO);
-    this.gateUntil = now + MODAL_GATE_MS;
+    if (gate) this.gateUntil = now + MODAL_GATE_MS;
   }
 
   private releaseCapture(id: number): void {
@@ -567,11 +722,13 @@ export class TouchController {
     if (!this.enabled || e.pointerType === "mouse") return;
     const now = this.stamp(e);
     const local = this.now();
-    if (this.modalOpen || local < this.gateUntil || !this.isGameplayTarget(e)) {
+    const deaf = this.reasons.size > 0 || local < this.gateUntil;
+    if (deaf || !this.isGameplayTarget(e)) {
       // Deaf, but remembered: the matching up must not fall through to a role.
-      if (this.modalOpen || local < this.gateUntil) {
+      if (deaf) {
         this.roles.set(e.pointerId, {
-          kind: "dead", x0: e.clientX, y0: e.clientY, t0: now, tLocal: local, moved: 0, consumed: true,
+          kind: "dead", x0: e.clientX, y0: e.clientY, t0: now, tLocal: local,
+          seen: local, moved: 0, consumed: true,
         });
       }
       return;
@@ -593,7 +750,8 @@ export class TouchController {
   /** The precedence table (MOBILE.md 2.10), evaluated top to bottom. */
   private routeDown(e: PointerLike, now: number): PointerRole | null {
     const x = e.clientX, y = e.clientY;
-    const base = { x0: x, y0: y, t0: now, tLocal: this.now(), moved: 0, consumed: false };
+    const local = this.now();
+    const base = { x0: x, y0: y, t0: now, tLocal: local, seen: local, moved: 0, consumed: false };
     // 2. a chip
     const ctl = this.chipUnder(e, x, y);
     if (ctl) {
@@ -622,7 +780,7 @@ export class TouchController {
         return { kind: "ignored", ...base };
       }
       this.btn.mode = this.castModes[slot] ?? "tap-release";
-      const fireNow = this.btn.down(x, y);
+      const fireNow = this.btn.down(x, y, now);
       this.pressedSlot = slot;
       this.onFeedback?.({ kind: "press", slot });
       if (fireNow) {
@@ -676,6 +834,7 @@ export class TouchController {
   private onMove(e: PointerLike): void {
     const role = this.roles.get(e.pointerId);
     if (!role || role.kind === "dead") return;
+    role.seen = this.now();
     const dx = e.clientX - role.x0, dy = e.clientY - role.y0;
     role.moved = Math.max(role.moved, Math.hypot(dx, dy));
     if (role.kind === "stick") {
@@ -693,7 +852,7 @@ export class TouchController {
       const wasAiming = this.aimingSlot >= 0;
       const wasCancel = this.btn.inCancel;
       this.btn.cancelBand = this.zones.cancelBand;
-      this.btn.move(e.clientX, e.clientY);
+      this.btn.move(e.clientX, e.clientY, this.stamp(e));
       if (this.btn.state === "aiming" || this.btn.state === "cancel") {
         this.aimingSlot = role.slot;
         if (!wasAiming) this.onFeedback?.({ kind: "aimStart", slot: role.slot });
@@ -734,15 +893,21 @@ export class TouchController {
       }
       case "world": {
         if (role.consumed || cancelled) break;
+        // ONE THRESHOLD, NOT TWO — there is no dead band, and no third
+        // outcome. Every pointerup inside TAP_TRAVEL produces exactly one of
+        // two Intents; sliding off past it aborts BOTH and hands the gesture
+        // to the camera recogniser.
+        //
         // BOTH verdicts come from EVENT time. The threshold crossing only ARMS
-        // the ping (ring + buzz, so the hold is acknowledged); the commit
-        // happens here, where the true duration is finally known and a lagging
-        // frame cannot turn a tap into a ping. Sliding off before release
-        // aborts, which is also the better gesture.
-        const dt = now - role.t0;
+        // the ping (ring + buzz, so the hold is acknowledged and the boundary
+        // is announced BEFORE it is crossed); the commit happens here, where
+        // the true duration is finally known and a lagging frame cannot turn a
+        // 110 ms tap into a 450 ms long press — measured, exactly that, when
+        // both were read from one clock.
         if (role.moved > TAP_TRAVEL) break;
+        const dt = now - role.t0;
         if (dt >= LONG_PRESS_MS) { this.pushTap(role.x0, role.y0, true); this.onFeedback?.({ kind: "ping" }); }
-        else if (dt <= TAP_MS) { this.pushTap(role.x0, role.y0, false); this.fb("press"); }
+        else { this.pushTap(role.x0, role.y0, false); this.fb("press"); }
         break;
       }
       case "two": {
@@ -800,6 +965,14 @@ export class TouchController {
   sample(now: number): TouchSample | null {
     const s = this.sampleOut;
     const nowMs = this.now();
+    // THE STUCK-POINTER REAPER. A role that has neither moved nor lifted for
+    // POINTER_TTL is reaped through the same cancelAll() path, because the
+    // platform paths that strand a pointer (backgrounding, an incoming call,
+    // the notification shade) emit no DOM event at all.
+    for (const role of this.roles.values()) {
+      if (role.kind === "dead" || role.kind === "ignored") continue;
+      if (nowMs - role.seen >= POINTER_TTL) { this.cancelAll(nowMs); break; }
+    }
     for (const role of this.roles.values()) {
       if (role.kind !== "world" || role.consumed || role.armed) continue;
       if (nowMs - role.tLocal >= LONG_PRESS_MS && role.moved <= TAP_TRAVEL) {

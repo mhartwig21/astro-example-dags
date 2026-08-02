@@ -135,6 +135,10 @@ function ensureSheet(): HTMLElement {
   if (sheetEl) return sheetEl;
   const el = document.createElement("div");
   el.id = "tsheet";
+  // The `sheet` suspend reason keys off this attribute (MOBILE.md 2.9a): a
+  // bottom sheet is not full-screen so it never sets body.modal, yet it sits
+  // directly on top of the ability cluster.
+  el.dataset.sheet = "math";
   el.innerHTML =
     `<div class="ts-scrim"></div>` +
     `<div class="ts-box"><div class="ts-grip"></div>` +

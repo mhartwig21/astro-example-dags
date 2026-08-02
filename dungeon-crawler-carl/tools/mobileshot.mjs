@@ -600,8 +600,9 @@ const aimScene = (ability, slot = 1) => ({
     await page.waitForTimeout(2200);
     const c = await page.evaluate(CENTRE, '#skills .skill[data-i="' + slot + '"]');
     if (!c) throw new Error("no chip for slot " + slot);
-    // Drag up-screen and inboard: past DRAG_SLOP (22px) and past CANCEL_RADIUS
-    // (34px) — the two thresholds that make aimDir non-null.
+    // Drag up-screen and inboard: past AIM_SLOP (18px, measured from the leaky
+    // origin) and past cancelRadius (32-38px, a hand-scale quantity now) — the
+    // two thresholds that make aimDir non-null.
     const tx = c.x - 150, ty = c.y - 90;
     await touch.down(1, c.x, c.y);
     for (let i = 1; i <= 12; i++) {
@@ -1105,9 +1106,22 @@ async function driveBattery(page, touch, spec) {
       // TWO-FINGER TAP in the world zone, inside the arbitration budget.
       await keepAlive();
       await bankDash();
+      // THE WORLD ZONE NOW RUNS UNDER THE CLUSTER (MOBILE.md 2.10: chips are
+      // evaluated BEFORE zones, and their padded hit rects leave no tappable
+      // interior), so a fraction of the zone is not automatically clear ground.
+      // Both fingers must miss every control or this measures a chip press —
+      // the same class of mistake as driving multi-touch from under a System
+      // card, which cost three rounds of phantom FAILs.
       const w = await page.evaluate(() => {
-        const z = window.__dcc.touch.zones;
-        return { x: Math.round(z.worldZone.x + z.worldZone.w * 0.5), y: Math.round(z.worldZone.y + z.worldZone.h * 0.6) };
+        const t = window.__dcc.touch, z = t.zones.worldZone;
+        const clear = (x, y) => !t.controlAt(x, y) && !t.controlAt(x + 46, y + 12);
+        for (const fx of [0.5, 0.3, 0.2, 0.12, 0.62, 0.72]) {
+          for (const fy of [0.6, 0.35, 0.8, 0.2]) {
+            const x = Math.round(z.x + z.w * fx), y = Math.round(z.y + z.h * fy);
+            if (clear(x, y)) return { x, y };
+          }
+        }
+        return { x: Math.round(z.x + 40), y: Math.round(z.y + z.h * 0.5) };
       });
       const b2 = await snap();
       // Event time decides the budget, so the two lifts go out immediately.
@@ -1278,11 +1292,15 @@ async function driveBattery(page, touch, spec) {
         const q = d.renderer.worldToScreen(m.pos.x, 0.8, m.pos.y);
         return !q || !q.visible || Math.hypot(q.x - x, q.y - y) > 70;
       });
-      for (const fx of [0.5, 0.42, 0.58, 0.35, 0.65, 0.28, 0.72]) {
+      // ...and clear of every CONTROL: the world zone runs under the cluster
+      // (chips win at pointerdown), and the long-press check taps 20px to the
+      // right of this point, so both have to miss.
+      const clearOfChips = (x, y) => !d.touch.controlAt(x, y) && !d.touch.controlAt(x + 20, y);
+      for (const fx of [0.5, 0.42, 0.58, 0.35, 0.28, 0.2, 0.12, 0.65, 0.72]) {
         for (const fy of [0.55, 0.45, 0.65, 0.35, 0.75, 0.85]) {
           const x = Math.round(z.x + z.w * fx), y = Math.round(z.y + z.h * fy);
           const g = d.renderer.screenToGround(x, y);
-          if (walkable(g) && clearOfMobs(x, y)) return { x, y, ground: g };
+          if (walkable(g) && clearOfMobs(x, y) && clearOfChips(x, y)) return { x, y, ground: g };
         }
       }
       // Nothing clear of the pack and the walls: fall back to the middle, but
@@ -1350,7 +1368,12 @@ async function driveBattery(page, touch, spec) {
       // Stage one: park the nearest live monster on the ground point under the
       // middle of the world zone, so the check always has something to tap
       // (on a Pixel-5-shaped screen the pack is often off to one side).
-      const g = d.renderer.screenToGround(z.x + z.w * 0.5, z.y + z.h * 0.5);
+      let sx = z.x + z.w * 0.5, sy = z.y + z.h * 0.5;
+      for (const fx of [0.5, 0.34, 0.22, 0.14, 0.62]) {
+        const x = z.x + z.w * fx;
+        if (!d.touch.controlAt(x, sy)) { sx = x; break; }
+      }
+      const g = d.renderer.screenToGround(sx, sy);
       const m = s.monsters.find((m) => m.hp > 0 && !m.dormant);
       if (g && m) { m.pos.x = g.x; m.pos.y = g.y; }
     });
@@ -1366,6 +1389,9 @@ async function driveBattery(page, touch, spec) {
         const p = r.worldToScreen(m.pos.x, 0.8, m.pos.y);
         if (!p || !p.visible) continue;
         if (p.x < z.x + 8 || p.x > z.x + z.w - 8 || p.y < z.y + 8 || p.y > z.y + z.h - 8) continue;
+        // A monster standing UNDER a chip is a chip press by design (§2.10
+        // evaluates controls before zones), so it cannot measure world tap.
+        if (window.__dcc.touch.controlAt(p.x, p.y)) continue;
         return { id: m.id, x: Math.round(p.x), y: Math.round(p.y) };
       }
       return null;

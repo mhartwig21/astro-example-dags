@@ -9,16 +9,29 @@ import type { Vec2 } from "../sim/types";
  * pointer handler. Pure: viewport + insets + prefs in, a ZoneTable out, so
  * test/touchLayout.test.ts can assert reach and mirroring without a DOM.
  *
- * Two ideas carry the file:
+ * THE ONE IDEA THIS FILE NOW ENFORCES (MOBILE.md §2.0)
  *
- *  1. DEVICE CLASS picks the POSTURE (where the hand grips the slab); the
- *     geometry inside a class is a continuous function of the short edge, so
- *     an 11-inch and a 13-inch tablet do not share one hardcoded arc.
- *  2. THE PIVOT is the thumb root, not the screen corner. A phone in
- *     landscape is held at the bottom corners; a tablet is gripped at the
- *     sides with the thumb rooted well above the corner. Controls sit on an
- *     arc around the pivot whose radius is chosen so every in-combat control
- *     lands inside `comfortable` — and that invariant is a test.
+ * A quantity set by the HAND is authored in MILLIMETRES and converted once
+ * per device class through `MM_PER_PX`; a quantity set by the SCREEN is
+ * authored as a viewport fraction. Four of the six spec contradictions were
+ * the same mistake — a hand quantity written as a function of the screen:
+ *
+ *   hand-scale   stick radius, aim throw, cancel radius, chip size, reach arcs
+ *   screen-scale zone rectangles, the status band, the world zone, the caps
+ *
+ * The viewport decides how much ROOM those quantities have (the caps below),
+ * never how BIG they are. A thumb is 48 mm on a 6.0" Pixel and on a 12.9"
+ * iPad, and a CSS pixel is not: iOS ships tablets at a deliberately lower
+ * point density than phones, which is exactly why the old short-edge model
+ * cramped phones by 31% and oversized tablets by 17% with one formula.
+ *
+ * The second idea: DEVICE CLASS picks the POSTURE, and posture selects pivot,
+ * radius cap AND fan together (§4.2a). A phone in landscape is held at the
+ * bottom corners, so its fan climbs up-and-inboard (there is nothing below a
+ * corner). A tablet is gripped at the SIDES with the thumb rooted well above
+ * the corner, so its fan is symmetric about the inboard horizontal — fanning a
+ * side grip upward wastes half the thumb's arc and spends the other half on
+ * the playfield, which is the geometry §1.5 condemns on the phone.
  *
  * Left-handed is a single reflection of the table about the viewport vertical
  * centre line: zones are data, so mirroring is arithmetic.
@@ -40,18 +53,65 @@ export const COMBAT_CONTROLS: ControlId[] = [
   "slot0", "slot1", "slot2", "slot3", "slot4", "flask", "context", "lock",
 ];
 
+/**
+ * MILLIMETRES PER CSS PIXEL, per class (MOBILE.md §2.0).
+ *
+ * Derived from published panel dimensions, not measured through the browser —
+ * an emulator reports the descriptor's CSS viewport and dpr, never a physical
+ * size. Spread inside a class is <= 2%, which is what makes a class-wide
+ * constant honest; the residual (and the +/-20% of hand size no formula can
+ * see) is what the player sliders are for.
+ *
+ *   compact   Pixel 5 (393x851 dp, 6.0")                  156.2 dp/in
+ *   phone     iPhone 13 (153.4 pt/in), 13 Pro Max (152.7)
+ *   tablet-s  iPad Pro 11 (132.4), iPad 7 (132.4)
+ *   tablet-l  iPad Pro 12.9 (132.3)
+ */
+export const MM_PER_PX: Record<DeviceClass, number> = {
+  compact: 0.163, phone: 0.165, "tablet-s": 0.192, "tablet-l": 0.192,
+};
+
+/** Anthropometry, not taste — see MOBILE.md §3.2 for the CHI 2011 derivation. */
+export const THUMB_COMFORTABLE_MM = 48;
+export const THUMB_STRETCH_MM = 66;
+/** Flexion of the thumb IP joint: the movement stick's throw. */
+export const STICK_MM = 11;
+/** 1.5 mm of contact jitter over this throw is 4.8 deg of aim error. */
+export const AIM_THROW_MM = 18;
+/** Middle of the 9-11 mm comfortable-target band. */
+export const CHIP_MM = 10.5;
+
+/**
+ * Finger travel that promotes a chip press to AIMING. There is NO time term
+ * anywhere in the ability FSM (§2.4a); this is the whole classifier, and it is
+ * measured from a LEAKY origin (see touch.ts) so a stationary thumb whose
+ * contact centroid creeps 1-4 mm under pressure never crosses it.
+ *
+ * It lives here rather than in touch.ts because `computeZones` asserts the
+ * ordering `AIM_SLOP < cancelRadius < 0.5 * aimThrow` on every device at every
+ * slider position, which is what makes "no cast has an undefined direction"
+ * structural instead of a special case.
+ */
+export const AIM_SLOP = 18;
+
+/** The top of the safe box belongs to the boss plate, banner and HP rail. */
+export const READ_BAND = 0.32;
+
 export interface LayoutPrefs {
   handed: "right" | "left";
   /** Movement stick radius multiplier (0.7 - 1.4). */
   stickScale: number;
-  /** Chip size multiplier (0.7 - 1.4). */
+  /** Chip size multiplier (0.7 - 1.4). ALSO scales the aim throw, never the stick. */
   buttonScale: number;
   /** Extra padding on top of the hardware safe-area inset (0 - 32 px). */
   hudInset: number;
+  /** Comfortable thumb sweep in MILLIMETRES (38 - 62; 5th-95th percentile). */
+  thumbMm?: number;
 }
 
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
   handed: "right", stickScale: 1, buttonScale: 1, hudInset: 12,
+  thumbMm: THUMB_COMFORTABLE_MM,
 };
 
 export interface ControlRect extends Rect {
@@ -76,6 +136,16 @@ export interface ZoneTable {
   cancelBand: Rect;
   /** Floating stick radius in CSS px (dead zone and recentring scale off it). */
   stickRadius: number;
+  /**
+   * Drag length that means "maximum range" for an AIMED cast. Its own
+   * hand-scale quantity: it is NOT the movement stick's radius, and it scales
+   * with buttonScale, never stickScale (§2.4b).
+   */
+  aimThrow: number;
+  /** Returning inside this of the FROZEN press origin abandons the cast. */
+  cancelRadius: number;
+  /** Millimetres per CSS px for this class — published so the host can too. */
+  mmPerPx: number;
   /** Where the resting ghost ring sits before the first touch. */
   stickAnchor: Vec2;
   /** Thumb root for the ability cluster. */
@@ -88,10 +158,25 @@ export interface ZoneTable {
   controls: Record<ControlId, ControlRect>;
 }
 
-/** Short-edge to thumb reach, in CSS px. The rule, not one phone instance of it. */
-export function reachArcs(shortEdge: number): { comfortable: number; stretch: number } {
-  const comfortable = Math.max(150, Math.min(300, 0.55 * shortEdge));
-  return { comfortable, stretch: 1.37 * comfortable };
+/**
+ * Reach is ANTHROPOMETRY, converted per class, then capped by geometry.
+ *
+ * The rejected model was `clamp(0.55 * shortEdge, 150, 300)`, which is
+ * dimensionally wrong — it says a bigger slab grants you a longer thumb — and
+ * whose upper clamp gave a 10.2", an 11" and a 12.9" iPad the identical
+ * number anyway. The clamps here are the geometry check only: an arc cannot
+ * usefully exceed the screen it is drawn on.
+ */
+export function reachArcs(
+  shortEdge: number, cls: DeviceClass = "phone", thumbMm = THUMB_COMFORTABLE_MM,
+): { comfortable: number; stretch: number } {
+  const mm = MM_PER_PX[cls];
+  const c = clamp(thumbMm, 38, 62);
+  const s = c * (THUMB_STRETCH_MM / THUMB_COMFORTABLE_MM);
+  return {
+    comfortable: Math.min(c / mm, 0.80 * shortEdge),
+    stretch: Math.min(s / mm, 1.00 * shortEdge),
+  };
 }
 
 /** Four classes, because 500-744 is a real gap and a 10-inch is not a 13-inch. */
@@ -108,22 +193,56 @@ export function isSideGrip(cls: DeviceClass): boolean {
   return cls === "tablet-s" || cls === "tablet-l";
 }
 
+interface ArcSpec { id: ControlId; ang: number; rf: number; size: number }
+
 /**
- * Cluster arc: angle from the inboard horizontal (0 = straight inboard,
- * 90 = straight up the outer edge) and a fraction of the arc radius. The
- * basic-attack chip sits nearest the thumb root; the ultimate rides up the
- * outer edge where a stray thumb cannot brush it.
+ * CORNER GRIP (compact / phone) — fan +6 to +96 degrees about the inboard
+ * horizontal. There is nothing below a bottom corner, so every angle is
+ * positive; the basic attack sits nearest the root and the ultimate rides the
+ * top of the fan, where a resting thumb cannot brush it.
+ *
+ * WHY `rf` GOES PAST 1.0 HERE AND NOT ON THE TABLET. `arcRadius` is capped by
+ * the posture's share of the safe height (0.58), which on a 342 px-tall
+ * landscape phone is 172 px — and nine controls with a 44 px hit floor do not
+ * fit inside a 172 px quarter-disc that also has to clear the movement thumb's
+ * zone and the top 32% read band. What DOES fit is two shallow ranks, which is
+ * what the numbers below describe: the fan flattens as the screen does. The
+ * reach invariant is asserted on `fromPivot` against `comfortable` — the thing
+ * the hand actually cares about — not on `rf`, which is only the authoring
+ * unit. Landscape phones clear it only because the millimetre reach model
+ * (§3.2) gave them back the 31% of arc the short-edge model was taking.
  */
-const ARC: { id: ControlId; ang: number; rf: number; size: number }[] = [
-  { id: "slot0", ang: 40, rf: 0.30, size: 1.40 }, // basic attack, hold-to-repeat
-  { id: "flask", ang: -12, rf: 0.66, size: 0.92 },
-  { id: "slot1", ang: 8, rf: 0.74, size: 1.0 },
-  { id: "slot2", ang: 34, rf: 0.80, size: 1.0 },
-  { id: "slot3", ang: 60, rf: 0.80, size: 1.0 },
-  { id: "slot4", ang: 86, rf: 0.72, size: 1.14 }, // ultimate
-  { id: "context", ang: 22, rf: 1.0, size: 0.86 },
-  { id: "lock", ang: 72, rf: 1.0, size: 0.80 },
-  { id: "map", ang: 100, rf: 0.94, size: 0.80 },
+const ARC_CORNER: ArcSpec[] = [
+  // near rank, along the shallow end of the fan
+  { id: "slot0", ang: 25, rf: 0.34, size: 1.40 }, // basic attack, hold-to-repeat
+  { id: "flask", ang: 11, rf: 0.74, size: 0.92 },
+  { id: "slot1", ang: 8, rf: 1.08, size: 1.00 },
+  { id: "slot2", ang: 6, rf: 1.42, size: 1.00 },
+  // far rank, climbing the fan; the ultimate takes the top
+  { id: "slot4", ang: 82, rf: 0.63, size: 1.14 },
+  { id: "slot3", ang: 51, rf: 0.81, size: 1.00 },
+  { id: "lock", ang: 36, rf: 1.06, size: 0.80 },
+  { id: "context", ang: 28, rf: 1.30, size: 0.86 },
+  { id: "map", ang: 23, rf: 1.56, size: 0.80 },
+];
+
+/**
+ * SIDE GRIP (tablet-s / tablet-l) — fan -46 to +46 degrees, SYMMETRIC about
+ * the inboard horizontal. A thumb rooted halfway up the side edge has as much
+ * room below it as above it; the basic attack takes 0 degrees (the
+ * most-pressed position is the shortest reach), the ultimate the top of the
+ * fan, and nothing climbs into the read band.
+ */
+const ARC_SIDE: ArcSpec[] = [
+  { id: "slot0", ang: 0, rf: 0.34, size: 1.40 }, // basic attack, inboard horizontal
+  { id: "slot1", ang: -30, rf: 0.86, size: 1.00 },
+  { id: "slot2", ang: 0, rf: 0.94, size: 1.00 },
+  { id: "slot3", ang: 30, rf: 0.86, size: 1.00 },
+  { id: "slot4", ang: 46, rf: 0.60, size: 1.14 }, // ultimate, top of the fan
+  { id: "flask", ang: -46, rf: 0.58, size: 0.92 },
+  { id: "context", ang: -22, rf: 0.34, size: 0.86 },
+  { id: "lock", ang: 24, rf: 0.36, size: 0.80 },
+  { id: "map", ang: -46, rf: 0.94, size: 0.80 },
 ];
 
 const RAD = Math.PI / 180;
@@ -147,54 +266,39 @@ export function computeZones(
   };
   const shortEdge = Math.min(vw, vh);
   const cls = deviceClass(shortEdge, coarse);
-  const { comfortable, stretch } = reachArcs(shortEdge);
+  const mmPerPx = MM_PER_PX[cls];
+  const bs = clamp(prefs.buttonScale, 0.7, 1.4);
+  const ss = clamp(prefs.stickScale, 0.7, 1.4);
+  const { comfortable, stretch } =
+    reachArcs(shortEdge, cls, prefs.thumbMm ?? THUMB_COMFORTABLE_MM);
   const mirror = prefs.handed === "left";
 
-  // --- cluster ----------------------------------------------------------
-  const chipBase = clamp(0.13 * shortEdge, MIN_TARGET, 76) * clamp(prefs.buttonScale, 0.7, 1.4);
-  const maxHalf = (chipBase * 1.40) / 2; // the biggest chip on the arc
-  const side = isSideGrip(cls);
-  // Corner grip roots the thumb at the bottom outer corner; a side grip roots
-  // it up the outer edge at 62% height. Measured on an iPad, re-pivoting ALONE
-  // moves the problem from the ultimate to the flask — so the radius
-  // compresses with the pivot, and both come from the short edge.
-  const pivotOuter = safe.x + safe.w - 26;
-  const pivot: Vec2 = {
-    x: mirror ? vw - pivotOuter : pivotOuter,
-    y: side ? insets.top + vh * 0.62 : safe.y + safe.h - 26,
-  };
-  // The invariant: centre + half a chip must land inside `comfortable`.
-  const arcRadius = Math.max(64, comfortable - maxHalf - 6);
+  // --- hand-scale quantities -------------------------------------------
+  // Authored in millimetres, converted once, clamped for sanity, THEN scaled
+  // by the player's slider. Note which slider: the aim throw is a BUTTON-hand
+  // quantity and the stick radius a STICK-hand one. Borrowing the stick's
+  // radius for the aim throw is contradiction 2, and it made maximum range and
+  // "never mind" the same gesture at the small end of the matrix.
+  const chipBase0 = clamp(CHIP_MM / mmPerPx, MIN_TARGET, 76) * bs;
+  const aimThrow = clamp(AIM_THROW_MM / mmPerPx, 88, 124) * bs;
+  const stickRadius = clamp(STICK_MM / mmPerPx, 56, 76) * ss;
+  // THE THRESHOLD ORDERING IS STRUCTURAL, not a coincidence of the defaults:
+  //     AIM_SLOP (18) < cancelRadius < 0.5 * aimThrow
+  // 0.34 * aimThrow satisfies it by construction across the whole matrix
+  // (18 < 30..42 < 44..62); the final clamp holds it at extreme slider
+  // positions too, so "no path through the FSM casts with an undefined
+  // direction" needs no special case anywhere.
+  const cancelRadius = clamp(
+    clamp(0.34 * aimThrow, 30, 42),
+    AIM_SLOP + 2, Math.max(AIM_SLOP + 3, 0.5 * aimThrow - 1),
+  );
 
-  const controls = {} as Record<ControlId, ControlRect>;
-  for (const spec of ARC) {
-    const size = Math.max(MIN_TARGET, chipBase * spec.size);
-    // A CORNER GRIP HAS NO ROOM BELOW THE PIVOT. The arc is authored with the
-    // flask just under the horizontal (ang -12), which is right for a side
-    // grip — the tablet pivot sits at 62% height with room underneath. On a
-    // phone the pivot IS the bottom of the safe box, so a negative angle puts
-    // the chip outside it, the clamp drags it back to the edge, and it can
-    // then never move down to make room for its neighbours: the whole cluster
-    // jams against a chip that cannot yield.
-    const ang = side ? spec.ang : Math.max(6, spec.ang);
-    const dx = Math.cos(ang * RAD) * arcRadius * spec.rf;
-    const dy = Math.sin(ang * RAD) * arcRadius * spec.rf;
-    let cx = mirror ? pivot.x + dx : pivot.x - dx;
-    let cy = pivot.y - dy;
-    // Never let a chip hang into a gutter — clamp the CENTRE, then re-measure
-    // reach so the table never lies about where the thumb has to travel.
-    cx = clamp(cx, safe.x + size / 2, safe.x + safe.w - size / 2);
-    cy = clamp(cy, safe.y + size / 2, safe.y + safe.h - size / 2);
-    controls[spec.id] = {
-      id: spec.id, cx, cy, x: cx - size / 2, y: cy - size / 2, w: size, h: size,
-      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
-    };
-  }
-  separate(controls, safe, pivot);
-
-  // --- zones ------------------------------------------------------------
+  // --- zones the cluster must respect -----------------------------------
   // The status band owns the top of the screen; the stick never reaches into
-  // it (that is where the HUD and the transient cards live).
+  // it (that is where the HUD and the transient cards live). Both are computed
+  // BEFORE the cluster, because the cluster is the thing that has to yield: a
+  // chip that a relaxation pass shoved into the movement thumb's territory is
+  // the §1.2 bug with a new cause.
   const bandH = cls === "compact" ? Math.max(38, vh * 0.14) : Math.max(44, vh * 0.15);
   const stickW = Math.min(safe.w * 0.46, vw * 0.46);
   const stickTop = Math.max(safe.y, bandH);
@@ -204,35 +308,135 @@ export function computeZones(
     w: stickW,
     h: Math.max(80, safe.y + safe.h - stickTop),
   };
+
+  // --- cluster ----------------------------------------------------------
+  const side = isSideGrip(cls);
+  const pivotOuter = safe.x + safe.w - 26;
+  const pivot: Vec2 = {
+    x: mirror ? vw - pivotOuter : pivotOuter,
+    // Corner grip roots the thumb at the bottom outer corner; a side grip
+    // roots it up the outer edge at 58% of the safe height, where an 11-inch
+    // slab is actually held.
+    y: side ? safe.y + 0.58 * safe.h : safe.y + safe.h - 26,
+  };
+
+  // THE BOX CHIPS MAY OCCUPY. Three of §4.2a's four invariants become
+  // structural here rather than being asserted and hoped for: the top of the
+  // band never enters the read band (rule 1), the band is never taller than
+  // the posture's share of the safe box (rule 2), and the inboard wall keeps
+  // the cluster out of the movement thumb's zone.
+  const bandFrac = side ? 0.46 : 0.58;
+  const readFloor = safe.y + READ_BAND * safe.h;
+  const box = {
+    x0: mirror ? safe.x : Math.max(safe.x, stickZone.x + stickZone.w),
+    x1: mirror ? Math.min(safe.x + safe.w, stickZone.x) : safe.x + safe.w,
+    y0: Math.max(readFloor, side
+      ? pivot.y - bandFrac * safe.h / 2
+      : safe.y + safe.h - bandFrac * safe.h),
+    y1: Math.min(safe.y + safe.h, side ? pivot.y + bandFrac * safe.h / 2 : safe.y + safe.h),
+  };
+
+  /*
+   * THE SIZE SLIDER IS A REQUEST, NOT A COMMAND.
+   *
+   * Nine controls, a 44 px hit floor and 1.4x buttons do not fit inside a
+   * landscape phone's cluster box — that is arithmetic, not a bug. The old
+   * layout let the relaxation pass resolve it by pushing chips wherever they
+   * would go: past `comfortable`, into the stick zone, off the arc. Two of
+   * those outcomes are worse than a smaller chip.
+   *
+   * So the requested `chipBase` is tried first and stepped down 5% at a time
+   * until the cluster packs without a residual overlap and with every combat
+   * control inside `comfortable`. A player who asks for huge buttons on a
+   * Pixel 5 gets the biggest buttons a Pixel 5 can hold, which is the honest
+   * answer to the request.
+   */
+  const arc = side ? ARC_SIDE : ARC_CORNER;
+  // The outermost COMBAT control sets the radial unit: `rf = 1` is normalised
+  // so that chip lands exactly on `comfortable`. Without this the reach
+  // invariant would hold only where `arcRadius` happens to be the binding cap
+  // — it fails on a 38 mm thumb, which is the 5th-percentile hand the slider
+  // exists to serve.
+  const maxCombatRf = Math.max(
+    ...arc.filter((s) => COMBAT_CONTROLS.includes(s.id)).map((s) => s.rf),
+  );
+  let chipBase = chipBase0;
+  let controls = {} as Record<ControlId, ControlRect>;
+  let arcRadius = 0;
+  for (let attempt = 0; ; attempt++) {
+    const maxHalf = Math.max(MIN_TARGET, chipBase * 1.40) / 2;
+    arcRadius = Math.max(56, Math.min(
+      comfortable - maxHalf - 6,
+      (comfortable - 2) / maxCombatRf,
+      (side ? 0.62 : 0.58) * safe.h,
+    ));
+    controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box);
+    if (attempt >= 12 || clusterFits(controls, comfortable)) break;
+    chipBase *= 0.95;
+  }
+
+  // --- zones ------------------------------------------------------------
   // The world zone is everything between the stick and the cluster.
-  const clusterLeft = Math.min(...ARC.map((s) => controls[s.id].x));
-  const clusterRight = Math.max(...ARC.map((s) => controls[s.id].x + controls[s.id].w));
-  const clusterTop = Math.min(...ARC.map((s) => controls[s.id].y));
+  const ids = Object.keys(controls) as ControlId[];
+  const clusterLeft = Math.min(...ids.map((id) => controls[id].x));
+  const clusterRight = Math.max(...ids.map((id) => controls[id].x + controls[id].w));
+  const clusterBottom = Math.max(...ids.map((id) => controls[id].y + controls[id].h));
+  /*
+   * THE WORLD ZONE RUNS TO THE EDGE, UNDER THE CLUSTER.
+   *
+   * It used to stop at the cluster's left edge, which was fine when the arc
+   * was a tight quarter-disc and fatal once the arc flattened into two ranks:
+   * on a 750 px-wide iPhone the strip between the stick zone and the cluster
+   * measured 37 px, so tap-to-move — a whole verb — had nowhere to land.
+   *
+   * The fix is precedence, not geometry. §2.10 evaluates chips BEFORE zones,
+   * and `hitControl` pads every rect to 44 px plus 6 px of slack while
+   * `separate()` leaves only 2 px of daylight between neighbours: adjacent hit
+   * rects therefore overlap, so the cluster exposes no tappable interior. A
+   * finger in the cluster hits a chip; a finger anywhere else on the right of
+   * the screen gets the world.
+   */
   const worldTop = Math.max(safe.y, bandH * 0.62);
   const worldX = mirror ? safe.x : stickZone.x + stickZone.w;
-  const worldRight = mirror
-    ? Math.max(worldX + 60, Math.min(stickZone.x, clusterLeft))
-    : Math.max(worldX + 60, clusterLeft);
+  const worldRight = mirror ? stickZone.x : safe.x + safe.w;
   const worldZone: Rect = {
     x: worldX, y: worldTop,
-    w: worldRight - worldX,
+    w: Math.max(60, worldRight - worldX),
     h: Math.max(80, safe.y + safe.h - worldTop),
   };
 
-  // CANCEL band: a labelled strip directly above the cluster, inside reach and
-  // wide enough that a panicked thumb finds it without aiming at it.
+  /*
+   * THE CANCEL BAND, and a deliberate departure from §2.2's diagram.
+   *
+   * §4.2a asks for two things that a corner grip cannot both have on a
+   * 293-342 px-tall landscape phone: rule 1 reserves the top 32% of the safe
+   * box for the boss plate / banner / HP rail, rule 2 gives the corner cluster
+   * the 58% below it, and rule 4 forbids the band from entering the top 40%.
+   * A 44 px strip does not fit in the 8% of `safe.h` that leaves — on an
+   * iPhone 13 that is 24 px. "Above the cluster" is therefore unsatisfiable
+   * with the invariants that have a stated rationale.
+   *
+   * So BOTH postures pin the band to a bottom corner of the safe box, clear of
+   * the lowest chip by >= 24 px: bottom-OUTER on a side grip (§4.2a as
+   * written) and bottom-INBOARD on a corner grip, where the cluster already
+   * occupies the outer corner. The gesture is the same in both: drag away from
+   * the cluster into a labelled strip that appears the moment AIMING starts.
+   */
   const bandHeight = Math.max(MIN_TARGET, chipBase * 0.9);
-  const cancelW = Math.min(safe.w * 0.52, Math.max(200, arcRadius * 1.7));
-  const cancelX = mirror
-    ? clamp(clusterLeft - 8, safe.x, safe.x + safe.w - cancelW)
-    : clamp(clusterRight - cancelW + 8, safe.x, safe.x + safe.w - cancelW);
-  const cancelBand: Rect = {
-    x: cancelX,
-    y: clamp(clusterTop - bandHeight - 14, safe.y, safe.y + safe.h - bandHeight),
-    w: cancelW, h: bandHeight,
-  };
+  const cancelW = Math.min(safe.w * 0.42, Math.max(180, arcRadius * 1.4));
+  const cancelX = clamp(
+    side
+      ? (mirror ? safe.x : safe.x + safe.w - cancelW)
+      : (mirror ? clusterRight + 12 : clusterLeft - cancelW - 12),
+    safe.x, Math.max(safe.x, safe.x + safe.w - cancelW),
+  );
+  const cancelY = clamp(
+    side ? Math.max(clusterBottom + 24, safe.y + safe.h - bandHeight)
+      : safe.y + safe.h - bandHeight,
+    safe.y, Math.max(safe.y, safe.y + safe.h - bandHeight),
+  );
+  const cancelBand: Rect = { x: cancelX, y: cancelY, w: cancelW, h: bandHeight };
 
-  const stickRadius = clamp(0.16 * shortEdge, 52, 88) * clamp(prefs.stickScale, 0.7, 1.4);
   const anchorX = mirror ? vw - vw * 0.22 : vw * 0.22;
   const stickAnchor: Vec2 = {
     x: clamp(anchorX, stickZone.x + stickRadius,
@@ -243,12 +447,55 @@ export function computeZones(
 
   return {
     cls, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
-    stickRadius, stickAnchor, pivot, arcRadius, comfortable, stretch, controls,
+    stickRadius, aimThrow, cancelRadius, mmPerPx, stickAnchor, pivot, arcRadius,
+    comfortable, stretch, controls,
   };
 }
 
+interface ClusterBox { x0: number; x1: number; y0: number; y1: number }
+
+/** One placement attempt at a given chip size: polar layout, then relaxation. */
+function placeCluster(
+  arc: ArcSpec[], chipBase: number, arcRadius: number, pivot: Vec2,
+  mirror: boolean, box: ClusterBox,
+): Record<ControlId, ControlRect> {
+  const controls = {} as Record<ControlId, ControlRect>;
+  for (const spec of arc) {
+    const size = Math.max(MIN_TARGET, chipBase * spec.size);
+    const dx = Math.cos(spec.ang * RAD) * arcRadius * spec.rf;
+    const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf;
+    const cx = mirror ? pivot.x + dx : pivot.x - dx;
+    const cy = pivot.y - dy;
+    controls[spec.id] = {
+      id: spec.id, cx, cy, x: cx - size / 2, y: cy - size / 2, w: size, h: size,
+      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
+    };
+  }
+  separate(controls, box, pivot);
+  return controls;
+}
+
+/** Did the attempt pack cleanly AND keep every combat control in reach? */
+function clusterFits(
+  controls: Record<ControlId, ControlRect>, comfortable: number,
+): boolean {
+  const ids = Object.keys(controls) as ControlId[];
+  for (const id of COMBAT_CONTROLS) {
+    if (controls[id].fromPivot > comfortable) return false;
+  }
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = controls[ids[i]], b = controls[ids[j]];
+      const gapX = Math.abs(a.cx - b.cx) - (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
+      const gapY = Math.abs(a.cy - b.cy) - (Math.max(MIN_TARGET, a.h) + Math.max(MIN_TARGET, b.h)) / 2;
+      if (Math.max(gapX, gapY) < 0) return false;
+    }
+  }
+  return true;
+}
+
 /**
-   * NO TWO CHIPS MAY OVERLAP.
+   * NO TWO CHIPS MAY OVERLAP, AND NONE MAY LEAVE THE CLUSTER BOX.
    *
    * The arc is authored in angles and radius fractions, so its spacing scales
    * with `arcRadius` — but the 44px hit-target floor does not. Below roughly
@@ -260,23 +507,33 @@ export function computeZones(
    * Measured on a Pixel 5 (802x293): the flask's rect covered slot 1's own
    * centre, so tapping DASH drank a potion.
    *
-   * This is a few passes of pair relaxation: push overlapping boxes apart along
-   * their axis of LEAST penetration (they are axis-aligned squares, so that is
-   * the cheapest way out), re-clamp into the safe box, repeat. Order-stable
-   * because every pair moves both members by the same half-step, and bounded
-   * because each pass strictly reduces total penetration or stops.
+   * This is a few passes of pair relaxation: push overlapping boxes apart
+   * along the line between their centres, re-clamp into the safe box AND into
+   * the posture's cluster band, repeat. The band clamp is what makes §4.2a's
+   * rules 1 and 2 structural — a chip pushed out of a collision cannot escape
+   * upward into the read band, it has to travel sideways instead.
+   *
+   * Order-stable because every pair moves both members by the same half-step,
+   * and bounded because each pass strictly reduces total penetration or stops.
    */
 function separate(
-  controls: Record<ControlId, ControlRect>, safe: Rect, pivot: Vec2,
+  controls: Record<ControlId, ControlRect>, box: ClusterBox, pivot: Vec2,
 ): void {
   const ids = Object.keys(controls) as ControlId[];
   const GAP = 2; // a hair of daylight, so "adjacent" never rounds into "over"
-  for (let pass = 0; pass < 48; pass++) {
+  const fit = (c: ControlRect): void => {
+    const halfW = Math.max(MIN_TARGET, c.w) / 2, halfH = Math.max(MIN_TARGET, c.h) / 2;
+    c.cx = clamp(c.cx, box.x0 + halfW, Math.max(box.x0 + halfW, box.x1 - halfW));
+    c.cy = clamp(c.cy, box.y0 + halfH, Math.max(box.y0 + halfH, box.y1 - halfH));
+  };
+  for (const id of ids) fit(controls[id]);
+  for (let pass = 0; pass < 64; pass++) {
     let moved = false;
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         const a = controls[ids[i]], b = controls[ids[j]];
-        const needX = (a.w + b.w) / 2 + GAP, needY = (a.h + b.h) / 2 + GAP;
+        const needX = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2 + GAP;
+        const needY = (Math.max(MIN_TARGET, a.h) + Math.max(MIN_TARGET, b.h)) / 2 + GAP;
         const dx = b.cx - a.cx, dy = b.cy - a.cy;
         const penX = needX - Math.abs(dx), penY = needY - Math.abs(dy);
         if (penX <= 0 || penY <= 0) continue;
@@ -296,11 +553,7 @@ function separate(
         b.cx += ux * push; b.cy += uy * push;
       }
     }
-    for (const id of ids) {
-      const c = controls[id];
-      c.cx = clamp(c.cx, safe.x + c.w / 2, safe.x + safe.w - c.w / 2);
-      c.cy = clamp(c.cy, safe.y + c.h / 2, safe.y + safe.h - c.h / 2);
-    }
+    for (const id of ids) fit(controls[id]);
     if (!moved) break;
   }
   // The table must never lie about reach, so re-derive the rects and the

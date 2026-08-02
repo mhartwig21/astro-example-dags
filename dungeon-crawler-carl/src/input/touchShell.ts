@@ -1,7 +1,7 @@
 import {
   computeZones, readInsets, type ControlId, type LayoutPrefs, type ZoneTable,
 } from "./touchLayout";
-import type { TouchController, TouchFeedback } from "./touch";
+import type { SuspendReason, TouchController, TouchFeedback } from "./touch";
 import type { Haptics } from "./haptics";
 
 /**
@@ -140,19 +140,8 @@ export class TouchShell {
 
     const relayout = (): void => this.relayout();
     window.addEventListener("resize", relayout);
-    window.addEventListener("orientationchange", () => {
-      // iOS fires the viewport resize AFTER the orientation event, so do both,
-      // and refund every live gesture at the boundary (MOBILE.md 4.4).
-      this.o.controller.cancelAll(performance.now());
-      relayout();
-      setTimeout(relayout, 260);
-    });
     window.visualViewport?.addEventListener("resize", relayout);
-    // Belt and braces against the browser: iOS pinch-zooms through proprietary
-    // GestureEvents that ignore touch-action entirely.
-    for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
-      document.addEventListener(g, (e) => e.preventDefault(), { passive: false });
-    }
+    this.bindAuthority();
     document.addEventListener("dblclick", (e) => {
       if (document.body.classList.contains("touch")) e.preventDefault();
     }, { passive: false });
@@ -160,6 +149,114 @@ export class TouchShell {
     // layout lifecycle only, never inside a pointer handler.
     setTimeout(() => this.measureChips(), 400);
     this.apply();
+  }
+
+  /**
+   * THE INPUT AUTHORITY'S DOM HALF (MOBILE.md 2.9a).
+   *
+   * Seven of the eight suspend reasons are events; the eighth (`not-playing`)
+   * is a sim fact the host raises from its frame loop. Nothing here maintains
+   * a list of element IDs — that is the shape of the bug being fixed. `modal`
+   * reads `body.modal` and ONLY `body.modal`, and `syncOverlays()` in the host
+   * is what puts the class there, driven by `[data-overlay]` markup that
+   * test/panels.test.ts checks against the screen-zone map.
+   */
+  private bindAuthority(): void {
+    const c = this.o.controller;
+    const raise = (r: SuspendReason): void => c.suspend(r);
+    const clear = (r: SuspendReason): void => c.resume(r);
+    // `.closing` is a fade-out and `.done` is a retired boot screen; both stay
+    // in the layout with a real box, so neither may read as open. See the
+    // matching note in main3d's syncModal — `#loading.done` pinned the whole
+    // layer dead after boot on an iPad until this predicate learned about it.
+    const shown = (el: Element | null): boolean => {
+      if (!el || el.classList.contains("closing") || el.classList.contains("done")) return false;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return false;
+      if (cs.pointerEvents === "none" && parseFloat(cs.opacity) === 0) return false;
+      const e = el as HTMLElement;
+      return e.offsetWidth > 0 || e.offsetHeight > 0;
+    };
+
+    // modal / rotate-gate / sheet: one observer, three predicates. Reading
+    // offsetWidth is a layout, so this runs on MUTATION, never per frame.
+    const sync = (): void => {
+      const body = document.body;
+      if (body.classList.contains("modal")) raise("modal"); else clear("modal");
+      if (shown(document.getElementById("rotate"))) raise("rotate-gate"); else clear("rotate-gate");
+      let sheet = false;
+      for (const el of document.querySelectorAll("[data-sheet]")) { if (shown(el)) { sheet = true; break; } }
+      if (sheet) raise("sheet"); else clear("sheet");
+    };
+    const obs = new MutationObserver(sync);
+    obs.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    for (const el of document.querySelectorAll("[data-overlay], [data-sheet]")) {
+      obs.observe(el, { attributes: true, attributeFilter: ["class", "style"] });
+    }
+    // A sheet is created lazily by panelTouch, so watch for it arriving too.
+    new MutationObserver((recs) => {
+      for (const rec of recs) {
+        for (const n of rec.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          const el = n as Element;
+          if (el.matches?.("[data-overlay], [data-sheet]")) {
+            obs.observe(el, { attributes: true, attributeFilter: ["class", "style"] });
+          }
+        }
+      }
+      sync();
+    }).observe(document.body, { childList: true });
+    sync();
+
+    // ORIENTATION. iOS fires orientationchange and the visualViewport resize
+    // APART; releasing on the first one re-arms the layer against stale zones,
+    // so the reason is held until 250ms after the LAST resize.
+    let orientTimer = 0;
+    const holdOrientation = (): void => {
+      raise("orientation");
+      clearTimeout(orientTimer);
+      orientTimer = window.setTimeout(() => { clear("orientation"); this.relayout(); }, 250);
+    };
+    window.addEventListener("orientationchange", () => { holdOrientation(); this.relayout(); });
+    window.visualViewport?.addEventListener("resize", () => {
+      if (orientTimer) holdOrientation();
+    });
+
+    // HIDDEN. The class of bug that leaves a phone player running into a wall
+    // after a phone call: no pointer event is emitted at all.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") raise("hidden"); else clear("hidden");
+    });
+    window.addEventListener("pagehide", () => raise("hidden"));
+    window.addEventListener("pageshow", () => clear("hidden"));
+    window.addEventListener("blur", () => raise("hidden"));
+    window.addEventListener("focus", () => clear("hidden"));
+
+    // SYSTEM GESTURE. The OS has taken the finger; there is nothing to refund
+    // it to. iOS pinch-zooms through proprietary GestureEvents that ignore
+    // touch-action entirely, so those are cancelled here as well.
+    // A CONTEXT MENU WE PREVENTED IS NOT A FINGER THE OS TOOK.
+    //
+    // Measured (tools/_mobile/i2.log): raising `system-gesture` on every
+    // contextmenu killed the party ping outright on both phones — the ping IS
+    // a 450ms hold, and a 450ms hold is exactly what fires contextmenu. The
+    // reason means "the OS has taken the finger"; if preventDefault worked, it
+    // has not, and cancelling would be us taking it instead.
+    document.addEventListener("contextmenu", (e) => {
+      // Desktop keeps its right-click menu; only touch mode swallows it.
+      if (document.body.classList.contains("touch") && e.cancelable) e.preventDefault();
+      if (e.defaultPrevented) return; // we kept the finger; nothing to refund
+      raise("system-gesture");
+      setTimeout(() => clear("system-gesture"), 200);
+    });
+    for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
+      document.addEventListener(g, (e) => {
+        e.preventDefault();
+        if (g === "gesturestart") raise("system-gesture");
+        if (g === "gestureend") setTimeout(() => clear("system-gesture"), 120);
+      }, { passive: false });
+    }
   }
 
   private compute(): ZoneTable {
@@ -201,35 +298,22 @@ export class TouchShell {
   }
 
   /**
-   * Park the LOCK chip against the MEASURED cluster, not the zone table.
+   * Park the LOCK chip WHERE THE TABLE SAYS.
    *
-   * The table says where the arc SHOULD be; the ability chips are still placed
-   * by their own CSS, and until those two agree a table-placed chip lands on
-   * top of the ultimate (photographed on both the phone and the Pixel). Reading
-   * the real cluster box costs one layout per relayout and can never overlap.
+   * This used to measure the cluster and hang the chip above it, because the
+   * ability chips were still placed by their own CSS and a table-placed chip
+   * landed on top of the ultimate. `ui/hudLayout.ts` now paints the cluster
+   * from the same table, so the two agree — and the measured version had
+   * become the bug: photographed on `i1/iphone13-land-combat.png` and
+   * `i1/pixel5-land-combat.png`, it hung the chip in the top-right corner
+   * against the boss health plate, which is the exact §4.2a rule-1 violation
+   * the table exists to make impossible.
    */
   private placeLock(): void {
-    const z = this.zones;
-    const l = z.controls.lock;
-    let top = Infinity, left = Infinity, right = -Infinity;
-    for (const sel of ["#skills .skill[data-i=\"4\"]", "#skills .skill[data-i=\"3\"]", "#skills"]) {
-      const e = document.querySelector(sel) as HTMLElement | null;
-      if (!e) continue;
-      const r = e.getBoundingClientRect();
-      if (r.width === 0) continue;
-      top = r.top; left = r.left; right = r.right;
-      break;
-    }
-    // The chip hugs the cluster OUTER edge, which mirrors with the layout.
-    const mirror = this.o.prefs.handed === "left";
-    const found = Number.isFinite(top);
-    const x = !found ? l.x
-      : mirror ? Math.max(z.safe.x, left)
-        : Math.min(z.safe.x + z.safe.w - l.w, right - l.w);
-    const y = found ? Math.max(z.safe.y, top - l.h - 10) : l.y;
+    const l = this.zones.controls.lock;
     this.lock.style.width = `${l.w}px`;
     this.lock.style.height = `${l.h}px`;
-    this.lock.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    this.lock.style.transform = `translate3d(${l.x}px, ${l.y}px, 0)`;
   }
 
   /** Size + place everything the shell owns, from the zone table. */

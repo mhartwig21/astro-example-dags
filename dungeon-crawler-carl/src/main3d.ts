@@ -40,7 +40,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimSpecFor, castRange, type AimShape } from "./input/aimSpec";
+import { aimPlacement, aimSpecFor, castRange, type AimShape } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -1398,23 +1398,56 @@ function hideOverlay(el: HTMLElement): void {
 // is fully suppressed — nothing readable may bleed behind a modal scrim.
 // A style-attribute observer catches every open/close path (showOverlay,
 // direct display writes, net snapshot toggles) without touching call sites.
+//
+// THE ID LIST IS DELETED (MOBILE.md 2.9a). It was a hand-maintained list of
+// nine element ids and it missed six live surfaces — #ladder, #career,
+// #consent, #loading, #recap-tab and #rotate, the one overlay that
+// deliberately outranks everything. Overlays now DECLARE themselves in the
+// markup with `data-overlay`, and test/panels.test.ts reads the screen-zone
+// map and fails on any z >= 20 overlay that has not: a new panel is either
+// registered or red.
+//
+// This block only writes `body.modal`. The touch layer's suspend authority
+// observes that class and nothing else (touchShell.bindAuthority).
 {
-  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu", "dialogue"]
-    .map((id) => document.getElementById(id))
-    .filter((el): el is HTMLElement => el !== null);
+  const modalEls = [...document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')];
+  const visible = (el: HTMLElement): boolean => {
+    // `.closing` is the 130ms fade-out; `.done` is SIGNAL ACQUISITION retiring.
+    if (el.classList.contains("closing") || el.classList.contains("done")) return false;
+    const st = el.style.display;
+    if (st === "none") return false;
+    if (st !== "") return true;
+    // Overlays whose visibility is driven by a body class (#mapbig-scrim) have
+    // no inline style to read. Reading a box is a layout, so it happens here,
+    // on a mutation, and never per frame.
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    // THE RETIRED-OVERLAY IDIOM, and the reason this predicate is not just a
+    // display check. `#loading.done` sets `opacity: 0; pointer-events: none`
+    // and NEVER leaves the layout — measured on iPad Pro 11, that pinned
+    // body.modal on forever and killed the whole touch layer after boot
+    // (tools/_mobile/i3.log: the stick finger "landed on DIV#loading").
+    // Opacity alone is not the test — lesson 4 in §0 is that a modal mid-fade
+    // reads as absent — so both halves have to hold.
+    if (cs.pointerEvents === "none" && parseFloat(cs.opacity) === 0) return false;
+    return el.offsetWidth > 0 || el.offsetHeight > 0;
+  };
+  let wasModal: boolean | null = null;
   const syncModal = (): void => {
-    const open = modalEls.some((el) =>
-      el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
+    const open = modalEls.some(visible);
+    // Only WRITE on a change: the observer below watches body's own class
+    // list, and re-setting the attribute would feed itself forever.
+    if (open === wasModal) return;
+    wasModal = open;
     document.body.classList.toggle("modal", open);
-    // THE MODAL GATE. A panel opening refunds every live gameplay gesture and
-    // marks its pointers dead, so a drag that was mid-aim cannot resolve as a
-    // cast that detonates the instant the panel closes (measured: it did).
-    touch.setModalOpen(open, performance.now());
   };
   const modalObserver = new MutationObserver(syncModal);
   for (const el of modalEls) {
     modalObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
   }
+  // body.mapbig drives #mapbig-scrim from CSS, so the body's own class list is
+  // part of the signal.
+  modalObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
   syncModal();
 }
 
@@ -2924,6 +2957,7 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
     { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
     { id: "opacity", name: "Control opacity", hint: "idle only — controls go full while pressed", value: pct(touchPrefs.opacity) },
     { id: "hudInset", name: "Safe-area padding", hint: "extra margin on top of the notch inset", value: `${touchPrefs.hudInset}px` },
+    { id: "thumbMm", name: "Thumb reach", hint: "how far your thumb sweeps — the cluster arc is drawn from it", value: `${touchPrefs.thumbMm}mm` },
     { id: "haptics", name: "Haptics", hint: "LIGHT keeps only press / cast / cancel", value: touchPrefs.haptics.toUpperCase() },
     { id: "tapToMove", name: "Tap to move", hint: "tap ground to walk, tap a monster to lock and swing", value: onOff(touchPrefs.tapToMove) },
     { id: "stickRecenter", name: "Stick recentring", hint: "the origin follows a thumb that drifts", value: onOff(touchPrefs.stickRecenter) },
@@ -3027,7 +3061,7 @@ function renderTouchSettings(): void {
   // the two-state prefs get a pair of pick buttons where the CURRENT state is
   // visible without reading — a cycling label tells you where you are but
   // never where you can go.
-  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset"]);
+  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset", "thumbMm"]);
   const PICKS: Record<string, string[]> = {
     handed: ["RIGHT", "LEFT"],
     haptics: ["OFF", "LIGHT", "FULL"],
@@ -3090,6 +3124,7 @@ function stepTouchPref(id: string, dir = 1): void {
   else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
   else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
   else if (id === "hudInset") touchPrefs.hudInset = step(touchPrefs.hudInset, 0, 32, 4);
+  else if (id === "thumbMm") touchPrefs.thumbMm = step(touchPrefs.thumbMm, 38, 62, 2);
   else if (id === "haptics") touchPrefs.haptics = cycle(["off", "light", "full"] as const, touchPrefs.haptics);
   else if (id === "tapToMove") touchPrefs.tapToMove = !touchPrefs.tapToMove;
   else if (id === "stickRecenter") touchPrefs.stickRecenter = !touchPrefs.stickRecenter;
@@ -7717,6 +7752,11 @@ if (new URLSearchParams(location.search).has("debug")) {
         zones: touch.zones,
         prefs: touchPrefs,
         route: (x: number, y: number) => touch.debugRoute(x, y),
+        // Which chip a point claims, or null. The world zone runs UNDER the
+        // cluster (chips win at pointerdown), so a harness that wants clear
+        // ground has to ask rather than assume a fraction of the zone is free.
+        controlAt: (x: number, y: number) => touch.controlAt(x, y),
+        suspendReasons: () => touch.suspendReasons(),
         lastWorldTap,
         clickMoveTarget: clickMove.target,
         lockedTargetId,
@@ -7825,6 +7865,13 @@ let lastBagCount = 0;
 let lastWorldTap: { x: number; y: number; long: boolean; ground: Vec2 | null } | null = null;
 
 function pollTouch(): void {
+  // `not-playing` is the one suspend reason that is a SIM fact rather than a
+  // DOM event (MOBILE.md 2.9a): death, win and floor transitions swallow
+  // intents sim-side while the touch FSM happily keeps its state. Hit-stop and
+  // sim freezes are deliberately NOT reasons — a press during a frozen sim
+  // must still look alive, which is what the edge buffer is for.
+  if (state.status === "playing") touch.resume("not-playing");
+  else touch.suspend("not-playing");
   touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
   if (!touchHeld) return;
   // Edges ACCUMULATE (input/touchIntent.ts): a tap taken while a panel has
@@ -8365,8 +8412,21 @@ async function main(): Promise<void> {
         : -1;
       if (liveSlot >= 0 && !(touchHeld && touchHeld.aimCancel)) {
         const spec = aimSpecFor(abilityInSlot(p, liveSlot), p);
+        // ROTATE BEFORE YOU SCALE (MOBILE.md 2.4b). The screen vector goes
+        // through isoRotate FIRST and only then does its magnitude mean a
+        // world distance, so an up-screen and a sideways drag of equal thumb
+        // travel mean equal world distance despite the iso basis
+        // foreshortening the up-screen axis 2.5:1.
         const dir = touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : p.facing;
-        renderer.setAimIndicator(rendererShape(spec.shape), p.pos, dir);
+        // ...and the drag's LENGTH only means something for a shape the drag
+        // PLACES. A line, a cone and a chain fly their full derived reach
+        // whatever the throw; reading `frac` for them would be a game rule in
+        // the input layer.
+        const place = touchHeld ? aimPlacement(spec, touchHeld.aimFrac) : 0;
+        const at = place > 0
+          ? { x: p.pos.x + dir.x * place, y: p.pos.y + dir.y * place }
+          : p.pos;
+        renderer.setAimIndicator(rendererShape(spec.shape), at, dir);
       } else {
         renderer.setAimIndicator(null);
       }

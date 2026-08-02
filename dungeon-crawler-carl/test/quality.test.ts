@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   QUALITY_ORDER, QUALITY_PRESETS, QualityAutoTuner, guessQuality, type QualityName,
 } from "../src/render3d/quality";
+import { deviceClass } from "../src/input/touchLayout";
+
 
 /** Feed the tuner `seconds` of frames at a steady frame time. */
 function run(t: QualityAutoTuner, frameMs: number, seconds: number): QualityName[] {
@@ -168,6 +170,29 @@ describe("quality auto-tuner", () => {
 
 
 describe("quality: a phone is a phone even when it will not say so", () => {
+  /**
+   * The preset and the touch layout must agree about what a device IS.
+   * MOBILE.md §4.1's four classes are the same short-edge axis guessQuality
+   * reads, so they are pinned together here: a `compact`/`phone` boots
+   * PERFORMANCE, a `tablet-*` boots BALANCED, and neither needs Safari to
+   * expose WEBGL_debug_renderer_info (it does not).
+   */
+  it("the mobile preset lines up with the four MOBILE.md device classes", () => {
+    const rows: [number, string, string][] = [
+      [293, "compact", "performance"],   // Pixel 5 landscape
+      [342, "compact", "performance"],   // iPhone 13 landscape
+      [380, "phone", "performance"],     // iPhone 13 Pro Max landscape
+      [810, "tablet-s", "balanced"],     // iPad 7
+      [834, "tablet-s", "balanced"],     // iPad Pro 11
+      [1024, "tablet-l", "balanced"],    // iPad Pro 12.9
+    ];
+    for (const [edge, cls, preset] of rows) {
+      expect.soft(deviceClass(edge, true), `class at ${edge}`).toBe(cls);
+      expect.soft(guessQuality(null, { coarse: true, shortEdge: edge }), `preset at ${edge}`)
+        .toBe(preset);
+    }
+  });
+
   it("a coarse pointer on a short screen picks PERFORMANCE without the GL extension", () => {
     // Safari exposes no WEBGL_debug_renderer_info, so the renderer string is
     // empty; before this branch existed, an iPhone fell through to "cores > 4"

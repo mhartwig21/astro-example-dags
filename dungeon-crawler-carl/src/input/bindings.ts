@@ -263,6 +263,16 @@ export interface TouchPrefs {
   buttonScale: number; // 0.7 - 1.4
   opacity: number; // 0.35 - 1.0, idle only; full on press
   hudInset: number; // 0 - 32px on top of env(safe-area-*)
+  /**
+   * Comfortable thumb sweep in MILLIMETRES (38 - 62, ~5th-95th percentile).
+   *
+   * The one control the reach model cannot infer. MM_PER_PX (MOBILE.md 2.0)
+   * converts a hand constant into CSS px per device class, but no formula sees
+   * the +/-20% of hand size inside a class — so this is the residual, and it
+   * is authored in the same unit as the model rather than as a mystery
+   * percentage.
+   */
+  thumbMm: number;
   haptics: HapticLevel;
   castMode: CastMode[]; // per slot 0-4
   flickDash: boolean;
@@ -279,6 +289,7 @@ export const DEFAULT_TOUCH_PREFS: TouchPrefs = {
   buttonScale: 1,
   opacity: 1,
   hudInset: 12,
+  thumbMm: 48,
   haptics: "full",
   castMode: ["tap-release", "tap-release", "tap-release", "tap-release", "tap-release"],
   flickDash: true,
@@ -313,6 +324,7 @@ export function loadTouchPrefs(): TouchPrefs {
     base.buttonScale = clampNum(s.buttonScale, 0.7, 1.4, base.buttonScale);
     base.opacity = clampNum(s.opacity, 0.35, 1, base.opacity);
     base.hudInset = clampNum(s.hudInset, 0, 32, base.hudInset);
+    base.thumbMm = clampNum(s.thumbMm, 38, 62, base.thumbMm);
     if (s.haptics === "off" || s.haptics === "light" || s.haptics === "full") base.haptics = s.haptics;
     if (Array.isArray(s.castMode)) {
       for (let i = 0; i < 5; i++) {

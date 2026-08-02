@@ -4,14 +4,59 @@ Scope: the 3D host (`iso.html` + `src/main3d.ts` + `src/input/`) on phones and
 tablets. The sim is not touched. Everything below maps a finger to the **same
 `Intent` the keyboard produces** — no new game rules in the host.
 
-Status: **plan, not shipped.** Nothing in §2–§7 exists yet unless §1 says it
-does. §5's comparison table is a table of *targets*, not results.
+Status: the touch core and the responsive HUD are **shipped**; §5's comparison
+table is still a table of *targets*, not results.
 
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it
 outranks every other section — including sections written before it. Four of the
 six turned out to be the same mistake, which §2.0 names.
+
+**All six decisions are now IMPLEMENTED** (branch `trk-mobile`), with the tests
+that hold them:
+
+| # | code | test |
+|---|---|---|
+| 1 tap/aim, leaky origin | `AbilityButton.move()`, `AIM_SLOP`/`ORIGIN_LEAK` in `src/input/touch.ts` | `test/touchIntent.test.ts` "2.4a" — the five speed rows, byte-identical Intent for 40 ms vs 3 s, frozen origin |
+| 2 aim throw | `aimThrow`/`cancelRadius` in `computeZones()` | `test/touchLayout.test.ts` — the mm table to the pixel, and the ordering invariant at every slider position |
+| 3 world tap ceiling | `TAP_MS` deleted; one verdict in `TouchController.onUp()` | `test/touchIntent.test.ts` "2.5a" — 11 durations, exactly one Intent each, never silence |
+| 4 reach model | `reachArcs()`, `MM_PER_PX` | `test/touchLayout.test.ts` — the §3.2 instance table |
+| 5 pivot/fan/chip | `ARC_CORNER`/`ARC_SIDE`, the cluster box, the packing loop | `test/touchLayout.test.ts` "the §4.2a cluster invariants" — 6 viewports x 2 hands x 8 slider positions |
+| 6 input authority | `suspend()`/`resume()`, `POINTER_TTL`, `TouchShell.bindAuthority()` | `test/touchIntent.test.ts` "2.9a" + `test/panels.test.ts`, which parses the screen-zone map |
+
+Driven on the device matrix with REAL touch (`--drive`, CDP
+`Input.dispatchTouchEvent`, never `page.mouse.*`): `tools/_mobile/i5` is
+**19 PASS / 0 FAIL** on iPhone 13 landscape, and `tools/_mobile/i4` carries the
+four-device sweep. Newly green versus §1: *safe areas — every HUD element
+clears the hardware insets* (was 7 intrusions, §1.4); *modal opens mid-aim, then
+the finger lifts — casts once it closed: none* (was §1.7's queued detonation);
+*thumb lands on minimap → moved 3.33 tiles* on the iPad (was 0.05 tiles and a
+stray ping, §1.2); and *world: long press pings* / *tap to move*, which had no
+touch path at all (§1.8).
+
+Three places where implementation contradicted the text, decided in code and
+recorded here rather than quietly:
+
+* **The corner CANCEL band cannot sit above the cluster.** §4.2a rule 1
+  reserves the top 32% of the safe box, rule 2 gives the corner cluster the 58%
+  below it, and rule 4 forbids the band from the top 40% — a 44 px strip does
+  not fit in the 24 px that leaves on an iPhone 13. Both postures now pin the
+  band to a bottom corner of the safe box, clear of the lowest chip by 24 px:
+  bottom-**outer** on a side grip (as written) and bottom-**inboard** on a
+  corner grip, where the cluster already owns the outer corner.
+* **`rf` runs past 1.0 on the corner fan.** Nine controls with a 44 px hit floor
+  do not fit in a 172 px quarter-disc that must also clear the stick zone and
+  the read band; what fits is two shallow ranks. The reach invariant is
+  asserted on `fromPivot` against `comfortable` — the thing the hand cares
+  about — and `rf` is only the authoring unit. Landscape phones clear it *only*
+  because decision 4 gave them back 31% of arc.
+* **The size slider is a request.** At `buttonScale 1.4` the cluster is
+  over-subscribed on every phone in the matrix. Rather than let relaxation push
+  chips past `comfortable` or into the movement thumb's zone — the old
+  behaviour, and both worse than a smaller chip — `computeZones()` steps the
+  requested chip size down 5% at a time until the cluster packs. A Pixel 5 at
+  1.0x gets 58 px chips instead of 64; that is what a Pixel 5 can hold.
 
 ---
 
