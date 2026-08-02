@@ -63,6 +63,11 @@ export const CONFIG = {
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,
   playerAttackArc: Math.PI / 2, // 90° swing in facing direction
+  // Bodies one swing connects with. Wide Arc adds one per rank — that is the
+  // entry node's "what does it touch" half (V2 §4.1). Three is the shipped
+  // feel (a 3-kill instant is an achievement the game already awards); the cap
+  // exists so the arc node has something to change besides a printed angle.
+  meleeBaseTargets: 3,
   playerCritChance: 0.18,
   playerCritMult: 2.0,
   // Armor (defense): incoming hits are reduced by armor/(armor+armorK), capped.
@@ -216,6 +221,13 @@ export const CONFIG = {
   // Deep elites lean into resist affixes (armored/warded): mono-school soup
   // without an answer gets checked, not just outstatted.
   deepResistBias: 0.35,
+  // How far the balance bot's per-run "taste" can move an ability's slot score
+  // (src/sim/bot.ts: tasteBonus). Purely an INSTRUMENT knob — nothing the game
+  // simulates reads it. At 0 every seed builds the same three abilities and the
+  // bottom of the roster is never measured; too high and the bot stops playing
+  // a sensible build. 22 keeps melee/dash anchoring most runs while giving the
+  // whole shelf real coverage across a sweep.
+  botTasteSpread: 22,
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
   // HURT, because you saw it coming — see the ~40% target win rate in
   // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
@@ -591,6 +603,39 @@ export const CONFIG = {
   glyphSlipstreamDmgMult: 1.1,
   glyphSlipstreamDur: 2,
   glyphCacheFromShop: 2, // the shelf row appears from shop #2 (§4 cadence)
+  // ---- PHASE C (ABILITIES-V2 §5.2) ----
+  glyphStaticEvery: 3, // Static Charge: every Nth CAST is empowered
+  glyphStaticDmgMult: 1.6,
+  glyphStaticPoiseMult: 2,
+  glyphDemolitionFrac: 1, // Demolition Rider: remaining DoT dealt instantly...
+  glyphDemolitionTargets: 3, // ...on at most this many bodies (§5.4 flag 6)
+  glyphEnvenomedChance: 0.35,
+  glyphCryoChill: 0.2,
+  glyphCryoDuration: 2,
+  glyphGraveCorpses: 3, // Grave Dividend: corpses consumed under the cast
+  glyphGraveBonus: 0.15, // ...+15% damage each
+  glyphGraveRadius: 2.5,
+  glyphCullingBonus: 0.5, // Culling Edge: +50% below the threshold...
+  glyphCullingThreshold: 0.25,
+  glyphPoiseWreckerMult: 2,
+  glyphPoiseWreckerStagger: 0.3,
+  glyphPointBlankRange: 2,
+  glyphPointBlankBonus: 0.3,
+  glyphPointBlankPenalty: 0.15,
+  glyphLongshotRange: 4,
+  glyphLongshotBonus: 0.3,
+  glyphLongshotPenalty: 0.15,
+  glyphBloodPriceHpFrac: 0.03, // Blood Price: casts cost 3% max HP...
+  glyphBloodPriceDmgMult: 1.3, // ...for +30% damage (family: tempo, §5.4 flag 1)
+  glyphPhaseEtchIframes: 0.15,
+  glyphPhaseEtchFrac: 0.3,
+  glyphUnderstudyContract: 2, // Understudy's Rider: +2s on the double's contract
+  glyphUnderstudyChill: 0.25,
+  glyphEncoreRefund: 0.04, // Encore Clause: per kill inside the ult's window
+  glyphEncoreFallbackWindow: 3, // ...an ult with no duration gets this window
+  glyphColdOpenRadius: 6,
+  glyphColdOpenChill: 0.3,
+  glyphColdOpenDuration: 3,
 
   // ---- New COMPLETED-work passives (§2.3) + boss-unique passives (§2.5) ----
   longarmMinDist: 1.5, // Pikeman's Rebuttal: melee hits from this far knock back...
@@ -754,10 +799,20 @@ export const CONFIG = {
   ultAirstrikeCooldown: 45,
   ultAirstrikeShells: 6,
   ultAirstrikeRadius: 1.6, // per-shell blast radius (tiles)
-  ultAirstrikeDmgMult: 2.5, // per shell, relative to baseDamage
+
+  // V2 U2: 2.5 -> 1.7 (per-shell damage paying for ~11 shells instead of 6),
+  // then 1.7 -> 1.9 when §6.4.9(ii) was finally MEASURED: at 1.7 the whole
+  // channel delivered 2.34x the best 3s of melee, under the pre-registered
+  // 2.5x bar. Channel length is not the lever -- shells and swings both scale
+  // with the window, so the ratio sits at ~2.39 whatever the channel is --
+  // and the pre-registered fallback ladder (3.0s -> 2.0s, then cut the
+  // commitment) is aimed at a commitment that is UNAFFORDABLE, which §6.4.9(i)
+  // measures it is not (a barrage window takes LESS damage than normal play at
+  // floors 4/8/12). So the payoff moved instead: 1.9 lands 2.61x.
+  ultAirstrikeDmgMult: 1.9,
   ultAirstrikeSpread: 2.2, // shell scatter around the target point
   ultAirstrikeRange: 8, // max targeting distance from the caster
-  ultCataclysmCooldown: 35,
+  ultCataclysmCooldown: 40, // V2 U1: the fissure is worth a longer act
   ultCataclysmRadius: 6,
   ultCataclysmDmgMult: 3,
   ultCataclysmKnockback: 2.5, // tiles enemies are hurled
@@ -784,11 +839,12 @@ export const CONFIG = {
   ultBulletTimeDeadeyeCrit: 0.25, // bonus crit chance per Dead Eye rank, inside
   ultBulletTimeEncoreExtend: 0.5, // EXTENSION: seconds added per kill inside
   ultBulletTimeEncoreCap: 10, // bullet time can never stretch past this
+  ultBulletTimeSecondWind: 0.4, // Second Wind: the first kill inside adds this
 
   // Fun-kit wave (ABILITY-CONCEPTS.md): Blindside / Extradition / Stunt Double.
   cutToRange: 6, // tiles the camera can cut
   cutToCooldown: 6, // long enough that each cut is a decision, not a spam
-  cutToDmgMult: 1.2, // arrival strike, off attackPower
+  cutToDmgMult: 1.9, // V2 R6: 1.2 -> 1.9 — a strike, not a mobility tax
   cutToStagger: 0.35, // Sucker Punch: non-elite arrival stagger (seconds)
   cutToMatchWindow: 1, // REPEAT OFFENDER: kill inside this window resets the cooldown
   surfRange: 7, // chain reach (tiles)
@@ -860,14 +916,53 @@ export const CONFIG = {
   meleeMomentumWindow: 2.5, // seconds between connecting swings before momentum drops
 
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
-  novaCooldown: 5.0,
+  // COLLAPSE (ABILITIES-V2 R1): the cast GATHERS, then detonates. The buff is
+  // entirely in N — per-target damage is unchanged.
+  novaCooldown: 6.0, // V2 R1: 5.0 -> 6.0; the gather is worth a longer phrase
   novaRadius: 2.6,
   novaDamageMult: 1.2, // relative to melee base damage
+  // Gather reach = blast radius x this. §6.4.2 is what SETS this number: the
+  // contract is mean gathered >= 2.5 per cast in bot play at floors 4/8/12,
+  // and the doc's illustrative 1.6 measured 1.83 against the shipped spacing
+  // (HEAVY PACKS deliberately run spread). The gather deals no damage at its
+  // edge — its whole job is to make N stop being zero.
+  novaGatherMult: 2.3,
+  novaGatherRing: 1.2, // dragged bodies land on a ring this far out
+  novaGatherStep: 4.5, // max tiles one cast can drag a light body
+  novaHeavyDragFrac: 0.4, // elites/bosses resist: they move this fraction
+  novaCrushStagger: 0.6, // Crush: dragged targets land staggered this long
+  novaCrushBonusPerRank: 0.25, // Crush: extra blast damage to DRAGGED targets
+  novaRiftSeconds: 2, // Rift: the implosion point keeps pulling this long
+  novaRiftRadius: 2.4, // Rift singularity reach (tiles)
   orbitBladesBase: 2,
   orbitRadius: 1.6,
   orbitRevPerSec: 1.1, // revolutions per second
-  orbitDamageMult: 0.5, // per tick, relative to melee base damage
+  // V2 R3: the ambient grind pays for the hurl, so the ability's damage moves
+  // from the passive to the PRESS. §6.4.5 pins ambient orbit under 40% of
+  // melee's single-target DPS AT THE REFERENCE BUILD, and that pin is what
+  // sets this number: the ratio is exactly orbitDamageMult x blades x
+  // (playerAttackCooldown / orbitTickSeconds) = mult x 2, so the doc's
+  // proposed 0.22 reads 0.44 and FAILS its own contract on a bare crawler
+  // (it only cleared on fixtures whose gear and ranks happened to favor
+  // melee). 0.18 is the largest value that passes, and the test says so.
+  orbitDamageMult: 0.18,
   orbitTickSeconds: 0.4,
+  // ORBIT HURL (V2 R3): pressing the slot throws the ring out and back. No
+  // aura until it returns — that is the counterplay window.
+  orbitHurlCooldown: 7,
+  orbitHurlRange: 5.5, // tiles out (Corkscrew extends by orbitHurlWideBonus)
+  orbitHurlSpeed: 10, // tiles/sec, each way
+  // Per pass, relative to one grind tick. R3's goal is that the PRESS carries
+  // roughly what the aura lost, so this is sized against the ~7s cycle rather
+  // than left at the doc's illustrative 2.6 (which would have moved about a
+  // tenth of the damage, not half of it).
+  orbitHurlPassMult: 6,
+  orbitHurlWideBonus: 0.4, // Corkscrew: +40% travel
+  orbitHurlHitRadius: 0.6,
+  orbitGuardCooldown: 3, // Crossguard: one parried melee hit every this many seconds
+  dashVeilSeconds: 1.5, // Smoke Break: monsters inside the puff drop their target
+  dashVeilRadius: 1.2,
+  dashBlinkPassFrac: 0.4, // Long Blink: pass-through damage, fraction of Shockstep
   orbitBladeHitRadius: 0.5,
   // Swept-path hit test: the damage tick checks this many positions along each
   // blade's travel since the last tick, so blades hit what they visibly passed.
@@ -886,7 +981,87 @@ export const CONFIG = {
   stanceSurgeSeconds: 3, // Flow's post-swap surge window
   // Overcharge: bank power; the NEXT attack (melee swing or bolt volley) spends it.
   overchargeCooldown: 8, // starts on cast, not on spend
-  overchargeDamageMult: 1.5, // the banked attack's base multiplier
+  // BREAKER (V2 R5): the poise shatter is BASE now, and the multiplier pays
+  // for it (1.5 -> 1.35).
+  overchargeDamageMult: 1.35, // the banked attack's base multiplier
+  overchargeBossPoiseMult: 2, // a banked hit does this much poise to bosses
+  overchargeWindowSeconds: 2, // Open Season: vulnerability window after a break
+  overchargeWindowBonus: 0.2, // Open Season: +20% from everything, while it holds
+  overchargeChainRadius: 2.5, // CHAIN REACTION: the stagger propagates this far
+  // BATTLE STANCE (V2 R4): the swap fires a free strike in the new stance's
+  // shape — but only if you were SETTLED (Flow ungates it at reduced power).
+  stanceStrikeArcMult: 1.3, // the swap swing is wider
+  stanceStrikeBoltMult: 1.3, // the swap bolt hits harder
+  stanceFlowStrikeMult: 0.6, // Flow ungates the strike at this power
+  stanceFootworkRefund: 0.4, // Footwork: seconds refunded (rule-8 budgeted)
+  // BLINDSIDE (V2 R6): the roster's single-target BURST.
+  cutBrandSeconds: 3, // Continuity rider: brand duration
+  cutBrandBonus: 0.12, // ...matching Brandmark exactly; strongest wins, no stack
+  // EXTRADITION (V2 R7): the base chain now HITS and drags three.
+  surfBaseHitFrac: 0.9, // arriving/landing deals this x power in surfDiveRadius
+  surfBaseDrag: 2, // extra light bodies the base chain drags (Long Arm adds)
+  // BULWARK (N1): the missing defensive window.
+  bulwarkCooldown: 12,
+  bulwarkSeconds: 1.5,
+  bulwarkMitigation: 0.6, // damage taken is reduced by this while braced
+  bulwarkGritMitigation: 0.75, // Grit: harder brace, greedier payout
+  bulwarkHealFrac: 0.4, // heal this fraction of what the brace absorbed...
+  bulwarkHealCap: 0.25, // ...capped at this fraction of maxHp
+  bulwarkRallyFrac: 0.6, // Rally: pays out immediately at this value
+  bulwarkAllyRadius: 2, // Dig In: allies (and your double) inside are covered
+  bulwarkAllyPerRank: 1, // ...+1 tile per rank
+  bulwarkShoveRadius: 2, // Shove rider: expiry knocks back this far
+  bulwarkShoveTiles: 1.6,
+  bulwarkShoveStagger: 0.6,
+  bulwarkSpiteCap: 2, // SPITE: banked damage capped at attackPower x this
+  // STAGE CABLES (N2): hard control + zone denial.
+  cablesCooldown: 9,
+  cablesLength: 6, // tiles of line
+  cablesWidth: 1, // half-width of the line (tiles)
+  cablesPinSeconds: 1.6, // non-boss pin
+  cablesBossPinSeconds: 0.6,
+  cablesRepinLockout: 8, // seconds before the same body can be pinned again
+  cablesFieldSeconds: 4, // slow field after the pin drops
+  cablesFieldSlow: 0.35,
+  cablesSpanPerRank: 1.5, // Span: +tiles of line per rank
+  cablesLiveFrac: 0.5, // Live Wire: damage/sec while anything is pinned
+  cablesSnapTiles: 1.2, // Snapback: yanked back toward the LINE, never the player
+  // FAULT LINE (U1, was Cataclysm): the ground stays broken.
+  faultLineSeconds: 10, // fissure duration
+  faultLineTickFrac: 0.25, // per second, as a fraction of the blast
+  faultLineSlow: 0.3,
+  faultLineAftermathBonus: 0.6, // Aftermath: the fissure ticks 60% harder
+  faultLineEpicenterSeconds: 1.5, // Epicenter: +fissure seconds per rank
+  // SPONSOR BARRAGE (U2, was Airstrike): a 3s directed channel.
+  barrageSeconds: 3,
+  barrageInterval: 0.28, // one shell every this many seconds (~11 shells)
+  barrageMoveMult: 0.7, // you move at 70% and cannot attack while directing
+  barrageSpreadMult: 0.5, // scatter, relative to ultAirstrikeSpread
+  barrageBandWidth: 2, // Saturation: the shells cover a 2-tile band
+  barrageTrackRadius: 2, // Precision: shells snap to an elite/boss inside this
+  // INJUNCTION (N3): the ultimate about the RUN CLOCK.
+  injunctionCooldown: 70,
+  injunctionFreeze: 12, // seconds the collapse timer holds
+  injunctionDebtRatio: 5 / 3, // DERIVED, never a free knob: debt = freeze x this
+  injunctionDamageBonus: 0.25, // you hit this much harder inside
+  injunctionCrunchFreeze: 7, // Crunch Time: shorter window...
+  injunctionCrunchBonus: 0.4, // ...and a much bigger bonus
+  injunctionRecessFreeze: 18, // Recess: longer window, no damage bonus
+  injunctionEnrageSpeed: 0.3, // monsters move +30% inside the window
+  injunctionEnrageWindup: 0.2, // ...and wind up 20% faster
+  injunctionDismissedRadius: 8, // DISMISSED: nothing alive inside cuts the debt
+  // How much DISMISSED WITH PREJUDICE takes off the debt. The doc says
+  // "halved", and §6.4.4 says the net run-clock delta must be NEGATIVE at
+  // every rank INCLUDING after DISMISSED. Those two cannot both hold at a 5/3
+  // ratio: half of 5/3 is 5/6, i.e. less than the freeze, i.e. the capstone
+  // would print time — exactly the defect the whole ability was rewritten to
+  // avoid. The assertion outranks the adjective, so the relief is a quarter.
+  injunctionDismissedRelief: 0.25,
+  // STUNT DOUBLE (R8): the double can DIE.
+  doubleHpFraction: 0.35, // decoy maxHp = this x the owner's maxHp
+  doubleHpPerBreakRank: 0.2, // Big Break: +20% decoy HP per rank
+  doubleAwardRefund: 0.6, // AWARD SEASON: a double that DIES refunds this much
+  doublePyroBurnSeconds: 3, // Pyro: the blast leaves burning ground
   // Ability tomes: dungeon-found unlocks for undiscovered abilities.
   tomeDropChance: 0.06, // per-kill chance while abilities remain undiscovered
   // Ultimates are the late-run power spike: no discovery pool (tomes, chips)

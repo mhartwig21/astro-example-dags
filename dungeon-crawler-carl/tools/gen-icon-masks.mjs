@@ -245,6 +245,102 @@ const GLYPHS = {
   slipstream: // the exit surge
     poly([[186, 84], [318, 256], [186, 428], [268, 428], [400, 256], [268, 84]]) +
     rect(60, 130, 118, 44) + rect(28, 234, 150, 44) + rect(60, 338, 118, 44),
+
+  // ---- PHASE C (ABILITIES-V2 §5.2): the other fifteen. Same rule as above —
+  // ONE gesture each, and the gesture has to survive the 10px socket pip. The
+  // two FAMILY PAIRS have to read as opposites at a glance, because that is
+  // the decision being made: point_blank's muzzle sits ON the rings while
+  // longshot's arrow leaves the frame; ballistic_lens is the steel slug
+  // punched through the same lens body arcane_lens refracts.
+  static_charge: // two casts bank, the third one lands loaded
+    rect(56, 300, 76, 152) + rect(150, 236, 76, 216) +
+    poly([[352, 44], [270, 236], [332, 236], [284, 400], [426, 200], [356, 200]]),
+  demolition_rider: // the plunger takes the burn with it
+    rrect(148, 236, 216, 128, 20) +
+    bar(256, 236, 256, 108, 44) + bar(160, 100, 352, 100, 52) +
+    rect(112, 388, 288, 40) +
+    rectHole(196, 282, 120, 36),
+  ballistic_lens: // the same lens BODY as arcane_lens, but the core is a slug
+    poly([[256, 74], [412, 256], [256, 438], [100, 256]]) +
+    hole([[256, 168], [336, 256], [256, 344], [176, 256]]) +
+    poly([[186, 222], [286, 222], [332, 256], [286, 290], [186, 290]]),
+  envenomed: // the fang, and what leaves it
+    poly([[164, 62], [348, 62], [318, 200], [256, 330], [194, 200]]) +
+    circle(256, 402, 42) + circle(256, 468, 26),
+  cryo_etch: // the etched star: six arms, cut clean
+    bar(256, 52, 256, 460, 54) +
+    bar(80, 154, 432, 358, 54) + bar(80, 358, 432, 154, 54) +
+    circleHole(256, 256, 44),
+  grave_dividend: // the ground pays out
+    poly([[132, 456], [132, 250], [160, 178], [232, 148], [304, 178], [332, 250], [332, 456]]) +
+    rectHole(178, 250, 108, 32) + rectHole(178, 316, 108, 32) +
+    circle(400, 396, 62) + circleHole(400, 396, 24),
+  culling_edge: // the blade, the drop, and the block it lands on
+    rect(64, 28, 384, 46) +
+    poly([[80, 66], [430, 66], [430, 212], [80, 296]]) +
+    rect(182, 292, 148, 96) +
+    rect(48, 384, 416, 62),
+  poise_wrecker: // the guard, split in half and pulled apart
+    poly([[222, 34], [222, 424], [66, 296], [50, 100]]) +
+    poly([[290, 34], [446, 100], [430, 296], [290, 424]]) +
+    poly([[240, 96], [274, 130], [240, 200], [276, 240], [238, 330]]),
+  point_blank: // the muzzle sits ON the rings
+    ring(300, 256, 178, 128) + ring(300, 256, 82, 34) +
+    bar(16, 256, 190, 256, 76) + rect(16, 196, 54, 120),
+  longshot: // point_blank's mirror — the rings are all the way over THERE, and
+    // the arrowhead stops CLEAR of them so the pair never reads as one blob
+    ring(370, 152, 116, 74) + circle(370, 152, 26) +
+    bar(40, 450, 240, 306, 54) + head(224, 318, 306, 258, 126) +
+    bar(37, 398, 83, 462, 30) + bar(77, 369, 123, 433, 30),
+  blood_price: // you pay in the only currency that is always liquid
+    poly([[256, 34], [372, 214], [372, 300], [140, 300], [140, 214]]) +
+    `M140 300a116 116 0 1 0 232 0Z` +
+    rect(96, 400, 320, 46) + rectHole(150, 412, 44, 22) + rectHole(292, 412, 44, 22),
+  phase_etch: // you go through the thing that was supposed to stop you
+    bar(28, 256, 396, 256, 64) + head(340, 256, 484, 256, 148) +
+    rect(228, 30, 56, 82) + rect(228, 128, 56, 82) +
+    rect(228, 302, 56, 82) + rect(228, 400, 56, 82),
+  understudy_rider: // your mask, and the one that goes on for you
+    poly([[54, 118], [318, 118], [318, 292], [186, 428], [54, 292]]) +
+    circleHole(122, 208, 30) + circleHole(250, 208, 30) +
+    rectHole(140, 296, 92, 26) +
+    poly([[344, 46], [478, 46], [478, 146], [411, 222], [344, 146]]) +
+    circleHole(378, 100, 18) + circleHole(444, 100, 18),
+  encore_clause: // the curtain goes back up
+    rect(46, 34, 420, 56) +
+    poly([[70, 90], [176, 90], [150, 242], [70, 204]]) +
+    poly([[442, 90], [336, 90], [362, 242], [442, 204]]) +
+    arcBand(256, 350, 112, 66, 130, 400) + head(228, 228, 318, 258, 92),
+  cold_open: // the clapper comes down, and the take starts cold
+    poly([[40, 62], [132, 40], [472, 82], [472, 186], [40, 186]]) +
+    rectHole(112, 84, 42, 58) + rectHole(232, 96, 42, 58) + rectHole(352, 108, 42, 58) +
+    bar(256, 228, 256, 484, 46) +
+    bar(145, 292, 367, 420, 46) + bar(145, 420, 367, 292, 46),
+};
+
+// The three ABILITIES-V2 §3.2 additions. These are HOTBAR icons — flat masks
+// at /icons/<abilityId>.svg, CSS-tinted like the shipped game-icons set, read
+// at 26px inside a gold frame with two glyph pips sitting over the top edge.
+// So the silhouette has to carry the whole verb on its own: a shield with
+// FEET (this is the ability that rewards standing still), a line strung
+// between two anchors, a clock with the two bars that stop it.
+const ABILITIES = {
+  bulwark: // brace: a heater shield with a diamond boss, propped on two struts.
+    // NOTHING crosses the silhouette horizontally — a full-width band or a
+    // base bar turns the taper into a goblet the moment it drops to 26px
+    poly([[256, 34], [452, 102], [452, 250], [256, 438], [60, 250], [60, 102]]) +
+    hole([[256, 146], [350, 244], [256, 342], [162, 244]]) +
+    poly([[62, 430], [172, 328], [208, 366], [98, 466]]) +
+    poly([[450, 430], [340, 328], [304, 366], [414, 466]]),
+  cables: // two lines strung between two anchors — a double sag reads as CABLE
+    // where one solid band read as a letterform
+    rect(44, 100, 56, 300) + rect(412, 100, 56, 300) +
+    `M100 176C180 268 332 268 412 176L412 210C332 302 180 302 100 210Z` +
+    `M100 268C180 360 332 360 412 268L412 302C332 394 180 394 100 302Z`,
+  injunction: // the clock, and the two bars that stop it
+    ring(256, 268, 200, 148) +
+    rect(196, 200, 40, 138) + rect(276, 200, 40, 138) +
+    rect(180, 22, 152, 46) + rect(232, 56, 48, 48),
 };
 
 function writeSet(dir, set) {
@@ -261,4 +357,8 @@ function writeSet(dir, set) {
 
 const a = writeSet("items", ITEMS);
 const b = writeSet("glyphs", GLYPHS);
-console.log(`wrote ${a} item masks + ${b} glyph masks -> public/icons/`);
+// Ability icons live at the icon root (/icons/<abilityId>.svg) alongside the
+// shipped game-icons masks — same convention the hotbar and every ability
+// card read by, so nothing downstream needs to know these are generated.
+const c = writeSet(".", ABILITIES);
+console.log(`wrote ${a} item masks + ${b} glyph masks + ${c} ability masks -> public/icons/`);

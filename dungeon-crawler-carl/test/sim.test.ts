@@ -4,7 +4,7 @@ import {
   chooseUpgrade, learnAbility, buyCatalogItem, sellItem, sellAllItems, sellValue, effectivePrice,
   leaveSafeRoom, addPlayer, setReady, slotAbility, missingComponents, heroSkin,
   damagePlayerHit, playerMitigation, monsterResist, rewardDr, hasRevision, damageMonster, shrineChoices,
-  openLootBox, claimAchievementLootBox,
+  openLootBox, claimAchievementLootBox, decoySoak,
 } from "../src/sim/game";
 import { armorReduction, dist, rollDamage } from "../src/sim/combat";
 import { generateFloor, isWalkable, isWalkableForMonster, walkableTiles } from "../src/sim/floor";
@@ -14,9 +14,10 @@ import { CATALOG_BY_ID, consumablePrice, consumableStock, gearAffixes, totalCost
 import { ACHIEVEMENTS } from "../src/sim/achievements";
 import { generateItem, wantsAutoEquip, weaponClassOf } from "../src/sim/items";
 import {
-  DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, cataclysmParams,
-  damageVariance, effectiveMaxRank, knows, meleeParams,
-  novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft, stanceMult, upgradeDef,
+  DISCOVERABLE_ABILITIES, airstrikeParams, availableUpgrades, boltParams, bulletTimeParams,
+  cataclysmParams, damageVariance, effectiveMaxRank, knows, meleeParams,
+  novaParams, orbitParams, overrankChance, overrankUpgrades, power, rank, rollUpgradeDraft,
+  stanceMult, stuntDoubleParams, upgradeDef,
 } from "../src/sim/abilities";
 import {
   EQUIP_SLOTS, NO_INTENT, Tile,
@@ -2446,7 +2447,12 @@ describe("sponsor slurp flask", () => {
     for (let i = 0; i < CONFIG.flaskKillsPerCharge; i++) {
       g.monsters.push(mkMon({ id: 2000 + i, pos: { x: p.pos.x + 0.6, y: p.pos.y } }));
     }
-    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    // The swing's TARGET CAP is a real number now (Wide Arc's entry, V2 §4.3),
+    // so the refill is measured across swings rather than one impossible one.
+    for (let i = 0; i < CONFIG.flaskKillsPerCharge; i++) {
+      p.cd.melee = 0;
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    }
     expect(p.flaskCharges).toBe(1);
     expect(p.flaskKillProgress).toBe(0);
   });
@@ -2964,16 +2970,23 @@ describe("ultimates", () => {
     return g;
   }
 
-  it("sponsor airstrike schedules shells that later detonate on monsters", () => {
+  it("SPONSOR BARRAGE is a directed CHANNEL, not a fire-and-forget scatter", () => {
+    // ABILITIES-V2 U2: the worst-measured ultimate becomes a decision. The
+    // shells walk with the cursor for 3s while you move at 70% and cannot
+    // attack — pressing it and continuing to swing now gets you nothing.
     const g = withUlt(810, "airstrike");
     const p = g.players[0];
-    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 500, maxHp: 500 }));
-    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true], aim: { x: 3, y: 0 } }, 1 / 60);
-    expect(g.strikes.length).toBe(CONFIG.ultAirstrikeShells);
+    const ap = airstrikeParams(p);
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 3, y: p.pos.y }, hp: 5000, maxHp: 5000 }));
+    const aim = { x: 3, y: 0 };
+    step(g, { move: { x: 0, y: 0 }, useStairs: false, cast: [false, false, false, false, true], aim }, 1 / 60);
+    expect(p.barrageT ?? 0).toBeGreaterThan(0);
     expect(p.cd.airstrike ?? 0).toBeGreaterThan(0);
-    for (let i = 0; i < 180; i++) step(g, idle(), 1 / 60);
-    expect(g.strikes.length).toBe(0); // all shells landed
-    expect(g.monsters[0].hp).toBeLessThan(500); // scatter covers a 3-tile offset target
+    expect(g.strikes.length).toBeLessThan(ap.shells); // they arrive over time
+    for (let i = 0; i < 300; i++) step(g, { ...idle(), aim }, 1 / 60);
+    expect(p.barrageT ?? 0).toBe(0); // the channel ended on its own clock
+    expect(g.strikes.length).toBe(0); // every shell landed
+    expect(g.monsters[0].hp).toBeLessThan(5000);
   });
 
   it("cataclysm damages and hurls everything nearby", () => {
@@ -4126,10 +4139,13 @@ describe("ultimate constellations", () => {
     const g = createGame(940);
     const p = g.players[0];
     learnAbility(g, p, "bullettime"); // the empty ultimate slot auto-fills
+    // ABILITIES-V2 §4.3: Deep Focus is a REACH node now, not a duration one
+    // (§4.1 forbids a printed number as an entry). Duration stays where a
+    // tuner can find it and where EXTENSION already extends it.
     p.abilities.ranks["bt.focus"] = 2;
     step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
-    const expected = CONFIG.ultBulletTimeDuration + 2 * CONFIG.ultBulletTimeFocusSeconds;
-    expect(g.bulletTimeLeft).toBeGreaterThan(expected - 0.1);
+    expect(bulletTimeParams(p).reach).toBe(2);
+    expect(g.bulletTimeLeft).toBeGreaterThan(CONFIG.ultBulletTimeDuration - 0.1);
     // EXTENSION: a kill while the world is slow buys more slow.
     p.abilities.ranks["bt.encore"] = 1;
     g.monsters.length = 0;
@@ -4159,20 +4175,29 @@ describe("ultimate constellations", () => {
   it("airstrike nodes shape the barrage: payload hardens, saturation adds, precision tightens", () => {
     const g = createGame(942);
     const p = g.players[0];
+    // The fork is now WHAT the barrage is FOR (§4.3): Saturation covers a
+    // moving band (wave clear), Precision tracks an elite (single target).
+    // Two different jobs, not two settings of one dial that cancel.
     const base = airstrikeParams(p);
-    expect(base.shells).toBe(CONFIG.ultAirstrikeShells);
-    p.abilities.ranks["air.payload"] = 2;
+    expect(base.shells).toBe(Math.round(CONFIG.barrageSeconds / CONFIG.barrageInterval));
+    expect(base.band).toBe(0);
+    expect(base.track).toBe(0);
+    p.abilities.ranks["air.payload"] = 2; // +1 SHELL per rank, not +damage
+    expect(airstrikeParams(p).shells).toBe(base.shells + 2);
+    expect(airstrikeParams(p).dmgMult).toBeCloseTo(base.dmgMult, 6);
     p.abilities.ranks["air.saturation"] = 2;
-    const sat = airstrikeParams(p);
-    expect(sat.shells).toBe(CONFIG.ultAirstrikeShells + 2 * CONFIG.ultAirstrikeSaturationShells);
-    expect(sat.spread).toBeGreaterThan(base.spread);
-    expect(sat.dmgMult).toBeGreaterThan(base.dmgMult);
+    expect(airstrikeParams(p).band).toBeGreaterThan(0);
     delete p.abilities.ranks["air.saturation"];
     p.abilities.ranks["air.precision"] = 2;
-    expect(airstrikeParams(p).spread).toBeLessThan(base.spread * 0.5);
+    expect(airstrikeParams(p).track).toBeGreaterThan(0);
+    expect(airstrikeParams(p).band).toBe(0);
   });
 
-  it("Aftermath schedules an echo shock that lands where you stood", () => {
+  it("FAULT LINE leaves the ground broken, and Aftermath makes it bite harder", () => {
+    // ABILITIES-V2 U1: the blast is the opener; the GROUND is the ultimate.
+    // Aftermath's old echo is gone — it now scales the fissure, so knockback
+    // and zone cooperate instead of fighting (Upheaval used to throw targets
+    // clear of the echo: a fork anti-synergistic inside one ability).
     const g = createGame(943);
     const p = g.players[0];
     learnAbility(g, p, "cataclysm");
@@ -4182,12 +4207,19 @@ describe("ultimate constellations", () => {
     const m = mkMon({ id: 5, pos: { x: p.pos.x + 2, y: p.pos.y }, hp: 1e6, maxHp: 1e6 });
     g.monsters.push(m);
     step(g, { ...idle(), cast: [false, false, false, false, true] }, 1 / 60);
-    expect(g.strikes.some((s) => s.kind === "echo")).toBe(true);
+    const fissure = g.hazards.find((h) => h.kind === "fissure");
+    expect(fissure).toBeTruthy();
+    expect(fissure!.ownerId).toBe(p.id);
+    expect(fissure!.t).toBeCloseTo(cataclysmParams(p).fissureSeconds, 1);
     const afterBlast = m.hp; // took the primary hit
     expect(afterBlast).toBeLessThan(1e6);
-    for (let i = 0; i < 90; i++) step(g, idle(), 1 / 60); // 1.5s: the echo lands
-    expect(m.hp).toBeLessThan(afterBlast);
-    expect(g.strikes.length).toBe(0);
+    for (let i = 0; i < 180; i++) step(g, idle(), 1 / 60); // 3s of standing in it
+    expect(m.hp).toBeLessThan(afterBlast); // the floor kept working
+    // Aftermath is the payoff side: the same fissure ticks 60% harder.
+    const plain = createGame(943).players[0];
+    learnAbility(createGame(943), plain, "cataclysm");
+    expect(cataclysmParams(p).fissureTickFrac)
+      .toBeGreaterThan(cataclysmParams(plain).fissureTickFrac);
   });
 
   it("EXTINCTION EVENT chains cataclysm kills outward", () => {
@@ -5225,7 +5257,7 @@ describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
     expect(nearDouble.hp).toBeLessThan(before);
   });
 
-  it("AWARD SEASON: a finished contract refunds half the booking", () => {
+  it("AWARD SEASON is CONDITIONAL now: a double that DIES refunds, one that survives does not", () => {
     const g = createGame(967);
     const p = g.players[0];
     learnAbility(g, p, "stuntdouble");
@@ -5233,9 +5265,31 @@ describe("the fun-kit wave (Blindside / Extradition / Stunt Double)", () => {
     g.monsters.length = 0;
     step(g, { ...idle(), cast: CAST4 }, 1 / 60);
     const cdAfterCast = p.cd.stuntdouble!;
+    // A double that simply RUNS OUT THE CLOCK unharmed refunds nothing. It
+    // used to refund unconditionally — because surviving was the only thing an
+    // invulnerable decoy could do, which made the capstone a flat -50%
+    // cooldown drawn as a diamond (V2 §1.1 / §4.3).
     g.decoys[0].t = 0.01;
     for (let i = 0; i < 3; i++) step(g, idle(), 1 / 60);
-    expect(p.cd.stuntdouble!).toBeLessThan(cdAfterCast * 0.6);
+    expect(g.decoys.length).toBe(0);
+    expect(p.cd.stuntdouble!).toBeCloseTo(cdAfterCast - 3 / 60, 3);
+
+    // Now one that DIES on the clock: it did its job, so it pays out.
+    const g2 = createGame(968);
+    const p2 = g2.players[0];
+    learnAbility(g2, p2, "stuntdouble");
+    p2.abilities.ranks["double.award"] = 1;
+    g2.monsters.length = 0;
+    step(g2, { ...idle(), cast: CAST4 }, 1 / 60);
+    const cd2 = p2.cd.stuntdouble!;
+    const dc2 = g2.decoys[0];
+    expect(dc2.maxHp).toBeGreaterThan(0); // R8: the double is MORTAL
+    expect(dc2.maxHp).toBeCloseTo(Math.round(p2.maxHp * stuntDoubleParams(p2).hpFrac), 0);
+    decoySoak(g2, dc2.pos, 1, dc2.maxHp! + 10); // beaten to death on camera
+    expect(dc2.died).toBe(true);
+    for (let i = 0; i < 3; i++) step(g2, idle(), 1 / 60);
+    expect(g2.decoys.length).toBe(0);
+    expect(p2.cd.stuntdouble!).toBeLessThan(cd2 * (1 - CONFIG.doubleAwardRefund) + 0.1);
   });
 });
 

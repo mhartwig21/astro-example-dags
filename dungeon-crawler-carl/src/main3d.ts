@@ -25,8 +25,9 @@ import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor 
 import { CONFIG, FLOOR_BANDS, naturalFloorForLevel } from "./sim/config";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, STARTING_ABILITIES, UPGRADES,
-  abilityCdrBreakdown, knows, nodeOpen, rank, upgradeDef, type AbilityId,
+  abilityCdrBreakdown, knows, nodeOpen, rank, upgradeDef, type AbilityId, type UpgradeDef,
 } from "./sim/abilities";
+import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
@@ -1820,6 +1821,59 @@ function discoverTeaserHtml(s: GameState): string {
   );
 }
 
+/**
+ * ROLE + TAGS, on the card. The registry now carries a single machine-checked
+ * `role` per ability and a tag set the glyph layer routes on — and both are
+ * things a player is expected to reason about (roles are how you notice your
+ * loadout is four `beat` abilities; tags are how you predict where a stone
+ * will light up). Neither was on screen. They are now.
+ */
+function abilityChipsHtml(id: AbilityId): string {
+  const role = ABILITY_INFO[id].role;
+  // A tag that repeats the role is noise: Bullet Time printing
+  // "ULTIMATE · BUFF · ULTIMATE" makes the player look twice to learn nothing.
+  const tags = ABILITY_TAGS[id].filter((t) => t !== "any" && t !== role);
+  return `<div class="achips"><span class="achip role">${role}</span>` +
+    tags.map((t) => `<span class="achip tag">${t}</span>`).join("") + `</div>`;
+}
+
+/**
+ * THE COMPOSED READ (pillar 2's actual test): one sentence that states what
+ * this ability does RIGHT NOW — base verb, the forks you took, the live
+ * numbers off the character sheet, and the glyphs seated in its slot. A kit
+ * that cannot be said in one breath after modification has failed the pillar,
+ * so this line is where that failure would be visible, and it is generated
+ * from state rather than authored per ability precisely so it cannot lie.
+ */
+function composedText(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  const row = buildCharacterSheet(s, p).offense.find((r) => r.id === id);
+  const parts: string[] = [ABILITY_INFO[id].blurb.toLowerCase().replace(/\.$/, "")];
+  if (row?.hit) {
+    parts.push(`${row.hit.min}–${row.hit.max} per hit every ${row.hit.cooldown.toFixed(1)}s`);
+  } else if (row?.note) {
+    parts.push(row.note.toLowerCase().replace(/\.$/, ""));
+  }
+  // Only nodes actually TAKEN, with rank when it is above one — the point is
+  // "what is my build", not "what does the tree contain".
+  const taken = UPGRADES.filter((u) => u.ability === id && rank(p, u.id) > 0)
+    .map((u) => (rank(p, u.id) > 1 ? `${u.title} ${rank(p, u.id)}` : u.title));
+  if (taken.length > 0) parts.push(taken.join(", "));
+  const slotIdx = slotIndexOf(p, id);
+  if (slotIdx >= 0) {
+    const live = glyphsFor(p, id).map((gid) => GLYPH_INFO[gid].name);
+    if (live.length > 0) parts.push(`running ${live.join(" + ")}`);
+  }
+  return parts.join(" · ");
+}
+
+/** Which socket row an ability's glyphs live on (-1 = benched, no sockets). */
+function slotIndexOf(p: Player, id: AbilityId): number {
+  const i = p.abilities.slots.indexOf(id);
+  if (i >= 0) return i;
+  return p.abilities.ultimate === id ? ULT_SLOT : -1;
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -1854,8 +1908,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
   }
   // MODIFIERS (V2 §3): the glyphs this ability is actually running, read off
   // the slot it occupies. A benched ability says so — sockets are the slot's.
-  const slotIdx = p.abilities.slots.indexOf(id) >= 0
-    ? p.abilities.slots.indexOf(id) : p.abilities.ultimate === id ? ULT_SLOT : -1;
+  const slotIdx = slotIndexOf(p, id);
   let mods = "";
   if (slotIdx >= 0) {
     const live = glyphsFor(p, id);
@@ -1879,11 +1932,143 @@ function abilityCard(s: GameState, id: AbilityId): string {
     `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
     `<span class="awhere ${whereCls}">${where}</span>` +
     `</div>` +
+    abilityChipsHtml(id) +
+    `<div class="acomposed"><span class="clbl">AS BUILT</span>${esc(composedText(s, id))}</div>` +
     mods +
     (rows ? `<div class="nrows">${rows}</div>` : "") +
     controls +
     `</div>`
   );
+}
+
+// ---- THE CONSTELLATION, drawn (ABILITIES-V2 §4.3) ------------------------
+// The list view answers "what does this node give me". It cannot answer "is
+// this tree a real decision", because a flat list renders an EXCLUSIVE FORK
+// and a free rider as the same kind of row. §4.3 rebuilt all sixteen graphs
+// around one shape — ENTRY, then FORK xor FORK, then a RIDER, then a CAPSTONE
+// — and that shape is the product. So it gets drawn: `pos` has been carried on
+// every UpgradeDef since the tree shipped, waiting for exactly this.
+//
+// Nothing here decides anything. The sim owns rank/nodeOpen/excludes; this is
+// a projection of them, which is why a fork can never draw as open on a card
+// where the sim would refuse the draft.
+type NodeState = "taken" | "open" | "forked" | "needs";
+
+function nodeStateOf(p: Player, u: UpgradeDef): NodeState {
+  if (rank(p, u.id) > 0) return "taken";
+  if ((u.excludes ?? []).some((x) => rank(p, x) > 0)) return "forked";
+  return nodeOpen(p, u) ? "open" : "needs";
+}
+
+/** Rank pips, reused by both views so a node reads identically in each. */
+function nodePipsHtml(p: Player, u: UpgradeDef): string {
+  const r = rank(p, u.id);
+  if (u.capstone) return `<i class="pip cap${r > 0 ? " on" : ""}"></i>`;
+  return `<i class="pip on"></i>`.repeat(Math.min(r, u.maxRank)) +
+    `<i class="pip over"></i>`.repeat(Math.max(0, r - u.maxRank)) +
+    `<i class="pip"></i>`.repeat(Math.max(0, u.maxRank - r));
+}
+
+/** One ability's star chart: SVG edges under absolutely-placed node tiles, so
+ * the lines scale with the card and the text stays crisp at any width. */
+function constellationCardHtml(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  const info = ABILITY_INFO[id];
+  const nodes = UPGRADES.filter((u) => u.ability === id);
+  if (nodes.length === 0) return "";
+  const byId = new Map(nodes.map((u) => [u.id, u]));
+  let edges = "";
+  for (const u of nodes) {
+    for (const reqId of u.requires ?? []) {
+      const from = byId.get(reqId);
+      if (!from) continue;
+      // An edge is LIVE once its parent is taken, and DEAD once the fork it
+      // feeds has been decided the other way — the road not taken stays on
+      // the chart, greyed, because knowing what you gave up is the decision.
+      const live = rank(p, reqId) > 0;
+      const dead = (u.excludes ?? []).some((x) => rank(p, x) > 0);
+      edges += `<line x1="${from.pos.x}" y1="${from.pos.y}" x2="${u.pos.x}" y2="${u.pos.y}" ` +
+        `class="cedge${dead ? " dead" : live ? " live" : ""}"/>`;
+    }
+  }
+  const marks: string[] = [];
+  const seen = new Set<string>();
+  for (const u of nodes) {
+    for (const x of u.excludes ?? []) {
+      const key = [u.id, x].sort().join("|");
+      if (seen.has(key) || !byId.has(x)) continue;
+      seen.add(key);
+      const o = byId.get(x)!;
+      const decided = rank(p, u.id) > 0 || rank(p, x) > 0;
+      edges += `<line x1="${u.pos.x}" y1="${u.pos.y}" x2="${o.pos.x}" y2="${o.pos.y}" ` +
+        `class="cxbar${decided ? " decided" : ""}"/>`;
+      marks.push(`<div class="cxor${decided ? " decided" : ""}" ` +
+        `style="left:${(u.pos.x + o.pos.x) / 2}%;top:${(u.pos.y + o.pos.y) / 2}%">` +
+        `${decided ? "LOCKED IN" : "PICK ONE"}</div>`);
+    }
+  }
+  const tiles = nodes.map((u) => {
+    const st = nodeStateOf(p, u);
+    const r = rank(p, u.id);
+    const why = st === "forked"
+      ? `fork closed — you took ${(u.excludes ?? []).filter((x) => rank(p, x) > 0)
+        .map((x) => upgradeDef(x)!.title).join(", ")}`
+      : st === "needs"
+        ? `needs ${(u.requires ?? []).filter((x) => rank(p, x) === 0)
+          .map((x) => upgradeDef(x)!.title).join(", ")}`
+        : u.desc(Math.max(1, r));
+    return `<div class="cnode ${st}${u.capstone ? " cap" : ""}" ` +
+      `style="left:${u.pos.x}%;top:${u.pos.y}%" title="${esc(`${u.title} — ${why}`)}">` +
+      `<i class="cgem"></i><span class="cname">${u.title}</span>` +
+      `<span class="npips">${nodePipsHtml(p, u)}</span></div>`;
+  }).join("");
+  const where = whereIs(p, id);
+  return (
+    `<div class="ccard${info.tier === "ultimate" ? " ult" : ""}">` +
+    `<div class="ahead">` +
+    `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+    `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb}</div></div>` +
+    `<span class="awhere ${where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : ""}">${where}</span>` +
+    `</div>` +
+    abilityChipsHtml(id) +
+    `<div class="cgraph">` +
+    `<svg class="cedges" viewBox="0 0 100 100" preserveAspectRatio="none">${edges}</svg>` +
+    tiles + marks.join("") +
+    `</div>` +
+    `<div class="acomposed"><span class="clbl">AS BUILT</span>${esc(composedText(s, id))}</div>` +
+    `</div>`
+  );
+}
+
+/** LIST vs CONSTELLATION, remembered per browser. Two views of one truth:
+ * the list is for reading magnitudes, the chart is for reading SHAPE. */
+type AbilView = "list" | "graph";
+let abilView: AbilView = ((): AbilView => {
+  try { return localStorage.getItem("dcc.abilView") === "graph" ? "graph" : "list"; } catch { return "list"; }
+})();
+
+function setAbilView(v: AbilView): void {
+  abilView = v;
+  try { localStorage.setItem("dcc.abilView", v); } catch { /* private mode */ }
+  for (const el of document.querySelectorAll(".amode")) {
+    el.classList.toggle("on", (el as HTMLElement).dataset.view === v);
+  }
+  if (abilOpen) renderAbilities(state);
+  if (document.getElementById("saferoom")!.style.display !== "none") renderAbilPage(state);
+}
+
+/** The known roster in either view, plus the undiscovered teaser. */
+function abilBodyHtml(s: GameState): string {
+  const p = me(s);
+  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+  const body = abilView === "graph"
+    ? known.map((id) => constellationCardHtml(s, id)).join("")
+    : known.map((id) => abilityCard(s, id)).join("");
+  return body + discoverTeaserHtml(s);
+}
+
+for (const el of document.querySelectorAll(".amode")) {
+  el.addEventListener("click", () => setAbilView((el as HTMLElement).dataset.view as AbilView));
 }
 
 // ---- Glyph socketing: click a bench glyph, then click a lit socket. Clicking
@@ -1958,9 +2143,8 @@ const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
 function renderAbilities(s: GameState): void {
-  const p = me(s);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  abilGrid.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
+  abilGrid.classList.toggle("graphs", abilView === "graph");
+  abilGrid.innerHTML = abilBodyHtml(s);
   document.getElementById("ach-section")!.style.display =
     CONFIG.achievementsEnabled ? "" : "none";
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
@@ -3107,19 +3291,72 @@ function socketRowHtml(p: Player, slotIdx: number, interactive: boolean): string
   return `<div class="socks">${views.map((v, i) => socketHtml(v, slotIdx, i, interactive)).join("")}</div>`;
 }
 
+/**
+ * Which of your five slots this glyph would actually DO something in, said as
+ * slot numbers. With ten stones the bench was a list you could read; at
+ * twenty-five it is a wall, and "where does this go" stops being obvious —
+ * so the panel answers it per chip instead of making the player socket a
+ * stone into each slot in turn to find out. The answer comes from the sim's
+ * own socketLegal + glyphMatches, so it can never disagree with the click.
+ */
+function glyphFitsHtml(p: Player, id: GlyphId): string {
+  const fits: string[] = [];
+  for (let slot = 0; slot <= ULT_SLOT; slot++) {
+    const ability = abilityInSlot(p, slot);
+    if (!ability || !glyphMatches(id, ability)) continue;
+    // Any open socket on that row will take it (family exclusivity is per
+    // socket, so ask the sim about each one rather than guessing).
+    const views = socketViews(p, slot);
+    const ok = views.some((v, i) => !v.locked && !v.glyph && socketLegal(p, slot, i, id));
+    fits.push(`<span class="gfit${ok ? " open" : " full"}">${slot === ULT_SLOT ? "ULT" : slot + 1}</span>`);
+  }
+  if (fits.length === 0) return `<div class="gfits none">dormant in every slot you have</div>`;
+  // An "any"-tagged stone lists all five, which wraps the chip to two rows and
+  // breaks the grid for no information. Say it once instead.
+  if (fits.length > ULT_SLOT) return `<div class="gfits">fits <span class="gfit open">EVERY SLOT</span></div>`;
+  return `<div class="gfits">fits ${fits.join("")}</div>`;
+}
+
 /** The glyph bench: everything found and not currently socketed. */
 function glyphBenchHtml(p: Player, interactive: boolean): string {
   const bench = (p.glyphs?.bench ?? []) as GlyphId[];
+  const found = new Set<GlyphId>([
+    ...bench,
+    ...(p.glyphs?.slots ?? []).flat().filter(Boolean) as GlyphId[],
+    ...(p.glyphs?.ultimate ?? []).filter(Boolean) as GlyphId[],
+  ]);
+  const seen = `<span class="gcount">${found.size} / ${GLYPH_IDS.length} STONES SEEN</span>`;
   if (bench.length === 0) {
-    return `<div class="gbench empty">No loose glyphs. They drop in the dungeon, ` +
+    return seen + `<div class="gbench empty">No loose glyphs. They drop in the dungeon, ` +
       `fall out of band bosses, and the System sells a sealed cache when it feels generous.</div>`;
   }
-  return `<div class="gbench">` + bench.map((id, i) =>
-    `<div class="gchip${heldGlyph === id ? " held" : ""}${interactive ? " live" : ""}" data-bench="${i}" data-glyph="${id}">` +
-    `<div class="gbox">${glyphIconHtml(id)}</div>` +
-    `<div class="gname">${GLYPH_INFO[id].name}</div>` +
-    `<div class="gtags">${glyphTagLine(id)}</div>` +
-    `</div>`).join("") + `</div>`;
+  // FITTING FIRST. The bench is sorted by whether a stone has anywhere to go
+  // right now, then by family (so the two lenses, the two range stones and
+  // the three tempo stones land next to the choice they are competing for),
+  // then by name. Sorting a copy — bench order is save data.
+  const fitsAny = (id: GlyphId): boolean => {
+    for (let slot = 0; slot <= ULT_SLOT; slot++) {
+      const a = abilityInSlot(p, slot);
+      if (a && glyphMatches(id, a)) return true;
+    }
+    return false;
+  };
+  const order = bench.map((id, i) => ({ id, i })).sort((a, b) =>
+    Number(fitsAny(b.id)) - Number(fitsAny(a.id)) ||
+    (GLYPH_INFO[a.id].family ?? "~").localeCompare(GLYPH_INFO[b.id].family ?? "~") ||
+    GLYPH_INFO[a.id].name.localeCompare(GLYPH_INFO[b.id].name));
+  return seen + `<div class="gbench">` + order.map(({ id, i }) => {
+    const info = GLYPH_INFO[id];
+    const dead = !fitsAny(id);
+    return `<div class="gchip${heldGlyph === id ? " held" : ""}${interactive ? " live" : ""}` +
+      `${dead ? " dormant" : ""}" data-bench="${i}" data-glyph="${id}">` +
+      `<div class="gbox">${glyphIconHtml(id)}</div>` +
+      `<div class="gname">${info.name}</div>` +
+      `<div class="gtags">${glyphTagLine(id)}</div>` +
+      (info.family ? `<div class="gfam">${info.family} family</div>` : `<div class="gfam none">—</div>`) +
+      glyphFitsHtml(p, id) +
+      `</div>`;
+  }).join("") + `</div>`;
 }
 
 /** The ABILITIES tab: loadout bar (The Five) + glyph bench + upgrade cards. */
@@ -3145,8 +3382,8 @@ function renderAbilPage(s: GameState): void {
   srGlyphs.innerHTML =
     `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
     glyphBenchHtml(p, canSocket);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  srAbil.innerHTML = known.map((id) => abilityCard(s, id)).join("") + discoverTeaserHtml(s);
+  srAbil.classList.toggle("graphs", abilView === "graph");
+  srAbil.innerHTML = abilBodyHtml(s);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -3598,6 +3835,22 @@ const CD_BASE: Partial<Record<AbilityId, number>> = {
   cataclysm: CONFIG.ultCataclysmCooldown, bullettime: CONFIG.ultBulletTimeCooldown,
 };
 
+/**
+ * Hotbar chip labels. The default is the name's LAST word (which is why the
+ * bar reads "Barrage", "Cables", "Double" and that is right), but ABILITIES-V2
+ * renamed two ultimates into last words that carry no meaning on their own:
+ * Fault Line became "Line" and Bullet Time became "Time". The chip is ~58px,
+ * so the fix is a distinctive short word per exception, not a wider chip.
+ */
+const CHIP_LABEL: Partial<Record<AbilityId, string>> = {
+  cataclysm: "Fault",
+  bullettime: "Bullet",
+  injunction: "Stay", // what the ability IS; "Injunction" does not fit the chip
+};
+
+const chipLabel = (id: AbilityId): string =>
+  CHIP_LABEL[id] ?? ABILITY_INFO[id].name.split(" ").pop()!;
+
 function updateSkills(s: GameState): void {
   const p = me(s);
   const slotActions = ["slot1", "slot2", "slot3", "slot4", "ultimate"] as const;
@@ -3609,8 +3862,13 @@ function updateSkills(s: GameState): void {
   // when firmware changes, exactly as it does when the loadout does.
   const glyphKey = [...(p.glyphs?.slots ?? []).map((a) => a.join(",")), (p.glyphs?.ultimate ?? []).join(",")]
     .join("|") + `|L${glyphSocketCount(p.level)}`;
+  // Drafted RANKS ride the key too, now that the chip's tooltip states the
+  // composed behavior: a bar that never rebuilds after a draft would keep
+  // describing the ability you had two levels ago.
+  let rankSum = 0;
+  for (const v of Object.values(p.abilities.ranks)) rankSum += v;
   const key = entries.map((e) => e.ability ?? "-").join("|") +
-    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}|${glyphKey}`;
+    `|d${p.dashCharges}|f${p.flaskCharges}.${p.flaskKillProgress}|s${p.stance}|o${p.overcharged ? 1 : 0}|${glyphKey}|r${rankSum}`;
   if (key !== skillBarKey) {
     skillBarKey = key;
     // Charge pip rows (r2): banked charges read as gold gem pips seated in
@@ -3629,7 +3887,7 @@ function updateSkills(s: GameState): void {
               ? (p.stance === "melee" ? "Brawler" : "Deadeye") // the chip IS the stance indicator
               : e.ability === "overcharge" && p.overcharged
                 ? "CHARGED" // banked and waiting for the next attack
-                : ABILITY_INFO[e.ability].name.split(" ").pop())
+                : chipLabel(e.ability))
           : "";
         const pips = e.ability === "dash" ? pipRow(p.dashCharges, CONFIG.dashCharges) : "";
         // GLYPH PIPS (V2 §3): tiny seated gems on the chip's top edge, one per
@@ -3647,7 +3905,13 @@ function updateSkills(s: GameState): void {
         const icon = e.ability
           ? `<i class="icon" style="mask-image:url(/icons/${e.ability}.svg);-webkit-mask-image:url(/icons/${e.ability}.svg)"></i>`
           : `<i class="icon"></i>`;
-        return `<div class="${cls}" data-i="${i}"><span class="key">${bind}</span>${gpips}${icon}` +
+        // The COMPOSED read, on the chip itself. A player mid-run should not
+        // have to open a panel to answer "what is this key doing right now,
+        // with the ranks I drafted and the stones I seated".
+        const tip = e.ability
+          ? ` title="${esc(`${ABILITY_INFO[e.ability].name} — ${composedText(s, e.ability)}`)}"`
+          : "";
+        return `<div class="${cls}" data-i="${i}"${tip}><span class="key">${bind}</span>${gpips}${icon}` +
           `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
       })
       .join("") +
@@ -6572,12 +6836,21 @@ function updateHud(s: GameState): void {
   }
   // Top-left: floor + the collapse clock (phase color via semantic classes).
   setHudText(hhFloor, "floor", String(s.floor));
+
   setHudText(hhTime, "time", fmt(s.timeRemaining));
-  setHudText(hhPhase, "phase", s.phase.toUpperCase());
-  if (hudCache.phaseCls !== s.phase) {
-    hudCache.phaseCls = s.phase;
-    hhPhase.className = `hh-phase ${s.phase}`;
-    hhCollapse.className = `bar hh-collapse ${s.phase}`;
+  // INJUNCTION (V2 N3): while the stay holds, the clock says so and says what
+  // it will cost. The freeze is the visible half of the button; the DEBT is
+  // the half the crawler forgets, so it rides on the same row.
+  const stayT = p.injunctionT ?? 0;
+  const phaseKey = stayT > 0 ? "stayed" : s.phase;
+  setHudText(
+    hhPhase, "phase",
+    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s` : s.phase.toUpperCase(),
+  );
+  if (hudCache.phaseCls !== phaseKey) {
+    hudCache.phaseCls = phaseKey;
+    hhPhase.className = `hh-phase ${phaseKey}`;
+    hhCollapse.className = `bar hh-collapse ${phaseKey}`;
   }
   const tf = Math.max(0, Math.min(1, s.timeRemaining / s.timeBudget));
   hhCollapseFill.style.width = `${tf * 100}%`;

@@ -1,7 +1,8 @@
 import { CONFIG } from "./config";
 import { rollBounds } from "./combat";
 import {
-  ABILITY_INFO, boltParams, crowdSurfParams, cutToParams, damageVariance, dashParams, meleeParams, novaParams,
+  ABILITY_INFO, airstrikeParams, boltParams, bulwarkParams, cablesParams, cataclysmParams, crowdSurfParams,
+  cutToParams, damageVariance, dashParams, injunctionParams, meleeParams, novaParams,
   orbitParams, overchargeParams, power, rank, stuntDoubleParams,
   type AbilityId, type School,
 } from "./abilities";
@@ -99,7 +100,9 @@ function makeHit(p: Player, base: number, cooldown: number, count = 1): SheetHit
 
 function abilityRow(p: Player, id: AbilityId): SheetAbilityRow {
   const info = ABILITY_INFO[id];
-  const base = { id, name: info.name, ultimate: info.tier === "ultimate" };
+  // V2 §7: the sheet prints the ROLE, so "what does my build DO" is
+  // answerable on one screen instead of inferred from four damage numbers.
+  const base = { id, name: `${info.name} · ${info.role}`, ultimate: info.tier === "ultimate" };
   const overtime = hasPassive(p, "overtime") ? 0.75 : 1;
   switch (id) {
     case "melee": {
@@ -123,13 +126,13 @@ function abilityRow(p: Player, id: AbilityId): SheetAbilityRow {
       return {
         ...base, school: "magic",
         hit: makeHit(p, power(p, "nova") * np.damageMult, np.cooldown),
-        note: `${np.radius.toFixed(1)}-tile shockwave${rank(p, "nova.implode") > 0 ? " · drags enemies in" : ""}`,
+        note: `gathers ${np.gatherRadius.toFixed(1)} tiles, detonates ${np.radius.toFixed(1)}${np.rift ? " · leaves a singularity" : ""}`,
       };
     }
     case "dash": {
       const dp = dashParams(p);
       const detonates = hasPassive(p, "blastplate") || rank(p, "dash.after") > 0;
-      const note = `blink ${dp.distance.toFixed(1)} tiles · i-frames · ${CONFIG.dashCharges} charges`;
+      const note = `blink ${dp.distance.toFixed(1)} tiles · i-frames · ${dp.charges} charges`;
       // Strongest component: shockstep path (power × rank mult) vs a full-power
       // detonation (Aftershock capstone / Blastplate Harness).
       const burst = Math.max(dp.shockMult, detonates ? 1 : 0);
@@ -145,59 +148,85 @@ function abilityRow(p: Player, id: AbilityId): SheetAbilityRow {
       return {
         ...base, school: "physical",
         hit: makeHit(p, power(p, "orbit") * op.damageMult, CONFIG.orbitTickSeconds),
-        note: `${op.blades} blades · per touch, every ${CONFIG.orbitTickSeconds}s`,
+        note: `${op.blades} blades · grind every ${CONFIG.orbitTickSeconds}s · HURL ${op.hurlRange.toFixed(1)} tiles (${op.hurlCooldown.toFixed(1)}s)`,
       };
     }
     case "stance": {
-      const right = (CONFIG.stanceRightMult + rank(p, "stance.edge") * 0.08) * 100 - 100;
+      const right = CONFIG.stanceRightMult * 100 - 100;
       return {
         ...base, school: "physical",
-        note: `${p.stance === "melee" ? "BRAWLER" : "DEADEYE"} · matching +${Math.round(right)}% / off ${Math.round(CONFIG.stanceWrongMult * 100 - 100)}%`,
+        note: `${p.stance === "melee" ? "BRAWLER" : "DEADEYE"} · matching +${Math.round(right)}% / off ${Math.round(CONFIG.stanceWrongMult * 100 - 100)}% · swap strikes when settled`,
       };
     }
     case "overcharge": {
       const oc = overchargeParams(p);
-      return { ...base, school: "physical", note: `next attack ×${oc.mult.toFixed(2)}${oc.shatter ? " · shatters poise" : ""}` };
+      return { ...base, school: "physical", note: `next attack ×${oc.mult.toFixed(2)} · SHATTERS poise (bosses: ${oc.bossPoiseMult}x)` };
     }
     case "cutto": {
       const cp = cutToParams(p);
       return {
         ...base, school: "physical",
         hit: makeHit(p, power(p, "cutto") * cp.dmgMult, cp.cooldown),
-        note: `${cp.range.toFixed(1)}-tile cut${cp.smash ? " · staggers non-elites" : ""}${cp.match ? " · kill in 1s resets" : ""}`,
+        note: `${cp.range.toFixed(1)}-tile cut · CRITS unaware targets${cp.charges > 1 ? ` · ${cp.charges} charges` : ""}${cp.smash ? " · staggers non-elites" : ""}${cp.match ? " · kill in 1s resets" : ""}`,
       };
     }
     case "crowdsurf": {
       const sp = crowdSurfParams(p);
       return {
         ...base, school: "physical",
-        note: `${sp.range.toFixed(1)}-tile chain · light: pulled in (${sp.stagger.toFixed(1)}s stagger) · heavy: pulls YOU${sp.diveFrac > 0 ? " · dive blast" : ""}`,
+        hit: makeHit(p, power(p, "crowdsurf") * (sp.hitFrac + sp.diveFrac), sp.cooldown),
+        note: `${sp.range.toFixed(1)}-tile chain · drags ${sp.wave ? "everything" : sp.drag} · heavy: pulls YOU`,
       };
     }
     case "stuntdouble": {
       const dp2 = stuntDoubleParams(p);
       return {
         ...base, school: "physical",
-        note: `${dp2.contract}s contract · taunts ${dp2.tauntRadius.toFixed(1)} tiles · mirrors swings at ${Math.round(dp2.mirrorFrac * 100)}%`,
+        note: `${dp2.contract}s contract · ${Math.round(dp2.hpFrac * 100)}% of your HP · taunts ${dp2.tauntRadius.toFixed(1)} tiles`,
       };
     }
-    case "airstrike":
+    case "bulwark": {
+      const bw = bulwarkParams(p);
       return {
         ...base, school: "physical",
-        hit: makeHit(p, power(p, "airstrike") * CONFIG.ultAirstrikeDmgMult, CONFIG.ultAirstrikeCooldown * overtime, CONFIG.ultAirstrikeShells),
-        note: `${CONFIG.ultAirstrikeShells} shells · per shell`,
+        note: `brace ${bw.duration}s · -${Math.round(bw.mitigation * 100)}% taken · heals ${Math.round(bw.healFrac * 100)}% of what it stops`,
       };
-    case "cataclysm":
+    }
+    case "cables": {
+      const cb = cablesParams(p);
+      return {
+        ...base, school: "physical",
+        note: `${cb.length.toFixed(1)}-tile line · PINS ${cb.pin}s (boss ${cb.bossPin}s) · -${Math.round(cb.fieldSlow * 100)}% field for ${cb.fieldSeconds}s`,
+      };
+    }
+    case "airstrike": {
+      const ap = airstrikeParams(p);
+      return {
+        ...base, school: "physical",
+        hit: makeHit(p, power(p, "airstrike") * ap.dmgMult, ap.cooldown * overtime, ap.shells),
+        note: `${ap.channel}s directed · ${ap.shells} shells · you move at ${Math.round(ap.moveMult * 100)}% and cannot attack`,
+      };
+    }
+    case "cataclysm": {
+      const cc = cataclysmParams(p);
       return {
         ...base, school: "magic",
-        hit: makeHit(p, power(p, "cataclysm") * CONFIG.ultCataclysmDmgMult, CONFIG.ultCataclysmCooldown * overtime),
-        note: `${CONFIG.ultCataclysmRadius}-tile blast · hurls enemies back`,
+        hit: makeHit(p, power(p, "cataclysm") * cc.dmgMult, cc.cooldown * overtime),
+        note: `${cc.radius.toFixed(1)}-tile blast · the floor stays broken ${cc.fissureSeconds}s`,
       };
+    }
     case "bullettime":
       return {
         ...base, school: "magic",
         note: `world at ${Math.round(CONFIG.ultBulletTimeFactor * 100)}% speed for ${CONFIG.ultBulletTimeDuration}s`,
       };
+    case "injunction": {
+      const ip = injunctionParams(p);
+      return {
+        ...base, school: "magic",
+        note: `clock STAYS ${ip.freeze}s · +${Math.round(ip.damageBonus * 100)}% damage · the floor ENRAGES · costs ${ip.debt.toFixed(0)}s`,
+      };
+    }
   }
 }
 

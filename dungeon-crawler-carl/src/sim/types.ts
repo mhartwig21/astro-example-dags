@@ -180,6 +180,40 @@ export interface Player {
   rebateCd0?: number; // the cooldown value set at cast (refund basis)
   // Rootcutter Shears (boss unique): melee hits since the last snare proc.
   shearsCount?: number;
+
+  // ---- ABILITIES-V2 transient combat state ----
+  // Every one of these is OPTIONAL with a load-time default and reset per
+  // floor, exactly like slipstreamT / rebateT. Old saves and old snapshots
+  // load with them absent and behave as they did before.
+  /** Sponsor Barrage: seconds left of the directed channel, and where it walks. */
+  barrageT?: number;
+  barrageAim?: Vec2;
+  barrageNext?: number; // seconds until the next shell drops
+  /** Bulwark: seconds of brace left, what it has soaked, and how many hits landed. */
+  bulwarkT?: number;
+  bulwarkAbsorbed?: number;
+  bulwarkHits?: number;
+  /** SPITE: absorbed damage riding on the next attack. */
+  spiteBank?: number;
+  /** Injunction: seconds of stay left and the clock debt it owes on release. */
+  injunctionT?: number;
+  injunctionDebt?: number;
+  /** Orbit's hurl: the ring is away (out then back); no aura until it returns. */
+  orbitHurlT?: number;
+  orbitHurlDir?: Vec2;
+  orbitHurlOut?: boolean;
+  orbitHurlHits?: number[]; // monster ids already hit by the current pass
+  /** Crossguard: seconds until the ring can parry again. */
+  orbitGuardT?: number;
+  /** Blindside charges (Second Take), like dash's. */
+  cutCharges?: number;
+  /** Static Charge: casts made per ability, for the every-3rd counter. */
+  glyphCastCount?: Partial<Record<AbilityId, number>>;
+  /** Stunt Double's Cue: the swap already spent on the current contract. */
+  doubleCueUsed?: boolean;
+  /** R4: the power of the free swap-strike currently resolving (1 = settled,
+   * stanceFlowStrikeMult = ungated by Flow). Transient, one call deep. */
+  stanceStrikeMult?: number;
 }
 
 // Elite affixes: one bonus mechanic a named elite can roll (see spawnMonsters).
@@ -417,6 +451,22 @@ export interface Monster {
   brandT?: number;
   brandAbility?: AbilityId;
   brandBy?: number;
+
+  // ---- ABILITIES-V2 ----
+  /** STAGE CABLES: seconds of PIN remaining. Respected in ai.ts's MOVEMENT
+   * step only — a pinned enemy cannot close, but it can still finish a windup.
+   * The pin is control; Breaker is the stun, and the two must never overwrite
+   * each other's bookkeeping (which is why this is not `stagger`). */
+  pinnedT?: number;
+  /** Seconds until this body can be pinned again (no perma-lock). */
+  pinLockT?: number;
+  /** Open Season: seconds of +vulnerability left after a Breaker stagger. */
+  vulnT?: number;
+  vulnBonus?: number;
+  /** Smoke Break: seconds of blindness — the monster drops its current target. */
+  blindT?: number;
+  /** Injunction: this body is enraged by the stay (and Contempt can strip it). */
+  injRageT?: number;
 }
 
 // Roam-only: a settlement resident. Static, unarmed, no AI. `role` drives
@@ -681,7 +731,9 @@ export interface Projectile {
   bounced?: boolean; // ricochet capstone: this bolt is already a bounce (no chains)
   forked?: boolean; // Splitfang glyph: this bolt is already a fork (no fork chains)
   crit?: boolean; // MOMENTUM capstone: this bolt crits on impact
-  shatter?: boolean; // SYSTEM SHOCK capstone: this bolt staggers non-bosses on impact
+  shatter?: boolean; // BREAKER (V2 R5): a banked bolt staggers non-bosses on impact
+  /** BREAKER: this shot spent the bank, so Open Season / CHAIN REACTION fire. */
+  breaker?: boolean;
   school?: School; // damage school (hosts tint magic missiles differently)
   chill?: number; // FROST BOLTS node: slow fraction applied on impact
   ability?: AbilityId; // casting ability (glyph hooks: brand/accelerant/arc-splice)
@@ -789,6 +841,11 @@ export interface Decoy {
   facing: Vec2; // mirrored swings + rendering read this
   t: number; // seconds left on the contract
   absorbed: number; // damage soaked so far (feeds the farewell blast)
+  // ABILITIES-V2 R8: the double is MORTAL. Optional so a pre-rework decoy in
+  // flight (old snapshot) loads as invulnerable and expires normally.
+  hp?: number;
+  maxHp?: number;
+  died?: boolean; // it was killed rather than expiring (AWARD SEASON reads this)
 }
 
 // A ringside introduction: set when the party first closes with a boss/elite.
@@ -824,7 +881,22 @@ export interface Hazard {
   // like a puddle, but bone-physical (no poison soak).
   // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
   // standing in it and burns crawlers (contested ground).
-  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
+  // "fissure": FAULT LINE's broken ground (V2 U1) — a player-owned zone that
+  // ticks and slows for its whole life. "cables": STAGE CABLES' line (V2 N2),
+  // which pins on contact and leaves a slow field. Both carry ownerId so kill
+  // credit and glyph riders route exactly like every other player damage path.
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate" | "fissure" | "cables"; // absent = blast (older saves/snapshots)
+  /** Player-owned zones (fissure/cables): the crawler who made the ground. */
+  ownerId?: number;
+  /** Player-owned zones: which ability owns it (glyph riders + kill credit). */
+  ability?: AbilityId;
+  /** Zones that SLOW rather than (or as well as) damage: fraction removed. */
+  slow?: number;
+  /** Cables: pin seconds applied on contact, and re-arms left (Taut). */
+  pin?: number;
+  rearms?: number;
+  /** Fissure with Chasm: the center BLOCKS enemy pathing. */
+  blocks?: boolean;
   flavor?: "flame" | "debris"; // blast dressing: fire wall / falling masonry (default: clown ordnance)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
@@ -1046,6 +1118,24 @@ export interface GameState {
   // Ultimate side-state: scheduled airstrike impacts + bullet-time remaining.
   strikes: Strike[];
   bulletTimeLeft: number;
+  /** Second Wind (bt.reel): the free extension for THIS bullet-time window is
+   * still unspent. Optional — old snapshots read as "already used". */
+  btSecondWind?: boolean;
+
+  /** COLLAPSE's gather contract (V2 §6.4.2): how many bodies the last cast
+   * actually dragged. Diagnostic only — the sim never reads it back. */
+  gatheredLast?: number;
+  /**
+   * §6.4.6's instrument: damage dealt to monsters, keyed by SOURCE. Ambient
+   * sources (the ones that cost no attention) key as `"<ability>:ambient"`,
+   * so "melee + ambient orbit vs everything else" is answerable without
+   * inferring it from hit shapes.
+   *
+   * OFF unless a caller allocates it (`state.dmgBySource = {}`), so live play
+   * and the wire pay nothing for it. Diagnostic only — the sim never reads it
+   * back, and it is never persisted.
+   */
+  dmgBySource?: Record<string, number>;
 
   // Friendly entities: active Stunt Doubles (see Decoy).
   decoys: Decoy[];

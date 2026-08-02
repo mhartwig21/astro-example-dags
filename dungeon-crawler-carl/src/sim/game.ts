@@ -8,8 +8,8 @@ import {
   catalogQualityAffixes, generateItem, hasPassive, itemScore, makeQualityCatalogItem, rollCatalogDrop, wantsAutoEquip,
 } from "./items";
 import {
-  GLYPH_IDS, GLYPH_INFO, defaultGlyphs, glyphMatches, glyphSocketCount,
-  hasGlyph, socketLegal, totalSocketsOpen, type GlyphId,
+  GLYPH_IDS, GLYPH_INFO, defaultGlyphs, glyphHitMult, glyphMatches, glyphPoiseMult, glyphSocketCount,
+  glyphWindow, hasGlyph, socketLegal, totalSocketsOpen, type GlyphId,
 } from "./glyphs";
 import {
   applyRoamSave, breakablePosKey, creditCachePickup, creditQuestKill, npcsOf, playerInSettlement,
@@ -21,10 +21,13 @@ import {
 } from "./catalog";
 import {
   ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, UPGRADES, airstrikeParams, boltParams, bulletTimeParams,
+  bulwarkParams, cablesParams, injunctionParams,
   castSchool, crowdSurfParams, cutToParams, stuntDoubleParams,
   cataclysmParams, damageVariance, dashParams, knows, meleeParams,
   rank,
-  novaParams, orbitBladePos, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult, stanceParams, startingLoadout,
+
+  novaParams, orbitBladePos, orbitHurlPoint, orbitParams, overchargeParams, power, rollUpgradeDraft, slotted, stanceMult,
+  stanceParams, stanceStrikePower, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
 import { ACHIEVEMENTS } from "./achievements";
@@ -1065,7 +1068,9 @@ function systemTip(state: GameState, p: Player, id: string): void {
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
 function maxDashCharges(p: Player): number {
-  return CONFIG.dashCharges + (hasRevision(p, "parkour") ? CONFIG.revisionParkourCharges : 0);
+  // Quickstep rank 2 is a CHARGE, not another percentage (V2 §4.3) — it comes
+  // through dashParams so the node and the revision stack in one place.
+  return dashParams(p).charges + (hasRevision(p, "parkour") ? CONFIG.revisionParkourCharges : 0);
 }
 
 /** Reset a player's transient combat state for a fresh floor (progression carries). */
@@ -1096,6 +1101,24 @@ function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   p.rebateBudget = 0;
   p.rebateCd0 = 0;
   p.shearsCount = 0;
+  // ABILITIES-V2 transients: same rule as slipstreamT/rebateT — optional
+  // fields, reset per floor, so an old save that never had them loads clean.
+  p.barrageT = 0;
+  p.barrageAim = undefined;
+  p.barrageNext = 0;
+  p.bulwarkT = 0;
+  p.bulwarkAbsorbed = 0;
+  p.bulwarkHits = 0;
+  p.spiteBank = 0;
+  p.injunctionT = 0;
+  p.injunctionDebt = 0;
+  p.orbitHurlT = 0;
+  p.orbitHurlDir = undefined;
+  p.orbitHurlHits = [];
+  p.orbitGuardT = 0;
+  p.cutCharges = cutToParams(p).charges;
+  p.glyphCastCount = {};
+  p.doubleCueUsed = false;
   // Fallen crawlers rejoin the show at half strength when the party descends.
   if (!p.alive) {
     p.alive = true;
@@ -1341,6 +1364,38 @@ export interface SavedProgress {
  * per-account persistence (a rejoining crawler gets their character back
  * even after the instance was dropped and regenerated from seed).
  */
+/**
+ * Retired constellation node ids -> the node that inherited their meaning
+ * (ABILITIES-V2 §4.3). Every mapping is a RENAME of a surviving idea, never a
+ * merge of two live nodes: Concussive's damage became Crush's dragged-target
+ * bonus, Aftershock's cooldown became Rift's, Short Notice became Second
+ * Take's charge, IMPLOSION moved into the base and its capstone slot became
+ * SINGULARITY, SYSTEM SHOCK moved into the base and its slot became CHAIN
+ * REACTION. Exported so the persistence test can assert the whole table.
+ */
+export const RANK_MIGRATIONS: Record<string, string> = {
+  "nova.conc": "nova.crush",
+  "nova.after": "nova.rift",
+  "nova.implode": "nova.singular",
+  "cut.jump": "cut.encore",
+  "overcharge.shock": "overcharge.chain",
+};
+
+/** Fold retired node ids into their heirs. Pure; safe to run on any save. */
+export function migrateRanks(ranks: Record<string, number>): Record<string, number> {
+  let touched = false;
+  for (const old of Object.keys(RANK_MIGRATIONS)) if (ranks[old] !== undefined) touched = true;
+  if (!touched) return ranks;
+  const out: Record<string, number> = {};
+  for (const [id, r] of Object.entries(ranks)) {
+    const to = RANK_MIGRATIONS[id] ?? id;
+    // A crawler could hold ranks in BOTH sides of a retired fork only if the
+    // save predates the exclusion; keep the larger rather than summing past max.
+    out[to] = Math.max(out[to] ?? 0, r);
+  }
+  return out;
+}
+
 export function applySavedPlayer(p: Player, save: SavedProgress): void {
   const s = save.player;
   if (isCrawlerSkin(s.skin)) p.skin = s.skin; // the look follows the character
@@ -1379,6 +1434,10 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
     } else {
       p.abilities = s.abilities;
     }
+    // ABILITIES-V2 §7: retired node ids are MIGRATED, not dropped. rank()
+    // ignores unknown keys, so a resumed run would silently lose ranks the
+    // player earned — the same ranks, under the name the node kept.
+    p.abilities.ranks = migrateRanks(p.abilities.ranks);
   }
   if (s.achievements) p.achievements = s.achievements;
   p.unclaimedAchievements = s.unclaimedAchievements ?? []; // loot boxes wait for a Safe Room
@@ -1464,7 +1523,14 @@ export function createTestGame(opts: TestSetup = {}): GameState {
   const state = createGame(seed);
   const p = state.players[0];
 
-  const wanted: AbilityId[] = opts.abilities === "all" ? [...DISCOVERABLE_ABILITIES] : opts.abilities ?? [];
+  // V2 §7: test mode used to learn DISCOVERABLE_ABILITIES in DECLARATION
+  // ORDER, so `abilities=all` slotted the identical kit every time — across
+  // 20 seeds the loadout was [melee, dash, bolt, nova] + airstrike 20/20, and
+  // 36 of 54 constellation nodes were never drafted once. Shuffle from the
+  // seeded RNG so a fixture measures a KIT rather than the array's order.
+  const wanted: AbilityId[] = opts.abilities === "all"
+    ? shuffle(state.rng, [...DISCOVERABLE_ABILITIES])
+    : opts.abilities ?? [];
   for (const a of wanted) learnAbility(state, p, a);
 
   while (p.level < level) {
@@ -2089,14 +2155,49 @@ function hazardSrc(hz: Hazard): string {
 }
 export function damagePlayerHit(
   state: GameState, p: Player, base: number,
-  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind; hazard?: boolean; src?: Monster | string } = {},
+  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind; hazard?: boolean; melee?: boolean; src?: Monster | string } = {},
 ): boolean {
   // Rivals revive grace: a crawler fresh off the timer is briefly untouchable.
   if ((p.reviveGraceT ?? 0) > 0) return false;
   // Sump Crown (boss unique, V2 §2.5): ground hazards deal half to the wearer.
   if (opts.hazard && hasPassive(p, "sumpcrown")) base *= CONFIG.sumpHazardTakenMult;
+  // CROSSGUARD (orbit rider): while the ring is HOME it parries — the first
+  // melee hit every few seconds is simply negated. It costs nothing while the
+  // blades are thrown, which is the whole trade the hurl introduced.
+  if (
+    opts.melee && !opts.effect && (p.orbitGuardT ?? 0) <= 0 && (p.orbitHurlT ?? 0) <= 0 &&
+    slotted(p, "orbit") && orbitParams(p).guard
+  ) {
+    p.orbitGuardT = CONFIG.orbitGuardCooldown;
+    hit(state, p.pos, 0, "weapon"); // parried: the ring answers for you
+    return false;
+  }
   const raw = opts.roll === false ? Math.max(1, Math.round(base)) : rollDamage(state.rng, base);
   let dmg = mitigate(raw, playerMitigation(p));
+  // BULWARK (V2 N1): you took the hit ON PURPOSE. The brace mitigates and
+  // BANKS what it stopped — the heal (or SPITE) pays out on expiry. No
+  // i-frames: dash owns those, and the two must never be interchangeable.
+  if ((p.bulwarkT ?? 0) > 0) {
+    const bp = bulwarkParams(p);
+    const stopped = dmg * bp.mitigation;
+    dmg = Math.max(1, Math.round(dmg - stopped));
+    p.bulwarkAbsorbed = (p.bulwarkAbsorbed ?? 0) + stopped;
+    p.bulwarkHits = (p.bulwarkHits ?? 0) + 1;
+    // Rally is the SAFETY side of the fork: it pays immediately, at 60%.
+    if (bp.rally) bulwarkHeal(state, p, stopped * bp.healFrac * CONFIG.bulwarkRallyFrac);
+  }
+  // Dig In (entry): the brace COVERS allies standing close — it changes what
+  // the ability touches, which is what an entry node is for.
+  for (const ally of state.players) {
+    if (ally === p || (ally.bulwarkT ?? 0) <= 0) continue;
+    const abp = bulwarkParams(ally);
+    if (abp.allyRadius <= 0 || dist(ally.pos, p.pos) > abp.allyRadius) continue;
+    const stopped = dmg * abp.mitigation;
+    dmg = Math.max(1, Math.round(dmg - stopped));
+    ally.bulwarkAbsorbed = (ally.bulwarkAbsorbed ?? 0) + stopped;
+    ally.bulwarkHits = (ally.bulwarkHits ?? 0) + 1;
+    break;
+  }
   // The Briar Witch's mark: everything hits harder while it holds. Kill the
   // witch, outlast the mark, or in co-op peel for the marked crawler.
   if ((p.cursedT ?? 0) > 0) dmg = Math.round(dmg * (1 + CONFIG.hexVulnerability));
@@ -2513,7 +2614,15 @@ export function damageMonster(
     chained?: boolean; // a conduit arc — never arcs again (no chains of chains)
     effect?: StatusKind; // a DoT tick — hosts tint the number per effect
     melee?: boolean; // a SWING (not a bolt): the duelist's flourish answers these
+
     ability?: AbilityId; // the casting ability (glyph hooks: brand/accelerant)
+    empowered?: boolean; // Static Charge's every-3rd cast
+    breaker?: boolean; // this is a BANKED Breaker hit (Open Season / CHAIN REACTION)
+    // §6.4.6: this damage cost the player NO ATTENTION (the orbit grind is
+    // the only one today). Purely an instrument tag — nothing in the sim
+    // branches on it — but it is the difference between "the passive is the
+    // game" and "the press is the game", which is the whole of R3.
+    ambient?: boolean;
   } = {},
 ): void {
   // Signature Choreography: the post-swap surge window carries bonus crit.
@@ -2528,6 +2637,22 @@ export function damageMonster(
   if (hasRevision(p, "underdog") && p.hp < p.maxHp * CONFIG.revisionUnderdogThreshold) base *= CONFIG.revisionUnderdogDamage;
   // Slipstream glyph: the post-movement surge sharpens everything briefly.
   if ((p.slipstreamT ?? 0) > 0) base *= CONFIG.glyphSlipstreamDmgMult;
+  // PHASE-C conditional glyphs (V2 §5.2): Culling Edge, Point Blank, Longshot
+  // and Static Charge all read the SITUATION, so they resolve here rather than
+  // in a param function that cannot know how far away the body is.
+  if (opts.ability && !opts.effect) {
+    base *= glyphHitMult(p, opts.ability, {
+      range: dist(p.pos, m.pos),
+      hpFrac: m.maxHp > 0 ? m.hp / m.maxHp : 1,
+      empowered: opts.empowered,
+    });
+  }
+  // OPEN SEASON (Breaker rider): break, then dump. The window is on the
+  // MONSTER, so the whole party cashes it in — that is the point of a
+  // cross-ability combo hook.
+  if ((m.vulnT ?? 0) > 0 && !opts.effect) base *= 1 + (m.vulnBonus ?? 0);
+  // INJUNCTION: you bought twelve violent seconds; this is the violence.
+  if ((p.injunctionT ?? 0) > 0 && !opts.effect) base *= 1 + injunctionParams(p).damageBonus;
   // Brandmark glyph: a branded enemy takes more from this crawler's OTHER
   // abilities — the mark is the setup, the cash-in comes from a second slot.
   if (
@@ -2666,13 +2791,20 @@ export function damageMonster(
     const juggernaut = m.affix === "juggernaut";
     const channeling = m.windupKind === "ritual";
     const graced = (juggernaut || (m.staggerGraceT ?? 0) > 0) && !channeling;
+    // POISE WRECKER (Phase C): double poise, and your staggers last longer.
+    const glyphPoise = opts.ability && !opts.effect
+      ? glyphPoiseMult(p, opts.ability, opts.empowered) : 1;
     if (!graced) {
-      m.poiseDmg += dmg * (opts.poiseMult ?? 1) * (channeling ? CONFIG.channelPoiseTakenMult : 1);
+      m.poiseDmg += dmg * (opts.poiseMult ?? 1) * glyphPoise * (channeling ? CONFIG.channelPoiseTakenMult : 1);
     }
-    // SYSTEM SHOCK (overcharge capstone): the hit itself is a poise break.
+    // BREAKER (V2 R5): the banked hit's poise shatter is BASE kit now — the
+    // telegraph system finally has the answer it never shipped. Bosses are not
+    // outright staggered by it; they eat double poise instead (overchargeParams).
     if (!graced && ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg >= m.maxHp * a.poise * eliteMult)) {
       m.poiseDmg = 0;
-      m.stagger = CONFIG.staggerDuration;
+      m.stagger = CONFIG.staggerDuration
+        + (opts.ability && hasGlyph(p, opts.ability, "poise_wrecker") ? CONFIG.glyphPoiseWreckerStagger : 0);
+      breakerStaggerRiders(state, p, m, opts.breaker);
       if (m.kind === "boss" || m.elite) {
         m.staggerGraceT = m.kind === "boss" ? CONFIG.bossStaggerGrace : CONFIG.eliteStaggerGrace;
         if (m.kind === "boss") systemTip(state, p, "staggerGrace");
@@ -2701,7 +2833,14 @@ export function damageMonster(
     resisted: (resisted || guarded) || undefined, // guarded hits read dim too
     effect: opts.effect,
   });
+
   p.damageDealt += dmg;
+  if (state.dmgBySource) {
+    // §6.4.6's reciprocal contract. Untagged paths bucket as "other" rather
+    // than vanishing, so the denominator is genuinely ALL damage dealt.
+    const key = (opts.ability ?? (opts.effect ? "dot" : "other")) + (opts.ambient ? ":ambient" : "");
+    state.dmgBySource[key] = (state.dmgBySource[key] ?? 0) + dmg;
+  }
   if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
   // Venom Clause (chase legendary): crits inject a poison stack — the DoT
   // ticks back through this same choke point, so resists/caps keep applying.
@@ -2729,6 +2868,28 @@ export function damageMonster(
       m.brandAbility = opts.ability;
       m.brandBy = p.id;
     }
+    // ENVENOMED (Phase C): a chance to inject a poison stack. Seeded — the
+    // roll comes from state.rng like every other chance in the sim.
+    if (hasGlyph(p, opts.ability, "envenomed") && chance(state.rng, CONFIG.glyphEnvenomedChance)) {
+      applyStatus(m, {
+        kind: "poison", duration: statusDuration(p, CONFIG.poisonDuration), school: "physical",
+        magnitude: Math.max(1, Math.round(dmg * CONFIG.venomTickFraction)), sourceId: p.id,
+      });
+    }
+    // CRYO-ETCH (Phase C): hits chill.
+    if (hasGlyph(p, opts.ability, "cryo_etch")) {
+      applyStatus(m, {
+        kind: "chill", duration: statusDuration(p, CONFIG.glyphCryoDuration), school: "magic",
+        magnitude: m.kind === "boss" ? CONFIG.glyphCryoChill * CONFIG.chillBossMult : CONFIG.glyphCryoChill,
+      });
+    }
+  }
+  // Ragged Edge (melee.bleed): crits bleed, using the shipped poison rules.
+  if (isCrit && m.hp > 0 && opts.ability === "melee" && rank(p, "melee.bleed") > 0) {
+    applyStatus(m, {
+      kind: "poison", duration: statusDuration(p, CONFIG.poisonDuration), school: "physical",
+      magnitude: Math.max(1, Math.round(dmg * CONFIG.venomTickFraction)), sourceId: p.id,
+    });
   }
   // Rootcutter Shears (boss unique): every 3rd melee hit SNARES the target —
   // implemented as a heavy chill (move + windup crawl), refresh-on-reapply.
@@ -2806,12 +2967,18 @@ function inSwing(pos: Vec2, facing: Vec2, m: Monster, range: number, arc: number
   return angleBetween(facing, toMon) <= halfArc;
 }
 
-function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): void {
+function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2, arcMult = 1): void {
   const mp = meleeParams(p);
   let facing = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = facing;
   p.cd.melee = mp.cooldown * cdMult(p);
   p.attackSwing = 0.15;
+  // R4: a stance swap fires this as a FREE strike at a wider arc (Brawler) —
+  // the caller restores the cooldown, so the swap never eats the melee beat.
+  const swapStrike = p.stanceStrikeMult ?? 0;
+  const arc = mp.arc * arcMult;
+  bloodPrice(state, p, "melee");
+  const empowered = staticCharged(p, "melee");
 
   // The swing lunges a short step toward the aim — but never THROUGH a target
   // already in reach. Overshooting point-blank enemies (which puts them BEHIND
@@ -2838,7 +3005,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   // arm's reach, snap the swing to the nearest such target — at melee range
   // the player's intent is "hit the thing next to me", not the exact cursor.
   const wouldHit = state.monsters.some(
-    (m) => m.hp > 0 && inSwing(p.pos, facing, m, mp.range, mp.arc),
+    (m) => m.hp > 0 && inSwing(p.pos, facing, m, mp.range, arc),
   );
   if (!wouldHit) {
     let snap: Monster | null = null;
@@ -2866,16 +3033,30 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   // castSchool are both lens-aware) — an explicit socket beats a default.
   const school = castSchool(p, "melee");
   let connected = false;
+  // Wide Arc is an ENTRY node: it changes what the swing TOUCHES. The target
+  // cap is the honest half of that (a wider arc with no cap would have been
+  // the same printed number in a different unit), and Surge widens it further
+  // on a BANKED hit.
+  const cap = mp.targetCap + (oc ? oc.extraTargets : 0);
+  let touched = 0;
+  // SPITE (Bulwark capstone): everything the brace absorbed rides this swing.
+  const spite = p.spiteBank ?? 0;
+  if (spite > 0) p.spiteBank = 0;
   for (const m of state.monsters) {
     if (m.hp <= 0) continue;
-    if (!inSwing(p.pos, facing, m, mp.range, mp.arc)) continue;
+    if (touched >= cap) break;
+    if (!inSwing(p.pos, facing, m, mp.range, arc)) continue;
+    touched++;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     // EXECUTIONER capstone: finish the wounded.
     const execute = rank(p, "melee.execute") > 0 && m.hp < m.maxHp * 0.3 ? 1.6 : 1;
-    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
+    const swap = swapStrike > 0 ? swapStrike : 1;
+    const dmg = power(p, "melee") * mp.damageMult * execute * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult * swap
+      + (touched === 1 ? spite : 0);
     damageMonster(state, p, m, dmg, {
       dir: normalize(toMon), knockback: CONFIG.meleeKnockback, school, melee: true, ability: "melee",
       forceCrit: momentum, shatterPoise: oc?.shatter, poiseMult: mp.poiseMult,
+      breaker: oc ? true : undefined, empowered,
     });
     // Echo Strike: the overcharged swing lands a second, softer hit.
     if (oc && oc.echoFrac > 0 && m.hp > 0) {
@@ -2888,7 +3069,11 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
       for (const other of state.monsters) {
         if (other === m || other.hp <= 0) continue;
         if (dist(m.pos, other.pos) > CONFIG.meleeOverkillRadius) continue;
-        damageMonster(state, p, other, overkill, { allowCrit: false, school: "physical" });
+
+        // §7: every damage path carries its ability tag. This IS the melee
+        // swing, carried through the corpse — so it routes melee glyphs and
+        // counts against §6.4.6's melee share like the swing it came from.
+        damageMonster(state, p, other, overkill, { allowCrit: false, school: "physical", ability: "melee" });
       }
     }
     connected = true;
@@ -2900,7 +3085,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
     const frac = stuntDoubleParams(p).mirrorFrac;
     for (const m of state.monsters) {
       if (m.hp <= 0) continue;
-      if (!inSwing(dc.pos, facing, m, mp.range, mp.arc)) continue;
+      if (!inSwing(dc.pos, facing, m, mp.range, arc)) continue;
       damageMonster(state, p, m, power(p, "melee") * mp.damageMult * frac, { allowCrit: false, school: "physical" });
     }
   }
@@ -2916,13 +3101,13 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   // barrel, at last. Same reach test the monsters get.
   smashBreakables(state, ({ pos }) => {
     const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
-    return dhypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
+    return dhypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= arc / 2;
   });
   // RIVALS: the same swing arc also cuts rivals sharing this floor.
   for (const v of rivalTargets(state, p)) {
     const toV = { x: v.pos.x - p.pos.x, y: v.pos.y - p.pos.y };
     const edge = dhypot(toV.x, toV.y) - 0.35;
-    if (edge > mp.range || angleBetween(facing, toV) > mp.arc / 2) continue;
+    if (edge > mp.range || angleBetween(facing, toV) > arc / 2) continue;
     const dmg = power(p, "melee") * mp.damageMult * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
     pvpStrike(state, p, v, dmg, normalize(toV));
   }
@@ -3056,8 +3241,14 @@ function reapDead(state: GameState): void {
     }
     // Executioner's Rebate glyph (rule 8): a kill inside the cast window
     // refunds a slice of the cooldown — capped per cast by the budget.
+    // ENCORE CLAUSE rides the SAME accumulator (V2 §5.4 flag 2): one budget,
+    // one clamp, whichever glyph armed the window. On floor 15 Fault Line's
+    // raw refund would be 4% x ~20 kills = 80% of a 40s cooldown; the budget
+    // is what holds it to 50%, so §6.4.10 pins the budget rather than the rate.
     if ((killer.rebateT ?? 0) > 0 && killer.rebateAbility && (killer.rebateBudget ?? 0) > 0) {
-      const refund = Math.min((killer.rebateCd0 ?? 0) * CONFIG.glyphRebateFrac, killer.rebateBudget ?? 0);
+      const rate = hasGlyph(killer, killer.rebateAbility, "encore_clause")
+        ? CONFIG.glyphEncoreRefund : CONFIG.glyphRebateFrac;
+      const refund = Math.min((killer.rebateCd0 ?? 0) * rate, killer.rebateBudget ?? 0);
       if (refund > 0) {
         killer.cd[killer.rebateAbility] = Math.max(0, (killer.cd[killer.rebateAbility] ?? 0) - refund);
         killer.rebateBudget = (killer.rebateBudget ?? 0) - refund;
@@ -3105,11 +3296,28 @@ function reapDead(state: GameState): void {
       if (pl.cutMark && pl.cutMark.monsterId === m.id) {
         pl.cutMark = null;
         pl.cd.cutto = 0;
+        pl.cutCharges = Math.max(pl.cutCharges ?? 1, 1);
       }
     }
     // EXTENSION (Bullet Time capstone): kills inside the slow stretch it out.
     if (state.bulletTimeLeft > 0 && bulletTimeParams(killer).encore) {
       state.bulletTimeLeft = Math.min(CONFIG.ultBulletTimeEncoreCap, state.bulletTimeLeft + CONFIG.ultBulletTimeEncoreExtend);
+    }
+    // Second Wind (bt.reel): the FIRST kill inside pauses the world a beat
+    // longer. A free extension, always — the rider any Bullet Time build gets.
+    if (state.bulletTimeLeft > 0 && state.btSecondWind) {
+      state.btSecondWind = false;
+      state.bulletTimeLeft = Math.min(
+        CONFIG.ultBulletTimeEncoreCap, state.bulletTimeLeft + CONFIG.ultBulletTimeSecondWind,
+      );
+    }
+    // CURTAIN CALL (cables capstone): a body that dies PINNED leaves the line
+    // live — the field re-pins once more.
+    if ((m.pinnedT ?? 0) > 0 && cablesParams(killer).curtain) {
+      for (const hz of state.hazards) {
+        if (hz.kind !== "cables" || hz.ownerId !== killer.id) continue;
+        hz.rearms = (hz.rearms ?? 0) + 1;
+      }
     }
     if (killer.alive && killer.hp > 0 && killer.hp < killer.maxHp * 0.1) killer.lowHpKill = true;
     addHype(state, killer, KILL_HYPE[m.kind]);
@@ -3359,6 +3567,10 @@ function collectLoot(state: GameState): void {
 }
 
 function updateTimer(state: GameState, dt: number): void {
+  // INJUNCTION (V2 N3): the collapse timer FREEZES while any crawler holds a
+  // stay. It is not free — the debt (5/3 of the freeze) is deducted in one
+  // lump when the window closes, so the net delta is always negative.
+  if (state.players.some((pl) => (pl.injunctionT ?? 0) > 0)) return;
   state.timeRemaining -= dt;
   const warnAt = state.timeBudget * CONFIG.warningFraction;
 
@@ -4388,9 +4600,33 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
   }
   // Shockstep: damage along the WHOLE dash path (launch -> arrival capsule),
   // so dashing through a pack connects — and Long Blink extends the reach.
+  // V2 R2: the school is HYBRID now (SCALING dash = ap .5 / sp .5), so a
+  // physical crawler's detonation stops being a rounding error.
   if (dp.shockMult > 0) {
     segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
-      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, "magic", "dash");
+      power(p, "dash") * dp.shockMult, CONFIG.shockstepKnockback, castSchool(p, "dash"), "dash");
+  }
+  // Long Blink: the long dash is a PLAY, not a retreat — bodies you cross eat
+  // a share of Shockstep even without the node's own damage rank.
+  if (dp.passFrac > 0) {
+    segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
+      power(p, "dash") * dp.passFrac, 0, castSchool(p, "dash"), "dash");
+  }
+  // PHASE ETCH (Phase C): more i-frames, and passed-through enemies take a
+  // slice of ability power as steel.
+  if (hasGlyph(p, "dash", "phase_etch")) {
+    p.dashTime = Math.max(p.dashTime, CONFIG.dashDuration + CONFIG.glyphPhaseEtchIframes);
+    segmentDamage(state, p, start, p.pos, CONFIG.shockstepPathRadius,
+      power(p, "dash") * CONFIG.glyphPhaseEtchFrac, 0, "physical", "dash");
+  }
+  // Smoke Break (rider): the launch point blooms into a blind puff. Monsters
+  // inside DROP their current target — the decoy taunt seam, inverted.
+  if (dp.veil) {
+    for (const m of state.monsters) {
+      if (m.hp <= 0 || dist(start, m.pos) > CONFIG.dashVeilRadius) continue;
+      m.blindT = CONFIG.dashVeilSeconds;
+      m.alertT = 0;
+    }
   }
   // AFTERSHOCK capstone: the arrival point additionally detonates outright.
   if (rank(p, "dash.after") > 0) {
@@ -4406,12 +4642,35 @@ function doDash(state: GameState, p: Player, move: Vec2): void {
  * The swap itself is the cast — Flow builds ride the post-swap surge window,
  * Discipline builds plant their feet and let the stance settle instead.
  */
-function doStance(state: GameState, p: Player): void {
+function doStance(state: GameState, p: Player, aim: Vec2, move: Vec2): void {
+  const sp = stanceParams(p);
+  // R4: the swap IS an attack — but ONLY if you were SETTLED. Without the
+  // gate, swapping every 3s becomes the optimal line and Discipline (which
+  // only pays while settled) and PERFECT FORM become strictly worse to play:
+  // the base rework would be attacking one side of the roster's best fork,
+  // which is the exact defect this document indicts elsewhere. Flow UNGATES
+  // it at 60% power — Discipline uses the strike, Flow spams it.
+  const strike = stanceStrikePower(p);
   p.stance = p.stance === "melee" ? "ranged" : "melee";
-  p.cd.stance = stanceParams(p).cooldown * cdMult(p); // rule-7 clamped (glyph CDR folds in)
+  p.cd.stance = sp.cooldown * cdMult(p); // rule-7 clamped (glyph CDR folds in)
   p.stanceTime = 0;
   p.stanceSwapWindow = CONFIG.stanceSurgeSeconds;
   if (rank(p, "stance.moment") > 0) p.stanceCritReady = true;
+  if (strike > 0) {
+    const kind: AbilityId = p.stance === "melee" ? "melee" : "bolt";
+    const cd0 = p.cd[kind] ?? 0; // the strike is FREE: no cooldown cost
+    p.stanceStrikeMult = strike;
+    if (kind === "melee") doPlayerAttack(state, p, aim, move, CONFIG.stanceStrikeArcMult);
+    else doBolt(state, p, aim, CONFIG.stanceStrikeBoltMult);
+    p.stanceStrikeMult = undefined;
+    p.cd[kind] = cd0;
+    // Footwork (rider): the strike REFUNDS a slice of the swapped-to attack's
+    // cooldown. It is the first RANK that grants a refund, so it routes
+    // through rule 8's per-cast refund budget rather than around it (§5.4 #4).
+    if (sp.footworkRefund > 0 && cd0 > 0) {
+      p.cd[kind] = Math.max(0, cd0 - refundAllowance(p, kind, sp.footworkRefund));
+    }
+  }
   // Signature Choreography (chase legendary): every swap opens a crit surge —
   // the +crit rides the same post-swap window Flow uses (see damageMonster),
   // so the dance-build's rhythm is swap, spike, swap, spike.
@@ -4427,15 +4686,38 @@ function doStance(state: GameState, p: Player): void {
 function doOvercharge(state: GameState, p: Player): void {
   p.overcharged = true;
   p.cd.overcharge = overchargeParams(p).cooldown * cdMult(p); // rule-7 clamped
+  bloodPrice(state, p, "overcharge");
   hit(state, p.pos, 0, "weapon"); // a crackle poof for the juice layer
 }
 
+/**
+ * RULE 8's budget, shared by every refund source. Executioner's Rebate armed
+ * it per cast; Footwork is the first RANK to spend from it, and it goes
+ * through the same accumulator rather than around it (§5.4 flag 4). Returns
+ * how many seconds may actually be refunded right now.
+ */
+function refundAllowance(p: Player, ability: AbilityId, want: number): number {
+  if (p.rebateAbility !== ability || (p.rebateT ?? 0) <= 0) {
+    // No armed window: the budget is this cooldown's own cap, computed fresh.
+    const cd0 = p.cd[ability] ?? 0;
+    return Math.min(want, cd0 * CONFIG.refundCapFraction);
+  }
+  const left = Math.max(0, p.rebateBudget ?? 0);
+  const give = Math.min(want, left);
+  p.rebateBudget = left - give;
+  return give;
+}
+
 /** Ranged bolt skill: fire player projectile(s) along facing/aim (Split Shot fans). */
-function doBolt(state: GameState, p: Player, aim: Vec2): void {
+function doBolt(state: GameState, p: Player, aim: Vec2, dmgMult = 1): void {
   const bp = boltParams(p);
   const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
   p.facing = dir;
   p.cd.bolt = bp.cooldown * cdMult(p);
+  bloodPrice(state, p, "bolt");
+  const empowered = staticCharged(p, "bolt");
+  // R4: a stance swap fires a free bolt at 1.3x (Deadeye's shape).
+  const swap = p.stanceStrikeMult ?? 0;
   systemTip(state, p, "bolt"); // the weapon throws it; the System explains once
   // Stance judges the CAST (a volley loosed in Deadeye stays hot even if you
   // swap mid-flight). MOMENTUM and Overcharge spend on fire — the shot taken
@@ -4446,7 +4728,10 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   if (oc) p.overcharged = false;
   // The weapon decides what a "bolt" even is (boltParams): crossbow bolts off
   // attack power, magic missiles off spell power, or a melee-class sidearm.
-  const damage = Math.max(1, Math.round(bp.dmg * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
+  const damage = Math.max(1, Math.round(
+    bp.dmg * stanceMult(p, "ranged") * (oc?.mult ?? 1) * dmgMult * (swap > 0 ? swap : 1)
+      * (empowered ? CONFIG.glyphStaticDmgMult : 1),
+  ));
   const speed = CONFIG.boltSpeed * bp.speedMult;
   const count = bp.count + (oc?.extraBolts ?? 0); // Overcharged Volley widens the fan
   const base = datan2(dir.y, dir.x);
@@ -4462,9 +4747,12 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
       ttl: CONFIG.boltTtl,
       from: "player",
       ownerId: p.id,
-      pierce: bp.pierce,
+      // Surge (Breaker entry): a banked bolt PIERCES further — the entry
+      // changes what the hit touches instead of what it prints.
+      pierce: bp.pierce + (oc?.extraTargets ?? 0),
       crit: momentum || undefined,
       shatter: oc?.shatter || undefined,
+      breaker: oc ? true : undefined,
       school: bp.school,
       chill: bp.chill > 0 ? bp.chill : undefined,
       ability: "bolt", // glyph hooks (brand/accelerant/splitfang/arc-splice)
@@ -4543,22 +4831,172 @@ function segmentDamage(
   }
 }
 
-/** Nova skill: a radial shockwave around the player (must be learned). */
+// ---- PHASE-C GLYPH MACHINERY (ABILITIES-V2 §5) ----
+// Each of these is the ONE place its glyph resolves, so every ability that
+// exposes the matching channel gets the behavior for free — the rule-6
+// contract in glyphs.ts stays true by construction rather than by discipline.
+
+/** STATIC CHARGE: count this cast and report whether it is the empowered one.
+ * Reads the `cast` channel — which is exactly why Orbit's AURA does not get
+ * it and Orbit's HURL does. */
+function staticCharged(p: Player, ability: AbilityId): boolean {
+  if (!hasGlyph(p, ability, "static_charge")) return false;
+  const counts = (p.glyphCastCount ??= {});
+  const n = ((counts[ability] ?? 0) + 1) % CONFIG.glyphStaticEvery;
+  counts[ability] = n;
+  return n === 0;
+}
+
+/** GRAVE DIVIDEND: consume up to N corpses under the cast for +15% each. */
+function graveDividend(state: GameState, p: Player, at: Vec2, ability: AbilityId): number {
+  if (!hasGlyph(p, ability, "grave_dividend")) return 1;
+  let eaten = 0;
+  state.corpses = state.corpses.filter((c) => {
+    if (eaten >= CONFIG.glyphGraveCorpses || dist(at, c.pos) > CONFIG.glyphGraveRadius) return true;
+    eaten++;
+    return false;
+  });
+  return 1 + eaten * CONFIG.glyphGraveBonus;
+}
+
+/**
+ * DEMOLITION RIDER: the blast consumes burn/poison on what it hit and deals
+ * the remaining DoT at once. Capped at glyphDemolitionTargets bodies (§5.4
+ * flag 6) — with Collapse's gather landing 3+ every cast, an uncapped version
+ * was the set's strongest glyph by a distance.
+ */
+function demolitionRider(state: GameState, p: Player, at: Vec2, radius: number, ability: AbilityId): void {
+  if (!hasGlyph(p, ability, "demolition_rider")) return;
+  let done = 0;
+  for (const m of state.monsters) {
+    if (done >= CONFIG.glyphDemolitionTargets) break;
+    if (m.hp <= 0 || !m.statuses?.length) continue;
+    if (dist(at, m.pos) - bodyRadius(m) > radius) continue;
+    let owed = 0;
+    for (const s of m.statuses) {
+      if (s.kind !== "burn" && s.kind !== "poison") continue;
+      owed += s.magnitude * s.stacks * Math.max(0, Math.floor(s.remaining / CONFIG.burnTickSeconds));
+    }
+    if (owed < 1) continue;
+    m.statuses = m.statuses.filter((s) => s.kind !== "burn" && s.kind !== "poison");
+    done++;
+    damageMonster(state, p, m, owed * CONFIG.glyphDemolitionFrac, {
+      allowCrit: false, poiseMult: 0, school: "magic", effect: "burn",
+    });
+  }
+}
+
+/** COLD OPEN: the ultimate's cast chills the room it opens on. */
+function coldOpen(state: GameState, p: Player, ability: AbilityId): void {
+  if (!hasGlyph(p, ability, "cold_open")) return;
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || dist(p.pos, m.pos) > CONFIG.glyphColdOpenRadius) continue;
+    applyStatus(m, {
+      kind: "chill", duration: CONFIG.glyphColdOpenDuration, school: "magic",
+      magnitude: m.kind === "boss" ? CONFIG.glyphColdOpenChill * CONFIG.chillBossMult : CONFIG.glyphColdOpenChill,
+    });
+  }
+}
+
+/** BLOOD PRICE: casts cost 3% max HP for +30% damage. Never lethal — a glyph
+ * that can kill you by pressing a button is a bug, not a drawback. */
+function bloodPrice(state: GameState, p: Player, ability: AbilityId): void {
+  if (!hasGlyph(p, ability, "blood_price")) return;
+  const cost = Math.max(1, Math.round(p.maxHp * CONFIG.glyphBloodPriceHpFrac));
+  p.hp = Math.max(1, p.hp - cost);
+  hit(state, p.pos, cost, "player");
+}
+
+/**
+ * BREAKER's stagger riders (V2 R5 + §4.3). Open Season opens a vulnerability
+ * window on the MONSTER (so the whole party cashes it in) and CHAIN REACTION
+ * propagates the stagger — party-scale control, once per phrase.
+ */
+function breakerStaggerRiders(state: GameState, p: Player, m: Monster, breaker?: boolean): void {
+  if (!breaker) return;
+  const op = overchargeParams(p);
+  if (op.window > 0) {
+    m.vulnT = CONFIG.overchargeWindowSeconds;
+    m.vulnBonus = op.window;
+  }
+  if (op.chain) {
+    for (const o of state.monsters) {
+      if (o === m || o.hp <= 0 || o.kind === "boss") continue;
+      if (dist(m.pos, o.pos) > CONFIG.overchargeChainRadius) continue;
+      if ((o.staggerGraceT ?? 0) > 0 || o.affix === "juggernaut") continue;
+      o.stagger = Math.max(o.stagger, CONFIG.staggerDuration);
+      o.poiseDmg = 0;
+      o.windup = 0;
+      o.windupKind = undefined;
+    }
+  }
+}
+
+/**
+ * COLLAPSE (ABILITIES-V2 R1). The measured trap fixed with the game's own
+ * idea: IMPLOSION stops being a capstone and becomes the BASE. The cast drags
+ * every non-boss body inside `gatherRadius` onto a ring at your feet, THEN
+ * detonates at the (smaller) blast radius. Per-target damage is unchanged —
+ * the entire buff is in N, because N's measured median was zero and the
+ * dungeon's spacing contract deliberately keeps it there.
+ */
 function doNova(state: GameState, p: Player): void {
   const np = novaParams(p);
   p.cd.nova = np.cooldown * cdMult(p);
-  // IMPLOSION capstone: drag everything in range toward you first.
-  if (rank(p, "nova.implode") > 0) {
-    for (const m of state.monsters) {
-      const d = dist(p.pos, m.pos);
-      if (d > np.radius * 1.6 || d < 1.2) continue;
-      const dir = { x: (p.pos.x - m.pos.x) / d, y: (p.pos.y - m.pos.y) / d };
-      moveWithCollision(state.map, m.pos, dir, Math.min(d - 1, 2.2), isWalkable);
+  bloodPrice(state, p, "nova");
+  // THE GATHER. Elites and bosses RESIST (40% of the distance) rather than
+  // ignore — a gather that cannot touch the thing you want gathered is the
+  // same trap in a different costume.
+  const dragged = new Set<number>();
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const d = dist(p.pos, m.pos);
+    if (d > np.gatherRadius || d < CONFIG.novaGatherRing) continue;
+    const heavy = m.kind === "boss" || m.elite;
+    const want = Math.min(d - CONFIG.novaGatherRing, CONFIG.novaGatherStep);
+    const pull = want * (heavy ? CONFIG.novaHeavyDragFrac : 1);
+    if (pull <= 0.01) continue;
+    const dir = { x: (p.pos.x - m.pos.x) / d, y: (p.pos.y - m.pos.y) / d };
+    const before = { x: m.pos.x, y: m.pos.y };
+    moveWithCollision(state.map, m.pos, dir, pull, isWalkable);
+    if (dist(before, m.pos) > 0.05) {
+      dragged.add(m.id);
+      // CRUSH: they land staggered. The fork rewards the SETUP, not the number.
+      if (np.crush > 0 && m.kind !== "boss") {
+        m.stagger = Math.max(m.stagger, CONFIG.novaCrushStagger);
+        m.windup = 0;
+        m.windupKind = undefined;
+      }
     }
   }
+  state.gatheredLast = dragged.size; // §6.4.2's gather contract reads this
   p.novaFlash = 0.3;
   const base = power(p, "nova") * np.damageMult;
-  radialDamage(state, p, p.pos, np.radius, base, CONFIG.novaKnockback, "magic", 1, "nova");
+  // GRAVE DIVIDEND / DEMOLITION RIDER (Phase C) read the ground the gather
+  // just made — corpses under the cast, and DoTs on everything it caught.
+  const zoneMult = graveDividend(state, p, p.pos, "nova");
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    const d = dist(p.pos, m.pos);
+    if (d - bodyRadius(m) > np.radius) continue;
+    const dir = d > 1e-4 ? { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d } : undefined;
+    const crushed = dragged.has(m.id) ? 1 + np.crushBonus : 1;
+    damageMonster(state, p, m, base * zoneMult * crushed, {
+      dir, knockback: CONFIG.novaKnockback, school: castSchool(p, "nova"),
+      ability: "nova", empowered: staticCharged(p, "nova"),
+    });
+  }
+  demolitionRider(state, p, p.pos, np.radius, "nova");
+  smashBreakables(state, ({ pos }) => dist(p.pos, pos) <= np.radius);
+  // RIFT: the implosion point keeps working — anything that walks near the
+  // crater for the next two seconds is dragged back into it.
+  if (np.rift) {
+    state.hazards.push({
+      id: state.nextEntityId++, pos: { x: p.pos.x, y: p.pos.y },
+      t: CONFIG.novaRiftSeconds, total: CONFIG.novaRiftSeconds, radius: CONFIG.novaRiftRadius,
+      damage: 0, kind: "fissure", ownerId: p.id, ability: "nova", slow: 0, tick: 0.25,
+    });
+  }
   // REPRISE glyph: the blast re-detonates on the same spot a beat later.
   if (hasGlyph(p, "nova", "reprise")) {
     state.strikes.push({
@@ -4581,6 +5019,14 @@ function doNova(state: GameState, p: Player): void {
       });
     }
   }
+  // SINGULARITY capstone: the collapse pulls PROJECTILES too. The answer to
+  // toysoldier volleys, sentinel railshots and boss radial fire — a capstone
+  // the AI roster demands rather than one the ability wanted.
+  if (np.singularity) {
+    state.projectiles = state.projectiles.filter(
+      (pr) => pr.from !== "enemy" || dist(p.pos, pr.pos) > np.gatherRadius,
+    );
+  }
 }
 
 /**
@@ -4593,6 +5039,10 @@ function doNova(state: GameState, p: Player): void {
 function updateOrbit(state: GameState, p: Player, dt: number): void {
   if (!slotted(p, "orbit") || !p.alive) return;
   const op = orbitParams(p);
+  if ((p.orbitGuardT ?? 0) > 0) p.orbitGuardT = Math.max(0, (p.orbitGuardT ?? 0) - dt);
+  // THE HURL (V2 R3) runs first: while the ring is away there is NO aura. You
+  // spent your bodyguard — that is the counterplay window the ability never had.
+  if ((p.orbitHurlT ?? 0) > 0) { updateOrbitHurl(state, p, dt, op); return; }
   p.orbitAngle = (p.orbitAngle + CONFIG.orbitRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitSpiral = (p.orbitSpiral + CONFIG.orbitSpiralRevPerSec * Math.PI * 2 * dt) % (Math.PI * 2);
   p.orbitTick -= dt;
@@ -4612,7 +5062,10 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
       }
     }
     if (!touching) continue;
-    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: castSchool(p, "orbit"), ability: "orbit" });
+
+    // AMBIENT: the grind tick is the one damage source in the game the player
+    // never pressed. §6.4.5 caps its DPS; §6.4.6 caps its share.
+    damageMonster(state, p, m, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"), { allowCrit: false, school: castSchool(p, "orbit"), ability: "orbit", ambient: true });
     // GUILLOTINE capstone: chaff the blades have worn down is simply finished.
     // (Exact HP, no damage roll — an execute that sometimes whiffs is a lie.)
     if (
@@ -4634,6 +5087,57 @@ function updateOrbit(state: GameState, p: Player, dt: number): void {
     }
     if (touching) pvpStrike(state, p, v, power(p, "orbit") * op.damageMult * stanceMult(p, "melee"));
   }
+}
+
+/**
+ * The thrown ring (V2 R3). Blades fly out to hurlRange and return along the
+ * same line, hitting everything BOTH ways at hurlPassMult x a grind tick. The
+ * ambient grind pays for it (orbitDamageMult 0.5 -> 0.22), which is the whole
+ * point: the ability's damage moves from the passive to the press.
+ */
+function updateOrbitHurl(state: GameState, p: Player, dt: number, op: ReturnType<typeof orbitParams>): void {
+  const travel = op.hurlRange / CONFIG.orbitHurlSpeed;
+  const prev = p.orbitHurlT ?? 0;
+  const next = Math.max(0, prev - dt);
+  p.orbitHurlT = next;
+
+  const dir = p.orbitHurlDir ?? p.facing;
+  // t counts DOWN across two legs: [2*travel .. travel] outbound, then inbound.
+  const outbound = next > travel;
+  if (!outbound && (prev > travel)) p.orbitHurlHits = []; // the return pass is a new pass
+  p.orbitHurlOut = outbound;
+  // ONE source of truth for where the ring is (abilities.ts). The hosts call
+  // the same function, so no renderer can drift from the damage pass again.
+  const at = orbitHurlPoint(p) ?? { x: p.pos.x, y: p.pos.y };
+  const dmg = power(p, "orbit") * op.damageMult * op.hurlPassMult * stanceMult(p, "melee");
+  const hits = (p.orbitHurlHits ??= []);
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || hits.includes(m.id)) continue;
+    if (dist(at, m.pos) - bodyRadius(m) > CONFIG.orbitHurlHitRadius) continue;
+    hits.push(m.id);
+    damageMonster(state, p, m, dmg, {
+      school: castSchool(p, "orbit"), ability: "orbit", allowCrit: false,
+      dir: { x: dir.x, y: dir.y }, empowered: false,
+    });
+    // Razor's Edge: hurled blades PIERCE. Without it the throw stops on the
+    // first body it finds (which is what makes the fork a real choice).
+    if (!op.hurlPierce) { p.orbitHurlT = Math.min(next, travel); break; }
+  }
+  if (next <= 0) { p.orbitHurlHits = []; p.orbitHurlDir = undefined; }
+}
+
+/** ORBIT's press: throw the ring. */
+function doOrbitHurl(state: GameState, p: Player, aim: Vec2): void {
+  const op = orbitParams(p);
+  p.cd.orbit = op.hurlCooldown * cdMult(p);
+  bloodPrice(state, p, "orbit");
+  const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
+  p.facing = dir;
+  p.orbitHurlDir = dir;
+  p.orbitHurlHits = [];
+  p.orbitHurlT = (op.hurlRange / CONFIG.orbitHurlSpeed) * 2;
+  p.orbitHurlOut = true;
+  hit(state, p.pos, 0, "weapon");
 }
 
 // ---- The fun-kit wave: Blindside / Extradition / Stunt Double ----
@@ -4662,7 +5166,11 @@ function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   const cp = cutToParams(p);
   const target = pickAlongAim(state, p, aim, cp.range);
   if (!target) return;
-  p.cd.cutto = cp.cooldown * cdMult(p);
+  // Second Take: charges, like dash's — a charge is an identity where a second
+  // cooldown percentage was not (V2 §4.3).
+  p.cutCharges = Math.max(0, (p.cutCharges ?? cp.charges) - 1);
+  if ((p.cd.cutto ?? 0) <= 0) p.cd.cutto = cp.cooldown * cdMult(p);
+  bloodPrice(state, p, "cutto");
   const d = dist(p.pos, target.pos);
   const dir = d > 1e-4 ? { x: (target.pos.x - p.pos.x) / d, y: (target.pos.y - p.pos.y) / d } : p.facing;
   // The cut slides the whole distance; collision keeps it honest (no walls).
@@ -4670,10 +5178,26 @@ function doCutTo(state: GameState, p: Player, aim: Vec2): void {
   p.facing = { x: dir.x, y: dir.y };
   p.attackSwing = 0.15;
   hit(state, p.pos, 0, "weapon"); // arrival flash for the juice layer
-  // Sucker Punch: the arrival strike shatters poise (non-bosses arrive staggered).
+  // R6: BURST. The arrival strike CRITS a target that is not currently aggroed
+  // on you — behind their caster that is ~3.8x a melee swing in one frame;
+  // into the brute already chasing you it is the flat 1.9x and you took the
+  // trip for the reach. That is the honest trade and the counterplay window.
+  const unaware = (target.alertT ?? 0) <= 0 && target.windup <= 0 && !target.chargeT;
   damageMonster(state, p, target, power(p, "cutto") * cp.dmgMult, {
-    dir, school: castSchool(p, "cutto"), shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback, melee: true, ability: "cutto",
+    dir, school: castSchool(p, "cutto"), shatterPoise: cp.smash, knockback: CONFIG.meleeKnockback,
+    melee: true, ability: "cutto", forceCrit: unaware, empowered: staticCharged(p, "cutto"),
   });
+  // Continuity (rider): the arrival target is BRANDED — deliberately the same
+  // language and the same number as the Brandmark glyph. They do NOT stack;
+  // strongest wins, which is what one shared brand field enforces for free.
+  if (cp.brand && target.hp > 0) {
+    target.brandT = Math.max(target.brandT ?? 0, CONFIG.cutBrandSeconds);
+    target.brandAbility = "cutto";
+    target.brandBy = p.id;
+  }
+  // PHASE ETCH / SLIPSTREAM: Blindside teleports, so it is movement (R6).
+  if (hasGlyph(p, "cutto", "slipstream")) p.slipstreamT = CONFIG.glyphSlipstreamDur;
+  if (hasGlyph(p, "cutto", "phase_etch")) p.dashTime = Math.max(p.dashTime, CONFIG.glyphPhaseEtchIframes);
   // REPEAT OFFENDER: finish them inside the window and the camera resets (reapDead).
   if (cp.match) p.cutMark = { monsterId: target.id, t: CONFIG.cutToMatchWindow };
 }
@@ -4702,6 +5226,7 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
   const target = pickAlongAim(state, p, aim, sp.range);
   if (!target) return;
   p.cd.crowdsurf = sp.cooldown * cdMult(p);
+  bloodPrice(state, p, "crowdsurf");
   const anchor = { x: target.pos.x, y: target.pos.y }; // chain line, pre-drag
   const d = dist(p.pos, anchor);
   const dir = d > 1e-4 ? { x: (anchor.x - p.pos.x) / d, y: (anchor.y - p.pos.y) / d } : p.facing;
@@ -4716,19 +5241,26 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
     p.dashTime = Math.max(p.dashTime, 0.15);
     moveWithCollision(state.map, p.pos, dir, Math.max(0, d - CONFIG.surfArriveGap), isWalkable);
     hit(state, p.pos, 0, "weapon");
-    // Gavel Drop: arriving IS the attack.
-    if (sp.diveFrac > 0) {
-      radialDamage(state, p, p.pos, CONFIG.surfDiveRadius, power(p, "crowdsurf") * sp.diveFrac, CONFIG.shockstepKnockback, "magic", 1, "crowdsurf");
-      hit(state, p.pos, 0, "crit");
-    }
     // SLIPSTREAM glyph: the self-pull is movement — the surge window opens.
     if (hasGlyph(p, "crowdsurf", "slipstream")) p.slipstreamT = CONFIG.glyphSlipstreamDur;
   } else {
     dragToPlayer(state, p, target, sp.stagger);
   }
-  // CLASS ACTION: everything the chain passed through comes along (light bodies only).
-  if (sp.wave) {
+  // R7: the base chain HITS. A zero-damage base is why nobody drafted into the
+  // roster's best verb; Gavel Drop now scales ON TOP of this rather than being
+  // the only reason the ability does anything.
+  const hitDmg = power(p, "crowdsurf") * (sp.hitFrac + sp.diveFrac);
+  radialDamage(state, p, heavy ? p.pos : target.pos, CONFIG.surfDiveRadius, hitDmg,
+    CONFIG.shockstepKnockback, castSchool(p, "crowdsurf"), 1, "crowdsurf");
+  hit(state, heavy ? p.pos : target.pos, 0, "crit");
+  // CLASS ACTION's spirit lives in the BASE at half strength: the chain drags
+  // the nearest few light bodies it passes through, not just the anchor. The
+  // capstone then upgrades that to everything, which makes it a real upgrade
+  // over a base that already does something.
+  const cap = sp.wave ? Infinity : sp.drag;
+  if (cap > 0) {
     const len2 = d * d;
+    const along: { m: Monster; t: number }[] = [];
     for (const m of state.monsters) {
       if (m === target || m.hp <= 0) continue;
       if (m.kind === "boss" || m.elite || ARCHETYPES[m.kind].mass > CONFIG.surfMassLimit) continue;
@@ -4737,7 +5269,23 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
         : 0;
       const closest = { x: p.pos.x + (anchor.x - p.pos.x) * t, y: p.pos.y + (anchor.y - p.pos.y) * t };
       if (dist(closest, m.pos) - bodyRadius(m) > CONFIG.surfPathRadius) continue;
-      dragToPlayer(state, p, m, sp.stagger);
+      along.push({ m, t });
+    }
+    // Deterministic order: nearest to the caster first, id as the tiebreak.
+    along.sort((a, b) => a.t - b.t || a.m.id - b.m.id);
+    for (const e of along.slice(0, cap === Infinity ? along.length : cap)) {
+      dragToPlayer(state, p, e.m, sp.stagger);
+    }
+  }
+  // Writ of Attachment (rider): hazard interaction — a verb no other ability
+  // has. The chain drags the nearest ground danger off the line and kills it,
+  // or yanks YOU out of the one you are standing in.
+  if (sp.hook) {
+    const mine = state.hazards.find((hz) => hz.ownerId === undefined && dist(p.pos, hz.pos) <= hz.radius);
+    if (mine) state.hazards = state.hazards.filter((hz) => hz !== mine);
+    else {
+      const near = state.hazards.find((hz) => hz.ownerId === undefined && dist(anchor, hz.pos) <= sp.range);
+      if (near) state.hazards = state.hazards.filter((hz) => hz !== near);
     }
   }
 }
@@ -4748,13 +5296,23 @@ function doCrowdSurf(state: GameState, p: Player, aim: Vec2): void {
 function doStuntDouble(state: GameState, p: Player): void {
   const dp = stuntDoubleParams(p);
   p.cd.stuntdouble = dp.cooldown * cdMult(p);
+  bloodPrice(state, p, "stuntdouble");
+  // R8: the double has HP, scaled by the OWNER's pool so it stays relevant at
+  // depth. "Decoys have no HP" was the roster's biggest lie: it made a damage
+  // ability secretly the strongest defensive button in the game, and made
+  // AWARD SEASON a flat -50% cooldown drawn as a diamond.
+  const maxHp = Math.max(1, Math.round(p.maxHp * dp.hpFrac));
+  const understudy = hasGlyph(p, "stuntdouble", "understudy_rider");
+  p.doubleCueUsed = false;
   state.decoys.push({
     id: state.nextEntityId++,
     ownerId: p.id,
     pos: { x: p.pos.x, y: p.pos.y },
     facing: { x: p.facing.x, y: p.facing.y },
-    t: dp.contract,
+    t: dp.contract + (understudy ? CONFIG.glyphUnderstudyContract : 0),
     absorbed: 0,
+    hp: maxHp,
+    maxHp,
   });
   announce(state, "show", `${p.name}'s STUNT DOUBLE takes the floor. The crowd can't tell them apart.`);
 }
@@ -4779,6 +5337,12 @@ export function decoySoak(state: GameState, from: Vec2, reach: number, damage: n
   for (const dc of state.decoys) {
     if (dist(from, dc.pos) > reach) continue;
     dc.absorbed += damage;
+    // R8: the double is MORTAL. `hp` is optional, so a pre-rework decoy still
+    // in flight (an old snapshot) loads invulnerable and expires normally.
+    if (dc.hp !== undefined) {
+      dc.hp -= damage;
+      if (dc.hp <= 0) dc.died = true;
+    }
     state.hits.push({ pos: { x: dc.pos.x, y: dc.pos.y }, amount: Math.round(damage), kind: "player" });
     return true;
   }
@@ -4791,18 +5355,51 @@ function updateDecoys(state: GameState, dt: number): void {
   const remaining: Decoy[] = [];
   for (const dc of state.decoys) {
     dc.t -= dt;
-    if (dc.t > 0) { remaining.push(dc); continue; }
+    if (dc.t > 0 && !dc.died) { remaining.push(dc); continue; }
     const owner = state.players.find((pl) => pl.id === dc.ownerId) ?? state.players[0];
     const dp = stuntDoubleParams(owner);
+    const radius = CONFIG.doubleExplodeRadius * (1 + dp.pyro * 0.4);
     const dmg = Math.min(dc.absorbed * dp.explodeFrac, owner.attackPower * CONFIG.doubleExplodeCap);
     if (dmg >= 1) {
-      radialDamage(state, owner, dc.pos, CONFIG.doubleExplodeRadius, dmg, 0.5, "physical");
+      radialDamage(state, owner, dc.pos, radius, dmg, 0.5, "physical");
       hit(state, dc.pos, 0, "crit");
       state.events.push(`${owner.name}'s stunt double takes a bow — and EXPLODES.`);
+      // Understudy's Rider: the farewell blast CHILLS.
+      if (hasGlyph(owner, "stuntdouble", "understudy_rider")) {
+        for (const m of state.monsters) {
+          if (m.hp <= 0 || dist(dc.pos, m.pos) > radius) continue;
+          applyStatus(m, {
+            kind: "chill", duration: CONFIG.glyphCryoDuration, school: "magic",
+            magnitude: m.kind === "boss" ? CONFIG.glyphUnderstudyChill * CONFIG.chillBossMult : CONFIG.glyphUnderstudyChill,
+          });
+        }
+      }
     }
-    // AWARD SEASON: a finished contract refunds half of the next booking.
-    if (dp.award && (owner.cd.stuntdouble ?? 0) > 0) {
-      owner.cd.stuntdouble = (owner.cd.stuntdouble ?? 0) * 0.5;
+    // Pyrotechnic Exit (V2 §4.3): +40% blast was a number sitting opposite a
+    // Method Actor that had just become a behavior — a dead fork. The blast
+    // now LEAVES something: burning ground, scaled by what it absorbed.
+    if (dp.pyro > 0 && dmg >= 1) {
+      state.hazards.push({
+        id: state.nextEntityId++, pos: { x: dc.pos.x, y: dc.pos.y },
+        t: CONFIG.doublePyroBurnSeconds, total: CONFIG.doublePyroBurnSeconds,
+        radius, damage: 0, kind: "fissure", ownerId: owner.id, ability: "stuntdouble",
+        tick: 0.5, slow: 0,
+      });
+      const burn = Math.max(1, Math.round(dmg * 0.2));
+      for (const m of state.monsters) {
+        if (m.hp <= 0 || dist(dc.pos, m.pos) > radius) continue;
+        applyStatus(m, {
+          kind: "burn", duration: CONFIG.doublePyroBurnSeconds, school: "magic",
+          magnitude: burn, sourceId: owner.id,
+        });
+      }
+    }
+    // AWARD SEASON, inverted (V2 §4.3): a double that DIES on the clock did
+    // its job and refunds; one that expires unharmed refunds nothing. It used
+    // to fire unconditionally, because surviving was the only thing a decoy
+    // could do — a flat cooldown cut drawn as a diamond.
+    if (dp.award && dc.died && (owner.cd.stuntdouble ?? 0) > 0) {
+      owner.cd.stuntdouble = (owner.cd.stuntdouble ?? 0) * (1 - CONFIG.doubleAwardRefund);
     }
   }
   state.decoys = remaining;
@@ -4813,24 +5410,70 @@ function updateDecoys(state: GameState, dt: number): void {
 /** Sponsor Airstrike: schedule a shell bombardment around the aim point.
  * The constellation shapes the barrage: Payload hardens shells, Saturation
  * adds them (wider), Precision tightens the grouping. */
+/**
+ * SPONSOR BARRAGE (V2 U2). The worst-measured ultimate becomes a DECISION: a
+ * 3s directed channel that walks with your cursor at 70% move speed with no
+ * attacking. Pressing it and continuing to swing — today's optimal play — now
+ * gets you nothing. §6.4.9 makes the commitment pay for itself or the channel
+ * shrinks; a commitment that fails those assertions is a tax, not a decision.
+ */
 function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
   const ap = airstrikeParams(p);
   p.cd.airstrike = ap.cooldown; // rule-7 clamped (glyph CDR folds in)
+  p.barrageT = ap.channel;
+  p.barrageNext = 0;
+  p.barrageAim = barrageAimPoint(p, aim);
+  coldOpen(state, p, "airstrike"); // chill the room the barrage opens on
+  bloodPrice(state, p, "airstrike");
+  armEncore(p, "airstrike", ap.channel);
+  announce(state, "show", `${p.name} takes the fire-control handset. SPONSOR BARRAGE — walk it in.`);
+}
+
+/** Where the barrage is pointed right now (clamped to the ultimate's reach). */
+function barrageAimPoint(p: Player, aim: Vec2): Vec2 {
   const len = dhypot(aim.x, aim.y);
   const range = Math.min(CONFIG.ultAirstrikeRange, len || 1);
   const dir = len > 0 ? { x: aim.x / len, y: aim.y / len } : p.facing;
-  const target = { x: p.pos.x + dir.x * range, y: p.pos.y + dir.y * range };
-  for (let i = 0; i < ap.shells; i++) {
-    const a = nextFloat(state.rng) * Math.PI * 2;
-    const d = nextFloat(state.rng) * ap.spread;
-    state.strikes.push({
-      pos: { x: target.x + dcos(a) * d, y: target.y + dsin(a) * d },
-      t: 0.45 + i * 0.22,
-      ownerId: p.id,
-      kind: "shell",
-    });
+  return { x: p.pos.x + dir.x * range, y: p.pos.y + dir.y * range };
+}
+
+/** The channel: one shell every `interval`, wherever the cursor is NOW. */
+function updateBarrage(state: GameState, p: Player, aim: Vec2, dt: number): void {
+  if ((p.barrageT ?? 0) <= 0) return;
+  const ap = airstrikeParams(p);
+  p.barrageT = Math.max(0, (p.barrageT ?? 0) - dt);
+  p.barrageAim = barrageAimPoint(p, aim);
+  p.barrageNext = (p.barrageNext ?? 0) - dt;
+  if (p.barrageNext > 0) return;
+  p.barrageNext = ap.interval;
+  let at = { x: p.barrageAim.x, y: p.barrageAim.y };
+  // Precision Strike: shells TRACK the nearest elite/boss near the aim point.
+  if (ap.track > 0) {
+    let best: Monster | null = null;
+    let bestD = ap.track;
+    for (const m of state.monsters) {
+      if (m.hp <= 0 || (!m.elite && m.kind !== "boss")) continue;
+      const d = dist(at, m.pos);
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    if (best) at = { x: best.pos.x, y: best.pos.y };
   }
-  announce(state, "show", `${p.name}'s sponsors have AUTHORIZED AN AIRSTRIKE. Clear the drop zone. Or don't — ratings.`);
+  const a = nextFloat(state.rng) * Math.PI * 2;
+  const r = nextFloat(state.rng) * ap.spread;
+  // Saturation Barrage: the drop covers a BAND across the aim, not a point.
+  const band = ap.band > 0 ? (nextFloat(state.rng) - 0.5) * ap.band : 0;
+  const perp = { x: -(at.y - p.pos.y), y: at.x - p.pos.x };
+  const plen = dhypot(perp.x, perp.y) || 1;
+  state.strikes.push({
+    pos: {
+      x: at.x + dcos(a) * r + (perp.x / plen) * band,
+      y: at.y + dsin(a) * r + (perp.y / plen) * band,
+    },
+    t: 0.35,
+    ownerId: p.id,
+    kind: "shell",
+    ability: "airstrike",
+  });
 }
 
 /**
@@ -4911,6 +5554,58 @@ function updateHazards(state: GameState, dt: number): void {
   const remaining: GameState["hazards"] = [];
   for (const hz of state.hazards) {
     hz.t -= dt;
+    // ---- PLAYER-OWNED GROUND (ABILITIES-V2) ----
+    // The hazard system already ticks, slows and renders; both new zones ride
+    // it rather than inventing a parallel one. Owner-side zones never touch
+    // crawlers, and they route damage through damageMonster so schools,
+    // resists, kill credit and glyph riders all compose for free.
+    if (hz.kind === "fissure" || hz.kind === "cables") {
+      if (hz.t <= 0) continue;
+      const owner = state.players.find((pl) => pl.id === hz.ownerId);
+      if (!owner) continue;
+      hz.tick = (hz.tick ?? 0) - dt;
+      const due = (hz.tick ?? 0) <= 0;
+      if (due) hz.tick = hz.kind === "cables" ? 0.25 : 1;
+      for (const m of state.monsters) {
+        if (m.hp <= 0) continue;
+        const inside = hz.kind === "cables" && hz.end
+          ? distToSegment(m.pos, hz.pos, hz.end) - bodyRadius(m) <= hz.radius
+          : dist(hz.pos, m.pos) - bodyRadius(m) <= hz.radius;
+        if (!inside) continue;
+        // FAULT LINE's fissure and Live Wire both bite on their own tick.
+        if (due && hz.damage > 0) {
+          damageMonster(state, owner, m, hz.damage, {
+            allowCrit: false, poiseMult: 0, school: castSchool(owner, hz.ability ?? "cataclysm"),
+            ability: hz.ability,
+          });
+        }
+        // Both zones SLOW (chill is the shipped slow verb; refresh, no stack).
+        if (due && (hz.slow ?? 0) > 0) {
+          applyStatus(m, {
+            kind: "chill", duration: 0.6, school: "magic",
+            magnitude: m.kind === "boss" ? (hz.slow ?? 0) * CONFIG.chillBossMult : (hz.slow ?? 0),
+          });
+        }
+        // THE PIN. Non-boss bodies are held for the full duration, bosses
+        // briefly; nothing is re-pinned inside its lockout. A pinned enemy
+        // does NOT move — and is not moved: cables never relocate a body,
+        // which is what keeps them out of §2.2's gather budget.
+        if ((hz.pin ?? 0) > 0 && (m.pinLockT ?? 0) <= 0) {
+          const cp = cablesParams(owner);
+          m.pinnedT = m.kind === "boss" ? cp.bossPin : cp.pin;
+          m.pinLockT = CONFIG.cablesRepinLockout;
+        }
+      }
+      // Taut: the line RE-ARMS once the pin window lapses — timing, not
+      // duration, so one cast holds a lane through two waves.
+      if ((hz.pin ?? 0) > 0 && hz.t <= CONFIG.cablesFieldSeconds && (hz.rearms ?? 0) > 0) {
+        hz.rearms = (hz.rearms ?? 0) - 1;
+        hz.t += CONFIG.cablesPinSeconds;
+        for (const m of state.monsters) if ((m.pinLockT ?? 0) > 0) m.pinLockT = 0;
+      }
+      remaining.push(hz);
+      continue;
+    }
     if (hz.kind === "beam" && hz.end && hz.sweep === undefined) {
       // Beam: telegraph for `arm` seconds, fire ONCE along the whole segment
       // (piercing — cover doesn't help, sidestepping does), fade briefly.
@@ -5188,7 +5883,10 @@ function doCataclysm(state: GameState, p: Player): void {
   const cp = cataclysmParams(p);
   p.cd.cataclysm = cp.cooldown; // rule-7 clamped (glyph CDR folds in)
   p.novaFlash = 0.3; // reuse the ring effect
-  const blastDmg = power(p, "cataclysm") * cp.dmgMult;
+  coldOpen(state, p, "cataclysm");
+  bloodPrice(state, p, "cataclysm");
+  armEncore(p, "cataclysm", cp.fissureSeconds);
+  const blastDmg = power(p, "cataclysm") * cp.dmgMult * graveDividend(state, p, p.pos, "cataclysm");
   const killed = radialDamage(state, p, p.pos, cp.radius, blastDmg, 0, "magic", cp.poiseMult, "cataclysm");
   // Corpses detonate where they DIED — before the survivors get hurled.
   if (cp.extinction) extinctionChain(state, p, killed);
@@ -5199,19 +5897,25 @@ function doCataclysm(state: GameState, p: Player): void {
     const dir = { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d };
     moveWithCollision(state.map, m.pos, dir, cp.knockback, isWalkable);
   }
-  if (cp.echoFrac > 0) {
-    state.strikes.push({
-      pos: { x: p.pos.x, y: p.pos.y }, // the ground remembers where you stood
-      t: CONFIG.ultCataclysmAftermathDelay,
-      ownerId: p.id,
-      kind: "echo",
-      radius: cp.radius,
-      dmg: blastDmg * cp.echoFrac,
-      knockback: 0,
-      school: "magic",
-      ability: "cataclysm",
-    });
-  }
+  // FAULT LINE (V2 U1): THE GROUND STAYS BROKEN. This is the whole rework —
+  // knockback and zone finally cooperate instead of fighting (Upheaval used to
+  // throw targets clear of Aftermath's echo, a fork anti-synergistic inside
+  // one ability). Enemies hurled out have to walk back through the fissure.
+  state.hazards.push({
+    id: state.nextEntityId++,
+    pos: { x: p.pos.x, y: p.pos.y },
+    t: cp.fissureSeconds,
+    total: cp.fissureSeconds,
+    radius: cp.radius,
+    damage: Math.max(1, Math.round(blastDmg * cp.fissureTickFrac)),
+    kind: "fissure",
+    ownerId: p.id,
+    ability: "cataclysm",
+    slow: cp.fissureSlow,
+    blocks: cp.chasm,
+    tick: 1,
+  });
+  demolitionRider(state, p, p.pos, cp.radius, "cataclysm");
   // REPRISE glyph (ultimate socket): a second, smaller detonation — additive
   // with the Aftermath node (rule 4: behaviors compose, families exclude).
   if (hasGlyph(p, "cataclysm", "reprise")) {
@@ -5229,13 +5933,165 @@ function doBulletTime(state: GameState, p: Player): void {
   const bp = bulletTimeParams(p);
   p.cd.bullettime = bp.cooldown; // rule-7 clamped (glyph CDR folds in)
   state.bulletTimeLeft = bp.duration;
+  state.btSecondWind = bp.secondWind;
+  coldOpen(state, p, "bullettime");
+  bloodPrice(state, p, "bullettime");
+  armEncore(p, "bullettime", bp.duration);
   announce(state, "show", `${p.name} bends the broadcast frame rate. BULLET TIME.`);
+}
+
+/** ENCORE CLAUSE: arm the refund window for an ultimate ACTIVE duration.
+ * "During the ultimate" is not a definition (§5.4 flag 2) — Bullet Time and
+ * Injunction have durations, Barrage has a 3s channel, Fault Line's fissure
+ * lasts 10s, and a bare Cataclysm cast is one frame. glyphWindow settles it,
+ * and rule 8's per-cast budget does the rest of the work. */
+function armEncore(p: Player, ability: AbilityId, activeDuration?: number): void {
+  if (!hasGlyph(p, ability, "encore_clause")) return;
+  const cd0 = p.cd[ability] ?? 0;
+  if (cd0 <= 0) return;
+  p.rebateAbility = ability;
+  p.rebateT = glyphWindow(ability, activeDuration);
+  p.rebateCd0 = cd0;
+  // On floor 15 Fault Line's raw refund would be 4% x ~20 kills = 80% of a 40s
+  // cooldown; the budget clamps it to 20s. §6.4.10 pins exactly that.
+  p.rebateBudget = cd0 * CONFIG.refundCapFraction;
 }
 
 /**
  * Cast the ability in a slot. One switch = the whole cast surface; adding an
  * ability means one case here + a registry entry in abilities.ts.
  */
+/**
+ * BULWARK (V2 N1). 1.5s of 60% mitigation, paid back as a heal on what it
+ * absorbed. Movement is unrestricted and there are NO i-frames — that is
+ * dash's job, and the two must never be interchangeable. The first ability in
+ * the game that rewards standing still.
+ */
+function doBulwark(state: GameState, p: Player): void {
+  const bp = bulwarkParams(p);
+  p.cd.bulwark = bp.cooldown * cdMult(p);
+  p.bulwarkT = bp.duration;
+  p.bulwarkAbsorbed = 0;
+  p.bulwarkHits = 0;
+  bloodPrice(state, p, "bulwark");
+  hit(state, p.pos, 0, "weapon");
+}
+
+/** Tick the brace; expiry pays the heal, SPITE banks, and Shove clears space. */
+function updateBulwark(state: GameState, p: Player, dt: number): void {
+  if ((p.bulwarkT ?? 0) <= 0) return;
+  const bp = bulwarkParams(p);
+  const left = Math.max(0, (p.bulwarkT ?? 0) - dt);
+  p.bulwarkT = left;
+  if (left > 0) return;
+  const absorbed = p.bulwarkAbsorbed ?? 0;
+  // Grit is GREED: harder brace, but the payout only lands if you actually
+  // stood in it. Rally is SAFETY and already paid on cast. The fork is
+  // EXCLUSIVE, which is why the kit still reads in one breath (§2.3).
+  const owed = bp.gritHits > 0 && (p.bulwarkHits ?? 0) < bp.gritHits ? 0 : absorbed;
+  if (!bp.rally && owed > 0) bulwarkHeal(state, p, owed * bp.healFrac);
+  if (bp.spite) p.spiteBank = Math.min(absorbed, p.attackPower * CONFIG.bulwarkSpiteCap);
+  if (bp.shove) {
+    for (const m of state.monsters) {
+      if (m.hp <= 0 || dist(p.pos, m.pos) > CONFIG.bulwarkShoveRadius) continue;
+      const d = Math.max(1e-4, dist(p.pos, m.pos));
+      moveWithCollision(state.map, m.pos, { x: (m.pos.x - p.pos.x) / d, y: (m.pos.y - p.pos.y) / d },
+        CONFIG.bulwarkShoveTiles, isWalkable);
+      if (m.kind !== "boss" && m.affix !== "juggernaut") {
+        m.stagger = Math.max(m.stagger, CONFIG.bulwarkShoveStagger);
+      }
+    }
+    hit(state, p.pos, 0, "weapon");
+  }
+  p.bulwarkAbsorbed = 0;
+  p.bulwarkHits = 0;
+}
+
+function bulwarkHeal(state: GameState, p: Player, amount: number): void {
+  const heal = Math.min(Math.round(amount), Math.round(p.maxHp * CONFIG.bulwarkHealCap));
+  if (heal <= 0) return;
+  p.hp = Math.min(p.maxHp, p.hp + heal);
+  hit(state, p.pos, heal, "heal");
+}
+
+/**
+ * STAGE CABLES (V2 N2). Throw a line; everything non-boss that crosses is
+ * PINNED. The cables never MOVE a body — a pinned enemy stays exactly where it
+ * was pinned — which is what keeps this out of the gather budget (§2.2's
+ * two-owner cap, machine-checked in §6.4.8). The pin is control, not a stun:
+ * pinned enemies can still finish a windup. Breaker is the stun.
+ */
+function doCables(state: GameState, p: Player, aim: Vec2): void {
+  const cp = cablesParams(p);
+  p.cd.cables = cp.cooldown * cdMult(p);
+  bloodPrice(state, p, "cables");
+  const dir = normalize(aim.x === 0 && aim.y === 0 ? p.facing : aim);
+  p.facing = dir;
+  const mid = { x: p.pos.x + dir.x * cp.length * 0.5, y: p.pos.y + dir.y * cp.length * 0.5 };
+  const end = { x: p.pos.x + dir.x * cp.length, y: p.pos.y + dir.y * cp.length };
+  state.hazards.push({
+    id: state.nextEntityId++,
+    pos: mid,
+    end,
+    t: cp.fieldSeconds + cp.pin,
+    total: cp.fieldSeconds + cp.pin,
+    radius: cp.width,
+    damage: 0,
+    kind: "cables",
+    ownerId: p.id,
+    ability: "cables",
+    slow: cp.fieldSlow,
+    pin: cp.pin,
+    rearms: cp.rearms,
+    tick: 0.25,
+  });
+  hit(state, p.pos, 0, "chain", { dir, to: end });
+}
+
+/**
+ * INJUNCTION (V2 N3). The collapse clock STAYS — and the dungeon fights back
+ * for exactly as long as you hold it. The debt is DERIVED from the freeze
+ * (injunctionDebtRatio 5/3), never a free knob, so the net run-clock delta is
+ * negative at every rank and no node can make the trade profitable.
+ */
+function doInjunction(state: GameState, p: Player): void {
+  const ip = injunctionParams(p);
+  p.cd.injunction = ip.cooldown; // rule-7 clamped (glyph CDR folds in)
+  p.injunctionT = ip.freeze;
+  p.injunctionDebt = ip.debt;
+  coldOpen(state, p, "injunction");
+  bloodPrice(state, p, "injunction");
+  armEncore(p, "injunction", ip.freeze);
+  // §2.1's third property says ultimates need the BIGGEST counterplay window.
+  // Here it is: every monster on the floor is ENRAGED for the duration. Press
+  // this into a full room with no plan and you take the worst twelve seconds
+  // of the floor — and still owe twenty.
+  for (const m of state.monsters) {
+    if (m.hp <= 0) continue;
+    m.injRageT = ip.freeze;
+  }
+  announce(state, "show", `The System has GRANTED ${p.name} a stay. Terms apply — and the floor has been told.`, "high");
+}
+
+/** Tick the stay; release pays the debt (DISMISSED can halve it, never cancel). */
+function updateInjunction(state: GameState, p: Player, dt: number): void {
+  if ((p.injunctionT ?? 0) <= 0) return;
+  const left = Math.max(0, (p.injunctionT ?? 0) - dt);
+  p.injunctionT = left;
+  if (left > 0) return;
+  let debt = p.injunctionDebt ?? 0;
+  p.injunctionDebt = 0;
+  if (rank(p, "inj.dismissed") > 0) {
+    const anyone = state.monsters.some(
+      (m) => m.hp > 0 && dist(p.pos, m.pos) <= CONFIG.injunctionDismissedRadius,
+    );
+    if (!anyone) debt *= 1 - CONFIG.injunctionDismissedRelief; // cut, never cancelled
+  }
+  state.timeRemaining -= debt;
+  for (const m of state.monsters) m.injRageT = 0;
+  announce(state, "progress", `The stay EXPIRES. ${Math.round(debt)} seconds come off ${p.name}'s clock. Terms were disclosed.`);
+}
+
 /** Executioner's Rebate glyph (rule 8): arm the per-cast refund window. The
  * budget caps this cast's total refunds at refundCapFraction of the cooldown
  * it just set; re-casting resets window AND budget (never banks across casts). */
@@ -5259,20 +6115,35 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
     }
     return;
   }
+  // Blindside runs on charges too once Second Take is drafted (V2 §4.3) —
+  // same shape as dash, so the recharge timer can tick with a charge banked.
+  if (ability === "cutto") {
+    const cp = cutToParams(p);
+    const have = Math.min(p.cutCharges ?? cp.charges, cp.charges);
+    if (have <= 0) return;
+    doCutTo(state, p, aim);
+    if ((p.cd.cutto ?? 0) > 0) armRebate(p, "cutto");
+    return;
+  }
+  // The Barrage is a CHANNEL: pressing again mid-cast does nothing (and you
+  // cannot swing while directing — that is the commitment being bought).
+  if ((p.barrageT ?? 0) > 0 && ability !== "airstrike") return;
   if ((p.cd[ability] ?? 0) > 0) return;
   switch (ability) {
     case "melee": doPlayerAttack(state, p, aim, move); break;
     case "bolt": doBolt(state, p, aim); break;
     case "nova": doNova(state, p); break;
-    case "stance": doStance(state, p); break;
+    case "stance": doStance(state, p, aim, move); break;
     case "overcharge": doOvercharge(state, p); break;
-    case "orbit": break; // passive: runs via updateOrbit while slotted
-    case "cutto": doCutTo(state, p, aim); break;
+    case "orbit": doOrbitHurl(state, p, aim); break; // V2 R3: the ring is a PRESS
     case "crowdsurf": doCrowdSurf(state, p, aim); break;
     case "stuntdouble": doStuntDouble(state, p); break;
+    case "bulwark": doBulwark(state, p); break;
+    case "cables": doCables(state, p, aim); break;
     case "airstrike": doAirstrike(state, p, aim); break;
     case "cataclysm": doCataclysm(state, p); break;
     case "bullettime": doBulletTime(state, p); break;
+    case "injunction": doInjunction(state, p); break;
   }
   // A cast that actually happened set its cooldown; the rebate window opens.
   if ((p.cd[ability] ?? 0) > 0) armRebate(p, ability);
@@ -5376,7 +6247,7 @@ function updateProjectiles(state: GameState, dt: number): void {
           const served = hasPassive(owner, "served") && (m.alertT ?? 0) <= 0 && m.windup <= 0;
           damageMonster(state, owner, m, pr.damage, {
             dir: normalize(pr.vel), knockback: CONFIG.boltKnockback,
-            forceCrit: pr.crit || served || undefined, shatterPoise: pr.shatter, school: pr.school,
+            forceCrit: pr.crit || served || undefined, shatterPoise: pr.shatter, breaker: pr.breaker, school: pr.school,
             ability: pr.ability,
           });
           // ARC-SPLICE glyph: the hit arcs a fraction to the nearest other
@@ -5601,6 +6472,18 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);
     p.stanceTime += dt; // time-in-stance settles toward Discipline's threshold
     if (p.stanceSwapWindow > 0) p.stanceSwapWindow = Math.max(0, p.stanceSwapWindow - dt);
+    // Blindside recharge (Second Take): charges bank exactly like dash's.
+    {
+      const maxCut = cutToParams(p).charges;
+      if (p.cutCharges === undefined) p.cutCharges = maxCut;
+      if (p.cutCharges < maxCut && (p.cd.cutto ?? 0) <= 0) {
+        p.cutCharges++;
+        if (p.cutCharges < maxCut) p.cd.cutto = cutToParams(p).cooldown * cdMult(p);
+      }
+    }
+    // ABILITIES-V2 transients.
+    updateBulwark(state, p, dt);
+    updateInjunction(state, p, dt);
     // Glyph transients: the Slipstream surge and the Rebate kill window.
     if ((p.slipstreamT ?? 0) > 0) p.slipstreamT = Math.max(0, (p.slipstreamT ?? 0) - dt);
     if ((p.rebateT ?? 0) > 0) {
@@ -5630,7 +6513,10 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       // Root snare (boss roots zones): a heavy slow — dashing is unaffected.
       // Chill (ptime) and roots stack multiplicatively; both are escape tests.
       const slip = (p.slipstreamT ?? 0) > 0 ? CONFIG.glyphSlipstreamSpeedMult : 1; // Slipstream glyph surge
-      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * slip * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
+      // Directing the Barrage costs you your feet — 70% move speed and no
+      // swinging. That commitment IS the ultimate (V2 U2).
+      const chan = (p.barrageT ?? 0) > 0 ? CONFIG.barrageMoveMult : 1;
+      const speed = p.speed * (p.frenzy ? CONFIG.frenzyMoveMult : 1) * ptime * slip * chan * (p.rootT > 0 ? CONFIG.rootsSlowMult : 1);
       moveWithCollision(state.map, p.pos, dir, speed * dt, isWalkable);
     }
 
@@ -5663,6 +6549,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
         }
       }
       if (pi.flask) useFlask(state, p);
+      updateBarrage(state, p, aim, dt); // the shells walk with the cursor
     }
     // Pings are allowed dead or alive — calling for help is content.
     if (pi.ping) addPing(state, p, pi.ping);
@@ -5674,7 +6561,30 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
   // and cooldowns all stretch — same trick bullet time uses, per-monster.
   if (state.bulletTimeLeft > 0) state.bulletTimeLeft = Math.max(0, state.bulletTimeLeft - dt);
   const mdt = state.bulletTimeLeft > 0 ? dt * CONFIG.ultBulletTimeFactor : dt;
-  for (const m of state.monsters) stepMonster(state, m, mdt * statusTimeMult(m));
+  for (const m of state.monsters) {
+    // ---- ABILITIES-V2 monster-side timers ----
+    if ((m.pinLockT ?? 0) > 0) m.pinLockT = Math.max(0, (m.pinLockT ?? 0) - mdt);
+    if ((m.vulnT ?? 0) > 0) m.vulnT = Math.max(0, (m.vulnT ?? 0) - mdt);
+    if ((m.injRageT ?? 0) > 0) m.injRageT = Math.max(0, (m.injRageT ?? 0) - mdt);
+    if ((m.blindT ?? 0) > 0) {
+      m.blindT = Math.max(0, (m.blindT ?? 0) - mdt);
+      m.alertT = 0; // Smoke Break: it lost you
+    }
+    // INJUNCTION's enrage: the dungeon fights back for exactly as long as you
+    // hold its clock. One dt multiplier moves BOTH halves of the promise —
+    // move speed and windup speed — the same way bullet time and chill do.
+    const rage = (m.injRageT ?? 0) > 0 ? 1 + CONFIG.injunctionEnrageSpeed : 1;
+    // THE PIN (Stage Cables): a pinned body cannot MOVE or close, but it can
+    // still finish a windup — the pin is control, Breaker is the stun. Holding
+    // the position across the AI step is what enforces that without teaching
+    // forty movement branches about a new field (and it is exactly why the
+    // cables can never be a gather: nothing is relocated, only held).
+    const pinned = (m.pinnedT ?? 0) > 0 || (m.blindT ?? 0) > 0;
+    const held = pinned ? { x: m.pos.x, y: m.pos.y } : null;
+    if ((m.pinnedT ?? 0) > 0) m.pinnedT = Math.max(0, (m.pinnedT ?? 0) - mdt);
+    stepMonster(state, m, mdt * statusTimeMult(m) * rage);
+    if (held) { m.pos.x = held.x; m.pos.y = held.y; }
+  }
   separateMonsters(state, mdt); // pack presence: bodies take up space (AI tier 1)
   updateMonsterStatuses(state, mdt); // DoT burns on WORLD time (chill can't slow its own poison)
   arenaDirector(state, mdt); // boss layer 3: the ROOM fights on its own rhythm
