@@ -26,6 +26,7 @@ import { burstPeriod, residentAct } from "./staging";
 import { assignRoomPurposes } from "../sim/roomPurposes";
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressing";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
+import { surfaceDetailMap } from "./surfaceMaps";
 import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
@@ -530,6 +531,29 @@ export class Renderer3D {
     // crowd-cam drones per the DCC fiction) every 8-10 tiles.
     uWlMurk: { value: new THREE.Color(0.9, 1.0, 1.25).multiplyScalar(0.034) },
     uWlGlint: { value: new THREE.Color(1.0, 0.6, 0.3).multiplyScalar(0.22) },
+    // GENERATIVE PBR DETAIL (surfaceMaps.ts). RG = tangent normal, B =
+    // roughness modulation, A = cavity. Shared by every world-lit material and
+    // sampled in WORLD space, so instanced tiles and glTF props both get it
+    // without a second UV set.
+    uWlDet: { value: surfaceDetailMap() as THREE.Texture },
+    // ATMOSPHERE (the second hue pole). The band's dark is a colour, not an
+    // absence: rgb is the murk radiance the deep void keeps no matter how far
+    // it is from the player, so unlit space reads as cold air rather than as a
+    // hole cut in the frame.
+    uWlAtmo: { value: new THREE.Color(0.32, 0.46, 0.92).multiplyScalar(0.030) },
+  };
+  // Per-surface-family detail strength: x = world scale (uv = worldPos * x),
+  // y = normal relief, z = cavity/AO depth, w = roughness modulation. INSTANCE
+  // fields, one Vector4 shared by every material of a family, so a capture
+  // harness can A/B the whole material spend by writing y/z/w to zero — this
+  // laptop cannot run two browsers, so before/after has to be measurable inside
+  // ONE session or it is measured under two different machine loads and means
+  // nothing (tools/spendab.mjs).
+  readonly wlDet = {
+    floor: new THREE.Vector4(0.85, 0.95, 0.40, 0.55),
+    wall: new THREE.Vector4(0.62, 1.20, 0.50, 0.60),
+    prop: new THREE.Vector4(1.55, 0.60, 0.26, 0.45),
+    canopy: new THREE.Vector4(1.10, 0.35, 0.14, 0.30),
   };
   // The live baked grid for the current floor (disposed on rebuild).
   private lightGridTex: THREE.DataTexture | null = null;
@@ -577,10 +601,14 @@ export class Renderer3D {
     opts: { dim?: number; base?: boolean; canopy?: boolean; prop?: boolean } = {},
   ): T {
     const dim = opts.dim ?? 1;
+    const det = opts.canopy ? this.wlDet.canopy
+      : opts.prop ? this.wlDet.prop
+        : opts.base ? this.wlDet.wall
+          : this.wlDet.floor;
     const one = (m: THREE.Material): THREE.Material => {
       const c = m.clone();
       c.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim } });
+        Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim }, uWlDetP: { value: det } });
         shader.vertexShader = shader.vertexShader
           .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;")
           .replace(
@@ -588,7 +616,7 @@ export class Renderer3D {
             "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDist;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil;\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDist;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
         let stage = "#include <color_fragment>\n{\n";
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
@@ -663,6 +691,34 @@ export class Renderer3D {
               "  diffuseColor.rgb *= 1.0 - 0.26 * pBase;\n" +
               "  wlPropR = 0.90 + 0.26 * pNz2 - 0.22 * pStone - 0.20 * pEdge;\n"
             : "") +
+          // ---- GENERATIVE PBR SURFACE DETAIL (surfaceMaps.ts) ----
+          // The measured material gap: no normal/roughness/AO map existed
+          // anywhere, so every surface was flat clay with shading painted on.
+          // One baked tileable RGBA map now supplies real relief, a varying
+          // roughness and a cavity term to the whole world.
+          //
+          // Projection is a SINGLE world-space plane chosen by the dominant
+          // axis of the face normal, not a three-tap triplanar blend: this pass
+          // is already the frame's most expensive one (~70% of GPU time), the
+          // KayKit geometry is boxy so faces sit near an axis, and the detail
+          // FADES OUT as a face turns 45 degrees (dW below) — which is exactly
+          // where a hard plane select would otherwise show its seam. One fetch,
+          // no seam, instead of three fetches and a blend.
+          "  vec3 dAbs = abs(wlN);\n" +
+          "  float dMax = max(dAbs.x, max(dAbs.y, dAbs.z));\n" +
+          "  vec2 dUv; vec3 dTan; vec3 dBit;\n" +
+          "  if (dAbs.y >= dMax) { dUv = vWlPos.xz; dTan = vec3(1.0, 0.0, 0.0); dBit = vec3(0.0, 0.0, 1.0); }\n" +
+          "  else if (dAbs.x >= dAbs.z) { dUv = vWlPos.zy; dTan = vec3(0.0, 0.0, 1.0); dBit = vec3(0.0, 1.0, 0.0); }\n" +
+          "  else { dUv = vWlPos.xy; dTan = vec3(1.0, 0.0, 0.0); dBit = vec3(0.0, 1.0, 0.0); }\n" +
+          "  vec4 dS = texture2D(uWlDet, dUv * uWlDetP.x);\n" +
+          "  float dW = smoothstep(0.60, 0.90, dMax);\n" +
+          "  wlDetN = (dTan * (dS.r * 2.0 - 1.0) + dBit * (dS.g * 2.0 - 1.0)) * (uWlDetP.y * dW);\n" +
+          "  wlDetR = (dS.b - 0.5) * uWlDetP.w * dW;\n" +
+          // Cavity multiplies albedo (baked micro-AO) and, at half strength,
+          // pushes the crack lines slightly cooler — grime sits in mortar.
+          "  float dCav = mix(1.0, dS.a, uWlDetP.z * dW);\n" +
+          "  diffuseColor.rgb *= dCav;\n" +
+          "  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.90, 0.96, 1.08), (1.0 - dCav) * 0.5);\n" +
           "  vec2 wUv = (vWlPos.xz - wlN.xz * 0.38) * uWlMapInv;\n" +
           "  float wFog = texture2D(uWlMask, wUv).r;\n" +
           "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wFog = 1.0;\n" +
@@ -745,6 +801,42 @@ export class Renderer3D {
           // trees stay living green-blue, dark brick stays warm — not concrete.
           "  vec3 wChroma = mix(vec3(1.0), clamp(wAlb0 / max(dot(wAlb0, vec3(0.299, 0.587, 0.114)), 0.03), 0.0, 2.4), 0.55);\n" +
           "  wlFogSil = uWlMurk * wChroma * (wMurk * wFog * wDepth);\n" +
+          // ---- ATMOSPHERE: THE DARKNESS GETS A HUE ----
+          //
+          // Measured on the shipping build: ONE hue cluster spanning a 45-degree
+          // arc, 43% of the playfield black to the eye, 84% sitting in the
+          // bottom stop. The frame was a single warm illuminant over a hole.
+          //
+          // The previous round crushed the murk to near-black for a real reason
+          // — it was reading as a giant soft blob of faint REPEATING TILE
+          // TEXTURE — but that traded a bad texture for no image at all. The fix
+          // is to separate the two things that were fused: wlFogSil above stays
+          // albedo-derived and stays crushed (the tiling texture still dies with
+          // distance), and THIS term is pure smooth air. It carries no albedo,
+          // no tile hash and no per-texel structure, so it physically cannot
+          // re-introduce a repeating pattern — only a cold, breathing gradient.
+          //
+          // SHAPED LIKE SCATTERING, NOT LIKE PAINT. The first cut of this ramped
+          // straight up with distance and SATURATED, which put one flat
+          // periwinkle value across every far tile — a blue sheet with a
+          // dungeon cut out of it, and precisely the "flat lavender" failure
+          // the grade's own comment warns about. Fog lit by a LOCAL source does
+          // the opposite: the air just outside the light scatters the most and
+          // it decays from there. So this peaks a couple of tiles past the
+          // frontier and falls away exponentially onto a floor that is dim but
+          // never zero — a cold halo around the play space with real depth
+          // behind it, instead of a wash.
+          // GATED ON DISTANCE, NOT ONLY ON FOG. The first cut keyed this to wFog
+          // alone, which meant EXPLORED ground got no air no matter how far away
+          // it was — and floor 11, a mostly-explored corridor scene, measured
+          // back at ONE hue cluster over a 30-degree arc while floors 2 and 17
+          // measured two clusters over 140. Aerial perspective is a property of
+          // distance, not of whether the player has been there.
+          "  float wAtGate = max(wFog, wT * 0.85);\n" +
+          "  float wAtNear = smoothstep(0.0, 3.2, wD);\n" +
+          "  float wAtFar = exp(-0.115 * max(wD - 4.0, 0.0));\n" +
+          "  float wAtH = 1.0 - 0.34 * smoothstep(0.35, 2.4, vWlPos.y);\n" +
+          "  wlFogSil += uWlAtmo * (wAtGate * wAtNear * (0.34 + 0.66 * wAtFar) * (0.62 + 0.38 * wNz) * wAtH);\n" +
           // Sparse distant accents (DCC fiction: stray embers, glinting eyes,
           // crowd-cam drone lights): two decorrelated noise octaves thresholded
           // to isolated specks every ~8-10 tiles, guttering with the torch
@@ -764,7 +856,20 @@ export class Renderer3D {
             "#include <roughnessmap_fragment>",
             "#include <roughnessmap_fragment>\n" +
               (opts.prop ? "  roughnessFactor = clamp(roughnessFactor * wlPropR, 0.08, 1.0);\n" : "") +
+              // The baked map's B channel: crack lines and grain are rough, the
+              // worn crowns of plates polish smooth. This is what makes a torch
+              // highlight CRAWL across a wall as the player moves instead of
+              // sitting on it as one even sheen.
+              "  roughnessFactor = clamp(roughnessFactor + wlDetR, 0.06, 1.0);\n" +
               "  roughnessFactor = mix(roughnessFactor, 1.0, wlFogG);",
+          )
+          // Detail normal, applied AFTER the stock normal chain so it composes
+          // with flat shading and with any glTF normal map a pack might bring.
+          // wlDetN is world-space (the projection above is world-space), and
+          // `normal` here is view-space, hence the viewMatrix rotation.
+          .replace(
+            "#include <normal_fragment_maps>",
+            "#include <normal_fragment_maps>\n  if (wlDetN != vec3(0.0)) normal = normalize(normal + (viewMatrix * vec4(wlDetN, 0.0)).xyz);",
           )
           .replace(
             "#include <metalnessmap_fragment>",
@@ -778,7 +883,7 @@ export class Renderer3D {
             "#include <emissivemap_fragment>\n  totalEmissiveRadiance *= min(1.0, wlK * 1.6);\n  totalEmissiveRadiance += wlBake + wlFogSil;",
           );
       };
-      c.customProgramCacheKey = () => `wl${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
+      c.customProgramCacheKey = () => `wl2${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
       this.floorMats.push(c);
       return c;
     };
@@ -4438,6 +4543,15 @@ export class Renderer3D {
       m.multiplyScalar(1 / luma).multiply(new THREE.Color(0.86, 0.94, 1.18));
       (this.wl.uWlMurk.value as THREE.Color).copy(m).multiplyScalar(0.028);
       (this.wl.uWlGlint.value as THREE.Color).set(theme.torchColor).multiplyScalar(0.3);
+      // THE SECOND HUE POLE (theme.ts BandMood.atmo). Luma-normalized first so
+      // `atmoLevel` alone decides how bright the district's air is and the hex
+      // alone decides its colour — otherwise a saturated blue and a pale blue
+      // at the same level land at different exposures and the bands drift apart
+      // in value for no stated reason.
+      const mood: BandMood = theme.mood ?? DEFAULT_MOOD;
+      const a = new THREE.Color(mood.atmo);
+      const aLuma = Math.max(1e-4, 0.2126 * a.r + 0.7152 * a.g + 0.0722 * a.b);
+      (this.wl.uWlAtmo.value as THREE.Color).copy(a).multiplyScalar(mood.atmoLevel / aLuma);
     }
     // Walk-distance field for the wall-aware falloff (issue #2): allocated
     // per floor, BFS'd from the player's tile whenever it changes.

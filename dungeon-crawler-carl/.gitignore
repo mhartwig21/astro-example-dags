@@ -17,3 +17,12 @@ public/assets/generated/
 # multi-megabyte PNGs per round. The probe SCRIPTS in tools/_mobile are
 # committed; their output is not.
 tools/_mobile/*/
+
+# Appearance/perf CAPTURE output (tools/lookshots.mjs, tools/spendab.mjs,
+# tools/perfbaseline.mjs, tools/surfacepreview.ts). Same rule as above: the
+# harness scripts are committed, the multi-megabyte PNG piles they emit are not.
+tools/_look*/
+tools/_spend*/
+tools/_baseline*/
+tools/_surface/
+tools/_vr.json

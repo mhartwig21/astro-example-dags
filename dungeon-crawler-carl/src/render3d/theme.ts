@@ -24,6 +24,20 @@ export interface BandMood {
   voidInner: number; // out-of-bounds ground gradient, near the play space
   voidOuter: number; // ...falling off to this at the horizon (also vignette tint)
   fogDark: number; // unexplored instanced tiles multiply toward this (colored dark)
+  // THE SECOND HUE POLE. Everything above describes the LIT world, which on
+  // every band is one warm illuminant — measured, the shipping frame held ONE
+  // hue cluster across a 45-degree arc with 43% of the playfield black to the
+  // eye. `atmo` is the colour of the AIR: a smooth, textureless radiance that
+  // unlit and distant space settles onto instead of falling to zero. It is the
+  // cold end of the frame and it must be a real, saturated hue against the
+  // torches — that opposition is what turns a tint into a design.
+  atmo: number;
+  // Scene-linear PEAK radiance of the air, just past the lit frontier; it decays
+  // exponentially with distance from there (renderer3d.worldLit). ~0.011-0.016
+  // is the readable band on this pipeline (ACES at exposure 1.22): below it the
+  // far dark goes back to black, above it the unexplored map floods into one
+  // flat sheet of colour, which is worse than the black was.
+  atmoLevel: number;
 }
 
 export const DEFAULT_MOOD: BandMood = {
@@ -34,8 +48,9 @@ export const DEFAULT_MOOD: BandMood = {
   envHorizon: 0xffb060, envIntensity: 0.35,
   gradeShadow: 0x16132b, gradeHighlight: 0xfff2dc, gradeSaturation: 1.05,
   vignette: 0.32,
-  voidInner: 0x100f1e, voidOuter: 0x05050b,
+  voidInner: 0x171733, voidOuter: 0x0b0c1c,
   fogDark: 0x0b0a18,
+  atmo: 0x4a6ee0, atmoLevel: 0.0135,
 };
 
 export const THEME = {
