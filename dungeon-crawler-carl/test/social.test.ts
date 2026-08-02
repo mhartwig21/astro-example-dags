@@ -11,6 +11,8 @@ import {
   deathHeadline, deathName, encodeChallenge, ghostAt, gradeRun, leaderSplits, letterFor,
   masteryLevel, milestonesFrom, nextMilestone, playability, sealChip, signedTime,
   splitDelta, verdictSeal, worstBand,
+  boardLeader, count, provenanceOf, rulesetLabel,
+  sealHoldMs, SEAL_CASCADE_MS, SEAL_MIN_PENDING_MS,
   type BoardRun, type GhostState, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
@@ -428,5 +430,149 @@ describe("every run banks something (6 Beat 5)", () => {
     expect(nextMilestone(7, false).title).toBe("REACH FLOOR 9");
     expect(nextMilestone(18, false).title).toBe("WALK OUT AGAIN, FASTER");
     expect(nextMilestone(4, true).title).toBe("WALK OUT AGAIN, FASTER");
+  });
+});
+
+
+// ===========================================================================
+// ROUND 4 — the screen stops asserting what the row does not carry
+// ===========================================================================
+
+describe("a seal says how it was earned (round-4 blocker 3)", () => {
+  it("does not promise a re-execution for a row that was never re-executed", () => {
+    // `verified` covers two different events and the chip printed the SAME
+    // sentence for both. A server-vouched RIVALS contract is inserted verified
+    // with proof_id NULL - it was never re-executed, because it never left the
+    // server - and the tooltip asserted "the server re-executed this run and
+    // certified it" on a board whose entire pitch is that every ranked row is a
+    // proof. The only existing tell was "party of N", which reads 1 on a solo
+    // rivals row.
+    const replayed = boardRow({ state: "verified", film: "retained" });
+    const vouched = boardRow({ state: "verified", film: "never", mode: "rivals" });
+    expect(provenanceOf(replayed)).toBe("replayed");
+    expect(provenanceOf(vouched)).toBe("vouched");
+
+    const a = sealChip(replayed.state, replayed.rulesEra, false, "ranked", provenanceOf(replayed));
+    const b = sealChip(vouched.state, vouched.rulesEra, false, "ranked", provenanceOf(vouched));
+    expect(a.title).toContain("re-executed");
+    expect(b.title).not.toContain("re-executed this run and certified");
+    expect(b.title).toContain("never left the server");
+    expect(b.label).not.toBe(a.label);
+  });
+
+  it("names the ruleset on the row, and stays quiet about the plain descent", () => {
+    // mode/runKind have been on the wire since the roam gate shipped and no
+    // surface rendered either, so a ruleset with no permadeath was
+    // indistinguishable on the board from the descent every other row is.
+    expect(rulesetLabel({ mode: "coop", runKind: "race" })).toBeNull();
+    expect(rulesetLabel({ mode: "rivals", runKind: "race" })).toMatch(/time-out/);
+    expect(rulesetLabel({ mode: "coop", runKind: "roam" })).toMatch(/no collapse clock/);
+  });
+});
+
+describe("the verdict does not name the player as their own rival (round-4 blocker 5)", () => {
+  const me = { floor: 6, won: false, elapsedSec: 400 };
+
+  it("compares against somebody else, and says so when nobody else is there", () => {
+    // THE MARK printed "CARL / FLOOR 1 / level with the leader" on the player's
+    // OWN row. The component already knew how to say it correctly - the
+    // unlinked branch prints "YOUR OWN DEEPEST" - it was simply never told
+    // which rows were mine.
+    const mine = boardRow({ id: "mine", publicId: "ME", name: "Carl", floor: 6, state: "verified" });
+    const solo = benchmark(me, [mine], 4, "ME");
+    expect(solo!.who).not.toBe("CARL");
+    expect(solo!.gap).not.toMatch(/level with the leader/);
+    expect(solo!.who).toMatch(/YOU HOLD THE MARK/);
+  });
+
+  it("compares against rank 2 when the player holds rank 1, and calls it rank 2", () => {
+    const mine = boardRow({ id: "mine", publicId: "ME", name: "Carl", floor: 18, won: true, state: "verified" });
+    const other = boardRow({ id: "k", publicId: "KAT", name: "Katia", floor: 5, state: "verified" });
+    const b = benchmark(me, [mine, other], 4, "ME");
+    expect(b!.who).toBe("KATIA");
+    // ...and it does not call the crawler BELOW the player "the leader".
+    expect(b!.gap).not.toMatch(/the leader/);
+    expect(b!.gap).toMatch(/rank 2/);
+    expect(b!.source).toMatch(/you hold rank 1/);
+  });
+
+  it("one definition of #1, shared by the mark and the scoreboard column", () => {
+    // Held-TAB headed the scoreboard column "#1 — KATIA" while THE STANDINGS,
+    // which ranks sealed rows only, showed Katia at rank 2. Both surfaces read
+    // this function now.
+    const claim = boardRow({ id: "c", publicId: "C", name: "Claim", state: "claimed" });
+    const sealed = boardRow({ id: "s", publicId: "S", name: "Katia", state: "verified" });
+    const top = boardLeader([claim, sealed], "ME");
+    expect(top!.row.name).toBe("Katia");
+    expect(top!.rank).toBe(1);
+    expect(top!.mine).toBe(false);
+    expect(boardLeader([], "ME")).toBeNull();
+  });
+});
+
+describe("precision and copy (round-4 blocker 15)", () => {
+  it("never prints '1 kills'", () => {
+    expect(count(1, "kill")).toBe("1 kill");
+    expect(count(0, "kill")).toBe("0 kills");
+    expect(count(1200, "kill")).toBe("1,200 kills");
+  });
+
+  it("does not credit a seven-second run with a minute in the dungeon", () => {
+    // `Math.max(1, Math.round(timeSec / 60))` rounded every run up to a minute
+    // and printed a bare "+1" beside a value in minutes: "377 min +1" on a
+    // 7.76-second death.
+    const rows = bankedTicks(history(30), 30, { kills: 3, timeSec: 7.76, floor: 1 });
+    const time = rows.find((r) => r.label === "TIME IN THE DUNGEON")!;
+    expect(time.delta).toBe("+8s");
+    const long = bankedTicks(history(30), 30, { kills: 3, timeSec: 640, floor: 9 });
+    expect(long.find((r) => r.label === "TIME IN THE DUNGEON")!.delta).toBe("+11 min");
+  });
+
+  it("does not tell a floor-13 death that the cameras were still warming up", () => {
+    // DEPTH being the WEAKEST of four parts is not the same claim as "you went
+    // nowhere", and this line fired on a floor-13 death - deeper than most runs
+    // ever get.
+    const deep = gradeRun(
+      facts({ floor: 13, elapsedSec: 1400, kills: 400, floorsCleared: 12 }), [], null, 0);
+    expect(deep.line).not.toMatch(/still warming up/);
+    const shallow = gradeRun(
+      facts({ floor: 2, elapsedSec: 90, kills: 4, floorsCleared: 1 }), [], null, 0);
+    expect(shallow.letter).toBeTruthy();
+  });
+});
+
+describe("the seal moment happens on screen (round-4 blocker 6)", () => {
+  // Instrumented on the shipping build: `vseal pending` at t+0 while the card
+  // was still at opacity 0 mid-entrance, `vseal verified ranked` by t+900ms. No
+  // `verifying` frame was ever painted, so 6.2 Beat 5 - "watching the seal land
+  // is two genuinely satisfying seconds" - was skipped entirely. The strike
+  // animation was staged correctly and had nothing to land ON.
+  const CARD = 10_000; // performance.now() when the verdict card was displayed
+  const RISEN = CARD + SEAL_CASCADE_MS;
+
+  it("holds a verdict that arrives before the block is even visible", () => {
+    // The measured case: the card lands at CARD, the block finishes rising
+    // 1.4s later, and the submit answers 300ms after the card - i.e. while the
+    // thing the player is supposed to watch is still at opacity 0.
+    const hold = sealHoldMs(CARD + 300, CARD, CARD + SEAL_CASCADE_MS, true, true);
+    expect(hold).toBe(SEAL_MIN_PENDING_MS + SEAL_CASCADE_MS - 300);
+    // ...and the verdict is painted only once the block has been READABLE for
+    // the full floor, never at the moment it merely became opaque.
+    expect(sealHoldMs(RISEN + SEAL_MIN_PENDING_MS, CARD, RISEN, true, true)).toBe(0);
+    expect(sealHoldMs(RISEN + SEAL_MIN_PENDING_MS - 1, CARD, RISEN, true, true)).toBe(1);
+  });
+
+  it("never holds a screen that OPENS on a terminal verdict", () => {
+    // A rehearsal or a refused recording has no pending state to honour, and
+    // making the player wait 2.6 seconds for a sentence that was always going
+    // to say UNSEALED is the opposite of a beat.
+    expect(sealHoldMs(CARD + 10, CARD, CARD, true, false)).toBe(0);
+  });
+
+  it("never holds a pending verdict, and never holds before the card is up", () => {
+    expect(sealHoldMs(CARD + 10, CARD, CARD, false, true)).toBe(0);
+    // verdictVisibleAt 0 means the card has not been displayed yet; the first
+    // paint happens during the Beat 0 freeze and must not be deferred.
+    expect(sealHoldMs(CARD + 10, 0, 0, true, true)).toBe(0);
   });
 });

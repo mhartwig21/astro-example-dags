@@ -19,7 +19,10 @@
  */
 import type { RunSummary } from "../sim/replay";
 import { RULES_HASH } from "../sim/rulesHash";
-import { maxCertifiableTicks, type VerifyReply, type VerifyRequest } from "./verifyWorker";
+import {
+  COST_SCALE_MAX, COST_SCALE_MIN, costScaleFrom, maxCertifiableTicks, tickCostUs,
+  type VerifyReply, type VerifyRequest,
+} from "./verifyWorker";
 
 /** 25% of one core. The whole budget the box will ever spend on verification. */
 export const VERIFY_BUDGET_MS_PER_SEC = 250;
@@ -68,8 +71,11 @@ export interface VerifyJob {
 }
 
 export type VerifyResult =
-  | { runId: string; ok: true; summary: RunSummary; msSpent: number }
-  | { runId: string; ok: false; state: "rejected" | "unverifiable"; detail: string; msSpent: number };
+  | { runId: string; ok: true; summary: RunSummary; msSpent: number; cpuMs: number }
+  | {
+      runId: string; ok: false; state: "rejected" | "unverifiable"; detail: string;
+      msSpent: number; cpuMs: number;
+    };
 
 /** How the replay actually runs. Injected so tests (and a box where a worker
  *  cannot be spawned) get the same queue semantics with a different engine. */
@@ -86,8 +92,15 @@ export interface VerifyQueueHooks {
   /** Called when a job is shed. NOT lost: stored claimed with a deferred note
    *  and re-queued when the backlog clears. */
   onShed(job: VerifyJob): void;
-  /** Charge measured CPU to the IP and the account (COMPETITIVE.md 2.7.3). */
-  onSpend(job: VerifyJob, ms: number): void;
+  /**
+   * Charge measured CPU to the IP and the account (COMPETITIVE.md 2.7.3).
+   *
+   * `cpuMs` IS THE UNIT THE BUDGET IS DENOMINATED IN, and it used to be handed
+   * `reply.msSpent` - wall clock, duty-cycle sleeps and all - against a budget
+   * `estimateMs` predicts in CPU ms (blocker 7). `wallMs` travels alongside for
+   * the operator gauges, and neither is ever asked to be the other.
+   */
+  onSpend(job: VerifyJob, cpuMs: number, wallMs: number): void;
 }
 
 export interface VerifyQueueOptions {
@@ -104,11 +117,25 @@ export class VerifyQueue {
   private q: VerifyJob[] = [];
   private running: VerifyJob | null = null;
   private opts: VerifyQueueOptions;
-  /** Measured microseconds of CPU per replayed tick, as an EMA. Seeded from
-   *  the dev-box measurement (COMPETITIVE.md 2.3) and corrected by reality. */
-  private usPerTick = 110;
+  /**
+   * HOW MUCH SLOWER THIS BOX IS THAN THE ONE 2.3 MEASURED - a dimensionless
+   * multiplier on `tickCostUs`'s depth curve, as an EMA.
+   *
+   * It used to be an absolute `usPerTick`, seeded at 110 and corrected by every
+   * job. Because per-tick cost is dominated by monster count (2.3: 20 us in a
+   * boss arena, 675 us on floor 16), that scalar converged on "whatever the
+   * last few submissions happened to be" in about ten jobs - and
+   * `certifiableTicks` is inversely proportional to it, so a handful of
+   * deliberately deep submissions from ONE account pushed the ceiling below
+   * full-clear length for everybody (blocker 8). Against the curve, a deep
+   * submission confirms the box instead of indicting it, and the value is
+   * clamped and published so an operator can tell drift from poisoning.
+   */
+  private costScale = 1;
   private closed = false;
   msTotal = 0;
+  /** The CPU half of the same total - what the per-subject budgets ration. */
+  cpuMsTotal = 0;
   verified = 0;
   rejected = 0;
   unverifiable = 0;
@@ -135,25 +162,32 @@ export class VerifyQueue {
    *  /health and /metrics expose, and the number shedding triggers on. */
   backlogSeconds(): number {
     let cpuMs = 0;
-    for (const j of this.q) cpuMs += (j.ticks * this.usPerTick) / 1000;
-    if (this.running) cpuMs += (this.running.ticks * this.usPerTick) / 1000;
+    for (const j of this.q) cpuMs += this.estimateMs(j.ticks);
+    if (this.running) cpuMs += this.estimateMs(this.running.ticks);
     const duty = (this.opts.budgetMsPerSec ?? VERIFY_BUDGET_MS_PER_SEC) / 1000;
     return cpuMs / 1000 / duty;
   }
 
-  /** Estimated CPU cost of one job, in ms - what the daily budgets charge. */
+  /** Estimated CPU cost of one job, in ms - what the daily budgets charge, in
+   *  the same unit the worker now reports back (`VerifyReply.cpuMs`). */
   estimateMs(ticks: number): number {
-    return (ticks * this.usPerTick) / 1000;
+    return (ticks * tickCostUs(ticks, this.costScale)) / 1000;
   }
+
+  /** The measured box-speed multiplier, for /health and /metrics. An operator
+   *  cannot tell drift from poisoning if the number is not on a surface. */
+  get scale(): number { return this.costScale; }
 
   /** The longest run this box can re-execute inside its own budget, in ticks.
    *  Verification depth was a SILENT function of box speed; this is the number
-   *  the submit path refuses against and the screens print (blocker 21). */
+   *  the submit path refuses against and the screens print (blocker 21). It has
+   *  a documented FLOOR at full-clear length, so no submitter can move it below
+   *  the length of the game (blocker 8). */
   get certifiableTicks(): number {
     return maxCertifiableTicks(
       this.opts.budgetMsPerSec ?? VERIFY_BUDGET_MS_PER_SEC,
       this.opts.ceilingMs ?? VERIFY_JOB_CEILING_MS,
-      this.usPerTick,
+      this.costScale,
     );
   }
 
@@ -220,27 +254,38 @@ export class VerifyQueue {
           // The live cost model, so the worker can STATE the depth limit before
           // it spends the clock instead of expressing it as an accusation two
           // minutes later (COMPETITIVE.md 2.3, blocker 21).
-          usPerTick: this.usPerTick,
+          costScale: this.costScale,
         });
         this.running = null;
         this.msTotal += reply.msSpent;
-        if (job.ticks > 500) {
-          // Correct the cost model from reality. Wall clock includes the duty
-          // sleep, so scale it back to CPU before folding it in.
-          const duty = (this.opts.budgetMsPerSec ?? VERIFY_BUDGET_MS_PER_SEC) / 1000;
-          const cpuUsPerTick = (reply.msSpent * 1000 * duty) / job.ticks;
-          if (cpuUsPerTick > 1 && cpuUsPerTick < 5000) {
-            this.usPerTick = this.usPerTick * 0.8 + cpuUsPerTick * 0.2;
+        this.cpuMsTotal += reply.cpuMs;
+        if (job.ticks > 500 && reply.cpuMs > 0) {
+          // CORRECT THE MODEL FROM MEASURED CPU, NOT FROM WALL CLOCK SCALED BY
+          // A DUTY FACTOR - the executors sleep differently, so that derivation
+          // was wrong for one of them by construction. And correct the
+          // dimensionless SCALE, so a deep job (which the curve already expects
+          // to cost more per tick) confirms the box instead of dragging every
+          // other player's ceiling down with it.
+          const sample = costScaleFrom(job.ticks, reply.cpuMs);
+          if (sample > 0.05 && sample < 20) {
+            this.costScale = Math.min(
+              COST_SCALE_MAX,
+              Math.max(COST_SCALE_MIN, this.costScale * 0.8 + sample * 0.2),
+            );
           }
         }
-        this.opts.hooks.onSpend(job, reply.msSpent);
+        this.opts.hooks.onSpend(job, reply.cpuMs, reply.msSpent);
         if (reply.ok) {
           this.verified++;
-          this.opts.hooks.onResult(job, { runId: job.runId, ok: true, summary: reply.summary, msSpent: reply.msSpent });
+          this.opts.hooks.onResult(job, {
+            runId: job.runId, ok: true, summary: reply.summary,
+            msSpent: reply.msSpent, cpuMs: reply.cpuMs,
+          });
         } else {
           if (reply.state === "rejected") this.rejected++; else this.unverifiable++;
           this.opts.hooks.onResult(job, {
-            runId: job.runId, ok: false, state: reply.state, detail: reply.detail, msSpent: reply.msSpent,
+            runId: job.runId, ok: false, state: reply.state, detail: reply.detail,
+            msSpent: reply.msSpent, cpuMs: reply.cpuMs,
           });
         }
       }

@@ -685,7 +685,7 @@ document.querySelectorAll<HTMLElement>(".m-board-h .bt").forEach((el) => {
 /** Result column per all-time category — each board brags differently. */
 function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: number; kills: number }): string {
   if (cat === "fastest" || cat === "contracts") return `CLEAR · ${fmt(e.timeSec)}`;
-  if (cat === "kills") return `${e.kills.toLocaleString()} kills`;
+  if (cat === "kills") return social.count(e.kills, "kill");
   return e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`;
 }
 
@@ -920,7 +920,7 @@ async function initAccountUi(): Promise<void> {
       if (r.ok) {
         const { stats } = (await r.json()) as { stats: { runs: number; wins: number; deepest: number; kills: number } | null };
         if (stats && stats.runs > 0) {
-          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${stats.kills.toLocaleString()} kills`);
+          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${social.count(stats.kills, "kill")}`);
         }
       }
     } catch { /* stats are garnish */ }
@@ -982,7 +982,7 @@ function renderCareer(): void {
   document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
     `<li><span class="rank">${r.mode === "daily" ? "◆" : "·"}</span>` +
     `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
-    `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${r.kills} kills`}</span></li>`,
+    `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${social.count(r.kills, "kill")}`}</span></li>`,
   ).join("");
 }
 
@@ -6097,7 +6097,7 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
       : ch.floor > 0 ? `reached floor ${ch.floor}` : "laid down a run";
     document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
     document.getElementById("m-daily-sub")!.textContent =
-      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${ch.kills} kills. Same seed. Beat it.`;
+      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`;
     tile.addEventListener("click", () => { forcedSeed = ch.seed; }, { capture: true });
     if (ch.run) {
       // The code carried a run id: the challenge MAY come with a ghost. It
@@ -6193,7 +6193,7 @@ let cpBeforeRun: number | null = null;
 async function loadStanding(): Promise<void> {
   try {
     const token = await accountToken();
-    const prof = (await competitive.profile(token)) as social.ProfileView;
+    const prof = (await competitive.myProfile(token)) as social.ProfileView;
     myStanding = prof.standing ?? null;
     // ...and the name this account wears on a board row, which is what the YOU
     // tag matches on now that the wire no longer hands out the token.
@@ -6245,27 +6245,48 @@ function verdictPartsHtml(g: social.RunGrade): string {
  *  none of it. */
 function scoreboardHtml(s: GameState): string {
   const p = me(s);
-  const leader = (todaysBoard ?? [])[0] ?? null;
+  // ONE DEFINITION OF "#1", SHARED WITH THE MARK (blocker 5). This took
+  // `todaysBoard[0]` - the first row of a page that includes UNPROVEN claims
+  // and may be the player's own row - and headed the column "#1 — KATIA" while
+  // THE STANDINGS, which ranks sealed rows only, showed Katia at rank 2.
+  const top = social.boardLeader(todaysBoard, myPublicId);
+  const leader = top?.row ?? null;
   const num = (v: number): string | null => (v > 0 ? Math.round(v).toLocaleString() : null);
   const cols: { head: string; cells: (string | null)[] }[] = [
     {
       head: "YOU",
       cells: [
         s.status === "won" ? "CLEAR" : `floor ${s.floor}`,
-        fmt(s.elapsed), String(p.kills), Math.round(p.damageTaken).toLocaleString(),
+        // ONE CLOCK, AT ONE PRECISION, ON A SURFACE SELLING EXACTNESS
+        // (blocker 15). The same run printed 0:07.76 in the header, 0:07 in
+        // this cell and 0:07.86 in the rival's, because three helpers were in
+        // use on one table. Splits are exact tick counts; centiseconds cost
+        // nothing and they are what decides an order.
+        social.mmssc(s.elapsed), String(p.kills), Math.round(p.damageTaken).toLocaleString(),
         Math.round(p.damageDealt).toLocaleString(), p.goldSpent.toLocaleString(), String(p.level),
       ],
     },
   ];
-  // THE GHOST COLUMN ONLY EXISTS WHEN THERE IS A GHOST. A column of seven
-  // em-dashes is not a comparison, it is a promise the screen did not keep -
-  // and it makes a three-column scoreboard ship as two.
+  // THE GHOST YOU RACED - THE MIDDLE COLUMN 6.2 Beat 2 SPECIFIES (blocker 14).
+  // It used to answer two of seven rows and dash the rest, because the ghost
+  // TRACK carries a trajectory and nothing else - so the one run where the
+  // comparison is worth the most, a RUN IT BACK against yourself, printed five
+  // em-dashes. Every ghost has a source that knows the rest (a sealed board row
+  // carries the verifier's own numbers; RUN IT BACK is this browser's last
+  // run), and `armGhost` now carries it through.
   if (ghost) {
+    const f = ghost.facts ?? null;
+    const endFloor = f?.floor ?? ghost.track.floor[ghost.track.floor.length - 1] ?? 1;
     cols.push({
       head: ghost.label.toUpperCase(),
       cells: [
-        `floor ${ghost.track.floor[ghost.track.floor.length - 1] ?? 1}`,
-        fmt(ghost.ticks / 60), null, null, null, null, null,
+        f?.won ? "CLEAR" : `floor ${endFloor}`,
+        social.ticksClock(ghost.ticks),
+        f && f.kills !== null ? f.kills.toLocaleString() : null,
+        f && f.damageTaken !== null ? num(f.damageTaken) : null,
+        f && f.damageDealt !== null ? num(f.damageDealt) : null,
+        f && f.goldSpent !== null ? num(f.goldSpent) : null,
+        f && f.level !== null ? String(f.level) : null,
       ],
     });
   }
@@ -6274,7 +6295,11 @@ function scoreboardHtml(s: GameState): string {
   // on the row; printing a dash next to a figure the server demonstrably knows
   // is how a scoreboard reads unfinished.
   cols.push({
-    head: leader ? `#1 — ${leader.name.toUpperCase()}` : "TODAY'S #1",
+    // When the top sealed row IS the player's, the column says so instead of
+    // printing their own name opposite their own numbers.
+    head: !leader ? "TODAY'S #1"
+      : top!.mine ? `#1 — YOU`
+        : `#${top!.rank} — ${leader.name.toUpperCase()}`,
     cells: leader
       ? [
           leader.won ? "CLEAR" : `floor ${leader.floor}`, social.ticksClock(leader.ticks),
@@ -6689,7 +6714,11 @@ function renderMark(s: GameState): void {
   if (net) { el.style.display = "none"; return; }
   const b = social.benchmark(
     { floor: s.floor, won: s.status === "won", elapsedSec: s.elapsed },
-    todaysBoard, recapPrevCareer?.bestFloor ?? 0,
+    // ...AND IT KNOWS WHICH ROWS ARE MINE (blocker 5). Without this the screen
+    // named the player as their own rival: "CARL / FLOOR 1 / level with the
+    // leader", on the player's own row, on the one comparison the default
+    // post-run state makes.
+    todaysBoard, recapPrevCareer?.bestFloor ?? 0, myPublicId,
   );
   if (!b) {
     el.style.display = "";
@@ -6808,6 +6837,32 @@ function renderEarned(s: GameState): void {
 let sealWordShown = "";
 
 /**
+ * THE SEAL MOMENT HAS TO HAPPEN ON SCREEN (blocker 6, 6.2 Beat 5: "watching the
+ * seal land is two genuinely satisfying seconds").
+ *
+ * Instrumented on the shipping build: at t+0 the block carried
+ * `vseal pending` while the verdict card was still at opacity 0 mid entrance,
+ * and by t+900ms it already read `vseal verified ranked`. So the strike fired -
+ * `paintSeal` staged it correctly - into a frame where the pending state had
+ * never been visible for a single painted frame. There was no moment. The
+ * animation was right and it had nothing to land ON.
+ *
+ * Both halves are timing, and both are fixed here rather than in the CSS:
+ *
+ *  - `verdictVisibleAt` is when the card actually reaches the screen, not when
+ *    the run ended. A dwell measured from the status edge is spent behind a
+ *    letterbox.
+ *  - A terminal verdict that arrives inside the floor is HELD, not dropped:
+ *    the pending block keeps breathing and the strike is re-issued the instant
+ *    the floor expires, so the sequence a player sees is always
+ *    VERIFYING -> (beat) -> SEALED and never a single frame of either.
+ */
+let verdictVisibleAt = 0;
+/** When the currently-shown non-terminal block became visible. */
+let sealPendingSince = 0;
+let sealHoldTimer: number | null = null;
+
+/**
  * THE SEAL, DRAMATISED (6 Beat 5).
  *
  * The server re-executing a fifteen-minute run and certifying it is the one
@@ -6879,6 +6934,19 @@ function signInAvailable(): boolean {
 /** Draw the seal block, staging the strike exactly once — on the transition
  *  INTO a terminal state, never on a re-render. */
 function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
+  // THE FLOOR UNDER THE PENDING STATE (blocker 6). A terminal verdict that
+  // arrives before the pending block has been visible for SEAL_MIN_PENDING_MS
+  // is held - never dropped - and re-issued the moment the floor expires. Only
+  // the FIRST paint is exempt: a screen that opens on an already-terminal
+  // verdict (a refused run, a rehearsal) has no pending state to honour.
+  const hold = social.sealHoldMs(
+    performance.now(), verdictVisibleAt, sealPendingSince, v.terminal, sealWordShown !== "",
+  );
+  if (hold > 0) {
+    if (sealHoldTimer !== null) window.clearTimeout(sealHoldTimer);
+    sealHoldTimer = window.setTimeout(() => { sealHoldTimer = null; paintSeal(el, v); }, hold);
+    return;
+  }
   const actionHtml = v.action && signInAvailable()
     ? `<div class="vact"><button id="recap-link" class="vlink">${esc(v.action.label)}</button>` +
       `<span class="vactnote">${esc(v.action.note)}</span></div>`
@@ -6894,6 +6962,11 @@ function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
   }
   const first = sealWordShown === "";
   sealWordShown = v.word;
+  // A new NON-terminal state restarts the dwell: VERIFYING replacing READY TO
+  // SUBMIT is itself a beat, and it gets its own screen time.
+  if (!v.terminal) {
+    sealPendingSince = Math.max(performance.now(), verdictVisibleAt + social.SEAL_CASCADE_MS);
+  }
   el.className = v.cls;
   el.innerHTML =
     `<div class="vk">${esc(v.kicker)}</div>` +
@@ -6992,6 +7065,9 @@ function maybeShowRecap(s: GameState): void {
   submitResult = null;
   earnedOpen = false;
   sealWordShown = "";
+  verdictVisibleAt = 0;
+  sealPendingSince = 0;
+  if (sealHoldTimer !== null) { window.clearTimeout(sealHoldTimer); sealHoldTimer = null; }
   beginVerdictFreeze(s);
   renderRecap(s);
   // Beat 0 holds, THEN the banner. A win gets a shorter hold: the player
@@ -7000,6 +7076,10 @@ function maybeShowRecap(s: GameState): void {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
+    // THE CLOCK ON THE SEAL BEAT STARTS HERE - when the card is on screen, not
+    // when the run ended (blocker 6).
+    verdictVisibleAt = performance.now();
+    sealPendingSince = verdictVisibleAt + social.SEAL_CASCADE_MS;
   }, s.status === "won" ? 560 : 760);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
@@ -7432,7 +7512,12 @@ let ghost: social.GhostState | null = null;
 let ghostNote = "";
 
 /** Load a proof through the era gate and precompute its track. */
-async function armGhost(bytes: Uint8Array, label: string, runId?: string): Promise<boolean> {
+async function armGhost(
+  bytes: Uint8Array, label: string, runId?: string,
+  // WHAT THE GHOST DID, from whatever armed it (blocker 14). The track knows
+  // where they were; only the caller knows what they scored.
+  facts?: social.GhostState["facts"],
+): Promise<boolean> {
   const reply = await precomputeGhost({ bytes, ghostHz: 10, eras: [RULES_HASH] });
   if (!reply.ok) {
     // NEVER step a foreign proof into the current sim to see what happens: it
@@ -7453,7 +7538,7 @@ async function armGhost(bytes: Uint8Array, label: string, runId?: string): Promi
   }
   ghost = {
     label: label || reply.label, track: reply.track,
-    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId,
+    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId, facts,
   };
   ghostNote = "";
   return true;
@@ -7477,7 +7562,13 @@ async function runItBack(): Promise<void> {
   ghost = null;
   if (proof) {
     const { encodeProof } = await import("./sim/replay");
-    await armGhost(encodeProof(proof), "YOUR LAST RUN");
+    // The run you are about to race is the one this browser just filed, so the
+    // scoreboard's ghost column is a full column rather than two numbers.
+    const last = loadHistory()[0] ?? null;
+    await armGhost(encodeProof(proof), "YOUR LAST RUN", undefined, last ? {
+      won: last.won, floor: last.floor, kills: last.kills, level: last.level,
+      damageDealt: last.damageDealt, damageTaken: last.damageTaken, goldSpent: null,
+    } : undefined);
   }
   forcedSeed = seed;
   // A RERUN OF TODAY'S CONTRACT IS ANOTHER ATTEMPT ON IT, and an attempt the
@@ -7504,11 +7595,11 @@ async function raceTheLeader(): Promise<void> {
   const era = RULES_HASH.slice(0, 7);
   const leader = (todaysBoard ?? []).find((r) => social.playability(r, era).ok);
   if (!leader) return;
-  await raceRun(leader.id, leader.name);
+  await raceRun(leader.id, leader.name, leader);
 }
 
 /** Download a sealed run and start the same seed beside it. */
-async function raceRun(runId: string, label: string): Promise<void> {
+async function raceRun(runId: string, label: string, row?: social.BoardRun): Promise<void> {
   const token = await accountToken();
   const got = await competitive.proof(runId, token);
   if (!got.bytes || !got.playable) {
@@ -7518,7 +7609,14 @@ async function raceRun(runId: string, label: string): Promise<void> {
     showAnnouncement({ text: `NO GHOST. ${ghostNote}`, kind: "flavor", priority: "high" });
     return;
   }
-  if (!(await armGhost(got.bytes, label, runId))) return;
+  // The verifier derived damage, gold and level as it replayed and wrote them
+  // onto the row, so racing a sealed run fills every cell of the ghost column.
+  const facts = row ? {
+    won: row.won, floor: row.floor, kills: row.kills, level: row.level,
+    damageDealt: row.damageDealt || null, damageTaken: row.damageTaken || null,
+    goldSpent: row.goldSpent || null,
+  } : undefined;
+  if (!(await armGhost(got.bytes, label, runId, facts))) return;
   closeSets();
   recapEl.style.display = "none";
   forcedSeed = null;
@@ -7697,7 +7795,7 @@ function boardResult(kind: string, r: social.BoardRun): string {
   // because to the reader it is. Centiseconds cost nothing - the data was
   // always this precise.
   if (kind === "band") return r.bandTicks ? social.ticksClock(r.bandTicks) : "—";
-  if (kind === "kills") return `${r.kills.toLocaleString()} kills`;
+  if (kind === "kills") return social.count(r.kills, "kill");
   if (kind === "fastest" || kind === "contracts") {
     return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor}`;
   }
@@ -7780,7 +7878,10 @@ function boardRowHtml(
   r: social.BoardRun, i: number, kind: string, extra = "",
   weight: social.SealWeight = "ranked",
 ): string {
-  const chip = social.sealChip(r.state, r.rulesEra, r.private, weight);
+  // HOW THIS ROW GOT ITS SEAL (blocker 11). A server-vouched RIVALS contract is
+  // `verified` with no film, and the chip used to promise a re-execution that
+  // never happened for it.
+  const chip = social.sealChip(r.state, r.rulesEra, r.private, weight, social.provenanceOf(r));
   const play = social.playability(r, ERA);
 
   const mine = !!r.publicId && r.publicId === myPublicId;
@@ -7790,6 +7891,11 @@ function boardRowHtml(
     // row has no era because it was never certified, and saying that is the
     // whole point of the chip beside it.
     r.rulesEra ? `era ${r.rulesEra}` : "no era — never certified",
+    // WHICH GAME, NOT JUST WHICH NUMBERS (blocker 11). `mode` and `runKind`
+    // have been on the wire since the roam gate shipped and nothing rendered
+    // either, so a ruleset with no permadeath was indistinguishable on the
+    // board from the descent every other row is. Null for the plain descent.
+    social.rulesetLabel(r),
     // "SIGNED attempt N", not "attempt N". The number comes off the event
     // ticket, so it counts the attempts the server was asked to OBSERVE - it
     // is not, and cannot be, a count of how many times this dungeon was
@@ -7874,9 +7980,18 @@ function boardListHtml(
     // ONE LINE, NOT TWO SENTENCES OF RATIONALE. League never explains itself on
     // a ranked surface; the copy was good and there was three times too much
     // of it, loudest exactly where the board was emptiest.
+    // ...AND IT NAMES BOTH POPULATIONS (blocker 11). `unverifiable` rows are on
+    // this shelf now - 2.6d promises the row "keeps whatever it earned" and the
+    // verdict screen says so in as many words, while the board predicate used
+    // to drop them off every surface in the product. A row the System could not
+    // run is not a row a client made up, and one heading cannot call them the
+    // same thing.
+    const aged = unproven.filter((r) => r.state === "unverifiable").length;
     html += `<div class="unproven">` +
-      `<div class="uhead">UNPROVEN CLAIMS — BELOW THE BOARD</div>` +
-      `<div class="usub">Never re-executed. No rank, no result.</div>` +
+      `<div class="uhead">BELOW THE BOARD — NO RANK, NO RESULT</div>` +
+      `<div class="usub">Never re-executed${aged > 0
+        ? `, or recorded under rules this build can no longer run (${aged}). Kept, not ranked.`
+        : ". No rank, no result."}</div>` +
       `<ul class="board">${unproven.map(
         (r, i) => boardRowHtml(r, -1 - i, kind, extra(r), "plain")).join("")}</ul></div>`;
   }
@@ -8091,7 +8206,7 @@ async function refreshRivals(): Promise<void> {
   try {
     const rc = (await competitive.rivalContract(myAccount)) as social.RivalContract;
     if (rc.rival) rivalAccounts.add(rc.rival.publicId);
-    const prof = (await competitive.profile(myAccount)) as social.ProfileView;
+    const prof = (await competitive.myProfile(myAccount)) as social.ProfileView;
     myPublicId = prof.publicId ?? myPublicId;
     for (const id of prof.following ?? []) rivalAccounts.add(id);
   } catch { /* no rivals is a state, not an error */ }
@@ -8354,7 +8469,7 @@ async function renderCareerSet(): Promise<void> {
   const bests = careerBests(history);
   const token = await accountToken();
   let prof: social.ProfileView | null = null;
-  try { prof = (await competitive.profile(token)) as social.ProfileView; } catch { /* offline */ }
+  try { prof = (await competitive.myProfile(token)) as social.ProfileView; } catch { /* offline */ }
 
   // The histogram takes whichever ledger has more runs in it and SAYS WHICH.
   // The server sees every device but only sealed runs; this browser sees every

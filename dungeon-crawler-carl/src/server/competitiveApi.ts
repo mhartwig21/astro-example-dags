@@ -28,7 +28,7 @@ import { dayFromMs } from "../sim/daily";
 import { sanitizeName } from "./names";
 import { executableEras, inflateArtifact, rulesetRefusal } from "./verifyWorker";
 import {
-  BOARD_KINDS, RANK_REFUSED_REASON, SPLIT_GATE_ENTRIES, publicIdFor,
+  BOARD_KINDS, RANK_REFUSED_REASON, SPLIT_GATE_ENTRIES, compareDeepest, publicIdFor,
   type BoardKind, type CompetitiveStore, type RunRow,
 } from "./competitive";
 import {
@@ -45,6 +45,10 @@ import { cpFor, dailyEvent, seasonIdFor, standingFor, weeklyEvent, type EventSpe
 const MAX_BODY = MAX_PROOF_BYTES + 8192;
 /** Personal proof retention, on top of whatever is on a board (2.4 Storage). */
 export const KEEP_PROOFS_PER_ACCOUNT = 10;
+/** How long a board answer may be reused before the tick thread pays for it
+ *  again (blocker 9). Any write clears the cache outright, so this bounds the
+ *  cost of READ VOLUME and never the freshness of a result. */
+export const READ_CACHE_MS = 2000;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -129,7 +133,7 @@ export class CompetitiveApi {
           else this.onFailed(job, r.state, r.detail);
         },
         onShed: (job) => this.onShed(job),
-        onSpend: (job, ms) => this.onSpend(job, ms),
+        onSpend: (job, cpuMs) => this.onSpend(job, cpuMs),
       },
     });
     // PATCH DAY (2.6e): any event pinned to an era this build cannot execute
@@ -147,12 +151,27 @@ export class CompetitiveApi {
     return {
       verify_queue_depth: this.queue.depth,
       verify_ms_total: Math.round(this.queue.msTotal),
+      /** The CPU half of the same total. The budgets ration THIS one. */
+      verify_cpu_ms_total: Math.round(this.queue.cpuMsTotal),
       verify_backlog_seconds: Math.round(this.queue.backlogSeconds()),
       verify_verified_total: this.queue.verified,
       verify_rejected_total: this.queue.rejected,
       verify_unverifiable_total: this.queue.unverifiable,
       verify_shed_total: this.queue.shed,
       verify_deferred: this.deferred.length,
+      // THE CERTIFICATION CEILING, AND THE NUMBER THAT MOVES IT (blocker 8).
+      // The ceiling is a live function of a measured value that every submitter
+      // can push on, and neither the value nor the ceiling was on any operator
+      // surface - so a poisoned cost model and a genuinely slow box looked
+      // identical from outside. x1000 because the exposition format is numeric
+      // and a scale of 1.37 should not round to 1.
+      verify_cost_scale_milli: Math.round(this.queue.scale * 1000),
+      verify_certifiable_ticks: this.queue.certifiableTicks,
+      // Read-path protection (blocker 9): how much of the tick thread the board
+      // queries are actually costing, and how much of it the cache absorbed.
+      read_cache_hits: this.readCacheHits,
+      read_cache_misses: this.readCacheMisses,
+      read_throttled_total: this.readThrottled,
     };
   }
 
@@ -174,6 +193,64 @@ export class CompetitiveApi {
     if (b.tokens < 1) return false;
     b.tokens -= 1;
     return true;
+  }
+
+  /**
+   * THE READ PATH RUNS ON THE TICK THREAD TOO (blocker 9).
+   *
+   * `allow()` was called at exactly three places - `/auth/anon`,
+   * `/events/:id/start` and `POST /runs`. `GET /runs/:id`, `/boards/:kind`,
+   * `/bands/:n`, `/crawler/:id` and `/events/current` had no bucket, no token
+   * and no cache, and `gameServer.onRequest` dispatches all of them onto the
+   * main loop - which is ONE shared vCPU with a 33 ms budget per 30 Hz tick
+   * ACROSS EVERY LIVE PARTY (2.4). `GET /runs/:id` alone runs `holdsBoards`:
+   * eight window-function board queries plus six band joins, unauthenticated,
+   * per request. The subsystem spent an entire worker thread keeping replay off
+   * that thread and left the front door open to the same stall.
+   *
+   * Two mechanisms, because a bucket alone is not enough: a bucket bounds ONE
+   * client and the cache is what bounds the SUM. Every distinct board query
+   * costs the tick thread at most one execution per TTL no matter how many
+   * clients ask for it, and a board that changes on certification is allowed to
+   * be two seconds stale - the seal itself takes seconds to land (2.4 rule 4).
+   */
+  private readCache = new Map<string, { at: number; body: unknown }>();
+  private readCacheHits = 0;
+  private readCacheMisses = 0;
+  private readThrottled = 0;
+
+  /** Reads are cheap to ask for and expensive to answer, so the bucket is
+   *  generous and the cache is what actually holds the line. */
+  private allowRead(ip: string): boolean {
+    if (this.allow("read:" + ip, 40, 120)) return true;
+    this.readThrottled++;
+    return false;
+  }
+
+  private cached<T>(key: string, ttlMs: number, build: () => T): T {
+    const now = this.now();
+    const hit = this.readCache.get(key);
+    if (hit && now - hit.at < ttlMs) {
+      this.readCacheHits++;
+      return hit.body as T;
+    }
+    this.readCacheMisses++;
+    const body = build();
+    // Bounded, and evicted oldest-first rather than cleared, so a scan over
+    // distinct keys cannot flush the hot ones a real audience shares.
+    if (this.readCache.size > 512) {
+      const oldest = [...this.readCache.entries()].sort((a, b) => a[1].at - b[1].at);
+      for (let i = 0; i < 128; i++) this.readCache.delete(oldest[i][0]);
+    }
+    this.readCache.set(key, { at: now, body });
+    return body;
+  }
+
+  /** A write invalidates every read: certification changes boards, profiles and
+   *  the run row at once, and stale-after-write is the one staleness a player
+   *  would actually notice (they are watching their own seal land). */
+  private invalidateReads(): void {
+    this.readCache.clear();
   }
 
   private json(res: ServerResponse, code: number, body: unknown): void {
@@ -329,6 +406,7 @@ export class CompetitiveApi {
       this.store.insertRun({ ...row, state });
       if (state !== "claimed") this.store.setState(runId, state, reason);
       else if (reason) this.store.setState(runId, "claimed", reason);
+      this.invalidateReads(); // a new row is a new board (blocker 9)
       return { runId, state, queued: false, reason, attemptNo: attemptNo ?? undefined, needsIdentity };
     };
 
@@ -390,10 +468,12 @@ export class CompetitiveApi {
     let queueable = false;
     if (eventId) {
       const best = this.store.bestVerifiedOnEvent(accountId, eventId);
-      const improves = !best
-        || (row.won && !best.won)
-        || row.floor > best.floor
-        || (row.floor === best.floor && row.won === best.won && row.timeTicks < best.timeTicks);
+      // THE BOARD'S OWN COMPARATOR (blocker 4). This test had its own copy of
+      // `won DESC, floor DESC, time ASC`, so on a contract where both rows were
+      // deaths at the same depth it called a FASTER death an improvement and
+      // bought a verify for it - paying CPU for exactly the play the ordering
+      // fix exists to stop rewarding.
+      const improves = !best || compareDeepest(row, best) < 0;
       if (!improves) {
         return refuse("attempt recorded - it did not beat your verified best on this contract");
       }
@@ -422,6 +502,7 @@ export class CompetitiveApi {
         });
         const reason = RANK_REFUSED_REASON + " It is re-offered if the rows above it move.";
         this.store.setState(runId, "claimed", reason);
+        this.invalidateReads();
         return { runId, state: "claimed", queued: false, reason, attemptNo: attemptNo ?? undefined };
       }
     }
@@ -448,6 +529,7 @@ export class CompetitiveApi {
       hasHistory: this.hasVerifiedHistory(accountId), eventSeed,
       requireFreshStart: true, enqueuedAt: now, rulesHash: h.rulesHash,
     };
+    this.invalidateReads();
     const accepted = this.queue.enqueue(job);
     if (!accepted) {
       this.deferred.push(job);
@@ -528,6 +610,10 @@ export class CompetitiveApi {
 
   /** Charge the measured CPU, then re-admit shed work if the backlog cleared. */
   private afterJob(job: VerifyJob): void {
+    // A verdict moves boards, profiles and the run row at once. Reads may be
+    // two seconds stale under LOAD; they are never stale after a WRITE, which
+    // is the staleness a player watching their own seal land would notice.
+    this.invalidateReads();
     this.store.sweepVerifyBudget(dayFromMs(this.now() - 48 * 3600_000));
     this.store.sweepSpentTickets(this.now() - 48 * 3600_000);
     while (this.deferred.length > 0 && this.queue.backlogSeconds() < 60) {
@@ -579,10 +665,12 @@ export class CompetitiveApi {
     this.deferred.push(job);
   }
 
-  onSpend(job: VerifyJob, ms: number): void {
+  /** CPU ms, which is the unit `estimateMs` predicts and the unit
+   *  VERIFY_MS_PER_*_PER_DAY is denominated in (blocker 7). */
+  onSpend(job: VerifyJob, cpuMs: number): void {
     const day = dayFromMs(this.now());
-    this.store.spendVerifyMs("ip:" + job.ip, day, ms);
-    this.store.spendVerifyMs("acct:" + job.accountId, day, ms);
+    this.store.spendVerifyMs("ip:" + job.ip, day, cpuMs);
+    this.store.spendVerifyMs("acct:" + job.accountId, day, cpuMs);
   }
 
   // ---- routes ------------------------------------------------------------
@@ -609,15 +697,19 @@ export class CompetitiveApi {
 
     // GET /events/current
     if (path === "/events/current" && req.method === "GET") {
-      const { daily, weekly } = this.ensureEvents(now);
-      const decorate = (e: EventSpec): unknown => {
-        const stored = this.store.getEvent(e.id);
-        return {
-          ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
-          entrants: this.store.eventEntrants(e.id),
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const body = this.cached("events", READ_CACHE_MS, () => {
+        const { daily, weekly } = this.ensureEvents(now);
+        const decorate = (e: EventSpec): unknown => {
+          const stored = this.store.getEvent(e.id);
+          return {
+            ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
+            entrants: this.store.eventEntrants(e.id),
+          };
         };
-      };
-      this.json(res, 200, { season: seasonIdFor(now), daily: decorate(daily), weekly: decorate(weekly) });
+        return { season: seasonIdFor(now), daily: decorate(daily), weekly: decorate(weekly) };
+      });
+      this.json(res, 200, body);
       return true;
     }
 
@@ -689,6 +781,7 @@ export class CompetitiveApi {
     // GET /runs/:id - metadata, and the artifact for ghosts and replay.
     const one = MATCH_RUN.exec(path);
     if (one && req.method === "GET") {
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
       const run = this.store.getRun(one[1]);
       if (!run) { this.json(res, 404, { error: "not found" }); return true; }
       const token = q.get("token") ?? "";
@@ -736,7 +829,12 @@ export class CompetitiveApi {
       // board alone - so a free-seed run taking rank 1 all-time got the plain
       // hairline and the line "It ranks nowhere, and it is still true", which
       // is false about the run that most deserved the gold.
-      this.json(res, 200, { ...this.publicRun(run), boards: this.store.holdsBoards(run.id) });
+      // `holdsBoards` is EIGHT window-function board queries plus six band
+      // joins, on the tick thread, per request. Cached by run id: a run's board
+      // positions change only when something is certified, and certification
+      // clears the cache (blocker 9).
+      this.json(res, 200, this.cached("run:" + run.id, READ_CACHE_MS, () =>
+        ({ ...this.publicRun(run), boards: this.store.holdsBoards(run.id) })));
       return true;
     }
 
@@ -746,6 +844,14 @@ export class CompetitiveApi {
       const kind = board[1] as BoardKind;
       if (!(BOARD_KINDS as readonly string[]).includes(kind)) {
         this.json(res, 404, { error: "unknown board" });
+        return true;
+      }
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const cacheKey = "board:" + path + "?" + [...q.entries()].sort().map(([k, v]) => k + "=" + v).join("&");
+      const hit = this.readCache.get(cacheKey);
+      if (hit && this.now() - hit.at < READ_CACHE_MS) {
+        this.readCacheHits++;
+        this.json(res, 200, hit.body);
         return true;
       }
       const eventParam = q.get("event");
@@ -773,7 +879,7 @@ export class CompetitiveApi {
       // embed, a third party or a future mobile host would not have.
       const verified = rows.filter((r) => r.state === "verified").map((r) => this.publicRun(r));
       const unproven = rows.filter((r) => r.state !== "verified").map((r) => this.publicRun(r));
-      this.json(res, 200, {
+      const body = {
         kind, eventId: eventId ?? null, rulesEra: RULES_HASH.slice(0, 7),
         splitGate: SPLIT_GATE_ENTRIES,
         archetypeEntrants: archetype ? this.store.splitEntrants("ultimate", archetype, eventId ?? undefined) : null,
@@ -784,7 +890,10 @@ export class CompetitiveApi {
         unproven,
         note: "entries are runs this server re-executed and certified. unproven rows were stored "
           + "exactly as a client reported them, hold no rank, and are never a result.",
-      });
+      };
+      this.readCacheMisses++;
+      this.readCache.set(cacheKey, { at: this.now(), body });
+      this.json(res, 200, body);
       return true;
     }
 
@@ -794,23 +903,52 @@ export class CompetitiveApi {
     // asking the reader to assume it did not.
     const band = MATCH_BAND.exec(path);
     if (band && req.method === "GET") {
-      const rows = this.store.bandBoard(Number(band[1]), Number(q.get("limit") ?? 25));
-      this.json(res, 200, {
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const limit = Number(q.get("limit") ?? 25);
+      this.json(res, 200, this.cached("band:" + band[1] + ":" + limit, READ_CACHE_MS, () => ({
         band: Number(band[1]),
         tiebreak: "split ticks, then the earliest run to be certified",
-        entries: rows.map((r) => ({ ...this.publicRun(r), bandTicks: r.bandTicks })),
-      });
+        entries: this.store.bandBoard(Number(band[1]), limit)
+          .map((r) => ({ ...this.publicRun(r), bandTicks: r.bandTicks })),
+      })));
       return true;
     }
 
-    // GET /crawler/:id - the profile. The id may be a PUBLIC id (what a board
-    // row and a share link carry) or the caller's own bearer token (how the
-    // client asks for its own career). The public id is tried first, so a
-    // shared profile link never has to contain a credential.
+    /**
+     * GET /crawler/:id - the profile.
+     *
+     * THE PATH SEGMENT IS NOT A CREDENTIAL (blocker 10). This used to read
+     * `accountForPublicId(who[1]) ?? who[1]`: when the public-id lookup missed,
+     * the raw path segment was passed straight to `profile()` as an ACCOUNT ID
+     * - and the account id IS the bearer token `POST /runs` authenticates on.
+     * The endpoint was unauthenticated and unthrottled, so it answered
+     * populated for a real token and empty for a wrong one: a free confirmation
+     * oracle for anyone holding a maybe-leaked token, and a full career read for
+     * anyone who ever saw one over a shoulder, in a log, or in a screenshot.
+     *
+     * There is now exactly one way to name a stranger - the derived, one-way
+     * public id - and exactly one way to ask for your own career: present the
+     * token as a token, at `/crawler/me?token=`, where `isUsable` decides.
+     */
     const who = MATCH_CRAWLER.exec(path);
     if (who && req.method === "GET") {
-      const accountId = this.store.accountForPublicId(who[1]) ?? who[1];
-      this.json(res, 200, this.profile(accountId, now));
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const token = q.get("token") ?? "";
+      const accountId = who[1] === "me"
+        ? (this.tokens.isUsable(token) ? token : null)
+        : this.store.accountForPublicId(who[1]);
+      if (!accountId) {
+        // The same answer for "no such crawler" and "that is not your token",
+        // because a different answer is the oracle this endpoint just stopped
+        // being.
+        this.json(res, 404, { error: "no such crawler" });
+        return true;
+      }
+      // Only public profiles are cached. `/crawler/me` is one caller by
+      // definition and caching it would key a private read on a credential.
+      this.json(res, 200, who[1] === "me"
+        ? this.profile(accountId, now)
+        : this.cached("crawler:" + who[1], READ_CACHE_MS, () => this.profile(accountId, now)));
       return true;
     }
 
@@ -981,11 +1119,14 @@ export class CompetitiveApi {
     for (const [eventId, a] of mineBy) {
       const b = theirBy.get(eventId);
       if (!b) continue; // only contested events count - a walkover is not a win
-      // The board's own order, so the ledger and the ladder never disagree.
-      let result: "won" | "lost" | "drew" = "drew";
-      if (a.won !== b.won) result = a.won ? "won" : "lost";
-      else if (a.floor !== b.floor) result = a.floor > b.floor ? "won" : "lost";
-      else if (a.ticks !== b.ticks) result = a.ticks < b.ticks ? "won" : "lost";
+      // THE BOARD'S OWN ORDER, from the board's own comparator, so the ledger
+      // and the ladder never disagree - including on the case that used to
+      // award the head-to-head to whoever died SOONER at the same depth.
+      const c = compareDeepest(
+        { won: a.won, floor: a.floor, timeTicks: a.ticks, kills: a.kills },
+        { won: b.won, floor: b.floor, timeTicks: b.ticks, kills: b.kills },
+      );
+      const result: "won" | "lost" | "drew" = c < 0 ? "won" : c > 0 ? "lost" : "drew";
       if (result === "won") mine++; else if (result === "lost") theirs++; else drawn++;
       rows.push({
         eventId, won: a.won, mineFloor: a.floor, theirFloor: b.floor,

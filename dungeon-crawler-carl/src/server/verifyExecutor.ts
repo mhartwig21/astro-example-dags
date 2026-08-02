@@ -50,7 +50,7 @@ export class WorkerExecutor implements VerifyExecutor {
         // and prints THE SYSTEM DISAGREES WITH YOU. A worker that crashed has
         // decided nothing about the run.
         p.resolve({
-          id: p.id, ok: false, msSpent: 0, state: "unverifiable",
+          id: p.id, ok: false, msSpent: 0, cpuMs: 0, state: "unverifiable",
           detail: "the verifier crashed while re-running this proof, so nothing was decided about it: "
             + err.message,
         });
@@ -64,7 +64,7 @@ export class WorkerExecutor implements VerifyExecutor {
   run(req: VerifyRequest): Promise<VerifyReply> {
     if (this.disposed) {
       return Promise.resolve({
-        id: req.id, ok: false, msSpent: 0, state: "unverifiable",
+        id: req.id, ok: false, msSpent: 0, cpuMs: 0, state: "unverifiable",
         detail: "the verifier was shut down before this proof could be re-run",
       });
     }
@@ -73,7 +73,7 @@ export class WorkerExecutor implements VerifyExecutor {
         this.worker = this.spawn();
       } catch (err) {
         return Promise.resolve({
-          id: req.id, ok: false, msSpent: 0, state: "unverifiable",
+          id: req.id, ok: false, msSpent: 0, cpuMs: 0, state: "unverifiable",
           detail: "the verifier could not start on this machine, so nothing was decided about this run: "
             + String(err),
         });

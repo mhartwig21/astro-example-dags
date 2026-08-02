@@ -642,11 +642,13 @@ describe("band records require TRAVERSAL, not attendance (COMPETITIVE.md 3.3)", 
     const file = join(dir, "old.sqlite");
     const before = openDb(file)!;
     before.competitive.insertRun({
-      id: "deep", accountId: "a", displayName: "Deep", seed: 1, won: false, floor: 7,
+      id: "deep", accountId: "a", displayName: "Deep", seed: 1, mode: "coop", runKind: "race",
+      won: false, floor: 7,
       timeTicks: 9000, kills: 10, level: 5, state: "verified", createdAt: 1000,
     });
     before.competitive.insertRun({
-      id: "shallow", accountId: "b", displayName: "Shallow", seed: 1, won: false, floor: 2,
+      id: "shallow", accountId: "b", displayName: "Shallow", seed: 1, mode: "coop", runKind: "race",
+      won: false, floor: 2,
       timeTicks: 300, kills: 1, level: 1, state: "verified", createdAt: 1000,
     });
     before.close();
@@ -995,9 +997,22 @@ describe("a capability failure is UNVERIFIABLE, never REJECTED (2.6d)", () => {
       expect(v.detail).toMatch(/sim-minutes/);
     }
     // ...and the boundary is a number the product can print, not folklore.
-    expect(maxCertifiableTicks(250, 120_000, 110)).toBeGreaterThan(60_000);
-    expect(maxCertifiableTicks(250, 120_000, 1000))
-      .toBeLessThan(maxCertifiableTicks(250, 120_000, 110));
+    //
+    // The third argument is the box-speed MULTIPLIER now, not an absolute
+    // us/tick: per-tick cost is a function of DEPTH (2.3: 20 us in a boss
+    // arena, 675 us on floor 16), so a scalar described the last thing
+    // submitted rather than the machine, and every submitter could move it
+    // (round-4 blocker 8). These assertions are STRICTLY STRONGER than the two
+    // they replace - the monotonicity is still required, and it is now required
+    // to hold WITHOUT the ceiling ever falling below a full clear.
+    expect(maxCertifiableTicks(250, 120_000, 1)).toBeGreaterThan(60_000);
+    // A genuinely slower box still certifies less, at a budget where the
+    // full-clear floor is not the binding constraint.
+    expect(maxCertifiableTicks(250, 20_000, 2))
+      .toBeLessThan(maxCertifiableTicks(250, 20_000, 0.5));
+    // ...but no measurement, however extreme, takes the PRODUCTION ceiling
+    // below the length of a full clear. This is the half that was missing.
+    expect(maxCertifiableTicks(250, 120_000, 50)).toBeGreaterThanOrEqual(60_000);
   }, 60_000);
 
   it("an over-long run is refused at the door, before the clock is spent", async () => {

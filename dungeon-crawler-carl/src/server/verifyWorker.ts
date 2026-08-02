@@ -106,29 +106,111 @@ export interface VerifyRequest {
   budgetMsPerSec?: number;
   ceilingMs?: number;
   chunkTicks?: number;
-  /** The queue's measured microseconds of CPU per replayed tick. Used to say
-   *  the depth limit OUT LOUD, before the clock is spent, instead of letting it
-   *  express itself as an accusation two minutes later (COMPETITIVE.md 2.3). */
-  usPerTick?: number;
+  /** The queue's measured BOX-SPEED MULTIPLIER against 2.3's dev-box cost curve
+   *  (`tickCostUs`). Used to say the depth limit OUT LOUD, before the clock is
+   *  spent, instead of letting it express itself as an accusation two minutes
+   *  later. A multiplier rather than a us/tick scalar, because per-tick cost is
+   *  a function of DEPTH and a scalar therefore describes the last thing
+   *  submitted rather than the machine (blocker 8). */
+  costScale?: number;
 }
 
 /**
+ * THE COST MODEL, WHICH IS A CURVE AND NOT A SCALAR (blocker 8).
+ *
+ * The queue used to carry ONE global mutable `usPerTick`, seeded at 110 and
+ * EMA-corrected by every job any account submitted - and `certifiableTicks` is
+ * inversely proportional to it. 2.3 measured the thing that makes that fatal:
+ * per-tick cost is dominated by MONSTER COUNT, not by the box - "20 us in a
+ * 4-entity boss arena, 675 us on floor 16 with 192 monsters". So a handful of
+ * deliberately deep submissions from one account converge the scalar upward in
+ * about ten jobs and drag the certification ceiling below full-clear length for
+ * EVERYBODY, with nothing on /health to tell drift from poisoning.
+ *
+ * The fix is to stop describing a curve with a point. 2.3's own measured table
+ * (ticks -> us/tick: 4,282 -> 72; 19,626 -> 141; 25,947 -> 143; 45,419 -> 230;
+ * 48,265 -> 240) is very close to linear in run length, because runs get deeper
+ * as they get longer:
+ *
+ *     us/tick(ticks) = scale * (55 + 0.0038 * ticks)
+ *
+ * `scale` is then DIMENSIONLESS - "how much slower is this box than the dev box
+ * it was measured on" - and a deep submission no longer moves it, because the
+ * model already expected a deep run to cost more. Re-deriving the table above
+ * gives scale 0.97 / 1.06 / 0.94 / 1.00 / 1.01: five runs spanning an order of
+ * magnitude in depth, all reporting the same box.
+ */
+export const TICK_COST_BASE_US = 55;
+export const TICK_COST_SLOPE_US = 0.0038;
+
+/** Expected CPU microseconds per replayed tick for a run of this length. */
+export function tickCostUs(ticks: number, scale = 1): number {
+  return scale * (TICK_COST_BASE_US + TICK_COST_SLOPE_US * Math.max(0, ticks));
+}
+
+/** The box-speed multiplier a completed job implies. Inverting the curve is
+ *  what makes a floor-16 sample and a floor-3 sample comparable. */
+export function costScaleFrom(ticks: number, cpuMs: number): number {
+  const expectedUs = TICK_COST_BASE_US + TICK_COST_SLOPE_US * Math.max(0, ticks);
+  return (cpuMs * 1000) / Math.max(1, ticks * expectedUs);
+}
+
+/** How far the measured scale is ever allowed to move the ceiling. Past 3x the
+ *  dev-box baseline the box is either broken or being poisoned, and in neither
+ *  case is the right answer to shrink every honest player's allowance. */
+export const COST_SCALE_MIN = 0.5;
+export const COST_SCALE_MAX = 3;
+
+/**
+ * A FLOOR UNDER THE CEILING, AT THE LENGTH OF THE THING THE GAME IS ABOUT.
+ *
+ * 2.3 extrapolates a full 18-floor clear at 55-60k ticks. A verification
+ * ceiling that any submitter can drive below that is a ceiling that can be
+ * driven below "the game" - and the clamp alone does not prevent it: at the
+ * production budget, scale 1.0 affords ~72.5k ticks and scale 3.0 (the clamp
+ * MAXIMUM) affords ~39k, which is 11 sim-minutes and refuses every clear on the
+ * board.
+ *
+ * So the floor is RELATIVE, not absolute: no measurement may push the ceiling
+ * below a full clear, but the OPERATOR'S OWN BUDGET still bounds it. A box
+ * configured with a one-millisecond job ceiling gets a one-millisecond answer -
+ * that is a decision somebody made, not a lever a submitter pulled. The
+ * distinction is the whole point: the ceiling stops being a function of who
+ * submitted last, and stays a function of what the box was given.
+ */
+export const FULL_CLEAR_TICKS = 66_000;
+/** Below this nothing is certifiable at all; a box this constrained is not
+ *  running a ladder. Retained from the previous absolute floor. */
+export const MIN_CERTIFIABLE_TICKS = 3600;
+
+/**
  * HOW LONG A RUN THIS BOX CAN CERTIFY, in ticks - the boundary blocker 21 says
- * exists and nothing stated. `spent()` is WALL CLOCK including the duty sleeps,
- * so a 120 s ceiling at 250 ms/s buys about 30 s of CPU; at the measured
- * 110 us/tick that is roughly 270k ticks here and, at 2.3's own 1.5-3x Fly
- * penalty, 90-180k there. Past it the run is `unverifiable` with the limit
+ * exists and nothing stated. Past it the run is `unverifiable` with the limit
  * printed, never `rejected`: a box that ran out of clock has not caught anybody
  * lying.
+ *
+ * With the curve above this is a quadratic rather than a division:
+ * solve `T * scale * (base + slope*T) = budgetUs` for T.
  */
 export function maxCertifiableTicks(
-  budgetMsPerSec = 250, ceilingMs = 120_000, usPerTick = 110,
+  budgetMsPerSec = 250, ceilingMs = 120_000, costScale = 1,
 ): number {
-  const cpuMs = ceilingMs * (Math.max(10, budgetMsPerSec) / 1000);
-  // Leave a fifth of the budget as headroom: the EMA is an average, and a busy
-  // box that certifies on one attempt and accuses on the next is worse than a
-  // box that refuses both plainly.
-  return Math.max(3600, Math.floor((cpuMs * 1000 * 0.8) / Math.max(1, usPerTick)));
+  // `spent()` is WALL CLOCK including the duty sleeps, so a 120 s ceiling at
+  // 250 ms/s buys about 30 s of CPU. Leave a fifth as headroom: a busy box that
+  // certifies on one attempt and accuses on the next is worse than one that
+  // refuses both plainly.
+  const budgetUs = ceilingMs * (Math.max(10, budgetMsPerSec) / 1000) * 1000 * 0.8;
+  const solve = (s: number): number => {
+    const a = s * TICK_COST_SLOPE_US;
+    const b = s * TICK_COST_BASE_US;
+    return (-b + Math.sqrt(b * b + 4 * a * budgetUs)) / (2 * a);
+  };
+  const measured = solve(Math.min(COST_SCALE_MAX, Math.max(COST_SCALE_MIN, costScale)));
+  // The floor is a full clear OR whatever the operator's own budget affords at
+  // the unpoisoned baseline, whichever is SMALLER. A measurement can never take
+  // the ceiling below the game; a deployment decision still can.
+  const floor = Math.min(FULL_CLEAR_TICKS, solve(1));
+  return Math.max(MIN_CERTIFIABLE_TICKS, Math.floor(Math.max(measured, floor)));
 }
 
 /** The same boundary in the unit a player thinks in. */
@@ -180,9 +262,31 @@ function labelStatus(s: string): string {
   return s === "won" ? "in a clear" : s === "dead" ? "in a death" : `as "${s}"`;
 }
 
+/**
+ * TWO CLOCKS, NAMED APART (blocker 7).
+ *
+ * `msSpent` is WALL CLOCK: it includes the duty-cycle sleeps, which are the
+ * majority of it (at 250 ms/s, three quarters). `cpuMs` is the time actually
+ * spent inside `session.advance` - the scarce resource the daily budgets in
+ * 2.7.3 exist to ration, and the same unit `VerifyQueue.estimateMs` predicts.
+ *
+ * The queue charged `msSpent` against a budget it estimated in CPU ms, so at
+ * the documented duty a full clear estimated ~6.0 s and was charged ~23.9 s -
+ * a 4x mismatch inside one ledger, which puts an honest heavy player against
+ * the wall at a quarter of the stated allowance. Deriving one from the other
+ * with a duty factor would be wrong too, because `InlineExecutor` and the
+ * worker sleep differently. So the worker MEASURES the number it is charged
+ * for, and the two clocks travel together and never stand in for each other.
+ */
 export type VerifyReply =
-  | { id: string; ok: true; msSpent: number; summary: ReturnType<ReplaySession["summary"]> }
-  | { id: string; ok: false; msSpent: number; state: "rejected" | "unverifiable"; detail: string };
+  | {
+      id: string; ok: true; msSpent: number; cpuMs: number;
+      summary: ReturnType<ReplaySession["summary"]>;
+    }
+  | {
+      id: string; ok: false; msSpent: number; cpuMs: number;
+      state: "rejected" | "unverifiable"; detail: string;
+    };
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -213,11 +317,14 @@ export async function verifyArtifact(req: VerifyRequest): Promise<VerifyReply> {
   // for, only an era with a sim behind it is ever handed to ReplaySession.
   const eras = executableEras(req.eras);
   const spent = (): number => Date.now() - t0;
+  // The CPU half of the ledger, accumulated slice by slice so it never counts a
+  // duty-cycle sleep (blocker 7).
+  let cpuMs = 0;
   const fail = (state: "rejected" | "unverifiable", detail: string): VerifyReply =>
-    ({ id: req.id, ok: false, msSpent: spent(), state, detail });
+    ({ id: req.id, ok: false, msSpent: spent(), cpuMs, state, detail });
 
   let session: ReplaySession;
-  const maxTicks = maxCertifiableTicks(budget, ceiling, req.usPerTick);
+  const maxTicks = maxCertifiableTicks(budget, ceiling, req.costScale);
   try {
     const proof = decodeProof(inflateArtifact(req.bytes));
     if (req.requireFreshStart && proof.header.startKind !== "fresh") {
@@ -259,6 +366,7 @@ export async function verifyArtifact(req: VerifyRequest): Promise<VerifyReply> {
       const sliceStart = Date.now();
       let done = false;
       while (!done && Date.now() - sliceStart < workMs) done = session.advance(chunk);
+      cpuMs += Date.now() - sliceStart;
       if (done) break;
       // A BOX THAT RAN OUT OF CLOCK HAS NOT CAUGHT ANYBODY LYING (2.6d).
       // `rejected` is the state reserved for "the claim was false", and it came
@@ -288,7 +396,7 @@ export async function verifyArtifact(req: VerifyRequest): Promise<VerifyReply> {
   if (lies.length) {
     return fail("rejected", describeClaimDiff(summary, session.proofClaim, lies));
   }
-  return { id: req.id, ok: true, msSpent: spent(), summary };
+  return { id: req.id, ok: true, msSpent: spent(), cpuMs, summary };
 }
 
 if (parentPort) {
@@ -300,7 +408,7 @@ if (parentPort) {
       // `rejected`, which costs the account a ten-minute cooldown and prints
       // "The System disagrees with you" for an infrastructure failure.
       (err: unknown) => port.postMessage({
-        id: req.id, ok: false, msSpent: 0, state: "unverifiable",
+        id: req.id, ok: false, msSpent: 0, cpuMs: 0, state: "unverifiable",
         detail: "the verifier failed while re-running this proof, so nothing was decided about it: "
           + String(err),
       } satisfies VerifyReply),

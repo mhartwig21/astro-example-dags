@@ -99,8 +99,22 @@ export class CompetitiveClient {
     return json(this.base + "/bands/" + band + "?limit=" + limit);
   }
 
-  profile(accountId: string): Promise<unknown> {
-    return json(this.base + "/crawler/" + encodeURIComponent(accountId));
+  /**
+   * SOMEBODY ELSE'S CAREER, BY THE ONE-WAY PUBLIC ID a board row carries.
+   *
+   * This used to be the only profile call, and every caller in the host passed
+   * its own BEARER TOKEN as the path segment, because the server fell back to
+   * treating an unresolved segment as an account id. That fallback was a
+   * confirmation oracle for a leaked token (blocker 10); it is gone, and so is
+   * the ambiguity here - a credential travels as `?token=`, never as a path.
+   */
+  profile(publicId: string): Promise<unknown> {
+    return json(this.base + "/crawler/" + encodeURIComponent(publicId));
+  }
+
+  /** MY career. The token is presented AS a token, where `isUsable` decides. */
+  myProfile(token: string): Promise<unknown> {
+    return json(this.base + "/crawler/me?token=" + encodeURIComponent(token));
   }
 
   rivalContract(token: string): Promise<unknown> {

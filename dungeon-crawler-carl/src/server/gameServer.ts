@@ -1054,7 +1054,21 @@ export class GameServer {
             store.insertServerVouched({
               id: dayFromMs(at) + "-rivals-" + inst.code + "-" + (at % 100000),
               accountId: seat.accountId, displayName: sanitizeName(winner.name),
-              eventId: null, seed: inst.state.seed, mode: "rivals",
+              eventId: null, seed: inst.state.seed,
+              // WHICH GAME, FROM THE INSTANCE, NEVER DEFAULTED (blocker 12).
+              // `runKind` was simply not passed and `insertRun` filled in
+              // "race", so every server-vouched row asserted the race ruleset -
+              // including a party that joined with `?rivals=1&roam=1`, whose
+              // floors have no boss gate and a flat 30-minute budget. The row
+              // was written `verified` in the same statement, so the product's
+              // only self-vouched score was also its only sealed row that
+              // stated a ruleset it had not been played under.
+              mode: inst.state.mode, runKind: inst.state.runKind,
+              // Counted by the authoritative sim, which is the only reason this
+              // number is allowed to be anything but 1 (blocker 15). It is also
+              // what CONTRACTS gates on: a rivals instance with one seat is a
+              // race against nobody in a ruleset with no permadeath, and
+              // `boardRuleset` refuses it.
               partySize: Math.max(1, inst.state.players.length),
               won: true, floor: inst.state.floor,
               timeTicks: Math.round(inst.state.elapsed * 60), kills: winner.kills,

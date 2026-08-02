@@ -96,8 +96,24 @@ export interface NewRun {
   eventId?: string | null;
   seed: number;
   rulesHash?: string | null;
-  mode?: string;
-  runKind?: string;
+  /**
+   * WHICH GAME WAS PLAYED - REQUIRED, NOT DEFAULTED (blocker 12).
+   *
+   * These were `mode?: string` / `runKind?: string` with `?? "coop"` / `??
+   * "race"` filled in by `insertRun`, and `insertServerVouched` passed neither
+   * `runKind` nor, for a roam party, a truthful `mode`. So EVERY server-vouched
+   * row was stamped `run_kind = 'race'` whatever was actually played - a
+   * `{rivals: true, roam: true}` instance included - and the row was written
+   * `verified` at the same moment. A sealed row asserting the wrong ruleset is
+   * strictly worse than one asserting nothing: the audit column exists so a
+   * board, a share page or a future host can say which game a row came from,
+   * and a default silently answers that question with a guess.
+   *
+   * TypeScript is the enforcement. There is no value of these fields the store
+   * can infer, so there is no value it may invent.
+   */
+  mode: string;
+  runKind: string;
   partySize?: number;
   won: boolean;
   floor: number;
@@ -310,19 +326,109 @@ function toRow(r: RawRun): RunRow {
   };
 }
 
+/**
+ * THE DEEPEST ORDERING, WHICH IS NOT ONE ORDERING (blocker 4).
+ *
+ * `won DESC, floor DESC, time_ticks ASC` is correct for a clear and INVERTED
+ * for a death: among two runs that ended on the same floor without walking out,
+ * it ranks the one that ended SOONER. The daily and weekly contract standings
+ * render from this ordering and CP is paid on it, and at the deliberate ~40%
+ * win rate (3.1) most of a visible contract board is non-clears - so the
+ * optimal play to top today's contract was to die faster. Measured live: rank 1
+ * on the daily was floor 1 / 0:08 / 0 kills, above every run that fought.
+ *
+ * COMPETITIVE.md 3.3 found and fixed exactly this shape on the BAND boards
+ * ("under the naive rule the optimal play for a band record is to step into the
+ * band and die immediately") and left it standing on the board that carries the
+ * ladder.
+ *
+ * So the clock only ever decides a CLEAR. Among deaths at equal depth the board
+ * ranks the run that did more on the way - and it deliberately does not use
+ * time in either direction there, because `time DESC` would pay a crawler for
+ * standing still on floor 1 exactly as surely as `time ASC` pays them for
+ * jumping into the first pit.
+ */
+const DEEPEST_ORDER =
+  "won DESC, floor DESC, "
+  + "CASE WHEN won = 1 THEN time_ticks ELSE 0 END ASC, "
+  + "CASE WHEN won = 1 THEN 0 ELSE kills END DESC, "
+  + "created_at ASC";
+
+/** The same order in TypeScript, for the callers that compare two rows in
+ *  memory (the improvement test, the head-to-head ledger). Negative when `a`
+ *  outranks `b`. One definition, so the ladder and the ledger cannot disagree. */
+export function compareDeepest(
+  a: { won: boolean; floor: number; timeTicks: number; kills: number },
+  b: { won: boolean; floor: number; timeTicks: number; kills: number },
+): number {
+  if (a.won !== b.won) return a.won ? -1 : 1;
+  if (a.floor !== b.floor) return b.floor - a.floor;
+  if (a.won) return a.timeTicks - b.timeTicks;
+  return b.kills - a.kills;
+}
+
 /** ORDER BY fragment per board. `fastest` and `contracts` only rank clears;
  *  the WHERE that enforces that lives in boardWhere. */
 function boardOrder(kind: BoardKind): string {
   switch (kind) {
-    case "deepest": return "won DESC, floor DESC, time_ticks ASC, created_at ASC";
+    case "deepest": return DEEPEST_ORDER;
     case "fastest": return "time_ticks ASC, created_at ASC";
     case "kills": return "kills DESC, created_at ASC";
     case "contracts": return "time_ticks ASC, created_at ASC";
   }
 }
 
+/**
+ * WHICH RULESET A BOARD MAY RANK - AS A PREDICATE ON THE BOARD, NOT A CHECK AT
+ * ONE DOOR (blocker 13).
+ *
+ * `rulesetRefusal` is applied twice on the submit path and never on the path
+ * that writes a row VERIFIED with no proof at all: `insertServerVouched`. So a
+ * RIVALS instance - which is reachable from the shipping menu with no second
+ * player, and in which `handlePlayerDeath` turns death into a 15-second
+ * time-out instead of ending the run (`game.ts`, `state.mode === "rivals"`) -
+ * produced a row that took rank 1 on DEEPEST, FASTEST, KILLS and CONTRACTS
+ * simultaneously, above certified permadeath clears, with `proof_id NULL`.
+ * Measured: floor 18, 30,000 ticks, 2,400 kills, ranked #1 on all three
+ * all-time boards over a 54,398-tick certified clear.
+ *
+ * That is the ROAM exploit of 2.5 resurrected through the one door that never
+ * calls the gate. Gating the door again would fix this door and leave the next
+ * one open, so the predicate lives HERE, on the board, where every consumer -
+ * `board`, `wouldRank`, `bandBoard`, `holdsBoards`, retention - reads it:
+ *
+ *  - Every board ranks the ruleset a proof reproduces: `run_kind = 'race'`
+ *    played in the shared-world `coop` mode a solo descent uses.
+ *  - CONTRACTS additionally ranks the one score the server vouches for itself
+ *    (1.1) - a RIVALS race - and only when there was a race: `party_size >= 2`.
+ *    A solo rivals instance is a contract against nobody, and a ruleset with no
+ *    permadeath and no collapse clock has nothing to say to a board of runs
+ *    that had both.
+ */
+const RANKED_SOLO_RULESET = "run_kind = 'race' AND mode = 'coop'";
+const VOUCHED_CONTRACT_RULESET =
+  "run_kind = 'race' AND mode = 'rivals' AND party_size >= 2 AND proof_id IS NULL";
+
+export function boardRuleset(kind: BoardKind): string {
+  return kind === "contracts"
+    ? ` AND ((${RANKED_SOLO_RULESET}) OR (${VOUCHED_CONTRACT_RULESET}))`
+    : ` AND (${RANKED_SOLO_RULESET})`;
+}
+
+/** The same predicate for a row already in hand - `wouldRank` must refuse a
+ *  ruleset the board would not show, before it spends a board query on it. */
+export function rulesetRanks(
+  kind: BoardKind,
+  r: { mode: string; runKind: string; partySize: number; proofId?: string | null },
+): boolean {
+  if (r.runKind !== "race") return false;
+  if (r.mode === "coop") return true;
+  return kind === "contracts" && r.mode === "rivals" && r.partySize >= 2 && !r.proofId;
+}
+
 function boardWhere(kind: BoardKind): string {
-  return kind === "fastest" || kind === "contracts" ? " AND won = 1 AND time_ticks > 0" : "";
+  return (kind === "fastest" || kind === "contracts" ? " AND won = 1 AND time_ticks > 0" : "")
+    + boardRuleset(kind);
 }
 
 export interface BoardQuery {
@@ -469,6 +575,7 @@ export class CompetitiveStore {
       const rows = this.db.prepare(
         `SELECT r.proof_id AS proof_id FROM run_bands b JOIN runs r ON r.id = b.run_id
          WHERE b.band = ? AND b.complete = 1 AND r.state = 'verified' AND r.proof_id IS NOT NULL
+           AND r.run_kind = 'race' AND r.mode = 'coop'
          ORDER BY b.ticks ASC, r.verified_at ASC, r.id ASC LIMIT ?`,
       ).all(band, boardDepth) as { proof_id: string }[];
       for (const r of rows) keep.add(r.proof_id);
@@ -522,6 +629,19 @@ export class CompetitiveStore {
   // ---- runs --------------------------------------------------------------
 
   insertRun(r: NewRun): void {
+    // THE TYPE IS ERASED AT RUNTIME AND THE ROW IS NOT (blocker 12). Requiring
+    // `mode`/`runKind` in `NewRun` stops the compiler letting a caller omit
+    // them; this stops a JS caller, a stale build or a future refactor doing it
+    // anyway and getting `run_kind = 'race'` from a column default. A row that
+    // cannot say which game it was played under is not a row this store knows
+    // how to keep - a sealed one asserting the WRONG ruleset is worse than no
+    // row at all, and that is exactly what the vouched path used to write.
+    if (!r.mode || !r.runKind) {
+      throw new Error(
+        "a run row must state which game it was played under — mode and runKind are not defaultable "
+        + `(got mode=${String(r.mode)}, runKind=${String(r.runKind)})`,
+      );
+    }
     this.db.prepare(
       `INSERT INTO runs (id, account_id, display_name, event_id, seed, rules_hash, mode, run_kind, party_size,
                          won, floor, time_ticks, kills, level, ultimate, attempt_no, private, state, proof_id, created_at)
@@ -531,8 +651,6 @@ export class CompetitiveStore {
       ...r,
       eventId: r.eventId ?? null,
       rulesHash: r.rulesHash ?? null,
-      mode: r.mode ?? "coop",
-      runKind: r.runKind ?? "race",
       partySize: r.partySize ?? 1,
       won: r.won ? 1 : 0,
       ultimate: r.ultimate ?? null,
@@ -612,7 +730,16 @@ export class CompetitiveStore {
   board(q: BoardQuery): RunRow[] {
     const limit = Math.min(q.limit ?? 50, MAX_BOARD_ROWS);
     const args: unknown[] = [];
-    let where = "state IN ('verified','claimed')";
+    // `unverifiable` IS ON THE SHELF, BECAUSE THE SCREEN PROMISED IT WOULD BE
+    // (blocker 11). 2.6d says an era we can no longer execute leaves the row
+    // holding "whatever stamp it earned", and `verdictSeal("unverifiable")`
+    // tells the player in as many words that "the row keeps whatever it
+    // earned" - while this predicate dropped the row off every board AND off
+    // the UNPROVEN shelf under it, so the run the System had just promised to
+    // keep was on no surface in the product. It ranks nowhere (the API splits
+    // on `state === 'verified'`); it is simply visible, which is the whole
+    // difference between keeping something and saying you did.
+    let where = "state IN ('verified','claimed','unverifiable')";
     if (q.verifiedOnly) where = "state = 'verified'";
     if (q.eventId !== undefined) {
       if (q.eventId === null) { where += " AND event_id IS NULL"; }
@@ -672,6 +799,10 @@ export class CompetitiveStore {
    * volume equals attempts by every player rather than improvements.
    */
   wouldRank(kind: BoardKind, candidate: RunRow, depth = 25): boolean {
+    // A RULESET NO BOARD RANKS BUYS NO CPU. The queue rule is "would this land
+    // in the top 25 of a board it targets", and a row the board predicate will
+    // never show targets no board at all.
+    if (!rulesetRanks(kind, candidate)) return false;
     if (kind === "fastest" || kind === "contracts") {
       if (!candidate.won || candidate.timeTicks <= 0) return false;
     }
@@ -680,9 +811,9 @@ export class CompetitiveStore {
     const worst = rows[rows.length - 1];
     switch (kind) {
       case "deepest":
-        if (candidate.won !== worst.won) return candidate.won;
-        if (candidate.floor !== worst.floor) return candidate.floor > worst.floor;
-        return candidate.timeTicks < worst.timeTicks;
+        // The board's own comparator, not a second copy of it that could drift
+        // out of agreement with the ORDER BY it is supposed to predict.
+        return compareDeepest(candidate, worst) < 0;
       case "fastest":
       case "contracts":
         return candidate.timeTicks < worst.timeTicks;
@@ -691,11 +822,13 @@ export class CompetitiveStore {
     }
   }
 
-  /** This account best VERIFIED row on an event - the improvement test. */
+  /** This account best VERIFIED row on an event - the improvement test. Same
+   *  ordering as the board, so "your verified best" and "the row above you on
+   *  the contract" can never be two different runs. */
   bestVerifiedOnEvent(accountId: string, eventId: string): RunRow | null {
     const r = this.db.prepare(
       `SELECT * FROM runs WHERE account_id = ? AND event_id = ? AND state = 'verified'
-       ORDER BY won DESC, floor DESC, time_ticks ASC LIMIT 1`,
+       ORDER BY ${DEEPEST_ORDER} LIMIT 1`,
     ).get(accountId, eventId) as RawRun | undefined;
     return r ? toRow(r) : null;
   }
@@ -722,6 +855,7 @@ export class CompetitiveStore {
              ORDER BY b.ticks ASC, r.verified_at ASC, r.id ASC) rn
          FROM run_bands b JOIN runs r ON r.id = b.run_id
          WHERE b.band = ? AND b.complete = 1 AND r.state = 'verified'
+           AND r.run_kind = 'race' AND r.mode = 'coop'
        ) WHERE rn = 1
        ORDER BY band_ticks ASC, verified_at ASC, id ASC LIMIT ?`,
     ).all(band, Math.min(limit, MAX_BOARD_ROWS)) as (RawRun & { band_ticks: number })[];
@@ -740,6 +874,7 @@ export class CompetitiveStore {
       `SELECT b.band AS band, MIN(b.ticks) AS ticks
        FROM run_bands b JOIN runs r ON r.id = b.run_id
        WHERE r.account_id = ? AND b.complete = 1 AND r.state = 'verified'
+         AND r.run_kind = 'race' AND r.mode = 'coop'
        GROUP BY b.band`,
     ).all(accountId) as { band: number; ticks: number }[];
     for (const r of rows) if (r.band >= 0 && r.band < out.length) out[r.band] = r.ticks;
@@ -993,15 +1128,20 @@ export class CompetitiveStore {
    * one machine, at this population, two indexed scans beat any denormalized
    * rivalry table that could drift out of agreement with the boards.
    */
-  eventBests(accountId: string): { eventId: string; won: boolean; floor: number; ticks: number }[] {
+  eventBests(accountId: string): {
+    eventId: string; won: boolean; floor: number; ticks: number; kills: number;
+  }[] {
     return (this.db.prepare(
-      `SELECT event_id, won, floor, time_ticks FROM (
-         SELECT event_id, won, floor, time_ticks,
-           ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY won DESC, floor DESC, time_ticks ASC) rn
+      `SELECT event_id, won, floor, time_ticks, kills FROM (
+         SELECT event_id, won, floor, time_ticks, kills,
+           ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY ${DEEPEST_ORDER}) rn
          FROM runs WHERE account_id = ? AND state = 'verified' AND event_id IS NOT NULL
        ) WHERE rn = 1`,
-    ).all(accountId) as { event_id: string; won: number; floor: number; time_ticks: number }[])
-      .map((r) => ({ eventId: r.event_id, won: !!r.won, floor: r.floor, ticks: r.time_ticks }));
+    ).all(accountId) as
+      { event_id: string; won: number; floor: number; time_ticks: number; kills: number }[])
+      .map((r) => ({
+        eventId: r.event_id, won: !!r.won, floor: r.floor, ticks: r.time_ticks, kills: r.kills,
+      }));
   }
 
   /** Every display name this account has ever put on a board row. FORGET ME
@@ -1095,6 +1235,12 @@ export class CompetitiveStore {
    * It lands here instead, VERIFIED, era-stamped, with no proof id: the film
    * does not exist (nobody recorded a party run), so WATCH and RACE stay inert
    * with a stated reason, exactly as they do for a proof that aged out.
+   *
+   * WHAT IT MAY NOT DO IS LIE ABOUT WHICH GAME IT WAS (blocker 12). It stamps
+   * `mode` and `runKind` from the AUTHORITATIVE INSTANCE, and `NewRun` now
+   * requires both, so a `{rivals, roam}` party writes a row that says `roam`
+   * and is therefore ranked by no board (see `boardRuleset`) instead of a row
+   * that says `race` and outranks certified permadeath clears.
    */
   insertServerVouched(r: NewRun & { rulesHash: string }, now: number): void {
     this.insertRun({ ...r, state: "verified" });
@@ -1132,6 +1278,10 @@ export class CompetitiveStore {
           displayName: e.name,
           seed: 0,
           rulesHash: null,
+          // The retired JSON board only ever held solo race runs; it had no
+          // other door. Stated rather than defaulted, like every other row.
+          mode: "coop",
+          runKind: "race",
           won: e.won,
           floor: e.floor,
           timeTicks: Math.round(e.timeSec * tickRate),

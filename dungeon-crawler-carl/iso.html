@@ -1955,13 +1955,33 @@
          content that fills it is real (THE OTHER MUSEUMS on all-time, UNCLAIMED
          SPLITS on bands), because padding an empty board with air is the same
          failure wearing a taller box. */
-      #ladder .set-frame, #career .set-frame { min-height: calc(100vh - 36px); }
+      /* ...AND THE FRAME THAT CLAIMS THE PAGE MUST NOT CLAIM MORE THAN IT
+         (blocker 12). Measured before this rule: every standings panel
+         overflowed the viewport by EXACTLY 48px at 1366x768, 1600x900 and
+         2560x1440. Constant across a 2x range means chrome, not content, and it
+         is: `box-sizing: border-box` is deliberately not global in this
+         stylesheet (see the touch block), so `min-height: calc(100vh - 36px)`
+         was a CONTENT height and the frame's own 20+26px of padding and 2px of
+         border rode on top of it - 48px, every time, on top of a frame already
+         sized to fill. So MORE BELOW fired on a CONTRACTS screen holding four
+         rows, and the one screen with an explicit no-scrollbars stance was
+         permanently one scroll long.
+
+         border-box also stops the frame overflowing HORIZONTALLY at narrow
+         widths, where `width: 100%` plus 54px of chrome exceeded the padded
+         container by exactly that much. */
+      #ladder .set-frame, #career .set-frame { min-height: calc(100vh - 36px);
+        display: flex; flex-direction: column; }
+      /* ...and the body takes the slack, so the space the frame claims belongs
+         to the board rather than sitting under it as dead stone. */
+      #ladder-body, #career-body { flex: 1 1 auto; display: flex; flex-direction: column; }
       /* THE FRAME DOES NOT RESIZE UNDER THE CURSOR. `max-width` alone lets the
          frame shrink to its content, so CONTRACTS (~990), BANDS (~1230) and
          RIVALS (~750) each drew a different panel and the whole document
          breathed on every tab click. A fixed width is the only way a tab bar
          reads as tabs on one document rather than four documents. */
-      .set-frame { position: relative; width: min(1180px, 100%); margin: 0 auto; background: var(--stone);
+      .set-frame { box-sizing: border-box;
+        position: relative; width: min(1180px, 100%); margin: 0 auto; background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 210px);
         border: 1px solid var(--bronze); border-radius: 3px; padding: 20px 26px 26px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.7); }
@@ -2256,7 +2276,15 @@
       .gate { margin-top: 10px; color: var(--gold); font-size: 12px; font-style: italic;
         border: 1px dashed var(--bronze); border-radius: 3px; padding: 8px 12px;
         background: rgba(201,162,75,0.05); }
-      .bandgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 26px; }
+      /* THE GRID FILLS THE HEIGHT ITS PANEL CLAIMED (blocker 12). BANDS drew six
+         short cards against a frame sized to the viewport and left ~380px of
+         empty stone in one block underneath - the layout neither filled nor
+         fit. `1fr` rows spread the slack across the three rows of cards instead
+         of pooling it at the bottom, and `min-content` keeps a card from ever
+         being squeezed shorter than its own rows. */
+      .bandgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 26px;
+        flex: 1 1 auto; align-content: stretch;
+        grid-auto-rows: minmax(min-content, 1fr); }
       .bandgrid h4 { margin: 0 0 4px; font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.14em; font-size: 14px; color: var(--gold); }
       .bandgrid .bandsub { color: var(--ink-faint); font-size: 11px; margin-bottom: 6px; }
@@ -2338,7 +2366,12 @@
       .mrow .mlvl small { display: block; color: var(--ink-faint); font-size: 10px; letter-spacing: 0.06em; }
       /* PoE stat ledger: label, dotted leader, tabular value. */
       .ledger { width: 100%; border-collapse: collapse; }
-      .ledger td { padding: 4px 0; font-size: 12.5px; vertical-align: baseline; }
+      /* `line-height` was inherited from the panel and the small-caps display
+         face this table's labels use has a taller box than the body face, so
+         the descenders of a long label - MOST KILLS IN A RUN was the one that
+         showed it - were shaved by the row above's padding box (blocker 12). */
+      .ledger td { padding: 5px 0; font-size: 12.5px; line-height: 1.45;
+        vertical-align: baseline; }
       .ledger td.lk { color: var(--ink-dim); font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.1em; white-space: nowrap; }
       .ledger td.ld { width: 99%; }
@@ -5130,9 +5163,14 @@
           </button>
           <button class="alt" id="recap-new"><b>NEW CONTRACT</b><small>a dungeon nobody has seen</small></button>
           <button class="alt" id="recap-race"><b>RACE THE LEADER</b><small>today's #1 as your ghost</small></button>
+          <!-- THE ROW HAS A HIERARCHY AGAIN (blocker 13). Seven controls
+               wrapping to two rows reads as a toolbar, and this screen exists
+               to convert a death into the next run in under eight seconds. The
+               decisions are the three above; these two are drawers. STANDINGS
+               moved into the TAB drill-down, which is where the boards already
+               live, and SAVE THE CARD was always inside SHARE. -->
           <div class="rminor">
             <button id="recap-share">SHARE THIS RUN</button>
-            <button id="recap-standings">STANDINGS</button>
             <!-- "WATCH" IS NOT A WORD THIS PRODUCT MAY SPEND ON DISMISS. On the
                  screen whose thesis is "the server re-executed your run", the
                  only WATCH on offer meant close the panel. It says what it
@@ -5199,6 +5237,9 @@
               <div id="recap-abils"></div>
               <button class="dismiss buildcode" id="recap-buildcode">COPY BUILD CODE</button>
               <div class="buildnote">A receipt, not a guess — derived from the run that happened.</div>
+              <!-- Demoted out of the verdict's action row (blocker 13): the
+                   boards are a drawer, and this drawer is already open. -->
+              <button class="dismiss buildcode" id="recap-standings">OPEN THE STANDINGS</button>
             </div>
           </div>
         </div>

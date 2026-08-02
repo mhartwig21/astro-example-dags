@@ -420,7 +420,16 @@ function commentary(letter: Letter, run: RunFacts, parts: GradePart[]): string {
     return `YOU WALKED OUT. ${short[worst.key]}`;
   }
   const nag: Record<GradePart["key"], string> = {
-    DEPTH: "You did not go deep enough to matter. The cameras were still warming up.",
+    // ...AND THE DEPTH LINE READS THE FLOOR (blocker 15). This fired on a
+    // floor-13 death - two thirds of the dungeon, deeper than most runs ever
+    // get - and told the crawler the cameras were still warming up. DEPTH being
+    // the WEAKEST of four parts is not the same claim as "you went nowhere".
+    DEPTH: run.floor >= 10
+      ? `Floor ${run.floor}, and the exit is still ${CONFIG.finalFloor - run.floor} floors past where you `
+        + "stopped. Depth is the number that pays and you were in sight of it."
+      : run.floor >= 4
+        ? `Floor ${run.floor}. Respectable, and a long way short of the story.`
+        : "You did not go deep enough to matter. The cameras were still warming up.",
     TEMPO: "You dawdled. The collapse timer is not a suggestion and the audience is not patient.",
     SURVIVAL: "You took every hit on offer. Try the version where you do not.",
     EXECUTION: "You left power on the table — banked drafts do not accrue interest.",
@@ -662,6 +671,27 @@ export interface GhostState {
   ticks: number;
   /** Source run, when the ghost came off a board row. */
   runId?: string;
+  /**
+   * WHAT THE GHOST ACTUALLY DID, so the post-run scoreboard can print a COLUMN
+   * instead of two numbers and five em-dashes (6.2 Beat 2, blocker 14).
+   *
+   * The track carries a trajectory and nothing else, so the ghost column could
+   * only ever answer "how deep" and "how long" - and a column that is 71%
+   * em-dashes is what made a three-column scoreboard read as two. Every ghost
+   * has a source that knows the rest: a board row (RACE THE LEADER, a
+   * challenge link) carries the verifier-derived numbers, and RUN IT BACK is
+   * this browser's own last run. Filled at ARM time, because the source is in
+   * scope exactly then.
+   */
+  facts?: {
+    won: boolean;
+    floor: number;
+    kills: number | null;
+    level: number | null;
+    damageDealt: number | null;
+    damageTaken: number | null;
+    goldSpent: number | null;
+  };
 }
 
 /** Where the ghost is at a given tick, lerped between keyframes. Null once the
@@ -747,16 +777,52 @@ export interface SealChip {
  */
 export type SealWeight = "ranked" | "plain";
 
+/**
+ * HOW THIS ROW GOT ITS SEAL, WHICH IS NOT ALWAYS THE SAME STORY (blocker 11).
+ *
+ * `verified` covers two genuinely different events, and the chip printed the
+ * SAME sentence for both: "the server re-executed this run and certified it".
+ * That is true of a proof-verified row and FALSE of a server-vouched one -
+ * `insertServerVouched` writes `verified` with `proof_id NULL` for a RIVALS
+ * contract that was never re-executed because it never left the server. On a
+ * board whose entire pitch is "every entry that ranks is a proof, not a claim"
+ * (0. The thesis), the tooltip was asserting a re-execution that provably did
+ * not happen - and the only existing tell, "party of N", is absent on a solo
+ * rivals row, because N is 1.
+ *
+ * Both are honest seals. They are not the same seal, and the honest sentence
+ * for the second one already existed in this file - buried in `playability`, a
+ * disabled button's title attribute.
+ */
+export type SealProvenance = "replayed" | "vouched";
+
+/** The provenance of a row, from the row. A verified row that NEVER had a film
+ *  is the vouched path; there is no other way to be certified without one. */
+export function provenanceOf(r: Pick<BoardRun, "state" | "film">): SealProvenance {
+  return r.state === "verified" && r.film === "never" ? "vouched" : "replayed";
+}
+
 /** Every row on every board carries its state AND its era, because a board
  *  that silently blends rules eras is lying - and showing it is the one thing
  *  LoL literally cannot do, since their all-time stats blend twelve years of
  *  patches without a word. */
 export function sealChip(
   state: RunState, era: string | null, isPrivate = false, weight: SealWeight = "ranked",
+  provenance: SealProvenance = "replayed",
 ): SealChip {
   const eraNote = era ? ` · rules era ${era}` : "";
   switch (state) {
     case "verified":
+      if (provenance === "vouched") {
+        return {
+          cls: (weight === "plain" ? "seal verified plain" : "seal verified") + " vouched",
+          label: isPrivate ? "SERVER-RUN · PRIVATE" : "SERVER-RUN",
+          title: "the System's own authoritative sim decided this race as it happened, tick by tick — "
+            + "it was never re-executed, because it never left the server, and there is no film to hand "
+            + `out${eraNote}`
+            + (weight === "plain" ? ". Sealed, but it holds no board position." : ""),
+        };
+      }
       return {
         cls: weight === "plain" ? "seal verified plain" : "seal verified",
         label: isPrivate ? "SEALED · PRIVATE" : "SEALED",
@@ -777,6 +843,26 @@ export function sealChip(
     default:
       return { cls: "seal claimed", label: "CLAIMED", title: "stored as reported, never replayed — unproven" };
   }
+}
+
+/**
+ * WHICH GAME THIS ROW WAS PLAYED, IN WORDS ON THE ROW (blocker 11).
+ *
+ * `mode` and `runKind` have been on the wire since the roam exploit was closed
+ * and no surface rendered either of them, so the only visible difference
+ * between a permadeath race and a ruleset with no permadeath at all was a party
+ * count that reads "1" on a solo rivals instance. Returns null for the plain
+ * descent every board is made of - a label on every row labels nothing.
+ */
+export function rulesetLabel(
+  r: { mode?: string; runKind?: string },
+): string | null {
+  const kind = (r.runKind ?? "race").toLowerCase();
+  const mode = (r.mode ?? "coop").toLowerCase();
+  if (kind === "race" && mode === "coop") return null;
+  if (kind === "roam") return "ROAM — no collapse clock, no boss gate";
+  if (mode === "rivals") return "RIVALS RACE — death is a 15s time-out, not an ending";
+  return `${mode.toUpperCase()} · ${kind.toUpperCase()}`;
 }
 
 /**
@@ -1021,6 +1107,48 @@ export function verdictSeal(
 /** WATCH / RACE availability, with the refusal STATED rather than a greyed-out
  *  button (2.6f). A silent disable is how a player concludes the ladder is
  *  broken; a named era is how they conclude the game is honest. */
+/**
+ * THE SEAL BEAT (6.2 Beat 5: "watching the seal land is two genuinely
+ * satisfying seconds"), as arithmetic rather than as a hope.
+ *
+ * Instrumented on the shipping build: `vseal pending` at t+0 while the verdict
+ * card was still at opacity 0 mid-entrance, `vseal verified ranked` by t+900ms.
+ * No `verifying` frame was ever painted, so the beat did not happen - the
+ * strike animation was staged correctly and had nothing to land ON.
+ *
+ * Two clocks, and getting either wrong deletes the moment:
+ *  - The card reaches the screen ~560-760ms after the status edge (the Beat 0
+ *    freeze), so a dwell measured from the death is spent behind a letterbox.
+ *  - `#recap .vseal` then rides the reading cascade -
+ *    `animation: verdict-rise 0.42s ease-out 0.98s both` - so the block itself
+ *    is at opacity 0 for a further 980ms and finishes rising at ~1.40s. A dwell
+ *    measured from the CARD is spent behind an invisible element.
+ *
+ * Returns how many milliseconds a terminal verdict must be HELD (never
+ * dropped) before it is painted. 0 means paint it now. Measured on a real run
+ * after this shipped: card at t=74388, block risen at 75788, the CLAIMED
+ * verdict arrived at 74688 and was painted at 76990 - 1,202ms of visible
+ * pending, where there had been none.
+ */
+export const SEAL_MIN_PENDING_MS = 1200;
+export const SEAL_CASCADE_MS = 1400;
+
+export function sealHoldMs(
+  now: number,
+  /** performance.now() when the verdict card was displayed; 0 if not yet. */
+  verdictVisibleAt: number,
+  /** performance.now() when the current pending block was painted. */
+  pendingSince: number,
+  terminal: boolean,
+  /** False for the very first paint: a screen that OPENS on a terminal verdict
+   *  (a rehearsal, a refused recording) has no pending state to honour. */
+  hadPriorPaint: boolean,
+): number {
+  if (!terminal || !hadPriorPaint || verdictVisibleAt <= 0) return 0;
+  const visibleFrom = Math.max(pendingSince, verdictVisibleAt + SEAL_CASCADE_MS);
+  return Math.max(0, SEAL_MIN_PENDING_MS - (now - visibleFrom));
+}
+
 export function playability(r: BoardRun, currentEra: string): { ok: boolean; why: string } {
   if (r.private) return { ok: false, why: "PRIVATE — this crawler kept the film" };
   if (r.state !== "verified") return { ok: false, why: "UNPROVEN — only sealed runs are raceable" };
@@ -1074,25 +1202,76 @@ export interface Benchmark {
   source: string;
 }
 
+/**
+ * THE LEADER OF A BOARD YOU ARE ON IS NOT YOUR RIVAL (blocker 5).
+ *
+ * `benchmark` took the top verified row and called it "the leader" with no idea
+ * whether it was the player's own row - so THE MARK, the one comparison the
+ * default post-run state makes, printed "CARL / FLOOR 1 / level with the
+ * leader" about the player, against themselves. The test-chamber verdict
+ * printed "12 floors deeper than the leader" about the same person for the same
+ * reason. This function knows how to say it correctly - the unlinked branch
+ * prints "YOUR OWN DEEPEST" - it simply was never told which rows were mine.
+ *
+ * Shared with the scoreboard's TODAY'S #1 column, so the two surfaces cannot
+ * disagree about who is at the top the way they did (the column head read
+ * "#1 — KATIA" while the board beneath it showed Katia at rank 2).
+ */
+export function boardLeader(
+  board: readonly BoardRun[] | null, myPublicId?: string | null,
+): { row: BoardRun; rank: number; mine: boolean } | null {
+  const sealed = (board ?? []).filter((r) => r.state === "verified");
+  if (sealed.length === 0) return null;
+  const mineAtTop = !!myPublicId && sealed[0].publicId === myPublicId;
+  // Rank is the position on the SEALED ordering, which is the board the reader
+  // is looking at - not the index in a page that may still hold claims.
+  const rivalIdx = sealed.findIndex((r) => !myPublicId || r.publicId !== myPublicId);
+  if (mineAtTop && rivalIdx > 0) {
+    return { row: sealed[rivalIdx], rank: rivalIdx + 1, mine: false };
+  }
+  return { row: sealed[0], rank: 1, mine: mineAtTop };
+}
+
 export function benchmark(
   me: { floor: number; won: boolean; elapsedSec: number },
   board: readonly BoardRun[] | null,
   myBestFloor: number,
+  myPublicId?: string | null,
 ): Benchmark | null {
-  const leader = (board ?? []).find((r) => r.state === "verified") ?? null;
-  if (leader) {
+  const top = boardLeader(board, myPublicId);
+  // I HOLD THE MARK. The one case the old code turned into a comparison with
+  // myself is the case that deserves the best sentence on the screen.
+  if (top && top.mine) {
+    return {
+      who: "YOU HOLD THE MARK",
+      what: (top.row.won ? "CLEARED IT" : `FLOOR ${top.row.floor}`)
+        + ` · ${ticksClock(top.row.ticks)} · ${count(top.row.kills, "kill")}`,
+      gap: "nobody has beaten it yet — that row is the one everyone else is reading",
+      ahead: true,
+      source: "today's contract, sealed rows only",
+    };
+  }
+  const leader = top?.row ?? null;
+  if (leader && top) {
+    // WHAT TO CALL THEM. When the player holds rank 1, the crawler the screen
+    // compares against is the one BELOW them, and calling that person "the
+    // leader" is the same category of untruth as comparing you to yourself.
+    const foil = top.rank === 1 ? "the leader" : `rank ${top.rank}`;
+    const src = top.rank === 1
+      ? "today's contract, sealed rows only"
+      : `today's contract, sealed rows only — you hold rank 1, this is rank ${top.rank}`;
     const what = (leader.won ? "CLEARED IT" : `FLOOR ${leader.floor}`)
-      + ` · ${ticksClock(leader.ticks)} · ${leader.kills.toLocaleString()} kills`;
+      + ` · ${ticksClock(leader.ticks)} · ${count(leader.kills, "kill")}`;
     if (me.won && !leader.won) {
-      return { who: leader.name.toUpperCase(), what, gap: "you cleared it and they did not", ahead: true, source: "today's contract, sealed rows only" };
+      return { who: leader.name.toUpperCase(), what, gap: "you cleared it and they did not", ahead: true, source: src };
     }
     const d = me.floor - leader.floor;
     const gap = leader.won && !me.won
       ? `${Math.max(0, 18 - me.floor)} floors short of the exit they walked out of`
-      : d > 0 ? `${d} floor${d === 1 ? "" : "s"} deeper than the leader`
-        : d === 0 ? `level with the leader — they were ${signedTime(me.elapsedSec - leader.timeSec)} on the clock`
-          : `${-d} floor${d === -1 ? "" : "s"} short of the leader`;
-    return { who: leader.name.toUpperCase(), what, gap, ahead: d >= 0, source: "today's contract, sealed rows only" };
+      : d > 0 ? `${d} floor${d === 1 ? "" : "s"} deeper than ${foil}`
+        : d === 0 ? `level with ${foil} — they were ${signedTime(me.elapsedSec - leader.timeSec)} on the clock`
+          : `${-d} floor${d === -1 ? "" : "s"} short of ${foil}`;
+    return { who: leader.name.toUpperCase(), what, gap, ahead: d >= 0, source: src };
   }
   if (myBestFloor > 0) {
     const d = me.floor - myBestFloor;
@@ -1142,8 +1321,17 @@ export function bankedTicks(
   if (run.kills > 0) {
     out.push({ label: "CAREER KILLS", value: kills.toLocaleString(), delta: `+${run.kills.toLocaleString()}` });
   }
-  const mins = Math.max(1, Math.round(run.timeSec / 60));
-  out.push({ label: "TIME IN THE DUNGEON", value: `${minutes} min`, delta: `+${mins}` });
+  // A 7.76-SECOND RUN DID NOT BANK A MINUTE (blocker 15). `Math.max(1, ...)`
+  // rounded every run up to one minute and printed a bare "+1" beside a value
+  // in minutes, so an eight-second death read as "377 min +1". Under a minute
+  // the delta is stated in the unit it actually happened in, and the unit is
+  // on the number rather than implied by the row above it.
+  const secs = Math.max(0, Math.round(run.timeSec));
+  out.push({
+    label: "TIME IN THE DUNGEON",
+    value: `${minutes} min`,
+    delta: secs < 60 ? `+${secs}s` : `+${Math.round(secs / 60)} min`,
+  });
   return out;
 }
 
@@ -1256,6 +1444,15 @@ const ESCAPES: Record<string, string> = {
 
 /** Player-supplied text is NEVER interpolated raw. Names come off the wire
  *  sanitized by the server; this is the second belt. */
+/**
+ * "1 kills". Unconditional plurals on a surface that prints exact tick counts
+ * (blocker 15): five sites concatenated `s` whatever the number was, and the
+ * one that shows up most is the row a floor-1 death produces.
+ */
+export function count(n: number, noun: string, plural = noun + "s"): string {
+  return `${n.toLocaleString()} ${n === 1 ? noun : plural}`;
+}
+
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
