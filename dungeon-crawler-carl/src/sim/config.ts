@@ -1371,6 +1371,22 @@ export const CONFIG = {
   conveyorCooldown: 8,
   conveyorSquad: 3, // wind-up battalion members per delivery
   supervisorGuardMult: 0.4, // damage it takes while a conveyor still runs
+  // The Topiary Warden: HEDGE REGROWTH. Acceptance review round 3 found the
+  // Warden with no kit at all — a BREAK-THE-SHIELD headline whose shield only
+  // ever ticked back on the chassis' passive trickle, so the fight showed no
+  // shield and no ask. The regrow is now its own CHANNEL: interrupt it (poise)
+  // and the pool stays broken, miss it and the hedge is back and holding you.
+  hedgeRegrowCooldown: 7,
+  hedgeRegrowWindup: 1.7, // long enough to be a real interrupt stake
+  hedgeRegrowAt: 0.6, // pool fraction below which it re-walls
+  hedgeRegrowAmount: 0.75, // fraction of the pool the channel restores
+  hedgeRingSpokes: 8, // roots laid on the wall it just rebuilt
+  hedgeRingRadius: 3.6,
+  // The Furnace Marshal: THREE SWEEPS, THEN IT HAS TO BREATHE. Its epithet
+  // promises a COUNT, so the count is the kit — the sweeps stoke it and the
+  // third forces the vent (a genuine self-stagger) whether you helped or not.
+  marshalSweepsPerVent: 3,
+  marshalSweepCooldown: 6,
   // The Safety Officer: Compliance Lattice — beams arming in sequence.
   latticeCooldown: 9,
   latticeLines: 4,

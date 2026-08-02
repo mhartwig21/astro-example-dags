@@ -174,6 +174,61 @@ export const BOSS_SIGNATURES: Record<string, BossSignatureFx> = {
   "MOTION CARRIED": { family: "adds", shape: "cords", rate: 1.28, trauma: 0.16 },
   "FINAL RULING": { family: "adds", shape: "cords", rate: 0.48, trauma: 0.32 },
 
+  // ---- THE BAND SIGNATURES, RENAMED PER BOSS (BAND_SIG_LABEL in bosses.ts) --
+  // Round 3 acceptance: ENTANGLING ROOTS was the live beat line on three
+  // different bosses across three different asks, because four hazards were
+  // shared and so were their names. The sim now hands every boss its own word
+  // for the shared hazard; these are the rows those words resolve through, and
+  // each one carries the ASK's family and its own pitch so the rename is a
+  // different FIGHT on screen and in the ear, not a different caption.
+  //
+  // floor 6 (flood): the King owns the spoked ring; the other two do not.
+  "SEWER BACKUP": { family: "lane", shape: "props", rate: 0.86 },
+  "THE GREASE RISES": { family: "adds", shape: "burrow", rate: 0.6, trauma: 0.12 },
+  // floor 9 (roots)
+  "HEDGE GRASP": { family: "shield", shape: "cords", rate: 0.94 },
+  "EASEMENT CLAIMED": { family: "adds", shape: "cords", rate: 0.7 },
+  "RUNNER ROOTS": { family: "storm", shape: "cells", rate: 1.18 },
+  "IRRIGATION SURGE": { family: "shield", shape: "props", rate: 0.8 },
+  "STORMWATER VARIANCE": { family: "adds", shape: "props", rate: 0.74 },
+  "GROUNDWATER BLOOM": { family: "storm", shape: "swarm", rate: 1.1 },
+  // floor 12 (debris / borrowed roots)
+  "CONDEMNATION NOTICE": { family: "shield", shape: "shell", rate: 0.9, trauma: 0.2 },
+  SPALL: { family: "lane", shape: "lanes", rate: 0.64, trauma: 0.24 },
+  "CREEPING RUIN": { family: "arena", shape: "props", rate: 0.68 },
+  "UNPERMITTED GROWTH": { family: "shield", shape: "cords", rate: 0.88 },
+  SUBSIDENCE: { family: "lane", shape: "lanes", rate: 0.58, trauma: 0.2 },
+  // floor 15 (flamewall / borrowed debris)
+  "LINE PURGE": { family: "adds", shape: "lanes", rate: 0.96 },
+  "EVACUATION DRILL": { family: "storm", shape: "cells", rate: 1.24 },
+  "CEILING FAILURE": { family: "window", shape: "props", rate: 0.72, trauma: 0.24 },
+  "TOOL DROP": { family: "adds", shape: "props", rate: 1.0 },
+  "OVERHEAD HAZARD": { family: "storm", shape: "props", rate: 1.06 },
+  // floor 18 — a finale can wear any of the four, and never anonymously.
+  "PYRO CUE": { family: "arena", shape: "lanes", rate: 0.88, trauma: 0.2 },
+  "SET COLLAPSE": { family: "arena", shape: "set", rate: 0.56, trauma: 0.28 },
+  "GREEN ROOM": { family: "arena", shape: "cords", rate: 0.8 },
+  "WATER FEATURE": { family: "arena", shape: "props", rate: 0.76 },
+  CENSURE: { family: "adds", shape: "lanes", rate: 1.32, trauma: 0.18 },
+  "STRUCK FROM THE RECORD": { family: "adds", shape: "props", rate: 1.2, trauma: 0.2 },
+  TABLED: { family: "adds", shape: "cords", rate: 1.1 },
+  "MOTION TO FLOOD": { family: "adds", shape: "props", rate: 1.02 },
+  "AD SPOT: FIRE": { family: "shield", shape: "lanes", rate: 1.28, trauma: 0.18 },
+  "PRODUCT PLACEMENT": { family: "shield", shape: "props", rate: 1.34 },
+  "ORGANIC REACH": { family: "shield", shape: "cords", rate: 1.2 },
+  "SPONSORED CONTENT": { family: "shield", shape: "props", rate: 1.4 },
+  // floor 3 (graverising) — the Concierge keeps CHECK-IN; the others do not.
+  "PAST-DUE ACCOUNTS": { family: "window", shape: "cords", rate: 1.16 },
+  "PREVIOUS TEMPS": { family: "window", shape: "cords", rate: 1.3 },
+  "THE DROWNED RISE": { family: "arena", shape: "cords", rate: 0.64 },
+  "CONDEMNED, RISING": { family: "lane", shape: "cords", rate: 0.9 },
+  "SKIMMED OFF THE TOP": { family: "adds", shape: "cords", rate: 0.68 },
+
+  // ---- The Topiary Warden's own verb (round 3: it had none) ----------------
+  // A break-the-shield boss must SHOW a shield, so the regrow channel wears the
+  // shell — the dome, closing back up — and nothing else in the game does that.
+  "HEDGE REGROWTH": { family: "shield", shape: "shell", rate: 0.76, trauma: 0.14 },
+
   // ---- shared chassis verbs (any boss can commit these) ---------------------
   // The generic channel, for a boss with no name of its own for it. Every
   // shipped boss now has one (RITUAL_LABEL in ai.ts): this is the fallback.

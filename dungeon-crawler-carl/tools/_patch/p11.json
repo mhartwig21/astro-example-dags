@@ -1,0 +1,23 @@
+[
+{"file":"src/render3d/fx.ts",
+ "old":"  uniform float uBoss; // 0 trash, 1 elite/boss (heavier vocabulary)\n  varying vec2 vUv;\n  float telH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }",
+ "new":"  uniform float uBoss; // 0 trash, 1 elite/boss (heavier vocabulary)\n  // DEMOTION (BOSSES-V2 r3 minor). A boss fight draws TWO ground shapes at\n  // once: this shared disc, and the ASK silhouette that says which fight it\n  // is. The disc was winning — a dodge-the-lane capture led with a white ring\n  // and the lanes came second. When an ask silhouette is live the disc drops\n  // to a low-contrast BASE: the dark backing plate and the rim survive (they\n  // are the reach promise), the glow layers step aside.\n  uniform float uDemote;\n  varying vec2 vUv;\n  float telH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }"},
+{"file":"src/render3d/fx.ts",
+ "old":"    float glowA = rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad;\n    float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);",
+ "new":"    float glowA = (rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad)\n                * mix(1.0, 0.3, uDemote);\n    float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);"},
+{"file":"src/render3d/fx.ts",
+ "old":"      uProg: { value: 0 },\n      uTime: { value: 0 },\n      uBoss: { value: 0 },\n    },\n    vertexShader: TEL_VERT,\n    fragmentShader: TEL_FRAG,",
+ "new":"      uProg: { value: 0 },\n      uTime: { value: 0 },\n      uBoss: { value: 0 },\n      uDemote: { value: 0 },\n    },\n    vertexShader: TEL_VERT,\n    fragmentShader: TEL_FRAG,"},
+{"file":"src/render3d/renderer3d.ts",
+ "old":"        tm.uniforms.uBoss.value = mon.kind === \"boss\" || mon.elite ? 1 : 0;",
+ "new":"        tm.uniforms.uBoss.value = mon.kind === \"boss\" || mon.elite ? 1 : 0;\n        // The ASK silhouette outranks the shared disc while it is up (r3 minor).\n        tm.uniforms.uDemote.value =\n          mon.kind === \"boss\" && this.bossFx.silhouetteLive ? 1 : 0;"},
+{"file":"src/render3d/bossFx.ts",
+ "old":"  /** 0..1 — the grip on bloom / light peaks / additive alpha this frame. */\n  exposureScale = 1;",
+ "new":"  /** 0..1 — the grip on bloom / light peaks / additive alpha this frame. */\n  exposureScale = 1;\n  /**\n   * True while an ASK silhouette (lanes / cords / shell / props / cells / set)\n   * is on the ground. The renderer demotes the shared telegraph disc while it\n   * is, so the shape that says WHICH FIGHT THIS IS is the brightest element.\n   */\n  silhouetteLive = false;"},
+{"file":"src/render3d/bossFx.ts",
+ "old":"    const dim = this.exposureScale;\n    for (const b of this.beats) {",
+ "new":"    const dim = this.exposureScale;\n    this.silhouetteLive =\n      this.shapes.some((b) => b.life < b.max) ||\n      this.cords.some((c) => c.life < c.max) ||\n      this.shells.some((sh) => sh.life < sh.max);\n    for (const b of this.beats) {"},
+{"file":"src/render3d/bossFx.ts",
+ "old":"    float reach = smoothstep(uProg * 3.2 + 0.1, uProg * 3.2 - 0.14, along);\n    float fade = 1.0 - smoothstep(0.66, 1.0, uProg);\n    float a = clamp((body * 0.3 + wall * 0.9 + chev * 0.55) * reach * fade, 0.0, 0.82) * uDim;",
+ "new":"    float reach = smoothstep(uProg * 3.2 + 0.1, uProg * 3.2 - 0.14, along);\n    float fade = 1.0 - smoothstep(0.66, 1.0, uProg);\n    // THE HUB IS CUT OUT (r3 minor). Folding by angle makes every bar's\n    // perpendicular distance collapse to zero at the middle, so N lanes merged\n    // into one soft star exactly where the eye lands — the shape doc calls for\n    // chevroned RECTANGLES and the mask was reading as an X. Punching the hub\n    // out separates the bars and the rectangles come back.\n    float hub = smoothstep(0.09, 0.24, r);\n    float a = clamp((body * 0.3 + wall * 0.9 + chev * 0.55) * reach * fade * hub, 0.0, 0.82) * uDim;"}
+]

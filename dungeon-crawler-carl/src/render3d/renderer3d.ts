@@ -5515,6 +5515,9 @@ export class Renderer3D {
   get bossSlowmo(): number { return this.bossFx.slowmo; }
 
   /** §5.7 — draw the ringside loot arc from the corpse to where a drop landed. */
+  /** Capture hold (tools/bossshot.mjs): keep live boss rigs up for `seconds`. */
+  holdBossBeats(seconds: number): void { this.bossFx.hold(seconds); }
+
   bossLootArc(fromX: number, fromZ: number, toX: number, toZ: number, hex: number): void {
     this.bossFx.lootArc(fromX, fromZ, toX, toZ, hex);
   }
@@ -6246,6 +6249,9 @@ export class Renderer3D {
         tm.uniforms.uProg.value = prog;
         tm.uniforms.uTime.value = time + mon.id * 0.7; // desync neighboring tells
         tm.uniforms.uBoss.value = mon.kind === "boss" || mon.elite ? 1 : 0;
+        // The ASK silhouette outranks the shared disc while it is up (r3 minor).
+        tm.uniforms.uDemote.value =
+          mon.kind === "boss" && this.bossFx.silhouetteLive ? 1 : 0;
         tel.visible = mesh.visible;
         // CAST ANTICIPATION: motes gather INTO the body while the tell runs —
         // the caster visibly draws power before the strike fires.
@@ -7733,6 +7739,67 @@ export class Renderer3D {
     return this.w2sOut;
   }
 
+  // -------------------------------------------------------------------------
+  // THE MEASURED EXPOSURE GOVERNOR (BOSSES-V2 r3 blocker).
+  //
+  // §5.9 shipped a governor that added up a DECLARED cost per beat. It could
+  // not see the case that actually broke: the arena floor itself. The Topiary
+  // Warden on floor 9's bright forest was a solid white ellipse in its own
+  // reveal and an unreadable white sphere in combat, while the identical
+  // budget held fine on the dark brick arenas — because a budget of beats has
+  // no idea how bright the room already is.
+  //
+  // So it measures. After the composed frame, an 8x8 block of the FINAL,
+  // display-referred image around the boss's screen position is read back and
+  // reduced to a mean luma plus a saturated-pixel fraction. That is the actual
+  // thing the review asked about ("does the boss silhouette blow out"), it
+  // counts a bright floor automatically, and it costs one 64-pixel readback —
+  // only while a boss is on screen, and only every 4th frame.
+  // -------------------------------------------------------------------------
+  private lumBuf = new Uint8Array(8 * 8 * 4);
+  private lumTick = 0;
+
+  /**
+   * 0..1 — how hard the boss layer should pull its bloom kicks, light peaks
+   * and additive rig alphas back this frame. 1 = a dark arena with headroom to
+   * spare; ~0.25 = the neighbourhood is already at the top of the range.
+   * Consumed by BossFx (shaders + light peaks) and by the intro key light.
+   */
+  get bossExposureScale(): number { return this.bossFx.exposureScale; }
+
+  private measureBossExposure(): void {
+    const star = this.bossFx.starPos;
+    if (!star) { this.bossFx.setMeasuredLuma(0, 0); return; }
+    if ((this.lumTick = (this.lumTick + 1) & 3) !== 0) return;
+    const sp = this.worldToScreen(star.x, 1.6, star.y);
+    if (!sp.visible) return;
+    const gl = this.renderer.getContext();
+    const size = this.renderer.getSize(this.w2sSize);
+    const ratio = this.renderer.getPixelRatio();
+    // GL's origin is bottom-left; worldToScreen hands back CSS pixels top-left.
+    const px = Math.round(sp.x * ratio) - 4;
+    const py = Math.round((size.y - sp.y) * ratio) - 4;
+    const w = Math.round(size.x * ratio), h = Math.round(size.y * ratio);
+    if (px < 0 || py < 0 || px + 8 > w || py + 8 > h) return;
+    // Reading the DEFAULT framebuffer, in the same task as the draw that filled
+    // it — valid without preserveDrawingBuffer, and it is the presented image,
+    // so tone mapping, bloom and the grade are all already in the numbers.
+    try {
+      this.renderer.setRenderTarget(null);
+      gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, this.lumBuf);
+    } catch {
+      return; // a context loss mid-frame is not worth a crash over a governor
+    }
+    let sum = 0, hot = 0;
+    for (let i = 0; i < 64; i++) {
+      const r = this.lumBuf[i * 4], g2 = this.lumBuf[i * 4 + 1], b = this.lumBuf[i * 4 + 2];
+      const l = (r * 0.2126 + g2 * 0.7152 + b * 0.0722) / 255;
+      sum += l;
+      if (l > 0.93) hot++;
+    }
+    this.bossFx.setMeasuredLuma(sum / 64, hot / 64);
+  }
+
   render(): void {
     // shadowMap.autoUpdate is off (constructor): arm exactly one rebuild for
     // this composed frame. three.js clears needsUpdate itself after the first
@@ -7752,6 +7819,7 @@ export class Renderer3D {
     }
     this.composer.render();
     if (this.progGuard) this.checkProgramGuard();
+    this.measureBossExposure();
 
     // AUTO-DETECT feed. Frame time is measured between composed frames, which
     // is what the player actually experiences (sim + render + present), not

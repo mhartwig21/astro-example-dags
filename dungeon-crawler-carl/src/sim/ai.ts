@@ -5,6 +5,7 @@ import { dist, normalize } from "./combat";
 // additionally blocks monsters from wandering/chasing into the sanctuary.
 import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
+import { bandSignatureLabel } from "./bosses";
 import type { BossId, GameState, Monster, Player, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
 import { flowDir, flowUphill, tileLos } from "./pathfield";
@@ -12,6 +13,7 @@ import { applyStatus } from "./status";
 import {
   advanceBossPhase, applyPlayerKnockback, bossBloom, bossCitation, bossConveyorRun, bossDebrisRain,
   bossEvent, bossExposeCore, bossFissureFan, bossFlameSweep, bossFloodSurge, bossGraveRaise, bossGreasePull,
+  bossHedgeRegrow,
   bossLateFee, bossLattice, bossMotion, bossPunishVent, bossRootGrasp, bossShowSetChange,
   bossSluice, bossStopWork,
   breakResidentScene, damagePlayerHit, decoySoak, explodeBomber, handlePlayerDeath, makeBossAdd, nearestPlayer, raiseCorpse,
@@ -514,6 +516,13 @@ function resolveStrike(state: GameState, m: Monster): void {
     bossGreasePull(state, m);
     return;
   }
+  if (kind === "regrow") {
+    // The Topiary Warden re-walls its shield pool. Interrupted mid-channel
+    // (poise stagger, like every other channel) it never lands — which is the
+    // whole break-the-shield ask made into one decision.
+    bossHedgeRegrow(state, m);
+    return;
+  }
   if (kind === "punch") {
     // Lineworker piston punch: an ordinary melee hit that also LAUNCHES the
     // survivor (knockback verb) — the set dressing behind you is the threat.
@@ -784,7 +793,14 @@ function liveTethers(state: GameState, boss: Monster): number {
   return n;
 }
 
-const BOSS_KITS: Partial<Record<BossId, BossKit>> = {
+/**
+ * Every roster id must appear here. `bosses.test.ts` asserts it: the round-3
+ * acceptance review found the Topiary Warden and the Furnace Marshal — a
+ * headline break-the-shield and a headline burst-the-window — falling through
+ * to the bare chassis with a band-generic beat line, and nothing in the build
+ * said so. A missing kit is now a failing test, not a screenshot.
+ */
+export const BOSS_KITS: Record<BossId, BossKit> = {
   // THE CRYPT CONCIERGE — ask: kill-the-adds. Its risen FEED it (tethered in
   // bossGraveRaise). Clear the ledger and it panics into a long
   // reconciliation: the mechanic phase, and the punish window.
@@ -942,13 +958,43 @@ const BOSS_KITS: Partial<Record<BossId, BossKit>> = {
     return false;
   },
 
-  // THE TOPIARY WARDEN — ask: break-the-shield. The roots (its shipped
-  // signature) exist to hold you still while the hedge grows back; the shield
-  // pool and its regen gap live in the chassis. Past the first break the
-  // regrowth DOUBLES — the window gets tighter, not the numbers bigger.
-  topiary(_state, m) {
-    if ((m.phase ?? 0) >= 1 && (m.shieldHp ?? 0) < (m.shieldMax ?? 0) && (m.shieldRegenT ?? 0) <= 0) {
-      m.shieldHp = Math.min(m.shieldMax ?? 0, (m.shieldHp ?? 0) + (m.shieldMax ?? 0) * CONFIG.shieldRegenPerSec * 0.5);
+  // THE TOPIARY WARDEN — ask: break-the-shield, and now it HAS one.
+  //
+  // Round 3 acceptance: this entry was four lines of passive shield trickle and
+  // a `return false`, so one of only three break-the-shield bosses fell through
+  // to the shared chassis and announced the band-generic ENTANGLING ROOTS. A
+  // fight with no verb of its own is a reskin, which is the one thing the
+  // roster rule forbids.
+  //
+  // HEDGE REGROWTH is the verb: below the regrow threshold the Warden CHANNELS
+  // its wall back up. Stagger it (poise, same as every channel in the game) and
+  // the pool stays broken and the fight ends; let it land and the pool is back
+  // AND the hedge is standing on you. Past the first phase the channel comes
+  // round faster — the window tightens, the numbers do not grow.
+  topiary(state, m, ctx) {
+    const pool = m.shieldMax ?? 0;
+    if (
+      pool > 0 && (m.shieldHp ?? 0) <= pool * CONFIG.hedgeRegrowAt &&
+      (m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5
+    ) {
+      m.sigCd = CONFIG.hedgeRegrowCooldown / (1 + (m.phase ?? 0) * 0.35);
+      m.heat = (m.heat ?? 0) + 1;
+      beginBossWindup(state, m, "regrow", CONFIG.hedgeRegrowWindup, "HEDGE REGROWTH");
+      if (!m.sigUsed) {
+        m.sigUsed = true;
+        announce2(state, "THE HEDGE IS GROWING BACK. That is the entire threat — break the channel or break the pool, but pick one.", "high");
+      }
+      return true;
+    }
+    // THE HEDGE IS DOWN AND STAYING DOWN. The player won the regrow race, so
+    // the fight advances on their play, not on their damage (§2.2's rule that
+    // at least one phase edge per fight is mechanic-triggered).
+    if (pool > 0 && (m.shieldHp ?? 0) <= 0 && !m.punishArmed && (m.bossCount ?? 0) === 0) {
+      m.bossCount = 1;
+      m.punishArmed = true;
+      announce2(state, "THE HEDGE IS GONE AND IT CANNOT GROW IT BACK IN TIME. Nothing between you and the Warden. Prune it.");
+      advanceBossPhase(state, m, "mechanic");
+      return true;
     }
     return false;
   },
@@ -1010,6 +1056,44 @@ const BOSS_KITS: Partial<Record<BossId, BossKit>> = {
       m.sigCd = CONFIG.foundationCooldown;
       m.heat = (m.heat ?? 0) + 1;
       beginBossWindup(state, m, "slam", CONFIG.bossSlamWindup, "FISSURE");
+      return true;
+    }
+    return false;
+  },
+
+  // THE FURNACE MARSHAL — ask: burst-the-window. Round 3 acceptance found this
+  // one missing outright: a headline burst-the-window boss with no kit, whose
+  // own epithet ("Three sweeps, then it has to breathe. Count with me.")
+  // promised a count nothing in the code was keeping.
+  //
+  // So the COUNT is the kit. Each wall of fire stokes the furnace; the third
+  // forces the vent, which is a real self-stagger and the fight's whole rhythm
+  // — count, dodge, unload. The arena's wall vents (`prop: "vent"`) can force
+  // it EARLY, which is the player moving the beat instead of waiting for it.
+  marshal(state, m, ctx) {
+    // THAT WAS THREE. The furnace has to breathe, on its own count.
+    if ((m.bossCount ?? 0) >= CONFIG.marshalSweepsPerVent) {
+      m.bossCount = 0;
+      m.punishArmed = true; // the chassis opens the window on the next step
+      announce2(state, "THAT WAS THREE. THE FURNACE HAS TO BREATHE — and it cannot do that and fight.", "high");
+      return true;
+    }
+    if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
+      // The sweep is the band signature, fired BY the kit so the count is the
+      // Marshal's own — heat stays out of it deliberately, because two clocks
+      // running the same window is exactly how a rhythm stops being readable.
+      m.sigCd = CONFIG.marshalSweepCooldown / (1 + (m.phase ?? 0) * 0.25);
+      // SIGNATURE STACKING (boss layer 2) is KEPT, and it is kept honest: from
+      // phase 1 the Marshal alternates its wall with the band below it, and a
+      // BORROWED cast is not a sweep, so it never advances the count. The count
+      // the epithet promises is a count of its OWN fire, which is the only way
+      // "three sweeps, then it has to breathe" survives the escalation.
+      if ((m.phase ?? 0) >= 1 && (m.sigAlt = !m.sigAlt)) {
+        bossDebrisRain(state, m);
+        return true;
+      }
+      m.bossCount = (m.bossCount ?? 0) + 1;
+      bossFlameSweep(state, m);
       return true;
     }
     return false;
@@ -1251,7 +1335,8 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
       if (state.corpses.some((c) => dist(m.pos, c.pos) <= CONFIG.graveRaiseRange)) {
         m.sigCd = CONFIG.graveRaiseCooldown;
         m.heat = (m.heat ?? 0) + 1;
-        beginBossWindup(state, m, "raise", CONFIG.graveRaiseWindup, "CHECK-IN");
+        beginBossWindup(state, m, "raise", CONFIG.graveRaiseWindup,
+          bandSignatureLabel("graverising", m.bossId));
         if (!m.sigUsed) {
           m.sigUsed = true;
           announce2(state, "The guests are being WOKEN — and they are on the payroll. Interrupt it, or thin the ledger.");

@@ -2852,6 +2852,55 @@ export function bossStopWork(state: GameState, m: Monster): void {
 }
 
 /**
+ * HEDGE REGROWTH (The Topiary Warden, floor 9) — the Warden's OWN verb.
+ *
+ * Acceptance review round 3: the Warden is one of only three break-the-shield
+ * bosses and it had no kit at all. Its shield only ever crept back on the
+ * chassis' passive trickle, so a fight whose whole ask is "burst the pool
+ * inside the gap" showed neither a gap nor a pool moving — its beat line read
+ * the band-generic ENTANGLING ROOTS and nothing about it was a shield fight.
+ *
+ * The regrow is now a CHANNEL with a stake, which is what makes the ask real:
+ * stagger it mid-channel (poise, exactly like every other channel in the game)
+ * and the hedge stays broken; let it land and the pool is back AND the wall it
+ * grew is standing on you as armed roots. Zero new telegraph shapes — an armed
+ * ground zone and an interruptible channel, both shipped (§2.3).
+ */
+export function bossHedgeRegrow(state: GameState, m: Monster): void {
+  const pool = m.shieldMax ?? 0;
+  const before = m.shieldHp ?? 0;
+  m.shieldHp = Math.min(pool, before + pool * CONFIG.hedgeRegrowAmount);
+  // The passive trickle waits its turn: the channel IS the regen now, so the
+  // player is reading one clock instead of two.
+  m.shieldRegenT = CONFIG.shieldRegenDelay;
+  // THE WALL IT JUST GREW, on the floor: a ring of armed roots at hedge
+  // radius. It holds you at exactly the distance the pool needs to survive.
+  for (let i = 0; i < CONFIG.hedgeRingSpokes; i++) {
+    const a = (i / CONFIG.hedgeRingSpokes) * Math.PI * 2;
+    const pos = {
+      x: m.pos.x + Math.cos(a) * CONFIG.hedgeRingRadius,
+      y: m.pos.y + Math.sin(a) * CONFIG.hedgeRingRadius,
+    };
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      total: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      arm: CONFIG.rootsTelegraph,
+      radius: CONFIG.rootsRadius,
+      damage: 0, // the hedge holds; the Warden does the cutting
+      kind: "roots",
+    });
+  }
+  announce(state, "boss", `THE HEDGE IS BACK UP (${Math.round((m.shieldHp / Math.max(1, pool)) * 100)}%). Interrupt the next one or you will do this all night.`);
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "HEDGE REGROWTH",
+    value: CONFIG.hedgeRingSpokes, pos: { x: m.pos.x, y: m.pos.y },
+  });
+}
+
+/**
  * SLUICE GATE (The Sump King, floor 6) — the King's `prop: "drain"` was
  * authored in the roster and never fired, so the headline use-the-arena boss
  * shipped with a generic ring and a floodgate nobody had a reason to look at.

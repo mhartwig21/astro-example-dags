@@ -6,9 +6,12 @@ import { serialize, deserialize } from "../src/sim/snapshot";
 import { CONFIG } from "../src/sim/config";
 import { createRng } from "../src/sim/rng";
 import {
-  BOSS_MUTATORS, BOSS_POOL, allBossDefs, bandForBossFloor, bossDef, bossHash,
+  BAND_SIG_DEFAULT, BAND_SIG_LABEL, BOSS_MUTATORS, BOSS_POOL, allBandSignatureLabels,
+  allBossDefs, bandForBossFloor, bandSignatureLabel, bossDef, bossHash,
   drawBossEncounter, pickBandBoss, rollBossMutators,
 } from "../src/sim/bosses";
+import { BOSS_KITS } from "../src/sim/ai";
+import { BOSS_SIGNATURES } from "../src/render3d/bossSignatures";
 import type { BossId, GameState, Monster } from "../src/sim/types";
 
 // BOSSES V2 (BOSSES-V2.md). The problem this file guards is the one the audit
@@ -849,6 +852,107 @@ describe("snapshot + save round-trip", () => {
     expect(g.arenaVariant).toBe("pillared");
     const cover = (g.breakables ?? []).filter((b) => b.footprint && !b.onBreak);
     expect(cover.length, "no cover in the Architect's arena").toBeGreaterThan(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // ROUND 3 ACCEPTANCE. Two headline bosses shipped with NO kit at all and
+  // four shipped band signatures shared one name across three asks. Both were
+  // invisible to the build and visible in a screenshot; both are tests now.
+  // -------------------------------------------------------------------------
+
+  it("EVERY boss in the pool has a kit — a missing one is a failing test now", () => {
+    // The Topiary Warden (1 of 3 break-the-shield) and the Furnace Marshal
+    // (1 of 3 burst-the-window) both fell through to the bare chassis and
+    // announced the band-generic signature. Nothing caught it but a capture.
+    for (const def of allBossDefs()) {
+      expect(typeof BOSS_KITS[def.id], `${def.id} has no kit`).toBe("function");
+    }
+    expect(Object.keys(BOSS_KITS).sort()).toEqual(allBossDefs().map((d) => d.id).sort());
+  });
+
+  it("THE TOPIARY WARDEN re-grows its hedge as its OWN interruptible channel", () => {
+    const { g, boss } = stageBoss("topiary");
+    expect(boss.shieldMax ?? 0, "a break-the-shield boss with no pool").toBeGreaterThan(0);
+    // Knock the pool under the regrow threshold and let it answer.
+    boss.shieldHp = (boss.shieldMax ?? 0) * 0.2;
+    clearBossBeat(boss);
+    boss.sigCd = 0;
+    const seen = observe(g, boss, 12);
+    expect(seen.events.some((e) => e === "telegraph:HEDGE REGROWTH"),
+      "the Warden never re-walled").toBe(true);
+    expect(seen.windups.has("regrow"), "the regrow is not a channel").toBe(true);
+    // ...and the channel is a real INTERRUPT stake: staggered mid-cast, the
+    // pool does not come back. That is the whole break-the-shield ask.
+    const b2 = stageBoss("topiary");
+    b2.boss.shieldHp = (b2.boss.shieldMax ?? 0) * 0.2;
+    clearBossBeat(b2.boss);
+    b2.boss.sigCd = 0;
+    for (let i = 0; i < 600 && b2.boss.windupKind !== "regrow"; i++) {
+      observe(b2.g, b2.boss, DT);
+    }
+    expect(b2.boss.windupKind).toBe("regrow");
+    const held = b2.boss.shieldHp ?? 0;
+    b2.boss.windup = 0;
+    b2.boss.windupKind = undefined; // exactly what a poise stagger does
+    observe(b2.g, b2.boss, 0.5);
+    expect(b2.boss.shieldHp ?? 0, "an interrupted hedge still grew back")
+      .toBeLessThan(held + (b2.boss.shieldMax ?? 0) * CONFIG.hedgeRegrowAmount);
+  });
+
+  it("THE FURNACE MARSHAL keeps the count its own epithet promises", () => {
+    // "Three sweeps, then it has to breathe. Count with me." Nothing in the
+    // code was counting: the Marshal had no kit and the chassis alternated
+    // band signatures at it.
+    const { g, boss } = stageBoss("marshal");
+    clearBossBeat(boss);
+    boss.sigCd = 0;
+    const seen = observe(g, boss, 45);
+    const sweeps = seen.events.filter((e) => e === "telegraph:FLAME SWEEP").length;
+    expect(sweeps, "the Marshal never swept").toBeGreaterThanOrEqual(CONFIG.marshalSweepsPerVent);
+    expect(seen.events.some((e) => e.startsWith("punish")),
+      "three sweeps and it never had to breathe").toBe(true);
+    expect(seen.staggered, "the vent is not a real self-stagger").toBe(true);
+  });
+
+  it("the four band signatures are RENAMED per boss — one hazard, 18 voices", () => {
+    // ENTANGLING ROOTS was the live beat line on the Topiary Warden (shield),
+    // the Zoning Board (adds) AND the Condemned Architect (arena): three asks,
+    // one readout. A shared hazard may not mean a shared name.
+    for (const sig of ["flood", "roots", "debris", "flamewall"]) {
+      const seen = new Map<string, string>();
+      for (const def of allBossDefs()) {
+        const label = bandSignatureLabel(sig, def.id);
+        const renamed = BAND_SIG_LABEL[def.id]?.[sig];
+        if (!renamed) continue; // this boss can never stand next to that hazard
+        const prev = seen.get(label);
+        expect(prev, `${def.id} and ${prev} both call ${sig} "${label}"`).toBeUndefined();
+        seen.set(label, def.id);
+      }
+      // ...and at most ONE boss per signature is allowed to keep the default.
+      const keepers = allBossDefs().filter(
+        (d) => BAND_SIG_LABEL[d.id]?.[sig] === BAND_SIG_DEFAULT[sig]);
+      expect(keepers.length, `${sig}'s default name is shared`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("every renamed band signature has its own FX row (shape + pitch)", () => {
+    // A rename with no row falls back to the generic ring, which would put the
+    // silhouette problem straight back where it started.
+    for (const label of allBandSignatureLabels()) {
+      expect(BOSS_SIGNATURES[label], `${label} has no signature row`).toBeDefined();
+    }
+    // And the renames must differ in SHAPE, not only in hue: for each shared
+    // hazard, the bosses that carry it must not all resolve to one primitive.
+    for (const sig of ["flood", "roots", "debris", "flamewall"]) {
+      const shapes = new Set<string>();
+      for (const def of allBossDefs()) {
+        const label = BAND_SIG_LABEL[def.id]?.[sig];
+        if (!label) continue;
+        shapes.add(BOSS_SIGNATURES[label]?.shape ?? "ring");
+      }
+      expect(shapes.size, `${sig} resolves to one shape for every boss`)
+        .toBeGreaterThan(1);
+    }
   });
 
   it("a restored snapshot steps identically (the determinism guarantee holds)", () => {

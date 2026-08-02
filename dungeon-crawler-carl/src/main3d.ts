@@ -1260,19 +1260,46 @@ const biEpithet = document.getElementById("bi-epithet")!;
 const biMuts = document.getElementById("bi-muts")!;
 const biLine = document.getElementById("bi-line")!;
 let introShownFor = -1;
-// Broadcast cut: while the letterbox rides the title card (~3.5s), ALL HUD
-// chrome + minimap leave the frame entirely (r2: no half-dimmed panels
-// under a cinematic). body.cine gates it in CSS; the timer mirrors bi-out.
-let cineTimer = 0;
+// Broadcast cut: while the letterbox rides the title card, ALL HUD chrome +
+// minimap leave the frame entirely (r2: no half-dimmed panels under a
+// cinematic). body.cine gates it in CSS.
+//
+// r3 BLOCKER — the cut used to end on a 3.5s wall-clock timeout while the card
+// it belongs to faded on a 3s CSS animation, and the ringside freeze under
+// BOTH of them runs on the sim's encounter timer. On any client slower than
+// the animation the marquee beat of the encounter was simply gone: eight of
+// eighteen capture intros had no card at all, several with the full HUD back
+// up and the boss clipped behind the Hype bar. The cut now begins and ends
+// with `state.encounter`, and the card's opacity is driven from the same
+// timer (see setIntroFade), so the beat holds exactly as long as the sim says.
 function enterCine(): void {
   document.body.classList.add("cine");
-  window.clearTimeout(cineTimer);
-  cineTimer = window.setTimeout(() => document.body.classList.remove("cine"), 3500);
 }
 function exitCine(): void {
-  window.clearTimeout(cineTimer);
   document.body.classList.remove("cine");
+  document.documentElement.style.removeProperty("--bi-fade");
 }
+/**
+ * The card / letterbox / key-light opacity, from the sim's own ringside clock.
+ * Full for the body of the freeze, then a half-second fall-off on the way out —
+ * the same shape the CSS used to draw, on a clock that cannot outrun the beat.
+ */
+function setIntroFade(timeLeft: number): void {
+  // A capture HOLD pins the beat wide open (see __dcc.hold): the review's fix
+  // for a harness that was racing a 3s animation with a 20s shutter.
+  const fade = hudNow < captureHold ? 1 : Math.max(0, Math.min(1, timeLeft / 0.5));
+  document.documentElement.style.setProperty("--bi-fade", fade.toFixed(3));
+}
+/**
+ * CAPTURE HOLD (r3 blocker, the harness half). Every boss beat now expires on
+ * the frame clock, which a capture harness can freeze — but a SwiftShader
+ * shutter still takes 12-21 seconds of wall time, during which the page keeps
+ * presenting frames. `__dcc.hold(seconds)` pushes every live beat deadline out
+ * past the shutter so the frame that gets composited is the frame that was
+ * staged. It changes no sim state and invents no beat: it only refuses to let
+ * one END while the camera is open.
+ */
+let captureHold = 0;
 // Damage-lag ghost on the boss bar (audit #6): white trail that holds a beat,
 // then chases the live fill. Reset per engaged target.
 let bossGhostFor = -1;
@@ -1317,12 +1344,31 @@ let bossPlateKey = "";
 // contrast. The plate's beat line keeps the running commentary; this layer
 // keeps the moments, and it is never underneath any panel.
 let bossCallUntil = 0;
+/**
+ * CALL-OUT RANK (r3 blocker). Three beats share this layer and they are not
+ * equal: a capture caught two shots of the PUNISH window showing the phase
+ * call-out instead, because a phase edge crossed while the window was live and
+ * `postBossCall` overwrote it unconditionally. The punish window is the beat
+ * §7.4 says most needs to read and it lasts two seconds; a phase edge will
+ * still be true a moment later. So the layer is ranked, and a live higher rank
+ * refuses to be clobbered by a lower one.
+ */
+const CALL_RANK = { phase: 1, intermission: 2, punish: 3, defeat: 4 } as const;
+type CallRank = keyof typeof CALL_RANK;
+let bossCallRank = 0;
 /** Minimum hold for a call-out. A headline beat that is gone inside two
  *  seconds is a beat the player blinked past — these three are the moments the
  *  fight is FOR, so they get a full read even when the sim's own window
  *  (a 2.2s punish) is shorter than one. */
 const CALL_MIN_SECONDS = 3;
-function postBossCall(word: string, sub: string, seconds: number, cool = false): void {
+function postBossCall(
+  word: string, sub: string, seconds: number, cool = false, rank: CallRank = "phase",
+): void {
+  const want = CALL_RANK[rank];
+  // A live call-out of equal-or-higher rank keeps the layer. Same rank always
+  // re-posts (a second punish window is a new moment, not a duplicate).
+  if (bossCallUntil > hudNow && bossCallRank > want) return;
+  bossCallRank = want;
   bossCallUntil = hudNow + Math.max(seconds, CALL_MIN_SECONDS) * 1000;
   bcWord.textContent = word;
   bcSub.textContent = sub;
@@ -1353,6 +1399,13 @@ function postBossBeat(text: string, seconds: number, strong = false): void {
 // lit landing spot. The eye follows the arc out, which is the whole point.
 let payoffAt: { x: number; y: number; until: number } | null = null;
 const payoffSeen = new Set<number>();
+/**
+ * While this is in the future the kill beat owns the frame: combat numerals are
+ * suppressed so the corpse, the twin sweeps and the ringside arcs are the whole
+ * image (r3 blocker — the kill captures were a pile of numerals over an empty
+ * floor, with no visible loot at all).
+ */
+let killBeatUntil = 0;
 const PAYOFF_HUE: Record<string, number> = {
   common: 0xc9c9d4, magic: 0x5a9bff, rare: 0xf2c14e, epic: 0xb98bff,
 };
@@ -1360,12 +1413,16 @@ const PAYOFF_HUE: Record<string, number> = {
 function stageBossPayoff(s: GameState, events: BossEvent[]): void {
   for (const e of events) {
     if (e.kind === "phase" && e.label === "DEFEATED" && e.pos) {
-      payoffAt = { x: e.pos.x, y: e.pos.y, until: performance.now() + 2600 };
+      // On the FRAME CLOCK, like every other boss beat. On the wall clock the
+      // window could expire before a slow client had even presented the frame
+      // the boss died on, which is why the capture round found real drops in
+      // the log (54, 27, 25 items) and not one arc on screen.
+      payoffAt = { x: e.pos.x, y: e.pos.y, until: hudNow + 3200 };
       payoffSeen.clear();
     }
   }
   if (!payoffAt) return;
-  if (performance.now() > payoffAt.until) { payoffAt = null; return; }
+  if (hudNow > payoffAt.until) { payoffAt = null; return; }
   for (const l of s.loot) {
     if (payoffSeen.has(l.id)) continue;
     const dx = l.pos.x - payoffAt.x, dy = l.pos.y - payoffAt.y;
@@ -1398,7 +1455,7 @@ function applyBossEvents(events: BossEvent[]): void {
         // The unload window. It owns the CALL-OUT layer outright, at
         // announcement contrast, outside every panel — the beat that most
         // needs to read is never printed under the furniture again.
-        postBossCall("UNLOAD", e.label ?? "EXPOSED CORE", e.duration ?? 2.2);
+        postBossCall("UNLOAD", e.label ?? "EXPOSED CORE", e.duration ?? 2.2, false, "punish");
         postBossBeat(e.label ? `${e.label} — UNLOAD` : "EXPOSED — UNLOAD",
           e.duration ?? 2.2, true);
         break;
@@ -1411,7 +1468,7 @@ function applyBossEvents(events: BossEvent[]): void {
       case "intermission":
         // COOL, so it can never be mistaken for the punish window's gold.
         postBossCall("THE COMMERCIAL BREAK", "THE BOARD IS BEING RE-DEALT",
-          e.duration ?? 2, true);
+          e.duration ?? 2, true, "intermission");
         postBossBeat("THE COMMERCIAL BREAK", e.duration ?? 2);
         break;
       case "prop":
@@ -1424,10 +1481,15 @@ function applyBossEvents(events: BossEvent[]): void {
         // A mechanic-triggered phase is the player's own doing (§2.2) and
         // must read louder than an HP gate ever does.
         if (e.label === "DEFEATED") {
-          postBossCall("DEFEATED", "THE SEAL OPENS", 2.5);
+          postBossCall("DEFEATED", "THE SEAL OPENS", 2.5, false, "defeat");
           postBossBeat("DEFEATED", 2.5, true);
+          // THE KILL BEAT owns the frame (r3 blocker): for its duration the
+          // floating damage numbers stand down, so the last image of the fight
+          // is the corpse, the sweeps and the loot — not eight numerals, several
+          // of them reading "0!", stacked over the body.
+          killBeatUntil = hudNow + 2600;
         } else if (e.reason === "mechanic") {
-          postBossCall("YOU DID THAT", `PHASE ${(e.phase ?? 0) + 1}`, 1.8);
+          postBossCall("YOU DID THAT", `PHASE ${(e.phase ?? 0) + 1}`, 1.8, false, "phase");
           postBossBeat("YOU DID THAT", 1.8, true);
         } else postBossBeat(`PHASE ${(e.phase ?? 0) + 1}`, 1.4);
         break;
@@ -1445,6 +1507,7 @@ function updateBossBar(s: GameState): void {
   // early-returns the moment nothing is engaged).
   if (bossCallUntil > 0 && hudNow > bossCallUntil) {
     bossCallUntil = 0;
+    bossCallRank = 0;
     bossCallEl.classList.remove("on");
   }
   // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
@@ -1509,6 +1572,14 @@ function updateBossBar(s: GameState): void {
       }
       enterCine();
     }
+    // The card, the letterbox and the key light all breathe on the SIM's
+    // ringside clock now — not on a CSS animation racing the wall clock.
+    setIntroFade(enc.timeLeft);
+    // ...and the key light is measured, not declared: on a bright arena floor
+    // (floor 9's forest was the case that broke) a screen-blended disc over the
+    // boss is what saturates the silhouette it exists to reveal.
+    document.documentElement.style.setProperty(
+      "--bi-spot", renderer.bossExposureScale.toFixed(3));
   } else {
     bossintroEl.classList.remove("show");
     letterboxEl.classList.remove("on");
@@ -4745,6 +4816,14 @@ function dmgAnimate(rec: DmgLive): void {
 }
 
 function spawnDamageNumber(h: HitEvent): void {
+  // THE KILL BEAT OWNS THE FRAME (r3 blocker). Combat numerals stand down for
+  // the boss payoff so the last image is the corpse, the sweeps and the loot.
+  // Player-side feedback (damage taken, heals, gold) still reads — it is only
+  // the enemy-damage confetti that was burying the moment.
+  if (hudNow < killBeatUntil && (h.kind === "enemy" || h.kind === "crit")) return;
+  // A numeral that rounds to zero says nothing and costs a slot. Eight of them
+  // reading "0!" over a corpse is what the kill captures actually showed.
+  if (h.amount < 0.5 && h.kind !== "heal" && h.kind !== "gold") return;
   const crit = h.kind === "crit";
   // Anchor at HEAD height, not sky height (r6 major: numbers climbed the
   // arena wall and jumbled at the top of the frame): they pop at the
@@ -5485,6 +5564,18 @@ if (new URLSearchParams(location.search).has("debug")) {
         applyBossEvents([e]);
         stageBossPayoff(state, [e]);
       },
+      // Freeze whatever beat is currently up for `seconds` of frame time, so a
+      // slow shutter photographs the beat instead of its aftermath.
+      hold: (seconds = 10) => {
+        const until = hudNow + seconds * 1000;
+        captureHold = until;
+        if (bossCallUntil > 0) bossCallUntil = until;
+        if (bossBeatUntil > 0) bossBeatUntil = until;
+        if (killBeatUntil > 0) killBeatUntil = until;
+        if (payoffAt) payoffAt.until = until;
+        renderer.holdBossBeats(seconds);
+      },
+      release: () => { captureHold = 0; },
     }),
   });
 }
@@ -5966,8 +6057,13 @@ async function main(): Promise<void> {
     if (frameBoss.length > 0) {
       renderer.bossEvents(frameBoss);
       applyBossEvents(frameBoss);
-      stageBossPayoff(state, frameBoss);
     }
+    // EVERY frame, not only the ones carrying a beat (r3 blocker). The DEFEATED
+    // record arrives on the frame the boss dies; the drops it pays out land on
+    // LATER frames, and those frames carry no boss events at all — so gating
+    // this call on `frameBoss.length` meant the arcs were staged for exactly
+    // the loot that already existed, i.e. none of it.
+    stageBossPayoff(state, frameBoss);
     // §5.5/§5.7 — brief slow-mo on a phase break and the kill. Rides the same
     // hitStop the kill pop already uses, so it composes with combat feel
     // instead of fighting it. Solo only: the networked world never pauses.

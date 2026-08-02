@@ -304,8 +304,49 @@ async function shoot(name, ageMs = 260) {
   }, ageMs);
   await page.waitForTimeout(420);
   await guard();
+  // FREEZE THE BEAT (r3 blocker 1). Every boss beat now expires on the FRAME
+  // clock, which this harness has stopped; __dcc.hold pushes every live
+  // deadline out past the shutter as well, and a self-re-arming rAF keeps it
+  // pushed while playwright composites (12-21s of wall time per frame). The
+  // old cut re-fired the card's CSS animation and lost the race anyway.
+  // Nothing here invents a beat: a beat that is not running does not start.
+  const probe = await page.evaluate(() => {
+    window.__dcc.hold(600);
+    if (!window.__bfHold) {
+      window.__bfHold = true;
+      const tick = () => {
+        if (window.__dcc && window.__bfHold) window.__dcc.hold(600);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    const css = (sel, prop) => {
+      const e = document.querySelector(sel);
+      return e ? getComputedStyle(e)[prop] : null;
+    };
+    const fx = window.__dcc.renderer.bossFx;
+    const st = window.__dcc.state;
+    const boss = st.monsters.find((m) => m.kind === "boss");
+    return {
+      card: css("#bossintro", "display") === "block"
+        ? Number(css("#bossintro", "opacity")).toFixed(2) : "off",
+      call: (document.getElementById("bc-word") || {}).textContent || "",
+      callOn: css("#bosscall", "opacity"),
+      marks: fx.marks ? fx.marks.size : -1,
+      shells: fx.shields ? fx.shields.size : -1,
+      plates: fx.plates ? fx.plates.size : -1,
+      cords: fx.tethers ? fx.tethers.size : -1,
+      aides: fx.aides ? fx.aides.size : -1,
+      exposure: Number(fx.exposureScale || 1).toFixed(2),
+      loot: st.loot.length,
+      hp: boss ? Math.round((boss.hp / boss.maxHp) * 100) : -1,
+    };
+  });
+  console.log("      on-screen " + JSON.stringify(probe));
   await page.screenshot({ path, timeout: 240000 });
+  await page.evaluate(() => { window.__dcc.release(); });
   console.log("    [" + el() + "] saved " + path);
+  return probe;
 }
 
 /** The signature each fight is ABOUT, where it is not simply the first fired. */
@@ -396,22 +437,12 @@ async function captureBoss(id, info) {
     });
   }
   console.log("  intro: " + JSON.stringify(intro));
-  // The card self-fades on a REAL-time CSS animation (bi-out, 3s), and a
-  // SwiftShader capture is slower than that. Restart the animation right
-  // before the shutter: the encounter underneath is live and unmodified — this
-  // only replays the presentation of a beat that is genuinely still running.
-  await page.evaluate(() => {
-    for (const [sel, cls] of [["#bossintro", "show"], ["#letterbox", "on"], ["#bossspot", "on"]]) {
-      const el = document.querySelector(sel);
-      if (!el) continue;
-      el.classList.remove(cls);
-      void el.offsetWidth;
-      el.classList.add(cls);
-    }
-    document.body.classList.add("cine");
-  });
-  await shoot(id + "-2intro", 420);
+  // The card lives on the SIM's own ringside clock now (encounter.timeLeft),
+  // which this harness has frozen, and shoot() holds every deadline across the
+  // shutter. There is no animation to restart and no race left to lose.
+  const introShot = await shoot(id + "-2intro", 420);
   row.beats.intro = intro.ok;
+  row.card = introShot.card;
 
   // Let the ringside freeze run out on its own, then the fight is live.
   await page.evaluate(() => {
@@ -429,6 +460,17 @@ async function captureBoss(id, info) {
   // is the SLUICE, because the gates are its whole ask. Where the two differ,
   // this names which one. Everything else takes the first named signature it
   // commits, and the fallback below means the shot is never faked.
+  // THE COUNCIL FORMAT (r3 major). The Zoning Board is one body plus tethered
+  // aides, and its fight capture had no cords in it at all. The aides are the
+  // sim's; this only refuses to photograph the fight AFTER the crawler has
+  // cleared the board, because a cleared board is not the fight.
+  if (["zoningboard", "standards", "concierge", "greasetrap"].includes(id)) {
+    await page.evaluate(() => {
+      const st = window.__dcc.state;
+      const b = window.__bf.boss();
+      for (const a of st.monsters) if (a.tetherId === b.id && a.hp > 0) a.hp = a.maxHp;
+    });
+  }
   let tele = HEADLINE[id]
     ? await hunt(["telegraph"], 3600, { label: true, prefer: HEADLINE[id], holdHp: true })
     : { done: "timeout" };
@@ -457,7 +499,11 @@ async function captureBoss(id, info) {
   //    count comes round, which is how the previous round lost this beat.
   const punish = await hunt(["punish"], 9000, { holdHp: true });
   console.log("  punish: " + JSON.stringify(punish));
-  await shoot(id + "-5punish", 220);
+  // Aged into the MIDDLE of the window: the reticle opens wide and CLOSES on
+  // the core, so a frame from its first instant shows the brackets at their
+  // widest, which is where they read least.
+  const punishShot = await shoot(id + "-5punish", 620);
+  row.marks = punishShot.marks;
   row.beats.punish = punish.done;
   row.punishHp = punish.hp;
 
@@ -476,9 +522,14 @@ async function captureBoss(id, info) {
     return { done: d, bossHp: b ? b.hp : -1, loot: st.loot.length };
   }, killed.done);
   console.log("  kill: " + JSON.stringify(kill));
-  // A moment of the aftermath so the corpse settles and the ringside arc flies.
-  await page.evaluate(() => window.__bf.idle(24));
-  await shoot(id + "-6kill", 340);
+  // A moment of the aftermath so the corpse settles, the drops LAND, and the
+  // ringside arcs fly out to them. 24 frames was 0.4 sim-seconds — barely
+  // enough for the loot to exist, let alone to throw an arc at it.
+  await page.evaluate(() => window.__bf.idle(70));
+  const killShot = await shoot(id + "-6kill", 420);
+  row.killShells = killShot.shells;
+  row.killPlates = killShot.plates;
+  row.killLoot = killShot.loot;
   row.beats.kill = kill.done === "dead" && kill.bossHp <= 0;
   row.killHp = kill.bossHp;
   row.loot = kill.loot;
@@ -505,6 +556,8 @@ for (const [id, info] of roster) {
 await browser.close();
 console.log("\n==== BEAT REPORT ====");
 for (const r of report) {
+  console.log(`${r.id.padEnd(15)} card=${String(r.card).padEnd(5)} ` +
+    `marks=${r.marks} killShell=${r.killShells} killLoot=${r.killLoot}`);
   console.log(`${r.id.padEnd(15)} fight=${String(r.beats.fight).padEnd(22)} ` +
     `phase=${String(r.beats.phase).padEnd(9)} punish=${String(r.beats.punish).padEnd(9)} ` +
     `kill=${r.beats.kill} loot=${r.loot} | hp ` +

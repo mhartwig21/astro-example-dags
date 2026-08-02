@@ -551,8 +551,16 @@
         margin-right: auto; color: #9fd8e8; font-size: 13px; font-style: italic;
         letter-spacing: 0.04em; line-height: 1.5; text-shadow: 0 1px 3px #000; }
       #bossintro .bi-line:empty { display: none; }
-      #bossintro.show { display: block;
-        animation: bi-in 0.45s ease-out, bi-out 0.5s ease 3s forwards; }
+      /* THE CARD'S LIFETIME IS THE SIM'S, NOT THE WALL CLOCK'S (r3 blocker).
+         The card used to self-fade on `bi-out ... 3s forwards`, i.e. on REAL
+         time, while the ringside freeze it belongs to runs on the sim's own
+         encounter timer. Any client slower than the animation — a stall, a
+         long GC, a SwiftShader capture — lost the marquee beat of the whole
+         encounter while the freeze was still running underneath it. Now the
+         host drives --bi-fade off `encounter.timeLeft`, so the card is up for
+         exactly as long as the beat is, on any machine. */
+      #bossintro.show { display: block; opacity: var(--bi-fade, 1);
+        animation: bi-in 0.45s ease-out; }
       #bossintro.show .bi-name { animation: bi-name-in 0.6s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
       #bossintro.show .bi-kicker { animation: bi-fade 0.5s ease 0.08s both; }
       #bossintro.show .bi-epithet { animation: bi-fade 0.5s ease 0.22s both; }
@@ -563,7 +571,6 @@
         from { opacity: 0; transform: translateX(-50%) scale(1.15); }
         to { opacity: 1; transform: translateX(-50%) scale(1); }
       }
-      @keyframes bi-out { to { opacity: 0; } }
       @keyframes bi-name-in { from { opacity: 0; transform: scale(1.3); letter-spacing: 0.18em; } }
       @keyframes bi-fade { from { opacity: 0; transform: translateY(6px); } }
       /* Letterbox bars: the broadcast cuts to the title card (host toggles .on
@@ -575,10 +582,10 @@
       #letterbox i { position: absolute; left: 0; right: 0; height: 88px; }
       #letterbox .lb-top { top: 0; background: linear-gradient(180deg,
           rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
-        animation: lb-top-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+        opacity: var(--bi-fade, 1); animation: lb-top-in 0.4s ease-out both; }
       #letterbox .lb-bot { bottom: 0; background: linear-gradient(0deg,
           rgba(2,1,0,0.97) 0%, rgba(2,1,0,0.94) 42%, rgba(2,1,0,0.55) 72%, rgba(2,1,0,0) 100%);
-        animation: lb-bot-in 0.4s ease-out both, bi-out 0.5s ease 3s forwards; }
+        opacity: var(--bi-fade, 1); animation: lb-bot-in 0.4s ease-out both; }
       #letterbox i::after { content: ""; position: absolute; left: 0; right: 0; height: 1px;
         background: linear-gradient(90deg, transparent, rgba(201,162,75,0.75) 16%,
           rgba(201,162,75,0.75) 84%, transparent);
@@ -592,9 +599,17 @@
         display: none; pointer-events: none; z-index: 18; mix-blend-mode: screen;
         background: radial-gradient(circle, rgba(255,216,150,0.55) 0%,
           rgba(255,186,116,0.22) 38%, rgba(255,170,100,0) 66%); }
+      /* --bi-spot is the EXPOSURE governor's grip on the key light (r3
+         blocker): on a bright arena floor a 55%-alpha screen-blended disc over
+         the boss is what turns the star of the introduction into a white
+         ellipse. The host measures the frame and turns this down. */
       #bossspot.on { display: block;
-        animation: spot-in 0.5s ease-out both, bi-out 0.5s ease 3s forwards; }
-      @keyframes spot-in { from { opacity: 0; transform: scale(0.8); } }
+        opacity: calc(var(--bi-fade, 1) * var(--bi-spot, 1));
+        animation: spot-in 0.5s ease-out; }
+      @keyframes spot-in {
+        from { opacity: 0; transform: scale(0.8); }
+        to { transform: scale(1); }
+      }
       @keyframes lb-top-in { from { transform: translateY(-100%); } }
       @keyframes lb-bot-in { from { transform: translateY(100%); } }
       /* Broadcast cut (r2): while the letterbox rides the title card the HUD

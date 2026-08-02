@@ -395,7 +395,7 @@ export interface Monster {
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
     | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
     | "heal" | "summon" | "consecrate" | "sweep"
-    | "punish" | "latefee" | "bloom" | "pull"; // what resolves when windup expires
+    | "punish" | "latefee" | "bloom" | "pull" | "regrow"; // what resolves when windup expires
   healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
