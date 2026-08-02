@@ -47,8 +47,41 @@
            on #171310 and 4.72:1 on the meter plate: AA at small sizes, and
            still visibly quieter than --ink-dim. */
         --ink-faint: #8f8675;
+        /* Empty states and forward-looking hints ("next rank:", an empty
+           detail pane, a tier note) were drawn in #55493a — 2.15:1, below
+           even the 3:1 non-text floor, on exactly the copy that tells a
+           player what they could have. One step under --ink-faint, still
+           AA at 10px: 4.0:1 on --stone. */
+        --ink-empty: #7d7365;
         --blood: #c0392f; --verdant: #6da356; --ember: #d98e4a;
         --arcane: #9a6bd0; --lore: #5a87c6;
+        /* THE NIGHT SKY (sanctioned pair, not a secession). STYLEGUIDE's
+           surface rule is "warm stone — never blue", and the constellation
+           broke it with three unmanaged hexes. The star chart is the one
+           surface whose SUBJECT is a sky, so the exception is now a token
+           pair every star-chart surface derives from — and nothing else
+           may use. Everything warm still frames it (bronze, gold, ink). */
+        --sky: #16131f; --sky-mid: #0b0a12; --sky-deep: #080710;
+        /* ---- THE SET SCALE (cross-cutting r1) ----
+           Seven sets used to ship seven widths (460/600/620/720/920/950/1100)
+           and five height budgets (none/82/84/88/90vh), all fixed pixels, so
+           no two panels ended at the same place and none of them grew with
+           the display. Four sizes, ONE height budget, all clamped to the
+           viewport: a set is small, medium, large or full, and that is the
+           whole vocabulary. Widths never fall below what shipped before. */
+        --set-sm: clamp(460px, 36vw, 720px);    /* keybinds, inventory   */
+        --set-md: clamp(720px, 52vw, 1040px);   /* constellation, menu   */
+        --set-lg: clamp(950px, 72vw, 1420px);   /* crawler profile       */
+        --set-xl: clamp(1100px, 82vw, 1700px);  /* safe room             */
+        /* ONE height budget, and it is a BORDER-box height: every panel that
+           uses it sets box-sizing:border-box, because max-height on a content
+           box is not a cap on what the viewport sees — the padding rides on
+           top of it, which is how a "88vh" panel measured 719px in a 768px
+           viewport. */
+        --set-h: min(90vh, 1020px);
+        --set-pad: clamp(16px, 1.5vw, 28px);
+        --r-panel: 3px;                          /* panels: 3px, always  */
+        --r-tile: 2px;                           /* tiles/wells: 2px     */
         --display: "Cinzel", "Palatino Linotype", Georgia, serif;
         --body: "Alegreya Sans", "Segoe UI", system-ui, sans-serif;
         /* SAFE AREAS, PUBLISHED ONCE (MOBILE.md 4.3). Every fixed HUD box
@@ -89,9 +122,17 @@
         touch-action: manipulation; }
       /* Display voice: engraved small-caps for every title, label, and control. */
       h1, h2, .sec-label, .sec-title, .sheet-sec, .tier-h, .rsec, button, kbd,
-      .m-name, .dtitle, .ahname, .gslot, .awhere {
+      .m-name, .dtitle, .ahname, .gslot, .awhere, .l-title {
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
       }
+      /* THE FONT LEAK (r1 major). `button { font-family: var(--display) }` has
+         specificity 0,0,1, so every class selector that declared `font: inherit`
+         beat it — and `font:` is a SHORTHAND, so it also reset font-variant and
+         killed small-caps. Measured on the first screen: #menu h1 was Cinzel
+         32px and .m-tile b / .m-go / .m-mini / .m-testlink were all Alegreya
+         Sans. Every control on the screen that sets the product's voice opted
+         out of the voice. No control in this file may use `font: inherit`
+         again; declare font-family/size/weight separately. */
       #game { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
       /* In-run HUD stays quiet neutral GLASS — the warm stone treatment is for
          full-screen sets (shop/profile/recap), never the overlays you fight
@@ -501,26 +542,67 @@
       /* Keybinds panel */
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 26; }
-      #keys .panel { width: 460px; max-width: 92vw; max-height: 84vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
+      /* r1 BLOCKER: 1,237px of content in a 681px window at 1366 and a 792px
+         one at 1600 — settings sliced mid-row with no scroll affordance, and
+         the CC-BY attribution for game-icons.net, KayKit, Kenney and five
+         music tracks sitting in the hidden 556px. A licence obligation is not
+         allowed to be below the fold. The panel is a flex column at the shared
+         medium width now: the masthead and tab row are fixed, ONE page scrolls,
+         bindings run in two tracks, and CREDITS is a page you can reach. */
+      #keys .panel { box-sizing: border-box; width: var(--set-md); max-width: 92vw; height: var(--set-h);
+        display: flex; flex-direction: column; overflow: hidden;
+        background: #171310; border: 1px solid #6e5533; border-radius: var(--r-panel);
+        padding: var(--set-pad);
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-      #keys h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; }
-      #keys .hint { color: #6f6757; font-size: 12px; margin-bottom: 12px; }
-      .kb-row { display: flex; justify-content: space-between; align-items: center;
-        padding: 6px 4px; border-top: 1px solid #241d16; font-size: 13px; }
-      .kb-row .kb-name { color: #cfcfe0; }
-      .kb-row .kb-name small { color: #6f6757; margin-left: 6px; }
-      .kb-key { cursor: pointer; background: #1a1a24; border: 1px solid #6e5533; border-radius: 4px;
-        padding: 2px 10px; min-width: 64px; text-align: center; color: #c9a24b; font-weight: 700; }
-      .kb-key:hover { border-color: #5a87c6; }
-      .kb-key.listening { border-color: #5a87c6; color: #5a87c6; animation: blink 0.8s infinite; }
+      #keys h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; flex: none; }
+      #keys .hint { color: var(--ink-faint); font-size: 12px; margin-bottom: 12px; flex: none; }
+      #keys .kb-tabs { flex: none; }
+      #keys .kb-page { flex: 1; min-height: 0; overflow-y: auto; }
+      #keys .kb-page:not(.on) { display: none; }
+      /* Bindings are a LEDGER, in two tracks, under drawn group headers — a
+         flat 24-row column presented "Render scale = 100%" and "Move up = W/↑"
+         as the same kind of control (r1 major). */
+      #kb-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+        column-gap: 26px; align-content: start; }
+      .kb-group { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px;
+        margin: 10px 0 2px; color: var(--gold); font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.16em; font-size: 11px; }
+      .kb-group:first-child { margin-top: 2px; }
+      .kb-group::after { content: ""; flex: 1; height: 1px;
+        background: linear-gradient(90deg, rgba(110,85,51,0.7), transparent); }
+      .kb-pad, #kb-rows > .kb-row.kb-pad { grid-column: 1 / -1; }
+      .kb-row { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        padding: 6px 4px; border-top: 1px solid rgba(110,85,51,0.28); font-size: 13px; }
+      /* #cfcfe0 was a cool lavender-white used nowhere else in the product. */
+      .kb-row .kb-name { color: var(--ink); }
+      .kb-row .kb-name small { color: var(--ink-faint); margin-left: 6px; }
+      /* ENGRAVED KEYCAPS (styleguide recipe: stone gradient, bronze border with
+         a 2px bottom, Cinzel 11px). They were flat #1a1a24 navy tags on warm
+         stone, and both hover and the rebind state went lore-blue — the one
+         hue rule 2 reserves for XP and frost, on the screen where rule 1 says
+         gold is the only chrome. */
+      .kb-key { cursor: pointer;
+        background: linear-gradient(180deg, var(--hover), var(--raised) 60%, #1b150f);
+        border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: var(--r-tile);
+        padding: 3px 10px; min-width: 64px; text-align: center; color: var(--gold);
+        font-family: var(--display); font-variant: small-caps; font-size: 11.5px;
+        letter-spacing: 0.08em; font-weight: 700; flex: none;
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.12), 0 1px 2px rgba(0,0,0,0.5); }
+      .kb-key:hover { border-color: var(--bronze-hi); color: var(--gold-hi);
+        background: linear-gradient(180deg, #3a2f22, var(--hover) 60%, #221b15); }
+      .kb-key:active { transform: translateY(1px); border-bottom-width: 1px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); }
+      .kb-key.listening { border-color: var(--gold-hi); color: var(--gold-hi);
+        box-shadow: inset 0 0 0 1px rgba(242,193,78,0.3), 0 0 12px rgba(242,193,78,0.3);
+        animation: blink 0.8s infinite; }
       /* Fixed controller legend (shown while a pad is connected; not rebindable yet). */
       .kb-pad { display: block; color: #a99f8c; font-size: 12px; line-height: 1.5; }
       @keyframes blink { 50% { opacity: 0.4; } }
       #keys .kb-reset { margin-top: 12px; text-align: right; }
       #keys .kb-reset button { cursor: pointer; background: #221b15; color: #a99f8c;
-        border: 1px solid #6e5533; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 12px; }
-      #keys .kb-reset button:hover { color: #e8ddc8; border-color: #5a87c6; }
+        border: 1px solid #6e5533; border-radius: var(--r-tile); padding: 5px 14px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em; font-size: 12px; }
+      #keys .kb-reset button:hover { color: #e8ddc8; border-color: var(--bronze-hi); }
 
       /* Party chip (network mode): docked under YOUR stats chip on the right
          rail (play feedback 2026-07-10 — the old centered slot sat in the
@@ -1207,12 +1289,54 @@
          in portrait, and the old gate walled all of them off — a phone player's
          first screen was a rotate card over a menu (§4.4). `body.ingame` is set
          by the host only while a run actually owns the screen. */
+      /* r1 major: this was the only screen in the product with ZERO design
+         applied — two CSS rules, an unstyled <b> and <span> at default 14px
+         Alegreya Sans, "Rotate Your Device" in web-app title case, floating in
+         a flat brown field. It sits at z 40 above everything and it is the last
+         thing a phone player sees before gameplay. It is a SET now: a framed
+         broadcast card, a drawn rotating device (no typed glyph), the System's
+         line, and a scrim that actually reads as a STOP — the old
+         rgba(10,8,6,0.97) left the top bar, the hype meter, the ability cluster
+         and the minimap all legible behind it, so it looked like a dark filter
+         over a live game rather than a gate. */
       #rotate { display: none; }
       @media (orientation: portrait) {
         body.phone.ingame #rotate { display: flex; position: fixed; inset: 0; z-index: 40;
-          background: rgba(10,8,6,0.97); flex-direction: column; align-items: center;
-          justify-content: center; gap: 14px; text-align: center;
-          padding: var(--gut-t) var(--gut-r) var(--gut-b) var(--gut-l); }
+          background:
+            radial-gradient(ellipse at 50% 42%, rgba(74,54,28,0.22), transparent 62%),
+            var(--void);
+          flex-direction: column; align-items: center;
+          justify-content: center; gap: 0; text-align: center;
+          padding: calc(var(--gut-t) + 8px) calc(var(--gut-r) + 22px)
+                   calc(var(--gut-b) + 8px) calc(var(--gut-l) + 22px); }
+        /* The card: the same bronze double frame every set in the game wears. */
+        body.phone.ingame #rotate::before { content: "◆ SIGNAL ORIENTATION ◆"; order: -2;
+          font-family: var(--display); font-variant: small-caps; letter-spacing: 0.28em;
+          font-size: 10.5px; color: var(--gold); margin-bottom: 26px; }
+        /* The drawn mark: a device rotating a quarter turn. Rule 3 — icons are
+           drawn, never typed — so this is geometry, not a glyph. */
+        body.phone.ingame #rotate::after { content: ""; order: -1; width: 74px; height: 108px;
+          margin-bottom: 24px; border: 2px solid var(--bronze-hi); border-radius: 8px;
+          box-shadow: inset 0 0 0 2px rgba(0,0,0,0.6), 0 0 26px rgba(201,162,75,0.18);
+          background: linear-gradient(180deg, rgba(46,36,23,0.75), rgba(12,9,6,0.9));
+          animation: rot-turn 2.8s cubic-bezier(0.6, 0, 0.3, 1) infinite; }
+        body.phone.ingame #rotate b { font-family: var(--display); font-variant: small-caps;
+          font-weight: 700; font-size: 26px; letter-spacing: 0.12em; color: #f5e6bf;
+          text-shadow: 0 0 26px rgba(201,162,75,0.35), 0 2px 3px #000; }
+        /* The engraved rule under the headline — the house section bar. */
+        body.phone.ingame #rotate b::after { content: ""; display: block; height: 1px;
+          width: 60%; margin: 12px auto 0;
+          background: linear-gradient(90deg, transparent, var(--bronze), transparent); }
+        body.phone.ingame #rotate span { display: block; margin-top: 12px; max-width: 30ch;
+          color: var(--ink-dim); font-size: 13.5px; line-height: 1.5; }
+      }
+      @keyframes rot-turn {
+        0%, 26% { transform: rotate(0deg); }
+        56%, 82% { transform: rotate(-90deg); }
+        100% { transform: rotate(-90deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        body.phone.ingame #rotate::after { animation: none; transform: rotate(-90deg); }
       }
       /* Ability chips (r2 hotbar): ~64px BEVELED GOLD frames — engraved
          bronze-gold border, inner black keyline, top bevel light — keycap
@@ -1411,7 +1535,10 @@
           inset 0 -1px 0 rgba(232,221,200,0.05); }
       #xpbar > i { display: block; height: 100%; background: linear-gradient(90deg, #3c5f93, #5a87c6);
         width: 0%; box-shadow: inset -2px 0 0 rgba(220,235,255,0.6), inset 0 1px 0 rgba(255,255,255,0.25); }
-      #keys .credits { margin-top: 10px; color: #6f6757; font-size: 10px; }
+      /* The CC-BY attribution is a licence obligation, not a footnote: it is
+         its own page now, at a size and a contrast that can be read. */
+      #keys .credits { margin-top: 10px; color: var(--ink-dim); font-size: 11.5px;
+        line-height: 1.6; }
 
       /* ---- COPY THAT KNOWS WHAT IT IS TALKING TO ----
          Shrinking desktop copy is not rewriting it. Three panels still said
@@ -1428,30 +1555,80 @@
       /* Inventory panel */
       #inv { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 20; }
-      #inv .panel { width: 620px; max-width: 92vw; max-height: 82vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
+      /* max-height, not height: the bag is usually short, and a fixed 88vh
+         frame around six rows is the "180px of dead panel" complaint at four
+         times the size. The budget is the CEILING every set shares. */
+      #inv .panel { box-sizing: border-box; width: var(--set-sm); max-width: 92vw; max-height: var(--set-h);
+        display: flex; flex-direction: column; overflow: hidden;
+        background: #171310; border: 1px solid #6e5533; border-radius: var(--r-panel);
+        padding: var(--set-pad);
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-      #inv h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; }
-      #inv .hint { color: #6f6757; font-size: 12px; margin-bottom: 14px; }
-      #inv .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-      #inv .sec-title { font-size: 12px; color: #a99f8c; text-transform: uppercase;
-        letter-spacing: 1px; margin: 0 0 8px; }
-      .item { border: 1px solid #6e5533; border-left-width: 3px; border-radius: 6px;
-        padding: 7px 10px; margin-bottom: 8px; background: #221b15; }
+      #inv h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px; flex: none; }
+      #inv .hint { color: var(--ink-faint); font-size: 12px; margin-bottom: 14px; flex: none; }
+      #inv .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+        flex: 1; min-height: 0; }
+      #inv .cols > div { display: flex; flex-direction: column; min-height: 0; }
+      #inv .cols > div > div:last-child { flex: 1; min-height: 0; overflow-y: auto; }
+      /* The header convention every OTHER set carries: engraved gold small-caps
+         over a fading rule (.sheet-sec / .sec-label / .tier-h all have it; this
+         panel shipped 12px uppercase ink-dim with no rule at all). */
+      #inv .sec-title { font-size: 11px; color: var(--gold); flex: none;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
+        margin: 0 0 8px; display: flex; align-items: center; gap: 9px; }
+      #inv .sec-title::after { content: ""; flex: 1; height: 1px;
+        background: linear-gradient(90deg, rgba(110,85,51,0.7), transparent); }
+      /* r1 BLOCKER: the inventory drew items as bordered TEXT ROWS — a name,
+         "WEAPON · MAGIC" and an affix line, no icon well, no art, no rarity
+         fill — while the shop 40px away drew the same objects as 54px
+         rarity-lit wells with painted art, and inv-1600.png caught both
+         representations of one object in a single frame. The row carries the
+         art tile now, in the same shape the profile's armoury uses, so the
+         product has ONE item row instead of two. */
+      .item { display: flex; align-items: center; gap: 10px;
+        border: 1px solid #6e5533; border-left: 3px solid var(--tc, #b9b2a4);
+        border-radius: var(--r-tile);
+        padding: 6px 9px; margin-bottom: 7px;
+        background: linear-gradient(100deg,
+          color-mix(in srgb, var(--tc, #b9b2a4) 10%, #221b15) 0%, #221b15 62%);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
+      /* The art well: rarity-lit, same recipe as the shop tile and the
+         profile's gear box. */
+      .item .ibox { flex: none; width: 40px; height: 40px; display: flex;
+        align-items: center; justify-content: center; border-radius: var(--r-tile);
+        background: linear-gradient(180deg, #1b1611, #14100c);
+        border: 1px solid color-mix(in srgb, var(--tc, #b9b2a4) 55%, #241d16);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 0 10px -3px color-mix(in srgb, var(--tc, #b9b2a4) 45%, transparent); }
+      .item .ibox .ii, .item .ibox img.ii { width: 30px; height: 30px; display: block; }
+      .item .ibox .ii:not(img) { background: var(--tc, #b9b2a4);
+        mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+        -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+      .item .itext { flex: 1; min-width: 0; }
       .item .name { font-weight: 700; font-size: 13px; }
-      .item .slot { color: #6f6757; font-size: 11px; text-transform: uppercase; }
-      .item .affixes { color: #cbbfa4; font-size: 12px; margin-top: 3px; }
+      .item .slot { color: var(--ink-faint); font-size: 10px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        margin-left: auto; flex: none; align-self: flex-start; }
+      .item .affixes { color: #cbbfa4; font-size: 11.5px; margin-top: 2px; line-height: 1.35; }
       .item.bag { cursor: pointer; }
-      .item.bag:hover { border-color: #5a87c6; background: #2c241b; }
-      /* Empty slots are recessed sockets (dark inset well), never dashed
-         wireframes — the LoL/D2R empty-socket language (AAA r2 major). */
-      .item.empty { color: #6f6757; font-style: italic; cursor: default;
-        border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+      .item.bag:hover { border-color: var(--bronze-hi); background: #2c241b; }
+      /* Empty slots HOLD THEIR PLACE (r1 major): they used to collapse to a
+         26px bar next to a 62px filled row, so the EQUIPPED column had a broken
+         rhythm and the shape of your kit changed as you geared. Same height,
+         a recessed socket well, the slot named — the LoL/D4 paper doll. */
+      .item.empty { color: var(--ink-faint); font-style: normal; cursor: default;
+        border-color: #241d16; border-left-color: #2c2418;
+        background: linear-gradient(180deg, #14100c, #0d0a07);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.75); }
-      .rar-common { border-left-color: #b9b2a4; } .rar-common .name { color: #e8ddc8; }
-      .rar-magic  { border-left-color: #5a87c6; } .rar-magic .name  { color: #8fb0d9; }
-      .rar-rare   { border-left-color: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
-      .rar-epic   { border-left-color: #9a6bd0; } .rar-epic .name   { color: #b08fd9; }
+      .item.empty .ibox { border-style: dashed; border-color: #34291c; background: #0b0806;
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.8); }
+      .item.empty .ibox::after { content: ""; width: 11px; height: 11px; transform: rotate(45deg);
+        border: 1px solid #34291c; }
+      .item.empty .name { color: var(--ink-faint); font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.12em; font-weight: 400; }
+      .rar-common { --tc: #b9b2a4; } .rar-common .name { color: #e8ddc8; }
+      .rar-magic  { --tc: #5a87c6; } .rar-magic .name  { color: #8fb0d9; }
+      .rar-rare   { --tc: #f2c14e; } .rar-rare .name   { color: #f2c14e; }
+      .rar-epic   { --tc: #9a6bd0; } .rar-epic .name   { color: #b08fd9; }
 
       /* Run recap (backlog #12) — the season report card, shown once per
          status edge (won = SEASON FINALE, wipe = IN MEMORIAM). z 27: the run
@@ -2709,32 +2886,63 @@
          very first paint (static markup, no JS needed) until the model
          manifest lands, then fades out into the check-in. Opaque: there is
          nothing behind it yet but a black canvas. */
+      /* r1 major: the FIRST frame of the product was navy — a purple-cast
+         radial over #040408 that filled a 1440p screen — against a styleguide
+         whose first surface rule is "warm stone, never blue", while --void is
+         the warm #0e0b09. And .l-title probed as Alegreya Sans 30px because it
+         is a div, so the product's NAME was set in the body face here and in
+         Cinzel on the menu two seconds later: the two frames a player sees
+         first disagreed about what the game is called. Warm ground, one
+         torch-glow, the name in the display face. */
       #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
         justify-content: center; gap: 10px; z-index: 29; transition: opacity 0.45s ease;
-        background: radial-gradient(ellipse at 50% 32%, rgba(22,17,36,0.9), rgba(4,4,8,0.99) 75%), #040408; }
+        background:
+          radial-gradient(ellipse at 50% 34%, rgba(74,54,28,0.30), transparent 62%),
+          radial-gradient(ellipse at 50% 34%, rgba(20,15,10,0.92), rgba(6,5,4,0.99) 78%),
+          var(--void); }
       #loading.done { opacity: 0; pointer-events: none; }
       /* The gold document frame (house style — same family as the panels):
-         an outer bronze rule with an inner gilt keyline, engraved corners. */
+         an outer bronze rule with an inner gilt keyline, engraved corners.
+         r1 minor: the card measured ~546x232 at EVERY resolution — 4.5% of a
+         1440p screen, a postage stamp on an empty field — because .l-frame was
+         unsized and the bar was min(420px,70vw). It scales with the display
+         now, like the sets do. */
       #loading .l-frame { position: relative; display: flex; flex-direction: column; align-items: center;
-        gap: 10px; padding: 36px 58px 28px; border: 1px solid #6e5533; border-radius: 4px;
-        background: linear-gradient(180deg, rgba(34,27,21,0.5), rgba(14,11,8,0.72));
+        gap: 10px; width: clamp(420px, 46vw, 880px); box-sizing: border-box;
+        padding: clamp(30px, 3.4vw, 58px) clamp(34px, 4vw, 76px) clamp(24px, 2.6vw, 44px);
+        border: 1px solid #6e5533; border-radius: var(--r-panel);
+        background: var(--noise), linear-gradient(180deg, rgba(34,27,21,0.5), rgba(14,11,8,0.72));
         box-shadow: 0 0 70px rgba(201,162,75,0.10), inset 0 0 46px rgba(0,0,0,0.55); }
       #loading .l-frame::before { content: ""; position: absolute; inset: 5px; pointer-events: none;
         border: 1px solid rgba(201,162,75,0.32); border-radius: 2px; }
-      #loading .l-frame::after { content: "◆"; position: absolute; top: -9px; left: 50%;
-        transform: translateX(-50%); color: #c9a24b; font-size: 12px; padding: 0 10px;
-        background: #06050a; letter-spacing: 0; }
-      #loading .l-phase { color: #8a6a2f; font-size: 10px; letter-spacing: 3px; margin-top: 2px; }
-      #loading .l-kicker { color: #c9a24b; font-size: 12px; letter-spacing: 4px; }
-      #loading .l-title { color: #f5e6bf; font-size: 30px; font-weight: 700; letter-spacing: 3px;
+      /* The cap was content:"◆" on a #06050a chip hanging off the top border,
+         which read in every frame as a black notch punched THROUGH the frame.
+         It is a drawn bronze diamond seated on the rule now — the same cap the
+         panels and the HP frame use. */
+      #loading .l-frame::after { content: ""; position: absolute; top: -5px; left: 50%;
+        width: 9px; height: 9px; margin-left: -4.5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        border: 1px solid #241a08; }
+      /* Three strings used to report progress at once, and the two carrying
+         the System's voice were the two below AA (3.6:1 and 3.9:1). The phase
+         line is the voice; the count is data and sits with the bar. */
+      #loading .l-status { display: flex; align-items: baseline; justify-content: space-between;
+        gap: 18px; width: 100%; margin-top: 4px; }
+      #loading .l-phase { color: var(--gold); font-family: var(--display);
+        font-variant: small-caps; font-size: 11px; letter-spacing: 0.2em; }
+      #loading .l-kicker { color: #c9a24b; font-size: 12px; letter-spacing: 4px;
+        font-family: var(--display); font-variant: small-caps; }
+      #loading .l-title { color: #f5e6bf; font-family: var(--display); font-variant: small-caps;
+        font-weight: 700; font-size: clamp(30px, 3.4vw, 58px); letter-spacing: 0.1em;
+        text-align: center; line-height: 1.05;
         text-shadow: 0 2px 22px rgba(201,162,75,0.35); }
       #loading .l-flavor { color: #a99f8c; font-size: 13px; letter-spacing: 0.6px;
-        min-height: 18px; margin-top: 10px; }
-      #loading .l-bar { width: min(420px, 70vw); height: 10px; background: #1b1510;
-        border: 1px solid #3a2f22; border-radius: 6px; overflow: hidden; }
+        min-height: 18px; margin-top: 10px; text-align: center; }
+      #loading .l-bar { width: 100%; height: 10px; background: #1b1510;
+        border: 1px solid #3a2f22; border-radius: var(--r-tile); overflow: hidden; }
       #loading .l-bar i { display: block; height: 100%; width: 0%;
         background: linear-gradient(90deg, #8a6a2f, #c9a24b); transition: width 0.25s ease; }
-      #loading .l-count { color: #6f6757; font-size: 11px; letter-spacing: 1px; }
+      #loading .l-count { color: var(--ink-faint); font-size: 11px; letter-spacing: 1px; }
 
       /* RINGSIDE CHECK-IN — the entry menu (z 28: pre-run, it owns the screen).
          Continue / daily crawl / fresh seed / party code / test chamber, with
@@ -2744,14 +2952,24 @@
          lineup (render3d/charSelect.ts), so the overlay must NOT eat clicks —
          only the panel (and the skin label is display-only). The panel docks
          right; the left of the screen belongs to the fire. */
+      /* r1 BLOCKER: the panel was justify-content:center — an opaque box parked
+         on top of the cast it exists to present, with the crawlers showing
+         either side of it. The comment two lines up said "docks right"; the
+         code said "centre". It docks right now, and the scrim is a HORIZONTAL
+         wipe: clear over the fire, deepening under the panel so the ledger
+         behind it reads. The reference (refs LoL hextech header) is full-bleed
+         art as CONTENT with chrome reduced to a rule on the edge. */
       #menu { position: fixed; inset: 0; display: none; align-items: center;
-        justify-content: center; pointer-events: none;
-        background: radial-gradient(ellipse at 50% 45%, rgba(4,4,8,0.0) 30%, rgba(4,4,8,0.35) 100%);
+        justify-content: flex-end; padding-right: clamp(18px, 3.5vw, 88px);
+        pointer-events: none;
+        background: linear-gradient(90deg,
+          rgba(4,4,8,0) 0%, rgba(4,4,8,0) 34%, rgba(4,4,8,0.28) 58%, rgba(4,4,8,0.62) 100%);
         z-index: 28; }
-      #menu .panel { width: min(920px, 84vw); max-height: 90vh; overflow: auto;
+      #menu .panel { box-sizing: border-box; width: var(--set-md); max-height: var(--set-h); overflow: hidden;
+        display: flex; flex-direction: column;
         pointer-events: auto;
-        background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: 12px;
-        padding: 18px 26px 16px; box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
+        background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: var(--r-panel);
+        padding: var(--set-pad); box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
       /* While checked in, the game HUD behind the campfire goes dark — the
          backdrop world isn't being rendered, only the lineup is. */
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
@@ -2776,11 +2994,16 @@
       #m-cast-mode { margin: 6px 0 12px; color: #f5e6bf; font-size: 22px; letter-spacing: 6px;
         font-weight: 700; text-shadow: 0 0 24px rgba(201,162,75,0.4), 0 2px 3px #000; }
       #m-cast-buttons { display: flex; gap: 12px; justify-content: center; pointer-events: auto; }
-      #m-cast-buttons button { cursor: pointer; font: inherit; letter-spacing: 3px; font-weight: 700;
+      #m-cast-buttons button { cursor: pointer; font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 3px; font-weight: 700;
         background: rgba(23,19,16,0.92); border: 1px solid #6e5533; border-radius: 6px;
         color: #a99f8c; padding: 10px 22px; transition: border-color 0.12s ease, color 0.12s ease; }
       #m-cast-buttons button:hover { border-color: #c9a24b; color: #f5e6bf; }
       #m-cast-go { color: #f5e6bf !important; border-color: #c9a24b !important; }
+      /* The panel is a flex column now (it must FIT, never scroll as one
+         document) — the masthead and the footer hold their size, .m-cols is
+         the only thing that may give. */
+      #menu .m-kicker, #menu h1, #menu .m-sub, #menu .m-name-row { flex: none; }
       #menu .m-kicker { text-align: center; color: #c9a24b; font-size: 11px; letter-spacing: 5px; }
       #menu h1 { margin: 8px 0 4px; text-align: center; font-size: 32px; letter-spacing: 7px;
         color: #f5e6bf; text-shadow: 0 0 34px rgba(201,162,75,0.4), 0 2px 3px #000; }
@@ -2788,86 +3011,162 @@
       #menu .m-name-row { display: flex; justify-content: center; align-items: baseline; gap: 10px;
         margin-bottom: 18px; font-size: 11px; letter-spacing: 2px; color: #a99f8c; }
       #menu input { background: #221b15; border: 1px solid #6e5533; border-radius: 4px;
-        color: #e8ddc8; font: inherit; padding: 5px 10px; }
+        color: #e8ddc8; font-family: var(--body); font-size: 14px; padding: 5px 10px; }
       #menu input:focus { outline: none; border-color: #c9a24b; }
       #menu .m-name-row input { width: 180px; text-align: center; font-weight: 700;
         letter-spacing: 1px; color: #f5e6bf; }
-      #menu .m-cols { display: grid; grid-template-columns: 1fr 270px; gap: 26px; }
-      /* Tile hub (STYLEGUIDE.md Phase-1: "main menu — season poster, three
-         framed contracts"). A few large peer choices, not a scrolling list —
-         each mode gets equal visual weight matched to its actual importance;
-         Party's two ways in (share a code / find an open one) live as tabs
-         inside ONE tile instead of two sibling cards. */
-      .m-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-        gap: 8px; margin-bottom: 4px; }
+      #menu .m-cols { display: grid; grid-template-columns: 1fr minmax(200px, 250px);
+        gap: clamp(14px, 1.6vw, 26px); flex: 1; min-height: 0; overflow-y: auto;
+        align-items: start; }
+      /* ---- THE MODE BOARD (r1 blocker) ----
+         Was `repeat(auto-fit, minmax(190px,1fr))` with rows sized by copy: a
+         ragged 3+2 with a 210x152 hole, row heights differing 130 vs 152 purely
+         because DAILY wraps to three lines and NEW RUN to one, and a shape that
+         CHANGED when CONTINUE/REJOIN appeared. The most important arrangement
+         in the product was being decided by description length.
+         Now it is an authored composition that cannot re-flow:
+           · the RESUME/FEATURED contracts (continue, rejoin, daily) are
+             full-width banners — icon left, name and line right;
+           · the four permanent modes sit in a fixed 2x2 beneath them;
+           · every row is 1fr, so heights are equal whatever the copy does;
+           · descriptions clamp to two lines and reserve both.
+         Whatever is hidden, the grid below it is still a 2x2. */
+      .m-tiles { display: grid; grid-template-columns: 1fr 1fr;
+        grid-auto-rows: auto; gap: 8px; margin-bottom: 4px; }
       .m-tile { --tc: #a99f8c; display: flex; flex-direction: column; align-items: center;
-        text-align: center; gap: 6px; cursor: pointer; font: inherit;
+        text-align: center; gap: 6px; cursor: pointer;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
         background: linear-gradient(180deg, #221b15, #1b1611 70%); border: 1px solid #6e5533;
-        border-radius: 6px; padding: 12px 12px 10px; color: #e8ddc8;
-        transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease; }
-      .m-tile b { display: block; font-size: 13px; letter-spacing: 1.5px; }
-      .m-tile small { display: block; color: #6f6757; font-size: 10.5px; margin-top: 2px; line-height: 1.35; }
-      .m-tile:hover { border-color: #a8854f; background: linear-gradient(180deg, #2c241b, #221b15 70%);
-        transform: translateY(-2px); }
+        border-radius: var(--r-tile); padding: 12px 12px 10px; color: #e8ddc8;
+        transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease,
+          box-shadow 0.12s ease; }
+      /* The four mode cards are one fixed size; the banners take only the
+         height their one line needs. (grid-auto-rows:1fr made every row equal
+         INCLUDING the banner, which left a 140px-tall DAILY CRAWL with 90px of
+         air in it.) */
+      .m-tile:not(.hero) { min-height: 132px; justify-content: center; }
+      /* The featured/resume banners: full width, horizontal, icon anchored. */
+      .m-tile.hero { grid-column: 1 / -1; display: grid;
+        grid-template-columns: auto 1fr; grid-template-rows: auto auto;
+        column-gap: 13px; row-gap: 0; align-items: center; align-content: center;
+        text-align: left; padding: 11px 14px; }
+      .m-tile.hero .m-tile-icon { grid-row: 1 / -1; width: 42px; height: 42px; }
+      .m-tile.hero .m-tile-ic { width: 25px; height: 25px; }
+      .m-tile.hero b { font-size: 14px; }
+      .m-tile.hero small { min-height: 0; -webkit-line-clamp: 1; }
+      .m-tile b { display: block; font-size: 13px; letter-spacing: 0.13em;
+        font-family: var(--display); font-variant: small-caps; }
+      /* Two lines RESERVED, not two lines if the copy happens to be long. */
+      .m-tile small { display: -webkit-box; -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2; overflow: hidden;
+        font-family: var(--body); font-variant: normal; letter-spacing: 0.02em;
+        color: var(--ink-faint); font-size: 10.5px; margin-top: 2px; line-height: 1.35;
+        min-height: calc(2 * 1.35 * 10.5px); }
+      /* Peer affordance (r1 minor): every tile lifts, brightens its edge AND
+         throws its own hue — plain NEW RUN and PARTY CRAWL used to get a 2px
+         lift and nothing else, so the two most-used modes had the weakest
+         feedback on the screen. --tc drives the glow, so one rule covers all. */
+      .m-tile:hover { border-color: var(--bronze-hi);
+        background: linear-gradient(180deg, #2c241b, #221b15 70%);
+        transform: translateY(-2px);
+        box-shadow: 0 0 18px -2px color-mix(in srgb, var(--tc) 40%, transparent),
+          0 6px 18px rgba(0,0,0,0.5); }
+      /* Press feedback existed nowhere on this screen. Metal sinks. */
+      .m-tile:active { transform: translateY(1px);
+        background: linear-gradient(180deg, #1b1611, #221b15 70%);
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.55); }
+      /* Focus must not be mistakable for hover — a controller or keyboard
+         player could not tell where they were. */
+      .m-tile:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px;
+        border-color: var(--gold); }
+      /* Held open: the tile stays lit while its form is on screen. */
+      .m-tile.open { border-color: var(--gold); background: linear-gradient(180deg, #2c241b, #221b15 70%);
+        box-shadow: inset 0 0 0 1px rgba(242,193,78,0.18); }
+      .m-testlink.open { color: var(--gold); }
       .m-tile-icon { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
         background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
-        border-radius: 6px; box-shadow: inset 0 0 12px rgba(0,0,0,0.6); }
+        border-radius: var(--r-tile); box-shadow: inset 0 0 12px rgba(0,0,0,0.6); flex: none; }
       .m-tile-ic { width: 32px; height: 32px; display: block; background: var(--tc);
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .m-tile.gold { --tc: #c9a24b; }
       .m-tile.gold b { color: #f2c14e; }
-      .m-tile.gold:hover { border-color: #c9a24b; box-shadow: 0 0 18px rgba(201,162,75,0.18); }
+      .m-tile.gold:hover { border-color: #c9a24b; }
       .m-tile.red { --tc: #c0392f; }
       .m-tile.red b { color: #e06a5a; }
-      .m-tile.red:hover { border-color: #8a3038; box-shadow: 0 0 18px rgba(224,106,90,0.15); }
+      .m-tile.red:hover { border-color: #8a3038; }
       .m-tile.green { --tc: #6da356; }
       .m-tile.green b { color: #6da356; }
-      .m-tile.green:hover { border-color: #6da356; box-shadow: 0 0 18px rgba(109,163,86,0.15); }
-      .m-testlink { display: block; width: 100%; text-align: center; cursor: pointer; font: inherit;
-        background: none; border: none; color: #55493a; font-size: 10.5px; letter-spacing: 1px;
-        padding: 10px 0 2px; }
-      .m-testlink:hover { color: #a99f8c; }
-      .m-form { background: #14100c; border: 1px solid #3a2f22; border-radius: 6px;
-        padding: 10px 12px; margin: -3px 0 10px; display: flex; flex-wrap: wrap; gap: 8px;
+      .m-tile.green:hover { border-color: #6da356; }
+      .m-testlink { display: block; width: 100%; text-align: center; cursor: pointer;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        background: none; border: none; color: var(--ink-faint); font-size: 10.5px;
+        padding: 12px 0 4px; }
+      .m-testlink:hover { color: var(--ink-dim); }
+      /* Forms open UNDER the control that opened them, full width (r1 major):
+         they used to land in DOM order in whatever 203px grid cell came next,
+         so PARTY CRAWL's form appeared in column 1 row 2 while the tile sat in
+         column 3 row 1 — cause and effect visually disconnected, tabs wrapping
+         mid-label inside the cell. `grid-column: 1/-1` puts the form in the row
+         immediately after its tile at the full width of the board. */
+      .m-form { background: #14100c; border: 1px solid #3a2f22; border-radius: var(--r-tile);
+        padding: 10px 12px; margin: 0; display: flex; flex-wrap: wrap; gap: 8px;
         align-items: center; font-size: 11px; color: #a99f8c; letter-spacing: 1px; }
+      .m-tiles > .m-form { grid-column: 1 / -1; }
+      #m-test-form { margin-top: 6px; }
       .m-form label { display: flex; align-items: center; gap: 6px; }
       .m-form input[type="number"] { width: 64px; }
       .m-form input[type="checkbox"] { accent-color: #c9a24b; }
       .m-party-panel { flex-direction: column; align-items: stretch; }
-      .m-tabs { display: flex; gap: 14px; width: 100%; margin-bottom: 4px; }
-      .m-tab { cursor: pointer; font: inherit; font-size: 10.5px; letter-spacing: 1.5px;
+      /* One tab component (the styleguide's LoL underline) — the boxed
+         segmented control and the chip row are the other two forms this
+         product had, and they are not this screen's business. */
+      .m-tabs { display: flex; gap: 18px; width: 100%; margin-bottom: 6px;
+        border-bottom: 1px solid rgba(110,85,51,0.35); }
+      .m-tab { cursor: pointer; font-family: var(--display); font-variant: small-caps;
+        font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
         font-weight: 700; background: none; border: none; border-bottom: 2px solid transparent;
-        color: #6f6757; padding: 4px 1px 6px; }
-      .m-tab:hover { color: #a99f8c; }
-      .m-tab.active { color: #f2c14e; border-bottom-color: #c9a24b; }
+        color: var(--ink-faint); padding: 4px 1px 6px; margin-bottom: -1px; }
+      .m-tab:hover { color: var(--ink-dim); }
+      .m-tab.active { color: #f2c14e; border-image: linear-gradient(90deg,
+          transparent, var(--gold), transparent) 1; border-bottom-color: #c9a24b; }
       .m-tab-body { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
       #m-code { width: 150px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
-      .m-mini { cursor: pointer; font: inherit; font-size: 10px; letter-spacing: 1px;
-        background: #221b15; color: #a99f8c; border: 1px solid #6e5533; border-radius: 4px;
-        padding: 5px 12px; }
-      .m-mini:hover { border-color: #5a87c6; }
-      .m-go { cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 2px;
+      .m-mini { cursor: pointer; font-family: var(--display); font-variant: small-caps;
+        font-size: 10.5px; letter-spacing: 0.12em;
+        background: #221b15; color: #a99f8c; border: 1px solid #6e5533; border-radius: var(--r-tile);
+        padding: 5px clamp(6px, 0.7vw, 12px); }
+      /* Lore-blue is the token rule 2 reserves for XP and frost. It was the
+         game's universal hover colour on a gold-only-chrome screen. */
+      .m-mini:hover { border-color: var(--bronze-hi); color: var(--ink); }
+      .m-go { cursor: pointer; font-family: var(--display); font-variant: small-caps;
+        font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em;
         margin-left: auto; background: linear-gradient(180deg, #f2c14e, #c9932e); color: #0a0d0b;
-        border: 1px solid #f2c14e; border-radius: 4px; padding: 6px 18px; }
+        border: 1px solid #f2c14e; border-radius: var(--r-tile); padding: 6px 18px; }
       .m-go:hover { filter: brightness(1.15); }
-      .m-side { display: flex; flex-direction: column; gap: 14px; align-self: start; }
+      .m-side { display: flex; flex-direction: column; gap: 12px; align-self: stretch;
+        min-height: 100%; }
       .m-bests { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
       .m-bests .best { background: #1b1510; border: 1px solid #3a2f22; border-radius: 6px;
         padding: 6px 9px; }
       .m-bests .best b { display: block; font-size: 14px; color: #f2c14e;
         font-variant-numeric: tabular-nums; }
       .m-bests .best small { color: #8a7f6c; font-size: 9px; letter-spacing: 1px; }
-      .m-board { background: #14100c; border: 1px solid #3a2f22; border-radius: 8px;
-        padding: 12px 14px; align-self: start; }
+      /* The board fills the column instead of stopping at y 433 of a 650px
+         panel and leaving a 265x210 blank quadrant (r1 minor). */
+      .m-board { background: #14100c; border: 1px solid #3a2f22; border-radius: var(--r-tile);
+        padding: 12px 14px; align-self: stretch; flex: 1; min-height: 0;
+        display: flex; flex-direction: column; }
 
-      .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px; }
+      .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px;
+        font-family: var(--display); font-variant: small-caps; flex: none; }
       .m-board .m-board-tabs { display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
-      .m-board ol { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+      .m-board ol { margin: 0; padding: 0; list-style: none; font-size: 12px;
+        flex: 1; min-height: 0; overflow-y: auto; }
       .m-board li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
         border-top: 1px solid #241d16; font-variant-numeric: tabular-nums; }
       .m-board li:first-child { border-top: none; }
-      .m-board li .rank { color: #6f6757; width: 20px; flex: none; }
+      .m-board li .rank { color: var(--ink-faint); width: 20px; flex: none; }
       .m-board li:nth-child(1) .rank { color: #f2c14e; }
       .m-board li .nm { color: #e8ddc8; font-weight: 700; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
@@ -2878,7 +3177,15 @@
          problem this layer exists to solve. */
       .m-board li .seal { font-size: 8.5px; padding: 1px 5px; letter-spacing: 0.1em; flex: none; }
       .m-board li .res.win { color: #6da356; }
-      .m-board li.none { color: #6f6757; font-style: italic; border-top: none; }
+      /* An empty board is a STATE, not an apology in italic faint: a drawn
+         diamond, the System's line in the display face, and enough contrast
+         to read (r1 minor). */
+      .m-board li.none { color: var(--ink-faint); border-top: none; font-style: normal;
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
+        text-align: center; padding: 20px 6px; font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.1em; font-size: 11.5px; }
+      .m-board li.none::before { content: "◆"; color: var(--bronze); font-size: 13px;
+        opacity: 0.8; }
       #m-open-list { flex: 1 0 100%; margin: 0; padding: 0; list-style: none; font-size: 12px;
         max-height: 140px; overflow-y: auto; font-variant-numeric: tabular-nums; }
       #m-open-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
@@ -2887,12 +3194,13 @@
       #m-open-list li:hover { color: #f2c14e; }
       #m-open-list li .cd { color: #e8ddc8; font-weight: 700; letter-spacing: 1px; }
       #m-open-list li .meta { margin-left: auto; flex: none; color: #a99f8c; font-size: 11px; }
-      #m-open-list li.none { color: #6f6757; font-style: italic; border-top: none; cursor: default; }
+      #m-open-list li.none { color: var(--ink-faint); font-style: italic; border-top: none; cursor: default; }
       /* Board tabs (LoL underline, small) + the account row. */
-      .m-board-h .bt { cursor: pointer; color: #6f6757; margin-right: 10px; letter-spacing: 0.06em; }
+      .m-board-h .bt { cursor: pointer; color: var(--ink-faint); margin-right: 10px;
+        letter-spacing: 0.12em; font-family: var(--display); font-variant: small-caps; }
       .m-board-h .bt:hover { color: #a99f8c; }
       .m-board-h .bt.active { color: #f2c14e; border-bottom: 2px solid rgba(201,162,75,0.7); }
-      .m-board-h .m-board-day { float: right; color: #6f6757; }
+      .m-board-h .m-board-day { float: right; color: var(--ink-faint); }
       .m-account { margin-top: 10px; display: flex; gap: 8px; align-items: center;
         justify-content: center; flex-wrap: wrap; font-size: 11.5px; color: #a99f8c; }
       .m-account #m-acct-status b { color: #c9a24b; }
@@ -2900,8 +3208,9 @@
       .m-board li.yday { color: #a99f8c; font-size: 11px; letter-spacing: 0.4px;
         border-top: none; border-bottom: 1px solid rgba(110,85,51,0.4); padding-bottom: 5px; }
       .m-board li.yday b { color: #c9a24b; }
-      #menu .m-foot { margin-top: 16px; text-align: center; color: #6f6757; font-size: 10.5px;
-        letter-spacing: 0.5px; }
+      #menu .m-foot { margin-top: 14px; text-align: center; color: var(--ink-faint);
+        font-size: 10.5px; letter-spacing: 0.5px; flex: none;
+        padding-top: 10px; border-top: 1px solid rgba(110,85,51,0.35); }
 
       /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
       /* Tucked under the SYSTEM/CRAWLER buttons (play feedback 2026-07-09:
@@ -2965,32 +3274,46 @@
 
       /* Draft overlay — the System's offer banners (level-up + sponsor).
          Stacked skewed rows, left-anchored so the run stays visible behind. */
+      /* r1: the scrim used to fade to rgba(4,4,8,0.25) by 68% width, leaving
+         the right 62% of the screen at full gameplay contrast while you make a
+         build decision. A draft is a MODAL beat — the dungeon still reads
+         through, but it stops competing. */
       #draft { position: fixed; inset: 0; display: none; align-items: center; z-index: 25;
-        background: linear-gradient(100deg, rgba(4,4,8,0.92) 30%, rgba(4,4,8,0.55) 68%, rgba(4,4,8,0.25)); }
-      #draft .panel { width: 600px; max-width: 88vw; margin-left: 6vw; }
+        background: linear-gradient(100deg, rgba(4,4,8,0.93) 30%, rgba(4,4,8,0.78) 68%, rgba(4,4,8,0.66)); }
+      #draft .panel { width: clamp(600px, 42vw, 820px); max-width: 88vw; margin-left: 6vw; }
       #draft h2 { margin: 0 0 3px; color: #c9a24b; letter-spacing: 4px; font-size: 21px;
         text-shadow: 0 0 18px rgba(201,162,75,0.45); }
       #draft .hint { color: #a99f8c; font-size: 12px; margin-bottom: 18px; }
       #draft .cards { display: flex; flex-direction: column; gap: 12px; }
-      .reward { --oc: #c9a24b; position: relative; cursor: pointer; display: flex; align-items: center;
-        gap: 14px; padding: 12px 16px; border: 1px solid #2a2a38; border-left: 3px solid var(--oc);
-        background: linear-gradient(100deg, rgba(20,19,31,0.95) 55%, rgba(20,19,31,0.65));
-        transform: skewX(-6deg); animation: offer-in 0.3s ease backwards;
+      /* THE SYSTEM'S CONTRACTS, not esports lower-thirds (r1 major). The cards
+         were skewX(-6deg) with an angled ribbon and a coloured left bar — the
+         Apex/Valorant idiom — in a product whose styleguide asks for "contract
+         cards, wax-seal accent". Square plates, engraved keyline, the offer
+         number seated on the left edge like a clause number. Rule four still
+         applies: this floats on live gameplay, so the PLATE stays cool glass
+         (the sanctioned rgba(12,10,20,·) family) while every accent is gold. */
+      .reward { --oc: var(--gold); position: relative; cursor: pointer; display: flex; align-items: center;
+        gap: 14px; padding: 12px 16px 12px 14px;
+        border: 1px solid rgba(110,85,51,0.55); border-left: 3px solid var(--oc);
+        border-radius: var(--r-tile);
+        background: linear-gradient(100deg, rgba(12,10,20,0.95) 55%, rgba(12,10,20,0.78));
+        animation: offer-in 0.3s ease backwards;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.05);
         transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; }
       .reward::before { content: ""; position: absolute; inset: 0; pointer-events: none;
-        background: linear-gradient(100deg, var(--oc) 0%, transparent 55%); opacity: 0.16;
+        background: linear-gradient(100deg, var(--oc) 0%, transparent 55%); opacity: 0.13;
         transition: opacity 0.12s ease; }
-      .reward > * { transform: skewX(6deg); }
       .reward:nth-child(2) { animation-delay: 0.08s; }
       .reward:nth-child(3) { animation-delay: 0.16s; }
       .reward:nth-child(4) { animation-delay: 0.24s; }
-      @keyframes offer-in { from { opacity: 0; transform: skewX(-6deg) translateX(-48px); } }
+      @keyframes offer-in { from { opacity: 0; transform: translateX(-48px); } }
       #draft .cards:hover .reward:not(:hover) { opacity: 0.5; }
-      .reward:hover { transform: skewX(-6deg) translateX(10px); border-color: var(--oc);
+      .reward:hover { transform: translateX(10px); border-color: var(--oc);
         box-shadow: 0 0 0 1px var(--oc), 0 8px 30px rgba(0,0,0,0.6), 0 0 26px -4px var(--oc); }
       .reward:hover::before { opacity: 0.3; }
       .reward:hover .okey { color: var(--oc); border-color: var(--oc); }
       .oicon { flex: none; width: 54px; height: 54px; position: relative; border: 1px solid var(--oc);
+        border-radius: var(--r-tile);
         background: rgba(8,8,14,0.85); display: flex; align-items: center; justify-content: center;
         box-shadow: inset 0 0 14px rgba(0,0,0,0.8); }
       .oicon i { display: block; width: 34px; height: 34px; background: var(--oc);
@@ -3007,18 +3330,37 @@
         letter-spacing: 2px; padding: 1px 5px 0; white-space: nowrap; }
       .obody { flex: 1; min-width: 0; }
       .rtitle { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-        font-weight: 700; font-size: 14px; letter-spacing: 0.6px; text-transform: uppercase; color: #f0f0f6; }
-      .oribbon { flex: none; font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
-        text-transform: uppercase; color: var(--oc); border: 1px solid var(--oc);
-        background: rgba(0,0,0,0.4); padding: 2px 9px; transform: skewX(-10deg); }
-      .rdesc { color: #cbbfa4; font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
-      .okey { flex: none; background: #1a1a24; border: 1px solid #6e5533; border-radius: 3px;
-        padding: 3px 8px; font-size: 12px; font-weight: 700; color: #6f6757;
-        transform: skewX(6deg); transition: color 0.12s ease, border-color 0.12s ease; }
-      #draft.levelup h2 { color: #5a87c6; text-shadow: 0 0 18px rgba(79,209,255,0.45); }
-      #draft.levelup .reward { --oc: #5a87c6; }
+        font-family: var(--display); font-variant: small-caps;
+        font-weight: 700; font-size: 15px; letter-spacing: 0.08em; color: var(--ink); }
+      .oribbon { flex: none; font-family: var(--display); font-variant: small-caps;
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.15em;
+        color: var(--oc); border: 1px solid var(--oc);
+        background: rgba(0,0,0,0.4); padding: 2px 9px; }
+      .rdesc { color: #cbbfa4; font-size: 12.5px; margin-top: 4px; line-height: 1.45;
+        font-family: var(--body); font-variant: normal; }
+      /* The offer NUMBER is a clause number: it belongs against the left edge
+         of the contract, not ~500px away from the name it labels (r1 major).
+         Engraved keycap, same recipe as the settings panel. */
+      .okey { order: -1; flex: none; align-self: center;
+        background: linear-gradient(180deg, var(--hover), var(--raised) 60%, #1b150f);
+        border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: var(--r-tile);
+        padding: 3px 9px; font-family: var(--display); font-variant: small-caps;
+        font-size: 13px; font-weight: 700; color: var(--gold);
+        box-shadow: inset 0 1px 0 rgba(232,221,200,0.12);
+        transition: color 0.12s ease, border-color 0.12s ease; }
+      /* r1 BLOCKER: the most repeated reward beat in the game was drawn
+         entirely in blue — the header in --lore, a text-shadow in #4fd1ff (the
+         exact accent the 2026-07 audit named "the signature AI-slop accent",
+         and the LAST occurrence of it in this file), every card tinted --lore,
+         cool-white titles and navy keycaps. In a gold-on-black product, the
+         screen that fires dozens of times a run was the one screen that was
+         not gold-on-black. Gold is the only chrome; arcane still marks the
+         ultimate because that is a school, and the overrank jackpot is the
+         hot gold that breathes. */
+      #draft.levelup h2 { color: var(--gold); text-shadow: 0 0 18px rgba(201,162,75,0.45); }
+      #draft.levelup .reward { --oc: var(--gold); }
       #draft.levelup .reward.ult { --oc: #9a6bd0; }
-      /* Overrank lottery offer: gold, and it breathes — this card is the jackpot. */
+      /* Overrank lottery offer: hot gold, and it breathes — this is the jackpot. */
       #draft.levelup .reward.over { --oc: #f2c14e;
         animation: offer-in 0.3s ease backwards, over-pulse 1.6s ease-in-out 0.3s infinite; }
       @keyframes over-pulse { 50% { box-shadow: 0 0 24px -4px #f2c14e; } }
@@ -3026,20 +3368,44 @@
       /* Ability tree panel */
       #abil { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 20; }
-      #abil .panel { width: 720px; max-width: 94vw; max-height: 84vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
+      /* The panel is a FLEX COLUMN that does not scroll: masthead, tab row and
+         the close hint are always on screen, and exactly one page scrolls
+         inside it. (r1 blocker: the whole panel used to be the scroller, so
+         scrolling cost you the title, the tabs and the close hint.) */
+      #abil .panel { box-sizing: border-box; width: var(--set-md); max-width: 94vw; height: var(--set-h);
+        display: flex; flex-direction: column; overflow: hidden;
+        background: #171310; border: 1px solid #6e5533; border-radius: var(--r-panel);
+        padding: var(--set-pad);
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-      #abil h2 { margin: 0 0 4px; font-size: 15px; color: #5a87c6; letter-spacing: 1px; }
-      #abil .hint { color: #6f6757; font-size: 12px; margin-bottom: 14px; }
-      /* Masonry columns (r3 major): cards pack tight per column, so a short
-         Dash card can never strand a half-screen of dead space beside Melee. */
-      #abil .grid { display: block; columns: 2; column-gap: 14px; }
-      #abil .grid .acard { break-inside: avoid; margin-bottom: 14px; }
+      #abil h2 { margin: 0 0 4px; font-size: 15px; color: var(--gold); letter-spacing: 1px; flex: none; }
+      #abil .hint { color: var(--ink-faint); font-size: 12px; margin-bottom: 14px; flex: none; }
+      #abil .abil-modes { flex: none; }
+      /* r1 BLOCKER: buildAbilRail() inserts .tp-rail unconditionally, but every
+         rule that styles it lives inside @media (pointer: coarse) — so on a
+         desktop it rendered as a 720x17 strip of SIXTEEN unstyled UA-grey
+         buttons whose mask icons never paint, directly under the tab row, in
+         every constellation frame. The touch build still gets its rail (the
+         coarse block below re-shows it); a fine pointer never sees it, and
+         buildAbilRail() no longer even builds it. */
+      #abil .tp-rail { display: none; }
+      /* Pages: one at a time, and the ACTIVE one is the only scroll region. */
+      #abil .apane { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+      /* A real grid, not `columns: 2`. Multicol is a TEXT flow: it balances by
+         height, so cards fell out of phase (left boundary at y560, right at
+         y500, no rule in the gutter) and adding a rank to one ability could
+         move a DIFFERENT ability into the other column — the reading order of
+         a build screen was not stable between visits (r1 major). Equal rows,
+         stable order, and the track count grows with the display. */
+      #abil .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 14px; align-content: start; }
+      #abil .grid .acard { margin-bottom: 0; break-inside: auto; }
       /* Ability cards inside this panel reuse the .acard/.nrow styles below. */
 
-      /* Achievements (inside the abilities panel) */
-      #abil .ach-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
-      .ach { border: 1px solid #6e5533; border-radius: 6px; padding: 7px 10px; background: #221b15; font-size: 12px; }
+      /* Achievements (inside the abilities panel) — same grid the safe room's
+         ACHIEVEMENTS tab uses, so one content set has exactly one layout. */
+      #abil .ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 8px; margin-top: 4px; align-content: start; }
+      .ach { border: 1px solid #6e5533; border-radius: var(--r-tile); padding: 7px 10px; background: #221b15; font-size: 12px; }
       .ach .atitle { font-weight: 700; color: #f2c14e; }
       .ach.locked { border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.6); }
@@ -3055,15 +3421,18 @@
         border-bottom: 1px solid #241d16; }
       #abil .stats-table th:first-child, #abil .stats-table td:first-child { text-align: left; }
       #abil .stats-table td:first-child { color: #e8ddc8; font-weight: 700; }
-      #abil .stats-table tr.you td:first-child { color: #5a87c6; }
-      #abil .stats-table tr.dead td { color: #6f6757; }
+      /* Lore-blue is XP and frost (rule 2). "you" is not a school of magic —
+         it is the row that matters, so it reads in gold like every other
+         emphasis in the product. */
+      #abil .stats-table tr.you td:first-child { color: var(--gold-hi); }
+      #abil .stats-table tr.dead td { color: var(--ink-faint); }
 
       /* Safe room — the SYSTEM SHOP (hybrid shop / build-path crafting).
          LoL-inspired layout: tier-sectioned icon shelf + detail pane with the
          build tree, framed in the game's dark-emerald + System-gold trim. */
       #saferoom { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.8); z-index: 24; }
-      #saferoom .panel { width: 1100px; max-width: 96vw; height: min(760px, 94vh);
+      #saferoom .panel { width: var(--set-xl); max-width: 96vw; height: var(--set-h);
         display: flex; flex-direction: column; position: relative; /* anchors #sr-stamp */
         background: linear-gradient(180deg, var(--raised), var(--stone) 40%);
         border: 1px solid var(--bronze); outline: 1px solid #201812; outline-offset: 3px;
@@ -3096,9 +3465,18 @@
       .tier-h { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 700;
         letter-spacing: 3px; color: var(--tc, #a99f8c); margin: 12px 0 7px; }
       .shop-shelf .tier-h:first-child { margin-top: 2px; }
-      .tier-h::after { content: ""; flex: 1; height: 1px;
+      /* The rule is a RULE, not a wipe over the copy (r1 major): ::after used
+         to be the flex:1 filler, so a long note ("…no stock rolls and no luck
+         will…") was pushed under the gradient and faded out mid-sentence. The
+         note takes the flex now; the rule is a fixed remainder that can never
+         reach the text. Same failure repeated on the profile's DAMAGE header. */
+      .tier-h { flex-wrap: wrap; }
+      .tier-h::after { content: ""; flex: 1 1 40px; min-width: 40px; height: 1px;
         background: linear-gradient(90deg, var(--tc, #a99f8c), transparent); opacity: 0.35; }
-      .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: #55493a; }
+      /* The note reserves its own width and only shrinks to a wrap, never to
+         nothing — that shrink is what let the rule's gradient paint over it. */
+      .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: var(--ink-faint);
+        flex: 0 1 auto; min-width: 0; }
       .igrid { display: flex; flex-wrap: wrap; gap: 8px; }
       .itile { --tc: #a99f8c; width: 56px; cursor: pointer; }
       /* LoL-shop tile read (r4 major): rarity-tinted radial backing behind the
@@ -3150,7 +3528,7 @@
       .itile.locked .ii { filter: grayscale(0.7) brightness(0.6); }
       .itile.locked .iprice { opacity: 0.45; }
       .itile.locked .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
-        font-size: 10px; color: #55493a; }
+        font-size: 10px; color: var(--ink-empty); }
       /* Consumable scarcity: remaining-stock badge + sold-out state. */
       .itile .istock { position: absolute; top: 1px; right: 2px; font-size: 9px; line-height: 1;
         color: #a99f8c; font-variant-numeric: tabular-nums; }
@@ -3159,7 +3537,7 @@
       .itile.soldout .ii { filter: grayscale(0.7) brightness(0.6); }
       .itile.soldout .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
         font-size: 10px; color: #c0392f; }
-      .itile.soldout .iprice { color: #6f6757; font-size: 8px; letter-spacing: 0.5px; }
+      .itile.soldout .iprice { color: var(--ink-faint); font-size: 8px; letter-spacing: 0.5px; }
       .itile.broke .iprice { color: #c0392f; }
       .itile.owned .ibox::before { content: ""; position: absolute; left: 3px; top: 3px;
         width: 5px; height: 5px; background: #6da356; border-radius: 50%; }
@@ -3185,13 +3563,13 @@
       .shop-side { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
       .shop-detail { flex: 1; overflow-y: auto; background: rgba(12,9,6,0.55);
         border: 1px solid #221b15; padding: 12px 14px; }
-      .shop-detail .dempty { color: #55493a; font-size: 12px; font-style: italic; }
+      .shop-detail .dempty { color: var(--ink-empty); font-size: 12px; font-style: italic; }
       .dname { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; color: var(--tc, #e8ddc8); }
-      .dkind { font-size: 10px; letter-spacing: 2px; color: #6f6757; margin: 2px 0 8px; }
+      .dkind { font-size: 10px; letter-spacing: 2px; color: var(--ink-faint); margin: 2px 0 8px; }
       .dstats { font-size: 12px; color: #cbbfa4; line-height: 1.55; }
       .dpassive { font-size: 12px; color: #f2c14e; font-style: italic; margin-top: 6px; }
-      .ddesc { font-size: 11px; color: #6f6757; margin-top: 6px; line-height: 1.5; }
-      .dsec { font-size: 9px; letter-spacing: 2.5px; color: #55493a; margin: 9px 0 4px;
+      .ddesc { font-size: 11px; color: var(--ink-faint); margin-top: 6px; line-height: 1.5; }
+      .dsec { font-size: 9px; letter-spacing: 2.5px; color: var(--ink-empty); margin: 9px 0 4px;
         display: flex; align-items: center; gap: 8px; }
       .dsec::after { content: ""; flex: 1; height: 1px; background: #221b15; }
       .dtree { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3258,7 +3636,7 @@
       .chase-row.owned .cstate { color: #e08b7f; border-color: #7a2b26; }
       .chase-row .cdesc { font-size: 11.5px; color: #a99f8c; line-height: 1.45; margin-top: 2px;
         max-width: 74ch; }
-      .chase-row .cboss { font-size: 9px; letter-spacing: 2px; color: #6f6757; margin-top: 3px; }
+      .chase-row .cboss { font-size: 9px; letter-spacing: 2px; color: var(--ink-faint); margin-top: 3px; }
       .itile.chase .ibox { border-color: #7a2b26;
         background: linear-gradient(180deg, #2a1512, #150b09); }
       .itile.chase.sealed .ii { filter: grayscale(0.55) brightness(0.72); }
@@ -3271,7 +3649,7 @@
 
       /* THE BENCH: refit + dismantle previews. Costs are stated before the
          verb, always — the gold-vs-shards call is the safe room's real decision. */
-      .dfoot .bnote { font-size: 10px; color: #6f6757; line-height: 1.45; margin-bottom: 6px;
+      .dfoot .bnote { font-size: 10px; color: var(--ink-faint); line-height: 1.45; margin-bottom: 6px;
         font-style: italic; }
       .dbtns.bench { margin-top: 6px; }
       .dbtns .bench-btn { flex: 1; min-width: 0; cursor: pointer; font: inherit;
@@ -3279,7 +3657,7 @@
         color: #e8ddc8; background: #1d1811; border: 1px solid #4a3a22;
         display: flex; align-items: center; justify-content: center; gap: 4px; }
       .dbtns .bench-btn:hover:not(:disabled) { border-color: #f2c14e; color: #f2c14e; filter: none; }
-      .dbtns .bench-btn:disabled { cursor: default; color: #55493a; background: #14100c;
+      .dbtns .bench-btn:disabled { cursor: default; color: var(--ink-empty); background: #14100c;
         border-color: #221b15; font-weight: 400; }
       .dbtns .bench-btn.scrap:hover { border-color: #8fb0d9; color: #8fb0d9; }
       .bench-btn .micon { width: 9px; height: 9px; }
@@ -3302,7 +3680,7 @@
         100% { opacity: 0; transform: translate(-50%, -6px) scale(1); }
       }
       .dprice { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; font-size: 13px; }
-      .dprice .full { color: #55493a; text-decoration: line-through; font-size: 11px; }
+      .dprice .full { color: var(--ink-empty); text-decoration: line-through; font-size: 11px; }
       .dprice .eff { color: #f2c14e; font-weight: 700; display: flex; align-items: center; gap: 4px; }
       /* The card's price + action never sit below the fold: the footer sticks
          to the bottom of the (scrollable) detail pane, over a fade so the
@@ -3316,7 +3694,7 @@
         letter-spacing: 2px; padding: 8px 0; color: #0a0d0b; background: linear-gradient(180deg, #f2c14e, #c9932e);
         border: 1px solid #f2c14e; }
       .dbtns button:hover:not(:disabled) { filter: brightness(1.15); }
-      .dbtns button:disabled { cursor: default; color: #55493a; background: #14100c;
+      .dbtns button:disabled { cursor: default; color: var(--ink-empty); background: #14100c;
         border-color: #221b15; font-weight: 400; }
       .dbtns button.sell { background: #14100c; color: #a99f8c; border-color: #2c241b; font-weight: 400; }
       .dbtns button.sell:hover { border-color: #c0392f; color: #ffb3ab; filter: none; }
@@ -3332,7 +3710,7 @@
         display: flex; flex-direction: column; }
       /* Same contrast tier as the shelf's tier headers (r3 minor: EQUIPPED/
          BAG vanished into the panel texture at #55493a). */
-      .sec-label { font-size: 9px; letter-spacing: 2.5px; color: var(--ink-dim);
+      .sec-label { font-size: 10px; letter-spacing: 0.2em; color: var(--ink-dim);
         margin: 3px 0 6px; flex: none; }
       #sr-sellall { float: right; background: #241a1a; color: #d08a7a; border: 1px solid #4a2f2f;
         border-radius: 4px; padding: 1px 8px; font: inherit; font-size: 10px; letter-spacing: 1px;
@@ -3359,7 +3737,7 @@
         max-width: 240px; background: #14100c; border: 1px solid #6e5533; border-radius: 8px;
         padding: 8px 11px; font-size: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.65); }
       #itemtip .tname { font-weight: 700; font-size: 13px; }
-      #itemtip .tmeta { color: #6f6757; font-size: 10.5px; text-transform: uppercase;
+      #itemtip .tmeta { color: var(--ink-faint); font-size: 10.5px; text-transform: uppercase;
         letter-spacing: 1px; margin-bottom: 4px; }
       #itemtip .taff { color: #cbbfa4; }
       #itemtip .tpass { color: #b08fd9; margin-top: 4px; font-style: italic; }
@@ -3369,7 +3747,7 @@
       .bag-grid .itile { width: 40px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
       .bag-grid .itile .ii { width: 31px; height: 31px; }
-      .bag-grid .bempty { color: #55493a; font-size: 11px; font-style: italic; align-self: center; }
+      .bag-grid .bempty { color: var(--ink-empty); font-size: 11px; font-style: italic; align-self: center; }
       .bag-grid.dense { gap: 5px; }
       .bag-grid.dense .itile { width: 32px; }
       .bag-grid.dense .itile .ibox { width: 30px; height: 30px; }
@@ -3381,7 +3759,7 @@
       .bag-grid.micro .itile .ii { width: 16px; height: 16px; }
       .bag-grid.micro .itile .iglyph { font-size: 13px; }
       .bag-grid .itile.more { cursor: default; }
-      .bag-grid .itile.more .ibox { color: #6f6757; font-size: 10px; letter-spacing: 0.5px; }
+      .bag-grid .itile.more .ibox { color: var(--ink-faint); font-size: 10px; letter-spacing: 0.5px; }
       /* Shop sub-tabs (IN STOCK / ALL ITEMS) live inside the shop page. */
       .shelf-col { display: flex; flex-direction: column; min-height: 0; }
       .shop-subtabs { display: flex; gap: 16px; margin-bottom: 8px; }
@@ -3411,7 +3789,7 @@
       .lslot .lkey { position: absolute; top: -1px; left: -1px; background: var(--raised);
         border: 1px solid var(--bronze); padding: 0 5px; font-size: 9px; color: #c9a24b; font-weight: 700; }
       .lslot.ult .lkey { color: #9a6bd0; border-color: #7a5cc9; }
-      .lslot .lname { text-align: center; font-size: 9px; color: #6f6757; margin-top: 3px;
+      .lslot .lname { text-align: center; font-size: 9px; color: var(--ink-faint); margin-top: 3px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
       /* ---- GLYPH SOCKETS (ITEMIZATION-V2 §3) ---------------------------
@@ -3441,9 +3819,9 @@
       /* The bench: everything found and not currently seated. */
       #sr-glyphs { margin: 2px 0 14px; }
       #sr-glyphs .ghint { font-weight: 400; letter-spacing: 0; text-transform: none;
-        color: #6f6757; font-size: 10.5px; margin-left: 8px; }
+        color: var(--ink-faint); font-size: 10.5px; margin-left: 8px; }
       .gbench { display: flex; flex-wrap: wrap; gap: 8px; }
-      .gbench.empty { display: block; font-size: 11px; color: #55493a; font-style: italic;
+      .gbench.empty { display: block; font-size: 11px; color: var(--ink-empty); font-style: italic;
         line-height: 1.5; max-width: 74ch; }
       .gchip { width: 108px; min-height: 118px; padding: 7px 6px 6px; text-align: center; border-radius: 3px;
         border: 1px solid #2c2418; background: linear-gradient(180deg, rgba(30,22,38,0.7), rgba(12,9,14,0.7)); }
@@ -3455,23 +3833,23 @@
         align-items: center; justify-content: center; }
       .gchip .gbox img { width: 32px; height: 32px; display: block; }
       .gchip .gname { font-size: 10px; color: #cbbfa4; letter-spacing: 0.3px; line-height: 1.2; }
-      .gchip .gtags { font-size: 8.5px; color: #6f6757; letter-spacing: 0.5px; margin-top: 2px; }
+      .gchip .gtags { font-size: 8.5px; color: var(--ink-faint); letter-spacing: 0.5px; margin-top: 2px; }
       /* Phase C took the bench from ten stones to twenty-five, which turns
          "where does this go" from obvious into work. Each chip now answers it:
          the FAMILY it competes in, and the slot numbers it would actually wake
          up in (open = a socket is free, full = it fits but the row is taken). */
       .gchip .gfam { font-size: 8px; letter-spacing: 0.8px; color: #7a5cc9; margin-top: 3px; }
       .gchip .gfam.none { color: #2c241b; }
-      .gchip .gfits { font-size: 8px; letter-spacing: 0.6px; color: #6f6757; margin-top: 3px;
+      .gchip .gfits { font-size: 8px; letter-spacing: 0.6px; color: var(--ink-faint); margin-top: 3px;
         display: flex; gap: 3px; align-items: center; justify-content: center; flex-wrap: wrap; }
-      .gchip .gfits.none { color: #55493a; font-style: italic; }
+      .gchip .gfits.none { color: var(--ink-empty); font-style: italic; }
       .gchip .gfit { min-width: 13px; padding: 0 3px; border-radius: 2px; font-weight: 700;
         border: 1px solid #2c241b; background: rgba(0,0,0,0.4); }
       .gchip .gfit.open { color: #6da356; border-color: #34502a; }
       .gchip .gfit.full { color: #857b6b; }
       .gchip.dormant { opacity: 0.55; }
       .gchip.dormant .gbox img { filter: grayscale(0.85) brightness(0.7); }
-      .gcount { display: inline-block; font-size: 9px; letter-spacing: 1.4px; color: #6f6757;
+      .gcount { display: inline-block; font-size: 9px; letter-spacing: 1.4px; color: var(--ink-faint);
         border: 1px solid #2c241b; padding: 1px 8px; margin: 0 0 8px; background: rgba(0,0,0,0.35); }
       /* ---- ROLE + TAG chips, and the AS BUILT line ----------------------
          The registry carries a machine-checked `role` per ability and the tag
@@ -3489,23 +3867,33 @@
       .acomposed { margin-top: 7px; font-size: 11px; line-height: 1.5; color: #cbbfa4;
         border-left: 2px solid #6e5533; padding: 3px 0 3px 8px; background: rgba(0,0,0,0.22); }
       .acomposed .clbl { display: block; font-size: 8.5px; letter-spacing: 1.6px;
-        color: #6f6757; margin-bottom: 1px; }
+        color: var(--ink-faint); margin-bottom: 1px; }
 
       /* ---- LIST vs STAR CHART -------------------------------------------- */
-      .abil-modes { display: flex; gap: 6px; margin: 0 0 12px; }
-      .amode { font: inherit; font-size: 9.5px; letter-spacing: 1.6px; cursor: pointer;
-        padding: 4px 12px; color: #6f6757; background: rgba(0,0,0,0.4);
-        border: 1px solid #2c241b; border-radius: 2px; }
-      .amode:hover { color: #cbbfa4; border-color: #6e5533; }
-      .amode.on { color: #f2c14e; border-color: #6e5533;
+      .abil-modes { display: flex; gap: 6px; margin: 0 0 12px; align-items: center;
+        flex-wrap: wrap; }
+      .amode, .apage { font-family: var(--display); font-variant: small-caps;
+        font-size: 10.5px; letter-spacing: 0.14em; cursor: pointer;
+        padding: 4px 12px; color: var(--ink-faint); background: rgba(0,0,0,0.4);
+        border: 1px solid #2c241b; border-radius: var(--r-tile); }
+      .amode:hover, .apage:hover { color: #cbbfa4; border-color: #6e5533; }
+      .amode.on, .apage.on { color: #f2c14e; border-color: #6e5533;
         background: linear-gradient(180deg, rgba(110,85,51,0.35), rgba(0,0,0,0.4));
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 0 8px rgba(201,162,75,0.2); }
+      /* Views of the cards on the left of the rule, other pages on the right —
+         one tab component, one row, two jobs made visible by a divider. */
+      .amode-sep { width: 1px; align-self: stretch; margin: 2px 6px;
+        background: linear-gradient(180deg, transparent, rgba(110,85,51,0.7), transparent); }
+      .apage #ach-count { color: var(--ink-faint); margin-left: 4px; }
 
       /* ---- THE STAR CHART (ABILITIES-V2 §4.3) ---------------------------
          Every tree is ENTRY -> FORK xor FORK -> RIDER -> CAPSTONE. Drawn, the
          shape is self-teaching: one line in, two lines that cross a PICK ONE
          bar, and a violet diamond at the bottom you are walking toward. */
-      #abil .grid.graphs, .abil-cards.graphs { columns: 2; column-gap: 14px; }
+      /* #abil .grid stays a CSS grid in BOTH views (the `columns` below only
+         still governs the safe room's copy of the cards). */
+      #abil .grid.graphs .ccard { margin-bottom: 0; }
+      .abil-cards.graphs { columns: 2; column-gap: 14px; }
       .ccard { break-inside: avoid; margin-bottom: 14px;
         background: var(--noise), linear-gradient(180deg, rgba(26,21,15,0.82), rgba(9,7,5,0.85) 80%);
         border: 1px solid rgba(110,85,51,0.5); border-radius: 3px; padding: 11px 13px;
@@ -3518,10 +3906,10 @@
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .ccard.ult .ahead .ii { background: #9a6bd0; }
       .ccard .ahname { font-weight: 700; font-size: 13px; color: #e8ddc8; }
-      .ccard .ahblurb { font-size: 10.5px; color: #6f6757; line-height: 1.35; }
+      .ccard .ahblurb { font-size: 10.5px; color: var(--ink-faint); line-height: 1.35; }
       .ccard .awhere { margin-left: auto; flex: none; font-size: 9px; letter-spacing: 1.5px;
         color: #6da356; border: 1px solid #2c241b; padding: 2px 8px; background: rgba(0,0,0,0.35); }
-      .ccard .awhere.bench { color: #6f6757; }
+      .ccard .awhere.bench { color: var(--ink-faint); }
       .ccard .awhere.ultc { color: #9a6bd0; border-color: #4a3a6a; }
       /* A darker plate under the chart: the stars have to sit ON something,
          or the card grain reads as noise the nodes are lost in. */
@@ -3541,7 +3929,7 @@
         text-align: center; padding: 4px 2px; border-radius: 3px; }
       .cnode .cgem { display: block; width: 13px; height: 13px; margin: 0 auto 3px;
         clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-        background: #55493a; }
+        background: var(--ink-empty); }
       .cnode .cname { display: block; font-size: 9.5px; line-height: 1.15; letter-spacing: 0.2px;
         color: #8a7f6a; }
       .cnode .npips { display: inline-flex; gap: 3px; align-items: center; margin-top: 3px; }
@@ -3574,13 +3962,13 @@
         font-size: 8px; letter-spacing: 1.4px; color: #b08fd9; white-space: nowrap;
         padding: 1px 6px; border: 1px solid #4a3a6a; border-radius: 2px;
         background: linear-gradient(180deg, rgba(30,22,44,0.95), rgba(10,7,14,0.95)); }
-      .cxor.decided { color: #55493a; border-color: #241d16; }
+      .cxor.decided { color: var(--ink-empty); border-color: #241d16; }
 
       /* The per-ability modifier line inside a constellation card. */
       .acard .amods { display: flex; align-items: center; gap: 8px; margin: 7px 0 2px; }
       .acard .amods .socks { margin: 0; }
       .acard .amodtext { font-size: 10.5px; color: #b08fd9; letter-spacing: 0.2px; }
-      .acard .amodtext.dim { color: #55493a; font-style: italic; }
+      .acard .amodtext.dim { color: var(--ink-empty); font-style: italic; }
       .acard .amodcap { font-size: 9.5px; letter-spacing: 0.5px; color: #d8a13f;
         border-left: 1px solid #7a5c1e; padding-left: 7px; margin-left: 2px; }
       #itemtip .tdormant { color: #a08a6a; margin-top: 5px; font-size: 11px; line-height: 1.45;
@@ -3617,10 +4005,10 @@
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .acard.ult .ahead .ii { background: #9a6bd0; }
       .acard .ahname { font-weight: 700; font-size: 13px; color: #e8ddc8; }
-      .acard .ahblurb { font-size: 11px; color: #6f6757; }
+      .acard .ahblurb { font-size: 11px; color: var(--ink-faint); }
       .acard .awhere { margin-left: auto; flex: none; font-size: 9px; letter-spacing: 1.5px;
         color: #6da356; border: 1px solid #2c241b; padding: 2px 8px; background: rgba(0,0,0,0.35); }
-      .acard .awhere.bench { color: #6f6757; }
+      .acard .awhere.bench { color: var(--ink-faint); }
       .acard .awhere.ultc { color: #9a6bd0; border-color: #4a3a6a; }
       /* Constellation spine (r3 major — earn the name): each upgrade row is a
          STAR on a faint gold line running down the card. Taken ranks burn
@@ -3636,7 +4024,7 @@
       .nrow::before { content: ""; position: absolute; left: 2px; top: 50%;
         width: 9px; height: 9px; margin-top: -4.5px;
         clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-        background: #55493a; }
+        background: var(--ink-empty); }
       .nrow.taken::before { background: linear-gradient(135deg, #ffe9a8, var(--gold) 60%);
         filter: drop-shadow(0 0 3px rgba(242,193,78,0.8)); }
       .nrow.locked::before { background: #2c241b; }
@@ -3650,7 +4038,7 @@
       .nrow .npips { display: inline-flex; gap: 4px; align-items: center; }
       .npips .pip { width: 8px; height: 8px; border-radius: 50%;
         background: radial-gradient(circle at 35% 30%, #241d16, #0d0a07 70%);
-        box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 0 0 1px #55493a, 0 1px 0 rgba(232,221,200,0.08); }
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 0 0 1px var(--ink-empty), 0 1px 0 rgba(232,221,200,0.08); }
       .npips .pip.on {
         background: radial-gradient(circle at 35% 30%, #ffe9a8, #c9a24b 55%, #7a6428);
         box-shadow: inset 0 -1px 2px rgba(0,0,0,0.5), 0 0 0 1px #7a6428, 0 0 6px rgba(201,162,75,0.5); }
@@ -3665,10 +4053,10 @@
         box-shadow: 0 0 0 1px #5d3f85, 0 0 9px rgba(154,107,208,0.7); }
       .nrow .neffect .nover { color: #f2c14e; font-size: 10.5px; }
       .nrow .neffect { color: #cbbfa4; }
-      .nrow .neffect .nnext { color: #55493a; font-size: 10.5px; }
+      .nrow .neffect .nnext { color: var(--ink-empty); font-size: 10.5px; }
       .nrow.taken .ntitle { color: #f2c14e; }
-      .nrow.untaken .ntitle { color: #6f6757; font-weight: 400; }
-      .nrow.untaken .neffect { color: #55493a; }
+      .nrow.untaken .ntitle { color: var(--ink-faint); font-weight: 400; }
+      .nrow.untaken .neffect { color: var(--ink-empty); }
       /* Locked forks: a desaturated inset well + lock glyph — legible at a
          glance, not gray-italic-on-near-black (AAA r2 minor). */
       .nrow.locked { background: linear-gradient(180deg, rgba(6,4,2,0.55), rgba(6,4,2,0.3));
@@ -3688,11 +4076,18 @@
         padding: 3px 10px; color: #a99f8c; background: #14100c; border: 1px solid #2c241b; }
       .slot-btn:hover { color: #f2c14e; border-color: #7a6428; }
       /* Achievements page */
-      .sr-ach-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-      .sr-ach { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 10px 12px; }
+      /* Equal rows (r1 minor): unlocked cards carry OPEN LOOT BOX and measured
+         ~88px, locked ones ~76px, so nothing lined up horizontally in a 3-col
+         flow and the bottom-right ~700x250px was empty stone. */
+      .sr-ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        grid-auto-rows: 1fr; gap: 10px; align-content: start; }
+      .sr-ach { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 10px 12px;
+        border-radius: var(--r-tile); display: flex; flex-direction: column; }
       .sr-ach .atitle { font-size: 12px; font-weight: 700; color: #f2c14e; letter-spacing: 0.4px; }
-      .sr-ach .adesc { font-size: 11px; color: #6f6757; margin-top: 3px; line-height: 1.45; }
-      .sr-ach .areward { font-size: 10px; color: #6da356; margin-top: 5px; }
+      .sr-ach .adesc { font-size: 11px; color: var(--ink-faint); margin-top: 3px; line-height: 1.45; }
+      /* +gold and +hype are the SHOW paying out; --verdant is the heals token
+         (rule 2). The payout reads gold, like every other price in the game. */
+      .sr-ach .areward { font-size: 10px; color: var(--gold); margin-top: auto; padding-top: 5px; }
       .sr-ach.locked { border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.6); }
       .sr-ach.locked .atitle { color: #8a8072; }
@@ -3706,13 +4101,23 @@
         0%, 100% { box-shadow: 0 0 8px rgba(242,193,78,0.25); }
         50% { box-shadow: 0 0 16px rgba(242,193,78,0.55); }
       }
-      .sr-ach .claim-btn { display: block; width: 100%; margin-top: 6px; padding: 5px 0;
-        background: linear-gradient(180deg, #f2c14e, #c9962c); border: 1px solid #8a6d3b;
-        border-radius: 3px; color: #1a1408; font-size: 10px; font-weight: 700;
-        letter-spacing: 0.4px; cursor: pointer; }
-      .sr-ach .claim-btn:hover { filter: brightness(1.1); }
+      /* r1 major: four full-bevel gold slabs plus DESCEND put FIVE equal-weight
+         gold primaries on one screen, at which point gold has stopped meaning
+         "the one thing to press". The loot box is a gold-OUTLINED secondary —
+         still obviously the call to action on its card (the card itself
+         pulses), and no longer competing with the button that ends the floor. */
+      .sr-ach .claim-btn { display: block; width: 100%; margin-top: auto; padding: 5px 0;
+        background: rgba(242,193,78,0.08); border: 1px solid var(--gold);
+        border-radius: var(--r-tile); color: var(--gold-hi);
+        font-family: var(--display); font-variant: small-caps;
+        font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; cursor: pointer; }
+      .sr-ach .claim-btn:hover { background: rgba(242,193,78,0.18); color: #fff2cd;
+        border-color: var(--gold-hi); }
       #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: 14px;
-        margin-top: 12px; padding-top: 11px; border-top: 1px solid #221b15; }
+        margin-top: 12px; padding-top: 11px; border-top: 1px solid #221b15; flex-wrap: wrap; }
+      #saferoom .descend .descend-note { color: var(--ink-faint); font-size: 11px;
+        letter-spacing: 0.02em; }
+      #saferoom .descend .descend-note kbd { font-size: 10px; padding: 0 5px; }
       /* DESCEND in the house gold-filigree button language (r4 minor): beveled
          gilt plate, engraved keyline, hover shimmer sweep — never a flat slab. */
       #saferoom .descend button { cursor: pointer; position: relative; overflow: hidden;
@@ -3734,7 +4139,7 @@
           0 3px 12px rgba(0,0,0,0.5), 0 0 26px rgba(242,193,78,0.42); }
       #saferoom .descend button:hover::after { background-position: -135% 0; }
       #saferoom .descend button:active { transform: translateY(1px); }
-      #saferoom .descend .rdy { color: #6f6757; font-size: 12px; }
+      #saferoom .descend .rdy { color: var(--ink-faint); font-size: 12px; }
 
       /* Crawler Profile — the System's personnel file on YOU. PoE2-style
          sectioned sheet: gear + attribute tiles left, damage estimates (D4
@@ -3742,13 +4147,34 @@
          document family as inventory/abilities (z 20; it pauses the game). */
       #sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 20; }
-      #sheet .panel { width: 950px; max-width: 96vw; max-height: 88vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 18px 20px;
+      /* Same frame contract as every other set: the masthead is fixed, the
+         body is the one region that may give, and the PANEL can never overflow
+         (it measured +24px at 1366 once the empty gear slots started holding
+         their place). The short-viewport tightening below is what keeps that
+         region from needing to scroll at all on a 768px screen. */
+      #sheet .panel { box-sizing: border-box; width: var(--set-lg); max-width: 96vw;
+        max-height: var(--set-h); display: flex; flex-direction: column; overflow: hidden;
+        background: #171310; border: 1px solid #6e5533; border-radius: var(--r-panel);
+        padding: var(--set-pad);
         box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-      #sheet h2 { margin: 0 0 4px; font-size: 15px; color: #c9a24b; letter-spacing: 1px;
-        display: flex; align-items: baseline; gap: 12px; }
-      #sheet h2 .sub { font-size: 12px; color: #a99f8c; letter-spacing: 0.5px; font-weight: 400; }
-      #sheet .hint { color: #6f6757; font-size: 12px; margin-bottom: 12px; }
+      #sheet h2, #sheet .hint { flex: none; }
+      #sheet .sheet-cols { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
+      @media (max-height: 820px) {
+        #sheet .hint { margin-bottom: 8px; }
+        #sheet .sheet-sec { margin: 9px 0 5px; }
+        #sheet .gear-row { margin-bottom: 4px; padding: 4px 8px; }
+        #sheet .gear-row.none { min-height: 40px; }
+        #sheet .drow { padding: 5px 9px; margin-bottom: 4px; }
+        #sheet .show-grid { gap: 5px; }
+      }
+      /* Hierarchy was inverted (r1 major): the panel title was 15px while the
+         numbers it introduces are 17px, and "Carl · LEVEL 10 · FLOOR 6" — the
+         crawler's identity, the thing a profile is ABOUT — was 12px ink-dim. */
+      #sheet h2 { margin: 0 0 4px; font-size: 13px; color: #c9a24b; letter-spacing: 0.18em;
+        display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      #sheet h2 .sub { font-size: 17px; color: var(--ink); letter-spacing: 0.06em;
+        font-weight: 700; font-family: var(--display); font-variant: small-caps; }
+      #sheet .hint { color: var(--ink-faint); font-size: 12px; margin-bottom: 12px; }
       .sheet-cols { display: grid; grid-template-columns: 305px 1fr; gap: 18px; }
       /* Defense + attributes share a row (r3 rebalance). */
       .sheet-duo { display: grid; grid-template-columns: 1fr 250px; gap: 16px;
@@ -3758,24 +4184,41 @@
       .sheet-sec:first-child { margin-top: 0; }
       .sheet-sec::after { content: ""; flex: 1; height: 1px;
         background: linear-gradient(90deg, #6e5533, transparent); }
-      .sheet-sec .note { font-weight: 400; letter-spacing: 0.5px; color: #6f6757; font-size: 10px; }
+      .sheet-sec .note { font-weight: 400; letter-spacing: 0.5px; color: var(--ink-faint); font-size: 10px; }
       /* Equipped gear rows: rarity-tinted icon tile + name + affix line. */
       .gear-row { display: flex; gap: 10px; align-items: center; padding: 6px 8px;
-        border: 1px solid #6e5533; border-left-width: 3px; border-radius: 6px;
+        border: 1px solid #6e5533; border-left: 3px solid var(--tc, #b9b2a4);
+        border-radius: var(--r-tile);
         background: #221b15; margin-bottom: 6px; }
+      /* The art well was linear-gradient(#1a1926, #0e0d16) — a blue-black
+         surface in a warm-stone system (r1). Same dark well the shop tiles
+         and the inventory rows use. */
       .gear-row .gbox { --tc: #b9b2a4; flex: none; width: 40px; height: 40px; display: flex;
-        align-items: center; justify-content: center; background: linear-gradient(160deg, #1a1926, #0e0d16);
+        align-items: center; justify-content: center;
+        background: linear-gradient(180deg, #1b1611, #14100c);
+        border-radius: var(--r-tile);
         border: 1px solid #6e5533; box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
       .gear-row .gbox .ii { width: 32px; height: 32px; background: var(--tc); display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .gear-row .gname { font-weight: 700; font-size: 12.5px; }
       .gear-row .gaff { color: #d6cab3; font-size: 11px; margin-top: 2px; }
-      .gear-row .gslot { margin-left: auto; align-self: flex-start; flex: none; color: #6f6757;
+      .gear-row .gslot { margin-left: auto; align-self: flex-start; flex: none; color: var(--ink-faint);
         font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
-      .gear-row.none { color: #7d7466; font-style: italic; font-size: 12px;
-        border-color: #241d16; background: linear-gradient(180deg, #14100c, #0d0a07);
+      /* An empty gear slot HOLDS ITS PLACE (r1 minor): filled rows are ~62px
+         and "no helm equipped" was a ~26px italic bar, so the armoury column
+         read as broken rather than incomplete. Same recessed socket the
+         inventory's paper doll uses, at the same height as a filled row. */
+      .gear-row.none { color: var(--ink-faint); font-style: normal; font-size: 12px;
+        min-height: 46px; align-items: center;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
+        border-color: #241d16; border-left-color: #2c2418;
+        background: linear-gradient(180deg, #14100c, #0d0a07);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.75); }
+      .gear-row.none::before { content: ""; flex: none; width: 40px; height: 40px;
+        display: flex; align-items: center; justify-content: center;
+        border: 1px dashed #34291c; border-radius: var(--r-tile); background: #0b0806;
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.8); }
       /* Attribute tiles (LoL stat-popout style): tinted glyph + big number. */
       .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
       .stile { --sc: #c9a24b; display: flex; gap: 9px; align-items: center; padding: 7px 10px;
@@ -3784,7 +4227,7 @@
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .stile b { font-size: 15px; color: var(--sc); font-variant-numeric: tabular-nums; }
-      .stile small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 1.5px; }
+      .stile small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 1.5px; }
       #sheet .progress { margin-top: 10px; font-size: 11px; color: #a99f8c; }
       #sheet .progress b { color: #f2c14e; }
       #sheet .progress .micon { width: 10px; height: 10px; vertical-align: -1px; }
@@ -3803,8 +4246,8 @@
       #sheet-mods .mod-row .mdesc:only-child { color: #cbbfa4; }
       #sheet-mods .mdorm { color: #7d7466; font-style: italic; letter-spacing: 0.5px; }
       #sheet-mods .mcap { color: #d8a13f; letter-spacing: 0.3px; }
-      #sheet-mods .mod-empty { font-size: 11px; color: #55493a; font-style: italic; line-height: 1.5; }
-      #sheet-mods .mod-open { font-size: 10.5px; color: #6f6757; font-style: italic; padding: 2px 4px; }
+      #sheet-mods .mod-empty { font-size: 11px; color: var(--ink-empty); font-style: italic; line-height: 1.5; }
+      #sheet-mods .mod-open { font-size: 10.5px; color: var(--ink-faint); font-style: italic; padding: 2px 4px; }
       #sheet .progress .bar { margin-top: 5px; border: 1px solid #241d16; }
       #sheet .progress .bar > i { background: linear-gradient(90deg, #3c5f93, #5a87c6); }
       /* Damage rows: ability icon · name/mechanics · [min–max] · CD · DPS. */
@@ -3825,10 +4268,10 @@
       .drow .dmech { color: #918776; font-size: 10.5px; margin-top: 2px; }
       .drow .drange { text-align: right; font-variant-numeric: tabular-nums; cursor: help; }
       .drow .drange b { font-size: 14px; color: #e8ddc8; }
-      .drow .drange small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 1px; }
+      .drow .drange small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; }
       .drow .dcd, .drow .ddps { text-align: right; font-variant-numeric: tabular-nums;
         color: #cbbfa4; font-size: 12px; }
-      .drow .dcd small, .drow .ddps small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 1px; }
+      .drow .dcd small, .drow .ddps small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; }
       .drow .ddps b { color: #f2c14e; font-size: 13px; }
       .drow.utility { grid-template-columns: 34px 1fr; }
       .drow.utility .dmech { color: #a99f8c; }
@@ -3837,7 +4280,7 @@
         padding: 10px 12px; background: #221b15; border: 1px solid #6e5533; border-radius: 6px; }
       .def-box .dbig { text-align: center; cursor: help; }
       .def-box .dbig b { font-size: 26px; color: #b9b2a4; font-variant-numeric: tabular-nums; }
-      .def-box .dbig small { display: block; color: #6f6757; font-size: 9px; letter-spacing: 2px; }
+      .def-box .dbig small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 2px; }
       /* Effective-HP meter (r2): the HP bar's own language — gold hairline
          frame, diamond endcaps, segment ticks — never a stock progress bar.
          Armor-grey fill keeps the warm palette (blue is XP/frost only). */
@@ -3881,13 +4324,29 @@
          layer owns their MATERIAL. */
       /* NOT #draft — the offer overlay floats on the live game (rule four:
          glass for the fight); a stone slab there boxed it in as a brown plate. */
+      /* NOT #menu either (r1 blocker). This layer was overriding check-in's own
+         rgba(20,16,13,0.88) with an OPAQUE --raised/--stone gradient, which is
+         how the front door became a solid box parked on the cast it exists to
+         present. Check-in keeps the material — noise, bronze double frame, the
+         same 3px radius — at an alpha the campfire reads through, and takes a
+         gold hairline on the edge that faces the fire. */
       #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
-      #saferoom .panel, #menu .panel {
+      #saferoom .panel {
         background: var(--noise), linear-gradient(180deg, var(--raised), var(--stone) 36%);
         border: 1px solid var(--bronze);
-        border-radius: 3px;
+        border-radius: var(--r-panel);
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.05),
           0 18px 50px rgba(0,0,0,0.62);
+      }
+      #menu .panel {
+        background: var(--noise), linear-gradient(180deg,
+          rgba(34,27,21,0.80), rgba(23,19,16,0.86) 36%, rgba(16,13,10,0.90));
+        backdrop-filter: blur(2px);
+        border: 1px solid var(--bronze);
+        border-left: 1px solid rgba(201,162,75,0.55);
+        border-radius: var(--r-panel);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,221,200,0.05),
+          inset 1px 0 0 rgba(242,193,78,0.14), 0 18px 60px rgba(0,0,0,0.55);
       }
       /* Panel titles: engraved gold, side-ruled where centered. */
       #inv h2, #abil h2, #sheet h2, #keys h2, #recap h2, #saferoom h2, #draft h2 {
@@ -3901,10 +4360,11 @@
       /* Scrolling panels end in an inset fade, not a hard slice through a
          card mid-row (r3 major: achievements bled through the panel edge).
          Sticky footer gradient: zero scroll-height cost, rides the scroll. */
-      #abil .panel { padding-bottom: 0; }
-      #abil .panel::after { content: ""; position: sticky; bottom: 0; display: block;
+      /* The fade now rides the PAGE (the panel itself no longer scrolls), and
+         it is the sky's colour, not the stone's. */
+      #abil .apane::after { content: ""; position: sticky; bottom: 0; display: block;
         height: 26px; margin-top: -8px; pointer-events: none;
-        background: linear-gradient(180deg, rgba(23,19,16,0), #171310 82%); }
+        background: linear-gradient(180deg, rgba(8,7,16,0), var(--sky-deep) 88%); }
       /* Buttons: gold bevel for primary actions, stone for the rest. */
       button { cursor: pointer; }
       /* Primary CTAs as ENGRAVED METAL (r4 minor: never a flat mustard slab):
@@ -4328,7 +4788,7 @@
         radial-gradient(1px 1px at 68% 22%, rgba(200,180,255,0.26), transparent 100%),
         radial-gradient(60% 42% at 76% 10%, rgba(94,68,150,0.18), transparent 70%),
         radial-gradient(50% 36% at 18% 74%, rgba(201,162,75,0.1), transparent 70%),
-        var(--noise), linear-gradient(180deg, #16131f, #0b0a12 42%, #080710); }
+        var(--noise), linear-gradient(180deg, var(--sky), var(--sky-mid) 42%, var(--sky-deep)); }
       #abil h2 { text-shadow: 0 0 18px rgba(201,162,75,0.35); }
       /* Chart cards: midnight glass — the sky reads through, never brown stone. */
       #abil .acard { background:
@@ -5183,12 +5643,21 @@
          Thumb length varies more than screen size does, so the layout is a
          setting, not a constant. Every row here is a tap target, because a
          slider is a menu on a phone and this is a game, not a preferences app. */
-      #keys .kb-tabs { display: flex; gap: 6px; margin: 4px 0 12px; }
-      #keys .kb-tabs button { flex: 1; min-height: 44px; cursor: pointer;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
-        font-size: 12px; color: var(--ink-faint); border-radius: 3px;
-        background: #17120d; border: 1px solid #2c2418; }
-      #keys .kb-tabs button.on { color: var(--gold-hi); background: #2c241b; border-color: var(--gold); }
+      /* ONE tab component in the product (r1 minor): the styleguide's LoL
+         underline, the same one the safe room uses. keys-1366.png contained
+         the shop's underline tabs and, 40px lower, this panel's boxed 50/50
+         segmented control, in a single screenshot. */
+      #keys .kb-tabs { display: flex; gap: 20px; margin: 4px 0 10px;
+        border-bottom: 1px solid rgba(110,85,51,0.35); }
+      /* 44px stays: MOBILE.md's tap-target contract does not get weakened
+         because the component changed shape. */
+      #keys .kb-tabs button { min-height: 44px; cursor: pointer; padding: 0 2px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 12px; color: var(--ink-faint); border-radius: 0;
+        background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+      #keys .kb-tabs button:hover { color: var(--ink-dim); }
+      #keys .kb-tabs button.on { color: var(--gold-hi); background: none;
+        border-bottom-color: var(--gold); }
       #keys .kb-page { display: none; }
       #keys .kb-page.on { display: block; }
       .ctl-row { display: flex; align-items: center; gap: 12px; padding: 9px 0;
@@ -5223,10 +5692,16 @@
     </div>
     <div id="keys" data-overlay="modal">
       <div class="panel">
-        <h2>KEY BINDINGS</h2>
+        <!-- The panel title said KEY BINDINGS and so did the first tab, 60px
+             apart at two different weights. The SET is the System's settings;
+             the bindings are one page of it. -->
+        <h2>◆ SYSTEM SETTINGS</h2>
         <div class="hint">Click a key to rebind, then press the new key · aim with the mouse ·
           <span class="kbdhint"><kbd id="kb-close-key">K</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword">✕ or DONE to close</span></div>
         <div id="kb-rows"></div>
+        <!-- OPTIONS: preferences are not bindings, and presenting them as the
+             same label-left/chip-right row said they were (r1 major). -->
+        <div id="kb-prefs">
         <div class="kb-row"><span class="kb-name">Mouse aim<small>off = attack along movement direction</small></span>
           <span class="kb-key" id="kb-mouseaim">ON</span></div>
         <div class="kb-row"><span class="kb-name">Mouse move<small>click/hold ground to walk, click a monster to attack</small></span>
@@ -5248,6 +5723,7 @@
              is the surface that promise needed. -->
         <div class="kb-row"><span class="kb-name">Submitting your runs<small>the proof is a 60Hz recording of everything you did — PRIVATE still ranks, it is just never handed out</small></span>
           <span class="kb-key" id="kb-consent">PUBLIC</span></div>
+        </div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>
@@ -5337,22 +5813,34 @@
              SHAPE (which forks are still open, which capstone you are walking
              toward). A flat list draws an exclusive fork and a free rider as
              the same row, which is the one thing the tree rebuild is about. -->
+        <!-- r1 blocker: this panel used to be ONE 3,724px document — cards,
+             then achievements 2,344px below the fold, then run stats — inside
+             a 663-1,228px window, so a player at 1366 saw 18% of the screen
+             they opened and lost the title, the tabs and the close hint the
+             moment they scrolled. It is four PAGES now behind one tab row
+             (LIST and STAR CHART are two views of the cards; achievements and
+             run stats are their own pages, no longer buried and no longer a
+             second layout of the safe room's achievement grid). The header
+             never scrolls; only the active page does. -->
         <div class="abil-modes">
           <button class="amode on" data-view="list">LIST</button>
           <button class="amode" data-view="graph">STAR CHART</button>
+          <i class="amode-sep"></i>
+          <button class="apage" data-page="ach">ACHIEVEMENTS <span id="ach-count"></span></button>
+          <button class="apage" data-page="stats">RUN STATS</button>
         </div>
-        <div class="grid" id="abil-grid"></div>
-        <div id="ach-section">
-          <h2 style="margin-top:16px">ACHIEVEMENTS <span id="ach-count" style="color:#a99f8c;font-size:12px"></span></h2>
+        <div class="apane on" data-pane="chart"><div class="grid" id="abil-grid"></div></div>
+        <div class="apane" data-pane="ach" id="ach-section" style="display:none">
           <div class="ach-grid" id="ach-grid"></div>
         </div>
-        <h2 style="margin-top:16px">RUN STATS</h2>
-        <table class="stats-table">
-          <thead>
-            <tr><th>crawler</th><th>lvl</th><th>kills</th><th>dmg dealt</th><th>dmg taken</th><th>viewers</th><th>sponsors</th></tr>
-          </thead>
-          <tbody id="stats-rows"></tbody>
-        </table>
+        <div class="apane" data-pane="stats" style="display:none">
+          <table class="stats-table">
+            <thead>
+              <tr><th>crawler</th><th>lvl</th><th>kills</th><th>dmg dealt</th><th>dmg taken</th><th>viewers</th><th>sponsors</th></tr>
+            </thead>
+            <tbody id="stats-rows"></tbody>
+          </table>
+        </div>
       </div>
     </div>
     <div id="saferoom" data-overlay="modal">
@@ -5408,7 +5896,14 @@
         <!-- Purchase / bench confirmation stamp (child of the safe-room modal,
              so it claims no zone of its own). -->
         <div id="sr-stamp"></div>
-        <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span></div>
+        <!-- r1 major: every sibling panel's hint line says "Esc to close (game
+             pauses)"; this one said nothing about how to leave, because you
+             CANNOT — #saferoom is deliberately outside attachPanel and the
+             Escape chain (main3d ~9310). The decision is defensible; leaving it
+             unstated was not. Players pressed Esc, nothing happened, and the
+             panels they opened next stacked on top of the shop. -->
+        <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span>
+          <span class="descend-note">the stairs are the only exit — <kbd>Esc</kbd> will not close a safe room</span></div>
       </div>
     </div>
     <div id="fx"></div>
@@ -5448,7 +5943,9 @@
     </div>
     <div id="inv" data-overlay="modal">
       <div class="panel">
-        <h2>INVENTORY</h2>
+        <!-- The ◆ kicker SAFE ROOM, THE CONSTELLATION and CRAWLER PROFILE all
+             carry; the inventory was the one set that broke the convention. -->
+        <h2>◆ INVENTORY</h2>
         <div class="hint"><span class="clickword">Click</span><span class="tapword">Tap</span> a bag item to equip it<span class="kbdhint"> · <kbd>I</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · ✕ or DONE to close</span></div>
         <div class="cols">
           <div><div class="sec-title">Equipped</div><div id="inv-equipped"></div></div>
@@ -5511,7 +6008,7 @@
     <!-- Phone landscape gate (body.phone + portrait orientation, see CSS). -->
     <div id="mapbig-scrim" data-overlay="modal"></div>
     <div id="rotate" data-overlay="rotate-gate">
-      <b>Rotate Your Device</b>
+      <b>TURN YOUR DEVICE</b>
       <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>
     </div>
 
@@ -5679,8 +6176,13 @@
         <div class="l-title">DUNGEON CRAWLER CLAUDE</div>
         <div class="l-flavor" id="loading-flavor">ACQUIRING SIGNAL…</div>
         <div class="l-bar"><i id="loading-fill"></i></div>
-        <div class="l-count" id="loading-count"></div>
-        <div class="l-phase" id="loading-phase">ESTABLISHING UPLINK</div>
+        <!-- Three strings used to report progress at once, stacked, two of them
+             below AA. One row now: the System's voice on the left, the count as
+             DATA on the right, both against the bar they describe. -->
+        <div class="l-status">
+          <div class="l-phase" id="loading-phase">ESTABLISHING UPLINK</div>
+          <div class="l-count" id="loading-count"></div>
+        </div>
       </div>
     </div>
     <div id="menu" data-overlay="modal">
@@ -5703,22 +6205,29 @@
         <div class="m-name-row">CRAWLER NAME <input id="m-name" maxlength="24" spellcheck="false" autocomplete="off" /></div>
         <div class="m-cols">
           <div>
+            <!-- THE MODE BOARD. Composition is authored, not emergent (r1):
+                 the resume/featured contracts are full-width banners, the four
+                 permanent modes are a fixed 2x2 underneath, and each form opens
+                 full width in the row directly under the tile that opened it.
+                 DOM order IS the composition — solo, party, [party form],
+                 rivals, roam, [rivals form] — so hiding any banner leaves the
+                 2x2 intact instead of re-flowing the whole front door. -->
             <div class="m-tiles">
-              <button class="m-tile green" id="m-continue" style="display:none">
+              <button class="m-tile hero green" id="m-continue" style="display:none">
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/race.svg);-webkit-mask-image:url(/icons/ui/race.svg)"></i></span>
                 <b>CONTINUE RUN</b><small id="m-continue-sub"></small>
               </button>
-              <button class="m-tile gold" id="m-daily">
+              <button class="m-tile hero" id="m-rejoin" style="display:none">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
+                <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
+              </button>
+              <button class="m-tile hero gold" id="m-daily">
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
                 <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
               </button>
               <button class="m-tile" id="m-solo">
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/race.svg);-webkit-mask-image:url(/icons/ui/race.svg)"></i></span>
                 <b>NEW RUN</b><small>a fresh seed, an unmapped floor</small>
-              </button>
-              <button class="m-tile" id="m-rejoin" style="display:none">
-                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
-                <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
               </button>
               <button class="m-tile" id="m-party">
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
@@ -5744,16 +6253,16 @@
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/skull.svg);-webkit-mask-image:url(/icons/ui/skull.svg)"></i></span>
                 <b>RIVALS</b><small>up to four HOSTILE crawlers, one contract &mdash; first boss kill wins</small>
               </button>
+              <button class="m-tile roam" id="m-roam-solo">
+                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/marker.svg);-webkit-mask-image:url(/icons/ui/marker.svg)"></i></span>
+                <b id="m-roam-title">ROAM</b><small id="m-roam-sub">no clock — settlements, residents, contracts · solo campaign</small>
+              </button>
               <div class="m-form" id="m-rivals-form" style="display:none">
                 <input id="m-rcode" maxlength="32" placeholder="RACE CODE" spellcheck="false" autocomplete="off" />
                 <button class="m-mini" id="m-rroll">NEW CODE</button>
                 <button class="m-mini" id="m-rinvite">COPY INVITE</button>
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE ▶</button>
               </div>
-              <button class="m-tile roam" id="m-roam-solo">
-                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/marker.svg);-webkit-mask-image:url(/icons/ui/marker.svg)"></i></span>
-                <b id="m-roam-title">ROAM</b><small id="m-roam-sub">no clock — settlements, residents, contracts · solo campaign</small>
-              </button>
             </div>
             <button class="m-testlink" id="m-test">TEST CHAMBER — practice floors, nothing is saved</button>
             <div class="m-form" id="m-test-form" style="display:none">

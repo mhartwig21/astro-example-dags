@@ -1166,10 +1166,13 @@ function offerRejoin(): void {
   } catch { /* best-effort */ }
 }
 offerRejoin();
-document.getElementById("m-party")!.addEventListener("click", () => {
+document.getElementById("m-party")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-party-form")!;
   const opening = form.style.display === "none";
   form.style.display = opening ? "flex" : "none";
+  // The form opens in the row directly under this tile; the tile stays lit
+  // while it is open so cause and effect are one object, not two.
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
   if (opening && !codeInput.value) codeInput.value = rollCode();
   if (opening) showPartyTab("code"); // always reopen on the default tab
 });
@@ -1231,10 +1234,11 @@ document.getElementById("m-quickjoin-host")!.addEventListener("click", () => {
 // RIVALS: a first-class home-screen card with its own race code — same code
 // plumbing as co-op, hostile rules. The first joiner arms the race.
 const rivalCodeInput = document.getElementById("m-rcode") as HTMLInputElement;
-document.getElementById("m-rivals-card")!.addEventListener("click", () => {
+document.getElementById("m-rivals-card")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-rivals-form")!;
   const opening = form.style.display === "none";
   form.style.display = opening ? "flex" : "none";
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
   if (opening && !rivalCodeInput.value) rivalCodeInput.value = rollCode();
 });
 document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeInput.value = rollCode(); });
@@ -1248,9 +1252,11 @@ document.getElementById("m-rivals")!.addEventListener("click", () => {
 });
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
-document.getElementById("m-test")!.addEventListener("click", () => {
+document.getElementById("m-test")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-test-form")!;
-  form.style.display = form.style.display === "none" ? "flex" : "none";
+  const opening = form.style.display === "none";
+  form.style.display = opening ? "flex" : "none";
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
 });
 document.getElementById("m-t-go")!.addEventListener("click", () => {
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
@@ -2271,14 +2277,40 @@ const invEquipped = document.getElementById("inv-equipped")!;
 const invBag = document.getElementById("inv-bag")!;
 let invOpen = false;
 
+/**
+ * ONE item row for the whole product (r1 blocker). This used to be a bordered
+ * TEXT row — name, "WEAPON · MAGIC", affixes, no art at all — while the shop
+ * 40px away drew the same object as a rarity-lit well with painted art, and a
+ * single 1600px frame caught both representations of one item. The row now
+ * carries the same art well the safe room and the profile's armoury use.
+ */
 function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): string {
   const cls = `item rar-${item.rarity}${opts.bag ? " bag" : ""}`;
   const idx = opts.bag ? ` data-idx="${opts.idx}"` : "";
+  const noun = item.name.split(" ").pop()!.toLowerCase();
+  const icon = item.catalogId ? itemIconHtml(item.catalogId) : nounIconHtml(noun);
   return (
     `<div class="${cls}"${idx}>` +
-    `<div class="name">${item.name}</div>` +
-    `<div class="slot">${item.slot} · ${item.rarity}</div>` +
+    `<div class="ibox">${icon}</div>` +
+    `<div class="itext">` +
+    `<div class="name">${item.name}${qualityPipsHtml(item)}</div>` +
     `<div class="affixes">${affixLines(item).join(" · ") || "—"}</div>` +
+    `</div>` +
+    `<div class="slot">${item.slot}</div>` +
+    `</div>`
+  );
+}
+
+/** An empty slot HOLDS ITS PLACE: filled rows were ~62px and "armor: empty"
+ * was a ~26px bar, so the equipped column's rhythm broke and the shape of your
+ * kit changed as you geared. LoL and D4 keep a fixed paper doll. */
+function emptySlotHtml(slot: string): string {
+  return (
+    `<div class="item empty rar-common">` +
+    `<div class="ibox"></div>` +
+    `<div class="itext"><div class="name">${slot}</div>` +
+    `<div class="affixes">empty</div></div>` +
+    `<div class="slot">${slot}</div>` +
     `</div>`
   );
 }
@@ -2288,9 +2320,7 @@ function renderInventory(s: GameState): void {
   invEquipped.innerHTML = EQUIP_SLOTS
     .map((slot) => {
       const it = p.equipment[slot];
-      return it
-        ? itemCard(it)
-        : `<div class="item empty rar-common">${slot}: empty</div>`;
+      return it ? itemCard(it) : emptySlotHtml(slot);
     })
     .join("");
   // Bag sorted best-first so upgrades are easy to spot.
@@ -2299,7 +2329,9 @@ function renderInventory(s: GameState): void {
     .sort((a, b) => itemScore(b.item) - itemScore(a.item));
   invBag.innerHTML = bag.length
     ? bag.map(({ item, idx }) => itemCard(item, { bag: true, idx })).join("")
-    : `<div class="item empty rar-common">Bag is empty</div>`;
+    : `<div class="item empty rar-common"><div class="ibox"></div>` +
+      `<div class="itext"><div class="name">the bag is empty</div>` +
+      `<div class="affixes">the dungeon has not paid out yet</div></div></div>`;
 }
 
 /**
@@ -2665,7 +2697,35 @@ function abilBodyHtml(s: GameState): string {
 }
 
 for (const el of document.querySelectorAll(".amode")) {
-  el.addEventListener("click", () => setAbilView((el as HTMLElement).dataset.view as AbilView));
+  el.addEventListener("click", () => {
+    setAbilView((el as HTMLElement).dataset.view as AbilView);
+    if (el.closest("#abil")) setAbilPage("chart");
+  });
+}
+
+/** THE CONSTELLATION'S PAGES (r1 blocker/major). The panel used to be one
+ * 3,724px document — cards, then achievements 2,344px below the fold, then a
+ * run-stats table — inside a window between 663 and 1,228px tall. It is three
+ * pages behind one tab row now, so nothing is reachable only by scrolling and
+ * achievements have exactly one layout in the product (this one; the safe
+ * room's ACHIEVEMENTS tab renders the same grid). */
+type AbilPage = "chart" | "ach" | "stats";
+let abilPage: AbilPage = "chart";
+function setAbilPage(p: AbilPage): void {
+  abilPage = p;
+  const root = document.getElementById("abil")!;
+  for (const b of root.querySelectorAll<HTMLElement>(".apage")) {
+    b.classList.toggle("on", b.dataset.page === p);
+  }
+  for (const b of root.querySelectorAll<HTMLElement>(".amode")) {
+    b.classList.toggle("on", p === "chart" && b.dataset.view === abilView);
+  }
+  for (const el of root.querySelectorAll<HTMLElement>(".apane")) {
+    el.style.display = el.dataset.pane === p ? "" : "none";
+  }
+}
+for (const el of document.querySelectorAll<HTMLElement>("#abil .apage")) {
+  el.addEventListener("click", () => setAbilPage(el.dataset.page as AbilPage));
 }
 
 // ---- Glyph socketing: click a bench glyph, then click a lit socket. Clicking
@@ -2763,6 +2823,10 @@ const statsRows = document.getElementById("stats-rows")!;
  */
 let abilRail: HTMLElement | null = null;
 function buildAbilRail(): void {
+  // Touch-only furniture. It used to be inserted on every host and styled on
+  // none of them but a coarse pointer, which put sixteen unstyled grey browser
+  // buttons under the tab row of every desktop constellation (r1 blocker).
+  if (!matchMedia("(pointer: coarse)").matches) return;
   const panel = abilEl.querySelector(".panel");
   if (!panel) return;
   if (!abilRail) {
@@ -2790,8 +2854,11 @@ function buildAbilRail(): void {
 function renderAbilities(s: GameState): void {
   abilGrid.classList.toggle("graphs", abilView === "graph");
   abilGrid.innerHTML = abilBodyHtml(s);
-  document.getElementById("ach-section")!.style.display =
-    CONFIG.achievementsEnabled ? "" : "none";
+  // Achievements are a PAGE now, so what a disabled run hides is the tab —
+  // the pane's own display belongs to setAbilPage.
+  const achTab = document.querySelector<HTMLElement>('#abil .apage[data-page="ach"]');
+  if (achTab) achTab.style.display = CONFIG.achievementsEnabled ? "" : "none";
+  if (!CONFIG.achievementsEnabled && abilPage === "ach") setAbilPage("chart");
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
   achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
     const got = me(s).achievements.includes(a.id);
@@ -3038,19 +3105,47 @@ function applyBindings(): void {
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
 
+/** Presentation-only grouping for the bindings ledger (r1 major: movement,
+ * five ability slots, utility and panel keys all rendered as one flat 24-row
+ * column with no categories, next to eight preferences in the same row shape).
+ * The groups live HERE, not in src/input — ACTION_INFO is the input model, and
+ * how a settings screen files its rows is the host's business. */
+const KB_GROUPS: { title: string; actions: BindableAction[] }[] = [
+  { title: "MOVEMENT", actions: ["moveUp", "moveDown", "moveLeft", "moveRight"] },
+  { title: "THE FIVE", actions: ["slot1", "slot2", "slot3", "slot4", "ultimate"] },
+  { title: "IN THE DUNGEON", actions: ["flask", "stairs", "ping", "draft"] },
+  { title: "PANELS", actions: ["inventory", "abilities", "character", "keybinds"] },
+  { title: "THE SESSION", actions: ["newRun", "mute"] },
+];
+
 function renderKeybinds(): void {
-  kbRows.innerHTML = (Object.keys(ACTION_INFO) as BindableAction[])
-    .filter((a) => a !== "flask" || CONFIG.flaskEnabled) // no dead key rows
-    .map((a) => {
-      const info = ACTION_INFO[a];
-      const cls = listening === a ? "kb-key listening" : "kb-key";
-      const label = listening === a ? "press a key…" : bindingLabel(bindings, a);
-      return (
-        `<div class="kb-row"><span class="kb-name">${info.name}` +
-        (info.hint ? `<small>${info.hint}</small>` : "") +
-        `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
-      );
+  const live = new Set(
+    (Object.keys(ACTION_INFO) as BindableAction[])
+      .filter((a) => a !== "flask" || CONFIG.flaskEnabled), // no dead key rows
+  );
+  const rowHtml = (a: BindableAction): string => {
+    const info = ACTION_INFO[a];
+    const cls = listening === a ? "kb-key listening" : "kb-key";
+    const label = listening === a ? "press a key…" : bindingLabel(bindings, a);
+    return (
+      `<div class="kb-row"><span class="kb-name">${info.name}` +
+      (info.hint ? `<small>${info.hint}</small>` : "") +
+      `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
+    );
+  };
+  // Anything a future BindableAction adds still renders — it just lands in the
+  // catch-all group rather than silently disappearing from the panel.
+  const filed = new Set(KB_GROUPS.flatMap((g) => g.actions));
+  const groups = KB_GROUPS.concat([
+    { title: "OTHER", actions: [...live].filter((a) => !filed.has(a)) },
+  ]);
+  kbRows.innerHTML = groups
+    .map((g) => {
+      const rows = g.actions.filter((a) => live.has(a));
+      if (!rows.length) return "";
+      return `<div class="kb-group">${g.title}</div>` + rows.map(rowHtml).join("");
     })
+    .filter(Boolean)
     .concat(gamepadEnabled && gamepad.connected ? [
       `<div class="kb-row kb-pad">Controller — sticks: move / aim · A X B Y: slots 1-4 · ` +
       `RT: ultimate · LB: flask · RB: stairs · LT: ping · Start: inventory · ` +
@@ -3102,7 +3197,10 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
  * On a coarse pointer CONTROLS opens first, because a player on glass did not
  * come here to rebind W.
  */
-let kbPages: { tabs: HTMLElement; keys: HTMLElement; controls: HTMLElement } | null = null;
+let kbPages: {
+  tabs: HTMLElement; keys: HTMLElement; prefs: HTMLElement;
+  controls: HTMLElement; credits: HTMLElement;
+} | null = null;
 function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
   if (kbPages) return kbPages;
   const panel = keysEl.querySelector(".panel") as HTMLElement | null;
@@ -3115,17 +3213,26 @@ function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
     return e;
   };
   const keys = page("kb-page-keys");
+  const prefs = page("kb-page-prefs");
   const controls = page("kb-page-controls");
-  // Everything between the hint and the credits is keyboard/settings content.
+  const credits = page("kb-page-credits");
+  // r1 blocker: this used to be ONE page — 24 flat rows plus two credit
+  // blocks, 1,237px against a 681px window at 1366, so "Mute sound" was
+  // sliced by the panel edge and the CC-BY attribution never rendered at all.
+  // Four pages: bindings, options, touch controls, credits.
   const moving: HTMLElement[] = [];
-  for (let n = hint.nextElementSibling; n; n = n.nextElementSibling) {
-    if (n.classList.contains("credits")) break;
-    moving.push(n as HTMLElement);
+  for (let n = hint.nextElementSibling; n; n = n.nextElementSibling) moving.push(n as HTMLElement);
+  for (const n of moving) {
+    if (n.classList.contains("credits")) credits.appendChild(n);
+    else if (n.id === "kb-prefs") prefs.appendChild(n);
+    else keys.appendChild(n);
   }
-  for (const n of moving) keys.appendChild(n);
   const tabs = document.createElement("div");
   tabs.className = "kb-tabs";
-  for (const [id, label] of [["keys", "KEY BINDINGS"], ["controls", "CONTROLS"]]) {
+  for (const [id, label] of [
+    ["keys", "KEY BINDINGS"], ["prefs", "OPTIONS"],
+    ["controls", "CONTROLS"], ["credits", "CREDITS"],
+  ]) {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.kbtab = id;
@@ -3136,8 +3243,8 @@ function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
     const b = (e.target as HTMLElement).closest("[data-kbtab]") as HTMLElement | null;
     if (b) { e.preventDefault(); showKbPage(b.dataset.kbtab!); }
   });
-  hint.after(tabs, keys, controls);
-  kbPages = { tabs, keys, controls };
+  hint.after(tabs, keys, prefs, controls, credits);
+  kbPages = { tabs, keys, prefs, controls, credits };
   // A player on glass came for the control layout, not for W.
   showKbPage(document.body.classList.contains("touch") ? "controls" : "keys");
   return kbPages;
@@ -3146,7 +3253,9 @@ function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
 function showKbPage(id: string): void {
   if (!kbPages) return;
   kbPages.keys.classList.toggle("on", id === "keys");
+  kbPages.prefs.classList.toggle("on", id === "prefs");
   kbPages.controls.classList.toggle("on", id === "controls");
+  kbPages.credits.classList.toggle("on", id === "credits");
   for (const b of Array.from(kbPages.tabs.children) as HTMLElement[]) {
     b.classList.toggle("on", b.dataset.kbtab === id);
   }
@@ -3780,6 +3889,20 @@ function renderShopDetail(s: GameState): void {
   const room = shopRoomOf(s)!;
   const p = me(s);
   if (!shopSel) {
+    // THE CHASE is a want-list, not inventory (r1 major). Its idle pane used
+    // to fall through to "THE SYSTEM PROVIDES / FEATURED — Field Ration · 195",
+    // so a shelf whose header says the System does not stock these was
+    // advertising a price in the same frame. The chase gets its own idle copy.
+    if (shopView === "chase") {
+      srDetail.innerHTML =
+        `<div class="dempty-state">` +
+        `<div class="dsys">THE SYSTEM DOES NOT SELL THESE</div>` +
+        `<div class="dsigil"></div>` +
+        `<div class="dempty">One per band boss. The currency is the fight — ` +
+        `pick a trophy to see what it does to you.</div>` +
+        `</div>`;
+      return;
+    }
     // Never a void (AAA r2 major): the unselected pane shows the System's
     // engraved sigil + Mordecai's featured picks for the floor below.
     const avail = room.available
@@ -4378,16 +4501,16 @@ function renderShopPage(s: GameState): void {
         : shopView === "all" && entries.some((e) => !avail.has(e.id))
           ? `<span class="tnote">— stock varies by shop</span>`
           : "";
-    // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
-    // complete their row with recessed diamond-socket wells. 11 tiles fit a
-    // shelf row at 56px+8 gap; pad only to the end of the partial row so the
-    // shelf never grows a whole row of dead sockets (panels fit the viewport).
-    const perRow = 11;
-    const wells = (perRow - (entries.length % perRow)) % perRow;
+    // r1 major: the shelves used to pad every partial row out to 11 columns
+    // with recessed "well" tiles — roughly THIRTY empty wells shipped as
+    // content across the four tiers (CONSUMABLES 5 items + 6 wells, STARTER
+    // 3 + 8, SIGNATURE 4 + 7, COMPONENTS 18 + 4). They carry the same size,
+    // border and inner shadow as real tiles, so they read as "failed to load"
+    // or "locked slot", not "the row ended". LoL's shop lets a category end
+    // where it ends.
     shelf +=
       `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}` +
-      `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>`;
   }
   srShelf.innerHTML = shelf;
   renderShopSide(s);
@@ -4650,9 +4773,14 @@ document.addEventListener("pointerdown", (e) => {
   if (!tipItemFor(e.target as HTMLElement)) itemTipEl.style.display = "none";
 });
 
-srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
-srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
-srTabChase.addEventListener("click", () => { shopView = "chase"; renderSafeRoom(state); });
+// r1 major: switching the shelf tab left the detail pane advertising the
+// PREVIOUS tab's item — shop-chase-1600.png shows THE CHASE (five drop-only
+// boss uniques whose whole point is that they cannot be bought) with the pane
+// still offering "Field Ration · CONSUMABLES · 70 · BUY". A shelf change is a
+// change of subject; the selection does not survive it.
+srTabStock.addEventListener("click", () => { shopView = "stock"; shopSel = null; renderSafeRoom(state); });
+srTabAll.addEventListener("click", () => { shopView = "all"; shopSel = null; renderSafeRoom(state); });
+srTabChase.addEventListener("click", () => { shopView = "chase"; shopSel = null; renderSafeRoom(state); });
 srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
 srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
 srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
