@@ -8,7 +8,7 @@ import { CompetitiveApi } from "../src/server/competitiveApi";
 import { TokenService } from "../src/server/tokens";
 import { InlineExecutor } from "../src/server/verifyExecutor";
 import { cpFor, dailyEvent, seasonIdFor, standingFor, TIER_MIN_ACCOUNTS } from "../src/server/season";
-import { encodeProof, decodeProof, type RunProof } from "../src/sim/replay";
+import { encodeProof, decodeProof, REPLAY_DT, type RunProof } from "../src/sim/replay";
 import { RULES_HASH } from "../src/sim/rulesHash";
 import { recordBotRun } from "../tools/replaycheck";
 
@@ -104,7 +104,15 @@ describe("submit -> claimed -> verified", () => {
     await H.api.queue.drain();
     const row = H.api.store.getRun(out.runId)!;
     expect(row.state).toBe("rejected");
-    expect(row.rejectReason).toContain("claim disagrees with the replay");
+    // THE REJECTION CARRIES BOTH SIDES OF EVERY FIELD IT REFUSED. The verifier
+    // holds the claim and the replay at the moment it decides, and this used to
+    // print `diffClaim`'s bare identifiers ("...: status") to the player on the
+    // highest-stakes negative screen in the product. A debug token is not an
+    // explanation (6.2 Beat 5).
+    expect(row.rejectReason).toContain("you claimed floor 18");
+    expect(row.rejectReason).toContain("the replay reached floor");
+    expect(row.rejectReason).toContain("99,999 kills");
+    expect(row.rejectReason).not.toContain("disagrees with the replay: status");
     // A rejection costs time: the next submission is refused for a while.
     const again = await H.api.submit(run(13, 3).bytes, "acct-2", "Cheater", "9.9.9.9");
     if ("error" in again) throw new Error("unexpected error");
@@ -138,21 +146,50 @@ describe("version drift (COMPETITIVE.md 2.6)", () => {
     expect(H.api.store.getRun(out.runId)!.state).toBe("unverifiable");
   }, 60_000);
 
-  it("a build that carries the older era can still verify under it", async () => {
-    // Same proof, but this server declares it can execute that era - which is
-    // exactly what the sim-eras build step buys.
+  /**
+   * THE ERA GATE IS KEYED TO LOADABLE SIM MODULES, NEVER TO A STRING LIST
+   * (2.6f, on the server this time). verifyWorker imports exactly one sim, and
+   * it used to pass the caller's `eras[]` straight through as `availableEras`
+   * while `assertPlayableEra` only checked list membership - so widening
+   * `eras` to four (which is what CompetitiveApiOptions.eras says will happen)
+   * would have replayed era-N-2 proofs against era-N rules: silent divergence
+   * with no referee, false rejections of honest runs, and false
+   * certifications wherever the divergence missed the six diffed fields.
+   */
+  it("declaring an era with no sim behind it does not make it executable", async () => {
     H.link("acct-5");
     const api = new CompetitiveApi({
       store: H.db.competitive, db: H.db, tokens: H.tokens,
       executor: new InlineExecutor(), budgetMsPerSec: 1000,
       eras: [RULES_HASH, "b".repeat(64)], now: () => H.now,
     });
-    const { bytes } = run(11, 2);
-    const out = await api.submit(bytes, "acct-5", "Veteran", "2.2.2.3");
-    if ("error" in out) throw new Error("unexpected error");
+    // The current era still verifies...
+    const ok = await api.submit(run(11, 2).bytes, "acct-5", "Veteran", "2.2.2.3");
+    if ("error" in ok) throw new Error("unexpected error");
     await api.queue.drain();
-    expect(api.store.getRun(out.runId)!.state).toBe("verified");
+    expect(api.store.getRun(ok.runId)!.state).toBe("verified");
+
+    // ...and the era the deployment merely NAMED is refused, as unverifiable
+    // rather than as a rejection: the row keeps whatever it earned and the
+    // player is told plainly instead of accused (2.6d).
+    const { proof } = run(11, 2);
+    proof.header.rulesHash = "b".repeat(64);
+    const foreign = await api.submit(reseal(proof), "acct-5b", "Veteran", "2.2.2.4");
+    if ("error" in foreign) throw new Error("unexpected error: " + foreign.error);
+    expect(foreign.state).toBe("unverifiable");
     api.close();
+  }, 60_000);
+
+  it("the row is stamped with the era it was certified UNDER, not the box's", async () => {
+    // 2.6c requires `rules_hash = H`. They coincide while eras holds one entry;
+    // the job now carries the PROOF's hash so they keep coinciding for the
+    // right reason once sim-eras widens the list.
+    H.link("acct-era");
+    const { proof, bytes } = run(101, 2);
+    const out = await H.api.submit(bytes, "acct-era", "Carl", "2.9.9.9");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    expect(H.api.store.getRun(out.runId)!.rulesHash).toBe(proof.header.rulesHash);
   }, 60_000);
 
   it("PATCH DAY freezes an event pinned to an era this build cannot run", () => {
@@ -167,12 +204,18 @@ describe("version drift (COMPETITIVE.md 2.6)", () => {
 describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
   /** A REAL run of the day seed - the frames have to actually reproduce it,
    *  which is the entire point of the ticket path. */
+  /** A ticket is STAMPED (3.2A): it is signed when the contract is signed, and
+   *  the run submitted under it has to be the run that followed. An honest
+   *  attempt therefore looks like "signed one run-length ago". */
+  function signedAgo(proof: RunProof): number {
+    return H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000;
+  }
   function ticketedProof(accountId: string, attempt: number, floors = 3): Uint8Array {
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
     const { proof } = run(evt.seed, floors);
     proof.header.eventId = evt.id;
-    proof.header.ticket = H.tokens.issueTicket(evt.id, accountId, attempt);
+    proof.header.ticket = H.tokens.issueTicket(evt.id, accountId, attempt, signedAgo(proof));
     return reseal(proof);
   }
 
@@ -182,7 +225,7 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
     const { proof } = run(101, 2);
     proof.header.eventId = evt.id; // but header.seed is still the bot seed
-    proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-e1", 1);
+    proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-e1", 1, signedAgo(proof));
     const out = await H.api.submit(reseal(proof), "acct-e1", "Carl", "3.3.3.3");
     expect("error" in out && out.error).toContain("seed does not match");
   }, 60_000);
@@ -203,16 +246,73 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
 
   it("a forged ticket does not verify", () => {
     const evt = dailyEvent(H.now);
-    const real = H.tokens.issueTicket(evt.id, "acct-x", 1);
-    expect(H.tokens.readTicket(real, evt.id, "acct-x")).toBe(1);
+    const real = H.tokens.issueTicket(evt.id, "acct-x", 1, H.now);
+    expect(H.tokens.readTicket(real, evt.id, "acct-x")?.attemptNo).toBe(1);
+    expect(H.tokens.readTicket(real, evt.id, "acct-x")?.issuedAtMs)
+      .toBe(Math.floor(H.now / 1000) * 1000);
     // Same ticket, different account: the HMAC binds both.
     expect(H.tokens.readTicket(real, evt.id, "acct-y")).toBeNull();
-    // Attempt number rewritten to 1 to look like a first try.
     const parts = real.split(".");
-    expect(H.tokens.readTicket(parts[0] + ".1." + parts[2], evt.id, "acct-x")).toBe(1);
-    const forged = H.tokens.issueTicket(evt.id, "acct-x", 7).split(".");
-    expect(H.tokens.readTicket(forged[0] + ".1." + forged[2], evt.id, "acct-x")).toBeNull();
+    // The stamp is inside the signature too, so backdating a real ticket to
+    // widen its window is a forgery like any other.
+    expect(H.tokens.readTicket(`${parts[0]}.1.${Number(parts[2]) - 9999}.${parts[3]}`, evt.id, "acct-x"))
+      .toBeNull();
+    const forged = H.tokens.issueTicket(evt.id, "acct-x", 7, H.now).split(".");
+    expect(H.tokens.readTicket(`${forged[0]}.1.${forged[2]}.${forged[3]}`, evt.id, "acct-x")).toBeNull();
   });
+
+  /**
+   * THE DODGE 3.2A IS DOCUMENTED AS CLOSING, actually closed.
+   *
+   * The ticket signed `eventId:accountId:attemptNo` and nothing else, and
+   * readTicket was a pure signature check with no single-use marking - so the
+   * honest-looking sequence was: call /start once, keep ticket #1, play twenty
+   * runs entirely offline, submit the best. It arrived as attempt 1,
+   * scoresCp: true, and the verdict screen printed "attempt 1 on this contract
+   * — the run the ladder scores", a statement the server could not back.
+   */
+  it("an attempt-1 ticket is single-use", async () => {
+    H.link("acct-t1");
+    const first = await H.api.submit(ticketedProof("acct-t1", 1, 2), "acct-t1", "Carl", "7.0.0.1");
+    if ("error" in first) throw new Error(first.error);
+    expect(first.queued).toBe(true);
+    await H.api.queue.drain();
+    // The same signature, a second time. (Same bytes, same ticket.)
+    const again = await H.api.submit(ticketedProof("acct-t1", 1, 2), "acct-t1", "Carl", "7.0.0.1");
+    if ("error" in again) throw new Error(again.error);
+    expect(again.queued).toBe(false);
+    expect(again.reason).toContain("already been spent");
+    expect(H.api.store.getRun(again.runId)!.attemptNo).toBeNull();
+  }, 90_000);
+
+  it("a ticket that went cold does not back an attempt-1 CP claim", async () => {
+    H.link("acct-t2");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 2);
+    proof.header.eventId = evt.id;
+    // Signed two hours ago: the window holds one run, not an afternoon of them.
+    proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-t2", 1, H.now - 2 * 3600_000);
+    const out = await H.api.submit(reseal(proof), "acct-t2", "Carl", "7.0.0.2");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(false);
+    expect(out.reason).toContain("gone cold");
+    // The row still exists - the run happened - it simply scores nothing.
+    expect(H.api.store.getRun(out.runId)!.state).toBe("claimed");
+    expect(H.db.competitive.seasonCp("acct-t2", seasonIdFor(H.now))).toBeNull();
+  }, 60_000);
+
+  it("a ticket younger than the run it carries is refused", async () => {
+    H.link("acct-t3");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 3);
+    proof.header.eventId = evt.id;
+    proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-t3", 1, H.now); // signed "just now"
+    const out = await H.api.submit(reseal(proof), "acct-t3", "Carl", "7.0.0.3");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.reason).toContain("younger than the run");
+  }, 60_000);
 
   it("the board takes your BEST attempt; CP is scored on your FIRST", async () => {
     H.link("acct-e3");
@@ -282,7 +382,12 @@ describe("abuse guards (COMPETITIVE.md 2.7)", () => {
     if ("error" in out) throw new Error(out.error);
     expect(out.queued).toBe(false);
     expect(out.state).toBe("claimed");
-    expect(out.reason).toContain("LINK AN IDENTITY");
+    expect(out.reason).toContain("anonymous claim");
+    // ...AND THE REFUSAL IS FLAGGED, NOT JUST WORDED (6.2 Beat 5). "LINK AN
+    // IDENTITY" existed only as prose in the refusal string, so the verdict had
+    // no way to render a control and shipped the demand with no button. A typed
+    // flag is what a copy edit cannot silently take away.
+    expect(out.needsIdentity).toBe(true);
     expect(H.api.queue.depth).toBe(0);
   }, 60_000);
 
@@ -379,7 +484,8 @@ describe("privacy (COMPETITIVE.md 8.1) and FORGET ME", () => {
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
     const { proof } = run(evt.seed, 3);
     proof.header.eventId = evt.id;
-    proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-del", 1);
+    proof.header.ticket = H.tokens.issueTicket(
+      evt.id, "acct-del", 1, H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
     const out = await H.api.submit(encodeProof(proof), "acct-del", "Ghost", "1.2.3.10");
     if ("error" in out) throw new Error(out.error);
     await H.api.queue.drain();
@@ -536,11 +642,13 @@ describe("band records require TRAVERSAL, not attendance (COMPETITIVE.md 3.3)", 
     const file = join(dir, "old.sqlite");
     const before = openDb(file)!;
     before.competitive.insertRun({
-      id: "deep", accountId: "a", displayName: "Deep", seed: 1, won: false, floor: 7,
+      id: "deep", accountId: "a", displayName: "Deep", seed: 1, mode: "coop", runKind: "race",
+      won: false, floor: 7,
       timeTicks: 9000, kills: 10, level: 5, state: "verified", createdAt: 1000,
     });
     before.competitive.insertRun({
-      id: "shallow", accountId: "b", displayName: "Shallow", seed: 1, won: false, floor: 2,
+      id: "shallow", accountId: "b", displayName: "Shallow", seed: 1, mode: "coop", runKind: "race",
+      won: false, floor: 2,
       timeTicks: 300, kills: 1, level: 1, state: "verified", createdAt: 1000,
     });
     before.close();
@@ -598,6 +706,100 @@ describe("proof retention (COMPETITIVE.md 2.4 Storage)", () => {
     expect(H.db.competitive.getProof(oldest.proofId!)).toBeNull();
     expect(H.api.publicRun(oldest).playable).toBe(true);
   }, 60_000);
+
+  /**
+   * THE KEEP-SET IS A UNION ACROSS EVERY BOARD. It used to be one ordering -
+   * `won DESC, floor DESC, time_ticks ASC`, which is the DEEPEST board and only
+   * that one - so the FASTEST and KILLS leaders had their proofs swept while
+   * their rows still held rank 1, and RACE went inert on exactly the rows 2.4
+   * Storage promises to keep playable.
+   */
+  it("the KILLS leader keeps its film even when it is not the deepest run", async () => {
+    H.link("acct-r2");
+    H.link("acct-r3");
+    // A deep run from one account...
+    const deep = await H.api.submit(run(101, 4).bytes, "acct-r2", "Deep", "1.2.3.30");
+    if ("error" in deep) throw new Error(deep.error);
+    // ...and a shallower one from another, which will hold a different board.
+    H.now += 60_000;
+    const other = await H.api.submit(run(13, 3).bytes, "acct-r3", "Killer", "1.2.3.31");
+    if ("error" in other) throw new Error(other.error);
+    await H.api.queue.drain();
+
+    // Personal retention off entirely: only board position may keep a proof.
+    H.db.competitive.sweepProofs(0, 25);
+    const kills = H.db.competitive.board({ kind: "kills", eventId: null, verifiedOnly: true, limit: 25 });
+    expect(kills.length).toBeGreaterThan(0);
+    for (const row of kills) {
+      expect(H.db.competitive.getProof(row.proofId!)).not.toBeNull();
+    }
+    void deep;
+  }, 90_000);
+});
+
+describe("the wire never carries a credential (COMPETITIVE.md 2.7 / 8.2)", () => {
+  /**
+   * account_id IS the bearer token. POST /runs?token=... passes it straight in
+   * as the account id and TokenService.isUsable authenticates that exact
+   * string, so `publicRun` returning `accountId` meant one unauthenticated
+   * GET /boards/deepest handed out a working credential for every ranked
+   * crawler: burn their attempt counter so their first real run can never
+   * score CP, flip their sealed run private, submit a tampered proof in their
+   * name for the rejection cooldown, read their linked identity, or - for an
+   * anonymous account - complete their FORGET ME.
+   */
+  it("no projection leaks the account token, and the public id is one-way", async () => {
+    H.link("acct-leak");
+    const out = await H.api.submit(run(101, 3).bytes, "acct-leak", "Marked", "5.5.5.5");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+
+    const row = H.api.publicRun(H.api.store.getRun(out.runId)!);
+    expect(row.accountId).toBeUndefined();
+    expect(typeof row.publicId).toBe("string");
+    expect(JSON.stringify(row)).not.toContain("acct-leak");
+
+    const prof = H.api.profile("acct-leak", H.now);
+    expect(prof.accountId).toBeUndefined();
+    expect(JSON.stringify(prof)).not.toContain("acct-leak");
+
+    H.db.competitive.follow("acct-leak", "acct-friend", H.now);
+    expect(JSON.stringify(H.api.profile("acct-leak", H.now))).not.toContain("acct-friend");
+
+    const rc = H.api.rivalContract("acct-leak", H.now);
+    expect(JSON.stringify(rc)).not.toContain("acct-leak");
+
+    // ...and the public id still round-trips to a profile, which is the ONE
+    // thing a share link and a YOU/RIVAL tag actually need it for.
+    expect(H.db.competitive.accountForPublicId(String(row.publicId))).toBe("acct-leak");
+  }, 60_000);
+});
+
+describe("boards state their own honesty (COMPETITIVE.md 3.2B)", () => {
+  it("verified and claimed rows arrive in separate arrays, and entries is proofs only", async () => {
+    // The split used to be client-side only, in one renderer, while the API
+    // response's own subtitle claims "every ranked row is a proof the server
+    // re-executed" - so any second consumer (a /run/<id> share page, an embed,
+    // a third party, a future mobile host) rendered a fabricated floor-18 row
+    // inside a payload that advertises verification.
+    H.link("acct-b1");
+    const good = await H.api.submit(run(101, 3).bytes, "acct-b1", "Honest", "6.6.6.1");
+    if ("error" in good) throw new Error(good.error);
+    await H.api.queue.drain();
+    // An unlinked account's row is stored CLAIMED and never replayed.
+    const claimed = await H.api.submit(run(47, 3).bytes, "acct-b2", "Unproven", "6.6.6.2");
+    if ("error" in claimed) throw new Error(claimed.error);
+
+    const page = JSON.parse(JSON.stringify({
+      verified: H.db.competitive.board({ kind: "deepest", eventId: null, limit: 50 })
+        .filter((r) => r.state === "verified").map((r) => H.api.publicRun(r)),
+      unproven: H.db.competitive.board({ kind: "deepest", eventId: null, limit: 50 })
+        .filter((r) => r.state !== "verified").map((r) => H.api.publicRun(r)),
+    })) as { verified: { id: string }[]; unproven: { id: string }[] };
+    expect(page.verified.map((r) => r.id)).toContain(good.runId);
+    expect(page.unproven.map((r) => r.id)).toContain(claimed.runId);
+    expect(page.verified.map((r) => r.id)).not.toContain(claimed.runId);
+  }, 90_000);
 });
 
 describe("the numbers on the wire", () => {
@@ -650,6 +852,42 @@ describe("the wire path the browser actually uses", () => {
     expect(proof.bytes[0]).toBe(0x1f);
   }, 60_000);
 
+  it("a run the server did NOT certify is never handed out as a ghost", async () => {
+    // COMPETITIVE.md 2.6f: a refusal is STATED, never silent. GET /runs/:id
+    // ?proof=1 served the artifact with no state check at all, so a challenge
+    // code built from a `claimed` or `rejected` run handed a stranger a
+    // raceable rival the server had explicitly declined to certify.
+    H.link("acct-gate");
+    const { proof } = run(101, 3);
+    proof.claim.kills += 999; // a lie the replay will not reproduce
+    const out = await H.api.submit(reseal(proof), "acct-gate", "Liar", "1.2.3.40");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    const row = H.api.store.getRun(out.runId)!;
+    expect(row.state).toBe("rejected");
+    expect(H.db.competitive.getProof(row.proofId!)).not.toBeNull(); // the film still exists
+
+    const ask = async (token?: string): Promise<{ status: number; body: string }> => {
+      const chunks: string[] = [];
+      let status = 0;
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        setHeader() { /* no-op */ },
+        end(b?: unknown) { if (b) chunks.push(String(b)); },
+      } as unknown as import("node:http").ServerResponse;
+      const url = `/runs/${out.runId}?proof=1${token ? `&token=${token}` : ""}`;
+      await H.api.handle({ method: "GET", url, headers: {}, socket: {} } as
+        unknown as import("node:http").IncomingMessage, res);
+      return { status, body: chunks.join("") };
+    };
+
+    const stranger = await ask();
+    expect(stranger.status).toBe(409);
+    expect(stranger.body).toContain("REFUSED ON VERIFICATION");
+    // The owner can still pull their own artifact back.
+    expect((await ask("acct-gate")).status).toBe(200);
+  }, 60_000);
+
   it("the worker executor and the inline one produce the same verdict", async () => {
     const { verifyArtifact } = await import("../src/server/verifyWorker");
     const { bytes } = run(13, 3);
@@ -659,4 +897,193 @@ describe("the wire path the browser actually uses", () => {
     expect(b.ok).toBe(true);
     if (a.ok && b.ok) expect(b.summary).toEqual(a.summary);
   }, 60_000);
+});
+
+/**
+ * THE TWO EXPLOITS THIS ROUND CLOSED, AND THE BLIND SPOT THAT ALLOWED THEM.
+ *
+ * `grep -n 'roam|runKind|partySize' test/competitive.test.ts` returned NOTHING
+ * before this block, and test/replay.test.ts uses `runKind: "race"` in both
+ * places it appears. Forty excellent tests, and the one dimension the verifier
+ * never checked was the one dimension nothing asserted. A three-line case in a
+ * file that already builds proofs would have caught both.
+ */
+describe("which GAME a row was played under (COMPETITIVE.md 2.5 step 2)", () => {
+  it("an unverified RULESET never reaches a board that presents as verified", async () => {
+    // MEASURED, not reasoned: the shipped bot on seed 2024, recorded twice with
+    // a 40k-step cap and run through the real verifyArtifact, ended a RACE dead
+    // on floor 5 with 115 kills and ended a ROAM on floor 16 with 171 kills and
+    // a roam-only ultimate - `ok: true`, CERTIFIED. Roam floors have no boss
+    // gate and a flat 30-minute budget instead of floorTimeBudget, so the same
+    // policy walks about four times as far. That row takes DEEPEST, owns KILLS
+    // outright, and takes every band board - the boards 3.3 calls the most
+    // winnable - at roughly 2x pace. `validateProofShape` never looked at
+    // `header.runKind`, and `ReplaySession` builds the world straight from it.
+    H.link("acct-roam");
+    const { proof } = run(101, 3);
+    proof.header.runKind = "roam";
+    const out = await H.api.submit(reseal(proof), "acct-roam", "Wanderer", "7.7.7.1");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(false);
+    expect(out.reason).toContain("ROAM");
+    expect(H.api.queue.depth).toBe(0);
+    expect(H.api.store.getRun(out.runId)!.state).toBe("claimed");
+  }, 60_000);
+
+  it("the worker refuses the same header even if the door is bypassed", async () => {
+    // The gate is applied in BOTH places on purpose: a hand-rolled artifact
+    // must never reach ReplaySession, which would happily build a roam world.
+    const { verifyArtifact } = await import("../src/server/verifyWorker");
+    const { proof } = run(101, 2);
+    proof.header.runKind = "roam";
+    const v = await verifyArtifact({ id: "r", bytes: reseal(proof), budgetMsPerSec: 1000 });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.detail).toContain("ROAM");
+  }, 60_000);
+
+  it("stores WHICH GAME on the row, so a certified row can be audited later", async () => {
+    H.link("acct-kind");
+    const out = await H.api.submit(run(101, 3).bytes, "acct-kind", "Carl", "7.7.7.2");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    const row = H.api.store.getRun(out.runId)!;
+    expect(row.runKind).toBe("race");
+    expect(row.mode).toBe("coop");
+  }, 60_000);
+
+  it("party size is never a self-reported field on a proof-verified row", async () => {
+    // `partySize: Number(q.get("size") ?? 1)` was stored, returned on the wire
+    // and printed as "party of N" beside the gold seal - and NOTHING in
+    // ReplaySession.summary() or VerifiedFacts derives or contradicts it, while
+    // board({partySize}) filters on it and splitEntrants counts it toward
+    // opening the co-op split boards 7.4 defines. Worse than merely unverified:
+    // MUST-3 does not record party runs at all, so every "party of N>1" on a
+    // proof-verified row was necessarily fabricated. POST /runs?size=6 put a
+    // solo run on the 5-6 board with the gold seal.
+    H.link("acct-party");
+    const { Readable } = await import("node:stream");
+    const res = {
+      writeHead() { return res; }, setHeader() { /* no-op */ }, end() { /* no-op */ },
+    } as unknown as import("node:http").ServerResponse;
+    const body = Buffer.from(run(101, 3).bytes);
+    const req = Object.assign(
+      new Readable({ read() { this.push(body); this.push(null); } }),
+      { method: "POST", url: "/runs?token=acct-party&name=Solo&size=6", headers: {}, socket: {} },
+    ) as unknown as import("node:http").IncomingMessage;
+    await H.api.handle(req, res);
+    await H.api.queue.drain();
+    const rows = H.api.store.runsByAccount("acct-party", 5);
+    expect(rows.length).toBe(1);
+    expect(rows[0].partySize).toBe(1);
+  }, 60_000);
+});
+
+describe("a capability failure is UNVERIFIABLE, never REJECTED (2.6d)", () => {
+  it("running out of verification clock does not accuse the player", async () => {
+    // `rejected` is the state reserved for "the claim was false": it prints THE
+    // SYSTEM DISAGREES WITH YOU / REFUSED and costs the account a ten-minute
+    // cooldown. It was returned for the wall-clock ceiling, a replay throw, a
+    // worker crash, a closed executor and a failed spawn. `spent()` is WALL
+    // CLOCK including the duty sleeps, so the ceiling is not theoretical -
+    // there is a run length past which this ladder called honest players
+    // cheats, and nothing stated it.
+    const { verifyArtifact, maxCertifiableTicks } = await import("../src/server/verifyWorker");
+    const v = await verifyArtifact({
+      id: "slow", bytes: run(101, 4).bytes, budgetMsPerSec: 1000, ceilingMs: 1,
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) {
+      expect(v.state).toBe("unverifiable");
+      expect(v.detail).toMatch(/sim-minutes/);
+    }
+    // ...and the boundary is a number the product can print, not folklore.
+    //
+    // The third argument is the box-speed MULTIPLIER now, not an absolute
+    // us/tick: per-tick cost is a function of DEPTH (2.3: 20 us in a boss
+    // arena, 675 us on floor 16), so a scalar described the last thing
+    // submitted rather than the machine, and every submitter could move it
+    // (round-4 blocker 8). These assertions are STRICTLY STRONGER than the two
+    // they replace - the monotonicity is still required, and it is now required
+    // to hold WITHOUT the ceiling ever falling below a full clear.
+    expect(maxCertifiableTicks(250, 120_000, 1)).toBeGreaterThan(60_000);
+    // A genuinely slower box still certifies less, at a budget where the
+    // full-clear floor is not the binding constraint.
+    expect(maxCertifiableTicks(250, 20_000, 2))
+      .toBeLessThan(maxCertifiableTicks(250, 20_000, 0.5));
+    // ...but no measurement, however extreme, takes the PRODUCTION ceiling
+    // below the length of a full clear. This is the half that was missing.
+    expect(maxCertifiableTicks(250, 120_000, 50)).toBeGreaterThanOrEqual(60_000);
+  }, 60_000);
+
+  it("an over-long run is refused at the door, before the clock is spent", async () => {
+    H.link("acct-long");
+    const api = new CompetitiveApi({
+      store: H.db.competitive, db: H.db, tokens: H.tokens, executor: new InlineExecutor(),
+      budgetMsPerSec: 1000, ceilingMs: 1, now: () => H.now,
+    });
+    try {
+      const out = await api.submit(run(101, 3).bytes, "acct-long", "Marathon", "8.8.8.1");
+      if ("error" in out) throw new Error(out.error);
+      expect(out.state).toBe("unverifiable");
+      expect(out.reason).toContain("sim-minutes");
+      expect(out.reason).not.toMatch(/claim|cheat|disagree/i);
+    } finally {
+      api.close();
+    }
+  }, 60_000);
+});
+
+describe("the museum is not free-seeds-only (COMPETITIVE.md 3.2B)", () => {
+  it("a sealed contract run appears on the all-time board the seal names", async () => {
+    // `eventId: null` compiled to `event_id IS NULL`, and /boards/:kind with no
+    // `event` param passed null - so EVERY event run was excluded from every
+    // all-time board by construction. Live: the verdict said the run holds a
+    // position on DEEPEST and KILLS while both boards answered `entries: 0` and
+    // THE STANDINGS printed "this museum is empty".
+    H.link("acct-museum");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 3);
+    proof.header.eventId = evt.id;
+    proof.header.ticket = H.tokens.issueTicket(
+      evt.id, "acct-museum", 1,
+      H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
+    const out = await H.api.submit(reseal(proof), "acct-museum", "Carl", "9.1.1.1");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    expect(H.api.store.getRun(out.runId)!.state).toBe("verified");
+
+    // THE MUSEUM: every scope.
+    const museum = H.db.competitive.board({ kind: "deepest", verifiedOnly: true, limit: 25 });
+    expect(museum.some((r) => r.id === out.runId)).toBe(true);
+    // ...and the seal names BOTH boards it holds, each with its scope, so the
+    // player finds what the phrase promised.
+    const boards = H.db.competitive.holdsBoards(out.runId);
+    expect(boards).toContain("deepest");
+    expect(boards).toContain("deepest@" + evt.id);
+    // Free-seeds-only is still expressible; it is just not the default.
+    expect(H.db.competitive.board({ kind: "deepest", eventId: null, verifiedOnly: true }).length)
+      .toBe(0);
+  }, 60_000);
+});
+
+describe("FORGET ME reaches the rows that have no account", () => {
+  it("deletes the imported legacy copy, not just the JSON row", () => {
+    // importLegacyBoard keys every imported row `legacy:<name>` and runs
+    // unconditionally at boot; deleteAccount only ever matched account_id, and
+    // the name cascade reached the JSON file alone. So after a FORGET ME the
+    // JSON row went and the SQLite copy of the same crawler survived forever,
+    // publicly, in the UNPROVEN shelf on THE STANDINGS - 1.2's "LIVE privacy
+    // gap", re-opened by the migration that was supposed to close it.
+    const store = H.db.competitive;
+    const n = store.importLegacyBoard([
+      { name: "Ghosted", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
+      { name: "Kept", floor: 5, won: false, timeSec: 200, kills: 20, at: H.now },
+    ], 60);
+    expect(n).toBe(2);
+    expect(store.deleteByDisplayNames(["ghosted"])).toBe(1); // case-insensitive
+    const left = store.board({ kind: "deepest", limit: 50 });
+    expect(left.some((r) => r.displayName === "Ghosted")).toBe(false);
+    expect(left.some((r) => r.displayName === "Kept")).toBe(true);
+  });
 });

@@ -24,6 +24,36 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const LEGACY_TOKEN = /^[A-Za-z0-9_-]{8,64}$/;
 
+/**
+ * How much WALL CLOCK a ticketed attempt may spend beyond its own run length
+ * before the ticket stops backing an attempt-1 CP claim.
+ *
+ * The lower bound is arithmetic: a run of N ticks cannot be submitted sooner
+ * than `N * dt` after the contract was signed, because that is how long it
+ * takes to play. The upper bound is the one that actually closes the dodge -
+ * without it, "sign once, play twenty runs offline, submit the best" fits
+ * inside an unbounded window and arrives as attempt 1. Fifteen minutes is
+ * generous enough for the safe room, the menu and an alt-tab, and small
+ * enough that the window holds roughly one run rather than an afternoon of
+ * them. A ticket that falls outside it is not a rejection - the row is stored,
+ * unproven, with the reason printed, and the contract can be signed again.
+ */
+export const TICKET_GRACE_MS = 15 * 60_000;
+/** Slack on the lower bound, for clock skew between the box and the browser. */
+export const TICKET_SKEW_MS = 5_000;
+
+export interface TicketClaim {
+  attemptNo: number;
+  issuedAtMs: number;
+  /** The signature. Single-use is enforced against THIS, not against the
+   *  attempt number, so a re-issued ticket for the same attempt is a different
+   *  key and a replayed one is the same key. */
+  sig: string;
+}
+
+const TICKET_PAYLOAD = (eventId: string, accountId: string, attemptNo: number, issued: number): string =>
+  "ticket:" + eventId + ":" + accountId + ":" + attemptNo + ":" + issued;
+
 export class TokenService {
   private secret: string;
 
@@ -64,22 +94,38 @@ export class TokenService {
     return typeof token === "string" && (LEGACY_TOKEN.test(token) || this.isServerIssued(token));
   }
 
-  /** `<eventId>.<attemptNo>.<hmac>` - one integer per account per event, no
-   *  storage growth beyond a counter. */
-  issueTicket(eventId: string, accountId: string, attemptNo: number): string {
-    const body = eventId + "." + attemptNo;
-    return body + "." + this.sign("ticket:" + eventId + ":" + accountId + ":" + attemptNo);
+  /**
+   * `<eventId>.<attemptNo>.<issuedAtSec>.<hmac>` - one integer per account per
+   * event, no storage growth beyond a counter and a short-lived spent list.
+   *
+   * THE TIMESTAMP IS NOT DECORATION, IT IS THE HALF OF 3.2A THAT WAS MISSING.
+   * The ticket used to sign `eventId:accountId:attemptNo` and nothing else, so
+   * it was a permanent, replayable bearer credential for "attempt 1": call
+   * /start once, keep ticket #1, play twenty runs entirely offline, submit the
+   * best one, and it arrived as `attempt 1, scoresCp: true` - the exact dodge
+   * the ticket is documented as closing. A stamped ticket lets the server
+   * assert what it could not before: THE RUN HAPPENED INSIDE THE WINDOW THE
+   * SIGNATURE OPENED (see TICKET_GRACE_MS).
+   */
+  issueTicket(eventId: string, accountId: string, attemptNo: number, nowMs: number): string {
+    const issued = Math.floor(nowMs / 1000);
+    const body = eventId + "." + attemptNo + "." + issued;
+    return body + "." + this.sign(TICKET_PAYLOAD(eventId, accountId, attemptNo, issued));
   }
 
-  /** Returns the attempt number the ticket proves, or null. */
-  readTicket(ticket: unknown, eventId: string, accountId: string): number | null {
+  /** What the ticket proves: the attempt number, when it was signed, and the
+   *  signature itself, which is the single-use key (see `consumeTicket`). */
+  readTicket(ticket: unknown, eventId: string, accountId: string): TicketClaim | null {
     if (typeof ticket !== "string") return null;
     const parts = ticket.split(".");
-    if (parts.length !== 3) return null;
+    if (parts.length !== 4) return null;
     if (parts[0] !== eventId) return null;
-    const attempt = Number(parts[1]);
-    if (!Number.isInteger(attempt) || attempt < 1 || attempt > 100000) return null;
-    return this.verify("ticket:" + eventId + ":" + accountId + ":" + attempt, parts[2]) ? attempt : null;
+    const attemptNo = Number(parts[1]);
+    const issuedAt = Number(parts[2]);
+    if (!Number.isInteger(attemptNo) || attemptNo < 1 || attemptNo > 100000) return null;
+    if (!Number.isInteger(issuedAt) || issuedAt < 0) return null;
+    if (!this.verify(TICKET_PAYLOAD(eventId, accountId, attemptNo, issuedAt), parts[3])) return null;
+    return { attemptNo, issuedAtMs: issuedAt * 1000, sig: parts[3] };
   }
 
   /** Two-step confirm for FORGET ME on an anonymous account: the delete stops

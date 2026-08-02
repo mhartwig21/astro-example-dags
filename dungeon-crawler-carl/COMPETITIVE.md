@@ -1438,29 +1438,286 @@ when this screen is next touched, because each of them was a bug first:
   banked its own**, or every split proudly reports zero against itself.
 
 
-### KNOWN BUG — the band boards rank UNFINISHED splits (server side)
+### ELEVATION ROUND 2 — what the spine gained, and what it cost
 
-§3.3 defines a band row as the **fastest verified clear of the band's three
-floors within a full run**. The verifier does not enforce the *clear* half:
-`certify` writes a `run_bands` row for every band with `ticks > 0`, so a run
-that dies eight seconds into floor 1 posts an eight-second UNDERCROFT split and
-takes rank 1 on that board. Reproduced live: an honest, sealed, floor-1 death
-topped the Undercroft board.
+Not new systems. The round closed the gap between what this document says the
+verification spine does and what the code actually did.
 
-The client already refuses to bank an unfinished band as a personal best (a
-band counts only once the first floor of the NEXT band is entered, or the run
-is won on the last band — `bandCleared` in `main3d.ts`), and it labels a
-partial split `partial` instead of comparing it. **The fix belongs on the
-server**, in one of two places, and it should be the same rule:
+| Hole | Where it was | What it is now |
+|---|---|---|
+| **The public board handed out bearer tokens.** `publicRun` returned `accountId`, and `account_id` IS the auth token (`POST /runs?token=` passes it straight in, `TokenService.isUsable` authenticates that exact string). One unauthenticated `GET /boards/deepest` was a credential dump for every ranked crawler: burn their attempt counter, flip their sealed run private, submit a tampered proof in their name, read their linked identity, complete their FORGET ME | `competitiveApi.publicRun` | `publicIdFor(accountId)` = `sha256("dcc:public:"+id)[:16]`, on **every** wire projection — board rows, the profile, the follow list, the rival card. `account_public` holds the one reverse lookup a `/crawler/<publicId>` link needs. Asserted by a test that greps the whole payload for the token |
+| **Event tickets did not close the dodge they document.** `issueTicket` signed `eventId:accountId:attemptNo` only — no timestamp, no single-use — so "call /start once, keep ticket #1, play twenty runs offline, submit the best" arrived as attempt 1, `scoresCp: true` | `tokens.ts`, `competitiveApi.submit` | The ticket is **stamped** and **spent**. A submission must be at least `ticks * dt` old (a run cannot arrive before it has been played) and at most `ticks * dt + TICKET_GRACE_MS` (15 min) — so the window holds roughly one run rather than an afternoon of them — and the signature is consumed in `spent_tickets` on first use. A ticket outside its window is not a rejection: the row stands, unproven, with the reason printed |
+| **The era stamp was the server's, not the proof's.** `certify(..., rulesHash: RULES_HASH)` discarded `proof.header.rulesHash`. Invisible at one era; a lie on the first widened deploy, on the one chip §2.6c says LoL cannot show you | `VerifyJob.rulesHash` | The job carries the proof's hash and `certify` stamps `rules_hash = H` |
+| **The verify worker accepted eras it could not execute.** It imports one sim and passed the caller's `eras[]` through as `availableEras`; `assertPlayableEra` only checks list membership. Widening `eras` to four would have replayed old proofs under new rules — §2.6f's forbidden failure mode, on the server | `verifyWorker.ERA_SIMS` | The gate is keyed to **loadable sim modules**. `executableEras()` intersects any requested list with `ERA_SIMS`, in the worker AND in `CompetitiveApi`, so `playable` on the wire cannot promise a ghost the box cannot run. When `src/sim-eras/` lands, each era registers its module in that map |
+| **The verified/unproven split lived in one renderer.** `GET /boards/:kind` mixed both in `entries` while the response's own subtitle claimed every ranked row is a proof | `competitiveApi` boards route | Two arrays. `entries` is **proofs only**, `unproven` carries the claims, and a second consumer cannot render a fabricated floor-18 row as a rank |
+| **Proof retention evicted board leaders.** `sweepProofs` kept `won DESC, floor DESC, time_ticks ASC` — the DEEPEST ordering and only that — so FASTEST, KILLS and every band record holder lost their film while holding rank 1 | `CompetitiveStore.sweepProofs` | A UNION across all four `BOARD_KINDS` plus the six band boards, plus each account's last N |
+| **A claim outranked its own proof.** `board()` partitioned per account without `state = 'verified' DESC`, so a crawler who submitted the same run twice (once before linking an identity) had the *unproven* row chosen as their representative and vanished from verified-only boards. Reproduced live | `CompetitiveStore.board` | Verified wins the partition as well as the ordering |
+| **The one server-vouched score wore the forgery label.** A won RIVALS contract wrote to the retired JSON board, whose every response is stamped `UNSEALED · LEGACY — self-reported rows from before verification` | `gameServer` run-end edge | `CompetitiveStore.insertServerVouched` — a verified, era-stamped row with **no proof id**, so WATCH and RACE stay inert with a stated reason while the row is sealed, because the authoritative sim ran it |
+| **A near miss was condemned forever.** `wouldRank` is a snapshot of a board that moves, and only SHED jobs were ever re-queued | `reconsiderRankRefused` | A rank refusal keeps its film (inside the account's own last-N retention) and is re-offered when the rows above it move |
 
-- `CompetitiveStore.certify` — only insert a `run_bands` row for a band the run
-  actually left, or
-- `bandBoard` — filter to rows whose run reached the first floor below the band.
+And on the screen the player actually reads, §6's own rules applied to §6:
 
-`RunSummary.floorEntryTicks` already carries everything needed to decide it.
+- **The daily had two doors and the front one was silently unranked.** The
+  menu's gold headline tile resolved `dailySeed(day)` — the *same seed as the
+  server's daily contract* — with no ticket, so the most prominent button in
+  the product played today's contract dungeon while the ladder line printed
+  "free seed: contract points come from contracts". Both doors sign now
+  (`enterDailyContract`), R on a daily signs again, and the two cases that
+  genuinely cannot sign (a challenge link to a closed day, an unreachable
+  server) name themselves instead of being flattened into "free seed".
+- **§6.2's "A STATE THE VERIFIER WOULD REJECT NEVER WEARS LADDER FURNITURE"
+  was implemented for test-chamber starts only.** A REFUSED run showed the
+  ladder plate, "this run still holds its board row and its splits", and
+  `NEW PB — DEEPEST FLOOR 1` in gold around the refusal block. A rejection now
+  replaces the plate, suppresses every PB, and rolls the local band ledger back
+  to where the run found it.
+- **The seal's weight only knew about the daily.** `GET /runs/:id` returns
+  `boards[]` — the board keys the row occupies — so a free-seed run at rank 1
+  all-time stops being told "It ranks nowhere, and it is still true".
+- **SEALED meant two things ninety pixels apart.** The pre-submit kicker is
+  `NOTHING HAS LEFT THIS MACHINE`; SEALED is spent only on certification.
+- The default state gained **THE MARK** (one permanent row of the sealed
+  leader, §6 Beat 2 without the held TAB) and **the banked ledger** (every run
+  ticks an episode; none of it is a ladder claim, so it costs the spine
+  nothing). The explanation and navigation layer moved from 3.51:1 to
+  ≥5.26:1 at ≥10.5px. The panel went from 930×650 at (335,125) — 37% of a
+  1600×900 screen — to 74%. The docked consent card is measured rather than
+  guessed (`--consent-h`), so the grade medal stops being clipped by the
+  viewport edge on the one run per browser where it appears.
+
+### ELEVATION ROUND 3 — the spine stops contradicting itself
+
+Round 2 closed the gap between the document and the code. Round 3 closed the gap
+between **what one surface says and what the next one shows**, and shut two
+exploits that were measured, not reasoned about.
+
+**Two rulesets were reaching a board that presents as verified.**
+
+| Hole | Where it was | What it is now |
+|---|---|---|
+| **An unverified RULESET certified.** `validateProofShape` checks version, hash, seed, ticks, dt, startKind, actions and claim, and never looked at `header.mode` or `header.runKind` — while `ReplaySession` builds the world straight from them (`createGame(seed, mode, runKind)`). Measured: the shipped bot on seed 2024, recorded twice with a 40k-step cap and run through the real `verifyArtifact({requireFreshStart:true})` — **race** → dead on floor 5, 115 kills, 21,038 ticks; **roam** → floor 16, 171 kills, 35,224 ticks, ultimate `injunction`, and the verdict came back **`ok: true`**. Roam floors have no boss gate and a flat 30-minute budget instead of `floorTimeBudget`, so the same policy walks ~4x as far: DEEPEST takes a gold-sealed floor-16 roam row, KILLS is owned outright, and every band board — the boards §3.3 calls the most winnable — falls at ~2x pace. The client refusal existed and was POLITE only (`recBlocked = "ROAM has no clock and no board"`), exactly the pattern §2.5 step 2 says it made structural for test starts | `verifyWorker.rulesetRefusal` | One gate, applied at the door (`competitiveApi.submit`, beside the `startKind` check) **and** inside the worker before `ReplaySession` is constructed, so a hand-rolled artifact never builds a roam world. `runs.run_kind` stores which game was played, and `publicRun` carries `mode` + `runKind`, so an existing certified row can be audited and labelled |
+| **A competitive dimension the verifier never checks was printed inside the seal's frame.** `partySize` was read straight off the query string (`Number(q.get("size") ?? 1)`), stored, returned on the wire, and printed on a SEALED board row as `party of N`. Nothing in `ReplaySession.summary()` or `VerifiedFacts` derives or contradicts it, `certify()` never touches the column — and it is a **board axis**: `board({partySize})` filters `party_size = ?` and `splitEntrants("party_size", …)` counts toward opening the co-op split boards §7.4 defines. Worse than merely unverified: MUST-3 does not record party runs at all, so every `party of N>1` on a proof-verified row was necessarily fabricated. `POST /runs?token=…&size=6` put a solo run on the 5-6 board with the gold seal | `competitiveApi.submit` | A proof attests to ONE crawler's inputs, so a proof-verified row is `partySize: 1`, full stop. The `size` param is gone from the client and ignored by the server. Party rows come only from `insertServerVouched`, where the authoritative sim counted the seats itself, and the row says `counted by the server` |
+
+**Three places the product was telling the player something untrue.**
+
+- **The seal named boards that were empty when you clicked through.** `holdsBoards`
+  answers with SCOPED keys (`deepest@daily-2026-08-02`), `boardsPhrase` stripped
+  the scope with `b.split("@")[0]`, and — the actual bug underneath —
+  `BoardQuery.eventId === null` meant `event_id IS NULL`, which
+  `GET /boards/:kind` passed for every request with no `event` param. **Every
+  event run was excluded from every all-time board by construction**, so the
+  verdict said "it holds a position on DEEPEST, KILLS" while both boards
+  answered `entries: 0` and THE STANDINGS printed "this museum is empty". The
+  scope is now three-state (`undefined` = the museum, `null` = free seeds only,
+  a string = that event), `holdsBoards` reports both scopes, and `boardLabel`
+  prints `DEEPEST — TODAY'S CONTRACT` / `DEEPEST — ALL-TIME`.
+- **A rivals row claimed a film that never existed.** `insertServerVouched`
+  writes `proofId = null` (nobody records a party run) and `playability()` fell
+  through to *"the proof has aged out of retention"* — a deliberate false
+  statement, in the product whose pitch is that it does not make them.
+  `publicRun` now carries `film: "retained" | "expired" | "never"` (retention
+  never clears `proof_id`, so a null id means the film never existed), and the
+  refusal reads *THE SERVER RAN THIS ONE ITSELF*. The winner also finally sees
+  it: `renderSeal` opened with `if (net) { display = "none" }`, so the one
+  genuinely server-authoritative score in the product was the one the player was
+  never shown earning. There is a `vouched` verdict state for it now.
+- **`rejected` was returned for resource and infrastructure failures, and then
+  punished.** The wall-clock ceiling, a replay throw, a worker crash, a closed
+  executor and a failed spawn all answered `rejected` — the state reserved for
+  *the claim was false* — which prints THE SYSTEM DISAGREES WITH YOU and sets a
+  10-minute account cooldown. §2.6d says a capability failure is `unverifiable`,
+  never `rejected`. All six are `unverifiable` now. **And the boundary is stated
+  instead of discovered**: `maxCertifiableTicks(budget, ceiling, usPerTick)`
+  turns the duty cycle into a number of sim-minutes, the submit path refuses past
+  it *before* the clock is spent, and the reason names the limit. `spent()` is
+  wall clock including the duty sleeps, so a 120 s ceiling at 250 ms/s buys
+  ~30 s of CPU — there was a run length past which this ladder called honest
+  players cheats, and nothing stated it.
+
+**FORGET ME regressed, and re-opened the exact gap §1.2 calls live.**
+`importLegacyBoard` copies every legacy row into the competitive store keyed
+`accountId = "legacy:" + name` and runs unconditionally at boot;
+`deleteAccount` only ever matched `account_id`, and the name cascade reached
+only the JSON file. So after a FORGET ME the JSON row went and **the SQLite copy
+of the same crawler survived forever, publicly, in the UNPROVEN shelf on THE
+STANDINGS**. `CompetitiveStore.deleteByDisplayNames` closes it, wired into
+`onAccountDeleted` beside `leaderboard.forgetNames`, matching
+case-insensitively on both the legacy key and the snapshotted display name.
+
+**And on the screen the player reads more than any other:**
+
+- **The rejection prints numbers, not a debug token.** `verifyWorker` concatenated
+  `diffClaim`'s bare identifiers, so the highest-stakes negative moment in the
+  product read *"claim disagrees with the replay: status"*. The verifier holds
+  both sides at that moment; `describeClaimDiff` says *"you claimed 42 kills; the
+  replay counted 39"*. It lives on the server, so no era was spent to fix it.
+- **The default player can act on the demand.** A fresh anonymous token signing
+  the daily got `scoresCp: true` at the door and, at the exit, *"LINK AN
+  IDENTITY"* — a string that existed **only** as a server refusal, with no
+  button, link or OAuth affordance anywhere on the screen. `POST /events/:id/start`
+  answers `linked` now (so the door stops overselling), the submit outcome
+  carries a typed `needsIdentity`, and the seal renders a 195x36 button beside
+  the sentence. Measured: `scoresCp: false` at entry, `linkButtonExists: true`
+  at the verdict.
+- **The career panel stopped calling refused runs sealed.** The WHERE YOU DIE
+  histogram was labelled `${serverN} sealed runs` off `profile.deathsByFloor`,
+  built from ALL runs, while `seals` on the same response counts verified ones —
+  live, the chart read "4 sealed runs" and THE SEALED RECORD 300px below read
+  SEALS 0, because all four were REFUSED. The profile returns
+  `sealedDeathsByFloor` and `refused`; the chart draws certified rows only and
+  names what it left out.
+- **The verifier-derived detail is rendered.** Splits, the full build (gear with
+  rarities, ability ranks, glyph sockets), the named death and the four derived
+  numbers were all on the wire and discarded at render. Every sealed board row
+  has a DETAIL panel, and it says the crawler asserted none of it.
+- Plus: a `#TAG` discriminator on every row (two crawlers named "Carl" sat one
+  row apart with nothing between them), the grade's basis in a plate at 13px in
+  `--ink` instead of 168px of 11px `--ink-faint` wrapping three ways, FINAL STATS
+  deleted from behind TAB (it duplicated the scoreboard's own YOU column) and
+  SEASON RATINGS relabelled to the run it was actually showing, one clock built
+  from one tick count (the headline said 2:05 and the board row said 2:06), the
+  win state given its own plate/medal/exit-block/CTA treatment, WATCH freed from
+  the dismiss button, split boards collapsing into UNCLAIMED SPLITS instead of
+  six empty headers, THE OTHER MUSEUMS filling the 42% of viewport the ALL-TIME
+  tab left as black, and the explanation layer cut from ~90-word essays to one
+  line per surface (measured: 4-20% of the body by area).
+
+**Tests this round added, at the boundary that broke:** `grep -n
+'roam|runKind|partySize' test/competitive.test.ts` returned nothing before it.
+There are now cases for the roam header refused at the door AND in the worker,
+`run_kind`/`mode` stored on a certified row, `POST /runs?size=6` landing as
+`partySize: 1`, a capability failure returning `unverifiable` with the ceiling
+in sim-minutes, an over-long run refused at the door, a sealed contract run
+appearing on the all-time board its seal names, and a legacy row deleted by name.
+
+### ELEVATION ROUND 4 - the board becomes the gate
+
+Round 3 shut two rulesets at the DOOR. Round 4 found the third reaching the same
+board through the one door that never calls a gate - and the lesson is the whole
+round: **a ruleset check on an ingress path protects that path. A predicate on
+the board protects the board.**
+
+Every number below was measured on the shipping tree with `tools/repro-r4.ts`,
+against a real `GameServer` on its own SQLite volume, over real HTTP. The same
+script run after the fix prints the same attempt refused.
+
+**The exploit that unblocked this round.**
+
+`insertServerVouched` is the one writer that never passes through
+`rulesetRefusal`, because the server watched the run itself and needs no proof
+(1.1). Chain, all of it reachable from the shipping menu with no second player:
+
+1. `?rivals=1&join=CODE` seats one player and `getOrCreateInstance` sets
+   `mode = "rivals"` (`gameServer.ts`).
+2. `handlePlayerDeath` turns death into a **15-second time-out** in rivals -
+   `p.downedT = CONFIG.rivalsReviveSeconds`, `return` - so **the run never
+   ends**. There is no permadeath and no collapse clock behind those floors.
+3. On the win, `tickInstanceBody` calls `insertServerVouched`, which writes
+   `state: "verified"`, era-stamped, `proof_id NULL`.
+4. `board()` had **no mode/runKind predicate at all**.
+
+Measured: a rivals row (floor 18, 30,000 ticks, 2,400 kills, `proof_id NULL`)
+took **rank 1 on DEEPEST, FASTEST, KILLS and CONTRACTS simultaneously**, above a
+certified 54,398-tick permadeath clear, and `holdsBoards` returned all four.
+
+| Hole | Where it was | What it is now |
+|---|---|---|
+| **An unproven ruleset ranked #1 on every board.** The ROAM exploit of round 3, resurrected through the vouched path | `competitive.board`, `wouldRank`, `bandBoard`, `bandBests`, `holdsBoards` | `boardRuleset(kind)` - a predicate on the BOARD, read by every consumer. Boards rank `run_kind = 'race' AND mode = 'coop'`; CONTRACTS additionally ranks the server-vouched rivals race, and only with `party_size >= 2`, because a solo rivals instance is a contract against nobody |
+| **The sealed row falsified its own audit column.** `insertServerVouched` never passed `runKind` and `insertRun` defaulted it (`r.runKind ?? "race"`), so every server-vouched row was stamped `run_kind = race` whatever was played - a `{rivals, roam}` party included. Reproduced: `run_kind = "race"` on a roam instance, holding CONTRACTS rank 1 | `competitive.insertRun`, `gameServer` | `mode` and `runKind` are **required** on `NewRun` (compile time) and **checked** in `insertRun` (run time, because the type is erased and the row is not). `gameServer` passes `inst.state.mode` / `inst.state.runKind`. A roam party now writes a truthful row that reaches no board |
+| **The DAILY CONTRACT board rewarded dying faster.** `boardOrder("deepest")` was `won DESC, floor DESC, time_ticks ASC` - correct for a clear, INVERTED for a death - and the daily and weekly standings render from it while CP is paid on it. At the deliberate ~40% win rate (3.1) most of a visible contract board is non-clears. Reproduced: rank 1 = floor 1 / **8.00s** / 0 kills, above a floor-1 death with **310 kills**. 3.3 identified and fixed exactly this shape on the band boards ("the optimal play for a band record is to step into the band and die immediately") and left it on the board that carries the ladder | `competitive.DEEPEST_ORDER` | The clock only ever decides a CLEAR. Among deaths at equal depth the board ranks the run that did more, and deliberately uses **no** time term in either direction - `time DESC` would pay for standing still exactly as surely as `time ASC` pays for jumping into the first pit. One comparator (`compareDeepest`), shared by the ORDER BY, `wouldRank`, the event improvement test and the head-to-head ledger, so the ladder and the ledger cannot disagree |
+| **`GET /crawler/:id` fell back to treating the path segment as a bearer token.** `accountForPublicId(who[1]) ?? who[1]` - and the account id IS the credential `POST /runs` authenticates on. Unauthenticated and unthrottled. Reproduced: a real token answered `200 / runs=1 / name=REPRO`, a wrong one `200 / runs=0 / name=null` - a free confirmation oracle for a leaked token and a full career read for anyone who ever saw one | `competitiveApi` | Exactly one way to name a stranger (the derived public id) and exactly one way to ask for your own career (`/crawler/me?token=`, where `isUsable` decides). Unknown and unauthorised return the **same** 404, because a different answer is the oracle |
+| **The verify ledger mixed CPU ms and wall-clock ms.** `estimateMs` is CPU ms; the charge was `reply.msSpent`, which is `Date.now()` wall clock including the duty-cycle sleeps. Reproduced: **charged / CPU actually burned = 4.00x**, so honest heavy players hit the daily budget at a quarter of the stated allowance | `verify.ts`, `verifyWorker.ts` | The worker MEASURES what it is charged for: `VerifyReply` carries `cpuMs` (summed slice by slice, never a sleep) beside `msSpent`. Deriving one from the other with a duty factor would have been wrong for `InlineExecutor` by construction |
+| **The certification ceiling was a single global mutable any submitter could move.** `usPerTick` was one EMA shared by every account and `certifiableTicks` is inversely proportional to it. 2.3 already says why that is fatal: per-tick cost is dominated by MONSTER COUNT (20 us in a boss arena, 675 us on floor 16), so the scalar converges on whatever was submitted last. Reproduced: **37,725 ticks certifiable after twelve deliberately deep jobs from one account** - about ten sim-minutes, which refuses every clear on the board | `verifyWorker.tickCostUs` | A **cost curve, not a scalar**: `us/tick = scale * (55 + 0.0038 * ticks)`, fitted to 2.3's own measured table (72/141/143/230/240 us/tick at 4.3k/19.6k/25.9k/45.4k/48.3k ticks - every point within 12%). `scale` is dimensionless "how much slower is this box", clamped to [0.5, 3], so a deep submission CONFIRMS the box instead of indicting it. Plus a **relative floor**: no measurement may take the ceiling below a full clear, though the operator's own budget still can. `verify_cost_scale_milli` and `verify_certifiable_ticks` are on `/health` and `/metrics`, so drift is distinguishable from poisoning |
+| **Every read endpoint was unthrottled and ran on the tick thread.** `allow()` was called at exactly three places; `GET /runs/:id`, `/boards/:kind`, `/bands/:n`, `/crawler/:id` and `/events/current` had no bucket, no token and no cache, and `onRequest` dispatches them onto the main loop - one shared vCPU, 33 ms per 30 Hz tick ACROSS EVERY LIVE PARTY. `/runs/:id` alone runs eight window-function board queries plus six band joins. Reproduced: **120 of 120 concurrent `/boards/deepest?limit=100` answered, none throttled, none cached.** The subsystem spent a whole worker thread keeping replay off that thread and left the front door open to the same stall | `competitiveApi` | A read bucket (burst 40, 120/min) AND a 2-second response cache, because a bucket bounds one client and the cache is what bounds the SUM. Any write clears the cache outright - staleness under LOAD is fine, staleness after a WRITE is what a player watching their own seal would notice. `read_cache_hits` / `read_throttled_total` on `/health` |
+| **`unverifiable` rows vanished while the screen said they kept something.** `board()` selected `state IN ('verified','claimed')`, so the row was on no board and no UNPROVEN shelf - while `verdictSeal("unverifiable")` tells the player, in as many words, that "the row keeps whatever it earned" (2.6d) | `competitive.board` | `unverifiable` is on the shelf. It holds no rank - `entries` on the wire is proofs only - it is simply visible, which is the whole difference between keeping something and saying you did |
+
+**One consequence worth stating rather than discovering.** Correcting the cost
+model moved the certification ceiling from a number that was never reachable to
+a number that is. The old flat 110 us/tick made `certifiableTicks` come out at
+**24,000,000 ticks** - 111 hours of sim - so the depth limit round 3 shipped
+never actually fired. Against the measured curve the same production config
+(250 ms/s, a 120 s job ceiling) affords **72,563 ticks, about 20 sim-minutes**,
+which is comfortably past a full clear (~57k) and short of a 30-minute crawl.
+That is the box's real affordable depth per 2.3's own measurement, the refusal
+is `unverifiable` with the boundary printed and no accusation in it (2.6d), and
+the lever if it ever binds is the one 2.4 rule 4 already names: a VM size, or
+`VERIFY_JOB_CEILING_MS`. A ceiling that cannot be hit is not a ceiling; it is a
+number nobody checked.
+
+**What the screens stopped asserting.**
+
+- **The seal said "the server re-executed this run and certified it" about rows
+  that were never re-executed.** `sealChip` printed one sentence for both kinds
+  of `verified`, and a server-vouched row has `proof_id NULL` by construction.
+  The honest sentence existed in the tree - in `playability`, inside a disabled
+  button's `title`. There is a `SERVER-RUN` chip now, `provenanceOf(row)` decides
+  it from the row, and `boardRowHtml` renders the RULESET (`rulesetLabel`) so a
+  ruleset with no permadeath is not indistinguishable from the descent every
+  other row is. The old tell, "party of N", reads 1 on a solo rivals row.
+- **THE MARK named the player as their own rival.** It printed
+  `CARL / FLOOR 1 / level with the leader` on the player's OWN row - the
+  component knows how to say it correctly, it prints `YOUR OWN DEEPEST` in the
+  unlinked case, it was simply never told which rows were mine. `boardLeader()`
+  is now one definition of "#1" shared by THE MARK and the held-TAB scoreboard
+  column (which headed `#1 - KATIA` while the board below showed Katia at rank
+  2), it excludes the player, and when the player holds rank 1 it says so and
+  calls the crawler below them `rank 2` rather than `the leader`.
+- **The seal moment never happened.** Instrumented: `vseal pending` at t+0 while
+  the card was still at opacity 0 mid-entrance, `vseal verified ranked` by
+  t+900ms. No `verifying` frame was ever painted, so 6.2 Beat 5 - "watching the
+  seal land is two genuinely satisfying seconds" - was skipped entirely. There
+  is a **1.2 s floor** on the pending state measured from when the card reaches
+  the screen (not from the status edge, which is spent behind a letterbox), and a
+  terminal verdict arriving inside it is HELD and re-issued, never dropped.
+- **The action row had no hierarchy.** Seven controls wrapping to two rows read
+  as a toolbar on the screen that exists to convert a death into the next run in
+  under eight seconds. STANDINGS moved into the held-TAB drawer, where the boards
+  already live; SAVE THE CARD was always inside SHARE. Three decisions, two
+  drawers.
+- **Every standings panel overflowed the viewport by a constant 48px** at
+  1366x768, 1600x900 and 2560x1440. Constant across a 2x range is chrome, not
+  content - and it was: `box-sizing: border-box` is deliberately not global in
+  this stylesheet, so `min-height: calc(100vh - 36px)` was a CONTENT height and
+  the frame's own 46px of padding and 2px of border rode on top of it. So MORE
+  BELOW fired on a CONTRACTS screen holding four rows, on the one product with
+  an explicit no-scrollbars stance. Measured before: 48 / 48 / 48. After: **0 at
+  all three sizes, and 0 horizontally**, which the same rule also fixes at the
+  narrow widths where `width: 100%` plus 54px of chrome used to overrun its own
+  padded container.
+- **The scoreboard is three columns.** THE GHOST YOU RACED answered two of seven
+  rows and dashed the rest, because the ghost TRACK carries a trajectory and
+  nothing else - so the one run where the comparison is worth the most, a RUN IT
+  BACK against yourself, printed five em-dashes. `GhostState.facts` carries what
+  the source knows: a sealed board row brings the verifier's own damage, gold and
+  level; RUN IT BACK brings this browser's last run.
+- **Precision and copy.** One clock at one precision on the post-run scoreboard
+  (the same run printed 0:07.76, 0:07 and 0:07.86 on one table); `count(n,
+  "kill")` instead of an unconditional plural; a 7.76-second run banks `+8s`
+  rather than `+1` beside a value in minutes; and the DEPTH commentary reads the
+  floor, because "you did not go deep enough to matter" fired on a floor-13
+  death.
+
+**Tests this round added, at the boundary that broke:** `test/round4.test.ts`
+drives the real router and asserts a solo rivals row holds no board position
+while a two-seat one holds CONTRACTS and only CONTRACTS; that a row with no
+stated ruleset cannot be inserted at all; that the contract board ranks the
+death that did more while still putting every clear first, fastest first; that
+an `unverifiable` row is on the shelf and not in `entries`; that reads throttle,
+cache and invalidate on write; that `/crawler/<token>` and `/crawler/<garbage>`
+are byte-identical 404s while `/crawler/me?token=` answers; that the ledger
+charges CPU; that the cost curve reproduces 2.3's own measured replay times; and
+that fifteen deliberately expensive deep jobs cannot push the ceiling below a
+full clear. `test/social.test.ts` adds the seal provenance, the ruleset label,
+the self-exclusion in THE MARK, and the copy cases.
 
 ### SHOULD
 
+- **WATCH.** The word is no longer spent on dismiss, but there is still no
+  in-browser replay on the verdict: `RUN IT BACK` races your own ghost, and that
+  is the closest the screen gets to "the server re-executed this, here it is".
+  §8.2's REPLAY (the ghost worker with a camera attached — seek = index into the
+  precomputed track) is the missing piece, and it needs a camera target the
+  renderer does not currently expose.
 - **Ghosts** (§4.1). The sim seam is already done by MUST-1; this is a worker that
   precomputes the ghost track, one translucent render pass, and the era gate.
 - **Season CP, tiers, placement** (§3.2C) and the **profile** (§5.2).

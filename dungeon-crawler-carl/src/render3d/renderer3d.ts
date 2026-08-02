@@ -6463,6 +6463,20 @@ export class Renderer3D {
             mm.receiveShadow = false;
           });
           (mesh.userData.play as ((n: string) => void) | undefined)?.("run");
+          // A GROUND MARKER, because a 34%-opacity cold body in a torchlit
+          // room reads as a lighting artifact. The ring is the cue that says
+          // "something is standing there" from across an arena; the projected
+          // nameplate (main3d: updateGhostPlate) says WHO.
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.42, 0.56, 40).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({
+              color: 0x8fc0e8, transparent: true, opacity: 0.5,
+              depthWrite: false, side: THREE.DoubleSide,
+            }),
+          );
+          ring.position.y = 0.03;
+          ring.renderOrder = 2;
+          mesh.add(ring);
           mesh.position.set(gp.x, 0, gp.y);
           this.scene.add(mesh);
           this.ghostMesh = mesh;

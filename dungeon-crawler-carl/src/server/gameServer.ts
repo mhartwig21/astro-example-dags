@@ -12,6 +12,7 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
+import { dayFromMs } from "../sim/daily";
 import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
@@ -259,6 +260,14 @@ export class GameServer {
       this.db.onAccountDeleted = (_id, names) => {
         const n = this.leaderboard.forgetNames(names);
         if (n > 0) console.log("forget-me: removed " + n + " legacy board row(s)");
+        // ...AND THE SQLITE COPY OF THE SAME ROWS. `importLegacyBoard` runs
+        // unconditionally at boot and keys those rows `legacy:<name>`, which no
+        // account-id delete can ever reach - so a forgotten crawler's name
+        // survived in the UNPROVEN shelf on THE STANDINGS forever while the
+        // JSON row it was copied from was gone. The cascade has to reach both
+        // halves or it has not happened.
+        const m = this.db?.competitive.deleteByDisplayNames(names) ?? 0;
+        if (m > 0) console.log("forget-me: removed " + m + " imported legacy row(s)");
       };
     }
     this.tokens = new TokenService(process.env.SESSION_SECRET);
@@ -1025,15 +1034,47 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
-        // A secured RIVALS contract goes on the all-time board SERVER-SIDE —
-        // the one score the authoritative sim can vouch for itself.
+        // A secured RIVALS contract goes on the CONTRACTS board SERVER-SIDE —
+        // the one score the authoritative sim vouches for itself (1.1).
+        //
+        // It used to be written to the retired JSON board, and every response
+        // that board serves is now stamped `unsealed: true` / "UNSEALED ·
+        // LEGACY — self-reported rows from before verification". The single
+        // genuinely authoritative row in the product was wearing the label
+        // reserved for forgeries. It goes to CompetitiveStore as a VERIFIED,
+        // era-stamped row with no proof id: nobody recorded a party run, so
+        // WATCH and RACE stay inert with a reason, the way an aged-out proof
+        // does — but the row is sealed, because the server ran it.
         if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
           const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
-          if (winner) {
-            this.leaderboard.submitAlltime({
-              name: sanitizeName(winner.name), floor: inst.state.floor, won: true,
-              timeSec: Math.round(inst.state.elapsed), kills: winner.kills,
-            }, Date.now(), true);
+          const seat = inst.clients.find((c) => c.playerId === inst.state.winnerId);
+          const store = this.db?.competitive;
+          if (winner && store && seat) {
+            const at = Date.now();
+            store.insertServerVouched({
+              id: dayFromMs(at) + "-rivals-" + inst.code + "-" + (at % 100000),
+              accountId: seat.accountId, displayName: sanitizeName(winner.name),
+              eventId: null, seed: inst.state.seed,
+              // WHICH GAME, FROM THE INSTANCE, NEVER DEFAULTED (blocker 12).
+              // `runKind` was simply not passed and `insertRun` filled in
+              // "race", so every server-vouched row asserted the race ruleset -
+              // including a party that joined with `?rivals=1&roam=1`, whose
+              // floors have no boss gate and a flat 30-minute budget. The row
+              // was written `verified` in the same statement, so the product's
+              // only self-vouched score was also its only sealed row that
+              // stated a ruleset it had not been played under.
+              mode: inst.state.mode, runKind: inst.state.runKind,
+              // Counted by the authoritative sim, which is the only reason this
+              // number is allowed to be anything but 1 (blocker 15). It is also
+              // what CONTRACTS gates on: a rivals instance with one seat is a
+              // race against nobody in a ruleset with no permadeath, and
+              // `boardRuleset` refuses it.
+              partySize: Math.max(1, inst.state.players.length),
+              won: true, floor: inst.state.floor,
+              timeTicks: Math.round(inst.state.elapsed * 60), kills: winner.kills,
+              level: winner.level, ultimate: winner.abilities.ultimate ?? null,
+              state: "verified", rulesHash: RULES_HASH, createdAt: at,
+            }, at);
           }
         }
       }

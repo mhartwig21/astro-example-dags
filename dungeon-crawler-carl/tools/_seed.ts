@@ -58,7 +58,7 @@ function addRun(o: {
   const p = o.proofIdx != null ? proofs[o.proofIdx] : null;
   store.insertRun({
     id, accountId: o.account, displayName: o.name, eventId: o.eventId ?? null,
-    seed: o.eventId ? daily.seed : 1000 + n, rulesHash: null, mode: "solo", partySize: 1,
+    seed: o.eventId ? daily.seed : 1000 + n, rulesHash: null, mode: "coop", runKind: "race", partySize: 1,
     won: o.won, floor: o.floor, timeTicks: Math.round(o.timeSec / REPLAY_DT), kills: o.kills,
     level: o.level, ultimate: o.ult, attemptNo: o.attempt ?? null, private: !!o.priv,
     state: "claimed", proofId: p ? p.id : null, createdAt: created,
