@@ -11,6 +11,7 @@ import { createRng, nextFloat, type Rng } from "./rng";
 import { CONFIG, floorBand } from "./config";
 import type { FloorMap, MonsterKind, Vec2 } from "./types";
 import PURPOSES_DATA from "./roomPurposes.data.json";
+import { dcos, dhypot, dsin } from "./dmath";
 
 export interface RoomPurpose {
   id: string;
@@ -207,7 +208,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
   const byDist = candidates
     .map((ri) => {
       const r = map.rooms[ri];
-      return { ri, d: Math.hypot(r.x + r.w / 2 - map.spawn.x, r.y + r.h / 2 - map.spawn.y) };
+      return { ri, d: dhypot(r.x + r.w / 2 - map.spawn.x, r.y + r.h / 2 - map.spawn.y) };
     })
     .sort((a, b) => a.d - b.d);
   const count = Math.min(5, byDist.length, pool.length);
@@ -296,7 +297,7 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
   const W = map.w;
   const tileOf = (x: number, y: number) => Math.floor(y) * W + Math.floor(x);
   const nearPoint = (ti: number, pt: Vec2, d: number) =>
-    Math.hypot((ti % W) + 0.5 - pt.x, Math.floor(ti / W) + 0.5 - pt.y) < d;
+    dhypot((ti % W) + 0.5 - pt.x, Math.floor(ti / W) + 0.5 - pt.y) < d;
   // Baseline reachability BFS: passable = not Wall (locked doors open later,
   // so furniture may never be the second lock on a door).
   const passable = (ti: number, blocked: Set<number>) =>
@@ -397,8 +398,8 @@ export function assignRoomPurposes(seed: number, floor: number, map: FloorMap): 
     const n = 2 + Math.floor(nextFloat(rng) * 3);
     for (let s = 0; s < n; s++) {
       const a = (s / n) * Math.PI * 2 + nextFloat(rng) * 0.6;
-      const sx: number = tableAnchor.x + Math.cos(a) * 0.9;
-      const sy: number = tableAnchor.y + Math.sin(a) * 0.9;
+      const sx: number = tableAnchor.x + dcos(a) * 0.9;
+      const sy: number = tableAnchor.y + dsin(a) * 0.9;
       const ti = Math.floor(sy) * W + Math.floor(sx);
       if (map.tiles[ti] !== 1 || accepted.has(ti)) continue;
       d.seats.push({ x: sx, y: sy });

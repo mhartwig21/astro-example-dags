@@ -1143,6 +1143,24 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
+  /**
+   * THE RIVAL GHOST (COMPETITIVE.md 4.1). A rival's proof replayed beside you
+   * is the cheapest multiplayer this game will ever ship, and it is only
+   * multiplayer if you can SEE it. A split delta in the corner is a number; a
+   * translucent crawler rounding the corner ahead of you is a race.
+   *
+   * It is a TRAJECTORY, never a shared world: no collision, no loot, no
+   * damage, no lighting contribution. The pose is pushed in from the host each
+   * frame (it comes off a precomputed keyframe track, not a second sim).
+   */
+  private ghostMesh: THREE.Group | null = null;
+  private ghostPose: { x: number; y: number; onFloor: boolean } | null = null;
+  private ghostSkin = "";
+
+  /** Host hook: where the rival is this frame, or null for no ghost. */
+  setGhost(pose: { x: number; y: number; onFloor: boolean } | null): void {
+    this.ghostPose = pose;
+  }
   // Containers that may spawn knocked on their side (place() tipped variants).
   private static TIPPABLE = new Set([
     "barrel_small", "barrel_large", "keg", "keg_decorated", "pot_large", "box_small", "trunk_small_A",
@@ -1917,6 +1935,7 @@ export class Renderer3D {
     this.playerMeshes.clear();
     for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
     this.decoyMeshes.clear();
+    if (this.ghostMesh) { this.scene.remove(this.ghostMesh); this.ghostMesh = null; }
     for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
     this.breakableMeshes.clear();
     for (const mesh of this.monsters.values()) this.scene.remove(mesh);
@@ -5684,6 +5703,62 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.decoyMeshes) {
       if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
+    }
+
+    // THE GHOST, IN THE ROOM. Same body as the crawler it came from, drained of
+    // colour and half there: it has to read as a rival at a glance and never as
+    // something you can hit. It renders only while it shares your floor - a
+    // rival two floors down is information for the rail chip, not a marker
+    // floating through a wall.
+    {
+      const gp = this.ghostPose;
+      if (gp && gp.onFloor) {
+        const skin = Renderer3D.skinIdFor(p, state.seed);
+        if (this.ghostMesh && this.ghostSkin !== skin) {
+          this.scene.remove(this.ghostMesh);
+          this.ghostMesh = null;
+        }
+        if (!this.ghostMesh) {
+          const mesh = this.buildPlayerMesh(skin);
+          mesh.traverse((o) => {
+            const mm = o as THREE.Mesh;
+            if (!mm.isMesh || !mm.material) return;
+            const mats = (Array.isArray(mm.material) ? mm.material : [mm.material]).map((mat) => {
+              const g = mat.clone() as THREE.MeshStandardMaterial;
+              g.transparent = true;
+              g.opacity = 0.45;
+              g.depthWrite = false; // a see-through body must not punch the depth buffer
+              if (g.color) {
+                // Desaturate to its own luminance, then pull it cold. A grey
+                // crawler in a warm torchlit dungeon reads as "not really here"
+                // without needing an outline shader.
+                const l = g.color.r * 0.299 + g.color.g * 0.587 + g.color.b * 0.114;
+                g.color.setRGB(l * 0.72, l * 0.78, l * 0.92);
+              }
+              if (g.emissive) g.emissive.setRGB(0.05, 0.07, 0.11);
+              if (g.map !== undefined) g.metalness = 0;
+              g.roughness = 1;
+              return g;
+            });
+            mm.material = Array.isArray(mm.material) ? mats : mats[0];
+            mm.castShadow = false;
+            mm.receiveShadow = false;
+          });
+          (mesh.userData.play as ((n: string) => void) | undefined)?.("run");
+          mesh.position.set(gp.x, 0, gp.y);
+          this.scene.add(mesh);
+          this.ghostMesh = mesh;
+          this.ghostSkin = skin;
+        }
+        const gm = this.ghostMesh;
+        const dx = gp.x - gm.position.x, dz = gp.y - gm.position.z;
+        if (dx * dx + dz * dz > 4e-4) this.turnTo(gm, Math.atan2(dx, dz), dt);
+        this.smoothTo(gm, gp.x, 0, gp.y, dt);
+        gm.visible = true;
+        (gm.userData.animTick as ((d: number) => void) | undefined)?.(dt);
+      } else if (this.ghostMesh) {
+        this.ghostMesh.visible = false;
+      }
     }
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.

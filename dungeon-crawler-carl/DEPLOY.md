@@ -206,6 +206,27 @@ fly scale show                         # verify; count MUST read exactly 1
 `fly.toml [[vm]]` should be updated to match whatever you scale to, or the
 next `fly deploy` silently scales it back.
 
+### Shipping a sim change (the rules-era checklist)
+
+`src/sim/` is hashed into a **rules era** (COMPETITIVE.md §2.6a), and a run
+proof is replayable only by a build that computes the same numbers. Two lines
+in the runbook, both cheap, both painful to forget:
+
+1. **Regenerate the hash**: `npx tsx scripts/simhash.ts --write`, and commit it.
+   `test/replay.test.ts` fails on a stale constant, so this is enforced, not
+   remembered. Comments, types and `bot.ts` do NOT move it; a `CONFIG` number does.
+2. **Check for a live event first**: `curl .../events/current`. Deploying a sim
+   change mid-contract FREEZES that contract — verified entries stand, new
+   submissions are refused. Prefer the season boundary (COMPETITIVE.md §3.5),
+   which is the natural patch window precisely because nobody has an in-flight
+   ladder position.
+
+Verification CPU is the one workload that would ever justify
+`fly scale vm performance-1x`, and it never requires scaling *out*. Watch
+`verify_backlog_seconds` and `verify_queue_depth` on `/health`; the queue holds
+itself to 25% of a core and **sheds its tail rather than closing the board**, so
+a backlog degrades submissions and never live play.
+
 ### Load shedding (if the box is ever saturated)
 
 The server already sheds at the edges — know the knobs before an incident:

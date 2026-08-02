@@ -16,6 +16,7 @@ import {
 } from "./game";
 import { PURPOSE_PERCEPTION } from "./roomPurposes";
 import { smashBlockersAt } from "./game";
+import { datan2, dcos, dhypot, dsin } from "./dmath";
 
 /**
  * SEPARATION (pack presence, AI tier 1): monsters softly shove each other
@@ -64,8 +65,8 @@ export function separateMonsters(state: GameState, dt: number): void {
             // Perfectly stacked: split along an id-derived heading so even a
             // spawn-point pile resolves, deterministically, without the RNG.
             const a = (m.id % 8) * (Math.PI / 4);
-            fx += Math.cos(a) * w;
-            fy += Math.sin(a) * w;
+            fx += dcos(a) * w;
+            fy += dsin(a) * w;
           } else {
             const d = Math.sqrt(d2);
             fx += (dx / d) * w;
@@ -79,7 +80,7 @@ export function separateMonsters(state: GameState, dt: number): void {
   for (let i = 0; i < ms.length; i++) {
     const f = push[i];
     if (!f) continue;
-    const len = Math.hypot(f.x, f.y);
+    const len = dhypot(f.x, f.y);
     if (len < 1e-6) continue;
     const step = Math.min(1, len) * CONFIG.monsterSeparationSpeed * dt;
     moveWithCollision(state.map, ms[i].pos, { x: f.x / len, y: f.y / len }, step, isWalkable);
@@ -165,7 +166,7 @@ function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number):
     const c = Math.SQRT1_2, s = sign * Math.SQRT1_2;
     const slip = { x: toPlayer.x * c - toPlayer.y * s, y: toPlayer.x * s + toPlayer.y * c };
     moveWithCollision(state.map, m.pos, slip, step, isWalkable);
-    if (Math.hypot(m.pos.x - px, m.pos.y - py) >= step * 0.5) return;
+    if (dhypot(m.pos.x - px, m.pos.y - py) >= step * 0.5) return;
   }
 }
 
@@ -211,7 +212,7 @@ function wander(state: GameState, m: Monster, dt: number): void {
       m.wanderDir = normalize({ x: m.home.x - m.pos.x, y: m.home.y - m.pos.y });
     } else {
       const a = nextFloat(state.rng) * Math.PI * 2;
-      m.wanderDir = { x: Math.cos(a), y: Math.sin(a) };
+      m.wanderDir = { x: dcos(a), y: dsin(a) };
     }
     m.wanderT = CONFIG.wanderLegSeconds * (0.5 + nextFloat(state.rng));
   }
@@ -267,7 +268,7 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
     const execute = m.affix === "executioner" && player.hp < player.maxHp * CONFIG.executionerThreshold
       ? CONFIG.executionerDmgMult : 1;
     const before = player.hp;
-    if (damagePlayerHit(state, player, m.damage * execute, { dir })) {
+    if (damagePlayerHit(state, player, m.damage * execute, { dir, src: m })) {
       handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
     }
     // VAMPIRIC elites (six-pack) drink what they hit — starve it by dodging.
@@ -295,7 +296,7 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
     if (dist(m.pos, player.pos) > radius) continue;
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    if (damagePlayerHit(state, player, dmg, { dir })) {
+    if (damagePlayerHit(state, player, dmg, { dir, src: m })) {
       handlePlayerDeath(state, player, `${player.name} stood in the blast radius. The System rolls the replay.`);
     } else {
       // Slams SHOVE (MOB-CONCEPTS knockback verb): surviving one still costs
@@ -317,7 +318,7 @@ function resolveRitualStrike(state: GameState, m: Monster): void {
     if (dist(m.pos, player.pos) > CONFIG.ritualRadius) continue;
     caught++;
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    if (damagePlayerHit(state, player, dmg, { dir })) {
+    if (damagePlayerHit(state, player, dmg, { dir, src: m })) {
       handlePlayerDeath(state, player, `${player.name} let the ritual finish. The System does not offer refunds.`);
     }
   }
@@ -449,7 +450,7 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (!player.alive || player.dashTime > 0) continue;
       if (dist(m.pos, player.pos) > reach) continue;
       const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-      if (damagePlayerHit(state, player, m.damage, { dir })) {
+      if (damagePlayerHit(state, player, m.damage, { dir, src: m })) {
         handlePlayerDeath(state, player, `${player.name} met the piston. Quality control approves.`);
       } else {
         // The Pit Digger's club launches FARTHER but hits gentler — it is
@@ -472,7 +473,7 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (!player.alive || player.dashTime > 0) continue;
       if (dist(m.pos, player.pos) > reach) continue;
       const hitDir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-      if (damagePlayerHit(state, player, m.damage, { dir: hitDir })) {
+      if (damagePlayerHit(state, player, m.damage, { dir: hitDir, src: m })) {
         handlePlayerDeath(state, player, `${player.name} was mugged to death. The System bills the estate.`);
         break;
       }
@@ -503,7 +504,7 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (!player.alive || player.dashTime > 0) continue;
       if (dist(m.pos, player.pos) > CONFIG.slagVentRadius) continue;
       const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-      if (damagePlayerHit(state, player, dmg, { dir, effect: "burn" })) {
+      if (damagePlayerHit(state, player, dmg, { dir, effect: "burn", src: m })) {
         handlePlayerDeath(state, player, `${player.name} stood in the exhaust. The Ironworks does not do refunds.`);
       } else {
         applyStatus(player, {
@@ -531,10 +532,10 @@ function resolveStrike(state: GameState, m: Monster): void {
       const abx = tip.x - m.pos.x, aby = tip.y - m.pos.y;
       const lenSq = abx * abx + aby * aby;
       const t = lenSq < 1e-8 ? 0 : Math.max(0, Math.min(1, ((player.pos.x - m.pos.x) * abx + (player.pos.y - m.pos.y) * aby) / lenSq));
-      const distToLane = Math.hypot(player.pos.x - (m.pos.x + abx * t), player.pos.y - (m.pos.y + aby * t));
+      const distToLane = dhypot(player.pos.x - (m.pos.x + abx * t), player.pos.y - (m.pos.y + aby * t));
       if (distToLane > CONFIG.lasherHookWidth) continue;
       const toLasher = normalize({ x: m.pos.x - player.pos.x, y: m.pos.y - player.pos.y });
-      if (damagePlayerHit(state, player, m.damage * CONFIG.lasherHookDmgMult, { dir: { x: -toLasher.x, y: -toLasher.y } })) {
+      if (damagePlayerHit(state, player, m.damage * CONFIG.lasherHookDmgMult, { dir: { x: -toLasher.x, y: -toLasher.y }, src: m })) {
         handlePlayerDeath(state, player, `${player.name} took the vine express. No return service.`);
       } else {
         const gap = dist(m.pos, player.pos);
@@ -619,7 +620,7 @@ function stepCharge(state: GameState, m: Monster, dt: number): void {
     if (dist(m.pos, player.pos) > CONFIG.chargerHitRadius) continue;
     (m.chargeHits ??= []).push(player.id);
     const away = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    if (damagePlayerHit(state, player, m.damage, { dir: away })) {
+    if (damagePlayerHit(state, player, m.damage, { dir: away, src: m })) {
       handlePlayerDeath(state, player, `${player.name} stood on the tracks. The charger did not brake.`);
     }
   }
@@ -1005,7 +1006,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2;
-        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.6);
+        spawnEnemyBolt(state, m.pos, { x: dcos(a), y: dsin(a) }, m.damage * 0.6);
       }
     }
     return;
@@ -1200,7 +1201,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       m.shootCd = CONFIG.foremanVolleyCooldown;
       for (let i = 0; i < CONFIG.foremanVolleyCount; i++) {
         const a = (i / CONFIG.foremanVolleyCount) * Math.PI * 2;
-        spawnEnemyBolt(state, m.pos, { x: Math.cos(a), y: Math.sin(a) }, m.damage * 0.5);
+        spawnEnemyBolt(state, m.pos, { x: dcos(a), y: dsin(a) }, m.damage * 0.5);
       }
     }
     if (d > m.attackRange) {
@@ -1289,7 +1290,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       m.shootCd = CONFIG.sweepCooldown;
       // Start the beam ~90° off the target and sweep TOWARD them; the sign
       // picks the shorter arc so the pace reads immediately.
-      const targetAngle = Math.atan2(toPlayer.y, toPlayer.x);
+      const targetAngle = datan2(toPlayer.y, toPlayer.x);
       const offset = Math.PI / 2;
       const sign = nextFloat(state.rng) < 0.5 ? 1 : -1;
       const startAngle = targetAngle - sign * offset;
@@ -1297,8 +1298,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         id: state.nextEntityId++,
         pos: { x: m.pos.x, y: m.pos.y },
         end: {
-          x: m.pos.x + Math.cos(startAngle) * CONFIG.sweepLength,
-          y: m.pos.y + Math.sin(startAngle) * CONFIG.sweepLength,
+          x: m.pos.x + dcos(startAngle) * CONFIG.sweepLength,
+          y: m.pos.y + dsin(startAngle) * CONFIG.sweepLength,
         },
         t: CONFIG.sweepDuration,
         total: CONFIG.sweepDuration,
@@ -1555,12 +1556,12 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       // shares this firing bearing, strafe perpendicular (id-parity side)
       // until the crossfire opens — deterministic, and only the later
       // arrival moves, so pairs never oscillate.
-      const myBearing = Math.atan2(m.pos.y - hunt.pos.y, m.pos.x - hunt.pos.x);
+      const myBearing = datan2(m.pos.y - hunt.pos.y, m.pos.x - hunt.pos.x);
       let crowded = false;
       for (const ally of state.monsters) {
         if (ally === m || ally.hp <= 0 || !ARCHETYPES[ally.kind].ranged || ally.id >= m.id) continue;
         if (dist(ally.pos, hunt.pos) > standoff + 2.5) continue;
-        const ab = Math.atan2(ally.pos.y - hunt.pos.y, ally.pos.x - hunt.pos.x);
+        const ab = datan2(ally.pos.y - hunt.pos.y, ally.pos.x - hunt.pos.x);
         let diff = Math.abs(myBearing - ab);
         if (diff > Math.PI) diff = 2 * Math.PI - diff;
         if (diff < CONFIG.rangedLaneAngle) { crowded = true; break; }
@@ -1571,7 +1572,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         const px = m.pos.x, py = m.pos.y;
         for (const side of m.id % 2 === 0 ? [1, -1] : [-1, 1]) {
           moveWithCollision(state.map, m.pos, { x: -toPlayer.y * side, y: toPlayer.x * side }, m.speed * dt, isWalkable);
-          if (Math.hypot(m.pos.x - px, m.pos.y - py) >= m.speed * dt * 0.5) break;
+          if (dhypot(m.pos.x - px, m.pos.y - py) >= m.speed * dt * 0.5) break;
         }
       }
     }
@@ -1720,7 +1721,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     } else {
       const px = m.pos.x, py = m.pos.y;
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
-      if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+      if (dhypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
         // BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): stalled against blocking
         // furniture with the prey beyond it? Then the furniture IS the target —
         // the same telegraphed slam, resolved against the room (the resolve
@@ -1792,7 +1793,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     const dir = (obstructed ? flowDir(state, m.pos) : null)
       ?? ((m.slipT ?? 0) > 0 ? toPlayer : flankVector(state, m, toPlayer, d));
     moveWithCollision(state.map, m.pos, dir, moveSpeed * dt, isWalkable);
-    if (Math.hypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
+    if (dhypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
       m.slipT = 0.6;
       slipAround(state, m, toPlayer, moveSpeed * dt);
     }

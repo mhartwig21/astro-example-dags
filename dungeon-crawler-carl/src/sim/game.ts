@@ -36,9 +36,10 @@ import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
   Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, ItemSlot, Loot,
-  MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Rarity, Reward, SafeRoom, StatusKind, Vec2,
+  Hazard, MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Rarity, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
+import { dasin, datan2, dcos, dhypot, dpow, dsin } from "./dmath";
 
 /** Recompute effective stats: intrinsic(level) + permanent bonuses + equipped affixes. */
 export function recomputeStats(p: Player): void {
@@ -125,10 +126,10 @@ function makeMonster(state: GameState, kind: MonsterKind, pos: Vec2): Monster {
   const mpDmg = 1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer;
   // Compounding scaling steepens the back half (the linear curve loses to a
   // farming player by midgame). No effect at/under monsterScaleCompoundFrom.
-  const compound = Math.pow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
+  const compound = dpow(CONFIG.monsterScaleCompound, Math.max(0, floor - CONFIG.monsterScaleCompoundFrom));
   // The BUILD CHECK: floors past deepScaleCompoundFrom ramp again — the last
   // two bands demand a coherent build, not just a leveled crawler (config.ts).
-  const deep = Math.pow(CONFIG.deepScaleCompound, Math.max(0, floor - CONFIG.deepScaleCompoundFrom));
+  const deep = dpow(CONFIG.deepScaleCompound, Math.max(0, floor - CONFIG.deepScaleCompoundFrom));
   const baseHp = (CONFIG.monsterBaseHp + (floor - 1) * CONFIG.monsterHpPerFloor) * mpHp * compound * deep;
   const baseDmg = (CONFIG.monsterBaseDamage + (floor - 1) * CONFIG.monsterDamagePerFloor) * mpDmg * compound * deep;
   const baseXp = CONFIG.monsterXp + (floor - 1) * CONFIG.monsterXpPerFloor;
@@ -561,7 +562,7 @@ function spawnMonsters(state: GameState): void {
       const d = heavyPack
         ? CONFIG.heavyPackSpreadBase + nextFloat(rng) * CONFIG.heavyPackSpreadRange
         : 0.4 + nextFloat(rng) * 1.4;
-      let pos = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
+      let pos = { x: anchor.x + dcos(a) * d, y: anchor.y + dsin(a) * d };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x, y: anchor.y };
       if (!isWalkable(map, pos.x, pos.y)) pos = { x: anchor.x + 1, y: anchor.y }; // seats ring a table that BLOCKS
       // STAGING v2: residents take the PLAN'S seat slots first — the sim owns
@@ -1071,7 +1072,7 @@ function maxDashCharges(p: Player): number {
 function resetForFloor(p: Player, spawn: Vec2, offset: number): void {
   // Fan the party out around the spawn tile so nobody stacks.
   const a = offset * (Math.PI * 2 / 6);
-  p.pos = { x: spawn.x + (offset === 0 ? 0 : Math.cos(a) * 0.6), y: spawn.y + (offset === 0 ? 0 : Math.sin(a) * 0.6) };
+  p.pos = { x: spawn.x + (offset === 0 ? 0 : dcos(a) * 0.6), y: spawn.y + (offset === 0 ? 0 : dsin(a) * 0.6) };
   p.facing = { x: 0, y: 1 };
   p.cd = {};
   p.dashTime = 0;
@@ -1675,7 +1676,7 @@ function correctiveAmbush(state: GameState, p: Player): void {
     const kind: MonsterKind = i === count - 1 ? "ranged" : "swarmer";
     const a = (i / count) * Math.PI * 2 + nextFloat(state.rng) * 0.5;
     const d = CONFIG.interferenceAmbushRadius * (0.75 + nextFloat(state.rng) * 0.5);
-    let pos = { x: p.pos.x + Math.cos(a) * d, y: p.pos.y + Math.sin(a) * d };
+    let pos = { x: p.pos.x + dcos(a) * d, y: p.pos.y + dsin(a) * d };
     if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: p.pos.x, y: p.pos.y };
     const add = makeMonster(state, kind, pos);
     add.xp = 1; // corrective content is not a farm
@@ -1691,7 +1692,7 @@ function hazardReview(state: GameState, p: Player): void {
   for (let i = 0; i < CONFIG.interferenceHazardCount; i++) {
     const a = nextFloat(state.rng) * Math.PI * 2;
     const d = nextFloat(state.rng) * 2.5;
-    const pos = { x: p.pos.x + Math.cos(a) * d, y: p.pos.y + Math.sin(a) * d };
+    const pos = { x: p.pos.x + dcos(a) * d, y: p.pos.y + dsin(a) * d };
     if (!isWalkable(state.map, pos.x, pos.y)) continue;
     const delay = CONFIG.interferenceHazardDelay + i * 0.35;
     state.hazards.push({
@@ -1807,7 +1808,7 @@ export function raiseCorpse(state: GameState, m: Monster): void {
 /** Summoner elites call a swarmer add (worth almost no XP — not a farm). */
 export function summonMinion(state: GameState, m: Monster): void {
   const a = nextFloat(state.rng) * Math.PI * 2;
-  let pos = { x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7 };
+  let pos = { x: m.pos.x + dcos(a) * 0.7, y: m.pos.y + dsin(a) * 0.7 };
   // Never born INTO furniture (the blocked mask) — a swarmer wedged inside a
   // bookcase is stuck for good; the mother's own tile is always safe ground.
   if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: m.pos.x, y: m.pos.y };
@@ -1828,7 +1829,7 @@ export function spawnBossWave(state: GameState, boss: Monster): void {
     const kind: MonsterKind = i === count - 1 ? "ranged" : "swarmer";
     const a = (i / count) * Math.PI * 2 + nextFloat(state.rng) * 0.5;
     const d = 1.5 + nextFloat(state.rng) * 1.5;
-    let pos = { x: boss.pos.x + Math.cos(a) * d, y: boss.pos.y + Math.sin(a) * d };
+    let pos = { x: boss.pos.x + dcos(a) * d, y: boss.pos.y + dsin(a) * d };
     if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: boss.pos.x, y: boss.pos.y };
     const add = makeMonster(state, kind, pos);
     add.xp = 1;
@@ -1926,7 +1927,7 @@ export function bossRootGrasp(state: GameState, m: Monster): void {
     const around = anchors[nextInt(rng, 0, anchors.length - 1)];
     const a = nextFloat(rng) * Math.PI * 2;
     const d = 1.5 + nextFloat(rng) * 2.5;
-    spots.push({ x: around.x + Math.cos(a) * d, y: around.y + Math.sin(a) * d });
+    spots.push({ x: around.x + dcos(a) * d, y: around.y + dsin(a) * d });
   }
   for (const pos of spots) {
     if (!isWalkable(state.map, pos.x, pos.y)) continue;
@@ -1960,7 +1961,7 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
   while (targets.length < CONFIG.debrisCount) {
     const a = nextFloat(rng) * Math.PI * 2;
     const d = 2 + nextFloat(rng) * 6;
-    targets.push({ x: m.pos.x + Math.cos(a) * d, y: m.pos.y + Math.sin(a) * d });
+    targets.push({ x: m.pos.x + dcos(a) * d, y: m.pos.y + dsin(a) * d });
   }
   for (const pos of targets) {
     if (!isWalkable(state.map, pos.x, pos.y)) continue;
@@ -2081,9 +2082,14 @@ export function applyPlayerKnockback(p: Player, dir: Vec2, tiles: number, cap: n
   p.knock = { dir: d, left: Math.min(Math.max(p.knock?.left ?? 0, 0) + tiles, Math.max(cap, tiles)) };
 }
 
+/** Stable machine key for a hazard that killed someone (Player.lastHitSrc).
+ *  Hazards have no owner in the sim, so the zone kind IS the attacker. */
+function hazardSrc(hz: Hazard): string {
+  return "hazard:" + (hz.kind ?? "blast");
+}
 export function damagePlayerHit(
   state: GameState, p: Player, base: number,
-  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind; hazard?: boolean } = {},
+  opts: { dir?: Vec2; roll?: boolean; effect?: StatusKind; hazard?: boolean; src?: Monster | string } = {},
 ): boolean {
   // Rivals revive grace: a crawler fresh off the timer is briefly untouchable.
   if ((p.reviveGraceT ?? 0) > 0) return false;
@@ -2112,6 +2118,16 @@ export function damagePlayerHit(
       hit(state, src.pos, shard, "enemy", { school: "physical", killed: src.hp <= 0 });
     }
   }
+  // The one-field ride-along that makes THE DEATH, NAMED possible
+  // (COMPETITIVE.md 6 Beat 3): remember the attacker BEFORE the bar moves.
+  // Written on every hit, read only at the death tick by the verifier.
+  p.lastHitSrc = {
+    by: typeof opts.src === "string" ? opts.src : opts.src ? opts.src.kind : "unknown",
+    label: typeof opts.src === "object" ? opts.src.eliteName : undefined,
+    dmg,
+    hpBefore: p.hp,
+    maxHp: p.maxHp,
+  };
   p.hp -= dmg;
   p.damageTaken += dmg;
   // Plot Armor (chase legendary): once per floor, the season arc demands you
@@ -2558,7 +2574,7 @@ export function damageMonster(
     dmg = Math.max(1, Math.round(dmg * CONFIG.riposteDamageTakenMult));
     guarded = true;
     const reflect = Math.max(1, Math.round(base * CONFIG.riposteReflectFraction));
-    if (damagePlayerHit(state, p, reflect, { dir: normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y }) })) {
+    if (damagePlayerHit(state, p, reflect, { dir: normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y }), src: m })) {
       handlePlayerDeath(state, p, `${p.name} swung into the flourish. The riposte was the whole show.`);
     }
     if (!m.noticed) {
@@ -2766,7 +2782,7 @@ export function damageMonster(
       Math.round(dmg * CONFIG.thornsReflectFraction),
       Math.max(1, Math.round(p.maxHp * CONFIG.thornsReflectCapFraction)),
     );
-    if (damagePlayerHit(state, p, reflect, { roll: false })) {
+    if (damagePlayerHit(state, p, reflect, { roll: false, src: m })) {
       handlePlayerDeath(state, p, `${p.name} beat ${m.eliteName ?? "an elite"} to death with their own health bar. THORNS, folks.`);
     }
   }
@@ -2783,10 +2799,10 @@ export function bodyRadius(m: Monster): number {
  * question is "does the sweep touch the BODY", not "is the center on the line". */
 function inSwing(pos: Vec2, facing: Vec2, m: Monster, range: number, arc: number): boolean {
   const toMon = { x: m.pos.x - pos.x, y: m.pos.y - pos.y };
-  const d = Math.hypot(toMon.x, toMon.y);
+  const d = dhypot(toMon.x, toMon.y);
   const r = bodyRadius(m);
   if (d - r > range) return false;
-  const halfArc = arc / 2 + Math.asin(Math.min(1, r / Math.max(d, r)));
+  const halfArc = arc / 2 + dasin(Math.min(1, r / Math.max(d, r)));
   return angleBetween(facing, toMon) <= halfArc;
 }
 
@@ -2812,7 +2828,7 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
     if (m.hp <= 0) continue;
     const toMon = { x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y };
     if (angleBetween(facing, toMon) > Math.PI / 2) continue; // behind the swing
-    const edge = Math.hypot(toMon.x, toMon.y) - bodyRadius(m);
+    const edge = dhypot(toMon.x, toMon.y) - bodyRadius(m);
     if (edge < nearestAhead) nearestAhead = edge;
   }
   const lunge = Math.min(CONFIG.meleeLungeDistance, Math.max(0, nearestAhead - 0.55));
@@ -2900,12 +2916,12 @@ function doPlayerAttack(state: GameState, p: Player, aim: Vec2, move: Vec2): voi
   // barrel, at last. Same reach test the monsters get.
   smashBreakables(state, ({ pos }) => {
     const to = { x: pos.x - p.pos.x, y: pos.y - p.pos.y };
-    return Math.hypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
+    return dhypot(to.x, to.y) <= mp.range + 0.25 && angleBetween(facing, to) <= mp.arc / 2;
   });
   // RIVALS: the same swing arc also cuts rivals sharing this floor.
   for (const v of rivalTargets(state, p)) {
     const toV = { x: v.pos.x - p.pos.x, y: v.pos.y - p.pos.y };
-    const edge = Math.hypot(toV.x, toV.y) - 0.35;
+    const edge = dhypot(toV.x, toV.y) - 0.35;
     if (edge > mp.range || angleBetween(facing, toV) > mp.arc / 2) continue;
     const dmg = power(p, "melee") * mp.damageMult * stanceMult(p, "melee") * (oc?.mult ?? 1) * comboMult;
     pvpStrike(state, p, v, dmg, normalize(toV));
@@ -2972,7 +2988,7 @@ export function explodeBomber(state: GameState, m: Monster, radiusMult = 1): voi
     const away = dist(m.pos, p.pos) > 1e-4
       ? normalize({ x: p.pos.x - m.pos.x, y: p.pos.y - m.pos.y })
       : undefined;
-    if (damagePlayerHit(state, p, base, { dir: away })) {
+    if (damagePlayerHit(state, p, base, { dir: away, src: m })) {
       handlePlayerDeath(state, p, `${p.name} was BLOWN APART by a bomber. Sponsors, roll the replay.`);
     }
   }
@@ -3062,7 +3078,7 @@ function reapDead(state: GameState): void {
         const a = (i / CONFIG.greeterSparkCount) * Math.PI * 2 + m.id * 0.7;
         state.hazards.push({
           id: state.nextEntityId++,
-          pos: { x: m.pos.x + Math.cos(a) * 0.7, y: m.pos.y + Math.sin(a) * 0.7 },
+          pos: { x: m.pos.x + dcos(a) * 0.7, y: m.pos.y + dsin(a) * 0.7 },
           t: CONFIG.greeterSparkDelay,
           total: CONFIG.greeterSparkDelay,
           radius: CONFIG.greeterSparkRadius,
@@ -3149,7 +3165,7 @@ function reapDead(state: GameState): void {
       for (let i = 0; i < CONFIG.splitterCount; i++) {
         const a = nextFloat(state.rng) * Math.PI * 2;
         const child = makeMonster(state, "swarmer", {
-          x: m.pos.x + Math.cos(a) * 0.6, y: m.pos.y + Math.sin(a) * 0.6,
+          x: m.pos.x + dcos(a) * 0.6, y: m.pos.y + dsin(a) * 0.6,
         });
         child.xp = 1; // the payout was the elite, not the confetti
         spawned.push(child);
@@ -4433,11 +4449,11 @@ function doBolt(state: GameState, p: Player, aim: Vec2): void {
   const damage = Math.max(1, Math.round(bp.dmg * stanceMult(p, "ranged") * (oc?.mult ?? 1)));
   const speed = CONFIG.boltSpeed * bp.speedMult;
   const count = bp.count + (oc?.extraBolts ?? 0); // Overcharged Volley widens the fan
-  const base = Math.atan2(dir.y, dir.x);
+  const base = datan2(dir.y, dir.x);
   const spread = 0.22; // radians between fan bolts
   for (let i = 0; i < count; i++) {
     const a = base + (i - (count - 1) / 2) * spread;
-    const d = { x: Math.cos(a), y: Math.sin(a) };
+    const d = { x: dcos(a), y: dsin(a) };
     state.projectiles.push({
       id: state.nextEntityId++,
       pos: { x: p.pos.x + d.x * 0.6, y: p.pos.y + d.y * 0.6 },
@@ -4800,7 +4816,7 @@ function updateDecoys(state: GameState, dt: number): void {
 function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
   const ap = airstrikeParams(p);
   p.cd.airstrike = ap.cooldown; // rule-7 clamped (glyph CDR folds in)
-  const len = Math.hypot(aim.x, aim.y);
+  const len = dhypot(aim.x, aim.y);
   const range = Math.min(CONFIG.ultAirstrikeRange, len || 1);
   const dir = len > 0 ? { x: aim.x / len, y: aim.y / len } : p.facing;
   const target = { x: p.pos.x + dir.x * range, y: p.pos.y + dir.y * range };
@@ -4808,7 +4824,7 @@ function doAirstrike(state: GameState, p: Player, aim: Vec2): void {
     const a = nextFloat(state.rng) * Math.PI * 2;
     const d = nextFloat(state.rng) * ap.spread;
     state.strikes.push({
-      pos: { x: target.x + Math.cos(a) * d, y: target.y + Math.sin(a) * d },
+      pos: { x: target.x + dcos(a) * d, y: target.y + dsin(a) * d },
       t: 0.45 + i * 0.22,
       ownerId: p.id,
       kind: "shell",
@@ -4887,7 +4903,7 @@ function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const abx = b.x - a.x, aby = b.y - a.y;
   const lenSq = abx * abx + aby * aby;
   const t = lenSq < 1e-8 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq));
-  return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
+  return dhypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
 }
 
 function updateHazards(state: GameState, dt: number): void {
@@ -4909,7 +4925,7 @@ function updateHazards(state: GameState, dt: number): void {
         } else {
           const target = state.players.find((p) => p.id === hz.trackId && p.alive);
           if (target) {
-            const d = Math.hypot(target.pos.x - hz.pos.x, target.pos.y - hz.pos.y);
+            const d = dhypot(target.pos.x - hz.pos.x, target.pos.y - hz.pos.y);
             if (d > 1e-4) {
               hz.end = {
                 x: hz.pos.x + ((target.pos.x - hz.pos.x) / d) * CONFIG.sentinelBeamLength,
@@ -4926,7 +4942,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue; // dash i-frames beat the shot
           if (distToSegment(p.pos, hz.pos, hz.end) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage)) {
+          if (damagePlayerHit(state, p, hz.damage, { src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} stood on the dotted line. The System appreciates the composition.`);
           }
         }
@@ -4952,7 +4968,7 @@ function updateHazards(state: GameState, dt: number): void {
           for (const p of state.players) {
             if (!p.alive || p.dashTime > 0) continue;
             if (dist(hz.pos, p.pos) > hz.radius) continue;
-            if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
+            if (damagePlayerHit(state, p, hz.damage, { hazard: true, src: hazardSrc(hz) })) {
               handlePlayerDeath(state, p, `${p.name} tried to swim the surge. The sludge won. Smell-o-vision regrets everything.`);
             }
           }
@@ -4970,7 +4986,7 @@ function updateHazards(state: GameState, dt: number): void {
       hz.fired = true; // renders HOT from the first frame — it is live
       const dx = hz.end.x - hz.pos.x, dy = hz.end.y - hz.pos.y;
       const dth = hz.sweep * dt;
-      const cos = Math.cos(dth), sin = Math.sin(dth);
+      const cos = dcos(dth), sin = dsin(dth);
       hz.end = { x: hz.pos.x + dx * cos - dy * sin, y: hz.pos.y + dx * sin + dy * cos };
       hz.tick = (hz.tick ?? 0) - dt;
       if (hz.tick <= 0) {
@@ -4978,7 +4994,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (distToSegment(p.pos, hz.pos, hz.end) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage)) {
+          if (damagePlayerHit(state, p, hz.damage, { src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} read along with the Archivist. The text was a beam.`);
           }
         }
@@ -5004,7 +5020,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true, src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} stood on holy ground uninvited. The congregation objected.`);
           }
         }
@@ -5022,7 +5038,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true, src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} lay down on the bone pile. The ossuary accepts the donation.`);
           }
         }
@@ -5038,7 +5054,7 @@ function updateHazards(state: GameState, dt: number): void {
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue;
           if (dist(hz.pos, p.pos) > hz.radius) continue;
-          if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
+          if (damagePlayerHit(state, p, hz.damage, { hazard: true, src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} stood in the acid until the acid won. Chat is typing.`);
           } else {
             // The acid SOAKS IN (5.11): every tick in the puddle also stacks
@@ -5062,7 +5078,7 @@ function updateHazards(state: GameState, dt: number): void {
       const away = d > 1e-4
         ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
         : undefined;
-      if (damagePlayerHit(state, p, hz.damage, { dir: away, hazard: true })) {
+      if (damagePlayerHit(state, p, hz.damage, { dir: away, hazard: true, src: hazardSrc(hz) })) {
         handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
       }
     }
@@ -5385,14 +5401,14 @@ function updateProjectiles(state: GameState, dt: number): void {
           // never re-fork (and ricochet bounces never fork) — rule 4's
           // additive-behaviors line, with hitIds preventing re-hits.
           if (pr.ability && !pr.forked && !pr.bounced && hasGlyph(owner, pr.ability, "splitfang")) {
-            const baseA = Math.atan2(pr.vel.y, pr.vel.x);
-            const speed = Math.hypot(pr.vel.x, pr.vel.y);
+            const baseA = datan2(pr.vel.y, pr.vel.x);
+            const speed = dhypot(pr.vel.x, pr.vel.y);
             for (let f = 0; f < CONFIG.glyphSplitfangCount; f++) {
               const a = baseA + (f === 0 ? -0.35 : 0.35);
               state.projectiles.push({
                 id: state.nextEntityId++,
                 pos: { x: pr.pos.x, y: pr.pos.y },
-                vel: { x: Math.cos(a) * speed, y: Math.sin(a) * speed },
+                vel: { x: dcos(a) * speed, y: dsin(a) * speed },
                 damage: pr.damage * CONFIG.glyphSplitfangFrac,
                 ttl: 0.8, from: "player", ownerId: owner.id,
                 forked: true, hitIds: [m.id], school: pr.school, chill: pr.chill,
@@ -5465,7 +5481,7 @@ function updateProjectiles(state: GameState, dt: number): void {
       if (!absorbed) for (const p of state.players) {
         if (!p.alive || p.dashTime > 0) continue;
         if (dist(pr.pos, p.pos) > CONFIG.projectileRadius + 0.3) continue;
-        if (damagePlayerHit(state, p, pr.damage, { dir: normalize(pr.vel) })) {
+        if (damagePlayerHit(state, p, pr.damage, { dir: normalize(pr.vel), src: "shot" })) {
           handlePlayerDeath(state, p, `${p.name} was shot down in the arena. The audience is on its feet.`);
         }
         absorbed = true;
@@ -5547,7 +5563,7 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     if (p.alive) {
       for (const due of tickStatuses(p, dt)) {
         if (!p.alive) break;
-        if (damagePlayerHit(state, p, due.damage, { roll: false, effect: due.kind })) {
+        if (damagePlayerHit(state, p, due.damage, { roll: false, effect: due.kind, src: "status:" + due.kind })) {
           handlePlayerDeath(state, p, due.kind === "poison"
             ? `${p.name} succumbed to the poison. The System sells antidotes, for the record.`
             : `${p.name} burned out of the season. Literally.`);
@@ -5869,7 +5885,7 @@ function leaveRivalSafeRoom(state: GameState, p: Player): void {
   if (room.bonusTime) w.timeRemaining += room.bonusTime; // stabilizers help whoever's floor it is
   p.floorNo = next;
   const a = (p.id % 6) * (Math.PI * 2 / 6);
-  p.pos = { x: w.map.spawn.x + Math.cos(a) * 0.5, y: w.map.spawn.y + Math.sin(a) * 0.5 };
+  p.pos = { x: w.map.spawn.x + dcos(a) * 0.5, y: w.map.spawn.y + dsin(a) * 0.5 };
   // Per-player floor reset (the slice of resetForFloor that is personal).
   p.facing = { x: 0, y: 1 };
   p.cd = {};
@@ -5925,7 +5941,7 @@ export function pvpStrike(
 ): boolean {
   if (state.mode !== "rivals" || attacker.id === victim.id) return false;
   if (!victim.alive || (victim.reviveGraceT ?? 0) > 0 || victim.safeRoom) return false;
-  const dead = damagePlayerHit(state, victim, base * CONFIG.pvpDamageMult, { dir });
+  const dead = damagePlayerHit(state, victim, base * CONFIG.pvpDamageMult, { dir, src: "crawler" });
   if (dead) {
     const bounty = CONFIG.pkXpBase + victim.level * CONFIG.pkXpPerLevel;
     announce(state, "show",

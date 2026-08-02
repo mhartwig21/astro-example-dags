@@ -20,7 +20,9 @@ always-on machine — see DEPLOY.md before touching infra).
 ## The one architectural idea (load-bearing)
 
 **One deterministic sim, three hosts.** `src/sim/` is a pure core: no DOM, no
-`Math.random`, no `Date.now()` — all randomness flows through the seeded RNG
+`Math.random`, no `Date.now()`, **and no implementation-approximated `Math`**
+(sin/cos/atan2/pow/hypot come from `src/sim/dmath.ts` — ECMA-262 lets every
+engine round those differently, which would break replay verification) — all randomness flows through the seeded RNG
 in state, time only via the `dt` passed to `step()`. Identical inputs replay
 identical runs. Three hosts consume it:
 
@@ -42,6 +44,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `DESIGN.md` | Full design: pillars, systems (5.x per mechanic), architecture, directory layout, roadmap |
 | `README.md` | Player-facing intro + how to run |
 | `DEPLOY.md` | Production architecture, Fly.io ops, measured capacity, GCP migration plan |
+| `COMPETITIVE.md` | The social/competitive layer: the replay-verification spine (measured), ladders/seasons, ghosts, career identity, the post-run screen, and the scoped migration map |
 | `PERSISTENCE.md` | Server-side persistence (SQLite on the Fly volume): accounts + character saves are LIVE; world hibernate/restore is the P2 plan |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
@@ -57,6 +60,19 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 - `npm run dev` — Vite dev server (`/` = 2D host, `/iso.html` = 3D host)
 - `npm run server` — multiplayer server (ws; serves static too in prod mode)
 - `npm test` / `npm run typecheck` — Vitest + tsc (**both, before every commit**)
+- `npx tsx scripts/simhash.ts --write` — regenerate `src/sim/rulesHash.ts`.
+  **Required after any `src/sim/` change that moves a number** — the rules
+  hash is what tells a run proof which sim can replay it (COMPETITIVE.md
+  §2.6a). `test/replay.test.ts` fails if the committed constant is stale.
+
+- `npx tsx tools/replaycheck.ts [seeds] [floors]` — record + replay a bot run
+  through the shipping codec: artifact size, replay CPU, byte-exact check.
+
+**The one rule the host must never break** (COMPETITIVE.md MUST-3): every
+sub-step feeds `step()` an intent that has been through the replay wire format
+— `rec.record(i)` while recording, `canonicalIntent(i)` otherwise. Feeding the
+raw intent when no recorder is armed would make recorded and unrecorded runs
+diverge, which is exactly the bug the round trip exists to prevent.
 
 ## Test mode (jump into any stage)
 
@@ -87,8 +103,15 @@ src/sim/            THE GAME. Pure, deterministic, fully unit-testable.
   bot.ts            competent scripted player — powers the balance tests
   sheet.ts          derived character-sheet numbers (the P panel reads this)
   snapshot.ts       net serialization
+
 hosts:
-  main.ts/main3d.ts hosts (above); main3d.ts also owns ALL UI panels
+  main.ts/main3d.ts hosts (above); main3d.ts also owns ALL UI panels, and the
+                    competitive screens: THE VERDICT (post-run), THE STANDINGS
+                    (contracts/all-time/bands/rivals), THE CRAWLER (career),
+                    the ghost rail chip, and the submit-consent card
+  src/ui/social.ts  the arithmetic those screens must not get wrong: the grade
+                    and its cold-start fallback, the named death, band splits,
+                    seal/era chips, challenge + build codes, ghost lerp
   src/server/       gameServer: parties, intents in, snapshots out, /health
   src/net/          client side of the same
 presentation:

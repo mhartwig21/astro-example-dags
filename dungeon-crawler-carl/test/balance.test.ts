@@ -30,6 +30,21 @@ describe("determinism guard", () => {
           `${file} uses ${banned} — sim code must stay deterministic (seeded RNG + dt only)`,
         ).toBe(false);
       }
+      // ECMA-262 pins exact IEEE-754 results for + - * / and Math.sqrt and
+      // NOTHING else: every transcendental is implementation-approximated, and
+      // tools/mathdivergence.ts measures Chromium, Firefox and WebKit each
+      // disagreeing with Node on sin/cos/atan2. A replay that re-executes on a
+      // different engine than it recorded on would drift silently, and the
+      // verifier would call an honest player a cheater. src/sim/dmath.ts has
+      // engine-independent replacements; this guard is what keeps them used.
+      const TRANSCENDENTAL = new RegExp(
+        "Math[.](sin|cos|tan|asin|acos|atan|atan2|pow|exp|expm1|log|log1p|log2|log10|cbrt|hypot|sinh|cosh|tanh|asinh|acosh|atanh)[ ]*[(]",
+      );
+      const bad = TRANSCENDENTAL.exec(source);
+      expect(
+        bad?.[0] ?? null,
+        `${file} calls ${bad?.[0] ?? ""} - implementation-approximated Math is banned in src/sim/. Use src/sim/dmath.ts (COMPETITIVE.md 2.1).`,
+      ).toBe(null);
     }
   });
 });
