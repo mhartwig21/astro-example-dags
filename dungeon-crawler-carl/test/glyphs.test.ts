@@ -7,9 +7,9 @@ import {
   glyphMatches, glyphSocket2Level, glyphSocketCount, glyphTagMatches, glyphsFor, hasGlyph, totalSocketsOpen,
 } from "../src/sim/glyphs";
 import {
-  ABILITY_INFO, abilityCdrBreakdown, airstrikeParams, boltParams, bulletTimeParams, cataclysmParams,
-  crowdSurfParams, cutToParams, dashParams, meleeParams, novaParams, orbitParams, overchargeParams,
-  stanceParams, stuntDoubleParams, type AbilityId,
+  ABILITY_INFO, abilityCdrBreakdown, airstrikeParams, boltParams, bulletTimeParams, bulwarkParams,
+  cablesParams, cataclysmParams, crowdSurfParams, cutToParams, dashParams, injunctionParams, meleeParams,
+  novaParams, orbitParams, overchargeParams, stanceParams, stuntDoubleParams, type AbilityId,
 } from "../src/sim/abilities";
 import { CONFIG } from "../src/sim/config";
 import { deserialize, mergeColdPlayers, serialize, serializeDynamic } from "../src/sim/snapshot";
@@ -220,8 +220,18 @@ describe("numeric glyphs + rule 7 (the CDR clamp)", () => {
     const solo = createGame(3).players[0];
     solo.abilities.ranks["bolt.rapid"] = 3;
     expect(boltParams(solo).cooldown).toBeCloseTo(CONFIG.boltCooldown * 0.6, 5);
-    solo.abilities.ranks["dash.quick"] = 3; // 54% > cap
-    expect(dashParams(solo).cooldown).toBeCloseTo(CONFIG.dashCooldown * 0.6, 5);
+    // ABILITIES-V2 §5.4 flag 3: Quickstep rank 2+ is a CHARGE, not a second
+    // percentage, so ranks alone no longer reach the cap on dash. The rank-CDR
+    // ceiling now lives where a rank can still stack past it — bolt, above —
+    // and the glyph half is what pushes dash over.
+    solo.abilities.ranks["dash.quick"] = 3;
+    expect(dashParams(solo).cooldown).toBeCloseTo(CONFIG.dashCooldown * (1 - 0.18), 5);
+    expect(dashParams(solo).charges).toBe(CONFIG.dashCharges + 2); // ranks 2 and 3 are charges
+    // Collapse's CDR node moved with the rework: Aftershock retired, Rift
+    // carries the -10%/rank (and CDR_NODES moved with it).
+    const rift = createGame(34).players[0];
+    rift.abilities.ranks["nova.rift"] = 2;
+    expect(novaParams(rift).cooldown).toBeCloseTo(CONFIG.novaCooldown * 0.8, 5);
   });
 
   it("RULE 7's REAL floor: the clamp is on % modifiers, class multipliers ride outside", () => {
@@ -280,7 +290,7 @@ describe("numeric glyphs + rule 7 (the CDR clamp)", () => {
 });
 
 describe("dormancy is EFFECT-based, not tag-based (§3.2 rule 6)", () => {
-  const ULTIMATES: AbilityId[] = ["airstrike", "cataclysm", "bullettime"];
+  const ULTIMATES: AbilityId[] = ["airstrike", "cataclysm", "bullettime", "injunction"];
   const ALL_ABILITIES = Object.keys(ABILITY_CHANNELS) as AbilityId[];
 
   /** The numeric params a glyph could move, per ability. Anything a glyph can
@@ -292,7 +302,7 @@ describe("dormancy is EFFECT-based, not tag-based (§3.2 rule 6)", () => {
       case "dash": return { d: dashParams(p).shockMult, c: dashParams(p).cooldown };
       case "bolt": return { d: boltParams(p).dmg, c: boltParams(p).cooldown };
       case "nova": return { d: novaParams(p).damageMult, c: novaParams(p).cooldown };
-      case "orbit": return { d: orbitParams(p).damageMult };
+      case "orbit": return { d: orbitParams(p).damageMult, c: orbitParams(p).hurlCooldown };
       case "stance": return { c: stanceParams(p).cooldown };
       case "overcharge": return { c: overchargeParams(p).cooldown };
       case "cutto": return { d: cutToParams(p).dmgMult, c: cutToParams(p).cooldown };
@@ -301,6 +311,9 @@ describe("dormancy is EFFECT-based, not tag-based (§3.2 rule 6)", () => {
       case "airstrike": return { d: airstrikeParams(p).dmgMult, c: airstrikeParams(p).cooldown };
       case "cataclysm": return { d: cataclysmParams(p).dmgMult, c: cataclysmParams(p).cooldown };
       case "bullettime": return { c: bulletTimeParams(p).cooldown };
+      case "bulwark": return { c: bulwarkParams(p).cooldown };
+      case "cables": return { d: cablesParams(p).liveFrac, c: cablesParams(p).cooldown };
+      case "injunction": return { c: injunctionParams(p).cooldown };
     }
   }
 
@@ -314,6 +327,7 @@ describe("dormancy is EFFECT-based, not tag-based (§3.2 rule 6)", () => {
     p.spellPower = 50;
     p.abilities.ranks["dash.shock"] = 1;
     p.abilities.ranks["surf.dive"] = 1;
+    p.abilities.ranks["cab.live"] = 1; // Live Wire is Stage Cables' damage consumer
     if (ULTIMATES.includes(ability)) {
       p.abilities.ultimate = ability;
       if (glyph) p.glyphs!.ultimate[0] = glyph;
@@ -365,15 +379,50 @@ describe("dormancy is EFFECT-based, not tag-based (§3.2 rule 6)", () => {
       splitfang: ["bolt"],
       reprise: ["nova", "cataclysm"],
       brandmark: ["melee", "bolt", "orbit", "cutto", "airstrike"],
-      accelerant: ["melee", "dash", "bolt", "nova", "orbit", "cutto", "crowdsurf", "airstrike", "cataclysm"],
-      arcane_lens: ["melee", "bolt", "orbit", "cutto", "airstrike"],
+      accelerant: ["melee", "dash", "bolt", "nova", "orbit", "cutto", "crowdsurf", "cables", "airstrike", "cataclysm"],
+      // §5.1: the LENS FAMILY gains `aoe` — but be precise about what that
+      // buys. power() short-circuits to spell power the moment this is
+      // socketed and SCALING already reads nova/cataclysm as sp: 1, so Arcane
+      // Lens on Collapse or Fault Line is a literal NO-OP. It is meaningful
+      // only on the ap-scaled AoEs (Sponsor Barrage, Stage Cables).
+      arcane_lens: ["melee", "bolt", "nova", "orbit", "cutto", "cables", "airstrike", "cataclysm"],
+      // R3 is the systemic win: orbit exposes a COOLDOWN for the first time,
+      // so the tempo/rebate glyphs stop reading DORMANT on the roster's #2
+      // damage source (glyphs.ts rule 9 excluded all three).
       executioners_rebate: [
-        "melee", "dash", "bolt", "nova", "stance", "overcharge", "cutto", "crowdsurf",
-        "stuntdouble", "airstrike", "cataclysm", "bullettime",
+        "melee", "dash", "bolt", "nova", "orbit", "stance", "overcharge", "cutto", "crowdsurf",
+        "stuntdouble", "bulwark", "cables", "airstrike", "cataclysm", "bullettime", "injunction",
       ],
-      heavyweight_plate: ["melee", "dash", "bolt", "nova", "cutto", "crowdsurf", "airstrike", "cataclysm"],
-      hair_trigger: ["melee", "dash", "bolt", "nova", "cutto", "crowdsurf", "airstrike", "cataclysm"],
-      slipstream: ["dash", "crowdsurf"],
+      heavyweight_plate: [
+        "melee", "dash", "bolt", "nova", "orbit", "cutto", "crowdsurf", "cables", "airstrike", "cataclysm",
+      ],
+      hair_trigger: [
+        "melee", "dash", "bolt", "nova", "orbit", "cutto", "crowdsurf", "cables", "airstrike", "cataclysm",
+      ],
+      // R6: Blindside teleports, so Slipstream and Phase Etch finally read it.
+      slipstream: ["dash", "cutto", "crowdsurf"],
+      // ---- Phase C (ABILITIES-V2 §5.2) ----
+      static_charge: ["melee", "bolt", "orbit", "cutto", "airstrike"],
+      demolition_rider: ["nova", "cables", "airstrike", "cataclysm"],
+      // The one lens that converts an AoE for the crawler who NEEDS it: the
+      // physical build that rolled a 30% AP share (§1.2). Arcane Lens on
+      // Collapse or Fault Line is a literal no-op — they are already sp: 1.
+      ballistic_lens: ["melee", "bolt", "nova", "orbit", "cutto", "cables", "airstrike", "cataclysm"],
+      envenomed: ["melee", "bolt", "orbit", "cutto", "airstrike"],
+      cryo_etch: ["bolt", "nova", "cables", "airstrike", "cataclysm"],
+      grave_dividend: ["nova", "cables", "airstrike", "cataclysm"],
+      culling_edge: ["melee", "bolt", "orbit", "cutto", "airstrike"],
+      poise_wrecker: ["melee", "nova", "orbit", "cutto", "cables", "airstrike", "cataclysm"],
+      point_blank: ["melee", "bolt", "orbit", "cutto", "airstrike"],
+      longshot: ["bolt", "airstrike"],
+      blood_price: [
+        "melee", "dash", "bolt", "nova", "orbit", "cutto", "crowdsurf", "cables", "airstrike", "cataclysm",
+      ],
+      phase_etch: ["dash", "cutto", "crowdsurf"],
+      understudy_rider: ["stuntdouble"],
+      // Both need the new `ultimate` tag, and both ship WITH it (§7 slice 8).
+      encore_clause: ["airstrike", "cataclysm", "bullettime", "injunction"],
+      cold_open: ["airstrike", "cataclysm", "bullettime", "injunction"],
     };
     for (const glyph of GLYPH_IDS) {
       const live = ALL_ABILITIES.filter((a) => glyphMatches(glyph, a));
@@ -639,8 +688,23 @@ describe("acquisition + persistence", () => {
     expect(second.players[0].glyphs).toEqual(p.glyphs);
   });
 
-  it("the launch set is exactly the 10 Phase-B rows, tags matching the §3.2 table", () => {
-    expect(GLYPH_IDS).toHaveLength(10);
+  it("the shipped set is Phase B + Phase C, tags matching the §3.2 table", () => {
+    // ABILITIES-V2 §5.2: the 15 Phase-C rows land WITH the tags and channels
+    // they consume — no plumbing ships without a consumer (§7 slice 8).
+    expect(GLYPH_IDS).toHaveLength(25);
+    expect(new Set(GLYPH_IDS).size).toBe(25); // no duplicates in the roll order
+    // Phase B keeps its positions: GLYPH_IDS is the SEEDED roll order, so
+    // interleaving would re-roll every existing run's drops.
+    expect(GLYPH_IDS.slice(0, 10)).toEqual([
+      "arc_splice", "splitfang", "reprise", "brandmark", "accelerant",
+      "arcane_lens", "executioners_rebate", "heavyweight_plate", "hair_trigger", "slipstream",
+    ]);
+    // §5.4 flag 1: Blood Price is a damage-for-cost trade, so it belongs to
+    // TEMPO. In `rebate` it would have shared a slot with Heavyweight Plate
+    // for +69% damage off two drawbacks that never interact.
+    expect(GLYPH_INFO.blood_price.family).toBe("tempo");
+    expect(GLYPH_INFO.ballistic_lens.family).toBe(GLYPH_INFO.arcane_lens.family);
+    expect(GLYPH_INFO.longshot.family).toBe(GLYPH_INFO.point_blank.family);
     for (const id of GLYPH_IDS) expect(GLYPH_INFO[id].name).toBeTruthy();
     expect(glyphMatches("arc_splice", "bolt")).toBe(true);
     expect(glyphMatches("arc_splice", "melee")).toBe(false);

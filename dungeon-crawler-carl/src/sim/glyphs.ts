@@ -28,10 +28,35 @@ export type GlyphId =
   | "executioners_rebate" // kill within 1s of the cast refunds 30% of cooldown (rule 8 cap)
   | "heavyweight_plate" // +35% damage, +20% cooldown (joins the rule 7 sum)
   | "hair_trigger" // -20% cooldown (rule 7 cap), -12% damage
-  | "slipstream"; // after movement resolves: +move speed, +damage for 2s
+  | "slipstream" // after movement resolves: +move speed, +damage for 2s
+  // ---- PHASE C (ABILITIES-V2 §5.2) ----
+  | "static_charge" // every 3rd CAST is empowered: +60% damage, 2x poise
+  | "demolition_rider" // the blast consumes burn/poison, dealing the rest at once
+  | "ballistic_lens" // ability deals PHYSICAL, scales off attack power
+  | "envenomed" // hits have a chance to inject a poison stack
+  | "cryo_etch" // hits CHILL
+  | "grave_dividend" // consumes corpses under the cast; +15% damage each
+  | "culling_edge" // +50% damage below 25% HP
+  | "poise_wrecker" // 2x poise damage; your staggers last +0.3s
+  | "point_blank" // +30% inside 2 tiles, -15% beyond
+  | "longshot" // +30% beyond 4 tiles, -15% within 2
+  | "blood_price" // casts cost 3% max HP; +30% damage
+  | "phase_etch" // +i-frames; passed-through enemies take ability power
+  | "understudy_rider" // the double's contract +2s; its farewell blast chills
+  | "encore_clause" // kills inside the ultimate's window refund cooldown
+  | "cold_open"; // the ult cast CHILLS everything within 6 tiles
 
-/** Ability archetype tags (§3.2) — what a glyph's tags must intersect. */
-export type GlyphTag = "projectile" | "melee" | "aoe" | "movement" | "summon" | "buff" | "any";
+/**
+ * Ability archetype tags (§3.2). ABILITIES-V2 §5.1 adds two, and both have a
+ * consumer in the same slice — no tag ships as dead plumbing:
+ * - `ultimate` — Encore Clause and Cold Open both need "ultimates only", and
+ *   `GlyphTag` had no way to say it.
+ * - `control` — Collapse and Stage Cables want glyphs that read "affects
+ *   things that grab enemies".
+ */
+export type GlyphTag =
+  | "projectile" | "melee" | "aoe" | "movement" | "summon" | "buff"
+  | "ultimate" | "control" | "any";
 
 /** Two glyphs of the same family can never share a slot (§3.2 rule 2). */
 export type GlyphFamily = "split" | "repeat" | "lens" | "range" | "rebate" | "tempo";
@@ -66,7 +91,13 @@ export const GLYPH_INFO: Record<GlyphId, GlyphInfo> = {
     blurb: `Hits IGNITE for ${Math.round(CONFIG.glyphAccelerantFrac * 100)}% of the hit over ${CONFIG.burnDuration}s.`,
   },
   arcane_lens: {
-    name: "Arcane Lens", family: "lens", tags: ["melee", "projectile"],
+    // V2 §5.1 adds `aoe` to the LENS FAMILY — and is precise about what that
+    // buys: power() short-circuits to spell power the moment this is socketed
+    // and SCALING already reads nova/cataclysm as sp: 1, so Arcane Lens on
+    // Collapse or Fault Line is a literal NO-OP. It is meaningful only on the
+    // ap-scaled AoEs; Ballistic Lens is the one that converts for the crawler
+    // who needs it. §1.2 is MITIGATED by a socket tax, not fixed.
+    name: "Arcane Lens", family: "lens", tags: ["melee", "projectile", "aoe"],
     blurb: "The ability deals MAGIC damage and scales off spell power. An explicit socket beats a default.",
   },
   executioners_rebate: {
@@ -85,12 +116,83 @@ export const GLYPH_INFO: Record<GlyphId, GlyphInfo> = {
     name: "Slipstream", tags: ["movement"],
     blurb: `After the movement resolves: +${Math.round((CONFIG.glyphSlipstreamSpeedMult - 1) * 100)}% move speed and +${Math.round((CONFIG.glyphSlipstreamDmgMult - 1) * 100)}% damage for ${CONFIG.glyphSlipstreamDur}s.`,
   },
+  // ---- PHASE C: the 15 rows from ITEMIZATION-V2 §3.3, finalized in
+  // ABILITIES-V2 §5.2 against the reworked roster. ----
+  static_charge: {
+    name: "Static Charge", family: "repeat", tags: ["melee", "projectile"],
+    blurb: `Every ${CONFIG.glyphStaticEvery}rd cast is EMPOWERED: +${Math.round((CONFIG.glyphStaticDmgMult - 1) * 100)}% damage and ${CONFIG.glyphStaticPoiseMult}x poise.`,
+  },
+  demolition_rider: {
+    name: "Demolition Rider", tags: ["aoe"],
+    blurb: `The blast CONSUMES burn and poison on up to ${CONFIG.glyphDemolitionTargets} enemies it hits, dealing the remaining damage instantly.`,
+  },
+  ballistic_lens: {
+    name: "Ballistic Lens", family: "lens", tags: ["melee", "projectile", "aoe"],
+    blurb: "The ability deals PHYSICAL damage and scales off attack power. The one lens that converts an AoE for a crawler who rolled steel.",
+  },
+  envenomed: {
+    name: "Envenomed", tags: ["melee", "projectile"],
+    blurb: `Hits have a ${Math.round(CONFIG.glyphEnvenomedChance * 100)}% chance to inject a POISON stack.`,
+  },
+  cryo_etch: {
+    name: "Cryo-Etch", tags: ["aoe", "projectile"],
+    blurb: `Hits CHILL for ${Math.round(CONFIG.glyphCryoChill * 100)}% over ${CONFIG.glyphCryoDuration}s.`,
+  },
+  grave_dividend: {
+    name: "Grave Dividend", tags: ["aoe"],
+    blurb: `Consumes up to ${CONFIG.glyphGraveCorpses} corpses under the cast; +${Math.round(CONFIG.glyphGraveBonus * 100)}% damage each.`,
+  },
+  culling_edge: {
+    name: "Culling Edge", tags: ["melee", "projectile"],
+    blurb: `+${Math.round(CONFIG.glyphCullingBonus * 100)}% damage to enemies below ${Math.round(CONFIG.glyphCullingThreshold * 100)}% HP. Stacks ADDITIVELY with EXECUTIONER and GUILLOTINE.`,
+  },
+  poise_wrecker: {
+    name: "Poise Wrecker", tags: ["melee", "aoe"],
+    blurb: `${CONFIG.glyphPoiseWreckerMult}x poise damage; your staggers last +${CONFIG.glyphPoiseWreckerStagger}s.`,
+  },
+  point_blank: {
+    name: "Point Blank", family: "range", tags: ["melee", "projectile"],
+    blurb: `+${Math.round(CONFIG.glyphPointBlankBonus * 100)}% damage within ${CONFIG.glyphPointBlankRange} tiles, −${Math.round(CONFIG.glyphPointBlankPenalty * 100)}% beyond.`,
+  },
+  longshot: {
+    name: "Longshot", family: "range", tags: ["projectile"],
+    blurb: `+${Math.round(CONFIG.glyphLongshotBonus * 100)}% damage beyond ${CONFIG.glyphLongshotRange} tiles, −${Math.round(CONFIG.glyphLongshotPenalty * 100)}% within ${CONFIG.glyphPointBlankRange}.`,
+  },
+  blood_price: {
+    // §5.4 flag 1: this lives in TEMPO, not rebate. It is not a refund, it is
+    // a damage-for-cost trade — exactly the axis tempo exists to police. Left
+    // in rebate it would share a slot with Heavyweight Plate for +69% damage
+    // off two drawbacks that never interact.
+    name: "Blood Price", family: "tempo", tags: ["any"],
+    blurb: `Casts cost ${Math.round(CONFIG.glyphBloodPriceHpFrac * 100)}% of your max HP; +${Math.round((CONFIG.glyphBloodPriceDmgMult - 1) * 100)}% damage.`,
+  },
+  phase_etch: {
+    name: "Phase Etch", tags: ["movement"],
+    blurb: `+${CONFIG.glyphPhaseEtchIframes}s of i-frames; enemies you pass through take ${Math.round(CONFIG.glyphPhaseEtchFrac * 100)}% ability power.`,
+  },
+  understudy_rider: {
+    name: "Understudy's Rider", tags: ["summon"],
+    blurb: `The double's contract lasts +${CONFIG.glyphUnderstudyContract}s, and its farewell blast CHILLS.`,
+  },
+  encore_clause: {
+    name: "Encore Clause", family: "rebate", tags: ["ultimate"],
+    blurb: `Kills inside the ultimate's active window refund ${Math.round(CONFIG.glyphEncoreRefund * 100)}% of its cooldown each (per-cast refund cap applies).`,
+  },
+  cold_open: {
+    name: "Cold Open", tags: ["ultimate"],
+    blurb: `The ultimate's cast CHILLS everything within ${CONFIG.glyphColdOpenRadius} tiles by ${Math.round(CONFIG.glyphColdOpenChill * 100)}% for ${CONFIG.glyphColdOpenDuration}s.`,
+  },
 };
 
 /** Stable roll order for seeded glyph draws (drops, caches, sponsor gifts). */
 export const GLYPH_IDS: GlyphId[] = [
   "arc_splice", "splitfang", "reprise", "brandmark", "accelerant",
   "arcane_lens", "executioners_rebate", "heavyweight_plate", "hair_trigger", "slipstream",
+  // Phase C — appended, never interleaved: GLYPH_IDS is the seeded roll order,
+  // so inserting in the middle would re-roll every existing run's drops.
+  "static_charge", "demolition_rider", "ballistic_lens", "envenomed", "cryo_etch",
+  "grave_dividend", "culling_edge", "poise_wrecker", "point_blank", "longshot",
+  "blood_price", "phase_etch", "understudy_rider", "encore_clause", "cold_open",
 ];
 
 /**
@@ -102,16 +204,23 @@ export const ABILITY_TAGS: Record<AbilityId, GlyphTag[]> = {
   melee: ["melee"],
   dash: ["movement"],
   bolt: ["projectile"],
-  nova: ["aoe"],
+  // V2 R1: Collapse GRABS — the control tag is what routes control glyphs to
+  // the two abilities that grab enemies.
+  nova: ["aoe", "control"],
   orbit: ["melee"],
   stance: ["buff"],
   overcharge: ["buff"],
-  cutto: ["melee"],
-  crowdsurf: ["movement"],
+  // V2 R6: Blindside teleports. Phase Etch and Slipstream should have read it
+  // as movement all along; they do now.
+  cutto: ["melee", "movement"],
+  crowdsurf: ["movement", "control"],
   stuntdouble: ["summon"],
-  airstrike: ["projectile", "aoe"],
-  cataclysm: ["aoe"],
-  bullettime: ["buff"],
+  bulwark: ["buff"],
+  cables: ["aoe", "control"],
+  airstrike: ["projectile", "aoe", "ultimate"],
+  cataclysm: ["aoe", "ultimate"],
+  bullettime: ["buff", "ultimate"],
+  injunction: ["buff", "ultimate"],
 };
 
 /**
@@ -131,24 +240,36 @@ export type GlyphChannel =
   | "bolt" // it spawns player projectiles the projectile step reads
   | "echo" // it can schedule a delayed re-detonation on the same spot
   | "scale" // its damage reads power()/castSchool(), so a lens can convert it
-  | "surge"; // it resolves a movement, which is what opens the slipstream window
+  | "surge" // it resolves a movement, which is what opens the slipstream window
+  // ABILITIES-V2 §5.1 — both land WITH their consumers (§7 slice 8):
+  | "cast" // it resolves as a discrete cast with a counter (Static Charge,
+           // Blood Price, Cold Open, Encore Clause). Without this, Static
+           // Charge on Orbit's AURA would silently do nothing — the exact
+           // failure rule 6 exists to stop.
+  | "zone"; // it creates or consumes GROUND (Grave Dividend, Demolition Rider)
 
 /** What each ability exposes. Adding a consumer to abilities.ts/game.ts means
  * adding its channel here — the (glyph x ability) contract test reads this. */
 export const ABILITY_CHANNELS: Record<AbilityId, GlyphChannel[]> = {
-  melee: ["damage", "cooldown", "onhit", "scale"],
-  dash: ["damage", "cooldown", "onhit", "surge"], // damage = the Shockstep path
-  bolt: ["damage", "cooldown", "onhit", "bolt", "scale"],
-  nova: ["damage", "cooldown", "onhit", "echo"],
-  orbit: ["damage", "onhit", "scale"], // a persistent aura: no cooldown at all
-  stance: ["cooldown"], // a buff toggle: nothing to amplify, a swap timer to cut
-  overcharge: ["cooldown"],
-  cutto: ["damage", "cooldown", "onhit", "scale"],
-  crowdsurf: ["damage", "cooldown", "onhit", "surge"],
-  stuntdouble: ["cooldown"], // the double's blows are the DOUBLE's, not yours
-  airstrike: ["damage", "cooldown", "onhit", "scale"], // shells, not projectiles
-  cataclysm: ["damage", "cooldown", "onhit", "echo", "scale"],
-  bullettime: ["cooldown"],
+  melee: ["damage", "cooldown", "onhit", "scale", "cast"],
+  dash: ["damage", "cooldown", "onhit", "surge", "cast"], // damage = the Shockstep path
+  bolt: ["damage", "cooldown", "onhit", "bolt", "scale", "cast"],
+  nova: ["damage", "cooldown", "onhit", "echo", "scale", "cast", "zone"],
+  // V2 R3: the hurl gives orbit a COOLDOWN for the first time — which is what
+  // un-dormants Hair Trigger, Heavyweight Plate and Executioner's Rebate on
+  // the roster's #2 damage source (rule 9 excluded all three).
+  orbit: ["damage", "cooldown", "onhit", "scale", "cast"],
+  stance: ["cooldown", "cast"], // R4: the swap now FIRES something
+  overcharge: ["cooldown", "cast"],
+  cutto: ["damage", "cooldown", "onhit", "scale", "cast", "surge"],
+  crowdsurf: ["damage", "cooldown", "onhit", "surge", "scale", "cast"],
+  stuntdouble: ["cooldown", "cast"], // the double's blows are the DOUBLE's, not yours
+  bulwark: ["cooldown", "cast"], // no damage of its own to amplify
+  cables: ["damage", "cooldown", "onhit", "scale", "cast", "zone"],
+  airstrike: ["damage", "cooldown", "onhit", "scale", "cast", "zone"], // shells, not projectiles
+  cataclysm: ["damage", "cooldown", "onhit", "echo", "scale", "cast", "zone"],
+  bullettime: ["cooldown", "cast"],
+  injunction: ["cooldown", "cast"],
 };
 
 /** What each glyph needs — ALL of them, or it sits dormant. Heavyweight/Hair
@@ -165,6 +286,22 @@ export const GLYPH_CHANNELS: Record<GlyphId, GlyphChannel[]> = {
   heavyweight_plate: ["damage", "cooldown"],
   hair_trigger: ["damage", "cooldown"],
   slipstream: ["surge"],
+  // ---- Phase C ----
+  static_charge: ["cast", "damage"],
+  demolition_rider: ["zone", "onhit"],
+  ballistic_lens: ["scale"],
+  envenomed: ["onhit"],
+  cryo_etch: ["onhit"],
+  grave_dividend: ["zone", "damage"],
+  culling_edge: ["damage", "onhit"],
+  poise_wrecker: ["onhit"],
+  point_blank: ["damage", "onhit"],
+  longshot: ["damage", "onhit"],
+  blood_price: ["cast", "damage"],
+  phase_etch: ["surge"],
+  understudy_rider: ["cooldown"],
+  encore_clause: ["cooldown", "cast"],
+  cold_open: ["cast"],
 };
 
 /** A glyph applies to an ability when their tag sets intersect (or "any") AND
@@ -206,6 +343,8 @@ export function glyphDormantReason(id: GlyphId, ability: AbilityId): string | nu
     echo: "has nothing to re-detonate",
     scale: "has no damage scaling for the lens to convert",
     surge: "resolves no movement to surge out of",
+    cast: "never resolves as a discrete cast the glyph can count",
+    zone: "creates and consumes no ground for the glyph to work with",
   };
   return `no effect here — this ability ${why[missing[0]]}`;
 }
@@ -293,14 +432,77 @@ export function clampCooldown(base: number, cdrSum: number): number {
   return base * Math.max(1 - CONFIG.cdrCap, 1 - cdrSum);
 }
 
-/** Multiplicative damage factor from numeric glyphs (rule 3). */
+/** Multiplicative damage factor from UNCONDITIONAL numeric glyphs (rule 3).
+ * Conditional ones (Culling Edge, Point Blank, Longshot, Static Charge) are
+ * resolved at hit time by glyphHitMult — a param function cannot know how far
+ * away the body is or how much HP it has left. */
 export function glyphDamageMult(p: Player, ability: AbilityId): number {
   let mult = 1;
   for (const id of glyphsFor(p, ability)) {
     if (id === "heavyweight_plate") mult *= CONFIG.glyphHeavyweightDmgMult;
     if (id === "hair_trigger") mult *= CONFIG.glyphHairTriggerDmgMult;
+    if (id === "blood_price") mult *= CONFIG.glyphBloodPriceDmgMult;
   }
   return mult;
+}
+
+/** The context one hit resolves in: how far the body is and how hurt it is. */
+export interface GlyphHitContext {
+  /** Tiles between the caster and the body. */
+  range?: number;
+  /** Target HP as a fraction of its max, BEFORE this hit. */
+  hpFrac?: number;
+  /** True while this cast is Static Charge's empowered one. */
+  empowered?: boolean;
+}
+
+/**
+ * Conditional glyph damage, folded at the ONE monster choke point
+ * (damageMonster). Culling Edge stacks ADDITIVELY with EXECUTIONER and
+ * GUILLOTINE by design (§5.2) — the chase build is legitimate and the balance
+ * sweep looks at it on purpose (§5.4 flag 5).
+ */
+export function glyphHitMult(p: Player, ability: AbilityId, ctx: GlyphHitContext): number {
+  let mult = 1;
+  for (const id of glyphsFor(p, ability)) {
+    if (id === "culling_edge" && (ctx.hpFrac ?? 1) <= CONFIG.glyphCullingThreshold) {
+      mult *= 1 + CONFIG.glyphCullingBonus;
+    }
+    if (id === "point_blank" && ctx.range !== undefined) {
+      mult *= ctx.range <= CONFIG.glyphPointBlankRange
+        ? 1 + CONFIG.glyphPointBlankBonus : 1 - CONFIG.glyphPointBlankPenalty;
+    }
+    if (id === "longshot" && ctx.range !== undefined) {
+      if (ctx.range >= CONFIG.glyphLongshotRange) mult *= 1 + CONFIG.glyphLongshotBonus;
+      else if (ctx.range <= CONFIG.glyphPointBlankRange) mult *= 1 - CONFIG.glyphLongshotPenalty;
+    }
+    if (id === "static_charge" && ctx.empowered) mult *= CONFIG.glyphStaticDmgMult;
+  }
+  return mult;
+}
+
+/** Extra poise multiplier a glyph puts on this hit (Poise Wrecker, and Static
+ * Charge's empowered cast). */
+export function glyphPoiseMult(p: Player, ability: AbilityId, empowered = false): number {
+  let mult = 1;
+  for (const id of glyphsFor(p, ability)) {
+    if (id === "poise_wrecker") mult *= CONFIG.glyphPoiseWreckerMult;
+    if (id === "static_charge" && empowered) mult *= CONFIG.glyphStaticPoiseMult;
+  }
+  return mult;
+}
+
+/**
+ * ENCORE CLAUSE's bounded window (§5.4 flag 2). "During the ultimate" is not a
+ * definition: Bullet Time and Injunction have durations, Sponsor Barrage has a
+ * 3s channel, Fault Line's fissure lasts 10s, and Cataclysm-as-cast is one
+ * frame. The window is the ultimate's own ACTIVE duration, or a fixed fallback
+ * when it has none — and rule 8's per-cast refund budget does the rest. On
+ * floor 15 the raw refund would be 4% x ~20 kills = 80% of a 40s cooldown; the
+ * budget clamps it to 20s. The clamp is doing all the work, so §6.4.10 pins it.
+ */
+export function glyphWindow(_ability: AbilityId, activeDuration?: number): number {
+  return activeDuration && activeDuration > 0 ? activeDuration : CONFIG.glyphEncoreFallbackWindow;
 }
 
 /** Every glyph this crawler owns (socketed anywhere + bench) — pity checks. */
