@@ -76,23 +76,26 @@ touch-first passes on the close controls, shop, sheet, inventory, constellation
 and glyph socketing. Everything maps onto the SAME `Intent` the keyboard
 produces — no host-side rules.
 
-Design critiques scored **6.5** then **7.0** against an 8.0 bar. Resolve these
-six on paper BEFORE more implementation; they are cheap in a doc and expensive
-in feel:
+Design critiques scored **6.5** then **7.0** against an 8.0 bar on six spec
+contradictions. **All six are now DECIDED on paper — `MOBILE.md` §2.0 is the
+decision register and it outranks every other section of that doc.** Nothing is
+implemented against them yet. Summary:
 
-- **Tap/aim threshold conflict.** The per-slot FSM promotes PRESSED -> AIMING on
-  `travel > 18px OR dwell > 90ms`. A deliberate human tap often exceeds 90ms,
-  so taps get read as aims.
-- **Max-range vs stick-radius contradiction.** §2.4 sets max range at "finger at
-  1.0 stick-radius from the chip" while §2.3 defines R as a clamped function of
-  viewport — the two do not agree on any device.
-- **World-zone tap vs long-press overlap** (tap: up within 200ms, travel < 16px;
-  long-press: 450ms held, travel < 16px) leaves the 200–450ms band ambiguous.
-- **One reach model for every device.** A 6.1" phone and an 11" tablet cannot
-  share a comfortable arc.
-- **Tablet side pivot** would place the ability cluster exactly where the design
-  elsewhere says not to.
-- **Modal/pointer-cancel rule covers modals but not all UI states.**
+| # | was | now |
+|---|---|---|
+| 1 | AIMING promoted on `travel > 18px` OR `dwell > 90ms`; a deliberate tap runs 100–300ms | travel only, from a **leaky origin** (`ORIGIN_LEAK = 40 px/s`, frozen on promotion). No time term exists in the ability FSM. §2.4a |
+| 2 | max range = "1.0 stick-radius from the chip"; R was a clamped viewport function spanning 36–123px | `aimThrow = 18mm` (94–110px), its own hand-scale quantity, `buttonScale` not `stickScale`; `cancelRadius = 0.34 × aimThrow`; ordering asserted. §2.4b |
+| 3 | tap ≤ 200ms, long-press 450ms — the 200–450ms band resolved to **nothing** | tap ceiling deleted (`TAP_MS` gone). Release before the 450ms arm = move, after = ping. §2.5a |
+| 4 | `comfortable = clamp(0.55 × shortEdge, 150, 300)` — one formula, and its clamp gave every tablet the same number anyway | reach is anthropometry: `48mm` / `66mm` through a per-class `MM_PER_PX` table. Phones gain 31% of arc, tablets lose 17%. §3.2 |
+| 5 | tablet side pivot at `0.62 H` reproduced the phone layout §1.5 condemns | pivot kept, **fan** fixed: corner grip +6°…+96°, side grip −46°…+46° at `0.58 H`, with four asserted invariants incl. "no combat chip in the top 32% of the safe box". §4.2a |
+| 6 | `setModalOpen(boolean)` over a hand-maintained list of 9 element IDs, missing `#ladder`/`#career`/`#consent`/`#loading`/`#recap-tab`/`#rotate` and every no-event path | refcounted input authority, 8 enumerated suspend reasons driven by `body.modal` + a `test/panels.test.ts` that catches new overlays, + an 8s stuck-pointer reaper. §2.9a |
+
+Four of the six were one mistake: *a quantity set by the hand written as a
+function of the screen.* §2.0 splits hand-scale (mm) from screen-scale
+(viewport fractions) and that split is now load-bearing.
+
+Implementation cost of the resolutions: +2.5 engineer-days (1d in Phase A's
+`touchLayout.ts`, 1.5d in Phase C's FSM + input authority). Total round ~33d.
 
 Then: control skin + customisation surface (size/opacity, mirrored left-handed
 layout, and confirm the mobile quality preset auto-selects sanely in
