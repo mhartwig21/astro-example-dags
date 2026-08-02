@@ -449,7 +449,11 @@ export interface Monster {
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
     | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
     | "heal" | "summon" | "consecrate" | "sweep"
-    | "punish" | "latefee" | "bloom" | "pull" | "regrow"; // what resolves when windup expires
+    | "punish" | "latefee" | "bloom" | "pull" | "regrow"
+    // r7 structural 1 — the mutator verbs. "overrun" is OVERTIME's hard out,
+    // "understudy" is the stand-in re-plating itself, "redact" is the lane
+    // REDACTED strikes off the record.
+    | "overrun" | "understudy" | "redact"; // what resolves when windup expires
   healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
@@ -594,6 +598,24 @@ export interface Monster {
   // Encounter mutators layered on top (never on floor 3; one from 6-12; up to
   // two from 15). A mutator changes what the player DOES, never the numbers.
   bossMutators?: BossMutator[];
+  /**
+   * r7 STRUCTURAL 1 — a mutator OWNS A VERB, so it needs its own clock.
+   *
+   * Measured before this round (`tools/_ed4mut.ts`, 34 trials): the median
+   * mutator-vs-clean cosine on the threat vector was 0.999 and 32 of 34 trials
+   * came back "SAME FIGHT". Six of the eight mutators were ambient stat lines —
+   * they changed how much the fight hurt, never what the player had to DO. Each
+   * one now commits a verb on its own cadence (a body to kill, ground to leave,
+   * a lane to leave, a re-plate to interrupt), and every one of those cadences
+   * lives here rather than fighting the kits over `sigCd`/`affixCd`.
+   *
+   * Sim-internal and deliberately NOT snapshotted: the server is authoritative
+   * for boss timing, and a client that guesses a mutator clock would desync the
+   * one thing hosts are supposed to only ever draw.
+   */
+  mutCd?: Partial<Record<BossMutator, number>>;
+  /** Bodies this boss's mutators have committed (the ENTOURAGE re-call count). */
+  mutCount?: number;
   // Breakable plates / weak points (V1). Targeted before the boss body; while
   // any unbroken plate stands the boss body takes plateBossDamageMult.
   plates?: BossPlate[];
@@ -1096,7 +1118,12 @@ export interface Hazard {
   rearms?: number;
   /** Fissure with Chasm: the center BLOCKS enemy pathing. */
   blocks?: boolean;
-  flavor?: "flame" | "debris"; // blast dressing: fire wall / falling masonry (default: clown ordnance)
+  // blast dressing: fire wall / falling masonry (default: clown ordnance).
+  // The three MUTATOR grounds (r7 structural 1) each own their own dressing,
+  // because a mutator that owns a verb owns the thing the verb is about:
+  // "brand" is SPONSORED's placement, "audience" is what the crowd throws,
+  // "overrun" is OVERTIME's hard-out ring.
+  flavor?: "flame" | "debris" | "brand" | "audience" | "overrun";
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
   // Beam (MOB-CONCEPTS.md verb): a LINE from pos to `end`, `radius` acting as

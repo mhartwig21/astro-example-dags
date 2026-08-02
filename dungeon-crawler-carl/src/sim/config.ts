@@ -1584,9 +1584,63 @@ export const CONFIG = {
   mutatorRedactedTell: 0.6,
   mutatorRedactedTempo: 1.25,
 
+  // ---- r7 STRUCTURAL 1: EVERY MUTATOR COMMITS A VERB ON ITS OWN CLOCK -----
+  //
+  // Before: median mutator-vs-clean cosine 0.999 over 34 forced trials, 32 of
+  // them "SAME FIGHT". Six of eight mutators were ambient — they moved damage
+  // taken and fight length and nothing the player's hands do. These are the
+  // cadences of the eight verbs that replaced them; each one is deliberately
+  // OFF the kits' `sigCd`/`affixCd` tracks (Monster.mutCd) so a mutator never
+  // silences the boss's own signature to make room for itself.
+  //
+  // ENTOURAGED — KILL THE BODY. The escort is tethered (so the shared
+  // shield-anchor rule taxes the boss while it stands) and the wings send a
+  // replacement, so "kill the escort" is a verb you do more than once.
+  mutatorEntourageRecall: 14, // seconds after the escort dies before the wings send another
+  mutatorEntourageHpMult: 1.6,
+  // UNION RULES — KILL IT AWAY FROM THE BOSS. A picket rotates in on a clock;
+  // every one of them still gets back up once (mutatorUnionReviveDelay).
+  mutatorPicketCooldown: 9.5,
+  mutatorPicketCount: 3,
+  // SPONSORED — LEAVE THE GROUND. The placement is LIVE: a branded zone the
+  // boss re-lights on its mark. Standing on brand is the thing that costs.
+  mutatorBrandCooldown: 5.5,
+  mutatorBrandLife: 6.0,
+  mutatorBrandDmgMult: 0.35, // per tick, x boss damage
+  // OVERTIME — BE IN THE WEDGE. The hard out rings the arena with one gap.
+  mutatorHardOutCooldown: 13,
+  mutatorHardOutCount: 9, // blasts in the ring...
+  mutatorHardOutGap: 2, // ...minus this many, which is the wedge
+  mutatorHardOutRadius: 6.2,
+  mutatorHardOutWindup: 1.0,
+  mutatorHardOutDmgMult: 0.5,
+  // UNDERSTUDIED — BREAK IT TWICE, then three times, then four. The stand-in
+  // re-plates on an interruptible channel instead of once at half health.
+  mutatorUnderstudyCooldown: 12,
+  mutatorUnderstudyWindup: 1.4,
+  mutatorUnderstudyRestore: 0.5, // fraction of the plate/shield pool it puts back
+  // LIVE AUDIENCE — WATCH THE SEATS. Unchanged cadence; what changed is the
+  // ground is now dressed as thrown seating (Hazard.flavor "audience") so the
+  // beat is a distinct read rather than more of the boss's own rain.
+  // REDACTED — LEAVE THE STRUCK LANE. A corridor is struck from the record.
+  mutatorRedactCooldown: 8,
+  mutatorRedactLength: 13,
+  mutatorRedactWidth: 0.9,
+  mutatorRedactArm: 0.9,
+  mutatorRedactLanes: 2,
+  mutatorRedactDmgMult: 0.55,
+
   // -- V9/V10 selection + mutators.
-  bossMutatorFromFloor: 6, // floor 3 stays pristine (mirrors "floor 1 stays pristine")
-  bossMutatorSecondFromFloor: 15, // two mutators only in the last two bands
+  bossMutatorFromFloor: 3, // r7: the teaching band draws one too — floor 1 has no boss
+  // ---- TWO MUTATORS FROM THE SECOND BAND (r7 structural 1) -----------------
+  // With one slot the encounter space per band slot is 3 bosses x ~7 mutators
+  // x ~2 arenas; the measurement that matters is not that product but
+  // run-to-run separation, which came in at 0.092 of cosine. A PAIR is a
+  // different fight from either half of it in a way a weight table can never
+  // be: 7 singles becomes 21 pairs, and the pair's two verbs have to be
+  // serviced at the same time. Floor 3 still draws exactly one — the teaching
+  // band teaches one thing.
+  bossMutatorSecondFromFloor: 6,
   bossRepeatEscalateAt: 2, // Nth defeat: opens at the phase-2 kit, shorter intro
   bossRepeatMutatorAt: 5, // Nth defeat: one free mutator on top of the draw
   bossRepeatIntroMult: 0.55, // intro freeze multiplier on a rematch

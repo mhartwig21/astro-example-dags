@@ -1,0 +1,50 @@
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m251[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5410[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m11:34:46[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/ai.ts[22m
+[2m11:34:46[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/config.ts[22m
+[2m11:36:05[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:36:11[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:36:23[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:36:41[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:36:49[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:36:54[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:37:06[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:37:16[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:37:32[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:37:55[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:38:14[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:38:26[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:38:43[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossFx.ts[22m
+[2m11:39:31[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/bossSignatures.ts[22m
+[2m11:40:23[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/game.ts[22m
+[2m11:40:35[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/game.ts[22m
+[2m11:40:45[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/sim/config.ts[22m
+[2m11:41:18[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:42:44[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2miso.html[22m
+[2m11:43:08[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:45:32[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:45:49[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:05[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:18[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:26[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:32[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:38[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:46:52[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:47:03[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:47:31[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:48:07[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2miso.html[22m
+[2m11:48:37[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/fxParticles.ts[22m
+[2m11:49:57[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m
+[2m11:50:05[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m
+[2m11:50:13[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m
+[2m11:55:26[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/main3d.ts[22m
+[2m11:57:28[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/fx.ts[22m
+[2m11:57:58[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/fx.ts[22m
+[2m11:58:39[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m
+[2m11:58:39[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m
+[2m12:03:10[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/fx.ts[22m
+[2m12:03:10[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/render3d/renderer3d.ts[22m

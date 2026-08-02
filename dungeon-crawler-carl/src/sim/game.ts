@@ -3589,8 +3589,205 @@ export function bossAudienceThrow(state: GameState, boss: Monster): void {
       radius: CONFIG.bossHazardRadius * 0.8,
       damage: boss.damage * CONFIG.audienceDmgMult,
       kind: "blast",
+      // r7: the seats own their own dressing. Shipped, crowd-thrown ground and
+      // the boss's own phase rain were the same grey blast decal, so the one
+      // hazard on screen the boss did NOT cause was unreadable as such.
+      flavor: "audience",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// r7 STRUCTURAL 1 — THE MUTATOR VERBS.
+//
+// Each of the five below is the mechanic behind one row of BOSS_MUTATORS, and
+// each was written against one sentence from that table's own rule: "a mutator
+// must change what the player DOES." The instrument is `tools/_ed4mut.ts`,
+// which before this round returned median cosine 0.999 across 34 trials.
+// ---------------------------------------------------------------------------
+
+/**
+ * ENTOURAGED — KILL THE BODY. The escort is TETHERED, so the shared
+ * shield-anchor rule (damageMonster) taxes the boss while it stands: ignoring
+ * it is not "split attention", it is fighting the boss at a third damage. And
+ * the wings send a replacement, so the verb is one the player does more than
+ * once instead of a single body that dies in the opening ten seconds.
+ */
+export function bossEntourage(state: GameState, boss: Monster): void {
+  const n = (boss.mutCount ?? 0);
+  boss.mutCount = n + 1;
+  const a = n * 1.7;
+  const escort = makeBossAdd(state, boss, "foreman", {
+    x: boss.pos.x + dcos(a) * 2.2, y: boss.pos.y + dsin(a) * 2.2,
+  }, true);
+  escort.hp = escort.maxHp = Math.round(escort.maxHp * CONFIG.mutatorEntourageHpMult);
+  escort.elite = true;
+  escort.eliteName = n === 0 ? "THE ENTOURAGE" : "THE REPLACEMENT";
+  escort.introduced = true; // no SECOND ringside banner: the boss's intro is the beat
+  escort.xp = Math.max(1, Math.round(escort.xp * 0.5));
+  announce(state, "boss", n === 0
+    ? "THE ENTOURAGE is on the cord. While it stands, the boss is barely worth hitting."
+    : "THE WINGS SEND A REPLACEMENT. Do that again, faster.");
+}
+
+/**
+ * UNION RULES — KILL IT AWAY FROM THE BOSS. A picket rotates in on the clock,
+ * and every one of them still gets back up once (mutatorUnionReviveDelay). The
+ * verb is positional: a body that dies next to the boss is a body the boss is
+ * about to be standing over when it stands back up.
+ */
+export function bossPicketShift(state: GameState, boss: Monster): void {
+  const n = CONFIG.mutatorPicketCount;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + (boss.mutCount ?? 0);
+    const kind: MonsterKind = i === n - 1 ? "ranged" : "swarmer";
+    makeBossAdd(state, boss, kind, {
+      x: boss.pos.x + dcos(a) * 2.6, y: boss.pos.y + dsin(a) * 2.6,
+    }, true);
+  }
+  if (!boss.mutCount) {
+    announce(state, "boss", "UNION RULES: the SHIFT ROTATES. Kill them where it cannot stand over them.");
+  }
+  boss.mutCount = (boss.mutCount ?? 0) + 1;
+}
+
+/**
+ * SPONSORED — LEAVE THE GROUND. The placement is LIVE now.
+ *
+ * Shipped, this was a damage multiplier attached to a circle: measured bubble
+ * occupancy was 79-100% on bands 1-2 (a permanent tax with no read) and 3-15%
+ * on bands 4-6 (nothing at all). Either way the player's hands did the same
+ * thing they would have done without it. The mark is ground now — it burns,
+ * it re-lights on a clock, and it is the reason to fight this boss somewhere
+ * else. The damage reduction inside it stays, because that is what makes
+ * dragging the fight off the mark worth the trip.
+ */
+export function bossBrandGround(state: GameState, boss: Monster): void {
+  const at = boss.home ?? boss.pos;
+  state.hazards.push({
+    id: state.nextEntityId++,
+    pos: { x: at.x, y: at.y },
+    t: CONFIG.mutatorBrandLife,
+    total: CONFIG.mutatorBrandLife,
+    radius: CONFIG.sponsoredBubbleRadius,
+    damage: boss.damage * CONFIG.mutatorBrandDmgMult,
+    kind: "sludge",
+    arm: CONFIG.bossHazardDelay,
+    tick: 0,
+    flavor: "brand",
+  });
+  if (!boss.mutCount) {
+    announce(state, "boss", "THE PLACEMENT GOES LIVE. Standing on brand is a billing event. Drag it off the mark.");
+  }
+  boss.mutCount = (boss.mutCount ?? 0) + 1;
+}
+
+/**
+ * OVERTIME — BE IN THE WEDGE. The slot is short and it runs TO TIME.
+ *
+ * Shipped, OVERTIME was `bossEnrageDeadline * 0.22` — a number, on a clock the
+ * player cannot see, that made the boss hit harder later. THE HARD OUT is what
+ * "the slot is short" looks like when it is a verb: a ring of armed ground
+ * around the boss with exactly one gap in it, on a cadence you can count. The
+ * shortened deadline stays; it is now the second half of a mutator rather than
+ * the whole of one.
+ */
+export function bossHardOut(state: GameState, boss: Monster): void {
+  const n = CONFIG.mutatorHardOutCount;
+  const gapAt = (boss.mutCount ?? 0) * 3; // the wedge MOVES, so it is read not memorised
+  for (let i = 0; i < n; i++) {
+    if (((i - gapAt) % n + n) % n < CONFIG.mutatorHardOutGap) continue; // the way out
+    const a = (i / n) * Math.PI * 2;
+    const pos = {
+      x: boss.pos.x + dcos(a) * CONFIG.mutatorHardOutRadius,
+      y: boss.pos.y + dsin(a) * CONFIG.mutatorHardOutRadius,
+    };
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.bossHazardDelay,
+      total: CONFIG.bossHazardDelay,
+      radius: CONFIG.bossHazardRadius,
+      damage: boss.damage * CONFIG.mutatorHardOutDmgMult,
+      kind: "blast",
+      flavor: "overrun",
+    });
+  }
+  announce(state, "boss", (boss.mutCount ?? 0) === 0
+    ? "HARD OUT. The ring closes with ONE gap in it — be standing in the gap."
+    : "HARD OUT — and the gap has MOVED.");
+  boss.mutCount = (boss.mutCount ?? 0) + 1;
+}
+
+/**
+ * REDACTED — LEAVE THE STRUCK LANE. It strikes corridors from the record.
+ *
+ * Shipped, REDACTED was two tuning knobs: telegraphs 40% shorter, own verbs
+ * 25% faster. That is a difficulty slider with a joke on it — the player reads
+ * the same fight with less time. The lanes are the verb: a corridor arms, is
+ * struck once, and is gone, so the mutator asks for a MOVE rather than for
+ * faster reflexes on somebody else's move.
+ */
+export function bossRedactLane(state: GameState, boss: Monster): void {
+  const target = nearestPlayer(state, boss.pos);
+  const base = target
+    ? datan2(target.pos.y - boss.pos.y, target.pos.x - boss.pos.x)
+    : (boss.mutCount ?? 0);
+  for (let i = 0; i < CONFIG.mutatorRedactLanes; i++) {
+    const a = base + (i - (CONFIG.mutatorRedactLanes - 1) / 2) * 0.75;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: boss.pos.x, y: boss.pos.y },
+      end: {
+        x: boss.pos.x + dcos(a) * CONFIG.mutatorRedactLength,
+        y: boss.pos.y + dsin(a) * CONFIG.mutatorRedactLength,
+      },
+      t: CONFIG.mutatorRedactArm + 0.35,
+      total: CONFIG.mutatorRedactArm + 0.35,
+      arm: CONFIG.mutatorRedactArm,
+      radius: CONFIG.mutatorRedactWidth,
+      damage: boss.damage * CONFIG.mutatorRedactDmgMult,
+      kind: "beam",
+    });
+  }
+  if (!boss.mutCount) {
+    announce(state, "boss", "REDACTED: that corridor is being STRUCK FROM THE RECORD. Do not be in it.");
+  }
+  boss.mutCount = (boss.mutCount ?? 0) + 1;
+}
+
+/**
+ * UNDERSTUDIED — BREAK IT TWICE. And then again.
+ *
+ * Shipped, the stand-in reset its armour ONCE at half health, which is one
+ * extra break in a fight the player was already going to win — a stat line
+ * with a story. It re-plates on an interruptible CHANNEL now, so the mutator's
+ * own sentence ("the break-window happens twice") is something the player can
+ * refuse: stagger it inside the channel and the armour never comes back.
+ */
+export function bossRePlate(state: GameState, boss: Monster): void {
+  const frac = CONFIG.mutatorUnderstudyRestore;
+  let restored = false;
+  if (boss.plates) {
+    for (const pl of boss.plates) {
+      if (!pl.broken) continue;
+      pl.broken = false;
+      pl.hp = Math.max(1, Math.round(pl.maxHp * frac));
+      restored = true;
+    }
+  }
+  if ((boss.shieldMax ?? 0) > 0 && (boss.shieldHp ?? 0) < boss.shieldMax!) {
+    boss.shieldHp = Math.min(boss.shieldMax!, (boss.shieldHp ?? 0) + boss.shieldMax! * frac);
+    boss.shieldRegenT = CONFIG.shieldRegenDelay;
+    restored = true;
+  }
+  if (!restored) return;
+  bossEvent(state, {
+    kind: "shieldbreak", monsterId: boss.id, bossId: boss.bossId,
+    label: "RE-PLATED", value: 0, pos: { x: boss.pos.x, y: boss.pos.y },
+  });
+  announce(state, "boss", "THE UNDERSTUDY RE-PLATES. Break it again — or break the CHANNEL next time.");
 }
 
 /**

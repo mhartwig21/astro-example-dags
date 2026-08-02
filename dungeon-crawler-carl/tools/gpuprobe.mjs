@@ -2,13 +2,38 @@
 // GL), this asks Chromium for hardware ANGLE/D3D11 so frame times mean
 // something. Verifies the unmasked renderer string before trusting numbers.
 //
-// Usage: node tools/gpuprobe.mjs [url] [--seconds 8] [--w 1920] [--h 1080]
+// Usage: node tools/gpuprobe.mjs [url] [--base http://localhost:PORT]
+//                                [--seconds 8] [--w 1920] [--h 1080]
+//
+// THE PORT IS THE CALLER'S, NOT THE FILE'S. This defaulted to
+// `http://localhost:5285`, a dev server from a session that ended months ago,
+// so every invocation without an explicit URL died on ERR_CONNECTION_REFUSED —
+// and the tool that exists to prove the capture path has a real GPU was
+// therefore the one tool nobody could run. Pass a full URL as argv[2], or
+// --base (or $DCC_BASE) and take the standard probe URL on it.
 import { chromium } from "playwright";
 
-const flag = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : d; };
+// Accepts both `--flag value` and `--flag=value`; the rest of tools/ is split
+// between the two conventions and a probe that silently ignores half of them is
+// how a stale default survives this long.
+const flag = (n, d) => {
+  const eq = process.argv.find((a) => a.startsWith(n + "="));
+  if (eq) return eq.slice(n.length + 1);
+  const i = process.argv.indexOf(n);
+  return i >= 0 ? process.argv[i + 1] : d;
+};
+const PROBE_PATH = "/iso.html?test&floor=8&level=16&seed=41&abilities=all&debug=1";
+const base = String(flag("--base", process.env.DCC_BASE) || "").replace(/\/+$/, "");
 const url = process.argv[2]?.startsWith("http")
   ? process.argv[2]
-  : "http://localhost:5285/iso.html?test&floor=8&level=16&seed=41&abilities=all&debug=1";
+  : base
+    ? base + PROBE_PATH
+    : null;
+if (!url) {
+  console.error("usage: node tools/gpuprobe.mjs [url] | --base=http://localhost:PORT");
+  console.error("  (no default port: the old one was a dead dev server)");
+  process.exit(2);
+}
 const seconds = Number(flag("--seconds", 8));
 const width = Number(flag("--w", 1440));
 const height = Number(flag("--h", 852));

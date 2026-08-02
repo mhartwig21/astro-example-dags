@@ -641,84 +641,103 @@ export interface BossMutatorInfo {
    * round, but common) draws at ordinary weight.
    */
   tickets?: number;
-  /**
-   * Legal on the TEACHING BAND (floor 3). r7 blocker: floor 3 drew ZERO
-   * mutators by design and the three candidates therefore had only 2-3
-   * (mutator x arena) fingerprints in existence — in the one slot every short
-   * session reaches. The "floor 1 stays pristine" analogy the gate was built on
-   * is wrong, and it is wrong for a stated reason: FLOOR 1 HAS NO BOSS. Floor 3
-   * is not the pristine floor, it is the first ENCOUNTER, and an encounter that
-   * is identical every run is exactly the defect this whole doc opened on.
-   *
-   * Only mutators that TEACH are legal here — one that adds a second verb to
-   * read (RETROFIT, UNDERSTUDIED) or one body to prioritise (ENTOURAGED). The
-   * four that are ambient pressure, a clock, or a text-reading test are not
-   * things a first boss should be explaining.
-   */
-  teaching?: boolean;
+  /** The VERB this mutator owns — one imperative, and it must be a thing the
+   *  player's hands do. `tools/_ed4mut.ts` is the acceptance test for it. */
+  verb: string;
 }
+
+// ---------------------------------------------------------------------------
+// r7 STRUCTURAL 1 — A MUTATOR MUST OWN A VERB.
+//
+// The measurement that opened this round, and it is the same instrument that
+// has judged every mutator claim since r4 (`tools/_ed4mut.ts`, 34 forced
+// trials): MEDIAN mutator-vs-clean cosine 0.999, with 32 of 34 trials scoring
+// >= 0.97 — "SAME FIGHT". Run-to-run, the same boss on a different seed scored
+// 0.908 while a DIFFERENT boss in the same band scored 0.309: the NAME draw
+// bought 0.599 of separation and mutators + arenas + seed combined bought
+// 0.092. §4's "3 bosses x 8 mutators x ~2 arenas = 48 distinct encounters" was,
+// in play, three encounters per band slot with 9% jitter.
+//
+// The cause is not weighting and it was never weighting. Six of the eight
+// mutators were AMBIENT: more damage taken (LIVE AUDIENCE +40%), a shorter
+// deadline (OVERTIME), a damage multiplier on a bubble (SPONSORED), a revive
+// timer (UNION RULES), a telegraph length (REDACTED). Those change how much a
+// fight hurts. None of them changes what the player has to DO, which is this
+// table's own stated rule and has been since it was written.
+//
+// So every row below now names a VERB and owns the mechanic that demands it —
+// a body that must be killed, ground that must be left, a lane that must be
+// left, an armour that must be broken twice, a telegraph that must be re-read.
+// The verbs are deliberately DIFFERENT FROM EACH OTHER: two mutators that both
+// mean "kill the extra body" would multiply the draw table without multiplying
+// the fight, which is the failure this round exists to stop repeating.
+// ---------------------------------------------------------------------------
 
 export const BOSS_MUTATORS: BossMutatorInfo[] = [
   {
     id: "entouraged", label: "ENTOURAGED", addsPressure: true,
-    note: "Arrives with a champion-grade escort. Split attention; pick a kill order.",
-    teaching: true, // one extra body to prioritise: the first kill-order lesson
+    verb: "KILL THE BODY",
+    note: "A tethered champion shields it, and the wings send a replacement. Kill the escort, again, or fight the boss at a third damage.",
+    changesAsk: true,
   },
   {
     id: "unionrules", label: "UNION RULES", addsPressure: true,
-    note: "Its adds get back up once, on a delay. Kill them away from it, or burst them twice.",
+    verb: "KILL IT AWAY FROM THE BOSS",
+    note: "A picket rotates in on the clock and every one of them gets back up once. Break the line where it cannot be re-shifted.",
   },
   {
     id: "sponsored", label: "SPONSORED",
-    note: "It defends a placement. Pull it off its mark and hold it out there, or fight it at half damage.",
+    verb: "LEAVE THE GROUND",
     // It changes WHERE the fight happens, which is a verb: the counterplay is
     // "move the fight", and on a boss that can move it is a real one.
     changesAsk: true,
+    note: "The placement is LIVE GROUND it will not leave. Stand off the mark and drag it out, or burn on brand.",
     // ...WHICH A BOSS THAT CANNOT MOVE CAN NEVER BE PULLED OUT OF (r5 blocker).
     // The counterplay sentence is positional and `def.stationary` bosses have
     // `speed = 0` (applyBossDraw), so on The Grease Trap the bubble was simply
-    // permanent damage reduction with no answer: measured over 60s of fixed
-    // 200 dps it ended at 98% HP with 1,231 damage landed against 34% and
-    // 4,151 clean — a 70% cut with nothing the player can do about it. A
-    // mutator must change what the player DOES; one whose only verb the boss
-    // is incapable of offering is a stat line, and stat-line mutators are
-    // banned by this table's own rule.
+    // permanent damage reduction with no answer.
     legal: (def) => !def.stationary,
   },
   {
     id: "overtime", label: "OVERTIME",
-    note: "The broadcast slot is short. The enrage deadline arrives early — this is a race.",
+    verb: "BE IN THE WEDGE",
+    // r7: this was a deadline multiplier — a stat line with a countdown on it.
+    // The slot being short is now something the room DOES: the hard out fires a
+    // ring with exactly one gap in it, on a clock the player can count.
+    changesAsk: true,
+    note: "The slot is short and it runs to time. THE HARD OUT rings the arena every cycle — find the one gap before it closes.",
   },
   {
     id: "retrofit", label: "RETROFIT",
+    verb: "READ A STRANGER'S TELEGRAPH",
     note: "Its signature is another band's. A familiar boss with an unfamiliar telegraph.",
     changesAsk: true,
-    // A kit that calls its band signature BY NAME cannot be retrofitted: the
-    // Marshal's `marshal` kit calls bossFlameSweep directly and never reads
-    // `m.signature` (the only thing retrofit mutates), so the name card
-    // promised "its signature is another band's" over a fight firing its own.
-    // Kits now route their signature cast through `castBandSignature`, which
-    // reads `m.signature` — so this stays legal wherever a signature exists,
-    // and `bosses.test.ts` pins that the routing holds.
+    // A kit that calls its band signature BY NAME cannot be retrofitted: kits
+    // route their signature cast through `castBandSignature`, which reads
+    // `m.signature` — so this stays legal wherever a signature exists, and
+    // `bosses.test.ts` pins that the routing holds.
     legal: (def) => !!def.signature,
-    tickets: 3, // r6: the one ask-changer a critic could photograph working
-    teaching: true, // an unfamiliar telegraph on a familiar body IS the lesson
   },
   {
     id: "understudied", label: "UNDERSTUDIED",
-    note: "Its armour comes back once at half health. The break-window happens twice.",
+    verb: "BREAK IT TWICE",
     changesAsk: true,
     legal: (def) => !!def.plates || !!def.shield,
-    tickets: 3,
-    teaching: true, // "the break-window happens twice" is a repeated ASK
+    note: "The stand-in re-plates itself on a channel, over and over. Interrupt the re-plate or break the same armour all night.",
   },
   {
     id: "liveaudience", label: "LIVE AUDIENCE",
-    note: "The crowd throws things on a rhythm. The room does damage now, not just the boss.",
+    verb: "WATCH THE SEATS",
+    note: "The crowd throws on a rhythm, and it leads you. The room is a second attacker with its own tell.",
   },
   {
     id: "redacted", label: "REDACTED",
-    note: "Shorter telegraphs — but it announces its next move in text. Read the ticker.",
+    verb: "LEAVE THE STRUCK LANE",
+    // r7: "shorter telegraphs" is a difficulty knob, not a verb. What REDACTED
+    // does now is strike a CORRIDOR from the record — a lane that arms, fires
+    // once and is gone, on top of shorter tells.
+    changesAsk: true,
+    note: "It strikes lanes from the record. Shorter tells, and the corridor you are standing in may stop existing.",
   },
 ];
 
@@ -738,49 +757,41 @@ export function bossMutatorInfo(id: BossMutator): BossMutatorInfo {
 export function rollBossMutators(
   seed: number, floor: number, def: BossDef, bonus = false,
 ): BossMutator[] {
-  // ---- THE TEACHING BAND DRAWS ONE TOO (r7 blocker) ------------------------
+  // ---- THE TEACHING BAND DRAWS FROM THE WHOLE TABLE (r7 structural 2) ------
   //
-  // Floor 3 drew nothing, "mirroring the shipped floor-1-stays-pristine rule",
-  // and `tools/_ed3variety.ts` measured the cost: each of the three candidates
-  // has 2-3 (mutator x arena) fingerprints IN EXISTENCE, in the one boss slot a
-  // short session is guaranteed to reach. The analogy was wrong and it is wrong
-  // for one stated reason — FLOOR 1 HAS NO BOSS. Floor 3 is not the pristine
-  // floor, it is the first encounter, and "the same boss every run" is the
-  // defect this entire document exists to close.
+  // r7 shipped a "teaching subset" of three mutators for floor 3, and a
+  // 30,000-seed sweep measured what that narrowness actually produced: THE TEMP
+  // draws ENTOURAGED on 100% of runs, forever, because it has no signature and
+  // no plates and therefore exactly one legal mutator; the Rent Collector and
+  // the Concierge collapse to two entries each. Five states across the whole
+  // teaching band — in the one boss slot every short session is guaranteed to
+  // reach. A subset chosen to protect the lesson deleted the variety the lesson
+  // was supposed to be varied by.
   //
-  // The teaching band draws from the TEACHING subset only (see
-  // BossMutatorInfo.teaching): one more verb to read or one more body to
-  // prioritise, never ambient pressure, never a clock, never a text test. If a
-  // candidate can carry none of them it still draws nothing, which is the old
-  // behaviour and the correct one — a mutator that does not apply is not a
-  // lesson. Floors 6-12 are unchanged; 15+ still draws two.
-  const teachingBand = floor < CONFIG.bossMutatorFromFloor;
-  const legal = BOSS_MUTATORS.filter(
-    (m) => (!m.legal || m.legal(def)) && (!teachingBand || m.teaching),
-  );
+  // The subset is gone, and it is gone for a reason that is now true and was
+  // not before: every mutator in the table owns a VERB (see BOSS_MUTATORS).
+  // There is no longer a row on it that is ambient pressure or a stat line, so
+  // there is no longer a row a first boss should not be allowed to teach. What
+  // floor 3 still gets is exactly ONE of them.
+  const legal = BOSS_MUTATORS.filter((m) => !m.legal || m.legal(def));
   if (legal.length === 0) return [];
-  // THE FIRST SLOT PREFERS AN ASK-CHANGER (r5 major). Uniform over `legal`,
-  // the two mutators that actually change what the fight asks drew 4-10% of
-  // encounters because they are the two with legality conditions; the six
-  // ambient-pressure affixes drew 13-36%. Against the Hades bar that is
-  // Diablo's affix roll, not Extreme Measures. The pool is still drawn from
-  // the same seeded hash and is still deterministic — it just looks at the
-  // ask-changers first, and falls through to the full legal set for a boss
-  // that can carry none of them.
-  // WEIGHTED, not filtered: an ask-changer gets three tickets in the same
-  // seeded draw. Restricting the first slot to shapers outright was worse than
-  // the problem — a boss with exactly one legal shaper (The Condemned
-  // Architect: `retrofit` legal, `understudied` not) would then draw that one
-  // mutator EVERY run, which is variety subtracted in the name of variety.
-  // Three tickets takes the shapers' combined share from ~25% to ~50% where
-  // both are legal and from ~14% to ~33% where only one is, and every other
-  // mutator still draws.
-  // TICKETS ARE DECLARED, NOT DERIVED (r6 blocker — see BossMutatorInfo.tickets).
+  // TICKETS ARE FLAT AGAIN (r7 structural 1). r5 handed the "ask-changers"
+  // three tickets each and r6 moved which rows carried them, and both rounds
+  // were tuning the SHAPE of a draw over a table whose rows did not differ in
+  // play (median mutator-vs-clean cosine 0.999). Weighting a draw is how you
+  // pick between options that are genuinely different; it is not how you make
+  // them different. Every row owns a verb now, so every row draws at one
+  // ticket and the sweep in `tools/_ed4f3.ts` is the acceptance test for the
+  // spread rather than a table of hand-set weights.
   const pool: BossMutatorInfo[] = [];
   for (const mut of legal) {
     for (let t = 0; t < Math.max(1, mut.tickets ?? 1); t++) pool.push(mut);
   }
-  const first = pool[bossHash(seed, def.band, SALT_MUT) % pool.length];
+  // The salt carries the FLOOR, not just the band. Two runs of the same band
+  // slot are the thing this whole module exists to separate; folding the floor
+  // in costs nothing and stops the mutator draw and the arena draw moving in
+  // lockstep for a repeated seed.
+  const first = pool[bossHash(seed, def.band, floor, SALT_MUT) % pool.length];
   const out: BossMutator[] = [first.id];
   if (floor >= CONFIG.bossMutatorSecondFromFloor || bonus) {
     // Never two that both add adds, and never the same one twice.
@@ -788,7 +799,7 @@ export function rollBossMutators(
       (m) => m.id !== first.id && !(m.addsPressure && first.addsPressure),
     );
     if (rest.length > 0) {
-      out.push(rest[bossHash(seed, def.band, SALT_MUT2) % rest.length].id);
+      out.push(rest[bossHash(seed, def.band, floor, SALT_MUT2) % rest.length].id);
     }
   }
   return out;
