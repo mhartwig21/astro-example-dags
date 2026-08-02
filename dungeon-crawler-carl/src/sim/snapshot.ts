@@ -64,6 +64,12 @@ const MONSTER_WIRE_OMIT = [
   "aura", "bossTier", "bountyT", "bountyGold", "consecrateAt", "duoId",
   "enraged", "escaped", "exploded", "fleeT", "healId", "heat", "reentryAt",
   "shieldT", "squadId", "summons", "tribe", "vanishT",
+  // BOSSES V2 server-only bookkeeping. Everything a HOST needs to draw a boss
+  // — bossId, bossMutators, plates, shieldHp/shieldMax, invulnT, tetherId,
+  // enrageStacks, maxPhase, phase — deliberately stays on the wire: a boss
+  // whose identity is not in the snapshot desyncs the moment a phase lands.
+  "bossCount", "bossTimer", "punishArmed", "fightT", "shieldRegenT",
+  "phaseReason", "lockbox", "tetherRevived",
 ] as const satisfies readonly (keyof Monster)[];
 
 function wireMonster(m: Monster): Monster {
@@ -191,7 +197,7 @@ export function serializeDynamic(state: GameState, coldCache?: Map<number, strin
     monsters: interestMonsters(state.monsters, state.players),
     monstersLeft: state.monsters.length,
     explored: undefined, map: undefined, worlds: undefined,
-    events: [], announcements: [], hits: [],
+    events: [], announcements: [], hits: [], bossEvents: [],
   } as Record<string, unknown>;
   if (coldCache) {
     const fp = JSON.stringify(STATE_SLOW_FIELDS.map((k) => state[k] ?? null));
@@ -293,6 +299,6 @@ export function serializeForDynamic(state: GameState, playerId: number): string 
     monstersLeft: view.monsters.length,
     explored: undefined, map: undefined,
     // Transients ride the dedicated `events` broadcast, never the snapshot.
-    events: [], announcements: [], hits: [],
+    events: [], announcements: [], hits: [], bossEvents: [],
   }, roundFloats);
 }

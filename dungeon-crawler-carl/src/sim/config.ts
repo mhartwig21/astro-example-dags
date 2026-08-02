@@ -1073,7 +1073,7 @@ export const CONFIG = {
   // floor-12 arenas (~300 -> ~1100); floors 6 and 12 keep their pre-band
   // values (5400 / 18360). Floor 3 is early-game and deliberately GENTLE.
   // Target: a real 15-25s arena fight, not a speed bump.
-  bandBossHp: [1500, 5400, 10500, 18360, 27000],
+  bandBossHp: [1050, 4320, 8400, 14690, 21600],
   bandBossDmgMult: [0.5, 0.7, 0.7, 0.7, 0.7], // x bossDamage per arena
   bandBossXpMult: [0.2, 0.4, 0.4, 0.4, 0.4], // x bossXp per arena
   cityBossAdds: 2, // ranged escorts
@@ -1212,6 +1212,183 @@ export const CONFIG = {
   bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
   bossHazardRadius: 1.7, // tiles
   bossHazardDmgMult: 1.1, // relative to the boss's damage stat
+
+  // ===== BOSSES V2 (BOSSES-V2.md) ===========================================
+  // Everything here answers ONE measured problem: across three runs x six boss
+  // floors the audit found 6 distinct bosses, 6 distinct signatures, and 1
+  // arena shape — variety across runs was literally zero. The knobs below are
+  // the price of the fix: mechanics that add real seconds to a fight, paid for
+  // by taking HP back out (see bandBossHp above and BALANCE-NOTES.md).
+
+  // -- Verb V1: breakable plates / weak points.
+  // Plate pools are a fraction of the boss's own HP, so they scale with the
+  // band budget instead of needing per-band tables.
+  plateHpFraction: 0.09, // per plate, x the boss's maxHp
+  plateBossDamageMult: 0.35, // body damage taken while ANY plate still stands
+  plateHitCapFraction: 0.22, // one-shot insurance for plates (they're small)
+  plateBreakStagger: 1.2, // seconds the boss reels when a plate goes
+
+  // -- Verb V2: boss shield pool (absorb HP that regrows).
+  shieldFraction: 0.16, // pool size, x the boss's maxHp
+  shieldRegenDelay: 3.0, // seconds without damage before it starts regrowing
+  shieldRegenPerSec: 0.09, // fraction of the pool restored per second
+  shieldBreakStagger: 1.6, // seconds of punish window when the pool empties
+
+  // -- Verb V4: the punish window. Every V2 boss over-commits on a readable
+  // count and becomes briefly helpless — the slagbreaker's vent, at boss
+  // scale. This is what makes a fight a rhythm you learn, not a wall you erode.
+  bossPunishAfter: 3, // signature commits before the over-extension
+  bossPunishWindow: 2.2, // seconds of self-stagger (the unload)
+  bossPunishWindup: 0.8, // telegraph before the over-commit resolves
+
+  // -- Verb V5: hard enrage. A ceiling on fight length for a short-session
+  // game. Deadline is ~2x the 45-90s target; it should almost never fire.
+  bossEnrageDeadline: 150, // seconds of live fight before the System loses patience
+  bossEnrageStackSeconds: 10, // seconds per additional stack after that
+  bossEnrageDmgPerStack: 0.12, // +damage per stack (multiplicative on the stat)
+  bossEnrageMaxStacks: 8,
+  mutatorOvertimeFraction: 0.4, // OVERTIME: deadline x this
+
+  // -- Verb V6: intermission ("THE COMMERCIAL BREAK"). The boss goes briefly
+  // untargetable, a shockwave CLEARS live hazards, and the adds wave arrives
+  // as part of the beat — the board is re-dealt rather than compounded.
+  bossIntermissionSeconds: 1.6,
+
+  // -- Verb V8: add tether. A tethered add FEEDS its boss until it is killed.
+  tetherHealPerSec: 0.003, // fraction of boss maxHp per second per live tether
+  tetherRange: 12, // tiles: past this the cord snaps (it stops feeding)
+  mutatorUnionReviveDelay: 4.5, // UNION RULES: seconds before an add gets back up
+
+  // -- V9/V10 selection + mutators.
+  bossMutatorFromFloor: 6, // floor 3 stays pristine (mirrors "floor 1 stays pristine")
+  bossMutatorSecondFromFloor: 15, // two mutators only in the last two bands
+  bossRepeatEscalateAt: 2, // Nth defeat: opens at the phase-2 kit, shorter intro
+  bossRepeatMutatorAt: 5, // Nth defeat: one free mutator on top of the draw
+  bossRepeatIntroMult: 0.55, // intro freeze multiplier on a rematch
+
+  // -- Arena variants (§4.3). The arena was a fixed 19x19 empty square on
+  // every band, every run. Pillars are ordinary `breakables` with footprints,
+  // so the Architect demolishing your cover needs no new verb at all.
+  arenaPillarCount: 6, // PILLARED: destructible cover pieces
+  arenaPillarHp: 4, // hits to fell one (blockerHp is 2 — arena cover is stouter)
+  arenaPropCount: 4, // interactive props (floodgates / vents / conveyors)
+  arenaPropHp: 3,
+  arenaSplitGap: 5, // SPLIT: tiles of chokepoint left open through the divide
+  // OPEN IS NOT EMPTY. §2.1 names "a featureless square" as the failure
+  // condition, and a capture of the floor-3 Rent Collector — the first boss
+  // most players ever meet — was exactly that: beige floor, one ring, nothing
+  // else. An open arena keeps its clear middle (lanes, fissures and citations
+  // depend on it) and gains a sparse RIM of smashable staging around the
+  // outside: scale reference, silhouette, and something to break.
+  arenaRimCount: 8,
+  arenaRimHp: 2,
+  // OPEN: extra tiles per side. Held at ZERO deliberately. Measured: at +2 the
+  // 21x21 arena grazes enough corridors that lockStairsRoom's softlock guard
+  // reverts the seal, and floors 3+ stop locking at all (three sim.test
+  // "locked floors" cases). The arena RECT is a mapgen invariant seam; a
+  // layout earns its identity from what is inside it, not from its size.
+  arenaOpenSizeBonus: 0,
+
+  // -- Per-boss ability knobs. Grouped by roster entry; each one is a NEW ask
+  // expressed in the shipped grammar (armed decals, lanes, channels), never a
+  // recolored nova.
+  // The Rent Collector: Late Fee seizes gold into a lockbox plate.
+  lateFeeCooldown: 9,
+  lateFeeWindup: 0.7,
+  lateFeeBase: 12, // gold seized per crawler...
+  lateFeePerFloor: 4, // ...plus this per floor
+  lateFeeInterest: 2.0, // refund multiplier when the lockbox breaks
+  // The Temp: Transformation Clause — burst it through the threshold or meet
+  // the thing it becomes.
+  clauseHpFraction: 0.5,
+  clauseWindup: 2.4, // a long, unmistakable channel — the whole decision
+  clauseDmgMult: 1.25, // what it becomes, if you let it
+  clauseSpeedMult: 1.3,
+  // The Sanitation Inspector: Citation lanes that CONDEMN the tiles they hit.
+  citationCooldown: 7,
+  citationArm: 1.0,
+  citationLength: 16,
+  citationWidth: 0.75,
+  citationDmgMult: 0.85,
+  condemnDuration: 12, // seconds a condemned strip lingers
+  condemnDmgMult: 0.25, // per tick — the floor shrinks, it doesn't execute
+  // The Grease Trap: a STATIONARY boss that pulls and births tethered adds.
+  greasePullCooldown: 5,
+  greasePullRange: 11,
+  greasePullStrength: 3.2, // tiles dragged (uncapped, like the lasher hook)
+  greaseAddCooldown: 6,
+  greaseAddsPerWave: 2,
+  greaseInvertAfter: 5, // tethered adds killed before the pit inverts
+  greaseInvertWindow: 4.0, // seconds the exposed core stays helpless
+  // The Pollinator: Bloom seeds armed pods; unchecked pods seed more pods.
+  bloomCooldown: 6.5,
+  bloomPods: 4,
+  bloomArm: 1.3,
+  bloomRadius: 1.5,
+  bloomDmgMult: 0.55,
+  bloomChildren: 2, // pods a bloomed pod seeds (bounded by bloomPodCap)
+  bloomPodCap: 22,
+  bloomWiltAt: 0, // pods left before it wilts into the punish window
+  // The Zoning Board: three tethered aides; the survivors inherit the dead
+  // one's verb, so killing the wrong one first makes the fight WORSE.
+  boardAides: 3,
+  boardAideHpMult: 1.6,
+  boardShieldMult: 0.3, // damage the Board body takes while any aide stands
+  // The Permit Office: four school-immune plates. The build check, escalated.
+  permitPlates: 4,
+  // STOP-WORK ORDER — the Office's own verb. One locked lane per UNBROKEN
+  // stamp, fired from that stamp's own angle and armed in sequence. This is
+  // what makes the plates a MECHANIC rather than four sub-HP bars: every stamp
+  // you break deletes one lane from the pattern, so the ask ("split your
+  // schools") pays out in floor space, not in a number.
+  stopWorkCooldown: 8,
+  stopWorkArm: 1.0,
+  stopWorkStagger: 0.3, // seconds between each stamp firing (the sequence)
+  stopWorkWidth: 0.85,
+  stopWorkDmgMult: 0.65,
+  // The Sump King: SLUICE GATE — the surge is anchored on the standing
+  // FLOODGATES, not on the King, so the prop is the thing you read and the
+  // thing you break. `prop: "drain"` was authored and never fired.
+  sluiceCooldown: 7,
+  sluiceArm: 1.4,
+  sluicePools: 5, // pools per gate, marching toward the crawler
+  sluiceRadius: 1.7,
+  sluiceDmgMult: 0.4,
+  // The Standards Board (finale): MOTION CARRIED — one lane per LIVING aide,
+  // every one converging on the body they are protecting. The council format
+  // ESCALATED: the Zoning Board hides behind its aides, the Standards Board
+  // fires THROUGH them, so the kill order changes the shape of the floor.
+  motionCooldown: 7.5,
+  motionArm: 1.1,
+  motionWidth: 0.85,
+  motionDmgMult: 0.65,
+  motionOvershoot: 6, // tiles the lane runs past the body (never a safe pocket)
+  // The Foundation: fissures at boss scale, in multiples.
+  foundationCooldown: 7.5,
+  foundationLanes: 2, // phase 0-1: wedge-shaped safe zones
+  foundationRadialLanes: 6, // phase 2: pick a gap and COMMIT
+  // The Line Supervisor: conveyors deliver the threat; the boss is the reason.
+  conveyorCooldown: 8,
+  conveyorSquad: 3, // wind-up battalion members per delivery
+  supervisorGuardMult: 0.4, // damage it takes while a conveyor still runs
+  // The Safety Officer: Compliance Lattice — beams arming in sequence.
+  latticeCooldown: 9,
+  latticeLines: 4,
+  latticeArm: 1.1,
+  latticeStagger: 0.45, // seconds between each line arming (the sequence)
+  latticeWidth: 0.8,
+  latticeDmgMult: 0.75,
+  // The Showrunner (finale): the set is re-dressed at every phase edge.
+  showrunnerSets: ["flood", "roots", "debris", "flamewall"] as const,
+  // The Sponsor (finale): Brand Integration — a shield only one school erodes.
+  sponsorShieldFraction: 0.22,
+  // LIVE AUDIENCE mutator: the crowd throws things on a rhythm.
+  audienceInterval: 5.5,
+  audienceCount: 3,
+  audienceDmgMult: 0.7,
+  // SPONSORED mutator: a hazard-immune bubble the boss must be pulled out of.
+  sponsoredBubbleRadius: 4.5,
+  sponsoredDamageMult: 0.25, // damage it takes while it stands in its own bubble
 } as const;
 
 // Enemy archetype stat multipliers (relative to the per-floor base) + behavior.

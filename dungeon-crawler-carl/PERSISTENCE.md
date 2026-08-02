@@ -54,6 +54,16 @@ remains a non-event: SQLite-on-volume moves to a GCE persistent disk unchanged
   the account's ledger back down — offline and online converge. Tip
   announcements are addressed (`forPlayer`), so a party veteran never re-sees
   a newbie's courtesy explanation.
+- **Boss cross-run memory (BOSSES-V2 §4.1/§4.4)**: `SavedProgress.bosses`
+  carries two tiny optional maps — `lastLineup` (band index -> `BossId`, so
+  the next run's draw can step OFF the boss a band slot just served) and
+  `defeats` (`BossId` -> times this profile put it down, which opens a
+  rematch at the phase-2 kit, shortens the ringside freeze, and adds a free
+  mutator at five). Both are read-only inputs to a PURE draw (`bosses.ts`), so
+  a save without them simply gets the plain seeded lineup — no migration, no
+  version bump. Hosts should write `state.bossLineup` into `lastLineup` and
+  `state.bossDefeats` into `defeats` at the same checkpoint they write the
+  character save.
 - **World hibernate/restore**: coop/roam instances write the full
   `serialize(state)` (stamped `SNAPSHOT_VERSION`) at every checkpoint; an
   empty instance unloads from memory, and the next join deserializes the

@@ -1,7 +1,7 @@
 import { deserialize, deserializeDynamic, mergeColdPlayers, mergeSlowState } from "../sim/snapshot";
 import { revealExplored } from "../sim/game";
 import { knownTips, recordTips } from "../persist/save";
-import type { Announcement, GameState, HitEvent, Intent, Vec2 } from "../sim/types";
+import type { Announcement, BossEvent, GameState, HitEvent, Intent, Vec2 } from "../sim/types";
 
 // Browser-side network client for the authoritative server. Receives snapshots
 // (15/s; FULL carries map + fog, the recurring DYNAMIC ones don't — we keep the
@@ -17,6 +17,11 @@ export interface NetEventBatch {
   events: string[];
   announcements: Announcement[];
   hits: HitEvent[];
+  // BOSSES-V2 §7.4: typed boss beats (name card, phase edges, punish windows,
+  // plate breaks, intermissions, telegraphs). Same transient contract as hits,
+  // so coop clients drive the same staging solo play does. Optional — an older
+  // server simply never sends it.
+  bossEvents?: BossEvent[];
 }
 
 /** Endpoint positions of everything that moves, keyed p<id>/m<id>/r<id>. */

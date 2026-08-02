@@ -46,6 +46,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
+| `BOSSES-V2.md` | Boss encounter design: the 18-strong drawn roster, the boss grammar (asks/telegraphs/counterplay), variety-across-runs layers, elevation beats, and the typed event vocabulary hosts read. Delete sections as they ship |
 | `BIOMES.md` | Art direction notes for floor/room visual variety |
 | `BACKLOG.md` | Open play-driven items with code pointers. Delete entries when they ship |
 | `GENERATION-BACKLOG.md` | Asset gaps mapped KayKit-first, then the Meshy generation queue (clips, props, the flagship character path). Delete rows as they ship |
@@ -96,7 +97,10 @@ presentation:
   src/render3d/     renderer3d (scene, juice: shake/particles), assets.ts
                     (MODEL_MANIFEST — KayKit glTF with procedural fallbacks),
                     floorThemes.ts (per-band reskin), fogOfWar.ts, ambient.ts,
-                    weaponry.ts (noun→mesh for held weapons)
+                    weaponry.ts (noun→mesh for held weapons),
+                    bossFx.ts (BOSSES-V2 §5: per-boss signature table, the
+                    shield/tether/punish/arena/plate/spore shaders, and the
+                    camera intent a boss beat may borrow)
   src/audio/        engine + manifest (clips, silent fallback) + director
                     (maps sim events → sound ids)
 support:

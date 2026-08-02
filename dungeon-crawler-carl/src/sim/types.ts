@@ -214,6 +214,102 @@ export interface StatusEffect {
 // the shared boss kit (set at spawn from the floor's band — see spawnMonsters).
 export type BossSignature = "graverising" | "flood" | "roots" | "debris" | "flamewall";
 
+// ---- BOSSES V2 (BOSSES-V2.md) ---------------------------------------------
+// The problem this section solves is "the same boss appears every run". A
+// run's lineup is DRAWN, not scripted: each band-end floor picks one of three
+// candidates from a dedicated hash of (runSeed, band) — never from state.rng,
+// so the floor's spawn stream stays byte-identical to the fixed-boss baseline
+// (the same discipline assignRoomPurposes already uses). See bosses.ts.
+
+/** What a fight ASKS the player to do (BOSSES-V2 §2.1). One per boss; a boss
+ *  whose ask you cannot name in four words is a big monster with more HP. */
+export type BossAsk =
+  | "lane" // dodge-the-lane: read a locked line, step perpendicular
+  | "shield" // break-the-shield: burst a targetable thing on a timer
+  | "adds" // kill-the-adds: retarget under pressure, kill order
+  | "arena" // use-the-arena: move the fight to good ground
+  | "window" // burst-the-window: recognize and unload in a punish beat
+  | "storm"; // survive-the-storm: sustain and reposition through a phase
+
+/** The 18-strong band-boss roster (three candidates per band). */
+export type BossId =
+  // THE UNDERCROFT (floor 3) — the teaching band, no mutators
+  | "concierge" | "rentcollector" | "temp"
+  // THE SEWERS (floor 6) — pressure and ground
+  | "sumpking" | "inspector" | "greasetrap"
+  // THE GARDEN (floor 9) — shields and swarms
+  | "topiary" | "zoningboard" | "pollinator"
+  // THE RUINS (floor 12) — the arena fights back
+  | "architect" | "permitoffice" | "foundation"
+  // THE IRONWORKS (floor 15) — rhythm and machinery
+  | "marshal" | "linesupervisor" | "safetyofficer"
+  // THE APPROACH (floor 18) — the finale finally has a name
+  | "showrunner" | "standards" | "sponsor";
+
+/** Affix-style layers that change the ASK, never the numbers (§4.2). */
+export type BossMutator =
+  | "entouraged" // arrives with a champion-grade escort
+  | "unionrules" // its adds get back up once, on a delay
+  | "sponsored" // a hazard-immune bubble it must be pulled out of
+  | "overtime" // hard enrage starts at 40% of the normal deadline
+  | "retrofit" // swaps its band signature for a different band's
+  | "understudied" // its plates/shield come back once, at 50%
+  | "liveaudience" // the arena gains crowd-thrown hazards on a rhythm
+  | "redacted"; // shorter telegraphs, but it announces its next move
+
+/** Seeded arena layouts (§4.3). A boss's `arenas` list constrains the draw. */
+export type ArenaVariant =
+  | "pillared" // dense destructible cover; line-of-sight play
+  | "open" // no cover, wider; favors lanes and storms
+  | "split"; // a hazard band divides the arena; favors routing
+
+/** What advanced a phase. At least one phase per fight is "mechanic" — the
+ *  player's PLAY, not their damage, moved the story (§2.2). */
+export type BossPhaseReason = "hp" | "mechanic" | "timer" | "positional";
+
+/**
+ * BREAKABLE PLATE / WEAK POINT (verb V1): a targetable sub-object on a boss
+ * with its own HP. While an unbroken plate stands the boss itself takes only a
+ * fraction of incoming damage; breaking one is a mechanic-triggered phase
+ * edge. A plate with a `school` IGNORES that school entirely — the build check.
+ */
+export interface BossPlate {
+  key: string; // stable id (renderers anchor a mesh to it)
+  label: string; // announcer / health-plate label
+  hp: number;
+  maxHp: number;
+  angle: number; // radians around the boss — where the plate hangs
+  school?: School; // damage of this school does NOTHING to this plate
+  broken?: boolean;
+}
+
+/**
+ * Typed boss beats for the presentation layer (BOSSES-V2 §5). Same contract as
+ * state.hits / state.announcements: the sim emits DATA, hosts turn it into
+ * camera moves, name cards, stingers, and FX. Transient — cleared at the top
+ * of every step, exactly like hits.
+ */
+export interface BossEvent {
+  kind:
+    | "intro" // the encounter's identity is known (name card / mutator tag)
+    | "phase" // a phase edge crossed (carries the reason)
+    | "plate" // a plate broke
+    | "shieldbreak" // the shield pool emptied
+    | "punish" // the boss over-committed and self-staggered — UNLOAD
+    | "intermission" // briefly untargetable while the board is re-dealt
+    | "enrage" // the hard-enrage deadline passed (stacking)
+    | "telegraph" // a named signature is committing (must read in 0.2s)
+    | "prop"; // an interactive arena prop fired
+  monsterId: number;
+  bossId?: BossId;
+  phase?: number;
+  reason?: BossPhaseReason;
+  label?: string; // human name of the plate / telegraph / prop / mutator
+  pos?: Vec2;
+  value?: number; // plates left, shield fraction, enrage stacks...
+  duration?: number; // seconds the beat lasts (punish window, intermission)
+}
+
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
 export type MonsterKind =
   | "grunt" | "swarmer" | "brute" | "ranged" | "boss"
@@ -288,9 +384,18 @@ export interface Monster {
   // "lunge": cutpurse dash-stab down the chargeDir lane; a hit STEALS gold.
   // "consecrate": cleric ground-blessing (heals monsters, burns crawlers).
   // "sweep": archivist beam channel — the hazard rotates while this holds.
+  // BOSSES V2 adds exactly FOUR new kinds, on purpose — everything else the
+  // roster does reuses a shipped windup with a per-boss branch, the way the
+  // colossus already branches inside "slam":
+  // "punish": the universal boss OVER-COMMIT (V4) — one scalding beat, then a
+  // genuine self-stagger. This is the counterplay window every shipped boss
+  // was missing. "latefee": The Rent Collector's seizure (opens its lockbox
+  // plate). "bloom": The Pollinator seeds armed spore pods. "pull": The Grease
+  // Trap's rhythmic, uncapped drag toward a boss that never moves.
   windupKind?: "melee" | "shot" | "fuse" | "charge" | "spit" | "raise" | "slam" | "ritual"
     | "punch" | "aim" | "vent" | "hook" | "morph" | "hex" | "lunge"
-    | "heal" | "summon" | "consecrate" | "sweep"; // what resolves when windup expires
+    | "heal" | "summon" | "consecrate" | "sweep"
+    | "punish" | "latefee" | "bloom" | "pull"; // what resolves when windup expires
   healId?: number; // shaman: the ally committed to at heal-channel start
   // Charger: while chargeT > 0 the monster is mid-rush along chargeDir,
   // plowing through players (each hit at most once per charge).
@@ -410,6 +515,52 @@ export interface Monster {
   brandT?: number;
   brandAbility?: AbilityId;
   brandBy?: number;
+
+  // ---- BOSSES V2 -----------------------------------------------------------
+  // Which roster entry this boss IS (drawn per band from the run seed). Drives
+  // the per-boss ability block in ai.ts, the name card, and the drop hook.
+  // Absent on pre-V2 snapshots and on every non-boss monster.
+  bossId?: BossId;
+  // Encounter mutators layered on top (never on floor 3; one from 6-12; up to
+  // two from 15). A mutator changes what the player DOES, never the numbers.
+  bossMutators?: BossMutator[];
+  // Breakable plates / weak points (V1). Targeted before the boss body; while
+  // any unbroken plate stands the boss body takes plateBossDamageMult.
+  plates?: BossPlate[];
+  // Boss SHIELD POOL (V2): absorb-HP in front of the health bar. It regrows
+  // after shieldRegenDelay seconds without damage — burst it inside the gap.
+  shieldHp?: number;
+  shieldMax?: number;
+  shieldRegenT?: number; // seconds until regeneration resumes
+  shieldSchool?: School; // set: ONLY this school erodes the pool (The Sponsor)
+  // INTERMISSION (V6): briefly untargetable while the arena re-deals.
+  invulnT?: number;
+  // ADD TETHER (V8): this monster is linked to the boss with this id — it
+  // feeds/shields it until killed, and hosts draw the cord.
+  tetherId?: number;
+  tetherRevived?: boolean; // UNION RULES: this add already used its one revival
+  // HARD ENRAGE (V5): seconds this fight has been live, and how many enrage
+  // stacks the deadline has handed out. A ceiling on fight length, not a
+  // fail-state — it should almost never fire for a competent player.
+  fightT?: number;
+  enrageStacks?: number;
+  // Punish window (V4): `heat` (shared with the slagbreaker's gauge) counts
+  // committed signatures; the window itself is plain `stagger`, so every
+  // existing "the boss is helpless" rule composes for free.
+  punishArmed?: boolean;
+  // Phase machine: the last reason a phase advanced, and the cap. Bosses run
+  // 0..2 (band) or 0..3 (finale); mechanic/timer/positional triggers share the
+  // same counter as the HP gates so the fight never double-counts a beat.
+  phaseReason?: BossPhaseReason;
+  maxPhase?: number;
+  // The Rent Collector's lockbox: gold seized from the party, refunded WITH
+  // INTEREST when the lockbox plate breaks.
+  lockbox?: number;
+  // Per-boss scratch counters (adds killed toward a mechanic phase, pods
+  // seeded, conveyors left...). Two generic fields, because every kit needs
+  // about one and eighteen bespoke fields is how a Monster grows to 200 keys.
+  bossCount?: number;
+  bossTimer?: number; // seconds
 }
 
 // Roam-only: a settlement resident. Static, unarmed, no AI. `role` drives
@@ -795,6 +946,16 @@ export interface Encounter {
   affix?: EliteAffix;
   timeLeft: number; // seconds of freeze remaining
   total: number; // full intro length (render progress)
+  // ---- BOSSES V2 name card (§5.3): title, epithet, ask, and the mutator tag
+  // as DATA, so the host can build a designed card instead of a toast.
+  bossId?: BossId;
+  epithet?: string; // "MORTUARY FRONT DESK, EST. NEVER"
+  ask?: BossAsk; // the one-word promise the fight makes
+  mutators?: BossMutator[];
+  line?: string; // this boss's one System line, deadpan, in its own voice
+  // How many times this profile has already put it down. > 0 shortens the
+  // freeze (§4.4) — a 2.2s beat you have seen ten times is a tax.
+  repeat?: number;
 }
 
 // Enemy-side ground danger. Four shapes share the struct:
@@ -817,7 +978,10 @@ export interface Hazard {
   // like a puddle, but bone-physical (no poison soak).
   // "consecrate": the Ruins cleric's blessing — a zone that HEALS monsters
   // standing in it and burns crawlers (contested ground).
-  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate"; // absent = blast (older saves/snapshots)
+  // "spore": a BOSSES-V2 armed pod (The Pollinator) — it arms like sludge,
+  // bites once when it blooms, and seeds children while the bloom is unchecked.
+  // Hosts may draw it as a sludge-family decal until it gets its own dressing.
+  kind?: "blast" | "puddle" | "sludge" | "roots" | "beam" | "shards" | "consecrate" | "spore"; // absent = blast (older saves/snapshots)
   flavor?: "flame" | "debris"; // blast dressing: fire wall / falling masonry (default: clown ordnance)
   tick?: number; // puddle/sludge: seconds until the next damage tick
   arm?: number; // sludge/roots/beam: telegraph seconds before it goes live
@@ -860,6 +1024,15 @@ export interface Breakable {
   // Blocking furniture (PHYSICALITY.md §1): the map.blocked tile indices this
   // piece owns. Cleared when it dies — smash the bookcase, open the lane.
   footprint?: number[];
+  // INTERACTIVE PROP (BOSSES-V2 verb V3): a breakable that DOES something when
+  // it dies, instead of just opening a lane. "drain" clears the arena's live
+  // ground hazards and staggers the boss (the Sump King's floodgates);
+  // "vent" bleeds the boss's heat gauge early (the Furnace Marshal's wall
+  // vents); "shutdown" stops the thing feeding it adds (the Line Supervisor's
+  // conveyors); "collapse" drops masonry where it stood. Arena-owned: these
+  // are placed by the arena variant, not by room dressing.
+  onBreak?: "drain" | "vent" | "shutdown" | "collapse";
+  label?: string; // prop name for the announcer ("FLOODGATE", "CONVEYOR")
 }
 
 // A fallen monster the necromancer can raise. Purely positional — the fresh
@@ -1050,6 +1223,30 @@ export interface GameState {
   // ARENA DIRECTOR (boss layer 3): seconds the current band-boss arena has
   // been cooking — the room itself acts on a rhythm while the boss lives.
   arenaT?: number;
+
+  // ---- BOSSES V2 -----------------------------------------------------------
+  // This floor's arena LAYOUT (§4.3). Drawn seeded from the legal set for the
+  // floor's boss; floor.ts carves it, game.ts stocks its props, and the
+  // renderer dresses it. Absent on non-boss floors and pre-V2 snapshots.
+  arenaVariant?: ArenaVariant;
+  // Typed boss beats emitted during the last step (name cards, phase stingers,
+  // punish windows, plate breaks). Transient — cleared every step alongside
+  // hits/announcements. Hosts read this channel; the sim never reads it back.
+  bossEvents?: BossEvent[];
+  // This run's DRAWN lineup, keyed by band index as a string ("1".."6"). Filled
+  // in as each boss floor is built, so a snapshot restores the same identity a
+  // coop client already saw — a boss whose identity is not in the snapshot
+  // desyncs the moment a phase lands.
+  bossLineup?: Record<string, BossId>;
+  // ANTI-REPEAT (§4.1): the PREVIOUS run's lineup, handed in from the save.
+  // The draw avoids repeating a band slot's boss two runs running when the
+  // pool allows — pure seeding will happily serve the same opener three runs
+  // in a row and the player will not care that it was statistically fair.
+  bossPrevLineup?: Record<string, BossId>;
+  // ESCALATION ON REPEAT (§4.4): per-profile defeat counts, keyed by BossId.
+  // 2nd+ meeting opens at the phase-2 kit and shortens the intro; 5th+ adds a
+  // free mutator. Escalation in MECHANICS, never in stats.
+  bossDefeats?: Record<string, number>;
 
   // Raisable corpses left by monster deaths (necromancer fuel, TTL-capped).
   corpses: Corpse[];

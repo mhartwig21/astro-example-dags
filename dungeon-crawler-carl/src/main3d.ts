@@ -18,8 +18,10 @@ import {
 import {
   EQUIP_SLOTS, Tile,
   type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
-  type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
+  type BossEvent, type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
 } from "./sim/types";
+import { bossMutatorInfo } from "./sim/bosses";
+import { ASK_LABEL, ASK_PAL, ASK_TO_FAMILY, bossFamily } from "./render3d/bossSignatures";
 import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
 import { CONFIG, naturalFloorForLevel } from "./sim/config";
 import {
@@ -1237,12 +1239,26 @@ const bbAffix = document.getElementById("bb-affix")!;
 const bbFill = document.getElementById("bb-fill") as HTMLElement;
 const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
 const bbPips = document.getElementById("bb-pips")!;
+// ---- BOSSES V2 §5.3 plate rows: mutators, shield pool, plates, live beat.
+const bbMuts = document.getElementById("bb-muts")!;
+const bbShield = document.getElementById("bb-shield") as HTMLElement;
+const bbShieldFill = document.getElementById("bb-shield-fill") as HTMLElement;
+const bbShieldTag = document.getElementById("bb-shield-tag")!;
+const bbPlates = document.getElementById("bb-plates")!;
+const bbBeat = document.getElementById("bb-beat")!;
+const bossCallEl = document.getElementById("bosscall")!;
+const bcWord = document.getElementById("bc-word")!;
+const bcSub = document.getElementById("bc-sub")!;
 const bossintroEl = document.getElementById("bossintro")!;
 const hypeRowEl = document.querySelector<HTMLElement>("#show .hyperow");
 const letterboxEl = document.getElementById("letterbox")!;
 const bossSpotEl = document.getElementById("bossspot")!;
 const biName = document.getElementById("bi-name")!;
 const biAffix = document.getElementById("bi-affix")!;
+const biKicker = document.getElementById("bi-kicker")!;
+const biEpithet = document.getElementById("bi-epithet")!;
+const biMuts = document.getElementById("bi-muts")!;
+const biLine = document.getElementById("bi-line")!;
 let introShownFor = -1;
 // Broadcast cut: while the letterbox rides the title card (~3.5s), ALL HUD
 // chrome + minimap leave the frame entirely (r2: no half-dimmed panels
@@ -1265,18 +1281,213 @@ let bossGhostHold = 0;
 let bossPrevFrac = 1;
 let bossPipKey = "";
 let bossLastNow = 0;
+// BOSSES V2: the live-beat line under the plate — what the boss is DOING right
+// now, in its own words. A named signature owns it for its windup; the punish
+// window owns it outright and outranks anything already showing. (The REDACTED
+// mutator's "next move" ticker is a System ANNOUNCEMENT, not a boss event, so
+// it rides the announcement channel and never fights this line for the space.)
+let bossBeatUntil = 0;
+let bossBeatKey = "";
+/**
+ * The RENDER clock, stamped at the top of every frame. The boss beat line and
+ * the call-out both expire against this rather than performance.now(), for the
+ * same reason every CSS animation in the game runs off the frame clock: a beat
+ * should last N frames' worth of presented time, not N seconds of wall time
+ * that may include a stall. (It also means a capture harness that freezes the
+ * frame clock gets a beat that actually holds still while it composites —
+ * round 2 lost several call-outs to a multi-second screenshot.)
+ */
+let hudNow = 0;
+// Cache keys so the plate's HTML rows only rebuild when their content moves —
+// this runs every frame, next to a fight.
+let bossMutKey = "";
+let bossPlateKey = "";
+
+/**
+ * BOSSES V2 §5.3 — post a beat to the boss plate's live line. `strong` is the
+ * punish window: bigger, hotter, and it outranks anything already showing,
+ * because §7.4 calls it the one beat that most needs to read.
+ */
+// ---- THE CALL-OUT ---------------------------------------------------------
+// §7.4 calls the punish window "the one beat that most needs to read", and the
+// capture round found it rendered as a dim grey line INSIDE the boss panel,
+// clipped by the panel's own bottom edge. The three beats the fight most needs
+// the player to see — the punish window, the intermission, and a phase edge
+// the PLAYER caused — get their own centre-screen layer at announcement
+// contrast. The plate's beat line keeps the running commentary; this layer
+// keeps the moments, and it is never underneath any panel.
+let bossCallUntil = 0;
+/** Minimum hold for a call-out. A headline beat that is gone inside two
+ *  seconds is a beat the player blinked past — these three are the moments the
+ *  fight is FOR, so they get a full read even when the sim's own window
+ *  (a 2.2s punish) is shorter than one. */
+const CALL_MIN_SECONDS = 3;
+function postBossCall(word: string, sub: string, seconds: number, cool = false): void {
+  bossCallUntil = hudNow + Math.max(seconds, CALL_MIN_SECONDS) * 1000;
+  bcWord.textContent = word;
+  bcSub.textContent = sub;
+  bossCallEl.classList.toggle("cool", cool);
+  bossCallEl.classList.remove("on");
+  void (bossCallEl as HTMLElement).offsetWidth; // restart the punch
+  bossCallEl.classList.add("on");
+}
+
+function postBossBeat(text: string, seconds: number, strong = false): void {
+  const now = hudNow;
+  if (!strong && now < bossBeatUntil && bossBeatKey === "punish") return;
+  bossBeatKey = strong ? "punish" : text;
+  bossBeatUntil = now + seconds * 1000;
+  bbBeat.textContent = text;
+  bbBeat.classList.toggle("punish", strong);
+  bbBeat.classList.remove("pop");
+  void bbBeat.offsetWidth; // restart the pop
+  bbBeat.classList.add("pop");
+}
+
+// ---- §5.7 THE LOOT PAYOFF -------------------------------------------------
+// "The sigil, glyph and any TITLE BELT unique must land ringside in a readable
+// arc rather than under the body where they are missed." The sim owns where
+// loot lands (coop authority, save/resume, determinism) — so the host owns the
+// READ instead: for a couple of seconds after a boss falls, every fresh drop
+// near the corpse gets a rarity-colored arc thrown to it from the body and a
+// lit landing spot. The eye follows the arc out, which is the whole point.
+let payoffAt: { x: number; y: number; until: number } | null = null;
+const payoffSeen = new Set<number>();
+const PAYOFF_HUE: Record<string, number> = {
+  common: 0xc9c9d4, magic: 0x5a9bff, rare: 0xf2c14e, epic: 0xb98bff,
+};
+
+function stageBossPayoff(s: GameState, events: BossEvent[]): void {
+  for (const e of events) {
+    if (e.kind === "phase" && e.label === "DEFEATED" && e.pos) {
+      payoffAt = { x: e.pos.x, y: e.pos.y, until: performance.now() + 2600 };
+      payoffSeen.clear();
+    }
+  }
+  if (!payoffAt) return;
+  if (performance.now() > payoffAt.until) { payoffAt = null; return; }
+  for (const l of s.loot) {
+    if (payoffSeen.has(l.id)) continue;
+    const dx = l.pos.x - payoffAt.x, dy = l.pos.y - payoffAt.y;
+    if (dx * dx + dy * dy > 36) continue; // not this boss's payout
+    payoffSeen.add(l.id);
+    const hue = l.kind === "material" ? 0xffd98a
+      : l.kind === "tome" ? 0xb98bff
+      : l.kind === "gold" ? 0xf2c14e
+      : PAYOFF_HUE[l.rarity ?? "common"] ?? 0xc9c9d4;
+    renderer.bossLootArc(payoffAt.x, payoffAt.y, l.pos.x, l.pos.y, hue);
+  }
+}
+
+/**
+ * §7.4 — route one frame of typed boss beats into the HUD. The renderer gets
+ * the same buffer for world FX and the audio director gets it for stingers;
+ * this half is only the chrome that has to say a WORD.
+ */
+function applyBossEvents(events: BossEvent[]): void {
+  for (const e of events) {
+    switch (e.kind) {
+      case "telegraph":
+        // A named signature holds the line for its own windup plus a beat, so
+        // the label is still up while the thing it named is happening. The
+        // label is half of why a fight has an identity; a line that has
+        // already gone by the time the hazard lands names nothing.
+        if (e.label) postBossBeat(e.label, Math.max(2.6, (e.duration ?? 0) + 1.6));
+        break;
+      case "punish":
+        // The unload window. It owns the CALL-OUT layer outright, at
+        // announcement contrast, outside every panel — the beat that most
+        // needs to read is never printed under the furniture again.
+        postBossCall("UNLOAD", e.label ?? "EXPOSED CORE", e.duration ?? 2.2);
+        postBossBeat(e.label ? `${e.label} — UNLOAD` : "EXPOSED — UNLOAD",
+          e.duration ?? 2.2, true);
+        break;
+      case "plate":
+        postBossBeat(`${e.label ?? "PLATE"} BROKEN`, 1.8);
+        break;
+      case "shieldbreak":
+        postBossBeat("SHIELD DOWN", 1.6);
+        break;
+      case "intermission":
+        // COOL, so it can never be mistaken for the punish window's gold.
+        postBossCall("THE COMMERCIAL BREAK", "THE BOARD IS BEING RE-DEALT",
+          e.duration ?? 2, true);
+        postBossBeat("THE COMMERCIAL BREAK", e.duration ?? 2);
+        break;
+      case "prop":
+        if (e.label) postBossBeat(`${e.label} FIRED`, 1.4);
+        break;
+      case "enrage":
+        postBossBeat(`OVERTIME ×${e.value ?? 1}`, 1.8);
+        break;
+      case "phase":
+        // A mechanic-triggered phase is the player's own doing (§2.2) and
+        // must read louder than an HP gate ever does.
+        if (e.label === "DEFEATED") {
+          postBossCall("DEFEATED", "THE SEAL OPENS", 2.5);
+          postBossBeat("DEFEATED", 2.5, true);
+        } else if (e.reason === "mechanic") {
+          postBossCall("YOU DID THAT", `PHASE ${(e.phase ?? 0) + 1}`, 1.8);
+          postBossBeat("YOU DID THAT", 1.8, true);
+        } else postBossBeat(`PHASE ${(e.phase ?? 0) + 1}`, 1.4);
+        break;
+      default:
+        break;
+    }
+  }
+}
 
 function updateBossBar(s: GameState): void {
   const p = me(s);
   const enc = s.encounter;
+  // The call-out layer runs on its own clock and outside the plate, so it is
+  // retired here rather than inside the plate's own bookkeeping (which
+  // early-returns the moment nothing is engaged).
+  if (bossCallUntil > 0 && hudNow > bossCallUntil) {
+    bossCallUntil = 0;
+    bossCallEl.classList.remove("on");
+  }
+  // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
+  // ringside freeze the NAME CARD owns the introduction, so the health plate
+  // stays down until the fight actually starts. It was colliding with the
+  // System's line over the card — and the plate has nothing to say yet anyway.
   if (enc) {
     if (introShownFor !== enc.monsterId) {
       introShownFor = enc.monsterId;
       dismissTutorialForTransition(); // the title card owns the screen now
       biName.textContent = enc.name;
-      biAffix.textContent = enc.affix
-        ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
-        : enc.kind === "boss" ? "BOSS" : "ELITE";
+      // ---- BOSSES V2 §5.3 — THE NAME CARD. Title, epithet, the fight's ASK,
+      // this run's mutators, and the System's one line. The old card was a
+      // name in a banner; §5.3's complaint was that a solid skeleton was
+      // being under-dressed, and this is the dressing.
+      const repeat = enc.repeat ?? 0;
+      biKicker.textContent = repeat > 0
+        ? `◆ WE HAVE MET ${repeat === 1 ? "ONCE" : `${repeat} TIMES`} ◆`
+        : "◆ RINGSIDE INTRODUCTION ◆";
+      biEpithet.textContent = enc.epithet ?? "";
+      // The affix plate states the ASK when the sim gave us one: a boss whose
+      // ask you cannot name in four words is a big monster with more HP.
+      biAffix.textContent = enc.ask
+        ? ASK_LABEL[enc.ask]
+        : enc.affix
+          ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
+          : enc.kind === "boss" ? "BOSS" : "ELITE";
+      if (enc.ask) {
+        const pal = ASK_PAL[ASK_TO_FAMILY[enc.ask]];
+        (biAffix as HTMLElement).style.color = `#${pal.core.toString(16).padStart(6, "0")}`;
+        (biAffix as HTMLElement).style.borderColor = `#${pal.mid.toString(16).padStart(6, "0")}`;
+      } else {
+        (biAffix as HTMLElement).style.color = "";
+        (biAffix as HTMLElement).style.borderColor = "";
+      }
+      // MUTATORS: the answer to "why is this run's version different?", with
+      // the counterplay sentence on the tooltip. This is the whole variety
+      // promise made visible at the one moment the player is reading.
+      biMuts.innerHTML = (enc.mutators ?? []).map((m) => {
+        const info = bossMutatorInfo(m);
+        return `<i title="${esc(info.note)}">${esc(info.label)}</i>`;
+      }).join("");
+      biLine.textContent = enc.line ?? "";
       bossintroEl.classList.remove("show");
       letterboxEl.classList.remove("on");
       bossSpotEl.classList.remove("on");
@@ -1304,26 +1515,43 @@ function updateBossBar(s: GameState): void {
     bossSpotEl.classList.remove("on");
     exitCine();
   }
-  // Engaged target: the nearest introduced, living boss/elite within range.
+  // Engaged target: the nearest introduced, living boss/elite within range —
+  // except that A BOSS ALWAYS OUTRANKS AN ELITE. A capture caught the
+  // Pollinator's fight plate titled THE ENTOURAGE with no phase pips, no ask
+  // and no mutator row: the ENTOURAGED mutator's champion escort had walked a
+  // step closer than the boss, and "nearest" handed it the marquee. The boss
+  // is the encounter; the escort is furniture in it.
   let target: GameState["monsters"][number] | null = null;
   let best = 16;
+  let bestIsBoss = false;
   for (const m of s.monsters) {
     if ((m.kind !== "boss" && !m.elite) || !m.introduced || m.hp <= 0) continue;
     const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
-    if (d < best) { best = d; target = m; }
+    if (d >= 16) continue;
+    const isBoss = m.kind === "boss";
+    if (bestIsBoss && !isBoss) continue;
+    if (isBoss && !bestIsBoss) { best = d; target = m; bestIsBoss = true; continue; }
+    if (d < best) { best = d; target = m; bestIsBoss = isBoss; }
   }
   // The boss plate SUPPRESSES the Hype row while it owns top-center (r6
   // major: the "Hype" label clipped behind the boss health plate) — one
   // marquee element per zone, never a stack.
   const hypeRow = hypeRowEl;
-  if (!target) {
+  if (!target || enc) {
     bossbarEl.style.display = "none";
+    document.body.classList.remove("bossplate");
     if (hypeRow) { hypeRow.style.opacity = ""; hypeRow.style.visibility = ""; }
     bossGhostFor = -1;
+    bbBeat.textContent = "";
+    bossMutKey = bossPlateKey = "";
     return;
   }
   if (hypeRow) { hypeRow.style.opacity = "0"; hypeRow.style.visibility = "hidden"; }
   bossbarEl.style.display = "block";
+  // The V2 plate is taller than the old one (mutators, shield rail, plate
+  // chips, the live beat), so the System's headline band steps down out of
+  // its way — two marquee elements must never share pixels.
+  document.body.classList.add("bossplate");
   bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
@@ -1351,12 +1579,79 @@ function updateBossBar(s: GameState): void {
   // elites have no phases, so the ornament hides (.elite).
   const isBoss = target.kind === "boss";
   bossbarEl.classList.toggle("elite", !isBoss);
-  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}` : "";
+  // PHASE PIPS now mirror the REAL phase machine (§5.3): band bosses run 0..2,
+  // the finales 0..3, and a mechanic-triggered edge fills a pip exactly like
+  // an HP gate does — the player never has to know which kind moved it.
+  const maxPhase = target.maxPhase ?? 2;
+  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}:${maxPhase}` : "";
   if (pipKey !== bossPipKey) {
     bossPipKey = pipKey;
     bbPips.innerHTML = isBoss
-      ? Array.from({ length: 3 }, (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
+      ? Array.from({ length: maxPhase + 1 },
+        (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
       : "";
+  }
+
+  // ---- BOSSES V2 plate rows ------------------------------------------------
+  // MUTATORS (§4.2): what is different about this run's version of this boss.
+  const mutKey = isBoss ? `${target.id}:${(target.bossMutators ?? []).join(",")}` : "";
+  if (mutKey !== bossMutKey) {
+    bossMutKey = mutKey;
+    bbMuts.innerHTML = isBoss
+      ? (target.bossMutators ?? []).map((m) => {
+        const info = bossMutatorInfo(m);
+        return `<i title="${esc(info.note)}">${esc(info.label)}</i>`;
+      }).join("")
+      : "";
+  }
+  // SHIELD POOL (V2): absorb-HP above the health bar, plus the SCHOOL LOCK
+  // tag when only one school erodes it — The Sponsor's entire fight is
+  // "find out which", so the answer belongs on the plate the moment it flips.
+  const shieldMax = target.shieldMax ?? 0;
+  const shieldOn = isBoss && shieldMax > 0 && (target.shieldHp ?? 0) > 0;
+  bbShield.classList.toggle("on", shieldOn);
+  if (shieldOn) {
+    const sf = Math.max(0, Math.min(1, (target.shieldHp ?? 0) / shieldMax));
+    bbShieldFill.style.width = `calc(${(sf * 100).toFixed(1)}% - 2px)`;
+    bbShield.classList.toggle("school-magic", target.shieldSchool === "magic");
+    bbShield.classList.toggle("school-physical", target.shieldSchool === "physical");
+    bbShieldTag.textContent = target.shieldSchool
+      ? `${target.shieldSchool.toUpperCase()} ONLY`
+      : "";
+  }
+  // PLATES (V1): one chip per weak point. Broken chips STAY, struck through —
+  // "three down, one to go" is the read, and a chip that vanishes loses it.
+  const plates = isBoss ? target.plates ?? [] : [];
+  const plateKey = plates.map((pl) =>
+    `${pl.key}:${pl.broken ? "x" : Math.round((pl.hp / Math.max(1, pl.maxHp)) * 8)}`).join("|");
+  if (plateKey !== bossPlateKey) {
+    bossPlateKey = plateKey;
+    bbPlates.innerHTML = plates.map((pl) => {
+      const cls = [pl.broken ? "broken" : "", pl.school ? `school-${pl.school}` : ""]
+        .filter(Boolean).join(" ");
+      const title = pl.school
+        ? `${pl.label} — immune to ${pl.school} damage`
+        : `${pl.label} — a bonus objective, not a gate`;
+      return `<i class="${cls}" title="${esc(title)}">${esc(pl.label)}</i>`;
+    }).join("");
+  }
+  // ENRAGE + INTERMISSION read on the FRAME, not as another chip in the stack.
+  bossbarEl.classList.toggle("enraged", (target.enrageStacks ?? 0) > 0);
+  bossbarEl.classList.toggle("intermission", (target.invulnT ?? 0) > 0);
+  // The live beat expires on its own clock (a punish window that has closed
+  // must stop saying UNLOAD).
+  if (bbBeat.textContent && hudNow > bossBeatUntil) {
+    bbBeat.textContent = "";
+    bbBeat.classList.remove("punish");
+    bossBeatKey = "";
+  }
+  // The name plate names the DRAWN boss, not "THE FLOOR BOSS" — the audit's
+  // most embarrassing finding was that the last boss in the game had no name.
+  if (isBoss) {
+    const pal = ASK_PAL[bossFamily(target.bossId)];
+    (bbIcon as HTMLElement).style.color = `#${pal.mid.toString(16).padStart(6, "0")}`;
+  } else {
+    (bbIcon as HTMLElement).style.color = "";
   }
 }
 
@@ -4660,6 +4955,10 @@ function showAnnouncement(a: Announcement): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
   if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
+  // ONE PRESENTATION PER MOMENT. While the ringside card is up it OWNS this
+  // boss's System line; a capture caught the same sentence printed twice in
+  // one frame — once in the top SYSTEM toast, once as the card's kicker.
+  if (state.encounter?.line && a.text === state.encounter.line) return;
   if (a.priority === "high") {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
@@ -5177,6 +5476,15 @@ if (new URLSearchParams(location.search).has("debug")) {
       // Full hit path for staged FX shots: world FX + the DOM damage number
       // (renderer.emitHits alone skips the number layer real hits get).
       hit: (h: HitEvent) => { renderer.emitHits([h]); spawnDamageNumber(h); },
+      // Full boss-beat path for staged capture (tools/bossshot.mjs): world FX
+      // + the HUD's live line + the ringside payoff, exactly what the frame
+      // loop does with state.bossEvents. Needed because those are per-step
+      // transients — the next sim step wipes anything pushed between frames.
+      bossBeat: (e: BossEvent) => {
+        renderer.bossEvents([e]);
+        applyBossEvents([e]);
+        stageBossPayoff(state, [e]);
+      },
     }),
   });
 }
@@ -5199,6 +5507,9 @@ let hitStop = 0;
 // until the frame loop consumes it.
 const netHits: HitEvent[] = [];
 const netAnns: Announcement[] = [];
+// BOSSES V2 §7.4: the typed boss channel, relayed by the server exactly like
+// hits and announcements so a coop client stages the same beats.
+const netBoss: BossEvent[] = [];
 let netIntentAcc = 0;
 let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
@@ -5422,6 +5733,7 @@ async function main(): Promise<void> {
     net.onEvents = (batch) => {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
+      if (batch.bossEvents) netBoss.push(...batch.bossEvents);
       for (const e of batch.events) pushLogLine(e);
     };
     net.onDisconnect = () => {
@@ -5441,7 +5753,12 @@ async function main(): Promise<void> {
   // Feedback buffers reused across frames (GC sweep: no per-frame arrays).
   const frameHits: typeof state.hits = [];
   const frameAnns: Announcement[] = [];
+  // Boss beats are per-STEP transients (cleared exactly like state.hits), so
+  // they have to be drained inside the sub-step loop or a phase edge that
+  // lands on a non-final sub-step is silently lost.
+  const frameBoss: BossEvent[] = [];
   function frame(now: number): void {
+    hudNow = now; // the boss beat line + the call-out expire on the frame clock
     let dt = (now - prev) / 1000;
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;
@@ -5452,6 +5769,7 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     frameHits.length = 0;
     frameAnns.length = 0;
+    frameBoss.length = 0;
 
     if (net) {
       // Authoritative snapshots drive the world; we pump intent + drain events.
@@ -5464,6 +5782,7 @@ async function main(): Promise<void> {
       if (disp) state = disp;
       frameHits.push(...netHits.splice(0));
       frameAnns.push(...netAnns.splice(0));
+      frameBoss.push(...netBoss.splice(0));
       // Party chip: co-op shows the roster; RIVALS shows the race standings.
       // (Drawn icons, not emoji — see STYLEGUIDE.md.)
       if (state.mode === "rivals" && state.rivals) {
@@ -5553,6 +5872,7 @@ async function main(): Promise<void> {
         for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
+        if (state.bossEvents) frameBoss.push(...state.bossEvents);
         acc -= SIM_DT;
         if (state.floor !== lastFloor) { lastFloor = state.floor; persistRun(state); }
         if (state.status !== lastStatus) {
@@ -5640,7 +5960,19 @@ async function main(): Promise<void> {
 
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);
-    audioDirector.frame(state, frameHits, frameAnns, localId);
+    // BOSSES V2 §5: the encounter's beats. The renderer stages the world FX
+    // and takes its camera intent from them; the HUD says the WORD; the audio
+    // director fires the stinger. One buffer, three consumers, no re-derivation.
+    if (frameBoss.length > 0) {
+      renderer.bossEvents(frameBoss);
+      applyBossEvents(frameBoss);
+      stageBossPayoff(state, frameBoss);
+    }
+    // §5.5/§5.7 — brief slow-mo on a phase break and the kill. Rides the same
+    // hitStop the kill pop already uses, so it composes with combat feel
+    // instead of fighting it. Solo only: the networked world never pauses.
+    if (!net && renderer.bossSlowmo > 0) hitStop = Math.max(hitStop, Math.min(0.4, renderer.bossSlowmo));
+    audioDirector.frame(state, frameHits, frameAnns, localId, frameBoss);
     updateBulletTimeGrade(state);
     if (menuOpen && charSelect) {
       // Checked in at the campfire: the select scene owns the canvas; the
