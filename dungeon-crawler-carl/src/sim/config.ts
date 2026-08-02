@@ -13,14 +13,14 @@ export const CONFIG = {
   floorGridW: 72,
   floorGridH: 72,
 
-  // Roam mode (v1 â€” SETTLEMENTS.md): one big, low-pressure floor per
+  // Roam mode (v1 — SETTLEMENTS.md): one big, low-pressure floor per
   // stairway instead of 18 tight ones. Numbers below are starting guesses,
-  // not tuned balance â€” expect to revisit after playtesting.
+  // not tuned balance — expect to revisit after playtesting.
   roamFloorGridW: 128,
   roamFloorGridH: 128,
   roamFloorMinRooms: 20,
   roamFloorMaxRooms: 28,
-  // A large but FINITE budget â€” never Infinity. GameState round-trips through
+  // A large but FINITE budget — never Infinity. GameState round-trips through
   // JSON.stringify in snapshot.ts, and Infinity serializes to null, silently
   // corrupting timeBudget/timeRemaining on the first snapshot.
   roamTimeBudget: 1800, // 30 minutes
@@ -55,23 +55,23 @@ export const CONFIG = {
   playerMaxHp: 100,
   playerSpeed: 4.2, // tiles/sec
   // Facing sweeps toward the move direction at this rate (rad/s) instead of
-  // teleporting between the 8 WASD headings â€” mixing keys can hold every
+  // teleporting between the 8 WASD headings — mixing keys can hold every
   // in-between angle (playtest ask: 16+ facing directions). Movement itself
   // is never rate-limited; only the body's heading (and keyboard-aim) sweeps.
   playerTurnRate: 16,
   playerAttackRange: 1.3, // tiles
   playerAttackCooldown: 0.4, // seconds
   playerBaseDamage: 12,
-  playerAttackArc: Math.PI / 2, // 90Â° swing in facing direction
-  // Bodies one swing connects with. Wide Arc adds one per rank â€” that is the
-  // entry node's "what does it touch" half (V2 Â§4.1). Three is the shipped
+  playerAttackArc: Math.PI / 2, // 90° swing in facing direction
+  // Bodies one swing connects with. Wide Arc adds one per rank — that is the
+  // entry node's "what does it touch" half (V2 §4.1). Three is the shipped
   // feel (a 3-kill instant is an achievement the game already awards); the cap
   // exists so the arc node has something to change besides a printed angle.
   meleeBaseTargets: 3,
   playerCritChance: 0.18,
   playerCritMult: 2.0,
   // Armor (defense): incoming hits are reduced by armor/(armor+armorK), capped.
-  // The player starts with none â€” mitigation is a GEAR story (armor-slot items
+  // The player starts with none — mitigation is a GEAR story (armor-slot items
   // roll it as their primary affix), so the sheet's DEFENSE panel is earned.
   playerBaseArmor: 0,
   armorK: 60, // 60 armor = 50% reduction; diminishing returns past that
@@ -82,7 +82,7 @@ export const CONFIG = {
   // builds poise damage; crossing maxHp * poise staggers them (interrupting any
   // windup and freezing them briefly). Chaff flinches constantly; brutes shrug.
   // Poise is a BUILDUP, not a bank: it drains over time, so an interrupt takes
-  // a concentrated burst â€” and headliners (bosses/elites) gain a grace window
+  // a concentrated burst — and headliners (bosses/elites) gain a grace window
   // after each stagger so raw DPS can never stun-lock them.
   meleeKnockback: 0.3, // tiles
   boltKnockback: 0.15,
@@ -90,7 +90,7 @@ export const CONFIG = {
   airstrikeKnockback: 0.5,
   shockstepKnockback: 0.4,
   // Shockstep damages a CAPSULE along the whole dash path (launch -> arrival),
-  // this wide â€” dashing THROUGH a pack is the point.
+  // this wide — dashing THROUGH a pack is the point.
   shockstepPathRadius: 1.0,
   staggerDuration: 0.22, // seconds a staggered monster is helpless
   elitePoiseMult: 1.5, // elites resist stagger (and knockback) this much harder
@@ -98,21 +98,21 @@ export const CONFIG = {
   bossStaggerGrace: 6, // seconds after a boss stagger during which poise cannot build
   eliteStaggerGrace: 2.5, // same composure for named elites, shorter
   // The advertised exception: an interruptible CHANNEL (Dark Ritual) ignores
-  // grace and takes double poise â€” burst it down mid-channel or brace.
+  // grace and takes double poise — burst it down mid-channel or brace.
   channelPoiseTakenMult: 2,
 
   // Enemy attack telegraphs: every monster attack winds up (per-archetype, see
   // ARCHETYPES.windup) before the strike resolves. The strike re-checks range
-  // (+grace) and dash i-frames, so danger is READABLE and DODGEABLE â€” which is
+  // (+grace) and dash i-frames, so danger is READABLE and DODGEABLE — which is
   // why monster damage below runs much hotter than the old instant-hit numbers.
   monsterStrikeGrace: 0.35, // extra tiles beyond attackRange a strike still reaches
   bomberFuse: 0.5, // seconds between contact trigger and detonation (the dodge window)
 
   // Feature switches (code paths stay intact so these can toggle cleanly).
-  flaskEnabled: true, // Sponsor Slurpâ„¢ flask: kill-credit sustain loop (re-enabled with the status pass)
+  flaskEnabled: true, // Sponsor Slurp™ flask: kill-credit sustain loop (re-enabled with the status pass)
   achievementsEnabled: true, // unlocks + safe-room ACHIEVEMENTS tab (off = hidden)
 
-  // Sponsor Slurpâ„¢ flask: charge-gated heal, refilled by KILLS â€” aggression is
+  // Sponsor Slurp™ flask: charge-gated heal, refilled by KILLS — aggression is
   // the sustain loop, so the way out of danger is through the pack.
   flaskMaxCharges: 3,
   flaskHealFraction: 0.35, // of max HP per chug
@@ -125,19 +125,19 @@ export const CONFIG = {
 
   // Status effects (DESIGN 5.13; framework in status.ts). Exactly three:
   // burn (fast magic DoT, refreshes), poison (slow physical DoT, stacks to 3),
-  // chill (no damage â€” the afflicted entity's clock runs slower).
+  // chill (no damage — the afflicted entity's clock runs slower).
   burnDuration: 3, // seconds a burn lasts (re-applying restarts it)
-  burnTickSeconds: 0.5, // fast ticks â€” burn is the bursty DoT
+  burnTickSeconds: 0.5, // fast ticks — burn is the bursty DoT
   poisonDuration: 5, // seconds a poison lasts (re-applying refreshes + stacks)
-  poisonTickSeconds: 1, // slow ticks â€” poison is the lingering DoT
+  poisonTickSeconds: 1, // slow ticks — poison is the lingering DoT
   poisonMaxStacks: 3, // each stack adds a full tick's damage
   chillDuration: 2.5, // seconds a chill lasts (refresh-on-reapply)
   chillBossMult: 0.5, // bosses shrug off half the slow (never immune)
   chillSlowPerRank: 0.3, // FROST BOLTS: slow fraction per node rank (r1 = -30%)
   chillSlowMax: 0.45, // hard cap, whatever overranks roll
-  novaScorchFracPerRank: 0.35, // AFTERBURN: burn total = this Ã— nova hit per rank
-  venomTickFraction: 0.12, // Venom Clause: poison tick (per stack) = this Ã— the crit
-  puddlePoisonFraction: 0.6, // spitter acid: poison tick = this Ã— the puddle tick
+  novaScorchFracPerRank: 0.35, // AFTERBURN: burn total = this × nova hit per rank
+  venomTickFraction: 0.12, // Venom Clause: poison tick (per stack) = this × the crit
+  puddlePoisonFraction: 0.6, // spitter acid: poison tick = this × the puddle tick
   chillingAuraRadius: 3.2, // "chilling" elite: crawlers inside are slowed...
   chillingAuraSlow: 0.3, // ...by this fraction (fades ~a beat after you break away)
 
@@ -146,7 +146,7 @@ export const CONFIG = {
   pingMaxPerPlayer: 3, // oldest ping is replaced beyond this
 
   // Co-op revives: stand close to a downed crawler to stabilize them. No
-  // button â€” proximity IS the channel (the reviver pays in exposure, not APM).
+  // button — proximity IS the channel (the reviver pays in exposure, not APM).
   // Walking away lets the wound reopen (progress decays). Descending still
   // revives everyone at 50% as before; this is the mid-floor rescue.
   reviveRadius: 1.7, // tiles from the downed body
@@ -155,7 +155,7 @@ export const CONFIG = {
   reviveDecayMult: 1.5, // progress decays this much faster than it builds
 
   // Leveling. xpBase 20 -> 24 (play feedback 2026-07-06: a shopping player
-  // hit 12 by floor-4 start â€” the early ramp ran ~2 levels hot). +20% cost
+  // hit 12 by floor-4 start — the early ramp ran ~2 levels hot). +20% cost
   // shifts the whole curve down ~half a level early, less later.
   xpBase: 24, // xp to reach level 2
   xpGrowth: 1.35, // multiplier per level
@@ -163,7 +163,7 @@ export const CONFIG = {
   // 3 -> 2 (build-matters pass, owner-approved 2026-07-26): levels used to be
   // ~65% of attack power, so junk-drawer gear played nearly as well as an
   // optimized build. Intrinsic power came DOWN and gear rolls went UP
-  // (gearPowerMult) â€” total power at parity, but gear/build now own ~half the
+  // (gearPowerMult) — total power at parity, but gear/build now own ~half the
   // stat instead of a third. HP intrinsic stays (survival isn't the lever).
   damagePerLevel: 2,
 
@@ -184,12 +184,12 @@ export const CONFIG = {
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
   // on you together), with a few lone wanderers between them. Bigger packs
   // matter beyond raw count: the balance bot (and a real player's attention)
-  // can only fully respect ONE heavy telegraph at a time â€” denser packs create
+  // can only fully respect ONE heavy telegraph at a time — denser packs create
   // real overlapping-danger moments instead of a queue of solo fights.
   packSizeMin: 5,
   packSizeMax: 13,
   // HEAVY PACKS (owner 2026-07-26): brute-class kinds (archetype hpMult at or
-  // above the threshold) run SMALL and SPREAD â€” 2-4 bodies holding a wide
+  // above the threshold) run SMALL and SPREAD — 2-4 bodies holding a wide
   // ring instead of a 5-13 knot. Each heavy defends its own space, so the
   // room becomes crossing telegraphs to weave through (active dodging), not
   // a blob to arc down. Size derives from the same pack-size draw (~size/3).
@@ -204,15 +204,15 @@ export const CONFIG = {
   // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
   // damage additionally multiply by monsterScaleCompound each floor, so the deep
   // dungeon steepens instead of flattening. Starts at floor 3 (not 1-2, which
-  // stay a soft landing) so the ramp is felt well before the old floor-6 wall â€”
+  // stay a soft landing) so the ramp is felt well before the old floor-6 wall —
   // 1.055 pre-#10; nudged up for the six-slot gear budget, then again for the
   // ~40% win-rate difficulty pass. Backed off after merging the band-boss
-  // rework (bosses every 3 floors, not 6) + monster TEMPO scaling (below) â€”
+  // rework (bosses every 3 floors, not 6) + monster TEMPO scaling (below) —
   // those stack with this, so this alone doesn't need to carry as much.
   monsterScaleCompoundFrom: 3,
   monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
   // The BUILD CHECK (owner-approved 2026-07-26): the last two bands ramp
-  // again on top of the base compound. Floors 13+ demand a coherent build â€”
+  // again on top of the base compound. Floors 13+ demand a coherent build —
   // "anyone reaches the Garden, thoughtful builds reach the Ironworks,
   // optimized builds win." The inverse balance-contract test pins this:
   // a junk-drawer build must FAIL deep floors that a coherent one clears.
@@ -222,14 +222,14 @@ export const CONFIG = {
   // without an answer gets checked, not just outstatted.
   deepResistBias: 0.35,
   // How far the balance bot's per-run "taste" can move an ability's slot score
-  // (src/sim/bot.ts: tasteBonus). Purely an INSTRUMENT knob â€” nothing the game
+  // (src/sim/bot.ts: tasteBonus). Purely an INSTRUMENT knob — nothing the game
   // simulates reads it. At 0 every seed builds the same three abilities and the
   // bottom of the roster is never measured; too high and the bot stops playing
   // a sensible build. 22 keeps melee/dash anchoring most runs while giving the
   // whole shelf real coverage across a sweep.
   botTasteSpread: 22,
   // Damage is balanced around telegraphed, dodgeable strikes: a clean hit should
-  // HURT, because you saw it coming â€” see the ~40% target win rate in
+  // HURT, because you saw it coming — see the ~40% target win rate in
   // scripts/balance-sweep.ts's design intent below. Leans on damage/compounding
   // rather than raw density for lethality: density also inflates kill-driven
   // XP pace and can swarm even a stationary player near spawn, which collided
@@ -241,19 +241,19 @@ export const CONFIG = {
   monsterAttackCooldown: 0.9,
   monsterAggroRange: 8, // tiles
   // Pack presence (AI tier 1): monsters take up SPACE. Separation shoves
-  // overlapping monsters apart (mass-weighted â€” grunts yield to brutes;
+  // overlapping monsters apart (mass-weighted — grunts yield to brutes;
   // winding-up monsters are rooted anchors), so a pack arrives as a crescent
   // instead of a stacked point a single cleave erases. See separateMonsters.
   monsterSeparationRadius: 0.7, // tiles of personal space
   monsterSeparationSpeed: 2.2, // tiles/sec max shove out of a stack
   // Flanking approach: melee chasers blend an id-derived tangential bias into
-  // pursuit as they close (see flankVector) â€” the pack fans into a crescent
+  // pursuit as they close (see flankVector) — the pack fans into a crescent
   // instead of a conga line. Strength is the max tangent-to-pursuit ratio;
   // engage range is how far out the fan starts opening.
   flankStrength: 1.3,
   flankEngageRange: 3, // tiles beyond attack range where the bias ramps in
   // Attack tokens: at most this many BASIC (grunt/swarmer) melee windups in
-  // flight at once, per living crawler â€” the rest of the surround waits its
+  // flight at once, per living crawler — the rest of the surround waits its
   // turn, so strikes STAGGER around the ring instead of synchronizing into
   // one big dodge. Scales with depth; elites/bosses/named kinds never wait.
   meleeTokensBase: 2, // floors 1-6
@@ -261,7 +261,7 @@ export const CONFIG = {
   meleeTokensMax: 4,
   // LOS aggro (AI tier 2): the mass archetypes commit when they SEE you (or
   // get hurt, or a packmate raises the alarm), and remember the hunt for a
-  // while after losing sight â€” pursuing through the flow field. Walls hide
+  // while after losing sight — pursuing through the flow field. Walls hide
   // you; breaking contact is a real move. Memory follows the training-wheels
   // ramp (same doctrine as tempo): floors 1-3 are forgetful, the deep
   // dungeon holds a grudge. See monsterMemory().
@@ -269,9 +269,9 @@ export const CONFIG = {
   monsterMemoryPerFloor: 1.5, // + per floor past the ramp...
   monsterMemoryMax: 9, // ...capped (floor 7+)
   packAlertRadius: 4, // tiles the alarm spreads through the pack (LOS-gated)
-  // Ranged unit play (tier 2c): archers claim distinct firing arcs â€” a
+  // Ranged unit play (tier 2c): archers claim distinct firing arcs — a
   // later-arriving caster sharing a bearing (within this angle) strafes
-  // sideways until the crossfire opens â€” and when closed on they retreat
+  // sideways until the crossfire opens — and when closed on they retreat
   // TOWARD their nearest melee bodyguard instead of into open space.
   rangedLaneAngle: 0.28, // radians (~16 degrees) of "that's my lane"
   rangedGuardRange: 7, // tiles it will look for a bodyguard within
@@ -281,11 +281,11 @@ export const CONFIG = {
   drumRushLinger: 2.5, // SEWERS: an alerted drummer's beat holds the frenzy this long (and marches the pack)
   phalanxGuardRange: 8, // RUINS: shieldbearers hold the line for a caster within this range...
   phalanxLineFraction: 0.35, // ...standing this far along the ward->crawler line
-  gardenEncircleMult: 1.7, // GARDEN: flanking arcs widen â€” the growth envelops
+  gardenEncircleMult: 1.7, // GARDEN: flanking arcs widen — the growth envelops
   // Encounter director (tier 4): retreat-and-regroup. A broken survivor
   // (wounded, packmates dead around it, nobody left beside it) bolts uphill
   // on the flow field; reaching another pack raises the alarm and the fight
-  // SPILLS. Once per monster â€” a survivor that finds nobody dies alone.
+  // SPILLS. Once per monster — a survivor that finds nobody dies alone.
   regroupFromFloor: 5, // the drama starts past the training bands (probe: spilling fights cost 2 more early-floor seeds)
   regroupHpFraction: 0.5, // wounded below this...
   regroupCorpseCount: 2, // ...with this many packmates dead nearby...
@@ -294,11 +294,11 @@ export const CONFIG = {
   monsterXp: 10,
   monsterXpPerFloor: 4,
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
-  // Past the ramp floor, monsters get quicker on every axis â€” faster chase,
+  // Past the ramp floor, monsters get quicker on every axis — faster chase,
   // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
   // the caps keep the deep dungeon fast but still READABLE and dodgeable.
   // Steepened 2026-07: at 2%/floor from 4, a floor-7 tell was 94% of floor
-  // 1's â€” at player speed 4.2 anything over ~0.3s is a free walk-out, so a
+  // 1's — at player speed 4.2 anything over ~0.3s is a free walk-out, so a
   // human was never hit. TEMPO (not fatter trash) is the axis that scales
   // challenge over a typical run: one-shotting chaff stays legitimate; the
   // chaff that's still alive gets its swing off sooner.
@@ -310,7 +310,7 @@ export const CONFIG = {
   monsterTempoWindupPerFloor: 0.045, // telegraphs shorten per floor...
   monsterTempoWindupMin: 0.55, // ...but the tell stays readable
 
-  // Broodmother: a walking nest that BIRTHS swarmers while it lives â€” the
+  // Broodmother: a walking nest that BIRTHS swarmers while it lives — the
   // mob that makes ignoring a pack the wrong call. Kill the mother first.
   broodSpawnCooldown: 6, // seconds between births
   broodSpawnMax: 10, // lifetime births per mother
@@ -327,7 +327,7 @@ export const CONFIG = {
 
   // Repo Rat / filcher (SEWERS, floor 4+): a fleeing loot-goblin. It spawns
   // clutching gold, bleeds a coin each HP quarter lost, drops the rest on
-  // death â€” and if it stays safely away long enough, it ESCAPES with all of it.
+  // death — and if it stays safely away long enough, it ESCAPES with all of it.
   filcherFromFloor: 4,
   filcherChance: 0.55, // per ordinary floor: one rat scurries somewhere on it
   filcherGoldBase: 30, // carried gold: base + perFloor * floor
@@ -347,47 +347,47 @@ export const CONFIG = {
   // mobs (Boom Operator, the Archivist) arrive on the same seam.
   beamFadeSeconds: 0.25, // visible flash after firing
 
-  // IRONWORKS cast (floors 13-15) â€” the machine learns your timing.
+  // IRONWORKS cast (floors 13-15) — the machine learns your timing.
   ironworksFromFloor: 13,
   // Lineworker piston punch: melee that also LAUNCHES the survivor.
   punchKnockback: 1.4, // tiles
   // Sentinel lock-on: the beam TRACKS you while arming, freezes at the lock,
-  // then fires. Dodge when the tracking stops â€” a timing test, not position.
+  // then fires. Dodge when the tracking stops — a timing test, not position.
   sentinelBeamCooldown: 5,
   sentinelBeamArm: 1.15, // seconds of telegraph (tracking + locked)
   sentinelBeamLock: 0.4, // final seconds when the line stops tracking
   sentinelBeamLength: 9, // tiles the railshot pierces
   sentinelBeamWidth: 0.38, // half-width
-  sentinelBeamDmgMult: 1.4, // Ã— monster damage
+  sentinelBeamDmgMult: 1.4, // × monster damage
   // Slagbreaker heat rhythm: swings until it MUST vent, then pays for it.
   slagVentAfterSwings: 3,
   slagVentWindup: 0.8, // the vent telegraph
   slagVentRadius: 2.3, // scalding cloud around it
-  slagVentDmgMult: 1.2, // Ã— monster damage
-  slagVentBurnFraction: 0.5, // burn total = this Ã— the vent hit
-  slagVentSelfStagger: 1.5, // seconds helpless after venting â€” the punish window
+  slagVentDmgMult: 1.2, // × monster damage
+  slagVentBurnFraction: 0.5, // burn total = this × the vent hit
+  slagVentSelfStagger: 1.5, // seconds helpless after venting — the punish window
   // Wind-Up Battalion: squads volley as one; broken squads fire ragged.
   toysquadMin: 4,
   toysquadMax: 6,
   toysquadVolleyCooldown: 4.5,
-  toysquadWindup: 1.0, // the whole line presents muskets â€” one big dodge
+  toysquadWindup: 1.0, // the whole line presents muskets — one big dodge
   toysquadSyncMin: 3, // members alive to keep volleying in sync
-  // Greeter: sparks on death â€” three short-fused zaps around the chassis.
+  // Greeter: sparks on death — three short-fused zaps around the chassis.
   greeterSparkCount: 3,
   greeterSparkDelay: 0.45, // fuse on each spark (dodgeable, tight)
   greeterSparkRadius: 0.95,
-  greeterSparkDmgMult: 0.5, // Ã— monster damage per spark
+  greeterSparkDmgMult: 0.5, // × monster damage per spark
 
-  // GARDEN cast (floors 7+) â€” the floor fights back.
+  // GARDEN cast (floors 7+) — the floor fights back.
   gardenFromFloor: 7,
   // Vine Lasher hook: the longest lane telegraph in the game, then the DRAG.
   lasherHookRange: 5.5, // tiles the whip reaches
   lasherHookWidth: 0.75, // lane half-width
   lasherHookCooldown: 6,
-  lasherHookDmgMult: 0.8, // Ã— monster damage on the snag
+  lasherHookDmgMult: 0.8, // × monster damage on the snag
   lasherHookLandGap: 1.2, // you land this far from the lasher (in the pack)
   // Understudy morph: the vulnerable window before the wolf.
-  morphWindup: 1.0, // interruptible â€” stagger it to stay ahead of the curve
+  morphWindup: 1.0, // interruptible — stagger it to stay ahead of the curve
   morphHpFraction: 0.5, // transforms when damaged below this
   // Briar Witch hex: a vulnerability mark the whole pack exploits.
   hexRange: 6,
@@ -395,7 +395,7 @@ export const CONFIG = {
   hexVulnerability: 0.3, // +30% damage taken while marked
   hexCooldown: 8,
 
-  // UNDERCROFT trainers (floor 2+ â€” floor 1 stays pristine for the contract).
+  // UNDERCROFT trainers (floor 2+ — floor 1 stays pristine for the contract).
   undercroftFromFloor: 2,
   // Cutpurse: the lunge-stab that goes for the purse.
   cutpurseLungeRange: 2.6, // tiles the dash-stab covers
@@ -403,49 +403,49 @@ export const CONFIG = {
   cutpurseStealBase: 6, // gold stolen: base + perFloor * floor
   cutpurseStealPerFloor: 2,
   cutpurseInterest: 1.25, // the refund multiplier when you catch it
-  // Ossuary Warden: slam debris â€” a lingering bone-shard zone.
+  // Ossuary Warden: slam debris — a lingering bone-shard zone.
   wardenShardDuration: 5, // seconds the shards stay dangerous
   wardenShardRadius: 1.6,
-  wardenShardDmgMult: 0.25, // Ã— monster damage per tick (puddle cadence)
+  wardenShardDmgMult: 0.25, // × monster damage per tick (puddle cadence)
   // Pit Digger: the launch is the lesson, not the damage.
-  diggerKnockback: 1.8, // tiles â€” bigger than the piston, gentler hit
+  diggerKnockback: 1.8, // tiles — bigger than the piston, gentler hit
 
-  // RUINS cast (floors 10+) â€” the dead civilization drills you.
+  // RUINS cast (floors 10+) — the dead civilization drills you.
   ruinsFromFloor: 10,
   // Shieldbearer: the frontal guard (drops while it swings or staggers).
-  guardArcCos: 0.5, // attacker within Â±60Â° of its facing = blocked
+  guardArcCos: 0.5, // attacker within ±60° of its facing = blocked
   guardDamageTakenMult: 0.25, // the shield eats 75% of frontal damage
   // Cleric consecration: contested ground.
   consecrateDuration: 6,
   consecrateRadius: 2.0,
   consecrateHealPerTick: 6, // monster HP per puddle-cadence tick inside
-  consecrateDmgMult: 0.35, // Ã— monster damage per tick to crawlers inside
+  consecrateDmgMult: 0.35, // × monster damage per tick to crawlers inside
   consecrateCooldown: 9,
   // Archivist sweep: the beam that rotates.
   sweepDuration: 2.6, // seconds of channel (windup holds this long too)
   sweepRate: 1.1, // radians/sec toward the target
   sweepLength: 7, // tiles
   sweepWidth: 0.4, // half-width
-  sweepDmgMult: 0.35, // Ã— monster damage per tick on the line
+  sweepDmgMult: 0.35, // × monster damage per tick on the line
   sweepCooldown: 8,
-  // Colossus fissure: a crack that travels â€” perpendicular movement beats it.
+  // Colossus fissure: a crack that travels — perpendicular movement beats it.
   fissureSteps: 5, // eruptions along the lane
   fissureStepGap: 1.15, // tiles between eruptions
   fissureStepDelay: 0.16, // seconds between eruptions (the travel)
   fissureRadius: 0.9,
-  fissureDmgMult: 0.8, // Ã— monster damage per eruption
+  fissureDmgMult: 0.8, // × monster damage per eruption
 
-  // THE APPROACH cast (floors 16+) â€” the System fields its own.
+  // THE APPROACH cast (floors 16+) — the System fields its own.
   approachFromFloor: 16,
   // Stagehand: two hits, smoke out, marked re-entry. The mark IS the tell.
   stagehandStrikes: 2, // swings before it vanishes
   stagehandVanish: 1.4, // seconds gone (= the re-entry mark's fuse)
   stagehandRetreat: 5, // tiles it smokes away
-  stagehandArriveDmgMult: 0.6, // Ã— damage on the re-entry pop (dodge the mark)
+  stagehandArriveDmgMult: 0.6, // × damage on the re-entry pop (dodge the mark)
   stagehandArriveRadius: 1.0,
   // Sniper: the lane never fires twice from one spot.
   sniperCooldown: 6,
-  sniperArm: 1.5, // no tracking â€” a pure position test at extreme length
+  sniperArm: 1.5, // no tracking — a pure position test at extreme length
   sniperLength: 12,
   sniperWidth: 0.35,
   sniperDmgMult: 2.2,
@@ -464,41 +464,41 @@ export const CONFIG = {
   canceledDashCooldown: 3, // lateral sidestep cadence
   canceledDashDist: 2.2,
   canceledNovaCooldown: 6, // its slam-nova (windup "slam", brute radius)
-  // Suitguy: the mercy test â€” sparing him pays the whole party.
+  // Suitguy: the mercy test — sparing him pays the whole party.
   suitguyEscapeHype: 12,
 
-  // Elite affix six-pack (MOB-CONCEPTS.md) â€” the multiplication table.
+  // Elite affix six-pack (MOB-CONCEPTS.md) — the multiplication table.
   linkedRadius: 5, // allies inside soak the linked elite's damage
   linkedSoakFraction: 0.5, // share of each hit redistributed to the pack
   vampiricHealFraction: 0.5, // of damage dealt, drunk back
-  juggernautSpeedMult: 0.75, // slower â€” your kiting still works; your CC doesn't
+  juggernautSpeedMult: 0.75, // slower — your kiting still works; your CC doesn't
   mortarCooldown: 3.5,
   mortarMinRange: 3, // too close and it can't arc
   mortarMaxRange: 9,
   mortarDelay: 1.1, // shell hang-time (the dodge window)
   mortarRadius: 1.2,
-  mortarDmgMult: 0.9, // Ã— monster damage per shell
+  mortarDmgMult: 0.9, // × monster damage per shell
   berserkThreshold: 0.5, // below this HP fraction the frenzy self-sustains
   executionerThreshold: 0.4, // crawlers below this HP fraction...
   executionerDmgMult: 1.5, // ...take this much more from it
 
-  // Pack playbook (MOB-CONCEPTS.md): designed encounters â€” one mob's ability
+  // Pack playbook (MOB-CONCEPTS.md): designed encounters — one mob's ability
   // is the setup for another's payoff. Budget-neutral: a template SPENDS the
   // floor's monster budget. Formation offsets do most of the choreography.
   packTemplateChance: 0.35, // share of pack rolls that use a band template
 
   // BOSS LAYERS (MOB-CONCEPTS.md).
-  // Layer 1 â€” champions (the CHAMPIONS table below drives the spawns).
+  // Layer 1 — champions (the CHAMPIONS table below drives the spawns).
   foremanVolleyCooldown: 5,
   foremanVolleyCount: 6,
   foremanSlamCooldown: 6,
-  // Layer 4 â€” THE DUO: when one QA unit dies, the survivor ENRAGES.
+  // Layer 4 — THE DUO: when one QA unit dies, the survivor ENRAGES.
   duoEnrageDamageMult: 1.3,
   duoEnrageSpeedMult: 1.25,
   duoEnrageHealFraction: 0.25, // of max HP, patched in by the grief
-  // Layer 3 â€” arena directors: the ROOM acts on a rhythm while the boss
+  // Layer 3 — arena directors: the ROOM acts on a rhythm while the boss
   // lives, reusing the signature helpers on the arena's own metronome
-  // (deliberately slower than the boss's sigCd â€” layered, not doubled).
+  // (deliberately slower than the boss's sigCd — layered, not doubled).
   directorFloodInterval: 14, // floor 6: the sump RISES on its own schedule
   directorRegrowInterval: 16, // floor 9: the garden REGROWS
   directorVentInterval: 12, // floor 15: the wall vents EXHALE flame rows
@@ -511,9 +511,9 @@ export const CONFIG = {
   rivalsReviveGraceSeconds: 2.5, // post-revive immunity (no spawn-camping the timer)
   pvpDamageMult: 0.4, // builds are tuned vs telegraphed monsters; PvP is instant
   pkXpBase: 60, // XP for dropping a rival...
-  pkXpPerLevel: 30, // ...plus this per victim level â€” killing the LEADER pays most
+  pkXpPerLevel: 30, // ...plus this per victim level — killing the LEADER pays most
 
-  // Roaming: SOME monsters patrol when off-duty â€” variety in mob behavior is
+  // Roaming: SOME monsters patrol when off-duty — variety in mob behavior is
   // the point. Lone wanderers always roam, packPatrolChance of packs patrol
   // together, the rest are sentries holding their post; dormant ambushers lie
   // perfectly still, the vault guardian never leaves its treasure, and bosses
@@ -526,17 +526,17 @@ export const CONFIG = {
 
   // Loot. Builds come from PLANNING (the System Shop) now, not slot machines:
   // drops run leaner and rarer at the top end, and a slice of item drops are
-  // catalog COMPONENTS â€” random loot that advances the build you planned.
+  // catalog COMPONENTS — random loot that advances the build you planned.
   // 0.36 when 40% of drops were health potions; potions are gone (health
-  // should be scary â€” see dropLoot), so this holds gear rates steady.
+  // should be scary — see dropLoot), so this holds gear rates steady.
   lootDropChance: 0.22,
   componentDropChance: 0.35, // legacy knob (pre-V2 drop table); kept for reference
 
-  // ---- ITEMIZATION V2 (Â§2): one catalog, rarities on top ----
-  // Quality multipliers for CATALOG items only (Â§2.1) â€” a roll ON TOP of the
+  // ---- ITEMIZATION V2 (§2): one catalog, rarities on top ----
+  // Quality multipliers for CATALOG items only (§2.1) — a roll ON TOP of the
   // identity's printed line (gearAffixes). The shipped RARITIES.mult table
   // below never touches a catalog item: quality compares within a path, never
-  // across (the Â§2.1 guard test pins catalog-identity-first in CI).
+  // across (the §2.1 guard test pins catalog-identity-first in CI).
   catalogQualityMult: { common: 1.0, magic: 1.15, rare: 1.3, epic: 1.5 } as Record<
     "common" | "magic" | "rare" | "epic", number
   >,
@@ -544,13 +544,13 @@ export const CONFIG = {
   catalogQualityBonusAffixes: { common: 0, magic: 1, rare: 1, epic: 2 } as Record<
     "common" | "magic" | "rare" | "epic", number
   >,
-  // The V2 drop table (Â§2.2), as cumulative shares of one equipment drop:
+  // The V2 drop table (§2.2), as cumulative shares of one equipment drop:
   // 55% catalog COMPONENT at rolled quality, 15% catalog COMPLETED
   // (floor-gated), 25% commodity gear (commons/magics only), 5% GLYPH (fl 2+).
   dropComponentShare: 0.55,
   dropCompletedShare: 0.15,
-  // GLYPH SUPPLY (Â§3.5): sockets open faster than 5% of 22% of kills can fill
-  // them â€” nine pips against ~1 glyph per 90 kills left the act-2 rebuild beat
+  // GLYPH SUPPLY (§3.5): sockets open faster than 5% of 22% of kills can fill
+  // them — nine pips against ~1 glyph per 90 kills left the act-2 rebuild beat
   // staring at empty wells, which is the direct negation of fast-round
   // building. The share now roughly doubles the drip and a per-floor cap keeps
   // a lucky floor from dumping the whole pool at once (supply is steady, not
@@ -559,20 +559,20 @@ export const CONFIG = {
   glyphDropsPerFloorCap: 3, // at most this many field glyphs per floor
   dropCompletedFromFloor: 3, // completed works drop once the shop shelf has them
   dropGlyphFromFloor: 2,
-  // DISMANTLE / REFIT (Â§2.4): the refit_shard economy.
+  // DISMANTLE / REFIT (§2.4): the refit_shard economy.
   dismantleShards: { common: 1, magic: 2, rare: 4, epic: 8 } as Record<
     "common" | "magic" | "rare" | "epic", number
   >,
   refitShardCost: { magic: 3, rare: 6, epic: 12 } as Record<"magic" | "rare" | "epic", number>,
   refitGoldFraction: 0.4, // gold cost = this x the item's totalCost
-  // Boss uniques (Â§2.5): drop-only chase items, one per band boss.
+  // Boss uniques (§2.5): drop-only chase items, one per band boss.
   bossUniqueChance: 0.35,
-  // Elite bonus roll (Â§2.2): the extra drop is a component most of the time.
+  // Elite bonus roll (§2.2): the extra drop is a component most of the time.
   eliteBonusGlyphShare: 0.25,
 
-  // ---- GLYPHS (Â§3): the ability-modifier layer ----
+  // ---- GLYPHS (§3): the ability-modifier layer ----
   glyphSocket1Level: 4, // socket 1 of every active slot (~floor 2)
-  // SECOND SOCKETS ARE STAGGERED (Â§3.5), one per slot index: opening all four
+  // SECOND SOCKETS ARE STAGGERED (§3.5), one per slot index: opening all four
   // at once outran the glyph supply and turned the act-2 beat into four empty
   // wells. Now the kit grows a socket every couple of levels, so every one of
   // them has a stone waiting for it.
@@ -589,8 +589,8 @@ export const CONFIG = {
   glyphAccelerantFrac: 0.25, // burn total = this x the hit, over burnDuration
   glyphRebateFrac: 0.3, // refund per qualifying kill, of the set cooldown
   glyphRebateWindow: 1, // seconds after the cast a kill still counts
-  // THE TEMPO PAIR (Â§3.3): both are DPS-NEUTRAL by construction â€” 1.30/1.30
-  // and 0.80/0.80 â€” so neither is a free stat stick and neither is a trap.
+  // THE TEMPO PAIR (§3.3): both are DPS-NEUTRAL by construction — 1.30/1.30
+  // and 0.80/0.80 — so neither is a free stat stick and neither is a trap.
   // You buy Heavyweight for burst-per-hit and poise breakpoints, Hair Trigger
   // for uptime and mobility; the `tempo` family stops them sharing a slot to
   // launder each other's downside into a flat +19% damage (the old 1.35/1.20
@@ -602,13 +602,13 @@ export const CONFIG = {
   glyphSlipstreamSpeedMult: 1.15,
   glyphSlipstreamDmgMult: 1.1,
   glyphSlipstreamDur: 2,
-  glyphCacheFromShop: 2, // the shelf row appears from shop #2 (Â§4 cadence)
-  // ---- PHASE C (ABILITIES-V2 Â§5.2) ----
+  glyphCacheFromShop: 2, // the shelf row appears from shop #2 (§4 cadence)
+  // ---- PHASE C (ABILITIES-V2 §5.2) ----
   glyphStaticEvery: 3, // Static Charge: every Nth CAST is empowered
   glyphStaticDmgMult: 1.6,
   glyphStaticPoiseMult: 2,
   glyphDemolitionFrac: 1, // Demolition Rider: remaining DoT dealt instantly...
-  glyphDemolitionTargets: 3, // ...on at most this many bodies (Â§5.4 flag 6)
+  glyphDemolitionTargets: 3, // ...on at most this many bodies (§5.4 flag 6)
   glyphEnvenomedChance: 0.35,
   glyphCryoChill: 0.2,
   glyphCryoDuration: 2,
@@ -626,7 +626,7 @@ export const CONFIG = {
   glyphLongshotBonus: 0.3,
   glyphLongshotPenalty: 0.15,
   glyphBloodPriceHpFrac: 0.03, // Blood Price: casts cost 3% max HP...
-  glyphBloodPriceDmgMult: 1.3, // ...for +30% damage (family: tempo, Â§5.4 flag 1)
+  glyphBloodPriceDmgMult: 1.3, // ...for +30% damage (family: tempo, §5.4 flag 1)
   glyphPhaseEtchIframes: 0.15,
   glyphPhaseEtchFrac: 0.3,
   glyphUnderstudyContract: 2, // Understudy's Rider: +2s on the double's contract
@@ -637,7 +637,7 @@ export const CONFIG = {
   glyphColdOpenChill: 0.3,
   glyphColdOpenDuration: 3,
 
-  // ---- New COMPLETED-work passives (Â§2.3) + boss-unique passives (Â§2.5) ----
+  // ---- New COMPLETED-work passives (§2.3) + boss-unique passives (§2.5) ----
   longarmMinDist: 1.5, // Pikeman's Rebuttal: melee hits from this far knock back...
   longarmKnockback: 0.5, // ...this many tiles
   wreckerBonus: 1.4, // Demolition Permit: stagger-breaking hits deal this mult
@@ -684,7 +684,7 @@ export const CONFIG = {
   heavyPoiseMult: 2, // heavy swings break poise twice as fast
   reachRangeBonus: 0.5, // Spear: extra melee reach (tiles)
   // Off-class melee: swinging a caster/ranged weapon (arcane/ballistic) is a
-  // pommel bash â€” the mirror of boltSidearmMult below. A melee build holding
+  // pommel bash — the mirror of boltSidearmMult below. A melee build holding
   // a wand should feel it (gear coherence; owner ruling 2026-07-26).
   offclassMeleeDmgMult: 0.65,
   boltSidearmMult: 0.6, // melee-class weapon: bolt is a thrown sidearm (attack power)
@@ -695,10 +695,10 @@ export const CONFIG = {
   staffAoeRadiusMult: 1.25, // Staff: bigger nova
   chaoticBoltMult: 0.75, // the Mug does everything, badly (best school, discounted)
   tempoCooldownMult: 0.85, // "tempo" signature passive: active cooldowns run faster
-  // Chase passives (store-only legendary uniques â€” plan three shops ahead):
+  // Chase passives (store-only legendary uniques — plan three shops ahead):
   encoreOrbitTickMult: 0.75, // "encore": orbit blades tick this much faster (+1 blade too)
   skewerBonusPierce: 2, // "skewer": bolts punch through this many extra bodies
-  // "choreography": stance swap resets swing + bolt cooldowns (no knob â€” binary)
+  // "choreography": stance swap resets swing + bolt cooldowns (no knob — binary)
   // "plot_armor": once per floor a killing blow leaves you at 1 HP (binary)
   leechFraction: 0.06, // "leech": heal this fraction of damage dealt...
   leechCapFraction: 0.04, // ...capped per hit at this fraction of max HP
@@ -710,9 +710,9 @@ export const CONFIG = {
   ledgerInterestFraction: 0.1, // ...plus interest on banked gold each safe room...
   ledgerInterestCap: 120, // ...capped per shop (greed compounds, but politely)
   // "phase": dash passes through walls when it reaches the far side (binary)
-  // Damage rolls: every player hit rolls Â±variance around its base, and the
+  // Damage rolls: every player hit rolls ±variance around its base, and the
   // WEAPON sets the dice. Swift is a metronome, heavy is a gamble per swing,
-  // the Mug is a slot machine. Bare hands (and monsters) roll Â±0.15.
+  // the Mug is a slot machine. Bare hands (and monsters) roll ±0.15.
   weaponVariance: {
     swift: 0.1, heavy: 0.3, reach: 0.15, ballistic: 0.15, arcane: 0.2, chaotic: 0.4,
   } as Record<string, number>,
@@ -730,13 +730,13 @@ export const CONFIG = {
   shamanHeal: 16, // hp restored to the lowest-HP wounded monster per cast
   shamanHealCooldown: 2.5, // seconds between casts
   shamanHealRange: 6, // tiles: allies it can reach
-  shamanHealWindup: 0.8, // channel before the heal lands â€” the interrupt window
+  shamanHealWindup: 0.8, // channel before the heal lands — the interrupt window
 
   // Phantom: fast, fragile skirmisher that blinks toward its prey.
   phantomBlinkDistance: 3, // tiles teleported per blink (wall-clipped)
   phantomBlinkCooldown: 2.8, // seconds between blinks
 
-  // Brute Ground Slam: its ONE attack is a self-centered AoE (no facing/arc â€”
+  // Brute Ground Slam: its ONE attack is a self-centered AoE (no facing/arc —
   // everyone standing close eats it), not a single-target point hit. Same
   // windup as before; the long telegraph is the dodge window either way.
   bruteSlamRadius: 1.5, // tiles from the brute's own position
@@ -744,32 +744,32 @@ export const CONFIG = {
   // Boss kit escalation (DESIGN: boss-tier fights should feel like escalating
   // KITS, not just bigger numbers on one script). Adds waves at phase breaks +
   // hazard rain are UNIVERSAL boss behavior (backlog #11); the tiers layer on
-  // top of that (band-end bosses ALSO carry a per-band signature â€” see below):
-  //   tier 0 (floor 3)            â€” melee+volley only (early-game, gentle)
-  //   tier 1 (floors 6, 9)        â€” + Ground Slam
-  //   tier 2 (floors 12, 15)      â€” Ground Slam cycles faster
-  //   tier 3 (floor 18 final boss)â€” + Dark Ritual (a real interrupt-or-hurt stake)
+  // top of that (band-end bosses ALSO carry a per-band signature — see below):
+  //   tier 0 (floor 3)            — melee+volley only (early-game, gentle)
+  //   tier 1 (floors 6, 9)        — + Ground Slam
+  //   tier 2 (floors 12, 15)      — Ground Slam cycles faster
+  //   tier 3 (floor 18 final boss)— + Dark Ritual (a real interrupt-or-hurt stake)
   // Anti-kite (backlog #6, movement half): a boss that can't REACH you loses
-  // patience â€” chase speed ramps while you stay out of melee reach, and one
+  // patience — chase speed ramps while you stay out of melee reach, and one
   // moment of contact resets it. Circling the arena stops being free; the
   // counterplay becomes standing your ground in windows, which is the fight.
   bossChaseRampDelay: 3.5, // seconds out of reach before the ramp starts
   bossChaseRampRate: 0.15, // +chase multiplier per second past the delay
-  bossChaseRampCap: 1.65, // top multiplier â€” outrunnable only by spending dashes
-  bossSlamRadius: 2.4, // tiles: bigger than the brute's â€” it's arena-scale
+  bossChaseRampCap: 1.65, // top multiplier — outrunnable only by spending dashes
+  bossSlamRadius: 2.4, // tiles: bigger than the brute's — it's arena-scale
   bossSlamRange: 3.2, // tiles: max distance the boss will commit a slam from
   bossSlamWindup: 0.9, // seconds telegraphed before it erupts
   bossSlamCooldown: 6.5, // seconds between slams (independent of melee/volley)
   bossSlamHasteT2: 0.65, // tier 2+ slam-cooldown multiplier (the tier-2 escalation)
   bossSlamDmgMult: 0.85, // relative to the boss's own damage stat (it's a BONUS hit)
   ritualRange: 9, // tiles: the boss will channel from anywhere in the arena
-  ritualWindup: 1.9, // seconds â€” long and unmistakable; interrupt it or eat it
+  ritualWindup: 1.9, // seconds — long and unmistakable; interrupt it or eat it
   ritualCooldown: 14, // seconds between rituals
   ritualRadius: 3.6, // tiles: arena-scale AoE around the boss
-  ritualDmgMult: 1.9, // relative to the boss's own damage stat â€” this one HURTS
+  ritualDmgMult: 1.9, // relative to the boss's own damage stat — this one HURTS
 
   // Charger: locks a direction during a LONG windup, then rushes down the line,
-  // plowing through anyone still standing on it. Sidestep the lane â€” the commit
+  // plowing through anyone still standing on it. Sidestep the lane — the commit
   // point is the tell, the direction never updates after it.
   chargerMinRange: 2.2, // tiles: closer than this it just swings instead
   chargerRange: 7, // tiles: max distance it will commit to a rush from
@@ -788,7 +788,7 @@ export const CONFIG = {
   // Necromancer: a back-line caster that RAISES fallen monsters (fresh corpses
   // only). Kill it first or the pack never stays dead.
   corpseTtl: 12, // seconds a corpse stays raisable
-  corpseMax: 40, // corpse list cap (oldest fall off â€” bounded state)
+  corpseMax: 40, // corpse list cap (oldest fall off — bounded state)
   necroRaiseRange: 5, // tiles: corpses it can reach
   necroRaiseCooldown: 5, // seconds between raises
   necroRaiseMax: 4, // lifetime raises per necromancer
@@ -801,12 +801,12 @@ export const CONFIG = {
   ultAirstrikeRadius: 1.6, // per-shell blast radius (tiles)
 
   // V2 U2: 2.5 -> 1.7 (per-shell damage paying for ~11 shells instead of 6),
-  // then 1.7 -> 1.9 when Â§6.4.9(ii) was finally MEASURED: at 1.7 the whole
+  // then 1.7 -> 1.9 when §6.4.9(ii) was finally MEASURED: at 1.7 the whole
   // channel delivered 2.34x the best 3s of melee, under the pre-registered
   // 2.5x bar. Channel length is not the lever -- shells and swings both scale
   // with the window, so the ratio sits at ~2.39 whatever the channel is --
   // and the pre-registered fallback ladder (3.0s -> 2.0s, then cut the
-  // commitment) is aimed at a commitment that is UNAFFORDABLE, which Â§6.4.9(i)
+  // commitment) is aimed at a commitment that is UNAFFORDABLE, which §6.4.9(i)
   // measures it is not (a barrage window takes LESS damage than normal play at
   // floors 4/8/12). So the payoff moved instead: 1.9 lands 2.61x.
   ultAirstrikeDmgMult: 1.9,
@@ -844,7 +844,7 @@ export const CONFIG = {
   // Fun-kit wave (ABILITY-CONCEPTS.md): Blindside / Extradition / Stunt Double.
   cutToRange: 6, // tiles the camera can cut
   cutToCooldown: 6, // long enough that each cut is a decision, not a spam
-  cutToDmgMult: 1.9, // V2 R6: 1.2 -> 1.9 â€” a strike, not a mobility tax
+  cutToDmgMult: 1.9, // V2 R6: 1.2 -> 1.9 — a strike, not a mobility tax
   cutToStagger: 0.35, // Sucker Punch: non-elite arrival stagger (seconds)
   cutToMatchWindow: 1, // REPEAT OFFENDER: kill inside this window resets the cooldown
   surfRange: 7, // chain reach (tiles)
@@ -867,7 +867,7 @@ export const CONFIG = {
   // ---- The System intervenes (low ratings = corrective content) ----
   // A crawler whose hype flatlines gets escalating attention: a posted bounty,
   // then a spawned wave, then an engagement review (telegraphed impacts).
-  // Keeping hype above the floor suppresses all of it â€” hype is cover.
+  // Keeping hype above the floor suppresses all of it — hype is cover.
   interferenceHypeFloor: 25, // hype at/above this resets the flatline clock AND the escalation
   interferenceBoredom: 40, // seconds of flatline before the System acts
   interferenceGraceFloors: 2, // floors 1-2 are never interfered with (the pilot airs itself)
@@ -883,7 +883,7 @@ export const CONFIG = {
   interferenceHazardRadius: 1.4,
   interferenceHazardDmgFrac: 0.18, // each impact hits for this fraction of max HP (pre-armor)
 
-  // ---- CLASS REVISION (milestone castings â€” the menu lives in revisions.ts) ----
+  // ---- CLASS REVISION (milestone castings — the menu lives in revisions.ts) ----
   revisionFloors: [4, 7, 10], // arrival floors (the band bosses at 3/6/9 earn the offer)
   revisionUnderdogThreshold: 0.35, // "below this HP fraction" gate for both bonuses
   revisionUnderdogDamage: 1.25,
@@ -917,15 +917,15 @@ export const CONFIG = {
 
   // Discoverable abilities (learned from tomes; see abilities.ts for upgrade trees)
   // COLLAPSE (ABILITIES-V2 R1): the cast GATHERS, then detonates. The buff is
-  // entirely in N â€” per-target damage is unchanged.
+  // entirely in N — per-target damage is unchanged.
   novaCooldown: 6.0, // V2 R1: 5.0 -> 6.0; the gather is worth a longer phrase
   novaRadius: 2.6,
   novaDamageMult: 1.2, // relative to melee base damage
-  // Gather reach = blast radius x this. Â§6.4.2 is what SETS this number: the
+  // Gather reach = blast radius x this. §6.4.2 is what SETS this number: the
   // contract is mean gathered >= 2.5 per cast in bot play at floors 4/8/12,
   // and the doc's illustrative 1.6 measured 1.83 against the shipped spacing
   // (HEAVY PACKS deliberately run spread). The gather deals no damage at its
-  // edge â€” its whole job is to make N stop being zero.
+  // edge — its whole job is to make N stop being zero.
   novaGatherMult: 2.3,
   novaGatherRing: 1.2, // dragged bodies land on a ring this far out
   novaGatherStep: 4.5, // max tiles one cast can drag a light body
@@ -938,7 +938,7 @@ export const CONFIG = {
   orbitRadius: 1.6,
   orbitRevPerSec: 1.1, // revolutions per second
   // V2 R3: the ambient grind pays for the hurl, so the ability's damage moves
-  // from the passive to the PRESS. Â§6.4.5 pins ambient orbit under 40% of
+  // from the passive to the PRESS. §6.4.5 pins ambient orbit under 40% of
   // melee's single-target DPS AT THE REFERENCE BUILD, and that pin is what
   // sets this number: the ratio is exactly orbitDamageMult x blades x
   // (playerAttackCooldown / orbitTickSeconds) = mult x 2, so the doc's
@@ -948,7 +948,7 @@ export const CONFIG = {
   orbitDamageMult: 0.18,
   orbitTickSeconds: 0.4,
   // ORBIT HURL (V2 R3): pressing the slot throws the ring out and back. No
-  // aura until it returns â€” that is the counterplay window.
+  // aura until it returns — that is the counterplay window.
   orbitHurlCooldown: 7,
   orbitHurlRange: 5.5, // tiles out (Corkscrew extends by orbitHurlWideBonus)
   orbitHurlSpeed: 10, // tiles/sec, each way
@@ -968,7 +968,7 @@ export const CONFIG = {
   // blade's travel since the last tick, so blades hit what they visibly passed.
   orbitHitSamples: 8,
   // Corkscrew (orbit.wide): blades spiral between this inner radius and
-  // orbitRadius + perRank * rank, oscillating at this rate â€” coverage across
+  // orbitRadius + perRank * rank, oscillating at this rate — coverage across
   // every range instead of one ring with a dead zone inside it.
   orbitSpiralInner: 0.7,
   orbitSpiralPerRank: 0.45,
@@ -989,7 +989,7 @@ export const CONFIG = {
   overchargeWindowBonus: 0.2, // Open Season: +20% from everything, while it holds
   overchargeChainRadius: 2.5, // CHAIN REACTION: the stagger propagates this far
   // BATTLE STANCE (V2 R4): the swap fires a free strike in the new stance's
-  // shape â€” but only if you were SETTLED (Flow ungates it at reduced power).
+  // shape — but only if you were SETTLED (Flow ungates it at reduced power).
   stanceStrikeArcMult: 1.3, // the swap swing is wider
   stanceStrikeBoltMult: 1.3, // the swap bolt hits harder
   stanceFlowStrikeMult: 0.6, // Flow ungates the strike at this power
@@ -1051,10 +1051,10 @@ export const CONFIG = {
   injunctionEnrageWindup: 0.2, // ...and wind up 20% faster
   injunctionDismissedRadius: 8, // DISMISSED: nothing alive inside cuts the debt
   // How much DISMISSED WITH PREJUDICE takes off the debt. The doc says
-  // "halved", and Â§6.4.4 says the net run-clock delta must be NEGATIVE at
+  // "halved", and §6.4.4 says the net run-clock delta must be NEGATIVE at
   // every rank INCLUDING after DISMISSED. Those two cannot both hold at a 5/3
   // ratio: half of 5/3 is 5/6, i.e. less than the freeze, i.e. the capstone
-  // would print time â€” exactly the defect the whole ability was rewritten to
+  // would print time — exactly the defect the whole ability was rewritten to
   // avoid. The assertion outranks the adjective, so the relief is a quarter.
   injunctionDismissedRelief: 0.25,
   // STUNT DOUBLE (R8): the double can DIE.
@@ -1071,13 +1071,13 @@ export const CONFIG = {
   upgradeDraftSize: 3, // cards offered per level-up
   // Overranks: lottery ranks past a node's printed max (see rollUpgradeDraft).
   overrankChanceBase: 0.05, // draft chance to dangle one on floor 0
-  overrankChancePerFloor: 0.01, // added per floor â€” the deep dungeon tempts harder
+  overrankChancePerFloor: 0.01, // added per floor — the deep dungeon tempts harder
   overrankChanceMax: 0.2, // even floor 15+ stays a gamble
 
   // Fog of war
   fogVisionRadius: 8.5, // tiles revealed (and entities visible) around the player
   // Interest management (net snapshots): ordinary monsters farther than this
-  // from every living player are omitted from DYNAMIC snapshots â€” they are
+  // from every living player are omitted from DYNAMIC snapshots — they are
   // hidden by fog anyway, and on dense floors they were most of the payload.
   // Bosses, named elites, and key carriers always ship (boss bar scans to 16
   // tiles; the key matters wherever it is). Must comfortably exceed both
@@ -1127,7 +1127,7 @@ export const CONFIG = {
     hypeLineworker: 5,
     hypeSentinel: 7, // dodging the lock then dropping the turret = television
     hypeSlagbreaker: 9, // the vent-window execution is a highlight
-    hypeToysoldier: 3, // chaff â€” the VOLLEY dodge is where the hype lives
+    hypeToysoldier: 3, // chaff — the VOLLEY dodge is where the hype lives
     hypeGreeter: 6, // it was a prop until it wasn't
     hypeLasher: 7, // dodging the hook is a clip; eating it is a better one
     hypeUnderstudy: 6, // ending the extra BEFORE the transformation clause
@@ -1143,10 +1143,10 @@ export const CONFIG = {
     hypeSniper: 8, // closing on the lane-shooter across the room
     hypeDuelist: 8, // out-fencing the fencer
     hypeDarling: 10, // ending the System's favorite, live
-    hypeCanceled: 12, // the mirror match â€” beating a former favorite
+    hypeCanceled: 12, // the mirror match — beating a former favorite
     hypeSuitactor: 6, // the beast was fine television
     hypeSuitguy: 0, // killing the guy in the suit is BAD television
-    hypeForeman: 25, // a champion falls â€” almost boss-grade ratings
+    hypeForeman: 25, // a champion falls — almost boss-grade ratings
     hypeBoss: 50,
     hypeMultiKillPerExtra: 5, // per extra kill in the same step (combo)
     hypeLowHpHit: 9, // taking a hit while below lowHpFraction HP
@@ -1166,7 +1166,7 @@ export const CONFIG = {
   rewardMaxCount: 3,
   // Anti-concentration: a permanent stat gift diminishes against what the
   // crawler has ALREADY banked on that axis (factor = k/(k+owned)). The first
-  // Weapon Mod is juicy; the tenth is a rounding error â€” so stacking one stat
+  // Weapon Mod is juicy; the tenth is a rounding error — so stacking one stat
   // every floor stops being the obvious play and the varied pool (armor,
   // materials, favors, gear) competes. Per-axis k (owned units match makeReward).
   rewardDrDamageK: 45, // owned = bonusDamage
@@ -1175,7 +1175,7 @@ export const CONFIG = {
   rewardDrArmorK: 40, // owned = bonusArmor
 
   // Boss hierarchy (DCC-style):
-  // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) â€” a beefed-up
+  // - NEIGHBORHOOD BOSS: one elite monster per ordinary floor (2+) — a beefed-up
   //   archetype with a name, guaranteed loot, and an announcer moment.
   // - BAND BOSS: every band-END floor (3, 6, 9, 12, 15) is a sealed arena with
   //   a real boss carrying its band's SIGNATURE mechanic (see the signature
@@ -1193,9 +1193,9 @@ export const CONFIG = {
   eliteScale: 1.45, // render scale bump
   // VETERAN tier (owner 2026-07-26: "more variety in the power levels of
   // mobs"). The power ladder read trash -> named elite -> boss, and on-curve
-  // crawlers one-shot ~85% of early spawns â€” there was no fanfare-free
+  // crawlers one-shot ~85% of early spawns — there was no fanfare-free
   // middle rung. Veterans are a pack's long-surviving anchor: bigger
-  // silhouette, real HP (3-5 on-curve swings), a real hit, triple XP â€” but
+  // silhouette, real HP (3-5 on-curve swings), a real hit, triple XP — but
   // NO name, affix, or announcement. The silhouette is the whole telegraph.
   veteranFromFloor: 3, // floors 1-2 stay the pure on-ramp (fresh-crawler
   // mortality there is already real: a 20-seed probe at fromFloor 2 dropped
@@ -1210,9 +1210,9 @@ export const CONFIG = {
   // fraction of a boss/elite health pool, whatever the build finds next.
   bossHitCapFraction: 0.1,
   eliteHitCapFraction: 0.12,
-  // Elite AFFIXES (from this floor): each named elite rolls one mechanic â€”
+  // Elite AFFIXES (from this floor): each named elite rolls one mechanic —
   // swift (+speed), shielded (takes less damage), volatile (delayed death
-  // blast â€” clear the corpse), summoner (calls swarmer adds), splitter
+  // blast — clear the corpse), summoner (calls swarmer adds), splitter
   // (bursts into swarmers on death), thorns (reflects a slice of your hits).
   eliteAffixFromFloor: 3,
   // Ringside introductions: closing within this range of an unmet boss/elite
@@ -1222,7 +1222,7 @@ export const CONFIG = {
   swiftSpeedMult: 1.4,
   shieldedDamageTakenMult: 0.7,
   // School resists (5.8 phase 3): armored/warded elites and resist-tagged
-  // archetypes take this fraction of matching-school damage (âˆ’30%).
+  // archetypes take this fraction of matching-school damage (−30%).
   resistDamageTakenMult: 0.7,
   volatileDelay: 0.8, // seconds from death to blast (the dodge window)
   volatileRadius: 1.5, // tiles
@@ -1230,7 +1230,7 @@ export const CONFIG = {
   summonCooldown: 4, // seconds between summons
   summonMax: 6, // lifetime adds per summoner
   summonWindup: 0.7, // channel before the add arrives (summoner elites + broodmother)
-  // Ambushes (deep-floor tactic): some packs spawn DORMANT â€” inert and quiet in
+  // Ambushes (deep-floor tactic): some packs spawn DORMANT — inert and quiet in
   // the fog until a player strays within trigger range, then the whole cluster
   // springs at once with a brief speed surge to close the gap. A pack that lets
   // you walk into the middle of it is a very different threat from one you saw.
@@ -1259,17 +1259,17 @@ export const CONFIG = {
   bossFloorCrowdDeep: 0.8,
   bossFloorCrowdDeepFrom: 13,
 
-  // SIGNATURE boss mechanics â€” one themed ability per band-end arena, layered
+  // SIGNATURE boss mechanics — one themed ability per band-end arena, layered
   // on the shared melee+volley+phase kit (dispatch in ai.ts, helpers in
   // game.ts). Every one of them telegraphs: pools ARM before they bite,
   // impact circles ring before they land, the raise is an interruptible
   // channel. Floor 18's crown stays the tier-3 Dark Ritual (above).
-  // UNDERCROFT (floor 3): Grave Rising â€” raises fresh corpses as weakened adds.
+  // UNDERCROFT (floor 3): Grave Rising — raises fresh corpses as weakened adds.
   graveRaiseCooldown: 10, // seconds between raise channels
   graveRaiseWindup: 1.1, // channel length (staggering it cancels the raise)
   graveRaiseRange: 7, // tiles: corpses it can reach
   graveRaiseCount: 3, // corpses raised per channel (freshest first)
-  // SEWERS (floor 6): Flood Surge â€” sludge pools blanket a seeded half of the
+  // SEWERS (floor 6): Flood Surge — sludge pools blanket a seeded half of the
   // arena; they arm (telegraph), then tick like acid until they drain.
   floodCooldown: 12, // seconds between surges
   floodTelegraph: 1.6, // seconds a pool arms before it goes live (the dodge window)
@@ -1277,7 +1277,7 @@ export const CONFIG = {
   floodPools: 12, // pools per surge
   floodPoolRadius: 1.6, // tiles
   floodDmgMult: 0.4, // per-tick damage relative to the boss's damage stat
-  // GARDEN (floor 9): Entangling Roots â€” root zones SNARE (heavy slow, no
+  // GARDEN (floor 9): Entangling Roots — root zones SNARE (heavy slow, no
   // damage) players who stay; dashing out is the escape.
   rootsCooldown: 9, // seconds between casts
   rootsTelegraph: 1.1, // seconds a zone arms before it grips
@@ -1286,14 +1286,14 @@ export const CONFIG = {
   rootsSnare: 0.7, // seconds of snare refreshed while standing in a live zone
   rootsSlowMult: 0.35, // move-speed multiplier while snared
   rootsExtra: 2, // extra seeded zones beyond one per crawler
-  // RUINS (floor 12): Collapsing Masonry â€” telegraphed debris impact circles
+  // RUINS (floor 12): Collapsing Masonry — telegraphed debris impact circles
   // rain all fight (one per crawler + seeded scatter), not just from phase 1.
   debrisCooldown: 6.5, // seconds between volleys
   debrisDelay: 1.3, // seconds from telegraph to impact
   debrisRadius: 1.6, // tiles
   debrisCount: 6, // circles per volley (players targeted first, rest scatter)
   debrisDmgMult: 0.9, // relative to the boss's damage stat
-  // IRONWORKS (floor 15): Flame Sweep â€” an advancing wall of fire, row by
+  // IRONWORKS (floor 15): Flame Sweep — an advancing wall of fire, row by
   // row toward the boss's target; each row detonates later than the last, so
   // the wave READS and the play is "pick a gap and commit".
   flameCooldown: 13, // seconds between sweeps
@@ -1307,7 +1307,7 @@ export const CONFIG = {
   flameDmgMult: 1.0, // relative to the boss's damage stat
 
   // FLOOR EVENTS (floors 2+, never on boss floors): a seeded roll gives most
-  // floors ONE of â€” a System Shrine (pick-1 bargain), a timed vault (sealed
+  // floors ONE of — a System Shrine (pick-1 bargain), a timed vault (sealed
   // treasure that opens on approach and re-seals on a timer), or a sponsor
   // challenge (clear a room's pack untouched for a purse). Pure sim data;
   // hosts only render and announce.
@@ -1323,7 +1323,7 @@ export const CONFIG = {
 
   // Service rooms (roomPurposes phase 4): RARE room verbs. At most ONE room
   // per floor is "open for business" (serviceChance, rolled in the pure
-  // assignment), it must be pristine/overgrown, and every verb costs â€” gold,
+  // assignment), it must be pristine/overgrown, and every verb costs — gold,
   // a losing-odds stake, or it pays in knowledge/time instead of power.
   serviceChance: 0.4, // fraction of eligible floors with a service room
   svcTemperCost: 35, // forge: gold cost base...
@@ -1346,13 +1346,13 @@ export const CONFIG = {
   breakableGoldSpread: 4, // + up to this much, seeded
   breakableCountMin: 2, // per dressed room with an intact corner hoard...
   breakableCountMax: 3,
-  // Physical furniture (PHYSICALITY.md Â§1): blocking pieces take real hits.
+  // Physical furniture (PHYSICALITY.md §1): blocking pieces take real hits.
   blockerHp: 2, // smash through the bookcase in two swings
   blockerRunMin: 2, // bulk wall-furniture run length...
   blockerRunMax: 4,
   // Furniture density budget: at most this fraction of a room's interior may
   // be blocking furniture. Keeps the consistency rule (all bulk furniture
-  // blocks, on every wall) from turning small early-floor rooms into mazes â€”
+  // blocks, on every wall) from turning small early-floor rooms into mazes —
   // measured by the bands bot, uncapped four-wall runs spiked floor-1..3
   // deaths from ~10% to ~60%.
   blockerRoomFraction: 0.16,
@@ -1371,7 +1371,7 @@ export const CONFIG = {
   bossXp: 500,
   bossVolleyCooldown: 2.4,
   bossVolleyCount: 10, // projectiles per radial volley
-  // Boss phases: crossing 2/3 and 1/3 HP enrages â€” faster chase, denser volleys.
+  // Boss phases: crossing 2/3 and 1/3 HP enrages — faster chase, denser volleys.
   bossPhaseSpeedMult: 1.15, // per phase
   bossPhaseVolleyBonus: 4, // extra projectiles per phase
   bossPhaseVolleyHaste: 0.5, // seconds shaved off the volley cooldown per phase
@@ -1383,7 +1383,7 @@ export const CONFIG = {
   bossWaveAdds: 3, // adds per wave...
   bossWaveAddsPerPhase: 2, // ...plus this many more per phase reached
   // From phase 1, the arena itself attacks: telegraphed blast hazards rain on
-  // each crawler's position â€” standing still through the enrage is a choice.
+  // each crawler's position — standing still through the enrage is a choice.
   bossHazardCooldown: 5, // seconds between hazard volleys (phase >= 1)
   bossHazardDelay: 1.25, // seconds from telegraph to detonation (the dodge window)
   bossHazardRadius: 1.7, // tiles
@@ -1392,7 +1392,7 @@ export const CONFIG = {
   // ===== BOSSES V2 (BOSSES-V2.md) ===========================================
   // Everything here answers ONE measured problem: across three runs x six boss
   // floors the audit found 6 distinct bosses, 6 distinct signatures, and 1
-  // arena shape â€” variety across runs was literally zero. The knobs below are
+  // arena shape — variety across runs was literally zero. The knobs below are
   // the price of the fix: mechanics that add real seconds to a fight, paid for
   // by taking HP back out (see bandBossHp above and BALANCE-NOTES.md).
 
@@ -1411,11 +1411,20 @@ export const CONFIG = {
   shieldBreakStagger: 1.6, // seconds of punish window when the pool empties
 
   // -- Verb V4: the punish window. Every V2 boss over-commits on a readable
-  // count and becomes briefly helpless â€” the slagbreaker's vent, at boss
+  // count and becomes briefly helpless — the slagbreaker's vent, at boss
   // scale. This is what makes a fight a rhythm you learn, not a wall you erode.
   bossPunishAfter: 3, // signature commits before the over-extension
   bossPunishWindow: 2.2, // seconds of self-stagger (the unload)
   bossPunishWindup: 0.8, // telegraph before the over-commit resolves
+
+  // -- §5.7 RINGSIDE. The boss payout is thrown out onto a ring rather than
+  // dropped under the body. Tuned against the shipped arena radii (the tightest
+  // boss room's clear middle is ~5 tiles): far enough that the corpse and its
+  // death FX do not cover the haul, close enough that it is one step away and
+  // never outside the arena. The host's rarity arc reads over this distance;
+  // under about two tiles there is no arc to read.
+  bossLootRing: 2.8,
+  bossLootRingJitter: 1.0,
 
   // -- Verb V5: hard enrage. A ceiling on fight length for a short-session
   // game. Deadline is ~2x the 45-90s target; it should almost never fire.
@@ -1427,7 +1436,7 @@ export const CONFIG = {
 
   // -- Verb V6: intermission ("THE COMMERCIAL BREAK"). The boss goes briefly
   // untargetable, a shockwave CLEARS live hazards, and the adds wave arrives
-  // as part of the beat â€” the board is re-dealt rather than compounded.
+  // as part of the beat — the board is re-dealt rather than compounded.
   bossIntermissionSeconds: 1.6,
 
   // -- Verb V8: add tether. A tethered add FEEDS its boss until it is killed.
@@ -1442,17 +1451,17 @@ export const CONFIG = {
   bossRepeatMutatorAt: 5, // Nth defeat: one free mutator on top of the draw
   bossRepeatIntroMult: 0.55, // intro freeze multiplier on a rematch
 
-  // -- Arena variants (Â§4.3). The arena was a fixed 19x19 empty square on
+  // -- Arena variants (§4.3). The arena was a fixed 19x19 empty square on
   // every band, every run. Pillars are ordinary `breakables` with footprints,
   // so the Architect demolishing your cover needs no new verb at all.
   arenaPillarCount: 6, // PILLARED: destructible cover pieces
-  arenaPillarHp: 4, // hits to fell one (blockerHp is 2 â€” arena cover is stouter)
+  arenaPillarHp: 4, // hits to fell one (blockerHp is 2 — arena cover is stouter)
   arenaPropCount: 4, // interactive props (floodgates / vents / conveyors)
   arenaPropHp: 3,
   arenaSplitGap: 5, // SPLIT: tiles of chokepoint left open through the divide
-  // OPEN IS NOT EMPTY. Â§2.1 names "a featureless square" as the failure
-  // condition, and a capture of the floor-3 Rent Collector â€” the first boss
-  // most players ever meet â€” was exactly that: beige floor, one ring, nothing
+  // OPEN IS NOT EMPTY. §2.1 names "a featureless square" as the failure
+  // condition, and a capture of the floor-3 Rent Collector — the first boss
+  // most players ever meet — was exactly that: beige floor, one ring, nothing
   // else. An open arena keeps its clear middle (lanes, fissures and citations
   // depend on it) and gains a sparse RIM of smashable staging around the
   // outside: scale reference, silhouette, and something to break.
@@ -1474,10 +1483,10 @@ export const CONFIG = {
   lateFeeBase: 12, // gold seized per crawler...
   lateFeePerFloor: 4, // ...plus this per floor
   lateFeeInterest: 2.0, // refund multiplier when the lockbox breaks
-  // The Temp: Transformation Clause â€” burst it through the threshold or meet
+  // The Temp: Transformation Clause — burst it through the threshold or meet
   // the thing it becomes.
   clauseHpFraction: 0.5,
-  clauseWindup: 2.4, // a long, unmistakable channel â€” the whole decision
+  clauseWindup: 2.4, // a long, unmistakable channel — the whole decision
   clauseDmgMult: 1.25, // what it becomes, if you let it
   clauseSpeedMult: 1.3,
   // The Sanitation Inspector: Citation lanes that CONDEMN the tiles they hit.
@@ -1487,7 +1496,7 @@ export const CONFIG = {
   citationWidth: 0.75,
   citationDmgMult: 0.85,
   condemnDuration: 12, // seconds a condemned strip lingers
-  condemnDmgMult: 0.25, // per tick â€” the floor shrinks, it doesn't execute
+  condemnDmgMult: 0.25, // per tick — the floor shrinks, it doesn't execute
   // The Grease Trap: a STATIONARY boss that pulls and births tethered adds.
   greasePullCooldown: 5,
   greasePullRange: 11,
@@ -1512,7 +1521,7 @@ export const CONFIG = {
   boardShieldMult: 0.3, // damage the Board body takes while any aide stands
   // The Permit Office: four school-immune plates. The build check, escalated.
   permitPlates: 4,
-  // STOP-WORK ORDER â€” the Office's own verb. One locked lane per UNBROKEN
+  // STOP-WORK ORDER — the Office's own verb. One locked lane per UNBROKEN
   // stamp, fired from that stamp's own angle and armed in sequence. This is
   // what makes the plates a MECHANIC rather than four sub-HP bars: every stamp
   // you break deletes one lane from the pattern, so the ask ("split your
@@ -1522,7 +1531,7 @@ export const CONFIG = {
   stopWorkStagger: 0.3, // seconds between each stamp firing (the sequence)
   stopWorkWidth: 0.85,
   stopWorkDmgMult: 0.65,
-  // The Sump King: SLUICE GATE â€” the surge is anchored on the standing
+  // The Sump King: SLUICE GATE — the surge is anchored on the standing
   // FLOODGATES, not on the King, so the prop is the thing you read and the
   // thing you break. `prop: "drain"` was authored and never fired.
   sluiceCooldown: 7,
@@ -1530,7 +1539,7 @@ export const CONFIG = {
   sluicePools: 5, // pools per gate, marching toward the crawler
   sluiceRadius: 1.7,
   sluiceDmgMult: 0.4,
-  // The Standards Board (finale): MOTION CARRIED â€” one lane per LIVING aide,
+  // The Standards Board (finale): MOTION CARRIED — one lane per LIVING aide,
   // every one converging on the body they are protecting. The council format
   // ESCALATED: the Zoning Board hides behind its aides, the Standards Board
   // fires THROUGH them, so the kill order changes the shape of the floor.
@@ -1548,7 +1557,7 @@ export const CONFIG = {
   conveyorSquad: 3, // wind-up battalion members per delivery
   supervisorGuardMult: 0.4, // damage it takes while a conveyor still runs
   // The Topiary Warden: HEDGE REGROWTH. Acceptance review round 3 found the
-  // Warden with no kit at all â€” a BREAK-THE-SHIELD headline whose shield only
+  // Warden with no kit at all — a BREAK-THE-SHIELD headline whose shield only
   // ever ticked back on the chassis' passive trickle, so the fight showed no
   // shield and no ask. The regrow is now its own CHANNEL: interrupt it (poise)
   // and the pool stays broken, miss it and the hedge is back and holding you.
@@ -1559,11 +1568,11 @@ export const CONFIG = {
   hedgeRingSpokes: 8, // roots laid on the wall it just rebuilt
   hedgeRingRadius: 3.6,
   // The Furnace Marshal: THREE SWEEPS, THEN IT HAS TO BREATHE. Its epithet
-  // promises a COUNT, so the count is the kit â€” the sweeps stoke it and the
+  // promises a COUNT, so the count is the kit — the sweeps stoke it and the
   // third forces the vent (a genuine self-stagger) whether you helped or not.
   marshalSweepsPerVent: 3,
   marshalSweepCooldown: 6,
-  // The Safety Officer: Compliance Lattice â€” beams arming in sequence.
+  // The Safety Officer: Compliance Lattice — beams arming in sequence.
   latticeCooldown: 9,
   latticeLines: 4,
   latticeArm: 1.1,
@@ -1572,7 +1581,7 @@ export const CONFIG = {
   latticeDmgMult: 0.75,
   // The Showrunner (finale): the set is re-dressed at every phase edge.
   showrunnerSets: ["flood", "roots", "debris", "flamewall"] as const,
-  // The Sponsor (finale): Brand Integration â€” a shield only one school erodes.
+  // The Sponsor (finale): Brand Integration — a shield only one school erodes.
   sponsorShieldFraction: 0.22,
   // LIVE AUDIENCE mutator: the crowd throws things on a rhythm.
   audienceInterval: 5.5,
@@ -1594,7 +1603,7 @@ export type MonsterArchetype = {
   windup: number; // seconds an attack telegraphs before the strike resolves
   poise: number; // fraction of maxHp in accumulated damage that triggers a stagger
   mass: number; // knockback divisor (heavier archetypes barely move)
-  radius: number; // body radius (tiles) for HIT checks â€” matches render bulk,
+  radius: number; // body radius (tiles) for HIT checks — matches render bulk,
   // so clipping a brute's shoulder counts (elites scale by eliteScale)
   // School resist (DESIGN 5.8 phase 3): this archetype takes
   // resistDamageTakenMult on hits of the matching school.
@@ -1606,9 +1615,9 @@ export const ARCHETYPES = {
   // Swarmer: dies to one clean hit (that's the fantasy); threat comes from volume.
   swarmer: { hpMult: 0.35, dmgMult: 0.6, speedMult: 1.7, attackRange: 0.9, xpMult: 0.7, ranged: false, windup: 0.25, poise: 0.15, mass: 0.8, radius: 0.28 },
   // Brute: long, scary windup that lands a chunk of your HP; high poise (shrugs
-  // off small hits) â€” respect it or interrupt it with something heavy.
+  // off small hits) — respect it or interrupt it with something heavy.
   brute: { hpMult: 2.6, dmgMult: 1.8, speedMult: 0.65, attackRange: 1.1, xpMult: 2, ranged: false, windup: 0.75, poise: 0.76, mass: 3, radius: 0.55 },
-  // Ranged: windup is its aim flash â€” it stands still to line up the shot.
+  // Ranged: windup is its aim flash — it stands still to line up the shot.
   ranged: { hpMult: 0.8, dmgMult: 0.6, speedMult: 1.0, attackRange: 6.5, xpMult: 1.3, ranged: true, windup: 0.35, poise: 0.3, mass: 1, radius: 0.35 },
   // Bomber: low HP, medium speed; dmgMult scales its detonation (see bomberExplodeDmgMult).
   // Its "windup" is the fuse (bomberFuse) it lights on contact.
@@ -1617,7 +1626,7 @@ export const ARCHETYPES = {
   shaman: { hpMult: 0.9, dmgMult: 0, speedMult: 0.95, attackRange: 5.5, xpMult: 1.5, ranged: true, windup: 0.3, poise: 0.3, mass: 1, radius: 0.38 },
   // Phantom: fast + fragile melee; closes gaps with periodic blinks (see phantomBlink*).
   phantom: { hpMult: 0.45, dmgMult: 1.1, speedMult: 1.5, attackRange: 1.0, xpMult: 1.4, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.3, resist: "magic" }, // half-spectral: hit it with something solid
-  // Charger: its long windup IS the dodge window â€” the rush direction is locked
+  // Charger: its long windup IS the dodge window — the rush direction is locked
   // at commit (see charger* knobs). Heavy: hard to stagger out of the commit.
   charger: { hpMult: 1.4, dmgMult: 1.3, speedMult: 0.8, attackRange: 1.0, xpMult: 1.6, ranged: false, windup: 0.85, poise: 0.55, mass: 2.2, radius: 0.45, resist: "physical" }, // plated hide: bring magic
   // Spitter: standoff caster; dmgMult scales its puddle ticks (see spitter*/puddle*).
@@ -1625,80 +1634,80 @@ export const ARCHETYPES = {
   // Necromancer: never attacks (dmgMult unused); raises fresh corpses instead.
   necromancer: { hpMult: 1.1, dmgMult: 0, speedMult: 0.85, attackRange: 5.5, xpMult: 1.8, ranged: true, windup: 1.0, poise: 0.35, mass: 1.2, radius: 0.4 },
   // Broodmother: never attacks (dmgMult unused); a slow walking nest that
-  // births swarmers on a timer (see brood* knobs) â€” the pack GROWS if ignored.
+  // births swarmers on a timer (see brood* knobs) — the pack GROWS if ignored.
   broodmother: { hpMult: 2.2, dmgMult: 0, speedMult: 0.5, attackRange: 6, xpMult: 2.5, ranged: true, windup: 0.8, poise: 0.6, mass: 2.5, radius: 0.55 },
-  // Drummer (Drum Sergeant): a support mob worth ~nothing itself â€” its war-drum
+  // Drummer (Drum Sergeant): a support mob worth ~nothing itself — its war-drum
   // FRENZIES the pack (see drum* knobs). Kill-order lesson one: shoot the band.
   drummer: { hpMult: 0.85, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.4, poise: 0.3, mass: 1, radius: 0.38 },
   // Filcher (Repo Rat): never attacks (dmgMult unused); a fast loot-goblin that
   // FLEES on sight, bleeds gold as it's hurt, and ESCAPES if ignored (filcher*).
   filcher: { hpMult: 0.6, dmgMult: 0, speedMult: 1.55, attackRange: 1.0, xpMult: 0.5, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.32 },
   // IRONWORKS cast (floors 13-15). Lineworker: a sturdy grunt whose piston
-  // punch LAUNCHES you â€” never fight with your back to the set dressing.
+  // punch LAUNCHES you — never fight with your back to the set dressing.
   lineworker: { hpMult: 1.3, dmgMult: 1.1, speedMult: 0.9, attackRange: 1.1, xpMult: 1.4, ranged: false, windup: 0.55, poise: 0.45, mass: 1.8, radius: 0.42, resist: "physical" },
-  // Sentinel: standoff turret-bot â€” its lock-on beam is the threat (sentinel*
+  // Sentinel: standoff turret-bot — its lock-on beam is the threat (sentinel*
   // knobs); dmgMult scales the railshot. Innately warded (energy shielding).
   sentinel: { hpMult: 0.85, dmgMult: 1.5, speedMult: 0.8, attackRange: 7, xpMult: 1.6, ranged: true, windup: 0.35, poise: 0.3, mass: 1.2, radius: 0.38, resist: "magic" },
-  // Slagbreaker: a LARGE steam brute on a heat rhythm â€” three swings, then a
+  // Slagbreaker: a LARGE steam brute on a heat rhythm — three swings, then a
   // forced scalding vent + self-stagger (slag* knobs). Count to three.
   slagbreaker: { hpMult: 3.0, dmgMult: 1.5, speedMult: 0.6, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.7, poise: 0.75, mass: 3.2, radius: 0.58, resist: "physical" },
   // Toysoldier: musket squads that volley AS ONE (squad sync in ai.ts);
-  // individually chaff â€” the synchronized volley is the encounter.
+  // individually chaff — the synchronized volley is the encounter.
   toysoldier: { hpMult: 0.5, dmgMult: 0.9, speedMult: 0.9, attackRange: 6, xpMult: 0.9, ranged: true, windup: 1.0, poise: 0.2, mass: 0.9, radius: 0.32 },
   // Greeter: stands dormant among the props (always spawns in ambush), then
   // swings like a grunt; on death it discharges spark blasts (greeterSpark*).
   greeter: { hpMult: 1.1, dmgMult: 1.2, speedMult: 1.05, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.3, radius: 0.4 },
-  // GARDEN cast (floors 7+). Lasher: mid-range whip â€” its HOOK drags you down
+  // GARDEN cast (floors 7+). Lasher: mid-range whip — its HOOK drags you down
   // the lane to the pack (lasher* knobs). attackRange = preferred standoff.
   lasher: { hpMult: 0.95, dmgMult: 1.0, speedMult: 0.9, attackRange: 4, xpMult: 1.5, ranged: true, windup: 0.95, poise: 0.35, mass: 1.2, radius: 0.4 },
-  // Understudy: a shuffling extra â€” weak on purpose. At half HP it TRANSFORMS
+  // Understudy: a shuffling extra — weak on purpose. At half HP it TRANSFORMS
   // into a full charger (morph* knobs): burst it through the threshold or
   // stagger the morph, or fight the wolf you made.
   understudy: { hpMult: 0.75, dmgMult: 0.6, speedMult: 0.8, attackRange: 1.0, xpMult: 1.3, ranged: false, windup: 0.5, poise: 0.25, mass: 1, radius: 0.36 },
-  // Hexer (Briar Witch): never attacks directly (dmgMult unused) â€” she CURSES
+  // Hexer (Briar Witch): never attacks directly (dmgMult unused) — she CURSES
   // a crawler with a vulnerability mark her pack cashes in (hex* knobs).
   hexer: { hpMult: 0.8, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.6, ranged: true, windup: 0.8, poise: 0.25, mass: 1, radius: 0.38 },
   // UNDERCROFT trainers (floor 2+). Cutpurse: fast, fragile, and after your
-  // PURSE, not your HP â€” its lunge-stab steals gold (cutpurse* knobs).
+  // PURSE, not your HP — its lunge-stab steals gold (cutpurse* knobs).
   cutpurse: { hpMult: 0.5, dmgMult: 0.5, speedMult: 1.35, attackRange: 1.0, xpMult: 1.1, ranged: false, windup: 0.55, poise: 0.15, mass: 0.8, radius: 0.32 },
-  // Ossuary Warden: a slow bone golem â€” its slam leaves a shard zone that
+  // Ossuary Warden: a slow bone golem — its slam leaves a shard zone that
   // reshapes the room (warden* knobs). High mass: it body-blocks doorways.
   warden: { hpMult: 2.2, dmgMult: 1.3, speedMult: 0.55, attackRange: 1.15, xpMult: 1.9, ranged: false, windup: 0.8, poise: 0.7, mass: 3, radius: 0.55 },
-  // Pit Digger: the knockback TUTOR â€” the slowest tell in the game, a gentle
+  // Pit Digger: the knockback TUTOR — the slowest tell in the game, a gentle
   // hit, and a real launch. Three floors before knockback appears near hazards.
   digger: { hpMult: 1.1, dmgMult: 0.35, speedMult: 0.8, attackRange: 1.1, xpMult: 1.2, ranged: false, windup: 0.9, poise: 0.4, mass: 1.6, radius: 0.42 },
-  // RUINS cast (floors 10+). Shieldbearer: tower-shield zealot â€” near-immune
+  // RUINS cast (floors 10+). Shieldbearer: tower-shield zealot — near-immune
   // from the FRONT while its guard holds; the guard drops mid-swing/stagger.
   shieldbearer: { hpMult: 1.6, dmgMult: 1.2, speedMult: 0.7, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.6, poise: 0.6, mass: 2.4, radius: 0.45, resist: "physical" },
-  // Cleric: never attacks (dmgMult unused) â€” consecrates CONTESTED ground
+  // Cleric: never attacks (dmgMult unused) — consecrates CONTESTED ground
   // that heals monsters and burns crawlers (consecrate* knobs).
   cleric: { hpMult: 0.9, dmgMult: 0, speedMult: 0.9, attackRange: 5.5, xpMult: 1.7, ranged: true, windup: 0.9, poise: 0.3, mass: 1, radius: 0.38 },
-  // Archivist: standoff channeler â€” its SWEEPING beam (sweep* knobs) is the
+  // Archivist: standoff channeler — its SWEEPING beam (sweep* knobs) is the
   // first attack you dodge continuously. Stagger the channel to cut it short.
   archivist: { hpMult: 0.85, dmgMult: 1.0, speedMult: 0.8, attackRange: 6, xpMult: 1.8, ranged: true, windup: 0.5, poise: 0.25, mass: 1, radius: 0.38, resist: "magic" },
-  // Colossus (The Foundation): animate masonry, LARGE â€” its slam sends a
+  // Colossus (The Foundation): animate masonry, LARGE — its slam sends a
   // FISSURE travelling down a lane (fissure* knobs). Move perpendicular.
   colossus: { hpMult: 2.8, dmgMult: 1.4, speedMult: 0.55, attackRange: 1.2, xpMult: 2.3, ranged: false, windup: 0.85, poise: 0.75, mass: 3.4, radius: 0.58, resist: "physical" },
-  // THE APPROACH cast (floors 16+). Stagehand: fast, fragile hit-and-run â€”
+  // THE APPROACH cast (floors 16+). Stagehand: fast, fragile hit-and-run —
   // two swings, then it smoke-bombs to a MARKED re-entry (stagehand* knobs).
   stagehand: { hpMult: 0.6, dmgMult: 1.2, speedMult: 1.5, attackRange: 1.0, xpMult: 1.7, ranged: false, windup: 0.3, poise: 0.15, mass: 0.8, radius: 0.32, resist: "magic" },
   // Sniper: cross-room lane, heavy hit, relocates after every shot (sniper*).
   sniper: { hpMult: 0.7, dmgMult: 2.0, speedMult: 1.0, attackRange: 10, xpMult: 1.9, ranged: true, windup: 0.4, poise: 0.25, mass: 1, radius: 0.36 },
-  // Duelist: melee fencer with a riposte FLOURISH (riposte* knobs) â€” melee
+  // Duelist: melee fencer with a riposte FLOURISH (riposte* knobs) — melee
   // into the flourish reflects; hold the swing or answer at range.
   duelist: { hpMult: 1.1, dmgMult: 1.3, speedMult: 1.15, attackRange: 1.1, xpMult: 1.8, ranged: false, windup: 0.45, poise: 0.4, mass: 1.2, radius: 0.4 },
-  // Darling: the System's favorite â€” shields her entourage while SHE takes
+  // Darling: the System's favorite — shields her entourage while SHE takes
   // extra (darling* knobs). dmgMult is her token slap; the toys do the work.
   darling: { hpMult: 1.0, dmgMult: 0.5, speedMult: 0.95, attackRange: 1.0, xpMult: 2.2, ranged: false, windup: 0.5, poise: 0.3, mass: 1, radius: 0.36 },
-  // Canceled: a former favorite kept as security â€” player verbs (dash
+  // Canceled: a former favorite kept as security — player verbs (dash
   // sidesteps, nova slams) on a monster chassis (canceled* knobs).
   canceled: { hpMult: 1.5, dmgMult: 1.3, speedMult: 1.2, attackRange: 1.2, xpMult: 2.4, ranged: false, windup: 0.4, poise: 0.5, mass: 1.4, radius: 0.4 },
   // Suit Actor: a classic beast right up until it dies and UNZIPS (reapDead
   // spawns the suitguy). Suitguy: never fights, flees, and sparing him pays.
   suitactor: { hpMult: 1.3, dmgMult: 1.1, speedMult: 1.0, attackRange: 1.0, xpMult: 1.5, ranged: false, windup: 0.45, poise: 0.35, mass: 1.2, radius: 0.42 },
   suitguy: { hpMult: 0.25, dmgMult: 0, speedMult: 1.3, attackRange: 1.0, xpMult: 0.2, ranged: false, windup: 0.3, poise: 0.1, mass: 0.7, radius: 0.3 },
-  // CHAMPION tier (boss layer 1). The Foreman: a mini-boss kit â€” slam +
-  // radial volley â€” without the arena, the seal, or the boss-kill fanfare.
+  // CHAMPION tier (boss layer 1). The Foreman: a mini-boss kit — slam +
+  // radial volley — without the arena, the seal, or the boss-kill fanfare.
   // hpMult is a floor here; spawnMonsters scales it up (foremanHpMult).
   foreman: { hpMult: 4, dmgMult: 1.5, speedMult: 0.75, attackRange: 1.3, xpMult: 6, ranged: false, windup: 0.7, poise: 0.85, mass: 4, radius: 0.6, resist: "physical" },
   boss: { hpMult: 1, dmgMult: 1, speedMult: 1, attackRange: 1.4, xpMult: 1, ranged: false, windup: 0.55, poise: 0.5, mass: 6, radius: 0.8 },
@@ -1722,7 +1731,7 @@ export function monsterTempo(floor: number): { speed: number; cooldown: number; 
 }
 
 // Weapon rarity tiers: spawn weight + damage-bonus multiplier. High tiers
-// were tuned DOWN (11/3 -> 8/2) when the store became the build engine â€” a
+// were tuned DOWN (11/3 -> 8/2) when the store became the build engine — a
 // rare drop should feel like a windfall, not a plan.
 export const RARITIES = [
   { name: "common", weight: 64, mult: 1.0 },
@@ -1747,10 +1756,10 @@ export function floorBand(floor: number): number {
   return Math.min(FLOOR_BANDS.length - 1, Math.floor((Math.max(1, floor) - 1) / 3));
 }
 
-// Roam mode: a floor's tribe IS its band â€” the existing cast + PACK_TEMPLATES
+// Roam mode: a floor's tribe IS its band — the existing cast + PACK_TEMPLATES
 // for that band, just wearing a tribe id (see spawnMonsters/roamTribeId
 // call sites in game.ts). No separate Roam-only tribe roster. Floors deep
-// past the final band (floorBand clamps) keep reading as "the Approach" â€”
+// past the final band (floorBand clamps) keep reading as "the Approach" —
 // same clamp themeForFloor already relies on for Race, so visuals and tribe
 // identity always agree.
 export const ROAM_TRIBE_IDS = ["undercroft", "sewers", "garden", "ruins", "ironworks", "approach"] as const;
@@ -1761,7 +1770,7 @@ export function roamTribeId(floor: number): string {
 // The PACK PLAYBOOK (MOB-CONCEPTS.md): designed encounters, keyed by band.
 // One mob's ability is the SETUP for another's payoff; formation offsets do
 // most of the choreography (support center/rear, threats front). Each pack
-// asks exactly ONE question â€” kill order, positioning, or timing.
+// asks exactly ONE question — kill order, positioning, or timing.
 export interface PackTemplateMember {
   kind: import("./types").MonsterKind;
   dx: number;
@@ -1778,7 +1787,7 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "digger", dx: 0, dy: 0.8 }, { kind: "ranged", dx: 0.6, dy: -1.2 },
     ] },
   ],
-  // THE SEWERS â€” kill-order kindergarten
+  // THE SEWERS — kill-order kindergarten
   [
     { name: "The Drumline", members: [
       { kind: "drummer", dx: 0, dy: -1.2 }, { kind: "grunt", dx: -1.2, dy: 0.6 },
@@ -1789,7 +1798,7 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "shaman", dx: 0, dy: -1.8 }, { kind: "bomber", dx: 0, dy: 1 },
     ] },
   ],
-  // THE GARDEN â€” the hook squad band
+  // THE GARDEN — the hook squad band
   [
     { name: "The Hook Squad", members: [
       { kind: "lasher", dx: 0, dy: -1 }, { kind: "hexer", dx: -1.4, dy: -1.6 },
@@ -1800,7 +1809,7 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "understudy", dx: 0, dy: 1.2 }, { kind: "shaman", dx: 0, dy: -1.5 },
     ] },
   ],
-  // THE RUINS â€” formation warfare
+  // THE RUINS — formation warfare
   [
     { name: "The Procession", members: [
       { kind: "shieldbearer", dx: -0.8, dy: 0.9 }, { kind: "shieldbearer", dx: 0.8, dy: 0.9 },
@@ -1810,7 +1819,7 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "colossus", dx: 0, dy: 0.5 }, { kind: "necromancer", dx: 0, dy: -1.8 },
     ] },
   ],
-  // THE IRONWORKS â€” timing collision
+  // THE IRONWORKS — timing collision
   [
     { name: "The Assembly Line", members: [
       { kind: "lineworker", dx: -1, dy: 0.8 }, { kind: "lineworker", dx: 1, dy: 0.8 },
@@ -1822,7 +1831,7 @@ export const PACK_TEMPLATES: { name: string; members: PackTemplateMember[] }[][]
       { kind: "toysoldier", dx: 1.5, dy: -1 },
     ] },
   ],
-  // THE APPROACH â€” finals week (+ the reruns: cross-band remixes)
+  // THE APPROACH — finals week (+ the reruns: cross-band remixes)
   [
     { name: "The Entourage", members: [
       { kind: "darling", dx: 0, dy: -1 }, { kind: "toysoldier", dx: -1.4, dy: 0.4 },
@@ -1853,12 +1862,12 @@ export const CHAMPIONS: {
   floor: number;
   members: { kind: import("./types").MonsterKind; name: string; hpMult: number }[];
 }[] = [
-  // THE GARDEN's apex predator: an oversized alpha on the charger brain â€”
+  // THE GARDEN's apex predator: an oversized alpha on the charger brain —
   // champion-scale HP behind the locked-lane rushes players already read.
   { floor: 8, members: [{ kind: "charger", name: "The Pack Alpha", hpMult: 2.6 }] },
   // THE IRONWORKS' middle manager (the tier's pilot, migrated to the table).
   { floor: 14, members: [{ kind: "foreman", name: "The Foreman", hpMult: 2.2 }] },
-  // THE APPROACH's pre-finale audit: a DUO â€” the tank punches, the turret
+  // THE APPROACH's pre-finale audit: a DUO — the tank punches, the turret
   // paints, and whichever one you drop first, the other takes it PERSONALLY.
   { floor: 17, members: [
     { kind: "lineworker", name: "QA UNIT ONE", hpMult: 3.2 },
@@ -1878,7 +1887,7 @@ export function xpForLevel(level: number): number {
 }
 
 /**
- * The floor a crawler of this level is representative of â€” the inverse of the
+ * The floor a crawler of this level is representative of — the inverse of the
  * natural leveling pace (a typical run clears ~60% of each floor's cast).
  * Test mode's `gear=level` dresses an off-curve crawler with THIS floor's
  * loot, so "level 1 dropped onto floor 7" wears starter gear, not floor-7

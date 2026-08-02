@@ -309,7 +309,8 @@
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
-      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 34px;
+      .dmg { position: absolute; left: 0; top: 0;
+        font-family: var(--display); font-weight: 900; font-size: 22px;
         z-index: 0; /* own stacking context: the crit starburst (z -1) stays inside */
         transform: translate(-50%, -50%);
         paint-order: stroke fill; -webkit-text-stroke: 7px rgba(8,4,1,0.98);
@@ -317,24 +318,33 @@
           0 0 4px rgba(0,0,0,0.9), 0 0 14px rgba(255,150,60,0.35); /* dark halo, ember rim */
         will-change: transform, opacity;
         font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-      /* Crits carry PUNCH (r4 major): ~1.9x the body size, hotter saturated
-         gold, thicker ink, and the starburst below — unmistakable hierarchy. */
-      .dmg.crit { font-size: 64px; font-weight: 900; letter-spacing: 0.02em;
+      /* Crits carry PUNCH through INK, not area (r4 blocker). The old ~1.9x
+         size split plus a 1.6x pop put a crit numeral's cap height at roughly
+         1.5x the crawler's whole on-screen body at 720p; the hierarchy now
+         comes from the ember ink and halo painted in paintNumeral. */
+      .dmg.crit { font-size: 30px; font-weight: 900; letter-spacing: 0.02em;
         -webkit-text-stroke: 9px rgba(8,4,1,0.98);
         text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 4px 0 rgba(0,0,0,0.75),
           0 3px 8px rgba(0,0,0,0.9), 0 0 30px currentColor; }
       /* Crit starburst (r3 major): a four-ray gold flash blooms behind the
          number — it rides the same WAAPI pop, so the burst scales in with the
          punch and dies with the fade. Pure decoration, zero extra elements. */
+      /* r4 major: at 150px ridden through a 1.6x pop this painted ~240px of
+         diagonal gold streaks per crit, in the same gold as the numerals and
+         the HUD chrome — so two or three crits in a flurry covered the frame in
+         crossing rays that read as a lens artifact, added no information, and
+         were the most prominent "FX" in the shot while coming from no FX layer
+         at all. It is now a compact contact halo with a hint of rays, sized so
+         it never leaves the numeral's own neighbourhood. */
       .dmg.crit::before { content: ""; position: absolute; left: 50%; top: 50%;
-        width: 150px; height: 150px; margin: -75px 0 0 -75px; z-index: -1;
+        width: 58px; height: 58px; margin: -29px 0 0 -29px; z-index: -1;
         background:
-          radial-gradient(circle, rgba(255,225,140,0.55) 0%, rgba(255,190,80,0.22) 26%, transparent 55%),
+          radial-gradient(circle, rgba(255,214,130,0.38) 0%, rgba(255,170,70,0.14) 32%, transparent 62%),
           conic-gradient(from 0deg,
-            transparent 0 2%, rgba(255,220,130,0.5) 3%, transparent 4% 27%,
-            rgba(255,220,130,0.42) 28%, transparent 29% 52%,
-            rgba(255,220,130,0.5) 53%, transparent 54% 77%,
-            rgba(255,220,130,0.42) 78%, transparent 79% 100%); }
+            transparent 0 3%, rgba(255,206,120,0.24) 4%, transparent 5% 28%,
+            rgba(255,206,120,0.2) 29%, transparent 30% 53%,
+            rgba(255,206,120,0.24) 54%, transparent 55% 78%,
+            rgba(255,206,120,0.2) 79%, transparent 80% 100%); }
       /* Level-up (D4-style): bigger, gold, held longer than a hit number —
          paired with the world-space ring (see #fx-levelring in renderer3d). */
       .dmg.levelup-text { font-size: 34px; color: #f2c14e; letter-spacing: 0.5px;
@@ -580,12 +590,23 @@
       #bossintro .bi-muts { display: flex; justify-content: center; gap: 10px;
         margin-top: 12px; flex-wrap: wrap; }
       #bossintro .bi-muts:empty { display: none; }
-      #bossintro .bi-muts i { font-style: normal; padding: 3px 12px;
-        background: linear-gradient(180deg, rgba(58,22,14,0.95), rgba(24,9,6,0.95));
-        border: 1px solid #a8542e; border-radius: 2px;
-        color: #ffc79a; font-family: var(--display); font-variant: small-caps;
-        font-size: 12px; letter-spacing: 0.24em;
-        box-shadow: 0 0 14px rgba(200,90,40,0.35), inset 0 1px 0 rgba(255,200,160,0.14); }
+      /* r4 minor: this row answers "why is THIS run different?" and it was the
+         lowest-contrast element on the highest-stakes screen — #ffc79a at 12px
+         against the 46px gold title beside it. Chips now carry an ember face on
+         a near-black plate at the same weight as the affix plaque, and each one
+         is pinned by a lit diamond so the row reads as a set of TAGS at a
+         glance rather than as small print under the ask. */
+      #bossintro .bi-muts i { position: relative; font-style: normal; padding: 4px 14px 4px 22px;
+        background: linear-gradient(180deg, rgba(48,17,9,0.97), rgba(12,5,3,0.97));
+        border: 1px solid #d4763c; border-radius: 2px;
+        color: #ffdcb4; font-family: var(--display); font-variant: small-caps;
+        font-size: 13px; font-weight: 700; letter-spacing: 0.22em;
+        text-shadow: 0 1px 2px #000, 0 0 10px rgba(255,150,80,0.3);
+        box-shadow: 0 0 18px rgba(212,118,60,0.42), inset 0 1px 0 rgba(255,205,165,0.2),
+          inset 0 0 0 1px rgba(0,0,0,0.65); }
+      #bossintro .bi-muts i::before { content: ""; position: absolute; left: 8px; top: 50%;
+        width: 6px; height: 6px; margin-top: -3px; transform: rotate(45deg);
+        background: linear-gradient(135deg, #ffcf9a, #d4763c); border: 1px solid #2a1108; }
       /* THE SYSTEM'S LINE: one deadpan sentence, in this boss's own voice. */
       #bossintro .bi-line { margin-top: 14px; max-width: 46ch; margin-left: auto;
         margin-right: auto; color: #9fd8e8; font-size: 13px; font-style: italic;
@@ -599,20 +620,41 @@
          encounter while the freeze was still running underneath it. Now the
          host drives --bi-fade off `encounter.timeLeft`, so the card is up for
          exactly as long as the beat is, on any machine. */
+      /* AND SO IS EVERY ROW ON IT (r4 major). The r3 fix moved the card's
+         OVERALL opacity onto the sim clock and left the six ROW entrances as
+         CSS on the wall clock, with the mutator row completing at 0.96s and the
+         System line at 1.22s. Measured: the System line was missing from five
+         of six intro captures whose shutter opened inside a second, and present
+         in the one that took 1.3s — a perfect correlation. Worse, a rematch
+         freeze is 2.2 x 0.55 = 1.21s long, so on a boss you have beaten twice
+         the line could never land at all.
+         Every row's opacity is now a custom property the host writes from
+         `encounter.timeLeft / total` (see setIntroFade), i.e. from the same
+         clock the freeze runs on, expressed as a FRACTION of the freeze — so
+         the whole card is assembled by ~half way through whatever length this
+         particular intro is, on any machine, at any frame rate. */
       #bossintro.show { display: block; opacity: var(--bi-fade, 1);
         animation: bi-in 0.45s ease-out; }
-      #bossintro.show .bi-name { animation: bi-name-in 0.6s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
-      #bossintro.show .bi-kicker { animation: bi-fade 0.5s ease 0.08s both; }
-      #bossintro.show .bi-epithet { animation: bi-fade 0.5s ease 0.22s both; }
-      #bossintro.show .bi-affix { animation: bi-fade 0.5s ease 0.32s both; }
-      #bossintro.show .bi-muts { animation: bi-fade 0.5s ease 0.46s both; }
-      #bossintro.show .bi-line { animation: bi-fade 0.6s ease 0.62s both; }
+      #bossintro.show .bi-name { opacity: var(--bi-r0, 1);
+        transform: scale(calc(1 + 0.3 * (1 - var(--bi-r0, 1))));
+        letter-spacing: calc(0.05em + 0.13em * (1 - var(--bi-r0, 1))); }
+      #bossintro.show .bi-kicker { opacity: var(--bi-r1, 1);
+        transform: translateY(calc(6px * (1 - var(--bi-r1, 1)))); }
+      #bossintro.show .bi-epithet { opacity: var(--bi-r2, 1);
+        transform: translateY(calc(6px * (1 - var(--bi-r2, 1)))); }
+      #bossintro.show .bi-affix { opacity: var(--bi-r3, 1);
+        transform: translateY(calc(6px * (1 - var(--bi-r3, 1)))); }
+      #bossintro.show .bi-muts { opacity: var(--bi-r4, 1);
+        transform: translateY(calc(6px * (1 - var(--bi-r4, 1)))); }
+      #bossintro.show .bi-line { opacity: var(--bi-r5, 1);
+        transform: translateY(calc(6px * (1 - var(--bi-r5, 1)))); }
+      /* The container's own scale-in stays on the wall clock: it is 0.45s, it
+         ends at the resting state, and it never touches opacity (which the sim
+         clock owns), so a client that hitches through it loses nothing. */
       @keyframes bi-in {
-        from { opacity: 0; transform: translateX(-50%) scale(1.15); }
-        to { opacity: 1; transform: translateX(-50%) scale(1); }
+        from { transform: translateX(-50%) scale(1.15); }
+        to { transform: translateX(-50%) scale(1); }
       }
-      @keyframes bi-name-in { from { opacity: 0; transform: scale(1.3); letter-spacing: 0.18em; } }
-      @keyframes bi-fade { from { opacity: 0; transform: translateY(6px); } }
       /* Letterbox bars: the broadcast cuts to the title card (host toggles .on
          alongside the intro; bars slide in, hold, and fade with the card). */
       #letterbox { position: fixed; inset: 0; pointer-events: none; z-index: 19; display: none; }

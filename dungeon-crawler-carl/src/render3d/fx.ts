@@ -26,11 +26,25 @@ export const FX_PAL: Record<
   | "brace" | "pin" | "stay" | "pull",
   AbilityPalette
 > = {
+  // r4 major — THE COMBAT PALETTE HAD COLLAPSED INTO ONE BAND. strike
+  // (0xffa03c), crit (0xffd23e), nova (0xffce4a), cataclysm (0xff8a3c) and
+  // gold (0xf2c14e) were five entries inside one narrow warm hue, and the HUD
+  // frames, the hype bar, the ability tray and the loot glints live in it too
+  // — so melee, crit, ult, numerals and chrome were all one colour and only
+  // magic/airstrike (violet) and frost (blue) had any identity at all. LoL's
+  // rule is that the ABILITY owns the hue; the two most-used verbs in this game
+  // were indistinguishable from the interface.
+  //
+  // strike keeps ember (it is the baseline every other hue is read against) and
+  // crit keeps gold (gold is already this game's "this is yours to take" — crit,
+  // loot, hype, the punish window). The two that moved are the two that had no
+  // business being there: the nova, which is cast more than anything else in
+  // the game, and the ultimate, which must never read as a big melee hit.
   strike: { core: 0xfff1d0, mid: 0xffa03c, rim: 0xc23c10 }, // melee: ember orange
   crit: { core: 0xfff6d8, mid: 0xffd23e, rim: 0xb87400 }, // crit: hot gold
   magic: { core: 0xf0e4ff, mid: 0xa06bff, rim: 0x5426b8 }, // bolt: arcane violet
-  nova: { core: 0xfff7dc, mid: 0xffce4a, rim: 0xc07818 }, // nova: radiant gold
-  cataclysm: { core: 0xffe9c8, mid: 0xff8a3c, rim: 0xb03410 }, // ult crown: magma
+  nova: { core: 0xffe8fb, mid: 0xff54c0, rim: 0x8e0a5e }, // nova: broadcast magenta
+  cataclysm: { core: 0xffd9b0, mid: 0xff4a14, rim: 0x6e1002 }, // ult crown: deep magma
   airstrike: { core: 0xf2e2ff, mid: 0xb277ff, rim: 0x5c22cc }, // sponsor ordnance: violet
   frost: { core: 0xe8f6ff, mid: 0x7fd4ff, rim: 0x2a5eb8 },
   heal: { core: 0xeaffe2, mid: 0x5fd08a, rim: 0x1e7a48 },
@@ -62,6 +76,13 @@ const TEL_FRAG = /* glsl */ `
   // to a low-contrast BASE: the dark backing plate and the rim survive (they
   // are the reach promise), the glow layers step aside.
   uniform float uDemote;
+  // r4 major: a PER-CASTER phase. Two brutes winding up two tiles apart drew
+  // two identical discs whose rims crossed straight through each other, and
+  // the intersection — the ground that will be hit TWICE — looked exactly like
+  // the safe part of a single disc while the union read as one amorphous blob.
+  // Every instance now gets its own rotation and its own noise offset, so two
+  // overlapping zones are visibly two zones.
+  uniform float uPhase;
   varying vec2 vUv;
   float telH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
   float telN(vec2 q) {
@@ -75,7 +96,7 @@ const TEL_FRAG = /* glsl */ `
     vec2 p = vUv * 2.0 - 1.0;
     float r = length(p);
     if (r > 1.0) discard;
-    float ang = atan(p.y, p.x);
+    float ang = atan(p.y, p.x) + uPhase * 6.2831853;
     float a01 = fract(ang / 6.2831853 + 0.5);
     float commit = smoothstep(0.78, 1.0, uProg);
     // PULSE TIMELINE (audit r3): the breath gets BRIGHTER and FASTER as
@@ -85,8 +106,8 @@ const TEL_FRAG = /* glsl */ `
     // INTERIOR ENERGY (audit r4): scrolling 2-octave noise eroding the fill —
     // the zone churns like contained energy instead of sitting as flat vector
     // paint. Polar-mapped, drifting INWARD (energy converging on the strike).
-    float nz = telN(vec2(a01 * 22.0, r * 9.0 + uTime * 2.4))
-             * 0.65 + telN(vec2(a01 * 47.0 + 13.0, r * 19.0 + uTime * 4.1)) * 0.35;
+    float nz = telN(vec2(a01 * 22.0 + uPhase * 31.0, r * 9.0 + uTime * 2.4))
+             * 0.65 + telN(vec2(a01 * 47.0 + 13.0 + uPhase * 17.0, r * 19.0 + uTime * 4.1)) * 0.35;
     float churn = 0.45 + 1.15 * smoothstep(0.33, 0.85, nz);
     // SOFT PERIMETER (r6 major: "hard alpha edge"): every layer that reaches
     // the boundary dies over the last ~4% of radius, so the disc never ends
@@ -103,12 +124,16 @@ const TEL_FRAG = /* glsl */ `
     // BRIGHT RIM: thicker edge glow, breathing while arming, locking at commit.
     float rim = smoothstep(0.875, 0.95, r) * (1.0 - smoothstep(0.98, 1.0, r));
     float rimA = rim * (0.5 + 0.75 * uProg) * mix(pulse * 1.15, 1.4, commit);
-    // Rotating rune ticks (bosses: fewer, heavier, counter-rotating).
-    float seg = mix(18.0, 8.0, uBoss);
-    float spin = mix(2.1, -1.1, uBoss);
-    float ticks = smoothstep(0.25, 0.78, sin(ang * seg + uTime * spin));
-    float band = smoothstep(0.70, 0.75, r) * (1.0 - smoothstep(0.84, 0.89, r));
-    float runeA = band * ticks * (0.32 + 0.55 * uProg);
+    // r4 major: the rune band used to be an evenly-dashed stroke at iso zoom —
+    // a marching-ants selection marquee rather than a threat. Fewer, heavier
+    // ticks that TAPER inward, so the band reads as teeth pointing at the
+    // middle instead of as a dashed border.
+    float seg = mix(11.0, 7.0, uBoss);
+    float spin = mix(1.4, -0.8, uBoss);
+    float ticks = smoothstep(0.42, 0.92, sin(ang * seg + uTime * spin));
+    float band = smoothstep(0.68, 0.74, r) * (1.0 - smoothstep(0.82, 0.90, r));
+    float tooth = smoothstep(0.90, 0.70, r); // heavier at the outside
+    float runeA = band * ticks * tooth * (0.34 + 0.6 * uProg);
     // Boss-only: an inner rim + pressure rings collapsing toward the center.
     float rim2 = smoothstep(0.55, 0.59, r) * (1.0 - smoothstep(0.62, 0.66, r));
     float waves = 0.5 + 0.5 * sin((r + uTime * 0.55) * 26.0);
@@ -117,7 +142,13 @@ const TEL_FRAG = /* glsl */ `
     // contrast so the glow layers read over bright floors and FX bloom.
     float glowA = (rimA * 1.1 + (fillA * 1.4 + sweep * 0.95 + runeA * 1.2 + innerA + commit * 0.2) * edgeF + fillGrad)
                 * mix(1.0, 0.3, uDemote);
-    float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.24 + 0.16 * uProg);
+    // A DARK MOAT under the rim (r4 major). Two discs whose rims cross need
+    // local contrast at the crossing or the union is one blob; a shaded band
+    // just inside each rim gives every disc its own boundary to be read
+    // against, and doubles as the readability floor over bright floors.
+    float moat = smoothstep(0.80, 0.93, r) * (1.0 - smoothstep(0.95, 1.0, r));
+    float darkA = (1.0 - smoothstep(0.88, 0.99, r)) * (0.20 + 0.14 * uProg)
+                + moat * (0.22 + 0.2 * uProg);
     float alpha = clamp(glowA + darkA, 0.0, 0.94);
     // HDR rim (audit r4): the edge runs 2-3x over white at commit so the ring
     // FEEDS BLOOM — an emissive danger line, not a matte stroke.
@@ -196,11 +227,22 @@ export function makeTelegraphMat(): THREE.ShaderMaterial {
       uTime: { value: 0 },
       uBoss: { value: 0 },
       uDemote: { value: 0 },
+      uPhase: { value: 0 },
     },
     vertexShader: TEL_VERT,
     fragmentShader: TEL_FRAG,
     transparent: true,
     depthWrite: false,
+    // r4 major: the disc read as a sticker hovering above the floor — it sat
+    // at y = 0.06, high enough to clear the ankles of anything standing in it,
+    // so a zone that is supposed to be burnt INTO the ground drew across the
+    // legs of everything inside it. It is dropped onto the floor plane by the
+    // caller now and held off the z-fight with a polygon offset instead of
+    // with altitude, so props and bodies inside the zone occlude it the way
+    // the depth buffer already wanted them to.
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
     side: THREE.DoubleSide,
   });
 }

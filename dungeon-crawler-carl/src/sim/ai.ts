@@ -26,7 +26,7 @@ import { datan2, dcos, dhypot, dsin } from "./dmath";
 /**
  * SEPARATION (pack presence, AI tier 1): monsters softly shove each other
  * apart, so a pack arrives as a crescent instead of nine ghosts stacked on
- * one tile â€” a cleave should hit the two in front, not the whole pack, and
+ * one tile — a cleave should hit the two in front, not the whole pack, and
  * nine overlapping telegraphs should never render as one. Mass decides who
  * yields (a grunt steps around the brute, not vice versa). Winding-up
  * monsters are rooted anchors: their telegraph position is a promise to the
@@ -93,8 +93,8 @@ export function separateMonsters(state: GameState, dt: number): void {
 }
 
 /**
- * LOS AGGRO (AI tier 2): hunters commit when they SEE you â€” or when hurt, or
- * when a packmate raises the alarm â€” and remember the hunt for a few seconds
+ * LOS AGGRO (AI tier 2): hunters commit when they SEE you — or when hurt, or
+ * when a packmate raises the alarm — and remember the hunt for a few seconds
  * after losing sight, chasing through the flow field along the way you went.
  * Fog becomes tactical: walls hide you, breaking contact is a real move, and
  * a pack you never showed yourself to stays parked. Applies to the mass
@@ -106,7 +106,7 @@ export function alertMonster(state: GameState, m: Monster): void {
   if (!fresh) return;
   // The alarm spreads through the pack (fresh-transition guard bounds the
   // cascade): one grunt spotting you wakes the room, not just itself. Walls
-  // MUFFLE it â€” no line of sight, no alarm â€” or a chain of cascades would
+  // MUFFLE it — no line of sight, no alarm — or a chain of cascades would
   // recruit room after room across the whole floor.
   for (const n of state.monsters) {
     if (n !== m && n.hp > 0 && !n.dormant && dist(m.pos, n.pos) <= CONFIG.packAlertRadius && tileLos(state.map, m.pos, n.pos)) {
@@ -127,17 +127,17 @@ function hunterAlerted(state: GameState, m: Monster, huntPos: Vec2, d: number, r
 /**
  * FLANKING APPROACH (attack slots, AI tier 1): each melee chaser blends a
  * personal tangential bias into its pursuit as it closes, so a pack fans
- * into a crescent â€” and, with separation pushing the wings outward, a
- * surround â€” instead of a single-file line to the player's center. The bias
+ * into a crescent — and, with separation pushing the wings outward, a
+ * surround — instead of a single-file line to the player's center. The bias
  * is id-derived (deterministic, no coordination, no RNG) and fades with
  * distance, so a far chaser still takes the direct line. AA slot managers
  * do this with claimed positions; the stateless blend gets the same read
- * for a swarm at zero bookkeeping â€” revisit when flow fields land.
+ * for a swarm at zero bookkeeping — revisit when flow fields land.
  */
 function flankVector(state: GameState, m: Monster, toPlayer: Vec2, d: number): Vec2 {
   const spread = ((m.id % 7) - 3) / 3; // -1..1: this monster's preferred side
   const closeness = Math.max(0, Math.min(1, 1 - (d - m.attackRange) / CONFIG.flankEngageRange));
-  // GARDEN band personality (tier 3): the growth ENCIRCLES â€” wider flanking
+  // GARDEN band personality (tier 3): the growth ENCIRCLES — wider flanking
   // arcs on floors 7-9, so the foliage floor's packs envelop instead of
   // pressing a crescent.
   const garden = state.floor >= CONFIG.gardenFromFloor && state.floor < CONFIG.ruinsFromFloor
@@ -162,7 +162,7 @@ function furnitureWithin(state: GameState, pos: Vec2, r: number): boolean {
 function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number): void {
   const px = m.pos.x, py = m.pos.y;
   // Try the flank-preferred side FIRST (same id-derived sign as flankVector,
-  // same rotation convention) â€” a slip that opposes the tangential bias
+  // same rotation convention) — a slip that opposes the tangential bias
   // deadlocks into a wiggle at the obstacle instead of rounding it. Ids with
   // no flank bias keep the old parity split.
   const spread = (m.id % 7) - 3;
@@ -178,13 +178,13 @@ function slipAround(state: GameState, m: Monster, toPlayer: Vec2, step: number):
 // Monster behavior per archetype. Stats (hp/damage/speed/range) are baked in at
 // spawn (see makeMonster); this file decides how each kind *acts*: melee types chase
 // and swing, ranged types keep a standoff and shoot, and the boss chases + fires
-// periodic radial volleys. Cheap greedy steering â€” replace with pathfinding later.
+// periodic radial volleys. Cheap greedy steering — replace with pathfinding later.
 //
 // ATTACKS TELEGRAPH: nothing lands instantly. An attack begins a windup
 // (m.windup, per-archetype length) during which the monster is rooted and hosts
 // render the tell; when it expires the strike resolves, re-checking range
 // (+monsterStrikeGrace) and dash i-frames. Getting staggered (see damageMonster
-// in game.ts) cancels the windup â€” interrupting a brute mid-slam is a real play.
+// in game.ts) cancels the windup — interrupting a brute mid-slam is a real play.
 
 function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number): void {
   const d = normalize(dir);
@@ -199,14 +199,14 @@ function spawnEnemyBolt(state: GameState, from: Vec2, dir: Vec2, damage: number)
 }
 
 /**
- * ROAMING: an off-duty monster patrols instead of standing at its post â€” the
+ * ROAMING: an off-duty monster patrols instead of standing at its post — the
  * dungeon reads alive, and danger sometimes walks into YOU. Strolls run in
  * short randomized legs (some legs are just standing around), leashed to a
  * patrol post so encounters stay roughly where the floor placed them. The
  * moment a player is back in range, the kind's combat brain takes over.
  */
 function wander(state: GameState, m: Monster, dt: number): void {
-  if (!m.roams) return; // sentries hold their post â€” variety IS the behavior
+  if (!m.roams) return; // sentries hold their post — variety IS the behavior
   m.home ??= { x: m.pos.x, y: m.pos.y }; // first off-duty beat sets the post
   m.wanderT = Math.max(0, (m.wanderT ?? 0) - dt);
   if (m.wanderT === 0) {
@@ -233,7 +233,7 @@ function beginWindup(m: Monster, kind: NonNullable<Monster["windupKind"]>, secon
   m.windupKind = kind;
 }
 
-/** A boss line, in the System's voice (ai.ts pushes straight to the channel â€”
+/** A boss line, in the System's voice (ai.ts pushes straight to the channel —
  *  game.ts owns the `announce` helper and importing it here would be circular
  *  for no gain). */
 function announce2(state: GameState, text: string, priority: "high" | "normal" = "normal"): void {
@@ -241,10 +241,10 @@ function announce2(state: GameState, text: string, priority: "high" | "normal" =
 }
 
 /**
- * BOSSES V2 Â§2.3 â€” commit a BOSS telegraph. Identical to beginWindup except
+ * BOSSES V2 §2.3 — commit a BOSS telegraph. Identical to beginWindup except
  * that it honours the REDACTED mutator: shorter tells, paid for by the System
  * announcing the move in text. Read the ticker instead of the floor. The 0.2s
- * hard rule still holds â€” redactedTelegraphMult never takes a tell under it.
+ * hard rule still holds — redactedTelegraphMult never takes a tell under it.
  */
 function beginBossWindup(
   state: GameState, m: Monster, kind: NonNullable<Monster["windupKind"]>, seconds: number, label?: string,
@@ -265,12 +265,12 @@ function beginBossWindup(
 
 /**
  * ATTACK TOKENS (AI tier 1): only a few BASIC melee windups may be in flight
- * at once â€” the rest of the surround presses and waits its turn. This makes
+ * at once — the rest of the surround presses and waits its turn. This makes
  * a pack HARDER to read than the old everyone-swings-at-once pile: one
  * sidestep no longer dodges nine synchronized hits, it dodges one, and the
  * next tell is already starting somewhere else on the ring. The cap scales
  * with depth (shallow floors read like duels, deep floors overlap) and with
- * party size. Named kinds, elites, and bosses are the SPICE â€” they never
+ * party size. Named kinds, elites, and bosses are the SPICE — they never
  * wait for a token. Gate applies only to the generic grunt/swarmer swing.
  */
 function meleeTokenFree(state: GameState, m: Monster): boolean {
@@ -292,13 +292,13 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
   const reach = m.attackRange + CONFIG.monsterStrikeGrace;
   // The big frames wreck furniture in the arc (brute smash-through).
   if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, reach + 0.45);
-  // A STUNT DOUBLE in reach takes the hit â€” that is what it is paid for.
+  // A STUNT DOUBLE in reach takes the hit — that is what it is paid for.
   if (decoySoak(state, m.pos, reach, m.damage)) return;
   for (const player of state.players) {
     if (!player.alive || player.dashTime > 0) continue; // dash i-frames dodge the blow
-    if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc â€” whiff
+    if (dist(m.pos, player.pos) > reach) continue; // stepped out of the arc — whiff
     const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
-    // EXECUTIONER elites (six-pack) hit wounded crawlers harder â€” the retreat
+    // EXECUTIONER elites (six-pack) hit wounded crawlers harder — the retreat
     // threshold becomes a real decision, not a vibe.
     const execute = m.affix === "executioner" && player.hp < player.maxHp * CONFIG.executionerThreshold
       ? CONFIG.executionerDmgMult : 1;
@@ -306,7 +306,7 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
     if (damagePlayerHit(state, player, m.damage * execute, { dir, src: m })) {
       handlePlayerDeath(state, player, `${player.name} died in the dungeon.`);
     }
-    // VAMPIRIC elites (six-pack) drink what they hit â€” starve it by dodging.
+    // VAMPIRIC elites (six-pack) drink what they hit — starve it by dodging.
     if (m.affix === "vampiric" && before > player.hp && m.hp < m.maxHp) {
       const heal = Math.min(m.maxHp - m.hp, Math.round((before - player.hp) * CONFIG.vampiricHealFraction));
       if (heal > 0) {
@@ -317,14 +317,14 @@ function resolveMeleeStrike(state: GameState, m: Monster): void {
   }
 }
 
-/** Ground Slam lands: a self-centered AoE, no facing/arc â€” everyone standing
+/** Ground Slam lands: a self-centered AoE, no facing/arc — everyone standing
  * within `radius` of the slammer eats it. Brute's whole attack; also a boss ability. */
 function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: number): void {
   m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
   // The slam wrecks the furniture too (brute smash-through): the table
   // explodes and the fight arrives.
   if (SMASH_KINDS.has(m.kind)) smashBlockersAt(state, m.pos, radius + 0.45);
-  // The double dives on the slam too (players in the radius still get spared â€”
+  // The double dives on the slam too (players in the radius still get spared —
   // one professional sacrifice per blast).
   if (decoySoak(state, m.pos, radius, dmg)) return;
   for (const player of state.players) {
@@ -335,13 +335,13 @@ function resolveSlamStrike(state: GameState, m: Monster, radius: number, dmg: nu
       handlePlayerDeath(state, player, `${player.name} stood in the blast radius. The System rolls the replay.`);
     } else {
       // Slams SHOVE (MOB-CONCEPTS knockback verb): surviving one still costs
-      // you your footing â€” and whatever ground the shove lands you on.
+      // you your footing — and whatever ground the shove lands you on.
       applyPlayerKnockback(player, dir, m.kind === "boss" ? CONFIG.bossSlamKnockback : CONFIG.slamKnockback);
     }
   }
 }
 
-/** Dark Ritual lands (boss tier 3 only): a long-telegraphed, arena-scale AoE â€”
+/** Dark Ritual lands (boss tier 3 only): a long-telegraphed, arena-scale AoE —
  * the game's one real "interrupt it or eat a serious hit" stake. Poise-stagger
  * (see damageMonster in game.ts) cancels the windup exactly like anything else;
  * this ability is just dangerous enough that failing to land that stagger costs. */
@@ -385,7 +385,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "spit") {
-    // The lob lands where the player WAS at commit â€” moving out is the dodge.
+    // The lob lands where the player WAS at commit — moving out is the dodge.
     const target = m.spitTarget ?? m.pos;
     m.spitTarget = undefined;
     state.hazards.push({
@@ -409,7 +409,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "heal") {
-    // The committed patient may have died or topped up mid-channel â€” whiff.
+    // The committed patient may have died or topped up mid-channel — whiff.
     const target = state.monsters.find((a) => a.id === m.healId);
     m.healId = undefined;
     if (!target || target.hp <= 0 || target.hp >= target.maxHp) return;
@@ -419,13 +419,13 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "summon") {
-    // The Line Supervisor's CONVEYOR DELIVERY rides the same channel shape â€”
+    // The Line Supervisor's CONVEYOR DELIVERY rides the same channel shape —
     // a boss's summon is a production run, not a single add.
     if (m.kind === "boss") {
       bossConveyorRun(state, m);
       return;
     }
-    // Summoner elites + broodmother: the add arrives when the channel ends â€”
+    // Summoner elites + broodmother: the add arrives when the channel ends —
     // kill or stagger the caster inside the window and it never does.
     m.summons = (m.summons ?? 0) + 1;
     summonMinion(state, m);
@@ -441,7 +441,7 @@ function resolveStrike(state: GameState, m: Monster): void {
     const dmg = m.kind === "boss" ? m.damage * CONFIG.bossSlamDmgMult : m.damage;
     resolveSlamStrike(state, m, radius, dmg);
     // THE FOUNDATION (boss, floor 12): the colossus crack at boss scale and in
-    // MULTIPLES â€” a fan of lanes that leaves wedge-shaped safe ground, then a
+    // MULTIPLES — a fan of lanes that leaves wedge-shaped safe ground, then a
     // radial set that asks for one committed decision.
     if (m.kind === "boss" && m.bossId === "foundation") {
       const radial = (m.phase ?? 0) >= 2;
@@ -449,7 +449,7 @@ function resolveStrike(state: GameState, m: Monster): void {
       return;
     }
     // The Foundation's slam CRACKS the floor: a fissure travels down the
-    // locked lane as staggered eruptions â€” perpendicular movement beats it.
+    // locked lane as staggered eruptions — perpendicular movement beats it.
     if (m.kind === "colossus") {
       const dir = m.chargeDir ?? { x: 1, y: 0 };
       m.chargeDir = undefined;
@@ -466,10 +466,10 @@ function resolveStrike(state: GameState, m: Monster): void {
       }
       if (!m.noticed) {
         m.noticed = true;
-        state.events.push("The Foundation CRACKS the floor â€” the fissure travels. Step OUT of its line, not along it.");
+        state.events.push("The Foundation CRACKS the floor — the fissure travels. Step OUT of its line, not along it.");
       }
     }
-    // The Ossuary Warden's slam SHATTERS: a lingering bone-shard zone â€”
+    // The Ossuary Warden's slam SHATTERS: a lingering bone-shard zone —
     // every swing reshapes the room, doorway by doorway.
     if (m.kind === "warden") {
       state.hazards.push({
@@ -494,11 +494,11 @@ function resolveStrike(state: GameState, m: Monster): void {
   // slam, aim, raise) with a per-boss branch, exactly like the colossus
   // already branches inside "slam".
   if (kind === "punish") {
-    // V4 â€” the over-commit resolves: one scalding beat, then genuinely
+    // V4 — the over-commit resolves: one scalding beat, then genuinely
     // helpless. THE PUNISH WINDOW every shipped boss was missing.
     bossPunishVent(state, m);
     // The Furnace Marshal CRACKS OPEN if it is forced to vent while it is
-    // already reeling â€” the mechanic phase its whole rhythm builds toward.
+    // already reeling — the mechanic phase its whole rhythm builds toward.
     if (m.bossId === "marshal" && (m.phase ?? 0) >= 1 && !m.plates) {
       bossExposeCore(state, m, "furnace_core", "THE FURNACE CORE", CONFIG.bossPunishWindow);
       advanceBossPhase(state, m, "mechanic");
@@ -519,14 +519,14 @@ function resolveStrike(state: GameState, m: Monster): void {
   }
   if (kind === "regrow") {
     // The Topiary Warden re-walls its shield pool. Interrupted mid-channel
-    // (poise stagger, like every other channel) it never lands â€” which is the
+    // (poise stagger, like every other channel) it never lands — which is the
     // whole break-the-shield ask made into one decision.
     bossHedgeRegrow(state, m);
     return;
   }
   if (kind === "punch") {
     // Lineworker piston punch: an ordinary melee hit that also LAUNCHES the
-    // survivor (knockback verb) â€” the set dressing behind you is the threat.
+    // survivor (knockback verb) — the set dressing behind you is the threat.
     m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
     const reach = m.attackRange + CONFIG.monsterStrikeGrace;
     if (decoySoak(state, m.pos, reach, m.damage)) return;
@@ -537,7 +537,7 @@ function resolveStrike(state: GameState, m: Monster): void {
       if (damagePlayerHit(state, player, m.damage, { dir, src: m })) {
         handlePlayerDeath(state, player, `${player.name} met the piston. Quality control approves.`);
       } else {
-        // The Pit Digger's club launches FARTHER but hits gentler â€” it is
+        // The Pit Digger's club launches FARTHER but hits gentler — it is
         // the knockback tutor, three floors before hazards make it hurt.
         applyPlayerKnockback(player, dir, m.kind === "digger" ? CONFIG.diggerKnockback : CONFIG.punchKnockback);
       }
@@ -546,7 +546,7 @@ function resolveStrike(state: GameState, m: Monster): void {
   }
   if (kind === "lunge") {
     // Cutpurse: dash down the locked lane, stab whoever it reaches, and go
-    // for the PURSE â€” a hit steals gold into its carry (killing it refunds
+    // for the PURSE — a hit steals gold into its carry (killing it refunds
     // everything with interest via the generic purse drop in reapDead).
     m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
     const dir = m.chargeDir ?? { x: 1, y: 0 };
@@ -568,7 +568,7 @@ function resolveStrike(state: GameState, m: Monster): void {
         if (!m.noticed) {
           m.noticed = true;
           m.speed *= 1.2; // flush with your money and FASTER for it
-          state.events.push(`A cutpurse lifts ${steal} gold from ${player.name}! Catch it â€” it pays back with interest.`);
+          state.events.push(`A cutpurse lifts ${steal} gold from ${player.name}! Catch it — it pays back with interest.`);
         }
       }
       break; // one stab per lunge
@@ -576,13 +576,13 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "aim") {
-    // Sentinel: the lock-on beam hazard does the damage â€” the windup only
+    // Sentinel: the lock-on beam hazard does the damage — the windup only
     // held the aiming pose. Nothing to resolve; the cooldown was paid at cast.
     return;
   }
   if (kind === "vent") {
     // Slagbreaker heat dump: a scalding cloud (burn soaks in), then the
-    // machine stalls â€” the punish window the whole rhythm builds toward.
+    // machine stalls — the punish window the whole rhythm builds toward.
     const dmg = m.damage * CONFIG.slagVentDmgMult;
     for (const player of state.players) {
       if (!player.alive || player.dashTime > 0) continue;
@@ -599,11 +599,11 @@ function resolveStrike(state: GameState, m: Monster): void {
       }
     }
     m.heat = 0;
-    m.stagger = CONFIG.slagVentSelfStagger; // vented and helpless â€” unload
+    m.stagger = CONFIG.slagVentSelfStagger; // vented and helpless — unload
     return;
   }
   if (kind === "hook") {
-    // Vine Lasher: the whip snaps down the locked lane â€” anyone snagged is
+    // Vine Lasher: the whip snaps down the locked lane — anyone snagged is
     // damaged and DRAGGED to the lasher's feet, into whatever the Garden
     // (or the pack) has waiting there. Dash i-frames beat the snag.
     m.attackCooldown = CONFIG.monsterAttackCooldown * monsterTempo(state.floor).cooldown;
@@ -630,9 +630,9 @@ function resolveStrike(state: GameState, m: Monster): void {
     return;
   }
   if (kind === "morph" && m.kind === "boss") {
-    // THE TEMP's TRANSFORMATION CLAUSE (BOSSES-V2 Â§3.1). The clause is the
-    // whole fight: burst it hard enough during the channel â€” or stagger the
-    // channel outright â€” and it NEVER transforms. Two completely different
+    // THE TEMP's TRANSFORMATION CLAUSE (BOSSES-V2 §3.1). The clause is the
+    // whole fight: burst it hard enough during the channel — or stagger the
+    // channel outright — and it NEVER transforms. Two completely different
     // second halves, decided by the player, not by the HP bar.
     const denied = m.hp <= m.maxHp * (CONFIG.clauseHpFraction * 0.5);
     m.bossCount = denied ? 2 : 1;
@@ -654,7 +654,7 @@ function resolveStrike(state: GameState, m: Monster): void {
   }
 
   if (kind === "morph") {
-    // The Understudy's transformation clause: it BECOMES a charger â€” healed,
+    // The Understudy's transformation clause: it BECOMES a charger — healed,
     // faster, meaner, plated. (Stagger interrupts the windup like anything
     // else; the clause just re-triggers while it's still bleeding.)
     const from = ARCHETYPES.understudy;
@@ -670,16 +670,16 @@ function resolveStrike(state: GameState, m: Monster): void {
       text: "The extra's contract has a TRANSFORMATION CLAUSE. The crowd goes feral.",
       kind: "flavor", priority: "normal",
     });
-    state.events.push("An understudy transforms â€” the wolf takes the role.");
+    state.events.push("An understudy transforms — the wolf takes the role.");
     return;
   }
   if (kind === "hex") {
-    // Briar Witch: mark the nearest crawler still in reach â€” +damage taken
+    // Briar Witch: mark the nearest crawler still in reach — +damage taken
     // while it holds. Whiffs if everyone slipped out of range mid-cast.
     const target = nearestPlayer(state, m.pos);
     if (target && dist(m.pos, target.pos) <= CONFIG.hexRange + 1) {
       target.cursedT = CONFIG.hexDuration;
-      state.events.push(`${target.name} is MARKED by a briar witch â€” everything hits harder. Kill her or outlast it.`);
+      state.events.push(`${target.name} is MARKED by a briar witch — everything hits harder. Kill her or outlast it.`);
     }
     return;
   }
@@ -700,13 +700,13 @@ function resolveStrike(state: GameState, m: Monster): void {
     });
     if (!m.noticed) {
       m.noticed = true;
-      state.events.push("A cleric CONSECRATES the ground â€” it heals them and burns you. Fight outside the light.");
+      state.events.push("A cleric CONSECRATES the ground — it heals them and burns you. Fight outside the light.");
     }
     return;
   }
   if (kind === "sweep") {
     // The channel ended on its own; the sweeping hazard dies with the windup
-    // (updateHazards watches windupKind). Nothing lands here â€” the beam
+    // (updateHazards watches windupKind). Nothing lands here — the beam
     // already did its work, tick by tick.
     return;
   }
@@ -741,7 +741,7 @@ function stepCharge(state: GameState, m: Monster, dt: number): void {
 
 /** Spring an ambush: wake this monster and every dormant neighbor in range, all
  * surging to close, and announce it once. Hitting a dormant monster (damageMonster)
- * or revealing one ringside (maybeStartEncounter) also routes here â€” however the
+ * or revealing one ringside (maybeStartEncounter) also routes here — however the
  * trap is discovered, the whole cluster commits together. */
 export function springAmbush(state: GameState, trigger: Monster): void {
   let woke = 0;
@@ -750,12 +750,12 @@ export function springAmbush(state: GameState, trigger: Monster): void {
     if (n !== trigger && dist(trigger.pos, n.pos) > CONFIG.ambushWakeRadius) continue;
     n.dormant = false;
     n.surgeT = CONFIG.ambushSurgeSeconds;
-    n.attackCooldown = 0; // spring loaded â€” engage on the first beat
+    n.attackCooldown = 0; // spring loaded — engage on the first beat
     woke++;
   }
   if (woke > 0) {
     state.announcements.push({
-      text: "AMBUSH! The floor was never empty â€” it was waiting. The crowd LOVES this.",
+      text: "AMBUSH! The floor was never empty — it was waiting. The crowd LOVES this.",
       kind: "boss",
       priority: "high",
     });
@@ -763,13 +763,13 @@ export function springAmbush(state: GameState, trigger: Monster): void {
 }
 
 // ===========================================================================
-// BOSSES V2 â€” THE BOSS CHASSIS
+// BOSSES V2 — THE BOSS CHASSIS
 //
 // The audit found ONE brain behind every named boss in the game: ~150 lines
 // of `if (m.kind === "boss")` plus a `signature` enum. Adding boss #7 to that
 // meant adding another `if` to the monolith, which is exactly why nobody ever
-// did. So the shared parts â€” chase, melee, radial volley, Ground Slam, phase
-// bookkeeping, hazard rain â€” stay shared (they were the good part), and each
+// did. So the shared parts — chase, melee, radial volley, Ground Slam, phase
+// bookkeeping, hazard rain — stay shared (they were the good part), and each
 // boss supplies ONE ability block keyed off its `bossId`, the same shape the
 // trash kinds already use.
 // ===========================================================================
@@ -796,13 +796,13 @@ function liveTethers(state: GameState, boss: Monster): number {
 
 /**
  * Every roster id must appear here. `bosses.test.ts` asserts it: the round-3
- * acceptance review found the Topiary Warden and the Furnace Marshal â€” a
- * headline break-the-shield and a headline burst-the-window â€” falling through
+ * acceptance review found the Topiary Warden and the Furnace Marshal — a
+ * headline break-the-shield and a headline burst-the-window — falling through
  * to the bare chassis with a band-generic beat line, and nothing in the build
  * said so. A missing kit is now a failing test, not a screenshot.
  */
 export const BOSS_KITS: Record<BossId, BossKit> = {
-  // THE CRYPT CONCIERGE â€” ask: kill-the-adds. Its risen FEED it (tethered in
+  // THE CRYPT CONCIERGE — ask: kill-the-adds. Its risen FEED it (tethered in
   // bossGraveRaise). Clear the ledger and it panics into a long
   // reconciliation: the mechanic phase, and the punish window.
   concierge(state, m, ctx) {
@@ -814,7 +814,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     }
     // RING FOR SERVICE. The audit's finding on this boss was that with no
     // bodies down it committed 62 melee windups and NOTHING ELSE across 90
-    // measured seconds â€” its whole identity was conditional on the crowd
+    // measured seconds — its whole identity was conditional on the crowd
     // having died first. The bell does not care: no corpse in reach means it
     // checks in STAFF instead, and the staff are tethered like everything else.
     if (
@@ -829,7 +829,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE RENT COLLECTOR â€” ask: burst-the-window. Late Fee opens the lockbox
+  // THE RENT COLLECTOR — ask: burst-the-window. Late Fee opens the lockbox
   // plate for a fixed window; break it and the party is refunded with
   // interest. Target-switch under a clock.
   rentcollector(state, m, ctx) {
@@ -842,7 +842,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE TEMP â€” ask: burst-the-window (the THRESHOLD variant). One channel,
+  // THE TEMP — ask: burst-the-window (the THRESHOLD variant). One channel,
   // one decision, two completely different second halves.
   temp(state, m, ctx) {
     if ((m.bossCount ?? 0) === 0 && m.hp <= m.maxHp * CONFIG.clauseHpFraction) {
@@ -850,7 +850,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       announce2(state, "THE TEMP IS INVOKING ITS CLAUSE. Break it NOW, or meet whatever has been under there.", "high");
       return true;
     }
-    // OVERREACH â€” the tape measure goes out down a locked lane and DRAGS
+    // OVERREACH — the tape measure goes out down a locked lane and DRAGS
     // whoever is standing in it (the shipped lasher hook at boss scale). A
     // boss that only swings until a threshold is a boss with no verb for the
     // whole first half, which is precisely the audit's complaint about floor 3.
@@ -864,7 +864,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE SANITATION INSPECTOR â€” ask: dodge-the-lane. Citations condemn the
+  // THE SANITATION INSPECTOR — ask: dodge-the-lane. Citations condemn the
   // ground they cross, so clean floor is a resource you SPEND.
   inspector(state, m, ctx) {
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.citationLength) {
@@ -876,7 +876,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE GREASE TRAP â€” ask: kill-the-adds, around a boss that never moves. It
+  // THE GREASE TRAP — ask: kill-the-adds, around a boss that never moves. It
   // pulls you in; its tethered spawn shove you back. Break the chain and the
   // pit INVERTS, exposing its core for a long punish window.
   greasetrap(state, m, ctx) {
@@ -903,10 +903,10 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE SUMP KING â€” ask: use-the-arena. The audit round found this boss running
+  // THE SUMP KING — ask: use-the-arena. The audit round found this boss running
   // the BARE CHASSIS: its `prop: "drain"` was authored in the roster and never
   // fired, so the headline use-the-arena fight was a generic ring in an empty
-  // room. The gates are now the whole verb â€” they vent, they aim, and killing
+  // room. The gates are now the whole verb — they vent, they aim, and killing
   // them is what ends the fight (fireArenaProp beaches him on the last one).
   sumpking(state, m, ctx) {
     const gates = (state.breakables ?? []).reduce(
@@ -920,7 +920,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       return true;
     }
     // THE OFF-BEAT. The King's band signature (FLOOD SURGE) still opens every
-    // fight and still owns the `sigCd` track untouched â€” the sluices vent in
+    // fight and still owns the `sigCd` track untouched — the sluices vent in
     // the GAP between surges, so the rhythm is surge / sluice / surge and the
     // two ground verbs never land on the same frame.
     if (
@@ -935,10 +935,10 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE PERMIT OFFICE â€” ask: break-the-shield. Same audit finding: four
+  // THE PERMIT OFFICE — ask: break-the-shield. Same audit finding: four
   // authored stamps and NO verb, so the plates were sub-HP bars you could
-  // ignore. STOP-WORK ORDER makes the plate row the attack pattern â€” one lane
-  // per unbroken stamp â€” so a stamp you break is a lane that stops existing.
+  // ignore. STOP-WORK ORDER makes the plate row the attack pattern — one lane
+  // per unbroken stamp — so a stamp you break is a lane that stops existing.
   permitoffice(state, m, ctx) {
     const live = (m.plates ?? []).filter((p) => !p.broken).length;
     // Out of stamps: the Office cannot issue anything and has to re-file.
@@ -959,7 +959,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE TOPIARY WARDEN â€” ask: break-the-shield, and now it HAS one.
+  // THE TOPIARY WARDEN — ask: break-the-shield, and now it HAS one.
   //
   // Round 3 acceptance: this entry was four lines of passive shield trickle and
   // a `return false`, so one of only three break-the-shield bosses fell through
@@ -971,7 +971,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
   // its wall back up. Stagger it (poise, same as every channel in the game) and
   // the pool stays broken and the fight ends; let it land and the pool is back
   // AND the hedge is standing on you. Past the first phase the channel comes
-  // round faster â€” the window tightens, the numbers do not grow.
+  // round faster — the window tightens, the numbers do not grow.
   topiary(state, m, ctx) {
     const pool = m.shieldMax ?? 0;
     if (
@@ -983,12 +983,12 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       beginBossWindup(state, m, "regrow", CONFIG.hedgeRegrowWindup, "HEDGE REGROWTH");
       if (!m.sigUsed) {
         m.sigUsed = true;
-        announce2(state, "THE HEDGE IS GROWING BACK. That is the entire threat â€” break the channel or break the pool, but pick one.", "high");
+        announce2(state, "THE HEDGE IS GROWING BACK. That is the entire threat — break the channel or break the pool, but pick one.", "high");
       }
       return true;
     }
     // THE HEDGE IS DOWN AND STAYING DOWN. The player won the regrow race, so
-    // the fight advances on their play, not on their damage (Â§2.2's rule that
+    // the fight advances on their play, not on their damage (§2.2's rule that
     // at least one phase edge per fight is mechanic-triggered).
     if (pool > 0 && (m.shieldHp ?? 0) <= 0 && !m.punishArmed && (m.bossCount ?? 0) === 0) {
       m.bossCount = 1;
@@ -1000,7 +1000,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE ZONING BOARD / THE STANDARDS BOARD â€” ask: kill-the-adds (the kill-ORDER
+  // THE ZONING BOARD / THE STANDARDS BOARD — ask: kill-the-adds (the kill-ORDER
   // variant). The aides shield the body and each death hands its verb over
   // (reapDead), so killing the wrong one first makes the fight worse. The kit
   // itself is quiet: the aides ARE the mechanic.
@@ -1014,7 +1014,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE POLLINATOR â€” ask: survive-the-storm. Pods seed pods. Clear the garden
+  // THE POLLINATOR — ask: survive-the-storm. Pods seed pods. Clear the garden
   // and it WILTS (mechanic phase + punish window); ignore it and drown in it.
   pollinator(state, m, ctx) {
     const pods = state.hazards.reduce((n, h) => n + (h.kind === "spore" ? 1 : 0), 0);
@@ -1034,7 +1034,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE CONDEMNED ARCHITECT â€” ask: use-the-arena. Its debris eats your COVER
+  // THE CONDEMNED ARCHITECT — ask: use-the-arena. Its debris eats your COVER
   // for real (shipped breakables + SMASH_KINDS, zero new verbs). When the
   // cover runs out it starts a Controlled Demolition: POSITIONAL phase, an
   // interrupt stake, and a punish window if you win it.
@@ -1044,13 +1044,13 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       m.bossCount = 1;
       advanceBossPhase(state, m, "positional");
       beginBossWindup(state, m, "ritual", CONFIG.ritualWindup, "CONTROLLED DEMOLITION");
-      announce2(state, "NOTHING LEFT TO HIDE BEHIND. CONTROLLED DEMOLITION â€” stagger it or wear the building.", "high");
+      announce2(state, "NOTHING LEFT TO HIDE BEHIND. CONTROLLED DEMOLITION — stagger it or wear the building.", "high");
       return true;
     }
     return false;
   },
 
-  // THE FOUNDATION â€” ask: dodge-the-lane. Fissure fans, then radial fissures:
+  // THE FOUNDATION — ask: dodge-the-lane. Fissure fans, then radial fissures:
   // wedge-shaped safe ground, then pick a gap and COMMIT.
   foundation(state, m, ctx) {
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
@@ -1062,26 +1062,26 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE FURNACE MARSHAL â€” ask: burst-the-window. Round 3 acceptance found this
+  // THE FURNACE MARSHAL — ask: burst-the-window. Round 3 acceptance found this
   // one missing outright: a headline burst-the-window boss with no kit, whose
   // own epithet ("Three sweeps, then it has to breathe. Count with me.")
   // promised a count nothing in the code was keeping.
   //
   // So the COUNT is the kit. Each wall of fire stokes the furnace; the third
   // forces the vent, which is a real self-stagger and the fight's whole rhythm
-  // â€” count, dodge, unload. The arena's wall vents (`prop: "vent"`) can force
+  // — count, dodge, unload. The arena's wall vents (`prop: "vent"`) can force
   // it EARLY, which is the player moving the beat instead of waiting for it.
   marshal(state, m, ctx) {
     // THAT WAS THREE. The furnace has to breathe, on its own count.
     if ((m.bossCount ?? 0) >= CONFIG.marshalSweepsPerVent) {
       m.bossCount = 0;
       m.punishArmed = true; // the chassis opens the window on the next step
-      announce2(state, "THAT WAS THREE. THE FURNACE HAS TO BREATHE â€” and it cannot do that and fight.", "high");
+      announce2(state, "THAT WAS THREE. THE FURNACE HAS TO BREATHE — and it cannot do that and fight.", "high");
       return true;
     }
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
       // The sweep is the band signature, fired BY the kit so the count is the
-      // Marshal's own â€” heat stays out of it deliberately, because two clocks
+      // Marshal's own — heat stays out of it deliberately, because two clocks
       // running the same window is exactly how a rhythm stops being readable.
       m.sigCd = CONFIG.marshalSweepCooldown / (1 + (m.phase ?? 0) * 0.25);
       // SIGNATURE STACKING (boss layer 2) is KEPT, and it is kept honest: from
@@ -1100,7 +1100,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE LINE SUPERVISOR â€” ask: kill-the-adds. The conveyors are the fight;
+  // THE LINE SUPERVISOR — ask: kill-the-adds. The conveyors are the fight;
   // the Supervisor is a paperwork problem behind them.
   linesupervisor(state, m, ctx) {
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
@@ -1112,7 +1112,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE SAFETY OFFICER â€” ask: survive-the-storm. Lanes that arm IN SEQUENCE,
+  // THE SAFETY OFFICER — ask: survive-the-storm. Lanes that arm IN SEQUENCE,
   // so the arena becomes moving safe cells. Read the order; move early.
   safetyofficer(state, m, ctx) {
     if ((m.sigCd ?? 0) === 0 && ctx.d <= CONFIG.monsterAggroRange * 2.5) {
@@ -1124,7 +1124,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE SHOWRUNNER â€” ask: use-the-arena. Every phase RE-DRESSES the set into
+  // THE SHOWRUNNER — ask: use-the-arena. Every phase RE-DRESSES the set into
   // a band you have already beaten, behind an intermission. The whole run was
   // the tutorial, and this is the exam.
   showrunner(state, m) {
@@ -1135,7 +1135,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     return false;
   },
 
-  // THE SPONSOR â€” ask: break-the-shield. Brand Integration flips which school
+  // THE SPONSOR — ask: break-the-shield. Brand Integration flips which school
   // its shield accepts at every phase and refills it. Diablo's "immune to X"
   // in a sponsorship jacket: adapt the rotation, never change genre.
   sponsor(state, m) {
@@ -1151,13 +1151,13 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
     }
     return false;
   },
-  // THE STANDARDS AND PRACTICES BOARD â€” ask: kill-the-adds (the finale of the
-  // council format). It used to BE the Zoning Board â€” the floor-18 entry was an
+  // THE STANDARDS AND PRACTICES BOARD — ask: kill-the-adds (the finale of the
+  // council format). It used to BE the Zoning Board — the floor-18 entry was an
   // ALIAS assignment onto the floor-9 kit OBJECT, i.e. the same function by
   // reference, which is the reskin the anti-reskin rule exists to forbid. A
   // finale must ESCALATE its format, not alias it.
   //
-  // The escalation is that the Board is not quiet behind its aides â€” it FIRES
+  // The escalation is that the Board is not quiet behind its aides — it FIRES
   // THROUGH them. Every living aide is the muzzle of a lane that runs through
   // the body and out the far side, so there is no safe pocket behind the
   // Board and the kill order rewrites the floor instead of only the verb list.
@@ -1179,7 +1179,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
       return true;
     }
     // ADJOURNED, final phase: it rules on you directly. A long channel with an
-    // interrupt stake â€” the finale's version of "stagger it or wear it".
+    // interrupt stake — the finale's version of "stagger it or wear it".
     if ((m.bossCount ?? 0) === 1 && (m.phase ?? 0) >= 2 && (m.ritualCd ?? 0) === 0 && ctx.d <= CONFIG.ritualRange) {
       m.ritualCd = CONFIG.ritualCooldown;
       m.heat = (m.heat ?? 0) + 1;
@@ -1201,7 +1201,7 @@ export const BOSS_KITS: Record<BossId, BossKit> = {
 /**
  * The tier-3 channel used to announce itself as "DARK RITUAL" for every boss
  * that had one, which put ONE generic label on three different finales at
- * once â€” the capture round caught all three finale shots carrying the same
+ * once — the capture round caught all three finale shots carrying the same
  * magenta disc under the same word. The channel is shared (it is chassis), but
  * the NAME is identity, so each boss that can commit one owns its own.
  */
@@ -1236,13 +1236,13 @@ const BORROWED: Partial<Record<NonNullable<Monster["signature"]>, Monster["signa
 function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void {
   const { d, hunt, toPlayer, windup } = ctx;
 
-  // V6 â€” INTERMISSION. Untargetable and inert while the arena re-deals.
+  // V6 — INTERMISSION. Untargetable and inert while the arena re-deals.
   if ((m.invulnT ?? 0) > 0) {
     m.invulnT = Math.max(0, (m.invulnT ?? 0) - dt);
     return;
   }
 
-  // V5 â€” HARD ENRAGE. Nothing bounded fight length before this: a fight could
+  // V5 — HARD ENRAGE. Nothing bounded fight length before this: a fight could
   // literally run forever. Past the deadline the System stops pretending to
   // be patient. It should almost never fire for a competent player, and it
   // reads as the broadcast slot running out, not as a fail-state.
@@ -1267,7 +1267,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     }
   }
 
-  // V2 â€” the shield pool regrows once it has been left alone (the regen GAP
+  // V2 — the shield pool regrows once it has been left alone (the regen GAP
   // is the whole counterplay: burst it inside the window, or start over).
   if ((m.shieldMax ?? 0) > 0) {
     if ((m.shieldRegenT ?? 0) > 0) m.shieldRegenT = Math.max(0, (m.shieldRegenT ?? 0) - dt);
@@ -1276,9 +1276,9 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     }
   }
 
-  // V8 â€” tethered adds FEED it. Ignoring the wave stalls the fight.
+  // V8 — tethered adds FEED it. Ignoring the wave stalls the fight.
   // The feed is CAPPED at four cords: the ask is "handle the wave", not "out-
-  // heal an unbounded stack" â€” an uncapped Concierge simply never dies.
+  // heal an unbounded stack" — an uncapped Concierge simply never dies.
   const tethers = Math.min(4, liveTethers(state, m));
   if (tethers > 0 && m.hp < m.maxHp) {
     const heal = m.maxHp * CONFIG.tetherHealPerSec * tethers * dt;
@@ -1286,7 +1286,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   }
 
   // SPONSORED (mutator): it defends a spot. Remember where the bubble is the
-  // first time it acts â€” pulling the fight OFF that ground is the counterplay.
+  // first time it acts — pulling the fight OFF that ground is the counterplay.
   if (m.bossMutators?.includes("sponsored") && !m.home) {
     m.home = { x: m.pos.x, y: m.pos.y };
   }
@@ -1299,7 +1299,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     if (!advanceBossPhase(state, m, "hp")) break;
   }
 
-  // UNDERSTUDIED (mutator): its armour comes back ONCE, at half health â€” the
+  // UNDERSTUDIED (mutator): its armour comes back ONCE, at half health — the
   // break-window happens twice, so the skill is repeated, not the stat.
   if (m.bossMutators?.includes("understudied") && !m.tetherRevived && frac <= 0.5) {
     m.tetherRevived = true;
@@ -1308,7 +1308,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     announce2(state, "THE UNDERSTUDY STEPS IN. It is wearing the armour again. Do that again.");
   }
 
-  // V4 â€” THE PUNISH WINDOW. Every V2 boss over-commits on a readable count.
+  // V4 — THE PUNISH WINDOW. Every V2 boss over-commits on a readable count.
   if (m.introduced && ((m.heat ?? 0) >= CONFIG.bossPunishAfter || m.punishArmed)) {
     m.punishArmed = false;
     m.heat = 0;
@@ -1322,7 +1322,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   if (m.introduced && kit && kit(state, m, ctx)) return;
 
   // SIGNATURE STACKING (boss layer 2, kept): from phase 1 a band boss
-  // ALTERNATES its own signature with the PREVIOUS band's â€” the fight
+  // ALTERNATES its own signature with the PREVIOUS band's — the fight
   // escalates in MECHANICS, not numbers. Gated on `introduced` so the arena
   // never starts cooking before the ringside reveal.
   if (m.signature && m.introduced && (m.sigCd ?? 0) === 0 && d <= CONFIG.monsterAggroRange * 2.5) {
@@ -1340,7 +1340,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
           bandSignatureLabel("graverising", m.bossId));
         if (!m.sigUsed) {
           m.sigUsed = true;
-          announce2(state, "The guests are being WOKEN â€” and they are on the payroll. Interrupt it, or thin the ledger.");
+          announce2(state, "The guests are being WOKEN — and they are on the payroll. Interrupt it, or thin the ledger.");
         }
         return;
       }
@@ -1362,7 +1362,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
       bossFlameSweep(state, m);
     }
   }
-  // Tier 3: Dark Ritual â€” a long channelled cast, its own cooldown, arena-scale
+  // Tier 3: Dark Ritual — a long channelled cast, its own cooldown, arena-scale
   // AoE. The one attack worth a genuine "stagger it now or eat a big hit".
   if ((m.bossTier ?? 0) >= 3 && (m.ritualCd ?? 0) === 0 && d <= CONFIG.ritualRange) {
     m.ritualCd = CONFIG.ritualCooldown;
@@ -1373,8 +1373,8 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     announce2(state, `${m.eliteName ?? "The boss"} is CHANNELING ${label}. Interrupt it or brace for impact.`, "high");
     return;
   }
-  // Tier 1+: Ground Slam â€” an extra AoE on its own cooldown, layered on top of
-  // the regular melee+volley kit. (The Foundation's slam is a fissure fan â€”
+  // Tier 1+: Ground Slam — an extra AoE on its own cooldown, layered on top of
+  // the regular melee+volley kit. (The Foundation's slam is a fissure fan —
   // see resolveStrike; a stationary boss never commits one at all.)
   if ((m.bossTier ?? 0) >= 1 && (m.slamCd ?? 0) === 0 && d <= CONFIG.bossSlamRange) {
     m.slamCd = CONFIG.bossSlamCooldown * ((m.bossTier ?? 1) >= 2 ? CONFIG.bossSlamHasteT2 : 1);
@@ -1382,7 +1382,7 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
     beginBossWindup(state, m, "slam", CONFIG.bossSlamWindup);
     return;
   }
-  // Phase 1+: HAZARD RAIN â€” telegraphed blasts on each crawler's position
+  // Phase 1+: HAZARD RAIN — telegraphed blasts on each crawler's position
   // (healCd is unused on bosses; it paces the rain). Keep moving or eat it.
   if ((m.phase ?? 0) >= 1 && m.healCd === 0) {
     m.healCd = CONFIG.bossHazardCooldown;
@@ -1434,9 +1434,9 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
 
 export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.hitFlash > 0) m.hitFlash = Math.max(0, m.hitFlash - dt);
-  // Drum frenzy (aura verb): the beat makes cooldowns DECAY faster â€” swings
+  // Drum frenzy (aura verb): the beat makes cooldowns DECAY faster — swings
   // come sooner while the windups stay full-length (tells remain readable).
-  // An ENRAGED duo survivor runs the same frenzy, permanently â€” the grudge
+  // An ENRAGED duo survivor runs the same frenzy, permanently — the grudge
   // does not expire.
   const frenzied = (m.frenzyT ?? 0) > 0 || !!m.enraged;
   if ((m.frenzyT ?? 0) > 0) m.frenzyT = Math.max(0, (m.frenzyT ?? 0) - dt);
@@ -1455,7 +1455,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if ((m.regroupT ?? 0) > 0) m.regroupT = Math.max(0, (m.regroupT ?? 0) - dt);
   if ((m.alertT ?? 0) > 0) m.alertT = Math.max(0, (m.alertT ?? 0) - dt);
   // Poise DRAINS toward zero (a fraction of the stagger threshold per second):
-  // an interrupt takes a concentrated burst â€” chip damage banks nothing. The
+  // an interrupt takes a concentrated burst — chip damage banks nothing. The
   // post-stagger grace window on bosses/elites ticks down here too.
   if (m.poiseDmg > 0) {
     const threshold = m.maxHp * ARCHETYPES[m.kind].poise * (m.elite ? CONFIG.elitePoiseMult : 1);
@@ -1465,7 +1465,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.hp <= 0) return; // dead-but-unreaped this step (e.g. a detonated bomber)
 
   // AMBUSH: a dormant monster lies inert until a player strays within trigger
-  // range, then springs â€” and drags its whole cluster up with it, all surging
+  // range, then springs — and drags its whole cluster up with it, all surging
   // to close the gap. Until sprung it neither moves nor attacks (quiet in fog).
   if (m.dormant) {
     const prey = nearestPlayer(state, m.pos);
@@ -1474,11 +1474,11 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   // FRENZY aura (MOB-CONCEPTS verb): a carrier (Drum Sergeant) keeps the beat
-  // on every pack-mate in radius. The drum radiates even mid-windup â€” only
+  // on every pack-mate in radius. The drum radiates even mid-windup — only
   // death stops the band. Kill-order lesson: the buffED aren't the problem.
   if (m.aura === "frenzy") {
     // SEWERS band personality (tier 3): an ALERTED drummer doesn't just buff
-    // â€” it beats the CHARGE: ONE surge per alarm (not a standing state â€” a
+    // — it beats the CHARGE: ONE surge per alarm (not a standing state — a
     // permanent march made floor 4 a wall in the 20-seed probe). The whole
     // aura joins the hunt for one memory window and keeps the long frenzy
     // for one rush; after that the drum is back to its passive linger buff
@@ -1502,13 +1502,13 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const prey = nearestPlayer(state, m.pos);
       if (prey && dist(m.pos, prey.pos) <= CONFIG.monsterAggroRange * 1.5) {
         m.noticed = true;
-        state.events.push("A Drum Sergeant beats the advance â€” the pack is FRENZIED. Silence the band.");
+        state.events.push("A Drum Sergeant beats the advance — the pack is FRENZIED. Silence the band.");
       }
     }
   }
 
   // The Darling's stardust (shield aura): her entourage takes half while she
-  // lives â€” she takes MORE (see damageMonster). The kill order, stated aloud.
+  // lives — she takes MORE (see damageMonster). The kill order, stated aloud.
   if (m.aura === "shield") {
     let sheltered = false;
     for (const ally of state.monsters) {
@@ -1521,13 +1521,13 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const prey = nearestPlayer(state, m.pos);
       if (prey && dist(m.pos, prey.pos) <= CONFIG.monsterAggroRange * 1.5) {
         m.noticed = true;
-        state.events.push("The DARLING shields her entourage â€” and takes the spotlight's price herself. You know the kill order.");
+        state.events.push("The DARLING shields her entourage — and takes the spotlight's price herself. You know the kill order.");
       }
     }
   }
 
   // CHILLING elites (5.11) radiate cold: any crawler inside the aura is
-  // slowed (short duration, re-applied every step in range â€” it fades a beat
+  // slowed (short duration, re-applied every step in range — it fades a beat
   // after you break away). Passive frost: it radiates even mid-windup/stagger.
   if (m.affix === "chilling") {
     for (const pl of state.players) {
@@ -1537,7 +1537,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   // Staggered: helpless. The stagger that set this also canceled any windup
-  // (and any rush in progress â€” see damageMonster in game.ts).
+  // (and any rush in progress — see damageMonster in game.ts).
   if (m.stagger > 0) {
     m.stagger = Math.max(0, m.stagger - dt);
     return;
@@ -1549,7 +1549,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
-  // Stagehand mid-vanish: the smoke holds until the marked re-entry pops â€”
+  // Stagehand mid-vanish: the smoke holds until the marked re-entry pops —
   // then it appears AT the mark (the arrival blast is the payoff/punish).
   if ((m.vanishT ?? 0) > 0) {
     m.vanishT = Math.max(0, (m.vanishT ?? 0) - dt);
@@ -1558,7 +1558,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       m.reentryAt = undefined;
       m.surgeT = 0.5; // arrives HOT for a beat
     }
-    return; // gone â€” no moving, no swinging, until the smoke clears
+    return; // gone — no moving, no swinging, until the smoke clears
   }
 
   // Committed to an attack: rooted until the windup expires, then it resolves.
@@ -1570,14 +1570,14 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     return;
   }
 
-  // Each monster hunts the nearest living party member â€” unless a STUNT
+  // Each monster hunts the nearest living party member — unless a STUNT
   // DOUBLE in taunt range steals the show (the whole point of hiring one).
   const player = nearestPlayer(state, m.pos);
   if (!player) return;
   const hunt = tauntingDecoy(state, m.pos) ?? player;
   let d = dist(m.pos, hunt.pos);
   // STAGED PERCEPTION (staging v2): an undisturbed resident is absorbed in
-  // its act â€” the barracks SLEEPS, diners are slow to look up, the guardpost
+  // its act — the barracks SLEEPS, diners are slow to look up, the guardpost
   // is paid to watch. Until someone crosses aggroRange x the purpose's
   // perception, every aggro gate below sees a distance beyond its widest
   // multiplier, so the scene simply continues: sneaking past is a real
@@ -1594,7 +1594,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // Depth tempo: deeper floors telegraph shorter (capped so tells stay readable).
   const windup = ARCHETYPES[m.kind].windup * monsterTempo(state.floor).windup;
   // Ambush surge: freshly-sprung monsters move faster for a beat (the pounce).
-  // Drum frenzy stacks on top â€” a frenzied pack CLOSES.
+  // Drum frenzy stacks on top — a frenzied pack CLOSES.
   const moveSpeed = m.speed * ((m.surgeT ?? 0) > 0 ? CONFIG.ambushSurgeSpeed : 1) *
     (frenzied ? CONFIG.drumFrenzySpeed : 1);
 
@@ -1608,7 +1608,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     beginWindup(m, "summon", CONFIG.summonWindup);
   }
 
-  // MORTAR elites (six-pack) lob arcing shells at your position â€” the shell
+  // MORTAR elites (six-pack) lob arcing shells at your position — the shell
   // ignores walls (it goes OVER them), so cover stops being safe. Too close
   // and it can't arc: getting IN its face is the counterplay.
   if (
@@ -1627,20 +1627,20 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     });
   }
 
-  // BERSERKING elites (six-pack): below half HP the frenzy self-sustains â€”
+  // BERSERKING elites (six-pack): below half HP the frenzy self-sustains —
   // the drum-frenzy plumbing, fed by its own wounds. Finish what you start.
   if (m.affix === "berserking" && m.hp < m.maxHp * CONFIG.berserkThreshold) {
     m.frenzyT = Math.max(m.frenzyT ?? 0, 0.5);
     if (!m.noticed) {
       m.noticed = true;
-      state.events.push(`${m.eliteName ?? "The elite"} goes BERSERK â€” wounded and faster for it. Finish what you started.`);
+      state.events.push(`${m.eliteName ?? "The elite"} goes BERSERK — wounded and faster for it. Finish what you started.`);
     }
   }
 
   if (m.kind === "boss") {
     // BOSSES V2: the 150-line boss monolith became a CHASSIS + a per-boss
-    // override (Â§7.1). Chase, volley, slam, phases, plates, shields, tethers
-    // and the punish window are shared â€” they were the good part; each boss
+    // override (§7.1). Chase, volley, slam, phases, plates, shields, tethers
+    // and the punish window are shared — they were the good part; each boss
     // supplies only its own ability block, exactly as the trash kinds do.
     stepBoss(state, m, dt, { d, hunt: player, toPlayer, windup, moveSpeed });
     return;
@@ -1667,7 +1667,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     // Repo Rat: never fights. Unnoticed it just scurries its rounds; spotted,
     // it BOLTS away from the nearest crawler, and if it stays clear long
     // enough it ESCAPES with everything it carries. Chase it or write it off.
-    // The suitguy runs the same brain â€” except sparing HIM pays (reapDead).
+    // The suitguy runs the same brain — except sparing HIM pays (reapDead).
     if (!m.noticed) {
       if (d <= CONFIG.monsterAggroRange) {
         m.noticed = true;
@@ -1696,7 +1696,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "stagehand") {
-    // Stagehand: blink in, two fast hits, SMOKE OUT â€” leaving a marked
+    // Stagehand: blink in, two fast hits, SMOKE OUT — leaving a marked
     // re-entry blast where you were standing. Hold the mark, punish the pop.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if ((m.heat ?? 0) >= CONFIG.stagehandStrikes) {
@@ -1719,7 +1719,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       });
       if (!m.noticed) {
         m.noticed = true;
-        state.events.push("The stagehand SMOKES OUT â€” the mark is where it comes BACK. Hold the spot, meet the entrance.");
+        state.events.push("The stagehand SMOKES OUT — the mark is where it comes BACK. Hold the spot, meet the entrance.");
       }
       return;
     }
@@ -1736,9 +1736,9 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "sniper") {
     // Boom Operator: a cross-room lane, locked at cast (a pure position
-    // test), then it RELOCATES â€” the lane never fires twice from one spot.
+    // test), then it RELOCATES — the lane never fires twice from one spot.
     if (d > CONFIG.monsterAggroRange * 2) { wander(state, m, dt); return; }
-    // Spend the stretch right after the shot displacing â€” perpendicular by
+    // Spend the stretch right after the shot displacing — perpendicular by
     // parity, blended with AWAY so a walled flank still slides somewhere
     // (the aim windup eats the first sniperArm seconds of cooldown).
     if (m.shootCd > CONFIG.sniperCooldown - CONFIG.sniperArm - CONFIG.sniperRelocateSecs) {
@@ -1770,7 +1770,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       beginWindup(m, "aim", arm);
       if (!m.noticed) {
         m.noticed = true;
-        state.events.push("A sniper lane CROSSES THE ROOM â€” it's locked from the start. You have until the flash.");
+        state.events.push("A sniper lane CROSSES THE ROOM — it's locked from the start. You have until the flash.");
       }
       return;
     }
@@ -1778,14 +1778,14 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "duelist") {
-    // Featured Extra: a fencer with a FLOURISH â€” periodically the blade goes
+    // Featured Extra: a fencer with a FLOURISH — periodically the blade goes
     // up (riposteT), and melee into it gets parried AND returned. Hold the
     // swing, or answer with ranged/magic; the flourish only reads steel.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if ((m.riposteT ?? 0) <= 0 && m.healCd === 0 && d <= m.attackRange + 2) {
       m.healCd = CONFIG.riposteCooldown; // healCd is free on melee kinds
       m.riposteT = CONFIG.riposteWindow;
-      return; // the flourish itself is the beat â€” it stands its ground
+      return; // the flourish itself is the beat — it stands its ground
     }
     if ((m.riposteT ?? 0) > 0) return; // holding the pose, daring you
     if (d <= m.attackRange) {
@@ -1798,7 +1798,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "darling" || m.kind === "canceled") {
     // Darling: her stardust aura (above) is the mechanic; up close she slaps.
-    // Canceled: a former favorite running PLAYER verbs â€” lateral dash
+    // Canceled: a former favorite running PLAYER verbs — lateral dash
     // sidesteps on a cadence, a nova-slam on a longer one, swings between.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (m.kind === "canceled") {
@@ -1809,7 +1809,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       }
       if ((m.slamCd ?? 0) === 0 && d <= CONFIG.bruteSlamRadius + 0.5) {
         m.slamCd = CONFIG.canceledNovaCooldown;
-        beginWindup(m, "slam", windup * 1.3); // its "nova" â€” shove included
+        beginWindup(m, "slam", windup * 1.3); // its "nova" — shove included
         return;
       }
     }
@@ -1822,7 +1822,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "foreman") {
-    // THE FOREMAN (champion tier): a mini-boss kit without the arena â€” slam
+    // THE FOREMAN (champion tier): a mini-boss kit without the arena — slam
     // up close, radial volley at range, relentless walk between. A boss
     // fight's rhythm at a floor-14 checkpoint, purple-name dopamine included.
     if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
@@ -1858,7 +1858,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       }
     } else if (m.kind === "shieldbearer") {
       // RUINS band personality (tier 3): the PHALANX. The shield doesn't
-      // chase â€” it walks the line between the crawler and its backline
+      // chase — it walks the line between the crawler and its backline
       // (nearest caster: cleric consecrating, hexer marking), so reaching
       // the priority target means going through the wall. No backline to
       // hold for -> ordinary advance.
@@ -1885,7 +1885,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "cleric") {
     // Ruins cleric: shaman standoff; blesses the ground under its most
-    // wounded packmate (or itself, holding the line) â€” contested ground.
+    // wounded packmate (or itself, holding the line) — contested ground.
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (d < standoff - 1.5) {
@@ -1911,7 +1911,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "archivist") {
     // The Archivist: standoff channeler. Its SWEEPING beam starts aimed away
-    // from you and rotates toward you for the whole channel â€” walk its pace
+    // from you and rotates toward you for the whole channel — walk its pace
     // or stagger the channel (the beam dies with it).
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
@@ -1922,7 +1922,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     }
     if (m.shootCd === 0 && d <= CONFIG.sweepLength) {
       m.shootCd = CONFIG.sweepCooldown;
-      // Start the beam ~90Â° off the target and sweep TOWARD them; the sign
+      // Start the beam ~90° off the target and sweep TOWARD them; the sign
       // picks the shorter arc so the pace reads immediately.
       const targetAngle = datan2(toPlayer.y, toPlayer.x);
       const offset = Math.PI / 2;
@@ -1946,7 +1946,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       beginWindup(m, "sweep", CONFIG.sweepDuration); // rooted for the channel
       if (!m.noticed) {
         m.noticed = true;
-        state.events.push("The Archivist OPENS THE TEXT â€” the beam sweeps. Walk its pace, or shut the book with a stagger.");
+        state.events.push("The Archivist OPENS THE TEXT — the beam sweeps. Walk its pace, or shut the book with a stagger.");
       }
       return;
     }
@@ -1959,7 +1959,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (m.shootCd === 0 && d >= 1.2 && d <= CONFIG.cutpurseLungeRange && m.attackCooldown === 0) {
       m.shootCd = CONFIG.cutpurseLungeCooldown;
-      m.chargeDir = toPlayer; // lane locked NOW â€” sidestep the stab
+      m.chargeDir = toPlayer; // lane locked NOW — sidestep the stab
       beginWindup(m, "lunge", windup);
       return;
     }
@@ -1973,7 +1973,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "warden" || m.kind === "digger") {
     // Ossuary Warden: a slow bone golem whose slam SHATTERS into a lingering
-    // shard zone (see the slam resolve). Pit Digger: the knockback tutor â€”
+    // shard zone (see the slam resolve). Pit Digger: the knockback tutor —
     // the game's slowest tell ends in a launch, not a wound.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) {
@@ -1985,13 +1985,13 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "understudy") {
-    // Understudy: a weak shuffler with a TRANSFORMATION CLAUSE â€” bleeding
+    // Understudy: a weak shuffler with a TRANSFORMATION CLAUSE — bleeding
     // below half HP commits the morph (interruptible; it re-arms while hurt).
     if ((m.hp < m.maxHp * CONFIG.morphHpFraction) && m.windup <= 0) {
       beginWindup(m, "morph", CONFIG.morphWindup);
       if (!m.noticed) {
         m.noticed = true;
-        state.events.push("The understudy is TRANSFORMING â€” stagger it or meet the wolf.");
+        state.events.push("The understudy is TRANSFORMING — stagger it or meet the wolf.");
       }
       return;
     }
@@ -2007,7 +2007,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   if (m.kind === "lasher") {
     // Vine Lasher: mid-range whip. In its band it locks the HOOK lane (the
     // longest telegraph in the game) and drags whoever's still standing in
-    // it. It NEVER brawls â€” crowd it and it slinks back to whip range,
+    // it. It NEVER brawls — crowd it and it slinks back to whip range,
     // which is exactly how you want to fight it (and how it wants you not to).
     if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
     if (m.shootCd === 0 && d >= 1.6 && d <= CONFIG.lasherHookRange) {
@@ -2044,7 +2044,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "lineworker" || m.kind === "greeter") {
     // Lineworker: grunt chase, but the swing is a PISTON PUNCH (launches the
-    // survivor â€” see resolveStrike "punch"). Greeter: same chassis, same
+    // survivor — see resolveStrike "punch"). Greeter: same chassis, same
     // punch, but it spawned dormant among the props (ambush plumbing) and
     // discharges sparks on death (see reapDead).
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
@@ -2058,7 +2058,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "sentinel") {
     // Sentinel: turret-bot. Holds a long standoff and paints you with a
-    // LOCK-ON beam â€” the line tracks while arming, freezes for the final
+    // LOCK-ON beam — the line tracks while arming, freezes for the final
     // lock window, then fires the railshot (updateHazards owns the beam).
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     if (m.shootCd === 0 && d <= m.attackRange + 2) {
@@ -2097,7 +2097,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "slagbreaker") {
-    // Slagbreaker: brute rhythm with a heat gauge â€” three swings, then it
+    // Slagbreaker: brute rhythm with a heat gauge — three swings, then it
     // MUST vent (scalding cloud + self-stagger). Count, dodge, unload.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if ((m.heat ?? 0) >= CONFIG.slagVentAfterSwings) {
@@ -2114,7 +2114,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "toysoldier") {
     // Wind-Up Battalion: the squad presents muskets TOGETHER and fires as
-    // one announced volley â€” one big dodge, not six points of chip. The
+    // one announced volley — one big dodge, not six points of chip. The
     // lowest-id living member is the squad leader and keeps the cadence;
     // a broken squad (under toysquadSyncMin) degrades to ragged solo shots.
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
@@ -2132,7 +2132,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         if (!m.noticed) {
           m.noticed = true;
           state.announcements.push({
-            text: "The Battalion PRESENTS ARMS. One volley, one dodge â€” make it count.",
+            text: "The Battalion PRESENTS ARMS. One volley, one dodge — make it count.",
             kind: "flavor", priority: "normal",
           });
         }
@@ -2154,7 +2154,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "ranged") {
-    // Ranged: keep a standoff, aim (windup) then shoot when in band â€” and
+    // Ranged: keep a standoff, aim (windup) then shoot when in band — and
     // fight like a UNIT (tier 2c): spread into a crossfire arc instead of a
     // stacked firing squad, and when closed on, fall back INTO the pack's
     // melee (the archer kites you to its bodyguards, not into open space).
@@ -2188,7 +2188,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     } else {
       // In band and sighted: claim your own ARC. If a lower-id ranged ally
       // shares this firing bearing, strafe perpendicular (id-parity side)
-      // until the crossfire opens â€” deterministic, and only the later
+      // until the crossfire opens — deterministic, and only the later
       // arrival moves, so pairs never oscillate.
       const myBearing = datan2(m.pos.y - hunt.pos.y, m.pos.x - hunt.pos.x);
       let crowded = false;
@@ -2215,7 +2215,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "bomber") {
     // Bomber: waddle at the nearest player; on contact it LIGHTS THE FUSE and
-    // roots â€” the detonation lands where the fuse ran out, dodge it or eat it.
+    // roots — the detonation lands where the fuse ran out, dodge it or eat it.
     // Shot down early, it still cooks off at half radius (see reapDead in game.ts).
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) beginWindup(m, "fuse", CONFIG.bomberFuse);
@@ -2241,7 +2241,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         if (!target || ally.hp < target.hp) target = ally;
       }
       if (target) {
-        // Paid up front â€” a whiff still costs. The channel is the party's
+        // Paid up front — a whiff still costs. The channel is the party's
         // "focus the shaman" window (same shape as the necromancer's raise).
         m.healCd = CONFIG.shamanHealCooldown;
         m.healId = target.id;
@@ -2252,7 +2252,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "charger") {
-    // Charger: in its rush band it LOCKS a direction and telegraphs long â€”
+    // Charger: in its rush band it LOCKS a direction and telegraphs long —
     // the lane is the danger, sidestep it. Point-blank it just swings.
     if (d > CONFIG.monsterAggroRange * 1.5) { wander(state, m, dt); return; }
     if (m.attackCooldown === 0 && d >= CONFIG.chargerMinRange && d <= CONFIG.chargerRange) {
@@ -2270,7 +2270,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
 
   if (m.kind === "spitter") {
     // Spitter: ranged standoff; lobs acid at where you're STANDING. The puddle
-    // is the threat â€” it lingers, so the floor itself becomes the enemy.
+    // is the threat — it lingers, so the floor itself becomes the enemy.
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
     const standoff = m.attackRange;
     if (m.shootCd === 0 && d <= standoff + 2) {
@@ -2304,7 +2304,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
         if (!corpse || c.t > corpse.t) corpse = c; // prefers the freshest body
       }
       if (corpse) {
-        m.healCd = CONFIG.necroRaiseCooldown; // paid up front â€” a whiff still costs
+        m.healCd = CONFIG.necroRaiseCooldown; // paid up front — a whiff still costs
         m.raiseId = corpse.id;
         beginWindup(m, "raise", windup);
       }
@@ -2313,7 +2313,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "broodmother") {
-    // Broodmother: a walking nest. She never attacks â€” she waddles AWAY from
+    // Broodmother: a walking nest. She never attacks — she waddles AWAY from
     // trouble and BIRTHS swarmers on a timer, so a pack you ignore grows.
     // Lifetime-capped per mother, plus a global population guard.
     if (d > CONFIG.monsterAggroRange * 1.7) { wander(state, m, dt); return; }
@@ -2324,7 +2324,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       (m.affixCd ?? 0) === 0 && (m.summons ?? 0) < CONFIG.broodSpawnMax &&
       state.monsters.length < CONFIG.monsterMaxCount * CONFIG.broodPopulationCap
     ) {
-      // The birth is a channel â€” the first-summon event moved to the resolve.
+      // The birth is a channel — the first-summon event moved to the resolve.
       m.affixCd = CONFIG.broodSpawnCooldown;
       beginWindup(m, "summon", CONFIG.summonWindup);
     }
@@ -2347,7 +2347,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   }
 
   if (m.kind === "brute") {
-    // Brute: its long, scary windup resolves as a self-centered Ground Slam â€”
+    // Brute: its long, scary windup resolves as a self-centered Ground Slam —
     // an AoE, not a single-target hit. Respect it (back off) or interrupt it.
     if (d > CONFIG.monsterAggroRange) { wander(state, m, dt); return; }
     if (d <= m.attackRange) {
@@ -2356,8 +2356,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
       const px = m.pos.x, py = m.pos.y;
       moveWithCollision(state.map, m.pos, toPlayer, moveSpeed * dt, isWalkable);
       if (dhypot(m.pos.x - px, m.pos.y - py) < moveSpeed * dt * 0.25) {
-        // BRUTE SMASH-THROUGH (PHYSICALITY.md Â§1 v2): stalled against blocking
-        // furniture with the prey beyond it? Then the furniture IS the target â€”
+        // BRUTE SMASH-THROUGH (PHYSICALITY.md §1 v2): stalled against blocking
+        // furniture with the prey beyond it? Then the furniture IS the target —
         // the same telegraphed slam, resolved against the room (the resolve
         // clears every footprint piece in the arc). The payoff moment.
         if (m.attackCooldown === 0 && furnitureWithin(state, m.pos, m.attackRange + CONFIG.monsterStrikeGrace + 0.45)) {
@@ -2373,8 +2373,8 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
   // Melee archetypes (grunt / swarmer).
   if (!hunterAlerted(state, m, hunt.pos, d, CONFIG.monsterAggroRange)) { wander(state, m, dt); return; }
 
-  // RETREAT-AND-REGROUP (encounter director, tier 4): a broken survivor â€”
-  // wounded, packmates dead around it, nobody left beside it â€” BOLTS for
+  // RETREAT-AND-REGROUP (encounter director, tier 4): a broken survivor —
+  // wounded, packmates dead around it, nobody left beside it — BOLTS for
   // reinforcements instead of trading its life. It flees uphill on the flow
   // field (away from every crawler, along walkable topology); the moment it
   // reaches another pack it raises the alarm and turns to fight with them.
@@ -2384,7 +2384,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     for (const ally of state.monsters) {
       if (ally === m || ally.hp <= 0 || ally.dormant || ally.kind === "boss") continue;
       if (dist(m.pos, ally.pos) <= CONFIG.packAlertRadius && tileLos(state.map, m.pos, ally.pos)) {
-        alertMonster(state, ally); // the alarm â€” its pack cascades awake
+        alertMonster(state, ally); // the alarm — its pack cascades awake
         m.regroupT = 0;
         m.alertT = monsterMemory(state.floor);
         break;
@@ -2410,7 +2410,7 @@ export function stepMonster(state: GameState, m: Monster, dt: number): void {
     if (corpses >= CONFIG.regroupCorpseCount && alone) {
       m.regroupT = CONFIG.regroupSeconds;
       m.regrouped = true;
-      state.events.push("A survivor BOLTS for reinforcements â€” cut it down before the whole floor knows.");
+      state.events.push("A survivor BOLTS for reinforcements — cut it down before the whole floor knows.");
       return;
     }
   }

@@ -27,26 +27,48 @@
 // lifetime. The fight is then driven by hand through __dcc.step, and the frame
 // is aged deliberately with __vt.advance(ms) just before each capture.
 //
-// Usage: node tools/bossshot.mjs [outDir] [--only=id,id]
+// Usage: node tools/bossshot.mjs --base=http://localhost:5410 --out=tools/_bossN [--only=id,id] [--swiftshader]
+//
+// --base and --out are REQUIRED and explicit on purpose. The previous cut
+// hardcoded a port from a dead dev server and defaulted its output into a
+// directory another session had already filled, so a run that captured nothing
+// still "produced" a full set of frames. Both are now stated by the caller.
+//
+// GPU: real ANGLE/d3d11 by default (see tools/gpuprobe.mjs). SwiftShader
+// composites seconds after staging and eats any beat shorter than that, so it
+// is opt-in via --swiftshader and should only be used where no GPU exists.
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
-const OUT = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "tools/_boss";
-const ONLY = (process.argv.find((a) => a.startsWith("--only=")) || "").slice(7).split(",").filter(Boolean);
-const PORT = process.env.DCC_PORT || "5360";
+const flag = (name, def) => {
+  const hit = process.argv.find((a) => a.startsWith("--" + name + "="));
+  return hit ? hit.slice(name.length + 3) : def;
+};
+const BASE = (flag("base", process.env.DCC_BASE) || "").replace(/\/+$/, "");
+const OUT = flag("out", process.env.DCC_OUT);
+if (!BASE || !OUT) {
+  console.error("usage: node tools/bossshot.mjs --base=http://localhost:PORT --out=DIR [--only=id,id] [--swiftshader]");
+  process.exit(2);
+}
+const ONLY = (flag("only", "") || "").split(",").filter(Boolean);
+const SWIFT = process.argv.includes("--swiftshader");
 mkdirSync(OUT, { recursive: true });
+console.log("base=" + BASE + " out=" + OUT + " gl=" + (SWIFT ? "swiftshader" : "angle/d3d11"));
 
 const BANDS = { 1: 3, 2: 6, 3: 9, 4: 12, 5: 15, 6: 18 };
 
 const browser = await chromium.launch({
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox"],
+  headless: SWIFT, // headless-new still routes through SwiftShader on many boxes
+  args: SWIFT
+    ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-gpu-sandbox"]
+    : ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", "--enable-gpu-rasterization"],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
 
 function url(seed, floor) {
   const lvl = Math.min(30, 6 + floor);
-  return "http://localhost:" + PORT + "/iso.html?test&debug=1&clean=1&floor=" + floor +
+  return BASE + "/iso.html?test&debug=1&clean=1&floor=" + floor +
     "&level=" + lvl + "&abilities=all&gold=4000&seed=" + seed + "&eagerassets";
 }
 
@@ -208,6 +230,19 @@ const DRIVER2 = String.raw`
         var hb = bf.boss();
         if (hb && hb.hp > 0 && hb.hp < hold) hb.hp = hold;
       }
+      // A FLOOR, not a pin (r4 blocker). The phase hunt cannot pin the health
+      // (the intermission is HP-gated, so a pinned boss never reaches it), and
+      // the crawler is handed bonusDamage = 60 + floor*26 at the approach — so
+      // three bosses in the last run died DURING the phase hunt and nine of a
+      // hundred and eight frames were a corpse filed as a live beat. A floor
+      // just above the last phase gate lets every gate land and stops the boss
+      // dying while the harness is waiting for one.
+      if (opts.floorHp > 0) {
+        var fb = bf.boss();
+        if (fb && fb.hp > 0 && fb.hp < fb.maxHp * opts.floorHp) {
+          fb.hp = fb.maxHp * opts.floorHp;
+        }
+      }
       if (!evs) return { done: "noboss" };
       for (var j = 0; j < evs.length; j++) {
         var e = evs[j];
@@ -250,16 +285,60 @@ const DRIVER2 = String.raw`
 // token; every capture checks it and aborts the boss so the outer loop can
 // start that fight over from the top.
 let bootToken = 0;
-async function guard() {
+async function guard(opts = {}) {
   const st = await page.evaluate((tok) => {
     const el = document.getElementById("loading");
+    // THE PLAYFIELD MUST BE UNOBSTRUCTED (r4 blocker). Reading
+    // `state.status !== "playing"` was not enough on its own, because bf.tick
+    // FORCE-WRITES st.status back to "playing" on every step — so the sim
+    // looked alive to the guard while the host had already opened THE VERDICT
+    // and every subsequent frame was that modal. This measures the SCREEN
+    // instead: any fixed overlay actually covering the middle of the viewport
+    // is a frame that does not contain its beat, whatever the sim says.
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let blocker = null;
+    const named = ["recap", "menu", "draft", "saferoom", "inv", "abil", "sheet", "keys", "dialogue"];
+    for (const id of named) {
+      const e = document.getElementById(id);
+      if (!e) continue;
+      const cs = getComputedStyle(e);
+      if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) < 0.05) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width * r.height > vw * vh * 0.25) { blocker = id; break; }
+    }
+    // ...and whatever the DOM says, ask the compositor what is actually on top
+    // of the middle of the frame. A future overlay nobody remembered to name
+    // still gets caught.
+    if (!blocker) {
+      const top = document.elementFromPoint(vw / 2, vh / 2);
+      for (let e = top; e; e = e.parentElement) {
+        if (e.id && named.includes(e.id)) { blocker = e.id + "@center"; break; }
+      }
+    }
+    const b = window.__dcc && window.__dcc.state.monsters.find((m) => m.kind === "boss");
     return {
       bf: !!window.__bf, tok: window.__bfBoot, want: tok,
       loading: !!el && el.style.display !== "none" && !el.classList.contains("done"),
+      dead: !!window.__dcc && window.__dcc.state.status !== "playing",
+      modal: blocker || document.body.classList.contains("modal") ? (blocker || "body.modal") : null,
+      bossHp: b ? b.hp : -1,
     };
   }, bootToken);
   if (!st.bf || st.tok !== st.want || st.loading) {
     throw new Error("RELOAD " + JSON.stringify(st));
+  }
+  // THE CAPTURE HONESTY RULE, mechanised. A run that has ended puts THE VERDICT
+  // over the whole screen; every pixel of the beat is behind it. The old
+  // harness had no idea and saved the panel under the beat's filename.
+  if (st.dead) throw new Error("RUN ENDED — refusing to shoot " + JSON.stringify(st));
+  if (st.modal) throw new Error("PLAYFIELD OBSCURED by " + st.modal + " — refusing to shoot");
+  // A LIVE BEAT NEEDS A LIVE BOSS. The harness hands the crawler
+  // `bonusDamage = 60 + floor*26` at the approach, and three bosses died during
+  // the phase hunt in the last run — so nine of a hundred and eight frames were
+  // a corpse filed as -4phase / -5punish / -6kill. A shot that claims a beat
+  // the boss has to be alive for now refuses to save rather than lying.
+  if (opts.bossAlive && !(st.bossHp > 0)) {
+    throw new Error("BOSS IS DEAD — refusing to shoot a corpse as a live beat");
   }
 }
 
@@ -286,8 +365,8 @@ async function hunt(want, maxSteps, opts, budgetMs = 240000) {
   }
   return done;
 }
-async function shoot(name, ageMs = 260) {
-  await guard();
+async function shoot(name, ageMs = 260, opts = {}) {
+  await guard(opts);
   const path = OUT + "/" + name + ".png";
   console.log("    [" + el() + "] shooting " + name);
   await page.evaluate((ms) => {
@@ -303,7 +382,7 @@ async function shoot(name, ageMs = 260) {
     step();
   }, ageMs);
   await page.waitForTimeout(420);
-  await guard();
+  await guard(opts);
   // FREEZE THE BEAT (r3 blocker 1). Every boss beat now expires on the FRAME
   // clock, which this harness has stopped; __dcc.hold pushes every live
   // deadline out past the shutter as well, and a self-re-arming rAF keeps it
@@ -338,15 +417,64 @@ async function shoot(name, ageMs = 260) {
       cords: fx.tethers ? fx.tethers.size : -1,
       aides: fx.aides ? fx.aides.size : -1,
       exposure: Number(fx.exposureScale || 1).toFixed(2),
+      // THE CAPTURE HONESTY RULE, mechanised harder (r4). "The sim emitted a
+      // telegraph" is not evidence that the frame contains it: a stale seal
+      // held open by a capture hold is indistinguishable from a live beat in a
+      // still. This is what is actually drawing, by silhouette, this frame.
+      shapes: fx.liveShapes ? fx.liveShapes() : null,
       loot: st.loot.length,
       hp: boss ? Math.round((boss.hp / boss.maxHp) * 100) : -1,
     };
   });
   console.log("      on-screen " + JSON.stringify(probe));
   await page.screenshot({ path, timeout: 240000 });
-  await page.evaluate(() => { window.__dcc.release(); });
+  // DISARM THE HOLD, then FLUSH (recon fix). Two harness defects, one cause:
+  //   1. `__bfHold` armed a self-re-arming rAF that was never set false, so
+  //      from the first capture onward every live rig had its lifetime pinned
+  //      to 600s for the rest of the boss run.
+  //   2. The virtual clock advances ~0.4ms per rendered frame, so a 2.6s arena
+  //      ring needs ~108 real seconds to expire on its own.
+  // Together they meant the approach seal and the intro seal were STILL ON
+  // SCREEN in every later frame of the fight — which is exactly how six
+  // different bosses came to share one silhouette in the mask sheet. The beats
+  // are the sim's; only their expiry was broken. Nothing here removes a beat
+  // that is genuinely still running: the flush advances the same clock the
+  // renderer already uses.
+  await page.evaluate(() => { window.__bfHold = false; window.__dcc.release(); });
   console.log("    [" + el() + "] saved " + path);
   return probe;
+}
+/**
+ * Age the frame clock so beats that ended actually stop being drawn.
+ *
+ * The clock the host renders on is also the clock it STEPS on, so a naive
+ * flush hands the sim four seconds in which the crawler stands still and does
+ * nothing — and a stationary crawler dies in about two seconds on a boss floor
+ * (BOSSES-V2 §6.1). The first cut of this did exactly that and shipped six
+ * IN MEMORIAM screens filed as punish captures. The crawler is therefore kept
+ * on their feet across the flush, the same way bf.tick already keeps them.
+ */
+async function flush(ms = 4000) {
+  await page.evaluate((n) => {
+    window.__bfHold = false;
+    let left = n;
+    const step = () => {
+      const st = window.__dcc.state;
+      const p = st.players[0];
+      if (p) { p.hp = p.maxHp; p.alive = true; p.downedT = 0; }
+      if (st.status !== "playing") st.status = "playing";
+      if (left <= 0) return;
+      window.__vt.advance(Math.min(24, left));
+      left -= 24;
+      requestAnimationFrame(step);
+    };
+    step();
+  }, ms);
+  await page.waitForTimeout(Math.min(2500, ms / 24 * 16 + 200));
+  // Assert the flush did not end the run — a capture taken behind THE VERDICT
+  // is not a capture of a boss beat.
+  const alive = await page.evaluate(() => window.__dcc.state.status === "playing");
+  if (!alive) throw new Error("flush ended the run");
 }
 
 /** The signature each fight is ABOUT, where it is not simply the first fired. */
@@ -471,15 +599,18 @@ async function captureBoss(id, info) {
       for (const a of st.monsters) if (a.tetherId === b.id && a.hp > 0) a.hp = a.maxHp;
     });
   }
+  await flush();
   let tele = HEADLINE[id]
-    ? await hunt(["telegraph"], 3600, { label: true, prefer: HEADLINE[id], holdHp: true })
+    ? await hunt(["telegraph"], 3600, { label: true, prefer: HEADLINE[id], holdHp: true, floorHp: 0.5 })
     : { done: "timeout" };
   // Waiting for a NAMED verb must never be what ends the fight — the Grease
   // Trap died mid-wait in one run and took its whole beat chain with it, so
   // the health is pinned while the harness waits, exactly as for the punish.
-  if (tele.done !== "event") tele = await hunt(["telegraph"], 2400, { label: true, holdHp: true });
+  if (tele.done !== "event") {
+    tele = await hunt(["telegraph"], 2400, { label: true, holdHp: true, floorHp: 0.5 });
+  }
   console.log("  fight: " + JSON.stringify(tele));
-  await shoot(id + "-3fight", 300);
+  await shoot(id + "-3fight", 300, { bossAlive: true });
   row.beats.fight = tele.done === "event" ? tele.label : tele.done;
   row.fightHp = tele.hp;
 
@@ -487,9 +618,19 @@ async function captureBoss(id, info) {
   //    fighting: whichever trigger this boss owns (a health gate, or the
   //    mechanic edge its own kit fires) lands first, and the plate is at a
   //    real value when it does.
-  const phase = await hunt(["intermission"], 9000, {});
+  await flush();
+  // NO holdHp: the intermission is HP-gated, so pinning the health means the
+  // gate never comes and the segment times out (measured: 4 of 6). The risk is
+  // the opposite one — a fully-kitted crawler killing the boss during the wait
+  // and the harness shooting the CORPSE under a `-4phase` filename, which is
+  // what produced three frames of one dead Topiary Warden filed as phase,
+  // punish and kill. `row.beats.phase` records which happened; read it before
+  // believing the frame.
+  // 0.30 sits just under the 1/3 gate, so both HP phases still land and the
+  // boss cannot die inside the hunt (see bf.until's floorHp).
+  const phase = await hunt(["intermission"], 9000, { floorHp: 0.30 });
   console.log("  phase: " + JSON.stringify(phase));
-  await shoot(id + "-4phase", 240);
+  await shoot(id + "-4phase", 240, { bossAlive: true });
   row.beats.phase = phase.done;
   row.phaseHp = phase.hp;
 
@@ -497,12 +638,13 @@ async function captureBoss(id, info) {
   //    signatures, not on its health, so the segment PINS the health while it
   //    waits — otherwise a well-armed crawler ends the fight before the boss's
   //    count comes round, which is how the previous round lost this beat.
-  const punish = await hunt(["punish"], 9000, { holdHp: true });
+  await flush();
+  const punish = await hunt(["punish"], 9000, { holdHp: true, floorHp: 0.30 });
   console.log("  punish: " + JSON.stringify(punish));
   // Aged into the MIDDLE of the window: the reticle opens wide and CLOSES on
   // the core, so a frame from its first instant shows the brackets at their
   // widest, which is where they read least.
-  const punishShot = await shoot(id + "-5punish", 620);
+  const punishShot = await shoot(id + "-5punish", 620, { bossAlive: true });
   row.marks = punishShot.marks;
   row.beats.punish = punish.done;
   row.punishHp = punish.hp;
@@ -515,6 +657,7 @@ async function captureBoss(id, info) {
     // here is already on record in the previous four frames.
     p.bonusDamage = (p.bonusDamage || 0) * 3 + 400;
   });
+  await flush();
   const killed = await hunt(["__never__"], 14000, {}); // runs to "dead"
   const kill = await page.evaluate((d) => {
     const st = window.__dcc.state;
@@ -526,6 +669,9 @@ async function captureBoss(id, info) {
   // ringside arcs fly out to them. 24 frames was 0.4 sim-seconds — barely
   // enough for the loot to exist, let alone to throw an arc at it.
   await page.evaluate(() => window.__bf.idle(70));
+  if (kill.done !== "dead" || kill.bossHp > 0) {
+    throw new Error("KILL BEAT NOT REACHED (" + kill.done + ", hp " + kill.bossHp + ")");
+  }
   const killShot = await shoot(id + "-6kill", 420);
   row.killShells = killShot.shells;
   row.killPlates = killShot.plates;

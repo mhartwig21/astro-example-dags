@@ -5872,8 +5872,13 @@ export class Renderer3D {
         if (ring!.userData.model) ring!.scale.set(ringS, Math.min(ringS * 0.3, 1.3), ringS);
         else ring!.scale.setScalar(ringS);
         if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
+        // r4 major: `1 - prog^2.2` holds above 0.9 for the first 70% of the
+        // beat, which is what made an additive-free standard material read as
+        // an opaque object. The ring is BRIGHTEST at birth and gone by the end
+        // — light behaves that way and props do not.
+        const fadeK = (1 - prog) * (1 - prog * 0.55);
         for (const mat of ring!.userData.mats as THREE.Material[]) {
-          (mat as THREE.MeshBasicMaterial).opacity = 1 - Math.pow(prog, 2.2);
+          (mat as THREE.MeshBasicMaterial).opacity = Math.max(0, fadeK);
         }
       } else if (ring) {
         ring.visible = false;
@@ -5885,7 +5890,22 @@ export class Renderer3D {
    * emissive fade treatment, or the classic bare torus when the file is
    * absent. Normalized so scale.setScalar(r) puts the rim at world radius r. */
   private buildFxRing(kind: "nova" | "cataclysm"): THREE.Object3D {
-    const color = kind === "cataclysm" ? 0xff8a3c : 0x8fd8ff;
+    // r4 major — THE NOVA WAS A PROP, NOT AN EFFECT. buildFxRing instantiated
+    // fx_nova_ring and only CLONED its MeshStandardMaterial, adding an
+    // emissive at intensity 0.55; with opacity 1 - prog^2.2 (which holds near
+    // 1.0 for the first ~70% of the beat) the result was an opaque pale-blue
+    // ice-shard model lying on the floor: flat vector-hard shard edges, uniform
+    // fill, no soft perimeter, no emissive read, clipping into the wall block
+    // on one side and occluding the crawler's feet on the other. That is the
+    // "recolored nova / paper cut-out" the readability contract forbids, on the
+    // game's most-cast ability.
+    //
+    // The geometry is fine — the MATERIAL was wrong. Lit standard shading on a
+    // hard-edged shard reads as a solid object; additive emission through the
+    // same shard reads as light with a shape. Additive also cannot occlude:
+    // the crawler's feet and the wall it clips are now added to, not covered.
+    const pal = kind === "cataclysm" ? FX_PAL.cataclysm : FX_PAL.nova;
+    const color = pal.mid;
     const model = this.modelInstance(kind === "cataclysm" ? "fx_cataclysm_crown" : "fx_nova_ring");
     const mats: THREE.Material[] = [];
     let obj: THREE.Object3D;
@@ -5896,18 +5916,22 @@ export class Renderer3D {
       model.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
-        const mat = (m.material as THREE.MeshStandardMaterial).clone();
-        mat.transparent = true;
-        mat.depthWrite = false;
-        mat.emissive = new THREE.Color(color);
-        mat.emissiveIntensity = 0.55;
+        const mat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(pal.core).lerp(new THREE.Color(color), 0.55),
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+        });
         m.material = mat;
         mats.push(mat);
       });
       obj = model;
       obj.userData.model = true;
     } else {
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true });
+      const mat = new THREE.MeshBasicMaterial({
+        color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      });
       const torus = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 40), mat);
       torus.rotation.x = -Math.PI / 2;
       mats.push(mat);
@@ -5954,6 +5978,8 @@ export class Renderer3D {
   /** §5.7 — draw the ringside loot arc from the corpse to where a drop landed. */
   /** Capture hold (tools/bossshot.mjs): keep live boss rigs up for `seconds`. */
   holdBossBeats(seconds: number): void { this.bossFx.hold(seconds); }
+  /** The inverse — every borrowed lifetime handed back (see BossFx.release). */
+  releaseBossBeats(): void { this.bossFx.release(); }
 
   bossLootArc(fromX: number, fromZ: number, toX: number, toZ: number, hex: number): void {
     this.bossFx.lootArc(fromX, fromZ, toX, toZ, hex);
@@ -6722,8 +6748,14 @@ export class Renderer3D {
           mon.windupKind === "bloom" ? CONFIG.bloomRadius * 2.2 :
           mon.windupKind === "pull" ? CONFIG.greasePullRange * 0.55 :
           mon.attackRange + CONFIG.monsterStrikeGrace;
-        tel.position.set(mon.pos.x, 0.06, mon.pos.y);
+        // On the floor plane, not floating over it (r4 major — the material
+        // carries the polygon offset that keeps it out of the z-fight).
+        tel.position.set(mon.pos.x, 0.012, mon.pos.y);
         tel.scale.setScalar(radius);
+        // Per-caster phase, so two overlapping zones are visibly two zones and
+        // the double-covered ground does not look like the safe part of one.
+        (tel.userData.telMat as THREE.ShaderMaterial).uniforms.uPhase.value =
+          ((mon.id * 2654435761) % 997) / 997;
         const telColor =
           mon.windupKind === "fuse" ? 0xff7733 :
           mon.windupKind === "shot" ? 0xffcc44 :
@@ -7605,9 +7637,14 @@ export class Renderer3D {
     this.decals.update(dt);
     this.shocks.update(dt);
     if (this.bloomBase < 0) this.bloomBase = this.bloom.strength;
-    this.bloomKick = Math.max(0, this.bloomKick - dt * 4.2);
-    // Kick stays a tight accent: a big kick used to fog the whole quadrant.
-    this.bloom.strength = this.bloomBase + this.bloomKick * 0.18;
+    // r4 major: 4.2/s decay put the whole punctuation inside ~50ms, i.e. under
+    // three frames, and 0.18 of applied gain on a 0.5 base made it an 8%
+    // change while it lasted. Slowed to ~120ms of visible lift and given
+    // enough gain to be a punctuation mark rather than a rounding error, while
+    // still staying a tight accent — a big sustained kick fogs the quadrant.
+    // 0.55 of kick at 3.5/s is ~157ms of lift peaking at +46% bloom strength.
+    this.bloomKick = Math.max(0, this.bloomKick - dt * 3.5);
+    this.bloom.strength = this.bloomBase + this.bloomKick * 0.42;
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
@@ -7839,12 +7876,15 @@ export class Renderer3D {
         this.spawnFadeProp("fx_detonation_star", h.pos.x, 0.05, h.pos.y, 1.1, 0.35,
           { tint: 0xff8a3c, spin: 1.5, grow: 4, footprint: true, pop: true });
       }
+      // One palette, shared with the authored kit (r4 major): the generic
+      // burst used to carry its own orange a step off FX_PAL.strike, which is
+      // why two spark systems in near-identical hues read as mush.
       const color =
-        h.kind === "crit" ? 0xffe066 :
-        h.kind === "enemy" ? 0xffb347 :
+        h.kind === "crit" ? FX_PAL.crit.mid :
+        h.kind === "enemy" ? (h.school === "magic" ? FX_PAL.magic.mid : FX_PAL.strike.mid) :
         h.kind === "player" ? 0xe2574c :
         h.kind === "heal" ? 0x5fd08a :
-        h.kind === "gold" ? 0xf2c14e : 0xb98bff;
+        h.kind === "gold" ? FX_PAL.gold.mid : FX_PAL.magic.mid;
       // STANDARD IMPACT RECIPE (audit r3, per hit): 3-layer hue flash (tiny
       // white-hot core + saturated spiked star + deep rim), gravity sparks,
       // a drifting smoke wisp, and — for the punctuation tier (crit/kill) —
@@ -7904,8 +7944,14 @@ export class Renderer3D {
           // stops over the torch key (r7 blocker) so floor albedo survives
           // directly under the flash.
           this.spawnFxLight(h.pos.x, h.pos.y, pal.mid, 2.1, 0.22, 1.05);
-          this.shocks.spawn(h.pos.x, h.pos.y, pal.mid, 1.5, 0.3);
-          this.bloomKick = Math.min(1, this.bloomKick + 0.22);
+          this.shocks.spawn(h.pos.x, h.pos.y, pal.mid, 1.8, 0.34);
+          // r4 major: +0.22 of kick applied as `bloomBase + kick * 0.18` is
+          // +0.04 on a base strength of 0.5 — an 8% change, decaying at 4.2/s
+          // so it is gone in ~50ms. The comment called it "the LoL big-hit
+          // punctuation stack"; measurably it was a no-op. Raised to something
+          // a person can see, and the decay slowed to about a tenth of a
+          // second (see bloomKick's application site).
+          this.bloomKick = Math.min(1, this.bloomKick + 0.55);
         }
         // Ability/magic hits scorch the ground they land on (short-lived for
         // ordinary hits — kills below stamp the long one).
@@ -7921,9 +7967,21 @@ export class Renderer3D {
         this.fxp.sparks(h.pos.x, 0.7, h.pos.y, 0xe2574c, 7, h.dir);
         this.fxp.dust(h.pos.x, 0.2, h.pos.y, 2, this.dustTint);
       }
-      // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
-      const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0) + (h.overkill ? 10 : 0);
-      this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
+      // ONE PARTICLE SYSTEM PER HIT (r4 major). This fired UNCONDITIONALLY on
+      // every damage event, immediately after the authored kit above, with its
+      // own hard-coded hue (0xffb347 enemy / 0xffe066 crit) and a count of
+      // 8-32 — so claimFlash's de-stack guard, which exists precisely to stop
+      // simultaneous hits piling additive layers on one spot, was gating one
+      // spark system while a second one in a near-identical orange sprayed
+      // straight past it. A four-enemy scrum threw four bursts the guard was
+      // written to prevent, and the captured melee frames are orange mush with
+      // no per-hit anatomy as a result.
+      //
+      // The generic burst is now the DEATH beat only, in the kit's own palette:
+      // ordinary and critical hits are drawn by the authored kit alone, which
+      // is the one that reads.
+      const n = (h.killed ? 14 : 0) + (h.overkill ? 10 : 0);
+      if (n > 0) this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
       // Death leaves a mark: gibs + a cooling blood/scorch splat under the
       // corpse (school-tinted flash, fading over ~10s).
       if (h.killed && h.kind !== "player") {

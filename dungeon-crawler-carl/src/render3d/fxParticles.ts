@@ -427,9 +427,24 @@ export class FxParticles {
     // De-stacking (claimFlash) guarantees only one kit per spot per beat.
     // White-hot core: a 2-frame contact card — small, hard falloff, hands
     // off to color in ~70ms. This is the "hot flash card" of the impact kit.
+    //
+    // r4 BLOCKER — THE COMMENT AND THE ARITHMETIC DISAGREED. The bloom pass is
+    // built at threshold 0.92 and this layer was spawned at dim 0.7, with
+    // Pool.write multiplying the colour by dim before upload — so the brightest
+    // pixel the whole impact kit could put on screen was ~0.7 additively over a
+    // floor sitting near 0.1 luma. It never reached the knee and never bloomed
+    // once, and claimFlash explicitly prevents the only path that could have
+    // stacked it there. Every captured impact was a small matte sparkle with no
+    // hot centre — the opposite of the D2R/LoL contact read.
+    //
+    // The core is now spawned OVER white on purpose. It is 2 frames long, it is
+    // ~0.2 world units across, and claimFlash still guarantees one per spot per
+    // beat, so the thing that crosses the knee is a contact point and not a
+    // region. Everything else in the kit stays exactly where it was, under the
+    // knee, keeping its hue.
     this.spawn({
       x, y, z, life: 0.07, size0: size * 0.2, size1: size * 0.3,
-      col0: pal.core, col1: pal.mid, fadeIn: 0.015, dim: 0.7, tex: TEX_CORE,
+      col0: pal.core, col1: pal.mid, fadeIn: 0.015, dim: 1.55, tex: TEX_CORE,
     });
     // Saturated mid: the spiked star IS the shape language; slight spin-in.
     this.spawn({

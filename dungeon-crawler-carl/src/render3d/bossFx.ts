@@ -194,6 +194,12 @@ const PUNISH_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uLeft;   // 1 window just opened -> 0 closing
   uniform float uDim;
+  // TELL vs WINDOW (r4). The same shaft says two things a beat apart: the
+  // OVER-COMMIT telegraph ("a window is opening HERE") and the window itself.
+  // The telegraph has ~1.3 seconds and has to be read in 0.2 of them, so it
+  // runs hotter; the window stands for two full seconds over a boss and stays
+  // at the shipped whisper. Same geometry, same motion, different volume.
+  uniform float uGain;
   varying vec2 vUv;
   void main() {
     float cross = abs(vUv.x - 0.5) * 2.0;
@@ -220,7 +226,8 @@ const PUNISH_FRAG = /* glsl */ `
     // Round 2: even at 0.6 the crossed pair plus the boss's own light plus the
     // ritual circle it stands on was going to white in capture. The chevrons
     // and the rails carry the read; the body is nearly gone.
-    float a = clamp((chev * 0.26 + body * 0.07 + rail * 0.34) * (1.0 - drain), 0.0, 0.4) * uDim;
+    float a = clamp((chev * 0.26 + body * 0.07 + rail * 0.34) * (1.0 - drain) * uGain,
+                    0.0, 0.4 * uGain) * uDim;
     vec3 col = mix(uColor, uCore, clamp(chev + rail * 0.5, 0.0, 1.0))
              * (0.85 + 1.5 * chev + 1.0 * rail);
     if (a < 0.004) discard;
@@ -233,6 +240,7 @@ export function makePunishMat(): THREE.ShaderMaterial {
       uColor: { value: new THREE.Color(ASK_PAL.window.mid) },
       uCore: { value: new THREE.Color(ASK_PAL.window.core) },
       uTime: { value: 0 }, uLeft: { value: 1 }, uDim: { value: 1 },
+      uGain: { value: 1 },
     },
     vertexShader: VERT,
     fragmentShader: PUNISH_FRAG,
@@ -558,6 +566,58 @@ const SET_FRAG = /* glsl */ `
   }`;
 
 // ---------------------------------------------------------------------------
+// BURROW (the PIT PULLS / the roots take hold / the grease rises). r4 blocker:
+// this ask had NO geometry of its own — it called the shared contracting arena
+// ring, which is also the arena warning, also the approach seal and (through
+// OVER-COMMIT) also the punish telegraph every one of the eighteen bosses
+// fires. Five different things wearing one shape is the exact failure the
+// silhouette rule exists to prevent.
+//
+// Its own shape: a five-vaned PINWHEEL of spiral arms sweeping into a hard
+// MOUTH that contracts as the beat runs, with material travelling INWARD down
+// the vanes. Nothing else in the game curves. Reduced to a black-and-white
+// mask it is a pinwheel with a hole in it — unmistakable next to a ring
+// (concentric fronts), lanes (straight bars), cells (a grid) or props
+// (brackets out at the walls).
+// ---------------------------------------------------------------------------
+const BURROW_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uCore;
+  uniform float uTime;
+  uniform float uProg;
+  uniform float uDim;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    float ang = atan(p.y, p.x);
+    // THE SHEAR IS THE SHAPE: offsetting the angle by the radius turns five
+    // straight vanes into five curved ones, and the curve is what says
+    // "rotating inward" rather than "pointing outward".
+    float sw = ang + r * 3.2 - uTime * 1.1;
+    float vane = smoothstep(0.42, 0.9, sin(sw * 5.0));
+    // The MOUTH closes over the beat: the hole is the countdown.
+    float mouth = mix(0.44, 0.13, uProg);
+    float rim = smoothstep(0.075, 0.0, abs(r - mouth));
+    float lip = smoothstep(0.16, 0.02, abs(r - mouth));
+    // Vanes live OUTSIDE the mouth only, and taper as they reach it, so the
+    // eye is walked down them into the hole.
+    float reach = smoothstep(mouth - 0.02, mouth + 0.16, r) * (1.0 - smoothstep(0.86, 1.0, r));
+    float taper = smoothstep(1.0, mouth, r);
+    // Material travelling IN, never out. The only inward-running fill in the
+    // game apart from the arena warning's front, and that one has no vanes.
+    float pulse = smoothstep(0.55, 1.0, fract(r * 2.6 + uTime * 1.5)) * vane * reach;
+    float fade = 1.0 - smoothstep(0.72, 1.0, uProg);
+    float a = clamp((vane * reach * (0.2 + 0.3 * taper) + rim * 0.6 + lip * 0.08 + pulse * 0.26)
+                    * fade, 0.0, 0.72) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(rim * 1.5 + pulse, 0.0, 1.0))
+             * (0.85 + 1.7 * rim + 1.1 * pulse);
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
+
+// ---------------------------------------------------------------------------
 // PUNISH MARK (V4). §7.4 calls the punish window "the one beat that most needs
 // to read", and the capture round found it wearing the same white starburst as
 // every routine telegraph. It now owns a shape nothing else in the game uses:
@@ -570,6 +630,7 @@ const MARK_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uLeft;  // 1 window open -> 0 closing
   uniform float uDim;
+  uniform float uGain;  // see PUNISH_FRAG: the TELL runs hotter than the window
   varying vec2 vUv;
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
@@ -603,7 +664,7 @@ const MARK_FRAG = /* glsl */ `
     float cross = (smoothstep(0.03, 0.0, a.x) + smoothstep(0.03, 0.0, a.y))
                 * step(max(a.x, a.y), 0.2);
     float pulse = 0.72 + 0.28 * sin(uTime * 9.0);
-    float alpha = clamp((line * 0.72 + glow * 0.3 + cross * 0.5) * pulse, 0.0, 0.85) * uDim;
+    float alpha = clamp((line * 0.72 + glow * 0.3 + cross * 0.5) * pulse * uGain, 0.0, 0.95) * uDim;
     vec3 col = mix(uColor, uCore, clamp(line, 0.0, 1.0)) * (1.0 + 1.6 * line + 0.5 * glow);
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(col, alpha);
@@ -672,8 +733,9 @@ export const makePropsMat = (): THREE.ShaderMaterial =>
 export const makeCellsMat = (): THREE.ShaderMaterial =>
   makeQuadMat(CELLS_FRAG, { uN: { value: 7 } });
 export const makeSetMat = (): THREE.ShaderMaterial => makeQuadMat(SET_FRAG, {});
+export const makeBurrowMat = (): THREE.ShaderMaterial => makeQuadMat(BURROW_FRAG, {});
 export const makeMarkMat = (): THREE.ShaderMaterial =>
-  makeQuadMat(MARK_FRAG, { uLeft: { value: 1 } });
+  makeQuadMat(MARK_FRAG, { uLeft: { value: 1 }, uGain: { value: 1 } });
 export const makeAideMat = (): THREE.ShaderMaterial => makeQuadMat(AIDE_FRAG, {});
 
 // ---------------------------------------------------------------------------
@@ -737,18 +799,42 @@ export interface BossFxDeps {
   bloom(a: number): void;
 }
 
-interface ArenaBeat { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number }
+interface ArenaBeat {
+  mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number;
+  /** Pre-capture-hold span, so BossFx.release() can hand it back. */
+  held?: number;
+}
 
 /** The ground-plane silhouettes, one pool per shape (§ THE ASK SILHOUETTES). */
-type ShapeKind = "lanes" | "props" | "cells" | "set";
+type ShapeKind = "lanes" | "props" | "cells" | "set" | "burrow";
 const SHAPE_MAT: Record<ShapeKind, () => THREE.ShaderMaterial> = {
   lanes: makeLanesMat, props: makePropsMat, cells: makeCellsMat, set: makeSetMat,
+  burrow: makeBurrowMat,
 };
 interface ShapeBeat {
   mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number; kind: ShapeKind;
+  held?: number;
 }
 /** A transient converging cord (the ADDS silhouette), drawn like a tether. */
-interface CordBeat { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number }
+interface CordBeat {
+  mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number; held?: number;
+}
+/**
+ * A transient SHAFT (the WINDOW silhouette — r4 blocker). `column` was the one
+ * ask with no geometry at all: a particle gather, a 20-mote column, ten radial
+ * streaks and an UNGOVERNED light of peak 9, all additive and all in gold. On
+ * floors 3 and 6 — the first two bosses anyone meets — that took the whole
+ * frame to a flat gold wash with the boss a pale ghost inside it.
+ *
+ * It now builds the same crossed shaft + closing reticle the punish window
+ * wears, because they are the same sentence: the telegraph says "a window is
+ * about to open HERE" and the window says "it is open, hit it". Sharing the
+ * shape between the tell and the beat is the point, not an accident.
+ */
+interface ShaftBeat {
+  group: THREE.Group; quads: THREE.Mesh[]; mark: THREE.Mesh;
+  life: number; max: number; held?: number;
+}
 
 export class BossFx {
   readonly group = new THREE.Group();
@@ -820,6 +906,16 @@ export class BossFx {
    */
   private measLuma = 0;
   private measSat = 0;
+  /** Never grip harder than this: past it the beat stops existing (r4). */
+  private static readonly EXPOSURE_FLOOR = 0.45;
+  /**
+   * ...and the punish rig never goes below THIS. §7.4 calls the punish window
+   * "the one beat that most needs to read", and it was subject to the governor
+   * with no floor at all — i.e. the one beat that must survive a bright frame
+   * was dimmed alongside everything that made the frame bright. It is a
+   * reticle and a pair of hairline rails; it cannot blow anything out.
+   */
+  private static readonly PUNISH_DIM_FLOOR = 0.78;
   /** 0..1 — the grip on bloom / light peaks / additive alpha this frame. */
   exposureScale = 1;
   /**
@@ -842,9 +938,14 @@ export class BossFx {
   private shapes: ShapeBeat[] = [];
   private cords: CordBeat[] = [];
   private shells: ArenaBeat[] = [];
+  private shafts: ShaftBeat[] = [];
+  /** Ringside loot beacons (§5.7) — the arc has to LAND on something. */
+  private lootMarks: {
+    mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; max: number; held?: number;
+  }[] = [];
   private marks = new Map<number, THREE.Mesh>();
   /** Per-boss reticle countdown: { t = seconds left, span = its full length }. */
-  private marked = new Map<number, { t: number; span: number }>();
+  private marked = new Map<number, { t: number; span: number; held?: number; heldT?: number }>();
   private static readonly MARK_MIN_SPAN = 1.6;
   /** The council's aides, marked at the feet so they are never trash (r3). */
   private aides = new Map<number, THREE.Mesh>();
@@ -907,9 +1008,29 @@ export class BossFx {
    * hard clamp so the boss's silhouette comes back out of the white.
    */
   private scaleFor(load: number): number {
-    const over = Math.max(0, this.measLuma - 0.45) * 3.2 + this.measSat * 4;
+    // r4 MAJOR — THE GOVERNOR WAS FLOOR-BIASED, NOT BEAT-BIASED. Measured on
+    // the real clock with a driven fight, floor 9 (THE GARDEN) ran a median
+    // exposureScale of 0.61 against floor 3's 1.00 and floor 18's 0.89, driven
+    // entirely by the luma term: the Garden's bright forest floor sits at
+    // 0.63-0.83 against a 0.45 knee, so identical beats rendered at ~60%
+    // brightness in one band for a reason that has nothing to do with the beat.
+    // A governor is supposed to charge OVERLAP, not geography.
+    //
+    // Three changes, all about that: the knee moves up to where a lit arena
+    // actually stops being legible, the coefficients come down so the room
+    // costs less than a beat does, and saturation is charged only above a
+    // deadband (a warm torch-lit floor is not a clipping frame). The `measSat`
+    // hard clamp is gone — it fired on 2 frames in 234 and was never the
+    // mechanism, but when it did fire it took a readable frame to 0.30.
+    const over = Math.max(0, this.measLuma - 0.62) * 1.7
+               + Math.max(0, this.measSat - 0.12) * 2.4;
     const k = 1 / (1 + load * 1.9 + over);
-    return this.measSat > 0.22 ? Math.min(k, 0.3) : k;
+    // AND A FLOOR. The thing being scaled is how hard a beat may BURN, and a
+    // beat scaled to a quarter is a beat the player does not see at all —
+    // which is the failure mode the governor was written to fix, arriving from
+    // the other side. Below this the read is gone and there is nothing left to
+    // protect.
+    return Math.max(BossFx.EXPOSURE_FLOOR, k);
   }
 
   /**
@@ -919,13 +1040,54 @@ export class BossFx {
    */
   hold(seconds: number): void {
     for (const mk of this.marked.values()) {
+      if (mk.held === undefined) { mk.held = mk.span; mk.heldT = mk.t; }
       mk.span = Math.max(mk.span, seconds);
       mk.t = Math.max(mk.t, seconds * 0.75);
     }
-    for (const b of [...this.beats, ...this.shapes, ...this.shells]) {
-      if (b.life < b.max) { b.max = Math.max(b.max, seconds); }
+    for (const b of this.holdables()) {
+      if (b.life >= b.max) continue;
+      if (b.held === undefined) b.held = b.max;
+      b.max = Math.max(b.max, seconds);
     }
-    for (const c of this.cords) if (c.life < c.max) c.max = Math.max(c.max, seconds);
+  }
+
+  /**
+   * ...AND GIVE IT BACK (r4 blocker, the capture-honesty half).
+   *
+   * `hold()` shipped without an inverse: `__dcc.release()` cleared the host's
+   * own captureHold flag and nothing here, so from the first capture onward
+   * every live rig had its lifetime pinned to 600 SECONDS for the rest of the
+   * run. Combined with a virtual clock that advances ~0.4ms per rendered frame
+   * (a 2.6s arena ring needs ~108 real seconds to expire), the approach seal
+   * and the intro seal were still standing in every later frame of every
+   * fight — which is exactly how six different bosses came to look like they
+   * shared one silhouette in a mask sheet. The harness was blamed for it; half
+   * of it was here.
+   *
+   * Restoring the ORIGINAL span (rather than killing the beat) means a beat
+   * that genuinely still had time left keeps it, and one that only existed
+   * because of the hold expires on the next update.
+   */
+  release(): void {
+    for (const mk of this.marked.values()) {
+      if (mk.held === undefined) continue;
+      mk.span = mk.held;
+      mk.t = Math.min(mk.t, mk.heldT ?? mk.held);
+      mk.held = undefined;
+    }
+    for (const b of this.holdables()) {
+      if (b.held === undefined) continue;
+      b.max = b.held;
+      b.held = undefined;
+    }
+  }
+
+  /** Every pooled transient whose lifetime a capture hold may borrow. */
+  private holdables(): { life: number; max: number; held?: number }[] {
+    return [
+      ...this.beats, ...this.shapes, ...this.shells,
+      ...this.cords, ...this.shafts, ...this.lootMarks,
+    ];
   }
 
   /** The renderer's measurement of the boss's own neighbourhood (0..1 each). */
@@ -999,6 +1161,17 @@ export class BossFx {
     const pal = ASK_PAL[sig.family];
     const n = Math.max(1, Math.min(12, Math.round(e.value ?? 1)));
     const k = this.budget(0.5);
+    // THE SEAL BELONGS TO THE REVEAL (r4). The approach seal and the intro seal
+    // are both arena rings, and the capture probe caught one of them still
+    // standing on the ground in the -3fight frame while a completely different
+    // signature was committing — two arena-scale ground shapes at once, one of
+    // which stopped being true a beat ago. A named signature that is not itself
+    // an arena-state change now clears them: the room says one thing at a time.
+    if (sig.shape !== "ring") {
+      for (const b of this.beats) {
+        if (b.life < b.max) { b.life = b.max; b.held = undefined; b.mesh.visible = false; }
+      }
+    }
     switch (sig.shape) {
       case "lanes": {
         // DODGE-THE-LANE: chevroned rectangles. The heading comes from the
@@ -1079,11 +1252,26 @@ export class BossFx {
         this.deps.light(x, z, pal.mid, 8 * k, 0.6, 1.4);
         break;
       case "column":
-        // A SEIZURE: motes fall INTO the epicenter, then the shaft stands up.
+        // A SEIZURE: motes fall INTO the epicenter, then the SHAFT stands up
+        // and a reticle closes on where it lands.
+        //
+        // r4 BLOCKER — this was the one ask with no geometry at all: a gather,
+        // a 20-mote column, TEN radial streaks and an UNGOVERNED light of peak
+        // 9, every part of it additive and every part of it in the window
+        // family's #fff8dc/#ffcf3c. LATE FEE on floor 3 and the Grease Trap on
+        // floor 6 — the first two bosses anyone meets — took the entire arena,
+        // its props and the boss to a single flat gold wash with the boss a
+        // pale ghost inside it, which is precisely the OVER-COMMIT tell §5.9
+        // claimed to have closed.
+        //
+        // The read is now the shaft and the closing brackets, which are SHAPE,
+        // so the light can come down to where it belongs: through the governor
+        // like every other beat, at half the peak, with the streaks (the part
+        // that actually made the wash) deleted outright.
         this.deps.fxp.gatherBurst(x, 1.1, z, pal.core);
-        this.deps.fxp.column(x, z, pal.mid, 20, 3.0);
-        this.deps.fxp.radialStreaks(x, 0.5, z, pal.core, 10, 2.2);
-        this.deps.light(x, z, pal.mid, 9, 0.7, 1.3);
+        this.shaftBeat(x, z, pal, 1.35);
+        this.deps.fxp.column(x, z, pal.mid, 9, 2.6);
+        this.deps.light(x, z, pal.mid, 4.5 * k, 0.55, 1.3);
         break;
       case "ring":
         // THE ROOM IS CHANGING. A contracting arena ring — the only inward
@@ -1094,12 +1282,18 @@ export class BossFx {
         this.deps.fxp.dust(x, 0.3, z, 10, pal.rim);
         break;
       case "burrow":
-        // THE PIT PULLS: everything converges. A vortex plus an inward ring
-        // (spokeless — those belong to FLOOD SURGE alone), which is the
-        // grammar of "you are the one being moved".
+        // THE PIT PULLS: everything converges, and the floor is TURNING.
+        //
+        // r4 BLOCKER — this called `arenaBeat`, i.e. the same contracting ring
+        // the arena warning draws, the approach seal breathes and (through
+        // OVER-COMMIT, which every one of the eighteen bosses fires) the punish
+        // telegraph used as well. Four separate sentences in one shape. It owns
+        // a pinwheel now (see BURROW_FRAG): five curved vanes sweeping into a
+        // mouth that closes, which is the only rotating geometry in the game.
+        this.shapeBeat("burrow", x, z, 6.0, pal, 1.15);
         this.deps.fxp.vortex(x, z, pal.mid, 3.6);
-        this.arenaBeat(x, z, 5.5, pal, 1.0, 0);
         this.deps.fxp.smoke(x, 0.4, z, 8, pal.rim);
+        this.deps.light(x, z, pal.mid, 5 * k, 0.45, 0.9);
         break;
       case "swarm":
         // BLOOM / QUOTA: bodies or pods are about to exist. Scatter outward,
@@ -1109,7 +1303,7 @@ export class BossFx {
           const a = (i / n) * Math.PI * 2 + 0.4;
           this.deps.fxp.embers(x + Math.cos(a) * 1.6, z + Math.sin(a) * 1.6, pal.core, 3, 0.8);
         }
-        this.deps.light(x, z, pal.mid, 6, 0.5, 0.9);
+        this.deps.light(x, z, pal.mid, 6 * k, 0.5, 0.9);
         break;
       case "brand":
         // A RULE CHANGED (Brand Integration / the Clause). No ground work at
@@ -1214,7 +1408,10 @@ export class BossFx {
     this.deps.fxp.sparks(x, 1.2, z, 0xfff2cc, 12);
     this.deps.fxp.impactFlash(x, 1.2, z, 0xfff2cc, 1.7);
     this.deps.shocks.spawn(x, z, 0xffd98a, 3.0, 0.4);
-    this.deps.light(x, z, 0xffd98a, 10, 0.5, 1.3);
+    // Governed like every other peak (r4): the un-governed lights were the
+    // other half of the gold wash, and a plate breaking three times inside a
+    // second is a normal thing for this fight to do.
+    this.deps.light(x, z, 0xffd98a, 10 * this.budget(0.3), 0.5, 1.3);
     this.deps.trauma(0.26);
     // The LAST plate is a bigger moment than the first — it is a phase edge.
     if ((e.value ?? 1) === 0) { this.flash(0.5, 0.6); this.slowmo = Math.max(this.slowmo, 0.14); }
@@ -1227,7 +1424,7 @@ export class BossFx {
     this.deps.fxp.gibs(x, z, pal.core, 16);
     this.deps.fxp.radialStreaks(x, 1.1, z, pal.core, 18, 3.0);
     this.deps.shocks.spawn(x, z, pal.core, 5.2, 0.5);
-    this.deps.light(x, z, pal.core, 8, 0.7, 1.5);
+    this.deps.light(x, z, pal.core, 8 * this.budget(0.3), 0.7, 1.5);
     this.deps.trauma(0.34);
     this.flash(0.3, 0.5);
     this.slowmo = Math.max(this.slowmo, 0.12);
@@ -1238,7 +1435,7 @@ export class BossFx {
     const stacks = e.value ?? 1;
     this.deps.fxp.embers(x, z, 0xff4a1e, 10 + stacks * 3, 1.8);
     this.deps.fxp.column(x, z, 0xff6a2a, 14, 2.6);
-    this.deps.light(x, z, 0xff4a1e, 8 + stacks, 0.8, 1.4);
+    this.deps.light(x, z, 0xff4a1e, (8 + stacks) * this.budget(0.35), 0.8, 1.4);
     this.deps.trauma(0.2);
   }
 
@@ -1253,7 +1450,7 @@ export class BossFx {
     this.deps.fxp.smoke(x, 0.5, z, 10, pal.rim);
     this.deps.shocks.spawn(x, z, pal.core, 3.8, 0.48);
     this.deps.decals.spawn(x, z, 1.2, 0x140d08, pal.mid, 8);
-    this.deps.light(x, z, pal.mid, 9, 0.6, 1.1);
+    this.deps.light(x, z, pal.mid, 9 * this.budget(0.3), 0.6, 1.1);
     this.deps.trauma(0.22);
   }
 
@@ -1299,6 +1496,10 @@ export class BossFx {
     // ...and the transient shell beats, which is the OTHER dome that could be
     // standing over the corpse when the shutter opens.
     for (const sh of this.shells) { sh.life = sh.max; sh.mesh.visible = false; }
+    // ...and the transient WINDOW shafts, for exactly the same reason.
+    for (const sf of this.shafts) {
+      sf.life = sf.max; sf.group.visible = false; sf.mark.visible = false;
+    }
   }
 
   /**
@@ -1307,17 +1508,61 @@ export class BossFx {
    * the eye follows out to it and lights the ground where it comes to rest.
    */
   lootArc(fromX: number, fromZ: number, toX: number, toZ: number, hex: number): void {
-    const steps = 7;
+    const span = Math.hypot(toX - fromX, toZ - fromZ);
+    // r4 BLOCKER, half two. The sim now throws the payout RINGSIDE (see
+    // dropBossBonus), so the arc finally has somewhere to go — but the arc
+    // itself was 7x3 sparks, one impactFlash, one shockwave and a one-frame
+    // point light, i.e. NOTHING PERSISTENT. A frame after the kill there was
+    // no payoff on screen at all, which is why two capture runs counted two
+    // loot glows and zero arcs over a fifty-item drop. The arc is now sampled
+    // by DISTANCE (a 3-tile throw and a 9-tile throw both read as an arc), and
+    // it lands on a BEACON that stands for four seconds — long enough that the
+    // player looks up from the corpse and sees where the haul went.
+    const steps = Math.max(6, Math.min(16, Math.round(span * 2.2)));
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const px = fromX + (toX - fromX) * t;
       const pz = fromZ + (toZ - fromZ) * t;
-      const py = 0.5 + Math.sin(t * Math.PI) * 2.1; // the arc's apex
-      this.deps.fxp.sparks(px, py, pz, hex, 3);
+      const py = 0.5 + Math.sin(t * Math.PI) * (1.2 + span * 0.28); // the apex
+      this.deps.fxp.sparks(px, py, pz, hex, 2);
     }
     this.deps.fxp.impactFlash(toX, 0.4, toZ, hex, 1.3);
     this.deps.shocks.spawn(toX, toZ, hex, 2.2, 0.55);
-    this.deps.light(toX, toZ, hex, 7, 1.0, 0.8);
+    this.deps.light(toX, toZ, hex, 7 * this.budget(0.12), 1.0, 0.8);
+    this.lootBeacon(toX, toZ, hex);
+  }
+
+  /**
+   * Where a payout came to rest: a rarity-coloured seat that breathes for four
+   * seconds. Rectilinear, feet-level and NOT a ring — it borrows the aide
+   * collar's shape language ("that thing on the floor is yours") rather than
+   * minting a sixth circle.
+   */
+  private lootBeacon(x: number, z: number, hex: number): void {
+    let slot = this.lootMarks.find((b) => b.life >= b.max);
+    if (!slot) {
+      if (this.lootMarks.length >= 14) {
+        slot = this.lootMarks[0];
+        for (const b of this.lootMarks) if (b.life / b.max > slot.life / slot.max) slot = b;
+      } else {
+        const mat = makeAideMat();
+        const mesh = new THREE.Mesh(this.aideGeo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.renderOrder = 8;
+        mesh.userData.noAO = true;
+        this.group.add(mesh);
+        slot = { mesh, mat, life: 1, max: 1 };
+        this.lootMarks.push(slot);
+      }
+    }
+    slot.life = 0;
+    slot.max = 4;
+    slot.held = undefined;
+    slot.mesh.visible = true;
+    slot.mesh.position.set(x, 0.1, z);
+    slot.mesh.scale.setScalar(1.1);
+    (slot.mat.uniforms.uColor.value as THREE.Color).setHex(hex);
+    (slot.mat.uniforms.uCore.value as THREE.Color).setHex(0xfff2cc);
   }
 
   // -------------------------------------------------------------------------
@@ -1420,6 +1665,7 @@ export class BossFx {
     }
     slot.life = 0;
     slot.max = dur;
+    slot.held = undefined; // a re-armed slot carries no stale capture hold
     slot.mesh.visible = true;
     slot.mesh.position.set(x, 0.09, z);
     slot.mesh.scale.setScalar(radius);
@@ -1452,6 +1698,7 @@ export class BossFx {
     const len = Math.max(Math.hypot(dx, dz), 1e-3);
     slot.life = 0;
     slot.max = dur;
+    slot.held = undefined;
     slot.mesh.visible = true;
     slot.mesh.position.set(fx + dx / 2, 1.35, fz + dz / 2);
     slot.mesh.scale.set(len, 0.42, 1);
@@ -1459,6 +1706,65 @@ export class BossFx {
     slot.mat.uniforms.uLen.value = len;
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(pal.mid);
     (slot.mat.uniforms.uCore.value as THREE.Color).setHex(pal.core);
+  }
+
+  /**
+   * Pooled transient SHAFT (the WINDOW silhouette). A crossed pair of punish
+   * quads plus the closing reticle, run off the beat's own clock: the shaft
+   * stands UP over the first third and drains from the top down over the rest
+   * while the brackets close on the spot, so the tell is a countdown you read
+   * without a number — and it is the same sentence the punish window itself
+   * speaks, one beat earlier.
+   */
+  private shaftBeat(x: number, z: number, pal: BossPalette, dur: number): void {
+    let slot = this.shafts.find((s) => s.life >= s.max);
+    if (!slot) {
+      if (this.shafts.length >= 3) {
+        slot = this.shafts[0];
+        for (const s of this.shafts) if (s.life / s.max > slot.life / slot.max) slot = s;
+      } else {
+        const group = new THREE.Group();
+        const quads: THREE.Mesh[] = [];
+        for (let i = 0; i < 2; i++) {
+          const q = new THREE.Mesh(this.punishGeo, makePunishMat());
+          q.rotation.y = (i * Math.PI) / 2; // a crossed pair reads from any yaw
+          q.renderOrder = 10;
+          q.userData.noAO = true;
+          group.add(q);
+          quads.push(q);
+        }
+        const mark = new THREE.Mesh(this.markGeo, makeMarkMat());
+        mark.rotation.x = -Math.PI / 2;
+        mark.renderOrder = 10;
+        mark.userData.noAO = true;
+        this.group.add(mark);
+        this.group.add(group);
+        slot = { group, quads, mark, life: 1, max: 1 };
+        this.shafts.push(slot);
+      }
+    }
+    slot.life = 0;
+    slot.max = dur;
+    slot.held = undefined;
+    // Tall and narrow: a COLUMN, not a box. The first cut at 2.6 x 4.2 read as
+    // a pale rectangle standing next to the boss rather than as a shaft
+    // standing ON it.
+    const h = 5.4;
+    slot.group.position.set(x, h / 2, z);
+    slot.group.visible = true;
+    for (const q of slot.quads) {
+      q.scale.set(1.9, h, 1);
+      (q.material as THREE.ShaderMaterial).uniforms.uGain.value = 2.0;
+      (q.material as THREE.ShaderMaterial).uniforms.uColor.value = new THREE.Color(pal.mid);
+      (q.material as THREE.ShaderMaterial).uniforms.uCore.value = new THREE.Color(pal.core);
+    }
+    slot.mark.position.set(x, 0.115, z);
+    slot.mark.scale.setScalar(3.2);
+    slot.mark.visible = true;
+    const mm = slot.mark.material as THREE.ShaderMaterial;
+    mm.uniforms.uGain.value = 1.5;
+    (mm.uniforms.uColor.value as THREE.Color).setHex(pal.mid);
+    (mm.uniforms.uCore.value as THREE.Color).setHex(pal.core);
   }
 
   /** Pooled transient shell (the SHIELD silhouette) — the dome, cracking. */
@@ -1480,6 +1786,7 @@ export class BossFx {
     }
     slot.life = 0;
     slot.max = dur;
+    slot.held = undefined; // a re-armed slot carries no stale capture hold
     slot.mesh.visible = true;
     slot.mesh.position.set(x, 0.1, z);
     slot.mesh.scale.setScalar(2.6);
@@ -1510,6 +1817,7 @@ export class BossFx {
     }
     slot.life = 0;
     slot.max = dur;
+    slot.held = undefined; // a re-armed slot carries no stale capture hold
     slot.mesh.visible = true;
     slot.mesh.position.set(x, 0.08, z);
     slot.mesh.scale.setScalar(radius);
@@ -1570,6 +1878,7 @@ export class BossFx {
     this.silhouetteLive =
       this.shapes.some((b) => b.life < b.max) ||
       this.cords.some((c) => c.life < c.max) ||
+      this.shafts.some((sf) => sf.life < sf.max) ||
       this.shells.some((sh) => sh.life < sh.max);
 
     // ---- §5.1 THE APPROACH, IN THE WORLD (r3 minor).
@@ -1625,6 +1934,38 @@ export class BossFx {
       c.mat.uniforms.uDim.value = dim;
       c.mat.uniforms.uTime.value = time;
       if (c.life >= c.max) c.mesh.visible = false;
+    }
+    // The WINDOW silhouette: stands up over the first third, then drains from
+    // the top down while the brackets close (see shaftBeat). Held at the
+    // punish floor for the same reason the live rig is — this is the tell for
+    // the beat §7.4 says most needs to read.
+    const punishDim = Math.max(dim, BossFx.PUNISH_DIM_FLOOR);
+    for (const sf of this.shafts) {
+      if (sf.life >= sf.max) { sf.group.visible = false; sf.mark.visible = false; continue; }
+      sf.life += dt;
+      const prog = Math.min(1, sf.life / sf.max);
+      const left = prog < 0.32 ? prog / 0.32 : 1 - (prog - 0.32) / 0.68;
+      for (const q of sf.quads) {
+        const qm = q.material as THREE.ShaderMaterial;
+        qm.uniforms.uTime.value = time;
+        qm.uniforms.uDim.value = punishDim;
+        qm.uniforms.uLeft.value = Math.max(0, left);
+      }
+      const smm = sf.mark.material as THREE.ShaderMaterial;
+      smm.uniforms.uTime.value = time;
+      smm.uniforms.uDim.value = punishDim;
+      smm.uniforms.uLeft.value = Math.max(0, left);
+      if (sf.life >= sf.max) { sf.group.visible = false; sf.mark.visible = false; }
+    }
+    for (const b of this.lootMarks) {
+      if (b.life >= b.max) { b.mesh.visible = false; continue; }
+      b.life += dt;
+      const t = Math.min(1, b.life / b.max);
+      b.mat.uniforms.uTime.value = time;
+      // Ungoverned on purpose and deliberately small: this is the one beat
+      // that fires when the fight is OVER, so there is nothing left to blow.
+      b.mat.uniforms.uDim.value = 1 - t * t;
+      if (b.life >= b.max) b.mesh.visible = false;
     }
     for (const s of this.shells) {
       if (s.life >= s.max) { s.mesh.visible = false; continue; }
@@ -1827,7 +2168,7 @@ export class BossFx {
           q.scale.set(1.9 * scale, h, 1);
           const qm = q.material as THREE.ShaderMaterial;
           qm.uniforms.uTime.value = time;
-          qm.uniforms.uDim.value = dim;
+          qm.uniforms.uDim.value = punishDim;
           qm.uniforms.uLeft.value = left;
         }
         // Forced on for the same reason the cords are: this is the beat the
@@ -1856,7 +2197,11 @@ export class BossFx {
         mark.scale.setScalar(2.3 * scale);
         const mm = mark.material as THREE.ShaderMaterial;
         mm.uniforms.uTime.value = time;
-        mm.uniforms.uDim.value = dim;
+        // THE ONE BEAT WITH A FLOOR (r4 major). Everything else in this file
+        // pays the governor without argument; the punish reticle does not,
+        // because the beat that must survive a bright frame cannot be the beat
+        // dimmed by how bright the frame is.
+        mm.uniforms.uDim.value = punishDim;
         mm.uniforms.uLeft.value = left;
         (mm.uniforms.uColor.value as THREE.Color).setHex(ASK_PAL.window.mid);
         (mm.uniforms.uCore.value as THREE.Color).setHex(ASK_PAL.window.core);
@@ -1924,6 +2269,26 @@ export class BossFx {
     for (const [k, mesh] of this.aides) {
       if (!this.seenAides.has(k)) { this.group.remove(mesh); this.aides.delete(k); }
     }
+  }
+
+  /**
+   * WHAT IS ACTUALLY ON THE GROUND RIGHT NOW, by silhouette.
+   *
+   * The capture harness has to be able to assert that a frame contains the
+   * beat it claims, and "the sim emitted a telegraph" is not that assertion —
+   * a stale seal held open by a capture hold looks identical to a live one in
+   * a still. This is the ground truth: which shapes are drawing, this frame.
+   */
+  liveShapes(): Record<string, number> {
+    const out: Record<string, number> = {};
+    const bump = (k: string): void => { out[k] = (out[k] ?? 0) + 1; };
+    for (const b of this.beats) if (b.life < b.max) bump("ring");
+    for (const b of this.shapes) if (b.life < b.max) bump(b.kind);
+    for (const c of this.cords) if (c.life < c.max) bump("cords");
+    for (const sh of this.shells) if (sh.life < sh.max) bump("shell");
+    for (const sf of this.shafts) if (sf.life < sf.max) bump("column");
+    for (const b of this.lootMarks) if (b.life < b.max) bump("loot");
+    return out;
   }
 
   /** Per-hazard spore material (the Pollinator's pods), pooled by hazard id. */

@@ -3544,16 +3544,43 @@ export function openLootBox(state: GameState, p: Player): void {
   }
 }
 
-/** Guaranteed boss/elite reward: item(s) + a fat gold pile at the corpse. */
-function dropBossBonus(state: GameState, pos: Vec2, items: number): void {
+/**
+ * BOSSES-V2 §5.7/§2.8 — RINGSIDE. "Loot lands ringside rather than under the
+ * corpse." It did not: every boss drop landed inside 0.6 tiles of the body, so
+ * the host's rarity arc was thrown from the corpse to a point half a tile away
+ * — an arc with nowhere to go, over a pile the corpse and its death FX cover.
+ * Three capture runs counted two loot glows on screen against a fifty-item
+ * drop, and that is the beat a short-session game lives on.
+ *
+ * Where loot lands is a RULE (coop authority, save/resume, replay), so it is
+ * fixed here rather than faked in the host: a boss payout is thrown out onto a
+ * ring around the body, spread by index so two drops never stack, and pulled
+ * back to the corpse only if the ring point is not walkable (a boss that dies
+ * in a doorway must not post its haul inside a wall).
+ */
+function ringsidePos(state: GameState, pos: Vec2, i: number, total: number): Vec2 {
+  const spin = nextFloat(state.rng) * Math.PI * 2;
+  const a = spin + (i / Math.max(1, total)) * Math.PI * 2;
+  const r = CONFIG.bossLootRing + nextFloat(state.rng) * CONFIG.bossLootRingJitter;
+  const out = { x: pos.x + dcos(a) * r, y: pos.y + dsin(a) * r };
+  return isWalkable(state.map, out.x, out.y) ? out : { x: pos.x, y: pos.y };
+}
+
+/** Guaranteed boss/elite reward: item(s) + a fat gold pile.
+ *  `ringside` throws the haul out onto a readable ring (bosses); elites and
+ *  vaults keep the tight pile they have always had. */
+function dropBossBonus(state: GameState, pos: Vec2, items: number, ringside = false): void {
   const { rng, floor } = state;
   for (let i = 0; i < items; i++) {
-    const jitter = { x: pos.x + (nextFloat(rng) - 0.5) * 1.2, y: pos.y + (nextFloat(rng) - 0.5) * 1.2 };
+    const at = ringside
+      ? ringsidePos(state, pos, i, items + 1)
+      : { x: pos.x + (nextFloat(rng) - 0.5) * 1.2, y: pos.y + (nextFloat(rng) - 0.5) * 1.2 };
     const item = generateItem(rng, floor + 2, () => state.nextEntityId++);
-    state.loot.push({ id: state.nextEntityId++, pos: jitter, kind: "item", amount: 0, item, rarity: item.rarity });
+    state.loot.push({ id: state.nextEntityId++, pos: at, kind: "item", amount: 0, item, rarity: item.rarity });
   }
   const gold = nextInt(rng, 25, 45) + floor * 6;
-  state.loot.push({ id: state.nextEntityId++, pos: { x: pos.x, y: pos.y }, kind: "gold", amount: gold });
+  const gat = ringside ? ringsidePos(state, pos, items, items + 1) : { x: pos.x, y: pos.y };
+  state.loot.push({ id: state.nextEntityId++, pos: gat, kind: "gold", amount: gold });
 }
 
 /** Materialize a catalog entry as a real Item, floor-scaled, at COMMON
@@ -4583,7 +4610,7 @@ function reapDead(state: GameState): void {
         phase: m.phase ?? 0, pos: { x: m.pos.x, y: m.pos.y },
       });
       if (state.floor >= CONFIG.finalFloor) {
-        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
+        state.loot.push({ id: state.nextEntityId++, pos: ringsidePos(state, m.pos, 0, 1), kind: "material", amount: 1, material: "boss_sigil" });
         state.status = "won";
         if (state.mode === "rivals") {
           // The RACE: whoever lands the killing blow takes the whole season.
@@ -4593,17 +4620,21 @@ function reapDead(state: GameState): void {
           announce(state, "boss", "THE FLOOR BOSS IS DOWN. You beat the dungeon. LEGENDARY, Crawlers.", "high");
         }
       } else {
-        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
-        dropBossBonus(state, m.pos, 2);
+        // §5.7 — the payoff is thrown RINGSIDE, in this order, so the arcs the
+        // host draws fan out instead of stacking on one spot.
+        state.loot.push({ id: state.nextEntityId++, pos: ringsidePos(state, m.pos, 0, 4), kind: "material", amount: 1, material: "boss_sigil" });
+        dropBossBonus(state, m.pos, 2, true);
         // V2 §3.1: band bosses guarantee a glyph — the modifier layer arrives
-        // on the run's chapter beats, not the lottery's.
-        dropGlyph(state, m.pos);
+        // on the run's chapter beats, not the lottery's. Ringside like the rest
+        // of the payout (§5.7): the guaranteed glyph is the drop the player is
+        // most likely to be looking for, and it was landing under the body.
+        dropGlyph(state, ringsidePos(state, m.pos, 1, 4));
         // V2 §2.5: the band's drop-only unique — announced like a title belt.
         const uniqueId = BOSS_UNIQUES[state.floor];
         if (uniqueId && chance(state.rng, CONFIG.bossUniqueChance)) {
           const entry = CATALOG_BY_ID[uniqueId];
           const unique = makeQualityCatalogItem(state.rng, entry, state.floor, () => state.nextEntityId++, "common");
-          state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "item", amount: 0, item: unique, rarity: unique.rarity });
+          state.loot.push({ id: state.nextEntityId++, pos: ringsidePos(state, m.pos, 2, 4), kind: "item", amount: 0, item: unique, rarity: unique.rarity });
           announce(state, "loot", `TITLE BELT ON THE MAT: ${entry.name.toUpperCase()} DROPS. You cannot buy this. You could only take it.`, "high");
         }
         addHype(state, killer, CONFIG.show.hypeBoss);

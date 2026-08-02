@@ -1483,19 +1483,48 @@ function enterCine(): void {
 }
 function exitCine(): void {
   document.body.classList.remove("cine");
-  document.documentElement.style.removeProperty("--bi-fade");
+  const root = document.documentElement.style;
+  root.removeProperty("--bi-fade");
+  for (let i = 0; i < 6; i++) root.removeProperty(`--bi-r${i}`);
 }
 /**
  * The card / letterbox / key-light opacity, from the sim's own ringside clock.
  * Full for the body of the freeze, then a half-second fall-off on the way out —
  * the same shape the CSS used to draw, on a clock that cannot outrun the beat.
  */
-function setIntroFade(timeLeft: number): void {
+function setIntroFade(timeLeft: number, total: number): void {
   // A capture HOLD pins the beat wide open (see __dcc.hold): the review's fix
   // for a harness that was racing a 3s animation with a 20s shutter.
-  const fade = hudNow < captureHold ? 1 : Math.max(0, Math.min(1, timeLeft / 0.5));
-  document.documentElement.style.setProperty("--bi-fade", fade.toFixed(3));
+  const held = hudNow < captureHold;
+  const fade = held ? 1 : Math.max(0, Math.min(1, timeLeft / 0.5));
+  const root = document.documentElement.style;
+  root.setProperty("--bi-fade", fade.toFixed(3));
+  // ...AND THE ROWS (r4 major). The card's overall opacity moved to this clock
+  // in r3; its six row entrances stayed as CSS animation-delays on the WALL
+  // clock, finishing at 1.22s — longer than a rematch freeze even exists for
+  // (2.2 x 0.55 = 1.21s), and longer than five of six capture shutters. They
+  // are scheduled as FRACTIONS of the freeze now, so the card is fully
+  // assembled by the half-way mark of whatever length this intro is.
+  const prog = held ? 1 : Math.max(0, Math.min(1, 1 - timeLeft / Math.max(total, 1e-3)));
+  for (let i = 0; i < INTRO_ROWS.length; i++) {
+    const [at, over] = INTRO_ROWS[i];
+    root.setProperty(`--bi-r${i}`, Math.max(0, Math.min(1, (prog - at) / over)).toFixed(3));
+  }
 }
+/**
+ * Row entrance schedule, as [start, length] fractions of the ringside freeze.
+ * Order is the reading order of the card: the name first, the System line last,
+ * everything landed by 52% so the player has the back half of the beat to look
+ * at the boss rather than at the card assembling itself.
+ */
+const INTRO_ROWS: [number, number][] = [
+  [0.00, 0.18], // .bi-name
+  [0.04, 0.18], // .bi-kicker
+  [0.10, 0.20], // .bi-epithet
+  [0.15, 0.20], // .bi-affix (the ASK plate)
+  [0.21, 0.21], // .bi-muts  (why THIS run is different)
+  [0.28, 0.24], // .bi-line  (the System's own sentence)
+];
 /**
  * CAPTURE HOLD (r3 blocker, the harness half). Every boss beat now expires on
  * the frame clock, which a capture harness can freeze — but a SwiftShader
@@ -1531,6 +1560,24 @@ let bossBeatKey = "";
  * round 2 lost several call-outs to a multi-second screenshot.)
  */
 let hudNow = 0;
+/**
+ * THE PRESENTATION CLOCK (r4 major — hitStop froze only half the game).
+ *
+ * `hitStop` sets `acc = 0`, which halts sim STEPPING and nothing else: the
+ * renderer, the particle clock (fxp.update(time)), the swing arcs, trauma
+ * decay, the camera follow and the damage numerals all kept running on the
+ * real clock. So during a "hit stop" the world held still while the FX and the
+ * numbers kept sliding across it — which reads as a stutter, not as an impact.
+ * D2R and LoL freeze the PRESENTATION, and that is the half that sells the hit.
+ *
+ * Everything the player watches now runs on this clock instead of the wall
+ * clock, and it very nearly stops while a freeze is owed. Not quite zero: a
+ * hard zero looks like a dropped frame, and a sliver of motion reads as the
+ * world straining against the pause.
+ */
+let fxClock = 0;
+let fxClockMs = 0;
+const HITSTOP_RATE = 0.08;
 // Cache keys so the plate's HTML rows only rebuild when their content moves —
 // this runs every frame, next to a fight.
 let bossMutKey = "";
@@ -1629,16 +1676,25 @@ function stageBossPayoff(s: GameState, events: BossEvent[]): void {
   }
   if (!payoffAt) return;
   if (hudNow > payoffAt.until) { payoffAt = null; return; }
+  // THE SHOWER IS PACED (r4). The sim throws the whole payout in one step, so
+  // arcing every drop on the frame the boss falls is one white instant and
+  // then nothing. Three a frame turns the same data into a two-second shower
+  // the eye can actually follow out to the ring.
+  let thrown = 0;
   for (const l of s.loot) {
     if (payoffSeen.has(l.id)) continue;
     const dx = l.pos.x - payoffAt.x, dy = l.pos.y - payoffAt.y;
-    if (dx * dx + dy * dy > 36) continue; // not this boss's payout
+    // The ring is CONFIG.bossLootRing + jitter out (§5.7); this reaches past
+    // it with room for the arena's own scatter, and stops well short of the
+    // wave drops littering the rest of the room.
+    if (dx * dx + dy * dy > 49) continue; // not this boss's payout
     payoffSeen.add(l.id);
     const hue = l.kind === "material" ? 0xffd98a
       : l.kind === "tome" ? 0xb98bff
       : l.kind === "gold" ? 0xf2c14e
       : PAYOFF_HUE[l.rarity ?? "common"] ?? 0xc9c9d4;
     renderer.bossLootArc(payoffAt.x, payoffAt.y, l.pos.x, l.pos.y, hue);
+    if (++thrown >= 3) return;
   }
 }
 
@@ -1780,7 +1836,7 @@ function updateBossBar(s: GameState): void {
     }
     // The card, the letterbox and the key light all breathe on the SIM's
     // ringside clock now — not on a CSS animation racing the wall clock.
-    setIntroFade(enc.timeLeft);
+    setIntroFade(enc.timeLeft, enc.total);
     // ...and the key light is measured, not declared: on a bright arena floor
     // (floor 9's forest was the case that broke) a screen-blended disc over the
     // boss is what saturates the silhouette it exists to reveal.
@@ -5505,11 +5561,15 @@ const DMG_MAX_ACTIVE = 16;
 interface DmgLive {
   el: HTMLDivElement;
   key: string; // kind|school|effect — only like merges with like
-  wx: number; wz: number; // world anchor: aggregation radius test
-  sx: number; sy: number; // screen anchor: collision-fan test
+  wx: number; wy: number; wz: number; // WORLD anchor — re-projected every frame
+  sx: number; sy: number; // this frame's screen position (post-separation)
+  drift: number; // px of lateral arc travel over the life
+  rise: number; // px of vertical arc travel over the life
+  dur: number; // ms
   total: number;
   merges: number;
   born: number; // ms clock
+  repop: number; // ms — the last merge, for the growth punch
   crit: boolean;
   color: string; // numeral face hex — merges repaint with the same palette
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
@@ -5544,8 +5604,10 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
     canvas.style.display = "block";
     el.prepend(canvas);
   }
-  const px = crit ? 58 : 38; // non-crit floor raised (r5: 34px thinned to fog)
-  const pad = crit ? 30 : 18;
+  // r4 blocker: viewport-relative and ~40% smaller (see dmgFace). The numeral
+  // labels the body; it does not replace it.
+  const px = dmgFace(crit);
+  const pad = Math.round(px * (crit ? 0.42 : 0.4));
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return; }
   ctx.font = DMG_FONT.replace("%PX%", String(px));
@@ -5563,34 +5625,40 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
+  // A CRIT IS A DIFFERENT OBJECT, NOT A BIGGER ONE (r4 minor). The ramp used
+  // to be carried entirely by a 38px/58px size split plus a trailing "!" —
+  // i.e. by the one axis the numerals were already over-spending — while the
+  // two faces sat a perceptual step apart in the same gold. A crit now wears
+  // an EMBER ink (the ordinary hit's is black) with a hot outer halo, so the
+  // difference survives at the smaller face and reads without comparison.
+  //
+  // The r5 chromatic-aberration pair that used to sit under this is gone: at
+  // +/-3.5px under a 9px ink stroke it was mostly buried, and where it showed
+  // it read as a compression artifact rather than as energy.
   if (crit) {
-    // Chromatic flash under the ink: hot red left, cold cyan right.
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = "#ff3b30";
-    ctx.fillText(text, -3.5, 0);
-    ctx.fillStyle = "#4fd8ff";
-    ctx.fillText(text, 3.5, 0);
-    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "rgba(255,120,30,0.5)";
+    ctx.lineWidth = px * 0.4;
+    ctx.strokeText(text, 0, 0);
   }
   // Heavy ink: a dropped dark stroke for weight, then the main outline.
-  ctx.strokeStyle = "rgba(6,3,1,0.85)";
-  ctx.lineWidth = crit ? 11 : 8;
-  ctx.strokeText(text, 0, 2.5);
-  ctx.strokeStyle = "rgba(12,6,2,0.97)";
-  ctx.lineWidth = crit ? 9 : 6.5;
+  ctx.strokeStyle = crit ? "rgba(70,16,2,0.85)" : "rgba(6,3,1,0.85)";
+  ctx.lineWidth = px * (crit ? 0.2 : 0.21);
+  ctx.strokeText(text, 0, px * 0.06);
+  ctx.strokeStyle = crit ? "rgba(96,22,3,0.98)" : "rgba(12,6,2,0.97)";
+  ctx.lineWidth = px * (crit ? 0.16 : 0.17);
   ctx.strokeText(text, 0, 0);
   // Chiseled bevel: dark underlay, then the vertical face gradient with a
   // soft color glow, then a top sheen. Face floor raised (r5 minor): the old
   // -0.28 bottom stop dragged small numerals to mid-gray over dark ground —
   // every number now keeps the crit treatment's warm luminous face.
   ctx.fillStyle = dmgShade(color, -0.4);
-  ctx.fillText(text, 0, 2.2);
+  ctx.fillText(text, 0, px * 0.055);
   const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
   face.addColorStop(0, dmgShade(color, 0.78));
   face.addColorStop(0.42, color);
   face.addColorStop(1, dmgShade(color, -0.12));
   ctx.shadowColor = color;
-  ctx.shadowBlur = crit ? 20 : 15;
+  ctx.shadowBlur = px * (crit ? 0.34 : 0.3);
   ctx.fillStyle = face;
   ctx.fillText(text, 0, 0);
   ctx.shadowBlur = 0;
@@ -5601,49 +5669,135 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   ctx.fillText(text, 0, -0.8);
 }
 
-/** (Re)run the pop-drift-fade animation for a live number. Merges re-pop with
- * a slightly bigger punch each stack so a rolling counter visibly GROWS. */
-/** Scale-in + ARC-OUT (issue #5): the number pops in, lobs up along its
- * drift, crests just past mid-life and settles slightly on the way out — a
- * thrown-coin arc, not a linear float. Merges re-pop with a bigger punch. */
+/**
+ * THE NUMERAL IS SUBORDINATE TYPOGRAPHY (r4 blocker).
+ *
+ * paintNumeral drew a fixed 38px / 58px canvas face, dmgAnimate popped crits to
+ * 1.6x, and the crit starburst added ~240px of conic glow on top — all in
+ * ABSOLUTE CSS pixels while the world scales with the viewport. At 1280x720 a
+ * crit numeral's cap height came out around 1.5x the crawler's whole on-screen
+ * body, and a five-numeral scrum buried the crawler, four monsters, every
+ * spark, the swing arc and both mob HP plates behind text. In D2R and LoL the
+ * numeral is subordinate typography that never occludes the unit it belongs
+ * to; here it WAS the combat feedback and the shader work underneath was
+ * invisible.
+ *
+ * Two changes: the face is roughly 40% smaller, and it scales with the viewport
+ * the way the world does — so the relationship between a number and a body
+ * holds at every window size instead of only at the one it was eyeballed on.
+ */
+function dmgFace(crit: boolean): number {
+  const k = Math.max(0.72, Math.min(1.3, window.innerHeight / 900));
+  return Math.round((crit ? 30 : 21) * k);
+}
+
+const DMG_DUR = 780;
+const DMG_DUR_CRIT = 900;
+/** Vertical spacing counts for less than horizontal: numbers read ACROSS. */
+const DMG_SEP_ASPECT = 1.9;
+
+/** Re-arm a number's growth punch. A merge grows the counter and re-pops it;
+ *  it never restarts the travel, so a rolling total does not jump backwards. */
 function dmgAnimate(rec: DmgLive): void {
-  const { el, crit } = rec;
-  const grow = Math.min(1 + rec.merges * 0.07, 1.42);
-  // LATERAL-DOMINANT ARC (r6 major): simultaneous hits fan OUT of the fight
-  // sideways — drift now outweighs rise, so a burst reads as a spray of
-  // coins, never a vertical pile climbing the back wall.
-  const dir = Math.random() < 0.5 ? -1 : 1;
-  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 132 : 96);
-  const rise = (crit ? 64 : 50) * (rec.merges > 0 ? 0.85 : 1);
-  const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
-  const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
-  // r7 blocker root cause (ghost numbers in EVERY combat frame): the old
-  // options-level `easing` is EFFECT-level in WAAPI — the entire keyframe
-  // timeline got remapped through the aggressive ease-out, so a number hit
-  // 88% keyframe progress (deep in its fade) at just 35% of real time and
-  // spent most of its life translucent. Easing now rides the KEYFRAMES: hard
-  // pop-in, gliding arc, full ink held to 80%, then a quick clean exit.
-  const anim = el.animate(
-    [
-      { transform: `translate(-50%, -50%) scale(${crit ? 0.25 : 0.5}) rotate(${tilt}deg)`, opacity: 0.9, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-      { transform: `translate(calc(-50% + ${(drift * 0.22).toFixed(1)}px), calc(-50% - ${(rise * 0.44).toFixed(1)}px)) scale(${pop.toFixed(2)}) rotate(${tilt}deg)`, opacity: 1, offset: 0.14, easing: "cubic-bezier(0.33, 1, 0.68, 1)" },
-      { transform: `translate(calc(-50% + ${(drift * 0.62).toFixed(1)}px), calc(-50% - ${rise.toFixed(1)}px)) scale(${grow.toFixed(2)})`, opacity: 1, offset: 0.58, easing: "linear" },
-      { opacity: 1, offset: 0.8, easing: "ease-in" },
-      { transform: `translate(calc(-50% + ${drift.toFixed(1)}px), calc(-50% - ${(rise * 0.86).toFixed(1)}px)) scale(${(crit ? 0.98 : 0.9) * grow})`, opacity: 0 },
-    ],
-    // Per-number stagger (r6 major: simultaneous hits stacked into one
-    // unreadable pile): later numbers in a burst hold their pop a few frames
-    // so a flurry reads as a drum-roll, not a single clump. fill:backwards
-    // keeps the pre-pop keyframe applied during the delay.
-    { duration: crit ? 920 : 780, delay: rec.merges > 0 ? 0 : rec.stagger, fill: "backwards" },
-  );
-  anim.onfinish = () => {
-    const i = dmgLive.indexOf(rec);
-    if (i >= 0) dmgLive.splice(i, 1);
-    el.style.visibility = "hidden";
-    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el);
-    else el.remove();
-  };
+  rec.repop = fxClockMs;
+}
+
+/**
+ * THE NUMBERS ARE DRIVEN PER FRAME (r4 — two blockers).
+ *
+ * The old rig wrote el.style.left/top ONCE from renderer.worldToScreen at spawn
+ * and handed the rest to a WAAPI transform. Two defects fell out of that, and
+ * both were visible in every combat capture:
+ *
+ *  1. NO RE-PROJECTION. The camera follows the crawler continuously and boss
+ *     beats add zoom, frameBias and trauma shake, so over a number's ~800ms
+ *     life it slid off the body that took the hit and finished floating over
+ *     unrelated geometry. Those are the "ghost damage numbers" the round-5
+ *     commit named: not stale elements — live elements anchored to nothing.
+ *  2. SPAWN-TIME-ONLY COLLISION. The golden-angle fan tested a candidate pixel
+ *     against the SPAWN anchors, and then each number immediately translated up
+ *     to +/-132px laterally on its own random heading, so two numbers cleared
+ *     at spawn crossed mid-arc: a 41 and a 123 composited into "4123", a 60 and
+ *     a 2 into "602", a 104! swallowed a 50 outright. A combat readout that
+ *     fuses two hits into a third wrong number is worse than no readout.
+ *
+ * So the world anchor is re-projected every frame, the arc is applied as an
+ * OFFSET from that live projection, and the separation pass runs AFTER both —
+ * on the pixels the player will actually see, every frame, not once.
+ */
+function updateDamageNumbers(): void {
+  if (dmgLive.length === 0) return;
+  const now = fxClockMs;
+  for (let i = dmgLive.length - 1; i >= 0; i--) {
+    const r = dmgLive[i];
+    const t = (now - r.born - r.stagger) / r.dur;
+    if (t >= 1) {
+      dmgLive.splice(i, 1);
+      r.el.style.visibility = "hidden";
+      if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(r.el);
+      else r.el.remove();
+      continue;
+    }
+    const sp = renderer.worldToScreen(r.wx, r.wy, r.wz);
+    // A number whose body is off camera keeps its clock but stops drawing: it
+    // has no business being clamped to a screen edge.
+    if (!sp.visible) {
+      r.el.style.visibility = "hidden";
+      r.sx = -1e4; r.sy = -1e4;
+      continue;
+    }
+    r.el.style.visibility = "visible";
+    const tt = Math.max(0, t);
+    // Lateral-dominant arc: a burst reads as a spray of coins, never a
+    // vertical pile climbing the back wall.
+    const ease = 1 - (1 - tt) * (1 - tt);
+    r.sx = sp.x + r.drift * ease;
+    // Up fast, crest around 60%, settle slightly on the way out.
+    const lift = tt < 0.6 ? tt / 0.6 : 1 - (tt - 0.6) / 0.4 * 0.14;
+    r.sy = sp.y - r.rise * lift;
+  }
+  // SEPARATION, on the positions being drawn. Two relaxation passes over at
+  // most DMG_MAX_ACTIVE numbers is a few hundred distance tests per frame, and
+  // it is the only thing standing between the player and a fused number.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let a = 0; a < dmgLive.length; a++) {
+      for (let b = a + 1; b < dmgLive.length; b++) {
+        const A = dmgLive[a], B = dmgLive[b];
+        let dx = B.sx - A.sx;
+        const rawY = B.sy - A.sy;
+        const dy = rawY * DMG_SEP_ASPECT;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= DMG_FAN_PX * DMG_FAN_PX) continue;
+        let d = Math.sqrt(d2);
+        // Exactly coincident pairs need a seed direction or they never part.
+        if (d < 0.01) { dx = 1; d = 1; }
+        const push = (DMG_FAN_PX - d) * 0.5;
+        A.sx -= (dx / d) * push; B.sx += (dx / d) * push;
+        // Resolved mostly SIDEWAYS: numbers read left to right, so they must
+        // not be separated by stacking them up the arena wall.
+        A.sy -= (rawY / d) * push * 0.3; B.sy += (rawY / d) * push * 0.3;
+      }
+    }
+  }
+  for (const r of dmgLive) {
+    const raw = (now - r.born - r.stagger) / r.dur;
+    const t = Math.max(0, raw);
+    const grow = Math.min(1 + r.merges * 0.06, 1.2);
+    const popIn = Math.min(1, t / 0.12);
+    const punch = Math.max(0, 1 - (now - r.repop) / 180) * 0.18;
+    // The old 1.6x crit pop is gone with the oversized face it amplified: a
+    // crit is now told apart by its INK and its shape, not by area (see
+    // paintNumeral).
+    const base = (r.crit ? 1.14 : 1.0) * grow;
+    const settle = t > 0.86 ? 1 - (t - 0.86) / 0.14 * 0.12 : 1;
+    const scale = base * (0.55 + 0.45 * (popIn * popIn * (3 - 2 * popIn))) * (1 + punch) * settle;
+    // Full ink held to 80%, then a quick clean exit. Nothing is drawn during
+    // the drum-roll stagger — a burst arrives one beat at a time.
+    const op = raw < 0 ? 0 : t > 0.8 ? Math.max(0, 1 - (t - 0.8) / 0.2) : 1;
+    r.el.style.transform = `translate3d(${r.sx.toFixed(1)}px, ${r.sy.toFixed(1)}px, 0)`
+      + ` translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+    r.el.style.opacity = op.toFixed(3);
+  }
 }
 
 function spawnDamageNumber(h: HitEvent): void {
@@ -5664,7 +5818,9 @@ function spawnDamageNumber(h: HitEvent): void {
   if (!s.visible) return;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
   const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
-  const now = performance.now();
+  // The numerals ride the PRESENTATION clock, so a hit-stop freezes the number
+  // along with the world it is labelling (r4 major).
+  const now = fxClockMs;
 
   // ROLLING COUNTER: a same-kind hit on the same spot inside the window
   // grows the existing number and re-pops it instead of stacking a twin.
@@ -5678,7 +5834,11 @@ function spawnDamageNumber(h: HitEvent): void {
       rec.total += h.amount;
       rec.merges++;
       rec.wx = h.pos.x; rec.wz = h.pos.y;
-      rec.el.getAnimations().forEach((a) => a.cancel());
+      // The counter's LIFE is extended by the merge, not restarted: a body
+      // taking a five-tick DoT should show one number that grows, and a number
+      // that keeps snapping back to its spawn point is the same unreadable
+      // clump the rolling counter exists to prevent.
+      rec.born = Math.max(rec.born, now - rec.dur * 0.45);
       paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit);
       dmgAnimate(rec);
       return;
@@ -5705,29 +5865,27 @@ function spawnDamageNumber(h: HitEvent): void {
   else if (h.effect === "poison") color = "#7ed957";
   if (h.resisted) color = "#c0ad83"; // muted but never mid-gray (r5 minor)
   el.style.color = color; // the crit starburst ::before keys off currentColor
-  // COLLISION FAN: if this number would land on an active one, walk
-  // golden-angle radial slots until the spot is clear — no more clumps.
-  // A pinch of spawn scatter first (r6 major): even same-tick hits on one
-  // target never share an exact anchor pixel.
-  let px = s.x + (Math.random() - 0.5) * 34, py = s.y + (Math.random() - 0.5) * 10;
-  for (let slot = 0; slot < 8; slot++) {
-    let clear = true;
-    for (const rec of dmgLive) {
-      const ddx = rec.sx - px, ddy = rec.sy - py;
-      if (ddx * ddx + ddy * ddy < DMG_FAN_PX * DMG_FAN_PX) { clear = false; break; }
-    }
-    if (clear) break;
-    const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
-    const rad = 56 + slot * 12;
-    px = s.x + Math.cos(ang) * rad;
-    py = s.y + Math.sin(ang) * rad * 0.5; // squash hard: favor horizontal fan
-  }
-  el.style.left = `${px}px`;
-  el.style.top = `${py}px`;
+  // The element is positioned entirely by transform now (updateDamageNumbers);
+  // left/top stay pinned at the origin so a pooled element carries no stale
+  // absolute position into its next life.
+  el.style.left = "0px";
+  el.style.top = "0px";
+  // THE ARC IS DECLARED, NOT DEALT (r4 blocker). The old rig picked a random
+  // lateral heading per number AFTER a spawn-time collision test, which is
+  // exactly how two cleared numbers crossed. The heading now alternates by the
+  // number of live siblings, so a burst FANS instead of scattering — and the
+  // per-frame separation pass underwrites it either way.
+  const dir = dmgLive.length % 2 === 0 ? 1 : -1;
+  const rank = Math.min(3, Math.floor(dmgLive.length / 2));
   const rec: DmgLive = {
-    el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
-    total: h.amount, merges: 0, born: now, crit, color,
-    stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
+    el, key, wx: h.pos.x, wy: crit ? 1.55 : 1.3, wz: h.pos.y, sx: s.x, sy: s.y,
+    // Travel trimmed with the face (r4): a number that walks 132px away from
+    // the body it belongs to has stopped labelling that body.
+    drift: dir * (28 + rank * 22 + Math.random() * 14),
+    rise: (crit ? 42 : 34) + Math.random() * 8,
+    dur: crit ? DMG_DUR_CRIT : DMG_DUR,
+    total: h.amount, merges: 0, born: now, repop: now, crit, color,
+    stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 45,
   };
   // Drop any stale resist icon a pooled element carried, then paint.
   while (el.childElementCount > 1) el.lastElementChild!.remove();
@@ -5735,11 +5893,16 @@ function spawnDamageNumber(h: HitEvent): void {
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip.
   if (h.resisted) {
-    el.style.opacity = "0.85";
     // Drawn shield mark, never a typed dingbat (some platforms emoji-fy ⛨).
+    // (The old 0.85 opacity is gone: the per-frame driver owns opacity now,
+    // and the muted face already carries the "this school is resisted" read.)
     el.insertAdjacentHTML("beforeend",
       ` <i class="uic" style="mask-image:url(/icons/stats/armor.svg);-webkit-mask-image:url(/icons/stats/armor.svg)"></i>`);
   }
+  // Placed before the first paint so a pooled element never flashes at the
+  // layer's origin for one frame on its way to the body it belongs to.
+  el.style.transform = `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0) translate(-50%, -50%) scale(0.55)`;
+  el.style.opacity = rec.stagger > 0 ? "0" : "1";
   el.style.visibility = "visible";
   dmgLive.push(rec);
   dmgAnimate(rec);
@@ -5753,7 +5916,11 @@ function spawnDamageNumber(h: HitEvent): void {
 // Pooled DOM, transform/width mutations only; no per-frame element churn.
 const mobPlatesLayer = document.createElement("div");
 mobPlatesLayer.id = "mobplates";
-fxLayer.before(mobPlatesLayer); // damage numbers stay above the plates
+// r4 minor: the plate is the only element that says how close a target is to
+// dying, and it was deliberately stacked UNDER the element that covers it. The
+// numerals are subordinate typography now (see dmgFace), so the ordering can
+// be the one that serves the read: the plate wins the pixel.
+fxLayer.after(mobPlatesLayer);
 type MobPlate = { root: HTMLDivElement; name: HTMLDivElement; fill: HTMLSpanElement; cls: string };
 const mobPlatePool: MobPlate[] = [];
 const mobPlateLive = new Map<number, MobPlate>();
@@ -7710,7 +7877,12 @@ if (new URLSearchParams(location.search).has("debug")) {
         if (payoffAt) payoffAt.until = until;
         renderer.holdBossBeats(seconds);
       },
-      release: () => { captureHold = 0; },
+      // Undoes the hold in BOTH places: the host's own beat deadlines AND the
+      // renderer's live rigs, whose lifetimes hold() borrows (r4 blocker —
+      // release() used to clear only this flag, so every rig stayed pinned at
+      // 600s for the rest of the capture run and stale seals stood in frames
+      // they had no business being in).
+      release: () => { captureHold = 0; renderer.releaseBossBeats(); },
       // Touch layer, for the device harness: the live zone table, the routing
       // decision for a point, and the lock/pref state the battery asserts on.
       touch: {
@@ -8171,6 +8343,11 @@ async function main(): Promise<void> {
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;
     acc += dt;
+    // The presentation clock, which a hit-stop nearly stops (see fxClock).
+    // Networked play never freezes anything, so it tracks the wall clock there.
+    const fxDt = !net && hitStop > 0 ? dt * HITSTOP_RATE : dt;
+    fxClock += fxDt;
+    fxClockMs = fxClock * 1000;
     pollPad(); // frame-level: panel buttons stay live while a panel pauses the sim
     pollTouch();
 
@@ -8473,11 +8650,15 @@ async function main(): Promise<void> {
       } else {
         renderer.setGhost(null);
       }
-      renderer.update(state, now / 1000);
+      renderer.update(state, fxClock);
       renderer.render();
     }
     // Damage numbers need the camera positioned (done in update) to project.
     for (const h of frameHits) spawnDamageNumber(h);
+    // ...and they need it EVERY frame, not only on the frame they spawn: the
+    // camera follows the crawler continuously and boss beats add zoom, bias
+    // and shake on top, so a number anchored once slides off its own target.
+    updateDamageNumbers();
     for (const a of frameAnns) showAnnouncement(a);
     updateHud(state);
     updateDowned(state);

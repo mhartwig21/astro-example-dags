@@ -233,7 +233,16 @@ export const BOSS_SIGNATURES: Record<string, BossSignatureFx> = {
   // The generic channel, for a boss with no name of its own for it. Every
   // shipped boss now has one (RITUAL_LABEL in ai.ts): this is the fallback.
   "DARK RITUAL": { family: "arena", shape: "column", rate: 0.55, trauma: 0.18 },
-  "OVER-COMMIT": { family: "window", shape: "burrow", rate: 1.5 },
+  // THE PUNISH TELL, and it is the one beat all eighteen bosses share (r4
+  // blocker). It resolved to `burrow`, which until this round called the
+  // shared contracting arena ring — so every punish telegraph in the game
+  // wore the same shape as the arena warning and the approach seal. It now
+  // speaks the WINDOW's own silhouette: the shaft stands up and the reticle
+  // closes on the spot, which is exactly the rig the window itself wears one
+  // beat later. Shared shape across eighteen bosses is correct HERE and only
+  // here — it is one sentence ("a window is opening"), and a player who has
+  // learned it on floor 3 must read it instantly on floor 18.
+  "OVER-COMMIT": { family: "window", shape: "column", rate: 1.5 },
 };
 
 /** The ask a boss belongs to — the hue when a label has no row of its own. */
@@ -267,6 +276,18 @@ export const ASK_TO_FAMILY: Record<BossAsk, BossAskFamily> = {
   arena: "arena", window: "window", storm: "storm",
 };
 
+/**
+ * The silhouette an ask owns when nothing more specific is known. This is the
+ * §5.9 table in one line, and it is what `signatureFor` falls back through.
+ * "ring" appears nowhere in it on purpose: the contracting arena ring is
+ * reserved to FLOOD SURGE, and a fallback is exactly how a reserved shape
+ * leaks back out across five asks.
+ */
+export const FAMILY_SHAPE: Record<BossAskFamily, BossShape> = {
+  lane: "lanes", shield: "shell", adds: "cords",
+  arena: "props", window: "column", storm: "cells",
+};
+
 export function bossFamily(bossId?: BossId): BossAskFamily {
   return bossId ? BOSS_FAMILY[bossId] ?? "arena" : "arena";
 }
@@ -278,5 +299,12 @@ export function signatureFor(label: string | undefined, bossId?: BossId): BossSi
     const head = label.split(":")[0].trim();
     if (BOSS_SIGNATURES[head]) return BOSS_SIGNATURES[head];
   }
-  return { family: bossFamily(bossId), shape: "ring", rate: 1 };
+  // AN UNLISTED LABEL STILL READS AS ITS ASK (r4 blocker). The old fallback
+  // was `shape: "ring"` — the contracting arena ring, which §5.9 explicitly
+  // reserved to ONE signature — so any label without a row of its own quietly
+  // borrowed the one shape nothing else is allowed to wear. The fallback now
+  // resolves through the ask's own silhouette, so a new kit that emits a new
+  // label gets the right FIGHT on screen before anyone remembers to add a row.
+  const family = bossFamily(bossId);
+  return { family, shape: FAMILY_SHAPE[family], rate: 1 };
 }

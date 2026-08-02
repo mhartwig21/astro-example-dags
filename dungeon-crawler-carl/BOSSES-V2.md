@@ -344,6 +344,32 @@ emits each beat by itself, and kills the boss for the kill shot. Nothing in a
 capture is invented any more — the health plate tells the fight's arc because
 the health is real.
 
+### 5.10 ACCEPTANCE ROUND 4 — the blockers round 3 left standing
+
+Round 3 closed the name card (18/18) and the HUD call-out and left four
+blockers alive. Every one of them was real, and three of the four were the same
+mistake: **an ask that the signature table promised and the renderer never
+built.**
+
+| Finding | The defect | The answer |
+|---|---|---|
+| The `column` beat blew the whole frame to gold on floors 3 and 6 | `case "column"` was the one ask silhouette with NO geometry: gatherBurst + a 20-mote column + ten radial streaks + an **un-governed** light of peak 9, every layer additive and every layer in `ASK_PAL.window`. LATE FEE and the Grease Trap — the first two bosses anyone meets — rendered as a flat gold wash with the boss a pale ghost inside it. | The WINDOW ask owns a **shaft**: the crossed punish column stands up over the first third of the beat, then drains from the top down while the reticle closes on the spot. The streaks are deleted, the light is halved and governed, and the read is geometry. Verified: `tools/_r4d/rentcollector-3fight.png`, probe `shapes:{column:2}`. |
+| `burrow` was the shared arena ring, and so was every boss's punish tell | `case "burrow"` called `arenaBeat` — the same contracting ring as the arena warning, the approach seal AND (through `OVER-COMMIT`, which all eighteen bosses fire) the punish telegraph. Four sentences, one shape. `signatureFor` also fell back to `shape:"ring"`, so any unlisted label quietly borrowed the one shape §5.9 reserved. | `burrow` owns a five-vaned **pinwheel** sweeping into a mouth that contracts — the only curved geometry in the game. `OVER-COMMIT` moved to the window's own shaft, so the punish tell and the punish window speak one sentence a beat apart. The fallback resolves through `FAMILY_SHAPE`, and "ring" appears nowhere in it. |
+| The payoff never landed ringside | §5.7/§2.8 promise loot "ringside rather than under the corpse". `dropBossBonus` dropped every item at pos ± 0.6 tiles, so `stageBossPayoff` threw its rarity arc from the corpse to a point half a tile away, and `lootArc` was 21 sparks and one one-frame light — nothing persistent. Two capture runs counted two loot glows against a fifty-item drop. | Where loot lands is a RULE, so it moved in the SIM: `ringsidePos` throws the sigil, the glyph, the title belt and the bonus roll onto a `CONFIG.bossLootRing` ring, spread by index, pulled back only if the ring point is not walkable. The arc is sampled by distance and lands on a four-second **beacon**. Verified: `tools/_r4d/rentcollector-6kill.png` — six ringside beacons in frame, probe `shapes.loot:8`. |
+| 340 mojibake em-dashes in `ai.ts` and `config.ts` | Every em-dash in those two files was stored as the mis-decoded bytes `â€”` (171 + 169; zero clean em-dashes in `ai.ts`). Thirteen were player-facing System lines and two were legible in capture. A boss round whose premise is the System's voice cannot ship with the voice broken. | Both files re-decoded (latin1→utf8 over the mojibake runs only); `§`, `°`, `±` and `™` came back with them. Strings are part of the rules projection, so the era stamp moved. |
+| The exposure governor was floor-biased, not beat-biased | Measured on the real clock with a driven fight: floor 9 ran a median `exposureScale` of 0.61 against floor 3's 1.00, driven entirely by the luma term against a 0.45 knee. Identical beats rendered at ~60% brightness in THE GARDEN for a reason that had nothing to do with the beat, and the punish rig paid it with no floor. | The knee moved to 0.62, the coefficients came down, saturation is charged only above a deadband, the `measSat > 0.22` hard clamp is gone, and the scale has a floor of 0.45 — below that the beat stops existing, which is the failure the governor exists to prevent, arriving from the other side. The punish reticle and shaft have their own higher floor: the one beat that must survive a bright frame cannot be the beat dimmed by how bright the frame is. |
+| The card's rows were still on the wall clock | r3 moved the card's OVERALL opacity to `encounter.timeLeft` and left the six ROW entrances as CSS animation-delays finishing at 1.22s — longer than a rematch freeze (2.2 × 0.55 = 1.21s) even exists for. The System line was missing from five of six intro captures whose shutter opened inside a second. | Every row's opacity is a custom property the host writes as a FRACTION of the freeze, so the card is fully assembled by ~52% of whatever length this intro is. Verified: `tools/_r4d/topiary-2intro.png`, all six rows present. |
+| The mutator chips were the lowest-contrast element on the highest-stakes screen | `#ffc79a` at 12px next to a 46px gold title. §5.3 makes this row the answer to "why is THIS run different?" and it was the row least likely to be read. | Ember face on a near-black plate at the affix plaque's weight, pinned by a lit diamond. |
+| The harness shipped frames that did not contain their beat | `guard()` read `state.status`, which `bf.tick` force-writes back to "playing" every step — so the sim looked alive while every frame was THE VERDICT. Separately, `hold()` had no inverse: `release()` cleared the host flag and left every renderer rig pinned at 600s, so stale seals stood in later frames. And three bosses died during the phase hunt, filing nine corpses as live beats. | `guard()` measures the SCREEN (any named overlay covering a quarter of the viewport, plus `elementFromPoint` at the centre) and takes a `bossAlive` assertion the fight/phase/punish beats pass; the kill shot refuses unless the boss really reached zero. `BossFx.release()` hands back every borrowed lifetime. `bf.until` takes a `floorHp` that lets every phase gate land while making it impossible for the boss to die inside a hunt. The probe now reports `shapes` — what is actually drawing, by silhouette, this frame. |
+
+**Still open after this round** (honest list, not a plan): `linesupervisor`,
+`safetyofficer` and `sponsor` still report `fight=OVER-COMMIT`, because
+`stepBoss` checks the punish window BEFORE the boss's own kit and returns early
+— that is a sim-ordering question with balance consequences, not a
+presentation one, and it is not fixed here. Per-archetype telegraph
+differentiation (every slam from every archetype is still one red disc) and the
+melee swing arc's placement are likewise untouched.
+
 ---
 
 ## 6. BALANCE FRAME
