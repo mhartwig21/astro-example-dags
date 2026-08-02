@@ -227,13 +227,41 @@ export class HudLayout {
       root.setProperty("--xp-top", `${Math.round(tr.bottom + 4)}px`);
       root.setProperty("--xp-w", `${Math.round(tr.width)}px`);
     }
-    const left = tl && tl.width > 0 ? tl.right + 8 : z.safe.x;
+    // THE CARD MUST NOT CLIP THE COLLAPSE CLOCK. `--card-x` was `tl.right + 8`
+    // measured on the layout lifecycle, but `#hud-tl`'s content — the floor
+    // number and the collapse clock — changes width every second, so the gap
+    // this measured went stale between resizes and the card crept back over
+    // the plaque (29% of `#hud-tl` covered, the state word clipped 'SAFE' ->
+    // 'S', which the CSS comment beside it explicitly promised not to do).
+    // A fraction-of-safe-box floor is stable against content that breathes.
+    const left = Math.max(
+      tl && tl.width > 0 ? tl.right + 10 : z.safe.x,
+      z.safe.x + 0.22 * z.safe.w,
+    );
     const right = tr && tr.width > 0 ? tr.left - 8 : z.safe.x + z.safe.w;
     // A card narrower than this is unreadable; below the floor it is better to
     // overlap a plaque than to hyphenate every word.
     const w = Math.max(220, right - left);
     root.setProperty("--card-x", `${Math.round(left)}px`);
     root.setProperty("--card-w", `${Math.round(Math.min(w, z.viewport.w - left - 8))}px`);
+
+    // THE TOAST RAIL'S WIDTH, exactly.
+    //
+    // The CSS used to derive it as `100vw - stick-w*2 - 32`, subtracting the
+    // stick zone from BOTH sides of a layout that has a stick on one side and
+    // a cluster on the other: 76 px on a Pixel 5, i.e. one word per line, and
+    // the column grew tall enough to start above the top of the screen. The
+    // rail runs from the outer gutter to the CLUSTER's inboard edge — it may
+    // overlap the stick zone (it is pointer-events: none and the stick takes a
+    // press anywhere), it may never overlap a chip.
+    const ids = Object.keys(z.controls) as ControlId[];
+    const clusterLeft = Math.min(...ids.map((id) => z.controls[id].x));
+    const clusterRight = Math.max(...ids.map((id) => z.controls[id].x + z.controls[id].w));
+    const mirror = document.body.classList.contains("handed-left");
+    const avail = mirror
+      ? (z.safe.x + z.safe.w) - clusterRight - 12
+      : clusterLeft - 12 - z.safe.x;
+    root.setProperty("--toast-w", `${Math.round(Math.max(200, avail))}px`);
   }
 
   /** The map chip is the only control this layer owns; hand back its rect. */

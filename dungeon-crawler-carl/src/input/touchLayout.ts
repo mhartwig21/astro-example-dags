@@ -54,6 +54,22 @@ export const COMBAT_CONTROLS: ControlId[] = [
 ];
 
 /**
+ * NAVIGATION controls — pressed BETWEEN fights, and deliberately NOT held to
+ * `comfortable`.
+ *
+ * `map` measured 290 px from an iPhone 13's pivot against a 274 px comfortable
+ * arc, and a critic correctly flagged that `test/touchLayout.test.ts` asserts
+ * combat controls are inside `comfortable` while this one is not. It is not
+ * inside because it is not a combat control: opening the chart is a decision
+ * you make with the pack dead, with time to regrip, and giving it a
+ * comfortable-arc slot would cost that slot to a chip you press under fire.
+ * The exclusion is now explicit and it carries its own weaker invariant —
+ * every nav control must still clear `stretch` (342 px on the same phone), so
+ * "not comfortable" can never silently become "not reachable".
+ */
+export const NAV_CONTROLS: ControlId[] = ["map"];
+
+/**
  * MILLIMETRES PER CSS PIXEL, per class (MOBILE.md §2.0).
  *
  * Derived from published panel dimensions, not measured through the browser —
@@ -62,13 +78,27 @@ export const COMBAT_CONTROLS: ControlId[] = [
  * constant honest; the residual (and the +/-20% of hand size no formula can
  * see) is what the player sliders are for.
  *
- *   compact   Pixel 5 (393x851 dp, 6.0")                  156.2 dp/in
- *   phone     iPhone 13 (153.4 pt/in), 13 Pro Max (152.7)
- *   tablet-s  iPad Pro 11 (132.4), iPad 7 (132.4)
- *   tablet-l  iPad Pro 12.9 (132.3)
+ *   compact + phone   Pixel 5 (156.2 dp/in), iPhone 13 (153.4 pt/in),
+ *                     13 Pro Max (152.7) -> 0.163 / 0.165 / 0.165
+ *   tablet-s          iPad Pro 11 (132.4), iPad 7 (132.4)
+ *   tablet-l          iPad Pro 12.9 (132.3)
+ *
+ * THE compact/phone BOUNDARY IS ABOUT ROOM, NOT ABOUT HANDS (see
+ * `deviceClass`). A critic caught the two tiers disagreeing with §2.0's own
+ * device table — §4.1's `short edge < 380` files iPhone 13 landscape under
+ * `compact` while §2.0 and §3.2 file the same device under `phone` — and
+ * concluded the number came out right by accident. It did. The reconciliation
+ * is to stop pretending the tiers are different HANDS: 0.163 and 0.165 are
+ * 1.2% apart, well inside the <= 2% intra-class spread this table already
+ * declares acceptable, so both phone tiers now share one constant and NO
+ * hand-scale quantity depends on which side of 380 a phone lands. The trigger
+ * selects posture, arc caps and panel treatment — screen-scale things — and
+ * nothing else.
  */
+export const PHONE_MM_PER_PX = 0.164;
 export const MM_PER_PX: Record<DeviceClass, number> = {
-  compact: 0.163, phone: 0.165, "tablet-s": 0.192, "tablet-l": 0.192,
+  compact: PHONE_MM_PER_PX, phone: PHONE_MM_PER_PX,
+  "tablet-s": 0.192, "tablet-l": 0.192,
 };
 
 /** Anthropometry, not taste — see MOBILE.md §3.2 for the CHI 2011 derivation. */
@@ -132,8 +162,19 @@ export interface ZoneTable {
   stickZone: Rect;
   /** Taps here select / lock / move. Everything not a zone or a chip. */
   worldZone: Rect;
-  /** Labelled CANCEL band; live only while a chip is AIMING. */
+  /**
+   * Labelled CANCEL band; live only while a chip is AIMING. Zero-area when
+   * `cancelMode === "origin"` — see the derivation at the assignment.
+   */
   cancelBand: Rect;
+  /**
+   * Which cancel affordance this posture actually ships.
+   *
+   * `band`   a labelled strip, reachable without crossing the screen (tablets)
+   * `origin` return inside `cancelRadius` of the FROZEN press origin, drawn as
+   *          a ringed ✕ at that origin. The only cancel on a corner grip.
+   */
+  cancelMode: "band" | "origin";
   /** Floating stick radius in CSS px (dead zone and recentring scale off it). */
   stickRadius: number;
   /**
@@ -179,7 +220,17 @@ export function reachArcs(
   };
 }
 
-/** Four classes, because 500-744 is a real gap and a 10-inch is not a 13-inch. */
+/**
+ * Four classes, because 500-744 is a real gap and a 10-inch is not a 13-inch.
+ *
+ * READ THIS AS A ROOM TIER, NOT A HAND SIZE. The viewport short edge in
+ * landscape is the device minus the browser's own chrome (a Pixel 5 reports
+ * 293 where an iPhone 13 reports 342, on two phones whose physical widths are
+ * within 1% of each other), so this number measures how much ROOM a layout
+ * has, not how long a thumb is. Every hand-scale quantity goes through
+ * `MM_PER_PX`, which is now one constant for both phone tiers precisely so
+ * that this boundary cannot move a thumb constant — see the note there.
+ */
 export function deviceClass(shortEdge: number, coarse: boolean): DeviceClass {
   if (!coarse) return shortEdge < 560 ? "phone" : "tablet-l";
   if (shortEdge < 380) return "compact";
@@ -214,12 +265,19 @@ interface ArcSpec { id: ControlId; ang: number; rf: number; size: number }
  */
 const ARC_CORNER: ArcSpec[] = [
   // near rank, along the shallow end of the fan
-  { id: "slot0", ang: 25, rf: 0.34, size: 1.40 }, // basic attack, hold-to-repeat
+  { id: "slot0", ang: 25, rf: 0.34, size: 1.22 }, // basic attack, hold-to-repeat
   { id: "flask", ang: 11, rf: 0.74, size: 0.92 },
   { id: "slot1", ang: 8, rf: 1.08, size: 1.00 },
   { id: "slot2", ang: 6, rf: 1.42, size: 1.00 },
-  // far rank, climbing the fan; the ultimate takes the top
-  { id: "slot4", ang: 82, rf: 0.63, size: 1.14 },
+  // far rank, climbing the fan; the ultimate takes the top AND the size.
+  //
+  // CHIP HIERARCHY WAS INVERTED. Measured, the basic attack was the largest
+  // control in the cluster (92x92 on an iPhone 13) and the ultimate the
+  // smallest of the five slots (75x75). That is backwards: the basic attack is
+  // hold-to-repeat and forgiving of a sloppy press, while the ultimate is the
+  // once-a-fight, under-pressure, cannot-miss press — which is exactly why
+  // Wild Rift makes it the biggest and the most distinct button on the glass.
+  { id: "slot4", ang: 82, rf: 0.63, size: 1.42 },
   { id: "slot3", ang: 51, rf: 0.81, size: 1.00 },
   { id: "lock", ang: 36, rf: 1.06, size: 0.80 },
   { id: "context", ang: 28, rf: 1.30, size: 0.86 },
@@ -234,11 +292,11 @@ const ARC_CORNER: ArcSpec[] = [
  * fan, and nothing climbs into the read band.
  */
 const ARC_SIDE: ArcSpec[] = [
-  { id: "slot0", ang: 0, rf: 0.34, size: 1.40 }, // basic attack, inboard horizontal
+  { id: "slot0", ang: 0, rf: 0.34, size: 1.22 }, // basic attack, inboard horizontal
   { id: "slot1", ang: -30, rf: 0.86, size: 1.00 },
   { id: "slot2", ang: 0, rf: 0.94, size: 1.00 },
   { id: "slot3", ang: 30, rf: 0.86, size: 1.00 },
-  { id: "slot4", ang: 46, rf: 0.60, size: 1.14 }, // ultimate, top of the fan
+  { id: "slot4", ang: 46, rf: 0.60, size: 1.42 }, // ultimate: top of the fan AND the biggest chip
   { id: "flask", ang: -46, rf: 0.58, size: 0.92 },
   { id: "context", ang: -22, rf: 0.34, size: 0.86 },
   { id: "lock", ang: 24, rf: 0.36, size: 0.80 },
@@ -406,28 +464,49 @@ export function computeZones(
   };
 
   /*
-   * THE CANCEL BAND, and a deliberate departure from §2.2's diagram.
+   * THE CANCEL AFFORDANCE — and why a corner grip does not get a band.
    *
-   * §4.2a asks for two things that a corner grip cannot both have on a
-   * 293-342 px-tall landscape phone: rule 1 reserves the top 32% of the safe
-   * box for the boss plate / banner / HP rail, rule 2 gives the corner cluster
-   * the 58% below it, and rule 4 forbids the band from entering the top 40%.
-   * A 44 px strip does not fit in the 8% of `safe.h` that leaves — on an
-   * iPhone 13 that is 24 px. "Above the cluster" is therefore unsatisfiable
-   * with the invariants that have a stated rationale.
+   * Round 1 pinned the band to the bottom-INBOARD corner on a corner grip.
+   * Measured on an iPhone 13 landscape that put a 258x58 strip at (146,272)
+   * while the cluster occupied x 449-712: reaching it is a ~176 px
+   * cross-screen drag, well past the 109 px `aimThrow`, so the band was
+   * decorative — and 92% of its area (231x57 px) lay inside the MOVEMENT
+   * thumb's zone, so a giant CANCEL bar painted under the walking thumb every
+   * time you aimed. It did not block walking, but it taught the wrong hand,
+   * which is worse than teaching nothing.
    *
-   * So BOTH postures pin the band to a bottom corner of the safe box, clear of
-   * the lowest chip by >= 24 px: bottom-OUTER on a side grip (§4.2a as
-   * written) and bottom-INBOARD on a corner grip, where the cluster already
-   * occupies the outer corner. The gesture is the same in both: drag away from
-   * the cluster into a labelled strip that appears the moment AIMING starts.
+   * The obvious repair — put the band inboard of the cluster on the CASTING
+   * side — does not survive its own arithmetic either. The gap between the
+   * stick zone (ends at x 350) and the cluster (starts at x 449) is 87 px on
+   * an iPhone 13, under the 96 px this file will accept as a band; and a band
+   * there sits exactly one `aimThrow` (109 px) inboard of the nearest chip, so
+   * every full-range LEFTWARD aim would land in it and cancel. A cancel target
+   * that eats the most natural aim direction is not a cancel target.
+   *
+   * DECISION. The band is placed only where it can be reached WITHOUT crossing
+   * the movement thumb and without colliding with the aim throw — the side
+   * grip's bottom-outer corner, which measured 0% stick overlap and is left
+   * exactly as it was. A corner grip gets `cancelMode: "origin"`: return
+   * inside `cancelRadius` (37 px) of the frozen press origin. That was already
+   * the only cancel a phone player could actually perform; what was missing
+   * was that nothing DREW it. `touchShell` now paints a ringed ✕ at the frozen
+   * origin the moment AIMING starts, so the affordance is visible, is by
+   * construction inside the thumb's reach (it is where the thumb already is),
+   * and cannot be confused with an aim direction.
    */
   const bandHeight = Math.max(MIN_TARGET, chipBase * 0.9);
-  const cancelW = Math.min(safe.w * 0.42, Math.max(180, arcRadius * 1.4));
+  const inboardGap = mirror
+    ? (stickZone.x - 12) - (clusterRight + 12)
+    : (clusterLeft - 12) - (stickZone.x + stickZone.w + 12);
+  const wantBand = side || inboardGap >= 96;
+  const cancelMode: "band" | "origin" = wantBand ? "band" : "origin";
+  const cancelW = side
+    ? Math.min(safe.w * 0.42, Math.max(180, arcRadius * 1.4))
+    : Math.max(0, inboardGap);
   const cancelX = clamp(
     side
       ? (mirror ? safe.x : safe.x + safe.w - cancelW)
-      : (mirror ? clusterRight + 12 : clusterLeft - cancelW - 12),
+      : (mirror ? clusterRight + 12 : stickZone.x + stickZone.w + 12),
     safe.x, Math.max(safe.x, safe.x + safe.w - cancelW),
   );
   const cancelY = clamp(
@@ -435,7 +514,12 @@ export function computeZones(
       : safe.y + safe.h - bandHeight,
     safe.y, Math.max(safe.y, safe.y + safe.h - bandHeight),
   );
-  const cancelBand: Rect = { x: cancelX, y: cancelY, w: cancelW, h: bandHeight };
+  const cancelBand: Rect = wantBand
+    ? { x: cancelX, y: cancelY, w: cancelW, h: bandHeight }
+    // Zero-area, and parked at the bottom-inboard corner of the CASTING half
+    // so a consumer that paints it unconditionally paints nothing rather than
+    // painting it over the stick.
+    : { x: clamp(clusterLeft - 12, safe.x, safe.x + safe.w), y: safe.y + safe.h - bandHeight, w: 0, h: 0 };
 
   const anchorX = mirror ? vw - vw * 0.22 : vw * 0.22;
   const stickAnchor: Vec2 = {
@@ -447,8 +531,8 @@ export function computeZones(
 
   return {
     cls, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
-    stickRadius, aimThrow, cancelRadius, mmPerPx, stickAnchor, pivot, arcRadius,
-    comfortable, stretch, controls,
+    cancelMode, stickRadius, aimThrow, cancelRadius, mmPerPx, stickAnchor, pivot,
+    arcRadius, comfortable, stretch, controls,
   };
 }
 

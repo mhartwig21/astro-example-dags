@@ -39,6 +39,10 @@ import {
 import { FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
+import {
+  AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, disposeAimShape,
+  type AimIndicatorShape,
+} from "./aimIndicator";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -2835,6 +2839,56 @@ export class Renderer3D {
     return { x: hit.x, y: hit.z };
   }
 
+  /**
+   * THE PICKUP RING (MOBILE.md §2.7).
+   *
+   * Measured across four devices with a live drop on the floor: no renderer
+   * key matching `pickup|lootring|magnet` and no DOM node matching
+   * `pickup|lootstrip` existed at all, so a player on glass had no way to know
+   * an item had been collected — or how close they had to get. The ring is the
+   * world half of the answer: it draws the SIM's own `pickupRadius` around the
+   * crawler while there is anything nearby to collect, and flares on the
+   * frame something is actually taken.
+   *
+   * It reads a sim constant and paints it. It decides nothing.
+   */
+  setPickupRing(at: Vec2 | null, radius: number): void {
+    if (!at) {
+      if (this.pickupRing) this.pickupRing.visible = false;
+      return;
+    }
+    if (!this.pickupRing) {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.86, 1, 40),
+        new THREE.MeshBasicMaterial({
+          color: 0x9a6bd0, transparent: true, opacity: 0.34,
+          side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 3980;
+      this.pickupRing = m;
+      this.scene.add(m);
+    }
+    const r = this.pickupRing;
+    r.visible = true;
+    // The flare decays on wall clock: it is presentation, and the sim is not
+    // stepping while a panel holds it.
+    const age = (performance.now() - this.pickupFlareAt) / 380;
+    const flare = age >= 0 && age < 1 ? 1 - age : 0;
+    const s = radius * (1 + flare * 0.55);
+    r.position.set(at.x, 0.05, at.y);
+    r.scale.set(s, s, 1);
+    (r.material as THREE.MeshBasicMaterial).opacity = 0.28 + flare * 0.55;
+  }
+
+  /** Something was collected this frame: flare the ring. */
+  pulsePickup(): void {
+    this.pickupFlareAt = performance.now();
+  }
+  private pickupRing: THREE.Mesh | null = null;
+  private pickupFlareAt = -1e9;
+
   /** Show/hide the click-to-move destination chip (null hides it). */
   setMoveMarker(pos: Vec2 | null): void {
     if (!pos) {
@@ -2856,46 +2910,90 @@ export class Renderer3D {
   }
 
   /**
-   * Drag-to-aim ground telegraph (touch/controller): a gold line, ring, or
-   * arrow from the player. kind null hides it. dir need not be normalized.
+   * THE AIM TELEGRAPH (MOBILE.md §3.1) — the single read a touch ARPG lives on.
+   *
+   * What this replaces, measured in §1.6: three hardcoded meshes — a
+   * `PlaneGeometry(4.2, 0.2)`, a `RingGeometry(2.0, 2.2)` and a 0.34 arrow —
+   * painted gold `#c9a24b` at 0.42 with no outline. Nova (radius 2.6) and
+   * cataclysm (radius 6) therefore drew the PIXEL-IDENTICAL ring, bolt's
+   * telegraph was a 4.2-unit stub whatever its derived reach, and the frame
+   * diff inside the indicator's own projected box came back AT OR BELOW the
+   * scene's churn between two consecutive frames: the thing carried no signal
+   * the torchlight did not already carry.
+   *
+   * Four changes, each answering a measured failure:
+   *
+   * 1. GEOMETRY IS REBUILT FROM THE ABILITY. `range`, `radius` and `arc` come
+   *    from the `AimSpec` the host already computes off the crawler's own
+   *    params, so glyphs and ranks change the drawn circle — a thing Wild Rift
+   *    structurally cannot do, because its indicators are per-ability art.
+   * 2. SIX SHAPES, not three: `cone` and `scatter` exist now instead of being
+   *    folded into line and ring by the host.
+   * 3. COLOUR THE WORLD DOES NOT OWN. Gold is the HUD, the chips, the
+   *    torchlight and the loot glow; red/orange is the ENEMY ground telegraph.
+   *    The player indicator is cyan `#39c8e8` fill at 0.30 under a white
+   *    `#eaf9ff` core stroke at 0.85, over a `#08131a` outline at 0.7.
+   * 4. FLOORS, so a correct shape cannot be an invisible one: a 3 CSS px
+   *    minimum stroke width converted to world units through the live camera
+   *    scale, and a 96x96 CSS px minimum projected footprint — the dash arrow
+   *    measured 71x28.
+   *
+   * The core stroke draws with `depthTest: false` and a high `renderOrder`, so
+   * a pack of sprites standing on the telegraph cannot swallow it (the failure
+   * photographed in `r5/crop-aim-line.png`); the fill keeps `depthTest` so it
+   * still reads as something lying on the floor.
    */
-  setAimIndicator(kind: "line" | "ring" | "arrow" | null, from?: Vec2, dir?: Vec2): void {
-    if (!kind || !from) {
+  setAimIndicator(
+    kind: AimIndicatorShape | null, from?: Vec2, dir?: Vec2,
+    range = 4.2, radius = 2.1, arc = 0,
+  ): void {
+    if (!kind || kind === "none" || !from) {
       if (this.aimIndicator) this.aimIndicator.visible = false;
       return;
     }
     if (!this.aimIndicator) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xc9a24b, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
-      });
       const g = new THREE.Group();
-      const line = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.2), mat);
-      line.rotation.x = -Math.PI / 2;
-      line.position.set(2.1, 0, 0); // extends along +x from the player
-      line.name = "line";
-      const ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.2, 40), mat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.name = "ring";
-      const arrow = new THREE.Group();
-      const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.22), mat);
-      shaft.rotation.x = -Math.PI / 2;
-      shaft.position.set(1.1, 0, 0);
-      const tip = new THREE.Mesh(new THREE.CircleGeometry(0.34, 3), mat);
-      tip.rotation.x = -Math.PI / 2;
-      tip.position.set(2.35, 0, 0);
-      arrow.add(shaft, tip);
-      arrow.name = "arrow";
-      g.add(line, ring, arrow);
-      g.position.y = 0.07;
+      g.name = "aimIndicator";
+      // Render after the world; the fill still depth-tests, the stroke does not.
+      g.renderOrder = 4000;
       this.aimIndicator = g;
       this.scene.add(g);
     }
     const ind = this.aimIndicator;
     ind.visible = true;
     ind.position.set(from.x, 0.07, from.y);
-    for (const child of ind.children) child.visible = child.name === kind;
     if (dir && (dir.x !== 0 || dir.y !== 0)) ind.rotation.y = -Math.atan2(dir.y, dir.x);
+
+    // STROKE WIDTH IS A SCREEN QUANTITY. The old 0.2-world-unit plane is what
+    // made the line vanish: at the iso zoom a phone actually runs, 0.2 units
+    // is barely over a pixel. Convert 3 CSS px through the camera's own
+    // world-per-pixel scale, and never go below it.
+    const worldPerPx = this.aimWorldPerPx();
+    const stroke = Math.max(0.13, AIM_STROKE_PX * worldPerPx);
+    // MINIMUM FOOTPRINT. `AIM_MIN_FOOTPRINT_PX` of screen, in world units,
+    // measured on the SHORT screen axis so an iso-foreshortened up-screen aim
+    // is the case that binds.
+    const minSpan = AIM_MIN_FOOTPRINT_PX * worldPerPx;
+    const key = `${kind}|${range.toFixed(2)}|${radius.toFixed(2)}|${arc.toFixed(3)}|${stroke.toFixed(3)}|${minSpan.toFixed(2)}`;
+    if (this.aimKey === key) return;
+    this.aimKey = key;
+    for (const c of ind.children.slice()) disposeAimShape(c);
+    ind.clear();
+    for (const m of buildAimShape(kind, range, radius, arc, stroke, minSpan)) ind.add(m);
   }
+
+  /**
+   * World units per CSS pixel at the ground plane, from the live orthographic
+   * frustum. One division, no raycast: the iso camera is orthographic, so the
+   * scale is constant across the frame.
+   */
+  private aimWorldPerPx(): number {
+    const cam = this.camera;
+    const h = Math.abs(cam.top - cam.bottom) / Math.max(1, cam.zoom);
+    const px = Math.max(1, this.lastH);
+    return h / px;
+  }
+  private aimKey = "";
 
   // RENDER SCALE (SYSTEM menu setting): scales the backing buffer + composer
   // targets only — the canvas CSS size and every DOM overlay stay crisp.

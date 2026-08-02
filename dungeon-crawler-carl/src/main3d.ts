@@ -40,7 +40,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimPlacement, aimSpecFor, castRange, type AimShape } from "./input/aimSpec";
+import { aimPlacement, aimSpecFor, castRange } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -3913,7 +3913,18 @@ function renderSafeRoom(s: GameState): void {
   srTabShop.classList.toggle("active", srTab === "shop");
   srTabAbil.classList.toggle("active", srTab === "abil");
   srTabAch.classList.toggle("active", srTab === "ach");
-  srPageShop.style.display = srTab === "shop" ? "grid" : "none";
+  // NEVER `"grid"` HERE. An inline display beats every stylesheet rule, so
+  // hardcoding it silently defeated the whole one-pane-at-a-time treatment:
+  // measured on an iPhone 13, `.shop-body` stayed a `244px 348px` grid inside a
+  // 606px container, which meant the SHELF was squeezed into 40% of the panel,
+  // its first tile row centred below the pane's clip, and NOT ONE `.itile`
+  // was hit-testable — `elementFromPoint` at every tile centre returned
+  // something else. That is the real cause of "a phone player cannot buy
+  // anything": not the select→detail→BUY chain (which works), but a shelf with
+  // nothing a finger can reach. The empty column is `.shop-side`, held open by
+  // the grid track while its contents were `display: none`d by the segmenting
+  // rules — the "acres of blank stone" in the phone shop captures.
+  srPageShop.style.display = srTab === "shop" ? "" : "none";
   srPageAbil.style.display = srTab === "abil" ? "" : "none";
   srPageAch.style.display = srTab === "ach" ? "" : "none";
   if (srTab === "shop") renderShopPage(s);
@@ -4136,8 +4147,14 @@ function renderAbilPage(s: GameState): void {
   srLoadout.innerHTML =
     p.abilities.slots.map((id, i) => slotTile(id, String(i + 1), i)).join("") +
     slotTile(p.abilities.ultimate, "U", ULT_SLOT, true);
+  // ONE VERB PER INPUT DEVICE. The iPad rendered "CLICK A LIT SOCKET" and the
+  // chip's own "IN HAND — TAP A LIT SOCKET" at the same time, on the same
+  // screen, about the same gesture. The word pair is the same one the panel
+  // hints use, so the two can never drift.
+  const verb = `<span class="clickword">click</span><span class="tapword">tap</span>`;
   const hint = heldGlyph
-    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — click a lit socket to seat it, or click the glyph again to put it down.`
+    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — ${verb} a lit socket to seat it, ` +
+      `or ${verb} the glyph again to put it down.`
     : "Glyphs seat into SLOTS, not abilities: re-slot an ability and it inherits whatever that slot carries. Removal is free.";
   srGlyphs.innerHTML =
     `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
@@ -4724,8 +4741,102 @@ function updateSkills(s: GameState): void {
     }
     chip.dataset.rdy = ready ? "1" : "0";
   });
+  // THE FLASK MUST SHOUT WHEN IT MATTERS (MOBILE.md §2.7).
+  //
+  // Driven at 30-35% HP on three devices, `#flask-chip` still read
+  // `class="skill ready"` with `animation-name: none`. On a 342px-tall phone
+  // the flask is the one chip that has to reach you through a boss's
+  // particles, and "the same as every other chip" is not a state. Two signals,
+  // both cheap: the chip pulses while you are in the danger band with a charge
+  // in hand, and a refilled charge fires a haptic — the one event a player
+  // wants to feel without looking, because looking costs a dodge.
+  const flaskEl = document.getElementById("flask-chip");
+  if (flaskEl) {
+    const low = p.maxHp > 0 && p.hp / p.maxHp <= LOW_HP_FRAC;
+    flaskEl.classList.toggle("lowhp", low && p.flaskCharges > 0);
+    // Dry AND dying is its own state: pulsing a chip that cannot fire would be
+    // a lie, so it gets the danger tint without the invitation to press.
+    flaskEl.classList.toggle("lowhp-dry", low && p.flaskCharges === 0);
+    if (p.flaskCharges > lastFlaskCharges && lastFlaskCharges >= 0) haptics.fire("potion");
+    lastFlaskCharges = p.flaskCharges;
+  }
   // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
+}
+
+/** The band the flask chip starts asking to be pressed in. */
+const LOW_HP_FRAC = 0.38;
+let lastFlaskCharges = -1;
+
+// ---- LOOT, ACKNOWLEDGED (MOBILE.md §2.7) ---------------------------------
+//
+// Measured on all four devices with a live drop on the floor: NO renderer key
+// matching `pickup|lootring|magnet`, and NO DOM node matching
+// `pickup|lootstrip`. Collection was a silent state change — the strongest
+// dopamine beat in an ARPG, delivered as nothing at all on a phone.
+//
+// Two signals, and neither invents a rule. The ground ring paints the sim's
+// own `CONFIG.pickupRadius` while there is something in range to take; the
+// strip names what was taken, read off deltas in the crawler's own numbers so
+// the sim needs no new event type.
+const pickStrip = (() => {
+  const el = document.createElement("div");
+  el.id = "pickstrip";
+  document.body.appendChild(el);
+  return el;
+})();
+
+let lastGold = -1;
+let lastBagN = -1;
+let lastMatN = -1;
+
+function pushPickup(text: string, color: string, qty = ""): void {
+  const row = document.createElement("div");
+  row.className = "pickrow";
+  row.style.setProperty("--pc", color);
+  row.innerHTML = `<b>${esc(text)}</b>${qty ? `<span class="pq">${esc(qty)}</span>` : ""}`;
+  pickStrip.appendChild(row);
+  // A monotonic count, because the rows themselves live ~1.8 s and a harness
+  // running at SwiftShader's 1-3 fps will measure long after they are gone.
+  pickStrip.dataset.picks = String((Number(pickStrip.dataset.picks) || 0) + 1);
+  // Three rows is the whole budget: a pack death drops five things at once and
+  // a phone has no room to list them.
+  while (pickStrip.childElementCount > 3) pickStrip.firstElementChild!.remove();
+  requestAnimationFrame(() => row.classList.add("on"));
+  window.setTimeout(() => {
+    row.classList.remove("on");
+    window.setTimeout(() => row.remove(), 220);
+  }, 1600);
+  renderer.pulsePickup();
+  haptics.fire("pickup");
+}
+
+function syncPickupFeedback(): void {
+  const p = me(state);
+  if (!p) return;
+  // The ring: the sim's radius, painted, while anything is close enough to be
+  // worth walking to. `null` while the floor is clear, so it never becomes
+  // permanent chrome the eye stops seeing.
+  let near: number | null = null;
+  for (const l of state.loot) {
+    const d = Math.hypot(l.pos.x - p.pos.x, l.pos.y - p.pos.y);
+    if (near === null || d < near) near = d;
+  }
+  renderer.setPickupRing(near !== null && near <= 3.2 ? p.pos : null, CONFIG.pickupRadius);
+
+  const bagN = p.inventory.length;
+  const matN = Object.values(p.materials).reduce((a, b) => a + (b ?? 0), 0);
+  if (lastGold >= 0 && p.gold > lastGold) {
+    pushPickup(`+${p.gold - lastGold} gold`, "#f2c14e");
+  }
+  if (lastBagN >= 0 && bagN > lastBagN) {
+    const it = p.inventory[bagN - 1];
+    if (it) pushPickup(it.name, RARITY_TEXT[it.rarity] ?? "#c9a24b", it.slot.toUpperCase());
+  }
+  if (lastMatN >= 0 && matN > lastMatN) {
+    pushPickup(`+${matN - lastMatN} materials`, "#8fb0d9");
+  }
+  lastGold = p.gold; lastBagN = bagN; lastMatN = matN;
 }
 
 // Top-down minimap (audit r2): a surveyor's chart, not a raw pixel dump. The
@@ -7802,19 +7913,6 @@ function dashSlot(p: Player): number {
 }
 
 /**
- * The renderer draws three shapes today; the aim spec knows six. Map down here
- * so the geometry work in renderer3d.ts can land independently of this file.
- */
-function rendererShape(s: AimShape): "line" | "ring" | "arrow" | null {
-  switch (s) {
-    case "ring": case "scatter": return "ring";
-    case "arrow": return "arrow";
-    case "line": case "chain": case "cone": return "line";
-    default: return null;
-  }
-}
-
-/**
  * Smart cast: no explicit aim means "the target I most likely meant", not
  * "whatever is nearest". Locked > damaged in the last 3 s > lowest HP fraction
  * inside the ability REAL range, with a facing-cone weight. Dormant ambushers
@@ -8397,6 +8495,8 @@ async function main(): Promise<void> {
       lastLevelByPid.set(p.id, p.level);
     }
 
+    syncPickupFeedback();
+
     // Touch feedback: the drag-aim ground telegraph + the contextual descend
     // chip (shown only while standing on the stairs tile).
     if (touchMode) {
@@ -8426,7 +8526,13 @@ async function main(): Promise<void> {
         const at = place > 0
           ? { x: p.pos.x + dir.x * place, y: p.pos.y + dir.y * place }
           : p.pos;
-        renderer.setAimIndicator(rendererShape(spec.shape), at, dir);
+        // THE SPEC GOES THROUGH WHOLE. The renderer used to take three shapes
+        // and no numbers, so the host folded six shapes down to three and
+        // every AoE drew the same 2.0-2.2 ring whatever its real radius —
+        // nova at 2.6 and cataclysm at 6 were pixel-identical (MOBILE.md
+        // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
+        // teach itemisation: a glyph that grows the nova grows the circle.
+        renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
       } else {
         renderer.setAimIndicator(null);
       }

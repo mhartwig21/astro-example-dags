@@ -338,6 +338,16 @@ export class AbilityButton {
     }
   }
 
+  /**
+   * Where the aim is measured FROM, once the press has promoted. Null while
+   * PRESSED, because the origin is still leaking and drawing a cancel target
+   * at a moving point would be worse than drawing none.
+   */
+  get frozenOrigin(): Vec2 | null {
+    return this.origin && (this.state === "aiming" || this.state === "cancel")
+      ? { x: this.origin.x, y: this.origin.y } : null;
+  }
+
   /** Raw screen drag vector while aiming (reused object), else null. */
   get aimDir(): Vec2 | null {
     const o = this.origin;
@@ -851,11 +861,16 @@ export class TouchController {
     if (role.kind === "chip" && role.slot !== undefined && role.slot > 0) {
       const wasAiming = this.aimingSlot >= 0;
       const wasCancel = this.btn.inCancel;
-      this.btn.cancelBand = this.zones.cancelBand;
+      // A posture with no reachable band ships none (touchLayout: `cancelMode`),
+      // and a zero-area rect must never be hit-tested — return-to-origin is the
+      // whole cancel on a corner grip, and it is now drawn at the origin.
+      this.btn.cancelBand = this.zones.cancelMode === "band" ? this.zones.cancelBand : null;
       this.btn.move(e.clientX, e.clientY, this.stamp(e));
       if (this.btn.state === "aiming" || this.btn.state === "cancel") {
         this.aimingSlot = role.slot;
-        if (!wasAiming) this.onFeedback?.({ kind: "aimStart", slot: role.slot });
+        if (!wasAiming) {
+          this.onFeedback?.({ kind: "aimStart", slot: role.slot, at: this.btn.frozenOrigin ?? undefined });
+        }
         if (this.btn.inCancel !== wasCancel) {
           this.onFeedback?.({ kind: this.btn.inCancel ? "cancelEnter" : "cancelLeave", slot: role.slot });
         }
@@ -1030,6 +1045,13 @@ export interface PointerLike {
 export interface TouchFeedback {
   kind: "press" | "refused" | "cast" | "cancel" | "aimStart" | "cancelEnter" | "cancelLeave" | "dash" | "ping" | "pingArm";
   slot?: number;
+  /**
+   * The FROZEN press origin, on `aimStart` only. A corner grip ships no cancel
+   * band (touchLayout `cancelMode`), so the shell has to draw the return-home
+   * cancel where it actually is — which is here, and nowhere the layout could
+   * have predicted, because the origin follows the finger while PRESSED.
+   */
+  at?: Vec2;
 }
 
 const ZERO: Vec2 = { x: 0, y: 0 };

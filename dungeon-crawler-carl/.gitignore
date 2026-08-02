@@ -12,3 +12,8 @@ dcc.sqlite-*
 
 # Builder bridge scratch output (promote keepers into assets/ + ASSETS.md)
 public/assets/generated/
+
+# Device-harness CAPTURES (tools/mobileshot.mjs --out ...): thousands of
+# multi-megabyte PNGs per round. The probe SCRIPTS in tools/_mobile are
+# committed; their output is not.
+tools/_mobile/*/

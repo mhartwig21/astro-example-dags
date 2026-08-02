@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  AIM_SLOP, COMBAT_CONTROLS, DEFAULT_LAYOUT_PREFS, MIN_TARGET, READ_BAND,
+  AIM_SLOP, COMBAT_CONTROLS, DEFAULT_LAYOUT_PREFS, MIN_TARGET, NAV_CONTROLS, READ_BAND,
   computeZones, deviceClass, hitControl, hitZone, inRect, isSideGrip, reachArcs,
   type ControlId, type Insets, type ZoneTable,
 } from "../src/input/touchLayout";
@@ -70,7 +70,7 @@ describe("touch layout: device classes and the reach rule", () => {
   it("reach is a hand constant in millimetres, converted per class", () => {
     expect(Math.round(reachArcs(293, "compact").comfortable)).toBe(234); // was 161
     expect(Math.round(reachArcs(342, "phone").comfortable)).toBe(274);   // was 188
-    expect(Math.round(reachArcs(380, "phone").comfortable)).toBe(291);   // was 209
+    expect(Math.round(reachArcs(380, "phone").comfortable)).toBe(293);   // was 209
     expect(Math.round(reachArcs(810, "tablet-s").comfortable)).toBe(250); // was 300
     expect(Math.round(reachArcs(834, "tablet-s").comfortable)).toBe(250);
     expect(Math.round(reachArcs(1024, "tablet-l").comfortable)).toBe(250);
@@ -92,10 +92,15 @@ describe("touch layout: device classes and the reach rule", () => {
    */
   it("stick radius, aim throw, cancel radius and chip size are millimetres", () => {
     const rows: [string, number, number, number[], number[]][] = [
-      // §2.4b prints compact as 110/37; 18/0.163 = 110.4 and 0.34 x that is
-      // 37.5, which the doc rounds down and Math.round rounds up. Same number.
-      ["compact", 802, 293, [0, 24, 0, 0], [67, 110, 38, 64]],
-      ["phone", 832, 380, [0, 47, 21, 47], [67, 109, 37, 64]],
+      // ONE PHONE HAND CONSTANT. §2.0's table listed `compact` at 0.163 and
+      // `phone` at 0.165 — 1.2% apart, inside the <= 2% intra-class spread the
+      // table itself declares acceptable, and the source of a contradiction a
+      // critic caught: §4.1 files iPhone 13 landscape under `compact` while
+      // §2.0 and §3.2 file the same device under `phone`. Both tiers now share
+      // 0.164, so no hand quantity depends on which side of the 380 boundary a
+      // phone lands and the two tables cannot disagree again. 18/0.164 = 109.8.
+      ["compact", 802, 293, [0, 24, 0, 0], [67, 110, 37, 64]],
+      ["phone", 832, 380, [0, 47, 21, 47], [67, 110, 37, 64]],
       ["tablet-s", 1194, 834, [24, 0, 20, 0], [57, 94, 32, 55]],
       ["tablet-l", 1366, 1024, [24, 0, 20, 0], [57, 94, 32, 55]],
     ];
@@ -206,9 +211,18 @@ describe("touch layout: the §4.2a cluster invariants", () => {
     // the topmost of the five slots.
     for (const z of [phone, tablet]) {
       for (const id of ["slot0", "slot1", "slot2", "slot3"] as const) {
+        // TOP EDGE, NOT CENTRE. The ultimate is now the BIGGEST chip in the
+        // cluster (chip hierarchy was inverted: the basic attack measured
+        // 92x92 and the ultimate 75x75, backwards for a once-a-fight,
+        // under-pressure press). Both it and its neighbours sit against the
+        // read band's ceiling on a corner grip, so comparing centres would
+        // penalise the ultimate for exactly the size we just gave it.
         // +2 px of slack: the relaxation pass may nudge a rank by a hair.
-        expect.soft(z.controls.slot4.cy, `${z.cls}: ult above ${id}`)
-          .toBeLessThanOrEqual(z.controls[id].cy + 2);
+        expect.soft(hitRect(z, "slot4").y, `${z.cls}: ult above ${id}`)
+          .toBeLessThanOrEqual(hitRect(z, id).y + 2);
+        // ...and it is the largest thing in the cluster, on every posture.
+        expect.soft(z.controls.slot4.w, `${z.cls}: ult bigger than ${id}`)
+          .toBeGreaterThanOrEqual(z.controls[id].w);
       }
       // ...and the basic attack is the nearest thing to the thumb root.
       for (const id of ["slot1", "slot2", "slot3", "slot4"] as const) {
@@ -237,11 +251,42 @@ describe("touch layout: the reach invariant", () => {
         expect.soft(c.y + c.h, `${id} bottom`).toBeLessThanOrEqual(d.h - d.safe.bottom);
         expect.soft(Math.min(c.w, c.h), `${id} size`).toBeGreaterThanOrEqual(MIN_TARGET);
       }
-      for (const r of [z.stickZone, z.worldZone, z.cancelBand]) {
+      // The CANCEL band is zero-area where the posture ships none — see
+      // `cancelMode`. A corner grip's only cancel is return-to-origin, drawn
+      // at the frozen press origin, because every band placement that clears
+      // the movement thumb also sits one `aimThrow` inboard of the nearest
+      // chip and would eat a full-range leftward aim.
+      const zones = z.cancelMode === "band"
+        ? [z.stickZone, z.worldZone, z.cancelBand]
+        : [z.stickZone, z.worldZone];
+      for (const r of zones) {
         expect.soft(r.x).toBeGreaterThanOrEqual(d.safe.left);
         expect.soft(r.x + r.w).toBeLessThanOrEqual(d.w - d.safe.right + 0.001);
         expect.soft(r.h).toBeGreaterThan(0);
         expect.soft(r.w).toBeGreaterThan(0);
+      }
+      expect.soft(z.cancelMode, `${d.name} cancel mode`)
+        .toBe(isSideGrip(z.cls) ? "band" : "origin");
+    });
+
+    /**
+     * MAP IS NOT A COMBAT CONTROL, AND THAT IS NOW WRITTEN DOWN.
+     *
+     * A critic measured `map` at 290 px from an iPhone 13's pivot against a
+     * 274 px comfortable arc and observed, correctly, that the reach test
+     * asserts combat controls are inside `comfortable` while this one is not.
+     * It is not inside because opening the chart is a between-fights decision
+     * with time to regrip, and giving it a comfortable-arc slot would spend
+     * that slot on something you never press under pressure. The exclusion is
+     * deliberate; this is its weaker invariant, so "not comfortable" can never
+     * quietly become "not reachable".
+     */
+    it(`${d.name}: navigation controls clear STRETCH even though they skip COMFORTABLE`, () => {
+      const z = computeZones(d.w, d.h, d.safe as Insets, prefs());
+      for (const id of NAV_CONTROLS) {
+        expect.soft(COMBAT_CONTROLS.includes(id), `${id} must not be a combat control`).toBe(false);
+        expect.soft(z.controls[id].fromPivot, `${id} out of stretch`)
+          .toBeLessThanOrEqual(z.stretch + 0.001);
       }
     });
 
@@ -304,7 +349,14 @@ describe("touch layout: hit testing", () => {
   it("zones route what the chips do not claim", () => {
     expect(hitZone(z, z.stickZone.x + 10, z.stickZone.y + 10)).toBe("stick");
     expect(hitZone(z, z.worldZone.x + 10, z.worldZone.y + 10)).toBe("world");
-    expect(inRect(z.cancelBand, z.cancelBand.x + 2, z.cancelBand.y + 2)).toBe(true);
+    // `z` is a phone here, so there is no band to hit-test: the corner grip's
+    // cancel is the frozen origin (`cancelMode: "origin"`), and touch.ts
+    // refuses to hit-test a zero-area rect for exactly this reason.
+    expect(z.cancelMode).toBe("origin");
+    expect(inRect(z.cancelBand, z.cancelBand.x + 2, z.cancelBand.y + 2)).toBe(false);
+    const tab = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, prefs());
+    expect(tab.cancelMode).toBe("band");
+    expect(inRect(tab.cancelBand, tab.cancelBand.x + 2, tab.cancelBand.y + 2)).toBe(true);
   });
 
   /**

@@ -50,14 +50,39 @@ body.touch #banner { touch-action: none; }
 body.touch #t-layer { display: block; }
 body.modal #t-layer { display: none; }
 #t-layer .tl { position: fixed; left: 0; top: 0; will-change: transform; }
-#t-ghost { border-radius: 50%; border: 2px dashed rgba(201,162,75,0.5);
-  background: radial-gradient(circle, rgba(201,162,75,0.10), rgba(0,0,0,0.16));
-  opacity: 0.25; transition: opacity 120ms linear; }
+/* THE RESTING RING (MOBILE.md 2.3, and 1.8's gap).
+   Wild Rift always paints the base ring; we painted a 2px dashed border at
+   rgba(...,0.5) inside a 0.25-opacity box — 12.5% effective alpha over a dark
+   dungeon floor, which measured and photographed as nothing at all. The ring
+   is now a solid rim with a visible hub dot, and the WHOLE affordance carries
+   its opacity in one place so "25% at IDLE" is a number you can read off the
+   element rather than a product of two. */
+#t-ghost { border-radius: 50%; border: 2px solid rgba(201,162,75,0.9);
+  background: radial-gradient(circle, rgba(201,162,75,0.13), rgba(0,0,0,0.30));
+  box-shadow: 0 0 0 1px rgba(8,19,26,0.75), inset 0 0 12px rgba(0,0,0,0.5);
+  opacity: 0.34; transition: opacity 120ms linear; }
+#t-ghost::after { content: ""; position: absolute; left: 50%; top: 50%;
+  width: 26%; height: 26%; margin: -13% 0 0 -13%; border-radius: 50%;
+  background: rgba(201,162,75,0.85); }
 #t-stick2 { border-radius: 50%; border: 2px solid rgba(201,162,75,0.62);
   background: radial-gradient(circle, rgba(0,0,0,0.30), rgba(0,0,0,0.10));
   opacity: 0; transition: opacity 90ms linear; }
 #t-nub2 { border-radius: 50%; background: rgba(201,162,75,0.72);
   box-shadow: 0 0 14px rgba(201,162,75,0.45); opacity: 0; }
+/* RETURN-HOME CANCEL, DRAWN (MOBILE.md 2.4c + the corner-grip decision in
+   touchLayout). A corner grip ships no band, because every placement that
+   clears the movement thumb also sits one aimThrow inboard of the nearest chip
+   and would eat the leftward aim. So the cancel is where the thumb already is,
+   and now you can see it: a ringed X at the FROZEN origin, sized to
+   cancelRadius, that lights when the thumb re-enters it. */
+#t-ocancel { display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 2px dashed rgba(120,205,232,0.8);
+  background: rgba(8,19,26,0.55); color: #eaf9ff;
+  font: 700 15px/1 "Barlow Condensed", system-ui, sans-serif;
+  text-shadow: 0 1px 2px #08131a; opacity: 0;
+  transition: opacity 100ms linear; }
+#t-ocancel.on { opacity: 1; }
+#t-ocancel.armed { background: rgba(57,200,232,0.34); border-style: solid; }
 #t-cancel { display: flex; align-items: center; justify-content: center;
   gap: 8px; border-radius: 12px; border: 2px dashed rgba(120,205,232,0.75);
   background: rgba(8,19,26,0.72); color: #eaf9ff; letter-spacing: 0.16em;
@@ -96,6 +121,7 @@ export class TouchShell {
   private stick: HTMLElement;
   private nub: HTMLElement;
   private cancel: HTMLElement;
+  private ocancel: HTMLElement;
   private lock: HTMLElement;
   private raf = 0;
   private locked = false;
@@ -108,10 +134,13 @@ export class TouchShell {
     this.nub = el("div", "t-nub2", "tl");
     this.cancel = el("div", "t-cancel", "tl");
     this.cancel.textContent = "CANCEL";
+    this.ocancel = el("div", "t-ocancel", "tl");
+    this.ocancel.textContent = "✕";
+    this.ocancel.setAttribute("aria-label", "Cancel the cast");
     this.lock = el("div", "t-lock", "tl");
     this.lock.textContent = "LOCK";
     this.lock.dataset.tctl = "lock";
-    this.layer.append(this.ghost, this.stick, this.nub, this.cancel, this.lock);
+    this.layer.append(this.ghost, this.stick, this.nub, this.cancel, this.ocancel, this.lock);
     document.body.appendChild(this.layer);
     // The context chip already exists in iso.html; tell the router it is ours.
     const stairs = document.getElementById("t-stairs");
@@ -125,7 +154,7 @@ export class TouchShell {
       if (!origin) {
         this.stick.style.opacity = "0";
         this.nub.style.opacity = "0";
-        this.ghost.style.opacity = "0.25";
+        this.ghost.style.opacity = "0.34";
         const rest = this.o.controller.stick.rest;
         if (rest) this.place(this.ghost, rest.x, rest.y);
         return;
@@ -325,6 +354,12 @@ export class TouchShell {
     size(this.nub, d * 0.42, d * 0.42);
     const anchor = this.o.controller.stick.rest ?? z.stickAnchor;
     this.place(this.ghost, anchor.x, anchor.y);
+    // The live stick and its nub are hidden at IDLE, but they must still be
+    // PARKED at the anchor: left untransformed they sit at (0,0), which is how
+    // a probe reported "no resting affordance, 139x139 at the origin" while
+    // the ghost was in fact drawn correctly a few hundred pixels away.
+    this.place(this.stick, anchor.x, anchor.y);
+    this.place(this.nub, anchor.x, anchor.y);
     const b = z.cancelBand;
     this.cancel.style.width = `${b.w}px`;
     this.cancel.style.height = `${b.h}px`;
@@ -332,7 +367,7 @@ export class TouchShell {
     this.placeLock();
     const op = Math.max(0.35, Math.min(1, this.o.opacity ?? 1));
     this.lock.style.opacity = String(op);
-    this.ghost.style.opacity = "0.25";
+    this.ghost.style.opacity = "0.34";
   }
 
   /** Centre an element on a point with a transform (never left/top). */
@@ -348,18 +383,41 @@ export class TouchShell {
       case "refused": h?.fire("refused"); this.shakeChip(ev.slot); break;
       case "cast": h?.fire("cast"); this.showCancel(false); break;
       case "cancel": h?.fire("cancel"); this.showCancel(false); break;
-      case "aimStart": this.showCancel(true); break;
-      case "cancelEnter": this.cancel.classList.add("armed"); h?.fire("cancel"); break;
-      case "cancelLeave": this.cancel.classList.remove("armed"); break;
+      case "aimStart": this.showCancel(true, ev.at); break;
+      case "cancelEnter":
+        this.cancel.classList.add("armed");
+        this.ocancel.classList.add("armed");
+        h?.fire("cancel");
+        break;
+      case "cancelLeave":
+        this.cancel.classList.remove("armed");
+        this.ocancel.classList.remove("armed");
+        break;
       case "dash": h?.fire("cast"); break;
       case "pingArm": h?.fire("lock"); break; // the hold is acknowledged...
       case "ping": h?.fire("lock"); break;       // ...and this is the commit
     }
   }
 
-  private showCancel(on: boolean): void {
-    this.cancel.classList.toggle("on", on);
-    if (!on) this.cancel.classList.remove("armed");
+  /**
+   * Raise whichever cancel affordance this posture actually has.
+   *
+   * `band` paints the labelled strip (side grip). `origin` paints a ringed ✕
+   * at the FROZEN press origin, sized to `cancelRadius` — the corner-grip
+   * decision in touchLayout, which measured every band placement on a phone as
+   * either unreachable or colliding with the aim throw.
+   */
+  private showCancel(on: boolean, at?: { x: number; y: number }): void {
+    const band = this.zones.cancelMode === "band";
+    this.cancel.classList.toggle("on", on && band);
+    if (!on || !band) this.cancel.classList.remove("armed");
+    if (on && !band && at) {
+      const d = this.zones.cancelRadius * 2;
+      size(this.ocancel, d, d);
+      this.place(this.ocancel, at.x, at.y);
+    }
+    this.ocancel.classList.toggle("on", on && !band);
+    if (!on || band) this.ocancel.classList.remove("armed");
   }
 
   private chipEl(slot?: number): HTMLElement | null {

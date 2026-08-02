@@ -56,8 +56,8 @@ class Rig {
   readonly c = new TouchController();
   readonly edges = createTouchEdges();
   t = 10_000;
-  constructor() {
-    this.c.setZones(ZONES);
+  constructor(zones: ReturnType<typeof computeZones> = ZONES) {
+    this.c.setZones(zones);
     this.c.canCast = () => true;
     this.c.now = () => this.t; // the controller reads its own clock, not the event
   }
@@ -123,11 +123,35 @@ describe("touch -> Intent: the ability table", () => {
     expect(r.intent()).toEqual(keyboardIntent());
   });
 
-  it("the CANCEL BAND cancels too, without coming home", () => {
-    const b = ZONES.cancelBand;
-    r.down(1, CH.slot1.cx, CH.slot1.cy).wait(20)
+  /**
+   * THE CANCEL BAND IS A TABLET AFFORDANCE NOW (touchLayout `cancelMode`).
+   *
+   * Measured on an iPhone 13, the corner-grip band sat 176 px across the
+   * screen from the cluster — past the 109 px aim throw, so unreachable — with
+   * 92% of its area inside the MOVEMENT thumb's zone. Every alternative
+   * placement that clears the thumb sits exactly one aim throw inboard of the
+   * nearest chip and would cancel any full-range leftward aim. So a corner
+   * grip ships `origin` cancel and a side grip keeps the band; this drives the
+   * band on the posture that actually has one.
+   */
+  it("the CANCEL BAND cancels too, without coming home (side grip)", () => {
+    const tz = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, DEFAULT_LAYOUT_PREFS);
+    expect(tz.cancelMode).toBe("band");
+    const t = new Rig(tz);
+    const b = tz.cancelBand, chip = tz.controls.slot1;
+    t.down(1, chip.cx, chip.cy).wait(20)
       .move(1, b.x + b.w / 2, b.y + b.h / 2).wait(20)
       .up(1, b.x + b.w / 2, b.y + b.h / 2);
+    expect(t.intent()).toEqual(keyboardIntent());
+  });
+
+  /** ...and on a corner grip, returning to the frozen origin is the whole cancel. */
+  it("a corner grip cancels by returning to the frozen origin", () => {
+    expect(ZONES.cancelMode).toBe("origin");
+    r.down(1, CH.slot1.cx, CH.slot1.cy).wait(20)
+      .move(1, CH.slot1.cx, CH.slot1.cy - 90).wait(20)
+      .move(1, CH.slot1.cx, CH.slot1.cy - 4).wait(20)
+      .up(1, CH.slot1.cx, CH.slot1.cy - 4);
     expect(r.intent()).toEqual(keyboardIntent());
   });
 
@@ -259,7 +283,9 @@ describe("touch -> Intent: movement, multi-touch, gestures", () => {
   });
 
   it("MOVING WHILE AIMING: two fingers, two roles, both land", () => {
-    r.down(1, STICK.x, STICK.y).wait(16).move(1, STICK.x + 60, STICK.y).wait(16);
+    // Past the stick radius, so this asserts "movement was KEPT", not the exact
+    // ratio of a 60 px throw to whatever `R` rounds to this week.
+    r.down(1, STICK.x, STICK.y).wait(16).move(1, STICK.x + 90, STICK.y).wait(16);
     r.down(2, CH.slot1.cx, CH.slot1.cy).wait(20)
       .move(2, CH.slot1.cx, CH.slot1.cy - 80).wait(20)
       .up(2, CH.slot1.cx, CH.slot1.cy - 80);

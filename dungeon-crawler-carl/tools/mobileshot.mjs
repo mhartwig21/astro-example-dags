@@ -143,9 +143,20 @@ export function touchDriver(client) {
       live.set(id, { x, y });
       await send("touchMove");
     },
+    // CDP's touchEnd carries the point that WAS RELEASED, not the points that
+    // survive. Sending the survivors (the old bug) corrupts Chromium's touch
+    // stream: after any lift, the next finger down makes the browser end and
+    // re-create the first one — observed as `pointerdown#6` immediately
+    // followed by `pointerup#5` and a phantom `#7` down/up. Every multi-touch
+    // claim driven through that driver is unestablished, not false.
     async up(id) {
+      const p = live.get(id);
       live.delete(id);
-      await send("touchEnd");
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: p ? [{ x: p.x, y: p.y, id, radiusX: 12, radiusY: 12, force: 0 }] : [],
+        timestamp: clock,
+      });
     },
     async tap(x, y, id = 1, holdMs = 60) {
       await api.down(id, x, y);
@@ -758,6 +769,76 @@ export const SCENES = {
     url: () => `${BASE}/iso.html?${TEST}&floor=3&level=14&seed=21`,
     async setup(page) { await openPanel(page, "p", "sheet"); },
   },
+  // BOSS FIGHT. floor 3 is a band-1 boss floor; the arena monster with
+  // kind === "boss" is teleported next to the crawler and woken, then the sim
+  // is stepped until the host has raised #bossbar (body.bossplate). This is the
+  // scene where the read band and the ability cluster compete hardest for the
+  // same pixels, so the capture must actually contain the plate — asserted.
+  boss: {
+    url: () => `${BASE}/iso.html?${TEST}&floor=3&level=14&seed=21`,
+    async setup(page) {
+      await ev(page, () => {
+        const d = window.__dcc, st = d.state, p = st.players[0];
+        p.hp = p.maxHp; p.alive = true; p.downedT = 0; st.status = "playing";
+        const b = st.monsters.find((m) => m.kind === "boss");
+        if (b) {
+          b.dormant = false;
+          p.pos.x = b.pos.x + 2.2; p.pos.y = b.pos.y + 1.2;
+        }
+        clearInterval(window.__mshotKeep);
+        window.__mshotKeep = setInterval(() => {
+          const s = window.__dcc && window.__dcc.state; if (!s) return;
+          const q = s.players[0]; q.hp = q.maxHp; q.alive = true; q.downedT = 0;
+          const bb = s.monsters.find((m) => m.kind === "boss");
+          if (bb && bb.hp > 0) bb.hp = Math.max(bb.maxHp * 0.55, bb.hp * 0.999);
+        }, 150);
+      });
+      // Let the host see the boss, run the intro, and raise the plate.
+      for (let i = 0; i < 40; i++) {
+        const up = await page.evaluate(() => {
+          const e = document.getElementById("bossbar");
+          const cs = e && getComputedStyle(e);
+          return !!(cs && cs.display !== "none" && e.getBoundingClientRect().width > 0);
+        }).catch(() => false);
+        if (up) break;
+        await page.waitForTimeout(500);
+      }
+      await page.waitForTimeout(2500);
+    },
+  },
+  // POST-RUN — THE VERDICT / IN MEMORIAM. The run ends by the sim's own rule
+  // (hp to zero, stepped until status leaves "playing"); the host raises #recap
+  // on the status edge. Asserted on screen before the shot.
+  postrun: {
+    url: () => `${BASE}/iso.html?${TEST}&floor=6&level=16&seed=21`,
+    async setup(page) {
+      await ev(page, () => {
+        const d = window.__dcc, st = d.state, p = st.players[0];
+        clearInterval(window.__mshotKeep);
+        // Let the SIM end the run: zero the crawler and step until the sim's
+        // own wipe rule flips status. Only if the sim refuses (a downed timer
+        // longer than the budget) does the harness set the edge by hand, and
+        // it says so in the log rather than pretending it fought.
+        for (let i = 0; i < 3000 && st.status === "playing"; i++) {
+          p.hp = 0;
+          d.step({ 0: { move: { x: 0, y: 0 }, useStairs: false } }, 1 / 30);
+        }
+        if (st.status === "playing") { st.status = "dead"; window.__forcedWipe = true; }
+      });
+      let up = false;
+      for (let i = 0; i < 30; i++) {
+        up = await page.evaluate(() => {
+          const e = document.getElementById("recap");
+          const cs = e && getComputedStyle(e);
+          return !!(cs && cs.display !== "none" && e.getBoundingClientRect().width > 0);
+        }).catch(() => false);
+        if (up) break;
+        await page.waitForTimeout(600);
+      }
+      if (!up) throw new Error("recap never opened");
+      await page.waitForTimeout(1200);
+    },
+  },
   // The constellation (ability upgrade spine) lives inside the ABILITIES panel.
   // Rounds 1-4 never actually opened it (r1/report.json: panelsOpen []) because
   // the key press landed while the crawler was dead and the recap owned the
@@ -844,6 +925,122 @@ const CENTRE = (sel) => {
   if (!r.width) return null;
   return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), w: Math.round(r.width), h: Math.round(r.height) };
 };
+
+/**
+ * THE SHOP BATTERY — asserts a GOLD DELTA, not the presence of a button.
+ *
+ * Round 2's finding was "a phone player cannot buy anything", and the round
+ * that shipped the shop treatment had passed because a `[data-buy]` element
+ * existed somewhere in the DOM. It existed; it was 233 px below the fold, and
+ * the shelf tile you had to press to get it was not hit-testable at all —
+ * `elementFromPoint` at every visible tile centre returned the DESCEND row or
+ * the clipped edge of the pane. So every check here ends in a NUMBER THE SIM
+ * OWNS: the crawler's gold and the length of their bag.
+ *
+ * Every gesture is a real CDP touch. A `.click()` proves the handler is wired,
+ * which was never the thing in doubt.
+ */
+async function shopBattery(page, touch) {
+  const out = [];
+  const rec = (name, verdict, detail) => {
+    out.push({ name, verdict, detail });
+    console.log(`  [${verdict}] ${name} — ${detail}`);
+  };
+  const settle = async (n = 8) => {
+    await page.waitForTimeout(150);
+    await page.evaluate((k) => new Promise((res) => {
+      let i = 0;
+      const tick = () => (++i >= k ? res(null) : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    }), n).catch(() => {});
+  };
+  const wallet = () => page.evaluate(() => {
+    const p = window.__dcc.state.players[0];
+    return { gold: p.gold, bag: (p.inventory ?? []).length };
+  });
+  // A control is only "on screen" if a finger landing on its centre HITS IT.
+  // Geometry alone lies: a tile clipped by its scroller still reports a rect
+  // inside the viewport, which is exactly how the previous round measured
+  // three tappable tiles where there were none.
+  const reachable = (sel) => page.evaluate((s) => {
+    for (const e of document.querySelectorAll(s)) {
+      const r = e.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const cx = Math.round(r.x + r.width / 2), cy = Math.round(r.y + r.height / 2);
+      if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) continue;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit || !(e.contains(hit) || e === hit)) continue;
+      return { x: cx, y: cy, w: Math.round(r.width), h: Math.round(r.height), txt: e.textContent.trim().slice(0, 24) };
+    }
+    return null;
+  }, sel);
+
+  await page.evaluate(() => { window.__dcc.state.players[0].gold = 20000; }).catch(() => {});
+
+  // 0. The scene setup pre-selects an item so the capture shows a card, which
+  //    on a phone class switches the segmented control to DETAIL. Start where
+  //    a player starts: on the shelf. (Also proves the segment itself takes a
+  //    finger.)
+  const segAt = async (re) => page.evaluate((src) => {
+    const e = [...document.querySelectorAll("#saferoom .tp-seg button")].find((x) => new RegExp(src, "i").test(x.textContent));
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    if (r.width <= 0) return null;
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  }, re);
+  const shelfSeg = await segAt("shelf");
+  if (shelfSeg) { await touch.tap(shelfSeg.x, shelfSeg.y, 1, 110); await settle(8); }
+
+  // 1. IS THERE ANYTHING TO PRESS? The failure mode that hid behind the old
+  //    "buyButtons: []" measurement was a shelf with no reachable tile.
+  const tile = await reachable("#sr-shelf .itile[data-id]:not(.locked):not(.soldout)");
+  rec("shop: a shelf tile is reachable by a finger", tile ? "PASS" : "FAIL",
+    tile ? `tile ${tile.w}x${tile.h} at (${tile.x},${tile.y})` : "no .itile centre hit-tests to itself");
+  if (!tile) return out;
+
+  // 2. SELECT -> DETAIL, with a finger.
+  await touch.tap(tile.x, tile.y, 1, 110);
+  await settle(10);
+  const detail = await page.evaluate(() => {
+    const d = document.getElementById("sr-detail");
+    return { txt: d ? d.textContent.trim().slice(0, 44) : null, placeholder: !!d?.querySelector(".dempty-state") };
+  });
+  rec("shop: tapping a tile renders its card", detail.placeholder ? "FAIL" : "PASS",
+    `#sr-detail reads "${detail.txt}"`);
+
+  // 3. PRICE AND BUY ON THE GLASS. Not "in the DOM".
+  const buy = await reachable("#sr-detail [data-buy]");
+  const price = await page.evaluate(() => {
+    const e = document.querySelector("#sr-detail .dfoot .dprice");
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { onScreen: r.top >= 0 && r.bottom <= innerHeight, y: Math.round(r.y) };
+  });
+  rec("shop: the price is on screen", price?.onScreen ? "PASS" : "FAIL",
+    price ? `.dprice at y=${price.y}, viewport ${page.viewportSize().height}` : "no .dprice rendered");
+  rec("shop: BUY is reachable by a finger", buy ? "PASS" : "FAIL",
+    buy ? `BUY ${buy.w}x${buy.h} at (${buy.x},${buy.y})` : "no reachable [data-buy]");
+  if (!buy) return out;
+
+  // 4. THE ONE THAT MATTERS. Gold must move.
+  const a = await wallet();
+  await touch.tap(buy.x, buy.y, 1, 120);
+  await settle(12);
+  const b = await wallet();
+  rec("shop: a FINGER tap on BUY spends gold", b.gold !== a.gold ? "PASS" : "FAIL",
+    `gold ${a.gold}->${b.gold}, bag ${a.bag}->${b.bag}`);
+
+  // 5. And the bag pane, which used to render at y=363 on a 342-tall phone.
+  const bagSeg = await segAt("bag");
+  if (bagSeg) {
+    await touch.tap(bagSeg.x, bagSeg.y, 1, 110);
+    await settle(8);
+    const bagTile = await reachable("#sr-bag .itile, #sr-equipped .itile");
+    rec("shop: the bag is reachable", bagTile ? "PASS" : "INFO",
+      bagTile ? `first bag/equipped tile at (${bagTile.x},${bagTile.y})` : "bag empty or unreachable");
+  }
+  return out;
+}
 
 async function driveBattery(page, touch, spec) {
   const out = [];
@@ -1018,23 +1215,46 @@ async function driveBattery(page, touch, spec) {
   }
 
   // --- 7. MULTI-TOUCH: move while casting --------------------------------
+  //
+  // THE MOST LOAD-BEARING RULE IN §2.1, AND IT HAD NO TRUSTWORTHY CHECK.
+  //
+  // Two independent faults were confusing each other. (1) `touchDriver.up()`
+  // sent `touchEnd` with the surviving points instead of the released one,
+  // which desynchronises Chromium's touch stream — fixed. (2) This check
+  // pushed the stick in ONE direction, and the staged room can put a wall
+  // there: an honest FAIL and "the crawler is standing against a wall" produce
+  // the same 0.00 tiles, which is why one round reported FAIL on 3 of 4
+  // devices and an independent re-test came back INCONCLUSIVE.
+  //
+  // So it now tries all four directions and passes if the crawler keeps moving
+  // in ANY of them while a second finger is on the chips. A wall in one
+  // direction is a fact about the room; a wall in all four would be reported
+  // as such, and IS a reason to distrust the row.
   {
-    await keepAlive();
     const ox = Math.round(V.width * 0.30), oy = Math.round(V.height * 0.88);
     const underStick = await hitAt(ox, oy);
-    await touch.down(1, ox, oy);
-    for (let i = 0; i < 6; i++) { await touch.move(1, ox, oy - 70); await settle(60); }
-    const a = await snap();
-    // second finger taps an ability while the first keeps driving
-    await touch.down(2, chip["1"].x, chip["1"].y);
-    await page.waitForTimeout(90);
-    await touch.up(2);
-    for (let i = 0; i < 10; i++) { await touch.move(1, ox, oy - 70); await settle(40); }
-    const b = await snap();
-    await touch.up(1);
-    const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
-    rec("multi-touch: move while casting", d > 0.3 ? "PASS" : "FAIL",
-      `kept moving ${d.toFixed(2)} tiles with a second finger on the chips; ` +
+    const dirs = [[0, -70], [70, 0], [0, 70], [-70, 0]];
+    let best = 0, bestDir = "none", freeDirs = 0;
+    for (const [dx, dy] of dirs) {
+      await keepAlive();
+      await touch.down(1, ox, oy);
+      for (let i = 0; i < 6; i++) { await touch.move(1, ox + dx, oy + dy); await settle(60); }
+      const a = await snap();
+      // second finger taps an ability while the first keeps driving
+      await touch.down(2, chip["1"].x, chip["1"].y);
+      await page.waitForTimeout(90);
+      await touch.up(2);
+      for (let i = 0; i < 10; i++) { await touch.move(1, ox + dx, oy + dy); await settle(40); }
+      const b = await snap();
+      await touch.up(1);
+      const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
+      if (d > 0.3) freeDirs++;
+      if (d > best) { best = d; bestDir = `(${dx},${dy})`; }
+      if (best > 0.3) break; // one clear direction is the whole claim
+    }
+    rec("multi-touch: move while casting", best > 0.3 ? "PASS" : "FAIL",
+      `kept moving ${best.toFixed(2)} tiles toward ${bestDir} with a second finger on the chips ` +
+      `(${freeDirs} of ${dirs.length} directions tried were unobstructed); ` +
       `the stick finger at (${ox},${oy}) landed on ${underStick} ` +
       `(navigator.maxTouchPoints reports ${await page.evaluate(() => navigator.maxTouchPoints)})`);
   }
@@ -1242,30 +1462,49 @@ async function driveBattery(page, touch, spec) {
       `navigator.vibrate calls during one tap: ${JSON.stringify(vibes)}`);
   }
 
-  // --- 14b. THE CANCEL BAND ---------------------------------------------
+  // --- 14b. THE CANCEL AFFORDANCE ---------------------------------------
+  //
+  // WHICH ONE depends on the posture, and this row used to assume a band on
+  // every device. A corner grip ships none: measured, the round-1 band sat
+  // 176 px across the screen from the cluster (past the 109 px aim throw) with
+  // 92% of its area inside the MOVEMENT thumb's zone. `cancelMode` says which
+  // affordance exists; the assertion is the same either way — the drag lands
+  // on the cancel target, the target LIGHTS, and no cooldown starts.
   {
     await keepAlive();
-    const band = await page.evaluate(() => window.__dcc.touch.zones.cancelBand);
+    const z = await page.evaluate(() => {
+      const t = window.__dcc.touch.zones;
+      return { band: t.cancelBand, mode: t.cancelMode, r: t.cancelRadius };
+    });
+    const band = z.band;
     const c2 = await at(`#skills .skill[data-i="2"]`);
     const a = await snap();
     await touch.down(1, c2.x, c2.y);
     await settle(150);
     await touch.move(1, c2.x - 120, c2.y - 40);
     await settle(150);
-    const banded = await page.evaluate(() => {
-      const e = document.getElementById("t-cancel");
+    const el = z.mode === "band" ? "t-cancel" : "t-ocancel";
+    const banded = await page.evaluate((id) => {
+      const e = document.getElementById(id);
       return { shown: !!e && e.classList.contains("on"), armed: !!e && e.classList.contains("armed") };
-    });
-    await touch.move(1, Math.round(band.x + band.w / 2), Math.round(band.y + band.h / 2));
+    }, el);
+    // Band: drive into the strip. Origin: come home to the frozen press point.
+    const home = z.mode === "band"
+      ? { x: Math.round(band.x + band.w / 2), y: Math.round(band.y + band.h / 2) }
+      : { x: c2.x + 3, y: c2.y - 2 };
+    await touch.move(1, home.x, home.y);
     await settle(200);
-    const armed = await page.evaluate(() => document.getElementById("t-cancel").classList.contains("armed"));
+    const armed = await page.evaluate((id) => document.getElementById(id).classList.contains("armed"), el);
     await touch.up(1);
     await settle(500);
     const b = await snap();
     const started = Object.keys(b.cd).filter((k) => (b.cd[k] ?? 0) > 0 && !(a.cd[k] > 0));
-    rec("cancel: the labelled band", armed && started.length === 0 ? "PASS" : "FAIL",
-      `band ${Math.round(band.w)}x${Math.round(band.h)} at (${Math.round(band.x)},${Math.round(band.y)}); ` +
-      `shown on aim=${banded.shown}; armed inside=${armed}; cooldowns started=${JSON.stringify(started)}`);
+    rec(`cancel: the ${z.mode} affordance`, armed && started.length === 0 ? "PASS" : "FAIL",
+      `mode=${z.mode}; #${el} shown on aim=${banded.shown}, armed at the target=${armed}; ` +
+      (z.mode === "band"
+        ? `band ${Math.round(band.w)}x${Math.round(band.h)} at (${Math.round(band.x)},${Math.round(band.y)}); `
+        : `cancelRadius ${Math.round(z.r)} px around the frozen origin; `) +
+      `cooldowns started=${JSON.stringify(started)}`);
   }
 
   // --- 14c. WORLD ZONE: tap to move, long press to ping, tap to lock -----
@@ -1573,7 +1812,12 @@ for (const dname of deviceList) {
       let drive = null;
       if (DRIVE_MODE) {
         console.log(`-- driving ${dname} / ${sname}`);
-        drive = await driveBattery(page, touch, spec);
+        // The combat battery drives combat verbs; pointing it at the shop
+        // would report nine phantom FAILs and prove nothing. Each surface gets
+        // the battery that asserts ITS outcome.
+        drive = sname === "shop"
+          ? await shopBattery(page, touch)
+          : await driveBattery(page, touch, spec);
       }
       await overlay(page, spec);
       const file = join(OUT, `${dname}-${sname}.png`);

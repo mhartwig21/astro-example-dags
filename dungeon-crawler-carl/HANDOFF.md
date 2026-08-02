@@ -102,23 +102,48 @@ cannot sit above the cluster; `rf` runs past 1.0 on a corner fan; the size
 slider is a request the packer may refuse). Evidence lives in
 `tools/_mobile/i2.log` and `tools/_mobile/i3.log`.
 
+**Implementation round 2 landed** — a device-driven acceptance round found the
+touch LAYER was sound and the SURFACES were not. `MOBILE.md`'s new "ROUND 2"
+section carries the five findings that mattered and what each actually turned
+out to be. The headline: *a phone player could not buy anything*, and the cause
+was `srPageShop.style.display = "grid"` — one inline style, which beats every
+stylesheet rule and silently defeated the whole one-pane shop treatment, leaving
+the shelf in 40% of the panel with **not one hit-testable tile**. The
+select→detail→BUY chain was never broken; there was nothing a finger could press
+to start it.
+
+Also landed: §3.1's indicator (`src/render3d/aimIndicator.ts`, six shapes,
+cyan/white/outline, stroke and footprint floors, fed the live `AimSpec`); loot
+feedback (ground ring + `#pickstrip`); the low-HP flask pulse and refill haptic;
+swipe-to-close (moved onto the TOUCH stream — Chrome cancels the POINTER stream
+after one move when a scroller claims the pan, which is why round 1's swipe
+closed nothing anywhere); the phone recap; the toast rail's width; the boss
+plate off the crawler's own vitals; and the desktop regression where touch
+chrome was injected into every fine-pointer panel.
+
 **Still open in this track:**
 
-- §3.1 THE INDICATOR. Untouched this round. `setAimIndicator` still has three
-  shapes (no cone, no scatter), still paints gold `#c9a24b` at 0.42 with no
-  outline, and §1.6 measured its contribution to the frame at or below the
-  scene's own churn. `aimSpec.aimPlacement()` now supplies the placement half
-  of §2.4b, so the geometry is ready for the renderer work.
-- **The boss health plate versus the read band.** §4.2a rule 1 is structural in
-  the zone table, and `tools/_mobile/i1/iphone13-land-combat.png` showed the
-  plate itself running to 60% of the safe height and swallowing the cluster's
-  inboard rank. A compact `(pointer: coarse)` treatment now docks the plate
-  under the safe inset and stands the SYSTEM/CRAWLER row down while it is up;
-  the rest of §4.2's "top HUD collapses on compact" is not done.
-- The device x scene capture matrix beyond `combat` (shop, constellation,
-  sheet, inventory, the four aim scenes) has not been re-shot since the layout
-  moved, and the §8.3 real-hardware gate still owes: `ORIGIN_LEAK` against a
-  real thumb, `MM_PER_PX` against a real panel, and what preset Safari picks.
+- **§1.6's legibility DIFF has not been re-shot.** The indicator's palette,
+  outline and floors are on the glass and asserted (`test/aimIndicator.test.ts`,
+  §5.1), but the "indicator on vs off, inside its own projected box, against
+  the scene's churn floor" measurement is round 1's. §5.2 keeps the legibility
+  row until that diff clears the floor by 2x.
+- **The world zone is two slivers on a phone.** `readability.json` reported 2 of
+  4 on-screen monsters under the HUD on an iPhone 13 combat frame and 1 of 4 on
+  the boss scene (iPad: 0 of 5). Chips win at `pointerdown` so world taps still
+  resolve, and `world: tap to move` / `long press pings` now pass on the phones
+  — but the *visual* crowding is untouched, and it wants a HUD-density or camera
+  decision, not another zone tweak.
+- **The phone shop is still the desktop information architecture, segmented.**
+  It buys now, and the price and BUY are on screen; it is not the icon grid with
+  a persistent BUY that the iPad gets.
+- The §8.3 real-hardware gate still owes: `ORIGIN_LEAK` against a real thumb,
+  `MM_PER_PX` against a real panel, and what preset Safari picks.
+- `tools/desktopsmoke.mjs`'s cast check asserts `cast || facingChanged` and
+  passes on the facing half alone. An OR satisfied by the clause that is not the
+  claim is not a check. `tools/_mobile/deskdeep.mjs` drives each desktop verb
+  separately; its two ability-key FAILs are a bindings mismatch that predates
+  this track (verified by stashing the branch's changes).
 
 ## 3. Standing bars
 
