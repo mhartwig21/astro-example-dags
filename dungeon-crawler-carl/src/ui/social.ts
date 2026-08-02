@@ -28,7 +28,12 @@ export type RunState = "claimed" | "verifying" | "verified" | "rejected" | "unve
 export interface BoardRun {
   id: string;
   name: string;
-  accountId: string;
+  /** The crawler's DERIVED public name (sha256 of the account id). Never the
+   *  account id: that string IS the bearer token the server authenticates on,
+   *  and a board that carried it handed every reader a working credential for
+   *  every ranked player. The client only ever needed it for the YOU / RIVAL
+   *  tag on a row. */
+  publicId: string;
   eventId: string | null;
   state: RunState;
   reason: string | null;
@@ -64,7 +69,13 @@ export interface BoardPage {
   eventId: string | null;
   rulesEra: string;
   splitGate: number;
+  /** THE BOARD: rows the server re-executed and certified. The verified /
+   *  unproven split lives in the RESPONSE SHAPE, not in one renderer, so a
+   *  consumer that reads nothing else cannot print a claim as a rank. */
   entries: BoardRun[];
+  verified?: BoardRun[];
+  /** Stored exactly as a client reported them. No rank, never a result. */
+  unproven?: BoardRun[];
 }
 
 export interface EventView {
@@ -98,7 +109,7 @@ export interface Standing {
 }
 
 export interface ProfileView {
-  accountId: string;
+  publicId: string;
   name: string | null;
   seals: number;
   career: { runs: number; wins: number; deepest: number; kills: number; time_sec: number } | null;
@@ -131,7 +142,7 @@ export interface RivalContract {
   eventId: string;
   seed: number;
   resolvesAt: number;
-  rival: { accountId: string; cp: number; name: string | null } | null;
+  rival: { publicId: string; cp: number; name: string | null } | null;
   rivalRun: BoardRun | null;
   myCp: number;
   /** Every contested event the two of you both finished. */
@@ -773,26 +784,48 @@ export interface VerdictSeal {
   terminal: boolean;
 }
 
+/**
+ * WHAT A ROW ACTUALLY HOLDS, in words. `GET /runs/:id` answers with the board
+ * keys the run occupies; the seal is weighted on THAT rather than on "is my id
+ * in the daily-contract deepest board I happened to load", which is how a
+ * free-seed run taking rank 1 all-time was told "It ranks nowhere".
+ */
+export function boardsPhrase(boards: readonly string[] | null | undefined): string {
+  if (!boards || boards.length === 0) return "";
+  const names = boards.map((b) => {
+    const bare = b.split("@")[0];
+    if (bare.startsWith("band")) return bandName(Number(bare.slice(4)) || 0);
+    return bare.toUpperCase();
+  });
+  const uniq = [...new Set(names)];
+  const shown = uniq.slice(0, 3).join(", ");
+  return uniq.length > 3 ? `${shown} and ${uniq.length - 3} more` : shown;
+}
+
 export function verdictSeal(
   state: RunState | "unsubmitted" | "blocked",
   era: string | null,
   isPrivate = false,
   ranked = false,
   reason?: string | null,
+  boards: readonly string[] | null = null,
 ): VerdictSeal {
   const eraNote = era ? ` Rules era ${era}.` : "";
   switch (state) {
-    case "verified":
+    case "verified": {
+      const holds = boardsPhrase(boards);
       return {
         cls: `vseal verified${ranked ? " ranked" : ""}${isPrivate ? " private" : ""}`,
         kicker: "THE SYSTEM RE-RAN YOUR CRAWL",
         word: isPrivate ? "SEALED · PRIVATE" : "SEALED",
         line: (ranked
-          ? "Every input, replayed on the System's own machine. Same dungeon, same damage, same death — and it holds a board position."
+          ? "Every input, replayed on the System's own machine. Same dungeon, same damage, same death — and it holds "
+            + (holds ? `a position on ${holds}.` : "a board position.")
           : "Every input, replayed on the System's own machine. Same dungeon, same damage, same death. It ranks nowhere, and it is still true.")
           + (isPrivate ? " Nobody else will ever be handed the film." : "") + eraNote,
         terminal: true,
       };
+    }
     case "verifying":
       return {
         cls: "vseal verifying",
@@ -828,11 +861,17 @@ export function verdictSeal(
         terminal: true,
       };
     case "unsubmitted":
+      // SEALED IS SPENT ONCE, ON THE THING THAT EARNS IT. The pre-submit
+      // kicker used to read "THE RECORDING IS SEALED AGAINST THE RUN" ninety
+      // pixels above the word this whole trust model rests on - spending the
+      // one term that means "the server re-executed this" on "hashed locally,
+      // nothing sent". Nothing here has been certified by anybody.
       return {
         cls: "vseal pending",
-        kicker: "THE RECORDING IS SEALED AGAINST THE RUN",
+        kicker: "NOTHING HAS LEFT THIS MACHINE",
         word: "READY TO SUBMIT",
-        line: "Twenty-odd kilobytes that reproduce this run exactly. Nothing has been sent yet.",
+        line: "Twenty-odd kilobytes that reproduce this run exactly, written down and waiting. "
+          + "The System has not seen a byte of it.",
         terminal: false,
       };
     default:
@@ -860,6 +899,128 @@ export function playability(r: BoardRun, currentEra: string): { ok: boolean; why
   }
   if (!r.playable) return { ok: false, why: "the proof has aged out of retention" };
   return { ok: true, why: "" };
+}
+
+// ---------------------------------------------------------------------------
+// THE DEFAULT STATE COMPARES YOU TO SOMEBODY (COMPETITIVE.md 6 Beat 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE MARK. League's default post-game IS the scoreboard; ours costs a keypress
+ * and advertises itself in 11.5px type, so the screen a player sees after every
+ * single run compared them to nobody at all.
+ *
+ * One row, permanently, in the default state: the crawler at the top of today's
+ * contract, what they did, and the gap. When the board is dark or empty it
+ * falls back to YOUR OWN deepest — which is still a comparison, and is the one
+ * an offline player can act on.
+ */
+export interface Benchmark {
+  /** Who is being compared against: a board leader, or your own ledger. */
+  who: string;
+  /** What they did, in one phrase. */
+  what: string;
+  /** The gap, signed and in the player's favour when they are ahead. */
+  gap: string;
+  /** True when the player is level with or past the mark. */
+  ahead: boolean;
+  /** Which population this mark came from, printed so it is never implied. */
+  source: string;
+}
+
+export function benchmark(
+  me: { floor: number; won: boolean; elapsedSec: number },
+  board: readonly BoardRun[] | null,
+  myBestFloor: number,
+): Benchmark | null {
+  const leader = (board ?? []).find((r) => r.state === "verified") ?? null;
+  if (leader) {
+    const what = (leader.won ? "CLEARED IT" : `FLOOR ${leader.floor}`)
+      + ` · ${ticksClock(leader.ticks)} · ${leader.kills.toLocaleString()} kills`;
+    if (me.won && !leader.won) {
+      return { who: leader.name.toUpperCase(), what, gap: "you cleared it and they did not", ahead: true, source: "today's contract, sealed rows only" };
+    }
+    const d = me.floor - leader.floor;
+    const gap = leader.won && !me.won
+      ? `${Math.max(0, 18 - me.floor)} floors short of the exit they walked out of`
+      : d > 0 ? `${d} floor${d === 1 ? "" : "s"} deeper than the leader`
+        : d === 0 ? `level with the leader — they were ${signedTime(me.elapsedSec - leader.timeSec)} on the clock`
+          : `${-d} floor${d === -1 ? "" : "s"} short of the leader`;
+    return { who: leader.name.toUpperCase(), what, gap, ahead: d >= 0, source: "today's contract, sealed rows only" };
+  }
+  if (myBestFloor > 0) {
+    const d = me.floor - myBestFloor;
+    return {
+      who: "YOUR OWN DEEPEST",
+      what: `FLOOR ${myBestFloor}`,
+      gap: d > 0 ? `${d} floor${d === 1 ? "" : "s"} past it` : d === 0 ? "matched it" : `${-d} short of it`,
+      ahead: d >= 0,
+      source: "this browser's ledger — no sealed row on today's contract yet",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// WHAT EVERY RUN BANKS, INCLUDING THE BAD ONES (COMPETITIVE.md 6 Beat 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A floor-3 death used to produce "+0 CP", a hairline seal reading "It ranks
+ * nowhere", and "no personal bests this run — the ledger is unmoved": three of
+ * the four informational blocks on the screen saying that nothing happened.
+ * Admirably honest, and exactly why a player closes the tab.
+ *
+ * League always lands something. So does this, and it costs nothing against the
+ * verification spine because none of it is a claim about the ladder: it is the
+ * browser's own ledger, counted, and said out loud. A run that banks nothing
+ * else still banks itself.
+ */
+export interface BankedTick {
+  label: string;
+  value: string;
+  /** What this run added, when it added something. */
+  delta?: string;
+}
+
+export function bankedTicks(
+  history: readonly RunRecord[],
+  episode: number,
+  run: { kills: number; timeSec: number; floor: number },
+): BankedTick[] {
+  const kills = history.reduce((a, r) => a + r.kills, 0);
+  const minutes = Math.round(history.reduce((a, r) => a + r.timeSec, 0) / 60);
+  const out: BankedTick[] = [
+    { label: "EPISODE", value: `#${Math.max(1, episode)}`, delta: "filed" },
+  ];
+  if (run.kills > 0) {
+    out.push({ label: "CAREER KILLS", value: kills.toLocaleString(), delta: `+${run.kills.toLocaleString()}` });
+  }
+  const mins = Math.max(1, Math.round(run.timeSec / 60));
+  out.push({ label: "TIME IN THE DUNGEON", value: `${minutes} min`, delta: `+${mins}` });
+  return out;
+}
+
+/**
+ * THE NEXT THING TO AIM AT. A run that banked nothing still has a next target,
+ * and naming it is what turns "the ledger is unmoved" into a reason to press R.
+ * Drawn from the same milestone vocabulary as the career timeline, so the two
+ * screens never disagree about what counts.
+ */
+export function nextMilestone(bestFloor: number, won: boolean): { title: string; detail: string } {
+  if (!won) {
+    for (const f of [3, 6, 9, 12, 15, 18]) {
+      if (bestFloor < f) {
+        return {
+          title: `REACH FLOOR ${f}`,
+          detail: bestFloor > 0
+            ? `${bandName(Math.floor((f - 1) / 3))} — your deepest is ${bestFloor}`
+            : `${bandName(Math.floor((f - 1) / 3))} — nothing on the ledger yet`,
+        };
+      }
+    }
+  }
+  return { title: "WALK OUT AGAIN, FASTER", detail: "the exit is the only record left to beat" };
 }
 
 // ---------------------------------------------------------------------------

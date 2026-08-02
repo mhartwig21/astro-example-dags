@@ -17,11 +17,43 @@ import { gunzipSync } from "node:zlib";
 import { decodeProof, ReplayEraError, ReplayFormatError, ReplaySession, diffClaim } from "../sim/replay";
 import { RULES_HASH } from "../sim/rulesHash";
 
+/**
+ * THE ERAS THIS WORKER CAN ACTUALLY EXECUTE - keyed to loadable sim modules,
+ * never to a string list.
+ *
+ * This file imports exactly ONE sim (`../sim/replay`) and passed the CALLER'S
+ * `eras[]` straight through as `availableEras`, while `assertPlayableEra` only
+ * checks list membership. Widen `eras` to four (which is precisely what
+ * `CompetitiveApiOptions.eras` says will happen when sim-eras ships) and the
+ * worker replays era-N-2 proofs against era-N rules: silent divergence with no
+ * referee, producing false REJECTIONS of honest runs and - worse - false
+ * CERTIFICATIONS wherever the divergence happens not to move the six diffed
+ * fields. That is 2.6f's forbidden failure mode, running on the server.
+ *
+ * When `src/sim-eras/` lands, each era registers its own replay module HERE,
+ * beside its hash, and this map is what the gate is keyed on. Until then the
+ * honest answer is one entry, and an older proof comes back `unverifiable`
+ * (the row keeps its stamp) rather than being replayed under the wrong rules.
+ */
+export const ERA_SIMS: Readonly<Record<string, { ReplaySession: typeof ReplaySession }>> = {
+  [RULES_HASH]: { ReplaySession },
+};
+
+export const EXECUTABLE_ERAS: readonly string[] = Object.keys(ERA_SIMS);
+
+/** Narrow a requested era list to the ones a sim module actually backs. A
+ *  caller asking for more is not an error - it is answered with less. */
+export function executableEras(want: readonly string[] | undefined): string[] {
+  const list = (want ?? EXECUTABLE_ERAS).filter((e) => e in ERA_SIMS);
+  return list.length ? list : [];
+}
+
 export interface VerifyRequest {
   id: string;
   /** The stored artifact: gzip container or the raw container. */
   bytes: Uint8Array;
-  /** Rules eras this build can execute (the sim-eras map, COMPETITIVE.md 2.6b). */
+  /** Rules eras the CALLER believes this build can execute. Intersected with
+   *  `ERA_SIMS` before anything replays (COMPETITIVE.md 2.6b/2.6f). */
   eras?: string[];
   /** For an event entry, the seed the event PINS. A mismatch is a rejection
    *  before a single tick runs (COMPETITIVE.md 2.5 step 2). */
@@ -63,7 +95,9 @@ export async function verifyArtifact(req: VerifyRequest): Promise<VerifyReply> {
   const budget = Math.max(10, Math.min(1000, req.budgetMsPerSec ?? 250));
   const ceiling = req.ceilingMs ?? 120_000;
   const chunk = req.chunkTicks ?? 600;
-  const eras = req.eras ?? [RULES_HASH];
+  // The gate is keyed to modules, not to strings: whatever the caller asked
+  // for, only an era with a sim behind it is ever handed to ReplaySession.
+  const eras = executableEras(req.eras);
   const spent = (): number => Date.now() - t0;
   const fail = (state: "rejected" | "unverifiable", detail: string): VerifyReply =>
     ({ id: req.id, ok: false, msSpent: spent(), state, detail });

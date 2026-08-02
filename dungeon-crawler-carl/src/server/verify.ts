@@ -56,6 +56,15 @@ export interface VerifyJob {
   eventSeed?: number;
   requireFreshStart?: boolean;
   enqueuedAt: number;
+  /**
+   * THE ERA THE PROOF WAS RECORDED UNDER, carried from the submitted header so
+   * certification can stamp the row with the rules it was certified UNDER
+   * (2.6c: `rules_hash = H`) rather than with whatever the server happens to be
+   * running today. They coincide while `eras` holds one entry; the moment
+   * sim-eras widens it, stamping the current hash would make the era chip - the
+   * one thing 2.6c says LoL cannot show you - start lying on the first deploy.
+   */
+  rulesHash: string;
 }
 
 export type VerifyResult =

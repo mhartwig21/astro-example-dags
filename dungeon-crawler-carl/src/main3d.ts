@@ -54,7 +54,7 @@ import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
 
-import { careerBests, loadHistory, recordRun } from "./persist/history";
+import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 // THE COMPETITIVE LAYER (COMPETITIVE.md). The sim owns the codec and the era
 // gate; net/ owns the wire and the ghost worker; ui/social.ts owns the
@@ -258,6 +258,22 @@ let draftsClaimed = 0;
 /** Set by the CONTRACTS screen immediately before a ticketed event run. The
  *  START is what makes an attempt count honest (3.2A). */
 let pendingTicket: { eventId: string; ticket: string; attemptNo: number; scoresCp: boolean } | null = null;
+/**
+ * Why an about-to-start run on the DAY'S SEED is carrying no ticket.
+ *
+ * There used to be two doors to the daily and the front one was silently
+ * unranked: the menu's gold headline tile called `startRun({kind:'daily'})`,
+ * which resolves the SAME seed as the server's daily contract, while
+ * `pendingTicket` was set in exactly one place - the STANDINGS' ENTER THE
+ * CONTRACT button. So the most prominent button in the product played today's
+ * contract dungeon with `runEvent === null`, submitted with no event, earned no
+ * attempt number, and had the ladder line - the LP line of the whole design -
+ * tell the player "free seed: contract points come from contracts", which was
+ * false about the run they had just played. Both doors are ticketed now, and
+ * when the signing genuinely cannot happen this says which one and why.
+ */
+let pendingContractNote: string | null = null;
+let runContractNote: string | null = null;
 
 let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
 /** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
@@ -287,7 +303,10 @@ function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameS
   draftsOffered = 0;
   draftsClaimed = 0;
   const ticket = pendingTicket;
+  const contractNote = pendingContractNote;
   pendingTicket = null;
+  pendingContractNote = null;
+  runContractNote = contractNote;
   if (net) {
     recBlocked = "party runs are hosted by the server — the solo descent is what carries a proof";
     return;
@@ -1017,7 +1036,9 @@ function closeMenu(): void {
 // somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
 document.getElementById("m-daily")!.addEventListener("click", () =>
-  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: challengeDay ?? dayFromMs(Date.now()) })));
+  // ONE DOOR, AND IT SIGNS FOR THE CONTRACT. This is the same run the
+  // STANDINGS' ENTER THE CONTRACT starts, so it takes the same ticket.
+  enterCasting("DAILY CRAWL", () => { void enterDailyContract(challengeDay); }));
 // Challenge links re-dress the card; a live streak decorates the subtitle.
 {
   const sub = document.getElementById("m-daily-sub")!;
@@ -6124,10 +6145,30 @@ let recapFor: GameState["status"] | null = null;
 let runGrade: social.RunGrade | null = null;
 let todaysBoard: social.BoardRun[] | null = null;
 let earnedOpen = false;
-/** What the server said about this run, resolving live under the player. */
+/** What the server said about this run, resolving live under the player.
+ *  `boards` is what the row actually HOLDS, straight from GET /runs/:id - the
+ *  seal is weighted on that rather than on whichever board happened to load. */
 let submitResult:
-  | { state: string; runId?: string; reason?: string; attemptNo?: number; scoresCp?: boolean }
+  | {
+      state: string; runId?: string; reason?: string; attemptNo?: number;
+      scoresCp?: boolean; boards?: string[];
+    }
   | null = null;
+
+/**
+ * A STATE THE VERIFIER REFUSED NEVER WEARS LADDER FURNITURE (6.2, stated as a
+ * rule in capitals and implemented for test-chamber starts only).
+ *
+ * `renderLadderLine` and `renderEarned` never read `submitResult.state`, so a
+ * REFUSED run showed a red "The replay did not produce the run you claimed"
+ * block with "this run still holds its board row and its splits" 120px above
+ * it and "NEW PB — DEEPEST FLOOR 1" in gold 70px below it. On a product whose
+ * entire thesis is that its numbers are certified, the screen contradicting
+ * its own certifier in the default state is the worst failure available.
+ */
+function verdictRefused(): boolean {
+  return submitResult?.state === "rejected";
+}
 
 /** Where this crawler stands on the season ladder. Fetched at run end and
  *  again the moment a seal lands, so the CP line on the verdict screen can show
@@ -6140,6 +6181,9 @@ async function loadStanding(): Promise<void> {
     const token = await accountToken();
     const prof = (await competitive.profile(token)) as social.ProfileView;
     myStanding = prof.standing ?? null;
+    // ...and the name this account wears on a board row, which is what the YOU
+    // tag matches on now that the wire no longer hands out the token.
+    if (prof.publicId) myPublicId = prof.publicId;
   } catch {
     myStanding = null; // offline: the line says so rather than inventing a rank
   }
@@ -6488,7 +6532,8 @@ function renderRecap(s: GameState): void {
 
   // ---- Beat 5: WHAT YOU EARNED, and the seal resolving live -------------
   renderLadderLine(s);
-  renderEarned(s);
+  renderMark(s);
+  renderEarned(s); // ...which draws the banked ledger and the seal beneath it
   // ---- Beat 6: the buttons that make sense for THIS run -----------------
   document.getElementById("recap-race")!.style.display =
     !net && (todaysBoard ?? []).some((r) => social.playability(r, RULES_HASH.slice(0, 7)).ok) ? "" : "none";
@@ -6524,12 +6569,28 @@ function renderLadderLine(s: GameState): void {
       `and no board row here — and the grade above is a rehearsal, not a result.`;
     return;
   }
+  // THE VERIFIER'S REFUSAL OUTRANKS EVERY OTHER LINE ON THIS PLATE. A rejected
+  // run holds no row, no split and no CP, so it is told that here rather than
+  // being handed a ladder plate 120px above the block that refuses it. The
+  // SEASON total survives - it belongs to earlier runs and it is still true.
+  if (verdictRefused()) {
+    const st = myStanding;
+    el.className = "notranked";
+    el.innerHTML = `<b>NO ROW, NO SPLIT, NO POINTS.</b> The System replayed this run and did not get ` +
+      `the run you claimed, so nothing from it enters the ledger — not the board row, not the band ` +
+      `splits, not a single contract point.` +
+      (st ? ` Your season stands where the runs it was earned on left it: ` +
+        `<b>${st.cp.toLocaleString()} CP</b>.` : "");
+    return;
+  }
   el.className = "ladderline";
   const st = myStanding;
   if (!st) {
-    el.innerHTML = `<span class="lt">UNRANKED</span>` +
-      `<span class="lnote">the ladder is unreachable — your standing is on the server, and it will ` +
-      `still be there when the signal is back</span>`;
+    el.innerHTML = `<div class="lmain"><span class="lt">UNRANKED</span>` +
+      `<span class="lcp">standing unread</span></div>` +
+      `<div class="lstat"><span class="ldelta flat">OFFLINE</span></div>` +
+      `<div class="lnote">the ladder is unreachable — your standing is on the server, and it will ` +
+      `still be there when the signal is back</div>`;
     return;
   }
   // TIERS ARE SUPPRESSED BELOW A POPULATION FLOOR, and the reason is printed.
@@ -6542,26 +6603,96 @@ function renderLadderLine(s: GameState): void {
     : "no ranked contract scored yet";
   // WHAT THIS RUN MOVED. CP scores the FIRST ticketed attempt on a contract and
   // nothing else, so most runs move it by zero - said plainly, with the reason.
-  let delta: string;
+  let chip: string;
+  let note: string;
   if (!runEvent) {
-    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">free seed — contract points ` +
-      `come from contracts, and this run still holds its board row and its splits</span>`;
+    chip = `<span class="ldelta flat">+0 CP</span>`;
+    // ...and if the run was on the DAY'S SEED it says so, because "free seed"
+    // was flatly false about the dungeon the front door hands you.
+    note = runContractNote
+      ?? "a free seed — contract points come from contracts. The board row and the splits still stand.";
   } else if (!runEvent.scoresCp) {
-    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">attempt ${runEvent.attemptNo} — ` +
-      `CP scores your FIRST ticketed attempt only; the board row still updates</span>`;
+    chip = `<span class="ldelta flat">+0 CP</span>`;
+    note = `attempt ${runEvent.attemptNo} on this contract — CP scores your FIRST ticketed attempt `
+      + `only. The board row still updates, and so do the splits.`;
   } else if (cpBeforeRun !== null && st.cp > cpBeforeRun) {
-    delta = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>` +
-      `<span class="lnote">attempt 1 on this contract — the run the ladder scores</span>`;
+    chip = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>`;
+    note = "attempt 1 on this contract — the run the ladder scores. There is no second first impression.";
   } else {
-    delta = `<span class="ldelta">CP PENDING</span><span class="lnote">attempt 1 — it lands when the ` +
-      `seal does, because CP only ever moves on a run the server re-executed</span>`;
+    chip = `<span class="ldelta">CP PENDING</span>`;
+    note = "attempt 1 — it lands when the seal does, because CP only ever moves on a run the server "
+      + "re-executed.";
   }
-  const floorNote = !st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor
-    ? `<span class="lnote">tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far</span>`
-    : "";
-  el.innerHTML = `<span class="lt">${esc(tier)}</span>` +
-    `<span class="lcp">${st.cp.toLocaleString()} CP</span>` +
-    `<span>${esc(rank)}</span>${delta}${floorNote}`;
+  if (!st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor) {
+    note += ` Tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far.`;
+  }
+  el.innerHTML =
+    `<div class="lmain"><span class="lt">${esc(tier)}</span>` +
+    `<span class="lcp">${st.cp.toLocaleString()} CP this season</span></div>` +
+    `<div class="lstat">${chip}<span class="lrank">${esc(rank)}</span></div>` +
+    `<div class="lnote">${esc(note)}</div>`;
+}
+
+/**
+ * THE MARK (6 Beat 2, in the DEFAULT state). One row of the crawler at the top
+ * of today's contract, permanently, beside the grade — because League's default
+ * post-game IS the scoreboard, ours costs a held TAB, and the pointer to that
+ * TAB was 11.5px of the least legible colour on the screen. A player who never
+ * discovers the tab is a player the screen compared to nobody at all.
+ */
+function renderMark(s: GameState): void {
+  const el = document.getElementById("recap-mark")!;
+  if (net) { el.style.display = "none"; return; }
+  const b = social.benchmark(
+    { floor: s.floor, won: s.status === "won", elapsedSec: s.elapsed },
+    todaysBoard, recapPrevCareer?.bestFloor ?? 0,
+  );
+  if (!b) {
+    el.style.display = "";
+    el.innerHTML = `<div class="mk">◆ THE MARK ◆</div>` +
+      `<div class="mwho">NOBODY HAS SET ONE</div>` +
+      `<div class="mwhat">no sealed row on today's contract, and nothing in this browser's ledger</div>` +
+      `<div class="msrc">the first crawler to finish today sets the mark everyone else reads</div>`;
+    return;
+  }
+  el.style.display = "";
+  el.innerHTML =
+    `<div class="mk">◆ THE MARK ◆</div>` +
+    `<div class="mwho">${esc(b.who)}</div>` +
+    `<div class="mwhat">${esc(b.what)}</div>` +
+    `<div class="mgap${b.ahead ? "" : " behind"}">${esc(b.gap)}</div>` +
+    `<div class="msrc">${esc(b.source)}</div>`;
+}
+
+/**
+ * WHAT THE RUN BANKED, WHATEVER ELSE IT DID (6 Beat 5).
+ *
+ * A floor-3 death produced "+0 CP", a hairline seal reading "It ranks nowhere",
+ * and "no personal bests this run — the ledger is unmoved": three of the four
+ * informational blocks saying nothing happened. Honest, and exactly why a
+ * player closes the tab. None of this is a claim about the ladder — it is this
+ * browser's own ledger, counted — so it costs nothing against the verification
+ * spine and it changes what the ten seconds feel like.
+ */
+function renderBanked(s: GameState): void {
+  const el = document.getElementById("recap-banked")!;
+  // A rehearsal banks nothing and a refused run banks nothing. Both say so
+  // elsewhere on the screen; neither gets a ledger strip.
+  if (net || !runIsRankable(s) || verdictRefused()) { el.style.display = "none"; return; }
+  el.style.display = "";
+  const p = me(s);
+  const history = loadHistory();
+  const ticks = social.bankedTicks(history, episodeCount(), {
+    kills: p.kills, timeSec: Math.round(s.elapsed), floor: s.floor,
+  });
+  // The NEXT target is read off the ledger INCLUDING this run - it is the only
+  // number on the screen that is supposed to already know what just happened.
+  const next = social.nextMilestone(careerBests(history)?.bestFloor ?? 0, s.status === "won");
+  el.innerHTML = ticks.map((t) =>
+    `<div class="btick"><span class="bl">${esc(t.label)}</span>` +
+    `<span class="bv">${esc(t.value)}</span>` +
+    (t.delta ? `<span class="bd">${esc(t.delta)}</span>` : "") + `</div>`).join("")
+    + `<div class="bnext">NEXT: <b>${esc(next.title)}</b> — ${esc(next.detail)}</div>`;
 }
 
 /**
@@ -6575,23 +6706,33 @@ function renderEarned(s: GameState): void {
   const line = document.getElementById("recap-earned")!;
   const detail = document.getElementById("recap-earned-detail")!;
   const beaten = recapBandPbs;
-  const bests = careerBests(loadHistory());
+  const bests = recapPrevCareer; // the ledger this run found, not the one it joined
   const rows: string[] = [];
 
-  let headline = "no personal bests this run — the ledger is unmoved";
+  let headline = "no personal bests this run — the ledger below is what it moved";
   // A rehearsal banks nothing, and the headline must not claim otherwise. This
   // used to print "THE CLEAR IS ON THE BOARD" on a test-chamber win, directly
   // under the screen's own TEST CHAMBER — NOT RANKED banner.
   if (!runIsRankable(s)) {
     headline = "nothing banked — a run that started at depth moves no ledger";
+  } else if (verdictRefused()) {
+    // ...and neither does a run the verifier refused. This used to print
+    // "NEW PB — DEEPEST FLOOR 1" in gold, seventy pixels under the block
+    // saying the replay did not produce the run at all.
+    headline = "nothing banked — the System refused the recording, so no record stands on it";
   } else if (beaten.length > 0) {
     headline = `<b>NEW PB — ${social.bandName(beaten[0])} SPLIT</b>`;
-  } else if (bests && s.floor >= bests.bestFloor && s.status !== "won") {
+  } else if (bests && bests.bestFloor > 0 && s.floor > bests.bestFloor && s.status !== "won") {
+    // `s.floor >= bests.bestFloor` printed "NEW PB — DEEPEST FLOOR 1" on a
+    // two-second floor-1 death against an empty ledger. A personal best has to
+    // beat something, and a hollow one spends the word.
     headline = `<b>NEW PB — DEEPEST FLOOR ${s.floor}</b>`;
   } else if (s.status === "won") {
     headline = `<b>THE CLEAR IS ON THE BOARD</b>`;
   }
-  for (const b of beaten) rows.push(`<div class="erow"><span class="pb">NEW PB</span><b>${social.bandName(b)}</b> split</div>`);
+  if (!verdictRefused()) {
+    for (const b of beaten) rows.push(`<div class="erow"><span class="pb">NEW PB</span><b>${social.bandName(b)}</b> split</div>`);
+  }
   if (runEvent) {
     rows.push(
       `<div class="erow"><b>ATTEMPT ${runEvent.attemptNo}</b> on this contract — ` +
@@ -6611,6 +6752,7 @@ function renderEarned(s: GameState): void {
   line.innerHTML = `${headline}<span class="caret">${earnedOpen ? "[ HIDE THE MATH ]" : "[ SHOW THE MATH ]"}</span>`;
   detail.innerHTML = rows.join("") || `<div class="erow">Nothing banked. The System is not impressed, but it is watching.</div>`;
   detail.style.display = earnedOpen ? "" : "none";
+  renderBanked(s);
   renderSeal();
 }
 
@@ -6638,7 +6780,17 @@ function renderSeal(): void {
   // A run HOLDING a board position gets the trophy treatment; a run the
   // server replayed and certified that ranks nowhere gets the same truth
   // without the gold flood. Printing them identically spends the scarcity.
-  const ranked = !!submitResult?.runId && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId);
+  //
+  // ...AND IT ASKS THE SERVER WHICH BOARDS, not one board it happened to load.
+  // `ranked` used to be "is my run id in `todaysBoard`", and `todaysBoard` is
+  // the DAILY CONTRACT deepest board - so a free-seed run taking rank 1
+  // all-time got the plain hairline and the line "It ranks nowhere, and it is
+  // still true", which is false about the run that most deserved the gold.
+  const held = submitResult?.boards ?? null;
+  const ranked = !!submitResult?.runId && (
+    (held !== null && held.length > 0)
+    || (held === null && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId))
+  );
   const v = recBlocked
     ? social.verdictSeal("blocked", null, false, false, recBlocked)
     : !submitResult
@@ -6647,7 +6799,7 @@ function renderSeal(): void {
       : social.verdictSeal(
           (submitResult.state as social.RunState) ?? "claimed",
           submitResult.state === "verified" ? era : null,
-          submitVisibility === "private", ranked, submitResult.reason ?? null,
+          submitVisibility === "private", ranked, submitResult.reason ?? null, held,
         );
   if (v.word === sealWordShown) {
     // Same state, re-rendered (the board arrived, a PB landed): update the
@@ -6695,6 +6847,8 @@ function sealRun(s: GameState): void {
  *  ledger as it stood before this run touched it. */
 let recapBandPbs: number[] = [];
 let recapPrevBests: (number | null)[] = [];
+/** The career bests as they stood BEFORE this run was written to the ledger. */
+let recapPrevCareer: ReturnType<typeof careerBests> = null;
 let submitVisibility: "public" | "private" = "public";
 
 /**
@@ -7049,6 +7203,14 @@ function offerProof(): void {
   if (choice === "no") return;
   consentEl.classList.add("on");
   recapEl.classList.add("consenting"); // the verdict lifts clear of the card
+  // ...by the card's MEASURED height. A hardcoded 236px was smaller than the
+  // card actually is, so on the one run per browser where this appears the
+  // verdict's top border went above y=0 and the grade medal was clipped by the
+  // viewport edge - during the exact ten seconds this screen exists for.
+  requestAnimationFrame(() => {
+    const h = Math.ceil(consentEl.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty("--consent-h", h + "px");
+  });
 }
 
 for (const [id, choice] of [
@@ -7134,16 +7296,30 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
     // box that already knows the answer within a few seconds.
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 900));
-      const row = (await competitive.run(res.runId, token)) as social.BoardRun;
+      const row = (await competitive.run(res.runId, token)) as social.BoardRun & { boards?: string[] };
       if (row.state !== "verifying" && row.state !== "claimed") {
-        submitResult = { state: row.state, runId: res.runId, reason: row.reason ?? undefined };
+        submitResult = {
+          state: row.state, runId: res.runId, reason: row.reason ?? undefined,
+          boards: row.boards ?? [],
+        };
         if (row.state === "verified") {
           // CP and the board position only exist AFTER certification, so the
           // ladder line is re-read here rather than guessed at run end.
           await Promise.all([loadStanding(), loadTodaysBoard()]);
           pushLogLine("THE SYSTEM RE-RAN YOUR CRAWL. It agrees with you. Sealed.");
         }
+        // A REFUSED RUN UN-BANKS WHAT IT PROVISIONALLY BANKED. The band PBs are
+        // committed to the local ledger at the status edge, minutes before the
+        // verdict arrives; leaving them there would let a run the server would
+        // not certify hold a record in the panel that reads "sealed traversals
+        // only". The ledger goes back to exactly where this run found it.
+        if (row.state === "rejected") {
+          storeBandBests(recapPrevBests);
+          recapBandPbs = [];
+          pushLogLine("THE SYSTEM DISAGREES. The row is gone and the ledger is back where it was.");
+        }
         renderLadderLine(state);
+        renderMark(state);
         renderEarned(state);
         return;
       }
@@ -7215,7 +7391,17 @@ async function runItBack(): Promise<void> {
     await armGhost(encodeProof(proof), "YOUR LAST RUN");
   }
   forcedSeed = seed;
-  startRun(runMode, currentRunKind);
+  // A RERUN OF TODAY'S CONTRACT IS ANOTHER ATTEMPT ON IT, and an attempt the
+  // server did not observe is exactly the hole tickets exist to close. So R on
+  // a daily signs again (attempt 2, 3, ...) instead of quietly dropping off the
+  // contract onto the same seed.
+  if (runMode.kind === "daily" && runMode.day === dayFromMs(Date.now()) && !net && !testMode) {
+    const armed = ghost;
+    await enterDailyContract(runMode.day);
+    ghost = armed; // the sign-in must not throw away the ghost we just built
+  } else {
+    startRun(runMode, currentRunKind);
+  }
   if (ghost) {
     showAnnouncement({
       text: "SAME DUNGEON. Your own ghost is on the course with you. Beat yourself.",
@@ -7367,10 +7553,16 @@ const careerEl = document.getElementById("career")!;
 let ladderTab: "contracts" | "alltime" | "bands" | "rivals" = "contracts";
 let alltimeTab = "deepest";
 
+/** The bearer token. It goes UP the wire, in a query string, and it never
+ *  comes back down: the server projects a derived public id instead, because
+ *  this string is the credential POST /runs authenticates on. */
 let myAccount = "";
-/** Crawlers the System has pointed you at, plus anyone you follow. They light
- *  up on every board, because a ladder is only contested if you can find the
- *  person you are contesting it WITH. */
+/** ...and the public name that same account wears on a board row, which is
+ *  the only thing the YOU tag ever needed. */
+let myPublicId = "";
+/** Crawlers the System has pointed you at, plus anyone you follow, BY PUBLIC
+ *  ID. They light up on every board, because a ladder is only contested if you
+ *  can find the person you are contesting it WITH. */
 const rivalAccounts = new Set<string>();
 let events: social.EventsView | null = null;
 const ERA = RULES_HASH.slice(0, 7);
@@ -7444,14 +7636,19 @@ function boardRowHtml(
   const chip = social.sealChip(r.state, r.rulesEra, r.private, weight);
   const play = social.playability(r, ERA);
 
-  const mine = r.accountId === myAccount;
-  const rival = !mine && rivalAccounts.has(r.accountId);
+  const mine = !!r.publicId && r.publicId === myPublicId;
+  const rival = !mine && !!r.publicId && rivalAccounts.has(r.publicId);
   const sub = [
     // "unstamped" reads as a missing field. Nothing is missing: an unproven
     // row has no era because it was never certified, and saying that is the
     // whole point of the chip beside it.
     r.rulesEra ? `era ${r.rulesEra}` : "no era — never certified",
-    r.attemptNo ? `attempt ${r.attemptNo}` : null,
+    // "SIGNED attempt N", not "attempt N". The number comes off the event
+    // ticket, so it counts the attempts the server was asked to OBSERVE - it
+    // is not, and cannot be, a count of how many times this dungeon was
+    // played. The ticket is stamped and single-use now, so the number means
+    // something; it still is not an observed total, and the word says which.
+    r.attemptNo ? `signed attempt ${r.attemptNo}` : null,
     r.ultimate ? ABILITY_INFO[r.ultimate as AbilityId]?.name ?? r.ultimate : null,
     r.partySize > 1 ? `party of ${r.partySize}` : null,
     extra || null,
@@ -7496,11 +7693,18 @@ function boardRowHtml(
  * colour, under a heading that says what they are.
  */
 function boardListHtml(
-  entries: readonly social.BoardRun[], kind: string, empty: string,
+  page: { entries: readonly social.BoardRun[]; unproven?: readonly social.BoardRun[] },
+  kind: string, empty: string,
   extraFor?: (r: social.BoardRun) => string,
 ): string {
-  const sealed = entries.filter((r) => r.state === "verified");
-  const unproven = entries.filter((r) => r.state !== "verified");
+  // THE SPLIT NOW ARRIVES ALREADY MADE. `GET /boards/:kind` returns proofs in
+  // `entries` and claims in `unproven`, so this renderer no longer has to be
+  // the only thing in the product that knows the difference - it just has to
+  // draw it. The filters stay as a belt for an older server or a band board
+  // that still answers with one mixed array.
+  const sealed = (page.unproven ? page.entries : page.entries.filter((r) => r.state === "verified"))
+    .filter((r) => r.state === "verified");
+  const unproven = page.unproven ?? page.entries.filter((r) => r.state !== "verified");
   const extra = (r: social.BoardRun): string => extraFor?.(r) ?? "";
   let html = `<ul class="board">${
     sealed.map((r, i) => boardRowHtml(r, i, kind, extra(r))).join("")
@@ -7558,7 +7762,8 @@ async function renderLadder(): Promise<void> {
 
       `font-family:var(--display);font-variant:small-caps">TODAY'S STANDINGS — ${esc(events.daily.day)}</div>` +
       rowKeyHtml("depth, then the faster run, then the earlier submission") +
-      boardListHtml(page.entries.slice(0, 12), "deepest",
+      boardListHtml(
+        { entries: page.entries.slice(0, 12), unproven: page.unproven?.slice(0, 12) }, "deepest",
         "nobody has signed today's contract yet. Be the name at the top.");
     return;
   }
@@ -7573,7 +7778,7 @@ async function renderLadder(): Promise<void> {
       rowKeyHtml(alltimeTab === "kills"
         ? "kill count, then the earlier submission"
         : "the exact tick count, then the earlier submission") +
-      boardListHtml(page.entries, alltimeTab,
+      boardListHtml(page, alltimeTab,
         "this museum is empty. The first exhibit is yours to donate.") +
       `<div class="gate">All-time boards never reset — they CHIP THE ERA instead. A row stamped ` +
       `<b>era ${esc(ERA)}</b> was earned under exactly the rules you are playing now; an older stamp was ` +
@@ -7597,7 +7802,7 @@ async function renderLadder(): Promise<void> {
         // eight-second death.
         `<div class="bandsub">fastest sealed TRAVERSAL of floors ${b * 3 + 1}–${last} — ` +
         `every floor entered and floor ${last} left behind</div>` +
-        boardListHtml(rows, "band", "no sealed traversals here yet",
+        boardListHtml({ entries: rows }, "band", "no sealed traversals here yet",
           (r) => (r.won ? "full clear" : `ran on to F${r.floor}`)) + `</div>`;
     }).join("") + `</div>` +
       `<div class="gate">Dying on floor 11 does not make you bad at the game — it makes you a crawler ` +
@@ -7612,10 +7817,17 @@ async function renderLadder(): Promise<void> {
   const rc = (await competitive.rivalContract(token).catch(() => null)) as social.RivalContract | null;
   if (!rc || !rc.rival) {
     body.innerHTML = `<div class="gate">NO CONTRACT ISSUED. The System pairs you with a crawler near ` +
-
       `your contract points and puts you both on today's seed — but it needs somebody near your CP to pair ` +
       `you WITH. Sign a contract, bank a score, and the matchmaking has something to work with. There is ` +
-      `no queue and no lobby: you wake up with a rival.</div>`;
+      `no queue and no lobby: you wake up with a rival.</div>` +
+      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">HOW THE PAIRING WORKS</div>` +
+      `<div class="gate"><b>THE PAIRING:</b> nearest season CP on today's seed, recomputed every day. ` +
+      `A nightly sort over the accounts on this box — no queue, no wait, no lobby, and nobody has to be ` +
+      `online at the same time as anybody.<br><b>THE STAKE:</b> the head-to-head ledger and the board row. ` +
+      `No CP changes hands — contract points are a record of what you did, not a wager, and a ladder that ` +
+      `confiscates them turns every pairing into a reason not to play.<br><b>WHAT DECIDES IT:</b> the ` +
+      `better SEALED run. An unproven claim does not take a contract off anybody.</div>`;
     return;
   }
   const theirs = rc.rivalRun;
@@ -7673,8 +7885,9 @@ async function renderLadder(): Promise<void> {
 async function refreshRivals(): Promise<void> {
   try {
     const rc = (await competitive.rivalContract(myAccount)) as social.RivalContract;
-    if (rc.rival) rivalAccounts.add(rc.rival.accountId);
+    if (rc.rival) rivalAccounts.add(rc.rival.publicId);
     const prof = (await competitive.profile(myAccount)) as social.ProfileView;
+    myPublicId = prof.publicId ?? myPublicId;
     for (const id of prof.following ?? []) rivalAccounts.add(id);
   } catch { /* no rivals is a state, not an error */ }
 }
@@ -7714,6 +7927,7 @@ async function enterContract(eventId: string): Promise<void> {
     const token = await accountToken();
     const t = await competitive.startEvent(eventId, token);
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
+    pendingContractNote = null;
     closeSets();
     closeMenu();
     ghost = null;
@@ -7732,6 +7946,59 @@ async function enterContract(eventId: string): Promise<void> {
       text: `THE CONTRACT WAS REFUSED. ${(err as Error).message}`,
       kind: "flavor", priority: "high",
     });
+  }
+}
+
+/**
+ * THE DAILY CRAWL TILE, AND EVERY OTHER WAY INTO TODAY'S SEED.
+ *
+ * `dailySeed(day)` is the server's daily-contract seed. A run that plays it
+ * without a ticket is not "a free seed" - it is TODAY'S CONTRACT, played
+ * unranked, and the verdict screen used to state the opposite. So this is the
+ * single entry point: it signs for the contract first and starts the run
+ * either way, and the two cases it cannot sign are named rather than silently
+ * flattened into "free seed".
+ *
+ *  - A CHALLENGE LINK for another day is a rerun of a closed dungeon. There is
+ *    no open contract to sign and there never was one for that day.
+ *  - OFFLINE, or a refused signature, is the honest unranked case, and the
+ *    screen says which contract went unsigned instead of pretending the seed
+ *    was arbitrary.
+ */
+async function enterDailyContract(day: string | null): Promise<void> {
+  const today = dayFromMs(Date.now());
+  if (day && day !== today) {
+    pendingTicket = null;
+    pendingContractNote = `a challenge on the ${day} dungeon — that contract has closed, so this is `
+      + `a rerun of it. The board row and the splits still stand; contract points do not.`;
+    ghost = null;
+    startRun({ kind: "daily", day }, "race");
+    return;
+  }
+  try {
+    if (!events) events = (await competitive.events()) as social.EventsView;
+    const token = await accountToken();
+    const t = await competitive.startEvent(events.daily.id, token);
+    pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
+    pendingContractNote = null;
+    forcedSeed = t.seed;
+    ghost = null;
+    startRun({ kind: "daily", day: events.daily.day }, "race");
+    showAnnouncement({
+      text: t.scoresCp
+        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
+        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
+      kind: "flavor", priority: "high",
+    });
+  } catch (err) {
+    // The dungeon is identical either way - the seed is the day - so the run
+    // starts. What changes is that the screen at the end knows the difference.
+    pendingTicket = null;
+    pendingContractNote = `today's contract dungeon, played UNSIGNED — the System could not issue an `
+      + `attempt ticket (${(err as Error).message}). Same seed, same board row, no contract points.`;
+    ghost = null;
+    startRun({ kind: "daily", day: today }, "race");
+    pushLogLine("THE CONTRACT WENT UNSIGNED. Same dungeon; the ladder is not watching this one.");
   }
 }
 
@@ -7818,6 +8085,26 @@ function ledgerHtml(rows: [string, string][]): string {
     `<tr><td class="lk">${k}</td><td class="ld"><i></i></td><td class="lv">${v}</td></tr>`).join("") + `</table>`;
 }
 
+/**
+ * TWO LEDGERS, TWO HEADINGS (COMPETITIVE.md 3.3: "Two sources of truth with
+ * different rules for the same record is one too many for anything
+ * competitive").
+ *
+ * THE NUMBERS interleaved them row by row with no per-row attribution: RUNS
+ * FINISHED / ESCAPES / FASTEST CLEAR / MOST KILLS / PEAK VIEWERS / TIME IN THE
+ * DUNGEON came from the localStorage `bests`, DEEPEST FLOOR from max(server,
+ * local), CAREER KILLS from the server. On a signed-in account in a fresh
+ * browser that printed "RUNS FINISHED 0 · ESCAPES 0 · FASTEST CLEAR —" directly
+ * beside "DEEPEST FLOOR 18 · CAREER KILLS 2,089" under a "6 SEALS" headline.
+ * Every number was true; the list was not. The histogram got a boundary
+ * sentence, the band splits got one, and the one list that actually mixes the
+ * ledgers row by row got none.
+ */
+function ledgerGroupHtml(title: string, note: string, rows: [string, string][]): string {
+  return `<div class="lgroup"><div class="lgtitle">${esc(title)}</div>` +
+    `<div class="lgnote">${esc(note)}</div>` + ledgerHtml(rows) + `</div>`;
+}
+
 async function renderCareerSet(): Promise<void> {
   const body = document.getElementById("career-body")!;
   const history = loadHistory();
@@ -7893,17 +8180,41 @@ async function renderCareerSet(): Promise<void> {
     histogramHtml(byFloor) +
     `<div class="tcols" style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px">` +
       `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
-      `letter-spacing:2px">THE NUMBERS</div>` +
-      ledgerHtml([
-        ["RUNS FINISHED", String(bests?.runs ?? 0)],
-        ["ESCAPES", String(bests?.wins ?? 0)],
-        ["DEEPEST FLOOR", String(Math.max(prof?.deepest ?? 0, bests?.bestFloor ?? 0))],
-        ["FASTEST CLEAR", bests?.fastestClearSec != null ? fmt(bests.fastestClearSec) : "—"],
-        ["MOST KILLS IN A RUN", (bests?.mostKills ?? 0).toLocaleString()],
-        ["CAREER KILLS", (prof?.career?.kills ?? 0).toLocaleString()],
-        ["PEAK VIEWERS", (bests?.peakViewers ?? 0).toLocaleString()],
-        ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
-      ]) +
+      `letter-spacing:2px">THE LEDGERS</div>` +
+      // THE SEALED RECORD first, because it is the one the boards agree with.
+      ledgerGroupHtml(
+        "THE SEALED RECORD",
+        prof
+          ? "runs the server re-executed and certified, across every device you have ever signed in on. "
+            + "These are the numbers a board row can be checked against."
+          : "the server career is offline, so there is nothing sealed to show — these arrive with the signal.",
+        [
+          ["SEALS", String(prof?.seals ?? 0)],
+          ["DEEPEST FLOOR", prof ? String(prof.deepest) : "—"],
+          ["CAREER KILLS", prof ? (prof.career?.kills ?? 0).toLocaleString() : "—"],
+          ["ESCAPES", prof ? String(prof.career?.wins ?? 0) : "—"],
+          ["FASTEST SEALED CLEAR", prof?.fastestClear
+            ? social.ticksClock(prof.fastestClear.ticks) : "—"],
+        ],
+      ) +
+      // ...then THIS BROWSER'S, which counts every run including the ones
+      // nobody certified, and says so instead of standing beside the other one
+      // pretending to be the same population.
+      ledgerGroupHtml(
+        "THIS BROWSER'S LEDGER",
+        "every run this device finished, sealed or not, signed in or not — capped at the last 60. "
+        + "It counts more runs than the record above and proves fewer of them.",
+        [
+          ["EPISODES FILED", String(episodeCount())],
+          ["RUNS ON THE LEDGER", String(bests?.runs ?? 0)],
+          ["ESCAPES", String(bests?.wins ?? 0)],
+          ["DEEPEST FLOOR", String(bests?.bestFloor ?? 0)],
+          ["FASTEST CLEAR", bests?.fastestClearSec != null ? fmt(bests.fastestClearSec) : "—"],
+          ["MOST KILLS IN A RUN", (bests?.mostKills ?? 0).toLocaleString()],
+          ["PEAK VIEWERS", (bests?.peakViewers ?? 0).toLocaleString()],
+          ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
+        ],
+      ) +
       `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
       `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
@@ -8166,6 +8477,13 @@ if (new URLSearchParams(location.search).has("debug")) {
     get: () => ({
       state,
       renderer,
+      // The competitive standing of the run currently on screen: whether it is
+      // riding an event ticket, and what the server said about it. Read-only,
+      // and the only way an acceptance harness can check that the front door
+      // and THE STANDINGS really are the same door.
+      runEvent,
+      runContractNote,
+      submitResult,
       addPlayer: (name: string) => addPlayer(state, name),
       step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
       equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
@@ -8795,6 +9113,13 @@ async function main(): Promise<void> {
           lastStatus = state.status;
           persistRun(state);
           if (state.status !== "playing") {
+            // THE LEDGER AS IT STOOD BEFORE THIS RUN. Every "is this a personal
+            // best" question on the verdict screen has to be asked against the
+            // ledger this run found, not the one it just joined - the band
+            // splits already knew that; the DEEPEST FLOOR check and THE MARK
+            // did not, so a run compared itself to itself and reported that it
+            // had matched its own record.
+            recapPrevCareer = careerBests(loadHistory());
             noteDailyStreak(state); // a local nudge; boards are earned by proof
             submitTelemetry(state); // the build goes to the balance record
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger

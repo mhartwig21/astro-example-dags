@@ -37,7 +37,16 @@
         --void: #0e0b09; --stone: #171310; --raised: #221b15; --hover: #2c241b;
         --bronze: #6e5533; --bronze-hi: #a8854f;
         --gold: #c9a24b; --gold-hi: #f2c14e;
-        --ink: #e8ddc8; --ink-dim: #a99f8c; --ink-faint: #6f6757;
+        --ink: #e8ddc8; --ink-dim: #a99f8c;
+        /* --ink-faint WAS #6f6757: 3.51:1 on the panel stone, used at 10-12px
+           for every string that makes an assertion honest or reachable - the
+           grade basis, the four meter details, [ SHOW THE MATH ], the HOLD TAB
+           pointer and all three secondary buttons - while the death headline
+           sat at 10.16:1 and the commentary at 14.58:1. Every assertion was
+           legible and nothing that qualified one was. #8f8675 measures 5.09:1
+           on #171310 and 4.72:1 on the meter plate: AA at small sizes, and
+           still visibly quieter than --ink-dim. */
+        --ink-faint: #8f8675;
         --blood: #c0392f; --verdant: #6da356; --ember: #d98e4a;
         --arcane: #9a6bd0; --lore: #5a87c6;
         --display: "Cinzel", "Palatino Linotype", Georgia, serif;
@@ -1276,9 +1285,27 @@
       #recap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: radial-gradient(ellipse at 50% 36%, rgba(10,7,5,0.86), rgba(2,2,4,0.95) 74%);
         z-index: 27; }
-      #recap .panel { position: relative; width: 880px; max-width: 94vw; max-height: 90vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 20px 24px;
+      /* THE VERDICT IS A BROADCAST, NOT A MODAL. An 880px card centred in a
+         1600px viewport is a dialog: 37% of the screen, the other 63% empty
+         near-black, on the screen this game shows more often than any other.
+         The TAB drill-down correctly fills the viewport; the DEFAULT state -
+         the one seen every single run - did not. */
+      /* border-box, because max-height on a content box is not a cap on what
+         the viewport sees: the 44px of border+padding rode ON TOP of the
+         computed ceiling, which is exactly how the panel ended up 669px tall
+         under a 625px limit and pushed its own headline off the top. */
+      #recap .panel { box-sizing: border-box;
+        position: relative; width: min(1360px, 95vw); max-height: 92vh; overflow: auto;
+        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 20px 26px 22px;
         box-shadow: 0 24px 70px rgba(0,0,0,0.7); scrollbar-width: none; }
+      /* The lower half, side by side: the System's verdict on the run, and the
+         run's verdict on you. Collapses to one column when the width is not
+         there to spend. */
+      #recap .vcols { display: grid; grid-template-columns: 1.08fr 1fr; gap: 16px 22px;
+        align-items: start; margin-top: 13px; }
+      #recap .vcol { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+      #recap .vcol > * { margin-top: 0 !important; }
+      @media (max-width: 1080px) { #recap .vcols { grid-template-columns: 1fr; } }
       #recap .panel::-webkit-scrollbar { display: none; }
       /* THE WIN IS NOT THE DEATH SCREEN WITH DIFFERENT WORDS. An eighteen-floor
          clear is the rarest outcome in the game and it used to differ from a
@@ -1347,7 +1374,7 @@
          default state is a grade, a named death, one earned line, and the
          buttons - and the numbers people argue about live behind a held TAB,
          the same gesture LoL trained everyone to make. */
-      #recap .verdict { display: grid; grid-template-columns: 132px 1fr; gap: 20px;
+      #recap .verdict { display: grid; grid-template-columns: 168px 1fr; gap: 18px;
         align-items: center; }
       /* The medallion: a struck gold coin, because a grade is an award and a
          letter in a plain div is a spreadsheet. */
@@ -1367,9 +1394,14 @@
       /* The comparison set lives UNDER the coin, never inside it: a grade that
          does not name its population is the exact failure this screen exists
          to avoid, so the label has to be legible, not engraved into the rim. */
-      #recap .vbasis { text-align: center; margin-top: 7px; font-size: 10px; line-height: 1.35;
-        letter-spacing: 0.1em; color: var(--ink-faint);
-        font-family: var(--display); font-variant: small-caps; }
+      #recap .vbasis { text-align: center; margin-top: 7px; font-size: 11.5px; line-height: 1.35;
+        letter-spacing: 0.06em; color: var(--ink-faint);
+        font-family: var(--display); font-variant: small-caps;
+        /* It is allowed to be wider than the coin - three wrapped lines under a
+           medal is how the one label that names the grade's population ends up
+           unreadable - and the COLUMN is what widens, so nothing hangs into
+           the panel's padding and loses its first word. */
+        max-width: 100%; }
       #recap .vgrade { display: flex; flex-direction: column; align-items: center; }
       #recap .vmedal.g-S { border-color: var(--gold-hi); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
           inset 0 2px 12px rgba(255,235,190,0.18), 0 0 34px rgba(242,193,78,0.35); }
@@ -1391,7 +1423,7 @@
       #recap .vpart .pbar i { display: block; height: 100%;
         background: linear-gradient(90deg, #8a6a2f, var(--gold-hi)); }
       #recap .vpart.weak .pbar i { background: linear-gradient(90deg, #6b3b32, var(--blood)); }
-      #recap .vpart .pd { font-size: 10.5px; color: var(--ink-faint); margin-top: 3px;
+      #recap .vpart .pd { font-size: 12px; color: var(--ink-faint); margin-top: 3px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       /* THE DEATH, NAMED - the single highest-value element on the screen, and
          it is now SIZED like it. It used to sit at 17px in a band of eight
@@ -1424,7 +1456,7 @@
         display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 18px;
         overflow: hidden; }
       #recap .vseal .vk { grid-column: 1; font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.26em; font-size: 10.5px; color: var(--ink-faint); }
+        letter-spacing: 0.26em; font-size: 11.5px; color: var(--ink-dim); }
       #recap .vseal .vw { grid-column: 2; grid-row: 1 / span 2; font-family: var(--display);
         font-variant: small-caps; letter-spacing: 0.12em; font-size: 30px; line-height: 1;
         color: var(--ink-dim); white-space: nowrap; text-align: right; }
@@ -1492,7 +1524,8 @@
         color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
       #recap .earned .eline b { color: var(--gold-hi); }
 
-      #recap .earned .eline .caret { color: var(--ink-faint); font-size: 10px; margin-left: 9px;
+      #recap .earned .eline .caret { color: var(--gold); font-size: 12px; margin-left: 9px;
+        white-space: nowrap;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em; }
       #recap .edetail { padding: 4px 2px 2px; }
       #recap .edetail .erow { display: flex; gap: 8px; font-size: 12.5px; color: var(--ink-dim);
@@ -1525,19 +1558,83 @@
       .seal.rejected { color: #e2857a; border-color: #6b3b32; }
       @keyframes sealpulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { .seal.verifying { animation: none; opacity: 0.8; } }
-      /* THE LADDER LINE (6 Beat 5). Permanent, one line, beside the seal. */
-      #recap .ladderline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
-        margin-top: 12px; padding: 9px 13px; border: 1px solid var(--bronze); border-radius: 3px;
-        background: linear-gradient(180deg, rgba(201,162,75,0.09), rgba(20,16,12,0.5));
-        font-size: 13px; color: var(--ink-dim); }
+      /* ============ THE SEASON LEDGER (6 Beat 5) ============
+         THE PERMANENT LADDER LINE IS AN OBJECT, NOT A TEXT LINE. It is the LP
+         line by design and the reason the player presses R, and it shipped set
+         in the same weight and family as the run stats around it - with less
+         visual authority than the DEPTH meter above it. The tier suppression
+         logic was right; the presentation of what survives suppression was
+         not. It gets a plate, a kicker, a display-face tier, and a delta chip
+         that is a separate object from the totals it moved. */
+      #recap .ladderline { display: grid;
+        grid-template-columns: auto 1fr; grid-template-areas: "tier stat" "note note";
+        gap: 4px 18px; align-items: center;
+        padding: 12px 16px 13px; border: 1px solid var(--bronze); border-radius: 4px;
+        background:
+          linear-gradient(180deg, rgba(201,162,75,0.13), rgba(20,16,12,0.62)),
+          radial-gradient(120% 130% at 0% 0%, rgba(242,193,78,0.12), transparent 60%);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(242,193,78,0.14);
+        font-size: 13.5px; color: var(--ink-dim); position: relative; }
+      #recap .ladderline::before { content: "◆ THE SEASON LEDGER ◆"; position: absolute;
+        top: -8px; left: 14px; padding: 0 7px; background: #191410;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.28em;
+        font-size: 9.5px; color: var(--gold); }
+      #recap .ladderline .lmain { grid-area: tier; display: flex; flex-direction: column; gap: 1px;
+        padding-right: 18px; border-right: 1px solid rgba(110,85,51,0.6); }
       #recap .ladderline .lt { font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.16em; font-size: 19px; color: var(--gold-hi); }
-      #recap .ladderline .lcp, #recap .ladderline .ldelta { font-size: 15px; }
-      #recap .ladderline .lcp { font-variant-numeric: tabular-nums; color: var(--ink); }
-      #recap .ladderline .ldelta { font-variant-numeric: tabular-nums; font-weight: 700; }
-      #recap .ladderline .ldelta.up { color: var(--verdant); }
-      #recap .ladderline .ldelta.flat { color: var(--ink-faint); font-weight: 400; }
-      #recap .ladderline .lnote { color: var(--ink-faint); font-style: italic; }
+        letter-spacing: 0.14em; font-size: 25px; line-height: 1.06; color: var(--gold-hi);
+        text-shadow: 0 1px 0 #2a1f0e, 0 0 22px rgba(242,193,78,0.22); white-space: nowrap; }
+      #recap .ladderline .lcp { font-variant-numeric: tabular-nums; color: var(--ink);
+        font-size: 14px; letter-spacing: 0.04em; }
+      #recap .ladderline .lstat { grid-area: stat; display: flex; flex-wrap: wrap;
+        align-items: center; gap: 6px 14px; }
+      #recap .ladderline .lrank { font-variant-numeric: tabular-nums; color: var(--ink-dim);
+        font-size: 13.5px; }
+      /* The delta is its own object: it is the only number on the plate that
+         belongs to THIS run. */
+      #recap .ladderline .ldelta { font-variant-numeric: tabular-nums; font-weight: 700;
+        font-size: 16px; padding: 3px 11px 2px; border-radius: 3px; color: var(--gold-hi);
+        border: 1px solid var(--bronze); background: rgba(0,0,0,0.34); white-space: nowrap; }
+      #recap .ladderline .ldelta.up { color: var(--verdant); border-color: #4b6b3d;
+        background: rgba(109,163,86,0.13); }
+      #recap .ladderline .ldelta.flat { color: var(--ink-dim); font-weight: 400;
+        border-style: dashed; }
+      #recap .ladderline .lnote { grid-area: note; color: var(--ink-faint); font-style: italic;
+        font-size: 12.5px; line-height: 1.45; }
+
+      /* ============ THE MARK (6 Beat 2, in the DEFAULT state) ============
+         The TAB scoreboard is good and it costs a keypress. This is the one
+         row of it that has to be free. */
+      #recap .mark { padding: 10px 14px 11px; border: 1px solid #3a2f22; border-radius: 3px;
+        background: linear-gradient(180deg, #221b15, #14100c);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5); }
+      #recap .mark .mk { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.24em; font-size: 10.5px; color: var(--gold); }
+      #recap .mark .mwho { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.08em; font-size: 17px; color: var(--ink); margin-top: 2px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #recap .mark .mwhat { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums;
+        margin-top: 1px; }
+      #recap .mark .mgap { font-size: 13.5px; margin-top: 5px; color: #d8b46a; }
+      #recap .mark .mgap.behind { color: #e2857a; }
+      #recap .mark .msrc { font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; }
+
+      /* ============ WHAT THE RUN BANKED (6 Beat 5) ============
+         Three of the four informational blocks used to say nothing happened on
+         a modal run. This one always has a number in it, and none of it is a
+         claim about the ladder - it is this browser's own ledger, counted. */
+      #recap .banked { display: flex; flex-wrap: wrap; gap: 8px; }
+      #recap .banked .btick { flex: 1 1 auto; min-width: 96px; padding: 6px 10px 7px;
+        border: 1px solid #3a2f22; border-left: 2px solid var(--bronze); border-radius: 2px;
+        background: rgba(20,16,12,0.55); }
+      #recap .banked .btick .bl { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.13em; font-size: 10.5px; color: var(--ink-faint); display: block; }
+      #recap .banked .btick .bv { font-size: 16px; color: var(--ink); font-variant-numeric: tabular-nums; }
+      #recap .banked .btick .bd { font-size: 12px; color: var(--verdant); margin-left: 5px; }
+      #recap .banked .bnext { flex: 1 0 100%; font-size: 12.5px; color: var(--ink-dim);
+        padding: 5px 2px 0; }
+      #recap .banked .bnext b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.12em; color: var(--gold-hi); font-size: 13.5px; }
       /* NOT RANKED: the test chamber, said before anything else on the screen. */
       #recap .notranked { margin-top: 12px; padding: 8px 12px; border: 1px dashed #6b3b32;
         border-radius: 3px; background: rgba(192,57,47,0.08); color: #e2857a; font-size: 12.5px; }
@@ -1555,7 +1652,8 @@
       #recap .rfoot { margin-top: 15px; display: flex; flex-wrap: wrap;
         gap: 10px; align-items: stretch; }
       #recap .rfoot button { color: var(--ink); }
-      #recap .rfoot button.primary { flex: 1.5 1 300px; padding: 14px 16px 12px; border-radius: 6px;
+      #recap .rfoot button.primary { flex: 1.4 1 300px; max-width: 560px;
+        padding: 14px 16px 12px; border-radius: 6px;
         display: flex; flex-direction: column; align-items: center; gap: 2px;
         background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
         color: #241a08; border: 1px solid #5c4726; font-weight: 700;
@@ -1581,10 +1679,10 @@
         align-items: center; justify-content: center; margin-top: 2px; }
       #recap .rminor button { background: none; border: 0; padding: 3px 0; color: var(--ink-faint);
         font: inherit; font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        font-size: 12px; cursor: pointer; border-bottom: 1px solid transparent; }
+        font-size: 13px; cursor: pointer; border-bottom: 1px solid transparent; }
       #recap .rminor button:hover { color: var(--gold-hi); border-bottom-color: var(--bronze); background: none; }
       #recap .rfoot .note { flex: 1 0 100%; color: #6f6757; font-size: 11px; text-align: center; }
-      #recap .rhint { margin-top: 11px; text-align: center; color: var(--ink-faint); font-size: 11.5px;
+      #recap .rhint { margin-top: 13px; text-align: center; color: var(--ink-dim); font-size: 13px;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; }
 
       /* ==================== THE REVEAL (6 Beat 0 + the cascade) ====================
@@ -1626,8 +1724,10 @@
       #recap .vbasis  { animation: verdict-rise 0.42s ease-out 0.50s both; }
       #recap .death   { animation: verdict-death 0.55s cubic-bezier(0.16,0.86,0.24,1) 0.62s both; }
       #recap .ladderline, #recap .notranked { animation: verdict-rise 0.42s ease-out 0.86s both; }
+      #recap .mark    { animation: verdict-rise 0.42s ease-out 0.92s both; }
       #recap .vseal   { animation: verdict-rise 0.42s ease-out 0.98s both; }
-      #recap .earned  { animation: verdict-rise 0.42s ease-out 1.06s both; }
+      #recap .banked  { animation: verdict-rise 0.42s ease-out 1.04s both; }
+      #recap .earned  { animation: verdict-rise 0.42s ease-out 1.10s both; }
       #recap .rfoot   { animation: verdict-rise 0.44s ease-out 1.18s both; }
       #recap .rhint   { animation: verdict-rise 0.44s ease-out 1.34s both; }
       @keyframes verdict-rise { from { opacity: 0; transform: translateY(9px); } }
@@ -1785,13 +1885,26 @@
       /* A floor, not a mandate: enough that a tab switch does not resize the
          world behind it, low enough that RIVALS does not hold 200px of empty
          stone open under a two-line ledger. */
-      #ladder-body { min-height: 430px; }
-      .set-frame { position: relative; max-width: 1180px; margin: 0 auto; background: var(--stone);
+      /* 430px left RIVALS - one card and one row - holding ~230px of empty
+         stone open under its last line. Low enough now that the tab does not
+         read as a broken page; high enough that a tab switch does not resize
+         the world behind it. */
+      #ladder-body { min-height: 320px; }
+      /* THE FRAME DOES NOT RESIZE UNDER THE CURSOR. `max-width` alone lets the
+         frame shrink to its content, so CONTRACTS (~990), BANDS (~1230) and
+         RIVALS (~750) each drew a different panel and the whole document
+         breathed on every tab click. A fixed width is the only way a tab bar
+         reads as tabs on one document rather than four documents. */
+      .set-frame { position: relative; width: min(1180px, 100%); margin: 0 auto; background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 210px);
         border: 1px solid var(--bronze); border-radius: 3px; padding: 20px 26px 26px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.7); }
+      /* ...and the kicker keeps its hands off the CLOSE button. At the narrow
+         widths the panel used to collapse to, "◆ THE NETWORK KEEPS SCORE ◆"
+         ran underneath CLOSE / ESC and was visibly cut mid-word. */
       .set-frame > .kicker { text-align: center; color: var(--gold); font-size: 11px;
-        letter-spacing: 5px; font-family: var(--display); font-variant: small-caps; }
+        letter-spacing: 5px; font-family: var(--display); font-variant: small-caps;
+        padding: 0 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .set-frame > h2 { margin: 6px 0 2px; text-align: center; font-size: 27px; letter-spacing: 0.16em;
         color: var(--gold-hi); display: flex; align-items: center; justify-content: center; gap: 18px; }
       .set-frame > h2::before, .set-frame > h2::after { content: ""; flex: 1; height: 3px;
@@ -2007,8 +2120,11 @@
         letter-spacing: 0.14em; font-size: 14px; color: var(--gold); }
       .bandgrid .bandsub { color: var(--ink-faint); font-size: 11px; margin-bottom: 6px; }
       /* Colour-coding rows without a key trains players to guess. */
+      /* The -6px top margin pulled the legend INTO the heading above it, so on
+         RIVALS "YOU | YOUR RIVAL" sat on top of "THEIR RUN SO FAR". A legend
+         that collides with the thing it is explaining explains nothing. */
       .rowkey { display: flex; gap: 16px; align-items: center; color: var(--ink-faint);
-        font-size: 11px; margin: -6px 0 12px; }
+        font-size: 11.5px; margin: 4px 0 12px; }
       .rowkey i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
       .rowkey i::before { content: ""; width: 3px; height: 12px; border-radius: 1px; }
       .rowkey .kyou { color: var(--gold-hi); }
@@ -2018,6 +2134,15 @@
       .rowkey .ktie { margin-left: auto; font-style: italic; }
 
       /* ============ THE CRAWLER (COMPETITIVE.md 5.2) ============ */
+      /* TWO LEDGERS, TWO HEADINGS. THE NUMBERS interleaved a server ledger and
+         a localStorage one row by row with no attribution, so a signed-in
+         account in a fresh browser read "RUNS FINISHED 0 · ESCAPES 0" directly
+         beside "DEEPEST FLOOR 18 · CAREER KILLS 2,089". */
+      .lgroup + .lgroup { margin-top: 16px; }
+      .lgtitle { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
+        font-size: 13px; color: var(--gold); }
+      .lgnote { color: var(--ink-faint); font-size: 11.5px; line-height: 1.45; margin: 1px 0 4px;
+        padding-bottom: 4px; border-bottom: 1px solid rgba(110,85,51,0.45); }
       .cheadline { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
         padding-bottom: 14px; border-bottom: 1px solid rgba(110,85,51,0.7); }
       .ctier { text-align: center; padding: 10px 20px; border: 1px solid var(--bronze); border-radius: 3px;
@@ -2166,12 +2291,27 @@
          the panel is flex-centred, so bottom padding lifts it clear of the
          docked card and the buttons stay reachable while the question is
          open. */
+      /* ...and the room it makes is MEASURED, not guessed. A hardcoded 236px
+         was smaller than the card at 1600x900, so on the one run per browser
+         where the disclosure appears the #recap panel's top border sat ABOVE
+         y=0 and the grade medal was clipped by the viewport edge - while the
+         card's own buttons had 35px to spare. At 1366x768 the SUBMIT buttons
+         went off the bottom as well. The host writes the card's real height
+         into --consent-h the moment it docks (see offerProof), so the verdict
+         is laid out against the space that actually exists. */
       #recap { transition: padding-bottom 0.35s ease; }
-      #recap.consenting { padding-bottom: 236px; }
+      #recap.consenting { padding-bottom: calc(var(--consent-h, 236px) + 16px); }
       /* ...and the panel shrinks to fit the space it has left, so a tall
          verdict scrolls inside its own frame instead of losing its headline
          off the top of the viewport. */
-      #recap.consenting .panel { max-height: calc(100vh - 260px); }
+      #recap.consenting .panel { max-height: calc(100vh - var(--consent-h, 236px) - 40px); }
+      /* The card is bounded too: on a short viewport it takes at most 44% of
+         the height and scrolls its own copy, so the three buttons - the only
+         things on it that are decisions - can never leave the screen. */
+      #consent .card { max-height: 44vh; overflow: auto; scrollbar-width: none; }
+      #consent .card::-webkit-scrollbar { display: none; }
+      #consent .cbtns { position: sticky; bottom: 0; background: linear-gradient(180deg,
+        rgba(23,19,16,0), #1c1712 22%); padding-bottom: 2px; }
 
       #consent .card { width: min(760px, 96vw); background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 120px);
@@ -2193,6 +2333,29 @@
       #consent .cbtns button.primary { color: #241a08; border-color: #5c4726; font-weight: 700;
         background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b); }
       #consent .cbtns button:hover { border-color: var(--bronze-hi); }
+      /* SHORT VIEWPORTS PAY FOR THE CARD OUT OF THE CARD, not out of the
+         verdict. At 1366x768 a 235px disclosure took a third of the height off
+         the screen the round is about. */
+      @media (max-height: 830px) {
+        #consent .card { padding: 10px 18px 11px; }
+        #consent h3 { font-size: 17px; margin: 3px 0 7px; }
+        #consent p { font-size: 12.5px; line-height: 1.5; margin: 0 0 7px; }
+        #consent .cbtns { margin-top: 10px; }
+        #consent .cbtns button { padding: 7px 6px; }
+      }
+      /* ...and the verdict spends less of it too: the medal, the meters and
+         the block gaps all come down a notch rather than the content going
+         behind a scroll. */
+      @media (max-height: 830px) {
+        #recap .vmedal { width: 104px; height: 104px; }
+        #recap .vmedal b { font-size: 52px; }
+        #recap .verdict { grid-template-columns: 148px 1fr; gap: 14px; }
+        #recap .panel { padding: 14px 22px 16px; }
+        #recap .vcols { gap: 10px 18px; margin-top: 9px; }
+        #recap .vcol { gap: 8px; }
+        #recap .death { margin-top: 10px; padding: 10px 14px; }
+        #recap .death .dhead { font-size: 20px; }
+      }
 
       /* SIGNAL ACQUISITION — the boot loading screen (z 29). Visible from the
          very first paint (static markup, no JS needed) until the model
@@ -4775,19 +4938,39 @@
           <div class="dhead" id="recap-death-head"></div>
           <div class="dctx" id="recap-death-ctx"></div>
         </div>
-        <!-- THE LP LINE. It is the reason the player presses R, so it is never
-             behind a drawer: tier or CP, rank of entrants, and what THIS run
-             moved - including "+0 CP" when the run was a free seed, which is
-             information rather than an omission. -->
-        <div class="ladderline" id="recap-ladder"></div>
-        <!-- THE SEAL, at the size of what it certifies. The server re-executing
-             a fifteen-minute run is the one thing League cannot copy; it used
-             to be a 10.5px caption at the end of a table row. -->
-        <div class="vseal" id="recap-seal"></div>
-        <div class="earned">
-          <button class="eline" id="recap-earned">what you earned<span class="caret">▾</span></button>
+        <!-- THE LOWER HALF IS A BROADCAST, NOT A DIALOG. A 930x650 card at
+             (335,125) in 1600x900 is 37% of the screen with the other 63%
+             empty near-black, on the one screen this game shows more than any
+             other. Two columns: what the SYSTEM says about the run on the
+             left (standing, certification), what the run said about YOU on the
+             right (the mark, the ledger, the drawer). -->
+        <div class="vcols">
+          <div class="vcol">
+            <!-- THE LP LINE. It is the reason the player presses R, so it is
+                 never behind a drawer: tier or CP, rank of entrants, and what
+                 THIS run moved - including "+0 CP", which is information
+                 rather than an omission. -->
+            <div class="ladderline" id="recap-ladder"></div>
+            <!-- THE SEAL, at the size of what it certifies. The server
+                 re-executing a fifteen-minute run is the one thing League
+                 cannot copy; it used to be a 10.5px caption on a table row. -->
+            <div class="vseal" id="recap-seal"></div>
+          </div>
+          <div class="vcol">
+            <!-- THE MARK. League's default post-game IS the scoreboard; ours
+                 cost a keypress and advertised itself in 11.5px type, so the
+                 default state compared you to nobody at all. One row of the
+                 crawler at the top, permanently. -->
+            <div class="mark" id="recap-mark"></div>
+            <!-- WHAT THE RUN BANKED REGARDLESS. A floor-3 death used to
+                 produce three blocks all saying nothing happened. -->
+            <div class="banked" id="recap-banked"></div>
+            <div class="earned">
+              <button class="eline" id="recap-earned">what you earned<span class="caret">▾</span></button>
+            </div>
+            <div class="edetail" id="recap-earned-detail" style="display:none"></div>
+          </div>
         </div>
-        <div class="edetail" id="recap-earned-detail" style="display:none"></div>
         <!-- Beat 6, in the order and the prominence the design specifies: one
              CTA, two alternatives, and the housekeeping as text links. -->
         <div class="rfoot">

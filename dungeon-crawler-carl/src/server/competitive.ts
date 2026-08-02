@@ -18,7 +18,23 @@
  * Single-machine by construction: one SQLite file, synchronous better-sqlite3,
  * no queue service, no cache tier, nothing that wants a second process.
  */
+import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
+
+/**
+ * THE PUBLIC NAME OF AN ACCOUNT. `account_id` is the bearer token itself -
+ * `POST /runs?token=...` passes it straight in as the account id and
+ * `TokenService.isUsable` authenticates that exact string - so a board row that
+ * carried `accountId` was handing every reader a working credential for every
+ * ranked crawler: burn their attempt counter, flip their sealed run private,
+ * submit a tampered proof in their name, read their linked identity, or
+ * complete their FORGET ME. One-way, 16 hex characters, stable for the life of
+ * the account, and the only thing the client ever needs it for is the YOU /
+ * RIVAL tag on a row.
+ */
+export function publicIdFor(accountId: string): string {
+  return createHash("sha256").update("dcc:public:" + accountId).digest("hex").slice(0, 16);
+}
 
 /** Lifecycle of a board row (COMPETITIVE.md 2.4 rule 3). */
 export type RunState = "claimed" | "verifying" | "verified" | "rejected" | "unverifiable";
@@ -34,6 +50,13 @@ export const SPLIT_GATE_ENTRIES = 20;
 
 /** Board depth kept per category, and how many rows a caller may ask for. */
 export const MAX_BOARD_ROWS = 100;
+
+/** The reason a row was stored unproven purely because the board was full when
+ *  it arrived. A CONSTANT, not prose matched twice: `reconsiderRankRefused`
+ *  finds these rows by this exact prefix, and a copy edit must not quietly
+ *  strand every near miss. */
+export const RANK_REFUSED_REASON =
+  "stored, unproven - it would not reach a board top 25 as the board stands.";
 
 export interface RunRow {
   id: string;
@@ -223,6 +246,27 @@ CREATE TABLE IF NOT EXISTS verify_budget (
   ms      INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (subject, day)
 );
+-- SPENT EVENT TICKETS (COMPETITIVE.md 3.2A). A signature is a one-shot key:
+-- readTicket is a pure HMAC check, so without this table the same attempt-1
+-- ticket backs an unlimited number of submissions forever. Swept on the same
+-- 48h window as verify_budget - a ticket outlives its usefulness in minutes.
+CREATE TABLE IF NOT EXISTS spent_tickets (
+  sig        TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  event_id   TEXT NOT NULL,
+  attempt_no INTEGER NOT NULL,
+  used_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_spent_tickets ON spent_tickets (used_at);
+-- THE PUBLIC NAME OF AN ACCOUNT (COMPETITIVE.md 2.7 / 8.2). account_id IS the
+-- bearer token - POST /runs authenticates on that exact string - so it can
+-- never appear on a wire projection. Every crawler therefore has a derived,
+-- one-way public id, and this is the only place the two are ever seen
+-- together. Deleted with the account, like everything else.
+CREATE TABLE IF NOT EXISTS account_public (
+  public_id  TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL UNIQUE
+);
 `;
 
 interface RawRun {
@@ -319,6 +363,32 @@ export class CompetitiveStore {
       this.db.exec("DELETE FROM run_bands WHERE complete = 0");
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_run_bands_c ON run_bands (band, complete, ticks ASC)");
+    // Backfill the public-id map for every account already holding a row, so a
+    // volume that predates the derived id resolves a profile link on boot
+    // rather than on the account's next submission.
+    for (const r of this.db.prepare("SELECT DISTINCT account_id FROM runs").all() as { account_id: string }[]) {
+      this.linkPublicId(r.account_id);
+    }
+  }
+
+  // ---- public identity ---------------------------------------------------
+
+  /** Record the derived public id for an account. Idempotent; called on every
+   *  insert so the reverse lookup a profile link needs always exists. */
+  linkPublicId(accountId: string): string {
+    const pid = publicIdFor(accountId);
+    this.db.prepare(
+      "INSERT INTO account_public (public_id, account_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+    ).run(pid, accountId);
+    return pid;
+  }
+
+  /** The only direction that needs storage: public id -> account. The forward
+   *  direction is a hash and never touches the database. */
+  accountForPublicId(publicId: string): string | null {
+    const r = this.db.prepare("SELECT account_id FROM account_public WHERE public_id = ?")
+      .get(publicId) as { account_id: string } | undefined;
+    return r?.account_id ?? null;
   }
 
   // ---- proofs ------------------------------------------------------------
@@ -346,20 +416,70 @@ export class CompetitiveStore {
    * are permanent, the film is not. An expired row becomes a photograph.
    */
   sweepProofs(keepPerAccount = 10, boardDepth = 100): number {
-    const info = this.db.prepare(
-      `DELETE FROM run_proofs WHERE id NOT IN (
-         SELECT proof_id FROM runs WHERE proof_id IS NOT NULL AND id IN (
-           SELECT id FROM runs WHERE state = 'verified'
-           ORDER BY won DESC, floor DESC, time_ticks ASC LIMIT ?
-         )
-         UNION
-         SELECT proof_id FROM (
-           SELECT proof_id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created_at DESC) rn
-           FROM runs WHERE proof_id IS NOT NULL
-         ) WHERE rn <= ?
-       )`,
-    ).run(boardDepth, keepPerAccount);
-    return info.changes;
+    // THE KEEP-SET IS A UNION ACROSS EVERY BOARD, not the DEEPEST ordering.
+    // One `ORDER BY won DESC, floor DESC, time_ticks ASC` is the deepest board
+    // and only the deepest board, so the FASTEST and KILLS leaders - and every
+    // band record holder - had their proofs swept while their rows still held
+    // rank 1, and RACE went inert on exactly the rows 2.4 Storage promises to
+    // keep playable.
+    const keep = new Set<string>();
+    for (const kind of BOARD_KINDS) {
+      const rows = this.db.prepare(
+        `SELECT proof_id FROM runs
+         WHERE state = 'verified' AND proof_id IS NOT NULL${boardWhere(kind)}
+         ORDER BY ${boardOrder(kind)} LIMIT ?`,
+      ).all(boardDepth) as { proof_id: string }[];
+      for (const r of rows) keep.add(r.proof_id);
+    }
+    // ...and the band boards, which are their own six ladders (3.3) and are the
+    // rows most likely to be shallow, cheap runs that no all-time board holds.
+    for (let band = 0; band < 6; band++) {
+      const rows = this.db.prepare(
+        `SELECT r.proof_id AS proof_id FROM run_bands b JOIN runs r ON r.id = b.run_id
+         WHERE b.band = ? AND b.complete = 1 AND r.state = 'verified' AND r.proof_id IS NOT NULL
+         ORDER BY b.ticks ASC, r.verified_at ASC, r.id ASC LIMIT ?`,
+      ).all(band, boardDepth) as { proof_id: string }[];
+      for (const r of rows) keep.add(r.proof_id);
+    }
+    // Plus each account's own last N, regardless of board position (2.4).
+    const mine = this.db.prepare(
+      `SELECT proof_id FROM (
+         SELECT proof_id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created_at DESC) rn
+         FROM runs WHERE proof_id IS NOT NULL
+       ) WHERE rn <= ?`,
+    ).all(keepPerAccount) as { proof_id: string }[];
+    for (const r of mine) keep.add(r.proof_id);
+
+    const all = this.db.prepare("SELECT id FROM run_proofs").all() as { id: string }[];
+    const doomed = all.filter((p) => !keep.has(p.id)).map((p) => p.id);
+    if (doomed.length === 0) return 0;
+    const del = this.db.prepare("DELETE FROM run_proofs WHERE id = ?");
+    const tx = this.db.transaction((ids: string[]) => { for (const id of ids) del.run(id); });
+    tx(doomed);
+    return doomed.length;
+  }
+
+  /**
+   * WHICH BOARDS DOES THIS ROW ACTUALLY HOLD? The verdict screen weights its
+   * seal on this (6.2: a run holding a board position gets the gold, a run that
+   * ranks nowhere gets the hairline), and it used to answer the question by
+   * looking only at today's daily-contract deepest board - so a free-seed run
+   * taking rank 1 all-time was told "it ranks nowhere, and it is still true".
+   */
+  holdsBoards(runId: string, depth = 25): string[] {
+    const run = this.getRun(runId);
+    if (!run || run.state !== "verified") return [];
+    const out: string[] = [];
+    for (const kind of BOARD_KINDS) {
+      for (const scope of run.eventId ? [run.eventId, null] : [null]) {
+        const rows = this.board({ kind, eventId: scope, verifiedOnly: true, limit: depth });
+        if (rows.some((r) => r.id === runId)) { out.push(scope ? kind + "@" + scope : kind); break; }
+      }
+    }
+    for (let band = 0; band < 6; band++) {
+      if (this.bandBoard(band, depth).some((r) => r.id === runId)) out.push("band" + band);
+    }
+    return out;
   }
 
   // ---- runs --------------------------------------------------------------
@@ -382,6 +502,7 @@ export class CompetitiveStore {
       private: r.private ? 1 : 0,
       proofId: r.proofId ?? null,
     });
+    this.linkPublicId(r.accountId); // the row now has a public name to be seen under
   }
 
   getRun(id: string): RunRow | null {
@@ -426,6 +547,18 @@ export class CompetitiveStore {
     ).all(accountId, limit) as RawRun[]).map(toRow);
   }
 
+  /** Rows stored `claimed` purely because the board was full when they arrived,
+   *  and whose film is still on disk. The board moves; the verdict on these
+   *  should be allowed to move with it. */
+  rankRefused(limit = 8): RunRow[] {
+    return (this.db.prepare(
+      `SELECT * FROM runs
+       WHERE state = 'claimed' AND proof_id IS NOT NULL
+         AND reject_reason LIKE ? || '%'
+       ORDER BY created_at DESC LIMIT ?`,
+    ).all(RANK_REFUSED_REASON, limit) as RawRun[]).map(toRow);
+  }
+
   countByState(state: RunState): number {
     return (this.db.prepare("SELECT COUNT(*) c FROM runs WHERE state = ?").get(state) as { c: number }).c;
   }
@@ -457,9 +590,19 @@ export class CompetitiveStore {
       args.push(q.partySize);
     }
     // Best row per account: rank within the account, then order the winners.
+    //
+    // A PROOF OUTRANKS A CLAIM INSIDE THE ACCOUNT TOO. The outer ORDER BY put
+    // verified rows above claimed ones, but the PARTITION did not - so when a
+    // crawler had two rows with identical numbers (the same run submitted once
+    // before linking an identity and once after), `created_at ASC` picked the
+    // EARLIER one, the unproven row became the account's representative, and
+    // the account vanished from a verified-only board while its own sealed run
+    // sat in the table. Reproduced live: a certified daily row holding
+    // deepest@daily and kills@daily returned zero entries on that board.
     const sql =
       `SELECT * FROM (
-         SELECT *, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY ${boardOrder(q.kind)}) rn
+         SELECT *, ROW_NUMBER() OVER (
+           PARTITION BY account_id ORDER BY state = 'verified' DESC, ${boardOrder(q.kind)}) rn
          FROM runs WHERE ${where}
        ) WHERE rn = 1
        ORDER BY state = 'verified' DESC, ${boardOrder(q.kind)}
@@ -617,6 +760,27 @@ export class CompetitiveStore {
     return (this.db.prepare(
       "SELECT attempts FROM event_attempts WHERE account_id = ? AND event_id = ?",
     ).get(accountId, eventId) as { attempts: number }).attempts;
+  }
+
+  /**
+   * SPEND A TICKET SIGNATURE. Returns false when it has already been spent.
+   *
+   * `readTicket` is a pure HMAC check with no side effect, which is why the
+   * same attempt-1 ticket validated an unlimited number of times: the contract
+   * "one signature, one submission" existed only in the documentation. It is a
+   * row now.
+   */
+  consumeTicket(sig: string, accountId: string, eventId: string, attemptNo: number, now: number): boolean {
+    const info = this.db.prepare(
+      `INSERT INTO spent_tickets (sig, account_id, event_id, attempt_no, used_at)
+       VALUES (?, ?, ?, ?, ?) ON CONFLICT(sig) DO NOTHING`,
+    ).run(sig, accountId, eventId, attemptNo, now);
+    return info.changes > 0;
+  }
+
+  /** Tickets are useful for minutes; keep them for a day and drop the rest. */
+  sweepSpentTickets(before: number): number {
+    return this.db.prepare("DELETE FROM spent_tickets WHERE used_at < ?").run(before).changes;
   }
 
   attemptsOf(accountId: string, eventId: string): number {
@@ -834,8 +998,31 @@ export class CompetitiveStore {
       this.db.prepare("DELETE FROM mastery WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM follows WHERE account_id = ? OR target_id = ?").run(accountId, accountId);
       this.db.prepare("DELETE FROM verify_budget WHERE subject = ?").run("acct:" + accountId);
+      this.db.prepare("DELETE FROM spent_tickets WHERE account_id = ?").run(accountId);
+      // ...and the one row that knows the account existed at all.
+      this.db.prepare("DELETE FROM account_public WHERE account_id = ?").run(accountId);
     });
     tx();
+  }
+
+  /**
+   * A ROW THE SERVER VOUCHES FOR ITSELF (COMPETITIVE.md 1.1). A RIVALS contract
+   * is decided by the AUTHORITATIVE sim on this box - it is the one score that
+   * needs no proof because the server watched every tick of it - and it used to
+   * be written to the retired JSON board, whose every response is stamped
+   * "UNSEALED · LEGACY — self-reported rows from before verification". The only
+   * genuinely authoritative row in the product was wearing the label reserved
+   * for forgeries.
+   *
+   * It lands here instead, VERIFIED, era-stamped, with no proof id: the film
+   * does not exist (nobody recorded a party run), so WATCH and RACE stay inert
+   * with a stated reason, exactly as they do for a proof that aged out.
+   */
+  insertServerVouched(r: NewRun & { rulesHash: string }, now: number): void {
+    this.insertRun({ ...r, state: "verified" });
+    this.db.prepare(
+      "UPDATE runs SET state = 'verified', verified_at = ?, rules_hash = ? WHERE id = ?",
+    ).run(now, r.rulesHash, r.id);
   }
 
   // ---- one-time migration ------------------------------------------------

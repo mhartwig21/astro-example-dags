@@ -12,6 +12,7 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
+import { dayFromMs } from "../sim/daily";
 import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
@@ -1025,15 +1026,33 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
-        // A secured RIVALS contract goes on the all-time board SERVER-SIDE —
-        // the one score the authoritative sim can vouch for itself.
+        // A secured RIVALS contract goes on the CONTRACTS board SERVER-SIDE —
+        // the one score the authoritative sim vouches for itself (1.1).
+        //
+        // It used to be written to the retired JSON board, and every response
+        // that board serves is now stamped `unsealed: true` / "UNSEALED ·
+        // LEGACY — self-reported rows from before verification". The single
+        // genuinely authoritative row in the product was wearing the label
+        // reserved for forgeries. It goes to CompetitiveStore as a VERIFIED,
+        // era-stamped row with no proof id: nobody recorded a party run, so
+        // WATCH and RACE stay inert with a reason, the way an aged-out proof
+        // does — but the row is sealed, because the server ran it.
         if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
           const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
-          if (winner) {
-            this.leaderboard.submitAlltime({
-              name: sanitizeName(winner.name), floor: inst.state.floor, won: true,
-              timeSec: Math.round(inst.state.elapsed), kills: winner.kills,
-            }, Date.now(), true);
+          const seat = inst.clients.find((c) => c.playerId === inst.state.winnerId);
+          const store = this.db?.competitive;
+          if (winner && store && seat) {
+            const at = Date.now();
+            store.insertServerVouched({
+              id: dayFromMs(at) + "-rivals-" + inst.code + "-" + (at % 100000),
+              accountId: seat.accountId, displayName: sanitizeName(winner.name),
+              eventId: null, seed: inst.state.seed, mode: "rivals",
+              partySize: Math.max(1, inst.state.players.length),
+              won: true, floor: inst.state.floor,
+              timeTicks: Math.round(inst.state.elapsed * 60), kills: winner.kills,
+              level: winner.level, ultimate: winner.abilities.ultimate ?? null,
+              state: "verified", rulesHash: RULES_HASH, createdAt: at,
+            }, at);
           }
         }
       }

@@ -1438,26 +1438,52 @@ when this screen is next touched, because each of them was a bug first:
   banked its own**, or every split proudly reports zero against itself.
 
 
-### KNOWN BUG — the band boards rank UNFINISHED splits (server side)
+### ELEVATION ROUND 2 — what the spine gained, and what it cost
 
-§3.3 defines a band row as the **fastest verified clear of the band's three
-floors within a full run**. The verifier does not enforce the *clear* half:
-`certify` writes a `run_bands` row for every band with `ticks > 0`, so a run
-that dies eight seconds into floor 1 posts an eight-second UNDERCROFT split and
-takes rank 1 on that board. Reproduced live: an honest, sealed, floor-1 death
-topped the Undercroft board.
+Not new systems. The round closed the gap between what this document says the
+verification spine does and what the code actually did.
 
-The client already refuses to bank an unfinished band as a personal best (a
-band counts only once the first floor of the NEXT band is entered, or the run
-is won on the last band — `bandCleared` in `main3d.ts`), and it labels a
-partial split `partial` instead of comparing it. **The fix belongs on the
-server**, in one of two places, and it should be the same rule:
+| Hole | Where it was | What it is now |
+|---|---|---|
+| **The public board handed out bearer tokens.** `publicRun` returned `accountId`, and `account_id` IS the auth token (`POST /runs?token=` passes it straight in, `TokenService.isUsable` authenticates that exact string). One unauthenticated `GET /boards/deepest` was a credential dump for every ranked crawler: burn their attempt counter, flip their sealed run private, submit a tampered proof in their name, read their linked identity, complete their FORGET ME | `competitiveApi.publicRun` | `publicIdFor(accountId)` = `sha256("dcc:public:"+id)[:16]`, on **every** wire projection — board rows, the profile, the follow list, the rival card. `account_public` holds the one reverse lookup a `/crawler/<publicId>` link needs. Asserted by a test that greps the whole payload for the token |
+| **Event tickets did not close the dodge they document.** `issueTicket` signed `eventId:accountId:attemptNo` only — no timestamp, no single-use — so "call /start once, keep ticket #1, play twenty runs offline, submit the best" arrived as attempt 1, `scoresCp: true` | `tokens.ts`, `competitiveApi.submit` | The ticket is **stamped** and **spent**. A submission must be at least `ticks * dt` old (a run cannot arrive before it has been played) and at most `ticks * dt + TICKET_GRACE_MS` (15 min) — so the window holds roughly one run rather than an afternoon of them — and the signature is consumed in `spent_tickets` on first use. A ticket outside its window is not a rejection: the row stands, unproven, with the reason printed |
+| **The era stamp was the server's, not the proof's.** `certify(..., rulesHash: RULES_HASH)` discarded `proof.header.rulesHash`. Invisible at one era; a lie on the first widened deploy, on the one chip §2.6c says LoL cannot show you | `VerifyJob.rulesHash` | The job carries the proof's hash and `certify` stamps `rules_hash = H` |
+| **The verify worker accepted eras it could not execute.** It imports one sim and passed the caller's `eras[]` through as `availableEras`; `assertPlayableEra` only checks list membership. Widening `eras` to four would have replayed old proofs under new rules — §2.6f's forbidden failure mode, on the server | `verifyWorker.ERA_SIMS` | The gate is keyed to **loadable sim modules**. `executableEras()` intersects any requested list with `ERA_SIMS`, in the worker AND in `CompetitiveApi`, so `playable` on the wire cannot promise a ghost the box cannot run. When `src/sim-eras/` lands, each era registers its module in that map |
+| **The verified/unproven split lived in one renderer.** `GET /boards/:kind` mixed both in `entries` while the response's own subtitle claimed every ranked row is a proof | `competitiveApi` boards route | Two arrays. `entries` is **proofs only**, `unproven` carries the claims, and a second consumer cannot render a fabricated floor-18 row as a rank |
+| **Proof retention evicted board leaders.** `sweepProofs` kept `won DESC, floor DESC, time_ticks ASC` — the DEEPEST ordering and only that — so FASTEST, KILLS and every band record holder lost their film while holding rank 1 | `CompetitiveStore.sweepProofs` | A UNION across all four `BOARD_KINDS` plus the six band boards, plus each account's last N |
+| **A claim outranked its own proof.** `board()` partitioned per account without `state = 'verified' DESC`, so a crawler who submitted the same run twice (once before linking an identity) had the *unproven* row chosen as their representative and vanished from verified-only boards. Reproduced live | `CompetitiveStore.board` | Verified wins the partition as well as the ordering |
+| **The one server-vouched score wore the forgery label.** A won RIVALS contract wrote to the retired JSON board, whose every response is stamped `UNSEALED · LEGACY — self-reported rows from before verification` | `gameServer` run-end edge | `CompetitiveStore.insertServerVouched` — a verified, era-stamped row with **no proof id**, so WATCH and RACE stay inert with a stated reason while the row is sealed, because the authoritative sim ran it |
+| **A near miss was condemned forever.** `wouldRank` is a snapshot of a board that moves, and only SHED jobs were ever re-queued | `reconsiderRankRefused` | A rank refusal keeps its film (inside the account's own last-N retention) and is re-offered when the rows above it move |
 
-- `CompetitiveStore.certify` — only insert a `run_bands` row for a band the run
-  actually left, or
-- `bandBoard` — filter to rows whose run reached the first floor below the band.
+And on the screen the player actually reads, §6's own rules applied to §6:
 
-`RunSummary.floorEntryTicks` already carries everything needed to decide it.
+- **The daily had two doors and the front one was silently unranked.** The
+  menu's gold headline tile resolved `dailySeed(day)` — the *same seed as the
+  server's daily contract* — with no ticket, so the most prominent button in
+  the product played today's contract dungeon while the ladder line printed
+  "free seed: contract points come from contracts". Both doors sign now
+  (`enterDailyContract`), R on a daily signs again, and the two cases that
+  genuinely cannot sign (a challenge link to a closed day, an unreachable
+  server) name themselves instead of being flattened into "free seed".
+- **§6.2's "A STATE THE VERIFIER WOULD REJECT NEVER WEARS LADDER FURNITURE"
+  was implemented for test-chamber starts only.** A REFUSED run showed the
+  ladder plate, "this run still holds its board row and its splits", and
+  `NEW PB — DEEPEST FLOOR 1` in gold around the refusal block. A rejection now
+  replaces the plate, suppresses every PB, and rolls the local band ledger back
+  to where the run found it.
+- **The seal's weight only knew about the daily.** `GET /runs/:id` returns
+  `boards[]` — the board keys the row occupies — so a free-seed run at rank 1
+  all-time stops being told "It ranks nowhere, and it is still true".
+- **SEALED meant two things ninety pixels apart.** The pre-submit kicker is
+  `NOTHING HAS LEFT THIS MACHINE`; SEALED is spent only on certification.
+- The default state gained **THE MARK** (one permanent row of the sealed
+  leader, §6 Beat 2 without the held TAB) and **the banked ledger** (every run
+  ticks an episode; none of it is a ladder claim, so it costs the spine
+  nothing). The explanation and navigation layer moved from 3.51:1 to
+  ≥5.26:1 at ≥10.5px. The panel went from 930×650 at (335,125) — 37% of a
+  1600×900 screen — to 74%. The docked consent card is measured rather than
+  guessed (`--consent-h`), so the grade medal stops being clipped by the
+  viewport edge on the one run per browser where it appears.
 
 ### SHOULD
 

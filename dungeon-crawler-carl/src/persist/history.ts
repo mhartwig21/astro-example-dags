@@ -8,6 +8,27 @@ import type { RunMode } from "./save";
 
 const KEY = "dcc:history:v1";
 const MAX_RUNS = 60; // newest first; older seasons scroll off the ledger
+/** Runs this browser has EVER finished. The ledger above is capped at 60, so
+ *  its length stops being an episode number on the 61st run; the verdict screen
+ *  prints this instead, and it is the one thing every run banks. */
+const COUNT_KEY = "dcc:episodes:v1";
+
+export function episodeCount(): number {
+  try {
+    const raw = Number(localStorage.getItem(COUNT_KEY));
+    // A browser that already has a ledger but no counter starts from what it
+    // can actually prove rather than from zero.
+    return Number.isFinite(raw) && raw > 0 ? raw : loadHistory().length;
+  } catch {
+    return 0;
+  }
+}
+
+function bumpEpisodeCount(before: number): number {
+  const next = before + 1;
+  try { localStorage.setItem(COUNT_KEY, String(next)); } catch { /* the ledger is a bonus */ }
+  return next;
+}
 
 export interface RunRecord {
   endedAt: number; // wall-clock ms when the run ended
@@ -61,8 +82,13 @@ export function recordRun(state: GameState, mode: RunMode, endedAt: number): voi
       sponsors: p.sponsors,
       seed: state.seed,
     };
+    // Read the counter BEFORE the ledger takes this run: on a browser that has
+    // never had one it seeds from the ledger's length, and seeding from a
+    // ledger that already contains this run makes every first episode a #2.
+    const before = episodeCount();
     const list = [rec, ...loadHistory()].slice(0, MAX_RUNS);
     localStorage.setItem(KEY, JSON.stringify(list));
+    bumpEpisodeCount(before);
   } catch {
     // The ledger is a bonus, never a blocker.
   }
