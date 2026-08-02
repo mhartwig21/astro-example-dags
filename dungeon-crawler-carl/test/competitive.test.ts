@@ -650,6 +650,42 @@ describe("the wire path the browser actually uses", () => {
     expect(proof.bytes[0]).toBe(0x1f);
   }, 60_000);
 
+  it("a run the server did NOT certify is never handed out as a ghost", async () => {
+    // COMPETITIVE.md 2.6f: a refusal is STATED, never silent. GET /runs/:id
+    // ?proof=1 served the artifact with no state check at all, so a challenge
+    // code built from a `claimed` or `rejected` run handed a stranger a
+    // raceable rival the server had explicitly declined to certify.
+    H.link("acct-gate");
+    const { proof } = run(101, 3);
+    proof.claim.kills += 999; // a lie the replay will not reproduce
+    const out = await H.api.submit(reseal(proof), "acct-gate", "Liar", "1.2.3.40");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    const row = H.api.store.getRun(out.runId)!;
+    expect(row.state).toBe("rejected");
+    expect(H.db.competitive.getProof(row.proofId!)).not.toBeNull(); // the film still exists
+
+    const ask = async (token?: string): Promise<{ status: number; body: string }> => {
+      const chunks: string[] = [];
+      let status = 0;
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        setHeader() { /* no-op */ },
+        end(b?: unknown) { if (b) chunks.push(String(b)); },
+      } as unknown as import("node:http").ServerResponse;
+      const url = `/runs/${out.runId}?proof=1${token ? `&token=${token}` : ""}`;
+      await H.api.handle({ method: "GET", url, headers: {}, socket: {} } as
+        unknown as import("node:http").IncomingMessage, res);
+      return { status, body: chunks.join("") };
+    };
+
+    const stranger = await ask();
+    expect(stranger.status).toBe(409);
+    expect(stranger.body).toContain("REFUSED ON VERIFICATION");
+    // The owner can still pull their own artifact back.
+    expect((await ask("acct-gate")).status).toBe(200);
+  }, 60_000);
+
   it("the worker executor and the inline one produce the same verdict", async () => {
     const { verifyArtifact } = await import("../src/server/verifyWorker");
     const { bytes } = run(13, 3);

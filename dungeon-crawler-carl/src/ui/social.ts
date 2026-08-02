@@ -181,6 +181,15 @@ export interface RunFacts {
    *  you at depth without having cleared anything, and dividing the clock by
    *  twelve floors nobody walked hands out a perfect tempo. */
   floorsCleared: number;
+  /**
+   * The run began at depth (test chamber, or a start that only ever entered
+   * one floor). DEPTH IS THEN NOT A MEASURE OF ANYTHING THIS RUN DID, and the
+   * tile must not score it as one: printing DEPTH 100 in gold forty pixels
+   * above a red TEST CHAMBER — NOT RANKED banner is two elements asserting
+   * opposite things about the same number. Scored on the floors actually
+   * walked out of instead.
+   */
+  startedAtDepth?: boolean;
 }
 
 /** Fewer than this many finished local runs and a percentile is a lie: fall
@@ -253,9 +262,12 @@ export function gradeRun(
   const todays = (board ?? []).filter((b) => b.floor > 0);
   const haveBoard = todays.length >= COLD_START_RUNS;
 
-  // DEPTH - floor reached, against your own median and the day's field.
+  // DEPTH - floor reached, against your own median and the day's field. A run
+  // HANDED its depth is scored on the floors it actually walked out of, which
+  // is usually zero: the meter and the NOT RANKED banner have to agree.
   const depthPool = [...mine.map((r) => r.floor), ...todays.map((b) => b.floor)];
-  const depth = percentile(run.floor, depthPool) ?? scoreAgainst(run.floor, CURVE.floor);
+  const depthMeasure = run.startedAtDepth ? run.floorsCleared : run.floor;
+  const depth = percentile(depthMeasure, depthPool) ?? scoreAgainst(depthMeasure, CURVE.floor);
 
   // TEMPO - sim seconds per floor COMPLETED. The distinction matters: a run
   // that dies eight seconds into floor 1 has not set a blistering pace, it has
@@ -297,7 +309,13 @@ export function gradeRun(
   const execution = clamp(Math.round(kpmScore * 0.7 + claimRate * 100 * 0.3), 0, 100);
 
   const parts: GradePart[] = [
-    { key: "DEPTH", score: depth, detail: run.won ? `all ${CONFIG.finalFloor} floors` : `floor ${run.floor}` },
+    {
+      key: "DEPTH",
+      score: depth,
+      detail: run.startedAtDepth
+        ? `floor ${run.floor} — started here, not walked`
+        : run.won ? `all ${CONFIG.finalFloor} floors` : `floor ${run.floor}`,
+    },
 
     {
       key: "TEMPO",
@@ -324,8 +342,16 @@ export function gradeRun(
   const ceiling = depth + 25;
   const capped = score > ceiling;
   score = Math.min(score, ceiling);
-  // A CLEAR is never worse than an A. Eighteen floors is eighteen floors.
-  if (run.won) score = Math.max(score, 76);
+  // A CLEAR IS NEVER WORSE THAN AN A, AND THE LETTER STILL HAS TO SAY SOMETHING.
+  // A flat `max(score, 76)` floored EVERY clear at exactly A, so a scrappy
+  // eighteen floors and a dominant one printed the same glyph - the biggest
+  // element on the screen carrying no information on the one result that
+  // matters most. The clear instead spends the whole top of the scale: the
+  // composite is remapped into 76..100 around parity, so 76 is the survivor
+  // who limped out and S is earned by clearing WELL.
+  if (run.won && !run.startedAtDepth) {
+    score = clamp(Math.round(76 + (score - 50) * 0.48), 76, 100);
+  }
 
   const basis = haveHistory && haveBoard
     ? `vs YOUR ${mine.length} RUNS · TODAY'S ${todays.length}`
@@ -333,7 +359,7 @@ export function gradeRun(
       ? `vs YOUR ${mine.length} RUNS`
       : haveBoard
         ? `vs TODAY'S ${todays.length} · THE HOUSE CURVE`
-        : "vs THE HOUSE CURVE — graded against the format, not a crowd";
+        : "vs THE HOUSE CURVE — no crowd yet";
 
   const letter = letterFor(score);
   return {
@@ -350,9 +376,17 @@ export function gradeRun(
 function commentary(letter: Letter, run: RunFacts, parts: GradePart[]): string {
   const worst = [...parts].sort((a, b) => a.score - b.score)[0];
   if (run.won) {
-    return letter === "S"
-      ? "PERFECT BROADCAST. The network has already greenlit the sequel."
-      : "YOU WALKED OUT. Somewhere an accountant is crying about your merchandise rights.";
+    if (letter === "S") return "PERFECT BROADCAST. The network has already greenlit the sequel.";
+    // A clear that is not an S got there the hard way, and the screen should
+    // say which way. "You walked out" for every clear alike is the same flat
+    // reading the letter used to give.
+    const short: Record<GradePart["key"], string> = {
+      DEPTH: "on paper, at least.",
+      TEMPO: "Slowly. The audience had time to order food.",
+      SURVIVAL: "Bleeding the whole way. The medical bill is the sequel budget.",
+      EXECUTION: "Underpowered — you left drafts banked and walked out anyway.",
+    };
+    return `YOU WALKED OUT. ${short[worst.key]}`;
   }
   const nag: Record<GradePart["key"], string> = {
     DEPTH: "You did not go deep enough to matter. The cameras were still warming up.",
@@ -463,12 +497,35 @@ export function worstBand(splits: readonly BandSplit[]): number {
   let worst = -1;
   let delta = 0;
   for (const s of splits) {
-    const ref = s.pbTicks ?? s.leaderTicks;
-    if (!ref || s.ticks <= 0) continue;
-    const d = s.ticks - ref;
-    if (d > delta) { delta = d; worst = s.band; }
+    if (s.ticks <= 0) continue;
+    // Against BOTH references, worst wins. Beat 4 is "your time per band vs
+    // your PB vs the board leader"; measuring LOST HERE against yourself alone
+    // can only ever tell you that you had a bad day, never that the field is
+    // walking a band you are crawling.
+    for (const ref of [s.pbTicks, s.leaderTicks]) {
+      if (!ref) continue;
+      const d = s.ticks - ref;
+      if (d > delta) { delta = d; worst = s.band; }
+    }
   }
   return worst;
+}
+
+/**
+ * The board leader's band splits, for Beat 4's third bar. The leader is the
+ * best row the CURRENT ERA can still stand behind: an unproven claim is not a
+ * benchmark, and a row sealed under other numbers is not a comparison.
+ * Returns an all-null array when the field has nothing to offer, so the
+ * caller never has to invent one.
+ */
+export function leaderSplits(board: readonly BoardRun[] | null, currentEra: string): (number | null)[] {
+  const empty = new Array<number | null>(FLOOR_BANDS.length).fill(null);
+  const row = (board ?? []).find(
+    (r) => r.state === "verified" && r.rulesEra === currentEra
+      && !!r.bandSplits && r.bandSplits.some((t) => t > 0),
+  );
+  if (!row?.bandSplits) return empty;
+  return empty.map((_, i) => (row.bandSplits![i] ?? 0) > 0 ? row.bandSplits![i] : null);
 }
 
 export function bandName(i: number): string {
@@ -688,6 +745,106 @@ export function sealChip(
       };
     default:
       return { cls: "seal claimed", label: "CLAIMED", title: "stored as reported, never replayed — unproven" };
+  }
+}
+
+/**
+ * THE SEAL, AT THE SIZE OF WHAT IT CERTIFIES (6.2 Beat 5).
+ *
+ * A 10.5px chip in a hairline-ruled row is the right treatment for the seal
+ * on a board row, where it is one column of forty. It is the WRONG treatment
+ * on the verdict, where it is the entire structural advantage of the product:
+ * the server re-executed a fifteen-minute run, input by input, and agreed with
+ * you. That is the one thing League of Legends cannot copy, and a text swap
+ * from VERIFYING to SEALED is not a way to say it.
+ *
+ * So the verdict gets a block, not a chip: a kicker, a word at headline size,
+ * and one sentence in the System's voice explaining what just happened. The
+ * `stamped` flag is what the host hangs the strike animation on - it is true
+ * only on the transition INTO a terminal state, so the stamp lands once.
+ */
+export interface VerdictSeal {
+  /** State class for the block (`vseal ...`). */
+  cls: string;
+  kicker: string;
+  word: string;
+  line: string;
+  /** Terminal states stamp; pending ones breathe. */
+  terminal: boolean;
+}
+
+export function verdictSeal(
+  state: RunState | "unsubmitted" | "blocked",
+  era: string | null,
+  isPrivate = false,
+  ranked = false,
+  reason?: string | null,
+): VerdictSeal {
+  const eraNote = era ? ` Rules era ${era}.` : "";
+  switch (state) {
+    case "verified":
+      return {
+        cls: `vseal verified${ranked ? " ranked" : ""}${isPrivate ? " private" : ""}`,
+        kicker: "THE SYSTEM RE-RAN YOUR CRAWL",
+        word: isPrivate ? "SEALED · PRIVATE" : "SEALED",
+        line: (ranked
+          ? "Every input, replayed on the System's own machine. Same dungeon, same damage, same death — and it holds a board position."
+          : "Every input, replayed on the System's own machine. Same dungeon, same damage, same death. It ranks nowhere, and it is still true.")
+          + (isPrivate ? " Nobody else will ever be handed the film." : "") + eraNote,
+        terminal: true,
+      };
+    case "verifying":
+      return {
+        cls: "vseal verifying",
+        kicker: "THE SYSTEM IS RE-RUNNING YOUR CRAWL",
+        word: "VERIFYING",
+        line: "Sixty inputs a second, played back against the same rules you played under. It either agrees with you or it does not.",
+        terminal: false,
+      };
+    case "rejected":
+      return {
+        cls: "vseal rejected",
+        kicker: "THE SYSTEM DISAGREES WITH YOU",
+        word: "REFUSED",
+        line: reason
+          ? `The replay did not produce the run you claimed. ${reason}`
+          : "The replay did not produce the run you claimed, so the row does not stand. The System does not explain twice; it explains once, here.",
+        terminal: true,
+      };
+    case "unverifiable":
+      return {
+        cls: "vseal aged",
+        kicker: "OUT OF EXECUTABLE ERAS",
+        word: "UNPROVEN",
+        line: `This run was recorded under rules this build can no longer execute, so it keeps whatever it earned and nothing more.${eraNote}`,
+        terminal: true,
+      };
+    case "blocked":
+      return {
+        cls: "vseal blocked",
+        kicker: "NO PROOF OFFERED",
+        word: "UNSEALED",
+        line: reason ?? "This run was never offered to the board, so there is nothing for the System to certify.",
+        terminal: true,
+      };
+    case "unsubmitted":
+      return {
+        cls: "vseal pending",
+        kicker: "THE RECORDING IS SEALED AGAINST THE RUN",
+        word: "READY TO SUBMIT",
+        line: "Twenty-odd kilobytes that reproduce this run exactly. Nothing has been sent yet.",
+        terminal: false,
+      };
+    default:
+      return {
+        cls: "vseal claimed",
+        kicker: "STORED AS REPORTED",
+        word: "CLAIMED",
+        line: reason
+          ? `Not replayed. ${reason}`
+          : "Stored exactly as your client reported it and never re-executed, so the System does not put its name on it. Unproven rows never reach the top of a board.",
+        terminal: true,
+      };
   }
 }
 

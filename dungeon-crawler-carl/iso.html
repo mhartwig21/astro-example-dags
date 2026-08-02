@@ -658,6 +658,7 @@
       body.cine #hud-tl, body.cine #hud-tr, body.cine #hud-log,
       body.cine #minimap-frame, body.cine #show, body.cine #cockpit,
       body.cine #party, body.cine #toasts, body.cine #banner,
+      body.cine #ghost, body.cine #bossbar,
       body.cine #draft-badge { opacity: 0; transition: opacity 0.3s ease; }
       /* And they FADE back in when the cut ends, not pop. */
       #hud-tl, #hud-tr, #minimap-frame, #show, #cockpit, #party, #banner,
@@ -1273,10 +1274,32 @@
          status edge (won = SEASON FINALE, wipe = IN MEMORIAM). z 27: the run
          is over, nothing else deserves the pixels. */
       #recap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(4,4,8,0.82); z-index: 27; }
-      #recap .panel { width: 880px; max-width: 94vw; max-height: 90vh; overflow: auto;
+        background: radial-gradient(ellipse at 50% 36%, rgba(10,7,5,0.86), rgba(2,2,4,0.95) 74%);
+        z-index: 27; }
+      #recap .panel { position: relative; width: 880px; max-width: 94vw; max-height: 90vh; overflow: auto;
         background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 20px 24px;
-        box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+        box-shadow: 0 24px 70px rgba(0,0,0,0.7); scrollbar-width: none; }
+      #recap .panel::-webkit-scrollbar { display: none; }
+      /* THE WIN IS NOT THE DEATH SCREEN WITH DIFFERENT WORDS. An eighteen-floor
+         clear is the rarest outcome in the game and it used to differ from a
+         floor-3 death by a colour token. It gets its own plate: a gold key
+         light behind the panel, a struck border, and a laurel bar above the
+         headline that the death screen never draws. */
+      #recap.won { background:
+        radial-gradient(ellipse at 50% 24%, rgba(120,88,26,0.34), rgba(2,2,4,0.95) 66%); }
+      #recap.won .panel { border-color: var(--gold);
+        box-shadow: 0 0 0 1px rgba(242,193,78,0.25), 0 0 90px rgba(242,193,78,0.16),
+          0 24px 70px rgba(0,0,0,0.75); }
+      /* The victory plate: full-width, above everything, only on a clear. */
+      #recap .vplate { display: none; }
+      #recap.won .vplate { display: block; text-align: center; margin: -4px 0 12px;
+        font-family: var(--display); font-variant: small-caps; }
+      #recap.won .vplate b { display: block; font-size: 15px; letter-spacing: 0.52em;
+        color: var(--gold); text-indent: 0.52em; }
+      #recap.won .vplate small { display: block; margin-top: 3px; font-size: 11.5px;
+        letter-spacing: 0.2em; color: var(--ink-faint); }
+      #recap.won .vplate::after { content: ""; display: block; height: 3px; margin: 9px auto 0;
+        max-width: 460px; border-top: 1px solid var(--gold); border-bottom: 1px solid rgba(0,0,0,0.6); }
       /* The VERDICT: an engraved headline between side rules (LoL victory bar).
          Wins are GOLD — the Show pays in ratings, not chlorophyll. */
       #recap h2 { margin: 0 0 2px; font-size: 30px; letter-spacing: 0.14em;
@@ -1370,24 +1393,103 @@
       #recap .vpart.weak .pbar i { background: linear-gradient(90deg, #6b3b32, var(--blood)); }
       #recap .vpart .pd { font-size: 10.5px; color: var(--ink-faint); margin-top: 3px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      /* THE DEATH, NAMED - the single highest-value element on the screen. */
-      #recap .death { margin-top: 14px; padding: 11px 14px; border-radius: 3px;
+      /* THE DEATH, NAMED - the single highest-value element on the screen, and
+         it is now SIZED like it. It used to sit at 17px in a band of eight
+         sizes between 10 and 17, which is why the panel read as a form: the
+         things the screen is actually about have to break scale, or the eye
+         has nothing to land on after the medal. */
+      #recap .death { margin-top: 14px; padding: 13px 16px; border-radius: 3px;
         background: linear-gradient(180deg, rgba(60,20,16,0.5), rgba(20,12,10,0.6));
-        border: 1px solid #6b3b32; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55); }
+        border: 1px solid #6b3b32; border-left: 3px solid var(--blood);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55); }
       #recap .death.clear { background: linear-gradient(180deg, rgba(60,46,16,0.42), rgba(20,16,10,0.6));
-        border-color: var(--bronze); }
+        border-color: var(--bronze); border-left-color: var(--gold); }
       #recap .death .dhead { font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.1em; font-size: 17px; color: #e2857a; display: flex; align-items: center; gap: 9px; }
+        letter-spacing: 0.08em; font-size: 23px; line-height: 1.18; color: #f0a99f;
+        display: flex; align-items: center; gap: 11px; }
       #recap .death.clear .dhead { color: var(--gold-hi); }
-      #recap .death .dhead .uic { width: 17px; height: 17px; }
-      #recap .death .dctx { color: var(--ink-dim); font-size: 13px; margin-top: 3px; font-style: italic; }
-      /* WHAT YOU EARNED - one line and a seal, expandable. Watching the seal
-         land is the moment the trust model becomes something you can feel. */
+      #recap .death .dhead .uic { width: 22px; height: 22px; flex: none; }
+      #recap .death .dctx { color: var(--ink); font-size: 14.5px; margin-top: 5px; font-style: italic; }
+      /* ============== THE SEAL, AT FULL SIZE (6 Beat 5) ==============
+         The structural advantage of this entire product is that the server
+         re-executes your run and certifies it — the one thing League cannot
+         copy. It shipped as a 10.5px label at the far right of a hairline
+         row, smaller than the body copy, changing its text with no
+         transition, while BUYING A HELMET got a 2.4s staged stamp with scale
+         and glow. This is the fix: a block, a word at headline size, one
+         sentence of System voice, and a strike that lands ONCE. */
+      #recap .vseal { position: relative; margin-top: 13px; padding: 12px 16px 12px 18px;
+        border: 1px solid var(--bronze); border-left: 3px solid var(--bronze); border-radius: 3px;
+        background: linear-gradient(180deg, rgba(201,162,75,0.06), rgba(12,9,6,0.55));
+        display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 18px;
+        overflow: hidden; }
+      #recap .vseal .vk { grid-column: 1; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.26em; font-size: 10.5px; color: var(--ink-faint); }
+      #recap .vseal .vw { grid-column: 2; grid-row: 1 / span 2; font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.12em; font-size: 30px; line-height: 1;
+        color: var(--ink-dim); white-space: nowrap; text-align: right; }
+      #recap .vseal .vl { grid-column: 1; font-size: 13px; line-height: 1.5; color: var(--ink-dim);
+        max-width: 62ch; }
+      /* CLAIMED / UNSEALED / READY — hairline, cold, deliberately unexciting. */
+      #recap .vseal.pending .vw, #recap .vseal.claimed .vw,
+      #recap .vseal.blocked .vw, #recap .vseal.aged .vw { color: var(--ink-faint); font-size: 22px; }
+      /* VERIFYING — the server is working. It BREATHES, and a scan line runs
+         the width of the block, because two seconds of watching is the point. */
+      #recap .vseal.verifying { border-left-color: var(--gold); }
+      #recap .vseal.verifying .vw { color: var(--gold); animation: sealpulse 1.1s ease-in-out infinite; }
+      #recap .vseal.verifying::after { content: ""; position: absolute; inset: 0;
+        background: linear-gradient(100deg, transparent 38%, rgba(242,193,78,0.16) 50%, transparent 62%);
+        animation: sealscan 1.5s linear infinite; }
+      @keyframes sealscan { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+      /* SEALED — the strike. Scale, a gold flood that recedes, and a rim that
+         stays lit. Two genuinely satisfying seconds, per the brief. */
+      #recap .vseal.verified { border-color: var(--gold); border-left-color: var(--gold-hi);
+        background: linear-gradient(180deg, rgba(201,162,75,0.16), rgba(20,15,7,0.6));
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 0 26px rgba(242,193,78,0.12); }
+      #recap .vseal.verified .vk { color: var(--gold); }
+      #recap .vseal.verified .vl { color: var(--ink); }
+      #recap .vseal.verified .vw { color: var(--gold-hi); font-size: 34px;
+        text-shadow: 0 2px 0 #5c4726, 0 0 34px rgba(242,193,78,0.5); }
+      /* The RANKED seal is the trophy; a certified run that holds no board
+         position gets the same truth without the gold flood (6 Beat 5). */
+      #recap .vseal.verified:not(.ranked) { background: linear-gradient(180deg, rgba(201,162,75,0.07), rgba(12,9,6,0.55));
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5); }
+      #recap .vseal.verified:not(.ranked) .vw { color: var(--gold); font-size: 27px; text-shadow: none; }
+      #recap .vseal.strike { animation: vseal-strike 1.9s cubic-bezier(0.15,0.85,0.25,1) both; }
+      #recap .vseal.strike .vw { animation: vseal-word 1.9s cubic-bezier(0.15,0.85,0.25,1) both; }
+      #recap .vseal.strike::before { content: ""; position: absolute; inset: -1px;
+        border: 2px solid var(--gold-hi); border-radius: 3px; pointer-events: none;
+        animation: vseal-ring 1.9s ease-out both; }
+      @keyframes vseal-strike {
+        0% { transform: scale(1.014); box-shadow: 0 0 0 rgba(242,193,78,0), inset 0 0 90px rgba(242,193,78,0.55); }
+        18% { transform: scale(1); box-shadow: 0 0 60px rgba(242,193,78,0.45), inset 0 0 40px rgba(242,193,78,0.3); }
+        100% { transform: scale(1); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 0 26px rgba(242,193,78,0.12); }
+      }
+      @keyframes vseal-word {
+        0% { opacity: 0; transform: scale(1.7); letter-spacing: 0.5em; }
+        22% { opacity: 1; transform: scale(1); letter-spacing: 0.12em; }
+      }
+      @keyframes vseal-ring { 0% { opacity: 1; } 60% { opacity: 0.45; } 100% { opacity: 0; } }
+      /* REFUSED — said on the DEFAULT face, plainly and immediately. A
+         rejection that arrives with no explanation is how honest players
+         conclude the ladder is rigged, and it used to live in a title=. */
+      #recap .vseal.rejected { border-color: #6b3b32; border-left-color: var(--blood);
+        background: linear-gradient(180deg, rgba(192,57,47,0.14), rgba(20,10,8,0.6)); }
+      #recap .vseal.rejected .vk { color: #e2857a; }
+      #recap .vseal.rejected .vw { color: #f0a99f; font-size: 30px; }
+      #recap .vseal.rejected .vl { color: #edb9b1; }
+      @media (prefers-reduced-motion: reduce) {
+        #recap .vseal.strike, #recap .vseal.strike .vw, #recap .vseal.strike::before,
+        #recap .vseal.verifying .vw, #recap .vseal.verifying::after { animation: none; }
+        #recap .vseal.verifying::after { display: none; }
+      }
+
+      /* WHAT YOU EARNED - one line and the drawer. */
       #recap .earned { margin-top: 12px; display: flex; align-items: center; gap: 10px;
         border-top: 1px solid rgba(110,85,51,0.7); border-bottom: 1px solid rgba(0,0,0,0.55);
         padding: 9px 2px; }
       #recap .earned .eline { flex: 1; text-align: left; background: none; border: 0; padding: 0;
-        color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer; }
+        color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
       #recap .earned .eline b { color: var(--gold-hi); }
 
       #recap .earned .eline .caret { color: var(--ink-faint); font-size: 10px; margin-left: 9px;
@@ -1425,11 +1527,12 @@
       @media (prefers-reduced-motion: reduce) { .seal.verifying { animation: none; opacity: 0.8; } }
       /* THE LADDER LINE (6 Beat 5). Permanent, one line, beside the seal. */
       #recap .ladderline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
-        margin-top: 12px; padding: 8px 12px; border: 1px solid var(--bronze); border-radius: 3px;
+        margin-top: 12px; padding: 9px 13px; border: 1px solid var(--bronze); border-radius: 3px;
         background: linear-gradient(180deg, rgba(201,162,75,0.09), rgba(20,16,12,0.5));
-        font-size: 12.5px; color: var(--ink-dim); }
+        font-size: 13px; color: var(--ink-dim); }
       #recap .ladderline .lt { font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.16em; font-size: 14px; color: var(--gold-hi); }
+        letter-spacing: 0.16em; font-size: 19px; color: var(--gold-hi); }
+      #recap .ladderline .lcp, #recap .ladderline .ldelta { font-size: 15px; }
       #recap .ladderline .lcp { font-variant-numeric: tabular-nums; color: var(--ink); }
       #recap .ladderline .ldelta { font-variant-numeric: tabular-nums; font-weight: 700; }
       #recap .ladderline .ldelta.up { color: var(--verdant); }
@@ -1440,15 +1543,143 @@
         border-radius: 3px; background: rgba(192,57,47,0.08); color: #e2857a; font-size: 12.5px; }
       #recap .notranked b { font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.16em; color: #f0a99f; }
-      /* The button row: RUN IT BACK is the whole point of the screen. */
-      #recap .rfoot { margin-top: 14px; flex-wrap: wrap; }
-      #recap .rfoot button.primary { background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
-        color: #241a08; border: 1px solid #5c4726; font-weight: 700;
-        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55); }
-      #recap .rfoot button.primary:hover { filter: brightness(1.08); }
+      /* ============ THE BUTTONS (6 Beat 6) ============
+         Beat 6 specifies an ORDER AND A PROMINENCE. Seven identical `dismiss`
+         buttons wrapping to two rows is a toolbar, and at 880px it put WATCH
+         THE ARENA alone on the second line reading like a second CTA. Three
+         tiers now: one CTA at twice the height, two alternatives beside it,
+         and the housekeeping as quiet text links underneath. */
+      /* Flex, not grid: RACE THE LEADER is hidden whenever the day's board has
+         no raceable row, and a fixed three-column grid would hold its empty
+         slot open. */
+      #recap .rfoot { margin-top: 15px; display: flex; flex-wrap: wrap;
+        gap: 10px; align-items: stretch; }
       #recap .rfoot button { color: var(--ink); }
-      #recap .rhint { margin-top: 9px; text-align: center; color: var(--ink-faint); font-size: 11px;
+      #recap .rfoot button.primary { flex: 1.5 1 300px; padding: 14px 16px 12px; border-radius: 6px;
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
+        color: #241a08; border: 1px solid #5c4726; font-weight: 700;
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55), 0 6px 22px rgba(242,193,78,0.16); }
+      #recap .rfoot button.primary b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.14em; font-size: 19px; display: flex; align-items: center; gap: 9px; }
+      #recap .rfoot button.primary small { font-size: 11px; font-weight: 400; letter-spacing: 0.04em;
+        color: rgba(36,26,8,0.78); }
+      #recap .rfoot button.primary kbd { background: rgba(36,26,8,0.2); border-color: rgba(36,26,8,0.45);
+        color: #241a08; }
+      #recap .rfoot button.primary:hover { filter: brightness(1.08); }
+      /* The two real alternatives. Same height as the CTA, half its weight. */
+      #recap .rfoot button.alt { flex: 1 1 190px; padding: 12px 12px 10px; display: flex;
+        flex-direction: column;
+        align-items: center; gap: 2px; background: var(--raised); border: 1px solid var(--bronze); }
+      #recap .rfoot button.alt b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.12em; font-size: 14px; color: var(--ink); }
+      #recap .rfoot button.alt small { font-size: 10.5px; font-weight: 400; color: var(--ink-faint); }
+      #recap .rfoot button.alt:hover { border-color: var(--bronze-hi); background: #3a2f22; }
+      #recap .rfoot button.alt:hover b { color: var(--gold-hi); }
+      /* Housekeeping. Text links: they are not decisions, they are drawers. */
+      #recap .rminor { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 4px 20px;
+        align-items: center; justify-content: center; margin-top: 2px; }
+      #recap .rminor button { background: none; border: 0; padding: 3px 0; color: var(--ink-faint);
+        font: inherit; font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 12px; cursor: pointer; border-bottom: 1px solid transparent; }
+      #recap .rminor button:hover { color: var(--gold-hi); border-bottom-color: var(--bronze); background: none; }
+      #recap .rfoot .note { flex: 1 0 100%; color: #6f6757; font-size: 11px; text-align: center; }
+      #recap .rhint { margin-top: 11px; text-align: center; color: var(--ink-faint); font-size: 11.5px;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; }
+
+      /* ==================== THE REVEAL (6 Beat 0 + the cascade) ====================
+         The screen a player sees once per boss is directed — scale-in, key
+         light, sliding letterbox and a six-element staggered cascade. The
+         screen they see after EVERY run opened with the same 160ms fade as
+         the keybinds panel and then never moved again: six capture frames
+         from +0ms to +8000ms were pixel-identical inside the panel.
+         Now the verdict is staged like a broadcast: the scrim closes, the
+         panel rises, the medal is STRUCK, and the elements arrive in the
+         order the design says they should be read in. */
+      #recap { animation: verdict-scrim 0.42s ease-out both; }
+      #recap .panel { animation: verdict-panel 0.5s cubic-bezier(0.16, 0.86, 0.24, 1) both; }
+      @keyframes verdict-scrim { from { opacity: 0; } }
+      @keyframes verdict-panel {
+        from { opacity: 0; transform: translateY(26px) scale(0.975); }
+      }
+      /* The medal is struck, not faded: it is the first thing the eye lands on
+         and the only element on the screen at display size. */
+      #recap .vmedal { animation: verdict-medal 0.62s cubic-bezier(0.14, 0.9, 0.22, 1) 0.16s both; }
+      #recap .vmedal b { animation: verdict-letter 0.7s cubic-bezier(0.14, 0.9, 0.22, 1) 0.24s both; }
+      @keyframes verdict-medal {
+        0% { opacity: 0; transform: scale(1.45) rotate(-7deg); }
+        62% { opacity: 1; transform: scale(0.985) rotate(0.6deg); }
+        100% { opacity: 1; transform: scale(1) rotate(0); }
+      }
+      @keyframes verdict-letter {
+        0% { opacity: 0; transform: scale(2.1); filter: blur(6px); }
+        45% { opacity: 1; filter: blur(0); }
+        100% { transform: scale(1); }
+      }
+      /* The cascade, in reading order: headline, commentary, meters, the named
+         death, the ladder line, the seal, the buttons. */
+      #recap .vplate  { animation: verdict-rise 0.42s ease-out 0.10s both; }
+      #recap .vhead h2 { animation: verdict-rise 0.42s ease-out 0.20s both; }
+      #recap .vhead .rsub { animation: verdict-rise 0.42s ease-out 0.28s both; }
+      #recap .vline   { animation: verdict-rise 0.42s ease-out 0.36s both; }
+      #recap .vparts  { animation: verdict-rise 0.42s ease-out 0.44s both; }
+      #recap .vbasis  { animation: verdict-rise 0.42s ease-out 0.50s both; }
+      #recap .death   { animation: verdict-death 0.55s cubic-bezier(0.16,0.86,0.24,1) 0.62s both; }
+      #recap .ladderline, #recap .notranked { animation: verdict-rise 0.42s ease-out 0.86s both; }
+      #recap .vseal   { animation: verdict-rise 0.42s ease-out 0.98s both; }
+      #recap .earned  { animation: verdict-rise 0.42s ease-out 1.06s both; }
+      #recap .rfoot   { animation: verdict-rise 0.44s ease-out 1.18s both; }
+      #recap .rhint   { animation: verdict-rise 0.44s ease-out 1.34s both; }
+      @keyframes verdict-rise { from { opacity: 0; transform: translateY(9px); } }
+      /* The death gets its own entrance — it is the highest-value sentence on
+         the screen, so it does not arrive the way a stat tile does. */
+      @keyframes verdict-death {
+        0% { opacity: 0; transform: translateY(14px); border-left-width: 30px; }
+        55% { opacity: 1; }
+        100% { opacity: 1; transform: translateY(0); border-left-width: 3px; }
+      }
+      /* ============ THE SHARE SHEET (8.2) ============
+         Both shareable artifacts in one place, and the artifact is SHOWN
+         before anything is copied. The card is what actually travels, so it
+         carries the seal, the rules era and the run id — none of which it
+         used to, which meant the object representing this product to
+         strangers carried zero evidence of the only thing that makes it
+         different. */
+      #sharesheet { position: fixed; inset: 0; z-index: 28; display: none; align-items: center;
+        justify-content: center; background: rgba(2,2,4,0.78); padding: 18px; }
+      #sharesheet.on { display: flex; animation: overlay-in 0.16s ease-out; }
+      #sharesheet .card { width: min(760px, 94vw); max-height: 92vh; overflow: auto;
+        background: var(--stone); background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 140px);
+        border: 1px solid var(--bronze); border-radius: 3px; padding: 16px 20px 18px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.75);
+        scrollbar-width: none; }
+      #sharesheet .card::-webkit-scrollbar { display: none; }
+      #sharesheet .kicker { text-align: center; color: var(--gold); font-size: 10px;
+        letter-spacing: 0.4em; font-family: var(--display); font-variant: small-caps; margin-bottom: 10px; }
+      #sharesheet canvas { display: block; width: 100%; height: auto; border: 1px solid var(--bronze);
+        border-radius: 2px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+      #sharesheet .slink { margin-top: 11px; padding: 7px 10px; border: 1px solid #3a2f22;
+        border-radius: 2px; background: #14100c; color: var(--ink-dim); font-size: 11.5px;
+        word-break: break-all; font-family: ui-monospace, monospace; }
+      #sharesheet .snote { margin-top: 8px; color: var(--ink-faint); font-size: 12px;
+        line-height: 1.5; font-style: italic; }
+      #sharesheet .sbtns { display: flex; gap: 9px; margin-top: 13px; }
+      #sharesheet .sbtns button { flex: 1; padding: 9px 6px; border-radius: 3px; font: inherit;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer;
+        background: var(--raised); border: 1px solid var(--bronze); color: var(--ink); }
+      #sharesheet .sbtns button.primary { color: #241a08; border-color: #5c4726; font-weight: 700;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b); }
+      #sharesheet .sbtns button:hover { border-color: var(--bronze-hi); }
+
+      /* Held TAB is a scoreboard, not a reveal: it opens instantly, every time. */
+      #recap.tabbed #recap-tab { animation: overlay-in 0.12s ease-out; }
+      @media (prefers-reduced-motion: reduce) {
+        #recap, #recap .panel, #recap .vmedal, #recap .vmedal b, #recap .vplate,
+        #recap .vhead h2, #recap .vhead .rsub, #recap .vline, #recap .vparts,
+        #recap .vbasis, #recap .death, #recap .ladderline, #recap .notranked,
+        #recap .vseal, #recap .earned, #recap .rfoot, #recap .rhint,
+        #recap.tabbed #recap-tab { animation: none; }
+      }
       /* The held-TAB sheet: the scoreboard and the splits, full width, for the
          player who argues about numbers - and absent for the one who wants R. */
 
@@ -1502,6 +1733,11 @@
       .splitrow .stime { text-align: right; font-variant-numeric: tabular-nums; font-size: 12.5px;
         color: var(--ink); }
 
+      /* The quickest traversal, so a TIME chart under a BESTS heading still
+         has something the eye can read as an achievement. */
+      .splitrow.best .sfill { background: linear-gradient(90deg, #8a6a2f, var(--gold-hi)); }
+      .splitrow.best .stime { color: var(--gold-hi); font-weight: 700; }
+      .splitrow.best .sname { color: var(--gold); }
       .splitrow.empty .sname, .splitrow.empty .stime { color: var(--ink-faint); }
       /* An unreached band gets a hairline, not an empty well: six identical
          dark troughs read as a broken chart. */
@@ -1522,14 +1758,34 @@
         background: radial-gradient(ellipse at 50% 22%, rgb(24,18,12), rgb(4,4,8) 72%);
         overflow: auto; padding: 18px; scrollbar-width: none; }
       /* House rule: no scrollbars. A long ladder still scrolls - it just does
-         not put a grey elevator down the side of a gilt document. */
+         not put a grey elevator down the side of a gilt document.
+         BUT: the rule was shipped with NOTHING IN ITS PLACE, so at 1600x900
+         the BANDS tab cut THE IRONWORKS mid-row and the career panel cut
+         MILESTONES mid-entry with no gradient, no chevron and no bar — two of
+         the four competitive screens read as broken rather than scrollable.
+         Suppressing the elevator is right; suppressing the AFFORDANCE is not. */
       #ladder::-webkit-scrollbar, #career::-webkit-scrollbar, #recap-tab::-webkit-scrollbar { display: none; }
       #recap-tab { scrollbar-width: none; }
+      .morebelow { position: fixed; left: 0; right: 0; bottom: 0; height: 74px; pointer-events: none;
+        display: flex; align-items: flex-end; justify-content: center; padding-bottom: 9px;
+        opacity: 0; transition: opacity 0.25s ease;
+        background: linear-gradient(0deg, rgba(4,4,8,0.94) 0%, rgba(4,4,8,0.72) 44%, rgba(4,4,8,0) 100%); }
+      .morebelow.on { opacity: 1; }
+      .morebelow i { font-style: normal; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.26em; font-size: 11px; color: var(--gold);
+        text-shadow: 0 1px 3px #000; animation: morebob 1.9s ease-in-out infinite; }
+      .morebelow i::after { content: " ▾"; }
+      @keyframes morebob { 0%, 100% { transform: translateY(0); opacity: 0.65; }
+        50% { transform: translateY(3px); opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .morebelow i { animation: none; opacity: 0.9; } }
       #ladder.on, #career.on { display: block; }
       /* Switching a tab must not resize the world behind it. RIVALS has one
          card and ALL-TIME has twenty-five rows; without a floor the panel
          breathes in and out by 400px every time you look at another board. */
-      #ladder-body { min-height: 664px; }
+      /* A floor, not a mandate: enough that a tab switch does not resize the
+         world behind it, low enough that RIVALS does not hold 200px of empty
+         stone open under a two-line ledger. */
+      #ladder-body { min-height: 430px; }
       .set-frame { position: relative; max-width: 1180px; margin: 0 auto; background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 210px);
         border: 1px solid var(--bronze); border-radius: 3px; padding: 20px 26px 26px;
@@ -1611,22 +1867,29 @@
       .rtag.rival { color: var(--arcane); }
       /* THE HEAD-TO-HEAD LEDGER (4.2): the one number LoL cannot show you about
          a named opponent across a season. */
-      .h2h { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 6px; }
-      .h2h .h2hc { border: 1px solid var(--bronze); border-radius: 3px; background: #14100c;
-        padding: 9px 12px; text-align: center; }
-      .h2h .h2hc b { display: block; font-family: var(--display); font-size: 24px; line-height: 1.1; }
-      .h2h .h2hc small { color: var(--ink-faint); font-size: 10px; letter-spacing: 0.14em;
-        font-family: var(--display); font-variant: small-caps; }
+      /* THE RIVALRY LEDGER INVERTED ITS OWN HIERARCHY: three 390x70 boxes
+         carrying three single digits, above the actual contested result at
+         11px. The digits are a SCORELINE — one row, inline, tabular — and the
+         contested contracts are the content. */
+      .h2h { display: flex; align-items: baseline; justify-content: center; gap: 6px;
+        margin: 12px 0 4px; font-family: var(--display); font-variant: small-caps; }
+      .h2h .h2hc { display: flex; align-items: baseline; gap: 6px; padding: 2px 10px; }
+      .h2h .h2hc b { font-family: var(--display); font-size: 30px; line-height: 1;
+        font-variant-numeric: tabular-nums; }
+      .h2h .h2hc small { color: var(--ink-faint); font-size: 11px; letter-spacing: 0.16em; }
+      .h2h .h2hc + .h2hc { border-left: 1px solid rgba(110,85,51,0.45); }
       .h2h .win b { color: var(--verdant); }
       .h2h .loss b { color: var(--blood); }
       .h2h .draw b { color: var(--ink-dim); }
-      .h2hlist { border-top: 1px solid rgba(110,85,51,0.4); }
-      .h2hrow { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: baseline;
-        padding: 6px 2px; border-bottom: 1px solid rgba(110,85,51,0.22); font-size: 12px; }
-      .h2hrow .ev { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-      .h2hrow .sc { font-variant-numeric: tabular-nums; color: var(--ink-dim); }
-      .h2hrow .vd { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
-        font-size: 11px; }
+      .h2hlist { border-top: 1px solid rgba(110,85,51,0.4); margin-top: 6px; }
+      .h2hrow { display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: center;
+        padding: 10px 8px; border-bottom: 1px solid rgba(110,85,51,0.22); font-size: 15px; }
+      .h2hrow.won { box-shadow: inset 3px 0 0 var(--verdant); }
+      .h2hrow.lost { box-shadow: inset 3px 0 0 var(--blood); }
+      .h2hrow .ev { color: var(--ink-faint); font-variant-numeric: tabular-nums; font-size: 11.5px; }
+      .h2hrow .sc { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 15px; }
+      .h2hrow .vd { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 15px; }
       .h2hrow.won .vd { color: var(--verdant); }
       .h2hrow.lost .vd { color: var(--blood); }
       .h2hrow.drew .vd { color: var(--ink-faint); }
@@ -1642,6 +1905,98 @@
       .brow .acts button:disabled { color: var(--ink-faint); border-style: dashed; cursor: help;
         opacity: 0.75; }
       .board .none { color: var(--ink-faint); font-style: italic; padding: 14px 10px; }
+
+      /* ============ THE TOP OF THE BOARD IS NOT ANOTHER ROW ============
+         Rank 1 and rank 9 shipped with identical height and identical chrome,
+         distinguished only by a gold numeral, so the #1 all-time clear of the
+         entire game was a 13.5px line of text in a 1180px table. Ranked
+         surfaces lead with the champion at display size and let the rest
+         recede. Only the first row breaks scale — a podium of three all
+         shouting is the same flat read with more gold in it. */
+      .brow.top1 { grid-template-columns: 52px minmax(0, 1fr) auto 168px auto;
+        padding: 12px 10px 13px; border: 1px solid var(--bronze); border-radius: 3px;
+        background:
+          radial-gradient(ellipse at 6% 50%, rgba(242,193,78,0.16), rgba(0,0,0,0) 62%),
+          linear-gradient(180deg, rgba(48,38,24,0.75), rgba(20,16,12,0.7));
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 6px 26px rgba(0,0,0,0.45); }
+      .brow.top1 .rank { position: relative; font-size: 34px; line-height: 1; color: var(--gold-hi);
+        text-shadow: 0 2px 0 #5c4726, 0 0 24px rgba(242,193,78,0.4); }
+      /* The crest sits UNDER the numeral, not over it: a diamond directly
+         above a Cinzel "1" reads as a lowercase i. */
+      .brow.top1 .rank::after { content: "◆"; position: absolute; left: 50%; bottom: -13px;
+        transform: translateX(-50%); font-size: 9px; line-height: 1; color: var(--gold);
+        text-shadow: none; }
+      .brow.top1 .who b { font-size: 21px; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.08em; color: var(--gold-hi); }
+      .brow.top1 .who .sub { font-size: 11.5px; color: var(--ink-dim); }
+      .brow.top1 .res { font-size: 18px; }
+      .brow.top1 + .brow { border-top: 0; margin-top: 6px; }
+      .brow.top2 .rank, .brow.top3 .rank { font-size: 17px; color: var(--gold); }
+      /* SIX HEROES ON ONE PAGE IS NOT A HERO. The BANDS tab draws six small
+         boards in a 2x3 grid; giving every one of them a display-size champion
+         row turns a scale break into wallpaper. In there, #1 keeps a warm tint
+         and a gold numeral and nothing else. */
+      .bandgrid .brow.top1 { grid-template-columns: 30px minmax(0, 1fr) auto 128px auto;
+        padding: 5px 10px; border: 0; border-radius: 0; box-shadow: none;
+        background: linear-gradient(90deg, rgba(242,193,78,0.10), rgba(20,16,12,0.55) 70%); }
+      .bandgrid .brow.top1 .rank { font-size: 16px; text-shadow: none; }
+      .bandgrid .brow.top1 .rank::after { display: none; }
+      .bandgrid .brow.top1 .who b { font-size: 14px; font-family: inherit;
+        font-variant: normal; letter-spacing: 0; }
+      .bandgrid .brow.top1 .who .sub { font-size: 10.5px; color: var(--ink-faint); }
+      .bandgrid .brow.top1 .res { font-size: 13px; }
+      .bandgrid .brow.top1 + .brow { margin-top: 0; }
+
+      /* THE UNPROVEN SHELF (3.2B). "Verified-only for the top 10; claimed rows
+         may appear below with a visible marker." A claimed row used to be
+         handed a rank ordinal, the green CLEAR treatment and the identical row
+         chrome, differing from a sealed row by a 10.5px chip — so an
+         unverified claim ranked #6 all-time and read as a clear. Claimed rows
+         are off the ranked list entirely now: no ordinal, no green, and a
+         heading that says what they are. */
+      .unproven { margin-top: 16px; border-top: 1px dashed rgba(110,85,51,0.55); padding-top: 10px; }
+      .unproven > .uhead { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.2em; font-size: 11.5px; color: var(--ink-faint); }
+      .unproven > .usub { color: var(--ink-faint); font-size: 11.5px; font-style: italic;
+        margin: 2px 0 6px; }
+      .unproven .brow { grid-template-columns: 30px minmax(0, 1fr) auto 128px auto; opacity: 0.82;
+        background: repeating-linear-gradient(135deg, rgba(24,19,14,0.6) 0 7px, rgba(18,14,10,0.6) 7px 14px); }
+      .unproven .brow .rank { color: var(--ink-faint); font-size: 12px; }
+      /* A claim is never dressed as a result: the green CLEAR is reserved for
+         rows the server re-executed, and the word is prefixed so the row reads
+         as an assertion rather than an outcome. */
+      .unproven .brow .res.win { color: var(--ink-dim); }
+      .unproven .brow .res::before { content: "claims "; color: var(--ink-faint);
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; }
+
+      /* YOUR LAST RUNS is a SHELF, not a board (5.2). It is sorted by time, so
+         it prints no rank ordinal, no podium gold and no YOU tag — every row
+         on your own profile is yours. */
+      .crow { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto 150px auto; gap: 10px;
+        align-items: center; padding: 6px 10px; border-bottom: 1px solid rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, rgba(34,27,21,0.45), rgba(20,16,12,0.45)); }
+      .crow + .crow { border-top: 1px solid rgba(110,85,51,0.22); }
+      .crow .when { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.08em;
+        font-size: 11.5px; color: var(--ink-faint); }
+      .crow .what { min-width: 0; }
+      .crow .what b { display: block; font-size: 13.5px; color: var(--ink); }
+      .crow .what .sub { font-size: 10.5px; color: var(--ink-faint); }
+      .crow .res { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim);
+        text-align: right; }
+      .crow .res.win { color: var(--verdant); }
+      .crow.unsealed .res, .crow.unsealed .res.win { color: var(--ink-dim); }
+      .crow.unsealed .res::before { content: "claims "; color: var(--ink-faint);
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; }
+      /* A REFUSED run does not get to keep printing its claim in green. */
+      .crow.rejected { background: linear-gradient(90deg, rgba(192,57,47,0.12), rgba(20,16,12,0.45) 55%);
+        box-shadow: inset 2px 0 0 var(--blood); }
+      .crow.rejected .res, .crow.rejected .res.win { color: #e2857a; }
+      .crow .acts { display: flex; gap: 6px; }
+      .crow .acts button { background: var(--raised); border: 1px solid var(--bronze);
+        color: var(--ink-dim); border-radius: 2px; padding: 3px 9px; font: inherit; font-size: 11px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer; }
+      .crow .acts button:hover { border-color: var(--bronze-hi); color: var(--gold-hi); }
+      .crow .acts button:disabled { color: var(--ink-faint); border-style: dashed; cursor: help; opacity: 0.75; }
       /* The entrant gate, said out loud: a board you can help unlock is better
          content than a board you can win alone (3.4). */
       .gate { margin-top: 10px; color: var(--gold); font-size: 12px; font-style: italic;
@@ -1766,18 +2121,63 @@
       #ghost .gsplits i.ahead { background: var(--verdant); }
       #ghost .gsplits i.behind { background: var(--blood); }
       #ghost .gsplits i.now { box-shadow: 0 0 0 1px var(--gold-hi); }
+      /* THE CHIP IS THE COLLAPSED FORM, NOT THE FEATURE. It used to be the
+         whole presentation of the cheapest multiplayer in the design, at
+         11-25px in a 150px dark box. It reads as a race now: the title is the
+         rival, and the delta is the biggest number on the rail. */
+      #ghost .gdelta { font-size: 30px; }
+      #ghost.racing { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(242,193,78,0.14),
+        0 4px 18px rgba(0,0,0,0.55); }
+
+      /* THE GHOST'S NAMEPLATE. The body renders at 45% opacity, desaturated
+         cold, with no shadow — in capture it was genuinely hard to tell from a
+         lighting artifact, and the only other cue was a 3.4px dashed ring on
+         the minimap. A rival you cannot identify is not a rival. */
+      #ghostplate { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
+      #ghostplate.on { display: block; }
+      #ghostplate .gp { position: absolute; transform: translate(-50%, -100%);
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
+        font-size: 11.5px; white-space: nowrap; color: #cfe0f2;
+        text-shadow: 0 1px 3px #000, 0 0 12px rgba(120,170,220,0.5);
+        padding: 1px 8px; border-radius: 2px;
+        background: rgba(10,14,26,0.55); border: 1px solid rgba(140,180,225,0.4); }
+      #ghostplate .gp::after { content: ""; position: absolute; left: 50%; top: 100%;
+        width: 1px; height: 13px; transform: translateX(-50%);
+        background: linear-gradient(180deg, rgba(140,180,225,0.7), rgba(140,180,225,0)); }
+      body.cine #ghostplate, body.modal #ghostplate { opacity: 0; }
 
       /* ============ CONSENT (COMPETITIVE.md 8.1) ============
          One card, the first time a run is offered to a board. Defaulting to
          public is fine; defaulting SILENTLY to public is not. */
-      #consent { position: fixed; inset: 0; z-index: 28; display: none; align-items: center;
-        justify-content: center; background: rgba(4,4,8,0.88); }
-      #consent.on { display: flex; }
+      /* IT DOES NOT COVER THE VERDICT. It shipped as a z28 modal with a 0.88
+         scrim over the z27 verdict, so the grade, the named death, the ladder
+         line and the buttons were dimmed to unreadable while a privacy
+         question was asked — at exactly the ten seconds the player wants to
+         press R. It is a DOCKED CARD now: bottom of the screen, no scrim,
+         nothing behind it obscured, and the verdict stays readable and
+         clickable underneath. */
+      #consent { position: fixed; left: 0; right: 0; bottom: 0; z-index: 28; display: none;
+        justify-content: center; padding: 0 14px 16px; pointer-events: none; }
+      #consent.on { display: flex; animation: consent-in 0.4s cubic-bezier(0.16,0.86,0.24,1) both; }
+      @keyframes consent-in { from { opacity: 0; transform: translateY(26px); } }
+      @media (prefers-reduced-motion: reduce) { #consent.on { animation: none; } }
+      #consent .card { pointer-events: auto; }
+      /* ...and the verdict makes room for it rather than being covered by it:
+         the panel is flex-centred, so bottom padding lifts it clear of the
+         docked card and the buttons stay reachable while the question is
+         open. */
+      #recap { transition: padding-bottom 0.35s ease; }
+      #recap.consenting { padding-bottom: 236px; }
+      /* ...and the panel shrinks to fit the space it has left, so a tall
+         verdict scrolls inside its own frame instead of losing its headline
+         off the top of the viewport. */
+      #recap.consenting .panel { max-height: calc(100vh - 260px); }
 
-      #consent .card { width: min(660px, 94vw); background: var(--stone);
+      #consent .card { width: min(760px, 96vw); background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 120px);
-        border: 1px solid var(--bronze); border-radius: 3px; padding: 22px 26px 20px;
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.75); }
+        border: 1px solid var(--gold); border-radius: 3px; padding: 15px 22px 16px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 -10px 50px rgba(0,0,0,0.75),
+          0 0 0 1px rgba(242,193,78,0.14); }
 
       #consent .kicker { text-align: center; color: var(--gold); font-size: 10px;
         letter-spacing: 0.4em; font-family: var(--display); font-variant: small-caps; }
@@ -3059,11 +3459,21 @@
       /* Panel motion: fast scale/fade on open (a display flip restarts the
          animation, so no JS is needed); .closing mirrors it — the host adds
          the class and hides the overlay ~130ms later. */
-      #inv, #abil, #sheet, #keys, #recap, #saferoom, #draft, #menu {
+      /* #recap is DELIBERATELY NOT IN THIS LIST. The verdict is the screen a
+         player sees more than any other in the product, and a 160ms dialog
+         fade is the treatment this game gives the keybinds panel. Its reveal
+         is authored beat by beat further down (search: THE REVEAL). */
+      #inv, #abil, #sheet, #keys, #saferoom, #draft, #menu, #ladder.on, #career.on {
         animation: overlay-in 0.14s ease-out; }
-      #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
+      #inv .panel, #abil .panel, #sheet .panel, #keys .panel,
       #saferoom .panel, #draft .panel, #menu .panel {
         animation: panel-in 0.16s cubic-bezier(0.2, 0.9, 0.25, 1); }
+      /* THE STANDINGS and THE CRAWLER are the only overlays in the game that
+         used to blink into existence: they are not dialogs, so they were in
+         nobody's selector list. A ranked surface arriving with no motion at
+         all reads as an admin report, which is exactly what the audit said. */
+      #ladder.on .set-frame, #career.on .set-frame {
+        animation: panel-in 0.22s cubic-bezier(0.2, 0.9, 0.25, 1); }
       .closing { animation: overlay-out 0.13s ease-in forwards; }
       .closing .panel { animation: panel-out 0.13s ease-in forwards; }
       @keyframes overlay-in { from { opacity: 0; } }
@@ -3071,9 +3481,10 @@
       @keyframes panel-in { from { opacity: 0; transform: scale(0.96) translateY(8px); } }
       @keyframes panel-out { to { opacity: 0; transform: scale(0.97); } }
       @media (prefers-reduced-motion: reduce) {
-        #inv, #abil, #sheet, #keys, #recap, #saferoom, #draft, #menu,
-        #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #recap .panel,
+        #inv, #abil, #sheet, #keys, #saferoom, #draft, #menu,
+        #inv .panel, #abil .panel, #sheet .panel, #keys .panel,
         #saferoom .panel, #draft .panel, #menu .panel,
+        #ladder.on, #career.on, #ladder.on .set-frame, #career.on .set-frame,
         .closing, .closing .panel, .skill.flash .flashfx { animation: none; }
         .closing { opacity: 0; }
       }
@@ -4065,6 +4476,13 @@
           <span class="kb-key" id="kb-gamepad">ON</span></div>
         <div class="kb-row"><span class="kb-name">Touch controls<small>AUTO shows them on tablets; ON forces them anywhere</small></span>
           <span class="kb-key" id="kb-touch">AUTO</span></div>
+        <!-- 8.1 says the private flag is "toggleable afterwards from your own
+             profile". `dcc:consent:v1` was WRITTEN once and never read outside
+             offerProof: no settings row, no menu entry, no way to change it,
+             and competitiveClient.setPrivate() shipped with zero callers. This
+             is the surface that promise needed. -->
+        <div class="kb-row"><span class="kb-name">Submitting your runs<small>the proof is a 60Hz recording of everything you did — PRIVATE still ranks, it is just never handed out</small></span>
+          <span class="kb-key" id="kb-consent">PUBLIC</span></div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
           3D models by Kay Lousberg (KayKit, CC0) · SFX by Kenney (CC0)</div>
@@ -4336,6 +4754,10 @@
          one earned line, buttons. Everything you argue about is behind TAB. -->
     <div id="recap">
       <div class="panel">
+        <!-- The victory plate. Only drawn on a clear (#recap.won), because the
+             rarest outcome in the game must not be the death screen with
+             different words. -->
+        <div class="vplate"><b>THE FINALE</b><small>THE NETWORK IS BROADCASTING THIS ONE AGAIN</small></div>
         <div class="verdict">
 
           <div class="vgrade">
@@ -4358,22 +4780,47 @@
              moved - including "+0 CP" when the run was a free seed, which is
              information rather than an omission. -->
         <div class="ladderline" id="recap-ladder"></div>
+        <!-- THE SEAL, at the size of what it certifies. The server re-executing
+             a fifteen-minute run is the one thing League cannot copy; it used
+             to be a 10.5px caption at the end of a table row. -->
+        <div class="vseal" id="recap-seal"></div>
         <div class="earned">
           <button class="eline" id="recap-earned">what you earned<span class="caret">▾</span></button>
-          <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
+        <!-- Beat 6, in the order and the prominence the design specifies: one
+             CTA, two alternatives, and the housekeeping as text links. -->
         <div class="rfoot">
-          <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
-          <button class="dismiss" id="recap-new">NEW CONTRACT</button>
-          <button class="dismiss" id="recap-race">RACE THE LEADER</button>
-          <button class="dismiss" id="recap-share">SHARE</button>
-          <button class="dismiss" id="recap-standings">STANDINGS</button>
-          <button class="dismiss" id="recap-card">SAVE CARD</button>
-          <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
+          <button class="primary" id="recap-again">
+            <b>RUN IT BACK <kbd>R</kbd></b><small id="recap-again-sub">same seed · your own ghost on the course</small>
+          </button>
+          <button class="alt" id="recap-new"><b>NEW CONTRACT</b><small>a dungeon nobody has seen</small></button>
+          <button class="alt" id="recap-race"><b>RACE THE LEADER</b><small>today's #1 as your ghost</small></button>
+          <div class="rminor">
+            <button id="recap-share">SHARE THIS RUN</button>
+            <button id="recap-standings">STANDINGS</button>
+            <button id="recap-dismiss">WATCH THE ARENA</button>
+          </div>
           <span class="note" id="recap-note"></span>
         </div>
         <div class="rhint">HOLD <kbd>TAB</kbd> — SCOREBOARD, SPLITS AND THE BUILD</div>
+      </div>
+      <!-- SHARE shipped as a clipboard write whose only feedback was the button
+           label flipping for 1.6s: no preview, no card, no confirmation of what
+           a recipient would see, and two share paths that never combined. This
+           is both of them, in one place, showing the artifact first. -->
+      <div id="sharesheet">
+        <div class="card">
+          <div class="kicker">◆ WHAT THEY WILL SEE ◆</div>
+          <canvas id="share-preview" width="1200" height="630"></canvas>
+          <div class="slink" id="share-link"></div>
+          <div class="snote" id="share-note"></div>
+          <div class="sbtns">
+            <button class="primary" id="share-copy">COPY THE CHALLENGE LINK</button>
+            <button id="share-save">SAVE THE CARD</button>
+            <button id="share-close">CLOSE</button>
+          </div>
+        </div>
       </div>
 
       <div id="recap-tab">
@@ -4388,9 +4835,11 @@
               <table class="scorebd" id="recap-scoreboard"></table>
               <div class="rsec">THE SPLITS</div>
               <div id="recap-splits"></div>
-              <div class="splitkey">
-                <i class="pbk">|</i> your personal best · <i class="leadk">|</i> the board leader
-              </div>
+              <!-- The legend is BUILT FROM THE MARKS THAT WERE ACTUALLY DRAWN
+                   (see splitsHtml). It used to be static markup advertising a
+                   board-leader mark that `leaderTicks: null` guaranteed could
+                   never appear. -->
+              <div class="splitkey" id="recap-splitkey"></div>
             </div>
             <div>
               <div class="rsec">FINAL STATS</div>
@@ -4558,6 +5007,7 @@
         </div>
         <div id="ladder-body"></div>
       </div>
+      <div class="morebelow" id="ladder-more"><i>MORE BELOW</i></div>
     </div>
     <!-- THE CRAWLER (COMPETITIVE.md 5.2): the career worth staring at. -->
     <div id="career">
@@ -4568,6 +5018,7 @@
         <div class="set-sub" id="career-sub"></div>
         <div id="career-body"></div>
       </div>
+      <div class="morebelow" id="career-more"><i>MORE BELOW</i></div>
     </div>
     <!-- CONSENT (COMPETITIVE.md 8.1): once, before the first submit ever. -->
     <div id="consent">

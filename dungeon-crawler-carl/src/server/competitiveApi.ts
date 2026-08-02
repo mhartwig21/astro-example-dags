@@ -538,6 +538,20 @@ export class CompetitiveApi {
       // owner, never served as a ghost, never offered as RACE THE LEADER.
       if (run.private && !owner) { this.json(res, 404, { error: "not found" }); return true; }
       if (q.get("proof") === "1") {
+        // A RUN THE SERVER REFUSED IS NOT A GHOST. The proof was served with
+        // no state check at all, so a challenge link built from a `claimed` or
+        // `rejected` run handed a stranger a raceable rival the server had
+        // explicitly declined to certify - and 2.6f's whole point is that the
+        // refusal is STATED. The owner can still pull their own artifact back.
+        if (run.state !== "verified" && !owner) {
+          this.json(res, 409, {
+            error: run.state === "rejected"
+              ? "REFUSED ON VERIFICATION - the replay did not produce the claimed run, so it is not raceable"
+              : "UNPROVEN - only runs the server re-executed are handed out as ghosts",
+            rulesHash: run.rulesHash, playable: false,
+          });
+          return true;
+        }
         const proof = run.proofId ? this.store.getProof(run.proofId) : null;
         if (!proof) {
           this.json(res, 410, {

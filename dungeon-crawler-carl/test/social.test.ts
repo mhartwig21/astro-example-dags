@@ -8,8 +8,8 @@
 import { describe, expect, it } from "vitest";
 import {
   bandSplitsFrom, decodeChallenge, deathContext, deathHeadline, deathName,
-  encodeChallenge, ghostAt, gradeRun, letterFor, masteryLevel, milestonesFrom,
-  playability, sealChip, signedTime, splitDelta, worstBand,
+  encodeChallenge, ghostAt, gradeRun, leaderSplits, letterFor, masteryLevel, milestonesFrom,
+  playability, sealChip, signedTime, splitDelta, verdictSeal, worstBand,
   type BoardRun, type GhostState, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
@@ -87,6 +87,44 @@ describe("the grade (COMPETITIVE.md 6.2 Beat 1)", () => {
     expect(["S", "A"]).toContain(g.letter);
   });
 
+  it("...but the letter still SAYS something: a scrappy clear is not an S", () => {
+    // The old floor was `score = max(score, 76)`, which pinned EVERY clear to
+    // exactly A - so the biggest glyph on the screen carried no information on
+    // the one result that matters most. A clear now spends the top of the
+    // scale, and has to earn the top of it.
+    const scrappy = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 5400, kills: 30, damageTaken: 12000, floorsCleared: 18,
+        draftsClaimed: 0, draftsOffered: 8 }),
+      history(20), null, 100,
+    );
+    const dominant = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 900, kills: 900, damageTaken: 200, floorsCleared: 18,
+        draftsClaimed: 9, draftsOffered: 9 }),
+      history(20), null, 100,
+    );
+    expect(scrappy.score).toBeGreaterThanOrEqual(76); // still never worse than A
+    expect(dominant.score).toBeGreaterThan(scrappy.score);
+    expect(dominant.letter).toBe("S");
+    expect(scrappy.letter).toBe("A");
+  });
+
+  it("a HANDED depth scores the meter, not just the caption (test chamber)", () => {
+    // The tile's DETAIL string used to be rewritten to "started here, not
+    // walked" while its SCORE stayed at 100, so a gold 100/100 DEPTH meter sat
+    // forty pixels above a red TEST CHAMBER - NOT RANKED banner. Two elements
+    // asserting opposite things about the same number, on a grade the design
+    // calls auditable.
+    const handed = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 8, floorsCleared: 0, startedAtDepth: true }),
+      history(30), null, 100,
+    );
+    const depth = handed.parts.find((p) => p.key === "DEPTH")!;
+    expect(depth.detail).toContain("started here, not walked");
+    expect(depth.score).toBeLessThan(20);
+    // ...and a handed clear does not collect the clear's letter either.
+    expect(handed.letter).not.toBe("S");
+  });
+
   it("TEMPO refuses to divide by floors nobody walked (test-chamber start)", () => {
     // Dropped at floor 13 and dead five seconds later: twelve floors were
     // never cleared, so the pace is not 0s per floor - there is no pace.
@@ -150,6 +188,30 @@ describe("splits and ghosts (3.3, 4.1)", () => {
     expect(worstBand([mk(0, 900, null), mk(1, 2000, null)])).toBe(-1);
   });
 
+  it("LOST HERE is measured against the FIELD as well as against yourself", () => {
+    // Beat 4 is "your time per band vs your PB vs the board leader". With
+    // leaderTicks hardcoded null, the worst band could only ever be the one
+    // you had a bad day on - never the one the field walks and you crawl.
+    const rows = [
+      { band: 0, name: "A", ticks: 1000, pbTicks: 950, leaderTicks: 900 },
+      { band: 1, name: "B", ticks: 1400, pbTicks: 1390, leaderTicks: 600 },
+    ];
+    expect(worstBand(rows)).toBe(1); // 800 behind the leader beats 50 behind your PB
+  });
+
+  it("the leader's splits come off a SEALED row in the CURRENT era, or not at all", () => {
+    const splits = [600, 700, 0, 0, 0, 0];
+    // A claim is not a benchmark...
+    expect(leaderSplits([boardRow({ state: "claimed", bandSplits: splits })], "abc1234")
+      .every((t) => t === null)).toBe(true);
+    // ...and neither is a row sealed under numbers this build no longer runs.
+    expect(leaderSplits([boardRow({ rulesEra: "0000000", bandSplits: splits })], "abc1234")
+      .every((t) => t === null)).toBe(true);
+    const ok = leaderSplits([boardRow({ bandSplits: splits })], "abc1234");
+    expect(ok[0]).toBe(600);
+    expect(ok[2]).toBeNull(); // a band the leader never walked is not a zero
+  });
+
   it("a ghost that has finished its run is off the floor, not frozen on it", () => {
     const g: GhostState = {
       label: "RIVAL", ticks: 60,
@@ -183,6 +245,28 @@ describe("seals, eras and what may be raced (2.4, 2.6f)", () => {
     expect(sealChip("claimed", null).label).toBe("CLAIMED");
     expect(playability(boardRow({ state: "claimed" }), "abc1234").ok).toBe(false);
     expect(sealChip("unverifiable", "0000000").title).toContain("keeps whatever it earned");
+  });
+
+  it("the verdict's seal is a BLOCK with a sentence, not a chip with a tooltip", () => {
+    // 6 Beat 5: watching the seal land is "two genuinely satisfying seconds
+    // ... the moment the trust model becomes something the player can feel".
+    // A 10.5px label swap is not a way to say that, and a rejection whose only
+    // explanation lives in a title= attribute is how honest players conclude
+    // the ladder is rigged.
+    const sealed = verdictSeal("verified", "abc1234", false, true);
+    expect(sealed.word).toBe("SEALED");
+    expect(sealed.line).toContain("board position");
+    expect(sealed.line).toContain("abc1234");
+    expect(sealed.terminal).toBe(true);
+    // A certified run that ranks nowhere is true and is not a trophy.
+    expect(verdictSeal("verified", "abc1234", false, false).line).toContain("ranks nowhere");
+    expect(verdictSeal("verified", "abc1234", true, true).word).toContain("PRIVATE");
+    // VERIFYING is the only non-terminal state: it breathes, it never stamps.
+    expect(verdictSeal("verifying", null).terminal).toBe(false);
+    // The refusal, and its reason, on the DEFAULT face.
+    const no = verdictSeal("rejected", null, false, false, "cooling down after a rejected submission");
+    expect(no.word).toBe("REFUSED");
+    expect(no.line).toContain("cooling down");
   });
 });
 
