@@ -2014,7 +2014,12 @@
       @keyframes morebob { 0%, 100% { transform: translateY(0); opacity: 0.65; }
         50% { transform: translateY(3px); opacity: 1; } }
       @media (prefers-reduced-motion: reduce) { .morebelow i { animation: none; opacity: 0.9; } }
-      #ladder.on, #career.on { display: block; }
+      /* `flex` + `margin: auto` on the frame, NOT `align-items: center`: this
+         container still scrolls as the last-resort safety valve, and a flex
+         box that centres with `align-items` makes the top of an overflowing
+         child unreachable. `margin: auto` centres a short document and still
+         scrolls a tall one. */
+      #ladder.on, #career.on { display: flex; }
       /* Switching a tab must not resize the world behind it. RIVALS has one
          card and ALL-TIME has twenty-five rows; without a floor the panel
          breathes in and out by 400px every time you look at another board. */
@@ -2049,18 +2054,68 @@
          border-box also stops the frame overflowing HORIZONTALLY at narrow
          widths, where `width: 100%` plus 54px of chrome exceeded the padded
          container by exactly that much. */
-      #ladder .set-frame, #career .set-frame { min-height: calc(100vh - 36px);
+      /* ...AND IT DOES NOT CLAIM A PAGE IT CANNOT FILL EITHER (round 1). A
+         frame pinned to `100vh - 36px` on every viewport is dead stone by
+         construction the moment the content is shorter than the screen:
+         measured at 2560x1440, CONTRACTS left 764px of it, ALL-TIME 636 and
+         RIVALS 644, under boards that had already ended. The frame now sizes
+         to its content between a FLOOR and the window:
+
+           - the floor (720px, itself capped at the window) is what stops a tab
+             switch resizing the world behind it — CONTRACTS, ALL-TIME, BANDS
+             and RIVALS now land within ~50px of each other instead of the
+             ~400px range an unfloored frame gave;
+           - above the floor it grows with what is in it, and `margin: auto`
+             centres what is left over into the panel's own vignette, which is
+             a backdrop rather than a hole in a document;
+           - and the slack BELOW the floor goes into the content (`.bandgrid`
+             already did this; the boards, the contract posters and the
+             head-to-head ledger now do too), so the last row of a board is the
+             bottom of the frame. */
+      #ladder .set-frame, #career .set-frame {
+        min-height: min(calc(100vh - 36px), max(720px, 58vh));
         display: flex; flex-direction: column; }
       /* ...and the body takes the slack, so the space the frame claims belongs
          to the board rather than sitting under it as dead stone. */
-      #ladder-body, #career-body { flex: 1 1 auto; display: flex; flex-direction: column; }
+      #ladder-body, #career-body { flex: 1 1 auto; display: flex; flex-direction: column;
+        min-height: 0; }
+      /* THE SLACK GOES INTO THE ROWS. A board with four rows on a 1440px-tall
+         screen is four TALLER rows, the way a broadcast standings card works —
+         not four short rows and a void. The cap is what keeps a two-row board
+         from turning each row into a poster. */
+      #ladder-body > .board { flex: 0 1 auto; display: flex; flex-direction: column; min-height: 0; }
+      #ladder-body > .board.fitlist { flex: 1 1 auto; }
+      #ladder-body > .board > .brow { flex: 1 1 auto; max-height: 88px; }
+      /* The contract posters take their share of it too, and the CTA stays
+         welded to the bottom edge however tall the card gets. */
+      #ladder-body > .contracts { flex: 1 1 auto; max-height: 330px; }
+      .contract { display: flex; flex-direction: column; }
+      /* ...id-qualified deliberately: the base `.contract .cgo` rule further
+         down this stylesheet sets `margin-top: 11px`, and at equal specificity
+         it wins on order, which left the CTA floating in the middle of a
+         poster that had grown under it. */
+      #ladder-body .contracts .contract .cgo { margin-top: auto; }
+      /* ...AND A TAB THAT IS ONE CARD MAKES THE CARD THE PAGE. RIVALS before a
+         first pairing is a heading, three lines and a button; measured against
+         the frame it left 409px of empty stone under itself at 1600x900 and
+         453px at 2560x1440 — the emptiest surface in the product, drawn as a
+         hole. The same card centred in the space it was leaving reads as the
+         placard it always was. */
+      #ladder-body > .contract { flex: 1 1 auto; max-height: 300px; justify-content: center; }
+      #ladder-body > .contract .cgo { margin-top: 14px; }
+      /* ...and when even that cannot close the gap, `fitPanel` says so and the
+         frame stops pretending to be a page (see main3d.ts). */
+      #ladder .set-frame.hugs, #career .set-frame.hugs { min-height: 0; }
+      .h2hlist { display: flex; flex-direction: column; }
+      #ladder-body > .h2hlist { flex: 1 1 auto; min-height: 0; }
+      #ladder-body > .h2hlist > .h2hrow { flex: 1 1 auto; max-height: 68px; }
       /* THE FRAME DOES NOT RESIZE UNDER THE CURSOR. `max-width` alone lets the
          frame shrink to its content, so CONTRACTS (~990), BANDS (~1230) and
          RIVALS (~750) each drew a different panel and the whole document
          breathed on every tab click. A fixed width is the only way a tab bar
          reads as tabs on one document rather than four documents. */
       .set-frame { box-sizing: border-box;
-        position: relative; width: min(1180px, 100%); margin: 0 auto; background: var(--stone);
+        position: relative; width: min(1180px, 100%); margin: auto; background: var(--stone);
         background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 210px);
         border: 1px solid var(--bronze); border-radius: 3px; padding: 20px 26px 26px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.7); }
@@ -2296,8 +2351,17 @@
       /* A SPLIT BOARD WITH NO ROWS COLLAPSES (3.4). Six empty headers, each
          with its own subtitle and the word "none", is exactly the "reads as
          abandoned" failure the entrant gate exists to prevent. */
-      .darkbands { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
-      .dband { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
+      /* UNCLAIMED SPLITS fills the same way `.bandgrid` does — it has to, since
+         it is the ONLY thing on a BANDS tab nobody has walked out of yet, and
+         that is exactly the day it left 280-314px of empty stone under six
+         short buttons. */
+      .darkbands { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px;
+        flex: 1 1 auto; align-content: stretch; grid-auto-rows: minmax(min-content, 1fr); }
+      #ladder-body > .darkbands { max-height: 520px; }
+      /* ...and a card that GREW has its text in the middle of it, not pinned to
+         the top with the hole moved inside the card. */
+      .dband { display: flex; flex-direction: column; justify-content: center;
+        width: 100%; text-align: left; cursor: pointer; font: inherit;
         padding: 10px 12px; border: 1px dashed rgba(110,85,51,0.65); border-radius: 3px;
         background: rgba(20,16,12,0.4); color: var(--ink); }
       .dband:hover { border-style: solid; border-color: var(--gold); }
@@ -2381,7 +2445,44 @@
       .rowkey .kriv::before { background: var(--arcane); }
       .rowkey .ktie { margin-left: auto; font-style: italic; }
 
+      /* WHAT THE FIT PASS TOOK, SAID ON THE LIST IT TOOK IT FROM. A shortened
+         list that does not admit it was shortened is a worse lie than the
+         scrollbar the house rule bans (main3d.ts `fitPanel`). */
+      .fitmore { display: block; list-style: none; margin-top: 5px;
+        border-top: 1px dashed rgba(110,85,51,0.5); }
+      .fitmore button { display: block; width: 100%; text-align: left; padding: 4px 10px;
+        font: inherit; font-size: 11px; font-style: italic; color: var(--ink-faint);
+        background: none; border: 0; cursor: pointer; }
+      .fitmore button:hover { color: var(--gold-hi); }
+
       /* ============ THE CRAWLER (COMPETITIVE.md 5.2) ============ */
+      /* THREE COLUMNS, BECAUSE THE PANEL HAS WIDTH AND DOES NOT HAVE HEIGHT
+         (round 1). Measured before: 1462px of career inside an 864px frame at
+         1600x900, which cut a ledger row through its own baseline and drew
+         MORE BELOW across a milestone. Nothing was cut to fix it — THE SEALED
+         RECORD / THIS BROWSER'S LEDGER split and the 18-bar histogram are the
+         best things on the surface and both survive intact; the lower half is
+         simply laid out across the 1180px the frame already owns.
+         `align-content: start` keeps the columns top-aligned so three lists of
+         different lengths still read as one document. */
+      .ccols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px 26px; margin-top: 18px; align-items: start; }
+      .ccol { min-width: 0; }
+      /* YOUR LAST RUNS rides in the third column beside MILESTONES, and a
+         five-track grid does not fit 360px. Same fields, same order, wrapped
+         onto two lines: what happened, then when / how it was sealed / the
+         result / RACE. Nothing is dropped — the full-width row is still what
+         THE STANDINGS draws, where there is width for it. */
+      .ccol .crow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px;
+        padding: 6px 8px; }
+      .ccol .crow .what { flex: 1 1 100%; order: 1; }
+      .ccol .crow .when { order: 2; }
+      .ccol .crow .seal { order: 3; }
+      .ccol .crow .res { order: 4; margin-left: auto; text-align: right; }
+      .ccol .crow .acts { order: 5; }
+      @media (max-width: 1080px) { .ccols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 720px) { .ccols { grid-template-columns: minmax(0, 1fr); } }
+      .crecent { margin-top: 4px; }
       /* TWO LEDGERS, TWO HEADINGS. THE NUMBERS interleaved a server ledger and
          a localStorage one row by row with no attribution, so a signed-in
          account in a fresh browser read "RUNS FINISHED 0 · ESCAPES 0" directly
@@ -2470,6 +2571,54 @@
       .mstone .mtitle { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
         font-size: 13px; color: var(--gold-hi); }
       .mstone .mdetail { color: var(--ink-dim); font-size: 12px; }
+
+      /* ---- SHORT VIEWPORTS PAY OUT OF THE CHROME, NOT OUT OF THE CONTENT ----
+         Same stance the verdict already takes at `max-height: 830px`: on a
+         1366x768 laptop the competitive screens come down a notch rather than
+         going behind a scroll. Everything here is padding, leading and rule
+         weight; nothing here is a number, a row or a bar. */
+      @media (max-height: 900px) {
+        #ladder, #career { padding: 12px; }
+        #ladder .set-frame, #career .set-frame {
+          min-height: min(calc(100vh - 24px), max(720px, 58vh));
+          padding: 12px 22px 16px; }
+        .set-frame > h2 { font-size: 22px; margin: 4px 0 1px; }
+        .set-sub { font-size: 11.5px; margin-bottom: 9px; }
+        .settabs { margin: 2px 0 10px; }
+        .settab { font-size: 12.5px; padding: 4px 2px 6px; }
+        .rowkey { margin: 2px 0 8px; }
+        .brow { padding: 3px 10px; }
+        .gate { margin-top: 7px; padding: 6px 11px; }
+        .contract { padding: 10px 14px 11px; }
+        .contract h3 { font-size: 18px; margin: 2px 0 4px; }
+        .contract .cgo { padding: 7px 0; }
+        .cheadline { padding-bottom: 9px; }
+        .ctier { padding: 7px 16px; }
+        .cname { font-size: 22px; }
+        .histo { height: 84px; }
+        .ccols { gap: 12px 24px; margin-top: 12px; }
+        #career .ledger td { padding: 3px 0; }
+        .lgroup + .lgroup { margin-top: 11px; }
+        #career .mrow { padding: 4px 0; }
+        .ccol .splitrow { padding: 3px 0; }
+        .mstone { padding-top: 1px; padding-bottom: 1px; }
+      }
+      @media (max-height: 800px) {
+        #ladder .set-frame, #career .set-frame { padding: 9px 20px 12px; }
+        .set-frame > .kicker { font-size: 10px; }
+        .set-frame > h2 { font-size: 19px; }
+        .set-sub { margin-bottom: 6px; }
+        .histo { height: 68px; }
+        #career .ledger td { font-size: 12px; padding: 2px 0; }
+        #career .lgnote, #career .cnamesub { line-height: 1.35; font-size: 11px; }
+        .ccol .splitrow { padding: 2px 0; }
+        #career .mrow { padding: 3px 0; }
+        .ccol .crow { padding: 4px 8px; }
+        .cheadline { padding-bottom: 7px; }
+        .ctier { padding: 5px 14px; }
+        .cname { font-size: 20px; }
+        .cseals b { font-size: 22px; }
+      }
 
       /* ============ THE GHOST (COMPETITIVE.md 4.1) ============
          In-run rail chip, under the party roster zone. GLASS, not stone: it is
