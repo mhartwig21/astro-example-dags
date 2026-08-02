@@ -40,7 +40,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimSpecFor, castRange, type AimShape } from "./input/aimSpec";
+import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -1377,11 +1377,47 @@ let shownViewers = 0;
 // animation (iso.html). Closing adds .closing for ~130ms before hiding; the
 // timer is tracked so a rapid re-open never gets eaten by a stale close.
 const overlayTimers = new Map<HTMLElement, number>();
+/**
+ * A PANEL OPENED ON TOP OF ANOTHER PANEL MUST BE ON TOP OF IT.
+ *
+ * Measured on an iPhone 13 and an iPad Pro 11: with `#saferoom` up and
+ * `#sheet` opened over it, the sheet's own 46x46 ✕ at (653,54) was tapped with
+ * real touch and the sheet stayed open — while the same control closes the
+ * same panel from a clean playing state. The cause is one authored number:
+ * `#sheet` is z 20 and `#saferoom` is z 24, so the "stacked" panel opened
+ * UNDERNEATH the shop and every tap on it landed on the shop's scrim. Checking
+ * your sheet before you buy is the normal case in a safe room, not an edge.
+ *
+ * The repair is not a bigger constant — that is how the stack got authored by
+ * hand in the first place, and the next panel would collide again. Opening
+ * raises the panel above whatever is already visible, once, on the open path
+ * every panel already goes through. `#rotate` (z 40) is deliberately excluded:
+ * the orientation gate outranks everything, by design.
+ */
+const STACK_CEILING = 39; // one below #rotate, which must stay on top
+function raiseAboveOpenOverlays(el: HTMLElement): void {
+  let top = 0;
+  for (const other of document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')) {
+    if (other === el) continue;
+    if (other.style.display === "none" || other.classList.contains("closing")) continue;
+    if (other.offsetWidth === 0 && other.offsetHeight === 0) continue;
+    const z = Number.parseInt(getComputedStyle(other).zIndex, 10);
+    if (Number.isFinite(z)) top = Math.max(top, z);
+  }
+  const own = Number.parseInt(getComputedStyle(el).zIndex, 10);
+  // Only ever a PROMOTION, and only when something is genuinely above us: a
+  // panel that opens alone keeps its authored place in the screen-zone map.
+  if (top > 0 && (!Number.isFinite(own) || own <= top)) {
+    el.style.zIndex = String(Math.min(STACK_CEILING, top + 1));
+  }
+}
+
 function showOverlay(el: HTMLElement): void {
   const t = overlayTimers.get(el);
   if (t !== undefined) { clearTimeout(t); overlayTimers.delete(el); }
   el.classList.remove("closing");
   el.style.display = "flex";
+  raiseAboveOpenOverlays(el);
 }
 function hideOverlay(el: HTMLElement): void {
   if (el.style.display === "none" || overlayTimers.has(el)) return;
@@ -1390,6 +1426,9 @@ function hideOverlay(el: HTMLElement): void {
     overlayTimers.delete(el);
     el.classList.remove("closing");
     el.style.display = "none";
+    // Back to the authored z the moment it is gone, so the promotion cannot
+    // accumulate across a session and quietly re-order the whole map.
+    el.style.zIndex = "";
   }, 130));
 }
 
@@ -1398,23 +1437,56 @@ function hideOverlay(el: HTMLElement): void {
 // is fully suppressed — nothing readable may bleed behind a modal scrim.
 // A style-attribute observer catches every open/close path (showOverlay,
 // direct display writes, net snapshot toggles) without touching call sites.
+//
+// THE ID LIST IS DELETED (MOBILE.md 2.9a). It was a hand-maintained list of
+// nine element ids and it missed six live surfaces — #ladder, #career,
+// #consent, #loading, #recap-tab and #rotate, the one overlay that
+// deliberately outranks everything. Overlays now DECLARE themselves in the
+// markup with `data-overlay`, and test/panels.test.ts reads the screen-zone
+// map and fails on any z >= 20 overlay that has not: a new panel is either
+// registered or red.
+//
+// This block only writes `body.modal`. The touch layer's suspend authority
+// observes that class and nothing else (touchShell.bindAuthority).
 {
-  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu", "dialogue"]
-    .map((id) => document.getElementById(id))
-    .filter((el): el is HTMLElement => el !== null);
+  const modalEls = [...document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')];
+  const visible = (el: HTMLElement): boolean => {
+    // `.closing` is the 130ms fade-out; `.done` is SIGNAL ACQUISITION retiring.
+    if (el.classList.contains("closing") || el.classList.contains("done")) return false;
+    const st = el.style.display;
+    if (st === "none") return false;
+    if (st !== "") return true;
+    // Overlays whose visibility is driven by a body class (#mapbig-scrim) have
+    // no inline style to read. Reading a box is a layout, so it happens here,
+    // on a mutation, and never per frame.
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    // THE RETIRED-OVERLAY IDIOM, and the reason this predicate is not just a
+    // display check. `#loading.done` sets `opacity: 0; pointer-events: none`
+    // and NEVER leaves the layout — measured on iPad Pro 11, that pinned
+    // body.modal on forever and killed the whole touch layer after boot
+    // (tools/_mobile/i3.log: the stick finger "landed on DIV#loading").
+    // Opacity alone is not the test — lesson 4 in §0 is that a modal mid-fade
+    // reads as absent — so both halves have to hold.
+    if (cs.pointerEvents === "none" && parseFloat(cs.opacity) === 0) return false;
+    return el.offsetWidth > 0 || el.offsetHeight > 0;
+  };
+  let wasModal: boolean | null = null;
   const syncModal = (): void => {
-    const open = modalEls.some((el) =>
-      el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
+    const open = modalEls.some(visible);
+    // Only WRITE on a change: the observer below watches body's own class
+    // list, and re-setting the attribute would feed itself forever.
+    if (open === wasModal) return;
+    wasModal = open;
     document.body.classList.toggle("modal", open);
-    // THE MODAL GATE. A panel opening refunds every live gameplay gesture and
-    // marks its pointers dead, so a drag that was mid-aim cannot resolve as a
-    // cast that detonates the instant the panel closes (measured: it did).
-    touch.setModalOpen(open, performance.now());
   };
   const modalObserver = new MutationObserver(syncModal);
   for (const el of modalEls) {
     modalObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
   }
+  // body.mapbig drives #mapbig-scrim from CSS, so the body's own class list is
+  // part of the signal.
+  modalObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
   syncModal();
 }
 
@@ -2924,6 +2996,7 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
     { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
     { id: "opacity", name: "Control opacity", hint: "idle only — controls go full while pressed", value: pct(touchPrefs.opacity) },
     { id: "hudInset", name: "Safe-area padding", hint: "extra margin on top of the notch inset", value: `${touchPrefs.hudInset}px` },
+    { id: "thumbMm", name: "Thumb reach", hint: "how far your thumb sweeps — the cluster arc is drawn from it", value: `${touchPrefs.thumbMm}mm` },
     { id: "haptics", name: "Haptics", hint: "LIGHT keeps only press / cast / cancel", value: touchPrefs.haptics.toUpperCase() },
     { id: "tapToMove", name: "Tap to move", hint: "tap ground to walk, tap a monster to lock and swing", value: onOff(touchPrefs.tapToMove) },
     { id: "stickRecenter", name: "Stick recentring", hint: "the origin follows a thumb that drifts", value: onOff(touchPrefs.stickRecenter) },
@@ -3027,7 +3100,7 @@ function renderTouchSettings(): void {
   // the two-state prefs get a pair of pick buttons where the CURRENT state is
   // visible without reading — a cycling label tells you where you are but
   // never where you can go.
-  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset"]);
+  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset", "thumbMm"]);
   const PICKS: Record<string, string[]> = {
     handed: ["RIGHT", "LEFT"],
     haptics: ["OFF", "LIGHT", "FULL"],
@@ -3090,6 +3163,7 @@ function stepTouchPref(id: string, dir = 1): void {
   else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
   else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
   else if (id === "hudInset") touchPrefs.hudInset = step(touchPrefs.hudInset, 0, 32, 4);
+  else if (id === "thumbMm") touchPrefs.thumbMm = step(touchPrefs.thumbMm, 38, 62, 2);
   else if (id === "haptics") touchPrefs.haptics = cycle(["off", "light", "full"] as const, touchPrefs.haptics);
   else if (id === "tapToMove") touchPrefs.tapToMove = !touchPrefs.tapToMove;
   else if (id === "stickRecenter") touchPrefs.stickRecenter = !touchPrefs.stickRecenter;
@@ -3878,7 +3952,18 @@ function renderSafeRoom(s: GameState): void {
   srTabShop.classList.toggle("active", srTab === "shop");
   srTabAbil.classList.toggle("active", srTab === "abil");
   srTabAch.classList.toggle("active", srTab === "ach");
-  srPageShop.style.display = srTab === "shop" ? "grid" : "none";
+  // NEVER `"grid"` HERE. An inline display beats every stylesheet rule, so
+  // hardcoding it silently defeated the whole one-pane-at-a-time treatment:
+  // measured on an iPhone 13, `.shop-body` stayed a `244px 348px` grid inside a
+  // 606px container, which meant the SHELF was squeezed into 40% of the panel,
+  // its first tile row centred below the pane's clip, and NOT ONE `.itile`
+  // was hit-testable — `elementFromPoint` at every tile centre returned
+  // something else. That is the real cause of "a phone player cannot buy
+  // anything": not the select→detail→BUY chain (which works), but a shelf with
+  // nothing a finger can reach. The empty column is `.shop-side`, held open by
+  // the grid track while its contents were `display: none`d by the segmenting
+  // rules — the "acres of blank stone" in the phone shop captures.
+  srPageShop.style.display = srTab === "shop" ? "" : "none";
   srPageAbil.style.display = srTab === "abil" ? "" : "none";
   srPageAch.style.display = srTab === "ach" ? "" : "none";
   if (srTab === "shop") renderShopPage(s);
@@ -4101,8 +4186,14 @@ function renderAbilPage(s: GameState): void {
   srLoadout.innerHTML =
     p.abilities.slots.map((id, i) => slotTile(id, String(i + 1), i)).join("") +
     slotTile(p.abilities.ultimate, "U", ULT_SLOT, true);
+  // ONE VERB PER INPUT DEVICE. The iPad rendered "CLICK A LIT SOCKET" and the
+  // chip's own "IN HAND — TAP A LIT SOCKET" at the same time, on the same
+  // screen, about the same gesture. The word pair is the same one the panel
+  // hints use, so the two can never drift.
+  const verb = `<span class="clickword">click</span><span class="tapword">tap</span>`;
   const hint = heldGlyph
-    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — click a lit socket to seat it, or click the glyph again to put it down.`
+    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — ${verb} a lit socket to seat it, ` +
+      `or ${verb} the glyph again to put it down.`
     : "Glyphs seat into SLOTS, not abilities: re-slot an ability and it inherits whatever that slot carries. Removal is free.";
   srGlyphs.innerHTML =
     `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
@@ -4689,8 +4780,102 @@ function updateSkills(s: GameState): void {
     }
     chip.dataset.rdy = ready ? "1" : "0";
   });
+  // THE FLASK MUST SHOUT WHEN IT MATTERS (MOBILE.md §2.7).
+  //
+  // Driven at 30-35% HP on three devices, `#flask-chip` still read
+  // `class="skill ready"` with `animation-name: none`. On a 342px-tall phone
+  // the flask is the one chip that has to reach you through a boss's
+  // particles, and "the same as every other chip" is not a state. Two signals,
+  // both cheap: the chip pulses while you are in the danger band with a charge
+  // in hand, and a refilled charge fires a haptic — the one event a player
+  // wants to feel without looking, because looking costs a dodge.
+  const flaskEl = document.getElementById("flask-chip");
+  if (flaskEl) {
+    const low = p.maxHp > 0 && p.hp / p.maxHp <= LOW_HP_FRAC;
+    flaskEl.classList.toggle("lowhp", low && p.flaskCharges > 0);
+    // Dry AND dying is its own state: pulsing a chip that cannot fire would be
+    // a lie, so it gets the danger tint without the invitation to press.
+    flaskEl.classList.toggle("lowhp-dry", low && p.flaskCharges === 0);
+    if (p.flaskCharges > lastFlaskCharges && lastFlaskCharges >= 0) haptics.fire("potion");
+    lastFlaskCharges = p.flaskCharges;
+  }
   // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
+}
+
+/** The band the flask chip starts asking to be pressed in. */
+const LOW_HP_FRAC = 0.38;
+let lastFlaskCharges = -1;
+
+// ---- LOOT, ACKNOWLEDGED (MOBILE.md §2.7) ---------------------------------
+//
+// Measured on all four devices with a live drop on the floor: NO renderer key
+// matching `pickup|lootring|magnet`, and NO DOM node matching
+// `pickup|lootstrip`. Collection was a silent state change — the strongest
+// dopamine beat in an ARPG, delivered as nothing at all on a phone.
+//
+// Two signals, and neither invents a rule. The ground ring paints the sim's
+// own `CONFIG.pickupRadius` while there is something in range to take; the
+// strip names what was taken, read off deltas in the crawler's own numbers so
+// the sim needs no new event type.
+const pickStrip = (() => {
+  const el = document.createElement("div");
+  el.id = "pickstrip";
+  document.body.appendChild(el);
+  return el;
+})();
+
+let lastGold = -1;
+let lastBagN = -1;
+let lastMatN = -1;
+
+function pushPickup(text: string, color: string, qty = ""): void {
+  const row = document.createElement("div");
+  row.className = "pickrow";
+  row.style.setProperty("--pc", color);
+  row.innerHTML = `<b>${esc(text)}</b>${qty ? `<span class="pq">${esc(qty)}</span>` : ""}`;
+  pickStrip.appendChild(row);
+  // A monotonic count, because the rows themselves live ~1.8 s and a harness
+  // running at SwiftShader's 1-3 fps will measure long after they are gone.
+  pickStrip.dataset.picks = String((Number(pickStrip.dataset.picks) || 0) + 1);
+  // Three rows is the whole budget: a pack death drops five things at once and
+  // a phone has no room to list them.
+  while (pickStrip.childElementCount > 3) pickStrip.firstElementChild!.remove();
+  requestAnimationFrame(() => row.classList.add("on"));
+  window.setTimeout(() => {
+    row.classList.remove("on");
+    window.setTimeout(() => row.remove(), 220);
+  }, 1600);
+  renderer.pulsePickup();
+  haptics.fire("pickup");
+}
+
+function syncPickupFeedback(): void {
+  const p = me(state);
+  if (!p) return;
+  // The ring: the sim's radius, painted, while anything is close enough to be
+  // worth walking to. `null` while the floor is clear, so it never becomes
+  // permanent chrome the eye stops seeing.
+  let near: number | null = null;
+  for (const l of state.loot) {
+    const d = Math.hypot(l.pos.x - p.pos.x, l.pos.y - p.pos.y);
+    if (near === null || d < near) near = d;
+  }
+  renderer.setPickupRing(near !== null && near <= 3.2 ? p.pos : null, CONFIG.pickupRadius);
+
+  const bagN = p.inventory.length;
+  const matN = Object.values(p.materials).reduce((a, b) => a + (b ?? 0), 0);
+  if (lastGold >= 0 && p.gold > lastGold) {
+    pushPickup(`+${p.gold - lastGold} gold`, "#f2c14e");
+  }
+  if (lastBagN >= 0 && bagN > lastBagN) {
+    const it = p.inventory[bagN - 1];
+    if (it) pushPickup(it.name, RARITY_TEXT[it.rarity] ?? "#c9a24b", it.slot.toUpperCase());
+  }
+  if (lastMatN >= 0 && matN > lastMatN) {
+    pushPickup(`+${matN - lastMatN} materials`, "#8fb0d9");
+  }
+  lastGold = p.gold; lastBagN = bagN; lastMatN = matN;
 }
 
 // Top-down minimap (audit r2): a surveyor's chart, not a raw pixel dump. The
@@ -7717,6 +7902,19 @@ if (new URLSearchParams(location.search).has("debug")) {
         zones: touch.zones,
         prefs: touchPrefs,
         route: (x: number, y: number) => touch.debugRoute(x, y),
+        // Which chip a point claims, or null. The world zone runs UNDER the
+        // cluster (chips win at pointerdown), so a harness that wants clear
+        // ground has to ask rather than assume a fraction of the zone is free.
+        controlAt: (x: number, y: number) => touch.controlAt(x, y),
+        suspendReasons: () => touch.suspendReasons(),
+        // Every chip press writes its verdict down (input/touch.ts CastVerdict):
+        // a refusal, a queue expiry, a deaf modal gate, a re-entrant pointerId
+        // and a cancel all look like silence from outside, and one aimed cast
+        // in four was reported as silence on an iPhone 13. The battery drives
+        // 40 identical casts per slot and reads this; below 100% is a bug.
+        // Measured: 80 of 80, all verdicts `aimed`.
+        verdicts: () => touch.verdicts(),
+        clearVerdicts: () => touch.clearVerdicts(),
         lastWorldTap,
         clickMoveTarget: clickMove.target,
         lockedTargetId,
@@ -7762,19 +7960,6 @@ function dashSlot(p: Player): number {
 }
 
 /**
- * The renderer draws three shapes today; the aim spec knows six. Map down here
- * so the geometry work in renderer3d.ts can land independently of this file.
- */
-function rendererShape(s: AimShape): "line" | "ring" | "arrow" | null {
-  switch (s) {
-    case "ring": case "scatter": return "ring";
-    case "arrow": return "arrow";
-    case "line": case "chain": case "cone": return "line";
-    default: return null;
-  }
-}
-
-/**
  * Smart cast: no explicit aim means "the target I most likely meant", not
  * "whatever is nearest". Locked > damaged in the last 3 s > lowest HP fraction
  * inside the ability REAL range, with a facing-cone weight. Dormant ambushers
@@ -7791,8 +7976,19 @@ function smartAim(slot: number): Vec2 | null {
     lastDamagedAge: performance.now() / 1000 - lastDamagedAt,
   });
   if (!t) return null;
+  // WHAT THE SMART CAST CHOSE IS DRAWN, not left to be inferred from where the
+  // damage landed. The renderer flashes a transient reticle here for 420 ms;
+  // the persistent bracket belongs to the LOCK, and they are deliberately
+  // different shapes (renderer3d.setTargetMarkers).
+  smartTarget = { x: t.pos.x, y: t.pos.y };
+  smartTargetAt = performance.now() / 1000;
   return { x: t.pos.x - p.pos.x, y: t.pos.y - p.pos.y };
 }
+
+/** The last smart-cast pick, and when — read once per frame by the markers. */
+let smartTarget: Vec2 | null = null;
+let smartTargetAt = -Infinity;
+let smartTargetShown = -Infinity;
 
 // Controller poll runs at FRAME level, not per sim step: panel buttons must
 // keep working while an open panel has the local sim paused, and in net mode
@@ -7825,6 +8021,13 @@ let lastBagCount = 0;
 let lastWorldTap: { x: number; y: number; long: boolean; ground: Vec2 | null } | null = null;
 
 function pollTouch(): void {
+  // `not-playing` is the one suspend reason that is a SIM fact rather than a
+  // DOM event (MOBILE.md 2.9a): death, win and floor transitions swallow
+  // intents sim-side while the touch FSM happily keeps its state. Hit-stop and
+  // sim freezes are deliberately NOT reasons — a press during a frozen sim
+  // must still look alive, which is what the edge buffer is for.
+  if (state.status === "playing") touch.resume("not-playing");
+  else touch.suspend("not-playing");
   touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
   if (!touchHeld) return;
   // Edges ACCUMULATE (input/touchIntent.ts): a tap taken while a panel has
@@ -8350,6 +8553,8 @@ async function main(): Promise<void> {
       lastLevelByPid.set(p.id, p.level);
     }
 
+    syncPickupFeedback();
+
     // Touch feedback: the drag-aim ground telegraph + the contextual descend
     // chip (shown only while standing on the stairs tile).
     if (touchMode) {
@@ -8365,11 +8570,59 @@ async function main(): Promise<void> {
         : -1;
       if (liveSlot >= 0 && !(touchHeld && touchHeld.aimCancel)) {
         const spec = aimSpecFor(abilityInSlot(p, liveSlot), p);
-        const dir = touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : p.facing;
-        renderer.setAimIndicator(rendererShape(spec.shape), p.pos, dir);
+        // ROTATE BEFORE YOU SCALE (MOBILE.md 2.4b). The screen vector goes
+        // through isoRotate FIRST and only then does its magnitude mean a
+        // world distance, so an up-screen and a sideways drag of equal thumb
+        // travel mean equal world distance despite the iso basis
+        // foreshortening the up-screen axis 2.5:1.
+        //
+        // ...and it is rotated ONLY. `aimDir` is the raw PIXEL drag vector, so
+        // the rotation's output carries a ~110-175 magnitude while the
+        // `p.facing` fallback is unit. Multiplying a tile distance by that put
+        // nova 455 world units out and cataclysm 1050 — six of ten abilities,
+        // both ultimates, 0% of the telegraph on the glass. Direction and
+        // anchor are therefore derived together, in aimAnchor(), which
+        // normalises before either is used and is held by
+        // test/aimTelegraph.test.ts projecting the box onto a phone frame.
+        const anchor = aimAnchor(
+          spec, p.pos,
+          touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : null,
+          touchHeld ? touchHeld.aimFrac : 0, p.facing,
+        );
+        const dir = anchor.dir;
+        // ...and the drag's LENGTH only means something for a shape the drag
+        // PLACES. A line, a cone and a chain fly their full derived reach
+        // whatever the throw; reading `frac` for them would be a game rule in
+        // the input layer (aimPlacement returns 0 for those).
+        const at = anchor.at;
+        // THE SPEC GOES THROUGH WHOLE. The renderer used to take three shapes
+        // and no numbers, so the host folded six shapes down to three and
+        // every AoE drew the same 2.0-2.2 ring whatever its real radius —
+        // nova at 2.6 and cataclysm at 6 were pixel-identical (MOBILE.md
+        // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
+        // teach itemisation: a glyph that grows the nova grows the circle.
+        renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
+        // ...and the camera LEADS the aim, because a 14.4-tile bolt does not
+        // fit in the 8.5 tiles a phone shows above the crawler: measured, 8.1%
+        // of the line's vertices were on the glass. Presentation only.
+        renderer.setAimLead(dir, Math.max(spec.range, anchor.distance + spec.radius));
       } else {
         renderer.setAimIndicator(null);
+        renderer.setAimLead(null, 0);
       }
+      // TARGET SELECTION IS DRAWN. `lockedTargetId` steered `pickTarget` and
+      // lit the LOCK chip for four rounds while nothing appeared on the
+      // monster itself; a lock a player cannot see is a lock they cannot use.
+      const lockedMob = lockedTargetId !== null
+        ? state.monsters.find((m) => m.id === lockedTargetId && m.hp > 0)
+        : undefined;
+      // Handed over ONCE, on the frame the pick happened: the renderer owns the
+      // fade, and re-sending the same pick every frame would restart it.
+      const fresh = smartTargetAt > smartTargetShown ? smartTarget : null;
+      smartTargetShown = smartTargetAt;
+      renderer.setTargetMarkers(
+        lockedMob ? { x: lockedMob.pos.x, y: lockedMob.pos.y } : null, fresh,
+      );
       const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
       // Roam: the same interact chip talks to a resident in reach (the sim's
       // useStairs seam routes to startDialogue when an NPC is closer).

@@ -76,33 +76,59 @@ export function attachPanel(root: HTMLElement, o: PanelOpts): void {
   });
 
   // --- 3b. swipe down -----------------------------------------------------
-  let id = -1, y0 = 0, x0 = 0, armed = false;
+  //
+  // ON THE TOUCH STREAM, NOT THE POINTER STREAM. The first implementation used
+  // pointerdown/move/up and closed nothing on any device, and the reason is
+  // worth keeping: the panel is a scroller with `touch-action: auto`, so
+  // Chrome claims a vertical drag as a PAN and fires `pointercancel` after a
+  // single `pointermove`. Instrumented on an iPhone 13 (`tools/_mobile/swipe.mjs`):
+  //
+  //   pointerdown:38 -> pointermove:58 -> POINTERCANCEL -> [9 more touchmoves]
+  //
+  // The pointer recogniser therefore saw dy = 20 of a 200 px gesture and
+  // correctly declined to close. The TOUCH events keep flowing throughout, so
+  // the gesture lives there; and because the drag only arms at `scrollTop <= 0`
+  // going DOWN, there is nothing for the pan to scroll anyway, which is why
+  // taking it with `preventDefault()` costs the scroller nothing.
+  let id = -1, y0 = 0, x0 = 0, armed = false, committed = false;
   const scroller = (): HTMLElement => (o.scroller?.() ?? box);
-  box.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "touch") return; // desktop drag-select stays a drag-select
-    const s = scroller();
+  const reset = (): void => { armed = false; committed = false; id = -1; box.style.transform = ""; };
+  box.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) { reset(); return; } // a pinch is not a dismiss
+    const t = e.changedTouches[0];
     // Only arm at the very top: mid-scroll, a downward drag is a scroll.
-    armed = s.scrollTop <= 0;
+    armed = scroller().scrollTop <= 0;
+    committed = false;
     if (!armed) return;
-    id = e.pointerId; y0 = e.clientY; x0 = e.clientX;
+    id = t.identifier; y0 = t.clientY; x0 = t.clientX;
   }, { passive: true });
-  box.addEventListener("pointermove", (e) => {
-    if (!armed || e.pointerId !== id) return;
-    const dy = e.clientY - y0, dx = Math.abs(e.clientX - x0);
-    if (dy < 0 || dx > Math.abs(dy) * SWIPE_SLOPE) { armed = false; box.style.transform = ""; return; }
+  box.addEventListener("touchmove", (e) => {
+    if (!armed) return;
+    const t = Array.from(e.changedTouches).find((c) => c.identifier === id);
+    if (!t) return;
+    const dy = t.clientY - y0, dx = Math.abs(t.clientX - x0);
+    if (dy < 0 || dx > Math.abs(dy) * SWIPE_SLOPE) { reset(); return; }
+    // Past the slop this IS a dismiss, so take the gesture: without this the
+    // browser is free to start a rubber-band overscroll under the transform.
+    if (dy > 12) {
+      committed = true;
+      if (e.cancelable) e.preventDefault();
+    }
     // Rubber-band the panel under the thumb so the gesture is acknowledged
     // before it commits — transform only, so this never triggers layout.
     box.style.transform = `translate3d(0, ${Math.min(dy, SWIPE_CLOSE * 1.5) * 0.55}px, 0)`;
-  }, { passive: true });
-  const end = (e: PointerEvent): void => {
-    if (!armed || e.pointerId !== id) return;
-    const dy = e.clientY - y0;
-    armed = false; id = -1;
-    box.style.transform = "";
-    if (dy >= SWIPE_CLOSE) o.close();
+  }, { passive: false });
+  const end = (e: TouchEvent): void => {
+    if (!armed) return;
+    const t = Array.from(e.changedTouches).find((c) => c.identifier === id);
+    if (!t) return;
+    const dy = t.clientY - y0;
+    const fire = committed && dy >= SWIPE_CLOSE;
+    reset();
+    if (fire) o.close();
   };
-  box.addEventListener("pointerup", end);
-  box.addEventListener("pointercancel", end);
+  box.addEventListener("touchend", end);
+  box.addEventListener("touchcancel", end);
 }
 
 // ------------------------------------------------------------ bottom sheet
@@ -135,6 +161,10 @@ function ensureSheet(): HTMLElement {
   if (sheetEl) return sheetEl;
   const el = document.createElement("div");
   el.id = "tsheet";
+  // The `sheet` suspend reason keys off this attribute (MOBILE.md 2.9a): a
+  // bottom sheet is not full-screen so it never sets body.modal, yet it sits
+  // directly on top of the ability cluster.
+  el.dataset.sheet = "math";
   el.innerHTML =
     `<div class="ts-scrim"></div>` +
     `<div class="ts-box"><div class="ts-grip"></div>` +
