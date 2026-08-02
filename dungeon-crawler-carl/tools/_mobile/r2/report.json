@@ -1,0 +1,41 @@
+[
+  {
+    "device": "iphone13",
+    "scene": "menu",
+    "file": "tools\\_mobile\\r2\\iphone13-menu.png",
+    "viewport": {
+      "width": 390,
+      "height": 664
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "menu",
+    "file": "tools\\_mobile\\r2\\iphone13-land-menu.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "menu",
+    "file": "tools\\_mobile\\r2\\ipadpro11-land-menu.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  }
+]

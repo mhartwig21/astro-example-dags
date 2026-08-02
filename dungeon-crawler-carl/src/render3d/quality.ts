@@ -291,7 +291,17 @@ export function urlQualityOverride(): QualityChoice | null {
  * low for an unknown machine ships a permanently softer frame to hardware that
  * never needed it, and the tuner's climb back up is deliberately slow.
  */
-export function guessQuality(gl?: WebGLRenderingContext | WebGL2RenderingContext | null): QualityName {
+/** What the caller knows about the device without touching a GL context. */
+export interface DeviceHint {
+  /** matchMedia("(pointer: coarse)") — a finger, not a cursor. */
+  coarse?: boolean;
+  /** min(screen width, screen height) in CSS px. */
+  shortEdge?: number;
+}
+
+export function guessQuality(
+  gl?: WebGLRenderingContext | WebGL2RenderingContext | null, hint?: DeviceHint,
+): QualityName {
   const dpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
   const cores = typeof navigator !== "undefined" ? (navigator.hardwareConcurrency || 8) : 8;
 
@@ -301,6 +311,20 @@ export function guessQuality(gl?: WebGLRenderingContext | WebGL2RenderingContext
     if (dbg && gl) renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "");
   } catch { /* extension is optional and privacy-gated in some browsers */ }
 
+  // A PHONE IS A PHONE EVEN WHEN IT WILL NOT SAY SO.
+  //
+  // The mobile branch below reads WEBGL_debug_renderer_info — which Safari does
+  // not expose. On an iPhone the renderer string is "", the mobile branch never
+  // fires, the integrated branch never fires, and control falls through to
+  // "cores > 4 -> ultra": a phone booting at ULTRA with no pixel-ratio cap at
+  // dpr 3. Coarse pointer plus a short screen edge is the same fact, obtained
+  // from an API nobody gates. PERFORMANCE keeps GTAO, full FX density and full
+  // mote density — only sharpness goes.
+  if (hint?.coarse) {
+    const edge = hint.shortEdge ?? Infinity;
+    if (edge < 560) return "performance";
+    if (edge < 1100) return "balanced";
+  }
   // Mobile tile-based GPUs: not "a slower desktop GPU" — bandwidth and
   // sustained-power limits put them a tier below anything below, and a phone's
   // pixel ratio is usually 3.

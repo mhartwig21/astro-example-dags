@@ -1,0 +1,54 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "shop",
+    "file": "tools\\_mobile\\r3\\iphone13-land-shop.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "sheet",
+    "file": "tools\\_mobile\\r3\\iphone13-land-sheet.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "shop",
+    "file": "tools\\_mobile\\r3\\ipadpro11-land-shop.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "sheet",
+    "file": "tools\\_mobile\\r3\\ipadpro11-land-sheet.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": null,
+    "drive": null
+  }
+]

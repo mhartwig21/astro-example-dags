@@ -1,0 +1,242 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "aim-line",
+    "file": "tools\\_mobile\\r5\\iphone13-land-aim-line.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": null,
+    "drive": null,
+    "aim": {
+      "present": true,
+      "visible": true,
+      "shapes": [
+        {
+          "name": "line",
+          "visible": true
+        },
+        {
+          "name": "ring",
+          "visible": false
+        },
+        {
+          "name": "arrow",
+          "visible": false
+        }
+      ],
+      "world": {
+        "x": 50.37,
+        "z": 64.32,
+        "rotY": -2.897
+      },
+      "screen": {
+        "x": 265,
+        "y": 127,
+        "w": 111,
+        "h": 44,
+        "verts": 4
+      },
+      "material": {
+        "color": "#c9a24b",
+        "opacity": 0.42,
+        "transparent": true,
+        "depthWrite": false,
+        "depthTest": true,
+        "hasOutline": false
+      },
+      "vp": {
+        "w": 750,
+        "h": 342
+      }
+    },
+    "aimDiff": {
+      "boxDevicePx": {
+        "x0": 787,
+        "y0": 373,
+        "x1": 1136,
+        "y1": 521
+      },
+      "dpr": 3,
+      "indicator": {
+        "meanDelta": 65.87,
+        "pctOver8": 99.7,
+        "pctOver24": 83.3,
+        "maxDelta": 254,
+        "px": 51652
+      },
+      "sceneNoise": {
+        "meanDelta": 56.42,
+        "pctOver8": 92.9,
+        "pctOver24": 67,
+        "maxDelta": 225,
+        "px": 51652
+      }
+    }
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "aim-ring",
+    "file": "tools\\_mobile\\r5\\iphone13-land-aim-ring.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": null,
+    "drive": null,
+    "aim": {
+      "present": true,
+      "visible": true,
+      "shapes": [
+        {
+          "name": "line",
+          "visible": false
+        },
+        {
+          "name": "ring",
+          "visible": true
+        },
+        {
+          "name": "arrow",
+          "visible": false
+        }
+      ],
+      "world": {
+        "x": 50.37,
+        "z": 64.32,
+        "rotY": -2.897
+      },
+      "screen": {
+        "x": 309,
+        "y": 128,
+        "w": 132,
+        "h": 83,
+        "verts": 82
+      },
+      "material": {
+        "color": "#c9a24b",
+        "opacity": 0.42,
+        "transparent": true,
+        "depthWrite": false,
+        "depthTest": true,
+        "hasOutline": false
+      },
+      "vp": {
+        "w": 750,
+        "h": 342
+      }
+    },
+    "aimDiff": {
+      "boxDevicePx": {
+        "x0": 919,
+        "y0": 376,
+        "x1": 1331,
+        "y1": 641
+      },
+      "dpr": 3,
+      "indicator": {
+        "meanDelta": 71.99,
+        "pctOver8": 98.9,
+        "pctOver24": 87.3,
+        "maxDelta": 248,
+        "px": 109180
+      },
+      "sceneNoise": {
+        "meanDelta": 87.98,
+        "pctOver8": 99.5,
+        "pctOver24": 92,
+        "maxDelta": 254,
+        "px": 109180
+      }
+    }
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "aim-arrow",
+    "file": "tools\\_mobile\\r5\\iphone13-land-aim-arrow.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": null,
+    "drive": null,
+    "aim": {
+      "present": true,
+      "visible": true,
+      "shapes": [
+        {
+          "name": "line",
+          "visible": false
+        },
+        {
+          "name": "ring",
+          "visible": false
+        },
+        {
+          "name": "arrow",
+          "visible": true
+        }
+      ],
+      "world": {
+        "x": 50.37,
+        "z": 64.32,
+        "rotY": -2.897
+      },
+      "screen": {
+        "x": 306,
+        "y": 143,
+        "w": 71,
+        "h": 28,
+        "verts": 9
+      },
+      "material": {
+        "color": "#c9a24b",
+        "opacity": 0.42,
+        "transparent": true,
+        "depthWrite": false,
+        "depthTest": true,
+        "hasOutline": false
+      },
+      "vp": {
+        "w": 750,
+        "h": 342
+      }
+    },
+    "aimDiff": {
+      "boxDevicePx": {
+        "x0": 910,
+        "y0": 421,
+        "x1": 1139,
+        "y1": 521
+      },
+      "dpr": 3,
+      "indicator": {
+        "meanDelta": 48.82,
+        "pctOver8": 87.3,
+        "pctOver24": 59.5,
+        "maxDelta": 243,
+        "px": 22900
+      },
+      "sceneNoise": {
+        "meanDelta": 48.11,
+        "pctOver8": 90.6,
+        "pctOver24": 59.1,
+        "maxDelta": 240,
+        "px": 22900
+      }
+    }
+  }
+]

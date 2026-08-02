@@ -248,3 +248,91 @@ export function saveCamView(view: CamView): void {
     /* best-effort */
   }
 }
+
+// ---------------------------------------------------------------- TouchPrefs
+// The touch layer customisation surface (MOBILE.md 6). Everything here is
+// presentation or input interpretation — no game rule reads it, so a player
+// mirroring their controls cannot change what the sim does.
+
+export type CastMode = "tap" | "tap-release" | "aim-only";
+export type HapticLevel = "off" | "light" | "full";
+
+export interface TouchPrefs {
+  handed: "right" | "left";
+  stickScale: number; // 0.7 - 1.4
+  buttonScale: number; // 0.7 - 1.4
+  opacity: number; // 0.35 - 1.0, idle only; full on press
+  hudInset: number; // 0 - 32px on top of env(safe-area-*)
+  haptics: HapticLevel;
+  castMode: CastMode[]; // per slot 0-4
+  flickDash: boolean;
+  twoFingerDash: boolean;
+  tapToMove: boolean;
+  stickRecenter: boolean;
+  stickyLock: boolean;
+  reducedMotion: boolean; // seeded from prefers-reduced-motion
+}
+
+export const DEFAULT_TOUCH_PREFS: TouchPrefs = {
+  handed: "right",
+  stickScale: 1,
+  buttonScale: 1,
+  opacity: 1,
+  hudInset: 12,
+  haptics: "full",
+  castMode: ["tap-release", "tap-release", "tap-release", "tap-release", "tap-release"],
+  flickDash: true,
+  twoFingerDash: true,
+  tapToMove: true,
+  stickRecenter: true,
+  stickyLock: false,
+  reducedMotion: false,
+};
+
+const TOUCH_PREFS_KEY = "dcc:touchprefs:v1";
+
+function clampNum(v: unknown, lo: number, hi: number, dflt: number): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : dflt;
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
+export function loadTouchPrefs(): TouchPrefs {
+  const base: TouchPrefs = {
+    ...DEFAULT_TOUCH_PREFS,
+    castMode: [...DEFAULT_TOUCH_PREFS.castMode],
+  };
+  try {
+    base.reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch { /* no matchMedia */ }
+  try {
+    const raw = localStorage.getItem(TOUCH_PREFS_KEY);
+    if (!raw) return base;
+    const s = JSON.parse(raw) as Partial<TouchPrefs>;
+    if (s.handed === "left" || s.handed === "right") base.handed = s.handed;
+    base.stickScale = clampNum(s.stickScale, 0.7, 1.4, base.stickScale);
+    base.buttonScale = clampNum(s.buttonScale, 0.7, 1.4, base.buttonScale);
+    base.opacity = clampNum(s.opacity, 0.35, 1, base.opacity);
+    base.hudInset = clampNum(s.hudInset, 0, 32, base.hudInset);
+    if (s.haptics === "off" || s.haptics === "light" || s.haptics === "full") base.haptics = s.haptics;
+    if (Array.isArray(s.castMode)) {
+      for (let i = 0; i < 5; i++) {
+        const m = s.castMode[i];
+        if (m === "tap" || m === "tap-release" || m === "aim-only") base.castMode[i] = m;
+      }
+    }
+    for (const k of ["flickDash", "twoFingerDash", "tapToMove", "stickRecenter", "stickyLock", "reducedMotion"] as const) {
+      if (typeof s[k] === "boolean") base[k] = s[k];
+    }
+    return base;
+  } catch {
+    return base;
+  }
+}
+
+export function saveTouchPrefs(p: TouchPrefs): void {
+  try {
+    localStorage.setItem(TOUCH_PREFS_KEY, JSON.stringify(p));
+  } catch {
+    /* best-effort */
+  }
+}
