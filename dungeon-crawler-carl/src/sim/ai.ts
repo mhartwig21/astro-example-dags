@@ -5,7 +5,7 @@ import { dist, normalize } from "./combat";
 // additionally blocks monsters from wandering/chasing into the sanctuary.
 import { isWalkableForMonster as isWalkable } from "./floor";
 import { chance, nextFloat } from "./rng";
-import { bandSignatureLabel, bossPunishRule } from "./bosses";
+import { bandSignatureLabel, bossChassisRule, bossPunishRule } from "./bosses";
 import type { BossId, GameState, Monster, Player, Vec2 } from "./types";
 import { moveWithCollision } from "./movement";
 import { flowDir, flowUphill, tileLos } from "./pathfield";
@@ -1524,11 +1524,39 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // that path was always the model, and it is never rate-limited.
   if ((m.punishCd ?? 0) > 0) m.punishCd = Math.max(0, (m.punishCd ?? 0) - dt);
   const rule = bossPunishRule(m.bossId);
+  // ---- THE WINDOW HAS A CEILING NOW, NOT ONLY A FLOOR (r7 major) -----------
+  //
+  // Measured over 6 seeds each: The Temp opens 0.3 windows per fight (NO WINDOW
+  // AT ALL in 4 of 6) and The Rent Collector 0.5 (none in 3 of 6), against the
+  // Furnace Marshal at **8.5 per fight** and the Sponsor at 5.2 — a 28x spread
+  // on the beat §7.4 calls the one that most needs to read. `bossPunishRecovery`
+  // is a FLOOR on frequency with no ceiling, so a boss whose kit commits often
+  // (and the Marshal's epithet is literally a COUNT: "three sweeps, then it has
+  // to breathe") opens one every nine seconds forever and the beat stops being
+  // a moment.
+  //
+  // Two symmetrical corrections, both about the beat happening a LEARNABLE
+  // number of times:
+  //   * a GUARANTEE. Past `bossPunishGuaranteeT` seconds of introduced fight
+  //     with no window at all, the next one is armed regardless of the count —
+  //     so the teaching band's whole reason to exist cannot be rolled away.
+  //   * a DECAY. Each window this fight has already opened lengthens the next
+  //     recovery, so a boss that has shown the player the beat four times is
+  //     not still doing it at the same tempo at the end of the fight. The
+  //     Marshal keeps its count and its rhythm; what it loses is the metronome.
+  const opened = m.punishCount ?? 0;
+  const recovery = CONFIG.bossPunishRecovery *
+    (1 + Math.min(CONFIG.bossPunishFatigueMax, opened * CONFIG.bossPunishFatigue));
+  if (m.introduced) m.punishDryT = (m.punishDryT ?? 0) + dt;
+  const starved = (m.punishDryT ?? 0) >= CONFIG.bossPunishGuaranteeT &&
+    (m.punishCd ?? 0) <= 0;
   if (m.introduced &&
-      (m.punishArmed || ((m.heat ?? 0) >= rule.after && (m.punishCd ?? 0) <= 0))) {
+      (m.punishArmed || starved || ((m.heat ?? 0) >= rule.after && (m.punishCd ?? 0) <= 0))) {
     m.punishArmed = false;
     m.heat = 0;
-    m.punishCd = CONFIG.bossPunishRecovery;
+    m.punishDryT = 0;
+    m.punishCount = opened + 1;
+    m.punishCd = recovery;
     beginBossWindup(state, m, "punish", CONFIG.bossPunishWindup, rule.tell);
     return;
   }
@@ -1637,7 +1665,10 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // SUPPRESSED while the punish window is open (r5 blocker): the game cannot
   // say "stand here and commit" and "this floor kills you" in the same breath.
   if ((m.phase ?? 0) >= 1 && m.healCd === 0 && (m.punishQuietT ?? 0) <= 0) {
-    m.healCd = CONFIG.bossHazardCooldown;
+    // ...and the rain answers to the ask too: an ask that gave the volley up
+    // gets some of that pressure back as TELEGRAPHED ground instead, which is
+    // the trade the whole ablation was asking for (r7 blocker).
+    m.healCd = CONFIG.bossHazardCooldown * bossChassisRule(m.bossId).rainMult;
     for (const target of state.players) {
       if (!target.alive || dist(m.pos, target.pos) > CONFIG.monsterAggroRange * 2.5) continue;
       state.hazards.push({
@@ -1688,9 +1719,23 @@ function stepBoss(state: GameState, m: Monster, dt: number, ctx: BossCtx): void 
   // ...and the radial volley is suppressed for the window too. A boss that is
   // "briefly helpless" while a ring of ten bolts leaves its body is not
   // helpless; it is a turret with a reticle on it (r5 blocker).
-  if (m.shootCd === 0 && (m.punishQuietT ?? 0) <= 0 && d < CONFIG.monsterAggroRange * 2.5) {
-    m.shootCd = Math.max(1.2, CONFIG.bossVolleyCooldown - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
-    const count = CONFIG.bossVolleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
+  // ---- THE VOLLEY IS THE ASK'S, NOT THE CHASSIS'S (r7 blocker) -------------
+  //
+  // `ch_volley` was the top entry in the threat vector on twelve of eighteen
+  // bosses and the #2 on the rest: the single most common thing that happens in
+  // a boss fight, identical on a break-the-shield boss and a kill-the-adds one.
+  // Its cadence, its density and whether it exists at all now come from the
+  // boss's ASK (`ASK_CHASSIS`, bosses.ts) — so a storm boss and an adds boss do
+  // not fire one at all (their ask already owns the air), a lane boss fires a
+  // thin slow one that cannot bury the line it wants read, and the window boss
+  // — whose fight IS pressure-then-relief — fires the densest one on the
+  // shortest clock. Nothing here is a new verb; it is the shared verb finally
+  // being spoken in eighteen fights' worth of different sentences.
+  const chas = bossChassisRule(m.bossId);
+  if (chas.volleyCd > 0 && m.shootCd === 0 && (m.punishQuietT ?? 0) <= 0 &&
+      d < CONFIG.monsterAggroRange * 2.5) {
+    m.shootCd = Math.max(1.2, chas.volleyCd - (m.phase ?? 0) * CONFIG.bossPhaseVolleyHaste);
+    const count = chas.volleyCount + (m.phase ?? 0) * CONFIG.bossPhaseVolleyBonus;
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2;
       spawnEnemyBolt(state, m.pos, { x: dcos(a), y: dsin(a) }, m.damage * 0.6);

@@ -413,8 +413,24 @@
          the arena of play" occupied the centre of the frame in two different
          `-3fight` captures, on top of the telegraph the beat exists to sell.
          For the whole segment (not only while a call-out is live) the System's
-         headline band sits low, clear of the arena and clear of #bosscall. */
-      body.bossseg #headline { top: max(52%, 430px); }
+         headline band sits low, clear of the arena and clear of #bosscall.
+
+         r7 BLOCKER — 52% OF A 900px FRAME IS THE VERTICAL CENTRE, which after
+         §5.9's `frameBias`/`frameDrop` is exactly where the boss and the punish
+         reticle are: `zoningboard-3fight.png` has a full-width RULES VIOLATION
+         banner dead centre over the crawler while the plate reads SETBACK
+         REQUIRED. "Lower" was measured against the OLD framing and it moved the
+         banner from over the boss's head to over the boss.
+
+         Two changes. (1) The host no longer parks non-boss high-priority lines
+         here at all during a segment — they take the ticker for the duration
+         (showAnnouncement), so this band should be EMPTY while a boss is live.
+         (2) It is nonetheless pinned below the playfield rather than in it, so
+         that the contract beats which legitimately ride this zone (the Roam
+         accept/settle cards) cannot land on the fight either. `bottom` instead
+         of `top`: the distance that matters is to the ability bar, not to the
+         top of a viewport whose height the arena does not know. */
+      body.bossseg #headline { top: auto; bottom: 148px; }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);

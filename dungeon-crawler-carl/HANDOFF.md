@@ -86,7 +86,31 @@ firing the wrong band's element, and the exposure governor still pinned at its
 floor. The capture harness now asserts the frame contains the beat its filename
 claims and brackets the shutter with a before/after probe.
 
+**ROUND 7 (fix round) is in — see `BOSSES-V2.md` §5.13 for the full receipt.**
+Its shape is the finding: **the harness shipped two dishonest frames inside the
+critic's own run** (`wantBeat` was passed on one of six captures, and only when
+the hunt landed — so a timed-out hunt saved under the clean name), and four of
+its blockers were MEASUREMENTS rather than screenshots. Both halves are closed
+together: every beat now names what its pixels must contain, a drifted frame is
+deleted from disk rather than logged, and the ASK printed on the name card is a
+thing the fight does (the arena's ambient crowd and the shared radial volley are
+both functions of the boss's ask now, not of the floor). Also closed: the punish
+rig owning the phase beat, the loot beacon and the punish reticle being one
+silhouette, the corpse dissolving before the kill frame opens, the Garden
+occlusion cone, the hit flash saturating a boss that is hit every 0.25s for a
+minute, and five world objects that were named on the plate and absent from the
+world (the sluice gates, the four stamps, the safe wedge, the seed bed, the
+cables).
+
 **Still open going in to the next capture round, honestly:**
+
+- **The Topiary Warden emits no second intermission and no punish window** in a
+  9,000-step driven hunt; the harness now files those two frames as `-MISSED`
+  rather than filing a different beat under their names. Sim-side, own pass.
+- Fight length is still decided by the mutator roll (4-6x spread on one boss
+  across six seeds), the teaching band's TTK is still under target, and the
+  roster's pairwise threat similarity was not re-measured after the ask-derived
+  chassis landed.
 
 - **The ablation bar is not fully met.** "Deleting a kit makes each fight
   EASIER" now holds on 11 of 18 (was 5), with 7 bosses still measuring SAFER

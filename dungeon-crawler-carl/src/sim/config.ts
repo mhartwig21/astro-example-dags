@@ -433,6 +433,11 @@ export const CONFIG = {
   fissureStepGap: 1.15, // tiles between eruptions
   fissureStepDelay: 0.16, // seconds between eruptions (the travel)
   fissureRadius: 0.9,
+  // ...and at BOSS scale the crack is a LANE, not a walk of discs (r7 blocker
+  // — see bossFissureFan). Reach and half-width for The Foundation's fan; the
+  // colossus's own trash-scale fissure is untouched above.
+  bossFissureReach: 11,
+  bossFissureWidth: 1.3,
   fissureDmgMult: 0.8, // × monster damage per eruption
 
   // THE APPROACH cast (floors 16+) — the System fields its own.
@@ -1282,6 +1287,39 @@ export const CONFIG = {
   bossFloorCrowd: 0.5,
   bossFloorCrowdDeep: 0.5,
   bossFloorCrowdDeepFrom: 13,
+  // ---- THE ASK ON THE NAME CARD, MADE MEASURABLE (r7 blocker) --------------
+  //
+  // `tools/_ed3ask.ts` (3 seeds x 60s x 18 bosses, bot-driven) measured mean
+  // CONCURRENT live adds as a pure function of the FLOOR and not at all of the
+  // boss. Floor 3: concierge (kill-the-adds) 22.5, rentcollector (window) 22.3,
+  // temp (window) 22.0. Floor 15: linesupervisor (adds) 80.8, safetyofficer
+  // (storm) 79.9, marshal (window) 78.3. Grouped BY ASK the ordering came out
+  // storm 66.3 > lane 52.6 > window 40.8 > **adds 39.5** > shield 38.4 > arena
+  // 34.4 — the ask whose name is literally "kill the adds", and which five of
+  // the eighteen bosses carry, ranked FOURTH of six in add pressure.
+  //
+  // The cause is that `bossFloorCrowd` is one number and the arena's ambient
+  // crowd dwarfs every wave any mechanic spawns, so whatever the card says the
+  // fight is about, what the player reads is the floor's body count. §5.12 cut
+  // the deep share once (0.8 -> 0.5) against a measured 145-151 bodies and the
+  // measurement after it was still 93-101 — a cut to a number that was never
+  // the right SHAPE of knob.
+  //
+  // So the ambient crowd is a function of the DRAWN BOSS'S ASK. A kill-the-adds
+  // boss gets the least of it, because its own wave has to be the pressure the
+  // player feels — the whole point of the ask — and everything else gets little
+  // because a lane, a shell, a seed bed or a punish window cannot be read
+  // against a mob field. What is NOT touched: wave sizes, tether counts, the
+  // mid-run share on ordinary floors, or anything a mechanic spawns. This
+  // deletes ambient bodies only, which is the layer nobody chose.
+  bossFloorCrowdByAsk: {
+    adds: 0.10, // its OWN wave is the fight; ambient bodies actively hide it
+    lane: 0.16, // a locked line has to be visible ON the floor
+    shield: 0.18,
+    window: 0.18,
+    arena: 0.20, // the arena is the subject; some traffic in it is the point
+    storm: 0.14, // measured the WORST offender (66.3) — the storm is the storm
+  } as Record<string, number>,
 
   // SIGNATURE boss mechanics — one themed ability per band-end arena, layered
   // on the shared melee+volley+phase kit (dispatch in ai.ts, helpers in
@@ -1481,6 +1519,17 @@ export const CONFIG = {
   // rhythm you can learn needs a gap you can feel; 9s puts the window at
   // roughly one beat per phase-and-a-bit rather than one every three seconds.
   bossPunishRecovery: 9,
+  // ...AND A CEILING, AND A GUARANTEE (r7 major). Measured 0.3 windows/fight on
+  // The Temp against 8.5 on the Furnace Marshal — a 28x cadence spread on the
+  // roster's most important beat, with the teaching band on the wrong end of
+  // it. `bossPunishFatigue` lengthens each recovery by this fraction per window
+  // ALREADY opened this fight (capped), so a boss whose kit commits constantly
+  // slows down as the fight goes on instead of metronoming; `bossPunishGuarantee
+  // T` arms the next window outright after this many seconds of introduced
+  // fight without one, so the beat cannot simply fail to happen.
+  bossPunishFatigue: 0.35,
+  bossPunishFatigueMax: 1.4, // recovery never exceeds 9 x 2.4 = 21.6s
+  bossPunishGuaranteeT: 16,
   // §2.2's mechanic-completion phase edge, for the seven bosses whose own kit
   // gates it on an arena state a real fight rarely reaches (r6 major). This
   // many telegraphed heavies dodged clean and the fight answers — once.
@@ -1584,7 +1633,15 @@ export const CONFIG = {
   citationCooldown: 7,
   citationArm: 1.0,
   citationLength: 16,
-  citationWidth: 0.75,
+  // r7 BLOCKER — DODGE-THE-LANE PUT NO LANE UNDER THE CRAWLER. Measured
+  // seconds standing inside a `kind:"beam"` hazard over 3 seeds x 60s: the
+  // Sanitation Inspector 0.0s, The Foundation 0.0s, and every other boss in
+  // the roster 0.0s except the Sponsor at 0.3s. A 0.75-tile half-width lane is
+  // narrower than the crawler's own body plus a step, so "read a locked line,
+  // step perpendicular" was answered by standing anywhere at all. 1.35 makes
+  // the lane a thing that has to be left rather than a thing that misses.
+  // The CONDEMNED strips behind it widen with it (they mark the same ground).
+  citationWidth: 1.35,
   citationDmgMult: 0.85,
   condemnDuration: 12, // seconds a condemned strip lingers
   condemnDmgMult: 0.25, // per tick — the floor shrinks, it doesn't execute

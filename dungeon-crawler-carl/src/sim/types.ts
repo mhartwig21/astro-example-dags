@@ -349,6 +349,19 @@ export interface BossEvent {
   pos?: Vec2;
   value?: number; // plates left, shield fraction, enrage stacks...
   duration?: number; // seconds the beat lasts (punish window, intermission)
+  /**
+   * Where this beat POINTS, in radians, when it has a direction (r7 major).
+   *
+   * The Showrunner's CAMERA MOVE is "only the wedge it is shooting is safe
+   * ground" — the one beat in the game whose read is the SAFE ground — and the
+   * host had no way to know WHICH wedge, so `showrunner-3fight.png` showed
+   * three white light bars in a corner and no ground treatment at all. This is
+   * data, not presentation: the sim already computed the angle to decide where
+   * to lay hazards, and it is the same number the picture needs. `arc` is the
+   * beat's half-width where it has one.
+   */
+  angle?: number;
+  arc?: number;
 }
 
 // Enemy archetypes. Each spawns with distinct stats + behavior (see ai.ts / config.ts).
@@ -614,6 +627,14 @@ export interface Monster {
   // "Stand here and commit" and "this floor is on fire" cannot both be true:
   // a helpless boss does not get to keep running an arena-wide burn.
   punishQuietT?: number;
+  /** Windows this boss has already opened this fight. r7: `bossPunishRecovery`
+   *  was a floor with no ceiling, so the Marshal opened 8.5 a fight against The
+   *  Temp's 0.3 — each one already opened lengthens the next recovery. */
+  punishCount?: number;
+  /** Seconds of introduced fight since the last window. Past
+   *  `bossPunishGuaranteeT` the next one is armed regardless of the count, so
+   *  the beat the teaching band exists to teach cannot simply not happen. */
+  punishDryT?: number;
   /** Telegraphed heavies this boss committed that caught NOBODY (r6): the
    *  READ counter behind 2.2's shared mechanic-completion phase edge. */
   reads?: number;

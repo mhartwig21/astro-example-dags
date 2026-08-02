@@ -247,6 +247,8 @@ interface CanopyEntry {
   base: THREE.Matrix4;
   x: number;
   z: number;
+  /** World height of THIS instance — how far down-screen it occludes (r7). */
+  hgt: number;
   f: number; // current scale factor (eased)
   target: number; // 1 = full size, 0.12 = stepped aside for the camera
 }
@@ -267,7 +269,18 @@ const BREAKABLE_DAMAGED: Record<string, string> = {
 // nothing at all — which is why a Sump King capture had "no floodgate, no
 // drain prop in frame" for a boss whose entire ask is the floodgates.
 const BREAKABLE_MODEL: Record<string, string> = {
-  drain: "floor_tile_grate_open", // FLOODGATE: a grate the level runs out of
+  // r7 MAJOR — "SLUICE GATE DRAWS NOTHING IN THE WORLD." `sumpking-3fight.png`
+  // is filed correctly (the plate reads SLUICE GATE, the probe reads
+  // `shapes:{props:1}`) and contains no gate, no lane and no water: the
+  // use-the-arena boss's whole ask was a line of HUD text over empty floor.
+  //
+  // The cause is this row. `floor_tile_grate_open` is a FLOOR TILE — a flat
+  // quad lying in the ground plane — so the four objects the fight is about
+  // were, at the fixed iso camera, four slightly different patches of floor.
+  // (§5.12's honest list already said "the sluice gates still render as
+  // untextured quads"; they were quads because the asset is one.) A floodgate
+  // is a thing you walk up to and BREAK, so it has to stand up.
+  drain: "wall_gated", // FLOODGATE: a standing sluice gate, breakable
   vent: "fuel_a_barrels", // WALL VENT: pressure plant
   shutdown: "anvil", // CONVEYOR control: heavy machinery
   collapse: "pillar",
@@ -1315,9 +1328,11 @@ export class Renderer3D {
   // base = the prop's placed scale; reveal eases it in as its tile's fog
   // dissipates (no more visibility popping).
   private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3 }[] = [];
-  /** Props tall enough to hide a fight (r5 major) — see updateTallProps. */
+  /** Props tall enough to hide a fight (r5 major) — see updateTallProps.
+   *  `hgt`/`rad` are the piece's own measured extents: how far a prop occludes
+   *  is a property of how BIG it is, not a constant (r7 blocker). */
   private tallProps: {
-    obj: THREE.Object3D; x: number; z: number;
+    obj: THREE.Object3D; x: number; z: number; hgt: number; rad: number;
     base: THREE.Vector3; f: number; target: number;
   }[] = [];
   private stairsObj: THREE.Object3D | null = null;
@@ -1681,7 +1696,13 @@ export class Renderer3D {
                 // Interior: nudge the albedo toward the tint but PRESERVE the
                 // texture read — never a solid untextured fill.
                 "#include <color_fragment>",
-                "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uHitTint * 0.6, uHitFlash * 0.3);",
+                // r7 major: 0.3 -> 0.2. A crawler lands hits CONTINUOUSLY
+                // through a boss fight, so this term is not a flash on a boss,
+                // it is the boss's paint — and at 0.3 toward #ffc9a0 a bronze
+                // Permit Office rig reads as pale plastic in every combat
+                // frame. The duty governor below is the main fix; this is the
+                // ceiling it works against.
+                "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uHitTint * 0.6, uHitFlash * 0.2);",
               )
               .replace(
                 // Silhouette: the flash energy lives in a fresnel rim, so the
@@ -1690,9 +1711,19 @@ export class Renderer3D {
                 // ivory) the old 0.18 interior add pushed the whole body over
                 // the tone-map shoulder — flat white marshmallows again.
                 "#include <emissivemap_fragment>",
+                // r7 major — THE HIT FLASH SATURATED THE WHOLE BOSS BODY. The
+                // flat term is what did it: 0.09 of #ffc9a0 added over every
+                // fragment, held at full value for an entire fight because a
+                // boss is being hit every frame, is a body-wide emissive wash
+                // and it is exactly what the rim split exists to avoid. The
+                // control frame proves it — `tools/_r7crit/body-f12-noswing.png`
+                // is the same Permit Office rig with no swing landing and it
+                // reads as shaded bronze. The flat term is now a quarter of
+                // what it was and the RIM carries the whole read, so a hit is
+                // a bright EDGE around a body whose value is still its own.
                 "#include <emissivemap_fragment>\n{ vec3 hfV = normalize(vViewPosition);\n" +
                   "  float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n" +
-                  "  totalEmissiveRadiance += uHitTint * uHitFlash * (0.09 + 1.05 * hfRim); }",
+                  "  totalEmissiveRadiance += uHitTint * uHitFlash * (0.022 + 1.25 * hfRim); }",
               );
           };
           c.customProgramCacheKey = () => `${prevKey ? prevKey() : ""}|hitflash`;
@@ -1718,7 +1749,32 @@ export class Renderer3D {
     // what shipped was a reservoir-sampled ember on one monster per ~9 events
     // across the whole floor, which is a particle, not a tell. The crawler who
     // bought twelve violent seconds has to be able to see which twelve.
-    const f = Math.max(struck, rage);
+    // ---- THE DUTY GOVERNOR (r7 major) --------------------------------------
+    //
+    // "The hit flash saturates the entire boss body to white, so the boss has
+    // no silhouette in combat frames" — rentcollector-3fight/-4phase,
+    // sumpking-3fight/-4phase/-5punish, permitoffice-3fight, all rendering the
+    // boss as a featureless pale mass, against a live-clock control of the same
+    // rig with no swing landing that reads as shaded bronze.
+    //
+    // Neither the envelope nor the gains were wrong for what they were built
+    // for: ONE hit on ONE trash body. What they never modelled is that a boss
+    // is hit every ~0.25s for sixty seconds, so `struck` never returns to zero
+    // and a flash that means "this just took damage" is on for the entire
+    // fight. A signal that is always on carries no information and costs the
+    // body its value — the worst possible trade on the one mesh the whole
+    // encounter is staged around.
+    //
+    // So the flash is charged for how much of the RECENT PAST it has been on.
+    // A first hit after a quiet moment is as bright as it ever was; a body
+    // being hammered continuously settles to about a third of it, which is a
+    // shimmer over its own shading rather than a replacement for it. Nothing
+    // here is boss-specific: the same thing was happening to any tanky elite.
+    const raw = Math.max(struck, rage);
+    let duty = (ud.flashDuty as number) ?? 0;
+    duty += (raw - duty) * Math.min(1, dt * 1.3);
+    ud.flashDuty = duty;
+    const f = raw / (1 + 2.2 * duty);
     uF.value = f;
     if (ud.flashTintHex !== undefined && f > 0) {
       (ud.flashTintU as { value: THREE.Color }).value.setHex(ud.flashTintHex as number);
@@ -4238,13 +4294,23 @@ export class Renderer3D {
         litByMesh.push({ mesh, cols: litColors });
         if (this.canopy && (kind.startsWith("cluster") || kind.startsWith("accent"))) {
           // Register cluster pieces for camera courtesy (world pos from matrix).
+          // The SOURCE height, measured once per kind; each instance scales it
+          // by its own matrix, which is what decides how far down the screen
+          // that instance actually hides the fight (r7 blocker).
+          if (!spec.geo.boundingBox) spec.geo.computeBoundingBox();
+          const bb = spec.geo.boundingBox;
+          const srcH = bb ? bb.max.y - bb.min.y : 1;
           for (let i = 0; i < list.length; i++) {
             const e = list[i].m.elements;
             const gx = Math.floor(e[12]), gz = Math.floor(e[14]);
             const key = gz * map.w + gx;
             let cell = this.canopy.get(key);
             if (!cell) { cell = []; this.canopy.set(key, cell); }
-            cell.push({ mesh, index: i, base: list[i].m.clone(), x: e[12], z: e[14], f: 1, target: 1 });
+            const sy = Math.hypot(e[4], e[5], e[6]); // the instance's own Y scale
+            cell.push({
+              mesh, index: i, base: list[i].m.clone(), x: e[12], z: e[14],
+              hgt: srcH * sy, f: 1, target: 1,
+            });
           }
         }
       }
@@ -4524,7 +4590,8 @@ export class Renderer3D {
       const hgt = scaled.max.y - scaled.min.y;
       if (hgt > 1.35) {
         this.tallProps.push({
-          obj, x: obj.position.x, z: obj.position.z,
+          obj, x: obj.position.x, z: obj.position.z, hgt,
+          rad: Math.max(scaled.max.x - scaled.min.x, scaled.max.z - scaled.min.z) * 0.5,
           base: obj.scale.clone(), f: 1, target: 1,
         });
       }
@@ -5664,13 +5731,53 @@ export class Renderer3D {
     const a = new THREE.Mesh(stakeGeo, steel);
     const b = new THREE.Mesh(stakeGeo, steel);
     a.castShadow = b.castShadow = true;
-    const lineMat = new THREE.MeshBasicMaterial({
-      color: pal.mid, transparent: true, opacity: 0.9, depthWrite: false,
+    // ---- r7 MAJOR: "STAGE CABLES RENDER AS UNTEXTURED CYAN SLABS AND FLAT
+    // BEAMS", in 9 of 12 boss frames, "the least finished geometry on screen".
+    // Fair. Two 0.075-thick boxes of flat additive cyan at opacity 0.9 is a
+    // glowing slab: no material, no direction, no sense that a CABLE is under
+    // tension. This is the abilities track's asset, but it is in the boss
+    // frames, so it gets a material here: a dark braided core with a hot
+    // travelling CURRENT running along it, thinner, and lit only where the
+    // current is. Reduced to a mask it is a taut line with a moving highlight,
+    // which is what a live cable looks like — and it stops competing with the
+    // punish shaft and the loot beacons for the eye.
+    const lineMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(pal.mid) },
+        uCore: { value: new THREE.Color(pal.core ?? pal.mid) },
+        uTime: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 uColor; uniform vec3 uCore; uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          // Across the cable: a dark core with two lit shoulders — a braid,
+          // not a bar.
+          float across = abs(vUv.y - 0.5) * 2.0;
+          float braid = smoothstep(1.0, 0.55, across) * (0.35 + 0.65 * smoothstep(0.1, 0.42, across));
+          // Along it: current pulses travelling, plus a fine winding texture.
+          float run = fract(vUv.x * 3.0 - uTime * 0.9);
+          float pulse = smoothstep(0.86, 1.0, run) + 0.35 * smoothstep(0.4, 0.46, run);
+          float wind = 0.75 + 0.25 * sin(vUv.x * 220.0);
+          float a = clamp(braid * wind * (0.42 + 0.85 * pulse), 0.0, 0.95);
+          vec3 col = mix(uColor * 0.5, uCore, clamp(pulse * 1.2, 0.0, 1.0))
+                   * (0.7 + 2.2 * pulse);
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(col, a);
+        }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     });
-    // Unit-length boxes along +X, scaled to the span each frame.
-    const hi = new THREE.Mesh(new THREE.BoxGeometry(1, 0.075, 0.075), lineMat);
-    const lo = new THREE.Mesh(new THREE.BoxGeometry(1, 0.075, 0.075), lineMat);
+    // Unit-length boxes along +X, scaled to the span each frame. Thinner: a
+    // cable is a line, and 0.075 at KayKit scale is a joist.
+    const hi = new THREE.Mesh(new THREE.BoxGeometry(1, 0.042, 0.042), lineMat);
+    const lo = new THREE.Mesh(new THREE.BoxGeometry(1, 0.042, 0.042), lineMat);
     const field = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), makeLaneMat());
     (field.material as THREE.ShaderMaterial).uniforms.uColor.value = new THREE.Color(pal.rim);
     field.position.y = 0.05;
@@ -7080,7 +7187,9 @@ export class Renderer3D {
             const mx = mesh.position.x, mz = mesh.position.z;
             const boss = mesh.userData.simKind === "boss";
             this.shocks.spawn(mx, mz, 0xffd9a0, boss ? 4.4 : 2.8, boss ? 0.6 : 0.45);
-            this.spawnFxLight(mx, mz, 0xffdca0, boss ? 7 : 4.5, 0.6, 1.2);
+            // r7 blocker (the payoff frame): the boss's death threw a 7-peak
+            // floor pool on top of the ringside beacons it exists to show off.
+            this.spawnFxLight(mx, mz, 0xffdca0, boss ? 4.5 : 4.5, 0.6, 1.2);
             this.fxp.column(mx, mz, boss ? 0xffb457 : 0xffe0b0, boss ? 18 : 10, boss ? 2.6 : 1.8);
             this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 12);
             this.addTrauma(boss ? 0.5 : 0.32);
@@ -7101,12 +7210,33 @@ export class Renderer3D {
           // and it starts eroding almost immediately, because the kill frame
           // is the frame the player is looking at.
           const boss = mesh.userData.simKind === "boss";
-          const delay = boss ? 0.12 : (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
-          const dur = boss ? 1.5 : 0.55;
+          // ---- ...AND THEN IT HAS TO LIE THERE (r7 blocker) ---------------
+          //
+          // "The corpse is a gold glitter cloud in all four — there is no body,
+          // no pose, no dead thing on the ground." r5 fixed the topple and then
+          // deleted the thing that toppled: at delay 0.12 + dur 1.5 the mesh is
+          // fully dissolved 1.62s after death, and the kill frame is shot at
+          // 1.8s (it has to be — the fall itself takes 0.75s and the ringside
+          // drops land after that). Every `-6kill` capture in the round was
+          // therefore taken of the particle system that used to be a boss.
+          //
+          // The corpse is the SUBJECT of the payoff frame: the body lies there
+          // for the whole aftermath — through the fall, the shower of arcs and
+          // the beacons landing — and only then burns away. `focusT` holds the
+          // camera on it for 5.0s, which is the length this now matches.
+          const delay = boss ? 2.6 : (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
+          const dur = boss ? 2.2 : 0.55;
           this.dying.push({
             mesh, t: Math.max((rigged ? 1.1 : 0.7) + (fling ? 0.4 : 0), delay + dur + 0.05),
             rigged, fling,
-            dissolve: { u: makeDissolving(mesh, bigDeath ? 0xffb457 : 0x9fc4ff), delay, dur },
+            // THE CORPSE READS DEAD, NOT HOT (r6 open item, closed here). The
+            // erode edge was #ffb457 — the same hot gold as the kill column,
+            // the sweeps and the ringside arcs — so a boss did not burn away,
+            // it joined the celebration. A dull ember reads as a body cooling.
+            dissolve: {
+              u: makeDissolving(mesh, boss ? 0x8f3f1c : bigDeath ? 0xffb457 : 0x9fc4ff),
+              delay, dur,
+            },
             beat: bigDeath ? 0 : undefined,
             // The topple: seconds elapsed. Only a boss gets one — an elite's
             // death clip reads fine at its scale, and a room of toppling
@@ -7246,7 +7376,7 @@ export class Renderer3D {
         if (!rig) { rig = this.buildCableRig(); this.scene.add(rig); this.cableRigs.set(hz.id, rig); }
         const rud = rig.userData as {
           a: THREE.Mesh; b: THREE.Mesh; hi: THREE.Mesh; lo: THREE.Mesh;
-          field: THREE.Mesh; mat: THREE.MeshBasicMaterial;
+          field: THREE.Mesh; mat: THREE.ShaderMaterial;
         };
         // hz.pos is the MIDPOINT (doCables), so the near stake mirrors the far.
         const sx = 2 * hz.pos.x - hz.end.x, sy = 2 * hz.pos.y - hz.end.y;
@@ -7266,7 +7396,10 @@ export class Renderer3D {
         // through pin, then the slow field). Armed: taut and humming. Spent:
         // slack and dim, with only the ground field still working.
         const armed = hz.t > (hz.total - (hz.pin ?? 0));
-        rud.mat.opacity = armed ? 0.75 + 0.25 * Math.abs(Math.sin(time * 7)) : 0.3;
+        // The current RUNS while the line is holding and stalls when it is
+        // spent — the cable's own motion is what says "armed", not a global
+        // opacity flicker (r7 major).
+        rud.mat.uniforms.uTime.value = armed ? time : time * 0.12;
         (rud.field.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
         (rud.field.material as THREE.ShaderMaterial).uniforms.uProg.value = armed ? 0.85 : 0.35;
         const vis = inVision(hz.pos);
@@ -8012,16 +8145,43 @@ export class Renderer3D {
       if (mo.kind === "boss" ||
           (Math.abs(mo.pos.x - ax) < 14 && Math.abs(mo.pos.y - az) < 10)) ents.push(mo.pos);
     }
+    // ---- THE ARENA ITSELF EARNS THE SHOT (r7 blocker) ----------------------
+    //
+    // "The whole Garden band is STILL played behind trees — §5.11 says this was
+    // fixed and it is not." `topiary-3fight.png`: the boss, its shield shell
+    // and the HEDGE REGROWTH beat entirely behind four conifers.
+    // `topiary-5punish.png`: the UNLOAD call-out pointing at a tree.
+    // `topiary-1approach.png`: a tree bisecting the threshold ring.
+    //
+    // The registration was not the defect — every one of those conifers IS in
+    // `tallProps`. The CONE was: a flat `u < 3.4` window, which is the
+    // occlusion depth of a prop about 2.8 units tall. `camDir` is (1, 1.15, 1),
+    // so a piece of height h hides the ground for sqrt(2)/1.15 ~ 1.23 * h units
+    // down the screen diagonal — a 5-unit Garden conifer occludes for ~6.1 and
+    // was tested against 3.4, i.e. the test was passing on trees standing in
+    // exactly the half of their shadow that matters. Same for the width: 1.35
+    // is a barrel, and a hedge bank is three tiles across.
+    //
+    // So the cone is the PROP'S OWN, measured at dress time. And the beats the
+    // fight is made of get the same courtesy the bodies do: the arena's own
+    // ground FX (the threshold ring, the punish reticle, the seed bed) are
+    // centred on the boss and on the crawler, which are already entities — but
+    // the arena's CENTRE is not, and on `topiary-1approach` that is what the
+    // tree was standing in front of.
+    const star = state.monsters.find((m) => m.kind === "boss");
+    if (star) ents.push(star.pos);
     const k = Math.min(1, dt * 9);
     for (const c of this.tallProps) {
       let blocked = false;
+      // How far down-screen this piece reaches, from its own height, capped so
+      // a freak-tall set piece does not shrink from across the room.
+      const depth = Math.min(9, 0.9 + c.hgt * 1.23);
+      const half = Math.max(1.35, c.rad + 0.7);
       for (const e of ents) {
         const vx = c.x - e.x, vz = c.z - e.y;
         const u = (vx + vz) * SQ2; // along the camera diagonal (toward it)
         const w = (vx - vz) * SQ2; // across it
-        // A slightly deeper cone than the canopy's: a tree is taller than a
-        // terrain clump, so it occludes from further down-screen.
-        if (u > -0.9 && u < 3.4 && Math.abs(w) < 1.35) { blocked = true; break; }
+        if (u > -0.9 && u < depth && Math.abs(w) < half) { blocked = true; break; }
       }
       // 0.28 rather than the canopy's 0.12: a room prop shrinking to nothing
       // reads as a bug, and at ~a quarter height the trunk still marks where
@@ -8053,11 +8213,16 @@ export class Renderer3D {
   private updateCanopy(state: GameState, ax: number, az: number, dt: number): void {
     if (!this.canopy) return;
     const SQ2 = Math.SQRT1_2;
-    const wantHidden = (px: number, pz: number, ex: number, ez: number): boolean => {
+    // Same correction as updateTallProps (r7 blocker): the depth of the cone is
+    // the PIECE's, from camDir (1, 1.15, 1) — sqrt(2)/1.15 ~ 1.23 units of
+    // screen diagonal per unit of height — not a constant tuned on one clump.
+    const wantHidden = (
+      px: number, pz: number, ex: number, ez: number, hgt: number,
+    ): boolean => {
       const vx = px - ex, vz = pz - ez;
       const u = (vx + vz) * SQ2; // along the camera diagonal
       const w = (vx - vz) * SQ2; // across it
-      return u > -0.7 && u < 2.6 && Math.abs(w) < 1.15;
+      return u > -0.7 && u < Math.min(8, 0.7 + hgt * 1.23) && Math.abs(w) < 1.15;
     };
     // Entities that deserve a clear shot: living players + monsters near the
     // local player (the ones actually in frame and in the fight).
@@ -8072,12 +8237,14 @@ export class Renderer3D {
     marked.clear();
     for (const e of ents) {
       const bx = Math.floor(e.x), bz = Math.floor(e.y);
-      for (let dzz = -2; dzz <= 3; dzz++) {
-        for (let dxx = -2; dxx <= 3; dxx++) {
+      // Widened with the cone (r7): a 5-unit conifer occludes ~6 tiles down the
+      // diagonal, and the old ±3 scan could not even see the piece doing it.
+      for (let dzz = -2; dzz <= 7; dzz++) {
+        for (let dxx = -2; dxx <= 7; dxx++) {
           const cell = this.canopy.get((bz + dzz) * this.canopyGridW + (bx + dxx));
           if (!cell) continue;
           for (const c of cell) {
-            if (wantHidden(c.x, c.z, e.x, e.y)) marked.add(c);
+            if (wantHidden(c.x, c.z, e.x, e.y, c.hgt)) marked.add(c);
           }
         }
       }

@@ -38,7 +38,7 @@
 // composites seconds after staging and eats any beat shorter than that, so it
 // is opt-in via --swiftshader and should only be used where no GPU exists.
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 
 const flag = (name, def) => {
   const hit = process.argv.find((a) => a.startsWith("--" + name + "="));
@@ -118,6 +118,15 @@ const plan = await page.evaluate(async (bands) => {
   }
   return out;
 }, BANDS);
+// Every boss's own word for its punish window, straight off the shipping table.
+// The harness needs it to ASSERT the -5punish frame contains that boss's beat
+// (r7 blocker: `wantBeat` was passed on exactly one of six captures).
+const PUNISH_CORE = await page.evaluate(async () => {
+  const m = await import("/src/sim/bosses.ts");
+  const out = {};
+  for (const [id, rule] of Object.entries(m.BOSS_PUNISH)) out[id] = rule.core;
+  return out;
+});
 const roster = Object.entries(plan).filter((e) => ONLY.length === 0 || ONLY.includes(e[0]));
 if (SEED) for (const [, info] of roster) info.seed = SEED;
 console.log("roster: " + roster.length + " bosses");
@@ -362,6 +371,11 @@ async function guard(opts = {}) {
       beat: txt("bb-beat"),
       callWord: txt("bc-word"),
       callSub: txt("bc-sub"),
+      // ...and the two surfaces that carry a beat's name OUTSIDE the plate and
+      // the call-out (r7): the ringside NAME CARD owns the intro beat, and the
+      // plate's own title is what a fight/phase/punish frame is a frame OF.
+      card: txt("bi-name"),
+      plateName: txt("bb-name"),
     };
   }, bootToken);
   if (!st.bf || st.tok !== st.want || st.loading) {
@@ -393,10 +407,12 @@ async function guard(opts = {}) {
   // beat being claimed.
   if (opts.wantBeat) {
     const want = String(opts.wantBeat).toUpperCase();
-    const on = `${st.beat} | ${st.callWord} | ${st.callSub}`.toUpperCase();
+    const on = `${st.beat} | ${st.callWord} | ${st.callSub} | ${st.card} | ${st.plateName}`
+      .toUpperCase();
     if (!on.includes(want)) {
       throw new Error(
-        `BEAT MISMATCH — claims "${want}", screen reads "${st.beat}" / "${st.callWord}"`);
+        `BEAT MISMATCH — claims "${want}", screen reads "${st.beat}" / "${st.callWord}"` +
+        ` / card "${st.card}"`);
     }
   }
   return st;
@@ -426,7 +442,15 @@ async function hunt(want, maxSteps, opts, budgetMs = 240000) {
   return done;
 }
 async function shoot(name, ageMs = 260, opts = {}) {
-  await guard(opts);
+  // THE BEAT IS ASSERTED ON THE FRAME THAT WILL BE SHOT, NOT BEFORE IT (r7).
+  // This first guard runs BEFORE the frame is aged, and several beats do not
+  // exist yet at that instant — the ringside card is aged into over 420ms, and
+  // the punish window is aged 620ms into its own span. Asserting here filed
+  // `topiary-2intro` as a MISS for a card that was perfectly present in the
+  // saved pixels. So this pass checks only what is true whenever it runs (the
+  // page is alive, the run has not ended, nothing is covering the playfield)
+  // and the assertion moves to the post-ageing pass below.
+  await guard({ ...opts, wantBeat: undefined });
   const path = OUT + "/" + name + TAG + ".png";
   console.log("    [" + el() + "] shooting " + name);
   await page.evaluate((ms) => {
@@ -516,6 +540,10 @@ async function shoot(name, ageMs = 260, opts = {}) {
       beat: (document.getElementById("bb-beat") || {}).textContent || "",
       card: css("#bossintro", "display") === "block"
         ? Number(css("#bossintro", "opacity")).toFixed(2) : "off",
+      // The two extra name surfaces the beat assertion reads (r7), re-read
+      // AFTER the shutter so a drifted frame can be re-checked against them.
+      name: (document.getElementById("bi-name") || {}).textContent || "",
+      plateName: (document.getElementById("bb-name") || {}).textContent || "",
       shapes: fx.liveShapes ? fx.liveShapes() : null,
     };
   });
@@ -526,6 +554,27 @@ async function shoot(name, ageMs = 260, opts = {}) {
     console.log("      after     " + JSON.stringify(after));
   }
   probe.after = after;
+  probe.drifted = drifted;
+  // ---- AND THE AFTER COLUMN IS WHAT WAS SAVED (r7 blocker) -----------------
+  //
+  // "Print-and-keep is not honest enough." DRIFT fired five times in the last
+  // run and every drifted frame was still filed under the beat's clean name:
+  // `rentcollector-3fight.png` is labelled LATE FEE and its saved pixels are
+  // the OVERDRAWN punish tell. A loud log line beside a correctly-named file
+  // is not a correction — the file outlives the log, and the file is the
+  // evidence. So the assertion is re-run against the AFTER column, which is
+  // the frame that actually reached the compositor, and a frame whose claimed
+  // beat is no longer on screen is REJECTED. The caller re-hunts; if it will
+  // genuinely not hold still, it is filed under `-MISSED`.
+  if (opts.wantBeat && drifted) {
+    const want = String(opts.wantBeat).toUpperCase();
+    const on = `${after.beat} | ${after.call} | ${after.name} | ${after.plateName}`
+      .toUpperCase();
+    if (!on.includes(want)) {
+      probe.lost = `DRIFTED OFF BEAT — claims "${want}", saved frame reads ` +
+        `"${after.beat}" / "${after.call}"`;
+    }
+  }
   // DISARM THE HOLD, then FLUSH (recon fix). Two harness defects, one cause:
   //   1. `__bfHold` armed a self-re-arming rAF that was never set false, so
   //      from the first capture onward every live rig had its lifetime pinned
@@ -539,8 +588,67 @@ async function shoot(name, ageMs = 260, opts = {}) {
   // that is genuinely still running: the flush advances the same clock the
   // renderer already uses.
   await page.evaluate(() => { window.__bfHold = false; window.__dcc.release(); });
+  // A REJECTED FRAME DOES NOT STAY ON DISK (r7). The screenshot is written
+  // before the after-shutter assertion can run, so a frame that drifted off its
+  // beat was being left behind under the CLEAN filename while the retry saved
+  // the honest one beside it — the exact "a frame that does not visibly contain
+  // the beat it claims is not evidence" failure, reintroduced by the fix for
+  // it. The file goes with the verdict.
+  if (probe.lost) {
+    try { rmSync(path); } catch { /* never written */ }
+    console.log("    [" + el() + "] DISCARDED " + path);
+    throw new Error("BEAT MISMATCH — " + probe.lost);
+  }
   console.log("    [" + el() + "] saved " + path);
   return probe;
+}
+
+/**
+ * THE CAPTURE HONESTY RULE, MECHANISED FOR ALL SIX BEATS (r7 blocker).
+ *
+ * Shipped, `wantBeat` was passed on exactly one of the six captures, and only
+ * when the hunt had returned `done === "event"` — so a TIMED-OUT hunt saved
+ * under the clean `-3fight` name with no assertion at all, and `-1approach`,
+ * `-2intro`, `-4phase`, `-5punish` and `-6kill` were never asserted in the
+ * first place. Both defects shipped dishonest frames in the last run:
+ * `concierge-3fight.png` is a hunt that timed out after two BEAT MISMATCHes
+ * and whose own probe reads `call:"UNLOAD"` — a PUNISH frame filed as the
+ * fight beat — and `topiary-4phase.png` is `phase:{done:"timeout"}` with no
+ * wipe and no call-out in the probe: there is no intermission in the frame
+ * filed as the phase beat.
+ *
+ * Every beat now names what its pixels must contain, a hunt that did not land
+ * its event is a MISS whatever the frame looks like, and a frame that cannot
+ * be made to contain its beat is filed under `-MISSED` rather than under the
+ * name of a beat it does not have.
+ */
+async function shootBeat(name, ageMs, opts, rehunt) {
+  const attempts = rehunt ? 3 : 1;
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) {
+      await flush(1200);
+      const again = await rehunt(i);
+      console.log("  " + name + " (retry " + i + "): " + JSON.stringify(again));
+      if (again && again.done !== "event") {
+        // The beat did not happen. Say so; do not photograph something else.
+        lastErr = new Error("BEAT NEVER FIRED (" + again.done + ")");
+        continue;
+      }
+    }
+    try {
+      return { shot: await shoot(name, ageMs, opts), missed: false };
+    } catch (e) {
+      if (!String(e.message).startsWith("BEAT MISMATCH")) throw e;
+      console.error("  " + e.message);
+      lastErr = e;
+    }
+  }
+  void lastErr;
+  // Honest filename, no assertion on the beat (there is nothing to assert):
+  // the frame is filed as a MISS so nothing downstream can read it as evidence.
+  const shot = await shoot(name + "-MISSED", ageMs, { bossAlive: opts.bossAlive });
+  return { shot, missed: true };
 }
 /**
  * Age the frame clock so beats that ended actually stop being drawn.
@@ -682,8 +790,10 @@ async function captureBoss(id, info) {
   // The card lives on the SIM's own ringside clock now (encounter.timeLeft),
   // which this harness has frozen, and shoot() holds every deadline across the
   // shutter. There is no animation to restart and no race left to lose.
-  const introShot = await shoot(id + "-2intro", 420);
-  row.beats.intro = intro.ok;
+  // The intro frame's whole job is the NAME CARD, so it asserts the name (r7).
+  const introBeat = await shootBeat(id + "-2intro", 420, { wantBeat: info.name });
+  const introShot = introBeat.shot;
+  row.beats.intro = intro.ok && !introBeat.missed;
   row.card = introShot.card;
 
   // Let the ringside freeze run out on its own, then the fight is live.
@@ -733,31 +843,20 @@ async function captureBoss(id, info) {
   // handling it badly. The hunt is cheap; re-hunt the headline and try again,
   // and only if it will genuinely not hold still does the frame get filed
   // under its own honest name (`-3fight-MISSED`) so nothing is mis-labelled.
-  let fightShot = null;
-  for (let attempt = 0; attempt < 3 && !fightShot; attempt++) {
-    if (attempt > 0) {
-      await flush(1200);
-      tele = HEADLINE[id]
-        ? await hunt(["telegraph"], 2400, { label: true, prefer: HEADLINE[id], holdHp: true, floorHp: 0.5 })
-        : await hunt(["telegraph"], 2400, { label: true, holdHp: true, floorHp: 0.5 });
-      console.log("  fight (retry " + attempt + "): " + JSON.stringify(tele));
-    }
-    try {
-      fightShot = await shoot(id + "-3fight", 220, {
-        bossAlive: true,
-        wantBeat: tele.done === "event" ? tele.label : undefined,
-      });
-    } catch (e) {
-      if (!String(e.message).startsWith("BEAT MISMATCH")) throw e;
-      console.error("  " + e.message);
-    }
-  }
-  if (!fightShot) {
-    await shoot(id + "-3fight-MISSED", 220, { bossAlive: true });
-    row.beats.fight = "MISSED:" + (tele.label || tele.done);
-  } else {
-    row.beats.fight = tele.done === "event" ? tele.label : tele.done;
-  }
+  // A TIMED-OUT HUNT IS A MISS (r7 blocker). Shipped, `wantBeat` was only
+  // passed when `tele.done === "event"` — so a hunt that never found the boss's
+  // named verb saved under the clean `-3fight` name with NO assertion, which is
+  // how `concierge-3fight.png` (probe: `call:"UNLOAD"`, shapes cords+reticle+
+  // shaft) came to be filed as the fight beat while showing the punish window.
+  const fightWant = tele.done === "event" ? tele.label : " never";
+  const fight = await shootBeat(id + "-3fight", 220,
+    { bossAlive: true, wantBeat: fightWant },
+    async () => (HEADLINE[id]
+      ? hunt(["telegraph"], 2400, { label: true, prefer: HEADLINE[id], holdHp: true, floorHp: 0.5 })
+      : hunt(["telegraph"], 2400, { label: true, holdHp: true, floorHp: 0.5 })));
+  row.beats.fight = fight.missed
+    ? "MISSED:" + (tele.label || tele.done)
+    : (tele.done === "event" ? tele.label : tele.done);
   row.fightHp = tele.hp;
 
   // 4) THE PHASE EDGE + the intermission that re-deals the board. Reached by
@@ -776,8 +875,14 @@ async function captureBoss(id, info) {
   // boss cannot die inside the hunt (see bf.until's floorHp).
   const phase = await hunt(["intermission"], 9000, { floorHp: 0.30 });
   console.log("  phase: " + JSON.stringify(phase));
-  await shoot(id + "-4phase", 240, { bossAlive: true });
-  row.beats.phase = phase.done;
+  // THE PHASE FRAME MUST CONTAIN THE INTERMISSION (r7 blocker). `topiary-4phase
+  // .png` was `phase:{done:"timeout"}` with `shapes:{shell:1}` and no call-out
+  // — no intermission anywhere in the frame filed as the phase beat — and
+  // sumpking/permitoffice/standards filed the PUNISH rig under this name.
+  const phaseShot = await shootBeat(id + "-4phase", 240,
+    { bossAlive: true, wantBeat: phase.done === "event" ? "COMMERCIAL BREAK" : " never" },
+    async () => hunt(["intermission"], 4000, { floorHp: 0.30 }));
+  row.beats.phase = phaseShot.missed ? "MISSED:" + phase.done : phase.done;
   row.phaseHp = phase.hp;
 
   // 5) THE PUNISH WINDOW. It arrives on the boss's own count of committed
@@ -790,18 +895,44 @@ async function captureBoss(id, info) {
   // Aged into the MIDDLE of the window: the reticle opens wide and CLOSES on
   // the core, so a frame from its first instant shows the brackets at their
   // widest, which is where they read least.
-  const punishShot = await shoot(id + "-5punish", 620, { bossAlive: true });
-  row.marks = punishShot.marks;
-  row.beats.punish = punish.done;
+  // ...and it must contain THIS BOSS'S window, by its own name (r7 blocker):
+  // `#bc-word` now carries `BOSS_PUNISH[id].core`, so the assertion is per-boss
+  // rather than "something said UNLOAD".
+  const punishBeat = await shootBeat(id + "-5punish", 620,
+    {
+      bossAlive: true,
+      wantBeat: punish.done === "event" ? (PUNISH_CORE[id] || "UNLOAD") : " never",
+    },
+    async () => hunt(["punish"], 4000, { holdHp: true, floorHp: 0.30 }));
+  row.marks = punishBeat.shot.marks;
+  row.beats.punish = punishBeat.missed ? "MISSED:" + punish.done : punish.done;
   row.punishHp = punish.hp;
 
   // 6) THE KILL. Fight it to zero. Nothing is pushed: the DEFEATED beat, the
   //    corpse, the sigil and the ringside loot arc are all the sim's.
   await page.evaluate(() => {
-    const p = window.__dcc.state.players[0];
+    const st = window.__dcc.state;
+    const p = st.players[0];
     // Finish the segment inside the capture budget — the fight's arc up to
     // here is already on record in the previous four frames.
-    p.bonusDamage = (p.bonusDamage || 0) * 3 + 400;
+    //
+    // SCALED TO THE POOL IN FRONT OF IT (r7 blocker). A flat `x3 + 400` is a
+    // floor-3 number: The Standards and Practices Board timed out at 24,105 HP
+    // on all three attempts in the last run, so one of the three FINALES has no
+    // `-6kill.png` at all. The budget is ~14,000 sim steps of a driver that
+    // lands maybe a third of its swings, so the damage has to be a function of
+    // what is left rather than of what the previous segment needed. This
+    // changes only how the HARNESS fights — the DEFEATED beat, the corpse, the
+    // sigil and the ringside arcs are all still the sim's.
+    const b = st.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+    const want = b ? b.hp / 90 : 0; // ~90 landed hits to zero, whatever the pool
+    p.bonusDamage = Math.max((p.bonusDamage || 0) * 3 + 400, want);
+    // ...and the aides that shield a COUNCIL body are part of the pool. The
+    // Board's five are the fight (kill order IS the fight) and they have been
+    // photographed at -3fight; the kill segment is allowed to finish.
+    for (const a of st.monsters) {
+      if (b && a.tetherId === b.id && a.hp > 0) a.hp = Math.min(a.hp, a.maxHp * 0.25);
+    }
   });
   await flush();
   // `reach: 1.6` — the driver strafes at 2.6 tiles, which is outside melee
@@ -830,7 +961,11 @@ async function captureBoss(id, info) {
   // 2-second beat, which is most of why every kill capture in the last round
   // showed a live mesh standing upright: the corpse had not had time to fall.
   // 1800ms puts the frame at the moment the body is DOWN and burning.
-  const killShot = await shoot(id + "-6kill", 1800);
+  // ...and the KILL frame must contain the kill card, which names the boss
+  // (r7 blocker: `-6kill` never took an assertion either, and the card lands on
+  // its own clock).
+  const killBeat = await shootBeat(id + "-6kill", 1800, { wantBeat: info.name });
+  const killShot = killBeat.shot;
   row.killShells = killShot.shells;
   row.killPlates = killShot.plates;
   row.killLoot = killShot.loot;

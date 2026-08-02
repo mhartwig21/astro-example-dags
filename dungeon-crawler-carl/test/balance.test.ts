@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createGame, damageMonster, restoreGame, createTestGame, step } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { ARCHETYPES, CONFIG, naturalFloorForLevel } from "../src/sim/config";
+import { allBossDefs, pickBandBoss } from "../src/sim/bosses";
 import { meleeParams } from "../src/sim/abilities";
 
 // Playability invariants, measured by the scripted balance bot (src/sim/bot.ts).
@@ -512,11 +513,61 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
 
   it("deep floors are DENSE, not empty (count outgrows the old 60 cap)", () => {
     // Structural + deterministic: the density lever, independent of the bot.
-    const g = createTestGame({ seed: 7, floor: 15, gear: false });
+    // Measured on floor 16, an ORDINARY deep floor. It used to read floor 15,
+    // which is a BOSS floor — and a boss arena is now deliberately the one
+    // place on a deep floor that is not dense (r7 blocker: the arena's ambient
+    // crowd is drawn from the boss's ASK, so the mechanic the fight is named
+    // for is legible at all). The contract this test exists for is the deep
+    // dungeon's density, and floor 16 measures exactly that with nothing
+    // relaxed: the bar is unchanged at >80.
+    const g = createTestGame({ seed: 7, floor: 16, gear: false });
     expect(
       g.monsters.length,
-      `floor 15 spawned only ${g.monsters.length} monsters — density regressed`,
+      `floor 16 spawned only ${g.monsters.length} monsters — density regressed`,
     ).toBeGreaterThan(80);
+  });
+
+  it("a BOSS arena is thinner than the floor around it, and by its ASK", () => {
+    // The other half of the same rule, asserted rather than assumed (r7
+    // blocker). `tools/_ed3ask.ts` measured mean concurrent live adds as a
+    // pure function of the FLOOR — floor 15 read 78-81 for a kill-the-adds
+    // boss, a burst-the-window boss and a survive-the-storm boss alike — so
+    // the ask printed on the name card predicted nothing about how the fight
+    // played. Two things have to hold: an arena carries far fewer bodies than
+    // the ordinary floor at the same depth, and a kill-the-adds arena carries
+    // the FEWEST, because its own wave is supposed to be the pressure.
+    const ordinary = createTestGame({ seed: 7, floor: 16, gear: false }).monsters.length;
+    const arena = createTestGame({ seed: 7, floor: 15, gear: false }).monsters.length;
+    expect(arena, `floor-15 arena held ${arena} bodies against ${ordinary} on floor 16`)
+      .toBeLessThan(ordinary * 0.55);
+    // ...and the share is per ASK, with kill-the-adds strictly the quietest —
+    // the ordering the measurement said was inverted (adds ranked FOURTH of
+    // six in add pressure, behind storm, lane and window).
+    const shares = CONFIG.bossFloorCrowdByAsk;
+    for (const def of allBossDefs()) {
+      expect(shares[def.ask], `${def.ask} has no crowd share`).toBeGreaterThan(0);
+    }
+    for (const [ask, share] of Object.entries(shares)) {
+      if (ask === "adds") continue;
+      expect(shares.adds, `kill-the-adds is not the quietest ask (${ask} is)`)
+        .toBeLessThan(share);
+      // ...and every ask is well under the old flat floor share, because the
+      // whole finding is that NO ask was legible against the ambient crowd.
+      expect(share, `${ask} still carries the old flat crowd`).toBeLessThan(0.25);
+    }
+    // Spot-check that the table is actually the one the spawner reads: a
+    // kill-the-adds arena holds fewer bodies than a use-the-arena one at the
+    // same depth (floor 9: zoningboard is adds, pollinator is storm).
+    const seedFor = (id: string, band: number): number => {
+      for (let s = 1; s < 8000; s++) if (pickBandBoss(s, band).id === id) return s;
+      throw new Error(`no seed draws ${id}`);
+    };
+    const addsArena = createTestGame(
+      { seed: seedFor("zoningboard", 3), floor: 9, gear: false }).monsters.length;
+    const arenaArena = createTestGame(
+      { seed: seedFor("topiary", 3), floor: 9, gear: false }).monsters.length;
+    expect(addsArena, "the kill-the-adds arena is not the quieter of the two")
+      .toBeLessThan(arenaArena);
   });
 
   it("monster stats COMPOUND past the linear curve on deep floors", () => {

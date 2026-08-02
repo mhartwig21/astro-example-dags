@@ -168,7 +168,12 @@ describe("snapshot (serialize/deserialize)", () => {
   });
 
   it("payload contract: a dense-floor dynamic snapshot is a fraction of the full state", () => {
-    const g = createTestGame({ seed: 42, floor: 15, level: 18 });
+    // Floor 16, an ORDINARY deep floor. It read floor 15 — a boss floor —
+    // and a boss arena is now deliberately the thinnest room at its depth
+    // (r7 blocker: `bossFloorCrowdByAsk`). The contract being asserted is the
+    // WIRE cost on a dense floor, so it wants a dense floor; nothing here is
+    // relaxed (the >50 bar and the 0.6x wire ratio are unchanged).
+    const g = createTestGame({ seed: 42, floor: 16, level: 18 });
     drive(g, 60);
     const full = serialize(g);
     const dyn = serializeDynamic(g);

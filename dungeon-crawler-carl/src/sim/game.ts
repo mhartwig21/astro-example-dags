@@ -516,8 +516,13 @@ function spawnMonsters(state: GameState): void {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, "ranged", pos));
     }
-    // Deep arenas keep the density story (the floor-15 crowd is a contract).
-    const crowd = floor >= CONFIG.bossFloorCrowdDeepFrom ? CONFIG.bossFloorCrowdDeep : CONFIG.bossFloorCrowd;
+    // THE CROWD IS THE BOSS'S, NOT THE FLOOR'S (r7 blocker — see
+    // CONFIG.bossFloorCrowdByAsk). The ambient share is drawn from the ASK the
+    // name card is about to promise, so a kill-the-adds arena is quiet enough
+    // that its own wave IS the pressure and every other ask is legible at all.
+    // The band default stays as the fallback for a draw with no ask.
+    const crowd = CONFIG.bossFloorCrowdByAsk[bandDef.ask] ??
+      (floor >= CONFIG.bossFloorCrowdDeepFrom ? CONFIG.bossFloorCrowdDeep : CONFIG.bossFloorCrowd);
     const count = Math.floor(monsterCount(state, floor) * crowd);
     for (let i = 0; i < count && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
@@ -971,6 +976,18 @@ function fireArenaProp(state: GameState, b: Breakable): void {
     label: b.label ?? String(b.onBreak).toUpperCase(), pos: { x: b.pos.x, y: b.pos.y },
   });
   const left = (state.breakables ?? []).filter((o) => o !== b && o.onBreak === b.onBreak && o.hp > 0).length;
+  // ---- BREAKING A PROP IS A READ (r7 major) -------------------------------
+  //
+  // §2.2's HARD RULE (at least one mechanic-completion phase edge per fight)
+  // measured 0/6 on the Sump King and the Sanitation Inspector and 1/6 on the
+  // Architect and the Safety Officer — §5.12 claimed 16 of 18 and named only
+  // two of those four. The shared fallback edge counts `m.reads`, and `reads`
+  // only ever incremented on a WHIFFED SLAM OR RITUAL, which is a thing an
+  // arena boss with no slam and a lane boss with no ritual simply never does.
+  // Breaking the arena's own interactive prop is the most literal possible
+  // instance of "the player caused this", and it counted for nothing unless it
+  // happened to be the LAST one. It counts now.
+  if (boss) boss.reads = (boss.reads ?? 0) + 1;
   switch (b.onBreak) {
     case "drain": {
       // The flooded half DRAINS: every live ground zone in the arena goes.
@@ -2530,6 +2547,22 @@ export function bossGraveRaise(state: GameState, m: Monster): void {
 }
 
 /**
+ * ---- ONE FRAME, ONE VOICE (r7 major) ---------------------------------------
+ *
+ * The four helpers below are the SHARED band signatures: the arena director
+ * fires them, BORROWED hands them over at phase 1, and RETROFIT swaps one onto
+ * any boss with a signature at all. §5.9 already made the LABEL identity
+ * (`bandSignatureLabel`) so three floor-9 bosses stopped all reading ENTANGLING
+ * ROOTS — and then left the ANNOUNCE COPY hardcoded in the helper. So
+ * `tools/_ed3shots/topiary-3fight.png` carries the RETROFIT chip and the beat
+ * line HEDGE REGROWTH while the LIVE FEED reads "THE FURNACE EXHALES: A wall of
+ * fire is coming through": three mechanics named in one frame, and the loudest
+ * one is the borrowed hazard's voice over the boss's own plate.
+ *
+ * Every one of these four now says the same words the plate says. The label is
+ * the boss's; the sentence after it is the COUNTERPLAY, which is a property of
+ * the hazard and true whoever cast it.
+ *
  * FLOOD SURGE (floor 6, THE SEWERS): sludge pools blanket a seeded HALF of the
  * arena. Each pool ARMS for floodTelegraph seconds (visible, harmless), then
  * ticks like acid until it drains — reposition to the dry half.
@@ -2560,9 +2593,11 @@ export function bossFloodSurge(state: GameState, m: Monster): void {
       damage: m.damage * CONFIG.floodDmgMult,
       kind: "sludge",
       tick: 0, // first tick bites the moment the pool goes live
+      srcId: m.id, // r7: ground you routed around is a read (creditBossRead)
     });
   }
-  announceSignature(state, m, "THE SLUICES OPEN! Half this arena is about to be soup. Find the dry side, Crawlers.");
+  announceSignature(state, m,
+    `${bandSignatureLabel("flood", m.bossId)}. Half this arena is about to be soup — find the dry side, Crawlers.`);
   // §7.4 — the four SHIPPED band signatures name themselves on the boss
   // channel too, so every one of the eighteen has a per-boss telegraph FX and
   // telegraph SOUND, not just the ones whose verbs were new in V2.
@@ -2609,7 +2644,8 @@ export function bossRootGrasp(state: GameState, m: Monster): void {
       kind: "roots",
     });
   }
-  announceSignature(state, m, "The garden is GRABBY. Roots incoming — keep those feet moving or lose them.");
+  announceSignature(state, m,
+    `${bandSignatureLabel("roots", m.bossId)}. The ground is GRABBY — keep those feet moving or lose them.`);
   bossEvent(state, {
     kind: "telegraph", monsterId: m.id, bossId: m.bossId,
     label: bandSignatureLabel("roots", m.bossId),
@@ -2662,7 +2698,8 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
       });
     }
   }
-  announceSignature(state, m, "The ceiling is NEGOTIABLE. Masonry incoming — watch the circles, not the boss.");
+  announceSignature(state, m,
+    `${bandSignatureLabel("debris", m.bossId)}. The ceiling is NEGOTIABLE — watch the circles, not the boss.`);
   bossEvent(state, {
     kind: "telegraph", monsterId: m.id, bossId: m.bossId,
     label: bandSignatureLabel("debris", m.bossId),
@@ -2768,7 +2805,8 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
       });
     }
   }
-  announceSignature(state, m, "THE FURNACE EXHALES. A wall of fire is coming through — pick a gap and COMMIT.");
+  announceSignature(state, m,
+    `${bandSignatureLabel("flamewall", m.bossId)}. A wall is coming through — pick a gap and COMMIT.`);
   bossEvent(state, {
     kind: "telegraph", monsterId: m.id, bossId: m.bossId,
     label: bandSignatureLabel("flamewall", m.bossId),
@@ -2843,6 +2881,9 @@ export function bossCitation(state: GameState, m: Monster): void {
       damage: kitDmg(m, CONFIG.citationDmgMult),
       kind: "beam",
       trackId: i === 0 ? prey.id : undefined, // the first lane LOCKS ON
+      // r7: the lane knows whose fight it belongs to, so a lane the crawler
+      // stepped out of can pay 2.2's mechanic-completion edge (creditBossRead).
+      srcId: m.id,
     });
     // ...and the tiles it crosses are condemned behind it. Armed for exactly
     // as long as the beam, so one telegraph covers both.
@@ -2896,13 +2937,24 @@ export function bossGreasePull(state: GameState, m: Monster): void {
 export function seedSporePod(state: GameState, m: Monster, at: Vec2): void {
   if (!isWalkable(state.map, at.x, at.y)) return;
   if (state.hazards.reduce((n, h) => n + (h.kind === "spore" ? 1 : 0), 0) >= CONFIG.bloomPodCap) return;
+  // THE BED STAYS IN THE ARENA (r7 major). A pod seeds two children and those
+  // seed two more, so a chain walked the garden clean out of the room: the
+  // capture shows the bed "spread past the arena edge and under the HUD",
+  // which is a storm the fight is not in any more. Generational spread is the
+  // mechanic; leaving the ring is not.
+  if (dist(m.pos, at) > CONFIG.bossArenaSize * 0.5) return;
+  // ...and a child is SMALLER than its parent. A bed of one radius reads as a
+  // stamped pattern; a bed that gets finer as it spreads reads as growth, and
+  // it is the difference between the storm's silhouette being one shape and
+  // being a population (see SPORE_FRAG's per-pod seed).
+  const gen = Math.min(2, Math.round(dist(m.pos, at) / 4));
   state.hazards.push({
     id: state.nextEntityId++,
     pos: { x: at.x, y: at.y },
     t: CONFIG.bloomArm,
     total: CONFIG.bloomArm,
     arm: CONFIG.bloomArm,
-    radius: CONFIG.bloomRadius,
+    radius: CONFIG.bloomRadius * (1 - gen * 0.18),
     damage: kitDmg(m, CONFIG.bloomDmgMult),
     kind: "spore",
     srcId: m.id, // so a bloomed pod knows whose garden it is
@@ -2949,26 +3001,71 @@ export function bossFissureFan(state: GameState, m: Monster, lanes: number, radi
   const base = prey
     ? datan2(prey.pos.y - m.pos.y, prey.pos.x - m.pos.x)
     : 0;
+  // ---- A LANE ASK HAS TO LAY A LANE (r7 BLOCKER) --------------------------
+  //
+  // Measured seconds standing inside a `kind:"beam"` hazard, 3 seeds x 60s:
+  // The Sanitation Inspector **0.0s**, The Foundation **0.0s** — the two bosses
+  // whose entire stated ask is "read a locked line, step perpendicular". The
+  // Foundation's FISSURE resolved to `CONFIG.fissureSteps` separate
+  // `blast:debris` DISCS walking outward, i.e. the same primitive as the
+  // chassis hazard rain (163 of them per fight in the census), so the roster's
+  // "a fan of staggered eruptions... move perpendicular, never along the lane"
+  // was rendered and resolved as falling rock.
+  //
+  // A crack in the floor IS a locked line, so it lays one: one `beam` per lane,
+  // armed on the same staggered clock the discs walked out on, running the
+  // whole length the discs used to cover. The fan/radial geometry the roster
+  // comment promises is unchanged — what changes is that it is now a line the
+  // player can be standing ALONG, which is the only way the ask can fail or
+  // succeed. The eruption discs stay as the leading EDGE (two of them, at the
+  // near and far end) so the crack still reads as masonry rather than as a
+  // laser: same telegraph language, one primitive richer.
+  const reach = CONFIG.bossFissureReach;
+  const stepN = Math.max(2, Math.round(reach / CONFIG.fissureStepGap));
   for (let l = 0; l < lanes; l++) {
     const a = radial
       ? base + (l / lanes) * Math.PI * 2
       : base + (l - (lanes - 1) / 2) * 0.55;
     const dir = { x: dcos(a), y: dsin(a) };
-    for (let i = 1; i <= CONFIG.fissureSteps; i++) {
-      const pos = {
-        x: m.pos.x + dir.x * CONFIG.fissureStepGap * i,
-        y: m.pos.y + dir.y * CONFIG.fissureStepGap * i,
-      };
-      if (!isWalkable(state.map, pos.x, pos.y)) break; // the crack stops at the wall
+    // How far the crack can run before it hits a wall: the discs used to stop
+    // at the first unwalkable step, and the lane stops in the same place.
+    let span = 0;
+    for (let i = 1; i <= stepN; i++) {
+      const px = m.pos.x + dir.x * CONFIG.fissureStepGap * i;
+      const py = m.pos.y + dir.y * CONFIG.fissureStepGap * i;
+      if (!isWalkable(state.map, px, py)) break;
+      span = CONFIG.fissureStepGap * i;
+    }
+    if (span <= 0) continue;
+    const arm = CONFIG.fissureStepDelay * stepN * 0.5 + 0.25;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: m.pos.x + dir.x * 0.9, y: m.pos.y + dir.y * 0.9 },
+      end: { x: m.pos.x + dir.x * span, y: m.pos.y + dir.y * span },
+      t: arm + CONFIG.beamFadeSeconds,
+      total: arm + CONFIG.beamFadeSeconds,
+      arm,
+      // WIDE ENOUGH THAT A COMPETENT CRAWLER IS FORCED THROUGH ONE. A lane a
+      // player never occupies is not an ask, it is scenery — which is what the
+      // 0.0s measurement says these two bosses have been shipping.
+      radius: CONFIG.bossFissureWidth,
+      damage: kitDmg(m, CONFIG.fissureDmgMult),
+      kind: "beam",
+      srcId: m.id,
+    });
+    // The two eruptions that sell it as MASONRY: where the crack starts and
+    // where it stops. Not a walk of eight discs — the line is the beat now.
+    for (const at of [0.45, 1.0]) {
+      const pos = { x: m.pos.x + dir.x * span * at, y: m.pos.y + dir.y * span * at };
       state.hazards.push({
         id: state.nextEntityId++,
         pos,
-        t: CONFIG.fissureStepDelay * i + 0.25,
-        total: CONFIG.fissureStepDelay * i + 0.25,
+        t: arm * at + 0.25, total: arm * at + 0.25,
         radius: CONFIG.fissureRadius,
-        damage: kitDmg(m, CONFIG.fissureDmgMult),
+        damage: kitDmg(m, CONFIG.fissureDmgMult * 0.5),
         kind: "blast",
         flavor: "debris",
+        srcId: m.id,
       });
     }
   }
@@ -3005,6 +3102,7 @@ export function bossLattice(state: GameState, m: Monster): void {
       radius: CONFIG.latticeWidth,
       damage: kitDmg(m, CONFIG.latticeDmgMult),
       kind: "beam",
+      srcId: m.id, // r7: a lattice cell you left in time is a read
     });
   }
   bossEvent(state, {
@@ -3181,6 +3279,7 @@ export function bossSluice(state: GameState, m: Monster): void {
         damage: kitDmg(m, CONFIG.sluiceDmgMult),
         kind: "sludge",
         tick: 0,
+        srcId: m.id, // r7: ground you routed around is a read (creditBossRead)
       });
       seeded++;
     }
@@ -3387,6 +3486,10 @@ export function bossShotList(state: GameState, m: Monster): void {
   bossEvent(state, {
     kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "CAMERA MOVE",
     value: 2, pos: { x: m.pos.x, y: m.pos.y },
+    // WHICH WEDGE IS THE SHOT (r7 major). The host cannot draw "the safe
+    // ground" without knowing where it is, and this is the number the sim
+    // just used to decide where NOT to lay hazards.
+    angle: centre, arc: half,
   });
   announceSignature(state, m, "CAMERA MOVE. We are only shooting this angle. If you are not in the shot, you are not protected.");
 }
@@ -7270,6 +7373,22 @@ function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   return dhypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
 }
 
+/**
+ * A BOSS-owned telegraphed hazard resolved and caught nobody: the player read
+ * it. §2.2's mechanic-completion phase edge counts these (`m.reads`), and until
+ * r7 only a whiffed slam or ritual counted — so the four bosses whose kits are
+ * made of LANES and GROUND (sumpking 0/6, inspector 0/6, architect 1/6,
+ * safetyofficer 1/6) could not reach the hard rule at all. Bosses only, and
+ * only when the boss actually laid it: a trash sniper's missed beam is not a
+ * beat in someone else's fight.
+ */
+function creditBossRead(state: GameState, srcId?: number): void {
+  if (srcId === undefined) return;
+  const src = state.monsters.find((mm) => mm.id === srcId);
+  if (!src || src.kind !== "boss" || src.hp <= 0) return;
+  src.reads = (src.reads ?? 0) + 1;
+}
+
 function updateHazards(state: GameState, dt: number): void {
   if (state.hazards.length === 0) return;
   const remaining: GameState["hazards"] = [];
@@ -7355,13 +7474,21 @@ function updateHazards(state: GameState, dt: number): void {
       if (live && !hz.fired) {
         hz.fired = true;
         hz.t = Math.min(hz.t, CONFIG.beamFadeSeconds); // whatever remains is the flash
+        let caught = 0;
         for (const p of state.players) {
           if (!p.alive || p.dashTime > 0) continue; // dash i-frames beat the shot
           if (distToSegment(p.pos, hz.pos, hz.end) > hz.radius) continue;
+          caught++;
           if (damagePlayerHit(state, p, hz.damage, { src: hazardSrc(hz) })) {
             handlePlayerDeath(state, p, `${p.name} stood on the dotted line. The System appreciates the composition.`);
           }
         }
+        // A LANE YOU STEPPED OUT OF IS A READ (r7 major). §2.2's mechanic edge
+        // measured 0/6 on the Sanitation Inspector — the boss whose entire ask
+        // is "read a locked line, step perpendicular" — because `m.reads` only
+        // counted whiffed SLAMS and RITUALS, neither of which a lane boss owns.
+        // The verb the fight is named for now advances the fight.
+        if (caught === 0) creditBossRead(state, hz.srcId);
       }
       remaining.push(hz);
       continue;
@@ -7394,6 +7521,20 @@ function updateHazards(state: GameState, dt: number): void {
     if (hz.kind === "sludge" || hz.kind === "roots") {
       if (hz.t <= 0) continue; // drained / withered
       const live = hz.total - hz.t >= (hz.arm ?? 0); // past the telegraph
+      // GROUND YOU ROUTED AROUND IS A READ (r7 major). §2.2's hard rule
+      // measured 0 of 6 fights with a mechanic-completion edge on The Sump
+      // King — the roster's headline USE-THE-ARENA boss, whose entire kit is
+      // armed pools and whose whole ask is "move the fight to good ground".
+      // `m.reads` only counted whiffed slams and rituals, neither of which it
+      // owns. A pool that finishes ARMING with nobody standing in it is the
+      // player having done the thing the fight is named for, scored once, on
+      // the arm->live edge (`fired` is otherwise unused on a ground zone).
+      if (live && !hz.fired) {
+        hz.fired = true;
+        const occupied = state.players.some(
+          (p) => p.alive && dist(hz.pos, p.pos) <= hz.radius);
+        if (!occupied) creditBossRead(state, hz.srcId);
+      }
       if (live && hz.kind === "roots") {
         // Roots GRIP: refresh the snare on anyone standing in the zone.
         for (const p of state.players) {
@@ -7520,9 +7661,11 @@ function updateHazards(state: GameState, dt: number): void {
       const caster = state.monsters.find((mm) => mm.id === hz.srcId);
       if (caster?.bossId === "architect") smashBlockersAt(state, hz.pos, hz.radius);
     }
+    let blastCaught = 0;
     for (const p of state.players) {
       if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
       if (dist(hz.pos, p.pos) > hz.radius) continue;
+      blastCaught++;
       const d = dist(hz.pos, p.pos);
       const away = d > 1e-4
         ? { x: (p.pos.x - hz.pos.x) / d, y: (p.pos.y - hz.pos.y) / d }
@@ -7531,6 +7674,11 @@ function updateHazards(state: GameState, dt: number): void {
         handlePlayerDeath(state, p, `${p.name} looted a corpse that was still ticking. The crowd howls.`);
       }
     }
+    // ...and a telegraphed disc the player walked out of is the same read a
+    // walked-out slam is (r7 major). This is what gets the Condemned Architect
+    // and the Safety Officer — whose kits are made of DISCS — to §2.2's hard
+    // rule; both measured 1 of 6 fights with a mechanic-completion edge.
+    if (blastCaught === 0) creditBossRead(state, hz.srcId);
   }
   state.hazards = remaining;
 }

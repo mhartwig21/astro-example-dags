@@ -1311,12 +1311,33 @@ function bossHushLive(): boolean {
   return false;
 }
 
-/** Lines the hush lets through: the fight, and anything the fight caused. */
-function isFightLine(text: string): boolean {
-  return !/^(ACHIEVEMENT|The Show|SPONSOR|Viewers|FAVORITE|\d+ ACHIEVEMENTS)/i.test(text);
+/**
+ * Lines the hush lets through: the fight, and anything the fight caused.
+ *
+ * r7 BLOCKER — this was a TEXT-PREFIX REGEX, and a prefix regex is a guess.
+ * `rentcollector-5punish.png` carries "NEW SPONSOR for Carl!" and a three-line
+ * "COURTESY EXPLANATION: hype converts viewers into FAVORITES..." in the LIVE
+ * FEED during the punish window, because neither string begins with any of the
+ * six words the pattern knew about. §5.12 claims the hush closed; what closed
+ * was six specific sentences.
+ *
+ * The sim already TYPES every one of these (`Announcement.kind`) and the host
+ * was throwing the type away: `announce()` pushes both a typed Announcement and
+ * a raw string into `state.events`, and `flushFeedback` drained the strings.
+ * So the classification is now the sim's, not a pattern's — `flushFeedback`
+ * pairs each event line back up with the announcement that produced it and the
+ * feed filters on KIND. Lines with no announcement behind them are the world
+ * describing itself mid-fight ("An understudy transforms...", "A floodgate
+ * drains 3 pools.") and are exactly what the segment is FOR, so they pass.
+ */
+const HUSHED_KINDS: ReadonlySet<AnnouncementKind> = new Set<AnnouncementKind>([
+  "achievement", "show", "loot", "levelup", "progress", "tip",
+]);
+function isFightLine(kind?: AnnouncementKind): boolean {
+  return !kind || !HUSHED_KINDS.has(kind);
 }
 
-function pushLogLine(text: string): void {
+function pushLogLine(text: string, kind?: AnnouncementKind): void {
   log.push(text);
   // The ringside title card owns the boss-intro moment — no third echo in the
   // visible feed (the line stays in the archive `log` array).
@@ -1334,7 +1355,7 @@ function pushLogLine(text: string): void {
   // the approach has begun, the feed carries the fight and nothing else.
   // Nothing is lost — every line is still in the archive `log` array and on
   // the recap screen, which is where a payout receipt belongs.
-  if (bossHushLive() && !isFightLine(text)) return;
+  if (bossHushLive() && !isFightLine(kind)) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
   el.textContent = text;
@@ -1637,6 +1658,8 @@ let bossPlateKey = "";
 // contrast. The plate's beat line keeps the running commentary; this layer
 // keeps the moments, and it is never underneath any panel.
 let bossCallUntil = 0;
+/** Earliest a PEER beat may replace the plate's live line (r7) — see postBossBeat. */
+let bossBeatFloor = 0;
 /**
  * CALL-OUT RANK (r3 blocker). Three beats share this layer and they are not
  * equal: a capture caught two shots of the PUNISH window showing the phase
@@ -1654,6 +1677,25 @@ let bossCallRank = 0;
  *  fight is FOR, so they get a full read even when the sim's own window
  *  (a 2.2s punish) is shorter than one. */
 const CALL_MIN_SECONDS = 3;
+/**
+ * Take the layer down NOW, whatever is on it and whatever its rank.
+ *
+ * r7 blocker: "the intermission has no call-out of its own on half the roster."
+ * Four of eight captured bosses showed UNLOAD over a live intermission, because
+ * the rank table makes `punish` (3) outrank `intermission` (2) and the window's
+ * call-out holds for CALL_MIN_SECONDS whatever the fight does afterwards. The
+ * ranking was written for the opposite case (a phase edge crossing mid-window,
+ * where the window is still TRUE a moment later) and it does not apply here:
+ * once `invulnT` is live the boss is untargetable, so "UNLOAD" is not merely
+ * lower-priority, it is FALSE. A beat that changes the state retires the
+ * sentence that described the old one — the same rule §5.11 gave stale banners.
+ */
+function retireBossCall(): void {
+  bossCallUntil = 0;
+  bossCallRank = 0;
+  bossCallEl.classList.remove("on");
+}
+
 function postBossCall(
   word: string, sub: string, seconds: number, cool = false, rank: CallRank = "phase",
 ): void {
@@ -1671,10 +1713,34 @@ function postBossCall(
   bossCallEl.classList.add("on");
 }
 
-function postBossBeat(text: string, seconds: number, strong = false): void {
+/**
+ * `strong` is the PUNISH treatment (the gold plate line). `lock` is the
+ * separate question of whether a routine telegraph may overwrite this line
+ * before its time is up — the two used to be one flag, which meant the
+ * intermission could only hold the line by borrowing the punish window's
+ * styling, i.e. by wearing the exact colour it must never be confused with.
+ */
+function postBossBeat(text: string, seconds: number, strong = false, lock = strong): void {
   const now = hudNow;
-  if (!strong && now < bossBeatUntil && bossBeatKey === "punish") return;
-  bossBeatKey = strong ? "punish" : text;
+  if (!lock && now < bossBeatUntil && bossBeatKey === "punish") return;
+  // ---- A BOSS'S OWN VERB GETS A FLOOR (r7 blocker/major) -------------------
+  //
+  // "Its headline verb MOTION CARRIED lost the shutter 6 times out of 6 to its
+  // own punish tell", and the same thing cost the Permit Office three attempts
+  // at STOP-WORK ORDER: the boss commits its named signature and, a couple of
+  // hundred milliseconds later, its punish TELL — also a `telegraph` — replaces
+  // the line. Both are true, and the plate can only say one, and the one it was
+  // keeping was the one every boss in the game shares.
+  //
+  // So the beat line holds a NAMED signature for a beat before a peer may take
+  // it. This is not a priority hack: the punish tell keeps its own world
+  // silhouette (the shaft) throughout, and the WINDOW itself is `lock` and
+  // still overrides instantly, because that is the beat §7.4 says outranks
+  // everything. What ends is the chassis's verb erasing the boss's inside the
+  // same half-second the boss committed it.
+  if (!lock && now < bossBeatFloor) return;
+  bossBeatFloor = strong ? 0 : now + 1400;
+  bossBeatKey = lock ? "punish" : text;
   bossBeatUntil = now + seconds * 1000;
   bbBeat.textContent = text;
   bbBeat.classList.toggle("punish", strong);
@@ -1763,9 +1829,27 @@ function applyBossEvents(events: BossEvent[]): void {
         // The unload window. It owns the CALL-OUT layer outright, at
         // announcement contrast, outside every panel — the beat that most
         // needs to read is never printed under the furniture again.
-        postBossCall("UNLOAD", e.label ?? "EXPOSED CORE", e.duration ?? 2.2, false, "punish");
-        postBossBeat(e.label ? `${e.label} — UNLOAD` : "EXPOSED — UNLOAD",
-          e.duration ?? 2.2, true);
+        //
+        // ---- ONE CARRIER PER STRING (r7 major) ---------------------------
+        // Shipped, every punish frame printed its own sentence TWICE, ~180px
+        // apart: the plate's beat line read "THE EMPTY TILL — UNLOAD" and the
+        // call-out read "UNLOAD / THE EMPTY TILL". Two surfaces, one sentence,
+        // and neither of them is the other's subtitle.
+        //
+        // ...and the half that was duplicated was the wrong half (r7 major,
+        // "per-boss identity in the punish beat is a 14px subtitle"). The
+        // chassis word UNLOAD was 46px on all eighteen bosses and the boss's
+        // OWN name for its window — the one thing in this beat a player could
+        // ever learn — was the small line under it.
+        //
+        // So the two surfaces are split by JOB and share no words at all:
+        //   the CALL-OUT carries the IDENTITY (this boss's core, at
+        //   announcement contrast) plus the grammar lesson underneath it, and
+        //   the PLATE carries the VERB, which is the same on every boss and
+        //   therefore belongs on the small, always-present surface.
+        postBossCall(e.label ?? "EXPOSED CORE", "THE WINDOW IS OPEN",
+          e.duration ?? 2.2, false, "punish");
+        postBossBeat("UNLOAD", e.duration ?? 2.2, true);
         break;
       case "plate":
         postBossBeat(`${e.label ?? "PLATE"} BROKEN`, 1.8);
@@ -1775,9 +1859,20 @@ function applyBossEvents(events: BossEvent[]): void {
         break;
       case "intermission":
         // COOL, so it can never be mistaken for the punish window's gold.
+        //
+        // IT TAKES THE LAYER (r7 blocker). The intermission is a STATE CHANGE:
+        // the boss goes untargetable, so a live UNLOAD stops being true at the
+        // instant this fires and may not outrank the beat that made it false.
+        // Without this, `sumpking`, `permitoffice`, `topiary` and `standards`
+        // all photographed their -4phase frame with the punish call-out still
+        // up and the beat §5.6 calls the phase SPECTACLE nowhere on screen.
+        retireBossCall();
         postBossCall("THE COMMERCIAL BREAK", "THE BOARD IS BEING RE-DEALT",
-          e.duration ?? 2, true, "intermission");
-        postBossBeat("THE COMMERCIAL BREAK", e.duration ?? 2);
+          // ...and it holds for the whole break rather than for a nominal two
+          // seconds, so the call-out cannot expire inside the beat it names.
+          Math.max(3.4, (e.duration ?? 2) + 1.4), true, "intermission");
+        postBossBeat("THE COMMERCIAL BREAK", Math.max(3.4, (e.duration ?? 2) + 1.4),
+          false, true);
         break;
       case "prop":
         if (e.label) postBossBeat(`${e.label} FIRED`, 1.4);
@@ -1846,9 +1941,17 @@ function updateBossBar(s: GameState): void {
   // do not let a beat END while the camera is open — so it is honoured here
   // too. Nothing is invented: a card that never posted does not appear.
   if (bossCallUntil > 0 && hudNow > bossCallUntil && hudNow >= captureHold) {
-    bossCallUntil = 0;
-    bossCallRank = 0;
-    bossCallEl.classList.remove("on");
+    retireBossCall();
+  }
+  // ...AND THE UNLOAD CALL NEVER OUTLIVES THE WINDOW IT NAMES (r7 blocker).
+  // The event handler retires it when the intermission arrives; this is the
+  // standing guarantee for every other way the window can end (the boss going
+  // untargetable at all, the stagger being consumed). It is deliberately NOT
+  // gated on `captureHold`: a capture may not hold a sentence open past the
+  // moment it stopped being true — that is the failure the honesty rule names.
+  if (bossCallRank === CALL_RANK.punish) {
+    const star = s.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+    if (star && (star.invulnT ?? 0) > 0) retireBossCall();
   }
   // ...and while it IS live it owns its band outright (r5 blocker). The
   // call-out and the System's headline banner were both parked at ~27-28% of
@@ -1942,10 +2045,29 @@ function updateBossBar(s: GameState): void {
   // and no mutator row: the ENTOURAGED mutator's champion escort had walked a
   // step closer than the boss, and "nearest" handed it the marquee. The boss
   // is the encounter; the escort is furniture in it.
+  //
+  // ...AND THAT RULE HAD TWO HOLES, BOTH AT HEADLINE BEATS (r7 blocker).
+  // `marshal-1approach.png`: the approach frame's only plate reads THE
+  // ENTOURAGE at full health with the Furnace Marshal standing in the ring
+  // below it. `pollinator-6kill.png`: a full-health THE ENTOURAGE plate sits
+  // directly above THE POLLINATOR — DEFEATED. Both slipped through because the
+  // rule was a TIE-BREAK between candidates, and at those two beats the boss is
+  // not a candidate at all — un-introduced on the approach, `hp <= 0` on the
+  // kill — so the escort won by walkover. §5.9 wrote "a boss always outranks an
+  // elite for the marquee"; an escort that only outranks it when the boss is
+  // absent from its own segment is the same defect wearing a tie-break.
+  //
+  // So the rule becomes exclusive rather than comparative: on a floor whose
+  // boss segment is live in ANY of its phases — approaching, introduced,
+  // fighting, or freshly dead with the kill card up — the marquee belongs to
+  // the boss or to nothing. THE ENTOURAGE is furniture in someone else's show.
+  const bossSeg = bossHushLive() || hudNow < killBeatUntil ||
+    s.monsters.some((m) => m.kind === "boss");
   let target: GameState["monsters"][number] | null = null;
   let best = 16;
   let bestIsBoss = false;
   for (const m of s.monsters) {
+    if (bossSeg && m.kind !== "boss") continue;
     if ((m.kind !== "boss" && !m.elite) || !m.introduced || m.hp <= 0) continue;
     const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
     if (d >= 16) continue;
@@ -4417,8 +4539,14 @@ function shopStamp(verb: string, name: string, color: string): void {
 }
 
 function flushFeedback(s: GameState): void {
+  // The feed's classifier is the SIM's (r7 blocker — see isFightLine). Every
+  // line `announce()` produced is in BOTH channels this frame, so pairing them
+  // up by text hands the feed the kind the sim already assigned instead of
+  // making the host guess from a prefix.
+  const kindOf = new Map<string, AnnouncementKind>();
+  for (const a of s.announcements) if (!kindOf.has(a.text)) kindOf.set(a.text, a.kind);
   for (const a of s.announcements) showAnnouncement(a);
-  for (const e of s.events) pushLogLine(e);
+  for (const e of s.events) pushLogLine(e, kindOf.get(e));
   s.announcements = [];
   s.events = [];
 }
@@ -6172,14 +6300,20 @@ function showAnnouncement(a: Announcement): void {
     // A BOSS line during a live segment is a DUPLICATE by construction — the
     // beat that raised it already owns `#bossbar`'s beat line and, for the
     // three headline beats, `#bosscall`. It steps down to the ticker.
-    if (a.kind === "boss" && bossSegmentLive()) {
+    //
+    // ...AND SO DOES EVERY OTHER HIGH-PRIORITY LINE (r7 blocker). Stepping the
+    // BOSS lines down and leaving the rest on a lower banner was half a rule:
+    // `zoningboard-3fight.png` photographed a full-width "RULES VIOLATION: the
+    // key left the arena of play" dead centre over the crawler, and the boss
+    // was not in the frame at all. A line whose subject is not this fight has
+    // no claim on the frame this fight is happening in, whatever its priority
+    // — for the duration of the segment it takes the ticker, which is the
+    // surface built for lines that must be readable without being staged.
+    // Nothing is lost: the archive keeps every line and the ticker shows it.
+    if (bossSegmentLive()) {
       showAnnouncement({ ...a, priority: "normal" });
       return;
     }
-    // Everything else keeps its banner but not the middle of the arena: the
-    // `bossseg` body class parks the headline band low while the segment runs
-    // (see iso.html), so a line about a key that left the arena of play can no
-    // longer sit on top of the telegraph the player is reading.
     showBanner(a);
     return;
   }

@@ -4,7 +4,7 @@ import { step } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
 import { NO_INTENT, type BossId, type GameState, type Monster } from "../src/sim/types";
-import { BOSS_POOL, bandForBossFloor, pickBandBoss, rollBossMutators } from "../src/sim/bosses";
+import { BOSS_POOL, bandForBossFloor, bossMutatorInfo, pickBandBoss, rollBossMutators } from "../src/sim/bosses";
 
 // Band bosses + signature mechanics: every band-end floor (3, 6, 9, 12, 15)
 // hosts a sealed arena whose boss layers ONE band-themed ability on the shared
@@ -109,7 +109,19 @@ describe("band-boss ladder", () => {
 
   it("the floor-3 opener is gentle: small pool, softer hits, no Ground Slam", () => {
     const boss = atFloor(3).monsters.find((m) => m.kind === "boss")!;
-    expect(boss.bossMutators, "floor 3 is the teaching band: no mutators").toBeUndefined();
+    // ONE mutator, and only a TEACHING one (r7 blocker). "No mutators on floor
+    // 3" was written to mirror "floor 1 stays pristine" and the analogy does
+    // not hold: floor 1 has no boss. `tools/_ed3variety.ts` measured each of
+    // the three floor-3 candidates as having 2-3 (mutator x arena) fingerprints
+    // in existence — in the one boss slot every short session reaches. What
+    // stays true is that the teaching band never draws ambient pressure, a
+    // clock, or a text-reading test: see BossMutatorInfo.teaching.
+    expect((boss.bossMutators ?? []).length,
+      "the teaching band draws at most one mutator").toBeLessThanOrEqual(1);
+    for (const mut of boss.bossMutators ?? []) {
+      expect(bossMutatorInfo(mut).teaching,
+        `${mut} is not a teaching-band mutator`).toBe(true);
+    }
     expect(boss.maxHp).toBeLessThanOrEqual(1500);
     expect(boss.damage).toBeLessThan(CONFIG.bossDamage * 0.6);
     expect(boss.bossTier).toBeUndefined(); // no slam kit on the trainer boss

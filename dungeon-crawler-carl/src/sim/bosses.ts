@@ -53,6 +53,20 @@ export interface BossDef {
   prop?: NonNullable<Breakable["onBreak"]>;
   /** Phases before the last one (default 2 = the shipped 2/3 and 1/3 gates). */
   maxPhase?: number;
+  /**
+   * This boss overrides the chassis its ASK would give it (see ASK_CHASSIS).
+   *
+   * r7 blocker: `tools/_ed3census.ts` measured the teaching band's three
+   * candidates at pairwise cosine 0.993 / 0.972 / 0.968 on the normalised
+   * threat vector — across two DIFFERENT asks. Deriving the chassis from the
+   * ask fixes the cross-ask half of that (a kill-the-adds boss stops firing the
+   * same ring as a burst-the-window one), but The Rent Collector and The Temp
+   * SHARE the window ask by deliberate design (§3: the UNDERCROFT is the
+   * teaching band and two of its three candidates both teach "recognise the
+   * window and unload"), so the ask alone cannot separate them. A boss may
+   * therefore state its own chassis; the ask is the default, not the law.
+   */
+  chassis?: Partial<BossChassisRule>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +109,15 @@ export const BOSS_POOL: Record<number, BossDef[]> = {
       ask: "window", arenas: ["open", "pillared", "split"],
       line: "Contract includes a transformation clause. Standard boilerplate.",
       hpMult: 0.9,
+      // ITS OWN CHASSIS, BECAUSE THE DOC ALREADY SAID SO (r7 blocker). Its
+      // entry has read "a pushover with a visible ticking clause" since the
+      // roster was written, and it fought exactly like The Rent Collector next
+      // to it: cosine 0.972 on the threat vector, same ask, same everything.
+      // A pushover does not fire a ring of bolts every 3.6 seconds. It barely
+      // does anything — which is the whole setup for the clause, and makes the
+      // two window bosses on the teaching floor two different lessons about
+      // the same beat rather than one lesson printed twice.
+      chassis: { volleyCd: 0, volleyCount: 0, rainMult: 1.8 },
     },
   ],
 
@@ -345,6 +368,75 @@ export const BOSS_PUNISH: Record<BossId, BossPunishRule> = {
   sponsor: { tell: "AD BREAK OVERRUN", core: "THE UNSOLD SLOT", after: 4 },
 };
 
+// ---------------------------------------------------------------------------
+// THE CHASSIS SPEAKS IN THE ASK'S VOICE (r7 blocker).
+//
+// The measurement: `ch_volley` is the TOP entry in the threat vector on twelve
+// of eighteen bosses and the #2 entry on the other five — the single most
+// common thing that happens in a boss fight, on nearly the whole roster. Median
+// chassis share (melee + volley + slam + rain + ritual) is 58%, and on the
+// teaching band it is 78% with the boss's own kit windups at 6%. §5.12 moved
+// the volley 3.4s -> 4.6s and 10 -> 6 bolts and it stayed the modal event,
+// because slowing a universal does not stop it being a universal.
+//
+// The critic named the two honest fixes: make the volley a KIT verb about six
+// bosses own, or DERIVE ITS CADENCE FROM THE ASK. This is the second, and it is
+// the one that does not need eighteen new kit blocks — the volley is genuinely
+// chassis (a boss with no ranged answer is a boss you kite), so what has to
+// stop is it being the SAME chassis on a break-the-shield boss and a
+// kill-the-adds boss.
+//
+// The shape of the table is the design statement:
+//   - `adds` and `storm` do not fire it AT ALL. Their ask already fills the air
+//     with bodies and with ground; a ring of bolts on top is the chassis
+//     talking over the mechanic the fight is named for.
+//   - `lane` fires a thin, slow one. A lane boss's whole ask is "read the line
+//     on the floor" and undodgeable bolts are the exact noise that ask cannot
+//     survive; what is left is a reason not to stand still at range.
+//   - `shield` and `arena` keep a real volley — those two asks send the player
+//     to a PLACE (the weak point, the good ground), and the volley is the
+//     price of the trip.
+//   - `window` fires the densest one, on the shortest clock. The burst-the-
+//     window fight is explicitly a rhythm of pressure and relief: the pressure
+//     between windows is supposed to be the chassis, and the punish window
+//     already suppresses it outright (`punishQuietT`).
+//
+// Everything the asks below give up in ambient chip is already paid for on the
+// kit side by `bossKitDmgMult` (§5.12), which is the knob the ablation reads.
+// ---------------------------------------------------------------------------
+
+export interface BossChassisRule {
+  /** Seconds between radial volleys; 0 means this ask does not fire one. */
+  volleyCd: number;
+  /** Bolts per volley. */
+  volleyCount: number;
+  /** Multiplier on `bossHazardCooldown` (the phase-1+ rain). */
+  rainMult: number;
+}
+
+// `rainMult` scales `bossHazardCooldown`, so BELOW 1 is MORE rain. The asks
+// that give the volley up entirely get some of that pressure back as rain
+// instead — and that is a straight upgrade for the fight's readability, because
+// the rain ARMS (`bossHazardDelay`) and the volley never did. What the roster
+// loses is undodgeable chip; what it keeps is a reason to keep moving.
+export const ASK_CHASSIS: Record<BossAsk, BossChassisRule> = {
+  adds: { volleyCd: 0, volleyCount: 0, rainMult: 0.78 },
+  storm: { volleyCd: 0, volleyCount: 0, rainMult: 0.74 },
+  lane: { volleyCd: 6.4, volleyCount: 4, rainMult: 0.88 },
+  shield: { volleyCd: 4.6, volleyCount: 6, rainMult: 1.0 },
+  arena: { volleyCd: 5.0, volleyCount: 6, rainMult: 0.95 },
+  window: { volleyCd: 3.6, volleyCount: 8, rainMult: 1.1 },
+};
+
+/** The chassis rule this boss's ask asks for; the shipped defaults otherwise.
+ *  A roster entry may override any field of it (`BossDef.chassis`). */
+export function bossChassisRule(id?: BossId): BossChassisRule {
+  const def = id ? bossDef(id) : undefined;
+  const base = (def && ASK_CHASSIS[def.ask]) ||
+    { volleyCd: CONFIG.bossVolleyCooldown, volleyCount: CONFIG.bossVolleyCount, rainMult: 1 };
+  return def?.chassis ? { ...base, ...def.chassis } : base;
+}
+
 /** This boss's punish identity — total, pure, safe on an unknown id. */
 export function bossPunishRule(id?: BossId): BossPunishRule {
   return (id && BOSS_PUNISH[id]) || PUNISH_FALLBACK;
@@ -549,12 +641,28 @@ export interface BossMutatorInfo {
    * round, but common) draws at ordinary weight.
    */
   tickets?: number;
+  /**
+   * Legal on the TEACHING BAND (floor 3). r7 blocker: floor 3 drew ZERO
+   * mutators by design and the three candidates therefore had only 2-3
+   * (mutator x arena) fingerprints in existence — in the one slot every short
+   * session reaches. The "floor 1 stays pristine" analogy the gate was built on
+   * is wrong, and it is wrong for a stated reason: FLOOR 1 HAS NO BOSS. Floor 3
+   * is not the pristine floor, it is the first ENCOUNTER, and an encounter that
+   * is identical every run is exactly the defect this whole doc opened on.
+   *
+   * Only mutators that TEACH are legal here — one that adds a second verb to
+   * read (RETROFIT, UNDERSTUDIED) or one body to prioritise (ENTOURAGED). The
+   * four that are ambient pressure, a clock, or a text-reading test are not
+   * things a first boss should be explaining.
+   */
+  teaching?: boolean;
 }
 
 export const BOSS_MUTATORS: BossMutatorInfo[] = [
   {
     id: "entouraged", label: "ENTOURAGED", addsPressure: true,
     note: "Arrives with a champion-grade escort. Split attention; pick a kill order.",
+    teaching: true, // one extra body to prioritise: the first kill-order lesson
   },
   {
     id: "unionrules", label: "UNION RULES", addsPressure: true,
@@ -594,6 +702,7 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
     // and `bosses.test.ts` pins that the routing holds.
     legal: (def) => !!def.signature,
     tickets: 3, // r6: the one ask-changer a critic could photograph working
+    teaching: true, // an unfamiliar telegraph on a familiar body IS the lesson
   },
   {
     id: "understudied", label: "UNDERSTUDIED",
@@ -601,6 +710,7 @@ export const BOSS_MUTATORS: BossMutatorInfo[] = [
     changesAsk: true,
     legal: (def) => !!def.plates || !!def.shield,
     tickets: 3,
+    teaching: true, // "the break-window happens twice" is a repeated ASK
   },
   {
     id: "liveaudience", label: "LIVE AUDIENCE",
@@ -628,8 +738,26 @@ export function bossMutatorInfo(id: BossMutator): BossMutatorInfo {
 export function rollBossMutators(
   seed: number, floor: number, def: BossDef, bonus = false,
 ): BossMutator[] {
-  if (floor < CONFIG.bossMutatorFromFloor) return []; // the teaching band stays clean
-  const legal = BOSS_MUTATORS.filter((m) => !m.legal || m.legal(def));
+  // ---- THE TEACHING BAND DRAWS ONE TOO (r7 blocker) ------------------------
+  //
+  // Floor 3 drew nothing, "mirroring the shipped floor-1-stays-pristine rule",
+  // and `tools/_ed3variety.ts` measured the cost: each of the three candidates
+  // has 2-3 (mutator x arena) fingerprints IN EXISTENCE, in the one boss slot a
+  // short session is guaranteed to reach. The analogy was wrong and it is wrong
+  // for one stated reason — FLOOR 1 HAS NO BOSS. Floor 3 is not the pristine
+  // floor, it is the first encounter, and "the same boss every run" is the
+  // defect this entire document exists to close.
+  //
+  // The teaching band draws from the TEACHING subset only (see
+  // BossMutatorInfo.teaching): one more verb to read or one more body to
+  // prioritise, never ambient pressure, never a clock, never a text test. If a
+  // candidate can carry none of them it still draws nothing, which is the old
+  // behaviour and the correct one — a mutator that does not apply is not a
+  // lesson. Floors 6-12 are unchanged; 15+ still draws two.
+  const teachingBand = floor < CONFIG.bossMutatorFromFloor;
+  const legal = BOSS_MUTATORS.filter(
+    (m) => (!m.legal || m.legal(def)) && (!teachingBand || m.teaching),
+  );
   if (legal.length === 0) return [];
   // THE FIRST SLOT PREFERS AN ASK-CHANGER (r5 major). Uniform over `legal`,
   // the two mutators that actually change what the fight asks drew 4-10% of

@@ -518,20 +518,68 @@ const PROPS_FRAG = /* glsl */ `
 // lines across it; the diagonal bar tells a mono-school build this one is not
 // theirs BEFORE they waste a rotation on it.
 // ---------------------------------------------------------------------------
+// r7 MAJOR — "THE PERMIT OFFICE'S FOUR STAMPS ARE FOUR BLANK WHITE QUADS."
+//
+// The plate names them beautifully — STAMP: STRUCTURAL / ELEMENTAL / OCCUPANCY
+// / VARIANCE, with schools, greying out the broken one — and the four objects
+// in the WORLD carried no icon, no school hue and the same rectangle outline as
+// the punish reticle and the loot beacons. Three separate defects in one quad:
+//
+//  * NO HUE. The renderer was already passing the school colour in `uColor` and
+//    this shader spent it on `uColor * 0.09` — the near-black field — while
+//    every lit pixel came from `uCore`, a fixed cream. So the two magic stamps
+//    and the two physical stamps were the same colour as each other and as the
+//    bare lockbox on floor 3.
+//  * NO ICON. Four stamps whose whole mechanic is "these two want a different
+//    school from those two" and nothing on the object said which was which.
+//  * NO SILHOUETTE OF ITS OWN. A plain square outline, i.e. the shape §5.9
+//    reserves for "aim here".
+//
+// So: a STAMP is a chamfered tablet (cut corners — not a rectangle), the bezel
+// and rule carry the SCHOOL's hue, and each one wears a procedural glyph keyed
+// off its index — wedge / bolt / arch / slash. Reduced to a mask, four
+// different marks on four cut-cornered tablets.
 const PLATE_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform vec3 uCore;
   uniform float uTime;
   uniform float uHp;     // 1 pristine -> 0 about to break
   uniform float uImmune; // 1 = this plate refuses a school (draw the bar)
+  uniform float uGlyph;  // which mark this stamp wears (0..3)
   varying vec2 vUv;
   float plH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
-    float r = max(abs(p.x), abs(p.y));
-    float bezel = smoothstep(0.82, 0.94, r) * (1.0 - smoothstep(0.99, 1.0, r));
-    float rule = smoothstep(0.62, 0.66, r) * (1.0 - smoothstep(0.7, 0.74, r));
-    float field = 1.0 - smoothstep(0.9, 1.0, r);
+    vec2 a2 = abs(p);
+    float r = max(a2.x, a2.y);
+    // CHAMFERED: the corners are cut, so the outline is an octagon-ish tablet
+    // and not the square the reticle and the beacons are built from.
+    float cham = (a2.x + a2.y) * 0.72;
+    float shape = max(r, cham);
+    float bezel = smoothstep(0.82, 0.94, shape) * (1.0 - smoothstep(0.99, 1.0, shape));
+    float rule = smoothstep(0.62, 0.66, shape) * (1.0 - smoothstep(0.7, 0.74, shape));
+    float field = 1.0 - smoothstep(0.9, 1.0, shape);
+    // ---- THE MARK. One procedural glyph per stamp, drawn in the dark field.
+    vec2 q = p * 1.9;
+    float g = 0.0;
+    if (uGlyph < 0.5) {
+      // WEDGE (structural): a load-bearing triangle.
+      float tri = max(abs(q.x) * 0.87 + q.y * 0.5, -q.y * 0.5);
+      g = smoothstep(0.44, 0.30, tri) * (1.0 - smoothstep(0.30, 0.16, tri));
+    } else if (uGlyph < 1.5) {
+      // BOLT (elemental): a lightning zig, two strokes.
+      float z = abs(q.x - sign(q.y) * 0.26) - 0.10;
+      g = smoothstep(0.10, 0.0, z) * step(abs(q.y), 0.52);
+    } else if (uGlyph < 2.5) {
+      // ARCH (occupancy): a doorway — two posts and a lintel.
+      float post = smoothstep(0.11, 0.0, abs(a2.x - 0.34)) * step(q.y, 0.22) * step(-0.52, q.y);
+      float lint = smoothstep(0.11, 0.0, abs(q.y - 0.30)) * step(a2.x, 0.45);
+      g = max(post, lint);
+    } else {
+      // SLASH (variance): the exception, struck across the form.
+      g = smoothstep(0.11, 0.0, abs(q.x - q.y) * 0.71) * step(max(a2.x, a2.y), 0.5);
+    }
+    g *= field;
     // FRACTURES open as the plate is worked: chunky, KayKit-scaled.
     float dmg = 1.0 - uHp;
     float crackN = plH(floor(p * 7.0 + 0.5));
@@ -542,9 +590,15 @@ const PLATE_FRAG = /* glsl */ `
     // The panel is ARMOUR: a dark field inside a hot bezel. First cut had a
     // bright field, which read as a blank white card floating next to the
     // boss instead of a plate bolted to it (capture review).
-    float a = clamp(field * 0.78 + bezel * 0.95 + rule * 0.5 + crack * 0.8 + bar * 0.8, 0.0, 0.96);
-    vec3 col = mix(uColor * 0.09, uCore, clamp(bezel * 1.3 + rule * 0.6 + crack * 1.6 + bar, 0.0, 1.0))
-             * (0.55 + 2.1 * bezel * pulse + 2.4 * crack + 0.8 * bar);
+    float a = clamp(field * 0.78 + bezel * 0.95 + rule * 0.5 + crack * 0.8
+                    + bar * 0.8 + g * 0.85, 0.0, 0.96);
+    // THE SCHOOL IS THE HUE (r7). The lit terms mix toward uColor — the school
+    // tint the host has been passing all along — and only the CRACKS run to the
+    // hot core, so "this one is nearly off" stays the brightest thing on it.
+    vec3 lit = mix(uColor, uCore, clamp(crack * 1.4, 0.0, 1.0));
+    vec3 col = mix(uColor * 0.09, lit,
+                   clamp(bezel * 1.3 + rule * 0.6 + crack * 1.6 + bar + g, 0.0, 1.0))
+             * (0.55 + 2.1 * bezel * pulse + 2.4 * crack + 0.8 * bar + 1.5 * g);
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
@@ -555,6 +609,7 @@ export function makePlateMat(): THREE.ShaderMaterial {
       uColor: { value: new THREE.Color(0xd8c08a) },
       uCore: { value: new THREE.Color(0xfff2cc) },
       uTime: { value: 0 }, uHp: { value: 1 }, uImmune: { value: 0 },
+      uGlyph: { value: 0 },
     },
     vertexShader: VERT,
     fragmentShader: PLATE_FRAG,
@@ -614,6 +669,8 @@ const SET_FRAG = /* glsl */ `
   uniform float uTime;
   uniform float uProg;
   uniform float uDim;
+  uniform float uAng;  // the wedge the Showrunner is shooting (r7)
+  uniform float uArc;  // its half-width; <= 0 = this beat has no wedge
   varying vec2 vUv;
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
@@ -631,8 +688,41 @@ const SET_FRAG = /* glsl */ `
     float batten = smoothstep(0.55, 0.98, sin(p.y * 14.0 + 1.5)) * (inL + inR);
     float floorline = smoothstep(0.04, 0.0, abs(p.y)) * (inL + inR) * 0.5;
     float fade = 1.0 - smoothstep(0.78, 1.0, uProg);
-    float a = clamp((lip * 0.85 + batten * 0.3 + floorline + (inL + inR) * 0.12) * fade, 0.0, 0.78) * uDim;
-    vec3 col = mix(uColor, uCore, clamp(lip * 1.5, 0.0, 1.0)) * (0.8 + 1.8 * lip + 0.6 * batten);
+    // ---- THE SHOT (r7 major) ---------------------------------------------
+    //
+    // "CAMERA MOVE has no safe-wedge language." The one beat in the game whose
+    // read is the SAFE ground drew three flats in a corner and nothing on the
+    // floor: showrunner-3fight.png probed shapes {set:3, props:1} and the
+    // ground the player is being told to stand on had no treatment at all.
+    // The flats are the SET; this is the CAMERA. uAng is the wedge the
+    // Showrunner is shooting (the sim own number, straight off the beat) and
+    // uArc its half-width. Inside the shot the floor carries a clean lit
+    // wedge with a hard frame edge down each side and a lens vignette pulling
+    // the eye into it; outside it the ground is HATCHED — the same language a
+    // camera's own safe-area guides use, and nowhere else in this game.
+    // uArc <= 0 means "this beat has no wedge" and the whole term drops out,
+    // so every other set caster is unaffected.
+    float shot = 0.0, frame = 0.0, off = 0.0;
+    if (uArc > 0.001) {
+      float ang = atan(p.y, p.x) - uAng;
+      ang = mod(ang + 3.14159265, 6.2831853) - 3.14159265;
+      float d = abs(ang);
+      float inShot = 1.0 - smoothstep(uArc * 0.92, uArc, d);
+      float r2 = length(p);
+      shot = inShot * (1.0 - smoothstep(0.15, 1.0, r2)) * 0.55;
+      // Two hard frame lines down the edges of the shot: the safe area's border.
+      frame = smoothstep(0.045, 0.0, abs(d - uArc)) * step(0.06, r2);
+      // Everything outside the shot is struck ground, hatched on the diagonal.
+      off = (1.0 - inShot) * smoothstep(0.55, 0.98, sin((p.x - p.y) * 26.0))
+          * (1.0 - smoothstep(0.85, 1.0, r2)) * 0.5;
+    }
+    float a = clamp((lip * 0.85 + batten * 0.3 + floorline + (inL + inR) * 0.12
+                     + shot + frame * 0.9 + off) * fade, 0.0, 0.82) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(lip * 1.5 + frame * 1.4 + shot * 0.8, 0.0, 1.0))
+             * (0.8 + 1.8 * lip + 0.6 * batten + 1.6 * frame + 0.7 * shot);
+    // The struck ground is DARK hatching, not another bright layer: the shot
+    // has to be the brightest thing in the frame or the read inverts.
+    col = mix(col, uColor * 0.25, clamp(off * 1.6, 0.0, 1.0));
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
@@ -912,7 +1002,8 @@ export const makePropsMat = (): THREE.ShaderMaterial =>
   });
 export const makeCellsMat = (): THREE.ShaderMaterial =>
   makeQuadMat(CELLS_FRAG, { uN: { value: 7 } });
-export const makeSetMat = (): THREE.ShaderMaterial => makeQuadMat(SET_FRAG, {});
+export const makeSetMat = (): THREE.ShaderMaterial =>
+  makeQuadMat(SET_FRAG, { uAng: { value: 0 }, uArc: { value: 0 } });
 export const makeBurrowMat = (): THREE.ShaderMaterial => makeQuadMat(BURROW_FRAG, {});
 export const makeWipeMat = (): THREE.ShaderMaterial => makeQuadMat(WIPE_FRAG, {});
 export const makeSeedMat = (): THREE.ShaderMaterial => makeQuadMat(SEED_FRAG, { uN: { value: 5 } });
@@ -931,43 +1022,136 @@ export const makeMarkMat = (): THREE.ShaderMaterial => {
 export const makeAideMat = (): THREE.ShaderMaterial => makeQuadMat(AIDE_FRAG, {});
 
 // ---------------------------------------------------------------------------
+// THE LOOT BEACON — r7 BLOCKER: "the loot beacon and the punish reticle are the
+// same silhouette."
+//
+// They were. The beacon borrowed `AIDE_FRAG` (a notched square seat = four
+// corner brackets) in cream/gold, and MARK_FRAG is four corner brackets closing
+// on a cross, also in cream/gold. Compare `marshal-6kill.png` with
+// `sumpking-5punish.png` and the two ground marks are the same object. §5.9's
+// own rule is that two beats a player can confuse at a glance mean the SHAPE is
+// wrong — and this pair is the worst possible collision, because one of them
+// means "commit here NOW, the boss cannot answer" and the other means "a sword
+// fell here, pick it up whenever".
+//
+// The split is total and it is on the axis that reads first:
+//   PUNISH  = OPEN corner brackets that CLOSE inward, plus a vertical shaft.
+//             Nothing is filled; the middle is a cross of hairlines.
+//   LOOT    = a SOLID chamfered diamond pad with a descending CARET stacked
+//             over it. Filled, static, no corners, no verticals, no closing.
+// Reduced to a black-and-white mask one is an outline and the other is a blob
+// with an arrow on it. There is no glance at which they agree.
+// ---------------------------------------------------------------------------
+const LOOT_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uCore;
+  uniform float uTime;
+  uniform float uProg;   // 0 landed -> 1 expiring
+  uniform float uDim;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    // THE PAD: a filled diamond (L1 ball), chamfered, with a bright lip. Solid
+    // is the whole point — every "aim" mark in this game is hollow.
+    float dia = abs(p.x) + abs(p.y);
+    float pad = smoothstep(0.62, 0.50, dia);
+    float lip = smoothstep(0.07, 0.0, abs(dia - 0.60));
+    // THE CARET: a chevron pointing DOWN at the pad, riding a slow bob. Read as
+    // "the thing is here", the grammar of a map pin, and the only descending
+    // arrow in the game.
+    float bob = 0.30 + 0.05 * sin(uTime * 2.6);
+    vec2 q = vec2(p.x, p.y + bob);
+    float v = abs(q.x) - q.y;                 // 0 on the chevron's own vee
+    float caret = smoothstep(0.075, 0.0, abs(v))
+                * step(abs(q.x), 0.30) * step(-0.34, q.y);
+    // A second, fainter caret above it: a stack, so the pin has height without
+    // ever standing a column up (that silhouette belongs to the punish beat).
+    vec2 q2 = vec2(p.x, p.y + bob + 0.26);
+    float v2 = abs(q2.x) - q2.y;
+    float caret2 = smoothstep(0.07, 0.0, abs(v2))
+                 * step(abs(q2.x), 0.22) * step(-0.26, q2.y) * 0.45;
+    // Settles as it lands, then fades out whole. No pulsing countdown: this
+    // mark is not a clock, and a mark that ticks reads as a demand.
+    float fade = (1.0 - smoothstep(0.72, 1.0, uProg)) * smoothstep(0.0, 0.10, uProg);
+    float a = clamp((pad * 0.34 + lip * 0.85 + caret + caret2) * fade, 0.0, 0.9) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(lip + caret, 0.0, 1.0))
+             * (0.9 + 1.5 * lip + 1.8 * caret);
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
+export const makeLootMat = (): THREE.ShaderMaterial => makeQuadMat(LOOT_FRAG, {});
+
+// ---------------------------------------------------------------------------
 // SPORE POD (the Pollinator's new Hazard.kind, §7.4). Armed pods that bloom
 // and seed children, so a pod must read as A THING THAT WILL OPEN, never as a
 // puddle. Petal seams SPREAD as it arms and the core swells: the countdown is
 // the pod's own silhouette, readable without a timer.
 // ---------------------------------------------------------------------------
+// r7 MAJOR — "BLOOM IS ~30 IDENTICAL GLOWING DONUTS." And it was, for two
+// reasons that are both in this shader. (1) The read was a bright `rim` band at
+// r 0.82-0.95 plus a bright `core` at r < 0.46 — which is a DONUT, drawn 22
+// times at one size in one green, and §5.9 reserves the ring silhouette to a
+// single signature. (2) Every pod was byte-identical: same seam count, same
+// phase, same radius, same hue, so a bed of them read as a stamped pattern
+// rather than as a thing growing.
+//
+// The pod is now an INDIVIDUAL and it is a BULB, not a ring: a filled body with
+// petal seams cut through it, a bud that swells toward its own opening, and a
+// per-pod seed (`uSeed`, the hazard's own id) that turns the seam count, the
+// phase, the lean of the green and the body's size. A bed of twenty is twenty
+// different plants at three sizes — discontinuous, which is the one thing
+// nothing else on this floor is — and the ring is gone entirely.
 const SPORE_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform vec3 uCore;
   uniform float uTime;
   uniform float uArm;  // 0 fresh -> 1 about to bloom
   uniform float uDry;  // 0 live -> 1 expiring
+  uniform float uSeed; // 0..1 per-pod: seams, phase, size, hue lean
   varying vec2 vUv;
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
     float r = length(p);
     if (r > 1.0) discard;
-    float ang = atan(p.y, p.x);
-    float seam = abs(sin(ang * 2.5 + uTime * 0.4));
-    float split = smoothstep(0.9 - uArm * 0.55, 1.0, seam);
-    float pod = smoothstep(0.95, 0.35, r) * (1.0 - split * (0.35 + 0.5 * uArm));
-    float coreR = 0.16 + 0.3 * uArm;
-    float core = smoothstep(coreR, 0.0, r) * (0.5 + 1.4 * uArm);
-    float rim = smoothstep(0.82, 0.95, r) * (1.0 - smoothstep(0.97, 1.0, r));
-    float breathe = 0.8 + 0.2 * sin(uTime * (3.0 + 7.0 * uArm));
-    float a = clamp((pod * 0.5 + core * 0.7 + rim * 0.8) * breathe * (1.0 - uDry * 0.75), 0.0, 0.92);
-    vec3 col = mix(uColor, uCore, clamp(core * 1.2 + rim * 0.6, 0.0, 1.0))
-             * (1.0 + 2.6 * core + 1.5 * rim);
+    // PER-POD IDENTITY. Three plants, not thirty copies of one.
+    float seams = 3.0 + floor(uSeed * 3.0);          // 3, 4 or 5 petals
+    float turn = uSeed * 6.283;                      // its own facing
+    float size = 0.66 + 0.30 * fract(uSeed * 7.13);  // its own body
+    float ang = atan(p.y, p.x) + turn;
+    // The BODY: a filled bulb that swells as it arms, cut by petal seams that
+    // open across it. No ring anywhere — the outline is the petals' outline.
+    float lobe = size * (0.62 + 0.30 * uArm) * (0.86 + 0.14 * cos(ang * seams));
+    float body = smoothstep(lobe, lobe - 0.16, r);
+    float seam = smoothstep(0.72, 1.0, abs(cos(ang * seams * 0.5)))
+               * body * smoothstep(0.05, 0.7, uArm);
+    // The BUD: it comes up late and hard, so "this one is about to go" is the
+    // brightest thing about the pod that is about to go — and only that one.
+    float bud = smoothstep(lobe * (0.34 - 0.16 * uArm), 0.0, r)
+              * (0.28 + 1.5 * uArm * uArm);
+    // A thin lit EDGE on the petals themselves (not a circle): it separates a
+    // pod from the pod behind it without minting a second ring.
+    float edge = smoothstep(0.10, 0.0, abs(r - lobe)) * body;
+    float breathe = 0.82 + 0.18 * sin(uTime * (2.4 + 6.0 * uArm) + turn);
+    float a = clamp((body * 0.30 + bud * 0.62 + edge * 0.45 - seam * 0.55)
+                    * breathe * (1.0 - uDry * 0.75), 0.0, 0.86);
+    // Per-pod hue lean: warm-gold buds among cool-green bodies, so a bed reads
+    // as a population rather than as one colour repeated.
+    vec3 base = mix(uColor, uCore, clamp(bud * 1.1 + edge * 0.4, 0.0, 1.0));
+    base.r *= 0.9 + 0.35 * fract(uSeed * 3.31);
+    base.b *= 1.1 - 0.3 * fract(uSeed * 3.31);
+    vec3 col = base * (0.9 + 2.2 * bud + 1.1 * edge);
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
 
-export function makeSporeMat(): THREE.ShaderMaterial {
+export function makeSporeMat(seed = 0): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(ASK_PAL.storm.mid) },
       uCore: { value: new THREE.Color(ASK_PAL.storm.core) },
       uTime: { value: 0 }, uArm: { value: 0 }, uDry: { value: 0 },
+      // Stable per-hazard: the pod keeps its own shape for its whole life.
+      uSeed: { value: ((seed * 2654435761) % 1000) / 1000 },
     },
     vertexShader: VERT,
     fragmentShader: SPORE_FRAG,
@@ -1541,6 +1725,31 @@ export class BossFx {
           });
           for (const p of at) {
             this.deps.fxp.dust(x + p.x * 7.5, 0.3, z + p.y * 7.5, 6, pal.rim);
+            // ...AND THE GROUND EACH PROP JUST CLAIMED (r7 major). "SLUICE
+            // GATE draws nothing in the world": the frame is filed correctly,
+            // the probe reads `shapes:{props:1}`, and there is no gate, no
+            // lane and no water in it. The brackets said WHICH objects the
+            // beat is about and nothing said what they were DOING. The gates
+            // vent a marching crescent toward the crawler, so each anchor gets
+            // a lit run of ground from itself toward the middle: the read is
+            // "it is coming from there, to here", which is the whole ask.
+            this.deps.decals.spawn(
+              x + p.x * 5.2, z + p.y * 5.2, 1.8, 0x0f1a1e, pal.mid, 7);
+            this.deps.fxp.sparks(
+              x + p.x * 6.4, 0.4, z + p.y * 6.4, pal.core, 4,
+              { x: -p.x, y: -p.y });
+          }
+          // One lane bar per prop, laid along the prop -> middle heading. The
+          // ask keeps its own silhouette (the brackets); this is the ground it
+          // locked, exactly as the r6 beam rule already does for lanes a kit
+          // laid as hazards.
+          if (at.length > 0) {
+            const lead = at[0];
+            this.shapeBeat("lanes", x, z, 7.5, pal, 1.25, (mm) => {
+              mm.uniforms.uN.value = Math.max(1, Math.min(6, at.length));
+              mm.uniforms.uAng.value = Math.atan2(-lead.y, -lead.x);
+              mm.uniforms.uW.value = 0.16;
+            });
           }
         }
         this.deps.fxp.gibs(x, z, pal.rim, 8);
@@ -1557,8 +1766,13 @@ export class BossFx {
         break;
       case "set":
         // THE SET CHANGES: flats sliding in from the wings. Rectangular, and
-        // the only full-arena beat that is not a ring.
-        this.shapeBeat("set", x, z, 9.5, pal, 1.5);
+        // the only full-arena beat that is not a ring — plus, when the beat
+        // carries a wedge (CAMERA MOVE does), the SHOT itself: lit safe ground
+        // between two frame lines, with the struck ground hatched around it.
+        this.shapeBeat("set", x, z, 9.5, pal, 1.5, (mm) => {
+          mm.uniforms.uAng.value = e.angle ?? 0;
+          mm.uniforms.uArc.value = e.arc ?? 0;
+        });
         this.deps.fxp.dust(x, 0.3, z, 16, pal.rim);
         this.deps.light(x, z, pal.mid, 8 * k, 0.6, 1.4);
         break;
@@ -1728,7 +1942,45 @@ export class BossFx {
    */
   private intermission(x: number, z: number, e: BossEvent): void {
     const swept = e.value ?? 0;
+    // ---- THE INTERMISSION RETIRES THE PUNISH RIG (r7 BLOCKER) --------------
+    //
+    // "The punish rig and its call-out own the PHASE beat too, so two of the
+    // six beats are the same picture." `sumpking-4phase.png` and
+    // `sumpking-5punish.png` were indistinguishable: reticle + shaft in both,
+    // UNLOAD in the call-out of both. §5.12 claims the rig "belongs to the
+    // WINDOW alone (marked)" and that is true of who WRITES it — but nothing
+    // ever took it away, and `marked` holds for MARK_MIN_SPAN whatever else
+    // the fight does. An intermission crossing inside that span left the
+    // window's silhouette standing over a beat that is its exact opposite.
+    //
+    // It is not a composition problem, it is a LIE: during the commercial
+    // break the boss is untargetable (`invulnT`), so "commit here now, it
+    // cannot answer" is false — there is nothing to commit to. A beat that
+    // changes the state retires the sentence that described the old one,
+    // which is the rule §5.11 already applies to a stale banner. The gate in
+    // update() (`invulnT > 0`) keeps it retired for the whole break; this
+    // clears the held span so it does not simply resume afterwards.
+    this.marked.delete(e.monsterId);
+    // ...AND SO DOES THE CREAM RING (r7 major, "the cream ellipse is still
+    // doing four jobs"). `sumpking-4phase` probed `shapes:{ring:1, wipe:1}`:
+    // the intermission's own single-axis BAR WIPE was drawing underneath an
+    // arena ring left over from the beat before it, so the frame read as a
+    // ring after all — which is the exact confusion §5.11 gave the wipe its
+    // own silhouette to end. One beat, one shape.
+    for (const b of this.beats) {
+      if (b.life < b.max) { b.life = b.max; b.held = undefined; b.mesh.visible = false; }
+    }
+    const rig = this.punish.get(e.monsterId);
+    if (rig) rig.visible = false;
+    const mk = this.marks.get(e.monsterId);
+    if (mk) mk.visible = false;
+    for (const sf of this.shafts) {
+      sf.life = sf.max; sf.group.visible = false; sf.mark.visible = false;
+    }
     this.zoomWant = 0.88;
+    // ...and it takes the frame back off the window's push-in, or the phase
+    // beat is shot at PUNISH_ZOOM on the boss's chest with no arena in it.
+    this.punishFrameT = 0;
     this.slowmo = Math.max(this.slowmo, 0.2);
     // THE BAR WIPE, not a fourth cream ring (r5 major). This beat now owns the
     // only single-axis, directional full-arena silhouette in the game.
@@ -1872,12 +2124,25 @@ export class BossFx {
     this.flash(0.45, 0.6);
     this.deps.shocks.spawn(x, z, 0xfff2cc, 9, 0.85);
     this.deps.shocks.spawn(x, z, 0xffb457, 14, 1.15);
-    this.deps.fxp.column(x, z, 0xffd98a, 34, 4.4);
-    this.deps.fxp.radialStreaks(x, 1.2, z, 0xfff8dc, 28, 5.0);
+    // ---- THE BODY IS THE SUBJECT, NOT THE CONFETTI (r7 blocker) -----------
+    // 34 column motes + 28 radial streaks of near-white gold, all additive,
+    // all centred on the corpse, is what made every `-6kill` frame "a gold
+    // glitter cloud". The kill's spectacle now lives in the two SWEEPS and the
+    // opening seal (shape), the particles are cut by two thirds and pushed
+    // OUTWARD off the body, and the light comes down so the thing lying on the
+    // floor is lit rather than erased. §5.7's promise is a kill and a haul in
+    // one frame; both of them are objects, and objects need to be visible.
+    this.deps.fxp.column(x, z, 0xffd98a, 12, 3.2);
+    this.deps.fxp.radialStreaks(x, 0.5, z, 0xfff8dc, 10, 5.4);
     this.deps.fxp.gibs(x, z, 0xc0552e, 18);
+    this.deps.fxp.smoke(x, 0.9, z, 10, 0x4b3a2e);
     this.deps.decals.spawn(x, z, 2.6, 0x140807, 0xc03024, 16);
     const k = this.budget(1.1);
-    this.deps.light(x, z, 0xffd98a, 11 * k, 1.6, 2.2);
+    // ...and the pool it throws on the floor is not the picture either: at
+    // peak 11 (then 6.5) the kill frame's dominant shape was a beige ellipse of
+    // LIGHT with the corpse and the ringside beacons inside it. The body is lit
+    // by a tighter, lower key; the spectacle is the two sweeps and the seal.
+    this.deps.light(x, z, 0xffd98a, 4.2 * k, 1.4, 1.5);
     // THE SEAL OPENS, and it is the only ring in the game that comes APART
     // (r5 major — the kill mark, the intermission sweep and the arena warning
     // were one decal in three places).
@@ -1944,25 +2209,38 @@ export class BossFx {
         slot = this.lootMarks[0];
         for (const b of this.lootMarks) if (b.life / b.max > slot.life / slot.max) slot = b;
       } else {
-        const mat = makeAideMat();
+        const mat = makeLootMat();
         const mesh = new THREE.Mesh(this.aideGeo, mat);
         mesh.rotation.x = -Math.PI / 2;
         mesh.renderOrder = 8;
         mesh.userData.noAO = true;
+        // Same reason the reticle is depth-test free: a payoff pin the arena's
+        // own floor detail can swallow answers nothing, and the kill frame is
+        // shot from above a body that is lying on top of half of them.
+        mat.depthTest = false;
         this.group.add(mesh);
         slot = { mesh, mat, life: 1, max: 1 };
         this.lootMarks.push(slot);
       }
     }
     slot.life = 0;
-    slot.max = 4;
+    // 4s -> 7s. r7 blocker: the payoff frame is shot ~1.8s after the boss hits
+    // zero (the corpse has to fall first) and the drops land over the second
+    // after that, so at four seconds the FIRST beacons were already fading
+    // while the LAST ones had not been thrown. Every beacon in the haul is now
+    // still standing when the one frame the short-session loop lives on opens.
+    slot.max = 7;
     slot.held = undefined;
     slot.mesh.visible = true;
     slot.mesh.position.set(x, 0.1, z);
     // 1.1 -> 1.7. At a tile and a bit across, a rarity seat photographed as a
     // faint scratch on the floor; the kill frame is the one moment nothing
     // else is competing for the eye, so the payoff may take the room.
-    slot.mesh.scale.setScalar(1.7);
+    // 1.7 -> 2.4 (r7 blocker). Measured on the kill captures: 8-14 beacons
+    // live and ~2 readable in frame. At the payoff camera (zoom 0.9, the corpse
+    // filling the middle) a 1.7-unit pad is about 40px across and it is sitting
+    // on the cream of the opening seal — the haul was there and unreadable.
+    slot.mesh.scale.setScalar(2.4);
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(hex);
     (slot.mat.uniforms.uCore.value as THREE.Color).setHex(0xfff2cc);
   }
@@ -2334,6 +2612,14 @@ export class BossFx {
     // into the ability bar at the bottom of the frame. The one beat that has
     // to read gets the middle of the picture.
     if (this.punishFrameT > 0) wantDrop *= 0.42;
+    // ...AND SO DOES THE PAYOFF (r7 blocker). `frameDrop` exists to clear the
+    // HEALTH PLATE, and at the kill beat there is no health plate — the boss is
+    // dead and `#bossbar` is already down. Carrying the full 6.8 into the
+    // aftermath slid a corpse plus a four-tile loot ring down the frame until
+    // its lower arc was underneath the ability bar: `marshal-6kill.png` has
+    // two beacons behind the HUD and one in the corner. The payoff is a RING
+    // and it has to be photographed whole, so the aftermath frames the middle.
+    if (holding) wantDrop *= 0.3;
     // §5.2 asks the approach to PULL BACK on arena entry, and it never did.
     if (approach && !revealing) this.zoomWant = 1.12;
     // Eased, and slowly: the frame settling is not a beat, it is the shot.
@@ -2498,9 +2784,13 @@ export class BossFx {
       b.life += dt;
       const t = Math.min(1, b.life / b.max);
       b.mat.uniforms.uTime.value = time;
+      b.mat.uniforms.uProg.value = t;
       // Ungoverned on purpose and deliberately small: this is the one beat
       // that fires when the fight is OVER, so there is nothing left to blow.
-      b.mat.uniforms.uDim.value = 1 - t * t;
+      // The FADE is the shader's job now (LOOT_FRAG's uProg), so this stays
+      // flat for most of the beacon's life instead of dimming from the moment
+      // it lands — the pin has to be at full value when the shutter opens.
+      b.mat.uniforms.uDim.value = 1;
       if (b.life >= b.max) b.mesh.visible = false;
     }
     for (const s of this.shells) {
@@ -2639,7 +2929,9 @@ export class BossFx {
 
       // ---- PLATES (V1). Hung around the body at their authored angle.
       if (m.plates) {
+        let plateIx = -1;
         for (const pl of m.plates) {
+          plateIx++;
           if (pl.broken) continue;
           const key = `${m.id}:${pl.key}`;
           plateSeen.add(key);
@@ -2665,6 +2957,13 @@ export class BossFx {
           pm.uniforms.uTime.value = time + pl.angle;
           pm.uniforms.uHp.value = Math.max(0, Math.min(1, pl.hp / Math.max(1, pl.maxHp)));
           pm.uniforms.uImmune.value = pl.school ? 1 : 0;
+          // ITS OWN MARK (r7 major). Four stamps whose entire mechanic is "two
+          // of us want the other school" carried no icon at all, so the world
+          // objects were four interchangeable quads next to a plate that names
+          // them individually. The glyph is the plate's INDEX on the body, so
+          // STRUCTURAL / ELEMENTAL / OCCUPANCY / VARIANCE are wedge / bolt /
+          // arch / slash, in that order, and the boss's own layout teaches it.
+          pm.uniforms.uGlyph.value = plateIx % 4;
           const hex = pl.school === "magic" ? 0xa46bff : pl.school === "physical" ? 0xffb057 : 0xd8c08a;
           (pm.uniforms.uColor.value as THREE.Color).setHex(hex);
           mesh.visible = visible(m);
@@ -2686,8 +2985,14 @@ export class BossFx {
       // constantly is not speaking. The rig is now the WINDOW's alone —
       // `marked` is written by `punishOpen` and by nothing else — plus the
       // punish TELL's own windup, which is the same sentence one beat earlier.
-      const held = this.marked.get(m.id);
-      if ((m.windupKind === "punish" && m.windup > 0) || held) {
+      // ...AND IT IS OFF WHILE THE BOARD IS BEING RE-DEALT (r7 blocker). An
+      // untargetable boss cannot be unloaded into, so the one silhouette that
+      // means "unload into this" may not be on screen while `invulnT` runs.
+      // This is the gate; `intermission()` clears the held span so the rig
+      // does not simply reappear when the break ends.
+      const held = (m.invulnT ?? 0) > 0 ? undefined : this.marked.get(m.id);
+      if ((m.invulnT ?? 0) <= 0 &&
+          ((m.windupKind === "punish" && m.windup > 0) || held)) {
         punishSeen.add(m.id);
         let rig = this.punish.get(m.id);
         if (!rig) {
@@ -2857,7 +3162,7 @@ export class BossFx {
   /** Per-hazard spore material (the Pollinator's pods), pooled by hazard id. */
   sporeMat(id: number): THREE.ShaderMaterial {
     let m = this.sporeMats.get(id);
-    if (!m) { m = makeSporeMat(); this.sporeMats.set(id, m); }
+    if (!m) { m = makeSporeMat(id); this.sporeMats.set(id, m); }
     return m;
   }
 

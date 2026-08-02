@@ -7,8 +7,8 @@ import { CONFIG } from "../src/sim/config";
 import { createRng } from "../src/sim/rng";
 import {
   BAND_SIG_DEFAULT, BAND_SIG_LABEL, BOSS_MUTATORS, BOSS_POOL, allBandSignatureLabels,
-  allBossDefs, bandForBossFloor, bandSignatureLabel, bossDef, bossHash,
-  drawBossEncounter, pickBandBoss, rollBossMutators,
+  allBossDefs, bandForBossFloor, bandSignatureLabel, bossChassisRule, bossDef, bossHash,
+  bossMutatorInfo, drawBossEncounter, pickBandBoss, rollBossMutators,
 } from "../src/sim/bosses";
 import { BOSS_KITS } from "../src/sim/ai";
 import { BOSS_SIGNATURES } from "../src/render3d/bossSignatures";
@@ -502,11 +502,29 @@ describe("the new verbs", () => {
 });
 
 describe("V10 — mutators change the ASK, never the numbers", () => {
-  it("gating mirrors the shipped floor-1-stays-pristine rule", () => {
+  it("gating: the teaching band draws TEACHING mutators, everyone else the pool", () => {
+    // r7 blocker. The old rule was "none on floor 3, mirroring floor 1 stays
+    // pristine", and floor 1 has no boss — so the mirror was of a floor that
+    // does not have the thing being varied. Measured cost: 2-3 (mutator x
+    // arena) fingerprints per floor-3 candidate, in the one boss slot a short
+    // session always reaches. What replaces it is narrower than the general
+    // pool, not wider: exactly one mutator, and only from the TEACHING subset.
     for (const def of BOSS_POOL[1]) {
       for (let seed = 1; seed <= 200; seed++) {
-        expect(rollBossMutators(seed, 3, def), "the teaching band stays clean").toEqual([]);
+        const out = rollBossMutators(seed, 3, def);
+        expect(out.length, "the teaching band draws at most one").toBeLessThanOrEqual(1);
+        for (const id of out) {
+          const info = bossMutatorInfo(id);
+          expect(info.teaching, `${id} is not a teaching mutator`).toBe(true);
+          expect(!info.legal || info.legal(def), `${id} is not legal on ${def.id}`).toBe(true);
+        }
       }
+      // ...and it is not inert: every floor-3 candidate can carry at least one.
+      const drawn = new Set<string>();
+      for (let seed = 1; seed <= 200; seed++) {
+        for (const id of rollBossMutators(seed, 3, def)) drawn.add(id);
+      }
+      expect(drawn.size, `${def.id} draws no mutator on any seed`).toBeGreaterThan(0);
     }
     for (let seed = 1; seed <= 200; seed++) {
       for (const floor of [6, 9, 12]) {
@@ -965,5 +983,115 @@ describe("snapshot + save round-trip", () => {
       step(b, idle(), DT);
     }
     expect(serialize(a)).toBe(serialize(b));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// r7 — THE CHASSIS SPEAKS IN THE ASK'S VOICE, AND THE LANE ASK LAYS A LANE.
+// ---------------------------------------------------------------------------
+
+describe("r7 — the shared chassis is no longer the same on every boss", () => {
+  it("the radial volley's cadence comes from the ASK, and two asks do not fire one", () => {
+    // Measured before: `ch_volley` was the TOP entry in the threat vector on
+    // twelve of eighteen bosses and the #2 on the other five — one verb,
+    // eighteen fights. It is now derived (ASK_CHASSIS), and the two asks whose
+    // own mechanic already fills the air do not fire it at all.
+    const seen = new Map<string, number>();
+    for (const def of allBossDefs()) seen.set(def.ask, bossChassisRule(def.id).volleyCd);
+    expect(seen.get("adds"), "kill-the-adds fires no ring of bolts").toBe(0);
+    expect(seen.get("storm"), "survive-the-storm fires no ring of bolts").toBe(0);
+    // ...and among the asks that DO fire one, no two share a cadence.
+    const firing = [...seen.entries()].filter(([, cd]) => cd > 0).map(([, cd]) => cd);
+    expect(new Set(firing).size, "the asks that fire share one cadence").toBe(firing.length);
+  });
+
+  it("a boss may state its own chassis, and The Temp does", () => {
+    // The teaching band's two WINDOW bosses measured cosine 0.972 on the
+    // threat vector — same ask, therefore same everything. The roster has
+    // always called The Temp "a pushover with a visible ticking clause"; it
+    // now fights like one, and its neighbour does not.
+    expect(bossChassisRule("temp").volleyCd).toBe(0);
+    expect(bossChassisRule("rentcollector").volleyCd).toBeGreaterThan(0);
+    expect(bossChassisRule("temp").rainMult)
+      .toBeGreaterThan(bossChassisRule("rentcollector").rainMult);
+  });
+
+  it("DODGE-THE-LANE puts a real beam lane on the floor", () => {
+    // Measured before: seconds spent standing inside a `kind:"beam"` hazard
+    // was 0.0 for BOTH lane bosses over 3 seeds x 60s, because The Foundation's
+    // FISSURE resolved to `blast:debris` discs — the same primitive as the
+    // chassis hazard rain. A lane ask that never lays a lane is a name.
+    for (const id of ["foundation", "inspector"] as BossId[]) {
+      const { g, boss } = stageBoss(id);
+      let lanes = 0;
+      for (let i = 0; i < 60 * 40 && lanes === 0; i++) {
+        const p = g.players[0];
+        p.hp = p.maxHp; p.alive = true; p.downedT = 0;
+        if (g.status !== "playing") g.status = "playing";
+        step(g, idle(), DT);
+        lanes = g.hazards.filter(
+          (h) => h.kind === "beam" && h.end && h.srcId === boss.id).length;
+      }
+      expect(lanes, `${id} laid no beam lane in 40s`).toBeGreaterThan(0);
+    }
+  });
+
+  it("the punish window has a ceiling AND a guarantee, not just a floor", () => {
+    // Measured before: The Temp 0.3 windows per fight (none at all in 4 of 6)
+    // against the Furnace Marshal at 8.5 — a 28x spread on the beat 7.4 calls
+    // the one that most needs to read. Both ends are pinned here.
+    expect(CONFIG.bossPunishGuaranteeT).toBeGreaterThan(0);
+    expect(CONFIG.bossPunishFatigue).toBeGreaterThan(0);
+    for (const id of ["temp", "marshal"] as BossId[]) {
+      const { g, boss } = stageBoss(id);
+      const gaps: number[] = [];
+      let last = 0, t = 0;
+      for (let i = 0; i < 60 * 70; i++) {
+        const p = g.players[0];
+        p.hp = p.maxHp; p.alive = true; p.downedT = 0;
+        boss.hp = Math.max(boss.hp, boss.maxHp * 0.4); // measuring cadence, not TTK
+        if (g.status !== "playing") g.status = "playing";
+        step(g, idle(), DT);
+        t += DT;
+        if ((g.bossEvents ?? []).some((e) => e.kind === "punish")) {
+          gaps.push(t - last);
+          last = t;
+        }
+      }
+      // The guarantee: the beat happens, on a boss whose count could not
+      // otherwise come round inside a teaching-band fight.
+      expect(gaps.length, `${id} opened no punish window in 70s`).toBeGreaterThan(0);
+      // The ceiling: it slows down as the fight goes on rather than metronoming.
+      if (gaps.length >= 3) {
+        expect(gaps[gaps.length - 1], `${id}'s window is a metronome`)
+          .toBeGreaterThan(gaps[0] * 0.9);
+      }
+    }
+  });
+
+  it("2.2's mechanic-completion edge is reachable by the four bosses that could not", () => {
+    // sumpking 0/6, inspector 0/6, architect 1/6, safetyofficer 1/6 in play,
+    // because `m.reads` only ever counted a whiffed SLAM or RITUAL — verbs a
+    // lane boss and an arena boss do not own. A dodged lane, a walked-out disc
+    // and a broken arena prop all count now.
+    for (const id of ["sumpking", "inspector", "architect", "safetyofficer"] as BossId[]) {
+      const { g, boss } = stageBoss(id);
+      const p = g.players[0];
+      let mech = false;
+      for (let i = 0; i < 60 * 90 && !mech; i++) {
+        p.hp = p.maxHp; p.alive = true; p.downedT = 0;
+        // Park the crawler well clear: EVERY telegraph this boss commits is a
+        // read the player won, which is exactly what the edge is supposed to
+        // reward. Health is pinned so the HP gates cannot claim the phase.
+        p.pos = { x: boss.pos.x + 11, y: boss.pos.y + 11 };
+        boss.hp = boss.maxHp;
+        if (g.status !== "playing") g.status = "playing";
+        step(g, idle(), DT);
+        mech = (g.bossEvents ?? []).some(
+          (e) => e.kind === "phase" && e.reason === "mechanic") ||
+          (g.bossEvents ?? []).some((e) => e.kind === "intermission");
+      }
+      expect(mech, `${id} never reached a mechanic-completion edge in 90s`).toBe(true);
+    }
   });
 });
