@@ -3,6 +3,7 @@ import { hasPassive, weaponClassOf } from "./items";
 import { clampCooldown, glyphCdr, glyphDamageMult, hasGlyph } from "./glyphs";
 import { chance, createRng, nextFloat, nextInt, pick, type Rng } from "./rng";
 import type { Player } from "./types";
+import { dcos, dsin } from "./dmath";
 
 // Ability system (DESIGN.md 5.7 "The Five"): a build is exactly 4 active slots
 // + 1 ultimate slot. Abilities are tagged by tier; discovering one auto-slots it
@@ -487,9 +488,9 @@ export function orbitBladePos(p: Player, i: number, angleBack = 0, phaseBack = 0
   if (op.spiralRank > 0) {
     const outer = CONFIG.orbitRadius + CONFIG.orbitSpiralPerRank * op.spiralRank;
     const ph = p.orbitSpiral - phaseBack + offset;
-    rad = CONFIG.orbitSpiralInner + (outer - CONFIG.orbitSpiralInner) * 0.5 * (1 - Math.cos(ph));
+    rad = CONFIG.orbitSpiralInner + (outer - CONFIG.orbitSpiralInner) * 0.5 * (1 - dcos(ph));
   }
-  return { x: p.pos.x + Math.cos(a) * rad, y: p.pos.y + Math.sin(a) * rad };
+  return { x: p.pos.x + dcos(a) * rad, y: p.pos.y + dsin(a) * rad };
 }
 
 // ---- Ultimate constellation params (pure; read CONFIG + node ranks) ----

@@ -1,3 +1,4 @@
+import { dpow } from "./dmath";
 // Central tunables for the vertical slice. Kept in one place so balance is easy to tweak
 // and so the sim has no magic numbers scattered through it.
 
@@ -1505,7 +1506,7 @@ export function floorTimeBudget(floor: number): number {
 
 /** XP required to advance FROM the given level to the next. */
 export function xpForLevel(level: number): number {
-  return Math.round(CONFIG.xpBase * Math.pow(CONFIG.xpGrowth, level - 1));
+  return Math.round(CONFIG.xpBase * dpow(CONFIG.xpGrowth, level - 1));
 }
 
 /**

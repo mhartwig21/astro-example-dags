@@ -16,6 +16,7 @@ import type {
   Player, Quest, QuestObjective, Reward, RoomRect, SafeRoom, Settlement, Vec2,
 } from "./types";
 import { CONFIG, FLOOR_BANDS, floorBand, roamTribeId } from "./config";
+import { dhypot } from "./dmath";
 
 // Tribe flavor names double as the actual PACK_TEMPLATES flagship for that
 // band — a Drumline quest is quite literally about Drum Sergeant packs.
@@ -64,7 +65,7 @@ const DELIVERY_CARGO = [
 ];
 
 function dist(a: Vec2, b: Vec2): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  return dhypot(a.x - b.x, a.y - b.y);
 }
 
 function roomCenter(r: RoomRect): Vec2 {
@@ -292,7 +293,7 @@ function buildQuestBoard(state: GameState): void {
       const minSep = Math.min(state.map.w, state.map.h) / 5;
       while (spots.length < CONFIG.roamBeaconCount && cands.length > 0) {
         const c = cands.splice(nextInt(rng, 0, cands.length - 1), 1)[0];
-        if (spots.some((s) => Math.hypot(s.x - c.x, s.y - c.y) < minSep)) continue;
+        if (spots.some((s) => dhypot(s.x - c.x, s.y - c.y) < minSep)) continue;
         spots.push({ x: c.x, y: c.y, lit: false });
       }
       if (spots.length === 0) continue;
@@ -678,7 +679,7 @@ export function updateRoam(state: GameState): void {
     if (q.state !== "active" || q.objective.kind !== "beacons") continue;
     for (const s of q.objective.spots) {
       if (s.lit) continue;
-      const lighter = state.players.find((p) => p.alive && Math.hypot(p.pos.x - s.x, p.pos.y - s.y) <= 1.4);
+      const lighter = state.players.find((p) => p.alive && dhypot(p.pos.x - s.x, p.pos.y - s.y) <= 1.4);
       if (!lighter) continue;
       s.lit = true;
       const left = q.objective.spots.filter((sp) => !sp.lit).length;

@@ -522,14 +522,15 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
     mock.close();
   });
 
-  it("records finished runs on the all-time category boards", async () => {
-    const post = (b: unknown) => fetch(`http://127.0.0.1:${port}/leaderboard`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b),
-    });
-    await post({ board: "alltime", name: "Carl", floor: 18, won: true, timeSec: 1500, kills: 300 });
-    await post({ board: "alltime", name: "Donut", floor: 12, won: false, timeSec: 900, kills: 450 });
+  it("serves the legacy all-time boards read-only, labelled UNSEALED", async () => {
+    // The only writer left is the server itself, vouching for a run its own
+    // authoritative sim produced. There is no client-facing write path.
+    server.leaderboard.submitAlltime({ name: "Carl", floor: 18, won: true, timeSec: 1500, kills: 300 }, Date.now());
+    server.leaderboard.submitAlltime({ name: "Donut", floor: 12, won: false, timeSec: 900, kills: 450 }, Date.now());
     const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
     expect(deepest.entries[0].name).toBe("Carl");
+    expect(deepest.unsealed).toBe(true);
+    expect(deepest.note).toContain("LEGACY");
     const kills = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=kills`)).json();
     expect(kills.entries[0].name).toBe("Donut");
     // fastest only ranks full clears.
@@ -537,27 +538,20 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
     expect(fastest.entries.map((e: { name: string }) => e.name)).toEqual(["Carl"]);
   });
 
-  it("sanitizes names at the board ingress", async () => {
-    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ board: "alltime", name: "N1gg4 Slayer", floor: 5, won: false, timeSec: 300, kills: 10 }),
-    });
-    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
-    const names = deepest.entries.map((e: { name: string }) => e.name);
-    expect(names).toContain("Crawler");
-    expect(names.join()).not.toContain("N1gg4");
-  });
-
-  it("rate-limits a submission flood from one client", async () => {
+  it("the unauthenticated board write is GONE, flood or not", async () => {
+    // The old hole: 12 forged rows a minute per IP, throttled but accepted.
+    // Now nothing is accepted at all, so there is nothing left to throttle.
     const codes: number[] = [];
     for (let i = 0; i < 12; i++) {
       const r = await fetch(`http://127.0.0.1:${port}/leaderboard`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ board: "alltime", name: `Flood${i}`, floor: 2, won: false, timeSec: 60, kills: 1 }),
+        body: JSON.stringify({ board: "alltime", name: `Flood${i}`, floor: 18, won: true, timeSec: 60, kills: 9999 }),
       });
       codes.push(r.status);
     }
-    expect(codes).toContain(429);
+    expect(new Set(codes)).toEqual(new Set([410]));
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    expect(deepest.entries.map((e: { name: string }) => e.name).join()).not.toContain("Flood");
   });
 
   it("OAuth: login redirects with a signed state; callback links the browser token", async () => {
@@ -582,12 +576,14 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
   });
 
   it("whoami reports identities + career stats; delete forgets everything", async () => {
-    // A fresh client IP (the limiter honors fly-client-ip) — the flood test
-    // above deliberately drained localhost's bucket.
-    await fetch(`http://127.0.0.1:${port}/leaderboard`, {
-      method: "POST", headers: { "content-type": "application/json", "fly-client-ip": "203.0.113.9" },
-      body: JSON.stringify({ board: "alltime", token: "browser-token-1234", name: "Mock Crawler", floor: 9, won: false, timeSec: 700, kills: 55 }),
-    });
+    // Career stats only move on a VERIFIED run now, so the fixture writes the
+    // aggregate the way the verifier does rather than through a forged POST.
+    server.db?.bumpAccountStats("browser-token-1234", { won: false, floor: 9, kills: 55, timeSec: 700 }, Date.now());
+    // ...and a legacy JSON row under the same crawler name, which is exactly
+    // what FORGET ME could never reach: those rows key on the NAME.
+    server.leaderboard.submitAlltime(
+      { name: "Mock Crawler", floor: 9, won: false, timeSec: 700, kills: 55 }, Date.now(),
+    );
     const who = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
     expect(who.identities.map((i: { provider: string }) => i.provider)).toContain("mock");
     expect(who.stats.runs).toBe(1);
@@ -595,11 +591,14 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
 
     await fetch(`http://127.0.0.1:${port}/auth/delete`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: "browser-token-1234" }),
+      body: JSON.stringify({ token: "browser-token-1234", names: ["Mock Crawler"] }),
     });
     const gone = await (await fetch(`http://127.0.0.1:${port}/auth/whoami?token=browser-token-1234`)).json();
     expect(gone.identities).toEqual([]);
     expect(gone.stats).toBeNull();
+    // THE CASCADE (COMPETITIVE.md 1.2): the JSON board goes too.
+    const deepest = await (await fetch(`http://127.0.0.1:${port}/leaderboard?cat=deepest`)).json();
+    expect(deepest.entries.map((e: { name: string }) => e.name)).not.toContain("Mock Crawler");
   });
 
   it("tampered OAuth state is rejected", async () => {

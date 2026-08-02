@@ -130,6 +130,13 @@ export interface Player {
   // Cumulative combat stats for this run.
   damageDealt: number;
   damageTaken: number;
+  /** WHO LANDED THE LAST HIT, and the numbers the post-run screen needs.
+   *  state.hits is a per-tick render buffer wiped at the top of every step
+   *  (game.ts), so this Player field is the sim's ONLY memory of an attacker.
+   *  The replay verifier reads it at the death tick and writes the named death
+   *  onto the run row (COMPETITIVE.md 2.5.5 / 6 Beat 3) - no client assertion,
+   *  no crowd-guessing heuristic. Pure data; no rule ever reads it. */
+  lastHitSrc?: LastHitSrc;
 
   // Active status effects on this crawler (poison from acid, chill auras).
   // Optional for old-save/snapshot compat; reset every floor.
@@ -1112,3 +1119,19 @@ export const NO_INTENT: Intent = {
 
 /** Per-player intents for one step, keyed by player id. Missing ids = NO_INTENT. */
 export type PartyIntents = Record<number, Intent>;
+
+/** Attacker identity plus the shape of the blow (Player.lastHitSrc).
+ *  `by` is a stable machine key - a MonsterKind, "hazard:<kind>",
+ *  "status:<kind>", "shot" or "crawler" - so the post-run screen and the
+ *  board row can name a death without parsing prose. */
+export interface LastHitSrc {
+  by: string;
+  /** Announcer name when the attacker had one (elites, city bosses). */
+  label?: string;
+  /** Damage dealt AFTER mitigation - what actually came off the bar. */
+  dmg: number;
+  /** HP before the blow, so the screen can say "from 62%". */
+  hpBefore: number;
+  /** Max HP at that moment - the denominator for hpBefore. */
+  maxHp: number;
+}

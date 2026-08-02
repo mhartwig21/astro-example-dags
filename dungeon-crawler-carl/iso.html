@@ -314,7 +314,11 @@
          so no two systems ever fight for the same pixels.
            top strip (12px):    #hud-tl left · #banner center (SYSTEM/CRAWLER menus) · #hud-tr right
            upper chips:         #show 48px (under the buttons) · #bossbar 92px (center)
+
                                 · #party 96px right rail (roster under YOUR stats chip)
+                                · #ghost 96px right rail (the rival split delta; only
+                                  ever shown while racing a ghost, and #party is
+                                  network-only, so the two never both exist)
                                 · #quests 210px right rail (Roam contract ledger,
                                   collapsible, below the roster zone)
            headline zone:       #headline — the ONE high-priority banner at a time
@@ -331,7 +335,12 @@
            modals (z 20-28):    #inv/#abil/#sheet 20 · #dialogue 22 (Roam NPC
                                   conversation — letterboxed cut, portrait left)
                                 · #saferoom 24 · #draft 25 · #keys 26
-                                · #recap 27 (end-of-run report; nothing in-run outranks it)
+
+                                · #recap 27 (THE VERDICT — end-of-run; nothing in-run
+                                  outranks it. #recap-tab is its held-TAB drill-down,
+                                  same zone, shown only while TAB is down)
+                                · #ladder / #career / #consent 28 (competitive SETS —
+                                  after #menu in the DOM so they win the tie)
                                 · #menu 28 (RINGSIDE CHECK-IN — pre-run only; panel docks right,
                                   pointer-events off elsewhere so the campfire lineup on the
                                   canvas beneath stays clickable)
@@ -937,7 +946,9 @@
       #recap .rstat small { color: #6f6757; font-size: 10px; letter-spacing: 1px; }
       #recap .rshow { display: flex; gap: 8px; }
       #recap .rshow .rstat { flex: 1; }
-      #recap .rshow .viewers b { color: #7ba3d6; }
+      /* Was the only cold accent on an otherwise amber screen, which read as a
+         link rather than a number. The SHOW ratings are one family. */
+      #recap .rshow .viewers b { color: #d8b46a; }
       #recap .rshow .favorites b { color: #c98ba6; }
       #recap .rshow .sponsors b { color: #c9a24b; }
       #recap .rabil { display: flex; align-items: center; gap: 8px; padding: 4px 6px;
@@ -948,12 +959,489 @@
       #recap .rabil.ultimate .ii { background: #c9a24b; }
       #recap .rach { color: #cbbfa4; font-size: 12px; line-height: 1.7; }
       #recap .rfoot { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+
       #recap .rfoot button { background: #2c241b; color: #6da356; border: 1px solid #6e5533;
-        border-radius: 6px; padding: 8px 18px; font: inherit; font-weight: 700; letter-spacing: 1px;
+        border-radius: 6px; padding: 8px 13px; font: inherit; font-weight: 700; letter-spacing: 0.5px;
         cursor: pointer; }
       #recap .rfoot button:hover { background: #3a2f22; }
       #recap .rfoot .dismiss { background: #221b15; color: #a99f8c; border-color: #6e5533; }
       #recap .rfoot .note { color: #6f6757; font-size: 11px; }
+
+      /* ================= THE VERDICT (COMPETITIVE.md 6) =================
+         The post-run screen has ONE job: convert the end of a run into the
+         start of the next one, in under eight seconds of reading. So the
+         default state is a grade, a named death, one earned line, and the
+         buttons - and the numbers people argue about live behind a held TAB,
+         the same gesture LoL trained everyone to make. */
+      #recap .verdict { display: grid; grid-template-columns: 132px 1fr; gap: 20px;
+        align-items: center; }
+      /* The medallion: a struck gold coin, because a grade is an award and a
+         letter in a plain div is a spreadsheet. */
+      #recap .vmedal { position: relative; width: 132px; height: 132px; display: grid;
+        place-items: center; border-radius: 50%;
+        background: radial-gradient(circle at 38% 30%, #3a2f22, #14100c 72%);
+        border: 2px solid var(--bronze); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 2px 10px rgba(255,224,160,0.10), 0 10px 26px rgba(0,0,0,0.6); }
+      #recap .vmedal::after { content: ""; position: absolute; inset: 7px; border-radius: 50%;
+        border: 1px solid rgba(201,162,75,0.35); pointer-events: none; }
+      #recap .vmedal b { font-family: var(--display); font-size: 66px; line-height: 1;
+        font-weight: 700; color: var(--gold-hi); text-shadow: 0 2px 0 #5c4726, 0 0 30px rgba(242,193,78,0.4); }
+
+      #recap .vmedal small { position: absolute; bottom: 15px; font-size: 11px; letter-spacing: 0.14em;
+        color: var(--gold); font-family: var(--display); font-variant: small-caps;
+        font-variant-numeric: tabular-nums; }
+      /* The comparison set lives UNDER the coin, never inside it: a grade that
+         does not name its population is the exact failure this screen exists
+         to avoid, so the label has to be legible, not engraved into the rim. */
+      #recap .vbasis { text-align: center; margin-top: 7px; font-size: 10px; line-height: 1.35;
+        letter-spacing: 0.1em; color: var(--ink-faint);
+        font-family: var(--display); font-variant: small-caps; }
+      #recap .vgrade { display: flex; flex-direction: column; align-items: center; }
+      #recap .vmedal.g-S { border-color: var(--gold-hi); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
+          inset 0 2px 12px rgba(255,235,190,0.18), 0 0 34px rgba(242,193,78,0.35); }
+      #recap .vmedal.g-C b, #recap .vmedal.g-D b { color: #b9b2a4; text-shadow: 0 2px 0 #2a231a; }
+      #recap .vmedal.g-D { border-color: #6b4038; }
+      #recap .vhead { min-width: 0; }
+      #recap .vline { color: var(--ink); font-size: 14px; line-height: 1.5; margin: 8px 0 10px;
+        border-left: 2px solid var(--bronze); padding-left: 10px; }
+      /* The four parts, as engraved meters. Each names its own raw number, so
+         a grade is auditable instead of an oracle. */
+      #recap .vparts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      #recap .vpart { background: linear-gradient(180deg, #221b15, #14100c); border: 1px solid #3a2f22;
+        border-radius: 2px; padding: 5px 7px 6px; }
+      #recap .vpart .pk { font-family: var(--display); font-variant: small-caps; font-size: 10px;
+        letter-spacing: 0.14em; color: var(--ink-dim); display: flex; justify-content: space-between; }
+      #recap .vpart .pk i { font-style: normal; color: var(--gold); font-variant-numeric: tabular-nums; }
+      #recap .vpart .pbar { height: 4px; margin-top: 4px; background: #0e0b09;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6); border-radius: 2px; overflow: hidden; }
+      #recap .vpart .pbar i { display: block; height: 100%;
+        background: linear-gradient(90deg, #8a6a2f, var(--gold-hi)); }
+      #recap .vpart.weak .pbar i { background: linear-gradient(90deg, #6b3b32, var(--blood)); }
+      #recap .vpart .pd { font-size: 10.5px; color: var(--ink-faint); margin-top: 3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      /* THE DEATH, NAMED - the single highest-value element on the screen. */
+      #recap .death { margin-top: 14px; padding: 11px 14px; border-radius: 3px;
+        background: linear-gradient(180deg, rgba(60,20,16,0.5), rgba(20,12,10,0.6));
+        border: 1px solid #6b3b32; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55); }
+      #recap .death.clear { background: linear-gradient(180deg, rgba(60,46,16,0.42), rgba(20,16,10,0.6));
+        border-color: var(--bronze); }
+      #recap .death .dhead { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; font-size: 17px; color: #e2857a; display: flex; align-items: center; gap: 9px; }
+      #recap .death.clear .dhead { color: var(--gold-hi); }
+      #recap .death .dhead .uic { width: 17px; height: 17px; }
+      #recap .death .dctx { color: var(--ink-dim); font-size: 13px; margin-top: 3px; font-style: italic; }
+      /* WHAT YOU EARNED - one line and a seal, expandable. Watching the seal
+         land is the moment the trust model becomes something you can feel. */
+      #recap .earned { margin-top: 12px; display: flex; align-items: center; gap: 10px;
+        border-top: 1px solid rgba(110,85,51,0.7); border-bottom: 1px solid rgba(0,0,0,0.55);
+        padding: 9px 2px; }
+      #recap .earned .eline { flex: 1; text-align: left; background: none; border: 0; padding: 0;
+        color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer; }
+      #recap .earned .eline b { color: var(--gold-hi); }
+
+      #recap .earned .eline .caret { color: var(--ink-faint); font-size: 10px; margin-left: 9px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em; }
+      #recap .edetail { padding: 4px 2px 2px; }
+      #recap .edetail .erow { display: flex; gap: 8px; font-size: 12.5px; color: var(--ink-dim);
+        padding: 3px 0; align-items: baseline; }
+      #recap .edetail .erow b { color: var(--ink); }
+      #recap .edetail .erow .pb { color: var(--gold-hi); font-family: var(--display);
+        font-variant: small-caps; letter-spacing: 0.1em; font-size: 11px; }
+      #recap .edetail .cpmath { color: var(--ink-faint); font-size: 12px; margin-top: 6px;
+        font-variant-numeric: tabular-nums; }
+
+      /* The seal chip family - shared with every board row, so a seal means
+         the same thing everywhere it appears. */
+      .seal { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.13em;
+        font-size: 10.5px; padding: 2px 8px; border-radius: 2px; white-space: nowrap;
+        border: 1px solid var(--bronze); color: var(--ink-dim); background: #14100c; }
+      .seal.verified { color: #0f0b06; border-color: #8a6d3b; font-weight: 700;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 48%, #8a6d3b);
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55); }
+      /* CERTIFIED, BUT NOT A TROPHY. The filled gold seal is for a run holding
+         a board position; a run the server replayed and certified that ranks
+         nowhere gets the hairline. Both are true, and only one is scarce -
+         printing them identically spends the scarcity that makes the gold one
+         worth having. */
+      .seal.verified.plain { color: var(--gold); font-weight: 400; background: #14100c;
+        border-color: #6e5533; box-shadow: none; }
+      .seal.verifying { color: var(--gold); border-color: var(--bronze-hi);
+        animation: sealpulse 1.1s ease-in-out infinite; }
+      .seal.claimed { color: var(--ink-faint); }
+      .seal.aged { color: #8a7f6b; border-style: dashed; }
+      .seal.rejected { color: #e2857a; border-color: #6b3b32; }
+      @keyframes sealpulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .seal.verifying { animation: none; opacity: 0.8; } }
+      /* THE LADDER LINE (6 Beat 5). Permanent, one line, beside the seal. */
+      #recap .ladderline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
+        margin-top: 12px; padding: 8px 12px; border: 1px solid var(--bronze); border-radius: 3px;
+        background: linear-gradient(180deg, rgba(201,162,75,0.09), rgba(20,16,12,0.5));
+        font-size: 12.5px; color: var(--ink-dim); }
+      #recap .ladderline .lt { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.16em; font-size: 14px; color: var(--gold-hi); }
+      #recap .ladderline .lcp { font-variant-numeric: tabular-nums; color: var(--ink); }
+      #recap .ladderline .ldelta { font-variant-numeric: tabular-nums; font-weight: 700; }
+      #recap .ladderline .ldelta.up { color: var(--verdant); }
+      #recap .ladderline .ldelta.flat { color: var(--ink-faint); font-weight: 400; }
+      #recap .ladderline .lnote { color: var(--ink-faint); font-style: italic; }
+      /* NOT RANKED: the test chamber, said before anything else on the screen. */
+      #recap .notranked { margin-top: 12px; padding: 8px 12px; border: 1px dashed #6b3b32;
+        border-radius: 3px; background: rgba(192,57,47,0.08); color: #e2857a; font-size: 12.5px; }
+      #recap .notranked b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.16em; color: #f0a99f; }
+      /* The button row: RUN IT BACK is the whole point of the screen. */
+      #recap .rfoot { margin-top: 14px; flex-wrap: wrap; }
+      #recap .rfoot button.primary { background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
+        color: #241a08; border: 1px solid #5c4726; font-weight: 700;
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55); }
+      #recap .rfoot button.primary:hover { filter: brightness(1.08); }
+      #recap .rfoot button { color: var(--ink); }
+      #recap .rhint { margin-top: 9px; text-align: center; color: var(--ink-faint); font-size: 11px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; }
+      /* The held-TAB sheet: the scoreboard and the splits, full width, for the
+         player who argues about numbers - and absent for the one who wants R. */
+
+      #recap-tab { position: fixed; inset: 0; display: none; z-index: 27;
+        background: radial-gradient(ellipse at 50% 22%, rgb(24,18,12), rgb(4,4,8) 72%);
+        padding: 20px; overflow: auto; }
+      #recap.tabbed #recap-tab { display: block; }
+
+      #recap-tab .sheet { max-width: 1180px; margin: 0 auto; }
+
+      #recap-tab .rsec:first-child { margin-top: 4px; }
+      #recap-tab .buildcode { margin-top: 10px; background: var(--raised); color: var(--ink);
+        border: 1px solid var(--bronze); border-radius: 3px; padding: 7px 14px; font: inherit;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer; }
+      #recap-tab .buildcode:hover { border-color: var(--bronze-hi); color: var(--gold-hi); }
+      /* Was 11.5px italic --ink-faint on brown: a rationale nobody could read
+         is a rationale that is not there. Body colour, body size, upright. */
+      #recap-tab .buildnote { color: var(--ink-dim); font-size: 12.5px; margin-top: 8px;
+        line-height: 1.5; max-width: 46ch; }
+      #recap-tab .rsec { font-size: 12px; color: var(--gold); letter-spacing: 2px; margin: 16px 0 7px;
+        font-family: var(--display); font-variant: small-caps; }
+      #recap-tab .tcols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 26px; }
+      .scorebd { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+      .scorebd th { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        font-size: 12px; color: var(--gold); text-align: right; padding: 6px 10px;
+        border-bottom: 1px solid var(--bronze); }
+      .scorebd th:first-child { text-align: left; color: var(--ink-dim); }
+      .scorebd td { padding: 5px 10px; font-size: 13px; text-align: right; color: var(--ink);
+        border-bottom: 1px solid rgba(0,0,0,0.5); }
+      .scorebd td:first-child { text-align: left; color: var(--ink-dim);
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; }
+      .scorebd td.you { color: var(--gold-hi); font-weight: 700; }
+      .scorebd td.none { color: var(--ink-faint); font-style: italic; }
+      .scorebd .win { color: var(--verdant); }
+      /* The band ledger: your time per band against your PB and the leader,
+         with the band where you lost it called out by name. */
+      .splitrow { display: grid; grid-template-columns: 138px 1fr 80px; gap: 10px; align-items: center;
+        padding: 5px 0; }
+      .splitrow .sname { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
+        font-size: 12px; color: var(--ink-dim); }
+      .splitrow.lost .sname { color: var(--blood); }
+      .splitrow .strack { position: relative; height: 15px; background: #14100c;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6); border: 1px solid #2c241b; border-radius: 2px; }
+      .splitrow .sfill { position: absolute; top: 1px; bottom: 1px; left: 1px; border-radius: 1px;
+        background: linear-gradient(90deg, #6e5533, var(--gold)); }
+      .splitrow.lost .sfill { background: linear-gradient(90deg, #5c332c, var(--blood)); }
+      .splitrow .spb { position: absolute; top: -2px; bottom: -2px; width: 2px;
+        background: var(--verdant); box-shadow: 0 0 6px rgba(109,163,86,0.6); }
+      .splitrow .slead { position: absolute; top: -2px; bottom: -2px; width: 2px;
+        background: var(--lore); box-shadow: 0 0 6px rgba(90,135,198,0.6); }
+      .splitrow .stime { text-align: right; font-variant-numeric: tabular-nums; font-size: 12.5px;
+        color: var(--ink); }
+
+      .splitrow.empty .sname, .splitrow.empty .stime { color: var(--ink-faint); }
+      /* An unreached band gets a hairline, not an empty well: six identical
+         dark troughs read as a broken chart. */
+      .splitrow.empty .strack { background: none; border: 0; box-shadow: none;
+        border-bottom: 1px dashed rgba(110,85,51,0.4); height: 1px; }
+      .splitkey { color: var(--ink-faint); font-size: 11px; margin-top: 8px; }
+      .splitkey i { font-style: normal; font-weight: 700; }
+      .splitkey .pbk { color: var(--verdant); }
+      .splitkey .leadk { color: var(--lore); }
+
+      /* ============ THE STANDINGS (COMPETITIVE.md 3) ============
+         Seeded contracts, all-time museums, band boards and rival contracts.
+         z 28, after #menu in the DOM so it wins the tie and covers check-in;
+         #loading (29) still outranks it. */
+
+      #ladder, #career { position: fixed; inset: 0; display: none; z-index: 28;
+
+        background: radial-gradient(ellipse at 50% 22%, rgb(24,18,12), rgb(4,4,8) 72%);
+        overflow: auto; padding: 18px; scrollbar-width: none; }
+      /* House rule: no scrollbars. A long ladder still scrolls - it just does
+         not put a grey elevator down the side of a gilt document. */
+      #ladder::-webkit-scrollbar, #career::-webkit-scrollbar, #recap-tab::-webkit-scrollbar { display: none; }
+      #recap-tab { scrollbar-width: none; }
+      #ladder.on, #career.on { display: block; }
+      /* Switching a tab must not resize the world behind it. RIVALS has one
+         card and ALL-TIME has twenty-five rows; without a floor the panel
+         breathes in and out by 400px every time you look at another board. */
+      #ladder-body { min-height: 664px; }
+      .set-frame { position: relative; max-width: 1180px; margin: 0 auto; background: var(--stone);
+        background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 210px);
+        border: 1px solid var(--bronze); border-radius: 3px; padding: 20px 26px 26px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.7); }
+      .set-frame > .kicker { text-align: center; color: var(--gold); font-size: 11px;
+        letter-spacing: 5px; font-family: var(--display); font-variant: small-caps; }
+      .set-frame > h2 { margin: 6px 0 2px; text-align: center; font-size: 27px; letter-spacing: 0.16em;
+        color: var(--gold-hi); display: flex; align-items: center; justify-content: center; gap: 18px; }
+      .set-frame > h2::before, .set-frame > h2::after { content: ""; flex: 1; height: 3px;
+        border-top: 1px solid var(--bronze); border-bottom: 1px solid rgba(0,0,0,0.6); }
+      .set-sub { text-align: center; color: var(--ink-dim); font-size: 12px; margin-bottom: 14px; }
+
+      .set-close { position: absolute; top: 16px; right: 18px; background: var(--raised);
+        border: 1px solid var(--bronze); color: var(--ink-dim); border-radius: 3px;
+        padding: 5px 13px; font: inherit; cursor: pointer; }
+      .set-close:hover { border-color: var(--bronze-hi); color: var(--gold-hi); }
+      /* LoL underline tabs. */
+      .settabs { display: flex; gap: 22px; justify-content: center; margin: 4px 0 16px;
+        border-bottom: 1px solid rgba(110,85,51,0.55); }
+      .settab { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
+        font-size: 13px; color: var(--ink-faint); padding: 6px 2px 8px; cursor: pointer;
+        position: relative; background: none; border: 0; }
+      .settab.active { color: var(--gold-hi); }
+      .settab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+        height: 2px; background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); }
+      /* A CONTRACT card: the season poster treatment, one framed offer each. */
+      .contracts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .contract { position: relative; border: 1px solid var(--bronze); border-radius: 3px;
+        padding: 14px 16px 15px; background: linear-gradient(180deg, #241d16, #14100c);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5); }
+      .contract.weekly { border-color: #6a4f7a; }
+      .contract .ctag { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.2em;
+        font-size: 10px; color: var(--gold); }
+      .contract.weekly .ctag { color: #b08fd9; }
+      .contract h3 { margin: 3px 0 6px; font-size: 20px; letter-spacing: 0.1em; color: var(--ink);
+        font-family: var(--display); font-variant: small-caps; }
+      .contract .cmeta { color: var(--ink-dim); font-size: 12px; line-height: 1.6; }
+      .contract .cmeta b { color: var(--ink); font-variant-numeric: tabular-nums; }
+      .contract .crule { margin-top: 8px; color: var(--ink-faint); font-size: 11.5px; font-style: italic;
+        border-left: 2px solid var(--bronze); padding-left: 8px; }
+      .contract .cgo { margin-top: 11px; width: 100%; padding: 9px 0; border-radius: 3px;
+        border: 1px solid #5c4726; font: inherit; font-weight: 700; letter-spacing: 0.12em;
+        font-family: var(--display); font-variant: small-caps; cursor: pointer; color: #241a08;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.55); }
+      .contract .cgo:hover { filter: brightness(1.08); }
+      .contract .cgo:disabled { background: var(--raised); color: var(--ink-faint);
+        border-color: var(--bronze); cursor: default; box-shadow: none; }
+      .contract .cfrozen { color: var(--blood); font-size: 11.5px; margin-top: 8px; }
+
+      /* A BOARD ROW. Every row carries its seal AND its rules era, because a
+         board that silently blends eras is lying - and it is the one thing LoL
+         literally cannot show you. */
+      .board { list-style: none; margin: 0; padding: 0; }
+
+      .brow { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 128px auto; gap: 10px;
+        align-items: center; padding: 5px 10px; border-bottom: 1px solid rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, rgba(34,27,21,0.55), rgba(20,16,12,0.55)); }
+      .brow + .brow { border-top: 1px solid rgba(110,85,51,0.25); }
+      .brow .rank { font-family: var(--display); font-size: 15px; color: var(--ink-faint);
+        text-align: center; font-variant-numeric: tabular-nums; }
+      .brow.top1 .rank, .brow.top2 .rank, .brow.top3 .rank { color: var(--gold-hi); }
+      .brow.you { background: linear-gradient(90deg, rgba(201,162,75,0.16), rgba(34,27,21,0.55) 60%);
+        box-shadow: inset 2px 0 0 var(--gold-hi); }
+
+      .brow.rival { box-shadow: inset 2px 0 0 var(--arcane);
+        background: linear-gradient(90deg, rgba(154,107,208,0.13), rgba(34,27,21,0.55) 60%); }
+      .brow.rival .who b { color: #b08fd9; }
+      .brow .who { min-width: 0; }
+      .brow .who b { display: block; font-size: 13.5px; color: var(--ink); overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      .brow.you .who b { color: var(--gold-hi); }
+      .brow .who .sub { font-size: 10.5px; color: var(--ink-faint); letter-spacing: 0.04em; }
+      /* The colour says it fast; the tag says it unambiguously. */
+      .rtag { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 9px; margin-left: 8px; padding: 1px 5px; border-radius: 2px;
+        border: 1px solid currentColor; vertical-align: middle; }
+      .rtag.you { color: var(--gold-hi); }
+      .rtag.rival { color: var(--arcane); }
+      /* THE HEAD-TO-HEAD LEDGER (4.2): the one number LoL cannot show you about
+         a named opponent across a season. */
+      .h2h { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 6px; }
+      .h2h .h2hc { border: 1px solid var(--bronze); border-radius: 3px; background: #14100c;
+        padding: 9px 12px; text-align: center; }
+      .h2h .h2hc b { display: block; font-family: var(--display); font-size: 24px; line-height: 1.1; }
+      .h2h .h2hc small { color: var(--ink-faint); font-size: 10px; letter-spacing: 0.14em;
+        font-family: var(--display); font-variant: small-caps; }
+      .h2h .win b { color: var(--verdant); }
+      .h2h .loss b { color: var(--blood); }
+      .h2h .draw b { color: var(--ink-dim); }
+      .h2hlist { border-top: 1px solid rgba(110,85,51,0.4); }
+      .h2hrow { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: baseline;
+        padding: 6px 2px; border-bottom: 1px solid rgba(110,85,51,0.22); font-size: 12px; }
+      .h2hrow .ev { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      .h2hrow .sc { font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+      .h2hrow .vd { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        font-size: 11px; }
+      .h2hrow.won .vd { color: var(--verdant); }
+      .h2hrow.lost .vd { color: var(--blood); }
+      .h2hrow.drew .vd { color: var(--ink-faint); }
+
+      .brow .res { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-dim);
+        text-align: right; }
+      .brow .res.win { color: var(--verdant); }
+      .brow .acts { display: flex; gap: 6px; }
+      .brow .acts button { background: var(--raised); border: 1px solid var(--bronze);
+        color: var(--ink-dim); border-radius: 2px; padding: 3px 9px; font: inherit; font-size: 11px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer; }
+      .brow .acts button:hover { border-color: var(--bronze-hi); color: var(--gold-hi); }
+      .brow .acts button:disabled { color: var(--ink-faint); border-style: dashed; cursor: help;
+        opacity: 0.75; }
+      .board .none { color: var(--ink-faint); font-style: italic; padding: 14px 10px; }
+      /* The entrant gate, said out loud: a board you can help unlock is better
+         content than a board you can win alone (3.4). */
+      .gate { margin-top: 10px; color: var(--gold); font-size: 12px; font-style: italic;
+        border: 1px dashed var(--bronze); border-radius: 3px; padding: 8px 12px;
+        background: rgba(201,162,75,0.05); }
+      .bandgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 26px; }
+      .bandgrid h4 { margin: 0 0 4px; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.14em; font-size: 14px; color: var(--gold); }
+      .bandgrid .bandsub { color: var(--ink-faint); font-size: 11px; margin-bottom: 6px; }
+      /* Colour-coding rows without a key trains players to guess. */
+      .rowkey { display: flex; gap: 16px; align-items: center; color: var(--ink-faint);
+        font-size: 11px; margin: -6px 0 12px; }
+      .rowkey i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+      .rowkey i::before { content: ""; width: 3px; height: 12px; border-radius: 1px; }
+      .rowkey .kyou { color: var(--gold-hi); }
+      .rowkey .kriv { color: #b08fd9; }
+      .rowkey .kyou::before { background: var(--gold-hi); }
+      .rowkey .kriv::before { background: var(--arcane); }
+      .rowkey .ktie { margin-left: auto; font-style: italic; }
+
+      /* ============ THE CRAWLER (COMPETITIVE.md 5.2) ============ */
+      .cheadline { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
+        padding-bottom: 14px; border-bottom: 1px solid rgba(110,85,51,0.7); }
+      .ctier { text-align: center; padding: 10px 20px; border: 1px solid var(--bronze); border-radius: 3px;
+        background: linear-gradient(180deg, #2b2218, #14100c); }
+      .ctier b { display: block; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.14em; font-size: 17px; color: var(--gold-hi); }
+      .ctier small { color: var(--ink-faint); font-size: 10.5px; letter-spacing: 0.12em; }
+      .cname { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
+        font-size: 26px; color: var(--ink); }
+      .cnamesub { color: var(--ink-dim); font-size: 12.5px; }
+      .cseals { text-align: center; }
+      .cseals b { display: block; font-size: 26px; color: var(--gold-hi); font-family: var(--display); }
+      .cseals small { color: var(--ink-faint); font-size: 10px; letter-spacing: 0.14em;
+        font-family: var(--display); font-variant: small-caps; }
+      /* WHERE YOU DIE - eighteen bars, a whole career in one glance, and the
+         most interesting chart this game can draw. */
+      .histo { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; align-items: end;
+
+        height: 108px; margin-top: 6px; }
+      .histo .hb { position: relative; background: linear-gradient(180deg, #8a6a2f, #4a3a1f);
+        border: 1px solid #2c241b; border-bottom: 0; min-height: 2px; border-radius: 1px 1px 0 0; }
+      .histo .hb.deep { background: linear-gradient(180deg, var(--gold-hi), #8a6a2f); }
+
+      .histo .hb.none { background: #191410; border-color: #241d16; }
+      .histo .hb i { position: absolute; top: -15px; left: 0; right: 0; text-align: center;
+        font-size: 10px; color: var(--ink-dim); font-style: normal; font-variant-numeric: tabular-nums; }
+      .histax { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; margin-top: 3px;
+        border-top: 1px solid var(--bronze); padding-top: 3px; }
+      .histax span { text-align: center; font-size: 9.5px; color: var(--ink-faint);
+        font-variant-numeric: tabular-nums; }
+      .bandstrip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; margin-top: 5px; }
+      .bandstrip span { text-align: center; font-size: 9px; letter-spacing: 0.1em; color: var(--ink-faint);
+        font-family: var(--display); font-variant: small-caps; border-top: 1px solid rgba(110,85,51,0.5);
+        padding-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      /* MASTERY per archetype: a level per ultimate, earned from VERIFIED runs
+         weighted by depth. Unlike LoL mastery, every point is backed by a
+         replayable proof. */
+      .mrow { display: grid; grid-template-columns: 30px 1fr 74px; gap: 10px; align-items: center;
+        padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,0.45); }
+      .mrow .mic { width: 26px; height: 26px; background: var(--gold); mask-size: contain;
+        -webkit-mask-size: contain; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+        mask-position: center; -webkit-mask-position: center; }
+      .mrow .mname { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
+        font-size: 13px; color: var(--ink); }
+      .mrow .mbar { height: 5px; margin-top: 4px; background: #0e0b09; border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6); overflow: hidden; }
+      .mrow .mbar i { display: block; height: 100%;
+        background: linear-gradient(90deg, #8a6a2f, var(--gold-hi)); }
+      .mrow .mlvl { text-align: right; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; font-size: 12px; color: var(--gold-hi); }
+      .mrow .mlvl small { display: block; color: var(--ink-faint); font-size: 10px; letter-spacing: 0.06em; }
+      /* PoE stat ledger: label, dotted leader, tabular value. */
+      .ledger { width: 100%; border-collapse: collapse; }
+      .ledger td { padding: 4px 0; font-size: 12.5px; vertical-align: baseline; }
+      .ledger td.lk { color: var(--ink-dim); font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; white-space: nowrap; }
+      .ledger td.ld { width: 99%; }
+      .ledger td.ld i { display: block; height: 1px; margin: 0 6px 4px;
+        background-image: radial-gradient(circle, rgba(110,85,51,0.85) 0.5px, transparent 0.6px);
+        background-size: 5px 1px; background-repeat: repeat-x; }
+      .ledger td.lv { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums;
+        white-space: nowrap; font-weight: 700; }
+      /* MILESTONES: the dated timeline people screenshot. */
+
+      .mstone { display: grid; grid-template-columns: 88px 1fr; gap: 12px; padding: 3px 0;
+        border-left: 1px solid var(--bronze); margin-left: 6px; padding-left: 14px; position: relative; }
+
+      .mstone::before { content: ""; position: absolute; left: -4px; top: 9px; width: 7px; height: 7px;
+        background: var(--gold); transform: rotate(45deg); }
+      .mstone .mdate { color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+      .mstone .mtitle { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
+        font-size: 13px; color: var(--gold-hi); }
+      .mstone .mdetail { color: var(--ink-dim); font-size: 12px; }
+
+      /* ============ THE GHOST (COMPETITIVE.md 4.1) ============
+         In-run rail chip, under the party roster zone. GLASS, not stone: it is
+         overlaid on live gameplay (STYLEGUIDE rule four). The split delta is
+         the drama - red when you are losing time, green when you are taking it. */
+      #ghost { position: fixed; right: 12px; top: 96px; z-index: 6; display: none;
+        min-width: 208px; padding: 8px 11px; border-radius: 4px;
+        background: rgba(12,10,20,0.62); border: 1px solid rgba(110,85,51,0.85);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5); pointer-events: none; }
+      #ghost.on { display: block; }
+      #ghost .gh { display: flex; align-items: baseline; gap: 7px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        font-size: 11px; color: var(--ink-dim); }
+      #ghost .gh b { color: var(--ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; max-width: 132px; }
+      #ghost .gdelta { font-family: var(--display); font-size: 25px; line-height: 1.15;
+        font-variant-numeric: tabular-nums; color: var(--verdant); }
+      #ghost .gdelta.behind { color: var(--blood); }
+      /* Taking time is as loud as giving it back. A one-sided colour scheme
+         only tells you when you are losing, which is the half nobody needs
+         help noticing. */
+      #ghost .gdelta.ahead { color: var(--verdant); }
+      #ghost .gdelta.pending { color: var(--ink-faint); font-size: 15px; }
+      #ghost .gsub { font-size: 11px; color: var(--ink-faint); }
+      #ghost .gsplits { margin-top: 5px; display: flex; gap: 3px; }
+      #ghost .gsplits i { flex: 1; height: 3px; background: #2c241b; border-radius: 1px; }
+      #ghost .gsplits i.ahead { background: var(--verdant); }
+      #ghost .gsplits i.behind { background: var(--blood); }
+      #ghost .gsplits i.now { box-shadow: 0 0 0 1px var(--gold-hi); }
+
+      /* ============ CONSENT (COMPETITIVE.md 8.1) ============
+         One card, the first time a run is offered to a board. Defaulting to
+         public is fine; defaulting SILENTLY to public is not. */
+      #consent { position: fixed; inset: 0; z-index: 28; display: none; align-items: center;
+        justify-content: center; background: rgba(4,4,8,0.88); }
+      #consent.on { display: flex; }
+
+      #consent .card { width: min(660px, 94vw); background: var(--stone);
+        background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 120px);
+        border: 1px solid var(--bronze); border-radius: 3px; padding: 22px 26px 20px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.75); }
+
+      #consent .kicker { text-align: center; color: var(--gold); font-size: 10px;
+        letter-spacing: 0.4em; font-family: var(--display); font-variant: small-caps; }
+      #consent h3 { margin: 5px 0 10px; font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.1em; font-size: 20px; color: var(--gold-hi); text-align: center;
+        white-space: nowrap; }
+      #consent p { color: var(--ink-dim); font-size: 13.5px; line-height: 1.6; margin: 0 0 10px; }
+      #consent p b { color: var(--ink); }
+      #consent .cbtns { display: flex; gap: 9px; margin-top: 14px; }
+      #consent .cbtns button { flex: 1; padding: 9px 6px; border-radius: 3px; font: inherit;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer;
+        background: var(--raised); border: 1px solid var(--bronze); color: var(--ink); }
+      #consent .cbtns button.primary { color: #241a08; border-color: #5c4726; font-weight: 700;
+        background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b); }
+      #consent .cbtns button:hover { border-color: var(--bronze-hi); }
 
       /* SIGNAL ACQUISITION — the boot loading screen (z 29). Visible from the
          very first paint (static markup, no JS needed) until the model
@@ -1110,7 +1598,9 @@
       .m-bests .best small { color: #8a7f6c; font-size: 9px; letter-spacing: 1px; }
       .m-board { background: #14100c; border: 1px solid #3a2f22; border-radius: 8px;
         padding: 12px 14px; align-self: start; }
+
       .m-board .m-board-h { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 8px; }
+      .m-board .m-board-tabs { display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
       .m-board ol { margin: 0; padding: 0; list-style: none; font-size: 12px; }
       .m-board li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px;
         border-top: 1px solid #241d16; font-variant-numeric: tabular-nums; }
@@ -1119,7 +1609,12 @@
       .m-board li:nth-child(1) .rank { color: #f2c14e; }
       .m-board li .nm { color: #e8ddc8; font-weight: 700; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
+
       .m-board li .res { margin-left: auto; flex: none; color: #a99f8c; font-size: 11px; }
+      /* The campfire board carries the same seal the ladder does, at chip
+         scale: a row you cannot tell apart from an unproven one is the whole
+         problem this layer exists to solve. */
+      .m-board li .seal { font-size: 8.5px; padding: 1px 5px; letter-spacing: 0.1em; flex: none; }
       .m-board li .res.win { color: #6da356; }
       .m-board li.none { color: #6f6757; font-style: italic; border-top: none; }
       #m-open-list { flex: 1 0 100%; margin: 0; padding: 0; list-style: none; font-size: 12px;
@@ -2716,7 +3211,16 @@
     <div id="hud-tl" class="hud"></div>
     <div id="hud-tr" class="hud"></div>
     <div id="hud-log" class="hud"><div id="hud-log-feed"></div><div id="hud-log-status"></div></div>
+
     <div id="party" style="display:none"></div>
+    <!-- THE GHOST (COMPETITIVE.md 4.1): a rival trajectory, never a shared
+         world. Right rail under the roster zone; glass, not stone. -->
+    <div id="ghost">
+      <div class="gh"><b id="ghost-name">RIVAL</b><span id="ghost-where"></span></div>
+      <div class="gdelta pending" id="ghost-delta">—</div>
+      <div class="gsub" id="ghost-sub"></div>
+      <div class="gsplits" id="ghost-splits"></div>
+    </div>
     <div id="bossbar">
       <div class="bb-row">
         <span class="bb-icon" id="bb-icon"></span>
@@ -2925,32 +3429,84 @@
       <b>Rotate Your Device</b>
       <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>
     </div>
+
+    <!-- THE VERDICT (COMPETITIVE.md 6). Default state = grade, named death,
+         one earned line, buttons. Everything you argue about is behind TAB. -->
     <div id="recap">
       <div class="panel">
-        <h2 id="recap-title"></h2>
-        <div class="rsub" id="recap-sub"></div>
-        <div class="rcols">
-          <div>
-            <div class="rsec">FINAL STATS</div>
-            <div class="rstat-grid" id="recap-stats"></div>
-            <div class="rsec">SEASON RATINGS</div>
-            <div class="rshow" id="recap-show"></div>
-            <div class="rsec">ACHIEVEMENTS</div>
-            <div class="rach" id="recap-ach"></div>
+        <div class="verdict">
+
+          <div class="vgrade">
+            <div class="vmedal" id="recap-medal"><b id="recap-letter">—</b><small id="recap-score"></small></div>
+            <div class="vbasis" id="recap-basis"></div>
           </div>
-          <div>
-            <div class="rsec">FINAL BUILD</div>
-            <div id="recap-gear"></div>
-            <div class="rsec">THE FIVE</div>
-            <div id="recap-abils"></div>
+          <div class="vhead">
+            <h2 id="recap-title"></h2>
+            <div class="rsub" id="recap-sub"></div>
+            <div class="vline" id="recap-line"></div>
+            <div class="vparts" id="recap-parts"></div>
           </div>
         </div>
+        <div class="death" id="recap-death">
+          <div class="dhead" id="recap-death-head"></div>
+          <div class="dctx" id="recap-death-ctx"></div>
+        </div>
+        <!-- THE LP LINE. It is the reason the player presses R, so it is never
+             behind a drawer: tier or CP, rank of entrants, and what THIS run
+             moved - including "+0 CP" when the run was a free seed, which is
+             information rather than an omission. -->
+        <div class="ladderline" id="recap-ladder"></div>
+        <div class="earned">
+          <button class="eline" id="recap-earned">what you earned<span class="caret">▾</span></button>
+          <span id="recap-seal"></span>
+        </div>
+        <div class="edetail" id="recap-earned-detail" style="display:none"></div>
         <div class="rfoot">
-          <button id="recap-again">NEW SEASON <kbd>R</kbd></button>
-          <button class="dismiss" id="recap-share" style="display:none">COPY CHALLENGE</button>
+          <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
+          <button class="dismiss" id="recap-new">NEW CONTRACT</button>
+          <button class="dismiss" id="recap-race">RACE THE LEADER</button>
+          <button class="dismiss" id="recap-share">SHARE</button>
+          <button class="dismiss" id="recap-standings">STANDINGS</button>
           <button class="dismiss" id="recap-card">SAVE CARD</button>
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
           <span class="note" id="recap-note"></span>
+        </div>
+        <div class="rhint">HOLD <kbd>TAB</kbd> — SCOREBOARD, SPLITS AND THE BUILD</div>
+      </div>
+
+      <div id="recap-tab">
+        <div class="sheet set-frame">
+          <div class="kicker">◆ THE TAPE ◆</div>
+          <h2>THE POST-RUN SCOREBOARD</h2>
+          <div class="set-sub">held open by <kbd>TAB</kbd> — every number this run produced, and what it
+            is worth beside your own bests and the crawler at the top of the board</div>
+          <div class="tcols">
+            <div>
+              <div class="rsec">THE SCOREBOARD</div>
+              <table class="scorebd" id="recap-scoreboard"></table>
+              <div class="rsec">THE SPLITS</div>
+              <div id="recap-splits"></div>
+              <div class="splitkey">
+                <i class="pbk">|</i> your personal best · <i class="leadk">|</i> the board leader
+              </div>
+            </div>
+            <div>
+              <div class="rsec">FINAL STATS</div>
+              <div class="rstat-grid" id="recap-stats"></div>
+              <div class="rsec">SEASON RATINGS</div>
+              <div class="rshow" id="recap-show"></div>
+              <div class="rsec">ACHIEVEMENTS</div>
+              <div class="rach" id="recap-ach"></div>
+
+              <div class="rsec">THE BUILD</div>
+              <div id="recap-gear"></div>
+              <div id="recap-abils"></div>
+              <button class="dismiss buildcode" id="recap-buildcode">COPY BUILD CODE</button>
+              <div class="buildnote">A build code is a RECEIPT, not a guess: it is derived from the
+                run that actually happened, so whoever you send it to gets the loadout AND the
+                evidence it worked.</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3046,9 +3602,15 @@
               <button class="m-go" id="m-t-go">ENTER ▶</button>
             </div>
           </div>
+
           <div class="m-side">
+            <div class="m-form" style="display:flex;gap:8px;margin-bottom:10px">
+              <button class="m-mini" id="m-standings" style="flex:1">THE STANDINGS</button>
+              <button class="m-mini" id="m-careerset" style="flex:1">CAREER</button>
+            </div>
+
             <div class="m-board">
-              <div class="m-board-h">
+              <div class="m-board-h m-board-tabs">
                 <span class="bt active" data-bt="today">TODAY</span>
                 <span class="bt" data-bt="deepest">DEEPEST</span>
                 <span class="bt" data-bt="fastest">FASTEST</span>
@@ -3068,12 +3630,63 @@
             <div class="m-board" id="m-career" style="display:none">
               <div class="m-board-h">YOUR CAREER · <span id="m-career-sub"></span></div>
               <div class="m-bests" id="m-career-bests"></div>
-              <div class="m-board-h" style="margin-top:10px">RECENT SEASONS</div>
+              <div class="m-board-h" style="margin-top:10px">RECENT EPISODES</div>
               <ol id="m-career-list"></ol>
             </div>
           </div>
         </div>
         <div class="m-foot">the System is legally required to inform you that survival is optional</div>
+      </div>
+    </div>
+
+    <!-- THE STANDINGS (COMPETITIVE.md 3): seeded contracts, the museum
+         boards, per-band splits and rival contracts. After #menu in the DOM
+         so it wins the z 28 tie and covers check-in. -->
+    <div id="ladder">
+      <div class="set-frame">
+        <button class="set-close" id="ladder-close">CLOSE <kbd>ESC</kbd></button>
+        <div class="kicker">◆ THE NETWORK KEEPS SCORE ◆</div>
+        <h2>THE STANDINGS</h2>
+        <div class="set-sub" id="ladder-sub"></div>
+        <div class="settabs">
+          <button class="settab active" data-lt="contracts">CONTRACTS</button>
+          <button class="settab" data-lt="alltime">ALL-TIME</button>
+          <button class="settab" data-lt="bands">BANDS</button>
+          <button class="settab" data-lt="rivals">RIVALS</button>
+        </div>
+        <div id="ladder-body"></div>
+      </div>
+    </div>
+    <!-- THE CRAWLER (COMPETITIVE.md 5.2): the career worth staring at. -->
+    <div id="career">
+      <div class="set-frame">
+        <button class="set-close" id="career-close">CLOSE <kbd>ESC</kbd></button>
+        <div class="kicker">◆ PERSONNEL FILE ◆</div>
+        <h2>THE CRAWLER</h2>
+        <div class="set-sub" id="career-sub"></div>
+        <div id="career-body"></div>
+      </div>
+    </div>
+    <!-- CONSENT (COMPETITIVE.md 8.1): once, before the first submit ever. -->
+    <div id="consent">
+
+      <div class="card">
+        <div class="kicker">◆ BEFORE YOUR FIRST SUBMISSION ◆</div>
+        <h3>THE SYSTEM RECORDS EVERYTHING YOU DO</h3>
+        <p>
+          Every button, sixty times a second. That recording is what makes the seal worth
+          anything — <b>anyone can replay your run and watch you earn it</b>. It is also how
+          other crawlers race your ghost.
+        </p>
+        <p>
+          A <b>private</b> run is still replayed, still certified, and still takes its place on
+          the board. It is simply never handed to anyone else.
+        </p>
+        <div class="cbtns">
+          <button class="primary" id="consent-public">SUBMIT — PUBLIC</button>
+          <button id="consent-private">SUBMIT — PRIVATE</button>
+          <button id="consent-no">DO NOT SUBMIT</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main3d.ts"></script>

@@ -83,31 +83,59 @@ describe("leaderboard over HTTP", () => {
 
   afterAll(() => server.close());
 
-  it("POST records a run and GET returns the ranked board", async () => {
+  // THE WRITE PATH IS RETIRED (COMPETITIVE.md 1.2). It was the last
+  // unauthenticated write on the box: a devtools one-liner could put any name
+  // on a public board with any numbers. A forgeable board wearing the same
+  // crawler names on the same host as a verified one spends exactly the
+  // credibility the seal exists to earn.
+  it("refuses every self-reported submission with 410 GONE", async () => {
     const day = dayFromMs(Date.now());
-    const post = await fetch(`${base}/leaderboard`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ day, name: "Carl", floor: 12, won: false, timeSec: 1500, kills: 200 }),
-    });
-    expect(post.status).toBe(200);
-    const posted = (await post.json()) as { ok: boolean; rank: number };
-    expect(posted.ok).toBe(true);
-    expect(posted.rank).toBe(1);
-
-    const get = await fetch(`${base}/leaderboard?day=${day}`);
-    expect(get.status).toBe(200);
-    const board = (await get.json()) as { day: string; entries: { name: string; floor: number }[] };
-    expect(board.day).toBe(day);
-    expect(board.entries[0]).toMatchObject({ name: "Carl", floor: 12 });
+    for (const body of [
+      { day, name: "Carl", floor: 12, won: false, timeSec: 1500, kills: 200 },
+      { board: "alltime", name: "Carl", floor: 18, won: true, timeSec: 1500, kills: 300 },
+      { day: "never", name: "Carl", floor: 12 },
+    ]) {
+      const post = await fetch(`${base}/leaderboard`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(post.status).toBe(410);
+      const said = (await post.json()) as { ok: boolean; detail: string };
+      expect(said.ok).toBe(false);
+      expect(said.detail).toContain("/runs");
+    }
+    // ...and nothing landed.
+    const board = (await (await fetch(`${base}/leaderboard?day=${day}`)).json()) as { entries: unknown[] };
+    expect(board.entries).toHaveLength(0);
   });
 
-  it("rejects junk with 400", async () => {
-    const bad = await fetch(`${base}/leaderboard`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ day: "never", name: "Carl", floor: 12 }),
-    });
-    expect(bad.status).toBe(400);
+  it("still SERVES the legacy rows, labelled unsealed and read-only", async () => {
+    const day = dayFromMs(Date.now());
+    // Server-vouched rows (a secured RIVALS contract) are the only writer left.
+    server.leaderboard.submit(day, { name: "Carl", floor: 12, won: false, timeSec: 1500, kills: 200 }, Date.now());
+    const get = await fetch(`${base}/leaderboard?day=${day}`);
+    expect(get.status).toBe(200);
+    const board = (await get.json()) as {
+      day: string; unsealed: boolean; legacy: boolean; note: string;
+      entries: { name: string; floor: number }[];
+    };
+    expect(board.day).toBe(day);
+    expect(board.entries[0]).toMatchObject({ name: "Carl", floor: 12 });
+    expect(board.unsealed).toBe(true);
+    expect(board.legacy).toBe(true);
+    expect(board.note).toContain("UNSEALED");
+  });
+
+  it("FORGET ME reaches the JSON board, which keys on names and not accounts", () => {
+    const lb = new Leaderboard();
+    lb.submit(DAY, { name: "Carl", floor: 9, won: false, timeSec: 900, kills: 80 }, NOW);
+    lb.submit(DAY, { name: "Donut", floor: 7, won: false, timeSec: 800, kills: 60 }, NOW);
+    lb.submitAlltime({ name: "Carl", floor: 18, won: true, timeSec: 1200, kills: 300 }, NOW);
+    // 1 day row + 3 all-time categories (deepest, fastest, kills).
+    expect(lb.forgetNames(["  cArL "])).toBe(4); // trimmed + case-insensitive
+    expect(lb.get(DAY).map((e) => e.name)).toEqual(["Donut"]);
+    expect(lb.getAlltime("deepest")).toHaveLength(0);
+    expect(lb.forgetNames([])).toBe(0);
   });
 });

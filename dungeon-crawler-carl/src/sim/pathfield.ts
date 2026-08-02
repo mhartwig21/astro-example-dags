@@ -1,5 +1,6 @@
 import { Tile, type FloorMap, type GameState, type Vec2 } from "./types";
 import { isWalkableForMonster, tileAt } from "./floor";
+import { dhypot } from "./dmath";
 
 // FLOW FIELD (AI tier 2): one multi-source BFS from every living crawler's
 // tile, shared by every monster on the floor — O(tiles) per rebuild instead
@@ -97,7 +98,7 @@ export function flowDir(state: GameState, pos: Vec2): Vec2 | null {
   if (ty < f.h - 1) consider(tx, ty + 1);
   if (bx === tx && by === ty) return null;
   const dx = bx + 0.5 - pos.x, dy = by + 0.5 - pos.y;
-  const len = Math.hypot(dx, dy);
+  const len = dhypot(dx, dy);
   return len < 1e-6 ? null : { x: dx / len, y: dy / len };
 }
 
@@ -124,7 +125,7 @@ export function flowUphill(state: GameState, pos: Vec2): Vec2 | null {
   if (ty < f.h - 1) consider(tx, ty + 1);
   if (bx === tx && by === ty) return null;
   const dx = bx + 0.5 - pos.x, dy = by + 0.5 - pos.y;
-  const len = Math.hypot(dx, dy);
+  const len = dhypot(dx, dy);
   return len < 1e-6 ? null : { x: dx / len, y: dy / len };
 }
 

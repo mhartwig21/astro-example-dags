@@ -2,6 +2,7 @@ import { CONFIG } from "./config";
 import { Tile, type FloorMap, type RoomRect, type RoomRole, type Vec2 } from "./types";
 import { nextInt, type Rng } from "./rng";
 import { ROOM_TEMPLATES, validateTemplate } from "../content/rooms";
+import { dhypot } from "./dmath";
 
 type Room = RoomRect;
 
@@ -308,7 +309,7 @@ export function generateFloor(rng: Rng, floor: number, runKind: "race" | "roam" 
         const c = center(rooms[i]);
         const tooClose = settlementIdxs.some((si) => {
           const sc = center(rooms[si]);
-          return Math.hypot(sc.x - c.x, sc.y - c.y) < minSep;
+          return dhypot(sc.x - c.x, sc.y - c.y) < minSep;
         });
         if (tooClose) continue;
         const area = rooms[i].w * rooms[i].h;

@@ -4,6 +4,7 @@ import { buyCatalogItem, chooseReward, chooseUpgrade, dismantleItem, refitCost, 
 import { glyphSocketCount, glyphMatches, socketLegal } from "./glyphs";
 import { ABILITY_SLOTS } from "./abilities";
 import { Tile, type GameState, type Intent, type Monster, type Vec2 } from "./types";
+import { dhypot } from "./dmath";
 
 // Scripted balance bot: a deterministic policy over public sim state that plays
 // the game the way a cautious-but-competent crawler would. It exists so balance
@@ -184,7 +185,7 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
   // grazing range in the next half second, sidestep perpendicular to it.
   for (const pr of state.projectiles) {
     if (pr.from !== "enemy") continue;
-    const speed = Math.hypot(pr.vel.x, pr.vel.y);
+    const speed = dhypot(pr.vel.x, pr.vel.y);
     if (speed < 1e-3) continue;
     const rel = { x: p.pos.x - pr.pos.x, y: p.pos.y - pr.pos.y };
     const closing = (rel.x * pr.vel.x + rel.y * pr.vel.y) / speed;
@@ -193,7 +194,7 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
     if (t > 0.55) continue; // not imminent
     const cx = pr.pos.x + pr.vel.x * t - p.pos.x;
     const cy = pr.pos.y + pr.vel.y * t - p.pos.y;
-    if (Math.hypot(cx, cy) > 0.9) continue; // misses anyway
+    if (dhypot(cx, cy) > 0.9) continue; // misses anyway
     // Step to whichever side of the projectile's line we're already on.
     const side = rel.x * pr.vel.y - rel.y * pr.vel.x >= 0 ? 1 : -1;
     intent.move = normalize({ x: (pr.vel.y / speed) * side, y: (-pr.vel.x / speed) * side });
