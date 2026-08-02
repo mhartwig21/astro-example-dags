@@ -126,6 +126,64 @@ describe("touch: stick recentring and the flick", () => {
     expect(s.takeFlick()).toBeNull(); // one-shot
   });
 
+  /**
+   * THE FOUR PROFILES A DEVICE BATTERY DROVE, AND THE THREE IT LOST.
+   *
+   * Driven on an iPhone 13 and an iPad Pro 11 from a clean cooldown, all four
+   * clear `FLICK_R_PER_S * R` and `FLICK_MIN_STEP_R * R` by a wide margin, and
+   * only the first fired a dash. The cause was never a threshold: "two
+   * consecutive samples" is a claim about the browser's delivery rate, and a
+   * coalescing pointer stream does not honour it. Each row below is one of the
+   * measured gestures, at the phone's real R = 67.
+   */
+  const PROFILES: Array<{ name: string; steps: number; px: number; ms: number }> = [
+    { name: "4 x 34 px @ 16 ms (2125 px/s)", steps: 4, px: 34, ms: 16 },
+    { name: "3 x 60 px @ 12 ms (5000 px/s)", steps: 3, px: 60, ms: 12 },
+    { name: "6 x 25 px @ 8 ms (3125 px/s)", steps: 6, px: 25, ms: 8 },
+    { name: "5 x 40 px @ 16 ms (2500 px/s)", steps: 5, px: 40, ms: 16 },
+  ];
+
+  it("fires on EVERY genuine flick profile, not 1 of 4", () => {
+    for (const p of PROFILES) {
+      const s = new VirtualStick(67);
+      s.down(200, 500, 0);
+      let fired = false;
+      for (let k = 1; k <= p.steps; k++) {
+        s.move(200 + k * p.px, 500, k * p.ms);
+        if (s.takeFlick()) fired = true;
+      }
+      expect.soft(fired, `${p.name} produced no dash`).toBe(true);
+    }
+  });
+
+  it("...and fires when the browser COALESCES those samples into one event", () => {
+    // The same four gestures delivered as a single merged pointermove, which
+    // is what a main thread behind by a frame actually hands the router.
+    for (const p of PROFILES) {
+      const s = new VirtualStick(67);
+      s.down(200, 500, 0);
+      s.move(200 + p.steps * p.px, 500, p.steps * p.ms);
+      expect.soft(s.takeFlick(), `${p.name} coalesced`).not.toBeNull();
+    }
+  });
+
+  it("a FAST STIR is not a flick, on the device where it used to be one", () => {
+    // Driven on an iPad Pro 11 (R = 57.3): a 55 px-radius thumb circle at
+    // 900 px/s steps 14.4 px per sample against a 14.3 px floor and DASHED —
+    // a false positive by a tenth of a pixel, while the identical gesture on
+    // an iPhone 13 (floor 16.8) was clean. A threshold that a device's radius
+    // decides is not a threshold. Net travel plus straightness is.
+    const s = new VirtualStick(57.3);
+    s.down(400, 400, 0);
+    let fired = false;
+    for (let i = 1; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      s.move(400 + Math.cos(a) * 55, 400 + Math.sin(a) * 55, i * 16);
+      if (s.takeFlick()) fired = true;
+    }
+    expect(fired).toBe(false);
+  });
+
   it("a thumb steering a chase is not a flick", () => {
     const s = new VirtualStick(60);
     s.down(200, 500, 0);

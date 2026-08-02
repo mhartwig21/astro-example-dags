@@ -40,7 +40,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimPlacement, aimSpecFor, castRange } from "./input/aimSpec";
+import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -1377,11 +1377,47 @@ let shownViewers = 0;
 // animation (iso.html). Closing adds .closing for ~130ms before hiding; the
 // timer is tracked so a rapid re-open never gets eaten by a stale close.
 const overlayTimers = new Map<HTMLElement, number>();
+/**
+ * A PANEL OPENED ON TOP OF ANOTHER PANEL MUST BE ON TOP OF IT.
+ *
+ * Measured on an iPhone 13 and an iPad Pro 11: with `#saferoom` up and
+ * `#sheet` opened over it, the sheet's own 46x46 ✕ at (653,54) was tapped with
+ * real touch and the sheet stayed open — while the same control closes the
+ * same panel from a clean playing state. The cause is one authored number:
+ * `#sheet` is z 20 and `#saferoom` is z 24, so the "stacked" panel opened
+ * UNDERNEATH the shop and every tap on it landed on the shop's scrim. Checking
+ * your sheet before you buy is the normal case in a safe room, not an edge.
+ *
+ * The repair is not a bigger constant — that is how the stack got authored by
+ * hand in the first place, and the next panel would collide again. Opening
+ * raises the panel above whatever is already visible, once, on the open path
+ * every panel already goes through. `#rotate` (z 40) is deliberately excluded:
+ * the orientation gate outranks everything, by design.
+ */
+const STACK_CEILING = 39; // one below #rotate, which must stay on top
+function raiseAboveOpenOverlays(el: HTMLElement): void {
+  let top = 0;
+  for (const other of document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')) {
+    if (other === el) continue;
+    if (other.style.display === "none" || other.classList.contains("closing")) continue;
+    if (other.offsetWidth === 0 && other.offsetHeight === 0) continue;
+    const z = Number.parseInt(getComputedStyle(other).zIndex, 10);
+    if (Number.isFinite(z)) top = Math.max(top, z);
+  }
+  const own = Number.parseInt(getComputedStyle(el).zIndex, 10);
+  // Only ever a PROMOTION, and only when something is genuinely above us: a
+  // panel that opens alone keeps its authored place in the screen-zone map.
+  if (top > 0 && (!Number.isFinite(own) || own <= top)) {
+    el.style.zIndex = String(Math.min(STACK_CEILING, top + 1));
+  }
+}
+
 function showOverlay(el: HTMLElement): void {
   const t = overlayTimers.get(el);
   if (t !== undefined) { clearTimeout(t); overlayTimers.delete(el); }
   el.classList.remove("closing");
   el.style.display = "flex";
+  raiseAboveOpenOverlays(el);
 }
 function hideOverlay(el: HTMLElement): void {
   if (el.style.display === "none" || overlayTimers.has(el)) return;
@@ -1390,6 +1426,9 @@ function hideOverlay(el: HTMLElement): void {
     overlayTimers.delete(el);
     el.classList.remove("closing");
     el.style.display = "none";
+    // Back to the authored z the moment it is gone, so the promotion cannot
+    // accumulate across a session and quietly re-order the whole map.
+    el.style.zIndex = "";
   }, 130));
 }
 
@@ -7868,6 +7907,14 @@ if (new URLSearchParams(location.search).has("debug")) {
         // ground has to ask rather than assume a fraction of the zone is free.
         controlAt: (x: number, y: number) => touch.controlAt(x, y),
         suspendReasons: () => touch.suspendReasons(),
+        // Every chip press writes its verdict down (input/touch.ts CastVerdict):
+        // a refusal, a queue expiry, a deaf modal gate, a re-entrant pointerId
+        // and a cancel all look like silence from outside, and one aimed cast
+        // in four was reported as silence on an iPhone 13. The battery drives
+        // 40 identical casts per slot and reads this; below 100% is a bug.
+        // Measured: 80 of 80, all verdicts `aimed`.
+        verdicts: () => touch.verdicts(),
+        clearVerdicts: () => touch.clearVerdicts(),
         lastWorldTap,
         clickMoveTarget: clickMove.target,
         lockedTargetId,
@@ -7929,8 +7976,19 @@ function smartAim(slot: number): Vec2 | null {
     lastDamagedAge: performance.now() / 1000 - lastDamagedAt,
   });
   if (!t) return null;
+  // WHAT THE SMART CAST CHOSE IS DRAWN, not left to be inferred from where the
+  // damage landed. The renderer flashes a transient reticle here for 420 ms;
+  // the persistent bracket belongs to the LOCK, and they are deliberately
+  // different shapes (renderer3d.setTargetMarkers).
+  smartTarget = { x: t.pos.x, y: t.pos.y };
+  smartTargetAt = performance.now() / 1000;
   return { x: t.pos.x - p.pos.x, y: t.pos.y - p.pos.y };
 }
+
+/** The last smart-cast pick, and when — read once per frame by the markers. */
+let smartTarget: Vec2 | null = null;
+let smartTargetAt = -Infinity;
+let smartTargetShown = -Infinity;
 
 // Controller poll runs at FRAME level, not per sim step: panel buttons must
 // keep working while an open panel has the local sim paused, and in net mode
@@ -8517,15 +8575,26 @@ async function main(): Promise<void> {
         // world distance, so an up-screen and a sideways drag of equal thumb
         // travel mean equal world distance despite the iso basis
         // foreshortening the up-screen axis 2.5:1.
-        const dir = touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : p.facing;
+        //
+        // ...and it is rotated ONLY. `aimDir` is the raw PIXEL drag vector, so
+        // the rotation's output carries a ~110-175 magnitude while the
+        // `p.facing` fallback is unit. Multiplying a tile distance by that put
+        // nova 455 world units out and cataclysm 1050 — six of ten abilities,
+        // both ultimates, 0% of the telegraph on the glass. Direction and
+        // anchor are therefore derived together, in aimAnchor(), which
+        // normalises before either is used and is held by
+        // test/aimTelegraph.test.ts projecting the box onto a phone frame.
+        const anchor = aimAnchor(
+          spec, p.pos,
+          touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : null,
+          touchHeld ? touchHeld.aimFrac : 0, p.facing,
+        );
+        const dir = anchor.dir;
         // ...and the drag's LENGTH only means something for a shape the drag
         // PLACES. A line, a cone and a chain fly their full derived reach
         // whatever the throw; reading `frac` for them would be a game rule in
-        // the input layer.
-        const place = touchHeld ? aimPlacement(spec, touchHeld.aimFrac) : 0;
-        const at = place > 0
-          ? { x: p.pos.x + dir.x * place, y: p.pos.y + dir.y * place }
-          : p.pos;
+        // the input layer (aimPlacement returns 0 for those).
+        const at = anchor.at;
         // THE SPEC GOES THROUGH WHOLE. The renderer used to take three shapes
         // and no numbers, so the host folded six shapes down to three and
         // every AoE drew the same 2.0-2.2 ring whatever its real radius —
@@ -8533,9 +8602,27 @@ async function main(): Promise<void> {
         // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
         // teach itemisation: a glyph that grows the nova grows the circle.
         renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
+        // ...and the camera LEADS the aim, because a 14.4-tile bolt does not
+        // fit in the 8.5 tiles a phone shows above the crawler: measured, 8.1%
+        // of the line's vertices were on the glass. Presentation only.
+        renderer.setAimLead(dir, Math.max(spec.range, anchor.distance + spec.radius));
       } else {
         renderer.setAimIndicator(null);
+        renderer.setAimLead(null, 0);
       }
+      // TARGET SELECTION IS DRAWN. `lockedTargetId` steered `pickTarget` and
+      // lit the LOCK chip for four rounds while nothing appeared on the
+      // monster itself; a lock a player cannot see is a lock they cannot use.
+      const lockedMob = lockedTargetId !== null
+        ? state.monsters.find((m) => m.id === lockedTargetId && m.hp > 0)
+        : undefined;
+      // Handed over ONCE, on the frame the pick happened: the renderer owns the
+      // fade, and re-sending the same pick every frame would restart it.
+      const fresh = smartTargetAt > smartTargetShown ? smartTarget : null;
+      smartTargetShown = smartTargetAt;
+      renderer.setTargetMarkers(
+        lockedMob ? { x: lockedMob.pos.x, y: lockedMob.pos.y } : null, fresh,
+      );
       const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
       // Roam: the same interact chip talks to a resident in reach (the sim's
       // useStairs seam routes to startDialogue when an NPC is closer).

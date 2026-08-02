@@ -2910,6 +2910,111 @@ export class Renderer3D {
   }
 
   /**
+   * TARGET SELECTION, DRAWN (MOBILE.md §3.3).
+   *
+   * Measured: a world tap set `lockedTargetId` correctly on 4 of 4 devices, the
+   * LOCK chip lit, and `pickTarget` steered the smart cast — and NOTHING was
+   * drawn on the monster. `grep lockedTargetId src/` returned the tap handler,
+   * `smartAim` and the clear-on-death, and no renderer call at all. Wild Rift
+   * draws a ring on the locked champion; on a phone where the thumb covers a
+   * third of the glass, a lock you cannot see is a lock you do not trust.
+   *
+   * TWO MARKERS, DELIBERATELY DIFFERENT, because they answer different
+   * questions:
+   *
+   *   LOCK   persistent, a closed bracket ring — "this is mine until I say
+   *          otherwise". Survives between casts and follows the monster.
+   *   SMART  transient, four corner ticks that fade over 420 ms — "THIS is
+   *          what the chip you just tapped chose". It is the answer to the
+   *          only question a smart cast leaves open, and it must not look like
+   *          the lock or it teaches the wrong permanence.
+   *
+   * Positions arrive per frame in world units; either may be null.
+   */
+  setTargetMarkers(locked: Vec2 | null, smart: Vec2 | null): void {
+    if (locked) {
+      if (!this.lockRing) {
+        const g = new THREE.Group();
+        // A BRACKET, NOT A CIRCLE. The enemy ground telegraph is already a
+        // ring, and a second ring a few pixels away is how §1.6's palette
+        // problem happened in shape instead of colour. Four arcs with gaps
+        // read as a reticle at 20 px and cannot be mistaken for an AoE.
+        for (let i = 0; i < 4; i++) {
+          const a0 = i * (Math.PI / 2) + 0.34;
+          const m = new THREE.Mesh(
+            new THREE.RingGeometry(0.62, 0.78, 18, 1, a0, Math.PI / 2 - 0.68),
+            new THREE.MeshBasicMaterial({
+              color: 0xeaf9ff, transparent: true, opacity: 0.9,
+              side: THREE.DoubleSide, depthWrite: false, depthTest: false,
+            }),
+          );
+          m.rotation.x = -Math.PI / 2;
+          g.add(m);
+        }
+        g.renderOrder = 4010;
+        this.lockRing = g;
+        this.scene.add(g);
+      }
+      this.lockRing.visible = true;
+      this.lockRing.position.set(locked.x, 0.09, locked.y);
+      // A slow spin is what separates "the game is tracking this" from "a
+      // decal was left here"; it costs one rotation write.
+      this.lockRing.rotation.y = (performance.now() / 1000) * 0.9;
+    } else if (this.lockRing) {
+      this.lockRing.visible = false;
+    }
+
+    if (smart) {
+      this.smartMarkAt = performance.now();
+      this.smartMarkPos = { x: smart.x, y: smart.y };
+    }
+    // 420 ms, not 260: the question this answers is "what did that tap pick",
+    // and the eye has to leave the thumb and find the monster before it can be
+    // answered. Measured under the harness's 3 fps renderer a 260 ms flash was
+    // already gone two frames after the cast — which is also what it would be
+    // on a phone dropping frames in a pack fight, i.e. exactly when it matters.
+    const age = (performance.now() - this.smartMarkAt) / 420;
+    if (this.smartMarkPos && age >= 0 && age < 1) {
+      if (!this.smartMark) {
+        const g = new THREE.Group();
+        for (let i = 0; i < 4; i++) {
+          const a = i * (Math.PI / 2) + Math.PI / 4;
+          const m = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.42, 0.09),
+            new THREE.MeshBasicMaterial({
+              color: 0x39c8e8, transparent: true, opacity: 0.95,
+              side: THREE.DoubleSide, depthWrite: false, depthTest: false,
+            }),
+          );
+          m.rotation.x = -Math.PI / 2;
+          m.rotation.z = a;
+          m.position.set(Math.cos(a) * 0.72, 0, Math.sin(a) * 0.72);
+          g.add(m);
+        }
+        g.renderOrder = 4012;
+        this.smartMark = g;
+        this.scene.add(g);
+      }
+      this.smartMark.visible = true;
+      this.smartMark.position.set(this.smartMarkPos.x, 0.1, this.smartMarkPos.y);
+      // Snap in, ease out: the tick starts wide and closes on the target, so
+      // the eye is led to the monster rather than asked to find the marker.
+      const s = 1 + (1 - age) * 0.5;
+      this.smartMark.scale.set(s, 1, s);
+      for (const c of this.smartMark.children) {
+        ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - age);
+      }
+    } else if (this.smartMark) {
+      this.smartMark.visible = false;
+    }
+  }
+  private lockRing: THREE.Group | null = null;
+  private smartMark: THREE.Group | null = null;
+  /** Public for the device harness: when the last smart pick was flashed. */
+  smartMarkAt = -1e9;
+  private smartMarkPos: Vec2 | null = null;
+
+  /**
    * THE AIM TELEGRAPH (MOBILE.md §3.1) — the single read a touch ARPG lives on.
    *
    * What this replaces, measured in §1.6: three hardcoded meshes — a
@@ -2987,6 +3092,26 @@ export class Renderer3D {
    * frustum. One division, no raycast: the iso camera is orthographic, so the
    * scale is constant across the frame.
    */
+  /**
+   * The host publishes the live aim every frame while a chip is held: a UNIT
+   * world direction and the reach in tiles, or null the moment it is released.
+   *
+   * The lead is capped rather than proportional — a 6-tile nova and a 14.4-tile
+   * bolt want the same "show me a bit more that way", and a camera that slides
+   * 7 tiles for an ultimate would lose the crawler, which is the thing the
+   * player is dodging with.
+   */
+  setAimLead(dir: Vec2 | null, reach: number): void {
+    if (!dir || reach <= 0) { this.aimLeadWant = 0; return; }
+    this.aimDirWorld = dir;
+    // Half the reach, capped at 4.2 tiles (half the ortho half-height), and
+    // nothing at all for a shape that already fits comfortably in frame.
+    this.aimLeadWant = reach < 5 ? 0 : Math.min(reach * 0.5, 4.2);
+  }
+  private aimLead = 0;
+  private aimLeadWant = 0;
+  private aimDirWorld: Vec2 | null = null;
+
   private aimWorldPerPx(): number {
     const cam = this.camera;
     const h = Math.abs(cam.top - cam.bottom) / Math.max(1, cam.zoom);
@@ -3037,7 +3162,12 @@ export class Renderer3D {
    * continuous, unlike the one-shot `viewClose` setting.
    */
   private applyProjection(): void {
-    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) * this.bossFx.zoom;
+    // The aim lead widens the frame as well as sliding it: sliding alone trades
+    // the far end of the skillshot for the crawler's own feet, and on a 342 px
+    // phone you need both in one picture to aim at all.
+    const aimWide = 1 + Math.min(0.22, this.aimLead * 0.052);
+    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
+      this.bossFx.zoom * aimWide;
     // The boss zoom eases continuously, so this is called every frame — but
     // rebuilding the projection matrix (and dirtying the frustum) when nothing
     // moved is pure waste, and the last perf round was won on exactly this
@@ -7744,6 +7874,27 @@ export class Renderer3D {
         ax += (star.pos.x - ax) * k;
         az += (star.pos.y - az) * k;
       }
+    }
+    // AIMING A SKILLSHOT LONGER THAN THE FRAME (MOBILE.md §3.4).
+    //
+    // Measured on an iPhone 13 landscape: bolt's telegraph projected a box
+    // (348,-202)-(402,169) on a 750x342 viewport dragging up, and
+    // (-214,152)-(375,186) dragging inboard — 8.1% of its vertices on the
+    // glass, both devices. The camera shows 8.5 tiles of world above the
+    // crawler and bolt reaches 14.4, so a phone player was committing a
+    // full-reach skillshot without ever seeing where it ends. The shape was
+    // correct; the FRAME was wrong, and no amount of stroke width fixes a
+    // frame.
+    //
+    // So the camera leads the aim while the drag is LIVE — the anchor slides
+    // along the aim direction, and the frame widens a little, both eased so a
+    // flick-aim does not whip the scene. It returns the instant the finger
+    // lifts. This is the same borrowing the boss layer already does (§5.5),
+    // and it is presentation only: the sim never learns the camera moved.
+    this.aimLead += (this.aimLeadWant - this.aimLead) * Math.min(1, dt * 9);
+    if (this.aimLead > 1e-3 && this.aimDirWorld) {
+      ax += this.aimDirWorld.x * this.aimLead;
+      az += this.aimDirWorld.y * this.aimLead;
     }
     if (drop > 1e-3) {
       // Screen-up, on the ground plane, is the reverse of the camera's own

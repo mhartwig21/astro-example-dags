@@ -101,6 +101,55 @@ export const FLICK_R_PER_S = 12;
 /** ...and each of those samples must move at least this fraction of R. */
 export const FLICK_MIN_STEP_R = 0.25;
 export const FLICK_DEBOUNCE_MS = 350;
+/**
+ * A FLICK IS A DURATION OF FAST MOTION, NOT A COUNT OF SAMPLES.
+ *
+ * A round-3 battery reported this recogniser firing on **1 of 4** genuine flick
+ * profiles on both an iPhone 13 and an iPad Pro 11, from a clean cooldown,
+ * every run — 4x34px@16ms, 3x60px@12ms, 6x25px@8ms, 5x40px@16ms, all of them
+ * clearing both thresholds by a wide margin.
+ *
+ * **That measurement was the harness, and the record should say so.**
+ * Instrumented at the page (`tools/_mobile/r3flick.mjs`), every dispatched
+ * `pointermove` arrived: 4 dispatched, 4 delivered, 4 raw coalesced samples,
+ * stamp gaps [16,16,16] ms. Nothing was lost. `FLICK_DEBOUNCE_MS` is judged on
+ * EVENT time and the driver's virtual clock only advanced when the script
+ * called `tick()`, so five profiles driven back to back all landed inside
+ * 350 ms of each other in the page's view and every one after the first was
+ * correctly debounced. With the clock advanced, 5 of 5 fire on both devices.
+ *
+ * The window below is kept anyway, and on its own merits: "two consecutive
+ * samples" is a claim about the BROWSER's delivery rate, not about the thumb.
+ * Chromium is free to coalesce `pointermove` when the main thread is behind —
+ * and a phone mid-fight is — in which case three moves arrive as one event
+ * carrying 36 ms and 180 px of motion, which is a textbook flick that the old
+ * rule would have seen as a single sample and reset. Firing on `fastFor >= 2`
+ * OR on a fast RUN this long makes the gesture the same whichever stream the
+ * browser hands over, and `onMove` walks `getCoalescedEvents()` for the same
+ * reason. A dodge whose reliability depends on frame pacing is worse than no
+ * dodge: the player commits and dies.
+ */
+export const FLICK_WINDOW_MS = 24;
+/**
+ * A FLICK GOES SOMEWHERE. Net displacement over the run, in stick radii.
+ *
+ * The per-sample distance floor alone is a knife edge: driven on an iPad Pro
+ * 11 (R = 57.3), a 55 px-radius thumb STIR at 900 px/s steps 14.4 px per
+ * sample against a 14.3 px floor and dashed — a false positive by 0.1 px,
+ * while the same gesture on an iPhone 13 (R = 67.1, floor 16.8) was clean.
+ * That is not a threshold, it is a coincidence.
+ *
+ * Net displacement plus straightness is the real discriminator, because it
+ * describes what a flick IS rather than how fast it happens to be sampled: a
+ * dodge travels 1.5-2 R in one direction, and a stir travels nowhere. At 1.2 R
+ * of net travel and 0.93 straightness every profile in the measured table
+ * still fires within its own step count, and no arc of that stir ever does —
+ * over four samples it has not gone far enough, and by six it is no longer
+ * straight.
+ */
+export const FLICK_MIN_NET_R = 1.2;
+/** Net displacement over path length. 1.0 is a straight line. */
+export const FLICK_STRAIGHTNESS = 0.93;
 /** A queued second cast lives this long, and only one is ever held. */
 export const QUEUE_MS = 250;
 /** After the LAST suspend reason clears, pointers are deaf for this long. */
@@ -154,6 +203,11 @@ export class VirtualStick {
   private flickOut: Vec2 = { x: 0, y: 0 };
   private prev: { x: number; y: number; t: number } | null = null;
   private fastFor = 0; // consecutive samples over the flick speed
+  /** Elapsed time and ground covered by the current run of fast samples. */
+  private runMs = 0;
+  private runDist = 0;
+  private runDx = 0;
+  private runDy = 0;
   private flickDir: Vec2 | null = null;
   private lastFlickAt = -Infinity;
 
@@ -163,7 +217,7 @@ export class VirtualStick {
     this.origin = { x, y };
     this.raw.x = 0; this.raw.y = 0;
     this.prev = { x, y, t };
-    this.fastFor = 0;
+    this.resetRun();
     this.flickDir = null;
   }
 
@@ -174,25 +228,48 @@ export class VirtualStick {
     //    to 1.0 R and would otherwise make a fast flick unmeasurable.
     const p = this.prev;
     if (p) {
-      const dt = (t - p.t) / 1000;
+      const dtMs = t - p.t;
+      const dt = dtMs / 1000;
       const dx = x - p.x, dy = y - p.y;
       const dist = Math.hypot(dx, dy);
-      if (dt > 0.0005) {
+      // TWO SAMPLES ON THE SAME MILLISECOND ARE ONE SAMPLE, NOT A DROPPED ONE.
+      // The old code skipped the whole test at dt ~= 0 but still advanced
+      // `prev`, so that step's ground was deleted from the gesture — which on
+      // a stream whose timestamps quantise to the frame is most of the flick.
+      // Holding `prev` back accumulates it into the next comparison instead.
+      if (dtMs > 0.5) {
         const speed = dist / dt; // px/s
         if (speed >= FLICK_R_PER_S * this.radius && dist >= FLICK_MIN_STEP_R * this.radius) {
           this.fastFor++;
-          if (this.fastFor >= 2 && t - this.lastFlickAt >= FLICK_DEBOUNCE_MS) {
+          this.runMs += dtMs;
+          this.runDist += dist;
+          this.runDx += dx;
+          this.runDy += dy;
+          // EITHER two consecutive fast samples (a fine-grained stream) OR a
+          // fast RUN that has lasted FLICK_WINDOW_MS (a coalesced one) — the
+          // gesture must not depend on the browser's delivery rate.
+          const sustained = this.fastFor >= 2 || this.runMs >= FLICK_WINDOW_MS;
+          // ...and it must have GONE somewhere, in one direction. This is what
+          // separates a dodge from a fast stir; see FLICK_MIN_NET_R.
+          const net = Math.hypot(this.runDx, this.runDy);
+          const went = net >= FLICK_MIN_NET_R * this.radius &&
+            net >= FLICK_STRAIGHTNESS * this.runDist;
+          if (sustained && went && t - this.lastFlickAt >= FLICK_DEBOUNCE_MS) {
             this.lastFlickAt = t;
-            this.flickOut.x = dx / dist; this.flickOut.y = dy / dist;
+            // The NET direction, not the last sample's: the gesture is what
+            // the thumb did, and the final sample of a flick is its noisiest.
+            this.flickOut.x = this.runDx / net; this.flickOut.y = this.runDy / net;
             this.flickDir = this.flickOut;
-            this.fastFor = 0;
+            this.resetRun();
           }
         } else {
-          this.fastFor = 0;
+          this.resetRun();
         }
+        this.prev = { x, y, t };
       }
+    } else {
+      this.prev = { x, y, t };
     }
-    this.prev = { x, y, t };
 
     // 2. displacement, clamped to the ring
     let dx = (x - o.x) / this.radius;
@@ -212,12 +289,20 @@ export class VirtualStick {
     this.raw.x = dx; this.raw.y = dy;
   }
 
+  private resetRun(): void {
+    this.fastFor = 0;
+    this.runMs = 0;
+    this.runDist = 0;
+    this.runDx = 0;
+    this.runDy = 0;
+  }
+
   up(): void {
     if (this.origin) this.rest = { x: this.origin.x, y: this.origin.y };
     this.origin = null;
     this.raw.x = 0; this.raw.y = 0;
     this.prev = null;
-    this.fastFor = 0;
+    this.resetRun();
     this.flickDir = null;
   }
 
@@ -372,6 +457,15 @@ export class AbilityButton {
 
   get inCancel(): boolean { return this.state === "cancel"; }
 
+  /** Leak-corrected travel from the (possibly frozen) origin. Debug only. */
+  get travel(): number {
+    const o = this.origin;
+    return o ? Math.hypot(this.current.x - o.x, this.current.y - o.y) : 0;
+  }
+
+  /** Has the thumb left the cancel radius yet? Debug only. */
+  get isArmed(): boolean { return this.armed; }
+
   up(): SlotRelease {
     const o = this.origin;
     const st = this.state;
@@ -453,6 +547,40 @@ export interface TouchSample {
 }
 
 type RoleKind = "stick" | "chip" | "world" | "two" | "dead" | "ignored";
+
+/**
+ * WHY EVERY CHIP PRESS NOW WRITES ITS VERDICT DOWN.
+ *
+ * Measured: an identical 129 px inboard drag off a chip fired `dash` from slot
+ * 1 and NOTHING from slot 2, in the same run and the same session where slot 2
+ * had fired `bolt` a battery earlier. The indicator was up and the cancel ring
+ * was not armed, so the FSM was in AIMING and the release should have been an
+ * aimed cast — but "should have been" is the whole problem. An intermittent
+ * dropped cast is the worst class of touch bug because the player blames
+ * themselves, and it cannot be debugged from the outside: from outside, a
+ * refusal, a queue expiry, a deaf gate and a cancel all look like silence.
+ *
+ * So each press ends with a recorded VERDICT and the numbers behind it. The
+ * device harness reads `debug.touch.verdicts` and drives 50 identical aimed
+ * casts per slot; a pass rate below 100% is a bug, not noise, and the verdict
+ * says which of the five silences it was.
+ */
+export interface CastVerdict {
+  slot: number;
+  /** What the layer DID. The four silences are named, not lumped together. */
+  kind: "tap" | "aimed" | "cancel" | "refused" | "queued" | "deaf" | "reentrant";
+  /** FSM state at release. */
+  state: ButtonState;
+  /** Leak-corrected travel at release, in CSS px. */
+  travel: number;
+  /** Had the thumb left the cancel radius? An unarmed cancel is a short aim. */
+  armed: boolean;
+  /** Local clock (ms) — so a battery can pair a verdict with a sim delta. */
+  at: number;
+}
+
+/** How many verdicts the ring buffer keeps. 50 casts per slot must all fit. */
+const VERDICT_LOG = 128;
 
 interface PointerRole {
   kind: RoleKind;
@@ -593,6 +721,32 @@ export class TouchController {
     }
     return best;
   }
+
+  /** The last VERDICT_LOG chip verdicts, oldest first. Harness/debug only. */
+  private readonly verdictLog: CastVerdict[] = [];
+
+  /**
+   * `snap` is taken BEFORE `AbilityButton.up()` runs, because `up()` resets the
+   * machine — reading the state afterwards would record "idle" for every
+   * verdict, which is precisely the useless answer this log exists to replace.
+   */
+  private verdict(
+    slot: number, kind: CastVerdict["kind"],
+    snap?: { state: ButtonState; travel: number; armed: boolean },
+  ): void {
+    if (this.verdictLog.length >= VERDICT_LOG) this.verdictLog.shift();
+    this.verdictLog.push({
+      slot, kind,
+      state: snap?.state ?? this.btn.state,
+      travel: snap?.travel ?? this.btn.travel,
+      armed: snap?.armed ?? this.btn.isArmed,
+      at: this.now(),
+    });
+  }
+
+  /** Every chip verdict since the last clear. Copies: the log is not exposed. */
+  verdicts(): CastVerdict[] { return this.verdictLog.map((v) => ({ ...v })); }
+  clearVerdicts(): void { this.verdictLog.length = 0; }
 
   /** What a point would route to. Harness and debug only; allocates. */
   debugRoute(x: number, y: number): { control: ControlId | null; zone: string | null } {
@@ -736,6 +890,11 @@ export class TouchController {
     if (deaf || !this.isGameplayTarget(e)) {
       // Deaf, but remembered: the matching up must not fall through to a role.
       if (deaf) {
+        // A press swallowed by the modal gate looks exactly like a dropped
+        // cast from outside, so it is named here rather than inferred later.
+        const ctl = this.controlAt(e.clientX, e.clientY);
+        const slot = ctl ? SLOT_OF[ctl] : undefined;
+        if (slot !== undefined) this.verdict(slot, "deaf");
         this.roles.set(e.pointerId, {
           kind: "dead", x0: e.clientX, y0: e.clientY, t0: now, tLocal: local,
           seen: local, moved: 0, consumed: true,
@@ -743,7 +902,14 @@ export class TouchController {
       }
       return;
     }
-    if (this.roles.has(e.pointerId)) return;
+    if (this.roles.has(e.pointerId)) {
+      // A pointerId whose lift never arrived (an OS-level steal, a harness
+      // desync) makes every later press with that id vanish silently.
+      const ctl = this.controlAt(e.clientX, e.clientY);
+      const slot = ctl ? SLOT_OF[ctl] : undefined;
+      if (slot !== undefined) this.verdict(slot, "reentrant");
+      return;
+    }
     const role = this.routeDown(e, now);
     if (!role) return;
     this.roles.set(e.pointerId, role);
@@ -774,6 +940,7 @@ export class TouchController {
       // A dead chip must REFUSE at pointerdown, buzz, and never enter AIMING.
       if (this.canCast && !this.canCast(slot)) {
         this.onFeedback?.({ kind: "refused", slot });
+        this.verdict(slot, "refused");
         return { kind: "ignored", ...base };
       }
       if (slot === 0) {
@@ -787,6 +954,7 @@ export class TouchController {
         // cast, in a single slot, and it dies with the first cast.
         this.queued = { slot, at: this.now() };
         this.onFeedback?.({ kind: "press", slot });
+        this.verdict(slot, "queued");
         return { kind: "ignored", ...base };
       }
       this.btn.mode = this.castModes[slot] ?? "tap-release";
@@ -848,7 +1016,21 @@ export class TouchController {
     const dx = e.clientX - role.x0, dy = e.clientY - role.y0;
     role.moved = Math.max(role.moved, Math.hypot(dx, dy));
     if (role.kind === "stick") {
-      this.stick.move(e.clientX, e.clientY, this.stamp(e));
+      // THE RAW STREAM, WHERE THE BROWSER KEPT IT. Chromium may deliver one
+      // `pointermove` per frame and hang the samples it merged off
+      // `getCoalescedEvents()`; on a phone mid-fight that is three or four
+      // thumb positions arriving as one event, and feeding the stick only the
+      // merged endpoint would hide most of the gesture. Measured under the
+      // device harness the stream was NOT coalesced (4 dispatched, 4 raw
+      // samples), so this is insurance rather than the fix it was first
+      // written as — the fix is that the recogniser no longer counts samples
+      // at all (FLICK_WINDOW_MS).
+      const raw = e.getCoalescedEvents?.();
+      if (raw && raw.length > 1) {
+        for (const s of raw) this.stick.move(s.clientX, s.clientY, this.stamp(s));
+      } else {
+        this.stick.move(e.clientX, e.clientY, this.stamp(e));
+      }
       if (this.stick.origin) this.onStick?.(this.stick.origin, this.stick.nub);
       if (this.flickDash) {
         const f = this.stick.takeFlick();
@@ -898,7 +1080,11 @@ export class TouchController {
       case "chip": {
         if (role.slot === 0) { this.attackHeld = false; break; }
         if (role.slot === undefined) break;
+        const snap = {
+          state: this.btn.state, travel: this.btn.travel, armed: this.btn.isArmed,
+        };
         const rel = cancelled ? this.btn.interrupt() : this.btn.up();
+        this.verdict(role.slot, rel.kind, snap);
         this.aimingSlot = -1;
         this.pressedSlot = -1;
         if (rel.kind === "tap") { this.pushCast(role.slot, null, 0); this.flushQueue(); this.fb("cast"); }
@@ -1040,6 +1226,13 @@ export interface PointerLike {
   pointerType?: string;
   target?: EventTarget | null;
   preventDefault?: () => void;
+  /**
+   * The samples the browser merged into this event. Present on a real
+   * PointerEvent, absent on the plain objects the tests drive — which is why
+   * the flick recogniser must not DEPEND on it (see FLICK_WINDOW_MS): it is
+   * the better stream where it exists, not the only one that works.
+   */
+  getCoalescedEvents?: () => PointerLike[];
 }
 
 export interface TouchFeedback {

@@ -127,6 +127,38 @@ export const AIM_SLOP = 18;
 /** The top of the safe box belongs to the boss plate, banner and HP rail. */
 export const READ_BAND = 0.32;
 
+/**
+ * THE CRAWLER KEEPOUT — the one piece of screen a control may never take.
+ *
+ * The camera follows the crawler, so the crawler is ALWAYS at the middle of
+ * the viewport. That makes the middle of the viewport the only region whose
+ * contents are known in advance, and the only region no HUD control may
+ * occupy — and until this existed, one did. Measured on an iPhone 13
+ * landscape: the crawler projects to (375,150); `#t-map` is 51x51 at
+ * (370,152), i.e. the MAP chip was painted on the character's chest, and the
+ * cluster's bounding box (323x174 = 43% x 51% of a 750x342 screen) contained
+ * the crawler outright. The least-used control had been given the most
+ * valuable pixels. The iPad was clean, because a tablet's comfortable arc
+ * simply does not reach the middle of an 1194 px slab — the phone did not have
+ * a different rule, it had less room, and nothing in the layout said so.
+ *
+ * Sized to the CHARACTER, not to a design instinct: the crawler plus its
+ * nameplate measures roughly 60 x 90 CSS px on a phone, so ±7.5% of width and
+ * ±13% of height wraps it with a finger's margin and costs the cluster ~40 px
+ * of inboard travel. Escapes are OUTBOARD or DOWNWARD only — pushing a chip up
+ * would put it in the read band, which §4.2a rule 1 forbids.
+ */
+export const CRAWLER_KEEPOUT_W = 0.075;
+export const CRAWLER_KEEPOUT_H = 0.13;
+
+/** The box the camera keeps the crawler in, in viewport coordinates. */
+export function crawlerKeepout(vw: number, vh: number): Rect {
+  return {
+    x: vw * (0.5 - CRAWLER_KEEPOUT_W), y: vh * (0.5 - CRAWLER_KEEPOUT_H),
+    w: vw * CRAWLER_KEEPOUT_W * 2, h: vh * CRAWLER_KEEPOUT_H * 2,
+  };
+}
+
 export interface LayoutPrefs {
   handed: "right" | "left";
   /** Movement stick radius multiplier (0.7 - 1.4). */
@@ -187,6 +219,8 @@ export interface ZoneTable {
   cancelRadius: number;
   /** Millimetres per CSS px for this class — published so the host can too. */
   mmPerPx: number;
+  /** The box the camera keeps the crawler in. No control's hit rect enters it. */
+  keepout: Rect;
   /** Where the resting ghost ring sits before the first touch. */
   stickAnchor: Vec2;
   /** Thumb root for the ability cluster. */
@@ -409,6 +443,7 @@ export function computeZones(
    * Pixel 5 gets the biggest buttons a Pixel 5 can hold, which is the honest
    * answer to the request.
    */
+  const keepout = crawlerKeepout(vw, vh);
   const arc = side ? ARC_SIDE : ARC_CORNER;
   // The outermost COMBAT control sets the radial unit: `rf = 1` is normalised
   // so that chip lands exactly on `comfortable`. Without this the reach
@@ -428,8 +463,8 @@ export function computeZones(
       (comfortable - 2) / maxCombatRf,
       (side ? 0.62 : 0.58) * safe.h,
     ));
-    controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box);
-    if (attempt >= 12 || clusterFits(controls, comfortable)) break;
+    controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout);
+    if (attempt >= 12 || clusterFits(controls, comfortable, keepout)) break;
     chipBase *= 0.95;
   }
 
@@ -531,8 +566,8 @@ export function computeZones(
 
   return {
     cls, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
-    cancelMode, stickRadius, aimThrow, cancelRadius, mmPerPx, stickAnchor, pivot,
-    arcRadius, comfortable, stretch, controls,
+    cancelMode, stickRadius, aimThrow, cancelRadius, mmPerPx, keepout, stickAnchor,
+    pivot, arcRadius, comfortable, stretch, controls,
   };
 }
 
@@ -541,7 +576,7 @@ interface ClusterBox { x0: number; x1: number; y0: number; y1: number }
 /** One placement attempt at a given chip size: polar layout, then relaxation. */
 function placeCluster(
   arc: ArcSpec[], chipBase: number, arcRadius: number, pivot: Vec2,
-  mirror: boolean, box: ClusterBox,
+  mirror: boolean, box: ClusterBox, keepout: Rect,
 ): Record<ControlId, ControlRect> {
   const controls = {} as Record<ControlId, ControlRect>;
   for (const spec of arc) {
@@ -555,17 +590,26 @@ function placeCluster(
       fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
     };
   }
-  separate(controls, box, pivot);
+  separate(controls, box, pivot, keepout);
   return controls;
 }
 
 /** Did the attempt pack cleanly AND keep every combat control in reach? */
 function clusterFits(
-  controls: Record<ControlId, ControlRect>, comfortable: number,
+  controls: Record<ControlId, ControlRect>, comfortable: number, keepout: Rect,
 ): boolean {
   const ids = Object.keys(controls) as ControlId[];
   for (const id of COMBAT_CONTROLS) {
     if (controls[id].fromPivot > comfortable) return false;
+  }
+  // A chip left sitting on the crawler is a failed pack, not a cosmetic
+  // problem: it is the §1.2 bug (chrome inside a thumb's territory) aimed at
+  // the one thing the player is actually looking at.
+  for (const id of ids) {
+    const c = controls[id];
+    const halfW = Math.max(MIN_TARGET, c.w) / 2, halfH = Math.max(MIN_TARGET, c.h) / 2;
+    if (Math.abs(c.cx - (keepout.x + keepout.w / 2)) < halfW + keepout.w / 2 &&
+      Math.abs(c.cy - (keepout.y + keepout.h / 2)) < halfH + keepout.h / 2) return false;
   }
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
@@ -602,6 +646,7 @@ function clusterFits(
    */
 function separate(
   controls: Record<ControlId, ControlRect>, box: ClusterBox, pivot: Vec2,
+  keepout: Rect,
 ): void {
   const ids = Object.keys(controls) as ControlId[];
   const GAP = 2; // a hair of daylight, so "adjacent" never rounds into "over"
@@ -609,6 +654,30 @@ function separate(
     const halfW = Math.max(MIN_TARGET, c.w) / 2, halfH = Math.max(MIN_TARGET, c.h) / 2;
     c.cx = clamp(c.cx, box.x0 + halfW, Math.max(box.x0 + halfW, box.x1 - halfW));
     c.cy = clamp(c.cy, box.y0 + halfH, Math.max(box.y0 + halfH, box.y1 - halfH));
+    // THE CRAWLER KEEPOUT. Applied after the box clamp and re-applied every
+    // pass, because a chip pushed out of a collision can be pushed back onto
+    // the character. Escapes are outboard or downward — never upward, which
+    // would put the chip in the read band §4.2a rule 1 reserves.
+    if (c.cx + halfW <= keepout.x || c.cx - halfW >= keepout.x + keepout.w) return;
+    if (c.cy + halfH <= keepout.y || c.cy - halfH >= keepout.y + keepout.h) return;
+    const outX = pivot.x > keepout.x + keepout.w / 2
+      ? keepout.x + keepout.w + halfW - c.cx // push toward an outboard pivot
+      : keepout.x - halfW - c.cx;
+    const outY = keepout.y + keepout.h + halfH - c.cy; // downward only
+    // Take the cheaper escape, but never one the cluster box cannot hold.
+    const roomX = c.cx + outX >= box.x0 + halfW && c.cx + outX <= box.x1 - halfW;
+    const roomY = c.cy + outY <= box.y1 - halfH;
+    if (roomX && (!roomY || Math.abs(outX) <= Math.abs(outY))) c.cx += outX;
+    else if (roomY) c.cy += outY;
+    else if (roomX) c.cx += outX;
+    else {
+      // NEITHER ESCAPE FITS — which means the requested chip size does not fit
+      // this device, not that the crawler has to share. Take the outboard move
+      // anyway, clamped, and let `clusterFits` see the residual overlap and
+      // step the chips down: the size slider is a request (§4.2a), and this is
+      // one more thing the packer may refuse.
+      c.cx = clamp(c.cx + outX, box.x0 + halfW, Math.max(box.x0 + halfW, box.x1 - halfW));
+    }
   };
   for (const id of ids) fit(controls[id]);
   for (let pass = 0; pass < 64; pass++) {

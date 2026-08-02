@@ -1,0 +1,38 @@
+
+===== iphone13-land 750x342 =====
+  [FAIL] telegraph slot1 up — no indicator in the scene
+  [PASS] telegraph slot1 down — 94% of vertices on screen, box (349,248)-(401,343) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot1 inboard — 100% of vertices on screen, box (133,207)-(269,265) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot1 outboard — 100% of vertices on screen, box (481,73)-(617,131) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 up — 78% of vertices on screen, box (348,-6)-(402,235) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 down — 92% of vertices on screen, box (348,104)-(402,345) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 inboard — 100% of vertices on screen, box (131,122)-(478,266) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 outboard — 100% of vertices on screen, box (272,73)-(619,217) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 up — 100% of vertices on screen, box (225,47)-(525,236) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 down — 100% of vertices on screen, box (225,103)-(525,292) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 inboard — 100% of vertices on screen, box (186,89)-(487,279) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 outboard — 100% of vertices on screen, box (263,61)-(564,250) in 750x342 [melee/dash/bolt/cables/cataclysm]
+  [PASS] target marker: locked ring is drawn — lockedTargetId=84 ringVisible=true ring@{"x":51.7,"y":51.26} mob@{"x":51.7,"y":51.26} (0.00 tiles apart)
+  [PASS] target marker: smart cast flashes its own pick — smart reticle visible=false, fired 560ms ago, at {"x":51.7,"y":51.26}
+  [PASS] move while aiming (run 1) — tiles kept per direction: 5.92 / 7.33 / 5.37 / 12.98
+  [PASS] move while aiming (run 2) — tiles kept per direction: 2.80 / 5.93 / 6.73 / 7.14
+  [PASS] 40 identical aimed casts on slot1 — 40/40 produced a cooldown; layer verdicts {"aimed":40}
+  [PASS] 40 identical aimed casts on slot2 — 40/40 produced a cooldown; layer verdicts {"aimed":40}
+
+===== ipadpro11-land 1194x834 =====
+  [FAIL] telegraph slot1 up — no indicator in the scene
+  [PASS] telegraph slot1 down — 100% of vertices on screen, box (562,543)-(632,694) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot1 inboard — 100% of vertices on screen, box (209,476)-(423,566) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot1 outboard — 100% of vertices on screen, box (771,263)-(985,352) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 up — 100% of vertices on screen, box (570,139)-(624,521) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 down — 100% of vertices on screen, box (570,308)-(624,691) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 inboard — 100% of vertices on screen, box (215,346)-(757,562) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot2 outboard — 100% of vertices on screen, box (437,267)-(979,483) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 up — 100% of vertices on screen, box (353,215)-(841,523) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 down — 100% of vertices on screen, box (353,306)-(841,615) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 inboard — 100% of vertices on screen, box (289,283)-(780,593) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [PASS] telegraph slot4 outboard — 100% of vertices on screen, box (414,237)-(905,547) in 1194x834 [melee/dash/bolt/cables/cataclysm]
+  [FAIL] target marker: locked ring is drawn — lockedTargetId=null ringVisible=false ring@null mob@{"x":51.7,"y":51.26} (99.00 tiles apart)
+  [FAIL] target marker: smart cast flashes its own pick — smart reticle visible=false, fired 4969ms ago, at {"x":51.7,"y":51.26}
+  [PASS] move while aiming (run 1) — tiles kept per direction: 3.38 / 1.43 / 1.98 / 2.86
+  [PASS] move while aiming (run 2) — tiles kept per direction: 2.53 / 1.82 / 2.51 / 2.81

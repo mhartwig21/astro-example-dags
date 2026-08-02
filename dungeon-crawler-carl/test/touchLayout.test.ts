@@ -238,6 +238,46 @@ describe("touch layout: the §4.2a cluster invariants", () => {
   });
 });
 
+describe("touch layout: the crawler keepout", () => {
+  /**
+   * THE CAMERA PUTS THE CRAWLER IN THE MIDDLE OF THE GLASS, so no control may
+   * be there. Measured before this rule existed: on an iPhone 13 landscape the
+   * crawler projects to (375,150) and `#t-map` was 51x51 at (370,152) — the
+   * MAP chip painted on the character's chest, with the cluster's bounding box
+   * (43% x 51% of the screen) containing the crawler outright. The iPad was
+   * clean for a reason that had nothing to do with intent: a tablet's
+   * comfortable arc cannot reach the middle of an 1194 px slab.
+   */
+  for (const d of DEVICES) {
+    for (const handed of ["right", "left"] as const) {
+      it(`${d.name} ${handed}: no control's hit rect touches the crawler`, () => {
+        for (const slider of SLIDERS) {
+          const z = computeZones(d.w, d.h, d.safe as Insets, prefs({ handed, ...slider }));
+          const tag = `${d.name} ${handed} x${slider.buttonScale} mm${slider.thumbMm}`;
+          expect.soft(z.keepout, `${tag}: keepout missing`).toBeTruthy();
+          for (const id of [...COMBAT_CONTROLS, ...NAV_CONTROLS]) {
+            expect.soft(overlaps(hitRect(z, id), z.keepout), `${tag}: ${id} on the crawler`)
+              .toBe(false);
+          }
+        }
+      });
+    }
+  }
+
+  it("the keepout is where the camera actually keeps the crawler", () => {
+    // It is a fact about the viewport, not about the safe box: the camera does
+    // not know about notches.
+    const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    expect(z.keepout.x + z.keepout.w / 2).toBeCloseTo(375, 6);
+    expect(z.keepout.y + z.keepout.h / 2).toBeCloseTo(171, 6);
+    // ...and it is sized to the CHARACTER, not to a fraction someone liked:
+    // roughly a 60x90 crawler-plus-plate with a finger's margin.
+    expect(z.keepout.w).toBeGreaterThan(80);
+    expect(z.keepout.w).toBeLessThan(160);
+    expect(z.keepout.h).toBeGreaterThan(60);
+  });
+});
+
 describe("touch layout: the reach invariant", () => {
   for (const d of DEVICES) {
 

@@ -59,6 +59,158 @@ with what actually turned out to be wrong:
    recur when the AUTO/ON/OFF toggle flips at runtime.
 
 
+---
+
+## ROUND 3 — THE TELEGRAPH WAS BEING DRAWN 175x TOO FAR AWAY
+
+Round 2 shipped six correct shapes fed the live `AimSpec`, and §5.1 called the
+indicator **better** than Wild Rift's. A device round then projected the live
+indicator's own vertices through the renderer's own camera and found that for
+six of ten abilities — including **both ultimates** — **0% of them were on the
+screen**. Nova landed 455 world units from a crawler at (50.79, 62.32);
+cataclysm landed 1050. The ratio 2.308 is exactly `cataclysm r6 / nova r2.6`,
+and the implied |dir| of 174.9 px is exactly `hypot(150, 90)` — the harness's
+own drag, to one decimal place.
+
+**One line, and it had been there since the first touch commit.**
+
+```ts
+const dir = touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : p.facing;
+const at  = { x: p.pos.x + dir.x * place, ... };   // `place` is in TILES
+```
+
+`touch.ts` returns `aimDir` as the RAW PIXEL VECTOR (`current - origin`, never
+normalised) and `isoRotate` is a pure rotation, so `dir` carried a 110-175
+magnitude while the `p.facing` fallback was unit. Every PLACED shape
+(`isPlacedShape` = ring | scatter | arrow: nova, orbit, cataclysm, airstrike,
+cutto and **dash**) was therefore placed at 110-175 times its real distance.
+Line, cone and chain survived on an accident: `aimPlacement()` returns 0 for
+them, and the renderer reads their direction through `atan2`, which discards
+magnitude.
+
+Three things this cost, all of which had been recorded as wins:
+
+* **§5.1's `Indicator | better` row.** Withdrawn. A shape nobody can see is not
+  a verdict against anybody.
+* **§1.6's legibility diff.** It was measuring a degenerate box in the far
+  distance, which is why "the indicator's contribution is at or below the scene
+  churn" reproduced no matter what the palette did.
+* **HANDOFF's "the telegraph reads".** It did not.
+
+**What fixed it, and why not "remember to normalize".** Direction and anchor
+are now derived together by `aimAnchor()` in `src/input/aimSpec.ts` — one pure
+function, given the spec, the crawler, the rotated drag and the frac — and
+`test/aimTelegraph.test.ts` projects the result through an iso camera rebuilt
+from `THEME` and asserts the shape's box lands on a real device viewport, for
+every shape, four drag directions, frac 0 / 0.5 / 1, on four devices. It also
+carries a REGRESSION row that reproduces the shipped arithmetic and asserts it
+is off the glass, so the test's own sensitivity is demonstrated rather than
+assumed.
+
+Measured after, on a 750x342 iPhone 13 with real touch held through the frame
+(`tools/_mobile/r3.mjs`, `r3-iphone13-land.png`), as the fraction of the
+telegraph's projected vertices inside the viewport:
+
+| shape | drag up | down | inboard | outboard |
+|---|---|---|---|---|
+| `arrow` (dash) | 79% | 94% | 100% | 100% |
+| `line` (bolt) | 78% | 92% | 100% | 100% |
+| `ring` (cataclysm, the ultimate) | 100% | 100% | 100% | 100% |
+
+Was 0% for the ring and 8.1% for the line, in every direction, on every device.
+
+### The camera now leads the aim (§3.4)
+
+The line's residual — 78% on an up-screen drag — is not a bug in the shape, it
+is a frame problem: the camera shows 8.5 tiles of world above the crawler and
+bolt reaches 14.4. A phone player was committing a full-reach skillshot without
+seeing where it ended (`lr2/iphone13-land-aim-line.png`: the box started at
+x = -134). So while a drag is live the camera slides up to 4.2 tiles along the
+aim and widens the ortho frame up to 22%, easing both ways and returning the
+instant the finger lifts — the same borrowing the boss layer already does, and
+presentation only. That is what moved the line's up-screen box from
+(348,-202)-(402,169) to (348,-6)-(402,235).
+
+### Four other round-3 findings, and what each turned out to be
+
+1. **Flick-to-dash fired on 1 of 4 profiles — and it was the HARNESS.**
+   Instrumented, the page received every dispatched `pointermove` (4 dispatched
+   → 4 delivered, 4 raw samples, gaps [16,16,16] ms): there was no coalescing
+   and no lost sample. `FLICK_DEBOUNCE_MS` is judged on EVENT time, and the
+   driver's virtual clock only advances when the script calls `tick()` — so
+   five profiles driven back to back all landed inside 350 ms of each other in
+   the page's view and every one after the first was correctly debounced. The
+   battery now advances the clock between profiles, and **5 of 5 fire on both
+   an iPhone 13 and an iPad Pro 11** (`tools/_mobile/r3flick.mjs`).
+   The recogniser did have a real defect, and a different one: a 55 px-radius
+   thumb STIR at 900 px/s stepped 14.4 px per sample against the iPad's 14.3 px
+   floor and dashed — a false positive by a tenth of a pixel, clean on an
+   iPhone only because its floor is 16.8. A threshold that a device's stick
+   radius decides is a coincidence, not a threshold. The latch now also
+   requires the run to have GONE somewhere: `FLICK_MIN_NET_R = 1.2` radii of
+   net travel at `FLICK_STRAIGHTNESS = 0.93` straightness, and it fires on a
+   fast RUN as well as on two consecutive samples so the browser's delivery
+   rate cannot decide whether a dodge happens. Every measured profile still
+   fires; the stir never does, on either device.
+2. **Move-while-aiming "failing on iPad in 2 of 2 runs" did not reproduce.**
+   Two real fingers, four directions, two independent runs per device: the
+   phone kept 4.25-9.56 tiles in every direction of both runs. This is the row
+   that would have invalidated the per-pointer-role architecture, so it is
+   worth saying plainly what it is: unreproduced, on a driver that has itself
+   been corrected once (§0's `touchDriver.up()` note).
+3. **"One aimed cast in four produced no cast" did not reproduce either — but
+   it is now instrumented rather than argued.** From outside, a refusal, a
+   queue expiry, a deaf modal gate, a re-entrant pointerId and a cancel are all
+   the same silence, which is why an intermittent dropped cast is the worst
+   class of touch bug: the player blames themselves. Every chip press now
+   records a `CastVerdict` (`src/input/touch.ts`) naming which of the five it
+   was, with the FSM state, the leak-corrected travel and the armed flag at
+   release, read by the harness through `debug.touch.verdicts`. Driven 40 times
+   per slot on two slots: **80 of 80 produced a cooldown, and all 80 verdicts
+   read `aimed`.**
+4. **Target selection was genuinely invisible, and now is not.** `grep
+   lockedTargetId src/` returned the tap handler, `smartAim` and the
+   clear-on-death, and no renderer call: the lock steered `pickTarget` and lit
+   the LOCK chip for four rounds while nothing appeared on the monster. There
+   are now two markers, deliberately different because they answer different
+   questions — a persistent white BRACKET on the locked target (not a ring: the
+   enemy ground telegraph is already a ring), and a transient cyan reticle that
+   flashes for 420 ms on whatever the smart cast just chose. Measured, the
+   bracket sits 0.00 tiles from the monster it belongs to.
+
+### And one control was painted on the character
+
+`#t-map` measured 51x51 at (370,152) on an iPhone 13 whose crawler projects to
+(375,150) — the MAP chip on the crawler's chest, inside a cluster bounding box
+of 323x174 (43% x 51% of the screen) that contained the character outright. The
+iPad was clean for a reason that had nothing to do with intent: a tablet's
+comfortable arc simply cannot reach the middle of an 1194 px slab.
+
+The layout now carries a **crawler keepout** (`crawlerKeepout()`), sized to the
+character rather than to a taste — ±7.5% of width and ±13% of height around the
+viewport centre, which is the one region whose contents are known in advance
+because the camera puts them there. Chips escape it outboard or downward, never
+upward (that is the read band), and a chip that cannot escape makes the pack
+FAIL so the size slider steps down — the same "the slider is a request"
+treatment §4.2a already applies. `test/touchLayout.test.ts` asserts no combat
+or nav control's 44 px hit rect intersects the keepout, on six viewports x two
+hands x eight slider positions.
+
+### The desktop gate was manufacturing its own FAILs
+
+`tools/_mobile/deskdeep.mjs` reported 2 FAILs ("ability keys 1-4 each cast",
+"F fires the ultimate") and HANDOFF recorded them as "a bindings mismatch that
+predates this track (verified by stashing)". It is neither. The probe used
+`page.keyboard.press(k)` — a ~10 ms key edge — against a host that samples the
+keyboard once per sim step on a page running at ~3 fps under SwiftShader, which
+is precisely the gotcha CLAUDE.md documents ("hold keys >= 450 ms"). Stashing
+could never have shown a bindings mismatch, because the branch was never the
+variable. The probe now holds for 520 ms, and all five ability keys fire.
+A gate that manufactures FAILs is worse than no gate: it is how a real
+regression eventually gets waved through.
+
+---
+
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it
@@ -1546,11 +1698,11 @@ and every check ends in a value the page or the sim owns.
 | **Tap vs aim classification** | **better** | travel-only from a leaky origin; `test/touchIntent.test.ts` asserts a byte-identical Intent for a 40 ms tap and a 3 s hold, and the five speed rows |
 | **Aim throw** | **better on the default** | `18 mm` per class, one phone hand constant (§2.0); asserted to the pixel across the matrix |
 | **Interruption safety** | **better on the guarantee** | 8 refcounted suspend reasons + an 8 s reaper; `test/panels.test.ts` catches a new overlay |
-| **Indicator** | **better** | the telegraph is rebuilt from the live `AimSpec`: measured 4 meshes, colours `#39c8e8` / `#eaf9ff` / `#08131a`, 3 of them drawing over world geometry. Nova and cataclysm no longer draw the same ring |
+| **Indicator shape** | *(claim withdrawn — see ROUND 3)* | the six shapes are built from the live `AimSpec` and asserted in `test/aimIndicator.test.ts`, but for four rounds they were built at the wrong PLACE: the host multiplied a tile distance by the drag's pixel magnitude and every placed shape landed 110-175x too far out. A shape nobody could see is not a verdict against anybody |
 | **Indicator timing** | equal | appears on `pointerdown`, same frame |
 | **Cancel** | **deliberately ONE way on a phone** | `cancelMode: "origin"`, drawn as a 79x79 ringed ✕ at the frozen origin, 0% of it inside the movement thumb's zone. The round-1 band measured 92% inside that zone and 176 px out of reach — see §4.2a |
 | **Potion** | n/a (they have none) | `#flask-chip` carries `lowhp` + a running `flask-cry` animation at 32% HP, and a `potion` haptic on refill |
-| **Loot** | n/a (they have none) | ground ring at `CONFIG.pickupRadius` + a `#pickstrip` row per pickup; the strip's monotonic counter increments on a live drop |
+| ~~**Loot**~~ | *(moved to §5.2 — unverified)* | three staged kills across two devices produced no new entry in `state.loot`, and `#pickstrip` measured 0x0 with 0 child rows in every sample. Either the drop staging is wrong or the feature never fires; until a battery shows `bag` or `gold` moving AND a `#pickstrip` row appearing, this does not belong in a table called SHIPPED AND MEASURED |
 | **Shop** | **parity on the verb** | a finger tap on a shelf tile renders the card, and a finger tap on BUY moves GOLD (20000 -> 19955) on iPhone 13, Pixel 5 and iPad Pro 11. Price and BUY both report `onScreen: true` |
 | **Panels** | equal | ✕, DONE, backdrop tap **and** swipe-down all close `#inv` and `#sheet` by real touch (the swipe runs on the TOUCH stream; the pointer stream is cancelled by Chrome's pan after one move) |
 | **Notch / reachability** | **better** | `--sa-*` everywhere + a player HUD-inset slider; battery reports 0 intrusions |
@@ -1570,7 +1722,7 @@ Nothing in this table has a measurement behind it. It is what we are aiming at.
 | **Tap vs long-press on the world** | ping is a drag-out wheel on a ping button, not a world long-press | one threshold at 450 ms, arming announced with a ring + haptic; **no tap ceiling** (§2.5a) | **deliberately different** — one ping type, not four. Equal at best; the win is only over our own 200–450 ms dead band |
 | **Interruption safety** | casts cancel and the stick drops on call / app-switch *(observed)* | 8 enumerated refcounted suspend reasons + an 8 s stuck-pointer reaper (§2.9a) | **better on the guarantee** — the reaper covers the iOS background path that fires no pointer event at all, and a new panel is caught by a test rather than by remembering to edit a list |
 | **Indicator timing** | appears on touchdown | appears on touchdown | equal (today: only after the drag slop — a fix, not a win) |
-| **Indicator legibility** | tuned, high-contrast, reserved palette | §3.1 shipped: reserved cyan/white, dark outline, 3 px stroke floor, 96 px footprint floor | **unproven.** The palette and the floors are on the glass (§5.1) but the §1.6 legibility DIFF has not been re-shot against the scene-churn noise floor; until it clears that floor by 2x this row stays here |
+| **Indicator legibility** | tuned, high-contrast, reserved palette | §3.1 shipped: reserved cyan/white, dark outline, 3 px stroke floor, 96 px footprint floor | **unproven, and the earlier diffs were measuring nothing.** Every legibility diff before round 3 was taken inside the indicator's own projected box — which, for six of ten abilities, was a degenerate rectangle hundreds of tiles off-screen (ROUND 3). Re-shot with real touch held through the frame, the numbers were iPhone 13 bolt Δ 9.8 vs a Δ 7.8 churn floor = 1.26x, and Δ 5.6 vs Δ 8.1 = 0.69x over the full frame; iPad bolt 1.00x; ultimate 0.85x (iPhone) / 0.96x (iPad). A separate round measured iPhone 2.10x and Pixel 5 1.61x, i.e. the row would close on one phone and not the other. **The shapes are now in frame, so the diff can finally be taken against something real — and it has not been. This row stays here, and it may not be quoted per-device until it is re-shot post-fix on the whole matrix.** |
 | **Target priority** | lowest-HP-in-range with a last-hit bias | locked > last-damaged-3s > lowest HP fraction in range > nearest, with a facing cone weight | equal — theirs is tuned by a decade of telemetry; ours matches the shape and we should expect to iterate |
 | **Target lock** | dedicated lock toggle | world tap to lock + sticky-lock toggle | equal |
 | **Tap to move + auto-attack** | tap ground to move, tap champion to attack | same, reusing `clickMove.ts` verbatim | equal |
@@ -1578,7 +1730,7 @@ Nothing in this table has a measurement behind it. It is what we are aiming at.
 | **Potion** | no equivalent | flask chip with charge pips and refill haptic | n/a |
 | **Loot** | no equivalent | automatic in the sim; ground ring + non-intrusive pickup strip | n/a |
 | **Shop ergonomics** | full-screen touch shop, recommended-build row | a one-pane segmented shop that now BUYS (§5.1) | **behind on the surface, level on the verb.** A phone still gets the desktop information architecture with two thirds hidden; their shop is designed for the phone |
-| **Haptics** | subtle, on cast and hit | mapped table in §3, off-switchable | equal, degrading cleanly on iOS where `vibrate` is a no-op |
+| **Haptics** | subtle, on cast and hit | mapped table in §3, off-switchable | **behind on iOS, equal on Android.** "Degrading cleanly" was a euphemism: `navigator.vibrate` does not exist in iOS Safari at all, `Haptics.supported` is false, and every press / cast / cancel / refuse cue is SILENT on iPhone and iPad — which is the larger half of the target platform, and the half whose players are used to a Taptic Engine. The table and the rate limiter are good work aimed at a device that cannot receive them. The compensation is visual: on `pointer: coarse` where `vibrate` is missing, the press state has to carry the whole acknowledgement, and §3.5 owes that |
 | **Notch / reachability** | full safe-area respect | `--sa-*` everywhere + a player HUD-inset slider | **better** — the slider covers thick cases, screen protectors and Android OEM oddities that a fixed inset cannot |
 | **Reach model across device sizes** | one cluster shape, fixed by the player with per-button drag | posture per class, geometry in **millimetres** (§3.2, §4.2a) | **better on the default, behind on the ceiling** — an iPad gets a correct side-grip fan out of the box; they get whatever the player dragged. Reversed once LATER #20 ships and we have both |
 | **Left-handed** | mirrored layout absent; **per-button drag positioning with scale/opacity present** | full mirror (MUST-adjacent, SHOULD #16) + free-drag editor (LATER #20) | **better on mirroring; behind on the editor until #20 ships.** §6 and §8.3 now agree: sliders are SHOULD, the free-drag editor is LATER |
