@@ -2122,7 +2122,6 @@ const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
 /** The ruled kicker every other masthead in the product carries (r3 major:
  * the draft was the only titled set without one). */
-const draftKicker = document.getElementById("draft-kicker")!;
 
 // Sponsor gifts have no ability icon; a DRAWN mark in the plate carries the
 // read (STYLEGUIDE.md rule three: icons are drawn, never typed — the old
@@ -2152,8 +2151,6 @@ function renderDraft(s: GameState): void {
     // The leading gem is drawn by the shared panel-title rule, not typed.
     draftTitle.textContent = revision ? "CLASS REVISION" : shrine ? "SYSTEM SHRINE"
       : quest ? "TRIBE BOUNTY" : "SPONSOR DRAFT";
-    draftKicker.textContent = revision ? "PERMANENT RECASTING" : shrine ? "A BARGAIN IS OFFERED"
-      : quest ? "THE SETTLEMENT PAYS" : "THE SHOW REWARDS YOU";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -2192,7 +2189,6 @@ function renderDraft(s: GameState): void {
   } else {
     draftEl.classList.add("levelup");
     draftTitle.textContent = "LEVEL UP";
-    draftKicker.textContent = "A STAR BRIGHTENS";
     draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
       .map((u, i) => {

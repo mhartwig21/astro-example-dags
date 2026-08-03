@@ -3310,55 +3310,21 @@
          the right 62% of the screen at full gameplay contrast while you make a
          build decision. A draft is a MODAL beat — the dungeon still reads
          through, but it stops competing. */
-      /* ================= THE DRAFT BECOMES A SET (r3 MAJOR) =================
-         Measured against its five stone siblings, the one screen that stops the
-         game to decide your BUILD shipped: panelPad 0 (siblings 20.5/24/28),
-         borderRadius 0 (siblings 3), border none (siblings 1px --bronze),
-         boxShadow none (siblings the double inset frame), and it sat at x=80 in
-         a 1366 viewport with ~700px of empty screen to its right. A floating
-         list of three rows, in a product where every other set is a slab.
-
-         Rule four is why it was left alone, and rule four is narrower than that:
-         it reserves the cool PLATE for anything overlaid on live gameplay — it
-         does not say the plate may have no frame, no padding and no centre. The
-         panel is the house slab in every dimension the audit measured, built on
-         the sanctioned cool ground instead of warm stone, and it is CENTRED.
-         The scrim under it goes flat and heavy so the dungeon stops reading
-         through the card bodies (measured: the lit floor was legible straight
-         through "Swing arc +44°"). */
-      #draft { position: fixed; inset: 0; display: none; align-items: center;
-        justify-content: center; z-index: 25;
-        background: radial-gradient(ellipse at 50% 50%, rgba(4,4,8,0.86), rgba(3,3,6,0.95) 72%); }
-      #draft .panel { box-sizing: border-box;
-        width: clamp(600px, 46vw, 900px); max-width: 92vw; max-height: var(--set-h);
-        display: flex; flex-direction: column; overflow: visible;
-        padding: var(--set-pad); border-radius: var(--r-panel);
-        border: 1px solid var(--bronze);
-        background: var(--noise), linear-gradient(180deg, rgba(18,16,26,0.90), rgba(10,9,15,0.94) 40%);
-        backdrop-filter: blur(3px);
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.06),
-          0 24px 70px rgba(0,0,0,0.72); }
-      /* The bronze diamond caps every other slab wears, top and bottom centre. */
-      #draft .panel::before, #draft .panel::after { content: ""; position: absolute;
-        left: 50%; width: 9px; height: 9px; margin-left: -5px; transform: rotate(45deg);
-        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
-        box-shadow: 0 0 0 1px rgba(10,6,3,0.75); pointer-events: none; }
-      /* Seated ON the frame rather than straddling it: a cap that hangs 5px
-         past the border adds 6px to the panel scroll height, and a fit report
-         that says +6 for a decoration is a fit report nobody trusts. */
-      #draft .panel::before { top: 2px; }
-      #draft .panel::after { bottom: 2px; }
-      #draft .panel { position: relative; }
-      #draft h2 { margin: 0 0 var(--g-hair); color: var(--gold); text-align: center;
-        text-shadow: 0 0 18px rgba(201,162,75,0.45); flex: none; }
-      /* The title's own gem is the KICKER's job here (the kicker is ruled both
-         sides); a second loose diamond on a centred masthead reads as a bullet. */
-      #draft h2::before { display: none; }
-      #draft .d-kicker { margin-bottom: var(--g-hair); }
-      #draft .hint { color: #a89880; font-size: var(--t-small); text-align: center;
-        margin-bottom: var(--g-sec); flex: none; }
-      #draft .cards { display: flex; flex-direction: column; gap: var(--g-row);
-        flex: 1; min-height: 0; overflow-y: auto; }
+      /* THE DRAFT IS A FLOATING OFFER, NOT A SLAB (owner call, reverted).
+         A previous round rebuilt this as a centred stone set to match its five
+         siblings — framed, padded, scrim'd, bronze-capped. The owner preferred
+         the prior version, and the prior version is right for the reason rule
+         four already gave: the draft floats on LIVE gameplay. It is a list of
+         offers laid over the dungeon, not a screen that replaces it, and the
+         off-centre placement is what keeps your crawler visible while you read.
+         Kept from the intervening work: the type tokens (invisible, and the
+         scale is shared), and the touch bottom-padding. */
+      #draft { position: fixed; inset: 0; display: none; align-items: center; z-index: 25; }
+      #draft .panel { width: clamp(600px, 42vw, 820px); max-width: 88vw; margin-left: 6vw; }
+      #draft h2 { margin: 0 0 3px; color: #c9a24b; letter-spacing: 4px; font-size: var(--t-head);
+        text-shadow: 0 0 18px rgba(201,162,75,0.45); }
+      #draft .hint { color: #a99f8c; font-size: var(--t-small); margin-bottom: 18px; }
+      #draft .cards { display: flex; flex-direction: column; gap: var(--g-row); }
       /* THE SYSTEM'S CONTRACTS, not esports lower-thirds (r1 major). The cards
          were skewX(-6deg) with an angled ribbon and a coloured left bar — the
          Apex/Valorant idiom — in a product whose styleguide asks for "contract
@@ -4658,9 +4624,6 @@
       .dia {
         margin-right: 0.72em; vertical-align: 0.08em;
       }
-      /* ...except the draft, whose kicker is already ruled with the same gem on
-         both sides. Three diamonds in one centred masthead reads as a bullet. */
-      #draft h2::before { display: none; }
       /* r3 major: `.dia` is the SAME gem the ::before recipe draws, but it only
          ever got the gem half of the rule — so the one kicker that spells the
          diamond out in markup (the tutorial card's) rendered "◆SYSTEM" hard
@@ -4668,16 +4631,15 @@
          a 0.72em gap. One gem, one gap. */
       /* Kickers are ruled BOTH sides — same gem, quieter metal. */
       .m-kicker::before, .m-kicker::after, .l-kicker::before, .l-kicker::after,
-      .d-kicker::before, .d-kicker::after,
       #m-cast-kicker::before, #m-cast-kicker::after {
         content: ""; display: inline-block; width: 0.46em; height: 0.46em;
         transform: rotate(45deg); vertical-align: 0.1em;
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
         box-shadow: 0 0 0 1px rgba(10,6,3,0.7);
       }
-      .m-kicker::before, .l-kicker::before, .d-kicker::before,
+      .m-kicker::before, .l-kicker::before,
       #m-cast-kicker::before { margin-right: 1.1em; }
-      .m-kicker::after, .l-kicker::after, .d-kicker::after,
+      .m-kicker::after, .l-kicker::after,
       #m-cast-kicker::after { margin-left: 1.1em; }
       /* The ▶ that used to be typed onto CO-OP / RACE / ENTER / DESCEND: a
          drawn chevron that inherits the label's colour, so it works on the
@@ -6186,7 +6148,6 @@
     </div>
     <div id="draft" data-overlay="modal">
       <div class="panel">
-        <div class="d-kicker" id="draft-kicker">THE SYSTEM OFFERS</div>
         <h2 id="draft-title">SPONSOR DRAFT</h2>
         <div class="hint" id="draft-hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
         <div class="cards" id="draft-cards"></div>
