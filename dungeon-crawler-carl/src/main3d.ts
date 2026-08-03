@@ -1384,27 +1384,19 @@ document.body.appendChild(btVignette);
 canvas.style.transition = "filter 220ms ease-out";
 let btGradeOn = false;
 /**
- * THE RUN-END GRADE (COMPETITIVE.md 6.2 Beat 0). The same lens the bullet-time
- * grade uses, pushed further and held: the dungeon drains of colour and dims
- * behind the verdict instead of carrying on at full brightness underneath an
- * rgba(4,4,8,0.82) scrim. Beat 0 asks to "hold the killing blow, desaturate,
- * then the banner"; shipped, it was a bare setTimeout and nothing else, so the
- * run did not END - a dialog just opened over it.
+ * The screen grade belongs to BULLET TIME and nothing else. A run-end variant
+ * (grayscale 0.66, brightness 0.6, held for as long as the verdict was up) was
+ * added and reverted: with the scrim already at 82% it drained the dungeon to
+ * near-black, so the world the player had just been fighting in stopped
+ * existing behind the card.
  */
-let verdictGradeOn = false;
 let gradeApplied = "";
 function applyScreenGrade(): void {
-  const want = verdictGradeOn
-    ? "grayscale(0.66) saturate(0.3) brightness(0.6) contrast(1.04)"
-    : btGradeOn ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
+  const want = btGradeOn ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
   if (want === gradeApplied) return;
   gradeApplied = want;
-  // The death grade is slower than the bullet-time lens on purpose: this one
-  // is a curtain, not a gear change.
-  canvas.style.transition = `filter ${verdictGradeOn ? 520 : 220}ms ease-out`;
-  btVignette.style.transition = `opacity ${verdictGradeOn ? 520 : 220}ms ease-out`;
   canvas.style.filter = want;
-  btVignette.style.opacity = verdictGradeOn || btGradeOn ? "1" : "0";
+  btVignette.style.opacity = btGradeOn ? "1" : "0";
 }
 function updateBulletTimeGrade(s: GameState): void {
   const on = s.bulletTimeLeft > 0;
@@ -6792,6 +6784,12 @@ function renderRecap(s: GameState): void {
   document.getElementById("recap-again-sub")!.textContent = won
     ? "same seed · beat the time you just set"
     : "same seed · your own ghost on the course";
+  // ...and the card is MEASURED against the window it landed in. Every render
+  // of this screen changes its height — the seal resolves, the board arrives
+  // and upgrades the grade, the mark gets a real rival — so the density pass
+  // runs on every one of them, not once at open.
+  fitRecap();
+  fitRecapSoon();
 }
 
 /**
@@ -7017,30 +7015,22 @@ function renderEarned(s: GameState): void {
   renderSeal();
 }
 
-/** The word on the block last time we drew it, so the strike lands ONCE - on
- *  the transition into a terminal state, not on every re-render. */
+/** The word on the block last time we drew it, so a state change is detected
+ *  once - on the transition into a terminal state, not on every re-render. */
 let sealWordShown = "";
 
 /**
- * THE SEAL MOMENT HAS TO HAPPEN ON SCREEN (blocker 6, 6.2 Beat 5: "watching the
- * seal land is two genuinely satisfying seconds").
+ * THE SEAL STATE HAS TO BE READABLE ON SCREEN (blocker 6). Instrumented on the
+ * shipping build: at t+0 the block carried `vseal pending`, and by t+900ms it
+ * already read `vseal verified ranked`. The pending state was never visible for
+ * a single painted frame, so the player could not tell that the server had done
+ * anything at all.
  *
- * Instrumented on the shipping build: at t+0 the block carried
- * `vseal pending` while the verdict card was still at opacity 0 mid entrance,
- * and by t+900ms it already read `vseal verified ranked`. So the strike fired -
- * `paintSeal` staged it correctly - into a frame where the pending state had
- * never been visible for a single painted frame. There was no moment. The
- * animation was right and it had nothing to land ON.
- *
- * Both halves are timing, and both are fixed here rather than in the CSS:
- *
- *  - `verdictVisibleAt` is when the card actually reaches the screen, not when
- *    the run ended. A dwell measured from the status edge is spent behind a
- *    letterbox.
- *  - A terminal verdict that arrives inside the floor is HELD, not dropped:
- *    the pending block keeps breathing and the strike is re-issued the instant
- *    the floor expires, so the sequence a player sees is always
- *    VERIFYING -> (beat) -> SEALED and never a single frame of either.
+ * `verdictVisibleAt` is when the card actually reaches the screen, and a
+ * terminal verdict that arrives before the pending block has had its floor is
+ * HELD rather than dropped, so the sequence a player sees is always
+ * VERIFYING -> SEALED and never a single frame of either. That is legibility,
+ * not staging: nothing animates, the words simply stay put long enough to read.
  */
 let verdictVisibleAt = 0;
 /** When the currently-shown non-terminal block became visible. */
@@ -7048,16 +7038,9 @@ let sealPendingSince = 0;
 let sealHoldTimer: number | null = null;
 
 /**
- * THE SEAL, DRAMATISED (6 Beat 5).
- *
- * The server re-executing a fifteen-minute run and certifying it is the one
- * thing League of Legends cannot copy, and it shipped as a 10.5px chip parked
- * at the far right of a hairline row - smaller than the body copy, smaller
- * than the death headline - swapping VERIFYING for SEALED by innerHTML with no
- * transition, no scale and no sound. Buying a helmet in the safe room got a
- * 2.4s staged stamp with glow and a coloured border. This is the correction:
- * a block sized to what it certifies, one sentence of System voice, and a
- * strike that lands exactly once.
+ * THE SEAL (6 Beat 5). A block rather than a 10.5px chip, because the reason a
+ * submission was refused has to be readable on the default face rather than
+ * parked in a title=. One kicker, one word, one sentence of System voice.
  */
 function renderSeal(): void {
   const el = document.getElementById("recap-seal")!;
@@ -7116,8 +7099,8 @@ function signInAvailable(): boolean {
   return authProviders.length > 0 && !loadSignin();
 }
 
-/** Draw the seal block, staging the strike exactly once — on the transition
- *  INTO a terminal state, never on a re-render. */
+/** Draw the seal block, changing state exactly once — on the transition INTO a
+ *  terminal state, never on a re-render. */
 function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
   // THE FLOOR UNDER THE PENDING STATE (blocker 6). A terminal verdict that
   // arrives before the pending block has been visible for SEAL_MIN_PENDING_MS
@@ -7161,12 +7144,10 @@ function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
   if (link) {
     link.addEventListener("click", () => beginSignIn(authProviders[0]));
   }
-  // The strike is for the moment the verdict ARRIVES - not for the first paint
-  // of a block that has been sitting at CLAIMED since the screen opened.
+  // The verdict ARRIVING is worth a sound - it is the one moment on this screen
+  // the player did not already know about. The 1.9s scale/flood/ring "strike"
+  // that used to ride along with it is gone: the block changes state, plainly.
   if (!first && v.terminal) {
-    void el.offsetWidth; // restart the keyframes
-    el.classList.add("strike");
-    window.setTimeout(() => el.classList.remove("strike"), 2000);
     audio.play(v.cls.includes("rejected") ? "warning" : "achievement");
   }
 }
@@ -7198,43 +7179,22 @@ let recapPrevCareer: ReturnType<typeof careerBests> = null;
 let submitVisibility: "public" | "private" = "public";
 
 /**
- * BEAT 0 — THE FREEZE (COMPETITIVE.md 6.2). "Hold the killing blow,
- * desaturate, then the banner."
+ * NO BEAT 0. An elevation round staged the run's end as a cinematic: a 0.6s
+ * hit-stop, `body.cine` to pull the entire HUD out of frame, the boss-intro
+ * letterbox, and a 520ms grayscale/dim lens held on the canvas for as long as
+ * the card was up. Between the lens and a radial scrim the dungeon behind the
+ * verdict went to near-black, and the player sat through ~760ms of directed
+ * nothing before the screen they came for arrived.
  *
- * What shipped was `setTimeout(() => recapEl.style.display = 'flex', 620)` and
- * nothing else: no hit-stop, no desaturate, no letterbox, no HUD cut. The
- * frame loop kept calling updateHud, drawMinimap and updateShowHud after the
- * status edge, so the live world, the FLOOR/COLLAPSE panel, the SYSTEM strip,
- * the Hype bar, the HP bar and the whole ability cockpit stayed lit behind an
- * 82% scrim - a player death, the most common terminal event in a roguelike,
- * got none of the treatment a boss INTRODUCTION gets.
- *
- * Every tool used here already existed in this file for that boss beat.
+ * It is reverted. The run ends, the card comes up on the same short timer it
+ * always did, and the world stays visible behind it. The letterbox, the
+ * screen grade and `body.cine` still belong to the boss beat that authored
+ * them — the verdict simply stopped borrowing them.
  */
-function beginVerdictFreeze(s: GameState): void {
-  hitStop = Math.max(hitStop, s.status === "won" ? 0.36 : 0.6);
-  document.body.classList.add("cine");   // the HUD leaves frame entirely
-  letterboxEl.classList.add("on");       // the broadcast cuts to the card
-  document.documentElement.style.setProperty("--bi-fade", "1");
-  verdictGradeOn = true;
-  applyScreenGrade();
-}
-
-function endVerdictFreeze(): void {
-  verdictGradeOn = false;
-  applyScreenGrade();
-  document.body.classList.remove("cine");
-  letterboxEl.classList.remove("on");
-  document.documentElement.style.removeProperty("--bi-fade");
-}
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
 function maybeShowRecap(s: GameState): void {
-  if (s.status === "playing") {
-    if (recapFor !== null) endVerdictFreeze();
-    recapFor = null;
-    return;
-  }
+  if (s.status === "playing") { recapFor = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
 
@@ -7253,19 +7213,21 @@ function maybeShowRecap(s: GameState): void {
   verdictVisibleAt = 0;
   sealPendingSince = 0;
   if (sealHoldTimer !== null) { window.clearTimeout(sealHoldTimer); sealHoldTimer = null; }
-  beginVerdictFreeze(s);
   renderRecap(s);
-  // Beat 0 holds, THEN the banner. A win gets a shorter hold: the player
-  // already knows what happened, and the plate is the payoff.
+  // One short beat between the killing blow and the card — enough that the
+  // verdict does not land on top of the hit that caused it, and no more.
   window.setTimeout(() => {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
+    // The card is only measurable once it has a box: `renderRecap` above ran
+    // while `display` was still `none`.
+    fitRecapSoon();
     // THE CLOCK ON THE SEAL BEAT STARTS HERE - when the card is on screen, not
     // when the run ended (blocker 6).
     verdictVisibleAt = performance.now();
     sealPendingSince = verdictVisibleAt + social.SEAL_CASCADE_MS;
-  }, s.status === "won" ? 560 : 760);
+  }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
   cpBeforeRun = myStanding?.cp ?? null;
@@ -7563,6 +7525,10 @@ function offerProof(): void {
   requestAnimationFrame(() => {
     const h = Math.ceil(consentEl.getBoundingClientRect().height);
     if (h > 0) document.documentElement.style.setProperty("--consent-h", h + "px");
+    // The card just took a third of the height off the verdict's ceiling, so
+    // the density pass has to answer for it — this is the tightest the screen
+    // ever gets.
+    fitRecapSoon();
   });
 }
 
@@ -7573,6 +7539,7 @@ for (const [id, choice] of [
     try { localStorage.setItem(CONSENT_KEY, choice); } catch { /* best-effort */ }
     consentEl.classList.remove("on");
     recapEl.classList.remove("consenting");
+    fitRecapSoon(); // the ceiling just came back — hand the density back too
     renderConsentToggle(); // the settings row is the same standing choice
     if (choice === "no") {
       recBlocked = "not submitted — your choice, and it stays your choice until you change it";
@@ -7970,6 +7937,314 @@ function wireScrollHint(panel: HTMLElement, hint: HTMLElement): void {
 wireScrollHint(ladderEl, document.getElementById("ladder-more")!);
 wireScrollHint(careerEl, document.getElementById("career-more")!);
 
+/**
+ * THE PANEL FITS THE WINDOW. THE WINDOW DOES NOT FIT THE PANEL.
+ *
+ * The house rule is no scrollbars, and MORE BELOW was shipped as the
+ * affordance that stands in for the bar — but an affordance for a state that
+ * should not exist is not a fix. Measured before this pass: THE CRAWLER was
+ * 1462px of content inside an 864px frame at 1600x900, so it cut a ledger row
+ * through its own baseline and drew MORE BELOW on top of a milestone.
+ *
+ * Layout does the work — three columns and the short-viewport compaction in
+ * iso.html — but layout alone can only ever be tuned against the content it
+ * was tuned against, and these lists grow: 60 runs on the local ledger, one
+ * milestone per record ever set, 25 rows on a museum. So the last step is
+ * measured rather than authored: trim the longest trimmable list, one entry at
+ * a time, until the panel stops overflowing.
+ *
+ * Two rules keep this honest:
+ *   - It only ever takes from lists marked `.fitlist`, never below `data-fitmin`,
+ *     and never from the headline, the histogram or either ledger.
+ *   - What it took is STATED, on the list it took it from. A shortened list
+ *     that does not say it was shortened is a worse lie than a scrollbar.
+ * MORE BELOW stays wired as the safety valve for the case where even the
+ * minimums do not fit; it should now be unreachable on a desktop viewport.
+ */
+const fitTrimmed = new WeakMap<HTMLElement, Element[]>();
+
+function fitRows(list: HTMLElement): Element[] {
+  return Array.from(list.children).filter((c) => !c.classList.contains("fitmore"));
+}
+
+/** DIRECT CHILD, ALWAYS. Lists nest now (THE OTHER MUSEUMS sits inside the
+ *  all-time footnote block), and a descendant `.fitmore` is not a valid
+ *  `insertBefore` reference — it throws, mid-render, on the panel. */
+function fitNoteOf(list: HTMLElement): HTMLElement | null {
+  for (const c of Array.from(list.children)) {
+    if (c.classList.contains("fitmore")) return c as HTMLElement;
+  }
+  return null;
+}
+
+/**
+ * ...AND WHAT IT HELD BACK IS ONE CLICK AWAY. Trimming an 18-row tail off a
+ * ranked museum to make a 768px laptop fit would make those rows UNREACHABLE,
+ * which is a straight downgrade on the thing the panel is for. The note is a
+ * button: the default state obeys the house rule, and a reader who wants the
+ * whole board says so and gets it (with MORE BELOW, the affordance that has
+ * always been the honest signal for "this one scrolls").
+ */
+function fitNote(list: HTMLElement): void {
+  const held = fitTrimmed.get(list) ?? [];
+  const open = list.dataset.fitopen === "1";
+  let note = fitNoteOf(list);
+  if (held.length === 0 && !open) { note?.remove(); return; }
+  if (!note) {
+    note = document.createElement(list.tagName === "UL" ? "li" : "div");
+    note.className = "fitmore";
+    list.appendChild(note);
+  }
+  note.innerHTML = "";
+  const btn = document.createElement("button");
+  const noun = list.dataset.fitnoun ?? "entry";
+  btn.dataset.fittoggle = "1";
+  btn.textContent = open
+    ? "SHOWING EVERY ROW — the panel scrolls. FOLD IT BACK"
+    : `+${held.length} more ${noun}${held.length === 1 ? "" : "s"} held back to fit this window — SHOW THEM`;
+  note.appendChild(btn);
+}
+
+/** The lowest point in `root` at which anything actually paints text. */
+function inkBottom(root: HTMLElement): number {
+  let deepest = root.getBoundingClientRect().top;
+  const walk = (el: Element): void => {
+    for (const c of Array.from(el.children)) {
+      let inks = false;
+      for (const n of Array.from(c.childNodes)) {
+        if (n.nodeType === 3 && (n.textContent ?? "").trim().length > 0) { inks = true; break; }
+      }
+      if (inks) {
+        const r = c.getBoundingClientRect();
+        if (r.height > 0 && r.width > 0) deepest = Math.max(deepest, r.bottom);
+      }
+      walk(c);
+    }
+  };
+  walk(root);
+  return deepest;
+}
+
+/**
+ * THE VERDICT FITS TOO — and it is the one panel that had no fit pass at all.
+ *
+ * Measured on a FRESH load at 1366x768 (tools/_critic_1366.mjs): 745px of
+ * content in a 707px panel, 18px over on a death and 38px on a clear, with the
+ * scrollbar suppressed, so HOLD TAB was cut off the bottom of the screen and
+ * nothing said so. It shipped in a round whose commit message is "the panels
+ * fit the window" because the guard was written around the two panels that
+ * were fixed and explicitly excluded the third.
+ *
+ * There is nothing here to trim — every block on the verdict is load-bearing
+ * (COMPETITIVE.md 6 beats 1-6) — so the lever is DENSITY, not content: `--vd`
+ * multiplies every vertical gap, margin and pad on the card, and `--vt` (a
+ * clamped derivative) the display type. This winds `--vd` down from the
+ * authored `--vd0` until the card measures zero overflow, one 4% step at a
+ * time, and never touches a word of it.
+ *
+ * The floor is real: at 0.55 it stops and the (no longer suppressed) elevator
+ * is what the reader gets, because content nobody can reach is strictly worse
+ * than a scrollbar the house rule dislikes.
+ */
+function fitRecap(): void {
+  const panel = recapEl.querySelector<HTMLElement>(".panel");
+  if (!panel || recapEl.style.display === "none") return;
+  panel.style.removeProperty("--vd");
+  const base = parseFloat(getComputedStyle(panel).getPropertyValue("--vd0")) || 1;
+  let d = base;
+  for (let i = 0; i < 24 && panel.scrollHeight - panel.clientHeight > 0 && d > 0.55; i++) {
+    d = Math.max(0.55, d - 0.04);
+    panel.style.setProperty("--vd", String(d.toFixed(2)));
+  }
+}
+
+/** Same reason `fitPanelSoon` exists: the card is measured after layout has
+ *  settled, not in the frame that wrote the markup. */
+function fitRecapSoon(): void {
+  requestAnimationFrame(() => requestAnimationFrame(fitRecap));
+  window.setTimeout(fitRecap, 280);
+  window.setTimeout(fitRecap, 900);
+}
+window.addEventListener("resize", fitRecap);
+
+/** Trim order. Higher goes first: a footnote invented to fill space under a
+ *  board must never outrank a ranked row on that board. */
+function fitPri(list: HTMLElement): number {
+  return Number(list.dataset.fitpri ?? "0");
+}
+
+/**
+ * ...AND A CUT ONLY COUNTS IN THE COLUMN THAT SETS THE HEIGHT. THE CRAWLER
+ * lays out in three independent columns, and the panel is as tall as the
+ * tallest of them: measured at 1600x900, column 1 (THE SEALED RECORD +
+ * MASTERY) bottomed out at y=755 against columns 2/3 at y=833-847, while the
+ * panel held back 4 milestones and 3 runs. Rows taken from a column that was
+ * not the tallest buy zero pixels and cost real rows, so the victim is chosen
+ * from the columns that are actually setting the height.
+ */
+function tallestColumnLists(pool: HTMLElement[]): HTMLElement[] {
+  const cols = new Map<HTMLElement, HTMLElement[]>();
+  for (const l of pool) {
+    const col = l.closest<HTMLElement>(".ccol");
+    if (!col) return pool; // not a columned panel — nothing to be clever about
+    const seen = cols.get(col);
+    if (seen) seen.push(l); else cols.set(col, [l]);
+  }
+  if (cols.size < 2) return pool;
+  const bottoms = new Map<HTMLElement, number>();
+  for (const col of cols.keys()) bottoms.set(col, inkBottom(col));
+  const deepest = Math.max(...bottoms.values());
+  const winners: HTMLElement[] = [];
+  for (const [col, ls] of cols) if (deepest - bottoms.get(col)! <= 8) winners.push(...ls);
+  return winners.length > 0 ? winners : pool;
+}
+
+function fitPanel(panel: HTMLElement): void {
+  const lists = Array.from(panel.querySelectorAll<HTMLElement>(".fitlist"));
+  // Restore first, unconditionally: a window that got taller gets its rows
+  // back, and a re-render that already rebuilt the list starts from whole.
+  for (const list of lists) {
+    const held = fitTrimmed.get(list);
+    if (held && held.length > 0) for (const n of held) list.appendChild(n);
+    fitTrimmed.delete(list);
+    fitNote(list);
+  }
+  if (!panel.classList.contains("on")) return;
+  // A FLOOR IS A FLOOR, NOT A MANDATE. The frame sits on 720px (58vh on a tall
+  // screen) so a tab switch cannot resize the world behind it — but a tab that
+  // genuinely has 200px to say cannot fill 720 no matter how the slack is
+  // distributed, and stretching an empty card to cover it is the same hole
+  // with a border drawn round it. When the shortfall is big enough that no
+  // honest content could close it, the frame drops the floor and hugs, and
+  // `margin: auto` centres the result on the panel's own vignette.
+  //
+  // "Enough" is measured the way the complaint was measured: the gap between
+  // the last thing on the tab that puts INK on the stone and the bottom of the
+  // space the frame claimed. A stretched empty container does not count as
+  // filled, which is the whole point — that was the first version of this and
+  // it flattered itself by exactly the amount it was wrong by.
+  const frame = panel.querySelector<HTMLElement>(".set-frame");
+  const body = frame?.querySelector<HTMLElement>("#ladder-body, #career-body");
+  if (frame && body) {
+    frame.classList.remove("hugs");
+    if (body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
+  }
+  // A list the reader has explicitly unfolded is not the fit pass's business
+  // any more.
+  for (const l of lists) if (l.dataset.fitopen === "1") fitNote(l);
+  const open = lists.filter((l) => l.dataset.fitopen === "1");
+  if (open.length > 0) return;
+  // THE MEASURE IS INK, NOT BOXES — and this is the lesson of the bounded
+  // frame. `scrollHeight - clientHeight` answers "does the box overflow", and
+  // flex is perfectly happy to keep that answer at ZERO while drawing the
+  // content on top of itself: give the frame a ceiling and the board's own box
+  // is squeezed under its rows, which keep their min-content height and print
+  // straight through THE OTHER MUSEUMS beneath them. Measured at 1366x768
+  // before this: every box reported 0 overflow while row 11 of the all-time
+  // board and the footnote occupied the same 40 pixels.
+  //
+  // So the question this pass asks is the one the house rule actually asks:
+  // is anything DRAWN below the bottom of the frame that is supposed to hold
+  // it. The box measures stay in as a belt for the panel itself.
+  const frameFloor = (): number => {
+    if (!frame) return Infinity;
+    const cs = getComputedStyle(frame);
+    return frame.getBoundingClientRect().bottom
+      - parseFloat(cs.paddingBottom) - parseFloat(cs.borderBottomWidth);
+  };
+  const over = (): number => Math.max(
+    panel.scrollHeight - panel.clientHeight,
+    frame ? frame.scrollHeight - frame.clientHeight : 0,
+    body ? Math.ceil(inkBottom(body) - frameFloor()) : 0);
+  const take = (list: HTMLElement): void => {
+    const rows = fitRows(list);
+    const held = fitTrimmed.get(list) ?? [];
+    held.unshift(rows[rows.length - 1]);
+    rows[rows.length - 1].remove();
+    fitTrimmed.set(list, held);
+    fitNote(list);
+  };
+  const give = (list: HTMLElement): void => {
+    const held = fitTrimmed.get(list);
+    if (!held || held.length === 0) return;
+    const row = held.shift()!;
+    list.insertBefore(row, fitNoteOf(list));
+    if (held.length === 0) fitTrimmed.delete(list);
+    fitNote(list);
+  };
+  const roomLeft = (l: HTMLElement): number =>
+    fitRows(l).length - Math.max(1, Number(l.dataset.fitmin ?? "1"));
+
+  // CUT PADDING FIRST, THEN THE LONGEST LIST IN THE TALLEST COLUMN.
+  //
+  // Never a per-cut "did that help?" test: THE CRAWLER lays out in columns of
+  // near-equal height, so that test says no to every single cut — shortening
+  // either of two equal columns leaves the row height unchanged — and an
+  // earlier version of this pass therefore refused to trim anything at all
+  // while the panel was 98px too tall. But "longest list anywhere" is too
+  // blunt in the other direction, and round 1 shipped both of its costs: a
+  // footnote invented to fill space outlived the ranked rows it displaced
+  // (`fitPri`), and rows were taken from a column that was not setting the
+  // height (`tallestColumnLists`). The measurement that matters is still the
+  // one at the END: trim until it fits, and if it never fits, put it all back,
+  // because rows taken for nothing are rows taken for nothing.
+  let guard = 400;
+  while (over() > 0 && guard-- > 0) {
+    const room = lists.filter(roomLeft);
+    if (room.length === 0) break;
+    // ...but priority comes first, and it is not a heuristic: a list marked
+    // `data-fitpri` is padding this track invented, and it is spent before a
+    // single ranked row is.
+    const top = Math.max(...room.map(fitPri));
+    const victim = tallestColumnLists(room.filter((l) => fitPri(l) === top))
+      .sort((a, b) => fitRows(b).length - fitRows(a).length)[0];
+    if (!victim) break;
+    take(victim);
+  }
+  if (over() > 0) {
+    for (const list of lists) while (fitTrimmed.get(list)?.length) give(list);
+    return;
+  }
+  // ...then hand back what the greedy pass over-took. Cutting the longest list
+  // is a fair heuristic, not an exact one, and a panel that fits with room to
+  // spare should be showing rows in it.
+  // ...lowest priority first, so what comes back is a ranked row before it is
+  // a footnote — the same order the cut went in, run backwards.
+  for (const list of [...lists].sort((a, b) =>
+    fitPri(a) - fitPri(b)
+    || (fitTrimmed.get(b)?.length ?? 0) - (fitTrimmed.get(a)?.length ?? 0))) {
+    while (fitTrimmed.get(list)?.length) {
+      give(list);
+      if (over() > 0) { take(list); break; }
+    }
+  }
+}
+
+/** SHOW THEM / FOLD IT BACK on a trimmed list. Returns whether it handled the
+ *  click, so the panels' own delegated handlers can fall through. */
+function toggleFitList(el: HTMLElement, panel: HTMLElement): boolean {
+  const btn = el.closest("[data-fittoggle]") as HTMLElement | null;
+  if (!btn) return false;
+  const list = btn.closest(".fitlist") as HTMLElement | null;
+  if (!list) return false;
+  if (list.dataset.fitopen === "1") delete list.dataset.fitopen;
+  else list.dataset.fitopen = "1";
+  fitPanel(panel);
+  return true;
+}
+
+/** The open animation scales the frame, so a measurement taken in the same
+ *  frame as the render reads a box that is still 4% short. Re-fit once the
+ *  layout has actually settled. */
+function fitPanelSoon(panel: HTMLElement): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => fitPanel(panel)));
+  window.setTimeout(() => fitPanel(panel), 260);
+}
+
+// A resize can only be answered by re-measuring: the trim depends on the
+// viewport, and both directions matter.
+window.addEventListener("resize", () => { fitPanel(ladderEl); fitPanel(careerEl); });
+
 /** Result column per board - each board brags differently. */
 
 function boardResult(kind: string, r: social.BoardRun): string {
@@ -8158,7 +8433,10 @@ function boardListHtml(
     .filter((r) => r.state === "verified");
   const unproven = page.unproven ?? page.entries.filter((r) => r.state !== "verified");
   const extra = (r: social.BoardRun): string => extraFor?.(r) ?? "";
-  let html = `<ul class="board">${
+  // `fitlist`: the last five ranked rows are what a very short window takes
+  // back before anything structural goes (see `fitPanel`). The top five are
+  // never trimmable, because the top of a board is the board.
+  let html = `<ul class="board fitlist" data-fitmin="5" data-fitnoun="row">${
     sealed.map((r, i) => boardRowHtml(r, i, kind, extra(r))).join("")
     || `<li class="none">${empty}</li>`}</ul>`;
   if (unproven.length > 0) {
@@ -8177,7 +8455,7 @@ function boardListHtml(
       `<div class="usub">Never re-executed${aged > 0
         ? `, or recorded under rules this build can no longer run (${aged}). Kept, not ranked.`
         : ". No rank, no result."}</div>` +
-      `<ul class="board">${unproven.map(
+      `<ul class="board fitlist" data-fitmin="1" data-fitnoun="unproven row">${unproven.map(
         (r, i) => boardRowHtml(r, -1 - i, kind, extra(r), "plain")).join("")}</ul></div>`;
   }
   return html;
@@ -8209,6 +8487,15 @@ function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string
  * three. Each line is the current leader of a board you are not looking at,
  * which is both the missing content and the reason to look.
  */
+/*
+ * ...AND IT IS A FOOTNOTE, WHICH MEANS IT IS THE FIRST THING TO GO. Measured
+ * at 1600x900: nine board rows ended at y=634, "+16 more rows held back to fit
+ * this window" at y=646, and then ~190px of era note and OTHER MUSEUMS under
+ * it. Both blocks were added by this track's own comments to fill space under
+ * a short board; the fit pass then trimmed the board and left the filler
+ * standing, which is the hierarchy of the flagship museum board upside down.
+ * `data-fitpri` is the fix: these are spent before a ranked row is.
+ */
 async function otherBoardsStripHtml(current: string): Promise<string> {
   const kinds = ["deepest", "fastest", "kills", "contracts"].filter((k) => k !== current);
   const pages = await Promise.all(kinds.map((k) =>
@@ -8223,12 +8510,22 @@ async function otherBoardsStripHtml(current: string): Promise<string> {
         : `<span class="obwho none">unclaimed</span><span class="obres none">—</span>`) +
       `<span class="obgo">OPEN ▸</span></button>`;
   }).join("");
-  return `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
+  return `<div class="obwrap">` +
+    `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
     `font-variant:small-caps;letter-spacing:2px">THE OTHER MUSEUMS</div>` +
-    `<div class="otherboards">${rows}</div>`;
+    // One museum always survives, so the heading can never be left dangling
+    // over nothing; the other two are the first pixels a short window takes.
+    `<div class="otherboards fitlist" data-fitmin="1" data-fitnoun="museum" ` +
+    `data-fitpri="4">${rows}</div></div>`;
 }
 
 async function renderLadder(): Promise<void> {
+  await renderLadderBody();
+  fitPanel(ladderEl);
+  fitPanelSoon(ladderEl);
+}
+
+async function renderLadderBody(): Promise<void> {
   const body = document.getElementById("ladder-body")!;
   document.getElementById("ladder-sub")!.textContent =
     `rules era ${ERA} — every ranked row is a proof the server re-executed, not a number it was told`;
@@ -8268,15 +8565,19 @@ async function renderLadder(): Promise<void> {
         : "the exact tick count, then the earlier submission") +
       boardListHtml(page, alltimeTab,
         "this museum is empty. The first exhibit is yours to donate.") +
+      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
+      // around y=520 with 42% of the viewport empty near-black under it. The
+      // filler is the OTHER three museums, one line each, so the empty space
+      // becomes navigation instead of padding — and it is a `fitlist` at the
+      // top priority, so on the window where that space does NOT exist it is
+      // the board that keeps its rows and the filler that goes.
+      `<div class="atfoot fitlist" data-fitmin="1" data-fitnoun="footnote" data-fitpri="3">` +
+      await otherBoardsStripHtml(alltimeTab) +
       // ONE LINE. The paragraph that used to live here explained era chipping
       // at length under a board with four rows on it.
       `<div class="gate">Never reset — <b>era-chipped</b> instead. A row stamped <b>era ${esc(ERA)}</b> ` +
       `was earned under the numbers you are playing now; an older stamp says so on its face.</div>` +
-      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
-      // around y=520 with 42% of the viewport empty near-black under it. The
-      // filler is the OTHER three museums, one line each, so the empty space
-      // becomes navigation instead of padding.
-      await otherBoardsStripHtml(alltimeTab);
+      `</div>`;
     return;
   }
   if (ladderTab === "bands") {
@@ -8410,6 +8711,7 @@ document.getElementById("ladder-close")!.addEventListener("click", closeSets);
 document.getElementById("career-close")!.addEventListener("click", closeSets);
 ladderEl.addEventListener("click", (e) => {
   const el = e.target as HTMLElement;
+  if (toggleFitList(el, ladderEl)) return;
   const tab = el.closest("[data-lt]") as HTMLElement | null;
   if (tab) {
     ladderTab = (tab.dataset.lt ?? "contracts") as typeof ladderTab;
@@ -8558,8 +8860,12 @@ function histogramHtml(byFloor: number[]): string {
   let axis = "";
   for (let f = 1; f <= CONFIG.finalFloor; f++) {
     const n = byFloor[f - 1] ?? 0;
-    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 118));
-    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}px" ` +
+    // PER CENT, NOT PIXELS. The bar heights used to be authored in px against
+    // an assumed 108px track, so the moment a short viewport shortened the
+    // track the bars drew straight through the floor axis and the band strip.
+    // The track's height is CSS's business; the bar only knows its share.
+    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
+    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}%" ` +
       `title="${n} run${n === 1 ? "" : "s"} ended on floor ${f}">${n > 0 ? `<i>${n}</i>` : ""}</div>`;
     axis += `<span>${f}</span>`;
   }
@@ -8730,20 +9036,33 @@ async function renderCareerSet(): Promise<void> {
     // above a histogram that may be counting runs from THIS BROWSER. Both
     // numbers are true; a reader with no boundary marked assumes one
     // population. And the gold bars had no legend at all.
-    `<div class="cnamesub" style="margin-bottom:16px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
-    `<b style="color:var(--gold)">Gold bars are floors 13+</b> — THE IRONWORKS and THE APPROACH, where a ` +
-    `death costs the most. ${useServer
-      ? "Certified rows only, so this chart and THE SEALED RECORD below it count the same runs."
-      : "Counted from this browser alone — the tier, contract points and seal count above come from the server, which only ever sees sealed runs."}</div>` +
+    // ...and it no longer says "below it" about a ledger that now sits BESIDE
+    // it. A caption that describes a layout it does not have is the small kind
+    // of wrong that makes a reader distrust the large kind.
+    `<div class="cnamesub" style="margin-bottom:14px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
+    `<b style="color:var(--gold)">Gold bars are floors 13+</b>, where a death costs the most. ${useServer
+      ? "Certified rows only, so this chart and THE SEALED RECORD count the same runs."
+      : "This browser alone — the tier, contract points and seals come from the server, which only ever sees sealed runs."}</div>` +
     histogramHtml(byFloor) +
-    `<div class="tcols" style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px">` +
-      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
-      `letter-spacing:2px">THE LEDGERS</div>` +
+    // THREE COLUMNS, NOT TWO, AND BALANCED ONES. At 1600x900 the two-column
+    // career was 1462px tall inside an 864px frame: it cut FASTEST CLEAR
+    // through its own baseline and drew MORE BELOW on top of a milestone.
+    // Nothing was cut to fix it — the 18-bar histogram and the two-ledger
+    // split are the best things on this surface and both survive whole; the
+    // lower half is laid out across the 1180px the frame already owns.
+    //
+    // The two ledgers now sit SIDE BY SIDE rather than stacked, which is also
+    // the better reading of them: "runs the server certified" and "runs this
+    // browser saw" are a comparison, and a comparison belongs in two columns.
+    // Each keeps its own title, its own note and its own rule, so the boundary
+    // §5.2 cares about is if anything louder than it was.
+    `<div class="ccols">` +
+      `<div class="ccol">` +
       // THE SEALED RECORD first, because it is the one the boards agree with.
       ledgerGroupHtml(
         "THE SEALED RECORD",
         prof
-          ? "runs the server re-executed and certified, across every device you have ever signed in on. "
+          ? "runs the server re-executed and certified, on every device you have signed in on. "
             + "These are the numbers a board row can be checked against."
           : "the server career is offline, so there is nothing sealed to show — these arrive with the signal.",
         [
@@ -8755,13 +9074,22 @@ async function renderCareerSet(): Promise<void> {
             ? social.ticksClock(prof.fastestClear.ticks) : "—"],
         ],
       ) +
-      // ...then THIS BROWSER'S, which counts every run including the ones
-      // nobody certified, and says so instead of standing beside the other one
-      // pretending to be the same population.
+      // MASTERY rides under it: it is drawn from the same sealed population,
+      // so it belongs on the sealed side of the boundary.
+      `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
+      `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
+      `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
+      masteryHtml(prof?.mastery ?? []) +
+      `</div>` +
+      // ...and THIS BROWSER'S ledger stands beside it, counting every run
+      // including the ones nobody certified, and saying so instead of standing
+      // next to the other one pretending to be the same population.
+      `<div class="ccol">` +
       ledgerGroupHtml(
         "THIS BROWSER'S LEDGER",
         "every run this device finished, sealed or not, signed in or not — capped at the last 60. "
-        + "It counts more runs than the record above and proves fewer of them.",
+        + "It counts more runs than THE SEALED RECORD beside it, and proves fewer of them.",
         [
           ["EPISODES FILED", String(episodeCount())],
           ["RUNS ON THE LEDGER", String(bests?.runs ?? 0)],
@@ -8773,24 +9101,41 @@ async function renderCareerSet(): Promise<void> {
           ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
         ],
       ) +
-      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
-      `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
-      `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
-      `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
-      masteryHtml(prof?.mastery ?? []) + `</div>` +
-      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
-      `letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
-      `<div class="cnamesub" style="margin-bottom:6px">${bandBestsNote}</div>` +
+      // MILESTONES is drawn from the same local `history` as the ledger above
+      // it, so it belongs on this side of the boundary too.
+      `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
+      // A TRIMMABLE TAIL, ONE PER COLUMN. Both this and YOUR LAST RUNS grow
+      // without bound (one milestone per record ever set; 60 runs on the local
+      // ledger) and both are the least load-bearing thing on the screen, so
+      // they are what `fitPanel` gives back when a short viewport cannot hold
+      // everything — and it says how many it took rather than silently
+      // shortening the list. Giving the two tall columns a trimmable tail EACH
+      // is what makes that pass able to work at all: a cut in a column that
+      // was not the tallest one buys nothing (see `fitPanel`).
+      `<div class="fitlist" data-fitmin="2" data-fitnoun="milestone">` +
+      (social.milestonesFrom(history).map((m) =>
+        `<div class="mstone"><div class="mdate">${new Date(m.at).toISOString().slice(0, 10)}</div>` +
+        `<div><div class="mtitle">${esc(m.title)}</div><div class="mdetail">${esc(m.detail)}</div></div></div>`,
+      ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
+      `</div>` +
+      `</div>` +
+      // COLUMN THREE: the band records, and the shelf of runs that back them.
+      `<div class="ccol">` +
+      `<div class="rsec" style="color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
       // THE BARS ARE TIME, AND THE HEADING SAYS "BESTS", so the chart read
       // backwards: THE APPROACH at 6:32.68 filled the track under a heading
       // that made a full bar look like an achievement, while a 0:52.78
       // UNDERCROFT was a stub. The grammar stays time-proportional - the
       // verdict's splits use the identical markup and there longer
-      // legitimately means slower - and the axis now SAYS so, with the
-      // fastest band struck in gold so the eye has something to reward.
-      `<div class="cnamesub" style="margin-bottom:6px;color:var(--ink-faint)">` +
-      `bars are TIME IN THE BAND — <b style="color:var(--gold-hi)">shorter is better</b>, ` +
-      `and your quickest traversal is the gold one</div>` +
+      // legitimately means slower - and the caption SAYS so, with the fastest
+      // band struck in gold so the eye has something to reward. One caption,
+      // not two stacked ones: this column is the tallest on the panel and two
+      // notes saying one thing each was 30px of the height it overflowed by.
+      `<div class="cnamesub" style="margin-bottom:6px">${bandBestsNote} ` +
+      `Bars are TIME IN THE BAND — <b style="color:var(--gold-hi)">shorter is better</b>, ` +
+      `and the gold one is your quickest.</div>` +
       `<div>${(() => {
         const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
         const timed = bandBests.filter((x): x is number => !!x);
@@ -8801,21 +9146,24 @@ async function renderCareerSet(): Promise<void> {
           `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
           `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`).join("");
       })()}</div>` +
-      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
-      `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
-      (social.milestonesFrom(history).map((m) =>
-        `<div class="mstone"><div class="mdate">${new Date(m.at).toISOString().slice(0, 10)}</div>` +
-        `<div><div class="mtitle">${esc(m.title)}</div><div class="mdetail">${esc(m.detail)}</div></div></div>`,
-      ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
+
+      // THE SHELF SITS UNDER THE BAND RECORDS instead of taking a full-width
+      // band below the columns — both are the server's view of runs you can
+      // still play back, and moving it here is what buys the panel most of the
+      // height it was overflowing by.
+      (prof && prof.recent.length
+        ? `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
+          `font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS</div>` +
+          `<div class="cnamesub" style="margin-bottom:6px">Newest first, and kept playable regardless of ` +
+          `board position. This is a shelf, not a ladder: no ranks, no podium.</div>` +
+          `<ul class="board fitlist" data-fitmin="1" data-fitnoun="run">` +
+          `${prof.recent.map(recentRowHtml).join("")}</ul></div>`
+        : "") +
       `</div>` +
-    `</div>` +
-    (prof && prof.recent.length
-      ? `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
-        `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS — KEPT PLAYABLE REGARDLESS OF BOARD POSITION</div>` +
-        `<div class="cnamesub" style="margin-bottom:6px">Newest first. This is a shelf, not a ladder: ` +
-        `no ranks, no podium — it is sorted by when it happened.</div>` +
-        `<ul class="board">${prof.recent.map(recentRowHtml).join("")}</ul>`
-      : "");
+    `</div>`;
+  fitPanel(careerEl);
+  fitPanelSoon(careerEl);
 }
 
 async function openCareerSet(): Promise<void> {
@@ -8828,6 +9176,7 @@ async function openCareerSet(): Promise<void> {
 }
 careerEl.addEventListener("click", (e) => {
   const el = e.target as HTMLElement;
+  if (toggleFitList(el, careerEl)) return;
   const race = el.closest("[data-race]") as HTMLElement | null;
   if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN"); return; }
   toggleRowDetail(el);
@@ -9916,24 +10265,14 @@ async function main(): Promise<void> {
     for (const a of frameAnns) showAnnouncement(a);
     updateDowned(state);
     maybeShowRecap(state);
-    // THE RUN ENDING IS A BEAT, NOT A DIALOG OPENING (6 Beat 0). Everything
-    // below this line draws the LIVE HUD, and it all kept running after the
-    // status edge - the FLOOR/COLLAPSE panel, the SYSTEM/CRAWLER/VIEWERS
-    // strip, the Hype bar, the HP bar, the ability cockpit and the minimap
-    // were being recomputed and redrawn behind the verdict for its entire
-    // life. body.cine takes them out of frame; this stops them being computed
-    // at all, and it is also what keeps the boss code from tearing down the
-    // letterbox the freeze just raised.
-    if (state.status === "playing") {
-      updateHud(state);
-      updateSkills(state);
-      updateGhostHud(state);
-      updateGhostPlate(state);
-      updateShowHud(state);
-      updateBossBar(state);
-      drawMinimap(state);
-      updateRoamUi(state);
-    }
+    updateHud(state);
+    updateSkills(state);
+    updateGhostHud(state);
+    updateGhostPlate(state);
+    updateShowHud(state);
+    updateBossBar(state);
+    drawMinimap(state);
+    updateRoamUi(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

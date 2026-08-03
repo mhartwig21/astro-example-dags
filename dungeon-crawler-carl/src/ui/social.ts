@@ -1108,30 +1108,24 @@ export function verdictSeal(
  *  button (2.6f). A silent disable is how a player concludes the ladder is
  *  broken; a named era is how they conclude the game is honest. */
 /**
- * THE SEAL BEAT (6.2 Beat 5: "watching the seal land is two genuinely
- * satisfying seconds"), as arithmetic rather than as a hope.
+ * THE SEAL STATE, as arithmetic rather than as a hope.
  *
- * Instrumented on the shipping build: `vseal pending` at t+0 while the verdict
- * card was still at opacity 0 mid-entrance, `vseal verified ranked` by t+900ms.
- * No `verifying` frame was ever painted, so the beat did not happen - the
- * strike animation was staged correctly and had nothing to land ON.
- *
- * Two clocks, and getting either wrong deletes the moment:
- *  - The card reaches the screen ~560-760ms after the status edge (the Beat 0
- *    freeze), so a dwell measured from the death is spent behind a letterbox.
- *  - `#recap .vseal` then rides the reading cascade -
- *    `animation: verdict-rise 0.42s ease-out 0.98s both` - so the block itself
- *    is at opacity 0 for a further 980ms and finishes rising at ~1.40s. A dwell
- *    measured from the CARD is spent behind an invisible element.
+ * Instrumented on the shipping build: `vseal pending` at t+0, `vseal verified
+ * ranked` by t+900ms. No `verifying` frame was ever painted, so the player had
+ * no way to see that the server had done anything.
  *
  * Returns how many milliseconds a terminal verdict must be HELD (never
- * dropped) before it is painted. 0 means paint it now. Measured on a real run
- * after this shipped: card at t=74388, block risen at 75788, the CLAIMED
- * verdict arrived at 74688 and was painted at 76990 - 1,202ms of visible
- * pending, where there had been none.
+ * dropped) before it is painted, so the state it replaces has been legible for
+ * at least SEAL_MIN_PENDING_MS. 0 means paint it now.
+ *
+ * SEAL_CASCADE_MS is how long after the card appears the seal block is
+ * READABLE. It was 1400 while the verdict opened as a staged cascade and the
+ * block spent 980ms at opacity 0 before rising; that cascade is reverted - the
+ * panel now arrives complete and at rest - so the block is readable the moment
+ * the card is, and the offset is zero.
  */
 export const SEAL_MIN_PENDING_MS = 1200;
-export const SEAL_CASCADE_MS = 1400;
+export const SEAL_CASCADE_MS = 0;
 
 export function sealHoldMs(
   now: number,

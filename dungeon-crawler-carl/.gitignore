@@ -17,3 +17,6 @@ public/assets/generated/
 # multi-megabyte PNGs per round. The probe SCRIPTS in tools/_mobile are
 # committed; their output is not.
 tools/_mobile/*/
+# ...same rule for the competitive-screen probes (tools/_r2_measure.mjs and the
+# critic's own): the script is the artifact, the megabytes of PNG are not.
+tools/_critic/
