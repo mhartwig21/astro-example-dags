@@ -36,3 +36,9 @@ tools/_staticmatrix.png
 # evidence the round s numbers were read off.
 tools/_r2pay/*.png
 tools/_r2pay/*.log
+# r3 SPEND captures (tools/_r3look.mjs, tools/_r3dmg.mjs, and the acceptance
+# cost harness run per arm): same rule as every round above — the harnesses are
+# committed and so are the small JSON/log receipts the numbers were read off,
+# but the multi-megabyte PNG piles are not.
+tools/_r3look/*.png
+tools/_r3cost_*/*.png

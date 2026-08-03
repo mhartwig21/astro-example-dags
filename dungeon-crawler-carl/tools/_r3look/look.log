@@ -1,0 +1,34 @@
+GPU: {"unmaskedRenderer":"ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)","devicePixelRatio":2,"screen":"1440x852"}
+
+== A1 floor 2, no combat ==
+  boot: {"preset":"balanced","pixelRatio":1.2,"drawBuffer":"1728x1022","gameGpu":"ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)","programs":149}
+  shot r3_f2_environment: {"floor":2,"monstersWithin11":1,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=0 overlapPairs=0 worst=0 plates=1 {"cls":"mplate r-ranged rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(79, 201, 232)"}
+
+== A2 floor 8, no combat ==
+  shot r3_f8_environment: {"floor":8,"monstersWithin11":1,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=0 overlapPairs=0 worst=0 plates=1 {"cls":"mplate r-melee rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(216, 72, 58)"}
+
+== A3 floor 14 dense combat (the frame that was rejected) ==
+  stage: {"placed":22,"liveTotal":171}
+  shot r3_f14_combat_0: {"floor":14,"monstersWithin11":30,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=1 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-melee rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(216, 72, 58)"}
+  shot r3_f14_combat_1: {"floor":14,"monstersWithin11":30,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=1 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-melee rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(216, 72, 58)"}
+  shot r3_f14_combat_2: {"floor":14,"monstersWithin11":30,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=1 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-melee","opacity":1,"fillH":4,"fillW":32,"fillBg":"linear-gradient(rgb(224, 96, 79), rgb(169, 50, 38) 55%, rgb(","roleW":4,"roleBg":"rgb(216, 72, 58)"}
+  shot r3_f14_combat_3: {"floor":14,"monstersWithin11":33,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=3 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-melee rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(216, 72, 58)"}
+  shot r3_f14_combat_4: {"floor":14,"monstersWithin11":35,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=4 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-melee","opacity":1,"fillH":4,"fillW":32,"fillBg":"linear-gradient(rgb(224, 96, 79), rgb(169, 50, 38) 55%, rgb(","roleW":4,"roleBg":"rgb(216, 72, 58)"}
+  shot r3_f14_character_crop: {"floor":14,"monstersWithin11":37,"bossAlive":false,"bossDist":-1,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=2 overlapPairs=0 worst=0 plates=18 {"cls":"mplate r-caster rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(176, 139, 255)"}
+
+== A4 floor 18, the finale, crawler moved onto the boss ==
+  moved: {"ok":true,"bx":32.111164999999794,"by":19.314886666666713}
+  shot r3_f18_boss_0: {"floor":18,"monstersWithin11":2,"bossAlive":true,"bossDist":4,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=0 overlapPairs=0 worst=0 plates=3 {"cls":"mplate r-caster rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(176, 139, 255)"}
+  shot r3_f18_boss_1: {"floor":18,"monstersWithin11":3,"bossAlive":true,"bossDist":4,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=0 overlapPairs=0 worst=0 plates=3 {"cls":"mplate r-caster rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(176, 139, 255)"}
+  shot r3_f18_boss_2: {"floor":18,"monstersWithin11":4,"bossAlive":true,"bossDist":3.2,"preset":"balanced","pixelRatio":1.2,"drawCalls":1,"loadingBox":{"w":0,"h":0}}
+         dmg: n=0 overlapPairs=0 worst=0 plates=4 {"cls":"mplate r-ranged rest","opacity":0.74,"fillH":3,"fillW":27,"fillBg":"linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))","roleW":3,"roleBg":"rgb(79, 201, 232)"}

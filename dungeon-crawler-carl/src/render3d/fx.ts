@@ -327,33 +327,82 @@ export function makeDissolving(root: THREE.Object3D, edgeHex: number): { value: 
   return uD;
 }
 
-/** Irregular white splat texture (alpha shaped) — tinted by material color. */
+/**
+ * THE SCORCH MARK STOPS BEING A DISC OF PAINT (r3 blockers #4 and #10).
+ *
+ * The old texture was WHITE with an alpha shape: an unlit MeshBasicMaterial
+ * then multiplied it by the effect's hot hue, so every mark rendered as a flat
+ * region of one near-max-luminance colour at 0.74 opacity, with a "crisp
+ * falloff ... near-solid interior". A radius-4.2 mark (the Injunction's) is
+ * ~8.4 world units across, which on the gameplay camera is a large fraction of
+ * the frame — and acceptance photographed exactly that: "a single AoE floods
+ * 40-60% of the screen with flat, near-max-luminance orange and every floor
+ * tile, prop and mob inside it is value-crushed to white", and separately "our
+ * AoE discs are solid orange circles ... uniform blown-out interiors".
+ *
+ * The reference it is scored against (lol_04) has a TRANSLUCENT interior you
+ * can still see terrain through, with the light confined to inscribed rings.
+ * That is a value structure, and a value structure can live in the texture:
+ * this bake writes STRUCTURE into RGB rather than flat white, so the tint the
+ * caller passes is multiplied by a curve instead of by 1.0 everywhere.
+ *
+ *   · the interior is BURNT — RGB ~0.06-0.14, i.e. the hot hue rendered nearly
+ *     black. A scorch is a hole in the floor, not a lamp on it.
+ *   · the light lives in one ember BAND at ~0.72 of the radius plus ember
+ *     speckle, so what the eye reads is a ring, and what bloom sees is thin.
+ *   · alpha is LOW over the interior (~0.3) and high only in the band, so the
+ *     floor tiles, props and bodies standing in the mark keep their own value.
+ *
+ * The shape stays irregular (a lobed radius, not a circle) and the falloff
+ * stays crisp — the original note about soft skirts reading as fog smear is
+ * still right. What changed is that the mark now has an inside and an edge.
+ */
 function splatTexture(): THREE.Texture {
+  const N = 128;
   const c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = N;
   const g = c.getContext("2d")!;
-  let seed = 13;
-  const rnd = (): number => {
-    seed = (seed * 16807) % 2147483647;
-    return seed / 2147483647;
+  const img = g.createImageData(N, N);
+  const d = img.data;
+  const hash = (x: number, y: number): number => {
+    const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+    return s - Math.floor(s);
   };
-  // CRISP falloff (audit r3): scorch marks hold a near-solid interior and cut
-  // off fast at the edge — a soft wide skirt reads as fog smear, not a mark.
-  const blob = (bx: number, by: number, br: number, a: number): void => {
-    const grad = g.createRadialGradient(bx, by, 1, bx, by, br);
-    grad.addColorStop(0, `rgba(255,255,255,${a})`);
-    grad.addColorStop(0.72, `rgba(255,255,255,${a * 0.55})`);
-    grad.addColorStop(0.9, `rgba(255,255,255,${a * 0.12})`);
-    grad.addColorStop(1, "rgba(255,255,255,0)");
-    g.fillStyle = grad;
-    g.fillRect(bx - br, by - br, br * 2, br * 2);
+  const smooth = (a: number, b: number, x: number): number => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
   };
-  blob(64, 64, 42, 0.9);
-  for (let i = 0; i < 26; i++) {
-    const a = rnd() * Math.PI * 2;
-    const d = 14 + rnd() * 44;
-    blob(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 4 + rnd() * 12, 0.28 + rnd() * 0.5);
+  for (let py = 0; py < N; py++) {
+    for (let px = 0; px < N; px++) {
+      const nx = (px + 0.5) / N * 2 - 1, ny = (py + 0.5) / N * 2 - 1;
+      const r = Math.sqrt(nx * nx + ny * ny);
+      const ang = Math.atan2(ny, nx);
+      // Lobed perimeter: three harmonics, so no mark is ever a compass circle.
+      const lobe = 0.94 + 0.055 * Math.sin(ang * 3 + 0.7)
+        + 0.035 * Math.sin(ang * 7 - 1.9) + 0.022 * Math.sin(ang * 13 + 3.1);
+      const rr = r / lobe; // 0 at the centre, 1 at the perimeter
+      const i = (py * N + px) * 4;
+      if (rr >= 1) { d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0; continue; }
+      // Burn grain: two octaves of cell hash, so the char is blotchy.
+      const grain = hash(Math.floor(px / 5), Math.floor(py / 5)) * 0.6
+        + hash(Math.floor(px / 13) + 31, Math.floor(py / 13) + 17) * 0.4;
+      // The ember band, and a second fainter one inside it — the "layered
+      // inner circle geometry" of the reference, baked instead of built.
+      const band = Math.exp(-(((rr - 0.74) / 0.115) ** 2));
+      const band2 = Math.exp(-(((rr - 0.44) / 0.085) ** 2)) * 0.45;
+      const speck = Math.max(0, hash(Math.floor(px / 3) + 7, Math.floor(py / 3) + 5) - 0.86) * 7
+        * (0.25 + 0.75 * grain);
+      // VALUE: burnt floor, an ember ring, cinders. Never 1.0 across an area.
+      const v = Math.min(1, 0.055 + 0.09 * grain + 0.82 * band + 0.34 * band2 + 0.5 * speck);
+      // ALPHA: the interior only tints, the band commits. Crisp outer cut.
+      const a = (0.30 + 0.16 * grain + 0.55 * band + 0.16 * band2 + 0.4 * speck)
+        * (1 - smooth(0.80, 1.0, rr));
+      const q = Math.round(Math.max(0, Math.min(1, v)) * 255);
+      d[i] = d[i + 1] = d[i + 2] = q;
+      d[i + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+    }
   }
+  g.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(c);
 }
 
@@ -362,6 +411,7 @@ interface DecalSlot {
   mat: THREE.MeshBasicMaterial;
   life: number;
   max: number;
+  energy: number; // REF_R / radius — the same area-division rule as AoeBursts
   hot: THREE.Color;
   cold: THREE.Color;
 }
@@ -378,6 +428,8 @@ export class GroundDecals {
   // a room you cleared shows that you cleared it. 28 pooled quads at ~1-4
   // world units is the fill-rate ceiling this buys; see the commit message.
   private static MAX = 28;
+  /** The radius whose ink is "1" — a kill mark. Bigger marks divide down. */
+  private static REF_R = 1.4;
 
   /** Stamp a splat at (x,z): cools from hotHex to coldHex, fades over `max`s. */
   spawn(x: number, z: number, r: number, coldHex: number, hotHex: number, max = 10): void {
@@ -392,7 +444,7 @@ export class GroundDecals {
         mesh.renderOrder = 1;
         mesh.userData.noAO = true;
         this.group.add(mesh);
-        slot = { mesh, mat, life: 1, max: 1, hot: new THREE.Color(), cold: new THREE.Color() };
+        slot = { mesh, mat, life: 1, max: 1, energy: 1, hot: new THREE.Color(), cold: new THREE.Color() };
         this.slots.push(slot);
       } else {
         slot = this.slots[0]; // oldest-progress slot gets recycled
@@ -403,13 +455,19 @@ export class GroundDecals {
     slot.max = max;
     slot.hot.setHex(hotHex);
     slot.cold.setHex(coldHex);
+    // AREA DIVISION, the same rule AoeBursts already enforces and for the same
+    // reason: a radius-4.2 Injunction mark covers ~40x the ground a radius-0.7
+    // kill mark does, so painting both at one opacity means the big one owns
+    // the frame. The caller cannot opt out — it is derived from the radius it
+    // asked for, not passed in.
+    slot.energy = Math.max(0.34, Math.min(1, GroundDecals.REF_R / Math.max(r, 0.5)));
     slot.mesh.visible = true;
     // Tiny per-slot lift so stacked decals never z-fight.
     slot.mesh.position.set(x, 0.02 + 0.002 * this.slots.indexOf(slot), z);
     slot.mesh.rotation.z = Math.random() * Math.PI * 2;
     slot.mesh.scale.setScalar(r);
     slot.mat.color.copy(slot.hot);
-    slot.mat.opacity = 0.78;
+    slot.mat.opacity = 0.78 * slot.energy;
   }
 
   update(dt: number): void {
@@ -417,13 +475,17 @@ export class GroundDecals {
       if (s.life >= s.max) { s.mesh.visible = false; continue; }
       s.life += dt;
       const t = Math.min(1, s.life / s.max);
-      // Cool fast (first ~8% of life), then fade slow.
-      const cool = Math.min(1, s.life / (s.max * 0.08));
+      // COOL FAST. 8% of a 34 s mark is 2.7 SECONDS of a big disc held at its
+      // hot hue, which is long enough for a screenshot of an ordinary fight to
+      // catch it — 2 of acceptance's 4 floor-14 samples did. An ember cools in
+      // about a second whatever the mark's lifetime is, so the hot phase is now
+      // absolute rather than a fraction of a lifetime that grew tenfold.
+      const cool = Math.min(1, s.life / 0.9);
       s.mat.color.lerpColors(s.hot, s.cold, cool);
       // HOLD, THEN GO. `1 - t*t` spends 60% of a long life nearly invisible,
       // which is how a 34 s mark would still read as "nothing survived a
       // fight". A mark now keeps its ink until the last third.
-      s.mat.opacity = 0.74 * Math.min(1, 2.8 * (1 - t));
+      s.mat.opacity = 0.74 * s.energy * Math.min(1, 2.8 * (1 - t));
       if (s.life >= s.max) s.mesh.visible = false;
     }
   }
@@ -584,10 +646,29 @@ const AOE_FRAG = /* glsl */ `
     float tw = step(0.965, fract(mh * 7.3 + uTime * 1.9));
     float motes = tw * smoothstep(0.22, 0.0, abs(r - ease * 0.9)) * (1.0 - uProg);
 
+    // ---- INNER INSCRIPTION, HELD (r3 major #10). The reference (lol_04) has
+    // layered CONCENTRIC geometry inside the leading front, not just the front:
+    // a rune ring, an inner circle, and glyph ticks that stay legible while the
+    // wave runs past them. The "rune" term above burns off in the first 40%
+    // and rides the moving front, so once the wave passed there was nothing
+    // left inside the disc but the flat interior acceptance photographed. This
+    // band is at a FIXED radius and holds through the middle of the life.
+    float insBand = smoothstep(0.055, 0.0, abs(r - 0.52));
+    float glyph = smoothstep(0.15, 0.75, sin(ang * 9.0 - uTime * 0.55 + uSeed * 6.28));
+    float inner = insBand * (0.35 + 0.65 * glyph) * (1.0 - smoothstep(0.55, 0.95, uProg));
+    float innerRing = smoothstep(0.028, 0.0, abs(r - 0.30)) * (1.0 - smoothstep(0.6, 1.0, uProg));
+
     // ---- SOFT PERIMETER: no layer ever ends on a raw circle cut.
     float edgeF = 1.0 - smoothstep(0.94, 0.999, r);
-    float glowA = (ribbon + rune * 0.5 + motes * 0.8) * edgeF * uEnergy;
-    float alpha = clamp(glowA + darkA * edgeF, 0.0, 0.9);
+    float glowA = (ribbon + rune * 0.5 + motes * 0.8 + inner * 0.55 + innerRing * 0.7) * edgeF * uEnergy;
+    // ALPHA CEILING (r3 blocker #4). 0.9 over an area is opaque enough that the
+    // floor tiles, props and bodies inside the footprint are gone — acceptance:
+    // "every floor tile, prop and mob inside it is value-crushed to white",
+    // against a reference that puts a fully saturated fire beam across NEAR-
+    // WHITE SNOW and the snow stays readable underneath. 0.62 keeps the ground
+    // visible THROUGH the effect, which is the whole difference between a
+    // painted effect and a coat of paint.
+    float alpha = clamp(glowA + darkA * edgeF, 0.0, 0.62);
     if (!(alpha >= 0.004)) discard;
 
     // ---- HUE RAMP across the fronts: deep rim behind, saturated mid in the
@@ -609,7 +690,19 @@ const AOE_FRAG = /* glsl */ `
     hue = mix(hue, uCore, clamp(hdr * 0.55 + motes, 0.0, 1.0));
     vec3 glowCol = hue * (0.9 + hdr) * uEnergy;
     // The scorch plate contributes a near-black, faintly hue-tinted colour.
-    vec3 col = (glowCol * glowA + uRim * 0.035 * darkA) / max(alpha, 1e-4);
+    vec3 col = (glowCol * glowA + uRim * 0.035 * darkA + hue * 0.55 * (inner + innerRing)) / max(alpha, 1e-4);
+    // VALUE CEILING, AND WHY IT IS A CEILING AND NOT A GAIN (r3 blocker #4).
+    // Every term above is already area-divided, and the frame acceptance
+    // rejected STILL had 40-60% of its pixels at near-max luminance. Dividing
+    // by alpha is what does it: this shader emits un-premultiplied colour, so a
+    // thin-alpha fragment carrying real energy resolves to an ENORMOUS rgb, and
+    // nothing downstream was bounded. The reference frames keep their hottest
+    // FX pixels a clear step under paper white and let bloom do the rest; this
+    // clamps the un-premultiplied result so a single fragment can never exceed
+    // ~2.6x the tone-map knee, which is exactly enough to bloom and not enough
+    // to crush everything sharing the pixel.
+    float cMx = max(col.r, max(col.g, col.b));
+    col *= mix(1.0, 2.6 / max(cMx, 1e-4), step(2.6, cMx));
     gl_FragColor = vec4(col, alpha);
   }`;
 

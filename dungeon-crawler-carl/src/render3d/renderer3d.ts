@@ -996,6 +996,7 @@ export class Renderer3D {
       trim?: number; // metallic edge-glint hex (gold trim on the upper body)
       trimGain?: number; // trim intensity (default 0.3)
       gloss?: number; // roughness override (porcelain sheen < the 0.82 clay cap)
+      edge?: number; // dark core-shadow edge gain (figure-ground vs BRIGHT ground)
     },
   ): void {
     const col = new THREE.Color(opts.rim);
@@ -1108,6 +1109,34 @@ export class Renderer3D {
       `  float rimSide = smoothstep(-0.45, 0.55, -normal.x * 0.6 + normal.y * 0.55);\n` +
       `  vec3 rimC = mix(uChRim, uChWarm, rimSide);\n` +
       `  totalEmissiveRadiance += rimC * (rimF * uChRimStr);\n` +
+      // ---- THE OTHER HALF OF FIGURE-GROUND: A DARK EDGE (r3 major #6) -------
+      //
+      // Acceptance, on a native-pixel crop and it is the worst frame in the
+      // set: "the mob cluster is an undifferentiated pile of cream/beige blobs.
+      // You cannot count them, cannot tell melee from caster, cannot find the
+      // crawler ... the 'edge, not an aura' shading commit is present but it is
+      // doing nothing at gameplay camera distance against pale mobs on a pale
+      // floor."
+      //
+      // Both halves of that are true and they explain each other. The rim IS
+      // present, and it is ADDITIVE — which separates a figure from a DARK
+      // background and does nothing at all against a bright one. A pale mob
+      // standing on a floor lit by a warm impact pool has no background darker
+      // than itself, so there is no contrast for a light edge to make.
+      //
+      // Every painted reference solves this with two edges, not one: a light
+      // rim on the key side and a dark CORE SHADOW turning away from it. The
+      // dark edge is the one that survives a bright background, and it is the
+      // one this build never had. It multiplies diffuseColor (which
+      // lights_physical_fragment consumes after this chunk), so it darkens the
+      // LIT result rather than pasting a black outline on top — it reads as
+      // form, not as a cel border, which is what keeps it inside the KayKit
+      // look. Confined to the side the rim is NOT on, so the two never fight.
+      //
+      // Emitted unconditionally at gain 0 = exact identity (mix(x,y,0) is x),
+      // so this does not fork the one shared character program.
+      `  { float darkF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.4);\n` +
+      `    diffuseColor.rgb *= mix(1.0, 0.34, darkF * (1.0 - rimSide) * uChEdge); }\n` +
       // Class accent: a tight edge catch, NOT a second rim. It used to run at
       // power 2.0 — wider than the rim it sat under — and pulse at ~1.3Hz, so
       // the two stacked into a breathing halo. A pulsing glow on the player's
@@ -1143,6 +1172,11 @@ export class Renderer3D {
       uChCeil: { value: 1 },
       uChRim: { value: col },
       uChRimStr: { value: opts.strength },
+      // Dark-edge gain. Default 0.62 for anything that did not ask: every
+      // character in the game wants figure-ground separation, and the ones that
+      // want LESS of it (the hero, whose authority comes from being brighter
+      // than the crowd, not darker-edged than it) say so.
+      uChEdge: { value: opts.edge ?? 0.62 },
       uChAccent: { value: accent ?? new THREE.Color(0, 0, 0) },
       uChAccentGain: { value: accent ? accentGain : 0 },
       uChTrim: { value: trim ?? new THREE.Color(0, 0, 0) },
@@ -1156,12 +1190,13 @@ export class Renderer3D {
       "uniform float uChDesat;\nuniform float uChHeroSat;\nuniform float uChValue;\n" +
       "uniform vec3 uChTint;\nuniform float uChTintGain;\nuniform float uChGrime;\n" +
       "uniform float uChCeil;\nuniform vec3 uChRim;\nuniform float uChRimStr;\n" +
+      "uniform float uChEdge;\n" +
       "uniform vec3 uChAccent;\nuniform float uChAccentGain;\n" +
       "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n" +
       "uniform float uChHitFlash;\nuniform vec3 uChHitTint;\n";
     // Still one MATERIAL per distinct look (it carries the uniform values), but
     // every one of them now resolves to the same PROGRAM.
-    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:w7u`;
+    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:${opts.edge ?? 0.62}:w8e`;
     g.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material || mesh.userData.noAO) return;
@@ -1594,6 +1629,13 @@ export class Renderer3D {
   private dustTint = 0x3a332c; // floor-ambient dust color, set per floor build
   private bloomBase = -1;
   private bloomKick = 0;
+  // Combat framing bias (r3 major #13) — see the long note at the camera rig.
+  private fightBiasX = 0;
+  private fightBiasZ = 0;
+  /** Enemies inside this radius count toward the framing centroid. */
+  private static CAM_FIGHT_R2 = 9 * 9;
+  /** Hard cap on how far the anchor may leave the crawler, in world units. */
+  private static CAM_FIGHT_MAX = 2.6;
 
   private glowTexture(): THREE.Texture {
     if (this.glowTex) return this.glowTex;
@@ -2105,7 +2147,21 @@ export class Renderer3D {
     // Threshold LIFTED to 0.92 (critic r2 blocker): the combat-FX layers are
     // budgeted to peak ~0.9, so their hue passes through untouched — only the
     // rare true-hot pixel (flame cores, the tiny impact core) blooms.
-    this.bloom = new ScaledBloomPass(new THREE.Vector2(2, 2), 0.5, 0.7, 0.92);
+    // RADIUS 0.70 IS THE MECHANISM THAT TURNS A LOCAL EFFECT INTO A GLOBAL TINT
+    // (r3 blocker #4). UnrealBloomPass composites five mips with per-mip weights
+    // lerpBloomFactor(f) = mix(f, 1.2 - f, radius) over f = [1.0 .. 0.2]. At
+    // 0.70 that evaluates to [0.44, 0.52, 0.60, 0.68, 0.76] — the WIDEST mip,
+    // which is a 1/32-resolution blur of the whole screen, is weighted HIGHEST
+    // and the tightest is weighted lowest. Any large bright region therefore
+    // resolves to a near-constant colour added to every pixel in the frame,
+    // which is precisely what acceptance photographed: "the tint is global
+    // rather than local — the floor is pink out to the frame edge".
+    // At 0.40 the weights are [0.68, 0.64, 0.60, 0.56, 0.52]: still a soft wide
+    // kernel (flames keep bleeding into the dark, which the note above is right
+    // to want), but the tight mips now lead, so a hot core gets a HALO instead
+    // of the room getting a wash. Strength comes up a notch to keep the same
+    // energy in the halo the frame actually reads.
+    this.bloom = new ScaledBloomPass(new THREE.Vector2(2, 2), 0.56, 0.4, 0.92);
     this.bloom.setScale(this.quality.bloomScale);
     this.bloom.enabled = this.quality.bloom;
     this.composer.addPass(this.bloom);
@@ -3521,6 +3577,13 @@ export class Renderer3D {
         hero: true,
         accent: Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff,
         accentGain: 0.2,
+        // The crawler takes LESS dark edge than the pack. His separation comes
+        // from being the brightest, most saturated figure on screen (see
+        // uChHeroSat/uChValue) plus his own travelling kick light; a heavy
+        // core shadow would spend his value authority to buy contrast he
+        // already has, and "find yourself in the brawl" is the one read that
+        // must not get quieter.
+        edge: 0.34,
       };
       model.userData.charShade = shade;
       this.applyCharacterShading(model, shade);
@@ -3781,7 +3844,25 @@ export class Renderer3D {
     }
     // Fold the archetype size onto whatever scale the model normalization set
     // (a crafted def's scale multiplies on top).
-    const base = (model ? g.scale.x : 1) * spec.scale * (def?.scale ?? 1);
+    //
+    // A BOSS GETS BIGGER AS THE DUNGEON GETS DEEPER (r3 major #8). Acceptance,
+    // on a verified floor-18 frame: "the final boss occupies ~3% of the frame
+    // ... a small red-armoured humanoid smaller than the crates next to it. In
+    // d4_02 the world boss sprawls across a third of the screen and the frame
+    // is unmistakably about it. Floor 18 of 18 has no 'this thing is enormous'
+    // beat anywhere."
+    //
+    // A flat scale of 3.0 for every boss on all eighteen floors is exactly the
+    // shape of that complaint: the floor-2 menace and the finale are the same
+    // size, so nothing about the last one says LAST. The ramp is deliberately
+    // gentle at the top of the dungeon and steep at the bottom — floor 1 is
+    // unchanged, the finale is 1.45x linear (~3x the screen AREA), which puts
+    // the Board at ~6.3 world units against the crawler's 1.55 and makes it the
+    // tallest thing in its own arena instead of a match for the scenery.
+    const bossDepth = kind === "boss"
+      ? 1 + 0.45 * Math.min(1, Math.max(0, (floor - 1) / 17)) ** 0.85
+      : 1;
+    const base = (model ? g.scale.x : 1) * spec.scale * bossDepth * (def?.scale ?? 1);
     g.scale.setScalar(base);
     g.userData.baseScale = base;
     this.addBlobShadow(g, 0.44 * spec.scale);
@@ -3837,7 +3918,20 @@ export class Renderer3D {
       // shipping as identical bone-white blanks. Bosses lean harder — the
       // menace must read as ITS OWN THING from across the arena.
       tint: def?.tint ?? spec.color,
-      tintGain: isBossKind ? 0.6 : 0.5,
+      // ARCHETYPE HUE, RAISED (r3 major #6). The tint is normalized so its max
+      // component is 1 (value-preserving, deliberately), which means a gain of
+      // 0.5 on a red archetype only pulls green and blue down ~30% — white
+      // KayKit clay came out PALE PINK, and eleven pale-pink/pale-green mobs at
+      // gameplay distance under a warm impact pool are the "undifferentiated
+      // pile of cream/beige blobs" acceptance photographed. 0.78 is far enough
+      // for a shaman to read GREEN and a sentinel to read RED across a room,
+      // and still short of the jelly-bean look that would fight the art
+      // direction: it tints the white clay, not the dyed cloth or the leather
+      // (see the tSat/tMx gate this multiplies into).
+      tintGain: isBossKind ? 0.6 : 0.78,
+      // Enemies take the FULL dark edge — they are the ones that must separate
+      // from a bright floor, from each other, and from a mob pile.
+      edge: isBossKind ? 0.5 : 0.78,
       // Mobs cede brightness to the hero (issue #4): a white ogre must never
       // out-value the player's silhouette.
       //
@@ -8495,7 +8589,10 @@ export class Renderer3D {
     this.fxGlare = Math.max(0, this.fxGlare - dt * 1.7);
     const glareK = 1 / (1 + this.fxGlare);
     this.bloom.strength = (this.bloomBase + this.bloomKick * 0.18) * glareK;
-    this.bloom.radius = this.bloomBaseRadius * (1 - 0.4 * Math.min(1, this.fxGlare));
+    // The RADIUS is the wash term (see the mip-weight note at construction), so
+    // the governor bites it harder than it bites strength: a big detonation
+    // keeps its energy and loses its reach.
+    this.bloom.radius = this.bloomBaseRadius * (1 - 0.62 * Math.min(1, this.fxGlare));
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
@@ -8555,6 +8652,51 @@ export class Renderer3D {
     if (this.aimLead > 1e-3 && this.aimDirWorld) {
       ax += this.aimDirWorld.x * this.aimLead;
       az += this.aimDirWorld.y * this.aimLead;
+    }
+    // ---- THE CAMERA FRAMES THE FIGHT, NOT JUST THE CRAWLER (r3 major #13) ---
+    //
+    // Acceptance: "in combat_0/1/3 the entire engagement is jammed into the
+    // upper-left quadrant with a large empty quadrant opposite ... in
+    // ours_f8_environment.png the crawler is pressed against a wall with the
+    // readable content off to the left."
+    //
+    // That is what a camera rigidly centred on one body does: the crawler is
+    // always at the exact middle of the frame, so the pack he is fighting is
+    // always somewhere else, and the half of the screen behind him is always
+    // empty. Every ARPG solves it the same way — bias the anchor toward the
+    // MIDPOINT of the engagement, so the composition is about the fight rather
+    // than about one avatar.
+    //
+    // The rules that keep it from feeling loose: it needs at least two live
+    // enemies inside 9 units before it engages at all (walking a corridor gets
+    // no camera work), it never moves more than CAM_FIGHT_MAX units (the
+    // crawler stays comfortably inside the frame and never leaves it), and it
+    // eases at ~3/s so a mob dying does not snap the shot. Presentation only:
+    // the sim never learns the camera moved, and the anchor is not an input.
+    {
+      let cx = 0, cz = 0, n = 0;
+      for (const m of state.monsters) {
+        if (m.hp <= 0 || m.dormant) continue;
+        const dx = m.pos.x - p.pos.x, dz = m.pos.y - p.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > Renderer3D.CAM_FIGHT_R2) continue;
+        cx += dx; cz += dz; n++;
+      }
+      let wx = 0, wz = 0;
+      if (n >= 2) {
+        // Half-way to the pack's centroid, then clamped — "the pair is the
+        // subject" is the same rule the boss framing above already uses.
+        wx = (cx / n) * 0.5; wz = (cz / n) * 0.5;
+        const l = Math.hypot(wx, wz);
+        if (l > Renderer3D.CAM_FIGHT_MAX) {
+          wx *= Renderer3D.CAM_FIGHT_MAX / l; wz *= Renderer3D.CAM_FIGHT_MAX / l;
+        }
+      }
+      const k = Math.min(1, dt * 3);
+      this.fightBiasX += (wx - this.fightBiasX) * k;
+      this.fightBiasZ += (wz - this.fightBiasZ) * k;
+      ax += this.fightBiasX;
+      az += this.fightBiasZ;
     }
     if (drop > 1e-3) {
       // Screen-up, on the ground plane, is the reverse of the camera's own

@@ -81,9 +81,39 @@ void main() {
   float edge = m * smoothstep(0.34, 0.62, m + (billow - 0.5) * 0.30);
   // Ground mist: patchy haze over the EXPLORED map too (never past the edge).
   float base = uMist * smoothstep(0.42, 0.9, billow) * inside;
-  float a = max(edge, base) * uOpacity * (0.8 + 0.2 * billow);
+  // ---- THE FADE HAS TO HAVE ART IN IT (r3 major #9) ----------------------
+  //
+  // Acceptance: "30-50% of every frame is featureless fill. Unrevealed fog
+  // areas and unlit ceiling slabs render as one flat colour with zero texture,
+  // gradient or silhouette ... lol_10 fades its map edge into painted rock
+  // forms and mist — the fade still has ART in it."
+  //
+  // The bank already drifted two octaves of billow, but every one of them fed
+  // ALPHA and only a 0.25-0.85 smoothstep fed colour, so the composite over
+  // near-black geometry landed inside about one value step: correctly animated,
+  // and indistinguishable from a flat fill in a still frame.
+  //
+  // What a painted bank has is FORMS — crests that catch light and troughs that
+  // fall away, with edges between them. Ridged noise (1 - |2n-1|) is exactly
+  // that: it turns the smooth billow field into banded ridge lines, which read
+  // as rolling forms rather than as a cloud. A third, faster octave breaks the
+  // ridges up so they do not tile, and the crest term lifts colour as well as
+  // alpha, so the bank finally has a value RANGE instead of a value.
+  float n3 = texture2D(uNoise, vUv * uScale * 5.1 - uDriftA * uTime * 0.7).r;
+  float ridge = 1.0 - abs(billow * 2.0 - 1.0);
+  float form = smoothstep(0.30, 0.92, ridge * (0.72 + 0.56 * n3));
+  float crest = smoothstep(0.52, 0.96, billow) * (0.45 + 0.55 * n3);
+  // Both modulations are centred so the bank's MEAN value is unchanged: this
+  // is a value RANGE, not a dimmer. The first cut used 0.74 + 0.46 * form and
+  // 0.76 + 0.42 * form, which averages ~0.96 — it bought forms by spending
+  // exposure, and the frame audit caught it (crushed 78.8% -> 84.3% mean over
+  // the same five scenes). The build is already accused of underexposure; a
+  // fix for one major must not feed another.
+  float a = max(edge, base) * uOpacity * (0.8 + 0.2 * billow) * (0.80 + 0.44 * form);
   if (a < 0.012) discard;
   vec3 col = mix(uColA, uColB, smoothstep(0.25, 0.85, billow));
+  col = mix(col, uColB * 1.55, crest * 0.55);  // lit crests
+  col *= 0.86 + 0.40 * form;                    // troughs fall away
   gl_FragColor = vec4(col, a);
 }`;
 

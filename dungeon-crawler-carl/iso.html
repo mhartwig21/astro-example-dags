@@ -4284,34 +4284,63 @@
         font-family: var(--display); font-variant: small-caps; font-weight: 600;
         font-size: 10px; letter-spacing: 0.1em; color: var(--gold-hi); white-space: nowrap;
         text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.85); }
-      .mplate .mpbar { height: 4px; border-radius: 1px; overflow: hidden;
+      /* r3 major (#7): the bar and its ROLE CHIP share a row. The chip is the
+         only thing on screen that says "this one is the healer, shoot it
+         first" — the mob models are all pale KayKit clay at gameplay distance
+         and acceptance could not tell melee from caster in any capture. */
+      .mplate .mprow { display: flex; align-items: stretch; gap: 2px; }
+      .mplate .mprole { flex: 0 0 auto; width: 4px; border-radius: 1px;
+        background: var(--mprole, #d8483a);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.92); }
+      .mplate.r-ranged  { --mprole: #4fc9e8; }
+      .mplate.r-caster  { --mprole: #b08bff; }
+      .mplate.r-support { --mprole: #5fd08a; }
+      .mplate.r-bomb    { --mprole: #f2a33c; }
+      .mplate .mpbar { flex: 1 1 auto; height: 4px; border-radius: 1px; overflow: hidden;
         background: rgba(6,4,2,0.92); border: 1px solid rgba(140,110,68,0.85);
         box-shadow: 0 1px 2px rgba(0,0,0,0.8); }
       .mplate.elite .mpbar { box-shadow: inset 0 1px 2px rgba(0,0,0,0.85); }
       .mplate .mpfill { display: block; height: 100%; width: 100%;
         background: linear-gradient(180deg, #e0604f, #a93226 55%, #7e2018);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); }
-      /* RESTING plate: a HAIRLINE, not a plaque. The first cut kept the framed
-         gradient plaque and its pointer tail and only dropped the opacity —
-         eighteen of those read as a field of red dashes competing with the
-         fight, which is the failure mode the engaged plate exists to avoid.
-         The backing plate, the drop shadow and the tail all go; what is left is
-         a 2px bar in a thin dark keyline, which is enough to say "that one is
-         at a third" and not enough to be noticed when you are not asking. */
-      .mplate.rest { width: 28px; margin-left: -14px; padding: 0;
+      /* RESTING plate. The previous cut was a 2px bar inside 1px keylines —
+         which, because box-sizing is not border-box here, is 2px of FILL under
+         a desaturated #8e4034 at 0.40 opacity. Acceptance photographed ~28 of
+         those and called them "effectively invisible", and they were right:
+         that is a two-device-pixel dark-red line on dark stone.
+         What a resting plate needs is not more furniture, it is CONTRAST — so
+         the fill goes to 3px of saturated red, the keyline goes black (which
+         separates it from ANY floor, pale or dark, without adding a plaque),
+         and the whole thing sits at 0.74 rather than 0.40. It is still a
+         hairline; it is now a hairline you can see. */
+      .mplate.rest { width: 34px; margin-left: -17px; padding: 0;
         background: none; box-shadow: none; }
       .mplate.rest::after { display: none; }
-      .mplate.rest .mpbar { height: 2px; border-radius: 0;
-        border: 1px solid rgba(10,7,4,0.85); background: rgba(10,7,4,0.7);
+      .mplate.rest .mprole { width: 3px; }
+      .mplate.rest .mpbar { height: 3px; border-radius: 0;
+        border: 1px solid rgba(0,0,0,0.92); background: rgba(8,5,3,0.85);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.5); }
+      .mplate.rest .mpfill { background: linear-gradient(180deg, #f0705c, #c03a2c);
         box-shadow: none; }
-      .mplate.rest .mpfill { background: #8e4034; box-shadow: none; }
       .mplate.rest .mpname { display: none; }
       .mplate.elite { width: 68px; margin-left: -34px; }
-      .mplate.elite.rest { width: 52px; margin-left: -26px; }
+      .mplate.elite.rest { width: 56px; margin-left: -28px; }
       .mplate.elite .mpname { display: block; }
+      .mplate.elite .mprole { width: 6px;
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.92), 0 0 5px rgba(201,162,75,0.5); }
       .mplate.elite .mpbar { height: 6px; border-color: rgba(201,162,75,0.9);
         box-shadow: 0 0 0 1px rgba(0,0,0,0.85), 0 0 6px rgba(201,162,75,0.25),
           inset 0 1px 2px rgba(0,0,0,0.85); }
+      /* SEGMENTED PIPS (League's read): the fill is ticked so "half" is a
+         countable quantity, not an estimate. A gradient overlay, so it costs
+         one paint on a 34px element and nothing per frame. */
+      .mplate .mpbar { background-image:
+          repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 7px, rgba(0,0,0,0.55) 7px 8px); }
+      .mplate.rest .mpbar { background-image:
+          repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 8px, rgba(0,0,0,0.5) 8px 9px); }
+      .mplate .mpfill { position: relative; }
+      .mplate .mpfill::after { content: ""; position: absolute; inset: 0;
+        background: repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 7px, rgba(0,0,0,0.42) 7px 8px); }
 
       /* Hype meter docks under the viewer plate WITH its own engraved label —
          every meter has an owner (r3 minor). */
