@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  MEASURED, MEASURED_MEAN, QUALITY_ORDER, QUALITY_PRESETS, QualityAutoTuner, guessQuality,
-  postWeight, referenceMegapixels, rigWeight, shadowWeight, type Adapter, type QualityName,
+  AB_REVERT, MEASURED, MEASURED_QUIET, QUALITY_ORDER, QUALITY_PRESETS, QualityAutoTuner,
+  SHADER_BUILDS_PER_MIN,
+  guessQuality, postWeight, referenceMegapixels, rigWeight, shadowWeight,
+  type Adapter, type QualityName,
 } from "../src/render3d/quality";
 import { deviceClass } from "../src/input/touchLayout";
 
@@ -27,35 +29,72 @@ function run(t: QualityAutoTuner, frameMs: number, seconds: number): QualityName
 // raises LOW's pixel ratio "just a bit" or gives it back a full-rate mixer.
 // ===========================================================================
 describe("performance modes: the declared contract must be met by the preset", () => {
-  it("LOW promises 60 fps and MEDIUM promises 30 — on the weak path, in the worst scene", () => {
-    // The promises themselves, pinned so a rewrite of the ladder cannot quietly
-    // relax them. LOW is the mode that carries the guarantee; HIGH deliberately
-    // carries none.
-    expect(QUALITY_PRESETS.low.contract.budgetMs).toBe(16.7);
+  /** Both scenes, on the weak path — the only path a contract is stated for. */
+  const SCENES: [string, Record<QualityName, { delivered: number; over33: number }>][] = [
+    ["dense pack", { high: MEASURED.high.igpu, medium: MEASURED.medium.igpu, low: MEASURED.low.igpu }],
+    ["quiet room", MEASURED_QUIET],
+  ];
+
+  it("the budgets are the ones opt r2 could actually measure, not the ones r4 wished for", () => {
+    // LOW USED TO SAY 16.7 ms AND COULD NOT REACH IT IN PRINCIPLE. The fill fit
+    // on the weak path is delivered = 8.3 + 9.1 * Mpx; LOW's buffer is 1.227
+    // Mpx, so the FIXED term alone was half its own budget. Pinned here so the
+    // number cannot drift back to being an aspiration.
+    expect(QUALITY_PRESETS.low.contract.budgetMs).toBe(20);
     expect(QUALITY_PRESETS.medium.contract.budgetMs).toBe(33.3);
     expect(QUALITY_PRESETS.high.contract.budgetMs).toBeNull();
+    // And every gated mode also caps the SHARE of frames allowed over budget.
+    // A throughput number on its own cannot see a stutter.
+    expect(QUALITY_PRESETS.low.contract.maxOverPct).not.toBeNull();
+    expect(QUALITY_PRESETS.medium.contract.maxOverPct).not.toBeNull();
+    expect(QUALITY_PRESETS.high.contract.maxOverPct).toBeNull();
   });
 
-  // (1) WHAT WAS ON THE CLOCK. The direct reading of the contract: the number
-  //     actually measured on the weak path must be inside the declared budget.
-  it("the MEASURED weak-path frame time is inside every declared budget", () => {
+  // THE PROMISE IS PLAYER-FACING TEXT AND IT IS CHECKED AS SUCH. The settings
+  // row prints contract.promise verbatim, so a promise the measurement does not
+  // support is a lie shipped to a player — which is precisely what "never below
+  // 30 fps, even in the worst fight, on integrated graphics" was: measured
+  // broken on 22.2% of frames in the worst scene and 17.2% in an empty room.
+  it("no promise contains an absolute the measurement cannot support", () => {
     for (const name of QUALITY_ORDER) {
-      const budget = QUALITY_PRESETS[name].contract.budgetMs;
-      if (budget === null) continue;
-      expect.soft(MEASURED[name].igpu, `${name} measured on the Intel part`)
-        .toBeLessThanOrEqual(budget);
+      const promise = QUALITY_PRESETS[name].contract.promise;
+      expect.soft(promise, `${name} promise`).not.toMatch(/\bnever\b|\bguarantee|\balways\b/i);
+    }
+    for (const name of ["low", "medium"] as QualityName[]) {
+      expect.soft(QUALITY_PRESETS[name].blurb, `${name} blurb`).not.toMatch(/guaranteed/i);
+    }
+  });
+
+  // (1) WHAT WAS ON THE CLOCK. The direct reading of the contract — and it is
+  //     read on DELIVERED time, in BOTH scenes. The version of this test that
+  //     shipped read a MEDIAN in one scene, which is how a mode spending 17% of
+  //     its frames over 33 ms in an empty room passed it with a 9.7 ms reading.
+  it("the measured DELIVERED frame time is inside every declared budget, in both scenes", () => {
+    for (const [scene, table] of SCENES) {
+      for (const name of QUALITY_ORDER) {
+        const budget = QUALITY_PRESETS[name].contract.budgetMs;
+        if (budget === null) continue;
+        expect.soft(table[name].delivered, `${name} delivered on the Intel part, ${scene}`)
+          .toBeLessThanOrEqual(budget);
+      }
+    }
+  });
+
+  it("the share of frames over budget is inside every declared ceiling, in both scenes", () => {
+    for (const [scene, table] of SCENES) {
+      for (const name of QUALITY_ORDER) {
+        const cap = QUALITY_PRESETS[name].contract.maxOverPct;
+        if (cap === null) continue;
+        expect.soft(table[name].over33, `${name} frames over 33.3 ms on the Intel part, ${scene}`)
+          .toBeLessThanOrEqual(cap);
+      }
     }
   });
 
   // (2) WHAT THE PRESET BUYS. (1) is a fact about one build at one moment and
-  //     it does not move when the preset does — raise LOW's pixel ratio and the
-  //     transcribed 11.2 sits there lying. THIS is the check that survives an
-  //     edit: the preset's own lever values must still be the ones the
+  //     it does not move when the preset does. THIS is the check that survives
+  //     an edit: the preset's own lever values must still be the ones the
   //     measurement was taken at.
-  //
-  //     A tolerance is allowed only for float representation, NOT for drift.
-  //     The intended way to change a lever is to change it, re-measure, and
-  //     move the cap and the number together in the same commit.
   it("every preset still sits at the lever values its budget was measured at", () => {
     for (const name of QUALITY_ORDER) {
       const p = QUALITY_PRESETS[name];
@@ -68,8 +107,7 @@ describe("performance modes: the declared contract must be met by the preset", (
   });
 
   // THE FALSIFICATION TEST. If the caps were slack, the check above would pass
-  // vacuously — so each lever is nudged the wrong way and must break its own
-  // cap. This is what stops "maxRigCost: 1" being quietly pasted onto LOW.
+  // vacuously — so each lever is nudged the wrong way and must break its own cap.
   it("the lever caps are tight — loosening any lever breaks its own cap", () => {
     const low = QUALITY_PRESETS.low;
     const c = low.contract;
@@ -79,60 +117,76 @@ describe("performance modes: the declared contract must be met by the preset", (
       .toBeGreaterThan(c.maxShadowCost);
     expect(rigWeight({ ...low, offscreenRigHz: 30 }), "off-screen rig rate")
       .toBeGreaterThan(c.maxRigCost);
-    expect(rigWeight({ ...low, rigBudget: 40 }), "rig budget")
-      .toBeGreaterThan(c.maxRigCost);
     expect(postWeight({ ...low, gtaoSamples: 12 }), "AO samples")
+      .toBeGreaterThan(c.maxPostCost);
+    expect(postWeight({ ...low, gtaoDenoiseScale: 0.5 }), "AO denoise scale")
       .toBeGreaterThan(c.maxPostCost);
     expect(postWeight({ ...low, bloomScale: 0.5 }), "bloom scale")
       .toBeGreaterThan(c.maxPostCost);
   });
 
-  it("each mode really did measure faster than the one above it, on BOTH adapters", () => {
+  it("each mode really did deliver at least as much as the one above it, on BOTH adapters", () => {
     for (const a of ADAPTERS) {
       for (let i = 1; i < QUALITY_ORDER.length; i++) {
-        expect.soft(MEASURED[QUALITY_ORDER[i]][a], `measured ${QUALITY_ORDER[i]} on ${a}`)
-          .toBeLessThan(MEASURED[QUALITY_ORDER[i - 1]][a]);
+        expect.soft(MEASURED[QUALITY_ORDER[i]][a].delivered, `measured ${QUALITY_ORDER[i]} on ${a}`)
+          .toBeLessThanOrEqual(MEASURED[QUALITY_ORDER[i - 1]][a].delivered + 1e-9);
       }
     }
   });
 
-  // THE FINDING THE WHOLE RE-CUT IS BUILT ON, pinned so it cannot be forgotten
-  // again: the four-rung ladder spent resolution and only resolution, and on
-  // the discrete part that buys very little. Across the whole ladder HIGH
-  // renders 4x the pixels of LOW and costs 3.5 ms more on the RTX against
-  // 14.0 ms more on the Intel part — and the RTX session was carrying HALF
-  // AGAIN as many bodies while doing it.
-  it("the ladder barely exists on the discrete GPU — which is why resolution cannot be the only lever", () => {
-    const dSpread = MEASURED.high.dgpu - MEASURED.low.dgpu;
-    const iSpread = MEASURED.high.igpu - MEASURED.low.igpu;
-    expect(dSpread).toBeLessThan(6);
-    expect(iSpread).toBeGreaterThan(2.5 * dSpread);
-  });
-
-  // THE MEAN IS CARRIED NEXT TO THE MEDIAN ON PURPOSE, and the specific claim
-  // is narrower than "the Intel part is slower": it is that the Intel frame at
-  // HIGH goes BIMODAL, where rAF queues cheap frames and then blocks. Measured
-  // mean/median ratios — Intel HIGH 1.75 (p95 157 ms), RTX HIGH 1.07 (p95
-  // 25.9 ms). Quoting only the friendlier statistic is the failure this track
-  // keeps rediscovering, so the mean lives in code and has to stay worse.
-  it("the Intel frame at HIGH is bimodal and the discrete one is not", () => {
-    const ratio = (n: QualityName, a: Adapter) => MEASURED_MEAN[n][a] / MEASURED[n][a];
-    expect(ratio("high", "igpu")).toBeGreaterThan(1.5);
-    expect(ratio("high", "dgpu")).toBeLessThan(1.15);
-    // Every mode's throughput is worse than its median somewhere — a table
-    // where the mean never costs anything would mean it was never measured.
-    for (const name of QUALITY_ORDER) {
-      expect.soft(MEASURED_MEAN[name].igpu, `${name} iGPU mean vs median`)
-        .toBeGreaterThan(MEASURED[name].igpu);
+  // LOW MAY NOT BE THE SLOWEST MODE ANYWHERE. The acceptance pass caught the
+  // previous ladder doing exactly that on the RTX 5090 — LOW delivered 48.7 fps
+  // against MEDIUM's 57.5, with the worst p90 of the three, because the rig gate
+  // walked all 149 monsters, sorted them, and converted smooth per-frame mixer
+  // work into 6 Hz bursts. A player who picks the performance mode and gets
+  // fewer frames AND a blurrier picture has been harmed by the setting.
+  it("the performance mode is not a pessimization on any adapter", () => {
+    for (const a of ADAPTERS) {
+      expect.soft(MEASURED.low[a].fps, `LOW fps on ${a}`)
+        .toBeGreaterThanOrEqual(MEASURED.high[a].fps);
+      expect.soft(MEASURED.low[a].p90, `LOW p90 on ${a}`)
+        .toBeLessThanOrEqual(MEASURED.high[a].p90 * 1.15);
     }
   });
 
-  // LOW MISSES ITS OWN BUDGET ON THE MEAN. Asserted, not glossed: if a later
-  // round closes the warm-up tail this test starts failing, which is exactly
-  // when someone should come back and re-state the contract on throughput.
-  it("records that LOW meets its budget on the median and not on the mean", () => {
-    expect(MEASURED.low.igpu).toBeLessThanOrEqual(QUALITY_PRESETS.low.contract.budgetMs!);
-    expect(MEASURED_MEAN.low.igpu).toBeGreaterThan(QUALITY_PRESETS.low.contract.budgetMs!);
+  // THE FINDING THE WHOLE RE-CUT IS BUILT ON: the ladder is dramatic on the
+  // Intel part and nearly flat on the discrete one, because one is fill-bound
+  // and the other is not. Stated as a RATIO of the spreads so it survives the
+  // absolute numbers moving.
+  it("the ladder barely exists on the discrete GPU — the two adapters are different machines", () => {
+    const spread = (a: Adapter) => MEASURED.high[a].delivered - MEASURED.low[a].delivered;
+    expect(spread("dgpu")).toBeLessThan(6);
+    expect(spread("igpu")).toBeGreaterThan(2 * spread("dgpu"));
+  });
+
+  // THE MEDIAN IS CARRIED ONLY TO SHOW HOW FAR IT LIES. It is the statistic the
+  // previous contract was pinned to, and the claim is narrow: on the Intel part
+  // it flatters badly, on the RTX it does not.
+  it("the median flatters the Intel frame and not the discrete one", () => {
+    const flatter = (n: QualityName, a: Adapter) => MEASURED[n][a].delivered / MEASURED[n][a].p50;
+    expect(flatter("high", "igpu")).toBeGreaterThan(1.3);
+    expect(flatter("high", "dgpu")).toBeLessThan(1.2);
+  });
+
+  // THE ROUND HAS TO HAVE MOVED SOMETHING, AND THE GATE IS THE A/B RATIO
+  // RATHER THAN A PAIR OF LADDERS. A before-table/after-table comparison on
+  // this box produced a false 15% regression alarm that a same-session A/B of
+  // the identical change turned into a 9.2% win — the two sessions had run with
+  // 10 and 21 foreign browsers. Cross-session absolutes are not evidence here.
+  it("the AO denoise change is a win on BOTH adapters, not a re-description", () => {
+    for (const a of ADAPTERS) {
+      expect.soft(AB_REVERT.aoFullDenoise[a], `reverting the AO denoise on ${a}`)
+        .toBeGreaterThan(1.05);
+    }
+  });
+
+  // THE LATE-PROGRAM CATCHER IS A NET COST IN THROUGHPUT AND IS KEPT ANYWAY.
+  // Pinned so the trade stays explicit: what it buys is the tail, not the mean,
+  // and the tail is what broke the promises.
+  it("the shader-build tail is closed, and the catcher's price is admitted", () => {
+    expect(SHADER_BUILDS_PER_MIN.before).toBeGreaterThan(1);
+    expect(SHADER_BUILDS_PER_MIN.after).toBe(0);
+    expect(AB_REVERT.lateProgramCatcher.igpu).toBeLessThan(1);
   });
 });
 
@@ -148,7 +202,8 @@ describe("performance modes: the levers", () => {
       expect(lo.fxDensity, `${lo.name} fx density`).toBeLessThanOrEqual(hi.fxDensity);
       // The CPU levers the four-rung ladder never had.
       expect(lo.offscreenRigHz, `${lo.name} off-screen rig rate`).toBeLessThanOrEqual(hi.offscreenRigHz);
-      expect(lo.rigBudget, `${lo.name} rig budget`).toBeLessThanOrEqual(hi.rigBudget);
+      // AO now costs what its own resolution costs, on every rung.
+      expect(lo.gtaoDenoiseScale, `${lo.name} AO denoise scale`).toBeLessThanOrEqual(hi.gtaoDenoiseScale);
     }
   });
 
@@ -168,14 +223,10 @@ describe("performance modes: the levers", () => {
     expect(u.gtao).toBe(true);
     expect(u.bloom).toBe(true);
     expect(u.fxDensity).toBe(1);
-    // Half-res AO is only free-of-quality-cost because the denoise pass runs at
-    // full resolution and doubles as a depth-weighted bilateral upsample.
     expect(u.gtaoScale).toBeLessThan(1);
-    expect(u.gtaoDenoiseScale).toBe(1);
     // HIGH is where the appearance work lives at full strength: no rig is ever
     // gated, no matter how big the brawl.
     expect(u.offscreenRigHz).toBe(Infinity);
-    expect(u.rigBudget).toBe(Infinity);
   });
 
   // NO MODE CUTS CONTENT.
@@ -221,7 +272,6 @@ describe("performance modes: the levers", () => {
     for (const name of QUALITY_ORDER) {
       expect(QUALITY_PRESETS[name].offscreenRigHz, `${name} off-screen rig rate`)
         .toBeGreaterThan(0);
-      expect(QUALITY_PRESETS[name].rigBudget, `${name} rig budget`).toBeGreaterThan(0);
     }
   });
 
@@ -313,7 +363,7 @@ describe("quality auto-tuner", () => {
   // broken, and `ceiling` would make the demotion permanent for the session.
   it("does not demote a machine that is meeting its mode's contract", () => {
     const t = new QualityAutoTuner("medium");
-    expect(run(t, MEASURED.medium.igpu, 120)).toEqual([]);
+    expect(run(t, MEASURED.medium.igpu.delivered, 120)).toEqual([]);
     expect(t.current).toBe("medium");
     // The threshold must sit above MEDIUM's own declared ceiling, or the mode
     // demotes itself at exactly the frame time it promised was acceptable.

@@ -1,0 +1,248 @@
+{
+  "adapter": "dgpu",
+  "scene": "dense",
+  "secs": 4,
+  "reps": 3,
+  "tag": "after",
+  "table": {
+    "low": {
+      "n": 1115,
+      "fps": 92.5,
+      "delivered": 10.81,
+      "mean": 10.81,
+      "p50": 9.6,
+      "p90": 16.6,
+      "p99": 23.7,
+      "max": 29.5,
+      "over16": 9.9,
+      "over33": 0,
+      "fp": "low|1440|852|1024|3||6|1|1.000",
+      "visible": [
+        24,
+        26,
+        31
+      ]
+    },
+    "medium": {
+      "n": 1104,
+      "fps": 91.52,
+      "delivered": 10.93,
+      "mean": 10.93,
+      "p50": 9.8,
+      "p90": 16.7,
+      "p99": 24.8,
+      "max": 31.5,
+      "over16": 10.1,
+      "over33": 0,
+      "fp": "medium|2015|1192|1536|2||12|1|1.400",
+      "visible": [
+        24,
+        24,
+        31
+      ]
+    },
+    "high": {
+      "n": 946,
+      "fps": 78.44,
+      "delivered": 12.75,
+      "mean": 12.75,
+      "p50": 11.7,
+      "p90": 16.9,
+      "p99": 27.3,
+      "max": 64,
+      "over16": 10.6,
+      "over33": 0.3,
+      "fp": "high|2880|1704|2048|1||Infinity|1|2.000",
+      "visible": [
+        26,
+        24,
+        32
+      ]
+    }
+  },
+  "guardFired": 3,
+  "guard": [
+    {
+      "at": 1785762320558,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785762320558,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785762320558,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow"
+    }
+  ],
+  "windows": {
+    "low": [
+      {
+        "fp": "low|1440|852|1024|3||6|1|1.000",
+        "visible": 24,
+        "rigFull": 22,
+        "foreign": 21,
+        "shape": {
+          "n": 453,
+          "fps": 112.79,
+          "delivered": 8.87,
+          "mean": 8.87,
+          "p50": 7.9,
+          "p90": 13,
+          "p99": 16.7,
+          "max": 20.3,
+          "over16": 1.1,
+          "over33": 0
+        }
+      },
+      {
+        "fp": "low|1440|852|1024|3||6|1|1.000",
+        "visible": 26,
+        "rigFull": 30,
+        "foreign": 21,
+        "shape": {
+          "n": 356,
+          "fps": 88.78,
+          "delivered": 11.26,
+          "mean": 11.26,
+          "p50": 9.6,
+          "p90": 17.3,
+          "p99": 24.6,
+          "max": 26.3,
+          "over16": 12.4,
+          "over33": 0
+        }
+      },
+      {
+        "fp": "low|1440|852|1024|3||6|1|1.000",
+        "visible": 31,
+        "rigFull": 32,
+        "foreign": 21,
+        "shape": {
+          "n": 306,
+          "fps": 75.98,
+          "delivered": 13.16,
+          "mean": 13.16,
+          "p50": 11.4,
+          "p90": 20.3,
+          "p99": 26.4,
+          "max": 29.5,
+          "over16": 19.9,
+          "over33": 0
+        }
+      }
+    ],
+    "medium": [
+      {
+        "fp": "medium|2015|1192|1536|2||12|1|1.400",
+        "visible": 24,
+        "rigFull": 26,
+        "foreign": 21,
+        "shape": {
+          "n": 428,
+          "fps": 106.5,
+          "delivered": 9.39,
+          "mean": 9.39,
+          "p50": 8.4,
+          "p90": 13.8,
+          "p99": 19.5,
+          "max": 23.2,
+          "over16": 3.3,
+          "over33": 0
+        }
+      },
+      {
+        "fp": "medium|2015|1192|1536|2||12|1|1.400",
+        "visible": 24,
+        "rigFull": 26,
+        "foreign": 21,
+        "shape": {
+          "n": 357,
+          "fps": 88.68,
+          "delivered": 11.28,
+          "mean": 11.28,
+          "p50": 10,
+          "p90": 16.7,
+          "p99": 23.9,
+          "max": 25.3,
+          "over16": 10.1,
+          "over33": 0
+        }
+      },
+      {
+        "fp": "medium|2015|1192|1536|2||12|1|1.400",
+        "visible": 31,
+        "rigFull": 29,
+        "foreign": 21,
+        "shape": {
+          "n": 319,
+          "fps": 79.39,
+          "delivered": 12.6,
+          "mean": 12.6,
+          "p50": 10.9,
+          "p90": 21.2,
+          "p99": 29.3,
+          "max": 31.5,
+          "over16": 19.1,
+          "over33": 0
+        }
+      }
+    ],
+    "high": [
+      {
+        "fp": "high|2880|1704|2048|1||Infinity|1|2.000",
+        "visible": 26,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 316,
+          "fps": 78.5,
+          "delivered": 12.74,
+          "mean": 12.74,
+          "p50": 11.7,
+          "p90": 16.5,
+          "p99": 24.2,
+          "max": 64,
+          "over16": 9.2,
+          "over33": 0.3
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1||Infinity|1|2.000",
+        "visible": 24,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 334,
+          "fps": 83.23,
+          "delivered": 12.02,
+          "mean": 12.02,
+          "p50": 11,
+          "p90": 16.5,
+          "p99": 23.9,
+          "max": 30.7,
+          "over16": 9.3,
+          "over33": 0
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1||Infinity|1|2.000",
+        "visible": 32,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 296,
+          "fps": 73.61,
+          "delivered": 13.59,
+          "mean": 13.58,
+          "p50": 12.5,
+          "p90": 18.4,
+          "p99": 32.3,
+          "max": 37.4,
+          "over16": 13.5,
+          "over33": 0.7
+        }
+      }
+    ]
+  }
+}

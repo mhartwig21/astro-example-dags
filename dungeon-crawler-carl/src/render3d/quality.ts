@@ -17,67 +17,98 @@
 //    up the stack to matter; adapter selection happens above the page.
 //    tools/_gpupick.mjs reproduces all three cases.
 //
-// 2. RESOLUTION CANNOT SEPARATE THE TIERS, BECAUSE MOST OF THE FRAME IS CPU.
-//    Measured on this build, one page session, vsync off, 1440x852 @ dpr 2,
-//    floor-15 dense scene, as MEDIAN frame time (tools/trk_ablate.mjs):
+// 2. RETRACTED, WITH THE MEASUREMENT THAT RETRACTS IT: "RESOLUTION CANNOT
+//    SEPARATE THE TIERS, BECAUSE MOST OF THE FRAME IS CPU."
 //
-//        cut pixel count 4x   iGPU  -5.8 ms of 17.2      dGPU  -0.00 ms
-//        freeze the graph     iGPU  renderMs 7.9 -> 3.5  dGPU  15.2 -> 8.0
-//        gl.finish() drain    iGPU   0.00 ms median      dGPU   0.00 ms median
+//    That sentence stood here in capitals and it is wrong on the Intel part.
+//    It was concluded from MEDIAN rAF deltas, and the median of a queue-ahead
+//    distribution is a description of the cheap mode only: when the swap chain
+//    fills, rAF hands back a run of near-free callbacks and then one long one,
+//    so a median can read 10 ms while the player is getting 22 fps. The file
+//    knew this — the auto-tuner comment three hundred lines below says a
+//    median "reads 10 ms, wonderful and never downgrades a machine running at
+//    24 fps" — and then the ladder was measured with one anyway.
 //
-//    Read the last row first. By the time the main thread has finished
-//    submitting a frame, the GPU has already finished drawing it — on BOTH
-//    adapters, in every scene sampled (1-in-8 frames, n~1000). The GPU is never
-//    the wall. And on the discrete part, quartering the pixel count is free to
-//    three decimal places: a ladder made of pixel ratio is a ladder with one
-//    rung on anything that isn't an Intel iGPU.
+//    Re-measured on DELIVERED THROUGHPUT (frames / wall seconds, which counts
+//    the cheap queued callback as the frame the player paid for), sweeping
+//    renderScale in ONE page session, floor-15 dense pack, HIGH, vsync off
+//    (tools/r2_fill.mjs):
 //
-//    Worse, even the iGPU's 5.8 ms is not all raster. Cutting pixel count 4x
-//    also made PURE-JS Renderer3D.update() 30% faster (6.1 -> 4.3 ms) — JS that
-//    issues no GL calls at all. The Intel part taxes the main thread through the
-//    shared package power and bandwidth budget, so ~1.8 ms of that 5.8 is
-//    recovered CPU throughput, not removed fill.
+//        4.91 Mpx -> 52.95 ms      2.07 Mpx -> 28.56 ms
+//        3.14 Mpx -> 38.81 ms      1.23 Mpx -> 19.50 ms
 //
-// 3. WHAT THE FRAME IS ACTUALLY SPENT ON (same session, iGPU, floor-15 combat):
+//        fit:  delivered ms = 8.3 + 9.1 * backbuffer megapixels
 //
-//        scene-graph matrix walk inside render()  5.5 ms   7,566 nodes walked
-//                                                          to issue ~250 draws
-//        AnimationMixer over every rig            2.5-3.0 ms
-//        raster/fill                              5.8 ms   (1.8 of it CPU)
-//        shadow pass                              2.4 ms   50 of ~250 draws
-//        host per-frame DOM                       2.1 ms
-//        sim step()                               1.19 ms  <- not the problem
-//        GC                                       0.01-0.09 ms  <- nil
-//        ENTIRE post chain (GTAO+bloom+SMAA)      0.7 ms   <- two rounds were
-//                                                             spent on this
+//    Four points, straight line, and the intercept is real. So the Intel frame
+//    is BOTH things, in a ratio that flips across the ladder: at HIGH's 4.9 Mpx
+//    the pixels are 84% of the frame, at LOW's 1.2 Mpx they are 57%. Resolution
+//    is the strongest lever this ladder has on the weak path, and the fixed
+//    8.3 ms is the reason LOW could never reach 16.7 ms no matter how small the
+//    buffer got.
 //
-//    Floor 15 carries 149 animated rigs and 18 of them are on screen. The other
-//    131 are 4,664 scene nodes and 3,277 bones — 87% of every bone in the
-//    scene — walked and animated every frame for nothing.
+//    ON THE DISCRETE PART THE SAME SWEEP IS FLAT and the original conclusion
+//    survives verbatim. Sandwiched A/B on the RTX 5090 at HIGH, dense pack
+//    (tools/r2_post.mjs): disabling the ENTIRE post chain — GTAO, bloom, grade
+//    and SMAA together — moved delivered frame time by 0.29 ms of 12.0, i.e.
+//    2.4%. The two adapters do not share a bottleneck and must not share a
+//    diagnosis.
+//
+// 3. WHAT THE FRAME IS ACTUALLY SPENT ON, per adapter, measured by sandwiched
+//    A/B in the floor-15 dense pack at HIGH (tools/r2_cpu.mjs, r2_post.mjs).
+//    Every arm sits between two baseline windows and is scored as a ratio to
+//    its own neighbours, because absolute pooling does not survive this box.
+//
+//                                  RTX 5090 (14.2 ms)   Intel (52.9 ms)
+//        submit nothing at all          -9.2 ms              --
+//        scene pass + shadow pass       -6.5 ms            ~-20 ms
+//        shadow pass alone              -2.0 ms              --
+//        ENTIRE post chain              -0.0 ms            ~-25 ms
+//          of which GTAO                                   ~-17 ms
+//          of which SMAA                                    ~-8 ms
+//        every AnimationMixer off       -0.4 ms              --
+//        freeze the scene graph         -0.4 ms              ~0 ms
+//        particles + sprites            -1.5 ms              --
+//
+//    Read the two columns as two different machines, because they are. On the
+//    RTX nothing about the pixels matters and the frame is submission plus host
+//    JS. On the Intel part the post chain alone is roughly half the frame and
+//    GTAO alone is a third of it.
+//
+//    AND THE SCENE-GRAPH WALK IS NOT THE FRAME ON EITHER. The previous round
+//    won a real fix here (7,595 matrices a frame to draw 13 monsters) and then
+//    over-generalised from it: freezing the graph outright now moves 3% on the
+//    RTX and nothing measurable on the Intel part. That work is done.
 //
 // ============================================================================
-// SO THE MODES SPEND FOUR THINGS, AND THREE OF THEM ARE CPU
+// SO THE MODES SPEND THREE THINGS, AND THE FIRST ONE IS MOST OF IT
 // ============================================================================
 //
-//   pixelRatioCap        softness. Real on the iGPU, ~free on the dGPU.
-//   rig animation        rigs that are not on screen animate at a lower rate,
-//                        and a huge brawl caps how many animate at full rate.
+//   pixelRatioCap        softness. 9.1 ms/Mpx on the iGPU, ~0 on the dGPU —
+//                        the dominant lever on the machine the promises are
+//                        made to, and nearly a no-op on the other.
 //   shadow map + cadence crispness and staleness of contact shadows.
-//   AO / bloom scale     the cheap tail. Kept small on purpose — it is 4% of
-//                        the frame and the ladder should stop pretending
-//                        otherwise.
+//   AO / bloom scale     the post tail. NOT small on the Intel part: GTAO is a
+//                        third of that frame, which is why the AO denoise now
+//                        runs at the AO buffer's own resolution on every rung.
+//   off-screen rig rate  rigs that are not on screen animate at a lower rate.
+//                        Kept because it is invisible by construction, not
+//                        because it is large — it is ~3% on the RTX.
+//
+// WHAT WAS RETIRED THIS ROUND: `rigBudget`, the cap on how many ON-SCREEN rigs
+// could take a full-rate mixer update. It demoted bodies the player was looking
+// at (measured: 14 at full rate against 23-45 in frustum on LOW) to save a
+// fraction of half a millisecond. See the gate in Renderer3D.update().
 //
 // WHAT IS **NOT** A MODE LEVER, because it is free and therefore belongs to
 // every mode: parking out-of-vision bodies out of the scene graph entirely,
-// and refreshing the HUD's screen rects on a cadence instead of six
-// getBoundingClientRect calls per frame. A win with no visual cost is not a
-// setting; tiering it would just make HIGH needlessly slow.
+// refreshing the HUD's screen rects on a cadence instead of six
+// getBoundingClientRect calls per frame, and phase-spreading the gated mixer
+// flushes so they stop landing on one frame in ten. A win with no visual cost
+// is not a setting; tiering it would just make HIGH needlessly slow.
 //
 // AND WHAT IS STILL NOT CUT: ambient occlusion, particle density, mote density
-// and the light pools are IDENTICAL on all three rungs. Those are losses a
-// player can name ("the shadows under things are gone", "there's less going
-// on"). The CPU levers above are invisible by construction — an off-screen rig
-// is off screen — which is exactly why they are the right things to spend.
+// and the light pools are IDENTICAL on all three rungs, and no mode demotes a
+// body that is on screen. Those are losses a player can name.
 
 export type QualityName = "low" | "medium" | "high";
 
@@ -92,8 +123,26 @@ export const QUALITY_ORDER: readonly QualityName[] = ["high", "medium", "low"];
  * a contract violation; MEDIUM measuring worse is a bug.
  */
 export interface ModeContract {
-  /** ms/frame this mode may not exceed on the weak path, or null for "no gate". */
+  /**
+   * DELIVERED ms/frame this mode may not exceed on the weak path in the worst
+   * scene, or null for "no gate".
+   *
+   * IT IS DELIVERED TIME, NOT THE MEDIAN, AND THAT IS THE WHOLE CORRECTION.
+   * The previous ladder stated its budgets against MEASURED[] medians, and the
+   * acceptance pass measured what that bought: HIGH on the Intel part in an
+   * EMPTY ROOM read a median of 9.7 ms while delivering 22.3 fps — 44.8 ms per
+   * frame the player actually received. The median flattered by 4.6x, in the
+   * one direction that makes a promise look kept. Delivered ms is frames
+   * divided by wall seconds; a queued cheap callback cannot hide inside it.
+   */
   readonly budgetMs: number | null;
+  /**
+   * Ceiling on the SHARE of individual frames allowed over `budgetMs`, in
+   * percent. A throughput number alone still cannot see a stutter: a mode can
+   * average 25 ms and spend one frame in five above 33. Both halves are the
+   * promise, so both halves are checked.
+   */
+  readonly maxOverPct: number | null;
   /** Plain-language version of the promise, for the settings row. */
   readonly promise: string;
 
@@ -140,12 +189,26 @@ export interface QualityProfile {
 
   // ---- Ambient occlusion ----
   readonly gtao: boolean;
-  /** Resolution scale for the AO buffer itself. The denoise pass stays at full
-   *  resolution and is depth+normal weighted, so it doubles as a bilateral
-   *  upsample — half-res AO costs a quarter of the samples without the halo
-   *  bleed a plain bilinear stretch would give. */
+  /** Resolution scale for the AO buffer itself. */
   readonly gtaoScale: number;
-  /** Denoise/upsample buffer scale. 1 = full-res bilateral upsample. */
+  /**
+   * Denoise buffer scale. INVARIANT: every shipped mode sets this EQUAL to
+   * `gtaoScale`, and test/quality.test.ts enforces it.
+   *
+   * WHY IT MOVED. It used to be 1 on HIGH — a full-resolution, depth+normal
+   * weighted denoise over an AO buffer that was rendered at half resolution,
+   * justified as "it doubles as a bilateral upsample". The arithmetic of that
+   * on the weak path: the AO pass is 1.23 Mpx x 12 taps = 14.7 Mtaps, and the
+   * denoise above it was 4.91 Mpx x 8 samples x 2 rings = 78 Mtaps — five times
+   * the pass it was cleaning, spent re-blurring values bilinear interpolation
+   * had just invented. GTAO measured a third of the entire Intel frame.
+   *
+   * Denoising at the AO buffer's own resolution and letting the composite's
+   * bilinear fetch do the upsample removes that multiplier. It is not a quality
+   * cut in the direction the old comment feared: the halo bleed it warned about
+   * comes from upsampling UNFILTERED half-res AO, and the filtering still
+   * happens — just at the resolution the data actually has.
+   */
   readonly gtaoDenoiseScale: number;
   readonly gtaoSamples: number;
   readonly gtaoDenoiseSamples: number;
@@ -165,11 +228,14 @@ export interface QualityProfile {
    *  invisible on an iso camera that only pans. */
   readonly shadowInterval: number;
 
-  // ---- Rig animation (the CPU lever) ----
+  // ---- Rig animation (the one CPU lever left) ----
   //
   // Floor 15: 149 rigs, 18 on screen. AnimationMixer.update over the other 131
-  // costs 2.5-3.0 ms/frame on the iGPU and 1.3-1.5 ms on the dGPU, to pose
-  // bones that no pass reads. The two knobs below are what a mode spends.
+  // poses bones that no pass reads. ONE knob, not two: `rigBudget` — a cap on
+  // how many ON-SCREEN rigs could animate at full rate — was retired in opt r2
+  // because it demoted bodies the player was looking at (14 at full rate
+  // against 23-45 in frustum on LOW) to buy 3% of the frame on the RTX. The
+  // header note above has the measurement.
   //
   // NOTE THE MECHANISM IS RATE, NOT ON/OFF. A skipped mixer would leave
   // one-shot clips ("busy") never draining, crossfades never finishing, and
@@ -180,11 +246,6 @@ export interface QualityProfile {
   /** Mixer flush rate (Hz) for rigs that are not on screen. Infinity = every
    *  frame, i.e. no gate at all. */
   readonly offscreenRigHz: number;
-  /** How many rigs may take a full-rate mixer update in one frame, nearest to
-   *  the camera first. Infinity = no cap. Only bites in a large brawl; the
-   *  overflow falls back to `offscreenRigHz`, which is why a capped rig still
-   *  animates rather than freezing. */
-  readonly rigBudget: number;
 
   // ---- Overdraw / population ----
   /** Combat particle spawn budget, 0..1. */
@@ -219,20 +280,18 @@ export interface QualityProfile {
 /**
  * HIGH — the best this engine can do. NOT budget-gated, by design.
  *
- * MEASURED in REFERENCE_SCENE (tools/trk_modes.mjs, 5 interleaved samples):
- *     iGPU  median 29.1 ms (34 fps)  mean 51.0  p10 21.4  p95 157.0  718 draws
- *     dGPU  median 16.1 ms (62 fps)  mean 17.2  p10 13.7  p95  25.9  974 draws
+ * Everything it measured is in MEASURED below, in full: delivered throughput,
+ * p50, p90, p99 and the share of frames over 33.3 ms, on both adapters, in both
+ * the dense pack and the quiet room. Nothing is transcribed twice — a number
+ * repeated in a doc comment is a number that will rot out of agreement with the
+ * table, and the last ladder rotted exactly that way.
  *
- * The iGPU number is not a failure, it is the point: HIGH is where the
- * appearance and combat-FX work lives at full strength, and a player who picks
- * it on an integrated part has been told what they are buying — the settings
- * row says "no frame-rate promise" in those words.
- *
- * READ THE MEAN NEXT TO THE MEDIAN. Intel: 29.1 median, 51.0 mean, p95 157 —
- * ratio 1.75, a bimodal frame that the median flatters and the player does not.
- * RTX: 16.1 median, 17.2 mean, p95 25.9 — ratio 1.07, genuinely smooth, and in
- * a scene carrying HALF AGAIN as many bodies. That contrast is the same
- * distribution QualityAutoTuner exists to see through.
+ * THE ONE THING TO READ THERE: on the Intel part HIGH delivers roughly a third
+ * of what it delivers on the RTX while its MEDIAN reads close to the same. That
+ * gap is the swap chain — rAF queues cheap callbacks until it fills, then
+ * blocks — and it is why every number in this file is now stated on delivered
+ * time. A player who picks HIGH on an integrated part has been told what they
+ * are buying: the settings row says "no frame-rate promise" in those words.
  */
 const HIGH: QualityProfile = {
   name: "high",
@@ -240,18 +299,19 @@ const HIGH: QualityProfile = {
   blurb: "everything at full strength — no frame-rate promise",
   contract: {
     budgetMs: null,
+    maxOverPct: null,
     promise: "the best this engine can do — uncapped, and it will cost what it costs",
     maxPixelRatio: 2,
     maxShadowCost: 1,
     maxRigCost: 1,
-    maxPostCost: 1,
+    maxPostCost: 0.9,
   },
   pixelRatioCap: 2,
   msaaSamples: 0,
   smaa: true,
   gtao: true,
-  gtaoScale: 0.5,        // half-res AO, full-res bilateral upsample: no visible delta
-  gtaoDenoiseScale: 1,
+  gtaoScale: 0.5,
+  gtaoDenoiseScale: 0.5,   // == gtaoScale on every rung; see the field's note
   gtaoSamples: 12,
   gtaoDenoiseSamples: 8,
   bloom: true,
@@ -259,7 +319,6 @@ const HIGH: QualityProfile = {
   shadowMapSize: 2048,
   shadowInterval: 1,
   offscreenRigHz: Infinity,
-  rigBudget: Infinity,
   fxDensity: 1,
   moteDensity: 1,
   fxLights: 4,
@@ -267,100 +326,103 @@ const HIGH: QualityProfile = {
 };
 
 /**
- * MEDIUM — the default. Contract: never worse than 33.3 ms (30 fps) in the
- * worst real scene on the weak path.
+ * MEDIUM — the default.
  *
- * MEASURED in REFERENCE_SCENE (tools/trk_modes.mjs, 5 interleaved samples):
- *     iGPU  median 20.5 ms (49 fps)  mean 25.9  p10 13.3  p95 55.2  591 draws
- *     dGPU  median 15.4 ms (65 fps)  mean 17.6  p10 11.9  p95 31.2  763 draws
+ * ITS PROMISE WAS FALSE AND HAS BEEN REWRITTEN. The shipped line was "never
+ * below 30 fps, even in the worst fight, on integrated graphics", and the
+ * settings row prints `contract.promise` verbatim, so that sentence was a
+ * player-facing guarantee. Measured on the Intel part with the preset verified
+ * active, it was broken in the WORST case (22.2% of frames over 33.3 ms) and
+ * broken again in a QUIET EMPTY ROOM (17.2% over 33.3, p99 188.4 ms) — one
+ * frame in five, with nothing on screen.
  *
- * 20.5 against a 33.3 ceiling — 62% of budget, on the part that defines the
- * budget, measured with a rival workload live on the box. The owner's brief
- * guessed MEDIUM would land "2x off" the 16.7 ms target; 33.3 ms is that guess
- * written down as a promise the mode MAY NOT BREAK, not a speed it is required
- * to be. Landing well inside is a bonus, not a contract violation, and it is
- * the reason MEDIUM is the default rather than a compromise.
+ * "Never" is not a claim this engine can make on that adapter, and the correct
+ * response is to stop making it rather than to keep measuring it with a kinder
+ * statistic. What MEDIUM promises now is what MEASURED supports: the mode is
+ * budgeted on DELIVERED throughput with an explicit ceiling on the share of
+ * frames that may exceed it, and the promise text says "aims" where the
+ * measurement says "usually" — see budgetMs / maxOverPct.
  */
 const MEDIUM: QualityProfile = {
   ...HIGH,
   name: "medium",
   label: "MEDIUM",
-  blurb: "the default — 30 fps guaranteed on integrated graphics, and it still looks like the game",
+  blurb: "the default — the full look, tuned to hold a playable frame on integrated graphics",
   contract: {
     budgetMs: 33.3,
-    promise: "never below 30 fps, even in the worst fight, on integrated graphics",
+    maxOverPct: 25,
+    promise: "the default — aims to stay above 30 fps on integrated graphics, and it still looks like the game",
     maxPixelRatio: 1.4,
     maxShadowCost: 0.28125,   // (1536/2048)^2 / 2
-    maxRigCost: 0.2967,       // 18 on screen + 131 off at 12 Hz, of 149
-    maxPostCost: 0.765,
+    maxRigCost: 0.2967,       // 18 on screen at full rate + 131 off at 12 Hz, of 149
+    maxPostCost: 0.69,
   },
   pixelRatioCap: 1.4,
+  gtaoScale: 0.5,
+  gtaoDenoiseScale: 0.5,
   gtaoSamples: 9,
   gtaoDenoiseSamples: 6,
   bloomScale: 0.45,
   shadowMapSize: 1536,
   shadowInterval: 2,
   offscreenRigHz: 12,
-  rigBudget: 28,
 };
 
 /**
- * LOW — the mode that carries the performance guarantee. Contract: 60 fps
- * (16.7 ms) in the worst real scene on the weak path.
+ * LOW — the mode that carries the frame-rate guarantee.
  *
- * MEASURED in REFERENCE_SCENE (tools/trk_modes.mjs, 5 interleaved samples):
- *     iGPU  median 15.1 ms (66 fps)  mean 17.2  p10 12.0  p95 31.9  563 draws
- *     dGPU  median 12.6 ms (79 fps)  mean 14.8  p10  9.8  p95 24.0  737 draws
+ * IT USED TO PROMISE 60 fps AND IT NEVER DELIVERED 60 fps. The old contract was
+ * budgetMs 16.7, justified by a MEASURED median of 15.1 — while the same
+ * samples had a mean of 17.2, which the file admitted was over, and a delivered
+ * throughput nobody wrote down. The fill fit says why the promise was
+ * unreachable in principle: on the Intel part
  *
- * 15.1 against a 16.7 ceiling — 90% of budget, in the worst scene, on the weak
- * adapter, with a rival workload live on the box. The margin is thin and it is
- * meant to be read that way: LOW is the mode carrying the promise, so it is the
- * mode whose measurement is allowed the least slack.
+ *     delivered ms = 8.3 + 9.1 * backbuffer Mpx
  *
- * AND THE MEAN IS 17.2, WHICH IS OVER. Not hidden, because it is the honest
- * shape of the result: the median frame is 15.1 ms and the tail is not. Two
- * things are in that tail and neither is a thing a MODE can fix — (a) the box
- * carried 10-18 foreign chrome.exe throughout, and preemption lands on the mean
- * far harder than on the median; (b) r2's finding that warm-up hitches SURVIVE
- * readiness is still true and still unfixed (p95 31.9). The contract is stated
- * on the median because that is what the brief asked for and what these levers
- * control; closing the tail is a different job and pretending this round did it
- * would be the lie.
+ * and LOW's buffer is 1.227 Mpx at the reference viewport. Even at ZERO pixels
+ * the fixed term alone is half the 16.7 ms budget; the mode could not have got
+ * there by turning anything in this file down. A promise that the levers cannot
+ * reach is not a tight promise, it is a wrong one.
  *
- * WHAT IT GIVES UP, honestly: the frame is rendered at 1x pixel density (it is
- * softer — this is the only thing a player is likely to notice), contact
- * shadows are half the map resolution and rebuild every third frame, and rigs
- * that are not on screen pose at 6 Hz with at most 14 animating at full rate in
- * a brawl. It does NOT give up ambient occlusion, particles, motes or any
- * light: those measured ~4% of the frame together, so cutting them would pay a
- * price the player can name for a saving they cannot feel.
+ * So the number moved to one the measurement supports, and the levers moved to
+ * earn it — see MEASURED for both the before and the after.
  *
- * There is no mode below this one. A machine that cannot hold 16.7 ms here has
- * nowhere left to fall, which is why it is allowed to look plainer.
+ * WHAT IT GIVES UP, honestly: the frame is rendered at 1x pixel density (softer
+ * — the only thing a player is likely to notice), contact shadows are half the
+ * map resolution and rebuild every third frame, ambient occlusion is quarter
+ * resolution, and rigs that are NOT ON SCREEN pose at 6 Hz.
+ *
+ * WHAT IT NO LONGER GIVES UP: bodies the player is looking at. `rigBudget: 14`
+ * used to demote a third to a half of the visible pack to 6 Hz — measured, with
+ * the gate's own output — while quality.ts claimed in this very file that "an
+ * off-screen rig is off screen". That cap is gone.
+ *
+ * There is no mode below this one. A machine that cannot hold this has nowhere
+ * left to fall, which is why it is allowed to look plainer.
  */
 const LOW: QualityProfile = {
   ...HIGH,
   name: "low",
   label: "LOW",
-  blurb: "60 fps guaranteed on integrated graphics — softer frame, same game",
+  blurb: "the performance mode — softest frame, same game, nothing on screen is cut",
   contract: {
-    budgetMs: 16.7,
-    promise: "60 fps in the worst fight on integrated graphics — the mode that promises a number",
+    budgetMs: 20,
+    maxOverPct: 10,
+    promise: "the smoothest this engine gets — aims to stay above 50 fps on integrated graphics",
     maxPixelRatio: 1,
     maxShadowCost: 0.08334,   // (1024/2048)^2 / 3
-    maxRigCost: 0.1846,       // 14 nearest at full rate, the rest at 6 Hz, of 149
-    maxPostCost: 0.295,
+    maxRigCost: 0.2088,       // 18 on screen at full rate + 131 off at 6 Hz, of 149
+    maxPostCost: 0.27,
   },
   pixelRatioCap: 1,
   gtaoScale: 0.25,
-  gtaoDenoiseScale: 0.5, // bilinear upsample in the AO blend; softer, much cheaper
+  gtaoDenoiseScale: 0.25,
   gtaoSamples: 6,
   gtaoDenoiseSamples: 4,
   bloomScale: 0.35,
   shadowMapSize: 1024,
   shadowInterval: 3,
   offscreenRigHz: 6,
-  rigBudget: 14,
 };
 
 export const QUALITY_PRESETS: Record<QualityName, QualityProfile> = {
@@ -412,14 +474,21 @@ export type Adapter = "igpu" | "dgpu";
  * the result heavy combat — see tools/trk_modes.mjs.
  */
 export const REFERENCE_SCENE =
-  "floor 15, staged dense combat — the crawler is teleported into the densest "
-  + "live pack and pinned alive; 1440x852 CSS @ devicePixelRatio 2; vsync off; "
-  + "5 interleaved samples per mode inside ONE page session; 10-18 foreign "
-  + "chrome.exe live throughout, so every figure is an UPPER bound. "
-  + "iGPU session: ~22 monsters in vision, 195 skinned meshes, ~665 bones, "
-  + "563-718 draws. dGPU session: ~32 in vision, ~260 skinned meshes, ~890 "
-  + "bones, 737-974 draws — a HEAVIER scene, so the two adapters' absolute "
-  + "times are NOT comparable to each other; only each adapter's own ladder is";
+  "floor 15, staged dense combat (tools/r2_modes.mjs) — the crawler is "
+  + "teleported into the densest live pack and pinned alive, and RE-STAGED "
+  + "between every window so a thinning pack cannot charge the later modes for "
+  + "a lighter scene; 1440x852 CSS @ devicePixelRatio 2; vsync off; 3 reps with "
+  + "the mode order ROTATED inside each rep, all inside ONE page session; "
+  + "24-39 monsters in vision; ~1,600 scene nodes. Every window is gated at "
+  + "BOTH ends on a GPU-contention canary (the post chain over an empty scene: "
+  + "3.8-9.5 ms quiet, 27-80 ms contended) and discarded if either end fails, "
+  + "because on a shared-memory Intel part a rival browser's GPU work is "
+  + "invisible to a process count. 10-21 foreign chrome.exe were live on the "
+  + "box throughout, so every figure is still an UPPER bound. The two adapters "
+  + "ran separate sessions with separately staged packs, so their absolute "
+  + "times are NOT comparable to each other; only each adapter's own ladder is. "
+  + "MEASURED_QUIET is the same session shape with the crawler walked to the "
+  + "farthest point from any live monster";
 
 /** CSS-pixel area of the reference viewport, in megapixels at ratio 1. */
 const REFERENCE_CSS_MPX = (1440 * 852) / 1e6;
@@ -445,19 +514,18 @@ export function shadowWeight(p: QualityProfile): number {
  * Fraction of the full-rate mixer cost a preset still pays, in the reference
  * scene: 149 rigs, 18 of them on screen.
  *
- * On-screen rigs always animate every frame — that is not negotiable and no
- * mode touches it. The off-screen 131 pay `offscreenRigHz / 60`, and the rig
- * budget claws back whichever of them would still have animated at full rate.
+ * ON-SCREEN RIGS ALWAYS ANIMATE EVERY FRAME. That sentence stood here before
+ * opt r2 as well — and it was false, because `rigBudget` demoted the on-screen
+ * overflow and this function modelled it doing so. Now there is no overflow
+ * term: the whole on-screen 18 are charged at full rate in every mode, and the
+ * only thing a preset spends is the rate the off-screen 131 are sampled at.
  */
 const REF_RIGS = 149;
 const REF_RIGS_ON_SCREEN = 18;
 export function rigWeight(p: QualityProfile): number {
   const off = REF_RIGS - REF_RIGS_ON_SCREEN;
-  const onScreen = Math.min(REF_RIGS_ON_SCREEN, p.rigBudget);
-  // Anything on screen beyond the budget is demoted to the off-screen rate too.
-  const demoted = REF_RIGS_ON_SCREEN - onScreen;
   const offRate = Math.min(1, p.offscreenRigHz / 60);
-  return (onScreen + (off + demoted) * offRate) / REF_RIGS;
+  return (REF_RIGS_ON_SCREEN + off * offRate) / REF_RIGS;
 }
 
 /** Fraction of the post chain a preset still pays. */
@@ -471,46 +539,148 @@ export function postWeight(p: QualityProfile): number {
 }
 
 /**
- * WHAT WAS ACTUALLY ON THE CLOCK — MEDIAN frame time in REFERENCE_SCENE.
+ * THE FULL SHAPE OF ONE MODE IN ONE SCENE ON ONE ADAPTER.
  *
- * The contract is stated on the median because that is the statistic the brief
- * asked for ("16.7 ms median") and the one the levers in this file control.
- * MEASURED_MEAN is carried right next to it because on the Intel part the two
- * diverge violently and quoting only the friendlier one would be the whole
- * problem this round exists to stop repeating.
- *
- * Transcribed from tools/_trkmodes_igpu_combat.json and _trkmodes_dgpu_combat.json.
- * Nothing in this file derives them.
+ * WHY IT IS A RECORD AND NOT A NUMBER. The table this replaces was a single
+ * median per mode per adapter, and the acceptance pass's verdict on it is the
+ * reason this type exists: "it cannot express p90, p99 or the share of frames
+ * over budget, so the contract it justifies is not auditable from the artefact
+ * that justifies it." A ladder that ships one statistic can only ever be
+ * checked against that statistic, and the one it shipped was the flattering one.
  */
-export const MEASURED: Record<QualityName, Record<Adapter, number>> = {
-  high: { igpu: 29.1, dgpu: 16.1 },
-  medium: { igpu: 20.5, dgpu: 15.4 },
-  low: { igpu: 15.1, dgpu: 12.6 },
+export interface MeasuredShape {
+  /** Frames delivered per wall-clock second. The honest headline. */
+  readonly fps: number;
+  /** Wall ms per delivered frame = 1000/fps. What `budgetMs` is checked against. */
+  readonly delivered: number;
+  /** Median rAF delta — carried ONLY so the gap to `delivered` stays visible. */
+  readonly p50: number;
+  readonly p90: number;
+  readonly p99: number;
+  /** % of individual frames over 33.3 ms. What `maxOverPct` is checked against. */
+  readonly over33: number;
+}
+
+/**
+ * WHAT WAS ACTUALLY ON THE CLOCK IN THE WORST SCENE — the floor-15 dense pack.
+ *
+ * Transcribed from tools/_r2modes_after_igpu_dense.json and
+ * _r2modes_after_dgpu_dense.json. Nothing in this file derives them.
+ *
+ * THE HARNESS EARNS THE NUMBERS AND IS PART OF THE CLAIM (tools/r2_modes.mjs):
+ * mode order rotates inside every rep, the pack is re-staged between every
+ * window, the raw frame deltas survive to the end, a window whose preset
+ * fingerprint moved is refused outright, and — the one that mattered most on
+ * this box — every window is gated at BOTH ends on a GPU-contention canary.
+ *
+ * THE CANARY IS NOT OPTIONAL AND THE REASON IS IN THIS TABLE'S HISTORY. On a
+ * shared-memory Intel part a rival browser's GPU work is invisible to a process
+ * count: one attempt at this exact ladder returned LOW at 4.4 fps and HIGH at
+ * 2.4 fps with the foreign chrome.exe count unchanged, and the previous round
+ * threw away a whole session at 2.0-3.3 fps for the same reason. The canary
+ * renders the post chain over an EMPTY scene — nearly no CPU in it — and reads
+ * 3.8-9.5 ms on a quiet Intel part against 27-80 ms on a contended one. Windows
+ * taken above the ceiling are discarded and retried, not averaged in.
+ *
+ * READ `delivered` AGAINST `p50` FIRST. Where they agree the frame is genuinely
+ * paced; where `delivered` is a multiple of `p50` the swap chain is queueing
+ * cheap callbacks in front of expensive ones and the median is describing the
+ * queue rather than the machine. On the Intel part at HIGH that ratio is 1.36;
+ * on the RTX it is 1.09. The old single-median table could not contain that.
+ */
+export const MEASURED: Record<QualityName, Record<Adapter, MeasuredShape>> = {
+  high: {
+    igpu: { fps: 19.56, delivered: 51.13, p50: 37.5, p90: 118.4, p99: 239.4, over33: 50.7 },
+    dgpu: { fps: 78.44, delivered: 12.75, p50: 11.7, p90: 16.9, p99: 27.3, over33: 0.3 },
+  },
+  medium: {
+    igpu: { fps: 41.24, delivered: 24.25, p50: 14.2, p90: 54.3, p99: 132.3, over33: 19.3 },
+    dgpu: { fps: 91.52, delivered: 10.93, p50: 9.8, p90: 16.7, p99: 24.8, over33: 0 },
+  },
+  low: {
+    igpu: { fps: 64.12, delivered: 15.60, p50: 12.3, p90: 24.2, p99: 58.3, over33: 5.8 },
+    dgpu: { fps: 92.50, delivered: 10.81, p50: 9.6, p90: 16.6, p99: 23.7, over33: 0 },
+  },
 };
 
 /**
- * THROUGHPUT over the same samples (mean, excluding >400 ms stalls).
+ * THE SAME MODES IN A QUIET ROOM, on the weak path — the scene the previous
+ * round never measured and the acceptance pass broke MEDIUM's promise in.
  *
- * WHY IT IS HERE. Median and mean tell different stories about the same frame,
- * and one of them flatters. HIGH on the Intel part is median 29.1 against a
- * mean of 51.0 — a ratio of 1.75, which is rAF running ahead, filling the swap
- * chain and then blocking. The same mode on the RTX is 16.1 against 17.2, a
- * ratio of 1.07: a genuinely smooth frame. That contrast is the sharpest
- * evidence in this file that the two adapters are not just "fast and slow".
+ * "Worst scene" was always assumed to mean "densest pack", and that is not
+ * obviously true: a quiet room has fewer bodies but the same backbuffer, the
+ * same post chain and the same shader-build exposure, and on a fill-bound
+ * adapter that is most of the frame. Measured against the SHIPPED build it was
+ * worse than the dense pack — MEDIUM spent 17.2% of its frames over 33.3 ms
+ * with nothing on screen, p90 57.4 ms, p99 188.4 ms.
  *
- * AND LOW'S MEAN IS 17.2 AGAINST ITS OWN 16.7 BUDGET. Said plainly rather than
- * omitted: LOW meets its contract on the median (15.1) and misses it by half a
- * millisecond on the mean. Two things are in that gap and neither is something
- * a MODE can fix — 10-18 foreign chrome.exe were live on the box for every
- * sample, and r2's finding that warm-up hitches SURVIVE readiness is still
- * true and still unfixed. The contract is on the median because that is what
- * the brief asked for and what these levers control.
+ * It is not worse any more, and it is measured now rather than assumed:
+ *
+ *     MEDIUM, quiet room, Intel   before  17.2% over 33.3, p90 57.4, p99 188.4
+ *                                 after    5.0% over 33.3, p90  8.2, p99 163.7
+ *     HIGH,   quiet room, Intel   before  30.4% over 33.3,           p99 393.6
+ *                                 after    5.9% over 33.3, p90 10.4, p99 609.2
+ *
+ * (The "before" row is the acceptance pass's own measurement of the shipped
+ * build, not this harness's, so the two are not the same instrument. The
+ * "after" rows are from tools/_r2modes_after_igpu_empty.json, canary 3.8 ms.)
+ *
+ * WEAK PATH ONLY, DELIBERATELY. The quiet room exists in this file because it
+ * is where a promise made to integrated graphics was found broken. Carrying a
+ * discrete-GPU column would be carrying three numbers that no contract reads.
  */
-export const MEASURED_MEAN: Record<QualityName, Record<Adapter, number>> = {
-  high: { igpu: 51.0, dgpu: 17.2 },
-  medium: { igpu: 25.9, dgpu: 17.6 },
-  low: { igpu: 17.2, dgpu: 14.8 },
+export const MEASURED_QUIET: Record<QualityName, MeasuredShape> = {
+  high: { fps: 36.20, delivered: 27.63, p50: 4.3, p90: 10.4, p99: 609.2, over33: 5.9 },
+  medium: { fps: 79.00, delivered: 12.66, p50: 2.3, p90: 8.2, p99: 163.7, over33: 5.0 },
+  low: { fps: 204.48, delivered: 4.89, p50: 2.4, p90: 9.8, p99: 38.8, over33: 2.5 },
 };
+
+/**
+ * WHAT EACH OF THIS ROUND'S CHANGES IS WORTH — as the DELIVERED-TIME RATIO you
+ * get by REVERTING it, measured inside one page session against a baseline
+ * window on either side of it (tools/r2_which.mjs).
+ *
+ * WHY NOT A BEFORE TABLE AND AN AFTER TABLE. That is what this round tried
+ * first, and it produced a false alarm big enough to have sent the whole thing
+ * in the wrong direction: the AFTER ladder on the RTX read HIGH at 78.4 fps
+ * against a BEFORE of 92.4 and looked like a 15% regression. It was not. The
+ * BEFORE session had run with 10 foreign chrome.exe on the box and the AFTER
+ * with 21, and the same change A/B'd INSIDE one session came out a 9.2% WIN.
+ * Cross-session absolutes are not comparable on this machine, at all, and any
+ * conclusion drawn from a pair of them is a conclusion about the neighbours.
+ *
+ * So the regression gate is the ratio, not the pair. A value above 1.0 means
+ * "putting the old behaviour back makes the frame that much slower", i.e. the
+ * change is a win of (ratio - 1).
+ */
+export const AB_REVERT: Record<string, Record<Adapter, number>> = {
+  /**
+   * Put the AO denoise back to full resolution over a half-res AO buffer (the
+   * r4 arrangement). THE HEADLINE OF THE ROUND: 31.5% of the frame on the
+   * adapter the promises are made to, and it is not a quality cut — the
+   * filtering still happens, at the resolution the data actually has.
+   */
+  aoFullDenoise: { igpu: 1.315, dgpu: 1.092 },
+  /**
+   * Turn the late-program catcher off. It is a small NET COST in throughput on
+   * the Intel part (~2% after the key memoization; 4.3% before it) and free on
+   * the RTX — and it is kept anyway, because what it buys is not throughput.
+   * The shipped build's own [shader-guard] fired 2.7-2.8 times per minute of
+   * ordinary floor-15 play AFTER full readiness, each one a synchronous program
+   * build worth several hundred milliseconds. Across 4.1 minutes of measured
+   * play after the change it fired zero times. A ratio below 1.0 here is the
+   * price of that, stated rather than hidden.
+   */
+  lateProgramCatcher: { igpu: 0.978, dgpu: 1.005 },
+};
+
+/**
+ * [shader-guard] fires per minute of ordinary floor-15 play, AFTER full
+ * readiness (assets settled, #loading gone and boxless, plus three seconds).
+ * Each fire is one synchronous GLSL->HLSL->D3D build on the frame a material is
+ * first drawn, and they are the 393-2078 ms p99 that no quality mode removes.
+ */
+export const SHADER_BUILDS_PER_MIN = { before: 2.75, after: 0 };
 
 /** "auto" = let the tuner choose and keep choosing; anything else pins it. */
 export type QualityChoice = QualityName | "auto";
@@ -771,6 +941,18 @@ export class QualityAutoTuner {
     //
     // 34 ms is one frame past MEDIUM's own 33.3 ms ceiling: a machine whose
     // MEAN is worse than the mode's declared worst case really is not coping.
+    //
+    // WHAT THAT MEANT BEFORE opt r2, AND WHY IT IS NO LONGER THE SAME BARGAIN.
+    // The acceptance pass measured this threshold's consequence precisely: 90 s
+    // pinned in the dense pack, all 29 windows MEDIUM, backbuffer constant,
+    // zero quality-change callbacks — AUTO never left MEDIUM while MEDIUM was
+    // delivering 30-37 fps, because downMs sat above MEDIUM's own worst mean.
+    // The tuner was correct and useless at the same time. The fix was not to
+    // lower the threshold — a tuner that demotes a mode meeting its contract is
+    // broken, and `ceiling` makes the demotion permanent for the session — but
+    // to make the mode worth staying in: MEDIUM now delivers 41.2 fps in that
+    // same worst scene (MEASURED). The threshold is unchanged; the thing it was
+    // failing to rescue no longer needs rescuing.
     this.downMs = opts.downMs ?? 34;
     this.upMs = opts.upMs ?? 11;       // 90 fps: enough headroom to afford more
     this.stallMs = opts.stallMs ?? 400;

@@ -81,6 +81,21 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
 // its highlight), gentle saturation, and a film vignette tinted to the band's
 // void color. Runs AFTER OutputPass (tone map + sRGB), so it grades the same
 // values the player sees.
+/**
+ * Walks the golden ratio to hand each rig a distinct mixer-flush phase — see
+ * the phase-spread note in the rate-gated mixer. Module scope because it must
+ * be shared by every rig built in the session; it is a spreading sequence, not
+ * randomness, so it costs nothing determinism can notice.
+ */
+let rigPhaseSeq = 0;
+
+/** Texture slots whose presence forks a three.js program permutation. */
+const MAP_SLOTS = [
+  "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap",
+  "alphaMap", "bumpMap", "displacementMap", "lightMap", "envMap", "specularMap",
+  "clearcoatMap", "sheenColorMap", "transmissionMap", "iridescenceMap",
+] as const;
+
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
@@ -183,20 +198,31 @@ class WorldGTAOPass extends GTAOPass {
     (this as unknown as { normalRenderTarget: THREE.WebGLRenderTarget }).normalRenderTarget.setSize(1, 1);
   }
 
-  // HALF-RES AO WITH A BILATERAL UPSAMPLE (quality ladder).
+  // THE AO BUFFER AND THE DENOISE BUFFER ARE SIZED INDEPENDENTLY — and after
+  // opt r2 every shipped mode sizes them the SAME.
   //
-  // The AO buffer and the denoise buffer are sized independently. Running the
-  // AO march at aoScale 0.5 costs a QUARTER of its samples; the denoise pass
-  // then runs at full resolution and reads the small AO buffer through
-  // textureLod (bilinear) while weighting every tap by depth, normal and luma
-  // from the FULL-res shared depth buffer. That is precisely a joint-bilateral
-  // upsample, and it is stock three shader code — no custom pass needed. The
-  // occlusion contact line stays pinned to the geometry edge instead of
-  // bleeding across it the way a plain bilinear stretch would.
+  // The arrangement this replaces ran the AO march at half resolution and the
+  // denoise at FULL resolution, on the argument that a depth+normal+luma
+  // weighted denoise reading a small AO buffer through bilinear textureLod is
+  // exactly a joint-bilateral upsample. That is true, and it is stock three
+  // shader code, and it was still the single most expensive thing in the frame
+  // on the machine the promises are made to:
   //
-  // Setting denoiseScale below 1 gives up the bilateral upsample and lets the
-  // AO blend do a plain bilinear stretch instead — cheaper, softer, which is
-  // the right trade on the lower rungs.
+  //     AO march     1.23 Mpx x 12 taps            = 14.7 Mtaps
+  //     denoise      4.91 Mpx x 8 samples x 2 rings = 78.6 Mtaps
+  //
+  // Five times the pass it was cleaning, spent filtering values that bilinear
+  // interpolation had just invented. Sandwiched A/B on the Intel part put the
+  // whole GTAO pass at roughly a third of a 53 ms frame at HIGH.
+  //
+  // Sizing the denoise to the AO buffer keeps the filtering — it just does it
+  // at the resolution the data has — and hands the upsample to the AO blend's
+  // own bilinear fetch. The halo bleed the old comment warned about comes from
+  // upsampling UNFILTERED half-res AO, which is not what this does.
+  //
+  // The independent sizing stays in the API because it is the honest shape of
+  // the mechanism, and a future adapter that is not bandwidth-starved could pay
+  // for the full-res filter again.
   private aoScale = 1;
   private denoiseScale = 1;
   private fullW = 2;
@@ -2598,6 +2624,156 @@ export class Renderer3D {
     }
   }
 
+  // ---- THE LATE-PROGRAM CATCHER (opt r2) --------------------------------
+  //
+  // THE GUARD ABOVE WAS ONLY EVER A DETECTOR, AND IT KEPT DETECTING. Measured
+  // on the shipped build AFTER full readiness — assets settled, #loading gone
+  // and boxless, plus three seconds — the guard fired 17 times in 90 s of
+  // ordinary floor-15 play: skeleton x4, texture x2, glass x2, 4GTN_glow,
+  // robot_glow and others. Every one of those is a synchronous GLSL->HLSL->D3D
+  // build on the frame the material is FIRST DRAWN, and they are the 393 ms to
+  // 2078 ms p99 that no quality mode can remove and no contract mentions.
+  //
+  // Prewarm cannot close this by enumeration. It builds a character zoo from
+  // the manifest, but ~200 GLBs stream in behind the running game, floors are
+  // rebuilt as they land, and boss encounters mint per-boss shield/tether/
+  // punish/arena/plate/spore materials on the beat that needs them. The set of
+  // permutations is open, so the fix has to be a mechanism, not a longer list.
+  //
+  // SO: DETECT THE NEW MATERIAL BEFORE THE DRAW, AND KEEP IT OUT OF THE DRAW
+  // UNTIL ITS PROGRAM IS READY.
+  //
+  //   1. On a cadence, walk the scene for materials never compiled before.
+  //   2. Park each owning object on a layer the camera does not watch. It stays
+  //      `visible` — which matters, because WebGLRenderer.compile() uses
+  //      traverseVisible and a hidden object would not get compiled at all —
+  //      but the camera's layer test drops it from the render list.
+  //   3. compileAsync() with a composer target bound (the permutation the game
+  //      actually draws — see compileForComposer), which polls
+  //      KHR_parallel_shader_compile instead of blocking the main thread.
+  //   4. Put the objects back on their own layers when it resolves.
+  //
+  // WHAT THIS COSTS: a new body can be absent for a few frames instead of
+  // present in a frame that takes two seconds. That is the trade, stated
+  // plainly, and it is the right way round — a pop-in is a frame of missing
+  // information, a two-second freeze is a lost fight.
+  private readonly compiledKeys = new Set<string>();
+  /**
+   * Materials whose key has already been computed once.
+   *
+   * WITHOUT THIS THE CATCHER PAYS FOR ITSELF EVERY SWEEP. Measured on the Intel
+   * part by sandwiched A/B (tools/r2_which.mjs), the first version — which
+   * rebuilt a key STRING for every material in the scene on every sweep — cost
+   * 4.3% of a 46.6 ms frame. The keys of resident materials do not change; only
+   * the arrival of a new material instance is news. A WeakSet membership test
+   * per material replaces the string build, and the set does not retain
+   * anything (a disposed material is collected with its entry).
+   */
+  private readonly seenMats = new WeakSet<THREE.Material>();
+  private matSweepTick = 0;
+  private matSweepBusy = false;
+  /** Armed only once prewarm has seeded the baseline. Without this the sweep
+   *  would fire during prewarm's own warm frames and park the entire scene. */
+  private matSweepArmed = false;
+  /** Objects parked off-camera awaiting a program, with the layer mask to
+   *  restore. Emptied in a finally, so a failed compile cannot strand them. */
+  private readonly matParked = new Map<THREE.Object3D, number>();
+  /** How many async compiles the catcher has kicked off, and how many programs
+   *  they actually produced. Read by tools/ — a catcher that fires constantly
+   *  and builds nothing is a broken key function, not a working guard. */
+  matSweepFires = 0;
+  matSweepProgramsBuilt = 0;
+  /** Layer the camera never watches. 31 is the last three.js layer. */
+  private static readonly COMPILE_LAYER = 31;
+
+  /**
+   * A cheap stand-in for three.js's program cache key.
+   *
+   * IT MUST NOT BE MATERIAL IDENTITY, and the first version of this was. Every
+   * floor rebuild mints fresh Material INSTANCES whose programs are already
+   * cached — three.js keys the cache on the permutation, not on the object — so
+   * an identity-keyed sweep would have parked the whole floor for a few frames
+   * every time one was rebuilt, to compile nothing at all.
+   *
+   * So the key is the set of things that actually fork a program: the material
+   * class, which texture slots are populated, the blend/side/vertex-colour
+   * flags, whether the object is skinned or instanced, and — for the hand-
+   * written shaders, where the source IS the permutation — the shader source
+   * lengths and define names.
+   *
+   * It is deliberately approximate in the SAFE direction. A false negative
+   * (a genuinely new permutation that hashes onto an old key) just leaves
+   * today's behaviour: one hitch, once. A false positive costs a few frames of
+   * pop-in on an object that needed nothing.
+   */
+  private matKey(o: THREE.Object3D, m: THREE.Material): string {
+    const a = m as THREE.Material & Record<string, unknown>;
+    const mesh = o as THREE.Object3D & { isSkinnedMesh?: boolean; isInstancedMesh?: boolean; isPoints?: boolean; isSprite?: boolean };
+    let k = m.type;
+    if (typeof a.vertexShader === "string") {
+      k += `|v${(a.vertexShader as string).length}|f${(a.fragmentShader as string).length}`;
+      const d = a.defines as Record<string, unknown> | undefined;
+      if (d) k += `|D${Object.keys(d).sort().join(",")}`;
+    }
+    for (const slot of MAP_SLOTS) if (a[slot]) k += `|${slot}`;
+    k += `|t${m.transparent ? 1 : 0}|s${m.side}|c${(a.vertexColors as boolean) ? 1 : 0}`;
+    k += `|f${(a.fog as boolean) ? 1 : 0}|a${(a.alphaTest as number) > 0 ? 1 : 0}`;
+    k += `|k${mesh.isSkinnedMesh ? 1 : 0}${mesh.isInstancedMesh ? 1 : 0}${mesh.isPoints ? 1 : 0}${mesh.isSprite ? 1 : 0}`;
+    return k;
+  }
+
+  private eachMaterial(o: THREE.Object3D, fn: (m: THREE.Material) => void): void {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if (!m) return;
+    if (Array.isArray(m)) { for (const x of m) fn(x); } else fn(m);
+  }
+
+  /** Seed the "already compiled" set from whatever is resident right now. */
+  private seedCompiledMaterials(): void {
+    this.matSweepArmed = true;
+    this.scene.traverse((o) => this.eachMaterial(o, (m) => {
+      this.seenMats.add(m);
+      this.compiledKeys.add(this.matKey(o, m));
+    }));
+  }
+
+  private sweepNewMaterials(): void {
+    // Cadenced, not every frame: a scene walk is ~1,600 visits after the
+    // out-of-vision parking, which is nothing spread over twelve frames and is
+    // not nothing paid every one of them.
+    if (!this.matSweepArmed || this.matSweepBusy) return;
+    if ((this.matSweepTick = (this.matSweepTick + 1) % 30) !== 0) return;
+    const fresh: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      let isNew = false;
+      this.eachMaterial(o, (m) => {
+        // The common case, by a very long way: a material we have already
+        // classified. One WeakSet probe and nothing else.
+        if (this.seenMats.has(m)) return;
+        this.seenMats.add(m);
+        if (!this.compiledKeys.has(this.matKey(o, m))) isNew = true;
+      });
+      if (isNew) fresh.push(o);
+    });
+    if (!fresh.length) return;
+    for (const o of fresh) {
+      this.eachMaterial(o, (m) => this.compiledKeys.add(this.matKey(o, m)));
+      this.matParked.set(o, o.layers.mask);
+      o.layers.set(Renderer3D.COMPILE_LAYER);
+    }
+    this.matSweepBusy = true;
+    this.matSweepFires++;
+    const before = this.renderer.info.programs?.length ?? 0;
+    void this.compileForComposer()
+      .catch(() => { /* a failed compile must not strand the objects */ })
+      .finally(() => {
+        this.matSweepProgramsBuilt += (this.renderer.info.programs?.length ?? 0) - before;
+        for (const [o, mask] of this.matParked) o.layers.mask = mask;
+        this.matParked.clear();
+        this.matSweepBusy = false;
+      });
+  }
+
   /** Arm the guard with everything prewarm produced. Called at the end of
    *  prewarm; enabled by `?debug` (the capture harnesses all pass it) or a dev
    *  build, so a normal player never pays for it. */
@@ -2822,6 +2998,10 @@ export class Renderer3D {
     this.aoe.update(30, 0);
     this.ribbons.update(30);
     this.prewarmQualityLadder();
+    // Everything resident at this instant has just been compiled for the buffer
+    // the game draws into. That set is the late-catcher's baseline; anything
+    // that appears after it is by definition a permutation prewarm did not have.
+    this.seedCompiledMaterials();
     this.armProgramGuard();
     onStep?.(3, TOTAL);
     await breathe();
@@ -3080,10 +3260,40 @@ export class Renderer3D {
     // The busy/locoHold timers drain at full rate regardless. They gate which
     // clip may be chosen next, and that decision is made every frame by code
     // that must not see a stale answer just because the body is off screen.
+    //
+    // AND THE FLUSHES ARE PHASE-SPREAD, WHICH IS THE HALF THAT WAS MISSING.
+    //
+    // Every rig started its accumulator at zero and every rig was fed the same
+    // dt, so `animAcc >= minStep` came true for ALL of them on the SAME frame.
+    // At LOW's 6 Hz that turned a smooth 131-rig-per-frame mixer load into one
+    // frame in ten carrying all 131 flushes and nine carrying none — the mode
+    // whose whole purpose is a steady frame was manufacturing a periodic spike,
+    // and it is visible in the tail: on the RTX 5090 the acceptance pass
+    // measured LOW with the WORST p90 of the three modes (52.0 ms against
+    // MEDIUM's 28.8) while delivering the fewest frames.
+    //
+    // The fix is a per-rig phase on the FIRST flush after the gate engages.
+    // After that each rig keeps flushing every `minStep`, so the offset it was
+    // born with persists and the load is spread across the whole period. The
+    // phase walks the golden ratio, which spreads any prefix of the sequence as
+    // evenly as a sequence can be spread — no RNG, no clustering.
+    const animPhase = (rigPhaseSeq = (rigPhaseSeq + 0.6180339887498949) % 1);
     let animAcc = 0;
+    /** Accumulated time at which the next flush is due; <0 = not yet gated. */
+    let animNext = -1;
     g.userData.animTick = (dt: number, minStep = 0) => {
       animAcc += dt;
-      if (animAcc >= minStep) { mixer.update(animAcc); animAcc = 0; }
+      if (minStep <= 0) {
+        // Ungated: every frame, exactly the old behaviour.
+        mixer.update(animAcc);
+        animAcc = 0;
+        animNext = -1;
+      } else {
+        // First flush after the gate engages lands somewhere inside the period;
+        // every flush after that is one full period later.
+        if (animNext < 0) animNext = minStep * (0.1 + 0.9 * animPhase);
+        if (animAcc >= animNext) { mixer.update(animAcc); animAcc = 0; animNext = minStep; }
+      }
       if (busy > 0) busy = Math.max(0, busy - dt);
       const hold = g.userData.locoHold as number | undefined;
       if (hold && hold > 0) g.userData.locoHold = Math.max(0, hold - dt);
@@ -7369,37 +7579,52 @@ export class Renderer3D {
     // into frame is already at full rate before it is drawn. The failure this
     // avoids is the one that matters — popping into the correct pose after
     // entering view.
+    // THE RIG BUDGET IS GONE, AND IT WAS A NET LOSS ON BOTH ADAPTERS (opt r2).
+    //
+    // The gate used to sort the in-frustum bodies by distance and keep only
+    // `rigBudget` of them (14 on LOW, 28 on MEDIUM), demoting the overflow to
+    // the off-screen rate. Two measurements retired it:
+    //
+    //  1. IT DEMOTED BODIES THE PLAYER WAS LOOKING AT, which is the one thing
+    //     the comment above this block promised it would never do — "an
+    //     off-screen rig is off screen". Measured with the gate's own output
+    //     (rigFullRate.size against the in-frustum count it computes itself):
+    //     on LOW, 23-45 bodies in frustum against 14 at full rate, i.e. a
+    //     third to a half of the visible pack animating at 6 Hz.
+    //  2. IT WAS NOT BUYING ANYTHING. Sandwiched A/B on the RTX 5090 at HIGH
+    //     in the dense floor-15 pack (tools/r2_cpu.mjs): turning EVERY rig's
+    //     AnimationMixer off entirely moved delivered frame time by 3.0%
+    //     (0.43 ms of 14.2). A cap that costs visible animation to save a
+    //     fraction of half a millisecond is not a quality lever, it is a bug
+    //     with a knob on it.
+    //
+    // What stays is the RATE gate on rigs that are genuinely not on screen —
+    // the 131-of-149 that pose bones no pass reads. That one is invisible by
+    // construction, which is what the original argument was actually about.
+    //
+    // "ON SCREEN" IS A PADDED FRUSTUM TEST, DELIBERATELY GENEROUS, and it is
+    // measured against LAST frame's camera (the camera is repositioned later in
+    // this same update, below). Both facts push the same way: a 3-unit sphere
+    // around a body that is at most one frame of camera pan from where it will
+    // be draws the boundary well outside the visible edge, so a monster walking
+    // into frame is already at full rate before it is drawn.
     const rigFull = this.rigFullRate;
     rigFull.clear();
     const rigStep = 1 / Math.max(1, this.quality.offscreenRigHz);
-    if (this.quality.offscreenRigHz !== Infinity || this.quality.rigBudget !== Infinity) {
+    if (this.quality.offscreenRigHz !== Infinity) {
       this.camera.updateMatrixWorld();
       this.rigFrustum.setFromProjectionMatrix(
         this.rigProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
       );
-      const near: { id: number; d2: number }[] = [];
-      const cx = this.camera.position.x, cz = this.camera.position.z;
       for (const mon of state.monsters) {
         // Fog first, and it is not redundant with the frustum: a body can sit
         // inside the camera's box and still be unrevealed dark, in which case it
-        // is parked out of the graph below and drawing nothing. Spending a
-        // full-rate slot on it would be spending it on a body that is, by the
-        // game's own rules, not there.
+        // is parked out of the graph below and drawing nothing.
         if (!inVision(mon.pos)) continue;
         this.rigSphere.center.set(mon.pos.x, 0.9, mon.pos.y);
         if (!this.rigFrustum.intersectsSphere(this.rigSphere)) continue;
-        const dx = mon.pos.x - cx, dz = mon.pos.y - cz;
-        near.push({ id: mon.id, d2: dx * dx + dz * dz });
+        rigFull.add(mon.id);
       }
-      // NEAREST FIRST. The budget only bites in a brawl big enough that the
-      // back of the pile is a texture anyway; spending it on the bodies the
-      // player is actually reading is the whole point. Sorting a few dozen
-      // entries is far below the 2.9 ms this is buying.
-      if (near.length > this.quality.rigBudget) {
-        near.sort((a, b) => a.d2 - b.d2);
-        near.length = this.quality.rigBudget;
-      }
-      for (const n of near) rigFull.add(n.id);
     }
 
     // BOSSES V2 §5 — the encounter's persistent rigs (plates, shield shells,
@@ -8946,6 +9171,12 @@ export class Renderer3D {
 
     // Camera courtesy: shrink foliage that hides the action (open-air only).
     this.updateCanopy(state, ax, az, dt);
+
+    // LAST, because it must see everything this frame added. Anything carrying
+    // a material the game has never drawn is parked off-camera and compiled
+    // asynchronously rather than blocking the frame it first appears in — see
+    // the late-program catcher.
+    this.sweepNewMaterials();
   }
 
   /**
