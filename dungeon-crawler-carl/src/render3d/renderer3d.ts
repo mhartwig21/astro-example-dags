@@ -257,6 +257,47 @@ interface CanopyEntry {
   target: number; // 1 = full size, 0.12 = stepped aside for the camera
 }
 
+// ---------------------------------------------------------------------------
+// GPU-INSTANCED STATIC PROPS (paydown r2).
+//
+// WHAT WAS MEASURED, floor 17, staged crowd, clean box (0.7% foreign load),
+// ANGLE/Intel, BALANCED @ 1.2 (1728x1022): 613 draw calls per frame, of which
+// ~455 were named KayKit props — 144 visible props at ~3.2 draws each (a prop
+// is a glTF Group of 2-3 meshes, and the shadow pass redraws it every other
+// frame). One prop KEY, `sword_shield_broken`, was 27 draw calls per frame by
+// itself. Ablating the entire post chain moved the frame 8% and halving the
+// pixel ratio moved it 16%, so this scene is NOT fill-bound the way quality.ts's
+// floor-8 table assumes: it is bound on per-draw cost, on both sides of the
+// wire (setProgram + renderBufferDirect were 7.6 of the 7.5 ms render, and the
+// uncapped frame only fell from 30.2 to 25.3 ms at half resolution).
+//
+// The props are the one population that can be batched without changing a
+// pixel: they are static (the renderer already freezes their matrices), they
+// share geometry (every clone of a key references the loader's buffers) and
+// they share materials (worldLitProp caches by source material + tint variant),
+// so a whole floor's clutter collapses into a handful of InstancedMesh draws.
+//
+// PACKED, NOT ZERO-SCALED. A hidden prop could be "drawn" with a zero-scale
+// matrix, which is one line and wrong: an iGPU still runs the vertex shader for
+// every instance of a batch it draws, and only ~16% of a floor's 887 props are
+// ever revealed at once. Instead each batch keeps its live members packed into
+// [0, count) and `count` is what gets drawn — so an unexplored floor costs
+// nothing, and showing/hiding one prop is an O(1) swap-remove.
+interface PropBatchLeaf {
+  batch: PropBatch;
+  /** Source mesh, kept in the graph (invisible) so Box3/censuses still see it. */
+  mesh: THREE.Mesh;
+  /** Slot inside the batch, or -1 when this leaf is not currently drawn. */
+  slot: number;
+}
+interface PropBatch {
+  mesh: THREE.InstancedMesh;
+  /** slot -> leaf, valid for [0, count). */
+  members: (PropBatchLeaf | null)[];
+  count: number;
+  dirty: boolean;
+}
+
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
 // doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
 // DAMAGED STATE (furniture-feel): blocking furniture at 1 hp swaps to the
@@ -1003,6 +1044,10 @@ export class Renderer3D {
     // paid back when those terms were compiled out of its private program.
     // The branch is what makes a single shared program affordable.
     const colorGlsl =
+      // Hit-flash interior, first because that is exactly where applyHitFlash's
+      // own `#include <color_fragment>` replacement used to land it — the merge
+      // is pixel-identical, not merely equivalent. mix(x, y, 0.0) is x.
+      `\n  if (uChHitFlash > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, uChHitTint * 0.6, uChHitFlash * 0.3);` +
       // Palette pullback (mobs cede saturation to the hero). uChDesat = 1 - desat.
       `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, uChDesat);` +
       // HERO AUTHORITY (issue #4): the player owns the value/saturation budget
@@ -1038,6 +1083,20 @@ export class Renderer3D {
     // Normal-dependent terms run at emissivemap_fragment (normal is live):
     // cavity AO sink, the two-tone rim, the accent glow and the trim glint.
     const emisGlsl =
+      // HIT-FLASH RIM, EMITTED UNCONDITIONALLY (paydown r2). It used to live in
+      // a SECOND injected stage applied by applyHitFlash to a per-body clone,
+      // under customProgramCacheKey `chr1|hitflash` — which meant every monster
+      // material family forked a second program, built the first time a body of
+      // that family took a hit, i.e. mid-fight, by construction. Measured with
+      // tools/progkeys.mjs on floor 17: of the 4 programs built during
+      // gameplay, 3 were `chr1|hitflash` forks whose nearest prewarmed key
+      // differed in exactly that one field. The clone still happens (the flash
+      // level is per BODY and rimCache materials are shared per archetype), but
+      // it is now a material clone rather than a program build.
+      // At uHitFlash 0 this is an exact identity: += tint * 0.0 * k is nothing.
+      `{ if (uChHitFlash > 0.0) { vec3 hfV = normalize(vViewPosition);\n` +
+      `    float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n` +
+      `    totalEmissiveRadiance += uChHitTint * uChHitFlash * (0.09 + 1.05 * hfRim); } }\n` +
       `{ diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(-0.7, 0.6, normal.y);\n` +
       `  vec3 rimV = normalize(vViewPosition);\n` +
       // EDGE, NOT AURA (owner note: "a weird shine around the character").
@@ -1088,13 +1147,18 @@ export class Renderer3D {
       uChAccentGain: { value: accent ? accentGain : 0 },
       uChTrim: { value: trim ?? new THREE.Color(0, 0, 0) },
       uChTrimGain: { value: trim ? trimGain : 0 },
+      // Shared-material default: no flash. applyHitFlash swaps in a per-body
+      // pair on its clone; the PROGRAM is the same either way.
+      uChHitFlash: { value: 0 },
+      uChHitTint: { value: new THREE.Color(0xffc9a0) },
     };
     const chDecl =
       "uniform float uChDesat;\nuniform float uChHeroSat;\nuniform float uChValue;\n" +
       "uniform vec3 uChTint;\nuniform float uChTintGain;\nuniform float uChGrime;\n" +
       "uniform float uChCeil;\nuniform vec3 uChRim;\nuniform float uChRimStr;\n" +
       "uniform vec3 uChAccent;\nuniform float uChAccentGain;\n" +
-      "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n";
+      "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n" +
+      "uniform float uChHitFlash;\nuniform vec3 uChHitTint;\n";
     // Still one MATERIAL per distinct look (it carries the uniform values), but
     // every one of them now resolves to the same PROGRAM.
     const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:w7u`;
@@ -1374,7 +1438,15 @@ export class Renderer3D {
   // dissipates (no more visibility popping).
   // `reveal` is the last reveal step actually written to the transform (see
   // STATIC PROP TRANSFORMS in updateFogTint) — -1 means "never written".
-  private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3; reveal?: number }[] = [];
+  private propEntries: {
+    obj: THREE.Object3D; tile: number; base?: THREE.Vector3; reveal?: number;
+    /** Leaves of this prop that a batch draws instead of the graph (r2 paydown). */
+    leaves?: PropBatchLeaf[];
+    /** Last visibility pushed to the batches — visibility is a membership edit. */
+    shown?: boolean;
+  }[] = [];
+  /** One InstancedMesh per (geometry, material, shadow flags) — see PropBatch. */
+  private propBatches: PropBatch[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
@@ -1737,34 +1809,48 @@ export class Renderer3D {
           const prevKey = Object.prototype.hasOwnProperty.call(std, "customProgramCacheKey")
             ? std.customProgramCacheKey.bind(std)
             : null;
-          c.onBeforeCompile = (shader, renderer) => {
-            if (prevOBC) prevOBC.call(c, shader, renderer);
-            shader.uniforms.uHitFlash = uFlash;
-            shader.uniforms.uHitTint = uTint;
-            shader.fragmentShader = shader.fragmentShader
-              .replace(
-                "#include <common>",
-                "#include <common>\nuniform float uHitFlash;\nuniform vec3 uHitTint;",
-              )
-              .replace(
-                // Interior: nudge the albedo toward the tint but PRESERVE the
-                // texture read — never a solid untextured fill.
-                "#include <color_fragment>",
-                "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uHitTint * 0.6, uHitFlash * 0.3);",
-              )
-              .replace(
-                // Silhouette: the flash energy lives in a fresnel rim, so the
-                // body reads as a lit CREATURE taking a hit, not a decal.
-                // Gains tuned down (r5 blocker): on bright albedos (bone,
-                // ivory) the old 0.18 interior add pushed the whole body over
-                // the tone-map shoulder — flat white marshmallows again.
-                "#include <emissivemap_fragment>",
-                "#include <emissivemap_fragment>\n{ vec3 hfV = normalize(vViewPosition);\n" +
-                  "  float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n" +
-                  "  totalEmissiveRadiance += uHitTint * uHitFlash * (0.09 + 1.05 * hfRim); }",
-              );
-          };
-          c.customProgramCacheKey = () => `${prevKey ? prevKey() : ""}|hitflash`;
+          // NO SHADER EDIT AND NO CACHE-KEY FORK (paydown r2). The interior
+          // nudge and the fresnel-rim silhouette now live in
+          // applyCharacterShading's own stage, emitted unconditionally and
+          // guarded by `uChHitFlash > 0.0`. All this clone does is give THIS
+          // BODY its own pair of uniform objects — which is the only thing that
+          // ever needed to be per-body, the flash LEVEL. Chaining prevOBC and
+          // then overwriting the two uniforms is what makes that work: the base
+          // stage installs the shared defaults, we replace them after.
+          if (prevOBC) {
+            c.onBeforeCompile = (shader, renderer) => {
+              prevOBC.call(c, shader, renderer);
+              shader.uniforms.uChHitFlash = uFlash;
+              shader.uniforms.uChHitTint = uTint;
+            };
+            // Same key as the material it was cloned from: same program, and
+            // the first hit of a run stops building a shader inside a frame.
+            if (prevKey) c.customProgramCacheKey = () => prevKey();
+          } else {
+            // A body whose material never went through applyCharacterShading
+            // has no uChHitFlash in its shader, so it still needs its own
+            // stage — and therefore still forks a program. Kept rather than
+            // dropped because a silent loss of the hit flash on some archetype
+            // is a worse bug than a program build, and the guard names any
+            // build that survives. Nothing in the shipped cast reaches here.
+            c.onBeforeCompile = (shader) => {
+              shader.uniforms.uChHitFlash = uFlash;
+              shader.uniforms.uChHitTint = uTint;
+              shader.fragmentShader = shader.fragmentShader
+                .replace("#include <common>", "#include <common>\nuniform float uChHitFlash;\nuniform vec3 uChHitTint;")
+                .replace(
+                  "#include <color_fragment>",
+                  "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uChHitTint * 0.6, uChHitFlash * 0.3);",
+                )
+                .replace(
+                  "#include <emissivemap_fragment>",
+                  "#include <emissivemap_fragment>\n{ vec3 hfV = normalize(vViewPosition);\n" +
+                    "  float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n" +
+                    "  totalEmissiveRadiance += uChHitTint * uChHitFlash * (0.09 + 1.05 * hfRim); }",
+                );
+            };
+            c.customProgramCacheKey = () => "|hitflash";
+          }
           mats.push(c);
           return c;
         };
@@ -2514,6 +2600,23 @@ export class Renderer3D {
       lane.rotation.x = -Math.PI / 2;
       addWarm(lane, WX + 4, WZ);
     }
+    {
+      // THE INSTANCED PROP PERMUTATION (paydown r2). batchStaticProps draws the
+      // floor's clutter through InstancedMesh, and USE_INSTANCING is part of
+      // three.js's program cache key — so the world-lit prop material forks a
+      // program the zoo's ordinary props can never build. buildFloor runs AFTER
+      // prewarm returns, which would put that build on the first frame the
+      // player sees, and again on the first frame of every floor until the
+      // cache filled. castShadow/receiveShadow are on so the instanced DEPTH
+      // permutation warms with it.
+      const pm = this.worldLit(new THREE.MeshStandardMaterial({ color: 0x8a8079 }), { prop: true });
+      this.floorMats.push(pm);
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), pm, 1);
+      im.castShadow = im.receiveShadow = true;
+      im.setMatrixAt(0, new THREE.Matrix4());
+      this.zooScrap.push(im.geometry);
+      addWarm(im, WX + 6, WZ + 4);
+    }
     addWarm(this.buildBeamGroup(0xff5a2e, 1), WX, WZ + 2);
     addWarm(this.buildOrbitBlade(), WX + 2, WZ + 2);
     {
@@ -2631,13 +2734,36 @@ export class Renderer3D {
     // compilation. Killing the GC pauses means an allocation audit of boot, not
     // a renderer setting, and it is bounded at ~105 ms in the first four
     // seconds — versus the 4981 ms worst frame this work started from.
-    // NOT DONE HERE: renderer.debug.checkShaderErrors = false. It looks like
-    // the obvious fix for the multi-second stalls (it drops the synchronous
-    // getProgramParameter(LINK_STATUS) read that forces the driver to finish
-    // linking on the main thread), but tools/progtrace.mjs already established
-    // the stalls are not gl.linkProgram, and an A/B of it here did not beat
-    // the machine's noise. It only moves the stall to first USE of the
-    // program. Leave validation on until something measures a real win.
+    // SHADER VALIDATION IS NOW OFF — BUT ONLY FROM HERE ON. (paydown r2.)
+    //
+    // The previous revision of this comment declined to touch
+    // debug.checkShaderErrors, on the grounds that "the stalls are not
+    // gl.linkProgram; it only moves the stall to first USE of the program".
+    // Both halves of that are true and the conclusion was still wrong, because
+    // first USE is where the cost actually lands and nobody had measured it
+    // there. A V8 CPU profile of 14 s of staged floor-17 combat on a clean box
+    // (tools/_r2profile.mjs, foreign load 0.7%, 676 frames) attributes, as
+    // INCLUSIVE time per composed frame:
+    //
+    //     onFirstUse ................ 1.42 ms/frame   6.5%
+    //       getProgramInfoLog ....... 1.30 ms/frame   6.0%
+    //       getShaderInfoLog ........ 0.12 ms/frame
+    //
+    // That is ~0.9 s of wall clock inside a 14 s window, and it is not spread
+    // out: three.js reads those logs once per program, on the frame that first
+    // draws with it, and each read blocks the main thread until ANGLE has
+    // finished the D3D compile. It is a stutter generator by construction, and
+    // the scene it fires in is the one whose p99 is 139.9 ms.
+    //
+    // The split is what makes this safe. Every program built during prewarm is
+    // also first USED during prewarm (that is what the two compile+render
+    // passes above are for), so all 180 of them are still validated, still
+    // behind the loading screen, and a genuinely broken shader still throws
+    // there with its info log. What is switched off is validation of the
+    // handful of programs that escape the prewarm net — and for those the
+    // program guard armed below already reports them by name, which is a better
+    // signal than a 30 ms stall.
+    this.renderer.debug.checkShaderErrors = false;
   }
 
   /** The campfire check-in scene shares this renderer's GL context + streamed
@@ -4024,9 +4150,12 @@ export class Renderer3D {
     // meshes share the loader cache and are skipped.
     this.floorGroup.traverse((o) => {
       const im = o as THREE.InstancedMesh;
-      if (im.isInstancedMesh) { im.dispose(); im.geometry.dispose(); }
+      // `sharedGeo` marks a prop batch: its geometry belongs to the loader cache
+      // and is referenced by every other floor, so only the instance buffer dies.
+      if (im.isInstancedMesh) { im.dispose(); if (!im.userData.sharedGeo) im.geometry.dispose(); }
     });
     this.floorGroup.clear();
+    this.propBatches = [];
     this.torchAnchors = [];
     this.torchStreaks = [];
     for (const m of this.floorMats) m.dispose();
@@ -5310,6 +5439,11 @@ export class Renderer3D {
       }
     }
 
+    // Collapse the floor's static clutter into InstancedMesh batches. Must run
+    // AFTER the freeze loop above (it reads each prop's composed world matrix)
+    // and BEFORE anything that counts draw calls.
+    this.batchStaticProps();
+
     // Stamp the finished static instance tints (one-time — per-frame light
     // now happens per fragment in the world-lit materials).
     {
@@ -5618,6 +5752,149 @@ export class Renderer3D {
     d.tex.needsUpdate = true;
   }
 
+  /** Fewer than this many copies of one (geometry, material) is not worth a
+   *  batch: an InstancedMesh is itself a draw call plus an attribute buffer. */
+  private static readonly PROP_BATCH_MIN = 4;
+  /** World radius around the crawler inside which a revealed prop joins its
+   *  batch. An InstancedMesh is frustum-culled as ONE object, so a batch that
+   *  spans the map can never be culled — this is the per-prop cull that three.js
+   *  can no longer do for us. The iso camera's half-height is 8.5 tiles and its
+   *  ground footprint stretches with the pitch; 38 is a comfortable superset of
+   *  anything on screen, so this removes work without removing pixels. */
+  private static readonly PROP_BATCH_RADIUS = 38;
+  private batchMtx = new THREE.Matrix4();
+  private floorInv = new THREE.Matrix4();
+  private static readonly PROP_BATCH_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
+  /**
+   * Collapse this floor's static clutter into InstancedMesh batches.
+   *
+   * Only leaves that instancing cannot change the look of are taken: opaque,
+   * single-material, non-skinned, non-morphing meshes. Everything rejected keeps
+   * drawing exactly as before, so this is additive — a prop the filter does not
+   * understand is simply not batched.
+   *
+   * The source mesh STAYS in the graph, invisible. That is deliberate: several
+   * later passes (the contact-shadow blob census, Box3.setFromObject, the debug
+   * scene censuses) walk prop subtrees expecting geometry to be there, and
+   * Box3.setFromObject ignores `visible`. Leaving it costs nothing at draw time
+   * — three.js's projectObject returns at the first invisible node.
+   */
+  private batchStaticProps(): void {
+    this.propBatches = [];
+    this.floorGroup.updateMatrixWorld(true);
+    // Instance matrices are relative to the batch's parent (floorGroup), so
+    // every write folds floorGroup's own transform out of the leaf's world
+    // matrix. Cached because it is needed on every reveal, not just here.
+    this.floorInv.copy(this.floorGroup.matrixWorld).invert();
+
+    type Cand = { e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
+    const cands: Cand[] = [];
+    const counts = new Map<string, number>();
+    for (const e of this.propEntries) {
+      e.obj.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if ((m as THREE.SkinnedMesh).isSkinnedMesh) return;
+        if ((m as unknown as THREE.InstancedMesh).isInstancedMesh) return;
+        if (Array.isArray(m.material)) return; // multi-material needs geometry groups
+        const mat = m.material as THREE.Material | undefined;
+        // Blended surfaces (the Sewers' water sheets) are painter-sorted per
+        // object; batching them would fix their order relative to each other.
+        if (!mat || mat.transparent) return;
+        const g = m.geometry as THREE.BufferGeometry | undefined;
+        if (!g || !g.attributes?.position) return;
+        if (g.morphAttributes && Object.keys(g.morphAttributes).length > 0) return;
+        const key = `${g.uuid}|${mat.uuid}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        cands.push({ e, mesh: m, key });
+      });
+    }
+
+    const byKey = new Map<string, PropBatch>();
+    for (const c of cands) {
+      const cap = counts.get(c.key) ?? 0;
+      if (cap < Renderer3D.PROP_BATCH_MIN) continue;
+      let b = byKey.get(c.key);
+      if (!b) {
+        const im = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material as THREE.Material, cap);
+        im.name = `propbatch:${c.mesh.name || "mesh"}`;
+        im.castShadow = c.mesh.castShadow;
+        im.receiveShadow = c.mesh.receiveShadow;
+        im.renderOrder = c.mesh.renderOrder;
+        im.count = 0;
+        im.visible = false; // nothing revealed yet; see propLeafShow
+        im.frustumCulled = false; // culled per-instance by membership, see above
+        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // THE TEARDOWN MUST NOT DISPOSE THIS GEOMETRY. buildFloor disposes every
+        // InstancedMesh geometry it finds in floorGroup because tile geometry is
+        // a per-build clone — but a prop batch points straight at the loader's
+        // shared buffers, and disposing those would empty every later floor.
+        im.userData.sharedGeo = true;
+        this.floorGroup.add(im);
+        im.matrixAutoUpdate = false;
+        im.updateMatrix();
+        im.updateMatrixWorld(true);
+        b = { mesh: im, members: new Array<PropBatchLeaf | null>(cap).fill(null), count: 0, dirty: false };
+        byKey.set(c.key, b);
+        this.propBatches.push(b);
+      }
+      c.mesh.visible = false; // the batch draws it now
+      (c.e.leaves ??= []).push({ batch: b, mesh: c.mesh, slot: -1 });
+    }
+  }
+
+  /** Write one leaf's current world transform into the slot it occupies. */
+  private propLeafWrite(leaf: PropBatchLeaf): void {
+    if (leaf.slot < 0) return;
+    // Read the leaf's matrixWorld rather than a captured local: a prop's
+    // transform DOES change while its fog reveal eases the scale in, and
+    // updateFogTint recomposes the whole subtree on exactly those frames. A
+    // frozen prop's matrixWorld stays valid in between, which is what makes a
+    // pure visibility flip cheap.
+    this.batchMtx.multiplyMatrices(this.floorInv, leaf.mesh.matrixWorld);
+    leaf.batch.mesh.setMatrixAt(leaf.slot, this.batchMtx);
+    leaf.batch.dirty = true;
+  }
+
+  /** Add a leaf to its batch's live set (O(1)); no-op if already live. */
+  private propLeafShow(leaf: PropBatchLeaf): void {
+    const b = leaf.batch;
+    if (leaf.slot >= 0 || b.count >= b.members.length) return;
+    leaf.slot = b.count++;
+    b.members[leaf.slot] = leaf;
+    b.mesh.count = b.count;
+    // AN EMPTY BATCH IS STILL A DRAW CALL. three.js does not skip an
+    // InstancedMesh whose count is 0 — the first census after this landed
+    // showed `INST:propbatch:Weaponrack(x0)` issuing 4.5 draws a frame — and a
+    // floor has far more distinct (geometry, material) pairs than are revealed
+    // at any moment, so most batches are empty most of the time.
+    b.mesh.visible = true;
+    this.propLeafWrite(leaf);
+  }
+
+  /** Swap-remove a leaf from its batch's live set (O(1)). */
+  private propLeafHide(leaf: PropBatchLeaf): void {
+    const b = leaf.batch;
+    if (leaf.slot < 0) return;
+    const last = --b.count;
+    const moved = b.members[last];
+    if (moved && moved !== leaf) {
+      b.members[leaf.slot] = moved;
+      moved.slot = leaf.slot;
+      this.propLeafWrite(moved);
+    }
+    b.members[last] = null;
+    leaf.slot = -1;
+    b.mesh.count = b.count;
+    if (b.count === 0) b.mesh.visible = false; // see propLeafShow
+    // The vacated tail slot keeps stale bytes; count is what stops it drawing,
+    // but zero it anyway so a future off-by-one shows as nothing, not as a prop
+    // teleported to the wrong place.
+    b.mesh.setMatrixAt(last, Renderer3D.PROP_BATCH_HIDDEN);
+    b.dirty = true;
+  }
+
   private updateFogTint(state: GameState, px: number, pz: number): void {
     const { map } = state;
     this.wl.uWlPlayer.value.set(px, pz);
@@ -5649,14 +5926,33 @@ export class Renderer3D {
     // a step change — at which point the matrix is recomputed explicitly. The
     // quantum is far finer than the 0.72..1.0 scale ramp it drives, so the ease
     // is visually identical; what goes away is the per-frame rewrite.
+    // BATCH MEMBERSHIP RIDES THE SAME EDGES (paydown r2). A batched prop no
+    // longer draws through the scene graph, so `visible` alone would do nothing
+    // — the equivalent edit is joining or leaving its InstancedMesh's live set,
+    // and the equivalent of a transform rewrite is re-writing its instance
+    // matrix. Both happen on exactly the frames the old code already paid for.
+    const R2 = Renderer3D.PROP_BATCH_RADIUS * Renderer3D.PROP_BATCH_RADIUS;
+    const mapW = map.w;
     for (const e of this.propEntries) {
       const a = alphas[e.tile] ?? 1;
       const f = 1 - a;
       const vis = f > 0.04;
       const step = Math.round(Math.min(1, Math.max(0, f)) * 128);
+      let shown = vis;
+      if (shown && e.leaves) {
+        // An InstancedMesh is culled as one object, so the per-prop cull has to
+        // happen here (see PROP_BATCH_RADIUS).
+        const tx = (e.tile % mapW) + 0.5 - px;
+        const tz = Math.floor(e.tile / mapW) + 0.5 - pz;
+        if (tx * tx + tz * tz > R2) shown = false;
+      }
       if (e.reveal === step) {
         // Visibility is not part of the transform, so it can flip without one.
         if (e.obj.visible !== vis) e.obj.visible = vis;
+        if (e.leaves && e.shown !== shown) {
+          e.shown = shown;
+          for (const leaf of e.leaves) (shown ? this.propLeafShow(leaf) : this.propLeafHide(leaf));
+        }
         continue;
       }
       e.reveal = step;
@@ -5669,6 +5965,19 @@ export class Renderer3D {
       // one frame in which a prop actually changes pays for its own matrix.
       e.obj.updateMatrix();
       e.obj.updateMatrixWorld(true);
+      if (e.leaves) {
+        if (e.shown !== shown) {
+          e.shown = shown;
+          for (const leaf of e.leaves) (shown ? this.propLeafShow(leaf) : this.propLeafHide(leaf));
+        } else if (shown) {
+          for (const leaf of e.leaves) this.propLeafWrite(leaf);
+        }
+      }
+    }
+    for (const b of this.propBatches) {
+      if (!b.dirty) continue;
+      b.dirty = false;
+      b.mesh.instanceMatrix.needsUpdate = true;
     }
     if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
   }

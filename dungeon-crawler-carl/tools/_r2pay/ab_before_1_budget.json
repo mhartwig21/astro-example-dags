@@ -1,0 +1,151 @@
+{
+ "tag": "ab_before_1",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 144,
+  "propBatches": 0,
+  "batchedLeaves": 0,
+  "liveBatchInstances": 0,
+  "unbatchedPropMeshes": 1052,
+  "programs": 180,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 31
+ },
+ "post": {
+  "frames": 487,
+  "median": 31.5,
+  "p90": 53,
+  "p95": 84.6,
+  "p99": 303.8,
+  "max": 1004.9,
+  "mean": 42.94,
+  "over16": 99.4,
+  "over33": 45.4,
+  "calls": 769,
+  "ktris": 923,
+  "cpuUpdate": 5.8,
+  "cpuRender": 9.1,
+  "cpuUpdateP95": 9.7,
+  "cpuRenderP95": 14.6,
+  "nearMin": 27,
+  "nearMed": 28,
+  "nearMax": 31,
+  "programsStart": 180,
+  "programsEnd": 186,
+  "census": [
+   [
+    "Mesh",
+    86.8
+   ],
+   [
+    "Sprite",
+    28.2
+   ],
+   [
+    "sword_shield_broken",
+    27.9
+   ],
+   [
+    "coin_stack_medium",
+    19.1
+   ],
+   [
+    "banner_shield_red",
+    17.9
+   ],
+   [
+    "card_hearts_king_1",
+    16.9
+   ],
+   [
+    "card_hearts_king_2",
+    16.9
+   ],
+   [
+    "coin_stack_small",
+    14.2
+   ],
+   [
+    "rubble_half",
+    12.2
+   ],
+   [
+    "torch_lit",
+    11.6
+   ],
+   [
+    "bone_A",
+    11.6
+   ],
+   [
+    "ribcage",
+    9.5
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    9
+   ],
+   [
+    "card_spades_ace_1",
+    8.6
+   ]
+  ],
+  "censusFrames": 487,
+  "playerHp": 999999948,
+  "recapUp": false
+ },
+ "foreign": 0.6,
+ "seconds": 12,
+ "ring": 18,
+ "guardLines": [
+  "[shader-guard] armed: 180 programs prewarmed; any further build will be logged.",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false"
+ ],
+ "cpuTop": null
+}

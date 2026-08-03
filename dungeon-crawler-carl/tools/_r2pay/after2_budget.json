@@ -1,0 +1,141 @@
+{
+ "tag": "after2",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 159,
+  "propBatches": 78,
+  "batchedLeaves": 926,
+  "liveBatchInstances": 171,
+  "unbatchedPropMeshes": 126,
+  "programs": 190,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 29
+ },
+ "post": {
+  "frames": 536,
+  "median": 34.8,
+  "p90": 48.6,
+  "p95": 54.2,
+  "p99": 143.7,
+  "max": 1456.8,
+  "mean": 41.98,
+  "over16": 100,
+  "over33": 60.1,
+  "calls": 755,
+  "ktris": 1486,
+  "cpuUpdate": 8.2,
+  "cpuRender": 13,
+  "cpuUpdateP95": 11.3,
+  "cpuRenderP95": 20.4,
+  "nearMin": 26,
+  "nearMed": 33,
+  "nearMax": 39,
+  "programsStart": 190,
+  "programsEnd": 196,
+  "census": [
+   [
+    "Mesh",
+    89.8
+   ],
+   [
+    "Sprite",
+    20.2
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    8.6
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    8.6
+   ],
+   [
+    "SKIN:ToySoldier_Hat",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_ArmRight",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_Head",
+    5.1
+   ],
+   [
+    "ToySoldier_WindupKey",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_Body",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_LegRight",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_ArmLeft",
+    5.1
+   ],
+   [
+    "SKIN:ToySoldier_LegLeft",
+    5.1
+   ],
+   [
+    "INST:Mesh(x10)",
+    5
+   ],
+   [
+    "INST:Mesh(x6)",
+    4.9
+   ],
+   [
+    "INST:Mesh(x3)",
+    4.5
+   ]
+  ],
+  "censusFrames": 536,
+  "playerHp": 999999810,
+  "recapUp": false
+ },
+ "foreign": 0.7,
+ "seconds": 12,
+ "ring": 18
+}
