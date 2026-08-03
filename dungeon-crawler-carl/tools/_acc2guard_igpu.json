@@ -1,0 +1,114 @@
+{
+  "adapter": "igpu",
+  "playsecs": 150,
+  "play": {
+    "minutes": 2.51,
+    "fires": 3,
+    "firesPerMin": 1.19,
+    "programsBefore": 158,
+    "programsAfter": 161,
+    "programsBuilt": 3,
+    "detail": [
+      {
+        "name": "(unnamed)",
+        "key": "physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,fals"
+      },
+      {
+        "name": "(unnamed)",
+        "key": "physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,fals"
+      },
+      {
+        "name": "4GTN_glow",
+        "key": "physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,fals"
+      }
+    ]
+  },
+  "switches": [
+    {
+      "to": "low",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 570.8,
+      "frames": 83
+    },
+    {
+      "to": "medium",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 208.3,
+      "frames": 56
+    },
+    {
+      "to": "high",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 390,
+      "frames": 32
+    },
+    {
+      "to": "low",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 628.7,
+      "frames": 63
+    },
+    {
+      "to": "high",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 299.3,
+      "frames": 41
+    },
+    {
+      "to": "medium",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 960.1,
+      "frames": 49
+    },
+    {
+      "to": "low",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 363.1,
+      "frames": 73
+    },
+    {
+      "to": "medium",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 311.6,
+      "frames": 55
+    },
+    {
+      "to": "high",
+      "programsBuilt": 0,
+      "guardFires": 0,
+      "worstFrameMs": 540,
+      "frames": 37
+    }
+  ],
+  "switchSummary": {
+    "programsBuiltOnFirstVisitOfEachMode": 0,
+    "worstSwitchFrameMs": 960.1,
+    "totalProgramsBuilt": 0,
+    "totalGuardFires": 0
+  },
+  "postCensus": {
+    "ok": true,
+    "own": 8,
+    "foreign": 10,
+    "foreignPids": [
+      51792,
+      29044,
+      8240,
+      20120,
+      3152,
+      48600,
+      41424,
+      24300,
+      30920,
+      40600
+    ]
+  }
+}

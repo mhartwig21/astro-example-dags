@@ -1,0 +1,135 @@
+{
+  "mode": "low",
+  "adapter": "igpu",
+  "window": {
+    "wallMs": 12008.200000047684,
+    "updateMs": 2.078,
+    "renderMs": 10.654,
+    "gpuMs": 8.028,
+    "gpuP90": 9.809,
+    "gpuN": 1099,
+    "gpuBad": 0
+  },
+  "rows": [
+    [
+      "(program) @ -:0",
+      2455396
+    ],
+    [
+      "update @ renderer3d.ts?t=1785772060369:5899",
+      755507
+    ],
+    [
+      "r3d.update @ -:23",
+      508784
+    ],
+    [
+      "getProgramParameter @ -:0",
+      448905
+    ],
+    [
+      "shown @ touchShell.ts?t=1785771655894:148",
+      416455
+    ],
+    [
+      "projectObject @ chunk-3AO7Z7HT.js?v=593067fe:17645",
+      349682
+    ],
+    [
+      "updateMatrixWorld @ chunk-3AO7Z7HT.js?v=593067fe:4735",
+      331477
+    ],
+    [
+      "setProgram @ chunk-3AO7Z7HT.js?v=593067fe:17902",
+      331427
+    ],
+    [
+      "multiplyMatrices @ chunk-3AO7Z7HT.js?v=593067fe:3737",
+      238402
+    ],
+    [
+      "WebGLRenderer.renderBufferDirect @ chunk-3AO7Z7HT.js?v=593067fe:17366",
+      221241
+    ],
+    [
+      "upload @ chunk-3AO7Z7HT.js?v=593067fe:11573",
+      216049
+    ],
+    [
+      "texSubImage2D @ -:0",
+      194132
+    ],
+    [
+      "uniformMatrix4fv @ -:0",
+      188897
+    ],
+    [
+      "refreshUniformsCommon @ chunk-3AO7Z7HT.js?v=593067fe:16538",
+      173800
+    ],
+    [
+      "bindVertexArray @ -:0",
+      169217
+    ],
+    [
+      "setValueV3f @ chunk-3AO7Z7HT.js?v=593067fe:11055",
+      151757
+    ],
+    [
+      "update @ chunk-3AO7Z7HT.js?v=593067fe:10914",
+      139014
+    ],
+    [
+      "setValue @ chunk-3AO7Z7HT.js?v=593067fe:11520",
+      134936
+    ],
+    [
+      "evaluate @ chunk-3AO7Z7HT.js?v=593067fe:24718",
+      123546
+    ],
+    [
+      "bindBuffer @ -:0",
+      116916
+    ],
+    [
+      "vertexAttribPointer @ -:0",
+      112749
+    ],
+    [
+      "uniform3f @ -:0",
+      100993
+    ],
+    [
+      "arraysEqual @ chunk-3AO7Z7HT.js?v=593067fe:11012",
+      98634
+    ],
+    [
+      "update @ chunk-3AO7Z7HT.js?v=593067fe:29394",
+      96787
+    ],
+    [
+      "_setValue_fromArray_setMatrixWorldNeedsUpdate @ chunk-3AO7Z7HT.js?v=593067fe:28411",
+      94538
+    ],
+    [
+      "slerpFlat @ chunk-3AO7Z7HT.js?v=593067fe:1988",
+      88784
+    ],
+    [
+      "updateHud @ main3d.ts?t=1785772060369:6388",
+      86448
+    ],
+    [
+      "setValue @ chunk-3AO7Z7HT.js?v=593067fe:11565",
+      82213
+    ],
+    [
+      "updateFogTint @ renderer3d.ts?t=1785772060369:5116",
+      73783
+    ],
+    [
+      "setValueV1f @ chunk-3AO7Z7HT.js?v=593067fe:11035",
+      72659
+    ]
+  ]
+}

@@ -1,0 +1,682 @@
+{
+  "adapter": "igpu",
+  "canary": {
+    "parked-quiet": [
+      0.4,
+      0.1,
+      0.1,
+      0
+    ],
+    "dense-pinned": [
+      0,
+      0.1,
+      0.2,
+      0.2
+    ],
+    "dense-low": [
+      0.1,
+      0.2,
+      0,
+      0.1
+    ],
+    "dense-medium": [
+      0.1,
+      0.1,
+      0.1,
+      0.1
+    ],
+    "dense-high": [
+      0.1,
+      0.1,
+      0.1,
+      0
+    ]
+  },
+  "modes": {
+    "low": {
+      "n": 615,
+      "fps": 61.24,
+      "delivered": 16.33,
+      "mean": 16.33,
+      "p50": 10.7,
+      "p90": 42.2,
+      "p99": 60.2,
+      "max": 268.2,
+      "over16": 22.8,
+      "over33": 11.2,
+      "overBudget": 16.9,
+      "updateMs": 1.83,
+      "renderMs": 11.2,
+      "windows": 2,
+      "visible": 19
+    },
+    "medium": {
+      "n": 303,
+      "fps": 30.2,
+      "delivered": 33.11,
+      "mean": 33.23,
+      "p50": 12.4,
+      "p90": 91,
+      "p99": 110.8,
+      "max": 379.4,
+      "over16": 33.3,
+      "over33": 28.4,
+      "overBudget": 28.4,
+      "updateMs": 2.52,
+      "renderMs": 25.47,
+      "windows": 2,
+      "visible": 15.5
+    },
+    "high": {
+      "n": 165,
+      "fps": 15.88,
+      "delivered": 62.97,
+      "mean": 62.97,
+      "p50": 14.4,
+      "p90": 174.8,
+      "p99": 708,
+      "max": 1161.3,
+      "over16": 37,
+      "over33": 27.9,
+      "overBudget": null,
+      "updateMs": 3.1,
+      "renderMs": 55.61,
+      "windows": 2,
+      "visible": 16
+    }
+  },
+  "ab": {
+    "base": {
+      "n": 4251,
+      "fps": 37.6,
+      "delivered": 26.6,
+      "mean": 26.6,
+      "p50": 8.9,
+      "p90": 88,
+      "p99": 115,
+      "max": 469,
+      "over16": 33.3,
+      "over33": 23.1,
+      "overBudget": null
+    },
+    "table": {
+      "noupdate": {
+        "ratios": [
+          0.8806963645673322,
+          0.9759386973180076
+        ],
+        "median": 0.976,
+        "savedPct": 2.4,
+        "savedMs": 0.64
+      },
+      "nopost": {
+        "ratios": [
+          0.8921991375931009,
+          1.2380007933359778
+        ],
+        "median": 1.238,
+        "savedPct": -23.8,
+        "savedMs": -6.33
+      },
+      "gtao": {
+        "ratios": [
+          0.827035449941566,
+          0.9073836961160906
+        ],
+        "median": 0.907,
+        "savedPct": 9.3,
+        "savedMs": 2.46
+      },
+      "smaa": {
+        "ratios": [
+          0.8900074571215512,
+          1.2153576300916
+        ],
+        "median": 1.215,
+        "savedPct": -21.5,
+        "savedMs": -5.73
+      },
+      "halfres": {
+        "ratios": [
+          0.484798139225785,
+          0.4976809840693688
+        ],
+        "median": 0.498,
+        "savedPct": 50.2,
+        "savedMs": 13.36
+      },
+      "freezegraph": {
+        "ratios": [
+          0.9758117958913187,
+          1.1033908882879135
+        ],
+        "median": 1.103,
+        "savedPct": -10.3,
+        "savedMs": -2.75
+      },
+      "noscene": {
+        "ratios": [
+          0.3313609467455621,
+          0.36588851834206765
+        ],
+        "median": 0.366,
+        "savedPct": 63.4,
+        "savedMs": 16.87
+      }
+    }
+  },
+  "modeSwitch": [
+    {
+      "to": "low",
+      "applied": 14,
+      "frames": [
+        9.8,
+        7.3,
+        85.6,
+        9.2,
+        6.8,
+        6.6,
+        54.1,
+        7.6
+      ],
+      "progs": 0
+    },
+    {
+      "to": "medium",
+      "applied": 12.4,
+      "frames": [
+        8.4,
+        80.9,
+        8.8,
+        9.5,
+        6.1,
+        107.4,
+        10.8,
+        6.9
+      ],
+      "progs": 0
+    },
+    {
+      "to": "high",
+      "applied": 12.3,
+      "frames": [
+        7.3,
+        211.1,
+        9.1,
+        6.1,
+        6.4,
+        184.9,
+        7.9,
+        5.9
+      ],
+      "progs": 0
+    },
+    {
+      "to": "low",
+      "applied": 20.3,
+      "frames": [
+        8.2,
+        167.2,
+        9.4,
+        7.6,
+        6.4,
+        53.7,
+        8.3,
+        5
+      ],
+      "progs": 0
+    },
+    {
+      "to": "medium",
+      "applied": 15.3,
+      "frames": [
+        7.4,
+        97.2,
+        7.6,
+        7.3,
+        6,
+        90.7,
+        7.8,
+        6.7
+      ],
+      "progs": 0
+    },
+    {
+      "to": "high",
+      "applied": 13.5,
+      "frames": [
+        7.7,
+        198.3,
+        8,
+        6.9,
+        6,
+        186.2,
+        6.2,
+        7.5
+      ],
+      "progs": 0
+    }
+  ],
+  "guard": [
+    {
+      "at": 1785767307609,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767309294,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767311903,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow"
+    },
+    {
+      "at": 1785767312889,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767317473,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767317473,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767317473,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow"
+    },
+    {
+      "at": 1785767326313,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow"
+    },
+    {
+      "at": 1785767334026,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767345851,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    },
+    {
+      "at": 1785767345851,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    },
+    {
+      "at": 1785767347786,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    },
+    {
+      "at": 1785767347786,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    },
+    {
+      "at": 1785767351261,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351261,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351261,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351261,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351640,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): demonlord"
+    },
+    {
+      "at": 1785767351640,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351641,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351960,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): demonlord"
+    },
+    {
+      "at": 1785767351960,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767351960,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767392292,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): rogue_texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): rogue_texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): orcbrute_texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): combatMech"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): orcbrute_texture"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): Glow"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): glass"
+    },
+    {
+      "at": 1785767397857,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767397858,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): Glow"
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): demonlord"
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767398916,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): rogue_texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): rogue_texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): Glow"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): texture"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): demonlord"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): glass"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): kaykit_atlas"
+    },
+    {
+      "at": 1785767402694,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767403168,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767403382,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow"
+    },
+    {
+      "at": 1785767403382,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767404656,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow"
+    },
+    {
+      "at": 1785767404656,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): Glow"
+    },
+    {
+      "at": 1785767404919,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): vampire"
+    },
+    {
+      "at": 1785767405508,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767406468,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): vampire"
+    },
+    {
+      "at": 1785767406483,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767406483,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767407928,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767407928,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767410885,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): glass"
+    },
+    {
+      "at": 1785767412560,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): glass"
+    },
+    {
+      "at": 1785767429087,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): unspecified"
+    },
+    {
+      "at": 1785767429878,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767430123,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767484720,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): "
+    },
+    {
+      "at": 1785767490526,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    },
+    {
+      "at": 1785767490526,
+      "text": "[shader-guard] program built AFTER boot (this is a frame hitch): paladin"
+    }
+  ]
+}

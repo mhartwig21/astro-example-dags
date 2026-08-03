@@ -1,0 +1,1188 @@
+{
+  "adapter": "dgpu",
+  "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "secs": 5,
+  "reps": 3,
+  "canaryGate": 5,
+  "preCensus": {
+    "ok": true,
+    "own": 0,
+    "foreign": 21,
+    "foreignPids": [
+      51792,
+      29044,
+      8240,
+      20120,
+      3152,
+      48600,
+      41424,
+      24300,
+      30920,
+      40600,
+      45112,
+      38104,
+      52468,
+      46044,
+      40580,
+      41432,
+      36284,
+      44056,
+      32948,
+      36708,
+      44140
+    ]
+  },
+  "preLoad": {
+    "pctOfOneCore": 274.4,
+    "top": [
+      {
+        "name": "node#12",
+        "pid": 31748,
+        "pct": 95.9
+      },
+      {
+        "name": "System",
+        "pid": 4,
+        "pct": 12.6
+      },
+      {
+        "name": "Discord#4",
+        "pid": 21592,
+        "pct": 11.9
+      },
+      {
+        "name": "MsMpEng",
+        "pid": 5412,
+        "pct": 11.2
+      },
+      {
+        "name": "Zephyrus_Duo_Screensaver.scr",
+        "pid": 46900,
+        "pct": 10.2
+      },
+      {
+        "name": "Taskmgr",
+        "pid": 31400,
+        "pct": 9.8
+      }
+    ]
+  },
+  "scenes": {
+    "dense": {
+      "table": {
+        "low": {
+          "n": 1456,
+          "fps": 96.66,
+          "delivered": 10.35,
+          "mean": 10.35,
+          "p50": 9.3,
+          "p90": 15.4,
+          "p99": 20.5,
+          "max": 30.7,
+          "over16": 6,
+          "over33": 0,
+          "windows": 3,
+          "live": {
+            "claimed": "low",
+            "pixelRatio": 1,
+            "bufW": 1440,
+            "bufH": 852,
+            "mpx": 1.227,
+            "shadowMap": 1024,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 360,
+            "aoH": 213,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            24,
+            34,
+            35
+          ],
+          "canary": [
+            [
+              4.46,
+              4.93
+            ],
+            [
+              4.97,
+              4.96
+            ],
+            [
+              5.3,
+              5.09
+            ]
+          ]
+        },
+        "medium": {
+          "n": 1383,
+          "fps": 92.04,
+          "delivered": 10.87,
+          "mean": 10.87,
+          "p50": 9.6,
+          "p90": 16.3,
+          "p99": 22.4,
+          "max": 69.1,
+          "over16": 8.7,
+          "over33": 0.1,
+          "windows": 3,
+          "live": {
+            "claimed": "medium",
+            "pixelRatio": 1.4,
+            "bufW": 2015,
+            "bufH": 1192,
+            "mpx": 2.402,
+            "shadowMap": 1536,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 1008,
+            "aoH": 596,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            25,
+            32,
+            34
+          ],
+          "canary": [
+            [
+              4.52,
+              4.77
+            ],
+            [
+              4.17,
+              4.59
+            ],
+            [
+              4.97,
+              5.27
+            ]
+          ]
+        },
+        "high": {
+          "n": 1291,
+          "fps": 85.81,
+          "delivered": 11.65,
+          "mean": 11.65,
+          "p50": 10.9,
+          "p90": 15.5,
+          "p99": 21.6,
+          "max": 26.2,
+          "over16": 5.4,
+          "over33": 0,
+          "windows": 3,
+          "live": {
+            "claimed": "high",
+            "pixelRatio": 2,
+            "bufW": 2880,
+            "bufH": 1704,
+            "mpx": 4.908,
+            "shadowMap": 2048,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 1440,
+            "aoH": 852,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            34,
+            33,
+            33
+          ],
+          "canary": [
+            [
+              4.68,
+              4.24
+            ],
+            [
+              5.13,
+              5.94
+            ],
+            [
+              5.78,
+              4.42
+            ]
+          ]
+        }
+      },
+      "gated": {
+        "low": {
+          "n": 1016,
+          "fps": 101.17,
+          "delivered": 9.88,
+          "mean": 9.88,
+          "p50": 8.8,
+          "p90": 14.7,
+          "p99": 20.7,
+          "max": 26.1,
+          "over16": 4.7,
+          "over33": 0,
+          "windows": 2
+        },
+        "medium": {
+          "n": 963,
+          "fps": 96.14,
+          "delivered": 10.4,
+          "mean": 10.4,
+          "p50": 9.2,
+          "p90": 15.8,
+          "p99": 20.8,
+          "max": 30,
+          "over16": 6.5,
+          "over33": 0,
+          "windows": 2
+        },
+        "high": {
+          "n": 445,
+          "fps": 88.75,
+          "delivered": 11.27,
+          "mean": 11.27,
+          "p50": 10.7,
+          "p90": 14.7,
+          "p99": 19.1,
+          "max": 22.8,
+          "over16": 4,
+          "over33": 0,
+          "windows": 1
+        }
+      },
+      "windows": {
+        "low": [
+          {
+            "shape": {
+              "n": 576,
+              "fps": 114.79,
+              "delivered": 8.71,
+              "mean": 8.71,
+              "p50": 7.7,
+              "p90": 12.8,
+              "p99": 18,
+              "max": 21.5,
+              "over16": 1.7,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 24,
+            "visibleEnd": 22,
+            "rigFull": 22,
+            "canary": [
+              4.46,
+              4.93
+            ],
+            "foreign": 10,
+            "nodes": 1755
+          },
+          {
+            "shape": {
+              "n": 440,
+              "fps": 87.58,
+              "delivered": 11.42,
+              "mean": 11.42,
+              "p50": 10.5,
+              "p90": 16.2,
+              "p99": 22.7,
+              "max": 26.1,
+              "over16": 8.6,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 34,
+            "visibleEnd": 35,
+            "rigFull": 35,
+            "canary": [
+              4.97,
+              4.96
+            ],
+            "foreign": 10,
+            "nodes": 2336
+          },
+          {
+            "shape": {
+              "n": 440,
+              "fps": 87.63,
+              "delivered": 11.41,
+              "mean": 11.41,
+              "p50": 10.2,
+              "p90": 16.5,
+              "p99": 20.1,
+              "max": 30.7,
+              "over16": 9.1,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 35,
+            "visibleEnd": 33,
+            "rigFull": 33,
+            "canary": [
+              5.3,
+              5.09
+            ],
+            "foreign": 10,
+            "nodes": 2255
+          }
+        ],
+        "medium": [
+          {
+            "shape": {
+              "n": 494,
+              "fps": 98.58,
+              "delivered": 10.14,
+              "mean": 10.14,
+              "p50": 8.9,
+              "p90": 16.2,
+              "p99": 20.5,
+              "max": 24.5,
+              "over16": 7.5,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 25,
+            "visibleEnd": 35,
+            "rigFull": 35,
+            "canary": [
+              4.52,
+              4.77
+            ],
+            "foreign": 10,
+            "nodes": 2283
+          },
+          {
+            "shape": {
+              "n": 469,
+              "fps": 93.7,
+              "delivered": 10.67,
+              "mean": 10.67,
+              "p50": 9.6,
+              "p90": 15.6,
+              "p99": 21,
+              "max": 30,
+              "over16": 5.5,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 32,
+            "visibleEnd": 35,
+            "rigFull": 35,
+            "canary": [
+              4.17,
+              4.59
+            ],
+            "foreign": 10,
+            "nodes": 2331
+          },
+          {
+            "shape": {
+              "n": 420,
+              "fps": 83.83,
+              "delivered": 11.93,
+              "mean": 11.93,
+              "p50": 10.4,
+              "p90": 18.1,
+              "p99": 23.9,
+              "max": 69.1,
+              "over16": 13.8,
+              "over33": 0.2
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 34,
+            "visibleEnd": 36,
+            "rigFull": 36,
+            "canary": [
+              4.97,
+              5.27
+            ],
+            "foreign": 10,
+            "nodes": 2382
+          }
+        ],
+        "high": [
+          {
+            "shape": {
+              "n": 445,
+              "fps": 88.75,
+              "delivered": 11.27,
+              "mean": 11.27,
+              "p50": 10.7,
+              "p90": 14.7,
+              "p99": 19.1,
+              "max": 22.8,
+              "over16": 4,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 34,
+            "visibleEnd": 31,
+            "rigFull": 0,
+            "canary": [
+              4.68,
+              4.24
+            ],
+            "foreign": 10,
+            "nodes": 2173
+          },
+          {
+            "shape": {
+              "n": 441,
+              "fps": 87.86,
+              "delivered": 11.38,
+              "mean": 11.38,
+              "p50": 10.4,
+              "p90": 15,
+              "p99": 22.4,
+              "max": 26.1,
+              "over16": 5,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 33,
+            "visibleEnd": 33,
+            "rigFull": 0,
+            "canary": [
+              5.13,
+              5.94
+            ],
+            "foreign": 10,
+            "nodes": 2261
+          },
+          {
+            "shape": {
+              "n": 405,
+              "fps": 80.82,
+              "delivered": 12.37,
+              "mean": 12.37,
+              "p50": 11.6,
+              "p90": 16.2,
+              "p99": 21.6,
+              "max": 26.2,
+              "over16": 7.4,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 33,
+            "visibleEnd": 36,
+            "rigFull": 0,
+            "canary": [
+              5.78,
+              4.42
+            ],
+            "foreign": 10,
+            "nodes": 2374
+          }
+        ]
+      }
+    },
+    "quiet": {
+      "table": {
+        "low": {
+          "n": 5432,
+          "fps": 361.15,
+          "delivered": 2.77,
+          "mean": 2.77,
+          "p50": 2.7,
+          "p90": 3.5,
+          "p99": 4.4,
+          "max": 8.6,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3,
+          "live": {
+            "claimed": "low",
+            "pixelRatio": 1,
+            "bufW": 1440,
+            "bufH": 852,
+            "mpx": 1.227,
+            "shadowMap": 1024,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 360,
+            "aoH": 213,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            0,
+            0,
+            0
+          ],
+          "canary": [
+            [
+              2.3,
+              1.9
+            ],
+            [
+              1.88,
+              1.87
+            ],
+            [
+              1.91,
+              2.07
+            ]
+          ]
+        },
+        "medium": {
+          "n": 5209,
+          "fps": 346.62,
+          "delivered": 2.89,
+          "mean": 2.88,
+          "p50": 2.8,
+          "p90": 3.7,
+          "p99": 4.9,
+          "max": 15,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3,
+          "live": {
+            "claimed": "medium",
+            "pixelRatio": 1.4,
+            "bufW": 2015,
+            "bufH": 1192,
+            "mpx": 2.402,
+            "shadowMap": 1536,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 1008,
+            "aoH": 596,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            0,
+            0,
+            0
+          ],
+          "canary": [
+            [
+              2.24,
+              2.27
+            ],
+            [
+              2.41,
+              2.53
+            ],
+            [
+              1.97,
+              2.05
+            ]
+          ]
+        },
+        "high": {
+          "n": 3201,
+          "fps": 212.97,
+          "delivered": 4.7,
+          "mean": 4.7,
+          "p50": 4.6,
+          "p90": 5.4,
+          "p99": 6.5,
+          "max": 10.1,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3,
+          "live": {
+            "claimed": "high",
+            "pixelRatio": 2,
+            "bufW": 2880,
+            "bufH": 1704,
+            "mpx": 4.908,
+            "shadowMap": 2048,
+            "shadowOn": true,
+            "gtao": true,
+            "aoW": 1440,
+            "aoH": 852,
+            "bloom": true,
+            "smaa": true,
+            "renderScale": 1,
+            "dpr": 2
+          },
+          "visible": [
+            0,
+            0,
+            0
+          ],
+          "canary": [
+            [
+              4.19,
+              4.26
+            ],
+            [
+              4.6,
+              4.09
+            ],
+            [
+              3.91,
+              3.95
+            ]
+          ]
+        }
+      },
+      "gated": {
+        "low": {
+          "n": 5432,
+          "fps": 361.15,
+          "delivered": 2.77,
+          "mean": 2.77,
+          "p50": 2.7,
+          "p90": 3.5,
+          "p99": 4.4,
+          "max": 8.6,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3
+        },
+        "medium": {
+          "n": 5209,
+          "fps": 346.62,
+          "delivered": 2.89,
+          "mean": 2.88,
+          "p50": 2.8,
+          "p90": 3.7,
+          "p99": 4.9,
+          "max": 15,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3
+        },
+        "high": {
+          "n": 3201,
+          "fps": 212.97,
+          "delivered": 4.7,
+          "mean": 4.7,
+          "p50": 4.6,
+          "p90": 5.4,
+          "p99": 6.5,
+          "max": 10.1,
+          "over16": 0,
+          "over33": 0,
+          "windows": 3
+        }
+      },
+      "windows": {
+        "low": [
+          {
+            "shape": {
+              "n": 1625,
+              "fps": 324.29,
+              "delivered": 3.08,
+              "mean": 3.08,
+              "p50": 3,
+              "p90": 3.7,
+              "p99": 4.7,
+              "max": 8.6,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              2.3,
+              1.9
+            ],
+            "foreign": 10,
+            "nodes": 993
+          },
+          {
+            "shape": {
+              "n": 1916,
+              "fps": 382.04,
+              "delivered": 2.62,
+              "mean": 2.62,
+              "p50": 2.5,
+              "p90": 3.3,
+              "p99": 4.2,
+              "max": 7.8,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              1.88,
+              1.87
+            ],
+            "foreign": 10,
+            "nodes": 958
+          },
+          {
+            "shape": {
+              "n": 1891,
+              "fps": 377.09,
+              "delivered": 2.65,
+              "mean": 2.65,
+              "p50": 2.6,
+              "p90": 3.3,
+              "p99": 4.2,
+              "max": 7.9,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "low",
+              "pixelRatio": 1,
+              "bufW": 1440,
+              "bufH": 852,
+              "mpx": 1.227,
+              "shadowMap": 1024,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 360,
+              "aoH": 213,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              1.91,
+              2.07
+            ],
+            "foreign": 10,
+            "nodes": 958
+          }
+        ],
+        "medium": [
+          {
+            "shape": {
+              "n": 1746,
+              "fps": 348.84,
+              "delivered": 2.87,
+              "mean": 2.87,
+              "p50": 2.7,
+              "p90": 3.7,
+              "p99": 5.3,
+              "max": 15,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              2.24,
+              2.27
+            ],
+            "foreign": 10,
+            "nodes": 958
+          },
+          {
+            "shape": {
+              "n": 1584,
+              "fps": 316.37,
+              "delivered": 3.16,
+              "mean": 3.16,
+              "p50": 3.1,
+              "p90": 3.9,
+              "p99": 4.8,
+              "max": 5.3,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              2.41,
+              2.53
+            ],
+            "foreign": 10,
+            "nodes": 958
+          },
+          {
+            "shape": {
+              "n": 1879,
+              "fps": 374.59,
+              "delivered": 2.67,
+              "mean": 2.67,
+              "p50": 2.6,
+              "p90": 3.4,
+              "p99": 4.3,
+              "max": 8.2,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "medium",
+              "pixelRatio": 1.4,
+              "bufW": 2015,
+              "bufH": 1192,
+              "mpx": 2.402,
+              "shadowMap": 1536,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1008,
+              "aoH": 596,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              1.97,
+              2.05
+            ],
+            "foreign": 10,
+            "nodes": 958
+          }
+        ],
+        "high": [
+          {
+            "shape": {
+              "n": 1028,
+              "fps": 205.14,
+              "delivered": 4.87,
+              "mean": 4.87,
+              "p50": 4.8,
+              "p90": 5.6,
+              "p99": 6.4,
+              "max": 7.5,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              4.19,
+              4.26
+            ],
+            "foreign": 10,
+            "nodes": 958
+          },
+          {
+            "shape": {
+              "n": 1081,
+              "fps": 215.69,
+              "delivered": 4.64,
+              "mean": 4.64,
+              "p50": 4.5,
+              "p90": 5.2,
+              "p99": 7.5,
+              "max": 10.1,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              4.6,
+              4.09
+            ],
+            "foreign": 10,
+            "nodes": 958
+          },
+          {
+            "shape": {
+              "n": 1092,
+              "fps": 218.08,
+              "delivered": 4.59,
+              "mean": 4.59,
+              "p50": 4.5,
+              "p90": 5.3,
+              "p99": 6.4,
+              "max": 10.1,
+              "over16": 0,
+              "over33": 0
+            },
+            "live": {
+              "claimed": "high",
+              "pixelRatio": 2,
+              "bufW": 2880,
+              "bufH": 1704,
+              "mpx": 4.908,
+              "shadowMap": 2048,
+              "shadowOn": true,
+              "gtao": true,
+              "aoW": 1440,
+              "aoH": 852,
+              "bloom": true,
+              "smaa": true,
+              "renderScale": 1,
+              "dpr": 2
+            },
+            "visible": 0,
+            "visibleEnd": 0,
+            "rigFull": 0,
+            "canary": [
+              3.91,
+              3.95
+            ],
+            "foreign": 10,
+            "nodes": 958
+          }
+        ]
+      }
+    }
+  },
+  "minutes": 2.7,
+  "guardFired": 9,
+  "guardPerMin": 3.34,
+  "postCensus": {
+    "ok": true,
+    "own": 8,
+    "foreign": 10,
+    "foreignPids": [
+      51792,
+      29044,
+      8240,
+      20120,
+      3152,
+      48600,
+      41424,
+      24300,
+      30920,
+      40600
+    ]
+  }
+}

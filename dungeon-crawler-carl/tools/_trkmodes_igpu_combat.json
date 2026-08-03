@@ -1,0 +1,555 @@
+{
+ "adapter": "igpu",
+ "gpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "sceneKind": "combat",
+ "reps": 5,
+ "secs": 2.5,
+ "width": 1440,
+ "height": 852,
+ "dpr": 2,
+ "reloads": 0,
+ "rows": [
+  {
+   "mode": "low",
+   "frameMs": 15.1,
+   "meanMs": 17.22,
+   "frameLowMs": 12,
+   "p95Ms": 31.9,
+   "updateMs": 2.1,
+   "updateLowMs": 1.8,
+   "renderMs": 7.6,
+   "renderLowMs": 6,
+   "calls": 563,
+   "buf": [
+    1440,
+    852
+   ],
+   "n": 5,
+   "foreignMin": 10,
+   "foreignMax": 10,
+   "visible": 23,
+   "parked": 122,
+   "nodes": 3210,
+   "skinned": 195,
+   "bones": 673,
+   "monsters": 149
+  },
+  {
+   "mode": "medium",
+   "frameMs": 20.5,
+   "meanMs": 25.9,
+   "frameLowMs": 13.3,
+   "p95Ms": 55.2,
+   "updateMs": 3.5,
+   "updateLowMs": 2.5,
+   "renderMs": 10,
+   "renderLowMs": 6.3,
+   "calls": 591,
+   "buf": [
+    2015,
+    1192
+   ],
+   "n": 5,
+   "foreignMin": 10,
+   "foreignMax": 10,
+   "visible": 22,
+   "parked": 126,
+   "nodes": 3188,
+   "skinned": 195,
+   "bones": 658,
+   "monsters": 148
+  },
+  {
+   "mode": "high",
+   "frameMs": 29.1,
+   "meanMs": 51.01,
+   "frameLowMs": 21.4,
+   "p95Ms": 157,
+   "updateMs": 5.4,
+   "updateLowMs": 4.2,
+   "renderMs": 14.9,
+   "renderLowMs": 9.1,
+   "calls": 718,
+   "buf": [
+    2880,
+    1704
+   ],
+   "n": 5,
+   "foreignMin": 10,
+   "foreignMax": 10,
+   "visible": 22,
+   "parked": 123,
+   "nodes": 3198,
+   "skinned": 195,
+   "bones": 658,
+   "monsters": 148
+  }
+ ],
+ "raw": [
+  [
+   "low",
+   [
+    {
+     "frames": 124,
+     "mean": 21.08,
+     "frame": 17.2,
+     "frame10": 12.2,
+     "frame95": 44.6,
+     "update": 2.3,
+     "update10": 1.8,
+     "render": 8.6,
+     "render10": 6.2,
+     "calls": 588,
+     "buf": [
+      1440,
+      852
+     ],
+     "mode": "low",
+     "scene": {
+      "floor": 15,
+      "monsters": 150,
+      "visible": 28,
+      "parked": 122,
+      "nodes": 3343,
+      "skinned": 234,
+      "bones": 773,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 113,
+     "mean": 20.04,
+     "frame": 17.5,
+     "frame10": 12.2,
+     "frame95": 37.8,
+     "update": 2,
+     "update10": 1.7,
+     "render": 8.8,
+     "render10": 6.2,
+     "calls": 572,
+     "buf": [
+      1440,
+      852
+     ],
+     "mode": "low",
+     "scene": {
+      "floor": 15,
+      "monsters": 149,
+      "visible": 27,
+      "parked": 122,
+      "nodes": 3335,
+      "skinned": 225,
+      "bones": 768,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 151,
+     "mean": 17.22,
+     "frame": 15.1,
+     "frame10": 12,
+     "frame95": 31.9,
+     "update": 2.1,
+     "update10": 1.8,
+     "render": 7.6,
+     "render10": 6,
+     "calls": 541,
+     "buf": [
+      1440,
+      852
+     ],
+     "mode": "low",
+     "scene": {
+      "floor": 15,
+      "monsters": 149,
+      "visible": 23,
+      "parked": 126,
+      "nodes": 3194,
+      "skinned": 195,
+      "bones": 658,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 175,
+     "mean": 14.79,
+     "frame": 13.8,
+     "frame10": 11.5,
+     "frame95": 21.4,
+     "update": 2,
+     "update10": 1.9,
+     "render": 7.3,
+     "render10": 6,
+     "calls": 523,
+     "buf": [
+      1440,
+      852
+     ],
+     "mode": "low",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 22,
+      "parked": 126,
+      "nodes": 3181,
+      "skinned": 186,
+      "bones": 635,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 131,
+     "mean": 16.28,
+     "frame": 13.7,
+     "frame10": 11.1,
+     "frame95": 29.8,
+     "update": 2.5,
+     "update10": 1.7,
+     "render": 6.7,
+     "render10": 5.2,
+     "calls": 563,
+     "buf": [
+      1440,
+      852
+     ],
+     "mode": "low",
+     "scene": {
+      "floor": 15,
+      "monsters": 141,
+      "visible": 20,
+      "parked": 121,
+      "nodes": 3210,
+      "skinned": 179,
+      "bones": 673,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    }
+   ]
+  ],
+  [
+   "medium",
+   [
+    {
+     "frames": 73,
+     "mean": 34.59,
+     "frame": 25.1,
+     "frame10": 16.7,
+     "frame95": 75.8,
+     "update": 4.4,
+     "update10": 2.9,
+     "render": 11.4,
+     "render10": 7.2,
+     "calls": 658,
+     "buf": [
+      2015,
+      1192
+     ],
+     "mode": "medium",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 27,
+      "parked": 121,
+      "nodes": 3381,
+      "skinned": 235,
+      "bones": 791,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 104,
+     "mean": 25.9,
+     "frame": 20.6,
+     "frame10": 13.3,
+     "frame95": 55.2,
+     "update": 3.5,
+     "update10": 2.5,
+     "render": 9.8,
+     "render10": 5.9,
+     "calls": 598,
+     "buf": [
+      2015,
+      1192
+     ],
+     "mode": "medium",
+     "scene": {
+      "floor": 15,
+      "monsters": 149,
+      "visible": 23,
+      "parked": 126,
+      "nodes": 3188,
+      "skinned": 195,
+      "bones": 658,
+      "alive": true,
+      "hp": 262
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 106,
+     "mean": 25.62,
+     "frame": 19.1,
+     "frame10": 12,
+     "frame95": 52,
+     "update": 2.5,
+     "update10": 1.8,
+     "render": 10,
+     "render10": 6.3,
+     "calls": 591,
+     "buf": [
+      2015,
+      1192
+     ],
+     "mode": "medium",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 22,
+      "parked": 126,
+      "nodes": 3194,
+      "skinned": 195,
+      "bones": 658,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 114,
+     "mean": 23.04,
+     "frame": 20.5,
+     "frame10": 16.1,
+     "frame95": 43.3,
+     "update": 3.2,
+     "update10": 2.8,
+     "render": 10.9,
+     "render10": 8.3,
+     "calls": 562,
+     "buf": [
+      2015,
+      1192
+     ],
+     "mode": "medium",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 22,
+      "parked": 126,
+      "nodes": 3168,
+      "skinned": 186,
+      "bones": 635,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 90,
+     "mean": 28.86,
+     "frame": 20.1,
+     "frame10": 11.2,
+     "frame95": 85.1,
+     "update": 3.8,
+     "update10": 1.8,
+     "render": 9.1,
+     "render10": 6,
+     "calls": 586,
+     "buf": [
+      2015,
+      1192
+     ],
+     "mode": "medium",
+     "scene": {
+      "floor": 15,
+      "monsters": 141,
+      "visible": 20,
+      "parked": 121,
+      "nodes": 3184,
+      "skinned": 173,
+      "bones": 650,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    }
+   ]
+  ],
+  [
+   "high",
+   [
+    {
+     "frames": 47,
+     "mean": 55.06,
+     "frame": 29.1,
+     "frame10": 21.7,
+     "frame95": 177.8,
+     "update": 5.4,
+     "update10": 4.1,
+     "render": 15.9,
+     "render10": 9.1,
+     "calls": 800,
+     "buf": [
+      2880,
+      1704
+     ],
+     "mode": "high",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 27,
+      "parked": 121,
+      "nodes": 3328,
+      "skinned": 226,
+      "bones": 768,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 52,
+     "mean": 51.01,
+     "frame": 27.6,
+     "frame10": 18,
+     "frame95": 152.6,
+     "update": 4.8,
+     "update10": 3.8,
+     "render": 17,
+     "render10": 8.5,
+     "calls": 718,
+     "buf": [
+      2880,
+      1704
+     ],
+     "mode": "high",
+     "scene": {
+      "floor": 15,
+      "monsters": 149,
+      "visible": 23,
+      "parked": 126,
+      "nodes": 3198,
+      "skinned": 195,
+      "bones": 658,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 59,
+     "mean": 50.58,
+     "frame": 22.8,
+     "frame10": 16,
+     "frame95": 200.7,
+     "update": 5.3,
+     "update10": 4.2,
+     "render": 10.6,
+     "render10": 7.4,
+     "calls": 679,
+     "buf": [
+      2880,
+      1704
+     ],
+     "mode": "high",
+     "scene": {
+      "floor": 15,
+      "monsters": 148,
+      "visible": 22,
+      "parked": 126,
+      "nodes": 3161,
+      "skinned": 186,
+      "bones": 635,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 48,
+     "mean": 44.5,
+     "frame": 31.5,
+     "frame10": 24.6,
+     "frame95": 157,
+     "update": 7.4,
+     "update10": 4.8,
+     "render": 14.2,
+     "render10": 10.8,
+     "calls": 821,
+     "buf": [
+      2880,
+      1704
+     ],
+     "mode": "high",
+     "scene": {
+      "floor": 15,
+      "monsters": 144,
+      "visible": 21,
+      "parked": 123,
+      "nodes": 3331,
+      "skinned": 216,
+      "bones": 745,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    },
+    {
+     "frames": 44,
+     "mean": 60.1,
+     "frame": 29.6,
+     "frame10": 21.4,
+     "frame95": 147.7,
+     "update": 5.6,
+     "update10": 5.1,
+     "render": 14.9,
+     "render10": 10.5,
+     "calls": 679,
+     "buf": [
+      2880,
+      1704
+     ],
+     "mode": "high",
+     "scene": {
+      "floor": 15,
+      "monsters": 140,
+      "visible": 19,
+      "parked": 121,
+      "nodes": 3155,
+      "skinned": 165,
+      "bones": 627,
+      "alive": true,
+      "hp": 741
+     },
+     "foreign": 10,
+     "foreignMoved": false
+    }
+   ]
+  ]
+ ]
+}

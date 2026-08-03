@@ -1,0 +1,145 @@
+{
+  "adapter": "dgpu",
+  "scenes": {
+    "worst": {
+      "visible": 22,
+      "nodes": 1711,
+      "modes": {
+        "low": {
+          "claimed": "low",
+          "pixelRatio": 1,
+          "bufW": 1440,
+          "bufH": 852,
+          "mpx": 1.227,
+          "shadowMap": 1024,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 360,
+          "aoH": 213,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "medium": {
+          "claimed": "medium",
+          "pixelRatio": 1.4,
+          "bufW": 2015,
+          "bufH": 1192,
+          "mpx": 2.402,
+          "shadowMap": 1536,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1008,
+          "aoH": 596,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "high": {
+          "claimed": "high",
+          "pixelRatio": 2,
+          "bufW": 2880,
+          "bufH": 1704,
+          "mpx": 4.908,
+          "shadowMap": 2048,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1440,
+          "aoH": 852,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "highB": {
+          "claimed": "high",
+          "pixelRatio": 2,
+          "bufW": 2880,
+          "bufH": 1704,
+          "mpx": 4.908,
+          "shadowMap": 2048,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1440,
+          "aoH": 852,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        }
+      }
+    },
+    "quiet": {
+      "visible": 0,
+      "nodes": 859,
+      "modes": {
+        "low": {
+          "claimed": "low",
+          "pixelRatio": 1,
+          "bufW": 1440,
+          "bufH": 852,
+          "mpx": 1.227,
+          "shadowMap": 1024,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 360,
+          "aoH": 213,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "medium": {
+          "claimed": "medium",
+          "pixelRatio": 1.4,
+          "bufW": 2015,
+          "bufH": 1192,
+          "mpx": 2.402,
+          "shadowMap": 1536,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1008,
+          "aoH": 596,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "high": {
+          "claimed": "high",
+          "pixelRatio": 2,
+          "bufW": 2880,
+          "bufH": 1704,
+          "mpx": 4.908,
+          "shadowMap": 2048,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1440,
+          "aoH": 852,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        },
+        "highB": {
+          "claimed": "high",
+          "pixelRatio": 2,
+          "bufW": 2880,
+          "bufH": 1704,
+          "mpx": 4.908,
+          "shadowMap": 2048,
+          "shadowOn": true,
+          "gtao": true,
+          "aoW": 1440,
+          "aoH": 852,
+          "bloom": true,
+          "smaa": true,
+          "renderScale": 1,
+          "dpr": 2
+        }
+      }
+    }
+  }
+}

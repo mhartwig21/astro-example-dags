@@ -1,0 +1,689 @@
+{
+ "adapter": "dgpu",
+ "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "sceneKind": "dense",
+ "reps": 5,
+ "secs": 2.2,
+ "width": 1440,
+ "height": 852,
+ "dpr": 2,
+ "quality": "high",
+ "rows": [
+  {
+   "variant": "baseline",
+   "frameMs": 31.4,
+   "updateMs": 11.6,
+   "renderMs": 15.2,
+   "drainMs": 0,
+   "calls": 249,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 3
+  },
+  {
+   "variant": "half-pixels",
+   "frameMs": 29.3,
+   "updateMs": 10.7,
+   "renderMs": 14.1,
+   "drainMs": 0,
+   "calls": 249,
+   "buf": [
+    1080,
+    639
+   ],
+   "n": 4
+  },
+  {
+   "variant": "no-shadows",
+   "frameMs": 28.9,
+   "updateMs": 11.1,
+   "renderMs": 13.1,
+   "drainMs": 0,
+   "calls": 199,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 4
+  },
+  {
+   "variant": "no-gtao",
+   "frameMs": 31.4,
+   "updateMs": 11.9,
+   "renderMs": 14.6,
+   "drainMs": 0,
+   "calls": 249,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 5
+  },
+  {
+   "variant": "no-bloom",
+   "frameMs": 33.6,
+   "updateMs": 12,
+   "renderMs": 15.4,
+   "drainMs": 0,
+   "calls": 249,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 4
+  },
+  {
+   "variant": "no-smaa",
+   "frameMs": 31.9,
+   "updateMs": 11.8,
+   "renderMs": 15,
+   "drainMs": 0,
+   "calls": 246,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 2
+  },
+  {
+   "variant": "no-post",
+   "frameMs": 30.8,
+   "updateMs": 11.4,
+   "renderMs": 14.2,
+   "drainMs": 0,
+   "calls": 246,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 4
+  },
+  {
+   "variant": "no-post-no-shadows",
+   "frameMs": 27.8,
+   "updateMs": 10.4,
+   "renderMs": 12.5,
+   "drainMs": 0,
+   "calls": 196,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 5
+  },
+  {
+   "variant": "frozen-matrices",
+   "frameMs": 24,
+   "updateMs": 10.8,
+   "renderMs": 8,
+   "drainMs": 0,
+   "calls": 249,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 3
+  },
+  {
+   "variant": "no-skinned",
+   "frameMs": 27.5,
+   "updateMs": 10.7,
+   "renderMs": 12.3,
+   "drainMs": 0,
+   "calls": 240,
+   "buf": [
+    2160,
+    1278
+   ],
+   "n": 4
+  }
+ ],
+ "raw": [
+  [
+   "baseline",
+   [
+    {
+     "frames": 56,
+     "frame": 31.4,
+     "update": 11.6,
+     "render": 15.2,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 58,
+     "frame": 32.5,
+     "update": 11.8,
+     "render": 15.6,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 68,
+     "frame": 25.1,
+     "update": 9.5,
+     "render": 11.8,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "half-pixels",
+   [
+    {
+     "frames": 60,
+     "frame": 31.3,
+     "update": 11.2,
+     "render": 14.5,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      1080,
+      639
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 64,
+     "frame": 27.4,
+     "update": 10.4,
+     "render": 12.5,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      1080,
+      639
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 64,
+     "frame": 29.3,
+     "update": 10.7,
+     "render": 14.1,
+     "drain": 0.1,
+     "calls": 249,
+     "buf": [
+      1080,
+      639
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 71,
+     "frame": 25.3,
+     "update": 9.7,
+     "render": 12.3,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      1080,
+      639
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-shadows",
+   [
+    {
+     "frames": 63,
+     "frame": 28.9,
+     "update": 11.1,
+     "render": 13.1,
+     "drain": 0.1,
+     "calls": 199,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 54,
+     "frame": 32.1,
+     "update": 11.7,
+     "render": 14.4,
+     "drain": 0,
+     "calls": 199,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 64,
+     "frame": 27.2,
+     "update": 10.3,
+     "render": 12.3,
+     "drain": 0,
+     "calls": 199,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 59,
+     "frame": 28.7,
+     "update": 10.8,
+     "render": 12.9,
+     "drain": 0,
+     "calls": 199,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-gtao",
+   [
+    {
+     "frames": 58,
+     "frame": 31.4,
+     "update": 11.9,
+     "render": 14.6,
+     "drain": 0.1,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 58,
+     "frame": 30.9,
+     "update": 11.5,
+     "render": 14.4,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 57,
+     "frame": 33.8,
+     "update": 12,
+     "render": 16,
+     "drain": 0,
+     "calls": 248,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 55,
+     "frame": 34.7,
+     "update": 12.7,
+     "render": 16.1,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 67,
+     "frame": 26.4,
+     "update": 9.7,
+     "render": 12.3,
+     "drain": 0,
+     "calls": 248,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-bloom",
+   [
+    {
+     "frames": 57,
+     "frame": 33.1,
+     "update": 11.6,
+     "render": 15.4,
+     "drain": 0,
+     "calls": 248,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 54,
+     "frame": 34.2,
+     "update": 12,
+     "render": 15.4,
+     "drain": 0.1,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 56,
+     "frame": 33.6,
+     "update": 12.2,
+     "render": 15.8,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 69,
+     "frame": 25.2,
+     "update": 9.4,
+     "render": 11.9,
+     "drain": 0,
+     "calls": 248,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-smaa",
+   [
+    {
+     "frames": 64,
+     "frame": 28.1,
+     "update": 10.4,
+     "render": 13.4,
+     "drain": 0,
+     "calls": 246,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 58,
+     "frame": 31.9,
+     "update": 11.8,
+     "render": 15,
+     "drain": 0,
+     "calls": 246,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    }
+   ]
+  ],
+  [
+   "no-post",
+   [
+    {
+     "frames": 61,
+     "frame": 30.2,
+     "update": 11.3,
+     "render": 14.1,
+     "drain": 0,
+     "calls": 246,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 59,
+     "frame": 33,
+     "update": 11.7,
+     "render": 14.8,
+     "drain": 0,
+     "calls": 246,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 57,
+     "frame": 30.8,
+     "update": 11.4,
+     "render": 14.2,
+     "drain": 0,
+     "calls": 246,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 65,
+     "frame": 27.3,
+     "update": 10.2,
+     "render": 13,
+     "drain": 0,
+     "calls": 245,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-post-no-shadows",
+   [
+    {
+     "frames": 62,
+     "frame": 27.8,
+     "update": 10.4,
+     "render": 12.5,
+     "drain": 0,
+     "calls": 196,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 68,
+     "frame": 25.4,
+     "update": 9.8,
+     "render": 11.4,
+     "drain": 0,
+     "calls": 196,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 59,
+     "frame": 30.5,
+     "update": 11.4,
+     "render": 14.1,
+     "drain": 0,
+     "calls": 196,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 58,
+     "frame": 29.5,
+     "update": 11.6,
+     "render": 13.4,
+     "drain": 0,
+     "calls": 196,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 65,
+     "frame": 26.5,
+     "update": 10.3,
+     "render": 11.9,
+     "drain": 0,
+     "calls": 196,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "frozen-matrices",
+   [
+    {
+     "frames": 60,
+     "frame": 25.9,
+     "update": 12.1,
+     "render": 9,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 35
+    },
+    {
+     "frames": 61,
+     "frame": 24,
+     "update": 10.8,
+     "render": 8,
+     "drain": 0,
+     "calls": 249,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 67,
+     "frame": 20.4,
+     "update": 9.9,
+     "render": 7,
+     "drain": 0,
+     "calls": 248,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ],
+  [
+   "no-skinned",
+   [
+    {
+     "frames": 64,
+     "frame": 27.5,
+     "update": 10.7,
+     "render": 12.3,
+     "drain": 0,
+     "calls": 240,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    },
+    {
+     "frames": 59,
+     "frame": 30.1,
+     "update": 11.5,
+     "render": 13.4,
+     "drain": 0,
+     "calls": 240,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 65,
+     "frame": 26.4,
+     "update": 10.1,
+     "render": 12,
+     "drain": 0,
+     "calls": 240,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 27
+    },
+    {
+     "frames": 65,
+     "frame": 25.5,
+     "update": 9.9,
+     "render": 11.9,
+     "drain": 0,
+     "calls": 240,
+     "buf": [
+      2160,
+      1278
+     ],
+     "foreign": 19
+    }
+   ]
+  ]
+ ]
+}

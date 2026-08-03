@@ -1,0 +1,365 @@
+{
+ "adapter": "dgpu",
+ "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "floor": 15,
+ "reps": 2,
+ "secs": 5,
+ "fp0": {
+  "name": "high",
+  "setting": "high",
+  "pixelRatioCap": 2,
+  "effPixelRatio": 2,
+  "buf": [
+   2880,
+   1704
+  ],
+  "shadowMapSize": 2048,
+  "shadowInterval": 1,
+  "shadowMapActual": 2048,
+  "rigBudget": "inf",
+  "offscreenRigHz": "inf",
+  "gtaoScale": 0.5,
+  "bloomScale": 0.5,
+  "dpr": 2
+ },
+ "stagedWorst": {
+  "monsters": 149,
+  "visible": 24,
+  "parked": 125,
+  "nodes": 1791,
+  "bones": 663,
+  "alive": true
+ },
+ "stagedQuiet": {
+  "monsters": 139,
+  "visible": 20,
+  "parked": 119,
+  "nodes": 1998,
+  "bones": 560,
+  "alive": true
+ },
+ "results": {
+  "worst": [
+   {
+    "mode": "low",
+    "scene": "worst",
+    "frame": {
+     "n": 490,
+     "p50": 11.2,
+     "p90": 52,
+     "p99": 72.9,
+     "mean": 20.4,
+     "max": 86.3,
+     "over16": 26.5,
+     "over33": 23.1,
+     "fps": 48.7
+    },
+    "frameAfter1s": {
+     "n": 397,
+     "p50": 11,
+     "p90": 53.4,
+     "p99": 74.7,
+     "mean": 20.32,
+     "max": 86.3,
+     "over16": 26.2,
+     "over33": 22.9,
+     "fps": 49.3
+    },
+    "rigFullAvg": 13.8,
+    "inFrustumAvg": 30.2,
+    "rigCappedPct": 98.4,
+    "rigFullMax": 14,
+    "inFrustumMax": 38,
+    "callsAvg": 653.9,
+    "foreignMax": 21,
+    "foreignPctMax": 37.3,
+    "visibleAvg": 29,
+    "fp": {
+     "name": "low",
+     "setting": "low",
+     "pixelRatioCap": 1,
+     "effPixelRatio": 1,
+     "buf": [
+      1440,
+      852
+     ],
+     "shadowMapSize": 1024,
+     "shadowInterval": 3,
+     "shadowMapActual": 1024,
+     "rigBudget": 14,
+     "offscreenRigHz": 6,
+     "gtaoScale": 0.25,
+     "bloomScale": 0.35,
+     "dpr": 2
+    }
+   },
+   {
+    "mode": "medium",
+    "scene": "worst",
+    "frame": {
+     "n": 576,
+     "p50": 12.3,
+     "p90": 28.8,
+     "p99": 70,
+     "mean": 17.34,
+     "max": 174.6,
+     "over16": 25.3,
+     "over33": 9.4,
+     "fps": 57.5
+    },
+    "frameAfter1s": {
+     "n": 467,
+     "p50": 12.4,
+     "p90": 28.7,
+     "p99": 69.2,
+     "mean": 17.18,
+     "max": 174.6,
+     "over16": 25.1,
+     "over33": 9.4,
+     "fps": 58.3
+    },
+    "rigFullAvg": 23.9,
+    "inFrustumAvg": 27.6,
+    "rigCappedPct": 37.9,
+    "rigFullMax": 28,
+    "inFrustumMax": 39,
+    "callsAvg": 713.3,
+    "foreignMax": 21,
+    "foreignPctMax": 116.2,
+    "visibleAvg": 27,
+    "fp": {
+     "name": "medium",
+     "setting": "medium",
+     "pixelRatioCap": 1.4,
+     "effPixelRatio": 1.4,
+     "buf": [
+      2015,
+      1192
+     ],
+     "shadowMapSize": 1536,
+     "shadowInterval": 2,
+     "shadowMapActual": 1536,
+     "rigBudget": 28,
+     "offscreenRigHz": 12,
+     "gtaoScale": 0.5,
+     "bloomScale": 0.45,
+     "dpr": 2
+    }
+   },
+   {
+    "mode": "high",
+    "scene": "worst",
+    "frame": {
+     "n": 577,
+     "p50": 12.9,
+     "p90": 29.4,
+     "p99": 70.8,
+     "mean": 17.33,
+     "max": 101.7,
+     "over16": 25,
+     "over33": 8.7,
+     "fps": 57.6
+    },
+    "frameAfter1s": {
+     "n": 469,
+     "p50": 12.9,
+     "p90": 29.5,
+     "p99": 69.5,
+     "mean": 17.22,
+     "max": 92.6,
+     "over16": 23.9,
+     "over33": 8.7,
+     "fps": 58.5
+    },
+    "rigFullAvg": 0,
+    "inFrustumAvg": 21.7,
+    "rigCappedPct": 99.1,
+    "rigFullMax": 0,
+    "inFrustumMax": 35,
+    "callsAvg": 724.3,
+    "foreignMax": 21,
+    "foreignPctMax": 79,
+    "visibleAvg": 22.5,
+    "fp": {
+     "name": "high",
+     "setting": "high",
+     "pixelRatioCap": 2,
+     "effPixelRatio": 2,
+     "buf": [
+      2880,
+      1704
+     ],
+     "shadowMapSize": 2048,
+     "shadowInterval": 1,
+     "shadowMapActual": 2048,
+     "rigBudget": "inf",
+     "offscreenRigHz": "inf",
+     "gtaoScale": 0.5,
+     "bloomScale": 0.5,
+     "dpr": 2
+    }
+   }
+  ],
+  "quiet": [
+   {
+    "mode": "low",
+    "scene": "quiet",
+    "frame": {
+     "n": 943,
+     "p50": 9.5,
+     "p90": 15.3,
+     "p99": 25.4,
+     "mean": 10.6,
+     "max": 30.8,
+     "over16": 7,
+     "over33": 0,
+     "fps": 94.2
+    },
+    "frameAfter1s": {
+     "n": 759,
+     "p50": 9.5,
+     "p90": 15.3,
+     "p99": 25,
+     "mean": 10.56,
+     "max": 30.8,
+     "over16": 6.9,
+     "over33": 0,
+     "fps": 94.8
+    },
+    "rigFullAvg": 13.7,
+    "inFrustumAvg": 29.3,
+    "rigCappedPct": 97.7,
+    "rigFullMax": 14,
+    "inFrustumMax": 30,
+    "callsAvg": 638.5,
+    "foreignMax": 21,
+    "foreignPctMax": 12.5,
+    "visibleAvg": 30,
+    "fp": {
+     "name": "low",
+     "setting": "low",
+     "pixelRatioCap": 1,
+     "effPixelRatio": 1,
+     "buf": [
+      1440,
+      852
+     ],
+     "shadowMapSize": 1024,
+     "shadowInterval": 3,
+     "shadowMapActual": 1024,
+     "rigBudget": 14,
+     "offscreenRigHz": 6,
+     "gtaoScale": 0.25,
+     "bloomScale": 0.35,
+     "dpr": 2
+    }
+   },
+   {
+    "mode": "medium",
+    "scene": "quiet",
+    "frame": {
+     "n": 927,
+     "p50": 10,
+     "p90": 14.6,
+     "p99": 22.2,
+     "mean": 10.78,
+     "max": 30.9,
+     "over16": 6.3,
+     "over33": 0,
+     "fps": 92.6
+    },
+    "frameAfter1s": {
+     "n": 752,
+     "p50": 9.9,
+     "p90": 14.2,
+     "p99": 22.2,
+     "mean": 10.67,
+     "max": 30.8,
+     "over16": 6,
+     "over33": 0,
+     "fps": 93.9
+    },
+    "rigFullAvg": 27.1,
+    "inFrustumAvg": 28.6,
+    "rigCappedPct": 94.7,
+    "rigFullMax": 28,
+    "inFrustumMax": 30,
+    "callsAvg": 682.2,
+    "foreignMax": 21,
+    "foreignPctMax": 20.9,
+    "visibleAvg": 29.5,
+    "fp": {
+     "name": "medium",
+     "setting": "medium",
+     "pixelRatioCap": 1.4,
+     "effPixelRatio": 1.4,
+     "buf": [
+      2015,
+      1192
+     ],
+     "shadowMapSize": 1536,
+     "shadowInterval": 2,
+     "shadowMapActual": 1536,
+     "rigBudget": 28,
+     "offscreenRigHz": 12,
+     "gtaoScale": 0.5,
+     "bloomScale": 0.45,
+     "dpr": 2
+    }
+   },
+   {
+    "mode": "high",
+    "scene": "quiet",
+    "frame": {
+     "n": 816,
+     "p50": 11.6,
+     "p90": 15,
+     "p99": 22.8,
+     "mean": 12.24,
+     "max": 45.8,
+     "over16": 5.3,
+     "over33": 0.1,
+     "fps": 81.5
+    },
+    "frameAfter1s": {
+     "n": 658,
+     "p50": 11.6,
+     "p90": 14.7,
+     "p99": 22.8,
+     "mean": 12.19,
+     "max": 45.8,
+     "over16": 4.7,
+     "over33": 0.2,
+     "fps": 82.2
+    },
+    "rigFullAvg": 0,
+    "inFrustumAvg": 29.3,
+    "rigCappedPct": 97.6,
+    "rigFullMax": 0,
+    "inFrustumMax": 30,
+    "callsAvg": 880.6,
+    "foreignMax": 21,
+    "foreignPctMax": 18.8,
+    "visibleAvg": 30,
+    "fp": {
+     "name": "high",
+     "setting": "high",
+     "pixelRatioCap": 2,
+     "effPixelRatio": 2,
+     "buf": [
+      2880,
+      1704
+     ],
+     "shadowMapSize": 2048,
+     "shadowInterval": 1,
+     "shadowMapActual": 2048,
+     "rigBudget": "inf",
+     "offscreenRigHz": "inf",
+     "gtaoScale": 0.5,
+     "bloomScale": 0.5,
+     "dpr": 2
+    }
+   }
+  ]
+ }
+}

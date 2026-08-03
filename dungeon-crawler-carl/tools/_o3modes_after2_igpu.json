@@ -1,0 +1,329 @@
+{
+  "adapter": "igpu",
+  "scenes": {
+    "fight": {
+      "low": {
+        "n": 962,
+        "fps": 79.88,
+        "delivered": 12.52,
+        "mean": 12.52,
+        "p50": 9.3,
+        "p90": 19.6,
+        "p99": 51.5,
+        "max": 248.8,
+        "over16": 15.3,
+        "over33": 4.4,
+        "overBudget": 9.8,
+        "windows": 3,
+        "updateMs": 1.65,
+        "visible": 18.3
+      },
+      "medium": {
+        "n": 545,
+        "fps": 45,
+        "delivered": 22.22,
+        "mean": 22.22,
+        "p50": 11.4,
+        "p90": 50.7,
+        "p99": 143.6,
+        "max": 177.3,
+        "over16": 34.5,
+        "over33": 19.6,
+        "overBudget": 19.6,
+        "windows": 3,
+        "updateMs": 1.9,
+        "visible": 17
+      },
+      "high": {
+        "n": 290,
+        "fps": 23.91,
+        "delivered": 41.82,
+        "mean": 41.82,
+        "p50": 20.6,
+        "p90": 114.3,
+        "p99": 227.4,
+        "max": 320.4,
+        "over16": 53.8,
+        "over33": 33.1,
+        "overBudget": null,
+        "windows": 3,
+        "updateMs": 2.8,
+        "visible": 16.7
+      }
+    },
+    "dense": {
+      "low": {
+        "n": 1093,
+        "fps": 90.88,
+        "delivered": 11,
+        "mean": 11,
+        "p50": 8.7,
+        "p90": 20.3,
+        "p99": 35.1,
+        "max": 50.5,
+        "over16": 15.7,
+        "over33": 1.8,
+        "overBudget": 10.7,
+        "windows": 3,
+        "updateMs": 1.32,
+        "visible": 16.7
+      },
+      "medium": {
+        "n": 619,
+        "fps": 51.05,
+        "delivered": 19.59,
+        "mean": 19.59,
+        "p50": 9.8,
+        "p90": 44.8,
+        "p99": 127,
+        "max": 160.2,
+        "over16": 30.7,
+        "over33": 14.2,
+        "overBudget": 14.2,
+        "windows": 3,
+        "updateMs": 1.27,
+        "visible": 15.7
+      },
+      "high": {
+        "n": 345,
+        "fps": 27.94,
+        "delivered": 35.8,
+        "mean": 35.79,
+        "p50": 11.3,
+        "p90": 95.3,
+        "p99": 222.2,
+        "max": 363.9,
+        "over16": 40.9,
+        "over33": 27.2,
+        "overBudget": null,
+        "windows": 3,
+        "updateMs": 2.07,
+        "visible": 16.3
+      }
+    },
+    "quiet": {
+      "low": {
+        "n": 3985,
+        "fps": 331.23,
+        "delivered": 3.02,
+        "mean": 3.02,
+        "p50": 2.8,
+        "p90": 4.2,
+        "p99": 5.7,
+        "max": 11.6,
+        "over16": 0,
+        "over33": 0,
+        "overBudget": 0,
+        "windows": 3,
+        "updateMs": 0.69,
+        "visible": 0
+      },
+      "medium": {
+        "n": 1836,
+        "fps": 152.59,
+        "delivered": 6.55,
+        "mean": 6.55,
+        "p50": 3.8,
+        "p90": 15.2,
+        "p99": 41.3,
+        "max": 68.2,
+        "over16": 9.2,
+        "over33": 2.8,
+        "overBudget": 2.8,
+        "windows": 3,
+        "updateMs": 0.78,
+        "visible": 0
+      },
+      "high": {
+        "n": 878,
+        "fps": 72.77,
+        "delivered": 13.74,
+        "mean": 13.74,
+        "p50": 11.8,
+        "p90": 24.6,
+        "p99": 70.2,
+        "max": 220.9,
+        "over16": 18,
+        "over33": 6.5,
+        "overBudget": null,
+        "windows": 3,
+        "updateMs": 1.96,
+        "visible": 0
+      }
+    }
+  },
+  "guard": {
+    "fires": 14,
+    "minutes": 3.51,
+    "perMin": 3.99,
+    "names": [
+      "robot_glow",
+      "",
+      "demonlord"
+    ]
+  },
+  "canary": [
+    {
+      "scene": "fight",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "high",
+      "canary": 0.1,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "medium",
+      "canary": 0.1,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "fight",
+      "mode": "medium",
+      "canary": 0.1,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "dense",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "medium",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "high",
+      "canary": 0.1,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "high",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "low",
+      "canary": 0,
+      "foreign": 0
+    },
+    {
+      "scene": "quiet",
+      "mode": "medium",
+      "canary": 0.1,
+      "foreign": 0
+    }
+  ]
+}

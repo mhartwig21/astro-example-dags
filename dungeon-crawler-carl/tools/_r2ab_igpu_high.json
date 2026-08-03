@@ -1,0 +1,622 @@
+{
+  "adapter": "igpu",
+  "mode": "high",
+  "secs": 3.5,
+  "reps": 3,
+  "table": {
+    "base": {
+      "n": 143,
+      "fps": 13.18,
+      "delivered": 75.86,
+      "mean": 75.85,
+      "p50": 30.6,
+      "p90": 138.9,
+      "p99": 1463.4,
+      "max": 1949.8,
+      "over16": 68.5,
+      "over33": 45.5
+    },
+    "nopost": {
+      "n": 152,
+      "fps": 10.67,
+      "delivered": 93.72,
+      "mean": 93.72,
+      "p50": 32.3,
+      "p90": 119.2,
+      "p99": 971.9,
+      "max": 3661.5,
+      "over16": 61.2,
+      "over33": 48
+    },
+    "noscene": {
+      "n": 777,
+      "fps": 73.53,
+      "delivered": 13.6,
+      "mean": 13.55,
+      "p50": 4.7,
+      "p90": 15.1,
+      "p99": 129.8,
+      "max": 2265.8,
+      "over16": 8.4,
+      "over33": 5.4
+    },
+    "smaa": {
+      "n": 159,
+      "fps": 14.49,
+      "delivered": 69.02,
+      "mean": 69.01,
+      "p50": 24.3,
+      "p90": 172.6,
+      "p99": 571.9,
+      "max": 2057.1,
+      "over16": 61,
+      "over33": 39
+    },
+    "grade": {
+      "n": 140,
+      "fps": 11.44,
+      "delivered": 87.4,
+      "mean": 83.81,
+      "p50": 27.2,
+      "p90": 179.4,
+      "p99": 824.5,
+      "max": 1390.5,
+      "over16": 63.6,
+      "over33": 45.7
+    },
+    "bloom": {
+      "n": 143,
+      "fps": 12.31,
+      "delivered": 81.25,
+      "mean": 81.25,
+      "p50": 34.5,
+      "p90": 159.4,
+      "p99": 1512.1,
+      "max": 1604,
+      "over16": 64.3,
+      "over33": 50.3
+    },
+    "gtao": {
+      "n": 190,
+      "fps": 17.46,
+      "delivered": 57.26,
+      "mean": 57.27,
+      "p50": 20.7,
+      "p90": 119.1,
+      "p99": 848.3,
+      "max": 1543,
+      "over16": 53.7,
+      "over33": 38.9
+    },
+    "halfres": {
+      "n": 416,
+      "fps": 34.79,
+      "delivered": 28.74,
+      "mean": 28.74,
+      "p50": 14.8,
+      "p90": 34.3,
+      "p99": 272.5,
+      "max": 1554.7,
+      "over16": 38.9,
+      "over33": 10.3
+    },
+    "freezegraph": {
+      "n": 126,
+      "fps": 10.93,
+      "delivered": 91.51,
+      "mean": 91.5,
+      "p50": 36.4,
+      "p90": 163.8,
+      "p99": 992.7,
+      "max": 2083.4,
+      "over16": 67.5,
+      "over33": 52.4
+    }
+  },
+  "windows": {
+    "base": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 22,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 12,
+          "fps": 3.4,
+          "delivered": 293.97,
+          "mean": 293.96,
+          "p50": 11.4,
+          "p90": 1463.4,
+          "p99": 1949.8,
+          "max": 1949.8,
+          "over16": 25,
+          "over33": 16.7
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 27,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 67,
+          "fps": 18.93,
+          "delivered": 52.83,
+          "mean": 52.83,
+          "p50": 27.8,
+          "p90": 136,
+          "p99": 263.3,
+          "max": 263.3,
+          "over16": 67.2,
+          "over33": 43.3
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 35,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 64,
+          "fps": 16.93,
+          "delivered": 59.07,
+          "mean": 59.06,
+          "p50": 48.7,
+          "p90": 141.2,
+          "p99": 304.9,
+          "max": 304.9,
+          "over16": 78.1,
+          "over33": 53.1
+        }
+      }
+    ],
+    "nopost": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 23,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 21,
+          "fps": 2.98,
+          "delivered": 335.79,
+          "mean": 335.79,
+          "p50": 13.1,
+          "p90": 812.1,
+          "p99": 3661.5,
+          "max": 3661.5,
+          "over16": 42.9,
+          "over33": 38.1
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 22,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 34,
+          "fps": 9.42,
+          "delivered": 106.15,
+          "mean": 106.15,
+          "p50": 18.4,
+          "p90": 332.7,
+          "p99": 971.9,
+          "max": 971.9,
+          "over16": 50,
+          "over33": 44.1
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 42,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 97,
+          "fps": 27.06,
+          "delivered": 36.96,
+          "mean": 36.96,
+          "p50": 33.8,
+          "p90": 75,
+          "p99": 118.6,
+          "max": 118.6,
+          "over16": 69.1,
+          "over33": 51.5
+        }
+      }
+    ],
+    "noscene": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 22,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 26,
+          "fps": 7.36,
+          "delivered": 135.79,
+          "mean": 134.31,
+          "p50": 7.5,
+          "p90": 231.4,
+          "p99": 2265.8,
+          "max": 2265.8,
+          "over16": 26.9,
+          "over33": 26.9
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 22,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 371,
+          "fps": 105.51,
+          "delivered": 9.48,
+          "mean": 9.48,
+          "p50": 4.7,
+          "p90": 15.1,
+          "p99": 105.7,
+          "max": 197.9,
+          "over16": 7.8,
+          "over33": 4.9
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 26,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 380,
+          "fps": 107.97,
+          "delivered": 9.26,
+          "mean": 9.26,
+          "p50": 4.7,
+          "p90": 13.5,
+          "p99": 104.4,
+          "max": 129.8,
+          "over16": 7.6,
+          "over33": 4.5
+        }
+      }
+    ],
+    "smaa": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 21,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 11,
+          "fps": 2.8,
+          "delivered": 356.51,
+          "mean": 356.45,
+          "p50": 129,
+          "p90": 571.9,
+          "p99": 2057.1,
+          "max": 2057.1,
+          "over16": 63.6,
+          "over33": 63.6
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 24,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 77,
+          "fps": 21.88,
+          "delivered": 45.69,
+          "mean": 45.68,
+          "p50": 21.7,
+          "p90": 114.2,
+          "p99": 254.4,
+          "max": 254.4,
+          "over16": 58.4,
+          "over33": 36.4
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 27,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 71,
+          "fps": 20.09,
+          "delivered": 49.77,
+          "mean": 49.77,
+          "p50": 25.2,
+          "p90": 145.3,
+          "p99": 238.5,
+          "max": 238.5,
+          "over16": 63.4,
+          "over33": 38
+        }
+      }
+    ],
+    "grade": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 25,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 9,
+          "fps": 1.8,
+          "delivered": 557.02,
+          "mean": 501.22,
+          "p50": 484.7,
+          "p90": 1390.5,
+          "p99": 1390.5,
+          "max": 1390.5,
+          "over16": 100,
+          "over33": 100
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 26,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 62,
+          "fps": 17.01,
+          "delivered": 58.8,
+          "mean": 58.8,
+          "p50": 19.7,
+          "p90": 179.4,
+          "p99": 238.1,
+          "max": 238.1,
+          "over16": 56.5,
+          "over33": 38.7
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 34,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 69,
+          "fps": 19.29,
+          "delivered": 51.85,
+          "mean": 51.84,
+          "p50": 27.2,
+          "p90": 124.2,
+          "p99": 319.2,
+          "max": 319.2,
+          "over16": 65.2,
+          "over33": 44.9
+        }
+      }
+    ],
+    "bloom": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 25,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 8,
+          "fps": 1.79,
+          "delivered": 557.16,
+          "mean": 557.18,
+          "p50": 346,
+          "p90": 1604,
+          "p99": 1604,
+          "max": 1604,
+          "over16": 75,
+          "over33": 75
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 25,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 69,
+          "fps": 19.03,
+          "delivered": 52.55,
+          "mean": 52.55,
+          "p50": 27.4,
+          "p90": 127.5,
+          "p99": 327.6,
+          "max": 327.6,
+          "over16": 63.8,
+          "over33": 46.4
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 34,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 66,
+          "fps": 18.67,
+          "delivered": 53.57,
+          "mean": 53.56,
+          "p50": 36.1,
+          "p90": 128.1,
+          "p99": 198.1,
+          "max": 198.1,
+          "over16": 63.6,
+          "over33": 51.5
+        }
+      }
+    ],
+    "gtao": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 25,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 7,
+          "fps": 1.83,
+          "delivered": 547.59,
+          "mean": 547.61,
+          "p50": 422,
+          "p90": 1543,
+          "p99": 1543,
+          "max": 1543,
+          "over16": 71.4,
+          "over33": 71.4
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 30,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 94,
+          "fps": 26.73,
+          "delivered": 37.41,
+          "mean": 37.41,
+          "p50": 15.7,
+          "p90": 102.1,
+          "p99": 209.7,
+          "max": 209.7,
+          "over16": 48.9,
+          "over33": 35.1
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 0,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 89,
+          "fps": 25.21,
+          "delivered": 39.67,
+          "mean": 39.69,
+          "p50": 24.1,
+          "p90": 102.5,
+          "p99": 178.5,
+          "max": 178.5,
+          "over16": 57.3,
+          "over33": 40.4
+        }
+      }
+    ],
+    "halfres": [
+      {
+        "fp": "high|1440|852|2048|1|Infinity|Infinity|0.5|1.000",
+        "visible": 24,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 22,
+          "fps": 4.47,
+          "delivered": 223.9,
+          "mean": 223.87,
+          "p50": 113.7,
+          "p90": 603.2,
+          "p99": 1554.7,
+          "max": 1554.7,
+          "over16": 68.2,
+          "over33": 63.6
+        }
+      },
+      {
+        "fp": "high|1440|852|2048|1|Infinity|Infinity|0.5|1.000",
+        "visible": 31,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 201,
+          "fps": 57.12,
+          "delivered": 17.51,
+          "mean": 17.5,
+          "p50": 15,
+          "p90": 29.6,
+          "p99": 60.7,
+          "max": 112.6,
+          "over16": 38.3,
+          "over33": 6
+        }
+      },
+      {
+        "fp": "high|1440|852|2048|1|Infinity|Infinity|0.5|1.000",
+        "visible": 38,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 193,
+          "fps": 54.96,
+          "delivered": 18.19,
+          "mean": 18.19,
+          "p50": 14.2,
+          "p90": 32.9,
+          "p99": 57.8,
+          "max": 130,
+          "over16": 36.3,
+          "over33": 8.8
+        }
+      }
+    ],
+    "freezegraph": [
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 23,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 4,
+          "fps": 0.9,
+          "delivered": 1113.88,
+          "mean": 1113.82,
+          "p50": 992.7,
+          "p90": 2083.4,
+          "p99": 2083.4,
+          "max": 2083.4,
+          "over16": 100,
+          "over33": 100
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 32,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 64,
+          "fps": 18.17,
+          "delivered": 55.03,
+          "mean": 55.03,
+          "p50": 35.4,
+          "p90": 139.7,
+          "p99": 226.8,
+          "max": 226.8,
+          "over16": 70.3,
+          "over33": 51.6
+        }
+      },
+      {
+        "fp": "high|2880|1704|2048|1|Infinity|Infinity|1|2.000",
+        "visible": 38,
+        "rigFull": 0,
+        "foreign": 21,
+        "shape": {
+          "n": 58,
+          "fps": 16.33,
+          "delivered": 61.24,
+          "mean": 61.24,
+          "p50": 35.8,
+          "p90": 163.8,
+          "p99": 472.5,
+          "max": 472.5,
+          "over16": 62.1,
+          "over33": 50
+        }
+      }
+    ]
+  }
+}
