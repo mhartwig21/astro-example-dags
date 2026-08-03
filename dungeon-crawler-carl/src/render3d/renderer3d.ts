@@ -4008,21 +4008,34 @@ export class Renderer3D {
         kick.userData.noAO = true;
         model.add(kick);
       }
-      // Crisp directional contact shadow: a second, tighter dark ellipse
-      // offset opposite the key light so the hero visibly SITS on the floor.
+      // Crisp directional contact shadow: a dark ellipse cast opposite the key
+      // light so the hero visibly SITS on the floor. Reworked for the owner's
+      // "stuttering shadow" bug: on every preset whose shadowInterval > 1 the
+      // hero no longer writes into the cadenced shadow map (see
+      // applyHeroShadowPolicy), so THIS ellipse is the hero's cast shadow and
+      // has to carry the motion — it is elongated along the key light's real
+      // ground direction (key sits at +8,20,+6 → shadow runs along -0.8,-0.6,
+      // ~0.85u for a 1.7u figure) and it must stay WORLD-oriented, so it lives
+      // in a wrapper group the per-frame player loop counter-rotates against
+      // the body's facing. Parented to the model, it moves every composed
+      // frame by construction — no cadence can stale it.
       {
         const gs = model.scale.x || 1;
         const { geo, mat } = this.blobResources();
         if (!this.dirBlobMat) {
           this.dirBlobMat = mat.clone();
-          this.dirBlobMat.opacity = 0.5;
+          this.dirBlobMat.opacity = 0.44;
         }
+        const dirG = new THREE.Group();
         const dsh = new THREE.Mesh(geo, this.dirBlobMat);
-        dsh.position.set(-0.1 / gs, 0.042 / gs, -0.08 / gs);
-        dsh.scale.set(0.3 / gs, 1 / gs, 0.24 / gs);
+        dsh.position.set(-0.30 / gs, 0.042 / gs, -0.23 / gs);
+        dsh.rotation.y = Math.atan2(0.6, -0.8); // long axis along the cast line
+        dsh.scale.set(0.52 / gs, 1 / gs, 0.26 / gs);
         dsh.renderOrder = 1;
         dsh.userData.noAO = true;
-        model.add(dsh);
+        dirG.add(dsh);
+        model.add(dirG);
+        model.userData.dirShadow = dirG;
       }
       model.userData.skinId = skin;
       return model;
@@ -7414,6 +7427,12 @@ export class Renderer3D {
       }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       this.turnTo(mesh, Math.atan2(pl.facing.x, pl.facing.y), dt);
+      // The directional contact shadow is WORLD-oriented (a cast shadow does
+      // not turn when the body turns): unwind the body's yaw every frame.
+      {
+        const dirG = mesh.userData.dirShadow as THREE.Group | undefined;
+        if (dirG) dirG.rotation.y = -mesh.rotation.y;
+      }
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
       // Weapon trail on the melee swing edge (attackSwing jumps up).
@@ -10149,6 +10168,40 @@ export class Renderer3D {
     this.bossFx.setMeasuredLuma(sum / 64, hot / 64);
   }
 
+  /**
+   * THE HERO DOES NOT CAST INTO A CADENCED MAP (owner bug: "stuttering shadow
+   * around the player character"). The cadence comment below claims a stale
+   * shadow is invisible "on a camera that only pans" — true for WALLS, false
+   * for the one body that moves every composed frame: the hero's cast shadow
+   * updated at half (MEDIUM) or quarter (LOW) framerate, welded to a
+   * full-framerate body. So on any preset whose shadowInterval > 1 the hero's
+   * meshes stop writing into the key-light map, and the per-frame directional
+   * contact ellipse (buildPlayerMesh) is the hero's cast shadow — it rides the
+   * model transform, so its motion is full-rate by construction. Monsters keep
+   * their map shadows: they are not the fixation point welded to the player's
+   * own input, and their blobs already soften the cadence. HIGH (interval 1)
+   * keeps the real per-frame silhouette shadow, unchanged.
+   *
+   * Each mesh's own casting intent is recorded once in userData.heroCast (late
+   * attachments — weapon grafts — get recorded the first time this sees them),
+   * so blob discs that never cast are never switched ON by the restore path.
+   */
+  heroShadowLegacy = false; // measurement arm: put the stutter back (tools/_shadowfix.mjs)
+  private heroCastOn = true;
+  private applyHeroShadowPolicy(): void {
+    const want = this.quality.shadowInterval <= 1 || this.heroShadowLegacy;
+    if (want && this.heroCastOn) return; // steady state on HIGH: no traversal
+    for (const mesh of this.playerMeshes.values()) {
+      mesh.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if (m.userData.heroCast === undefined) m.userData.heroCast = m.castShadow;
+        m.castShadow = want && (m.userData.heroCast as boolean);
+      });
+    }
+    this.heroCastOn = want;
+  }
+
   render(): void {
     // shadowMap.autoUpdate is off (constructor): arm exactly one rebuild for
     // this composed frame. three.js clears needsUpdate itself after the first
@@ -10158,11 +10211,12 @@ export class Renderer3D {
     // SHADOW CADENCE: on the cheaper presets the map is rebuilt every Nth
     // composed frame instead. The map persists in between, and this camera is a
     // fixed-angle ortho that only pans, so a one-frame-stale shadow is not
-    // something you can see — but it is a whole extra scene traversal + depth
-    // pass that you do not pay for.
+    // something you can see on STATIC casters — the one caster that moves
+    // every frame is excluded above (applyHeroShadowPolicy).
     this.frameNo++;
     if (this.quality.shadowMapSize > 0
       && (this.shadowDirty || this.frameNo % this.quality.shadowInterval === 0)) {
+      this.applyHeroShadowPolicy();
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDirty = false;
     }

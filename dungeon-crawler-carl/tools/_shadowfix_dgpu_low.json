@@ -1,0 +1,43 @@
+{
+  "adapter": "dgpu",
+  "mode": "low",
+  "mech": {
+    "mode": "low",
+    "interval": 4,
+    "heroCasters": 0,
+    "heroMeshes": 12,
+    "mobCasters": 1186,
+    "dirBlob": true
+  },
+  "base": {
+    "n": 1243,
+    "fps": 51.6,
+    "delivered": 19.38,
+    "mean": 19.38,
+    "p50": 14.1,
+    "p90": 36.3,
+    "p99": 79.6,
+    "max": 344.6,
+    "over16": 32.7,
+    "over33": 11.8,
+    "overBudget": null
+  },
+  "table": {
+    "heroLegacy": {
+      "ratios": [
+        1.0190871369294605,
+        1.0707166587565258,
+        1.2
+      ],
+      "median": 1.071,
+      "savedPct": -7.1,
+      "savedMs": -1.37,
+      "gpuRatios": [
+        0.8566061365059486,
+        1.0715408805031448,
+        1.240780487804878
+      ],
+      "gpuMedian": 1.072
+    }
+  }
+}
