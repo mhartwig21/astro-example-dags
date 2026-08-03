@@ -879,15 +879,6 @@ function loadSignin(): { who: string; provider: string } | null {
 
 /** Wire the menu account row: sign-in buttons per enabled provider, the
  *  signed-in chip with cross-device career stats, sign-out, delete. */
-/**
- * THE PROVIDERS THIS BUILD CAN ACTUALLY SIGN YOU IN WITH.
- *
- * Cached at boot because the VERDICT needs them too, not just the menu:
- * COMPETITIVE.md 6.2 Beat 5 specifies the unlinked case as a refusal WITH A
- * BUTTON, and the only sign-in control in the product lived on the menu behind
- * `display:none`. A screen that demands an action has to be able to offer it.
- */
-let authProviders: string[] = [];
 /** Send the crawler to a provider, keeping the account token so the identity
  *  links to the career they already have rather than starting a new one. */
 export function beginSignIn(provider: string): void {
@@ -902,7 +893,6 @@ async function initAccountUi(): Promise<void> {
     const r = await fetch(`${API_BASE}/auth/providers`);
     providers = r.ok ? ((await r.json()) as { providers: string[] }).providers : [];
   } catch { /* server unreachable: keep the menu quiet */ }
-  authProviders = providers;
   const signin = loadSignin();
   if (providers.length === 0 && !signin) return; // nothing to offer
   row.style.display = "flex";
@@ -3687,8 +3677,6 @@ const srLoadout = document.getElementById("sr-loadout")!;
 // rather than a header that pushed every ability card past the fold.
 const srAbilIndex = document.getElementById("sr-abil-index")!;
 const srAbil = document.getElementById("sr-abil")!;
-/** The shop shelf's tier rail (r3 blocker: five tier sections in one scroller). */
-const srTiers = document.getElementById("sr-tiers")!;
 const srAch = document.getElementById("sr-ach")!;
 const srAchCount = document.getElementById("sr-ach-count")!;
 let srTab: "shop" | "abil" | "ach" = "shop";
@@ -3759,19 +3747,6 @@ const CHASE_ENTRIES: { floor: number; entry: CatalogEntry }[] = Object.entries(B
   .sort((a, b) => a.floor - b.floor);
 
 let shopView: "stock" | "all" | "chase" = "stock";
-/**
- * WHICH TIER IS ON THE SHELF (r3 BLOCKER).
- *
- * The shelf used to render all five tier sections into one scroller: measured
- * +182 at 1366, with the fold landing exactly ON the COMPLETED WORKS header, so
- * that header shipped with nothing underneath it and the SIGNATURE tier did not
- * appear at all. The 2560 capture of the same shop shows what the 1366 player
- * never saw: 7 completed works at 165-257 gold and 2 signature items at 352 and
- * 412 — the highest-margin goods in the game, invisible on the most common
- * laptop resolution, behind a fold that reads as a rendering bug rather than a
- * scroll cue. One tier on the shelf, every tier on the rail, with counts.
- */
-let shopTier: CatalogTier = "basic";
 type ShopSel =
   | { kind: "catalog"; id: string }
   | { kind: "bag"; idx: number }
@@ -3882,10 +3857,6 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" ` +
     `title="${esc(e.name)}${blocker ? ` — ${blocker}` : " — READY TO BUY"}">` +
     `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
-    // Named in the SHOWCASE layout (small tiers), hidden in the dense one — see
-    // `.igrid.showcase`. A two-item tier rendered as two anonymous 60px icons in
-    // 800px of empty shelf was the r3 "nothing scales up" finding, verbatim.
-    `<div class="iname">${esc(e.name)}</div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
@@ -3997,20 +3968,6 @@ function renderShopDetail(s: GameState): void {
   const room = shopRoomOf(s)!;
   const p = me(s);
   if (!shopSel) {
-    // THE CHASE is a want-list, not inventory (r1 major). Its idle pane used
-    // to fall through to "THE SYSTEM PROVIDES / FEATURED — Field Ration · 195",
-    // so a shelf whose header says the System does not stock these was
-    // advertising a price in the same frame. The chase gets its own idle copy.
-    if (shopView === "chase") {
-      srDetail.innerHTML =
-        `<div class="dempty-state">` +
-        `<div class="dsys">THE SYSTEM DOES NOT SELL THESE</div>` +
-        `<div class="dsigil"></div>` +
-        `<div class="dempty">One per band boss. The currency is the fight — ` +
-        `pick a trophy to see what it does to you.</div>` +
-        `</div>`;
-      return;
-    }
     // Never a void (AAA r2 major): the unselected pane shows the System's
     // engraved sigil + Mordecai's featured picks for the floor below.
     const avail = room.available
@@ -4241,11 +4198,7 @@ function renderSafeRoom(s: GameState): void {
   srEl.querySelector("h2")!.textContent = roamShop
     ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
     : "SAFE ROOM";
-  // Rule 3: the caret is DRAWN. It used to be a typed U+25BC on the loudest
-  // button in the safe room.
-  srDescend.innerHTML = roamShop
-    ? `<i class="go-arrow back"></i>BACK TO THE STREET`
-    : `DESCEND<i class="go-arrow down"></i>`;
+  srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
   srTip.textContent = room.tip ||
     (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
   // Zero-value currencies stay off the header until first earned — three
@@ -4610,13 +4563,8 @@ function renderShopPage(s: GameState): void {
   // drop-only boss uniques behind glass — the run's want-list, and the reason
   // the floor-3 boss means something. No prices: the currency is the fight.
   if (shopView === "chase") {
-    // One section, so the rail steps aside and the list takes the whole width.
-    srShelf.parentElement?.classList.add("solo");
-    srTiers.innerHTML = "";
     srShelf.innerHTML =
-      // r3 major: the rule and the tiles were oxblood — blood decorating
-      // structure on a want-list. The trophy hue is the legendary arcane.
-      `<div class="tier-h chase-h" style="--tc:#8a7f6c">DROP-ONLY — ONE PER BAND BOSS` +
+      `<div class="tier-h chase-h" style="--tc:#c0392f">DROP-ONLY — ONE PER BAND BOSS` +
       `<span class="tnote">the System does not stock these, and neither will anyone else</span></div>` +
       `<div class="chase-list">` +
       CHASE_ENTRIES.map(({ floor, entry }) => {
@@ -4624,7 +4572,7 @@ function renderShopPage(s: GameState): void {
         const sel = shopSel?.kind === "catalog" && shopSel.id === entry.id ? " sel" : "";
         return (
           `<div class="chase-row${got ? " owned" : ""}${sel}" data-id="${entry.id}">` +
-          `<div class="itile tier-legendary chase ${got ? "owned" : "sealed"}" style="--tc:#b08fd9">` +
+          `<div class="itile tier-legendary chase ${got ? "owned" : "sealed"}" style="--tc:#c0392f">` +
           `<div class="ibox">${itemIconHtml(entry.id)}<b class="gem"></b></div></div>` +
           `<div class="cbody"><div class="cname">${entry.name}` +
           `<span class="cstate">${got ? "CLAIMED" : "UNCLAIMED"}</span></div>` +
@@ -4636,54 +4584,33 @@ function renderShopPage(s: GameState): void {
     renderShopSide(s);
     return;
   }
-  srShelf.parentElement?.classList.remove("solo");
-  // THE SHELF IS AN INDEX AND A STAGE (r3 blocker — see `shopTier`). Every tier
-  // is measured first, because the rail has to carry counts and the ready-to-buy
-  // pip whether or not that tier is the one on the shelf.
-  const byTier = TIERS.map((tier) => {
+  // The shelf, tier by tier.
+  let shelf = "";
+  for (const tier of TIERS) {
     const pool = CATALOG.filter((e) => e.tier === tier && (e.id !== "tome" || room.tomeAbility));
     const entries = shopView === "stock" ? pool.filter((e) => avail.has(e.id)) : pool;
+    if (entries.length === 0) continue;
     const unlock = TIER_UNLOCK_SHOP[tier];
-    return {
-      tier, entries, unlock, locked: shopIndex < unlock,
-      readyN: entries.filter((e) => buyBlocker(s, e) === null).length,
-    };
-  }).filter((t) => t.entries.length > 0);
-  if (byTier.length > 0 && !byTier.some((t) => t.tier === shopTier)) shopTier = byTier[0].tier;
-  srTiers.innerHTML = `<div class="aidx-h">THE SHELF</div>` + byTier.map((t) =>
-    `<button type="button" class="aidx${t.tier === shopTier ? " on" : ""}${t.locked ? " locked" : ""}" ` +
-    `data-tier="${t.tier}" title="${TIER_LABEL[t.tier]} — ${t.entries.length} item${t.entries.length === 1 ? "" : "s"}` +
-    `${t.locked ? `, unlocks at shop ${t.unlock}` : ""}">` +
-    `<span class="aidx-t" style="color:${t.tier === shopTier ? "" : TIER_COLOR[t.tier]}">${TIER_LABEL[t.tier]}</span>` +
-    (t.readyN > 0 ? `<i class="aidx-rdy" title="${t.readyN} ready to buy"></i>` : "") +
-    `<span class="aidx-n">${t.entries.length}</span></button>`).join("");
-  // The shelf, one tier at a time.
-  let shelf = "";
-  for (const { tier, entries, unlock, locked, readyN } of byTier) {
-    if (tier !== shopTier) continue;
     // The shelf says how many of this tier you can actually click right now —
     // the number that decides the next 30 seconds of the safe room.
-    const note = locked
+    const readyN = entries.filter((e) => buyBlocker(s, e) === null).length;
+    const note = shopIndex < unlock
       ? `<span class="tnote">— unlocks at shop ${unlock}</span>`
       : readyN > 0
         ? `<span class="tnote ready">— ${readyN} ready to buy</span>`
         : shopView === "all" && entries.some((e) => !avail.has(e.id))
           ? `<span class="tnote">— stock varies by shop</span>`
           : "";
-    // r1 major: the shelves used to pad every partial row out to 11 columns
-    // with recessed "well" tiles — roughly THIRTY empty wells shipped as
-    // content across the four tiers (CONSUMABLES 5 items + 6 wells, STARTER
-    // 3 + 8, SIGNATURE 4 + 7, COMPONENTS 18 + 4). They carry the same size,
-    // border and inner shadow as real tiles, so they read as "failed to load"
-    // or "locked slot", not "the row ended". LoL's shop lets a category end
-    // where it ends.
+    // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
+    // complete their row with recessed diamond-socket wells. 11 tiles fit a
+    // shelf row at 56px+8 gap; pad only to the end of the partial row so the
+    // shelf never grows a whole row of dead sockets (panels fit the viewport).
+    const perRow = 11;
+    const wells = (perRow - (entries.length % perRow)) % perRow;
     shelf +=
       `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      // A tier with room to breathe SHOWS ITS GOODS: bigger art, the name, the
-      // price. SIGNATURE is two items — as 60px anonymous icons it read as an
-      // error state next to 800px of empty shelf.
-      `<div class="igrid${entries.length <= 8 ? " showcase" : ""}">` +
-      entries.map((e) => shelfTileHtml(s, e, owned)).join("") + `</div>`;
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}` +
+      `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
   }
   srShelf.innerHTML = shelf;
   renderShopSide(s);
@@ -4851,10 +4778,6 @@ srDetail.addEventListener("click", (e) => {
   const nav = el.closest(".itile[data-id], .dfeat[data-id]") as HTMLElement | null;
   if (nav) {
     shopSel = { kind: "catalog", id: nav.dataset.id! };
-    // Walking the build tree crosses tiers (a COMPONENT builds into a COMPLETED
-    // WORK), and the shelf shows one tier — so the shelf follows the subject.
-    const e2 = CATALOG_BY_ID[nav.dataset.id!];
-    if (e2 && !e2.dropOnly) shopTier = e2.tier;
     renderSafeRoom(state);
   }
 });
@@ -4978,14 +4901,6 @@ srAbilIndex.addEventListener("click", (e) => {
   if (srStage !== SR_BENCH) abilSel = srStage as AbilityId;
   renderSafeRoom(state);
 });
-// The shop's tier rail: one tier on the shelf at a time (r3 blocker).
-srTiers.addEventListener("click", (e) => {
-  const b = (e.target as HTMLElement).closest("button[data-tier]") as HTMLElement | null;
-  if (!b) return;
-  shopTier = b.dataset.tier as CatalogTier;
-  renderSafeRoom(state);
-});
-
 // Glyph tooltips ride the same cursor layer as item cards (#itemtip, z 30):
 // hovering a socket or a bench chip prints the composed behavior — what the
 // glyph does, and what the ability does WITH it (numbers off the sheet).
@@ -6839,12 +6754,6 @@ function splitsHtml(): string {
   // Compare against the bests as they stood BEFORE this run banked its own,
   // or every split proudly reports a delta of zero against itself.
   const pb = recapPrevBests;
-  // THE THIRD BAR IS REAL NOW. `leaderTicks` was hardcoded null, so the sheet
-  // printed a legend entry ("| the board leader") for a mark with no data path
-  // behind it, and worstBand's LOST HERE could only ever be measured against
-  // yourself. The verifier derives every band split as it replays and stores
-  // it on the row, so the leader's splits are already on the board page this
-  // screen has loaded - two thirds of Beat 4 were a rendering omission.
   const lead = social.leaderSplits(todaysBoard, RULES_HASH.slice(0, 7));
   const splits: social.BandSplit[] = ticks.map((t, i) => ({
     band: i, name: social.bandName(i), ticks: t,
@@ -6853,13 +6762,6 @@ function splitsHtml(): string {
   const lost = social.worstBand(splits);
   const scale = Math.max(60, ...splits.map(
     (sp) => Math.max(sp.ticks, sp.pbTicks ?? 0, sp.leaderTicks ?? 0)));
-  // The legend names only the marks this sheet actually drew.
-  const key: string[] = [];
-  if (splits.some((sp) => sp.pbTicks)) key.push(`<i class="pbk">|</i> your personal best`);
-  if (splits.some((sp) => sp.leaderTicks)) key.push(`<i class="leadk">|</i> the board leader`);
-  document.getElementById("recap-splitkey")!.innerHTML = key.length
-    ? key.join(" · ")
-    : "no personal best and no sealed leader on this contract yet — these splits are the first entry in the ledger";
   return splits.map((sp) => {
     if (sp.ticks <= 0) {
       return `<div class="splitrow empty"><span class="sname">${sp.name}</span>` +
@@ -6953,11 +6855,6 @@ function runClock(s: GameState): string {
 function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
-  // THE WIN IS NOT THE DEATH SCREEN WITH DIFFERENT WORDS. An eighteen-floor
-  // clear used to differ from a floor-3 death by a colour token on the title;
-  // `#recap.won` is what lets the stylesheet give the rarest outcome in the
-  // game its own key light, its own border and its own plate.
-  recapEl.classList.toggle("won", won);
   const title = document.getElementById("recap-title")!;
   if (s.mode === "rivals" && won) {
     // The RACE has exactly one winner — everyone gets the same headline moment,
@@ -6984,20 +6881,17 @@ function renderRecap(s: GameState): void {
       ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${runClock(s)} · ${p.name}, Crawler`
       : `Episode canceled on floor ${s.floor} · run time ${runClock(s)} · the crowd demands a rerun`;
   }
-  // THE WIN IS NOT A HUE. The victory plate carries the result itself, so an
-  // eighteen-floor clear and a floor-1 idle death stop differing by a headline
-  // string and a colour token.
-  document.getElementById("recap-plate-sub")!.textContent = won
-    ? `${CONFIG.finalFloor} FLOORS · ${runClock(s)} · ${p.kills.toLocaleString()} KILLS · `
-      + "THE NETWORK IS BROADCASTING THIS ONE AGAIN"
-    : "THE NETWORK IS BROADCASTING THIS ONE AGAIN";
-  // THE SCOREBOARD OWNS THE FIVE NUMBERS. FINAL STATS printed LEVEL, KILLS,
-  // DAMAGE DEALT, DAMAGE TAKEN and GOLD SPENT as tiles 300px to the right of a
-  // scoreboard column printing the same five - the half of the report card 6.3
-  // said to cut, surviving beside the thing that replaced it. Only GOLD BANKED
-  // was unique, and it belongs with the other things this run walked away with.
+  const stats: [string, string][] = [
+    [String(p.level), "LEVEL"],
+    [p.kills.toLocaleString(), "KILLS"],
+    [Math.round(p.damageDealt).toLocaleString(), "DAMAGE DEALT"],
+    [Math.round(p.damageTaken).toLocaleString(), "DAMAGE TAKEN"],
+    [`${coinIcon} ${p.gold.toLocaleString()}`, "GOLD BANKED"],
+    [`${coinIcon} ${p.goldSpent.toLocaleString()}`, "GOLD SPENT"],
+  ];
+  document.getElementById("recap-stats")!.innerHTML =
+    stats.map(([v, l]) => `<div class="rstat"><b>${v}</b><small>${l}</small></div>`).join("");
   document.getElementById("recap-show")!.innerHTML =
-    `<div class="rstat"><b>${coinIcon} ${p.gold.toLocaleString()}</b><small>GOLD BANKED</small></div>` +
     `<div class="rstat viewers"><b>${Math.round(p.viewers).toLocaleString()}</b><small>VIEWERS</small></div>` +
     `<div class="rstat favorites"><b>${Math.floor(p.favorites).toLocaleString()}</b><small>FAVORITES</small></div>` +
     `<div class="rstat sponsors"><b>${p.sponsors}</b><small>SPONSORS</small></div>`;
@@ -7058,13 +6952,7 @@ function renderRecap(s: GameState): void {
 
   document.getElementById("recap-letter")!.textContent = runGrade.letter;
   document.getElementById("recap-score")!.textContent = String(runGrade.score);
-  // THE BASIS, IN A CONTAINER AND AT A SIZE SOMEBODY IS MEANT TO READ. The
-  // ceiling clause is a chip rather than a trailing " · CAPPED BY DEPTH" that
-  // pushed the line to three wraps of 11px --ink-faint under the medal.
-  const capped = runGrade.basis.includes("CAPPED BY DEPTH");
-  document.getElementById("recap-basis-set")!.textContent =
-    runGrade.basis.replace(" · CAPPED BY DEPTH", "").replace(/^vs /, "");
-  document.getElementById("recap-basis-cap")!.toggleAttribute("hidden", !capped);
+  document.getElementById("recap-basis")!.textContent = runGrade.basis;
   medal.title = runGrade.basis;
   document.getElementById("recap-line")!.textContent = runGrade.line;
   document.getElementById("recap-parts")!.innerHTML = verdictPartsHtml(runGrade);
@@ -7104,25 +6992,11 @@ function renderRecap(s: GameState): void {
 
   // ---- Beat 5: WHAT YOU EARNED, and the seal resolving live -------------
   renderLadderLine(s);
-  renderMark(s);
-  renderEarned(s); // ...which draws the banked ledger and the seal beneath it
+  renderEarned(s);
   // ---- Beat 6: the buttons that make sense for THIS run -----------------
   document.getElementById("recap-race")!.style.display =
     !net && (todaysBoard ?? []).some((r) => social.playability(r, RULES_HASH.slice(0, 7)).ok) ? "" : "none";
   document.getElementById("recap-share")!.style.display = net ? "none" : "";
-  // The CTA is RUN IT BACK either way - Beat 6 is explicit about the order -
-  // but a clear and a death are running it back for opposite reasons, and the
-  // sub-line is what stops the win screen reading as the death screen's
-  // button row.
-  document.getElementById("recap-again-sub")!.textContent = won
-    ? "same seed · beat the time you just set"
-    : "same seed · your own ghost on the course";
-  // ...and the card is MEASURED against the window it landed in. Every render
-  // of this screen changes its height — the seal resolves, the board arrives
-  // and upgrades the grade, the mark gets a real rival — so the density pass
-  // runs on every one of them, not once at open.
-  fitRecap();
-  fitRecapSoon();
 }
 
 /**
@@ -7164,11 +7038,9 @@ function renderLadderLine(s: GameState): void {
   el.className = "ladderline";
   const st = myStanding;
   if (!st) {
-    el.innerHTML = `<div class="lmain"><span class="lt">UNRANKED</span>` +
-      `<span class="lcp">standing unread</span></div>` +
-      `<div class="lstat"><span class="ldelta flat">OFFLINE</span></div>` +
-      `<div class="lnote">the ladder is unreachable — your standing is on the server, and it will ` +
-      `still be there when the signal is back</div>`;
+    el.innerHTML = `<span class="lt">UNRANKED</span>` +
+      `<span class="lnote">the ladder is unreachable — your standing is on the server, and it will ` +
+      `still be there when the signal is back</span>`;
     return;
   }
   // TIERS ARE SUPPRESSED BELOW A POPULATION FLOOR, and the reason is printed.
@@ -7202,7 +7074,7 @@ function renderLadderLine(s: GameState): void {
         + `only. The board row still updates, and so do the splits.`;
   } else if (cpBeforeRun !== null && st.cp > cpBeforeRun) {
     chip = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>`;
-    note = "attempt 1 on this contract — the run the ladder scores. There is no second first impression.";
+    note = "attempt 1 on this contract — the run the ladder scores.";
   } else {
     chip = `<span class="ldelta">CP PENDING</span>`;
     note = "attempt 1 — it lands when the seal does, because CP only ever moves on a run the server "
@@ -7211,77 +7083,9 @@ function renderLadderLine(s: GameState): void {
   if (!st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor) {
     note += ` Tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far.`;
   }
-  el.innerHTML =
-    `<div class="lmain"><span class="lt">${esc(tier)}</span>` +
-    `<span class="lcp">${st.cp.toLocaleString()} CP this season</span></div>` +
-    `<div class="lstat">${chip}<span class="lrank">${esc(rank)}</span></div>` +
-    `<div class="lnote">${esc(note)}</div>`;
-}
-
-/**
- * THE MARK (6 Beat 2, in the DEFAULT state). One row of the crawler at the top
- * of today's contract, permanently, beside the grade — because League's default
- * post-game IS the scoreboard, ours costs a held TAB, and the pointer to that
- * TAB was 11.5px of the least legible colour on the screen. A player who never
- * discovers the tab is a player the screen compared to nobody at all.
- */
-function renderMark(s: GameState): void {
-  const el = document.getElementById("recap-mark")!;
-  if (net) { el.style.display = "none"; return; }
-  const b = social.benchmark(
-    { floor: s.floor, won: s.status === "won", elapsedSec: s.elapsed },
-    // ...AND IT KNOWS WHICH ROWS ARE MINE (blocker 5). Without this the screen
-    // named the player as their own rival: "CARL / FLOOR 1 / level with the
-    // leader", on the player's own row, on the one comparison the default
-    // post-run state makes.
-    todaysBoard, recapPrevCareer?.bestFloor ?? 0, myPublicId,
-  );
-  if (!b) {
-    el.style.display = "";
-    el.innerHTML = `<div class="mk">◆ THE MARK ◆</div>` +
-      `<div class="mwho">NOBODY HAS SET ONE</div>` +
-      `<div class="mwhat">no sealed row on today's contract, and nothing in this browser's ledger</div>` +
-      `<div class="msrc">the first crawler to finish today sets the mark everyone else reads</div>`;
-    return;
-  }
-  el.style.display = "";
-  el.innerHTML =
-    `<div class="mk">◆ THE MARK ◆</div>` +
-    `<div class="mwho">${esc(b.who)}</div>` +
-    `<div class="mwhat">${esc(b.what)}</div>` +
-    `<div class="mgap${b.ahead ? "" : " behind"}">${esc(b.gap)}</div>` +
-    `<div class="msrc">${esc(b.source)}</div>`;
-}
-
-/**
- * WHAT THE RUN BANKED, WHATEVER ELSE IT DID (6 Beat 5).
- *
- * A floor-3 death produced "+0 CP", a hairline seal reading "It ranks nowhere",
- * and "no personal bests this run — the ledger is unmoved": three of the four
- * informational blocks saying nothing happened. Honest, and exactly why a
- * player closes the tab. None of this is a claim about the ladder — it is this
- * browser's own ledger, counted — so it costs nothing against the verification
- * spine and it changes what the ten seconds feel like.
- */
-function renderBanked(s: GameState): void {
-  const el = document.getElementById("recap-banked")!;
-  // A rehearsal banks nothing and a refused run banks nothing. Both say so
-  // elsewhere on the screen; neither gets a ledger strip.
-  if (net || !runIsRankable(s) || verdictRefused()) { el.style.display = "none"; return; }
-  el.style.display = "";
-  const p = me(s);
-  const history = loadHistory();
-  const ticks = social.bankedTicks(history, episodeCount(), {
-    kills: p.kills, timeSec: Math.round(s.elapsed), floor: s.floor,
-  });
-  // The NEXT target is read off the ledger INCLUDING this run - it is the only
-  // number on the screen that is supposed to already know what just happened.
-  const next = social.nextMilestone(careerBests(history)?.bestFloor ?? 0, s.status === "won");
-  el.innerHTML = ticks.map((t) =>
-    `<div class="btick"><span class="bl">${esc(t.label)}</span>` +
-    `<span class="bv">${esc(t.value)}</span>` +
-    (t.delta ? `<span class="bd">${esc(t.delta)}</span>` : "") + `</div>`).join("")
-    + `<div class="bnext">NEXT: <b>${esc(next.title)}</b> — ${esc(next.detail)}</div>`;
+  el.innerHTML = `<span class="lt">${esc(tier)}</span>` +
+    `<span class="lcp">${st.cp.toLocaleString()} CP</span>` +
+    `<span>${esc(rank)}</span>${chip}<span class="lnote">${esc(note)}</span>`;
 }
 
 /**
@@ -7293,15 +7097,13 @@ function renderBanked(s: GameState): void {
  */
 function renderEarned(s: GameState): void {
   const line = document.getElementById("recap-earned")!;
+  const sealEl = document.getElementById("recap-seal")!;
   const detail = document.getElementById("recap-earned-detail")!;
   const beaten = recapBandPbs;
   const bests = recapPrevCareer; // the ledger this run found, not the one it joined
   const rows: string[] = [];
 
-  // ...AND IT POINTS AT THE LEDGER THAT IS ACTUALLY THERE. The strip this
-  // sentence refers to (EPISODE / TIME IN THE DUNGEON) sits ABOVE this line in
-  // the DOM, and the copy said "below".
-  let headline = "no personal bests this run — the ledger above is what it moved";
+  let headline = "no personal bests this run — the ledger is unmoved";
   // A rehearsal banks nothing, and the headline must not claim otherwise. This
   // used to print "THE CLEAR IS ON THE BOARD" on a test-chamber win, directly
   // under the screen's own TEST CHAMBER — NOT RANKED banner.
@@ -7344,145 +7146,58 @@ function renderEarned(s: GameState): void {
   line.innerHTML = `${headline}<span class="caret">${earnedOpen ? "[ HIDE THE MATH ]" : "[ SHOW THE MATH ]"}</span>`;
   detail.innerHTML = rows.join("") || `<div class="erow">Nothing banked. The System is not impressed, but it is watching.</div>`;
   detail.style.display = earnedOpen ? "" : "none";
-  renderBanked(s);
-  renderSeal();
+  renderSeal(sealEl);
 }
 
-/** The word on the block last time we drew it, so a state change is detected
- *  once - on the transition into a terminal state, not on every re-render. */
-let sealWordShown = "";
-
 /**
- * THE SEAL STATE HAS TO BE READABLE ON SCREEN (blocker 6). Instrumented on the
- * shipping build: at t+0 the block carried `vseal pending`, and by t+900ms it
- * already read `vseal verified ranked`. The pending state was never visible for
- * a single painted frame, so the player could not tell that the server had done
- * anything at all.
+ * The seal, resolving under the reader: one chip, in the family every board row
+ * wears, so a seal means the same thing wherever it appears.
  *
- * `verdictVisibleAt` is when the card actually reaches the screen, and a
- * terminal verdict that arrives before the pending block has had its floor is
- * HELD rather than dropped, so the sequence a player sees is always
- * VERIFYING -> SEALED and never a single frame of either. That is legibility,
- * not staging: nothing animates, the words simply stay put long enough to read.
+ * A block-sized treatment with a kicker, a held pending state and a strike
+ * animation was tried in an elevation round and reverted with the rest of that
+ * screen. The two things it got right are kept because they are correctness,
+ * not decoration: a SERVER-VOUCHED rivals win is sealed (the server decided it
+ * tick by tick, and the winner's own screen used to show no seal at all), and
+ * the trophy weight is decided by what the row actually HOLDS, straight from
+ * GET /runs/:id, rather than by whichever board happened to be loaded.
  */
-let verdictVisibleAt = 0;
-/** When the currently-shown non-terminal block became visible. */
-let sealPendingSince = 0;
-let sealHoldTimer: number | null = null;
-
-/**
- * THE SEAL (6 Beat 5). A block rather than a 10.5px chip, because the reason a
- * submission was refused has to be readable on the default face rather than
- * parked in a title=. One kicker, one word, one sentence of System voice.
- */
-function renderSeal(): void {
-  const el = document.getElementById("recap-seal")!;
+function renderSeal(sealEl: HTMLElement): void {
   const era = RULES_HASH.slice(0, 7);
-  // THE ONE SERVER-AUTHORITATIVE SCORE IN THE PRODUCT WAS THE ONE THE PLAYER
-  // NEVER SAW EARNED. A won RIVALS contract writes a SEALED, era-stamped
-  // contracts row server-side (gameServer, insertServerVouched) — and this
-  // function opened with `if (net) { display = "none"; return; }`, so the
-  // winner's own verdict screen showed no seal at all, minutes after
-  // `recBlocked` told them "party runs are hosted by the server — the solo
-  // descent is what carries a proof". The board and the verdict disagreed
-  // about the same run.
   if (net) {
     const iWon = state.mode === "rivals" && state.status === "won"
       && state.winnerId === me(state).id;
-    if (!iWon) { el.style.display = "none"; return; }
-    el.style.display = "";
-    paintSeal(el, social.verdictSeal("vouched", era));
+    if (!iWon) { sealEl.innerHTML = ""; return; }
+    const chip = social.sealChip("verified", era, false, "ranked", "vouched");
+    sealEl.innerHTML = `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>`;
     return;
   }
-  el.style.display = "";
-  // A run HOLDING a board position gets the trophy treatment; a run the
-  // server replayed and certified that ranks nowhere gets the same truth
-  // without the gold flood. Printing them identically spends the scarcity.
-  //
-  // ...AND IT ASKS THE SERVER WHICH BOARDS, not one board it happened to load.
-  // `ranked` used to be "is my run id in `todaysBoard`", and `todaysBoard` is
-  // the DAILY CONTRACT deepest board - so a free-seed run taking rank 1
-  // all-time got the plain hairline and the line "It ranks nowhere, and it is
-  // still true", which is false about the run that most deserved the gold.
-  const held = submitResult?.boards ?? null;
-  const ranked = !!submitResult?.runId && (
-    (held !== null && held.length > 0)
-    || (held === null && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId))
+  if (recBlocked) {
+    sealEl.innerHTML = `<span class="seal claimed" title="${esc(recBlocked)}">UNSEALED</span>`;
+    return;
+  }
+  if (!submitResult) {
+    sealEl.innerHTML = runProof
+      ? `<span class="seal claimed" title="the proof is recorded but not offered yet">READY TO SUBMIT</span>`
+      : "";
+    return;
+  }
+  // A seal on a rank-1 clear and a seal on an eight-second floor-1 death were
+  // typographically identical, which spends the scarcity that makes the gold
+  // one worth anything. The filled gold seal is for a run HOLDING a board
+  // position; everything else certified gets the hairline. Which boards it
+  // holds comes from the row itself, not from the one board this screen loaded.
+  const boards = submitResult.boards ?? null;
+  const ranked = !!submitResult.runId && (
+    (boards !== null && boards.length > 0)
+    || (boards === null && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId))
   );
-  const v = recBlocked
-    ? social.verdictSeal("blocked", null, false, false, recBlocked)
-    : !submitResult
-      ? social.verdictSeal(runProof ? "unsubmitted" : "blocked", null, false, false,
-          runProof ? null : "no proof was recorded for this run, so there is nothing to certify")
-      : social.verdictSeal(
-          (submitResult.state as social.RunState) ?? "claimed",
-          submitResult.state === "verified" ? era : null,
-          submitVisibility === "private", ranked, submitResult.reason ?? null, held,
-          // THE REFUSAL ARRIVES WITH THE CONTROL (6.2 Beat 5). Typed off the
-          // submit outcome rather than matched out of the prose, so a copy edit
-          // cannot silently take the button away again.
-          !!submitResult.needsIdentity && signInAvailable(),
-        );
-  paintSeal(el, v);
-}
-
-/** Is there anything the LINK AN IDENTITY button could actually do? A button
- *  that goes nowhere is worse than the sentence it replaced. */
-function signInAvailable(): boolean {
-  return authProviders.length > 0 && !loadSignin();
-}
-
-/** Draw the seal block, changing state exactly once — on the transition INTO a
- *  terminal state, never on a re-render. */
-function paintSeal(el: HTMLElement, v: social.VerdictSeal): void {
-  // THE FLOOR UNDER THE PENDING STATE (blocker 6). A terminal verdict that
-  // arrives before the pending block has been visible for SEAL_MIN_PENDING_MS
-  // is held - never dropped - and re-issued the moment the floor expires. Only
-  // the FIRST paint is exempt: a screen that opens on an already-terminal
-  // verdict (a refused run, a rehearsal) has no pending state to honour.
-  const hold = social.sealHoldMs(
-    performance.now(), verdictVisibleAt, sealPendingSince, v.terminal, sealWordShown !== "",
+  const chip = social.sealChip(
+    (submitResult.state as social.RunState) ?? "claimed",
+    era,
+    submitVisibility === "private",
+    ranked ? "ranked" : "plain",
   );
-  if (hold > 0) {
-    if (sealHoldTimer !== null) window.clearTimeout(sealHoldTimer);
-    sealHoldTimer = window.setTimeout(() => { sealHoldTimer = null; paintSeal(el, v); }, hold);
-    return;
-  }
-  const actionHtml = v.action && signInAvailable()
-    ? `<div class="vact"><button id="recap-link" class="vlink">${esc(v.action.label)}</button>` +
-      `<span class="vactnote">${esc(v.action.note)}</span></div>`
-    : "";
-  if (v.word === sealWordShown) {
-    // Same state, re-rendered (the board arrived, a PB landed): update the
-    // copy without restaging the strike.
-    el.className = v.cls;
-    el.querySelector(".vl")!.textContent = v.line;
-    const act = el.querySelector(".vact");
-    if (!!actionHtml !== !!act) { sealWordShown = ""; paintSeal(el, v); }
-    return;
-  }
-  const first = sealWordShown === "";
-  sealWordShown = v.word;
-  // A new NON-terminal state restarts the dwell: VERIFYING replacing READY TO
-  // SUBMIT is itself a beat, and it gets its own screen time.
-  if (!v.terminal) {
-    sealPendingSince = Math.max(performance.now(), verdictVisibleAt + social.SEAL_CASCADE_MS);
-  }
-  el.className = v.cls;
-  el.innerHTML =
-    `<div class="vk">${esc(v.kicker)}</div>` +
-    `<div class="vw">${esc(v.word)}</div>` +
-    `<div class="vl">${esc(v.line)}</div>` + actionHtml;
-  const link = el.querySelector("#recap-link");
-  if (link) {
-    link.addEventListener("click", () => beginSignIn(authProviders[0]));
-  }
-  // The verdict ARRIVING is worth a sound - it is the one moment on this screen
-  // the player did not already know about. The 1.9s scale/flood/ring "strike"
-  // that used to ride along with it is gone: the block changes state, plainly.
-  if (!first && v.terminal) {
-    audio.play(v.cls.includes("rejected") ? "warning" : "achievement");
-  }
+  sealEl.innerHTML = `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>`;
 }
 
 /** Seal the recording against the world it produced, then offer it. The offer
@@ -7542,10 +7257,6 @@ function maybeShowRecap(s: GameState): void {
   recapBandPbs = net || !runIsRankable(s) ? [] : commitBandBests();
   submitResult = null;
   earnedOpen = false;
-  sealWordShown = "";
-  verdictVisibleAt = 0;
-  sealPendingSince = 0;
-  if (sealHoldTimer !== null) { window.clearTimeout(sealHoldTimer); sealHoldTimer = null; }
   renderRecap(s);
   // One short beat between the killing blow and the card — enough that the
   // verdict does not land on top of the hit that caused it, and no more.
@@ -7553,13 +7264,6 @@ function maybeShowRecap(s: GameState): void {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
-    // The card is only measurable once it has a box: `renderRecap` above ran
-    // while `display` was still `none`.
-    fitRecapSoon();
-    // THE CLOCK ON THE SEAL BEAT STARTS HERE - when the card is on screen, not
-    // when the run ended (blocker 6).
-    verdictVisibleAt = performance.now();
-    sealPendingSince = verdictVisibleAt + social.SEAL_CASCADE_MS;
   }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
@@ -7858,10 +7562,6 @@ function offerProof(): void {
   requestAnimationFrame(() => {
     const h = Math.ceil(consentEl.getBoundingClientRect().height);
     if (h > 0) document.documentElement.style.setProperty("--consent-h", h + "px");
-    // The card just took a third of the height off the verdict's ceiling, so
-    // the density pass has to answer for it — this is the tightest the screen
-    // ever gets.
-    fitRecapSoon();
   });
 }
 
@@ -7872,7 +7572,6 @@ for (const [id, choice] of [
     try { localStorage.setItem(CONSENT_KEY, choice); } catch { /* best-effort */ }
     consentEl.classList.remove("on");
     recapEl.classList.remove("consenting");
-    fitRecapSoon(); // the ceiling just came back — hand the density back too
     renderConsentToggle(); // the settings row is the same standing choice
     if (choice === "no") {
       recBlocked = "not submitted — your choice, and it stays your choice until you change it";
@@ -7921,7 +7620,7 @@ kbConsent.addEventListener("click", () => {
         pushLogLine(next === "private"
           ? "THIS RUN IS NOW PRIVATE. It still ranks. Nobody else gets the film."
           : "THIS RUN IS NOW PUBLIC. Anyone can race your ghost.");
-        renderSeal();
+        renderEarned(state);
       } catch { /* the standing choice still changed */ }
     })();
   }
@@ -7973,7 +7672,6 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
           pushLogLine("THE SYSTEM DISAGREES. The row is gone and the ledger is back where it was.");
         }
         renderLadderLine(state);
-        renderMark(state);
         renderEarned(state);
         return;
       }
@@ -8358,47 +8056,6 @@ function inkBottom(root: HTMLElement): number {
   return deepest;
 }
 
-/**
- * THE VERDICT FITS TOO — and it is the one panel that had no fit pass at all.
- *
- * Measured on a FRESH load at 1366x768 (tools/_critic_1366.mjs): 745px of
- * content in a 707px panel, 18px over on a death and 38px on a clear, with the
- * scrollbar suppressed, so HOLD TAB was cut off the bottom of the screen and
- * nothing said so. It shipped in a round whose commit message is "the panels
- * fit the window" because the guard was written around the two panels that
- * were fixed and explicitly excluded the third.
- *
- * There is nothing here to trim — every block on the verdict is load-bearing
- * (COMPETITIVE.md 6 beats 1-6) — so the lever is DENSITY, not content: `--vd`
- * multiplies every vertical gap, margin and pad on the card, and `--vt` (a
- * clamped derivative) the display type. This winds `--vd` down from the
- * authored `--vd0` until the card measures zero overflow, one 4% step at a
- * time, and never touches a word of it.
- *
- * The floor is real: at 0.55 it stops and the (no longer suppressed) elevator
- * is what the reader gets, because content nobody can reach is strictly worse
- * than a scrollbar the house rule dislikes.
- */
-function fitRecap(): void {
-  const panel = recapEl.querySelector<HTMLElement>(".panel");
-  if (!panel || recapEl.style.display === "none") return;
-  panel.style.removeProperty("--vd");
-  const base = parseFloat(getComputedStyle(panel).getPropertyValue("--vd0")) || 1;
-  let d = base;
-  for (let i = 0; i < 24 && panel.scrollHeight - panel.clientHeight > 0 && d > 0.55; i++) {
-    d = Math.max(0.55, d - 0.04);
-    panel.style.setProperty("--vd", String(d.toFixed(2)));
-  }
-}
-
-/** Same reason `fitPanelSoon` exists: the card is measured after layout has
- *  settled, not in the frame that wrote the markup. */
-function fitRecapSoon(): void {
-  requestAnimationFrame(() => requestAnimationFrame(fitRecap));
-  window.setTimeout(fitRecap, 280);
-  window.setTimeout(fitRecap, 900);
-}
-window.addEventListener("resize", fitRecap);
 
 /** Trim order. Higher goes first: a footnote invented to fill space under a
  *  board must never outrank a ranked row on that board. */
