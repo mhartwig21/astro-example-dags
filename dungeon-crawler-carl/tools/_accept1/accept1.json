@@ -1,0 +1,168 @@
+{
+  "gpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "look": [
+    {
+      "floor": 2,
+      "status": "OK",
+      "shot": "tools/_accept1/ours_f2_room.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 1,
+        "liveMobs": 37,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 156
+      }
+    },
+    {
+      "floor": 8,
+      "status": "OK",
+      "shot": "tools/_accept1/ours_f8_room.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 23,
+        "liveMobs": 105,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 164
+      }
+    },
+    {
+      "floor": 14,
+      "status": "OK",
+      "shot": "tools/_accept1/ours_f14_room.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 0,
+        "liveMobs": 171,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 174
+      }
+    },
+    {
+      "floor": 17,
+      "status": "OK",
+      "shot": "tools/_accept1/ours_f17_room.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 12,
+        "liveMobs": 204,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 178
+      }
+    }
+  ],
+  "perf": {
+    "frames": 115,
+    "median": 108.3,
+    "p90": 175,
+    "p95": 275,
+    "p99": 2824.2,
+    "max": 3315.9,
+    "min": 41.6,
+    "mean": 182.49,
+    "over16_7": 100,
+    "over33": 100,
+    "over50": 98.3,
+    "presetHist": {
+      "performance": 125
+    },
+    "pxHist": {
+      "1.00": 125
+    },
+    "nearMin": 57,
+    "nearMedian": 92,
+    "nearMax": 103,
+    "callsMedian": 1,
+    "foreignLoadPct": 55.8,
+    "staged": {
+      "placed": 20,
+      "liveTotal": 205
+    },
+    "proofClaim": {
+      "hp": 999999,
+      "nearMobs": 83,
+      "liveMobs": 200,
+      "recapUp": false,
+      "introUp": false,
+      "cine": false,
+      "preset": "performance",
+      "setting": "auto",
+      "pxRatio": 1,
+      "dpr": 2,
+      "drawCalls": 1,
+      "tris": 1,
+      "programs": 197
+    }
+  },
+  "shaderErrors": [],
+  "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "combatShots": [
+    {
+      "path": "tools/_accept1/ours_f17_combat_1.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 31,
+        "liveMobs": 204,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 184
+      }
+    },
+    {
+      "path": "tools/_accept1/ours_f17_combat_2.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 22,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "preset": "performance",
+        "setting": "auto",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 184
+      }
+    }
+  ]
+}
