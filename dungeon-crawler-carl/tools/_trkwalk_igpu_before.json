@@ -1,0 +1,93 @@
+{
+ "adapter": "igpu",
+ "floor": 15,
+ "scene": "combat",
+ "tag": "before",
+ "reps": 4,
+ "secs": 2.2,
+ "gpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "contamination": {
+  "before": {
+   "ok": true,
+   "own": 0,
+   "foreign": 18,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600,
+    54592,
+    37124
+   ]
+  },
+  "after": {
+   "ok": true,
+   "own": 0,
+   "foreign": 10,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600
+   ]
+  }
+ },
+ "rows": {
+  "baseline": {
+   "frame": 58.5,
+   "update": 6,
+   "render": 48.1,
+   "drain": 0,
+   "calls": 562,
+   "n": 2774,
+   "invis": 1575,
+   "parked": 0,
+   "props": 822
+  },
+  "frozen-matrices": {
+   "frame": 54.9,
+   "update": 6.1,
+   "render": 45,
+   "drain": 0,
+   "calls": 560,
+   "n": 2774,
+   "invis": 1574,
+   "parked": 0,
+   "props": 822
+  },
+  "park-hidden-props": {
+   "frame": 56.1,
+   "update": 5.9,
+   "render": 47.1,
+   "drain": 0,
+   "calls": 563,
+   "n": 1199,
+   "invis": 171,
+   "parked": 743,
+   "props": 822
+  },
+  "park-all-props": {
+   "frame": 54.8,
+   "update": 6.1,
+   "render": 45.5,
+   "drain": 0.1,
+   "calls": 542,
+   "n": 1029,
+   "invis": 97,
+   "parked": 822,
+   "props": 822
+  }
+ }
+}

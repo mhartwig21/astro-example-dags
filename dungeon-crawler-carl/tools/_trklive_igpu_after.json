@@ -1,0 +1,180 @@
+{
+ "adapter": "igpu",
+ "floor": 15,
+ "quality": "high",
+ "tag": "after",
+ "secs": 8,
+ "gpuExpect": "/Intel/i",
+ "contamination": {
+  "before": {
+   "ok": true,
+   "own": 0,
+   "foreign": 10,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600
+   ]
+  },
+  "after": {
+   "ok": true,
+   "own": 0,
+   "foreign": 10,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600
+   ]
+  }
+ },
+ "results": {
+  "walk": {
+   "frames": 152,
+   "wallMs": 8221,
+   "frame": {
+    "n": 152,
+    "median": 20.6,
+    "mean": 54.08,
+    "p95": 230.6,
+    "max": 349.5
+   },
+   "update": {
+    "n": 152,
+    "median": 3.1,
+    "mean": 3.29,
+    "p95": 4.5,
+    "max": 5.5
+   },
+   "render": {
+    "n": 152,
+    "median": 12.6,
+    "mean": 47.68,
+    "p95": 224.7,
+    "max": 342.8
+   },
+   "rest": {
+    "n": 152,
+    "median": 2.9,
+    "mean": 3.11,
+    "p95": 4.8,
+    "max": 7.4
+   },
+   "drain": {
+    "n": 19,
+    "median": 0,
+    "mean": 0.01,
+    "p95": 0.1,
+    "max": 0.1
+   },
+   "callsPerFrame": 569,
+   "trisPerFrame": 1142319,
+   "sceneNodes": 1197,
+   "bones": 399,
+   "skinnedMeshes": 111,
+   "meshes": 422,
+   "sprites": 96,
+   "visibleFalse": 171,
+   "monsterMeshes": 148,
+   "monstersInGraph": 14,
+   "simMonsters": 148,
+   "simMonstersAlive": 148,
+   "playersAlive": 1,
+   "recapVisible": false,
+   "heapMB": 157.2,
+   "drawingBuffer": [
+    2880,
+    1704
+   ],
+   "pixelRatio": 2
+  },
+  "combat": {
+   "frames": 133,
+   "wallMs": 8911,
+   "frame": {
+    "n": 133,
+    "median": 18.4,
+    "mean": 66.99,
+    "p95": 263.7,
+    "max": 1556.1
+   },
+   "update": {
+    "n": 133,
+    "median": 3.1,
+    "mean": 3.25,
+    "p95": 4.5,
+    "max": 5.6
+   },
+   "render": {
+    "n": 133,
+    "median": 10.5,
+    "mean": 59.6,
+    "p95": 257.2,
+    "max": 1542.6
+   },
+   "rest": {
+    "n": 133,
+    "median": 3.3,
+    "mean": 4.14,
+    "p95": 6.7,
+    "max": 45.4
+   },
+   "drain": {
+    "n": 16,
+    "median": 0,
+    "mean": 0,
+    "p95": 0,
+    "max": 0
+   },
+   "callsPerFrame": 396,
+   "trisPerFrame": 955112,
+   "sceneNodes": 793,
+   "bones": 156,
+   "skinnedMeshes": 46,
+   "meshes": 376,
+   "sprites": 93,
+   "visibleFalse": 173,
+   "monsterMeshes": 147,
+   "monstersInGraph": 5,
+   "simMonsters": 147,
+   "simMonstersAlive": 147,
+   "playersAlive": 1,
+   "recapVisible": false,
+   "heapMB": 185.1,
+   "drawingBuffer": [
+    2880,
+    1704
+   ],
+   "pixelRatio": 2
+  },
+  "proof": {
+   "parkedState": {
+    "nodes": 790,
+    "offGraph": 775,
+    "props": 822
+   },
+   "unparkedNodes": 790,
+   "withPark": {
+    "calls": 350,
+    "tris": 922095
+   },
+   "withoutPark": {
+    "calls": 350,
+    "tris": 922095
+   }
+  }
+ }
+}

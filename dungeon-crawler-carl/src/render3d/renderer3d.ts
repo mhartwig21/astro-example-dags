@@ -1358,6 +1358,22 @@ export class Renderer3D {
   private atmoRefresh = 0;
 
   private floorGroup = new THREE.Group();
+  /**
+   * WHERE A FOG-HIDDEN PROP GOES (opt r1). Not a child of the scene — that is
+   * the entire point — but its world matrix is kept equal to floorGroup's, so
+   * a subtree parked here computes exactly the `matrixWorld` it computed while
+   * it was attached (updateMatrixWorld multiplies by `parent.matrixWorld`, and
+   * this parent's is floorGroup's). Nothing about a parked prop's transform,
+   * scale ease or batch membership changes; it simply stops being reachable
+   * from the scene root.
+   *
+   * Why a Group and not `parent = null`: a detached object composes
+   * `matrixWorld = matrix`, which silently drops floorGroup's transform. That
+   * is exactly the bug r1's first attempt shipped (887 props parked on the map
+   * origin), and it stays latent for as long as floorGroup happens to sit at
+   * the identity.
+   */
+  private propPark = new THREE.Group();
   // Render-side position smoothing: the sim ticks at a fixed 60Hz while the
   // display can run faster — applying raw sim positions makes movement (and
   // especially hand-grafted weapons) judder on high-refresh screens, and dash
@@ -4296,6 +4312,14 @@ export class Renderer3D {
   }
 
   private buildFloor(state: GameState): void {
+    // RECLAIM THE PARKED PROPS FIRST (opt r1). Most of the last floor's props
+    // are sitting in propPark, out of the scene, because the fog never revealed
+    // them. The teardown walks floorGroup — so anything still parked would miss
+    // both the dispose pass and the clear(), and would come back attached to
+    // the NEXT floor's prop entries. Hand them back before the walk.
+    for (const o of this.propPark.children.slice()) this.floorGroup.add(o);
+    this.propPark.clear();
+
     // Release the previous floor's GPU buffers. Tile geometries are per-build
     // clones (tileSource) or per-build boxes, so disposing them is safe; prop
     // meshes share the loader cache and are skipped.
@@ -5938,8 +5962,14 @@ export class Renderer3D {
     // every write folds floorGroup's own transform out of the leaf's world
     // matrix. Cached because it is needed on every reveal, not just here.
     this.floorInv.copy(this.floorGroup.matrixWorld).invert();
+    // The park stands in for floorGroup as a parent, so it has to BE floorGroup
+    // as far as matrix composition is concerned (see propPark).
+    this.propPark.matrix.copy(this.floorGroup.matrix);
+    this.propPark.matrixWorld.copy(this.floorGroup.matrixWorld);
+    this.propPark.matrixAutoUpdate = false;
+    this.propPark.matrixWorldAutoUpdate = false;
 
-    type Cand = { e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
+    type Cand ={ e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
     const cands: Cand[] = [];
     const counts = new Map<string, number>();
     for (const e of this.propEntries) {
@@ -6082,6 +6112,26 @@ export class Renderer3D {
     // — the equivalent edit is joining or leaving its InstancedMesh's live set,
     // and the equivalent of a transform rewrite is re-writing its instance
     // matrix. Both happen on exactly the frames the old code already paid for.
+    // AND THE HIDDEN ONES LEAVE THE GRAPH ENTIRELY (opt r1). The two paydowns
+    // above stopped a hidden prop from COMPOSING a matrix and from issuing a
+    // DRAW. Neither stopped three.js from VISITING it: Object3D.updateMatrixWorld
+    // recurses `children` unconditionally — it never looks at `visible`, and
+    // `matrixAutoUpdate = false` only skips the compose at the node it is set on.
+    //
+    // Measured on floor 15 with the crawler alive (tools/trk_who.mjs — and the
+    // qualifier matters, see tools/trk_live.mjs): the scene is 2,774 nodes, of
+    // which 1,575 are visible=false, and 1,537 of THOSE live under floorGroup as
+    // unrevealed prop subtrees and the invisible source meshes of batched props.
+    // 57% of every per-frame matrix walk was spent on clutter the fog hides.
+    //
+    // So a hidden prop is moved to propPark, which is not in the scene. Same
+    // pixels — it was already invisible and its batch membership is unchanged —
+    // and the same transform, because propPark's world matrix is floorGroup's.
+    // Edge-triggered on the fog reveal, so a floor's worth of reparenting is
+    // paid out over the walk that reveals it, a few props at a time.
+    //
+    // NOT A MODE LEVER, for the same reason the monster parking is not: it
+    // removes work without removing anything anybody can see.
     const R2 = Renderer3D.PROP_BATCH_RADIUS * Renderer3D.PROP_BATCH_RADIUS;
     const mapW = map.w;
     for (const e of this.propEntries) {
@@ -6089,6 +6139,14 @@ export class Renderer3D {
       const f = 1 - a;
       const vis = f > 0.04;
       const step = Math.round(Math.min(1, Math.max(0, f)) * 128);
+      // A pointer compare per prop per frame; the reparent itself only runs on
+      // the reveal edge. `updateMatrixWorld(true)` on the way back in is
+      // belt-and-braces — the parked matrixWorld is already correct — and costs
+      // one subtree recompose on the frame a prop is first seen.
+      if ((e.obj.parent === this.floorGroup) !== vis) {
+        if (vis) { this.floorGroup.add(e.obj); e.obj.updateMatrixWorld(true); }
+        else this.propPark.add(e.obj);
+      }
       let shown = vis;
       if (shown && e.leaves) {
         // An InstancedMesh is culled as one object, so the per-prop cull has to
