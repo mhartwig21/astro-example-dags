@@ -24,6 +24,16 @@ import { fileURLToPath } from "node:url";
  * without a browser, so what this file guards is the set of source-level
  * invariants the pass depends on — the things a later edit could quietly
  * break, and the browser measurement would only catch on someone's laptop.
+ *
+ * ROUND 2 — AND IT GUARDS THE PANEL IT USED TO EXCLUDE. Round 1 shipped under
+ * the commit message "the panels fit the window" while THE VERDICT — the only
+ * one of the three with a hard `max-height` AND a suppressed scrollbar, and
+ * the screen every single run terminates on — had no fit assertion of any kind
+ * at any viewport. Measured on a fresh load at 1366x768 afterwards: 745px of
+ * content in a 707px panel, the HOLD TAB hint cut off the bottom, and a
+ * 232px-wide GRADED AGAINST plate laid into a 148px column, 28px of it under
+ * an opaque grade tile. A guard scoped to what a round fixed is a guard that
+ * cannot fail on what it did not.
  */
 
 const HOST = readFileSync(
@@ -84,6 +94,86 @@ describe("the standings and the career panel fit the window", () => {
     expect(rule![1]).toContain("min(");
     expect(rule![1]).toContain("100vh");
     expect(rule![1]).toContain("max(");
+  });
+
+  it("...and the ceiling is the SAME expression as the floor, or the tabs breathe", () => {
+    // A floor bounds nothing from above. Measured frame heights at 2560x1440
+    // under the floor-only rule: CONTRACTS 998, ALL-TIME 1394, BANDS 835,
+    // RIVALS 835 — a 559px range, worse than the ~400px the rule's own comment
+    // cites as the problem it solved. Two different expressions here is the
+    // same bug wearing a `max-height`.
+    const sized = [...HTML.matchAll(
+      /#ladder \.set-frame, #career \.set-frame \{\s*\n?\s*min-height: ([^;]+);\s*\n?\s*max-height: ([^;]+);/g)];
+    // Two: the base rule and the short-viewport one. Both are sizing rules and
+    // both have to be bounded, or a 1366x768 laptop gets the old behaviour.
+    expect(sized.length, "every set-frame sizing rule needs a floor AND a ceiling")
+      .toBeGreaterThanOrEqual(2);
+    for (const h of sized) expect(h[2].trim()).toBe(h[1].trim());
+    // ...and the valve that drops the floor drops the ceiling with it, or a
+    // hugging frame is still holding a 1400px box open.
+    expect(HTML).toMatch(/\.set-frame\.hugs[^{]*\{[^}]*min-height: 0;[^}]*max-height: none;/);
+  });
+
+  it("THE VERDICT is measured too, and its scrollbar is no longer suppressed", () => {
+    // The three things that let an 18/38px overflow ship on the screen every
+    // run terminates on: no fit pass, a hidden elevator, and a guard that
+    // named the other two panels.
+    expect(HOST).toMatch(/function fitRecap\(\)/);
+    expect(HOST).toMatch(/function fitRecapSoon\(\)/);
+    expect(HOST).toMatch(/window\.addEventListener\("resize", fitRecap\)/);
+    // It runs on every render of the card, not once at open: the seal
+    // resolves, the board lands and the grade changes height under it.
+    expect(HOST).toMatch(/fitRecap\(\);\s*\r?\n\s*fitRecapSoon\(\);/);
+    const panel = /#recap \.panel \{([^}]*)\}/.exec(HTML);
+    expect(panel, "the #recap .panel rule moved — re-point this guard").not.toBeNull();
+    expect(panel![1], "the verdict panel must not hide its own elevator")
+      .not.toMatch(/scrollbar-width:\s*none/);
+    expect(HTML, "the verdict panel must not hide its own elevator")
+      .not.toMatch(/#recap \.panel::-webkit-scrollbar/);
+    // The density lever the pass actually turns, and its floor.
+    expect(panel![1]).toMatch(/--vd:\s*var\(--vd0\)/);
+    expect(HOST).toMatch(/Math\.max\(0\.55, d - 0\.04\)/);
+  });
+
+  it("the GRADED AGAINST plate is laid INTO its track, never across it", () => {
+    // Blocker 2: `min-width: 210px` on the plate against a track authored at
+    // 168px and narrowed to 148px by the short-viewport rule. Measured at
+    // 1366x768: plate rect x=15 w=232 r=247, first grade tile x=219 — 41px out
+    // past the panel's padding edge and 28px under an opaque tile. One number
+    // now governs both, and the plate is a share of it.
+    expect(HTML).toMatch(/#recap \.verdict \{[^}]*grid-template-columns: var\(--vtrack\)/);
+    const basis = /#recap \.vbasis \{([^}]*)\}/.exec(HTML);
+    expect(basis, "the .vbasis rule moved — re-point this guard").not.toBeNull();
+    expect(basis![1]).toMatch(/width: 100%/);
+    expect(basis![1]).toMatch(/min-width: 0/);
+    expect(basis![1]).toMatch(/box-sizing: border-box/);
+    // ...and no rule anywhere may set the track without the plate following,
+    // which is only possible if nothing hard-codes the column any more.
+    expect(HTML).not.toMatch(/#recap \.verdict \{[^}]*grid-template-columns: \d/);
+    const short = HTML.slice(HTML.indexOf("@media (max-height: 830px)"));
+    expect(short.slice(0, 600)).not.toMatch(/#recap \.verdict \{[^}]*grid-template-columns/);
+  });
+
+  it("padding invented to fill a board is spent BEFORE a ranked row is", () => {
+    // ALL-TIME hid 16 of 25 rows at 1600x900 and spent ~190px below them on
+    // the era note and THE OTHER MUSEUMS — both added by this track to fill
+    // space. The fit pass trimmed the board and never the filler.
+    expect(HOST).toMatch(/function fitPri\(/);
+    expect(HOST).toMatch(/data-fitpri="3"/); // the all-time footnote block
+    expect(HOST).toMatch(/data-fitpri="4"/); // the museums inside it
+    // Highest priority is chosen first on the way down...
+    expect(HOST).toMatch(/const top = Math\.max\(\.\.\.room\.map\(fitPri\)\)/);
+    // ...and lowest first on the way back, or a footnote returns before a row.
+    expect(HOST).toMatch(/fitPri\(a\) - fitPri\(b\)/);
+  });
+
+  it("a cut only counts in the column that is setting the height", () => {
+    // THE CRAWLER held back 4 milestones and 3 runs at 1600x900 while column 1
+    // bottomed out 110px above the frame. One global `scrollHeight` cannot see
+    // three independent columns.
+    expect(HOST).toMatch(/function tallestColumnLists\(/);
+    expect(HOST).toMatch(/tallestColumnLists\(room\.filter/);
+    expect(HOST).toMatch(/l\.closest<HTMLElement>\("\.ccol"\)/);
   });
 
   it("the career panel keeps the two ledgers apart and the eighteen-bar chart whole", () => {

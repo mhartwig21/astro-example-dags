@@ -6784,6 +6784,12 @@ function renderRecap(s: GameState): void {
   document.getElementById("recap-again-sub")!.textContent = won
     ? "same seed · beat the time you just set"
     : "same seed · your own ghost on the course";
+  // ...and the card is MEASURED against the window it landed in. Every render
+  // of this screen changes its height — the seal resolves, the board arrives
+  // and upgrades the grade, the mark gets a real rival — so the density pass
+  // runs on every one of them, not once at open.
+  fitRecap();
+  fitRecapSoon();
 }
 
 /**
@@ -7214,6 +7220,9 @@ function maybeShowRecap(s: GameState): void {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
+    // The card is only measurable once it has a box: `renderRecap` above ran
+    // while `display` was still `none`.
+    fitRecapSoon();
     // THE CLOCK ON THE SEAL BEAT STARTS HERE - when the card is on screen, not
     // when the run ended (blocker 6).
     verdictVisibleAt = performance.now();
@@ -7516,6 +7525,10 @@ function offerProof(): void {
   requestAnimationFrame(() => {
     const h = Math.ceil(consentEl.getBoundingClientRect().height);
     if (h > 0) document.documentElement.style.setProperty("--consent-h", h + "px");
+    // The card just took a third of the height off the verdict's ceiling, so
+    // the density pass has to answer for it — this is the tightest the screen
+    // ever gets.
+    fitRecapSoon();
   });
 }
 
@@ -7526,6 +7539,7 @@ for (const [id, choice] of [
     try { localStorage.setItem(CONSENT_KEY, choice); } catch { /* best-effort */ }
     consentEl.classList.remove("on");
     recapEl.classList.remove("consenting");
+    fitRecapSoon(); // the ceiling just came back — hand the density back too
     renderConsentToggle(); // the settings row is the same standing choice
     if (choice === "no") {
       recBlocked = "not submitted — your choice, and it stays your choice until you change it";
@@ -7953,6 +7967,16 @@ function fitRows(list: HTMLElement): Element[] {
   return Array.from(list.children).filter((c) => !c.classList.contains("fitmore"));
 }
 
+/** DIRECT CHILD, ALWAYS. Lists nest now (THE OTHER MUSEUMS sits inside the
+ *  all-time footnote block), and a descendant `.fitmore` is not a valid
+ *  `insertBefore` reference — it throws, mid-render, on the panel. */
+function fitNoteOf(list: HTMLElement): HTMLElement | null {
+  for (const c of Array.from(list.children)) {
+    if (c.classList.contains("fitmore")) return c as HTMLElement;
+  }
+  return null;
+}
+
 /**
  * ...AND WHAT IT HELD BACK IS ONE CLICK AWAY. Trimming an 18-row tail off a
  * ranked museum to make a 768px laptop fit would make those rows UNREACHABLE,
@@ -7964,7 +7988,7 @@ function fitRows(list: HTMLElement): Element[] {
 function fitNote(list: HTMLElement): void {
   const held = fitTrimmed.get(list) ?? [];
   const open = list.dataset.fitopen === "1";
-  let note = list.querySelector<HTMLElement>(".fitmore");
+  let note = fitNoteOf(list);
   if (held.length === 0 && !open) { note?.remove(); return; }
   if (!note) {
     note = document.createElement(list.tagName === "UL" ? "li" : "div");
@@ -7999,6 +8023,80 @@ function inkBottom(root: HTMLElement): number {
   };
   walk(root);
   return deepest;
+}
+
+/**
+ * THE VERDICT FITS TOO — and it is the one panel that had no fit pass at all.
+ *
+ * Measured on a FRESH load at 1366x768 (tools/_critic_1366.mjs): 745px of
+ * content in a 707px panel, 18px over on a death and 38px on a clear, with the
+ * scrollbar suppressed, so HOLD TAB was cut off the bottom of the screen and
+ * nothing said so. It shipped in a round whose commit message is "the panels
+ * fit the window" because the guard was written around the two panels that
+ * were fixed and explicitly excluded the third.
+ *
+ * There is nothing here to trim — every block on the verdict is load-bearing
+ * (COMPETITIVE.md 6 beats 1-6) — so the lever is DENSITY, not content: `--vd`
+ * multiplies every vertical gap, margin and pad on the card, and `--vt` (a
+ * clamped derivative) the display type. This winds `--vd` down from the
+ * authored `--vd0` until the card measures zero overflow, one 4% step at a
+ * time, and never touches a word of it.
+ *
+ * The floor is real: at 0.55 it stops and the (no longer suppressed) elevator
+ * is what the reader gets, because content nobody can reach is strictly worse
+ * than a scrollbar the house rule dislikes.
+ */
+function fitRecap(): void {
+  const panel = recapEl.querySelector<HTMLElement>(".panel");
+  if (!panel || recapEl.style.display === "none") return;
+  panel.style.removeProperty("--vd");
+  const base = parseFloat(getComputedStyle(panel).getPropertyValue("--vd0")) || 1;
+  let d = base;
+  for (let i = 0; i < 24 && panel.scrollHeight - panel.clientHeight > 0 && d > 0.55; i++) {
+    d = Math.max(0.55, d - 0.04);
+    panel.style.setProperty("--vd", String(d.toFixed(2)));
+  }
+}
+
+/** Same reason `fitPanelSoon` exists: the card is measured after layout has
+ *  settled, not in the frame that wrote the markup. */
+function fitRecapSoon(): void {
+  requestAnimationFrame(() => requestAnimationFrame(fitRecap));
+  window.setTimeout(fitRecap, 280);
+  window.setTimeout(fitRecap, 900);
+}
+window.addEventListener("resize", fitRecap);
+
+/** Trim order. Higher goes first: a footnote invented to fill space under a
+ *  board must never outrank a ranked row on that board. */
+function fitPri(list: HTMLElement): number {
+  return Number(list.dataset.fitpri ?? "0");
+}
+
+/**
+ * ...AND A CUT ONLY COUNTS IN THE COLUMN THAT SETS THE HEIGHT. THE CRAWLER
+ * lays out in three independent columns, and the panel is as tall as the
+ * tallest of them: measured at 1600x900, column 1 (THE SEALED RECORD +
+ * MASTERY) bottomed out at y=755 against columns 2/3 at y=833-847, while the
+ * panel held back 4 milestones and 3 runs. Rows taken from a column that was
+ * not the tallest buy zero pixels and cost real rows, so the victim is chosen
+ * from the columns that are actually setting the height.
+ */
+function tallestColumnLists(pool: HTMLElement[]): HTMLElement[] {
+  const cols = new Map<HTMLElement, HTMLElement[]>();
+  for (const l of pool) {
+    const col = l.closest<HTMLElement>(".ccol");
+    if (!col) return pool; // not a columned panel — nothing to be clever about
+    const seen = cols.get(col);
+    if (seen) seen.push(l); else cols.set(col, [l]);
+  }
+  if (cols.size < 2) return pool;
+  const bottoms = new Map<HTMLElement, number>();
+  for (const col of cols.keys()) bottoms.set(col, inkBottom(col));
+  const deepest = Math.max(...bottoms.values());
+  const winners: HTMLElement[] = [];
+  for (const [col, ls] of cols) if (deepest - bottoms.get(col)! <= 8) winners.push(...ls);
+  return winners.length > 0 ? winners : pool;
 }
 
 function fitPanel(panel: HTMLElement): void {
@@ -8036,7 +8134,28 @@ function fitPanel(panel: HTMLElement): void {
   for (const l of lists) if (l.dataset.fitopen === "1") fitNote(l);
   const open = lists.filter((l) => l.dataset.fitopen === "1");
   if (open.length > 0) return;
-  const over = (): number => panel.scrollHeight - panel.clientHeight;
+  // THE MEASURE IS INK, NOT BOXES — and this is the lesson of the bounded
+  // frame. `scrollHeight - clientHeight` answers "does the box overflow", and
+  // flex is perfectly happy to keep that answer at ZERO while drawing the
+  // content on top of itself: give the frame a ceiling and the board's own box
+  // is squeezed under its rows, which keep their min-content height and print
+  // straight through THE OTHER MUSEUMS beneath them. Measured at 1366x768
+  // before this: every box reported 0 overflow while row 11 of the all-time
+  // board and the footnote occupied the same 40 pixels.
+  //
+  // So the question this pass asks is the one the house rule actually asks:
+  // is anything DRAWN below the bottom of the frame that is supposed to hold
+  // it. The box measures stay in as a belt for the panel itself.
+  const frameFloor = (): number => {
+    if (!frame) return Infinity;
+    const cs = getComputedStyle(frame);
+    return frame.getBoundingClientRect().bottom
+      - parseFloat(cs.paddingBottom) - parseFloat(cs.borderBottomWidth);
+  };
+  const over = (): number => Math.max(
+    panel.scrollHeight - panel.clientHeight,
+    frame ? frame.scrollHeight - frame.clientHeight : 0,
+    body ? Math.ceil(inkBottom(body) - frameFloor()) : 0);
   const take = (list: HTMLElement): void => {
     const rows = fitRows(list);
     const held = fitTrimmed.get(list) ?? [];
@@ -8049,24 +8168,35 @@ function fitPanel(panel: HTMLElement): void {
     const held = fitTrimmed.get(list);
     if (!held || held.length === 0) return;
     const row = held.shift()!;
-    list.insertBefore(row, list.querySelector(".fitmore"));
+    list.insertBefore(row, fitNoteOf(list));
     if (held.length === 0) fitTrimmed.delete(list);
     fitNote(list);
   };
   const roomLeft = (l: HTMLElement): number =>
     fitRows(l).length - Math.max(1, Number(l.dataset.fitmin ?? "1"));
 
-  // CUT THE LONGEST LIST FIRST, and do not try to be clever about WHICH
-  // column is the tall one. THE CRAWLER lays out in columns of near-equal
-  // height, so a per-cut "did that help?" test says no to every single cut —
-  // shortening either of two equal columns leaves the row height unchanged —
-  // and an earlier version of this pass therefore refused to trim anything at
-  // all while the panel was 98px too tall. The measurement that matters is
-  // the one at the END: trim until it fits, and if it never fits, put it all
-  // back, because rows taken for nothing are rows taken for nothing.
+  // CUT PADDING FIRST, THEN THE LONGEST LIST IN THE TALLEST COLUMN.
+  //
+  // Never a per-cut "did that help?" test: THE CRAWLER lays out in columns of
+  // near-equal height, so that test says no to every single cut — shortening
+  // either of two equal columns leaves the row height unchanged — and an
+  // earlier version of this pass therefore refused to trim anything at all
+  // while the panel was 98px too tall. But "longest list anywhere" is too
+  // blunt in the other direction, and round 1 shipped both of its costs: a
+  // footnote invented to fill space outlived the ranked rows it displaced
+  // (`fitPri`), and rows were taken from a column that was not setting the
+  // height (`tallestColumnLists`). The measurement that matters is still the
+  // one at the END: trim until it fits, and if it never fits, put it all back,
+  // because rows taken for nothing are rows taken for nothing.
   let guard = 400;
   while (over() > 0 && guard-- > 0) {
-    const victim = lists.filter(roomLeft)
+    const room = lists.filter(roomLeft);
+    if (room.length === 0) break;
+    // ...but priority comes first, and it is not a heuristic: a list marked
+    // `data-fitpri` is padding this track invented, and it is spent before a
+    // single ranked row is.
+    const top = Math.max(...room.map(fitPri));
+    const victim = tallestColumnLists(room.filter((l) => fitPri(l) === top))
       .sort((a, b) => fitRows(b).length - fitRows(a).length)[0];
     if (!victim) break;
     take(victim);
@@ -8078,8 +8208,11 @@ function fitPanel(panel: HTMLElement): void {
   // ...then hand back what the greedy pass over-took. Cutting the longest list
   // is a fair heuristic, not an exact one, and a panel that fits with room to
   // spare should be showing rows in it.
+  // ...lowest priority first, so what comes back is a ranked row before it is
+  // a footnote — the same order the cut went in, run backwards.
   for (const list of [...lists].sort((a, b) =>
-    (fitTrimmed.get(b)?.length ?? 0) - (fitTrimmed.get(a)?.length ?? 0))) {
+    fitPri(a) - fitPri(b)
+    || (fitTrimmed.get(b)?.length ?? 0) - (fitTrimmed.get(a)?.length ?? 0))) {
     while (fitTrimmed.get(list)?.length) {
       give(list);
       if (over() > 0) { take(list); break; }
@@ -8354,6 +8487,15 @@ function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string
  * three. Each line is the current leader of a board you are not looking at,
  * which is both the missing content and the reason to look.
  */
+/*
+ * ...AND IT IS A FOOTNOTE, WHICH MEANS IT IS THE FIRST THING TO GO. Measured
+ * at 1600x900: nine board rows ended at y=634, "+16 more rows held back to fit
+ * this window" at y=646, and then ~190px of era note and OTHER MUSEUMS under
+ * it. Both blocks were added by this track's own comments to fill space under
+ * a short board; the fit pass then trimmed the board and left the filler
+ * standing, which is the hierarchy of the flagship museum board upside down.
+ * `data-fitpri` is the fix: these are spent before a ranked row is.
+ */
 async function otherBoardsStripHtml(current: string): Promise<string> {
   const kinds = ["deepest", "fastest", "kills", "contracts"].filter((k) => k !== current);
   const pages = await Promise.all(kinds.map((k) =>
@@ -8368,9 +8510,13 @@ async function otherBoardsStripHtml(current: string): Promise<string> {
         : `<span class="obwho none">unclaimed</span><span class="obres none">—</span>`) +
       `<span class="obgo">OPEN ▸</span></button>`;
   }).join("");
-  return `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
+  return `<div class="obwrap">` +
+    `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
     `font-variant:small-caps;letter-spacing:2px">THE OTHER MUSEUMS</div>` +
-    `<div class="otherboards">${rows}</div>`;
+    // One museum always survives, so the heading can never be left dangling
+    // over nothing; the other two are the first pixels a short window takes.
+    `<div class="otherboards fitlist" data-fitmin="1" data-fitnoun="museum" ` +
+    `data-fitpri="4">${rows}</div></div>`;
 }
 
 async function renderLadder(): Promise<void> {
@@ -8419,15 +8565,19 @@ async function renderLadderBody(): Promise<void> {
         : "the exact tick count, then the earlier submission") +
       boardListHtml(page, alltimeTab,
         "this museum is empty. The first exhibit is yours to donate.") +
+      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
+      // around y=520 with 42% of the viewport empty near-black under it. The
+      // filler is the OTHER three museums, one line each, so the empty space
+      // becomes navigation instead of padding — and it is a `fitlist` at the
+      // top priority, so on the window where that space does NOT exist it is
+      // the board that keeps its rows and the filler that goes.
+      `<div class="atfoot fitlist" data-fitmin="1" data-fitnoun="footnote" data-fitpri="3">` +
+      await otherBoardsStripHtml(alltimeTab) +
       // ONE LINE. The paragraph that used to live here explained era chipping
       // at length under a board with four rows on it.
       `<div class="gate">Never reset — <b>era-chipped</b> instead. A row stamped <b>era ${esc(ERA)}</b> ` +
       `was earned under the numbers you are playing now; an older stamp says so on its face.</div>` +
-      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
-      // around y=520 with 42% of the viewport empty near-black under it. The
-      // filler is the OTHER three museums, one line each, so the empty space
-      // becomes navigation instead of padding.
-      await otherBoardsStripHtml(alltimeTab);
+      `</div>`;
     return;
   }
   if (ladderTab === "bands") {

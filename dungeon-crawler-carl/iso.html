@@ -1471,19 +1471,50 @@
          the viewport sees: the 44px of border+padding rode ON TOP of the
          computed ceiling, which is exactly how the panel ended up 669px tall
          under a 625px limit and pushed its own headline off the top. */
+      /* ROUND 2 — THE CARD IS MEASURED, AND THE SCROLLBAR IS NO LONGER HIDDEN.
+         Measured on a FRESH load at 1366x768: 745px of content inside a 707px
+         panel — 18px over on a death, 38px on a clear — with the elevator
+         suppressed by `scrollbar-width: none`, so HOLD TAB was simply cut off
+         the bottom of the screen with nothing saying so. Suppressing the
+         elevator on a panel that fits is house style; suppressing it on one
+         that does not is how an overflow ships.
+
+         Two things replace it. `--vd` is a VERTICAL DENSITY multiplier on
+         every block gap, margin and pad on this card, and `--vt` is the type
+         scale derived from it; `fitRecap()` in main3d.ts winds `--vd` down
+         from `--vd0` until the card measures zero overflow. Nothing is hidden,
+         nothing is trimmed — the rhythm tightens, which is what a short
+         viewport actually needs. And the elevator is back, so the day the
+         density floor is not enough, the content is still reachable and the
+         failure is visible instead of silent.
+
+         `--vd0` is also how the card stops being a 28%-of-the-screen dialog on
+         a 1440p monitor (the number this stylesheet has called the failure
+         since the day it was written): above 1800x1000 the base density and
+         the width both go UP, so the broadcast scales with the screen. */
       #recap .panel { box-sizing: border-box;
-        position: relative; width: min(1360px, 95vw); max-height: 92vh; overflow: auto;
-        background: #171310; border: 1px solid #6e5533; border-radius: 10px; padding: 20px 26px 22px;
-        box-shadow: 0 24px 70px rgba(0,0,0,0.7); scrollbar-width: none; }
+        --vd0: 1; --vd: var(--vd0); --vt: clamp(0.82, var(--vd), 1.14);
+        --vmedal: 132px; --vtrack: 214px;
+        position: relative; width: min(95vw, max(1360px, 70vw)); max-height: 92vh; overflow: auto;
+        background: #171310; border: 1px solid #6e5533; border-radius: 10px;
+        padding: calc(20px * var(--vd)) 26px calc(22px * var(--vd));
+        box-shadow: 0 24px 70px rgba(0,0,0,0.7); }
+      /* THE BROADCAST SCALES WITH THE BROADCAST SCREEN. 1360x759 inside
+         2560x1440 is 28% of it — below the 37% this file cites as the dialog
+         failure it was fixing. */
+      @media (min-width: 1800px) and (min-height: 1000px) {
+        #recap .panel { --vd0: 1.26; --vmedal: 150px; --vtrack: 250px; }
+      }
       /* The lower half, side by side: the System's verdict on the run, and the
          run's verdict on you. Collapses to one column when the width is not
          there to spend. */
-      #recap .vcols { display: grid; grid-template-columns: 1.08fr 1fr; gap: 16px 22px;
-        align-items: start; margin-top: 13px; }
-      #recap .vcol { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+      #recap .vcols { display: grid; grid-template-columns: 1.08fr 1fr;
+        gap: calc(16px * var(--vd)) 22px;
+        align-items: start; margin-top: calc(13px * var(--vd)); }
+      #recap .vcol { min-width: 0; display: flex; flex-direction: column;
+        gap: calc(11px * var(--vd)); }
       #recap .vcol > * { margin-top: 0 !important; }
       @media (max-width: 1080px) { #recap .vcols { grid-template-columns: 1fr; } }
-      #recap .panel::-webkit-scrollbar { display: none; }
       /* A clear still reads as a clear - gold border, gold plate, gold medal
          rim - without the key light, the 26px glow and the laurel ring that
          rotated forever behind the grade. The result is on the plate; a
@@ -1493,7 +1524,8 @@
       /* The victory plate: full-width, above everything, only on a clear. It
          carries the RESULT (floors · clock · kills), not a slogan. */
       #recap .vplate { display: none; }
-      #recap.won .vplate { display: block; text-align: center; margin: -4px 0 12px;
+      #recap.won .vplate { display: block; text-align: center;
+        margin: -4px 0 calc(12px * var(--vd));
         font-family: var(--display); font-variant: small-caps; }
       #recap.won .vplate b { display: block; font-size: 15px; letter-spacing: 0.52em;
         color: var(--gold); text-indent: 0.52em; }
@@ -1512,14 +1544,14 @@
       #recap.won .rfoot .primary kbd { color: #14100c; border-color: rgba(20,16,12,0.5); }
       /* The VERDICT: an engraved headline between side rules (LoL victory bar).
          Wins are GOLD — the Show pays in ratings, not chlorophyll. */
-      #recap h2 { margin: 0 0 2px; font-size: 30px; letter-spacing: 0.14em;
+      #recap h2 { margin: 0 0 2px; font-size: calc(30px * var(--vt)); letter-spacing: 0.14em;
         display: flex; align-items: center; justify-content: center; gap: 18px; text-align: center; }
       #recap h2::before, #recap h2::after { content: ""; flex: 1; height: 3px;
         border-top: 1px solid var(--bronze); border-bottom: 1px solid rgba(0,0,0,0.6); }
       #recap h2.win { color: var(--gold-hi); text-shadow: 0 0 24px rgba(242,193,78,0.35); }
       #recap h2.wipe { color: #d14538; text-shadow: 0 0 24px rgba(192,57,47,0.32); }
-      #recap .rsub { color: #a99f8c; font-size: 12.5px; margin-bottom: 14px; text-align: center;
-        font-variant: small-caps; letter-spacing: 0.08em; }
+      #recap .rsub { color: #a99f8c; font-size: 12.5px; margin-bottom: calc(14px * var(--vd));
+        text-align: center; font-variant: small-caps; letter-spacing: 0.08em; }
       #recap .rcols { display: grid; grid-template-columns: 1fr 1.1fr; gap: 20px; }
       #recap .rsec { font-size: 12px; color: #c9a24b; letter-spacing: 2px; margin: 12px 0 6px;
         font-family: var(--display); font-variant: small-caps; }
@@ -1557,18 +1589,30 @@
          default state is a grade, a named death, one earned line, and the
          buttons - and the numbers people argue about live behind a held TAB,
          the same gesture LoL trained everyone to make. */
-      #recap .verdict { display: grid; grid-template-columns: 168px 1fr; gap: 18px;
-        align-items: center; }
+      /* ONE TRACK WIDTH, AND THE PLATE IS LAID INTO IT — NOT ACROSS IT.
+         `.vbasis` used to declare `min-width: 210px` inside a track authored at
+         168px, and the short-viewport rule then narrowed the track to 148px
+         without touching the plate. Measured at 1366x768: track 148px, plate
+         232px, plate rect x=15 r=247 against a first grade tile at x=219 — the
+         plate hung 41px out past the panel's own padding edge and 28px UNDER
+         an opaque tile, which is how `YOUR 32 RUNS · TODAY'S 12` came to be
+         sheared off at both ends with the CAPPED BY DEPTH chip across a
+         border. There is now exactly one number, `--vtrack`, and the plate is
+         `width: 100%` of it: the two cannot disagree again. */
+      #recap .verdict { display: grid; grid-template-columns: var(--vtrack) 1fr;
+        gap: calc(18px * var(--vd)); align-items: center; }
       /* The medallion: a struck gold coin, because a grade is an award and a
          letter in a plain div is a spreadsheet. */
-      #recap .vmedal { position: relative; width: 132px; height: 132px; display: grid;
+      #recap .vmedal { position: relative;
+        width: calc(var(--vmedal) * var(--vt)); height: calc(var(--vmedal) * var(--vt));
+        display: grid;
         place-items: center; border-radius: 50%;
         background: radial-gradient(circle at 38% 30%, #3a2f22, #14100c 72%);
         border: 2px solid var(--bronze); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
           inset 0 2px 10px rgba(255,224,160,0.10), 0 10px 26px rgba(0,0,0,0.6); }
       #recap .vmedal::after { content: ""; position: absolute; inset: 7px; border-radius: 50%;
         border: 1px solid rgba(201,162,75,0.35); pointer-events: none; }
-      #recap .vmedal b { font-family: var(--display); font-size: 66px; line-height: 1;
+      #recap .vmedal b { font-family: var(--display); font-size: calc(66px * var(--vt)); line-height: 1;
         font-weight: 700; color: var(--gold-hi); text-shadow: 0 2px 0 #5c4726, 0 0 30px rgba(242,193,78,0.4); }
 
       #recap .vmedal small { position: absolute; bottom: 15px; font-size: 11px; letter-spacing: 0.14em;
@@ -1583,7 +1627,8 @@
          something nobody is meant to read, directly under the largest element
          on the screen. It is a PLATE now: a label, the set at 13px in --ink,
          and the ceiling as its own chip instead of a trailing clause. */
-      #recap .vbasis { margin-top: 10px; min-width: 210px; max-width: 260px;
+      #recap .vbasis { box-sizing: border-box; margin-top: calc(10px * var(--vd));
+        width: 100%; min-width: 0; max-width: 100%;
         display: flex; flex-direction: column; align-items: center; gap: 3px;
         padding: 7px 10px 8px; border: 1px solid rgba(110,85,51,0.55); border-radius: 3px;
         background: linear-gradient(180deg, rgba(34,27,21,0.75), rgba(14,11,8,0.6)); }
@@ -1596,13 +1641,14 @@
         letter-spacing: 0.18em; font-size: 10px; color: #e8b45c; padding: 1px 7px;
         border: 1px solid rgba(232,180,92,0.55); border-radius: 2px; }
       #recap .vbasis .bcap[hidden] { display: none; }
-      #recap .vgrade { display: flex; flex-direction: column; align-items: center; }
+      #recap .vgrade { min-width: 0; display: flex; flex-direction: column; align-items: center; }
       #recap .vmedal.g-S { border-color: var(--gold-hi); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
           inset 0 2px 12px rgba(255,235,190,0.18), 0 0 34px rgba(242,193,78,0.35); }
       #recap .vmedal.g-C b, #recap .vmedal.g-D b { color: #b9b2a4; text-shadow: 0 2px 0 #2a231a; }
       #recap .vmedal.g-D { border-color: #6b4038; }
       #recap .vhead { min-width: 0; }
-      #recap .vline { color: var(--ink); font-size: 14px; line-height: 1.5; margin: 8px 0 10px;
+      #recap .vline { color: var(--ink); font-size: 14px; line-height: 1.5;
+        margin: calc(8px * var(--vd)) 0 calc(10px * var(--vd));
         border-left: 2px solid var(--bronze); padding-left: 10px; }
       /* The four parts, as engraved meters. Each names its own raw number, so
          a grade is auditable instead of an oracle. */
@@ -1623,14 +1669,15 @@
          one block allowed to break scale, and 17px against 13px body copy is
          enough to do it: at 23px, full-bleed across a 1360px panel, it stopped
          being a sentence and became a banner. */
-      #recap .death { margin-top: 14px; padding: 11px 14px; border-radius: 3px;
+      #recap .death { margin-top: calc(14px * var(--vd)); padding: calc(11px * var(--vd)) 14px;
+        border-radius: 3px;
         background: linear-gradient(180deg, rgba(60,20,16,0.5), rgba(20,12,10,0.6));
         border: 1px solid #6b3b32; border-left: 3px solid var(--blood);
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55); }
       #recap .death.clear { background: linear-gradient(180deg, rgba(60,46,16,0.42), rgba(20,16,10,0.6));
         border-color: var(--bronze); border-left-color: var(--gold); }
       #recap .death .dhead { font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.1em; font-size: 17px; line-height: 1.2; color: #e2857a;
+        letter-spacing: 0.1em; font-size: calc(17px * var(--vt)); line-height: 1.2; color: #e2857a;
         display: flex; align-items: center; gap: 9px; }
       #recap .death.clear .dhead { color: var(--gold-hi); }
       #recap .death .dhead .uic { width: 17px; height: 17px; flex: none; }
@@ -1833,7 +1880,7 @@
       /* Flex, not grid: RACE THE LEADER is hidden whenever the day's board has
          no raceable row, and a fixed three-column grid would hold its empty
          slot open. */
-      #recap .rfoot { margin-top: 15px; display: flex; flex-wrap: wrap;
+      #recap .rfoot { margin-top: calc(15px * var(--vd)); display: flex; flex-wrap: wrap;
         gap: 10px; align-items: stretch; }
       #recap .rfoot button { color: var(--ink); }
       #recap .rfoot button.primary { flex: 1.4 1 300px; max-width: 560px;
@@ -1866,7 +1913,8 @@
         font-size: 13px; cursor: pointer; border-bottom: 1px solid transparent; }
       #recap .rminor button:hover { color: var(--gold-hi); border-bottom-color: var(--bronze); background: none; }
       #recap .rfoot .note { flex: 1 0 100%; color: #6f6757; font-size: 11px; text-align: center; }
-      #recap .rhint { margin-top: 13px; text-align: center; color: var(--ink-dim); font-size: 13px;
+      #recap .rhint { margin-top: calc(13px * var(--vd)); text-align: center;
+        color: var(--ink-dim); font-size: 13px;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em; }
 
       /* ==================== NO REVEAL. THE VERDICT IS A PANEL ====================
@@ -2072,23 +2120,47 @@
              already did this; the boards, the contract posters and the
              head-to-head ledger now do too), so the last row of a board is the
              bottom of the frame. */
+      /* ROUND 2 — A FLOOR ALONE IS NOT A SIZE. Measured frame heights at
+         2560x1440 under the floor-only rule: CONTRACTS 998, ALL-TIME 1394,
+         BANDS 835, RIVALS 835. The comment above claims the floor lands the
+         four tabs "within ~50px of each other instead of the ~400px range an
+         unfloored frame gave" — true at 1366x768 (17px), 149px at 1600x900 and
+         **559px at 2560x1440**, worse than the range it cites as the problem,
+         because a floor bounds nothing from above and ALL-TIME is 25 rows.
+         Clicking ALL-TIME → BANDS resized the document by 40% of its height.
+         The floor and the ceiling are ONE expression now, so the tab strip
+         reads as tabs on one document by construction rather than by luck —
+         and the same change is what makes the standings claim a 1440p screen
+         (96% of the viewport height instead of 58%) instead of floating a
+         1180x835 card in the middle of it. Content past the ceiling is
+         `fitPanel`'s job, which is what that pass has always been for. */
       #ladder .set-frame, #career .set-frame {
-        min-height: min(calc(100vh - 36px), max(720px, 58vh));
+        min-height: min(calc(100vh - 36px), max(720px, 96vh));
+        max-height: min(calc(100vh - 36px), max(720px, 96vh));
+        width: min(100%, max(1180px, 62vw));
         display: flex; flex-direction: column; }
       /* ...and the body takes the slack, so the space the frame claims belongs
          to the board rather than sitting under it as dead stone. */
-      #ladder-body, #career-body { flex: 1 1 auto; display: flex; flex-direction: column;
+      /* GROW, NEVER SHRINK — round 2, and this is what makes a bounded frame
+         safe. `flex: 1 1 auto` everywhere meant that the moment the frame had
+         a ceiling, flex answered an over-tall board by SQUEEZING the board's
+         own box under its rows: the rows kept their min-content height, drew
+         straight through THE OTHER MUSEUMS beneath them, and every box on the
+         panel still measured zero overflow, so the fit pass had nothing to
+         react to. Growth is what the slack-into-rows design needs; shrink was
+         never part of it, and shrink is the half that overlaps text. */
+      #ladder-body, #career-body { flex: 1 0 auto; display: flex; flex-direction: column;
         min-height: 0; }
       /* THE SLACK GOES INTO THE ROWS. A board with four rows on a 1440px-tall
          screen is four TALLER rows, the way a broadcast standings card works —
          not four short rows and a void. The cap is what keeps a two-row board
          from turning each row into a poster. */
-      #ladder-body > .board { flex: 0 1 auto; display: flex; flex-direction: column; min-height: 0; }
-      #ladder-body > .board.fitlist { flex: 1 1 auto; }
-      #ladder-body > .board > .brow { flex: 1 1 auto; max-height: 88px; }
+      #ladder-body > .board { flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; }
+      #ladder-body > .board.fitlist { flex: 1 0 auto; }
+      #ladder-body > .board > .brow { flex: 1 0 auto; max-height: 88px; }
       /* The contract posters take their share of it too, and the CTA stays
          welded to the bottom edge however tall the card gets. */
-      #ladder-body > .contracts { flex: 1 1 auto; max-height: 330px; }
+      #ladder-body > .contracts { flex: 1 0 auto; max-height: 330px; }
       .contract { display: flex; flex-direction: column; }
       /* ...id-qualified deliberately: the base `.contract .cgo` rule further
          down this stylesheet sets `margin-top: 11px`, and at equal specificity
@@ -2101,14 +2173,42 @@
          453px at 2560x1440 — the emptiest surface in the product, drawn as a
          hole. The same card centred in the space it was leaving reads as the
          placard it always was. */
-      #ladder-body > .contract { flex: 1 1 auto; max-height: 300px; justify-content: center; }
+      #ladder-body > .contract { flex: 1 0 auto; max-height: 300px; justify-content: center; }
       #ladder-body > .contract .cgo { margin-top: 14px; }
       /* ...and when even that cannot close the gap, `fitPanel` says so and the
          frame stops pretending to be a page (see main3d.ts). */
-      #ladder .set-frame.hugs, #career .set-frame.hugs { min-height: 0; }
+      #ladder .set-frame.hugs, #career .set-frame.hugs { min-height: 0; max-height: none; }
+      /* ...AND THE SLACK OF A BIG SCREEN GOES INTO THE CONTENT, not into the
+         valve above. The per-block caps were tuned against a 720-835px frame;
+         on a 1440p monitor the frame is now ~1380px, and a cap that cannot
+         absorb the difference turns into dead stone, which trips `hugs` and
+         hands the breathing straight back. */
+      @media (min-height: 1100px) {
+        #ladder-body > .board > .brow { max-height: 128px; }
+        #ladder-body > .contracts { max-height: 560px; }
+        #ladder-body > .contract { max-height: 520px; }
+        #ladder-body > .h2hlist > .h2hrow { max-height: 104px; }
+        #ladder-body > .darkbands { max-height: 620px; }
+        /* ...INCLUDING INSIDE A BAND CARD. `.bandgrid` stretches its row to the
+           slack, but the board nested in each cell did not, so at 2560x1440
+           two three-row boards sat at the top of a 500px-tall row with the
+           slack torn open underneath them — the dead-stone failure moved one
+           level down the tree. Same rule as the top-level board: the slack is
+           row height. */
+        .bandgrid > div { display: flex; flex-direction: column; }
+        .bandgrid > div > .board { flex: 1 0 auto; display: flex; flex-direction: column; }
+        .bandgrid > div > .board > .brow { flex: 1 0 auto; max-height: 132px; }
+      }
+      /* THE ALL-TIME FOOTNOTES ARE FOOTNOTES. The era note and THE OTHER
+         MUSEUMS were both added by this track to fill space under a short
+         board; on a 1600x900 laptop they were spending ~190px directly beneath
+         "+16 more rows held back to fit this window", which inverts the
+         hierarchy of the flagship museum board. They are trimmable now, and
+         `data-fitpri` says they go BEFORE a ranked row does. */
+      #ladder-body > .atfoot { flex: none; }
       .h2hlist { display: flex; flex-direction: column; }
-      #ladder-body > .h2hlist { flex: 1 1 auto; min-height: 0; }
-      #ladder-body > .h2hlist > .h2hrow { flex: 1 1 auto; max-height: 68px; }
+      #ladder-body > .h2hlist { flex: 1 0 auto; min-height: 0; }
+      #ladder-body > .h2hlist > .h2hrow { flex: 1 0 auto; max-height: 68px; }
       /* THE FRAME DOES NOT RESIZE UNDER THE CURSOR. `max-width` alone lets the
          frame shrink to its content, so CONTRACTS (~990), BANDS (~1230) and
          RIVALS (~750) each drew a different panel and the whole document
@@ -2580,7 +2680,8 @@
       @media (max-height: 900px) {
         #ladder, #career { padding: 12px; }
         #ladder .set-frame, #career .set-frame {
-          min-height: min(calc(100vh - 24px), max(720px, 58vh));
+          min-height: min(calc(100vh - 24px), max(720px, 96vh));
+          max-height: min(calc(100vh - 24px), max(720px, 96vh));
           padding: 12px 22px 16px; }
         .set-frame > h2 { font-size: 22px; margin: 4px 0 1px; }
         .set-sub { font-size: 11.5px; margin-bottom: 9px; }
@@ -2747,16 +2848,18 @@
       }
       /* ...and the verdict spends less of it too: the medal, the meters and
          the block gaps all come down a notch rather than the content going
-         behind a scroll. */
+         behind a scroll.
+
+         ROUND 2: this block used to set six separate compaction numbers by
+         hand, and one of them — `grid-template-columns: 148px 1fr` — narrowed
+         the track WITHOUT narrowing the plate laid into it, which is the whole
+         of blocker 2. It is one base density and one track width now, and
+         `fitRecap()` takes it further only if the measurement says so. */
+      /* The horizontal padding is the one thing density does not touch (it is
+         not what overflows), so it stays authored. */
       @media (max-height: 830px) {
-        #recap .vmedal { width: 104px; height: 104px; }
-        #recap .vmedal b { font-size: 52px; }
-        #recap .verdict { grid-template-columns: 148px 1fr; gap: 14px; }
-        #recap .panel { padding: 14px 22px 16px; }
-        #recap .vcols { gap: 10px 18px; margin-top: 9px; }
-        #recap .vcol { gap: 8px; }
-        #recap .death { margin-top: 10px; padding: 10px 14px; }
-        #recap .death .dhead { font-size: 20px; }
+        #recap .panel { --vd0: 0.84; --vmedal: 118px; --vtrack: 196px;
+          padding-left: 22px; padding-right: 22px; }
       }
 
       /* SIGNAL ACQUISITION — the boot loading screen (z 29). Visible from the
@@ -5098,12 +5201,15 @@
       body[data-uiclass="phone"] #recap .rcols { grid-template-columns: 1fr; gap: 10px; }
       body[data-uiclass="compact"] #recap .vparts,
       body[data-uiclass="phone"] #recap .vparts { grid-template-columns: 1fr 1fr; }
+      /* ...through `--vtrack`, never by hand: the desktop rule that set the
+         column directly is exactly how a 232px plate came to be drawn into a
+         148px track (blocker 2). One number governs both here too. */
+      body[data-uiclass="compact"] #recap .panel,
+      body[data-uiclass="phone"] #recap .panel { --vtrack: 130px; --vmedal: 92px; }
       body[data-uiclass="compact"] #recap .verdict,
-      body[data-uiclass="phone"] #recap .verdict { grid-template-columns: 92px 1fr; gap: 12px; }
-      body[data-uiclass="compact"] #recap .vmedal,
-      body[data-uiclass="phone"] #recap .vmedal { width: 92px; height: 92px; }
+      body[data-uiclass="phone"] #recap .verdict { gap: 12px; }
       body[data-uiclass="compact"] #recap .vmedal b,
-      body[data-uiclass="phone"] #recap .vmedal b { font-size: 44px; }
+      body[data-uiclass="phone"] #recap .vmedal b { font-size: calc(44px * var(--vt)); }
       body[data-uiclass="compact"] #recap h2,
       body[data-uiclass="phone"] #recap h2 { font-size: 18px; }
       /* THE SCREEN EVERY RUN TERMINATES ON HAD NO VISIBLE WAY FORWARD.
