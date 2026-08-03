@@ -207,15 +207,39 @@ export class TouchShell {
       return e.offsetWidth > 0 || e.offsetHeight > 0;
     };
 
-    // modal / rotate-gate / sheet: one observer, three predicates. Reading
-    // offsetWidth is a layout, so this runs on MUTATION, never per frame.
-    const sync = (): void => {
+    // modal / rotate-gate / sheet: one observer, three predicates.
+    //
+    // "Reading offsetWidth is a layout, so this runs on MUTATION, never per
+    // frame" — which was the right instinct and the wrong conclusion, because
+    // in a fight the HUD mutates `class` and `style` on watched elements many
+    // times PER frame (the hype bar, the ticker, the ability cockpit, the boss
+    // plate). Every batch of those re-entered this function, and every entry
+    // did a `getComputedStyle` plus an `offsetWidth` read, which forces a
+    // synchronous style+layout flush of the whole document.
+    //
+    // MEASURED (V8 sampling profiler, 906-frame floor-15 fight at LOW,
+    // tools/o3_cpu.mjs): `shown` was 0.77 ms of a 13.3 ms delivered frame —
+    // 5.7% of the entire main thread, third in the profile, on a DESKTOP run
+    // where the touch layer draws nothing at all.
+    //
+    // Coalescing to one run per animation frame changes no behaviour: a
+    // MutationObserver callback is already asynchronous (microtask), the
+    // predicates are pure reads of current DOM state, and the authority only
+    // has to be right by the time the next input event is handled. What it
+    // removes is N-1 forced reflows per frame.
+    let syncQueued = 0;
+    const syncNow = (): void => {
+      syncQueued = 0;
       const body = document.body;
       if (body.classList.contains("modal")) raise("modal"); else clear("modal");
       if (shown(document.getElementById("rotate"))) raise("rotate-gate"); else clear("rotate-gate");
       let sheet = false;
       for (const el of document.querySelectorAll("[data-sheet]")) { if (shown(el)) { sheet = true; break; } }
       if (sheet) raise("sheet"); else clear("sheet");
+    };
+    const sync = (): void => {
+      if (syncQueued) return;
+      syncQueued = requestAnimationFrame(syncNow);
     };
     const obs = new MutationObserver(sync);
     obs.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
@@ -236,7 +260,9 @@ export class TouchShell {
       }
       sync();
     }).observe(document.body, { childList: true });
-    sync();
+    // The first pass is synchronous: the authority must be correct before the
+    // first input event, not one animation frame later.
+    syncNow();
 
     // ORIENTATION. iOS fires orientationchange and the visualViewport resize
     // APART; releasing on the first one re-arms the layer against stale zones,

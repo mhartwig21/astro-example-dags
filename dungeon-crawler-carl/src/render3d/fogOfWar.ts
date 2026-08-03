@@ -132,11 +132,39 @@ export class FogOfWar {
     return this.settling;
   }
 
-  /** The animated per-tile fog mask (R8, bilinear). World materials sample
-   * this per fragment so the reveal frontier is a smooth ramp, never a
-   * staircase of tile-sized rectangles. Null until the first rebuild. */
+  /**
+   * THE FIELD TEXTURE: R = animated fog alpha, G = walk distance / 32 tiles.
+   *
+   * IT USED TO BE TWO R8 TEXTURES AND THAT WAS ONE FETCH TOO MANY. Every
+   * world-lit fragment sampled the fog mask and the wall-aware distance field
+   * at the SAME uv (`wUv`) through two separate samplers, and on the Intel part
+   * the world material's fragment shader is the frame — the floor group alone
+   * measured 30-41% of a MEDIUM fight frame, and that shader was doing seven
+   * dependent texture fetches per fragment over the whole screen.
+   *
+   * Two R8 map-sized planes at one uv are one RG8 plane at one uv. The reveal
+   * animation still writes R here; Renderer3D.bakeWalkDist writes G through
+   * `distChannel()`. Bilinear filtering, wrap and size are shared by
+   * construction, which they had to be anyway for the two to line up.
+   *
+   * Null until the first rebuild.
+   */
   get maskTexture(): THREE.DataTexture | null {
     return this.mask;
+  }
+
+  /**
+   * The G channel's backing store, for the walk-distance baker. Writing
+   * `data[i * 2 + 1]` and then calling `markFieldDirty()` is the whole
+   * contract; the fog animation owns `data[i * 2]` and nothing else.
+   */
+  fieldData(): Uint8Array | null {
+    return this.mask ? (this.mask.image.data as Uint8Array) : null;
+  }
+
+  /** Upload after a distance-field write (the fog side does its own). */
+  markFieldDirty(): void {
+    if (this.mask) this.mask.needsUpdate = true;
   }
 
   /** The tileable billow noise — shared with the world-lit materials so the
@@ -182,8 +210,11 @@ export class FogOfWar {
     const n = map.w * map.h;
     this.cur = new Float32Array(n).fill(1);
     this.target = new Uint8Array(n).fill(1);
-    const data = new Uint8Array(n).fill(255);
-    this.mask = new THREE.DataTexture(data, map.w, map.h, THREE.RedFormat, THREE.UnsignedByteType);
+    // RG8: R = fog alpha (fully fogged until setExplored runs), G = walk
+    // distance (255 = "further than the field reaches", the safe default
+    // before the first BFS lands).
+    const data = new Uint8Array(n * 2).fill(255);
+    this.mask = new THREE.DataTexture(data, map.w, map.h, THREE.RGFormat, THREE.UnsignedByteType);
     this.mask.magFilter = this.mask.minFilter = THREE.LinearFilter;
     this.mask.unpackAlignment = 1;
     this.mask.needsUpdate = true;
@@ -260,7 +291,7 @@ export class FogOfWar {
       const data = this.mask.image.data as Uint8Array;
       for (let i = 0; i < this.target.length; i++) {
         this.cur[i] = this.target[i];
-        data[i] = this.target[i] * 255;
+        data[i * 2] = this.target[i] * 255;
       }
       this.mask.needsUpdate = true;
       this.settling = false;
@@ -282,12 +313,12 @@ export class FogOfWar {
       if (Math.abs(c - t) < 0.005) {
         if (c !== t) {
           this.cur[i] = t;
-          data[i] = t * 255;
+          data[i * 2] = t * 255;
         }
         continue;
       }
       this.cur[i] = c + (t - c) * k;
-      data[i] = Math.round(this.cur[i] * 255);
+      data[i * 2] = Math.round(this.cur[i] * 255);
       moving = true;
     }
     this.mask.needsUpdate = true;

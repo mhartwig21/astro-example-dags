@@ -462,6 +462,31 @@ export class Renderer3D {
     return Math.min(devicePixelRatio || 1, this.quality.pixelRatioCap) * this.renderScale;
   }
 
+  /**
+   * Is the GL context on a discrete GPU?
+   *
+   * The whole ladder is a statement about integrated graphics, and on a
+   * discrete part it is nearly flat and not even monotone (quality.ts
+   * MEASURED.fight, and ModeContract.discrete). The settings row needs to know
+   * which sentence to print, and the unmasked renderer string is the only thing
+   * that knows — `powerPreference` does not reach far enough up the stack to be
+   * an answer, which is the same lesson three rounds of measurement on this
+   * machine learned the hard way.
+   */
+  isDiscreteGpu(): boolean {
+    if (this.discreteGpu === null) {
+      let r = "";
+      try {
+        const gl = this.renderer.getContext();
+        const d = gl.getExtension("WEBGL_debug_renderer_info");
+        if (d) r = String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL) || "");
+      } catch { /* privacy-gated in some browsers — assume integrated */ }
+      this.discreteGpu = /nvidia|geforce|rtx|gtx|radeon (rx|pro)|amd.*rx|arc a\d/i.test(r);
+    }
+    return this.discreteGpu;
+  }
+  private discreteGpu: boolean | null = null;
+
   /** Current preset (settings UI reads this). */
   get qualityProfile(): QualityProfile {
     return this.quality;
@@ -533,6 +558,26 @@ export class Renderer3D {
 
   /**
    * Push a profile into the live pipeline.
+   *
+   * IT IS RE-ALLOCATION, AND RE-ALLOCATION IS NOT CHEAP (opt r3). The sentence
+   * below used to be offered as reassurance. Measured against a same-staging
+   * control across 9 switches on the Intel part (tools/o3_switch.mjs, and
+   * quality.ts MODE_SWITCH): this call takes 106-577 ms, median 372, while
+   * building ZERO shader programs. It is exactly what the sentence says it is —
+   * the composer's two HalfFloat targets and their depth textures, the GTAO
+   * buffers, the bloom mip chain, the SMAA targets and the shadow map, tens of
+   * megabytes of GPU allocation — and that is a third of a second of frozen
+   * game.
+   *
+   * WHAT IS AND IS NOT TRUE ABOUT IT. The frames AFTER the switch are
+   * indistinguishable from the control (worst-frame median 28.6 ms against
+   * 28.7), so this is ONE long synchronous task, not a settling period. That is
+   * what makes it awkward: AUTO runs this path on a machine it has just judged
+   * too slow, mid-fight, and no amount of tuner hysteresis shortens a call.
+   * Shortening it means not reallocating — allocating the post chain at the
+   * session's maximum ratio once and rendering into a sub-viewport, or a ladder
+   * that does not move the backbuffer at all. Both are real designs; neither is
+   * in this round.
    *
    * Everything touched here is reallocation of buffers or a pass toggle —
    * deliberately NOT anything that changes a material's program. Light-pool
@@ -635,8 +680,15 @@ export class Renderer3D {
     // WALL-AWARE visibility (final pass, issue #2): per-tile walk-distance
     // field BFS'd from the player through the walkable grid — the light
     // falloff follows corridors and stops at architecture instead of
-    // airbrushing a radial blob across walls. R8, dist/32 tiles.
-    uWlDist: { value: neutralLightGrid() as THREE.Texture },
+    // airbrushing a radial blob across walls, encoded dist/32 tiles.
+    //
+    // IT HAS NO SAMPLER OF ITS OWN ANY MORE (opt r3). It rides the G channel of
+    // uWlMask: same map size, same uv, same filter, and the world shader was
+    // already fetching that texture on the line above. The world-lit fragment
+    // shader is the frame on the Intel part — the floor group alone measured
+    // 30-41% of a MEDIUM fight frame — and it was spending seven dependent
+    // texture fetches per fragment across the whole screen. See
+    // FogBank.maskTexture for the packing contract.
     // READABLE DARKNESS floor (final pass, issue #1): out-of-play geometry
     // keeps ~8-12% display luminance — band-hued cool murk that still shows
     // tile/wall texture — plus sparse warm accent glints (embers/fungus/
@@ -673,7 +725,7 @@ export class Renderer3D {
   // buffers preallocated per floor — the per-tile BFS re-runs only when the
   // player crosses a tile boundary, with zero hot-loop allocation.
   private wlDist: {
-    tex: THREE.DataTexture;
+    /** BFS scratch, then the bytes copied into the fog texture's G channel. */
     data: Uint8Array;
     field: Float32Array;
     queue: Int32Array;
@@ -728,7 +780,7 @@ export class Renderer3D {
             "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil;\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDist;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
         let stage = "#include <color_fragment>\n{\n";
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
@@ -832,8 +884,15 @@ export class Renderer3D {
           "  diffuseColor.rgb *= dCav;\n" +
           "  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.90, 0.96, 1.08), (1.0 - dCav) * 0.5);\n" +
           "  vec2 wUv = (vWlPos.xz - wlN.xz * 0.38) * uWlMapInv;\n" +
-          "  float wFog = texture2D(uWlMask, wUv).r;\n" +
-          "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wFog = 1.0;\n" +
+          "  bool wOff = wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001;\n" +
+          // ONE FETCH, TWO FIELDS (opt r3). R = the animated fog alpha, G = the
+          // wall-aware walk distance. They were two map-sized R8 textures read
+          // through two samplers at this exact uv; they are one RG8 plane now.
+          // See FogBank.maskTexture for why: this shader is the frame on the
+          // Intel part and it was spending seven dependent texture fetches per
+          // fragment over the whole screen.
+          "  vec2 wField = texture2D(uWlMask, wUv).rg;\n" +
+          "  float wFog = wOff ? 1.0 : wField.r;\n" +
           // TIGHT architectural frontier (r5 issue #1 — recurred every round):
           // the reveal band hugs the wall-shaped bilinear mask in a 1-2 tile
           // step with only a light curl of drifting noise. The old wide
@@ -846,8 +905,7 @@ export class Renderer3D {
           // level, not euclidean — light carving follows corridors and stops
           // at wall faces. Only a whisper of euclidean is blended in to soften
           // the core near the player; any more re-inflates the radial ellipse.
-          "  float wDWalk = texture2D(uWlDist, wUv).r * 32.0;\n" +
-          "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wDWalk = 32.0;\n" +
+          "  float wDWalk = (wOff ? 1.0 : wField.g) * 32.0;\n" +
           "  float wD = mix(wDWalk, distance(vWlPos.xz, uWlPlayer), 0.10);\n" +
           "  float wT = clamp((wD - uWlFall.x) / uWlFall.y, 0.0, 1.0);\n" +
           "  float wFall = uWlFall.z + (1.0 - uWlFall.z) * (1.0 - wT * wT * (3.0 - 2.0 * wT));\n" +
@@ -898,6 +956,22 @@ export class Renderer3D {
           "  float wDepthPre = 1.0 - 0.78 * smoothstep(3.2, 10.0, wD + (wNz - 0.5) * 3.2);\n" +
           "  wDepthPre *= wDepthPre;\n" +
           "  diffuseColor.rgb = wAlb * max(wlK, wFog * 0.085 * wDepthPre);\n" +
+          // ---- THE MURK BLOCK ONLY RUNS WHERE THERE IS MURK (opt r3) ----
+          //
+          // Everything from here to the glints multiplies out to exactly zero
+          // on a fragment the player has already explored (`wFog == 0`): the
+          // silhouette term ends in `* wFog`, and the glints in `* wFog` again.
+          // It was still being evaluated on every one of those fragments —
+          // including TWO more noise fetches — and in a fight the explored room
+          // you are standing in is most of the screen. On the Intel part this
+          // shader is the frame, so "computed and then multiplied by zero" is
+          // not a rounding error, it is the bill.
+          //
+          // The branch is spatially coherent by construction (fog is a
+          // map-sized bilinear field, not a per-pixel hash), so a wavefront is
+          // almost always wholly inside or wholly outside it — which is the one
+          // condition under which a fragment-shader branch actually pays.
+          "  if (wFog > 0.002) {\n" +
           "  float wUp = max(wlN.y, 0.0) * smoothstep(0.30, 0.95, vWlPos.y);\n" +
           "  float wTex = dot(wAlb, vec3(0.299, 0.587, 0.114));\n" +
           "  wTex = wTex / (wTex + 0.22);\n" +
@@ -957,6 +1031,19 @@ export class Renderer3D {
           "  float wG2 = texture2D(uWlNoise, vWlPos.xz * 0.093 + vec2(9.2, 1.4)).r;\n" +
           "  float wGl = smoothstep(0.90, 0.95, wG1 * (0.30 + 0.70 * wG2));\n" +
           "  wlFogSil += uWlGlint * (wGl * wFog * (0.55 + 0.45 * uWlFlick) * smoothstep(2.5, 6.0, wD));\n" +
+          "  }\n" +
+          // AERIAL PERSPECTIVE IS A PROPERTY OF DISTANCE, so the air term keeps
+          // its own gate: explored ground far away still gets it, and near
+          // explored ground — the fight bubble — still skips it.
+          // wFog > 0 already added `max(wFog, wT * 0.85)` inside the block
+            // above, so this arm must fire only where that one did not — or the
+          // air term is counted twice on every distant unexplored fragment.
+          ("  if (wFog <= 0.002 && wT > 0.002) {\n"
+            + "    float wAtNear2 = smoothstep(0.0, 3.2, wD);\n"
+            + "    float wAtFar2 = exp(-0.115 * max(wD - 4.0, 0.0));\n"
+            + "    float wAtH2 = 1.0 - 0.34 * smoothstep(0.35, 2.4, vWlPos.y);\n"
+            + "    wlFogSil += uWlAtmo * (wT * 0.85 * wAtNear2 * (0.34 + 0.66 * wAtFar2) * (0.62 + 0.38 * wNz) * wAtH2);\n"
+            + "  }\n") +
           "  wlBake = wAlb * wLm.rgb * (" + LM_SCALE.toFixed(3) + " * uWlFlick" + (opts.base ? " * (0.55 + 0.9 * exp(-2.6 * abs(vWlPos.y - 0.78)))" : "") + ") * wLit * (0.4 + 0.6 * wFall);\n}";
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", head)
@@ -995,7 +1082,8 @@ export class Renderer3D {
             "#include <emissivemap_fragment>\n  totalEmissiveRadiance *= min(1.0, wlK * 1.6);\n  totalEmissiveRadiance += wlBake + wlFogSil;",
           );
       };
-      c.customProgramCacheKey = () => `wl2${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
+      c.customProgramCacheKey = () =>
+        `wl3${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
       this.floorMats.push(c);
       return c;
     };
@@ -2737,12 +2825,39 @@ export class Renderer3D {
     }));
   }
 
+  /**
+   * How many frames may pass between sweeps.
+   *
+   * IT WAS 30 AND THAT IS WHY THE CATCHER ONLY EVER CAUGHT HALF (opt r3).
+   * The commit that shipped it recorded `SHADER_BUILDS_PER_MIN.after = 0` and
+   * "across 4.1 minutes of measured play after: zero fires". Re-measured on a
+   * quiet box with the quality mode never touched, the shipped build fires 1.19
+   * [shader-guard] warnings per minute of ordinary floor-15 roaming, 6.0-6.75
+   * per minute once abilities are being spent on the Intel part and 10.9 on the
+   * RTX. It is a ~57% reduction, not a close.
+   *
+   * The mechanism explains the residue exactly. The sweep runs at the END of
+   * update(), which is the right place — every object the host added this frame
+   * is already in the graph and nothing has been drawn yet — but on a 30-frame
+   * cadence a material could be added and then DRAWN for up to 29 frames before
+   * the sweep that was supposed to park it ever ran. At 30 fps that is a
+   * one-second window per new material, and a boss beat or an ability first-use
+   * mints several at once.
+   *
+   * At 1 the window closes: nothing can be drawn between the frame that creates
+   * it and the sweep that parks it. What that costs is one scene.traverse with a
+   * WeakSet probe per material, and — measured — 0.45 ms/frame of
+   * `getProgramParameter`, which is compileAsync's KHR_parallel_shader_compile
+   * poll running far more often than it has anything to poll for. 4 keeps the
+   * exposure window under ~100 ms at 40 fps (against the old ~750 ms) for a
+   * quarter of the poll traffic.
+   */
+  matSweepEvery = 4;
+
   private sweepNewMaterials(): void {
-    // Cadenced, not every frame: a scene walk is ~1,600 visits after the
-    // out-of-vision parking, which is nothing spread over twelve frames and is
-    // not nothing paid every one of them.
     if (!this.matSweepArmed || this.matSweepBusy) return;
-    if ((this.matSweepTick = (this.matSweepTick + 1) % 30) !== 0) return;
+    if (this.matSweepEvery > 1
+      && (this.matSweepTick = (this.matSweepTick + 1) % this.matSweepEvery) !== 0) return;
     const fresh: THREE.Object3D[] = [];
     this.scene.traverse((o) => {
       let isNew = false;
@@ -5137,16 +5252,16 @@ export class Renderer3D {
     }
     // Walk-distance field for the wall-aware falloff (issue #2): allocated
     // per floor, BFS'd from the player's tile whenever it changes.
-    this.wlDist?.tex.dispose();
     {
+      // No texture of its own any more: the field is uploaded into the G
+      // channel of the fog bank's RG8 mask, which every world fragment was
+      // already fetching at the same uv. `data` stays as the BFS's own scratch
+      // so the bake loop keeps writing a tightly-packed byte per tile.
       const n = map.w * map.h;
-      const data = new Uint8Array(n).fill(255);
-      const tex = new THREE.DataTexture(data, map.w, map.h, THREE.RedFormat, THREE.UnsignedByteType);
-      tex.magFilter = tex.minFilter = THREE.LinearFilter;
-      tex.unpackAlignment = 1;
-      tex.needsUpdate = true;
-      this.wlDist = { tex, data, field: new Float32Array(n), queue: new Int32Array(n * 8), lastTile: -1 };
-      this.wl.uWlDist.value = tex;
+      this.wlDist = {
+        data: new Uint8Array(n).fill(255),
+        field: new Float32Array(n), queue: new Int32Array(n * 8), lastTile: -1,
+      };
     }
     this.ambientFx.rebuild(floorBand(state.floor), this.renderer.getPixelRatio());
     this.atmoRefresh = 0; // feed the mote cloud fresh spawn candidates now
@@ -6134,7 +6249,13 @@ export class Renderer3D {
       }
       data[i] = v === Infinity ? 255 : Math.min(255, Math.round((v / 32) * 255));
     }
-    d.tex.needsUpdate = true;
+    // Into the G channel of the fog mask (see FogBank.maskTexture): one plane,
+    // one sampler, one fetch per fragment for both fields.
+    const packed = this.fogBank.fieldData();
+    if (packed && packed.length === data.length * 2) {
+      for (let i = 0; i < data.length; i++) packed[i * 2 + 1] = data[i];
+      this.fogBank.markFieldDirty();
+    }
   }
 
   /** Fewer than this many copies of one (geometry, material) is not worth a
@@ -9851,6 +9972,29 @@ export class Renderer3D {
   // -------------------------------------------------------------------------
   private lumBuf = new Uint8Array(8 * 8 * 4);
   private lumTick = 0;
+  /**
+   * ASYNC READBACK STATE (opt r3) — and the reason it exists.
+   *
+   * `gl.readPixels` into a typed array is SYNCHRONOUS: it flushes every command
+   * the GPU has queued and blocks the main thread until the pixel it wants has
+   * actually been drawn. That is the single most expensive thing a WebGL app
+   * can do per frame, and this governor was doing it in the middle of the frame
+   * loop. Measured with the V8 sampling profiler over a 906-frame floor-15
+   * fight at LOW (tools/o3_cpu.mjs): `readPixels` was 1.55 ms of a 13.3 ms
+   * delivered frame — 11.5% of the whole main thread, the second-largest entry
+   * in the profile — even though the read itself is 64 pixels and only fires on
+   * one frame in four.
+   *
+   * A PIXEL_PACK_BUFFER read is the same read with the stall removed: the GPU
+   * copies into a buffer object on its own schedule, a fence says when that is
+   * done, and `getBufferSubData` on a LATER frame costs nothing because the
+   * data is already there. The governor consequently reads a value that is a
+   * few frames old, which is exactly right for what it governs — how bright the
+   * arena is does not change in 30 ms, and the previous code's insistence on
+   * this-frame data was buying nothing for a very high price.
+   */
+  private lumPbo: WebGLBuffer | null = null;
+  private lumFence: WebGLSync | null = null;
 
   /**
    * 0..1 — how hard the boss layer should pull its bloom kicks, light peaks
@@ -9863,10 +10007,32 @@ export class Renderer3D {
   private measureBossExposure(): void {
     const star = this.bossFx.starPos;
     if (!star) { this.bossFx.setMeasuredLuma(0, 0); return; }
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    const gl2 = this.renderer.capabilities.isWebGL2;
+
+    // (a) DRAIN FIRST. If a read from an earlier frame has landed, take it —
+    // this costs nothing, the bytes are already in the buffer object.
+    if (gl2 && this.lumFence) {
+      const st = gl.clientWaitSync(this.lumFence, 0, 0);
+      if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
+        gl.deleteSync(this.lumFence);
+        this.lumFence = null;
+        try {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.lumBuf);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+          this.applyMeasuredLuma();
+        } catch { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+      } else if (st === gl.WAIT_FAILED) {
+        gl.deleteSync(this.lumFence);
+        this.lumFence = null;
+      }
+    }
+
     if ((this.lumTick = (this.lumTick + 1) & 3) !== 0) return;
+    if (this.lumFence) return; // one read in flight at a time
     const sp = this.worldToScreen(star.x, 1.6, star.y);
     if (!sp.visible) return;
-    const gl = this.renderer.getContext();
     const size = this.renderer.getSize(this.w2sSize);
     const ratio = this.renderer.getPixelRatio();
     // GL's origin is bottom-left; worldToScreen hands back CSS pixels top-left.
@@ -9879,10 +10045,36 @@ export class Renderer3D {
     // so tone mapping, bloom and the grade are all already in the numbers.
     try {
       this.renderer.setRenderTarget(null);
+      if (gl2) {
+        // (b) ASYNC ISSUE. readPixels with a PIXEL_PACK_BUFFER bound and an
+        // integer OFFSET writes into the buffer object instead of into client
+        // memory, and returns immediately: no flush, no stall. The fence tells
+        // a later frame when the bytes are real.
+        if (!this.lumPbo) {
+          this.lumPbo = gl.createBuffer();
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+          gl.bufferData(gl.PIXEL_PACK_BUFFER, this.lumBuf.byteLength, gl.STREAM_READ);
+        } else {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+        }
+        gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.lumFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        return; // the numbers arrive on a later frame, via (a)
+      }
+      // WebGL1 has no pixel-pack buffers: the old blocking read stands, and so
+      // does its cost. Nothing shipping targets WebGL1, but the fallback path
+      // must still produce a governed exposure rather than none.
       gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, this.lumBuf);
     } catch {
+      try { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); } catch { /* context lost */ }
       return; // a context loss mid-frame is not worth a crash over a governor
     }
+    this.applyMeasuredLuma();
+  }
+
+  /** Reduce the 8x8 readback to the two numbers BossFx consumes. */
+  private applyMeasuredLuma(): void {
     let sum = 0, hot = 0;
     for (let i = 0; i < 64; i++) {
       const r = this.lumBuf[i * 4], g2 = this.lumBuf[i * 4 + 1], b = this.lumBuf[i * 4 + 2];

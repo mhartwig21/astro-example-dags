@@ -1550,13 +1550,35 @@ function hideOverlay(el: HTMLElement): void {
     return el.offsetWidth > 0 || el.offsetHeight > 0;
   };
   let wasModal: boolean | null = null;
-  const syncModal = (): void => {
+  const syncModalNow = (): void => {
+    syncQueued = 0;
     const open = modalEls.some(visible);
     // Only WRITE on a change: the observer below watches body's own class
     // list, and re-setting the attribute would feed itself forever.
     if (open === wasModal) return;
     wasModal = open;
     document.body.classList.toggle("modal", open);
+  };
+  // COALESCED TO ONE RUN PER FRAME (opt r3).
+  //
+  // The comment above `visible` says the box read "happens here, on a mutation,
+  // and never per frame". In a fight it happens MANY TIMES per frame: this
+  // observer watches `body`'s own class list, and the HUD writes body classes
+  // and overlay styles continuously — so every batch re-entered the predicate,
+  // and the predicate does `getComputedStyle` plus `offsetWidth` across every
+  // registered overlay, each of which forces a synchronous style + layout flush
+  // of the whole document.
+  //
+  // MEASURED (V8 sampling profiler, 12 s of floor-15 combat at LOW,
+  // tools/o3_cpu.mjs): `visible` was 0.72 ms of a ~13 ms frame, the largest
+  // non-native entry in the profile — above the renderer's own per-frame
+  // update. Deferring to the next animation frame is behaviour-identical (a
+  // MutationObserver callback is already async, and the predicate is a pure
+  // read of current DOM state) and collapses N forced reflows into one.
+  let syncQueued = 0;
+  const syncModal = (): void => {
+    if (syncQueued) return;
+    syncQueued = requestAnimationFrame(syncModalNow);
   };
   const modalObserver = new MutationObserver(syncModal);
   for (const el of modalEls) {
@@ -1565,7 +1587,7 @@ function hideOverlay(el: HTMLElement): void {
   // body.mapbig drives #mapbig-scrim from CSS, so the body's own class list is
   // part of the signal.
   modalObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
-  syncModal();
+  syncModalNow(); // the first pass is synchronous — boot must not flash a scrim
 }
 
 function openDraftModal(): void {
@@ -3342,9 +3364,17 @@ function renderPerfMode(): void {
   // AUTO names the mode it has actually landed on. "AUTO" alone would hide the
   // one fact a player checking this row wants: what am I running right now?
   kbPerfMode.textContent = choice === "auto" ? `AUTO · ${live.label}` : live.label;
+  // THE PROMISE IS MADE TO INTEGRATED GRAPHICS AND ONLY TO INTEGRATED GRAPHICS.
+  //
+  // Measured on an RTX 5090 in the worst fight the three modes land at 17.79 /
+  // 16.78 / 20.11 ms — LOW is SLOWER than MEDIUM there. A player on a discrete
+  // GPU reading "the smoothest this engine gets" was being told something the
+  // measurement contradicts on their machine, so on a discrete part the row
+  // prints `contract.discrete` instead (quality.ts explains at length).
+  const note = renderer.isDiscreteGpu() ? live.contract.discrete : live.contract.promise;
   kbPerfNote.textContent = choice === "auto"
-    ? `measures your machine and chooses — now on ${live.label}: ${live.contract.promise}`
-    : live.contract.promise;
+    ? `measures your machine and chooses — now on ${live.label}: ${note}`
+    : note;
 }
 kbPerfMode.addEventListener("click", () => {
   const cur = renderer.qualitySetting;
