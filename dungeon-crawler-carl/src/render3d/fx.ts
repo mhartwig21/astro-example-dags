@@ -10,6 +10,9 @@ import * as THREE from "three";
 // - GroundDecals: pooled scorch/blood splats that cool from a hot tint and
 //   fade over ~10s.
 // - Shockwaves: pooled expanding rings for big deaths and crit impacts.
+// - AoeBursts (r2 SPEND): the ability FOOTPRINT — layered ribbon fronts, a
+//   rune inscription, mote sparkle and a DARK scorch core, with its per-pixel
+//   energy divided by its own area so a big cast cannot become a bright cast.
 
 // ABILITY COLOR SIGNATURES (audit r3): every ability slot owns a 3-layer
 // palette — white-hot core, saturated mid, deep rim — so FX read by hue at a
@@ -368,7 +371,13 @@ export class GroundDecals {
   private slots: DecalSlot[] = [];
   private geo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
   private tex = splatTexture();
-  private static MAX = 22;
+  // AFTERMATH BUDGET (r2 SPEND). Acceptance: "no blood, scorch, debris or
+  // corpse marks survive a fight" — and they did not, because the callers
+  // stamped 10-second marks while a floor-17 pull lasts a minute. Marks now
+  // last ~34 s and there are more slots to hold them, so walking back through
+  // a room you cleared shows that you cleared it. 28 pooled quads at ~1-4
+  // world units is the fill-rate ceiling this buys; see the commit message.
+  private static MAX = 28;
 
   /** Stamp a splat at (x,z): cools from hotHex to coldHex, fades over `max`s. */
   spawn(x: number, z: number, r: number, coldHex: number, hotHex: number, max = 10): void {
@@ -411,7 +420,10 @@ export class GroundDecals {
       // Cool fast (first ~8% of life), then fade slow.
       const cool = Math.min(1, s.life / (s.max * 0.08));
       s.mat.color.lerpColors(s.hot, s.cold, cool);
-      s.mat.opacity = 0.78 * (1 - t * t);
+      // HOLD, THEN GO. `1 - t*t` spends 60% of a long life nearly invisible,
+      // which is how a 34 s mark would still read as "nothing survived a
+      // fight". A mark now keeps its ink until the last third.
+      s.mat.opacity = 0.74 * Math.min(1, 2.8 * (1 - t));
       if (s.life >= s.max) s.mesh.visible = false;
     }
   }
@@ -469,6 +481,215 @@ export class Shockwaves {
       // Kept under the bloom knee: the ring reads as a hue-tinted pressure
       // front, not a white halo (critic r2 — additive stack was clipping).
       s.mat.opacity = 0.55 * (1 - t) * (1 - t);
+      if (s.life >= s.max) s.mesh.visible = false;
+    }
+  }
+}
+
+// ---- AoE bursts (r2 SPEND: the fullscreen-wash blocker and the flat-gradient
+// blocker are the SAME object seen from two sides) ----
+//
+// WHAT WAS WRONG. An ability detonation was drawn as: one additive ground ring
+// at the ability's full radius, a 14-unit-tall glow column, a size-2 impact
+// flash and a point light. Every one of those scales UP with the ability, none
+// of them divides by the area it covers, and the sum is HDR. Acceptance caught
+// the end state exactly: floor 17, an ordinary Injunction cast, "the entire
+// world goes flat pink-red ... black 0.1%, meanLuma 0.2165" — the frame the
+// player fights in had no readable monster, prop or telegraph in it. The same
+// object judged as ART read as "a single flat radial gradient with a bright rim
+// — one hue, one layer, no inscribed geometry, no dark core, no directionality".
+// Those are one defect, and this class is the one fix.
+//
+// THE TWO RULES IT ENCODES.
+//
+//  1. ENERGY IS DIVIDED BY AREA, NOT MULTIPLIED BY RADIUS. `uEnergy` is set on
+//     the CPU to REF_R / worldRadius (clamped): a radius-7 ultimate paints each
+//     of its pixels at ~37% of what a radius-2.6 nova paints its own. A bigger
+//     cast then covers more ground WITHOUT being brighter — which is what a
+//     bigger cast physically is, and is the only way a screen-filling effect can
+//     coexist with a bloom pass. The old stack did the exact opposite.
+//
+//  2. THE BRIGHT PART IS THIN. Everything over ~1.0 lives in the leading ribbon
+//     FRONT, a few percent of the radius wide. The interior is a DARK scorch
+//     plate that holds value contrast under the fight, so the disc reads as a
+//     hole burned in the floor with hot edges, not as a lamp. Bloom then sees
+//     thin hot lines (which it should) instead of a full disc (which fogged the
+//     frame).
+//
+// The rest is the layering the LoL reference sheet actually shows: three ribbon
+// fronts at different speeds rather than one rim, a rune inscription that burns
+// off, motes that sparkle inside the front, a hue ramp rim -> mid -> core across
+// the fronts, and a directional stretch so a footprint is never a compass circle.
+const AOE_FRAG = /* glsl */ `
+  uniform vec3 uCore;
+  uniform vec3 uMid;
+  uniform vec3 uRim;
+  uniform float uProg;   // 0 detonation -> 1 gone
+  uniform float uTime;
+  uniform float uEnergy; // REF_R / worldRadius: the area-division rule
+  uniform float uSeed;
+  uniform float uDir;    // impact heading, radians (directional stretch)
+  varying vec2 vUv;
+  float aoH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float aoN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = aoH(q), b = aoH(q + vec2(1.0, 0.0));
+    float c = aoH(q + vec2(0.0, 1.0)), d = aoH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  // One ribbon front: a travelling band, wide and soft at birth, thin and hard
+  // as it runs out of energy. sp staggers the three fronts.
+  float aoFront(float r, float p, float sp, float w0) {
+    float fr = p * sp;
+    float w = mix(w0, w0 * 0.34, p);
+    return smoothstep(w, 0.0, abs(r - fr)) * (1.0 - smoothstep(0.82, 1.0, p));
+  }
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float ang = atan(p.y, p.x);
+    // DIRECTIONALITY: the footprint stretches ~12% along the impact heading, so
+    // a blast that came from somewhere looks like it did.
+    float aniso = 1.0 + 0.12 * cos(ang - uDir);
+    float r = length(p) / aniso;
+    if (r > 1.0) discard;
+    float ease = 1.0 - pow(1.0 - uProg, 2.2); // fronts move fastest at birth
+
+    // ---- THE DARK CORE. A scorch plate that DARKENS the interior: the value
+    // structure the critique said was missing, and the reason the hot fronts
+    // read as edges instead of dissolving into their own glow.
+    float burn = aoN(p * 3.1 + uSeed) * 0.6 + aoN(p * 8.7 - uSeed * 1.7) * 0.4;
+    float core = (1.0 - smoothstep(0.10, 0.86, r)) * (0.55 + 0.45 * burn);
+    float darkA = core * 0.5 * (1.0 - smoothstep(0.45, 1.0, uProg));
+
+    // ---- THREE RIBBON FRONTS, not one rim. Different speeds and widths, so
+    // the shape is a layered pressure wave rather than a single circle.
+    float f1 = aoFront(r, ease, 1.00, 0.085);
+    float f2 = aoFront(r, ease, 0.78, 0.055) * 0.7;
+    float f3 = aoFront(r, ease, 0.55, 0.032) * 0.45;
+    float ribbon = f1 + f2 + f3;
+
+    // ---- RUNE INSCRIPTION: a tick band plus radial spokes inside the leading
+    // front, burning off over the first third of the life.
+    float insR = max(ease * 0.86, 1e-3);
+    float rn = r / insR;
+    float band = smoothstep(0.30, 0.36, rn) * (1.0 - smoothstep(0.62, 0.70, rn));
+    float ticks = smoothstep(0.30, 0.85, sin(ang * 14.0 + uTime * 1.6 + uSeed * 6.28));
+    float spokes = smoothstep(0.55, 0.95, sin(ang * 6.0 - uTime * 0.9)) * smoothstep(0.9, 0.2, rn);
+    float rune = (band * ticks * 0.9 + spokes * 0.35) * (1.0 - smoothstep(0.05, 0.42, uProg));
+
+    // ---- MOTE SPARKLE: hash cells twinkling just behind the leading front —
+    // the "mote" layer of the reference sheet, with no particles to pay for.
+    float mh = aoH(floor(vUv * 46.0) + uSeed * 17.0);
+    float tw = step(0.965, fract(mh * 7.3 + uTime * 1.9));
+    float motes = tw * smoothstep(0.22, 0.0, abs(r - ease * 0.9)) * (1.0 - uProg);
+
+    // ---- SOFT PERIMETER: no layer ever ends on a raw circle cut.
+    float edgeF = 1.0 - smoothstep(0.94, 0.999, r);
+    float glowA = (ribbon + rune * 0.5 + motes * 0.8) * edgeF * uEnergy;
+    float alpha = clamp(glowA + darkA * edgeF, 0.0, 0.9);
+    if (!(alpha >= 0.004)) discard;
+
+    // ---- HUE RAMP across the fronts: deep rim behind, saturated mid in the
+    // body, white-hot only in the leading edge. hdr is where bloom is fed and
+    // it is deliberately confined to f1.
+    //
+    // uEnergy MULTIPLIES THE HDR TERM TOO, and leaving it out of this one line
+    // was the whole of the second wash. Measured after the first cut of this
+    // shader: an Injunction (radius 7) still produced black 0.7% / meanLuma
+    // 0.109, and the ablation showed why — a thin front is thin in RADIUS but
+    // 2*pi*7 = 44 world units LONG, so "a few percent of the radius" is still
+    // an enormous count of above-knee pixels, and a radius-0.7 five-mip blur
+    // turns that into a fullscreen tint. With the rule applied here, a big
+    // cast's fronts sit UNDER the bloom knee and only a tight cast punches
+    // over it — which is the correct answer twice over: the small explosion
+    // near your feet is the one that should flare.
+    float hdr = f1 * (1.4 + 0.8 * (1.0 - uProg)) * uEnergy;
+    vec3 hue = mix(uRim, uMid, clamp(ribbon * 1.6, 0.0, 1.0));
+    hue = mix(hue, uCore, clamp(hdr * 0.55 + motes, 0.0, 1.0));
+    vec3 glowCol = hue * (0.9 + hdr) * uEnergy;
+    // The scorch plate contributes a near-black, faintly hue-tinted colour.
+    vec3 col = (glowCol * glowA + uRim * 0.035 * darkA) / max(alpha, 1e-4);
+    gl_FragColor = vec4(col, alpha);
+  }`;
+
+interface AoeSlot {
+  mesh: THREE.Mesh;
+  mat: THREE.ShaderMaterial;
+  life: number;
+  max: number;
+}
+
+/**
+ * Pooled ability footprints. `spawn` takes the ability's own 3-colour palette
+ * (FX_PAL) and its WORLD radius; the class does the area division itself, so no
+ * caller can reintroduce "bigger cast = brighter cast" by passing a bigger
+ * number.
+ */
+export class AoeBursts {
+  readonly group = new THREE.Group();
+  private slots: AoeSlot[] = [];
+  private static MAX = 6;
+  /** The radius whose energy is "1". Nova sits near here by design. */
+  private static REF_R = 2.6;
+
+  spawn(x: number, z: number, pal: AbilityPalette, radius: number, dur = 0.6, dir = 0): void {
+    let slot: AoeSlot | null = null;
+    for (const s of this.slots) if (s.life >= s.max) { slot = s; break; }
+    if (!slot) {
+      if (this.slots.length < AoeBursts.MAX) {
+        const mat = new THREE.ShaderMaterial({
+          uniforms: {
+            uCore: { value: new THREE.Color() },
+            uMid: { value: new THREE.Color() },
+            uRim: { value: new THREE.Color() },
+            uProg: { value: 0 },
+            uTime: { value: 0 },
+            uEnergy: { value: 1 },
+            uSeed: { value: 0 },
+            uDir: { value: 0 },
+          },
+          vertexShader: TEL_VERT,
+          fragmentShader: AOE_FRAG,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(TELEGRAPH_GEO, mat);
+        mesh.renderOrder = 3; // over the decals, under the ribbons/numbers
+        mesh.userData.noAO = true;
+        mesh.visible = false;
+        this.group.add(mesh);
+        slot = { mesh, mat, life: 1, max: 1 };
+        this.slots.push(slot);
+      } else {
+        slot = this.slots[0];
+        for (const s of this.slots) if (s.life / s.max > slot.life / slot.max) slot = s;
+      }
+    }
+    const u = slot.mat.uniforms;
+    (u.uCore.value as THREE.Color).setHex(pal.core);
+    (u.uMid.value as THREE.Color).setHex(pal.mid);
+    (u.uRim.value as THREE.Color).setHex(pal.rim);
+    // RULE 1, in one line. Clamped at both ends: a tiny burst must not become a
+    // flare, and a huge one must still be visible.
+    u.uEnergy.value = Math.max(0.18, Math.min(1, AoeBursts.REF_R / Math.max(radius, 0.6)));
+    u.uSeed.value = Math.random() * 10;
+    u.uDir.value = dir;
+    u.uProg.value = 0;
+    slot.life = 0;
+    slot.max = dur;
+    slot.mesh.position.set(x, 0.055, z);
+    slot.mesh.scale.setScalar(Math.max(0.4, radius));
+    slot.mesh.visible = true;
+  }
+
+  update(dt: number, time: number): void {
+    for (const s of this.slots) {
+      if (s.life >= s.max) { s.mesh.visible = false; continue; }
+      s.life += dt;
+      s.mat.uniforms.uProg.value = Math.min(1, s.life / s.max);
+      s.mat.uniforms.uTime.value = time;
       if (s.life >= s.max) s.mesh.visible = false;
     }
   }

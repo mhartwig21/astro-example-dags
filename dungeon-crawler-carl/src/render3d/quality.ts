@@ -171,21 +171,35 @@ const HIGH: QualityProfile = {
   shadowInterval: 2,
 };
 
-// 1.2, NOT 1.25, AND THE 0.05 IS THE WHOLE DIFFERENCE BETWEEN 57 AND 60 FPS.
-// Measured VSYNC-PACED (tools/_prcheck.mjs, 3 reps, real GPU, staged combat —
-// uncapped rAF cannot answer this question because it never sees the vsync
-// interval), walking the effective pixel ratio on this rung:
+// 1.2, NOT 1.25. Measured VSYNC-PACED (tools/_prcheck.mjs, 3 reps, real GPU,
+// staged combat — uncapped rAF cannot answer this question because it never
+// sees the vsync interval), walking the effective pixel ratio on this rung:
 //     1.25  (1.92 Mpx)  17.47 ms  57.2 fps   <- misses, ~1 frame in 25
-//     1.20  (1.77 Mpx)  16.64 ms  60.1 fps   <- locked
+//     1.20  (1.77 Mpx)  16.64 ms  60.1 fps
 //     1.15  (1.62 Mpx)  16.65 ms  60.1 fps
 //     1.10  (1.48 Mpx)  16.65 ms  60.1 fps
-// Identical numbers at 1.15 and 1.10 mean 1.20 is not sitting on the edge: it
-// is inside the interval with room, and buying more room buys nothing back.
+// Identical numbers at 1.15 and 1.10 mean 1.20 is not sitting on the edge of
+// THAT scene: it is inside the interval, and buying more room bought nothing.
+//
+// THE "<- locked" MARK THAT USED TO BE ON THE 1.20 ROW IS RETRACTED, AND SO IS
+// THE BLURB'S CLAIM TO BE "the 60 fps rung". An independent acceptance pass
+// contradicted it on the same machine and reported the contradiction:
+//     floor 2, empty room, standing still, clean box, BALANCED @ 1.20:
+//         median 24.9 ms (40 fps), p99 33.4 ms
+//     floor 17, 21 mobs inside 10 tiles, PERFORMANCE @ 1.00:
+//         median 33.3 ms (30 fps), p99 58.2 ms, 67.4% of frames over 33 ms
+// Those numbers are not this comment's numbers, and no scene in that build was
+// found at 60 fps at any rung. Two readings differ by a factor of 1.5 in an
+// EMPTY room, so one of the two measurements is measuring something the other
+// is not; until that is chased down, this table describes ONE staged combat
+// scene measured one way, and nothing else. It is not a promise about the
+// build, and nothing downstream should read it as one. Reconciling it is the
+// paydown track's job and the frame budget still says 16.7 / 33.
 const BALANCED: QualityProfile = {
   ...ULTRA,
   name: "balanced",
   label: "BALANCED",
-  blurb: "1.2x pixel density — the 60 fps rung on integrated graphics",
+  blurb: "1.2x pixel density — the reference rung for integrated graphics",
   pixelRatioCap: 1.2,
   gtaoScale: 0.5,
   gtaoDenoiseScale: 0.5, // bilinear upsample in the AO blend; softer, much cheaper
@@ -264,6 +278,41 @@ export function urlQualityOverride(): QualityChoice | null {
     if (v === "auto" || (v && v in QUALITY_PRESETS)) return v as QualityChoice;
   } catch { /* no location (worker/test) — no override */ }
   return null;
+}
+
+/**
+ * TEST MODE FREEZES THE TUNER. THE GATE HAS TO SCORE ONE BUILD, NOT A COIN
+ * FLIP (acceptance blocker, r2 SPEND).
+ *
+ * What was measured against the shipped build: "the same floor-2 empty room
+ * landed on BALANCED/1.20x in one session and PERFORMANCE/1.00x in the next,
+ * and my first look pass landed floors 2 and 14 on BALANCED then PERFORMANCE
+ * across two runs of the same script." That is QualityAutoTuner working exactly
+ * as designed — it judges a WALL-CLOCK window, and a laptop shared with a
+ * sibling workflow does not hand out the same window twice. But it means a look
+ * score or a frame time for "this build" is really a score for whichever rung
+ * the machine's mood picked that minute, and two such numbers can be compared
+ * neither to each other nor to a budget.
+ *
+ * THE FIX IS TO FREEZE, NOT TO PIN. Pinning a literal rung here would be a
+ * second lie: the harness would then measure a rung this machine might never
+ * choose. `guessQuality` is already deterministic — it reads the unmasked
+ * renderer string and devicePixelRatio, no timing anywhere — so the STARTUP
+ * GUESS is reproducible on a given machine by construction. Under ?test the
+ * guess stands and the runtime tuner simply never gets to move it. Same
+ * machine, same URL, same rung, every run; a different machine still gets its
+ * own honest answer.
+ *
+ * Escape hatches, both explicit: `?test&quality=auto` restores the tuner
+ * verbatim (that is the URL for the genuinely different question "what does
+ * auto-detect settle on here"), and `?test&quality=performance` pins a rung for
+ * a deliberate A/B. Real play — anything without ?test — is untouched.
+ */
+export function autoTuneFrozen(): boolean {
+  try {
+    const q = new URLSearchParams(location.search);
+    return q.has("test") && q.get("quality") !== "auto";
+  } catch { return false; }
 }
 
 /**

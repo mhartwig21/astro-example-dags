@@ -195,13 +195,27 @@ const RIB_FRAG = /* glsl */ `
     // additive blending smears NaN across all four channels, and
     // UnrealBloomPass's five separable blurs explode that ONE pixel into a
     // ~1150px black rectangle. Clamp the base, and discard non-finite alpha.
-    float along = pow(max(1.0 - vT, 0.0), 1.55);
-    float a = (core * 0.8 + glow * 0.3) * along * uFade;
+    // FALLOFF ALONG THE SHOT (r2 SPEND). Acceptance read these as "2px
+    // constant-width white lines with no muzzle, no falloff, no impact bloom".
+    // Two of the three were true in the shader: along-fade at 1.55 is close enough
+    // to linear that a fast bolt's whole tail sat at similar alpha, and the
+    // centerline was mixed 72% toward white, which erases the school hue that
+    // the entire projectile-anatomy note above exists to preserve. A violet
+    // bolt and a frost bolt photographed the same colour: white.
+    //
+    // Now: a hard muzzle-side falloff (the tail dies fast, so the shot has a
+    // visible LENGTH rather than a stripe from hand to target), and a
+    // hue-preserving head. headBloom is the third fix — a short hot cap in
+    // the first ~18% of the ribbon that is allowed over 1.0, so the bolt has a
+    // bright nose that catches the bloom pass. That is the impact bloom, at the
+    // travelling end; the terminal blossom is spawned by the caller.
+    float along = pow(max(1.0 - vT, 0.0), 2.4);
+    float headBloom = smoothstep(0.18, 0.0, vT);
+    float a = (core * 0.86 + glow * 0.34) * along * uFade;
     if (!(a >= 0.004)) discard;
-    // Centerline runs white-hot at the head (feeds bloom), the skirt keeps the
-    // saturated school hue, the tail cools back to the deep color.
-    vec3 hot = mix(uColor, vec3(1.0), 0.72);
-    vec3 col = mix(uColor * (1.0 + (1.0 - vT) * 0.9), hot * (1.4 + (1.0 - vT) * 1.2), core * (1.0 - vT));
+    // 42%, not 72%: the nose reads HOT but the school's hue survives it.
+    vec3 hot = mix(uColor, vec3(1.0), 0.42);
+    vec3 col = mix(uColor * (0.85 + (1.0 - vT) * 0.7), hot * (1.15 + headBloom * 1.5), core * (1.0 - vT));
     gl_FragColor = vec4(col, a);
   }`;
 

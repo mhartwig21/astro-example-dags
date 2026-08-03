@@ -5760,10 +5760,27 @@ const HIT_COLORS: Record<HitEvent["kind"], string> = {
 // over the blast core instead of sitting inside it.
 const dmgPool: HTMLDivElement[] = [];
 const DMG_POOL_MAX = 48;
-// Readability cap (audit r2): past ~16 simultaneous numbers the screen is
-// confetti — ordinary enemy ticks are dropped first; crits, kills, player
-// damage, heals, and gold always land.
-const DMG_MAX_ACTIVE = 16;
+// THE NUMBER LAYER STOPPED BEING INFORMATION AND BECAME AN OCCLUDER (r2 SPEND).
+//
+// Acceptance, on two separate floor-17 frames: "10+ simultaneous numbers,
+// several ~130px tall on a 2880-wide frame, hard black/cream stroke, overlapping
+// into a solid block directly over the monster pack ... League's comparable
+// teamfight frame shows ONE number at roughly a sixth that relative size.
+// Nothing else in the build costs as much readability for as little."
+//
+// That is three separate defects that had each been tuned in isolation and
+// which multiply:
+//   * TOO MANY. A cap of 16 is a cap on a screen that is already gone. League's
+//     rule is not "few numbers", it is ONE NUMBER PER TARGET — everything a
+//     target takes in a beat is one rolling total. The aggregation below now
+//     does that (see DMG_AGG_*), and the hard cap behind it is 5.
+//   * TOO BIG. 58px + 30px padding, popped to 1.6x, is ~150 CSS px of ink for
+//     one integer.
+//   * TOO INKY. A 9-11px double stroke plus a 20px colour glow means each
+//     numeral occludes a disc far wider than its glyphs.
+// Every one of the three is halved or better below, and none of them is the
+// "drop ordinary ticks first" policy that was tried instead of fixing them.
+const DMG_MAX_ACTIVE = 5;
 interface DmgLive {
   el: HTMLDivElement;
   key: string; // kind|school|effect — only like merges with like
@@ -5777,9 +5794,15 @@ interface DmgLive {
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
 }
 const dmgLive: DmgLive[] = [];
-const DMG_AGG_MS = 520; // rolling-counter window
-const DMG_AGG_R2 = 0.9 * 0.9; // world-units² — same-target ticks merge
-const DMG_FAN_PX = 56; // min screen spacing before fanning out
+// ONE NUMBER PER TARGET PER BEAT. The window was 520 ms and the merge radius
+// 0.9 world units — narrower than a monster is wide, and shorter than the gap
+// between two attack ticks — so a sustained fight on one mob produced a stream
+// of twins that the collision fan then sprayed across the floor beside it. A
+// 950 ms window at 2 units means a target accumulates ONE rolling counter for
+// as long as you are hitting it, which is both the League read and less DOM.
+const DMG_AGG_MS = 950;
+const DMG_AGG_R2 = 2.0 * 2.0;
+const DMG_FAN_PX = 34; // min screen spacing before fanning out
 
 function dmgText(rec: DmgLive, sign: string): string {
   return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
@@ -5806,8 +5829,14 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
     canvas.style.display = "block";
     el.prepend(canvas);
   }
-  const px = crit ? 58 : 38; // non-crit floor raised (r5: 34px thinned to fog)
-  const pad = crit ? 30 : 18;
+  // SIZE (r2 SPEND). 58/38 with 30/18 padding, popped to 1.6x, put ~150 CSS px
+  // of ink on the screen per integer; the reference frame this build is scored
+  // against carries about a sixth of that. These are the numbers that make a
+  // crit read as a crit at arm's length and still leave the monster under it
+  // visible — the hierarchy (crit ~1.5x the body) is preserved exactly, the
+  // absolute scale is not.
+  const px = crit ? 32 : 21;
+  const pad = crit ? 12 : 7;
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return; }
   ctx.font = DMG_FONT.replace("%PX%", String(px));
@@ -5827,32 +5856,36 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   ctx.lineJoin = "round";
   if (crit) {
     // Chromatic flash under the ink: hot red left, cold cyan right.
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.5;
     ctx.fillStyle = "#ff3b30";
-    ctx.fillText(text, -3.5, 0);
+    ctx.fillText(text, -2, 0);
     ctx.fillStyle = "#4fd8ff";
-    ctx.fillText(text, 3.5, 0);
+    ctx.fillText(text, 2, 0);
     ctx.globalAlpha = 1;
   }
-  // Heavy ink: a dropped dark stroke for weight, then the main outline.
-  ctx.strokeStyle = "rgba(6,3,1,0.85)";
-  ctx.lineWidth = crit ? 11 : 8;
-  ctx.strokeText(text, 0, 2.5);
+  // INK, PROPORTIONAL TO THE GLYPH. The old 8-11px stroke was authored against
+  // 38-58px type and never came down with it; at these sizes it would swallow
+  // the counters of the digits. Scaled off `px` so this can't drift again.
+  ctx.strokeStyle = "rgba(6,3,1,0.8)";
+  ctx.lineWidth = px * 0.2;
+  ctx.strokeText(text, 0, 1.5);
   ctx.strokeStyle = "rgba(12,6,2,0.97)";
-  ctx.lineWidth = crit ? 9 : 6.5;
+  ctx.lineWidth = px * 0.155;
   ctx.strokeText(text, 0, 0);
   // Chiseled bevel: dark underlay, then the vertical face gradient with a
   // soft color glow, then a top sheen. Face floor raised (r5 minor): the old
   // -0.28 bottom stop dragged small numerals to mid-gray over dark ground —
   // every number now keeps the crit treatment's warm luminous face.
   ctx.fillStyle = dmgShade(color, -0.4);
-  ctx.fillText(text, 0, 2.2);
+  ctx.fillText(text, 0, 1.5);
   const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
   face.addColorStop(0, dmgShade(color, 0.78));
   face.addColorStop(0.42, color);
   face.addColorStop(1, dmgShade(color, -0.12));
   ctx.shadowColor = color;
-  ctx.shadowBlur = crit ? 20 : 15;
+  // The glow was a 15-20px halo around every numeral — on its own it occluded
+  // more of the fight than the glyphs did. Tied to the type size as well.
+  ctx.shadowBlur = px * (crit ? 0.26 : 0.2);
   ctx.fillStyle = face;
   ctx.fillText(text, 0, 0);
   ctx.shadowBlur = 0;
@@ -5875,9 +5908,14 @@ function dmgAnimate(rec: DmgLive): void {
   // sideways — drift now outweighs rise, so a burst reads as a spray of
   // coins, never a vertical pile climbing the back wall.
   const dir = Math.random() < 0.5 ? -1 : 1;
-  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 132 : 96);
-  const rise = (crit ? 64 : 50) * (rec.merges > 0 ? 0.85 : 1);
-  const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
+  // TRAVEL, SCALED WITH THE TYPE. A 132px lateral throw was authored to get
+  // giant numerals off each other; at a third the glyph size it just carried
+  // the number away from the thing it describes — acceptance saw the numbers
+  // land on empty floor left of the pack. Shorter arcs keep each total over
+  // its own target, which is what makes it readable as that target's damage.
+  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 62 : 46);
+  const rise = (crit ? 40 : 32) * (rec.merges > 0 ? 0.85 : 1);
+  const pop = (crit ? 1.5 : 1.15) * grow; // crits POP visibly harder (r4)
   const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
   // r7 blocker root cause (ghost numbers in EVERY combat frame): the old
   // options-level `easing` is EFFECT-level in WAAPI — the entire keyframe
@@ -5925,7 +5963,13 @@ function spawnDamageNumber(h: HitEvent): void {
   const s = renderer.worldToScreen(h.pos.x, crit ? 1.55 : 1.3, h.pos.y);
   if (!s.visible) return;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
-  const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
+  // ONE FAMILY FOR OUTGOING DAMAGE. `crit` and `enemy` used to be different
+  // merge keys, so a flurry that crit once produced two numbers on one monster
+  // and then fanned them apart. They are the same fact about the same target;
+  // they roll into one counter, and a crit anywhere in the stack PROMOTES the
+  // counter to the crit treatment (below), so the crit still reads.
+  const fam = h.kind === "crit" ? "enemy" : h.kind;
+  const key = `${fam}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
   const now = performance.now();
 
   // ROLLING COUNTER: a same-kind hit on the same spot inside the window
@@ -5940,13 +5984,30 @@ function spawnDamageNumber(h: HitEvent): void {
       rec.total += h.amount;
       rec.merges++;
       rec.wx = h.pos.x; rec.wz = h.pos.y;
+      // Crit promotion: the rolling counter takes the crit treatment the first
+      // time a crit lands in it, and keeps it.
+      if (crit && !rec.crit) {
+        rec.crit = true;
+        rec.color = HIT_COLORS.crit;
+        rec.el.className = "dmg crit";
+        rec.el.style.color = rec.color;
+      }
       rec.el.getAnimations().forEach((a) => a.cancel());
       paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit);
       dmgAnimate(rec);
       return;
     }
   }
-  const important = h.kind !== "enemy" || h.killed === true;
+  // THE CAP HAD A HOLE THE SIZE OF THE PROBLEM. "important" was
+  // `h.kind !== "enemy"`, and a crit's kind IS "crit" — so every crit bypassed
+  // the saturation gate entirely. A floor-17 pull is mostly crits, which is why
+  // a cap of 16 was photographed carrying 10+ numbers and why an ablation frame
+  // taken after this round's cap of 5 still carried 8. Crits now count. They
+  // are also no longer their own merge family (see `fam` above), so the common
+  // case is that a crit ROLLS INTO the number already over that target rather
+  // than needing a slot at all. Player damage, heals and gold still always land
+  // — those are about the crawler, not about the pack.
+  const important = (h.kind !== "enemy" && h.kind !== "crit") || h.killed === true;
   if (dmgLive.length >= DMG_MAX_ACTIVE && !important) return;
 
   let el = dmgPool.pop();
@@ -5971,7 +6032,7 @@ function spawnDamageNumber(h: HitEvent): void {
   // golden-angle radial slots until the spot is clear — no more clumps.
   // A pinch of spawn scatter first (r6 major): even same-tick hits on one
   // target never share an exact anchor pixel.
-  let px = s.x + (Math.random() - 0.5) * 34, py = s.y + (Math.random() - 0.5) * 10;
+  let px = s.x + (Math.random() - 0.5) * 18, py = s.y + (Math.random() - 0.5) * 8;
   for (let slot = 0; slot < 8; slot++) {
     let clear = true;
     for (const rec of dmgLive) {
@@ -5980,7 +6041,7 @@ function spawnDamageNumber(h: HitEvent): void {
     }
     if (clear) break;
     const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
-    const rad = 56 + slot * 12;
+    const rad = 34 + slot * 8;
     px = s.x + Math.cos(ang) * rad;
     py = s.y + Math.sin(ang) * rad * 0.5; // squash hard: favor horizontal fan
   }
@@ -6007,11 +6068,24 @@ function spawnDamageNumber(h: HitEvent): void {
   dmgAnimate(rec);
 }
 
-// ---- Enemy micro HP bars (AAA r3 blocker): D2R monster-health read —
-// nothing at rest, loud on engagement. A thin dark-gold framed bar appears
-// over a monster on its FIRST damage, tracks for 3s past the last hit, then
-// fades out. Elites carry a nameplate tier (engraved gold name above the
-// bar). Bosses are excluded — the top-center boss bar is their treatment.
+// ---- Enemy micro HP bars ----
+//
+// "NOTHING AT REST, LOUD ON ENGAGEMENT" WAS THE WRONG RULE, AND THE CAPTURES
+// SAY SO (r2 SPEND). The plate only appeared on a monster's FIRST damage and
+// only for 3 s after the last hit, so acceptance found them "absent from most
+// combat frames — present in one over-staged shot, missing in ours_f8_room_zoom
+// and perf_dense_f17", against "every unit in every League reference carries
+// one". A health bar is not a damage notification, it is how a player picks a
+// TARGET: which of these eleven things is nearly dead, which one is full.
+// Withholding it until after you have already committed an attack is exactly
+// backwards.
+//
+// So there are now two states, not one:
+//   RESTING — every visible non-boss monster inside PLATE_RANGE carries a
+//     dim, desaturated plate. It is information, not decoration, and it is
+//     quiet enough that eleven of them do not read as UI clutter.
+//   ENGAGED — anything damaged in the last 3 s goes to full opacity.
+// Bosses stay excluded; the top-center boss bar is their treatment.
 // Pooled DOM, transform/width mutations only; no per-frame element churn.
 const mobPlatesLayer = document.createElement("div");
 mobPlatesLayer.id = "mobplates";
@@ -6024,6 +6098,13 @@ const mobPlateSeen = new Set<number>();
 const PLATE_HOLD_MS = 3000;
 const PLATE_FADE_MS = 400;
 const PLATE_MAX = 24; // past this the swarm is confetti, not information
+// Resting plates are drawn for monsters within this radius of the crawler.
+// Beyond it the plate is smaller than the mob and adds nothing; the cap keeps
+// a long sightline down a corridor from paying for thirty of them.
+const PLATE_RANGE2 = 13 * 13;
+/** Resting opacity — legible, but it must never win a value contest with the
+ * fight. Engaged plates go to 1. */
+const PLATE_REST_OP = 0.4;
 
 function makeMobPlate(): MobPlate {
   const root = document.createElement("div");
@@ -6041,10 +6122,32 @@ function makeMobPlate(): MobPlate {
   return { root, name, fill, cls: "mplate" };
 }
 
+/** Screen rects the resting plates must stay out of, refreshed once a frame
+ *  (getBoundingClientRect on four elements, not on twenty-four plates). */
+const plateHudRects: DOMRect[] = [];
+function refreshPlateHudRects(): void {
+  plateHudRects.length = 0;
+  for (const id of ["hud-log", "cockpit", "minimap-frame", "hud-tl", "hud-tr", "show"]) {
+    const el = document.getElementById(id);
+    if (!el || el.offsetParent === null) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) plateHudRects.push(r);
+  }
+}
+function plateOverHud(x: number, y: number): boolean {
+  for (const r of plateHudRects) {
+    if (x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8) return true;
+  }
+  return false;
+}
+
 function updateMobPlates(s: GameState): void {
   const now = performance.now();
+  refreshPlateHudRects();
   mobPlateSeen.clear();
   let shown = 0;
+  const you = s.players.find((pl) => pl.alive) ?? s.players[0];
+  const px = you?.pos.x ?? 0, pz = you?.pos.y ?? 0;
   for (const m of s.monsters) {
     if (m.hp <= 0) { mobPlateMem.delete(m.id); continue; }
     let mem = mobPlateMem.get(m.id);
@@ -6052,9 +6155,21 @@ function updateMobPlates(s: GameState): void {
     if (m.hp < mem.hp - 1e-6) mem.until = now + PLATE_HOLD_MS; // fresh damage
     mem.hp = m.hp;
     if (m.kind === "boss") continue; // the boss bar owns the menace read
-    if (mem.until <= now || m.hp >= m.maxHp || shown >= PLATE_MAX) continue;
+    if (shown >= PLATE_MAX) continue;
+    const engaged = mem.until > now;
+    if (!engaged) {
+      // RESTING: near enough to be a target the player might pick.
+      const dx = m.pos.x - px, dz = m.pos.y - pz;
+      if (dx * dx + dz * dz > PLATE_RANGE2) continue;
+    }
     const sp = renderer.worldToScreen(m.pos.x, m.elite ? 2.05 : 1.55, m.pos.y);
     if (!sp.visible) continue;
+    // A RESTING PLATE NEVER DRAWS OVER A HUD PANEL. The first capture of this
+    // feature had a cluster of them stacked on top of the LIVE FEED card,
+    // reading as damage to the panel. An ENGAGED plate is allowed there — you
+    // are being told about a specific fight and the fight wins — but ambient
+    // information must not litter someone else's zone.
+    if (!engaged && plateOverHud(sp.x, sp.y)) continue;
     let plate = mobPlateLive.get(m.id);
     if (!plate) {
       plate = mobPlatePool.pop() ?? makeMobPlate();
@@ -6063,7 +6178,7 @@ function updateMobPlates(s: GameState): void {
     }
     shown++;
     mobPlateSeen.add(m.id);
-    const cls = m.elite ? "mplate elite" : "mplate";
+    const cls = `${m.elite ? "mplate elite" : "mplate"}${engaged ? "" : " rest"}`;
     if (plate.cls !== cls) {
       plate.cls = cls;
       plate.root.className = cls;
@@ -6073,7 +6188,13 @@ function updateMobPlates(s: GameState): void {
     plate.root.style.top = `${sp.y}px`;
     plate.fill.style.width = `${Math.max(0, Math.min(1, m.hp / m.maxHp)) * 100}%`;
     const left = mem.until - now;
-    plate.root.style.opacity = left < PLATE_FADE_MS ? (left / PLATE_FADE_MS).toFixed(2) : "1";
+    plate.root.style.opacity = !engaged
+      ? String(PLATE_REST_OP)
+      // The fade out of ENGAGED lands on the resting level, not on nothing —
+      // the plate does not disappear, it goes quiet.
+      : left < PLATE_FADE_MS
+        ? (PLATE_REST_OP + (1 - PLATE_REST_OP) * (left / PLATE_FADE_MS)).toFixed(2)
+        : "1";
   }
   // Release plates whose monsters left the visible/damaged set this frame.
   for (const [id, plate] of mobPlateLive) {

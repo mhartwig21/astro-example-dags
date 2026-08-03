@@ -34,10 +34,11 @@ import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight,
 import { FxParticles, TEX_FLICKER } from "./fxParticles";
 import { SwingArcs, TrailRibbons } from "./fxTrails";
 import {
-  QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, guessQuality, loadQualityChoice,
-  saveQualityChoice, urlQualityOverride, type QualityChoice, type QualityProfile,
+  QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, autoTuneFrozen, guessQuality,
+  loadQualityChoice, saveQualityChoice, urlQualityOverride,
+  type QualityChoice, type QualityProfile,
 } from "./quality";
-import { FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
@@ -347,6 +348,9 @@ export class Renderer3D {
   private quality: QualityProfile;
   private qualityChoice: QualityChoice;
   private tuner: QualityAutoTuner;
+  /** ?test: keep the deterministic startup guess and never let the wall-clock
+   *  tuner move it. Read once — the URL cannot change mid-session. */
+  private readonly tuneFrozen = autoTuneFrozen();
   private onQualityChange: ((p: QualityProfile) => void) | null = null;
   /** Composed-frame counter, for the shadow-rebuild cadence. */
   private frameNo = 0;
@@ -1486,6 +1490,22 @@ export class Renderer3D {
   private ribbons = new TrailRibbons();
   private decals = new GroundDecals();
   private shocks = new Shockwaves();
+  // The ability FOOTPRINT (r2 SPEND). Every detonation that used to be "a big
+  // additive ring at the ability's radius" is now this: layered ribbon fronts
+  // over a dark scorch core, with its per-pixel energy divided by its own area.
+  // See the long note in fx.ts — it is the fix for BOTH the fullscreen
+  // chromatic wash and the "one flat radial gradient" critique.
+  private aoe = new AoeBursts();
+  // FX GLARE GOVERNOR (r2 SPEND, the general guard behind the wash blocker).
+  // Every big detonation adds a decaying "how much of the screen are the FX
+  // currently painting" figure; bloom strength and radius are divided by it.
+  // WHY THIS IS NOT BACKWARDS: the thing a player needs from bloom is a halo
+  // around a SMALL hot thing. A halo around a screen-filling hot thing is just
+  // a fullscreen tint — which is literally the frame acceptance rejected. So
+  // the wider the emissive gets, the tighter its halo has to be, or the frame
+  // stops being a picture of a fight. The thin ribbon fronts still bloom.
+  private fxGlare = 0;
+  private bloomBaseRadius = -1;
   // BOSSES V2 §5: the encounter's own stage manager — plates, shield shells,
   // tether cords, punish beacons, per-boss signature beats, and the camera
   // intent the fight is allowed to borrow. Everything it needs from the
@@ -1950,7 +1970,7 @@ export class Renderer3D {
     // World-lit materials erode their fog frontier with the bank's own noise.
     this.wl.uWlNoise.value = this.fogBank.noiseTexture;
     // Round-2 combat FX layers ride the scene root (world-space effects).
-    this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group);
+    this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group, this.aoe.group);
     this.scene.add(this.bossFx.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
@@ -2469,6 +2489,11 @@ export class Renderer3D {
     this.ribbons.release(-999999);
     this.decals.spawn(WX, WZ, 0.6, 0x120a18, 0xffb057, 1);
     this.shocks.spawn(WX, WZ, 0xffb057, 1, 0.3);
+    // The AoE footprint program. It is a NEW ShaderMaterial (r2 SPEND) and it
+    // is only ever built on the first detonation, i.e. mid-fight, which is the
+    // exact hitch this routine exists to prevent — so it is warmed here and the
+    // program guard will fail the build if that ever stops being true.
+    this.aoe.spawn(WX, WZ, FX_PAL.nova, 1, 0.3);
     this.burst(WX, WZ, 0xc9a24b, 3, 0.5, 0.5);
     this.spawnGlow(WX, 0.5, WZ, 0xf5e6bf, 0.5, 0.3);
     this.spawnFxLight(WX, WZ, 0xc9a24b, 1, 0.2, 0.9); // allocates the pooled FX lights
@@ -2578,6 +2603,7 @@ export class Renderer3D {
     this.swingArcs.update(30);
     this.decals.update(30);
     this.shocks.update(30);
+    this.aoe.update(30, 0);
     this.ribbons.update(30);
     this.prewarmQualityLadder();
     this.armProgramGuard();
@@ -3581,7 +3607,7 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef, idSeed = 0): THREE.Group {
     const spec = THEME.archetype[kind];
     // A crafted def's chosen body wins; then a floor-named menace (city
     // bosses + the finale), then an elite skin variant when one exists (the
@@ -3688,7 +3714,23 @@ export class Renderer3D {
       tintGain: isBossKind ? 0.6 : 0.5,
       // Mobs cede brightness to the hero (issue #4): a white ogre must never
       // out-value the player's silhouette.
-      value: isBossKind ? 1 : 0.9,
+      //
+      // PER-INSTANCE VALUE JITTER (r2 SPEND). Acceptance: "a pack reads as one
+      // undifferentiated mass". The rim and the archetype tint were both
+      // already here — what was missing is that eleven members of one archetype
+      // were pixel-identical, so the rim separated the PACK from the floor and
+      // nothing separated the pack from ITSELF. A deterministic +/-7% value
+      // spread keyed off the monster id gives every neighbour a different tone,
+      // which is what makes a crowd countable. Bosses are exempt: there is only
+      // ever one, and its value is a deliberate authored number.
+      //
+      // FIVE BUCKETS, NOT A CONTINUUM, and that is a cost decision. `variant`
+      // below folds `value` into the material cache key, so a continuous jitter
+      // would mint one material per monster; five discrete steps cap it at five
+      // per archetype. The program cache key is unaffected either way (the
+      // numbers are uniforms — see the long note on applyCharacterShading), so
+      // this cannot reintroduce a mid-fight shader build.
+      value: isBossKind ? 1 : 0.9 * (1 + (((idSeed * 2654435761) >>> 0) % 5 - 2) * 0.035),
     };
     g.userData.charShade = shade;
     this.applyCharacterShading(g, shade);
@@ -5653,8 +5695,9 @@ export class Renderer3D {
         this.fxp.sparks(pos.x, 0.6, pos.y, pal.mid, 18);
         this.fxp.embers(pos.x, pos.y, pal.mid, 12, CONFIG.ultAirstrikeRadius * 0.7);
         this.fxp.smoke(pos.x, 0.5, pos.y, 5, 0x28222f);
-        this.shocks.spawn(pos.x, pos.y, pal.mid, CONFIG.ultAirstrikeRadius, 0.5);
-        this.decals.spawn(pos.x, pos.y, CONFIG.ultAirstrikeRadius * 0.55, 0x120a18, pal.rim, 9);
+        this.blast(pos.x, pos.y, pal, CONFIG.ultAirstrikeRadius, 0.55);
+        // Sponsor ordnance leaves a crater that outlives the barrage.
+        this.decals.spawn(pos.x, pos.y, CONFIG.ultAirstrikeRadius * 0.65, 0x0b0710, pal.rim, 34);
         // Debris ring under the impact: the crater the shell leaves behind.
         this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
           { tint: pal.mid, spin: 0.6, grow: 1.6, footprint: true, pop: true });
@@ -6066,7 +6109,7 @@ export class Renderer3D {
           // the plain brace heals.
           const params = bulwarkParams(p);
           if (params.shove) {
-            this.shocks.spawn(p.pos.x, p.pos.y, bpal.core, CONFIG.bulwarkShoveRadius * 1.15, 0.4);
+            this.blast(p.pos.x, p.pos.y, bpal, CONFIG.bulwarkShoveRadius * 1.15, 0.45);
             this.fxp.radialStreaks(p.pos.x, 0.7, p.pos.y, bpal.mid, 18, CONFIG.bulwarkShoveRadius);
             this.fxp.dust(p.pos.x, 0.15, p.pos.y, 14, 0x4a4438);
             this.addTrauma(0.3);
@@ -6100,15 +6143,28 @@ export class Renderer3D {
         (rud.inner.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.3 * beat;
         rig.visible = true;
         if (prevIt <= 0) {
-          // The loudest cast in the game, on purpose: the design asks the
-          // biggest ultimate to carry the biggest counterplay window, and the
-          // whole floor was just told it has one.
-          this.fxp.flash3(p.pos.x, 0.8, p.pos.y, spal, 2.0);
-          this.fxp.column(p.pos.x, p.pos.y, spal.mid, 14, 3.2);
-          this.shocks.spawn(p.pos.x, p.pos.y, spal.mid, 7, 0.6);
-          this.fxp.radialStreaks(p.pos.x, 0.6, p.pos.y, spal.core, 22, 5.5);
-          this.spawnFxLight(p.pos.x, p.pos.y, spal.mid, 7, 0.7, 1.2);
-          this.addTrauma(0.55);
+          // THE FRAME ACCEPTANCE REJECTED WAS THIS CAST. "The loudest cast in
+          // the game, on purpose" was implemented as loudness measured in
+          // SCREEN AREA — a size-2 flash, a 14-unit-tall glow column, a
+          // radius-7 additive ring, 22 streaks thrown 5.5 units and a peak-7
+          // point light, all in crimson, all at once. The capture is
+          // unambiguous: the whole world went flat pink-red, black fell to
+          // 0.1% of the frame, and nothing in the fight was readable.
+          //
+          // It is still the loudest cast. Loudness now buys REACH and
+          // DURATION, not luminance: the footprint covers the same 7 units
+          // (the sim's number is unchanged, so the promise to the player is
+          // unchanged) but paints each pixel at 37% energy, over a dark core,
+          // with the bright part confined to the ribbon fronts. The column is
+          // a third of its height, the streaks stay inside the seal, and the
+          // light no longer tries to be room lighting.
+          this.fxp.flash3(p.pos.x, 0.8, p.pos.y, spal, 1.1);
+          this.fxp.column(p.pos.x, p.pos.y, spal.mid, 5, 1.9);
+          this.blast(p.pos.x, p.pos.y, spal, 7, 0.75);
+          this.fxp.radialStreaks(p.pos.x, 0.6, p.pos.y, spal.core, 14, 3.4);
+          this.spawnFxLight(p.pos.x, p.pos.y, spal.mid, 3.0, 0.5, 1.2);
+          this.decals.spawn(p.pos.x, p.pos.y, 4.2, 0x0d0705, spal.rim, 34);
+          this.addTrauma(0.4);
         }
         // The bodies that were told smoulder for the duration, so the price of
         // the ultimate is visible on the things that will be collecting it.
@@ -6284,8 +6340,13 @@ export class Renderer3D {
           // puffs pooled into an ambiguous pale lobe under the blast).
           this.fxp.smoke(p.pos.x, 0.5, p.pos.y, kind === "cataclysm" ? 3 : 2, 0x2e2820);
           this.fxp.dust(p.pos.x, 0.2, p.pos.y, 4, this.dustTint);
-          this.shocks.spawn(p.pos.x, p.pos.y, pal.mid, radius0, kind === "cataclysm" ? 0.55 : 0.45);
-          this.decals.spawn(p.pos.x, p.pos.y, radius0 * 0.5, 0x141008, pal.rim, 9);
+          // The footprint, through the one door (see blast()): layered fronts
+          // over a dark core, energy divided by area, glare registered.
+          this.blast(p.pos.x, p.pos.y, pal, radius0, kind === "cataclysm" ? 0.62 : 0.5);
+          // AFTERMATH (r2 SPEND, "no ground decals survive a fight"): the
+          // scorch outlives the blast by half a minute, so a room the player
+          // has fought through is visibly a room they fought through.
+          this.decals.spawn(p.pos.x, p.pos.y, radius0 * 0.62, 0x0e0b06, pal.rim, 34);
           // Layered secondary: the crown's blast kicks up a debris ring too.
           if (kind === "cataclysm") {
             this.spawnFadeProp("fx_blast_star", p.pos.x, 0.03, p.pos.y,
@@ -6871,7 +6932,7 @@ export class Renderer3D {
       }
       if (!mesh) {
         mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite,
-          mon.defId ? mobDefById(mon.defId) : undefined);
+          mon.defId ? mobDefById(mon.defId) : undefined, mon.id);
         mesh.userData.simKind = mon.kind;
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
@@ -7374,10 +7435,10 @@ export class Renderer3D {
           if (bigDeath) {
             const mx = mesh.position.x, mz = mesh.position.z;
             const boss = mesh.userData.simKind === "boss";
-            this.shocks.spawn(mx, mz, 0xffd9a0, boss ? 4.4 : 2.8, boss ? 0.6 : 0.45);
+            this.blast(mx, mz, FX_PAL.crit, boss ? 4.4 : 2.8, boss ? 0.65 : 0.5);
             this.spawnFxLight(mx, mz, 0xffdca0, boss ? 7 : 4.5, 0.6, 1.2);
             this.fxp.column(mx, mz, boss ? 0xffb457 : 0xffe0b0, boss ? 18 : 10, boss ? 2.6 : 1.8);
-            this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 12);
+            this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 40);
             this.addTrauma(boss ? 0.5 : 0.32);
           }
           const delay = (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
@@ -7877,14 +7938,23 @@ export class Renderer3D {
         group.userData.lastTrail = 0;
         mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
-        // MUZZLE FLARE (r5 major): ordnance visibly LEAVES a source — a hot
-        // pop + directional sparks at the spawn point. Enemy fire only (the
-        // player's own cast FX already covers the hero's hands).
-        if (pr.from !== "player" && inVision(pr.pos)) {
+        // MUZZLE FLARE. "Enemy fire only — the player's own cast FX already
+        // covers the hero's hands" was wrong, and acceptance photographed the
+        // consequence: the crawler's bolts were "2px constant-width white lines
+        // with no muzzle, no falloff, no impact bloom". The cast animation is
+        // not a muzzle; a muzzle is the frame where the shot LEAVES. Both sides
+        // get one now — the player's a touch tighter and hue-hot rather than
+        // white, so it punctuates the hand without competing with the bolt.
+        if (inVision(pr.pos)) {
           const sp = Math.hypot(pr.vel.x, pr.vel.y) || 1;
-          this.fxp.impactFlash(pr.pos.x, 0.62, pr.pos.y, color, 0.55);
-          this.fxp.sparks(pr.pos.x, 0.6, pr.pos.y, color, 2,
+          const mine = pr.from === "player";
+          this.fxp.impactFlash(pr.pos.x, 0.62, pr.pos.y, color, mine ? 0.42 : 0.55);
+          this.fxp.sparks(pr.pos.x, 0.6, pr.pos.y, color, mine ? 3 : 2,
             { x: pr.vel.x / sp, y: pr.vel.y / sp });
+          // A brief pool of the school's colour on the floor under the hand:
+          // the shot lights the ground it launched from, which is the read
+          // that says "that came from ME".
+          if (mine) this.spawnFxLight(pr.pos.x, pr.pos.y, color, 0.9, 0.11, 0.75);
         }
       }
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
@@ -7893,7 +7963,10 @@ export class Renderer3D {
       // RIBBON TRAIL (round 2): a continuous tapered streak in the school's
       // color replaces the gappy puff chain; arrows keep a thin speed line.
       if (mesh.visible) {
-        this.ribbons.claim(pr.id, mesh.userData.color as number, mesh.userData.aim ? 0.07 : 0.24);
+        // Width: a bolt is ordnance, not a hairline. 0.24 world units at this
+        // camera is the ~2px stripe acceptance measured; 0.38 gives the shader's
+        // core/skirt layering room to actually be two things.
+        this.ribbons.claim(pr.id, mesh.userData.color as number, mesh.userData.aim ? 0.09 : 0.38);
         this.ribbons.push(pr.id, mesh.position.x, mesh.position.y, mesh.position.z);
         // EMBER EMITTER (audit r3, LoL anatomy layer 4): tiny flickering
         // motes shed along the flight path, sinking as they die.
@@ -8097,10 +8170,23 @@ export class Renderer3D {
     this.ribbons.update(dt);
     this.decals.update(dt);
     this.shocks.update(dt);
+    this.aoe.update(dt, time);
     if (this.bloomBase < 0) this.bloomBase = this.bloom.strength;
+    if (this.bloomBaseRadius < 0) this.bloomBaseRadius = this.bloom.radius;
     this.bloomKick = Math.max(0, this.bloomKick - dt * 4.2);
-    // Kick stays a tight accent: a big kick used to fog the whole quadrant.
-    this.bloom.strength = this.bloomBase + this.bloomKick * 0.18;
+    // GLARE GOVERNOR. The kick comment below used to say "a big kick used to
+    // fog the whole quadrant" — acceptance then photographed the whole FRAME
+    // fogged, because the kick was never the only thing feeding the pass. What
+    // actually fogged it was a screen-sized emissive footprint meeting a
+    // radius-0.7 five-mip blur. `fxGlare` is fed by the AoE spawner in
+    // proportion to the WORLD RADIUS of what just detonated, decays over ~0.6s,
+    // and divides both bloom terms. A crit on one monster is untouched
+    // (glare 0); an arena-wide ultimate keeps its hot ribbon fronts and loses
+    // its arena-wide halo.
+    this.fxGlare = Math.max(0, this.fxGlare - dt * 1.7);
+    const glareK = 1 / (1 + this.fxGlare);
+    this.bloom.strength = (this.bloomBase + this.bloomKick * 0.18) * glareK;
+    this.bloom.radius = this.bloomBaseRadius * (1 - 0.4 * Math.min(1, this.fxGlare));
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
@@ -8424,7 +8510,7 @@ export class Renderer3D {
         // Ability/magic hits scorch the ground they land on (short-lived for
         // ordinary hits — kills below stamp the long one).
         if (h.school === "magic" && !h.killed) {
-          this.decals.spawn(h.pos.x, h.pos.y, 0.45, 0x120a18, FX_PAL.magic.rim, 5);
+          this.decals.spawn(h.pos.x, h.pos.y, 0.45, 0x120a18, FX_PAL.magic.rim, 16);
         }
       }
       // The crawler TAKING a hit is a damage event too (audit r3: the kit
@@ -8442,7 +8528,10 @@ export class Renderer3D {
       // corpse (school-tinted flash, fading over ~10s).
       if (h.killed && h.kind !== "player") {
         const hot = h.school === "magic" ? 0x8a5cff : 0xc03024;
-        this.decals.spawn(h.pos.x, h.pos.y, 0.72 + (h.overkill ? 0.35 : 0), 0x120807, hot, 10);
+        // The corpse mark outlives the fight (r2 SPEND): 10 s meant every
+        // aftermath frame acceptance took was of a floor nothing had happened
+        // on. A cleared room now reads as cleared.
+        this.decals.spawn(h.pos.x, h.pos.y, 0.72 + (h.overkill ? 0.35 : 0), 0x120807, hot, 34);
         this.fxp.gibs(h.pos.x, h.pos.y, 0x6e2018, h.overkill ? 16 : 9, h.dir);
         // Dust slap where the body lands + one sooty wisp over it.
         this.fxp.dust(h.pos.x, 0.15, h.pos.y, 3, this.dustTint);
@@ -8623,6 +8712,27 @@ export class Renderer3D {
     this.dying.length = dw;
   }
 
+  /**
+   * THE ONE DOOR FOR AN ABILITY DETONATION (r2 SPEND).
+   *
+   * Draws the layered footprint AND registers its glare, so the two can never
+   * drift apart — an effect cannot get bigger without the bloom governor
+   * hearing about it. `radius` is the ability's real world radius (the sim's
+   * number), which is also what the player is being told the cast covers, so
+   * the picture and the rule stay the same picture.
+   *
+   * The glare coefficient is deliberately superlinear in radius/4: a 2-unit
+   * strike registers ~0.13 (bloom essentially untouched), a 7-unit ultimate
+   * registers ~1.5 (bloom to 40% and its blur radius to 60%).
+   */
+  private blast(
+    x: number, z: number, pal: { core: number; mid: number; rim: number },
+    radius: number, dur = 0.6, dir = 0,
+  ): void {
+    this.aoe.spawn(x, z, pal, radius, dur, dir);
+    this.fxGlare = Math.min(2.2, this.fxGlare + (radius / 4) ** 1.5);
+  }
+
   /** Claim a pooled point light: explosions and magic actually illuminate the
    * world for a beat (snap on, quadratic decay out). */
   private spawnFxLight(x: number, z: number, color: number, peak = 8, max = 0.45, y = 0.9): void {
@@ -8672,12 +8782,21 @@ export class Renderer3D {
     // yellow-white pool that erased the hero, the tiles and the numbers): the
     // POOL shares a fixed brightness budget — simultaneous hits split it
     // instead of summing past the tone-map shoulder. A lone crit is untouched.
-    const BUDGET = 2.4;
+    // ...and the budget itself SHRINKS while a big footprint is on the ground
+    // (r2 SPEND). Ablation, 12 stacked-cast frames per condition on the real
+    // GPU: with this pool forced dark the frame never washed once; with it live
+    // it washed on the ultimate. The reason is double counting — a detonation
+    // already paints its own light onto the floor through the AoE shader, and
+    // then asks this pool to light the same floor again. Whatever the footprint
+    // is doing, the pool does less of.
+    const BUDGET = 2.4 / (1 + this.fxGlare * 0.8);
     if (total > BUDGET) {
-      // Soft shoulder, not a hard ceiling: excess energy lands at 25% so a
-      // deliberate hero moment (portal beacon, ultimate blast) still spikes
-      // visibly — it just can't stack four of itself into pure white.
-      const k = (BUDGET + (total - BUDGET) * 0.25) / total;
+      // Soft shoulder, not a hard ceiling: excess energy still lands so a
+      // deliberate hero moment (portal beacon, ultimate blast) spikes visibly —
+      // it just can't stack four of itself into pure white. 0.25 -> 0.15
+      // because at 0.25 four stacked blasts still cleared the tone-map
+      // shoulder, which is the failure this line was written for.
+      const k = (BUDGET + (total - BUDGET) * 0.15) / total;
       for (const s of this.fxLights) s.light.intensity *= k;
     }
     // IDLE LIGHT DIET (perf round): with nothing burning, the pool goes
@@ -8943,7 +9062,10 @@ export class Renderer3D {
     // tuner spent its first windows judging shader-compilation frames, scored
     // two bad windows, stepped down, and `ceiling` made that permanent.
     // Nothing about those frames was a statement about the hardware.
-    if (this.qualityChoice === "auto" && this.tuningArmed) {
+    // ...and under ?test the tuner does not run AT ALL: the startup guess is
+    // deterministic per machine, the tuner's windows are not, and an acceptance
+    // gate has to score the same rung twice. See autoTuneFrozen().
+    if (this.qualityChoice === "auto" && this.tuningArmed && !this.tuneFrozen) {
       const now = performance.now();
       if (this.warmupUntil === 0) this.warmupUntil = now + 4000;
       if (now < this.warmupUntil) { this.lastFrameAt = 0; return; }

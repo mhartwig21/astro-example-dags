@@ -318,25 +318,30 @@
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
-      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 34px;
+      /* NOTE: the numerals themselves are canvas glyphs (paintNumeral in
+         main3d.ts) — these rules only style the text FALLBACK and the crit
+         starburst. Sizes here shrank with the canvas sizes in r2 SPEND; if you
+         change one, change the other or the fallback stops matching the art. */
+      .dmg { position: absolute; font-family: var(--display); font-weight: 900; font-size: 20px;
         z-index: 0; /* own stacking context: the crit starburst (z -1) stays inside */
         transform: translate(-50%, -50%);
-        paint-order: stroke fill; -webkit-text-stroke: 7px rgba(8,4,1,0.98);
-        text-shadow: 0 0 1px rgba(255,255,255,0.85), 0 3px 7px rgba(0,0,0,0.95),
-          0 0 4px rgba(0,0,0,0.9), 0 0 14px rgba(255,150,60,0.35); /* dark halo, ember rim */
+        paint-order: stroke fill; -webkit-text-stroke: 4px rgba(8,4,1,0.98);
+        text-shadow: 0 0 1px rgba(255,255,255,0.85), 0 2px 4px rgba(0,0,0,0.95),
+          0 0 3px rgba(0,0,0,0.9), 0 0 8px rgba(255,150,60,0.35); /* dark halo, ember rim */
         will-change: transform, opacity;
         font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-      /* Crits carry PUNCH (r4 major): ~1.9x the body size, hotter saturated
-         gold, thicker ink, and the starburst below — unmistakable hierarchy. */
-      .dmg.crit { font-size: 64px; font-weight: 900; letter-spacing: 0.02em;
-        -webkit-text-stroke: 9px rgba(8,4,1,0.98);
-        text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 4px 0 rgba(0,0,0,0.75),
-          0 3px 8px rgba(0,0,0,0.9), 0 0 30px currentColor; }
+      /* Crits carry PUNCH (r4 major): hotter saturated gold, thicker ink, and
+         the starburst below — the HIERARCHY is unchanged, the absolute scale is
+         a third of what acceptance measured as an occluder. */
+      .dmg.crit { font-size: 31px; font-weight: 900; letter-spacing: 0.02em;
+        -webkit-text-stroke: 5px rgba(8,4,1,0.98);
+        text-shadow: 0 0 2px rgba(255,255,255,0.95), 0 2px 0 rgba(0,0,0,0.75),
+          0 2px 5px rgba(0,0,0,0.9), 0 0 14px currentColor; }
       /* Crit starburst (r3 major): a four-ray gold flash blooms behind the
          number — it rides the same WAAPI pop, so the burst scales in with the
          punch and dies with the fade. Pure decoration, zero extra elements. */
       .dmg.crit::before { content: ""; position: absolute; left: 50%; top: 50%;
-        width: 150px; height: 150px; margin: -75px 0 0 -75px; z-index: -1;
+        width: 76px; height: 76px; margin: -38px 0 0 -38px; z-index: -1;
         background:
           radial-gradient(circle, rgba(255,225,140,0.55) 0%, rgba(255,190,80,0.22) 26%, transparent 55%),
           conic-gradient(from 0deg,
@@ -4258,13 +4263,20 @@
       /* r4 blocker (target identification): each plate is a dark BACKING CHIP
          with a gold-tinted frame and a notch pointing at its owner — bars can
          no longer read as detached red slivers floating over a pack. */
-      .mplate { position: absolute; width: 46px; margin-left: -23px;
+      /* THE PLAQUE IS AN ELITE AFFORDANCE, NOT A TRASH ONE. With plates now on
+         every unit (see updateMobPlates), 24 framed gradient plaques with drop
+         shadows and pointer tails stacked into a solid block over a floor-17
+         pull — the same "too much furniture per unit of information" failure the
+         damage numbers had. A trash mob gets a BAR. An elite, which has a name
+         worth reading, keeps the whole nameplate below. */
+      .mplate { position: absolute; width: 40px; margin-left: -20px;
         transform: translateY(-100%); will-change: left, top, opacity;
-        padding: 2px 2px 3px; border-radius: 2px;
+        padding: 0; }
+      .mplate.elite { padding: 2px 2px 3px; border-radius: 2px;
         background: linear-gradient(180deg, rgba(24,18,11,0.85), rgba(6,4,2,0.88));
         box-shadow: 0 0 0 1px rgba(8,5,3,0.9), inset 0 1px 0 rgba(232,221,200,0.08),
           0 2px 5px rgba(0,0,0,0.6); }
-      .mplate::after { content: ""; position: absolute; left: 50%; bottom: -3px;
+      .mplate.elite::after { content: ""; position: absolute; left: 50%; bottom: -3px;
         width: 5px; height: 5px; margin-left: -2.5px; transform: rotate(45deg);
         background: linear-gradient(135deg, rgba(24,18,11,0.9), rgba(6,4,2,0.92));
         box-shadow: 1px 1px 0 rgba(8,5,3,0.9); }
@@ -4272,13 +4284,30 @@
         font-family: var(--display); font-variant: small-caps; font-weight: 600;
         font-size: 10px; letter-spacing: 0.1em; color: var(--gold-hi); white-space: nowrap;
         text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.85); }
-      .mplate .mpbar { height: 5px; border-radius: 1px; overflow: hidden;
-        background: rgba(6,4,2,0.92); border: 1px solid rgba(168,133,79,0.9);
-        box-shadow: inset 0 1px 2px rgba(0,0,0,0.85); }
+      .mplate .mpbar { height: 4px; border-radius: 1px; overflow: hidden;
+        background: rgba(6,4,2,0.92); border: 1px solid rgba(140,110,68,0.85);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+      .mplate.elite .mpbar { box-shadow: inset 0 1px 2px rgba(0,0,0,0.85); }
       .mplate .mpfill { display: block; height: 100%; width: 100%;
         background: linear-gradient(180deg, #e0604f, #a93226 55%, #7e2018);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); }
+      /* RESTING plate: a HAIRLINE, not a plaque. The first cut kept the framed
+         gradient plaque and its pointer tail and only dropped the opacity —
+         eighteen of those read as a field of red dashes competing with the
+         fight, which is the failure mode the engaged plate exists to avoid.
+         The backing plate, the drop shadow and the tail all go; what is left is
+         a 2px bar in a thin dark keyline, which is enough to say "that one is
+         at a third" and not enough to be noticed when you are not asking. */
+      .mplate.rest { width: 28px; margin-left: -14px; padding: 0;
+        background: none; box-shadow: none; }
+      .mplate.rest::after { display: none; }
+      .mplate.rest .mpbar { height: 2px; border-radius: 0;
+        border: 1px solid rgba(10,7,4,0.85); background: rgba(10,7,4,0.7);
+        box-shadow: none; }
+      .mplate.rest .mpfill { background: #8e4034; box-shadow: none; }
+      .mplate.rest .mpname { display: none; }
       .mplate.elite { width: 68px; margin-left: -34px; }
+      .mplate.elite.rest { width: 52px; margin-left: -26px; }
       .mplate.elite .mpname { display: block; }
       .mplate.elite .mpbar { height: 6px; border-color: rgba(201,162,75,0.9);
         box-shadow: 0 0 0 1px rgba(0,0,0,0.85), 0 0 6px rgba(201,162,75,0.25),
