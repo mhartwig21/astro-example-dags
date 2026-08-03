@@ -1,0 +1,398 @@
+{
+  "tag": "after",
+  "quality": "performance",
+  "look": [
+    {
+      "floor": 8,
+      "status": "MISSED",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 19,
+        "liveMobs": 105,
+        "recapUp": false,
+        "introUp": true,
+        "cine": true,
+        "dmgNumbers": 1,
+        "platesTotal": 26,
+        "platesShown": 24,
+        "platesResting": 26,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 166
+      }
+    }
+  ],
+  "shaderErrors": [],
+  "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "control": {
+    "frames": 601,
+    "median": 16.7,
+    "p99": 25.2,
+    "max": 33.2,
+    "over16_7": 47.6,
+    "foreignLoadPct": 0.9,
+    "claim": {
+      "hp": 999999,
+      "nearMobs": 0,
+      "liveMobs": 37,
+      "recapUp": false,
+      "introUp": false,
+      "cine": false,
+      "dmgNumbers": 0,
+      "platesTotal": 2,
+      "platesShown": 1,
+      "platesResting": 2,
+      "preset": "performance",
+      "setting": "performance",
+      "pxRatio": 1,
+      "dpr": 2,
+      "drawCalls": 1,
+      "tris": 1,
+      "programs": 158
+    }
+  },
+  "ultShots": [
+    {
+      "path": "tools/_spend2/after/ult_f17_1.png",
+      "atMs": 90,
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 5,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 28,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 188
+      }
+    },
+    {
+      "path": "tools/_spend2/after/ult_f17_2.png",
+      "atMs": 160,
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 27,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 5,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 28,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 189
+      }
+    },
+    {
+      "path": "tools/_spend2/after/ult_f17_3.png",
+      "atMs": 320,
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 27,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 5,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 31,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 192
+      }
+    }
+  ],
+  "combatShots": [
+    {
+      "path": "tools/_spend2/after/combat_f17_01.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 27,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 6,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 31,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_02.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 6,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 19,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_03.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 6,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_04.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 6,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_05.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 6,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_06.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 7,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_07.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 7,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_08.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 7,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 19,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_09.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 7,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    },
+    {
+      "path": "tools/_spend2/after/combat_f17_10.png",
+      "claim": {
+        "hp": 999999,
+        "nearMobs": 28,
+        "liveMobs": 202,
+        "recapUp": false,
+        "introUp": false,
+        "cine": false,
+        "dmgNumbers": 7,
+        "platesTotal": 33,
+        "platesShown": 24,
+        "platesResting": 18,
+        "preset": "performance",
+        "setting": "performance",
+        "pxRatio": 1,
+        "dpr": 2,
+        "drawCalls": 1,
+        "tris": 1,
+        "programs": 195
+      }
+    }
+  ],
+  "perf": {
+    "frames": 609,
+    "median": 33.3,
+    "p90": 41.7,
+    "p95": 41.8,
+    "p99": 49.9,
+    "max": 58.4,
+    "min": 16.5,
+    "mean": 32.22,
+    "over16_7": 97.5,
+    "over33": 69.5,
+    "over50": 0.5,
+    "presetHist": {
+      "performance": 619
+    },
+    "pxHist": {
+      "1.00": 619
+    },
+    "nearMin": 28,
+    "nearMedian": 28,
+    "nearMax": 28,
+    "callsMedian": 1,
+    "foreignLoadPct": 0.7,
+    "staged": {
+      "placed": 20,
+      "liveTotal": 205
+    },
+    "proofClaim": {
+      "hp": 999999,
+      "nearMobs": 28,
+      "liveMobs": 202,
+      "recapUp": false,
+      "introUp": false,
+      "cine": false,
+      "dmgNumbers": 7,
+      "platesTotal": 33,
+      "platesShown": 24,
+      "platesResting": 17,
+      "preset": "performance",
+      "setting": "performance",
+      "pxRatio": 1,
+      "dpr": 2,
+      "drawCalls": 1,
+      "tris": 1,
+      "programs": 195
+    }
+  }
+}

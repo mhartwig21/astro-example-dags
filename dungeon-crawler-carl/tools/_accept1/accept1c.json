@@ -1,0 +1,74 @@
+{
+  "CONTROL_f2_still": {
+    "frames": 717,
+    "medianFps": 40.2,
+    "median": 24.9,
+    "p90": 25.1,
+    "p95": 25.2,
+    "p99": 33.4,
+    "max": 33.6,
+    "over16_7": 73.5,
+    "over33": 2.6,
+    "presetHist": {
+      "balanced": 727
+    },
+    "pxHist": {
+      "1.20": 727
+    },
+    "nearMin": 0,
+    "nearMed": 0,
+    "nearMax": 0,
+    "callsMed": 180,
+    "trisMed": 298947,
+    "foreignLoadPct": 1,
+    "idleGateOpened": true
+  },
+  "NATURAL_f17_fight": {
+    "frames": 352,
+    "medianFps": 40,
+    "median": 25,
+    "p90": 66.6,
+    "p95": 108.3,
+    "p99": 374.9,
+    "max": 891.4,
+    "over16_7": 82.7,
+    "over33": 35.8,
+    "presetHist": {
+      "performance": 362
+    },
+    "pxHist": {
+      "1.00": 362
+    },
+    "nearMin": 4,
+    "nearMed": 4,
+    "nearMax": 12,
+    "callsMed": 695,
+    "trisMed": 1200910,
+    "foreignLoadPct": 0.6,
+    "idleGateOpened": true
+  },
+  "DENSE_f17_pull": {
+    "frames": 475,
+    "medianFps": 30,
+    "median": 33.3,
+    "p90": 41.7,
+    "p95": 41.9,
+    "p99": 58.2,
+    "max": 83.3,
+    "over16_7": 99.4,
+    "over33": 67.4,
+    "presetHist": {
+      "performance": 485
+    },
+    "pxHist": {
+      "1.00": 485
+    },
+    "nearMin": 21,
+    "nearMed": 21,
+    "nearMax": 21,
+    "callsMed": 631,
+    "trisMed": 874544,
+    "foreignLoadPct": 0.7,
+    "idleGateOpened": true
+  }
+}

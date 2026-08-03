@@ -1,0 +1,147 @@
+{
+ "tag": "ab_after_1",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 159,
+  "propBatches": 78,
+  "batchedLeaves": 926,
+  "liveBatchInstances": 171,
+  "unbatchedPropMeshes": 126,
+  "programs": 173,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 29
+ },
+ "post": {
+  "frames": 520,
+  "median": 40.2,
+  "p90": 56.7,
+  "p95": 67.9,
+  "p99": 108.5,
+  "max": 217.6,
+  "mean": 43.02,
+  "over16": 100,
+  "over33": 77.9,
+  "calls": 785,
+  "ktris": 1460,
+  "cpuUpdate": 10.1,
+  "cpuRender": 15.3,
+  "cpuUpdateP95": 13.6,
+  "cpuRenderP95": 24.7,
+  "nearMin": 28,
+  "nearMed": 35,
+  "nearMax": 39,
+  "programsStart": 173,
+  "programsEnd": 174,
+  "census": [
+   [
+    "Mesh",
+    90.8
+   ],
+   [
+    "Sprite",
+    15.2
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    10.4
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    10.4
+   ],
+   [
+    "INST:Mesh(x3)",
+    5.1
+   ],
+   [
+    "INST:Mesh(x10)",
+    4.7
+   ],
+   [
+    "SKIN:ToySoldier_Hat",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_ArmRight",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_Head",
+    4.6
+   ],
+   [
+    "ToySoldier_WindupKey",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_Body",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_LegRight",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_ArmLeft",
+    4.6
+   ],
+   [
+    "SKIN:ToySoldier_LegLeft",
+    4.6
+   ],
+   [
+    "INST:Mesh(x6)",
+    4.3
+   ]
+  ],
+  "censusFrames": 520,
+  "playerHp": 999999055,
+  "recapUp": false
+ },
+ "foreign": 5,
+ "seconds": 12,
+ "ring": 18,
+ "guardLines": [
+  "[shader-guard] armed: 172 programs prewarmed; any further build will be logged.",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,fal",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,fal"
+ ],
+ "cpuTop": null
+}

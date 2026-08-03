@@ -1,0 +1,32 @@
+{
+ "totalNodes": 2270,
+ "sceneChildren": 66,
+ "rigTopCount": 1,
+ "rigGroups": [
+  {
+   "k": "Group|Scene|ud:modelKey,mixer,hasClip,play,playFirst,animTick,animBusy,charShade,skinId,grafts,weaponObj,lastX,lastZ,velX",
+   "count": 1,
+   "nodes": 57,
+   "bones": 41,
+   "skinned": 6,
+   "visibleTrue": 1
+  }
+ ],
+ "monsterMeshes": 148,
+ "monstersInGraph": 0,
+ "monstersParked": 148,
+ "monstersVisibleTrue": 0,
+ "monstersInGraphButInvisible": 0,
+ "monsterMeshParents": {
+  "(none)": 148
+ },
+ "simMonsters": 148,
+ "monDistWithin8_5": 0,
+ "monDistQuartiles": [
+  1000000000,
+  1000000000,
+  1000000000,
+  1000000000,
+  1000000000
+ ]
+}

@@ -1,0 +1,50 @@
+{
+ "tag": "before",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 146,
+  "propBatches": 0,
+  "batchedLeaves": 0,
+  "liveBatchInstances": 0,
+  "unbatchedPropMeshes": 1052,
+  "programs": 180,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 28,
+  "near10": 31
+ },
+ "post": {
+  "frames": 546,
+  "median": 34.1,
+  "p90": 50.7,
+  "p95": 58.6,
+  "p99": 205.9,
+  "max": 673.6,
+  "mean": 41.11,
+  "over16": 99.8,
+  "over33": 55.3,
+  "calls": 837,
+  "ktris": 1080,
+  "cpuUpdate": 7.4,
+  "cpuRender": 11.9,
+  "cpuUpdateP95": 10.7,
+  "cpuRenderP95": 20.5,
+  "nearMin": 28,
+  "nearMed": 30,
+  "nearMax": 31,
+  "programsStart": 180,
+  "programsEnd": 187,
+  "playerHp": 999999916,
+  "recapUp": false
+ },
+ "foreign": 0.5,
+ "seconds": 12,
+ "ring": 18
+}

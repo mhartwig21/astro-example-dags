@@ -1,0 +1,618 @@
+{
+  "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+  "ring": 22,
+  "reps": 3,
+  "seconds": 3,
+  "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "staged": {
+    "placed": 22,
+    "liveTotal": 205
+  },
+  "idleGate": {
+    "idle": true,
+    "foreignLoadPct": -1280
+  },
+  "shape": {
+    "objects": 9872,
+    "meshes": 3353,
+    "skinnedMeshes": 1589,
+    "instancedMeshes": 260,
+    "instances": 7907,
+    "lights": 18,
+    "pointLights": 14,
+    "visiblePointLights": 14,
+    "materials": 2060,
+    "geometries": 390,
+    "autoUpdatingMatrices": 1947,
+    "simMonsters": 201,
+    "liveMonsters": 201,
+    "monsterMeshes": 201,
+    "visibleMonsterMeshes": 46,
+    "riggedMonsterMeshes": 201,
+    "riggedVisible": 46,
+    "near11": 51,
+    "preset": "balanced",
+    "pixelRatio": 1.2,
+    "backbuffer": "1728x1022",
+    "dmgElements": 4,
+    "plateElements": 35,
+    "passes": [
+      "RenderPass:on",
+      "WorldGTAOPass:on",
+      "ScaledBloomPass:on",
+      "OutputPass:on",
+      "ShaderPass:on",
+      "SMAAPass:on"
+    ],
+    "rtType": 1016
+  },
+  "census": {
+    "frames": 48,
+    "total": 1119.9,
+    "rows": [
+      {
+        "label": "Scene:Mesh",
+        "calls": 100.1,
+        "ktris": 4
+      },
+      {
+        "label": "mob:toysoldier",
+        "calls": 95.7,
+        "ktris": 87
+      },
+      {
+        "label": "inst:Group:-",
+        "calls": 92.3,
+        "ktris": 640
+      },
+      {
+        "label": "mob:charger",
+        "calls": 90,
+        "ktris": 50
+      },
+      {
+        "label": "mob:swarmer",
+        "calls": 87,
+        "ktris": 48
+      },
+      {
+        "label": "mob:canceled",
+        "calls": 46,
+        "ktris": 27
+      },
+      {
+        "label": "Group:Mesh",
+        "calls": 45.7,
+        "ktris": 1
+      },
+      {
+        "label": "mob:stagehand",
+        "calls": 37.6,
+        "ktris": 23
+      },
+      {
+        "label": "mob:slagbreaker",
+        "calls": 29,
+        "ktris": 51
+      },
+      {
+        "label": "mob:shaman",
+        "calls": 29,
+        "ktris": 19
+      },
+      {
+        "label": "mob:ranged",
+        "calls": 29,
+        "ktris": 14
+      },
+      {
+        "label": "Group:Sprite",
+        "calls": 27.2,
+        "ktris": 0
+      },
+      {
+        "label": "mob:drummer",
+        "calls": 27,
+        "ktris": 21
+      },
+      {
+        "label": "mob:warden",
+        "calls": 26,
+        "ktris": 17
+      },
+      {
+        "label": "mob:cleric",
+        "calls": 24.7,
+        "ktris": 23
+      },
+      {
+        "label": "mob:phantom",
+        "calls": 23,
+        "ktris": 18
+      },
+      {
+        "label": "FULLSCREEN_QUAD",
+        "calls": 22,
+        "ktris": 0
+      },
+      {
+        "label": "mob:shieldbearer",
+        "calls": 20,
+        "ktris": 8
+      },
+      {
+        "label": "mob:cutpurse",
+        "calls": 16,
+        "ktris": 8
+      },
+      {
+        "label": "mob:archivist",
+        "calls": 14.5,
+        "ktris": 16
+      },
+      {
+        "label": "mob:brute",
+        "calls": 11.7,
+        "ktris": 17
+      },
+      {
+        "label": "Mesh:Mesh",
+        "calls": 10.4,
+        "ktris": 1
+      },
+      {
+        "label": "mob:lineworker",
+        "calls": 10.4,
+        "ktris": 8
+      },
+      {
+        "label": "mob:sentinel",
+        "calls": 10.4,
+        "ktris": 7
+      },
+      {
+        "label": "mob:hexer",
+        "calls": 10.4,
+        "ktris": 12
+      },
+      {
+        "label": "mob:digger",
+        "calls": 10,
+        "ktris": 7
+      },
+      {
+        "label": "mob:suitactor",
+        "calls": 10,
+        "ktris": 6
+      },
+      {
+        "label": "mob:darling",
+        "calls": 9,
+        "ktris": 12
+      },
+      {
+        "label": "Scene:Sprite",
+        "calls": 7.8,
+        "ktris": 0
+      },
+      {
+        "label": "inst:Group:propbatch:coin_stack_small",
+        "calls": 6,
+        "ktris": 9
+      }
+    ]
+  },
+  "profileForeignLoadPct": 59.9,
+  "profile": {
+    "totalMs": 13037,
+    "foreignLoadPct": 59.9,
+    "buckets": [
+      [
+        "gl:setProgram/uniforms",
+        2561
+      ],
+      [
+        "other",
+        2387
+      ],
+      [
+        "animation(mixer/skinning)",
+        1557
+      ],
+      [
+        "gl:renderBufferDirect",
+        1097
+      ],
+      [
+        "gl:matrixWorld",
+        1038
+      ],
+      [
+        "sim:step",
+        1002
+      ],
+      [
+        "host:main3d",
+        825
+      ],
+      [
+        "host:renderer3d.update",
+        673
+      ],
+      [
+        "gl:texture upload",
+        648
+      ],
+      [
+        "gl:projectObject/sort",
+        644
+      ],
+      [
+        "host:plates/hud",
+        350
+      ],
+      [
+        "host:damage numbers",
+        150
+      ],
+      [
+        "idle",
+        49
+      ],
+      [
+        "fx",
+        33
+      ],
+      [
+        "gc",
+        20
+      ],
+      [
+        "gl:shadowmap",
+        4
+      ]
+    ],
+    "self": [
+      [
+        "(program) @:0",
+        2298
+      ],
+      [
+        "update @chunk-3AO7Z7HT.js:29394",
+        636
+      ],
+      [
+        "setProgram @chunk-3AO7Z7HT.js:17902",
+        442
+      ],
+      [
+        "uniformMatrix4fv @:0",
+        426
+      ],
+      [
+        "multiplyMatrices @chunk-3AO7Z7HT.js:3737",
+        395
+      ],
+      [
+        "updateMatrixWorld @chunk-3AO7Z7HT.js:4735",
+        391
+      ],
+      [
+        "update @renderer3d.ts:5601",
+        390
+      ],
+      [
+        "_setValue_fromArray_setMatrixWorldNeedsUpdate @chunk-3AO7Z7HT.js:28411",
+        379
+      ],
+      [
+        "stepMonster @ai.ts:1132",
+        351
+      ],
+      [
+        "gl.renderBufferDirect @:20",
+        318
+      ],
+      [
+        "evaluate @chunk-3AO7Z7HT.js:24718",
+        304
+      ],
+      [
+        "projectObject @chunk-3AO7Z7HT.js:17645",
+        301
+      ],
+      [
+        "texSubImage2D @:0",
+        294
+      ],
+      [
+        "upload @chunk-3AO7Z7HT.js:11573",
+        289
+      ],
+      [
+        "slerpFlat @chunk-3AO7Z7HT.js:1988",
+        202
+      ],
+      [
+        "shown @touchShell.ts:148",
+        192
+      ],
+      [
+        "bindVertexArray @:0",
+        180
+      ],
+      [
+        "updateBossBar @main3d.ts:1393",
+        166
+      ],
+      [
+        "setValueV1f @chunk-3AO7Z7HT.js:11035",
+        154
+      ],
+      [
+        "animate @:0",
+        145
+      ],
+      [
+        "refreshUniformsCommon @chunk-3AO7Z7HT.js:16538",
+        136
+      ],
+      [
+        "getProgram @chunk-3AO7Z7HT.js:17813",
+        134
+      ],
+      [
+        "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js:17366",
+        134
+      ],
+      [
+        "alertMonster @ai.ts:101",
+        124
+      ],
+      [
+        "frame @main3d.ts:6822",
+        124
+      ],
+      [
+        "setFromRotationMatrix @chunk-3AO7Z7HT.js:4277",
+        118
+      ],
+      [
+        "get offsetParent @:0",
+        117
+      ],
+      [
+        "bindTexture @:0",
+        114
+      ],
+      [
+        "setValueV3f @chunk-3AO7Z7HT.js:11055",
+        110
+      ],
+      [
+        "updateMatrixWorld @chunk-3AO7Z7HT.js:19189",
+        107
+      ]
+    ],
+    "incl": [
+      [
+        "(root) @:0",
+        13037
+      ],
+      [
+        "frame @main3d.ts:6822",
+        10325
+      ],
+      [
+        "render @three_examples_jsm_postprocessing_EffectComposer__js.js:128",
+        5935
+      ],
+      [
+        "R.composer.render @:30",
+        5935
+      ],
+      [
+        "render @renderer3d.ts:7710",
+        5935
+      ],
+      [
+        "WebGLRenderer.render @chunk-3AO7Z7HT.js:17558",
+        5919
+      ],
+      [
+        "render @three_examples_jsm_postprocessing_RenderPass__js.js:22",
+        5845
+      ],
+      [
+        "gl.renderBufferDirect @:20",
+        4306
+      ],
+      [
+        "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js:17366",
+        3988
+      ],
+      [
+        "renderObjects @chunk-3AO7Z7HT.js:17782",
+        3870
+      ],
+      [
+        "renderScene @chunk-3AO7Z7HT.js:17703",
+        3870
+      ],
+      [
+        "renderObject @chunk-3AO7Z7HT.js:17795",
+        3828
+      ],
+      [
+        "setProgram @chunk-3AO7Z7HT.js:17902",
+        3209
+      ],
+      [
+        "(program) @:0",
+        2298
+      ],
+      [
+        "update @renderer3d.ts:5601",
+        2218
+      ],
+      [
+        "g.userData.animTick @renderer3d.ts:2419",
+        1675
+      ],
+      [
+        "update @chunk-3AO7Z7HT.js:29394",
+        1642
+      ],
+      [
+        "setValue @chunk-3AO7Z7HT.js:11565",
+        1176
+      ],
+      [
+        "upload @chunk-3AO7Z7HT.js:11573",
+        1094
+      ],
+      [
+        "step @game.ts:6052",
+        1000
+      ],
+      [
+        "stepFloor @game.ts:6072",
+        976
+      ],
+      [
+        "setValueT1 @chunk-3AO7Z7HT.js:11237",
+        870
+      ],
+      [
+        "setTexture2D @chunk-3AO7Z7HT.js:14762",
+        807
+      ],
+      [
+        "WebGLShadowMap.render @chunk-3AO7Z7HT.js:13428",
+        778
+      ],
+      [
+        "renderObject @chunk-3AO7Z7HT.js:13571",
+        774
+      ],
+      [
+        "updateMatrixWorld @chunk-3AO7Z7HT.js:4735",
+        659
+      ],
+      [
+        "uploadTexture @chunk-3AO7Z7HT.js:14886",
+        648
+      ],
+      [
+        "projectObject @chunk-3AO7Z7HT.js:17645",
+        564
+      ],
+      [
+        "stepMonster @ai.ts:1132",
+        542
+      ],
+      [
+        "evaluate @chunk-3AO7Z7HT.js:24718",
+        503
+      ]
+    ]
+  },
+  "ablate": [
+    {
+      "cond": "anim_visible_only",
+      "p50": 24.6,
+      "mean": 50.13,
+      "calls": 524,
+      "crowd": 5,
+      "deltaPct": -61.2
+    },
+    {
+      "cond": "quarter_res",
+      "p50": 29.1,
+      "mean": 32.35,
+      "calls": 267,
+      "crowd": 5,
+      "deltaPct": -54.1
+    },
+    {
+      "cond": "half_res",
+      "p50": 29.4,
+      "mean": 35.19,
+      "calls": 267,
+      "crowd": 5,
+      "deltaPct": -53.6
+    },
+    {
+      "cond": "shadow_cadence_off",
+      "p50": 29.6,
+      "mean": 36.04,
+      "calls": 213,
+      "crowd": 5,
+      "deltaPct": -53.3
+    },
+    {
+      "cond": "anim_all_off",
+      "p50": 30.5,
+      "mean": 34.64,
+      "calls": 254,
+      "crowd": 3,
+      "deltaPct": -51.9
+    },
+    {
+      "cond": "smaa_off",
+      "p50": 31.3,
+      "mean": 34.53,
+      "calls": 264,
+      "crowd": 4,
+      "deltaPct": -50.6
+    },
+    {
+      "cond": "gtao_off",
+      "p50": 32.4,
+      "mean": 39.12,
+      "calls": 263,
+      "crowd": 4,
+      "deltaPct": -48.9
+    },
+    {
+      "cond": "post_all_off",
+      "p50": 32.6,
+      "mean": 35.88,
+      "calls": 242,
+      "crowd": 4,
+      "deltaPct": -48.6
+    },
+    {
+      "cond": "bloom_off",
+      "p50": 35.4,
+      "mean": 39.62,
+      "calls": 254,
+      "crowd": 4,
+      "deltaPct": -44.2
+    },
+    {
+      "cond": "fog_off",
+      "p50": 39.4,
+      "mean": 43.22,
+      "calls": 264,
+      "crowd": 5,
+      "deltaPct": -37.9
+    },
+    {
+      "cond": "hud_off",
+      "p50": 39.7,
+      "mean": 50.4,
+      "calls": 267,
+      "crowd": 4,
+      "deltaPct": -37.4
+    },
+    {
+      "cond": "base",
+      "p50": 63.4,
+      "mean": 63.99,
+      "calls": 1197,
+      "crowd": 71,
+      "deltaPct": 0
+    }
+  ]
+}

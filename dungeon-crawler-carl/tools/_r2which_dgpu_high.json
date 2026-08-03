@@ -1,0 +1,48 @@
+{
+  "adapter": "dgpu",
+  "mode": "high",
+  "secs": 2.5,
+  "reps": 3,
+  "sweepStart": {
+    "fires": 6,
+    "built": 1
+  },
+  "sweepEnd": {
+    "fires": 7,
+    "built": 1
+  },
+  "base": {
+    "n": 2148,
+    "fps": 71.14,
+    "delivered": 14.06,
+    "mean": 14.06,
+    "p50": 13,
+    "p90": 19.8,
+    "p99": 29,
+    "max": 84.4,
+    "over16": 20.2,
+    "over33": 0.5
+  },
+  "table": {
+    "nosweep": {
+      "ratios": [
+        0.9360770577933449,
+        1.0047106325706594,
+        1.0170582555519794
+      ],
+      "median": 1.005,
+      "savedPct": -0.5,
+      "savedMs": -0.07
+    },
+    "aoFullDenoise": {
+      "ratios": [
+        1.0163419233186677,
+        1.0917210580556511,
+        1.1026502426278462
+      ],
+      "median": 1.092,
+      "savedPct": -9.2,
+      "savedMs": -1.29
+    }
+  }
+}

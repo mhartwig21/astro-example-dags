@@ -1,0 +1,16 @@
+GPU: {"unmaskedRenderer":"ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)","unmaskedVendor":"Google Inc. (Intel)","devicePixelRatio":2,"screen":"1440x852","cores":16}
+
+===== PHASE B: COST =====
+blank page rAF cadence: {"n":475,"median":8.3,"min":7.9}
+
+-- CONTROL_f2_idle
+  boot: {"preset":"balanced","pixelRatio":1.2,"drawBuffer":"1728x1022","programs":149}
+  [idle gate] foreign browsers quiet (1% of box) after 17s
+  CONTROL_f2_idle: {"n":966,"median":24.9,"p90":25.1,"p95":25.2,"p99":33.4,"max":33.5,"mean":22.53,"over16_7":75.3,"over33":2.8,"firstThird":{"n":322,"median":24.9,"p90":25.1,"p95":25.2,"p99":33.3,"max":33.5,"mean":22.54,"over16_7":76.1,"over33":1.6},"lastThird":{"n":322,"median":24.9,"p90":25.1,"p95":25.2,"p99":33.4,"max":33.4,"mean":22.3,"over16_7":71.4,"over33":4.3},"spikeTimes":[],"presets":["balanced"],"pixelRatios":[1.2],"nearMedian":1,"foreignLoadPct":0.9,"idleGateOpened":true,"censusAtEnd":{"floor":2,"band":null,"monstersWithin11":1,"monstersOnScreen":1,"bossAlive":false,"bossDist":-1,"livingParticles":null,"preset":"balanced","pixelRatio":1.2,"triangles":1,"drawCalls":1,"loadingBox":{"w":0,"h":0}}}
+
+-- WORST_f17_dense_combat
+  boot: {"preset":"balanced","pixelRatio":1.2,"drawBuffer":"1728x1022","programs":175}
+  staged: {"placed":22,"liveTotal":205}
+  [idle gate] waiting before WORST_f17_dense_combat: 15 foreign browser procs burning 46.8% of the box
+  [idle gate] foreign browsers quiet (-3027.3% of box) after 587s
+  WORST_f17_dense_combat: {"n":321,"median":50.1,"p90":75.2,"p95":124.9,"p99":233.4,"max":1083,"mean":66.94,"over16_7":99.7,"over33":96.6,"firstThird":{"n":107,"median":58.3,"p90":175.1,"p95":216.5,"p99":1008.1,"max":1083,"mean":97.95,"over16_7":99.1,"over33":92.5},"lastThird":{"n":107,"median":50.1,"p90":66.6,"p95":66.8,"p99":75.1,"max":91.6,"mean":54.35,"over16_7":100,"over33":100},"spikeTimes":[704.3,762.6,1387.4,1504.1,1620.7,1695.6,1812.5,1953.9,2986.9,3037,3312,3528.5,3753.5,3961.8,4170.2,4303.4,4428.3,4528.4,4636.5,4703.2,4794.9,4869.8,5011.5,5086.7,5161.4,5228.1,6311.1,6369.5,6602.9,6802.9],"presets":["balanced"],"pixelRatios":[1.2],"nearMedian":106,"foreignLoadPct":0.6,"idleGateOpened":true,"censusAtEnd":{"floor":17,"band":null,"monstersWithin11":101,"monstersOnScreen":97,"bossAlive":false,"bossDist":-1,"livingParticles":null,"preset":"balanced","pixelRatio":1.2,"triangles":1,"drawCalls":1,"loadingBox":{"w":0,"h":0}}}

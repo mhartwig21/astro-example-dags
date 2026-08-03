@@ -1,0 +1,381 @@
+{
+  "meta": {
+    "gpu": {
+      "unmaskedRenderer": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "devicePixelRatio": 2,
+      "screen": "1440x852"
+    },
+    "boot2": {
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "drawBuffer": "1728x1022",
+      "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "programs": 149
+    }
+  },
+  "shots": [
+    {
+      "name": "r3_f2_environment",
+      "claim": "an Undercroft room, no combat",
+      "census": {
+        "floor": 2,
+        "monstersWithin11": 1,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 0,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 1,
+        "plate": {
+          "cls": "mplate r-ranged rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(79, 201, 232)"
+        }
+      }
+    },
+    {
+      "name": "r3_f8_environment",
+      "claim": "a Garden room, no combat",
+      "census": {
+        "floor": 8,
+        "monstersWithin11": 1,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 0,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 1,
+        "plate": {
+          "cls": "mplate r-melee rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_combat_0",
+      "claim": "floor-14 combat, abilities live",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 30,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 1,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-melee rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_combat_1",
+      "claim": "floor-14 combat, abilities live",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 30,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 1,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-melee rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_combat_2",
+      "claim": "floor-14 combat, abilities live",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 30,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 1,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-melee",
+          "opacity": 1,
+          "fillH": 4,
+          "fillW": 32,
+          "fillBg": "linear-gradient(rgb(224, 96, 79), rgb(169, 50, 38) 55%, rgb(",
+          "roleW": 4,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_combat_3",
+      "claim": "floor-14 combat, abilities live",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 33,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 3,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-melee rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_combat_4",
+      "claim": "floor-14 combat, abilities live",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 35,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 4,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-melee",
+          "opacity": 1,
+          "fillH": 4,
+          "fillW": 32,
+          "fillBg": "linear-gradient(rgb(224, 96, 79), rgb(169, 50, 38) 55%, rgb(",
+          "roleW": 4,
+          "roleBg": "rgb(216, 72, 58)"
+        }
+      }
+    },
+    {
+      "name": "r3_f14_character_crop",
+      "claim": "native-pixel crop of the mob pile",
+      "census": {
+        "floor": 14,
+        "monstersWithin11": 37,
+        "bossAlive": false,
+        "bossDist": -1,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 2,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 18,
+        "plate": {
+          "cls": "mplate r-caster rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(176, 139, 255)"
+        }
+      }
+    },
+    {
+      "name": "r3_f18_boss_0",
+      "claim": "the floor-18 boss ON SCREEN",
+      "census": {
+        "floor": 18,
+        "monstersWithin11": 2,
+        "bossAlive": true,
+        "bossDist": 4,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 0,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 3,
+        "plate": {
+          "cls": "mplate r-caster rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(176, 139, 255)"
+        }
+      }
+    },
+    {
+      "name": "r3_f18_boss_1",
+      "claim": "the floor-18 boss ON SCREEN",
+      "census": {
+        "floor": 18,
+        "monstersWithin11": 3,
+        "bossAlive": true,
+        "bossDist": 4,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 0,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 3,
+        "plate": {
+          "cls": "mplate r-caster rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(176, 139, 255)"
+        }
+      }
+    },
+    {
+      "name": "r3_f18_boss_2",
+      "claim": "the floor-18 boss ON SCREEN",
+      "census": {
+        "floor": 18,
+        "monstersWithin11": 4,
+        "bossAlive": true,
+        "bossDist": 3.2,
+        "preset": "balanced",
+        "pixelRatio": 1.2,
+        "drawCalls": 1,
+        "loadingBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "layers": {
+        "dmgCount": 0,
+        "dmgOverlapPairs": 0,
+        "dmgWorstOverlapFrac": 0,
+        "dmgTotalOverlapPx": 0,
+        "plateCount": 4,
+        "plate": {
+          "cls": "mplate r-ranged rest",
+          "opacity": 0.74,
+          "fillH": 3,
+          "fillW": 27,
+          "fillBg": "linear-gradient(rgb(240, 112, 92), rgb(192, 58, 44))",
+          "roleW": 3,
+          "roleBg": "rgb(79, 201, 232)"
+        }
+      }
+    }
+  ]
+}

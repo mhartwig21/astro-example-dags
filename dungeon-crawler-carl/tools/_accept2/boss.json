@@ -1,0 +1,107 @@
+[
+  {
+    "name": "ours_f18_boss_0",
+    "claim": "a floor-18 boss on screen mid-fight",
+    "census": {
+      "floor": 18,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": true,
+      "bossDist": 4.9,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f18_boss_1",
+    "claim": "a floor-18 boss on screen mid-fight",
+    "census": {
+      "floor": 18,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": true,
+      "bossDist": 11.9,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f18_boss_2",
+    "claim": "a floor-18 boss on screen mid-fight",
+    "census": {
+      "floor": 18,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": true,
+      "bossDist": 11.1,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f18_boss_3",
+    "claim": "a floor-18 boss on screen mid-fight",
+    "census": {
+      "floor": 18,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": true,
+      "bossDist": 11.1,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f18_boss_4",
+    "claim": "a floor-18 boss on screen mid-fight",
+    "census": {
+      "floor": 18,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": true,
+      "bossDist": 11.1,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  }
+]

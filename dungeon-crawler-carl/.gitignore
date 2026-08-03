@@ -20,3 +20,28 @@ tools/_mobile/*/
 # ...same rule for the competitive-screen probes (tools/_r2_measure.mjs and the
 # critic's own): the script is the artifact, the megabytes of PNG are not.
 tools/_critic/
+
+# Appearance/perf CAPTURE output (tools/lookshots.mjs, tools/spendab.mjs,
+# tools/perfbaseline.mjs, tools/surfacepreview.ts). Same rule as above: the
+# harness scripts are committed, the multi-megabyte PNG piles they emit are not.
+tools/_look*/
+tools/_spend*/
+tools/_baseline*/
+tools/_surface/
+tools/_vr.json
+# Paydown round captures (tools/perfbaseline.mjs --out, tools/paydown.mjs,
+# tools/staticmatrix.mjs): same rule — harness committed, output not.
+tools/_pay*/
+tools/_ab*/
+tools/_staticmatrix.png
+# r2 paydown captures: same rule again — harness committed, the PNG pile and
+# raw logs are not. The small JSON receipts ARE committed; they are the
+# evidence the round s numbers were read off.
+tools/_r2pay/*.png
+tools/_r2pay/*.log
+# r3 SPEND captures (tools/_r3look.mjs, tools/_r3dmg.mjs, and the acceptance
+# cost harness run per arm): same rule as every round above — the harnesses are
+# committed and so are the small JSON/log receipts the numbers were read off,
+# but the multi-megabyte PNG piles are not.
+tools/_r3look/*.png
+tools/_r3cost_*/*.png

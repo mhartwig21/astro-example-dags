@@ -123,14 +123,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
     doorFlankKey: "banner_red",
     mood: { // warm stone over deep blue-purple darks: the classic dungeon key
       ambient: 0x2e2a52, ambientIntensity: 0.56,
-      hemiSky: 0x4a4a7e, hemiGround: 0x2a1c10, hemiIntensity: 0.45,
+      hemiSky: 0x44499a, hemiGround: 0x2a1c10, hemiIntensity: 0.52,
       key: 0xffe8c4, keyIntensity: 2.2,
-      rim: 0x6a8cff, rimIntensity: 0.6,
+      rim: 0x5c86ff, rimIntensity: 0.85,
       envHorizon: 0xffb060, envIntensity: 0.35,
-      gradeShadow: 0x0b0916, gradeHighlight: 0xfff2dc, gradeSaturation: 1.06,
+      gradeShadow: 0x11102a, gradeHighlight: 0xfff2dc, gradeSaturation: 1.06,
       vignette: 0.34,
-      voidInner: 0x121022, voidOuter: 0x05050b,
+      voidInner: 0x1a1838, voidOuter: 0x0c0c22,
       fogDark: 0x0b0a18,
+      atmo: 0x4a62e0, atmoLevel: 0.0135, // torchlight against cold stone air
     },
   },
   {
@@ -183,14 +184,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
       // cool slate, so green mobs and the crawler separate from the ground
       // instead of drowning in one green wash.
       ambient: 0x24343f, ambientIntensity: 0.62,
-      hemiSky: 0x4a5c70, hemiGround: 0x0e1416, hemiIntensity: 0.5,
+      hemiSky: 0x3c6a86, hemiGround: 0x0e1416, hemiIntensity: 0.58,
       key: 0xe8e4c6, keyIntensity: 2.1, // warm-neutral key, not green
-      rim: 0x54a2cc, rimIntensity: 0.65,
+      rim: 0x40aad8, rimIntensity: 0.9,
       envHorizon: 0x7ea070, envIntensity: 0.3,
-      gradeShadow: 0x070d12, gradeHighlight: 0xf0eed8, gradeSaturation: 0.97,
+      gradeShadow: 0x0a1a24, gradeHighlight: 0xf0eed8, gradeSaturation: 0.97,
       vignette: 0.38,
-      voidInner: 0x0b1218, voidOuter: 0x030507,
+      voidInner: 0x0f2734, voidOuter: 0x071622,
       fogDark: 0x0a1218,
+      atmo: 0x1fb4ac, atmoLevel: 0.0125, // standing water breathing cold teal
     },
   },
   {
@@ -255,14 +257,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
     },
     mood: { // dusk over the treeline: amber sun low, blue hour creeping in
       ambient: 0x3a3c5e, ambientIntensity: 0.65,
-      hemiSky: 0x8088b8, hemiGround: 0x2a3018, hemiIntensity: 0.7,
+      hemiSky: 0x6f83d0, hemiGround: 0x2a3018, hemiIntensity: 0.78,
       key: 0xffd9a8, keyIntensity: 2.0,
-      rim: 0x8fb0ff, rimIntensity: 0.6,
+      rim: 0x82a8ff, rimIntensity: 0.85,
       envHorizon: 0xffac78, envIntensity: 0.45,
-      gradeShadow: 0x10121e, gradeHighlight: 0xffe8c8, gradeSaturation: 1.1,
+      gradeShadow: 0x161a30, gradeHighlight: 0xffe8c8, gradeSaturation: 1.1,
       vignette: 0.26,
-      voidInner: 0x141f1c, voidOuter: 0x060a09,
+      voidInner: 0x1b2740, voidOuter: 0x0d1428,
       fogDark: 0x142428, // blue-teal dusk shadow — dark woods, never black broccoli
+      atmo: 0x5878e8, atmoLevel: 0.0155, // the blue hour itself — the widest air
     },
   },
   {
@@ -307,15 +310,26 @@ export const FLOOR_THEMES: FloorTheme[] = [
     entranceProps: ["rubble_large", "rubble_half", "column", "weaponrack", "pot_large", "banner_brown"],
     doorFlankKey: "banner_brown",
     mood: { // ember light through smoke: warm ruin, umber darks
-      ambient: 0x372220, ambientIntensity: 0.56,
-      hemiSky: 0x5c4034, hemiGround: 0x180c06, hemiIntensity: 0.4,
+      ambient: 0x3a2a2e, ambientIntensity: 0.68,
+      hemiSky: 0x4a5a86, hemiGround: 0x180c06, hemiIntensity: 0.62,
       key: 0xffd0a0, keyIntensity: 2.15,
-      rim: 0x4a6a9a, rimIntensity: 0.55,
+      rim: 0x3f74b8, rimIntensity: 0.95,
       envHorizon: 0xff7830, envIntensity: 0.4,
-      gradeShadow: 0x0f0806, gradeHighlight: 0xffdfc2, gradeSaturation: 1.08,
+      // The one band whose darks stay WARM (umber ruin) — so the cool pole is
+      // carried entirely by the smoke in the air, which is exactly how backlit
+      // smoke behaves. Keeping the grade umber is what stops this district
+      // becoming a recolour of the Undercroft.
+      gradeShadow: 0x191210, gradeHighlight: 0xffdfc2, gradeSaturation: 1.08,
       vignette: 0.4,
-      voidInner: 0x180d08, voidOuter: 0x060302,
+      voidInner: 0x241c24, voidOuter: 0x12111e,
       fogDark: 0x120a06,
+      // The FIRST measurement of this round gave the Ruins the LOWEST air of any
+      // band, on the theory that its identity is "umber darks" — and floor 11
+      // came back at one hue cluster over a 30-degree arc, i.e. exactly the
+      // defect this round exists to remove, preserved out of respect for a
+      // caption. A band may be the warmest in the game and still have a cold
+      // pole; night air over embers is cold. It gets a real one.
+      atmo: 0x3f7ad8, atmoLevel: 0.0155,
     },
   },
   {
@@ -368,14 +382,15 @@ export const FLOOR_THEMES: FloorTheme[] = [
       // work-light surviving as rim + practicals, and a molten horizon so
       // even the deep dark smolders instead of reading as flat navy.
       ambient: 0x20304a, ambientIntensity: 0.58,
-      hemiSky: 0x4a6490, hemiGround: 0x1c1210, hemiIntensity: 0.45,
+      hemiSky: 0x3a6ba8, hemiGround: 0x1c1210, hemiIntensity: 0.54,
       key: 0xffd9a8, keyIntensity: 2.35,
-      rim: 0x50c8ff, rimIntensity: 0.7,
+      rim: 0x35cdff, rimIntensity: 1.05,
       envHorizon: 0xff7a30, envIntensity: 0.5,
-      gradeShadow: 0x070b13, gradeHighlight: 0xffe2c4, gradeSaturation: 1.06,
+      gradeShadow: 0x0a1524, gradeHighlight: 0xffe2c4, gradeSaturation: 1.06,
       vignette: 0.38,
-      voidInner: 0x0b1220, voidOuter: 0x030408,
+      voidInner: 0x0f2138, voidOuter: 0x061024,
       fogDark: 0x0a0e18,
+      atmo: 0x1ec4ff, atmoLevel: 0.0135, // the cyan work-light, filling the hall
     },
   },
   {
@@ -428,14 +443,18 @@ export const FLOOR_THEMES: FloorTheme[] = [
       // attack telegraphs and torch cores own it, and danger reads instantly
       // even on the blood floors (D2R/LoL hazard-red reservation).
       ambient: 0x2c2836, ambientIntensity: 0.56,
-      hemiSky: 0x4e4a60, hemiGround: 0x14101a, hemiIntensity: 0.45,
+      hemiSky: 0x554a86, hemiGround: 0x14101a, hemiIntensity: 0.52,
       key: 0xffd8c0, keyIntensity: 2.25,
-      rim: 0x8878c0, rimIntensity: 0.65,
+      rim: 0x8a6ee0, rimIntensity: 0.95,
       envHorizon: 0xd88850, envIntensity: 0.38,
-      gradeShadow: 0x0b0910, gradeHighlight: 0xffe0d0, gradeSaturation: 1.02,
+      gradeShadow: 0x131024, gradeHighlight: 0xffe0d0, gradeSaturation: 1.02,
       vignette: 0.42,
-      voidInner: 0x130e1a, voidOuter: 0x050206,
+      voidInner: 0x1d1636, voidOuter: 0x0e0a20,
       fogDark: 0x0e0c16,
+      // Violet, NOT red: the band reserves saturated red for attack telegraphs
+      // (the D2R/LoL hazard rule this district is built on), so its cool pole
+      // walks right up to the warning colour without ever entering it.
+      atmo: 0x7a5ce0, atmoLevel: 0.0130,
     },
   },
 ];
