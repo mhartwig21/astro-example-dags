@@ -980,7 +980,7 @@ function renderCareer(): void {
     `<div class="best"><b>${bests.mostKills.toLocaleString()}</b><small>MOST KILLS</small></div>` +
     `<div class="best"><b>${bests.peakViewers.toLocaleString()}</b><small>PEAK VIEWERS</small></div>`;
   document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
-    `<li><span class="rank">${r.mode === "daily" ? "◆" : "·"}</span>` +
+    `<li><span class="rank">${r.mode === "daily" ? '<i class="dia"></i>' : "·"}</span>` +
     `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
     `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${social.count(r.kills, "kill")}`}</span></li>`,
   ).join("");
@@ -1027,9 +1027,16 @@ function openMenu(): void {
     } else {
       document.getElementById("m-roam-title")!.textContent = "ROAM";
       document.getElementById("m-roam-sub")!.textContent =
-        "no clock — settlements, residents, contracts · solo campaign";
+        "no clock — settlements, residents, contracts";
     }
   }
+  // THERE IS EXACTLY ONE PRIMARY (r2 blocker). CONTINUE and DESCEND are the
+  // same bespoke shape and are mutually exclusive: when there is a run to
+  // resume, resuming is the headline and a fresh seed steps down to the quiet
+  // outlined variant. When there is not, DESCEND is the headline. A screen
+  // with two filled-gold actions has none.
+  document.getElementById("m-solo")!.classList
+    .toggle("demoted", getComputedStyle(cont).display !== "none");
   document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
@@ -2141,7 +2148,7 @@ const mic = (rel: string): string =>
 const REWARD_GLYPHS: Record<string, string> = {
   healFull: mic("stats/hp"), maxHp: mic("stats/hp"), damage: uic("party"),
   crit: mic("stats/crit"), armor: mic("stats/armor"), item: mic("items/mystery_box"),
-  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: "◆",
+  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: mic("items/refit_shard"),
   favor: uic("star"), retrain: uic("retrain"),
   shrineBlood: mic("items/blood_subscription"), shrineGreed: coinIcon, shrineDecline: "—",
   revision: mic("items/landlords_ledger"), revisionDecline: "—",
@@ -2157,8 +2164,9 @@ function renderDraft(s: GameState): void {
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
     const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "◆ CLASS REVISION" : shrine ? "◆ SYSTEM SHRINE"
-      : quest ? "◆ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
+    // The leading gem is drawn by the shared panel-title rule, not typed.
+    draftTitle.textContent = revision ? "CLASS REVISION" : shrine ? "SYSTEM SHRINE"
+      : quest ? "TRIBE BOUNTY" : "SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -2181,7 +2189,7 @@ function renderDraft(s: GameState): void {
         const art = r.item && r.item.catalogId
           ? `<img class="ii" src="/icons/painted/items/${r.item.catalogId}.svg" alt="">`
           : r.glyph ? glyphIconHtml(r.glyph)
-          : `<span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span>`;
+          : `<span class="oglyph">${REWARD_GLYPHS[r.kind] ?? '<i class="dia"></i>'}</span>`;
         return (
           `<div class="reward" data-idx="${i}"${tint}>` +
           `<div class="oicon">${art}</div>` +
@@ -2196,15 +2204,16 @@ function renderDraft(s: GameState): void {
       .join("");
   } else {
     draftEl.classList.add("levelup");
-    draftTitle.textContent = "◆ LEVEL UP";
+    draftTitle.textContent = "LEVEL UP";
     draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
       .map((u, i) => {
         const info = ABILITY_INFO[u.ability];
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
-        // Overrank offers extend the pip row past the printed max with stars.
+        // Overrank offers extend the pip row past the printed max — DRAWN
+        // pips, not typed U+2726/25CF/25CB (project rule 3).
         const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
-          r < u.nextRank ? (r >= max ? "✦" : "●") : "○").join("");
+          `<i class="${r < u.nextRank ? (r >= max ? "on over" : "on") : ""}"></i>`).join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
           `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
@@ -2301,16 +2310,30 @@ function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): strin
   );
 }
 
-/** An empty slot HOLDS ITS PLACE: filled rows were ~62px and "armor: empty"
- * was a ~26px bar, so the equipped column's rhythm broke and the shape of your
- * kit changed as you geared. LoL and D4 keep a fixed paper doll. */
-function emptySlotHtml(slot: string): string {
+/**
+ * ONE EMPTY EQUIPMENT SLOT IN THE PRODUCT (r2 major).
+ *
+ * The same six slots were drawn two ways in two panels 40px of hotkey apart:
+ * the inventory printed "BOOTS / empty" beside a socket well AND a right-
+ * aligned "BOOTS" — the slot name twice on one row — while the profile printed
+ * a single centred "NO BOOTS EQUIPPED" with no well and no label. Two empty
+ * states, two layouts, one data model.
+ *
+ * One layout: the recessed socket, the slot named ONCE where a filled row
+ * names the item, and the System's line where a filled row lists affixes. The
+ * right-hand slot tag exists to disambiguate a FILLED row (whose headline is
+ * the item's name, not the slot's) — an empty row's headline is already the
+ * slot, so repeating it was pure noise.
+ */
+function emptySlotHtml(slot: string, cls = "item"): string {
+  const box = cls === "item" ? "ibox" : "gbox";
+  const name = cls === "item" ? "name" : "gname";
+  const sub = cls === "item" ? "affixes" : "gaff";
   return (
-    `<div class="item empty rar-common">` +
-    `<div class="ibox"></div>` +
-    `<div class="itext"><div class="name">${slot}</div>` +
-    `<div class="affixes">empty</div></div>` +
-    `<div class="slot">${slot}</div>` +
+    `<div class="${cls} empty none slot-empty rar-common">` +
+    `<div class="${box}"></div>` +
+    `<div class="itext"><div class="${name}">${slot}</div>` +
+    `<div class="${sub}">empty</div></div>` +
     `</div>`
   );
 }
@@ -2378,6 +2401,15 @@ invBag.addEventListener("click", (e) => {
 // ---- Ability tree panel (pauses the game while open) ----
 const abilEl = document.getElementById("abil")!;
 const abilGrid = document.getElementById("abil-grid")!;
+const abilIndex = document.getElementById("abil-index")!;
+// The index rail selects the ability on stage. One listener, delegated, so a
+// re-render never has to re-bind anything.
+abilIndex.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-ab-sel]") as HTMLElement | null;
+  if (!b) return;
+  abilSel = b.dataset.abSel as AbilityId;
+  renderAbilities(state);
+});
 let abilOpen = false;
 
 function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
@@ -2443,7 +2475,7 @@ function discoverTeaserHtml(s: GameState): string {
     ults > 0 ? `${ults} ultimate${ults === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" · ");
   return (
-    `<div class="acard discover"><span class="dstar">✦</span>` +
+    `<div class="acard discover"><i class="dstar"></i>` +
     `<div><div class="ahname">${unknown.length} ${unknown.length === 1 ? "ability" : "abilities"} left to discover</div>` +
     `<div class="ahblurb">${breakdown} — tomes drop in the dungeon, or buy one in the shop</div></div>` +
     `</div>`
@@ -2686,14 +2718,78 @@ function setAbilView(v: AbilView): void {
   if (document.getElementById("saferoom")!.style.display !== "none") renderAbilPage(state);
 }
 
-/** The known roster in either view, plus the undiscovered teaser. */
+/** The known roster in either view, plus the undiscovered teaser. The safe
+ * room's ABILITIES tab still shows the whole roster — it is the --set-xl panel
+ * and it has the room. The T panel shows ONE (see abilStageHtml). */
 function abilBodyHtml(s: GameState): string {
   const p = me(s);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  const body = abilView === "graph"
-    ? known.map((id) => constellationCardHtml(s, id)).join("")
-    : known.map((id) => abilityCard(s, id)).join("");
+  const body = knownAbilities(p).map((id) =>
+    abilView === "graph" ? constellationCardHtml(s, id) : abilityCard(s, id)).join("");
   return body + discoverTeaserHtml(s);
+}
+
+function knownAbilities(p: Player): AbilityId[] {
+  return [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+}
+
+/**
+ * THE CONSTELLATION IS AN INDEX AND A STAGE (r2 blocker).
+ *
+ * r1 made this panel four pages and then handed the chart page to
+ * `overflow-y: auto`. Measured, the pane overflowed by +2708/+2221/+1752 on
+ * LIST and +2972/+2810/+1856 on STAR CHART: a player at 1366 saw roughly one
+ * fifth of the screen they opened, and the shipped frames cut the Bolt and
+ * Collapse cards mid-word. A scroller is not a fit.
+ *
+ * So: a rail of every ability you know on the left, ONE ability's card filling
+ * the panel on the right. A card measures ~478px at 1366 in a ~580px stage, so
+ * it fits at the SMALLEST viewport in both views — and 1440p now spends its
+ * extra pixels making that card bigger instead of squeezing three across and
+ * collapsing the description column to 90px.
+ */
+let abilSel: AbilityId | null = null;
+
+function abilIndexHtml(s: GameState): string {
+  const p = me(s);
+  const known = knownAbilities(p);
+  const row = (id: AbilityId): string => {
+    const info = ABILITY_INFO[id];
+    const nodes = UPGRADES.filter((u) => u.ability === id);
+    // Progress is "how many of this tree's nodes are lit", which is the one
+    // number a chooser needs and neither view showed outside the card.
+    const taken = nodes.filter((u) => rank(p, u.id) > 0).length;
+    const pips = nodes.map((_, i) => `<i class="${i < taken ? "on" : ""}"></i>`).join("");
+    return (
+      `<button type="button" class="aidx${id === abilSel ? " on" : ""}" data-ab-sel="${id}" ` +
+      `title="${esc(info.name)} — ${info.blurb}">` +
+      `<i class="aidx-ic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+      `<span class="aidx-t">${esc(info.name)}</span>` +
+      `<span class="aidx-p">${pips}</span></button>`
+    );
+  };
+  const actives = known.filter((id) => ABILITY_INFO[id].tier !== "ultimate");
+  const ults = known.filter((id) => ABILITY_INFO[id].tier === "ultimate");
+  const undiscovered = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES]
+    .filter((id) => !knows(p, id));
+  return (
+    (actives.length ? `<div class="aidx-h">THE FIVE</div>${actives.map(row).join("")}` : "") +
+    (ults.length ? `<div class="aidx-h">ULTIMATE</div>${ults.map(row).join("")}` : "") +
+    (undiscovered.length
+      ? `<div class="aidx-h">UNCHARTED</div>` +
+        `<div class="aidx locked" title="found as tomes in the dungeon">` +
+        `<i class="aidx-ic" style="mask-image:url(/icons/items/mystery_box.svg);-webkit-mask-image:url(/icons/items/mystery_box.svg)"></i>` +
+        `<span class="aidx-t">${undiscovered.length} unfound</span></div>`
+      : "")
+  );
+}
+
+/** The stage: exactly one card, in whichever view is selected. */
+function abilStageHtml(s: GameState): string {
+  const p = me(s);
+  const known = knownAbilities(p);
+  if (known.length === 0) return discoverTeaserHtml(s);
+  if (!abilSel || !known.includes(abilSel)) abilSel = known[0];
+  return abilView === "graph" ? constellationCardHtml(s, abilSel) : abilityCard(s, abilSel);
 }
 
 for (const el of document.querySelectorAll(".amode")) {
@@ -2806,69 +2902,34 @@ const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
 /**
- * THE CONSTELLATION'S REAL FAILURE WAS NAVIGATION.
+ * THE CONSTELLATION'S REAL FAILURE WAS NAVIGATION — and r1 only half-fixed it.
  *
- * Four rounds called this "a fixed-size spine scaled down until it is
- * unreadable". Measured, that was wrong on both counts: `#abil .grid` is a
- * two-column block flow of 332px ability cards, entirely legible, and its only
- * interactive elements — the SLOT/BENCH buttons — already clear 44px. The 8x8
- * rank pips are display only; ranks come from level-up drafts, not from
- * tapping the chart.
- *
- * What actually broke was reach: a 1,492px card grid inside a 295px panel,
- * 1,847px of total scroll once achievements and run stats are counted, and no
- * way to get to a named ability except thumbing through everything. So the fix
- * is an index, not a canvas rewrite and not pan-and-pinch: a sticky rail of
- * every ability you know, one tap to its card.
+ * r1 built a touch-only `.tp-rail` (a sticky strip of icon buttons that
+ * SCROLLED to a card) and left the desktop with 3,000px of hidden document. An
+ * index that only exists on a phone is not an index. `.aindex` replaces it on
+ * every pointer type, it SELECTS instead of scrolling, and the pane it selects
+ * into does not scroll at all.
  */
-let abilRail: HTMLElement | null = null;
-function buildAbilRail(): void {
-  // Touch-only furniture. It used to be inserted on every host and styled on
-  // none of them but a coarse pointer, which put sixteen unstyled grey browser
-  // buttons under the tab row of every desktop constellation (r1 blocker).
-  if (!matchMedia("(pointer: coarse)").matches) return;
-  const panel = abilEl.querySelector(".panel");
-  if (!panel) return;
-  if (!abilRail) {
-    abilRail = document.createElement("div");
-    abilRail.className = "tp-rail";
-    abilRail.addEventListener("click", (e) => {
-      const b = (e.target as HTMLElement).closest("button[data-jump]") as HTMLElement | null;
-      if (!b) return;
-      e.preventDefault();
-      const card = abilGrid.querySelector(`.acard[data-ab="${b.dataset.jump}"]`);
-      card?.scrollIntoView({ block: "start", behavior: "smooth" });
-      for (const k of Array.from(abilRail!.children)) k.classList.toggle("on", k === b);
-    });
-    panel.insertBefore(abilRail, abilGrid);
-  }
-  const known = Array.from(abilGrid.querySelectorAll<HTMLElement>(".acard[data-ab]"))
-    .map((c) => c.dataset.ab!);
-  abilRail.innerHTML = known.map((id) =>
-    `<button type="button" data-jump="${id}" aria-label="${ABILITY_INFO[id as AbilityId].name}" ` +
-    `title="${ABILITY_INFO[id as AbilityId].name}">` +
-    `<i style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
-    `</button>`).join("");
-}
-
 function renderAbilities(s: GameState): void {
   abilGrid.classList.toggle("graphs", abilView === "graph");
-  abilGrid.innerHTML = abilBodyHtml(s);
+  // THE SKY BELONGS TO THE STAR CHART AND NOTHING ELSE (r2 major). r1 put the
+  // night field on `#abil .panel`, so the LIST view, the achievements grid and
+  // the RUN STATS table were all cool-violet surfaces in a product whose first
+  // surface rule is "warm stone, never blue" — and the token comment
+  // sanctioning the exception says it is for "the one surface whose SUBJECT is
+  // a sky". A settings-style table is not that surface, and neither is a list.
+  document.querySelector('#abil .apane[data-pane="chart"]')!
+    .classList.toggle("chartsky", abilView === "graph");
+  abilIndex.innerHTML = abilIndexHtml(s);
+  abilGrid.innerHTML = abilStageHtml(s);
   // Achievements are a PAGE now, so what a disabled run hides is the tab —
   // the pane's own display belongs to setAbilPage.
   const achTab = document.querySelector<HTMLElement>('#abil .apage[data-page="ach"]');
   if (achTab) achTab.style.display = CONFIG.achievementsEnabled ? "" : "none";
   if (!CONFIG.achievementsEnabled && abilPage === "ach") setAbilPage("chart");
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
-  achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = me(s).achievements.includes(a.id);
-    return (
-      `<div class="ach${got ? "" : " locked"}">` +
-      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
-      `<div class="adesc">${a.desc}</div>` +
-      `</div>`
-    );
-  }).join("");
+  // ONE renderer, one grid, one card — see achievementsGridHtml.
+  achGrid.innerHTML = achievementsGridHtml(s);
   // Run stats: one row per party member (solo runs show just the local player).
   const localId = me(s).id;
   statsRows.innerHTML = s.players.map((p) => {
@@ -2887,9 +2948,39 @@ function renderAbilities(s: GameState): void {
   }).join("");
 }
 
+/**
+ * THE ACHIEVEMENT GRID, ONCE (r2 blocker).
+ *
+ * The same thirteen achievements shipped TWICE with two entirely different
+ * designs: 4-up warm-stone cards ~195x90 with a "PAYS +N gold · +N hype"
+ * footer and an OPEN LOOT BOX button in the safe room, and 2-up (3-up at 1600)
+ * midnight-sky cards ~315x54 with no payout line and no claim action in the
+ * constellation. Same data, two grids, two materials, two column counts, two
+ * card heights — and one of them silently dropped both the reward and the
+ * verb. The code comment on the T panel claimed this had been fixed.
+ *
+ * One function, one class, one grid. Both mount points call this.
+ */
+function achievementsGridHtml(s: GameState): string {
+  const p = me(s);
+  return ACHIEVEMENTS.map((a) => {
+    const got = p.achievements.includes(a.id);
+    const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
+    return (
+      `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
+      `<div class="adesc">${a.desc}</div>` +
+      (unopened
+        ? `<button class="claim-btn" data-claim="${a.id}"><i class="dia"></i> OPEN LOOT BOX</button>`
+        : `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>`) +
+      `</div>`
+    );
+  }).join("");
+}
+
 function toggleAbilities(): void {
   abilOpen = !abilOpen;
-  if (abilOpen) { renderAbilities(state); buildAbilRail(); showOverlay(abilEl); }
+  if (abilOpen) { renderAbilities(state); showOverlay(abilEl); }
   else hideOverlay(abilEl);
 }
 
@@ -2913,7 +3004,8 @@ const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
 function gearRowHtml(slot: ItemSlot, it: Item | null): string {
-  if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
+  // The profile's empty slot is the inventory's empty slot — see emptySlotHtml.
+  if (!it) return emptySlotHtml(slot, "gear-row");
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const icon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = itemColor(it);
@@ -4128,9 +4220,11 @@ function renderSafeRoom(s: GameState): void {
   // and no DESCEND (you're mid-floor; the exit is the door you came in by).
   const roamShop = !s.safeRoom;
   const settlement = roamShop ? settlementAt(s, p.pos) : null;
+  // The leading diamond is DRAWN by the shared panel-title rule (project
+  // rule 3: icons are drawn, never typed) — it is not in the copy any more.
   srEl.querySelector("h2")!.textContent = roamShop
-    ? `◆ ${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
-    : "◆ SAFE ROOM";
+    ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
+    : "SAFE ROOM";
   srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
   srTip.textContent = room.tip ||
     (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
@@ -4409,23 +4503,13 @@ function renderAchPage(s: GameState): void {
   srAchCount.textContent =
     `THE SYSTEM RECOGNIZES — ${p.achievements.length} / ${ACHIEVEMENTS.length} UNLOCKED` +
     (unclaimed > 0 ? ` · ${unclaimed} LOOT BOX${unclaimed === 1 ? "" : "ES"} WAITING` : "");
-  srAch.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = p.achievements.includes(a.id);
-    const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
-    return (
-      `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
-      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
-      `<div class="adesc">${a.desc}</div>` +
-      (unopened
-        ? `<button class="claim-btn" data-claim="${a.id}">◆ OPEN LOOT BOX</button>`
-        : `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>`) +
-      `</div>`
-    );
-  }).join("");
+  srAch.innerHTML = achievementsGridHtml(s);
 }
 
-// ACHIEVEMENTS tab: open a claimed-but-unopened achievement's loot box.
-srAch.addEventListener("click", (e) => {
+// Open a claimed-but-unopened achievement's loot box. BOTH mount points get
+// the verb now — the constellation's copy used to render the same thirteen
+// cards with the payout line and the claim button silently dropped.
+function claimLootBox(e: Event): void {
   const btn = (e.target as HTMLElement).closest("button[data-claim]") as HTMLButtonElement | null;
   if (!btn) return;
   const id = btn.dataset.claim!;
@@ -4439,7 +4523,10 @@ srAch.addEventListener("click", (e) => {
     persistRun(state);
   }
   renderAchPage(state);
-});
+  if (abilOpen) renderAbilities(state);
+}
+srAch.addEventListener("click", claimLootBox);
+achGrid.addEventListener("click", claimLootBox);
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
 // Bag density thresholds: item counts at which the bag grid steps down a tile
@@ -6346,7 +6433,7 @@ function showTutorialCard(a: Announcement): void {
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
-    `<div class="tut-head">◆ SYSTEM — COURTESY EXPLANATION</div>` +
+    `<div class="tut-head"><i class="dia"></i> SYSTEM — COURTESY EXPLANATION</div>` +
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -9750,7 +9837,7 @@ async function main(): Promise<void> {
       // Count DRAFTS, not cards: one open pick per pending set + the owed queue.
       const banked = (rewardN > 0 ? 1 : 0) + (upgradeN > 0 ? 1 : 0) + lp.upgradeDraftsOwed;
       draftBadge.style.display = "flex";
-      draftBadge.innerHTML = `◆ DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
+      draftBadge.innerHTML = `<i class="dia"></i> DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
       draftIdleSec += dt;
       if (draftIdleSec > 45 && !draftNagged) {
         draftNagged = true; // once per run: banked power is still YOUR power to claim
