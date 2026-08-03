@@ -329,6 +329,24 @@ export class FxParticles {
   private now = 0;
   private addPool: Pool;
   private alphaPool: Pool;
+  // CAMERA-SIDE BIAS for the impact kit (combat FX r1). The 200ms filmstrip
+  // (tools/_r1strip.mjs) caught the contact frame EMPTY at t+8ms: flash3 is
+  // spawned at the struck monster's center, so the hot core and the spiked
+  // star are born INSIDE the body and depth-tested away until they outgrow
+  // the silhouette ~40ms later — the exact frames where LoL impacts peak.
+  // Nudging the kit toward the camera clears the torso without touching the
+  // world position the player reads the hit at.
+  private biasX = 0;
+  private biasY = 0;
+  private biasZ = 0;
+
+  /** World-space camera direction; the impact kit spawns `dist` toward it. */
+  setCamBias(x: number, y: number, z: number, dist = 0.55): void {
+    const l = Math.hypot(x, y, z) || 1;
+    this.biasX = (x / l) * dist;
+    this.biasY = (y / l) * dist;
+    this.biasZ = (z / l) * dist;
+  }
 
   constructor() {
     const map = atlasTexture();
@@ -425,21 +443,26 @@ export class FxParticles {
     // its 2-frame life (that IS the contact read); the star + rim layers stay
     // saturated mid/deep hue so the flash silhouette keeps its school color.
     // De-stacking (claimFlash) guarantees only one kit per spot per beat.
-    // White-hot core: a 2-frame contact card — small, hard falloff, hands
-    // off to color in ~70ms. This is the "hot flash card" of the impact kit.
+    // The whole kit rides the camera bias (see setCamBias): the filmstrip
+    // proved a kit at body-center is invisible exactly at contact.
+    const bx = x + this.biasX, by = y + this.biasY, bz = z + this.biasZ;
+    // White-hot core: the CONTACT CARD. r1: 0.07s at 0.2x was gone before a
+    // 60Hz player saw two frames of it and too small to register over a busy
+    // silhouette — the hit's t=0 read is this card, so it gets ~90ms and real
+    // area, and hands off to color while the star is still growing.
     this.spawn({
-      x, y, z, life: 0.07, size0: size * 0.2, size1: size * 0.3,
-      col0: pal.core, col1: pal.mid, fadeIn: 0.015, dim: 0.7, tex: TEX_CORE,
+      x: bx, y: by, z: bz, life: 0.09, size0: size * 0.3, size1: size * 0.42,
+      col0: pal.core, col1: pal.mid, fadeIn: 0.012, dim: 0.8, tex: TEX_CORE,
     });
     // Saturated mid: the spiked star IS the shape language; slight spin-in.
     this.spawn({
-      x, y, z, life: 0.17, size0: size * 0.6, size1: size * 1.15,
+      x: bx, y: by, z: bz, life: 0.17, size0: size * 0.6, size1: size * 1.15,
       col0: pal.mid, col1: pal.rim, fadeIn: 0.02, dim: 0.62,
       rot: Math.random() * 6.28, tex: TEX_STAR,
     });
     // Deep rim: a dim narrow halo that grounds the flash in its school color.
     this.spawn({
-      x, y, z, life: 0.26, size0: size * 0.6, size1: size * 1.25,
+      x: bx, y: by, z: bz, life: 0.26, size0: size * 0.6, size1: size * 1.25,
       col0: pal.mid, col1: pal.rim, fadeIn: 0.04, dim: 0.2, tex: TEX_SOFT,
     });
   }

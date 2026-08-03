@@ -2272,6 +2272,11 @@ export class Renderer3D {
     this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group, this.aoe.group);
     this.scene.add(this.bossFx.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
+    // Combat FX r1: the impact kit and the swing arc spawn nudged toward the
+    // camera so the CONTACT frame reads instead of being depth-tested away
+    // inside the struck body (see fxParticles/fxTrails setCamBias notes).
+    this.fxp.setCamBias(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
+    this.swingArcs.setCamBias(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
     // Post chain. HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
     // A DepthTexture rides along so the RenderPass's depth SURVIVES the frame
@@ -9639,8 +9644,12 @@ export class Renderer3D {
         this.overkillMarks.push({ x: h.pos.x, y: h.pos.y, dir: h.dir, t: 0.5 });
       }
       // Big deaths flash real light into the world (small kills stay cheap).
+      // r1 trim: 4.5 over half a second read as a bonfire that outlived the
+      // kill (and with the old late-peaking envelope, arrived after it) — the
+      // punctuation is the SNAP, so the peak comes down a step and the decay
+      // is shorter. The overkill hit-stop + corpse launch carry the weight.
       if (h.killed && h.kind !== "player" && (h.overkill || h.kind === "crit")) {
-        this.spawnFxLight(h.pos.x, h.pos.y, color, h.overkill ? 4.5 : 2.8, h.overkill ? 0.5 : 0.32);
+        this.spawnFxLight(h.pos.x, h.pos.y, color, h.overkill ? 3.6 : 2.6, h.overkill ? 0.38 : 0.3);
       }
     }
   }
@@ -9848,8 +9857,16 @@ export class Renderer3D {
       if (s.life >= s.max) { s.light.intensity = 0; continue; }
       anyLive = true;
       s.life += dt;
-      const t = Math.min(1, s.life / s.max);
-      const env = t < 0.12 ? t / 0.12 : (1 - (t - 0.12) / 0.88) ** 2;
+      // ATTACK IS ABSOLUTE, NOT A FRACTION (combat FX r1). `t/0.12` meant a
+      // 0.5s overkill light reached peak 60ms AFTER the blow — the filmstrip
+      // showed the frame BRIGHTENING through the whole 200ms window while the
+      // contact frame itself sat dark, which is the LoL rhythm inverted. A
+      // light now snaps up within ~30ms whatever its length, and spends the
+      // rest decaying — impact first, afterglow second.
+      const riseS = Math.min(0.03, s.max * 0.12);
+      const env = s.life < riseS
+        ? s.life / riseS
+        : (1 - (s.life - riseS) / Math.max(s.max - riseS, 1e-4)) ** 2;
       // Fire flicker on the decay: the floor pool breathes like burning
       // aftermath instead of holding a flat neutral ellipse (critic r2).
       const flick = 0.84 + 0.16 * Math.sin(s.life * 43 + s.peak * 13);

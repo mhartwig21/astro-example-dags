@@ -103,6 +103,22 @@ export class SwingArcs {
   readonly group = new THREE.Group();
   private slots: ArcSlot[] = [];
   private geo = arcGeometry();
+  // CAMERA-SIDE BIAS (combat FX r1). The r1 filmstrip staged a swing edge and
+  // the arc appeared in NO frame of the 200ms: at torso height (y 0.74) the
+  // crescent sweeps INTO the monsters being hit and the depth test eats it —
+  // the one effect that says "you swung" was invisible in every melee. Same
+  // cure as the impact kit: lift the arc toward the camera so it clears the
+  // bodies it crosses, without giving up depth-testing against the world.
+  private biasX = 0;
+  private biasY = 0;
+  private biasZ = 0;
+
+  setCamBias(x: number, y: number, z: number, dist = 0.85): void {
+    const l = Math.hypot(x, y, z) || 1;
+    this.biasX = (x / l) * dist;
+    this.biasY = (y / l) * dist;
+    this.biasZ = (z / l) * dist;
+  }
 
   /** Fire a swing arc at (x,z) facing `yaw`; mirror flips the sweep direction
    * (alternate per combo swing so back-and-forth slashes read). */
@@ -138,7 +154,7 @@ export class SwingArcs {
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(hex);
     slot.mat.uniforms.uProg.value = 0;
     slot.mesh.visible = true;
-    slot.mesh.position.set(x, 0.74, z);
+    slot.mesh.position.set(x + this.biasX, 0.74 + this.biasY, z + this.biasZ);
     slot.mesh.rotation.y = yaw;
     slot.mesh.scale.set(mirror ? -scale : scale, scale, scale);
   }

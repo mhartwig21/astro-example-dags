@@ -10572,13 +10572,18 @@ async function main(): Promise<void> {
       // hang for drama, ordinary kills get a couple of frames. Non-kill CRITS
       // get a single-frame tick (the accumulator cap keeps flurries sane), and
       // OVERKILL blows hang longest — deleting something should feel like it.
+      // Combat FX r1: retuned toward BACKLOG #15.1's approved 60-90ms band for
+      // crits/kill blows. The old 22/35/60ms sat under two 60Hz frames for the
+      // common cases — a freeze nobody perceives is latency, not weight. The
+      // caps are the horde guard and they DON'T move: a flurry saturates at
+      // 120-140ms total exactly as before, it just gets there in fewer hits.
       for (const h of frameHits) {
         if (h.overkill) { hitStop = Math.min(0.14, hitStop + 0.1); continue; }
         if (!h.killed) {
-          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.022);
+          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.045);
           continue;
         }
-        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
+        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.09 : h.kind === "player" ? 0.09 : 0.06));
       }
 
       saveAcc += dt;
