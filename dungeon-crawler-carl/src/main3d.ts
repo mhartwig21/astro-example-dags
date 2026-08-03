@@ -50,6 +50,7 @@ import {
   type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref, type TouchPrefs,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
+import { QUALITY_PRESETS, type QualityChoice } from "./render3d/quality";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
@@ -3325,6 +3326,63 @@ kbCamZoom.addEventListener("click", () => {
 });
 renderCamZoom();
 
+// PERFORMANCE MODE (quality.ts). Three modes with measured contracts, plus
+// AUTO. Applies instantly — no reload — because every field a mode owns is a
+// buffer resize or a pass toggle; nothing here recompiles a shader (the light
+// pools are deliberately excluded from the ladder for exactly that reason).
+//
+// THE CYCLE PUTS AUTO FIRST because it is the honest default, then walks
+// cheapest-to-best so the row reads like a ladder.
+const PERF_CYCLE: QualityChoice[] = ["auto", "low", "medium", "high"];
+const kbPerfMode = document.getElementById("kb-perfmode")!;
+const kbPerfNote = document.getElementById("kb-perfmode-note")!;
+function renderPerfMode(): void {
+  const choice = renderer.qualitySetting;
+  const live = renderer.qualityProfile;
+  // AUTO names the mode it has actually landed on. "AUTO" alone would hide the
+  // one fact a player checking this row wants: what am I running right now?
+  kbPerfMode.textContent = choice === "auto" ? `AUTO · ${live.label}` : live.label;
+  kbPerfNote.textContent = choice === "auto"
+    ? `measures your machine and chooses — now on ${live.label}: ${live.contract.promise}`
+    : live.contract.promise;
+}
+kbPerfMode.addEventListener("click", () => {
+  const cur = renderer.qualitySetting;
+  const next = PERF_CYCLE[(PERF_CYCLE.indexOf(cur) + 1) % PERF_CYCLE.length];
+  renderer.setQuality(next);
+  renderPerfMode();
+  pushLogLine(next === "auto"
+    ? "PERFORMANCE MODE: AUTO. The System will pick, and will tell you when it does."
+    : `PERFORMANCE MODE: ${QUALITY_PRESETS[next].label} — ${QUALITY_PRESETS[next].contract.promise}.`);
+});
+// The tuner can move the mode under AUTO, so the row repaints itself instead of
+// going stale until the next click.
+renderer.setQualityListener(() => renderPerfMode());
+//
+// AND IF THE TUNER MOVES YOU, YOU ARE TOLD. The requirement this satisfies:
+// "the auto-tuner must not silently drag a player out of the mode they chose;
+// if it steps down, that is a visible thing, not a secret."
+//
+// Two cases, and they are genuinely different:
+//   AUTO      — the player delegated the choice, so the mode DOES change, and
+//               the log says what changed and what the evidence was.
+//   PINNED    — the player made the choice, so NOTHING changes. The tuner is
+//               reduced to an advisor and says, once, what it would have done.
+renderer.setQualityNoticeListener((n) => {
+  const to = QUALITY_PRESETS[n.to].label;
+  const fps = Math.round(1000 / Math.max(1, n.meanMs));
+  if (n.kind === "auto") {
+    pushLogLine(`PERFORMANCE MODE: stepped down to ${to} — this machine was averaging `
+      + `${n.meanMs.toFixed(0)} ms/frame (${fps} fps). SYSTEM menu to pin a mode.`);
+  } else {
+    pushLogLine(`PERFORMANCE MODE: ${QUALITY_PRESETS[n.from].label} is averaging `
+      + `${n.meanMs.toFixed(0)} ms/frame (${fps} fps) here. ${to} would be faster — `
+      + `your setting is unchanged; the SYSTEM menu has it.`);
+  }
+  renderPerfMode();
+});
+renderPerfMode();
+
 // Render scale: 100% -> 90% -> 75% of display resolution for the 3D frame
 // (backing buffer + composer targets only; the DOM HUD stays native-crisp).
 // Applies instantly; persisted per browser.
@@ -6360,9 +6418,39 @@ function makeMobPlate(): MobPlate {
   return { root, name, role, fill, cls: "mplate" };
 }
 
-/** Screen rects the resting plates must stay out of, refreshed once a frame
- *  (getBoundingClientRect on four elements, not on twenty-four plates). */
+/**
+ * Screen rects the resting plates must stay out of.
+ *
+ * THIS USED TO RUN EVERY FRAME AND IT COST 0.92 ms OF COMBAT (measured, Intel
+ * iGPU, floor-15 combat CPU profile — 6% of the whole frame, more than the sim
+ * step). The comment justifying it said "getBoundingClientRect on four elements,
+ * not on twenty-four plates", which is true and beside the point: six forced
+ * layouts per frame is six forced layouts per frame, and these six elements are
+ * FIXED HUD FURNITURE. They move when the window resizes or a panel opens, and
+ * at no other time.
+ *
+ * So the rects are cached and refreshed on a cadence (~6 Hz) plus immediately on
+ * resize. The worst case a stale rect can produce is one resting plate sitting
+ * over the edge of the log for a sixth of a second after a layout change — and
+ * `plateHudRects` only ever DROPS ambient plates, so a stale answer cannot hide
+ * a plate that matters (an engaged plate is force-placed regardless).
+ *
+ * NOT A MODE LEVER: this is free at every mode. See quality.ts.
+ */
 const plateHudRects: DOMRect[] = [];
+const PLATE_RECT_MS = 160;
+let plateRectsAt = -Infinity;
+// A resize moves every one of those fixed rects, and it is the one event that
+// must not wait out the cadence.
+//
+// REGISTERED HERE, NOT INSIDE resize(). `resize()` is both an event handler and
+// a function this module CALLS during boot, hundreds of lines above this point
+// — and `plateRectsAt` is a `let`, so touching it from that early call is a
+// temporal-dead-zone throw that kills the whole host before the first frame.
+// (It did: "Cannot access 'plateRectsAt' before initialization", caught by the
+// mode-ladder harness on its first launch.) A listener added next to the state
+// it invalidates cannot fire before that state exists.
+window.addEventListener("resize", () => { plateRectsAt = -Infinity; });
 function refreshPlateHudRects(): void {
   plateHudRects.length = 0;
   for (const id of ["hud-log", "cockpit", "minimap-frame", "hud-tl", "hud-tr", "show"]) {
@@ -6412,7 +6500,7 @@ function plateSeat(x: number, y: number, w: number, engaged: boolean): number | 
 
 function updateMobPlates(s: GameState): void {
   const now = performance.now();
-  refreshPlateHudRects();
+  if (now - plateRectsAt >= PLATE_RECT_MS) { plateRectsAt = now; refreshPlateHudRects(); }
   mobPlateSeen.clear();
   plateBoxes.length = 0;
   let shown = 0;

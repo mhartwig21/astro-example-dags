@@ -5293,6 +5293,14 @@
           <span class="kb-key" id="kb-notify">NORMAL</span></div>
         <div class="kb-row"><span class="kb-name">Camera zoom<small>CLOSE frames the action a third tighter</small></span>
           <span class="kb-key" id="kb-camzoom">STANDARD</span></div>
+        <!-- PERFORMANCE MODE. Three rungs, each with a measured contract (see
+             src/render3d/quality.ts): LOW promises 60 fps in the worst fight on
+             integrated graphics, MEDIUM promises never below 30, HIGH promises
+             nothing and looks its best. AUTO picks and keeps picking — and when
+             it moves, it says so out loud in the log rather than quietly making
+             the game softer. -->
+        <div class="kb-row"><span class="kb-name">Performance mode<small id="kb-perfmode-note">the frame-rate/looks trade — AUTO measures your machine and chooses</small></span>
+          <span class="kb-key" id="kb-perfmode">AUTO</span></div>
         <div class="kb-row"><span class="kb-name">Render scale<small>3D resolution — lower = faster; UI stays crisp</small></span>
           <span class="kb-key" id="kb-renderscale">100%</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>

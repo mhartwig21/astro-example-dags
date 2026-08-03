@@ -36,8 +36,24 @@ import { SwingArcs, TrailRibbons } from "./fxTrails";
 import {
   QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, autoTuneFrozen, guessQuality,
   loadQualityChoice, saveQualityChoice, urlQualityOverride,
-  type QualityChoice, type QualityProfile,
+  type QualityChoice, type QualityProfile, type QualityName,
 } from "./quality";
+
+/**
+ * WHAT THE TUNER DID, OR WOULD HAVE DONE — the surface that makes an automatic
+ * mode change a visible event rather than a secret.
+ *
+ * `auto`    the player left the setting on AUTO and the mode HAS changed.
+ * `suggest` the player PINNED a mode; nothing was changed, and this is the
+ *           tuner telling them what it would have done so they can decide.
+ */
+export interface QualityNotice {
+  readonly kind: "auto" | "suggest";
+  readonly from: QualityName;
+  readonly to: QualityName;
+  /** Mean frame time of the window that triggered it — the evidence. */
+  readonly meanMs: number;
+}
 import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
@@ -393,6 +409,16 @@ export class Renderer3D {
    *  tuner move it. Read once — the URL cannot change mid-session. */
   private readonly tuneFrozen = autoTuneFrozen();
   private onQualityChange: ((p: QualityProfile) => void) | null = null;
+  private onQualityNotice: ((n: QualityNotice) => void) | null = null;
+  /** Mode already suggested to a player who pinned one — suggest once, not
+   *  every window. Cleared whenever the player changes the setting. */
+  private advisedTo: QualityName | null = null;
+  /** Monster ids whose rig gets a full-rate mixer update this frame (see the
+   *  rig gate in update()). Reused, never reallocated. */
+  private readonly rigFullRate = new Set<number>();
+  private readonly rigFrustum = new THREE.Frustum();
+  private readonly rigProj = new THREE.Matrix4();
+  private readonly rigSphere = new THREE.Sphere(new THREE.Vector3(), 3);
   /** Composed-frame counter, for the shadow-rebuild cadence. */
   private frameNo = 0;
   /** Force the next composed frame to rebuild the shadow map regardless of the
@@ -427,12 +453,27 @@ export class Renderer3D {
   }
 
   /**
+   * Fired when the tuner changes the mode (AUTO) or wants to (a pinned mode).
+   * The host is expected to SHOW it — see QualityNotice. A host that does not
+   * wire this up gets the old silent behaviour for AUTO and, for a pinned mode,
+   * simply nothing at all, which is still the correct outcome: a pinned mode is
+   * never moved either way.
+   */
+  setQualityNoticeListener(fn: ((n: QualityNotice) => void) | null): void {
+    this.onQualityNotice = fn;
+  }
+
+  /**
    * MANUAL OVERRIDE (settings row). "auto" hands control back to the tuner,
    * starting from whatever is on screen now.
    */
   setQuality(choice: QualityChoice): void {
     this.qualityChoice = choice;
     saveQualityChoice(choice);
+    // A fresh decision earns a fresh suggestion. Without this, a player who
+    // took the tuner's advice once would never hear from it again this session
+    // even if the new mode also misses.
+    this.advisedTo = null;
     if (choice === "auto") {
       this.tuner.reset(this.quality.name);
       return;
@@ -3009,8 +3050,24 @@ export class Renderer3D {
     g.userData.playFirst = (...names: string[]) => {
       for (const n of names) if (actions[n]) { play(n, true); return; }
     };
-    g.userData.animTick = (dt: number) => {
-      mixer.update(dt);
+    // RATE-GATED MIXER (quality.ts: the rig lever). `minStep` is the smallest
+    // amount of animation time worth flushing — 0, the default, is "every
+    // frame" and is exactly the old behaviour, so every caller that does not
+    // pass it is unchanged.
+    //
+    // The accumulator is what makes a gated rig CORRECT rather than merely
+    // cheap: mixer.update(acc) advances clips by the full elapsed time, so
+    // crossfades complete, LoopOnce actions reach their end and fire
+    // `finished`, and the pose a body is holding when it walks back into view
+    // is the pose it should be holding. Only the SAMPLING granularity changes.
+    //
+    // The busy/locoHold timers drain at full rate regardless. They gate which
+    // clip may be chosen next, and that decision is made every frame by code
+    // that must not see a stale answer just because the body is off screen.
+    let animAcc = 0;
+    g.userData.animTick = (dt: number, minStep = 0) => {
+      animAcc += dt;
+      if (animAcc >= minStep) { mixer.update(animAcc); animAcc = 0; }
       if (busy > 0) busy = Math.max(0, busy - dt);
       const hold = g.userData.locoHold as number | undefined;
       if (hold && hold > 0) g.userData.locoHold = Math.max(0, hold - dt);
@@ -7230,6 +7287,63 @@ export class Renderer3D {
       return false;
     };
 
+    // ---- WHICH RIGS ANIMATE AT FULL RATE THIS FRAME (quality.ts, the CPU
+    //      lever the four-rung ladder never had) ---------------------------
+    //
+    // Floor 15 carries 149 animated rigs and 18 of them are on screen. The
+    // other 131 are 4,664 scene nodes and 3,277 bones — 87% of every bone in
+    // the scene — and AnimationMixer.update poses all of them, every frame, to
+    // produce not one pixel. Measured: 2.5-3.0 ms/frame on the Intel part in
+    // combat, 1.3-1.5 ms on the RTX 5090.
+    //
+    // THE GATE IS A RATE, NOT A SWITCH. An off-screen rig still advances its
+    // clips in real time; it just samples them at the mode's offscreenRigHz
+    // (animTick accumulates dt and flushes one larger mixer.update). Skipping
+    // the mixer outright would leave one-shots never finishing, crossfades
+    // never completing and LoopOnce actions never firing `finished` — the body
+    // would walk back on screen wedged mid-swing.
+    //
+    // "ON SCREEN" IS A PADDED FRUSTUM TEST, DELIBERATELY GENEROUS, and it is
+    // measured against LAST frame's camera (the camera is repositioned later in
+    // this same update, below). Both facts push the same way: a 3-unit sphere
+    // around a body that is at most one frame of camera pan from where it will
+    // be draws the boundary well outside the visible edge, so a monster walking
+    // into frame is already at full rate before it is drawn. The failure this
+    // avoids is the one that matters — popping into the correct pose after
+    // entering view.
+    const rigFull = this.rigFullRate;
+    rigFull.clear();
+    const rigStep = 1 / Math.max(1, this.quality.offscreenRigHz);
+    if (this.quality.offscreenRigHz !== Infinity || this.quality.rigBudget !== Infinity) {
+      this.camera.updateMatrixWorld();
+      this.rigFrustum.setFromProjectionMatrix(
+        this.rigProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
+      );
+      const near: { id: number; d2: number }[] = [];
+      const cx = this.camera.position.x, cz = this.camera.position.z;
+      for (const mon of state.monsters) {
+        // Fog first, and it is not redundant with the frustum: a body can sit
+        // inside the camera's box and still be unrevealed dark, in which case it
+        // is parked out of the graph below and drawing nothing. Spending a
+        // full-rate slot on it would be spending it on a body that is, by the
+        // game's own rules, not there.
+        if (!inVision(mon.pos)) continue;
+        this.rigSphere.center.set(mon.pos.x, 0.9, mon.pos.y);
+        if (!this.rigFrustum.intersectsSphere(this.rigSphere)) continue;
+        const dx = mon.pos.x - cx, dz = mon.pos.y - cz;
+        near.push({ id: mon.id, d2: dx * dx + dz * dz });
+      }
+      // NEAREST FIRST. The budget only bites in a brawl big enough that the
+      // back of the pile is a texture anyway; spending it on the bodies the
+      // player is actually reading is the whole point. Sorting a few dozen
+      // entries is far below the 2.9 ms this is buying.
+      if (near.length > this.quality.rigBudget) {
+        near.sort((a, b) => a.d2 - b.d2);
+        near.length = this.quality.rigBudget;
+      }
+      for (const n of near) rigFull.add(n.id);
+    }
+
     // BOSSES V2 §5 — the encounter's persistent rigs (plates, shield shells,
     // tether cords, punish beacons) reconcile here, one pass, sharing the
     // same fog gate every other entity uses. Everything else about the boss
@@ -7365,32 +7479,48 @@ export class Renderer3D {
       // (~35 nodes each once the skeleton is counted), and the monsters alone
       // were 96% of all remaining per-frame matrix work on floor 17.
       //
-      // THE MECHANISM MATTERS, and the obvious one does not work. Setting
-      // matrixWorldAutoUpdate=false looks like "skip my subtree" and is not:
-      // in r169 (three.module.js:7772) the child recursion is UNCONDITIONAL —
+      // THE MECHANISM MATTERS, AND THE FIRST TWO ATTEMPTS BOTH FELL SHORT.
       //
-      //     for ( ... ) { const child = children[i]; child.updateMatrixWorld( force ); }
+      // (1) matrixWorldAutoUpdate=false looks like "skip my subtree" and is
+      //     not: in r169 (three.module.js:7772) the child recursion is
+      //     UNCONDITIONAL —
       //
-      // — and the flag only guards whether THIS node composes its own
-      // matrixWorld. Setting it therefore skips nothing and quietly leaves the
-      // node's matrixWorld at the identity (which is how the prop freeze below
-      // first parked 887 props on the map origin). The flag that actually
-      // removes work is matrixAutoUpdate, which skips the compose itself; and
-      // because nothing then sets matrixWorldNeedsUpdate, the parent-multiply
-      // is skipped too and `force` stays false for the rest of the subtree.
+      //         for ( ... ) { const child = children[i]; child.updateMatrixWorld( force ); }
       //
-      // Toggled only on a visibility CHANGE, so the traverse is paid on
-      // transitions rather than every frame. Cannot change a rendered pixel:
-      // WebGLRenderer.projectObject already skips invisible subtrees, so the
-      // matrices being skipped are exactly the ones nothing reads. Coming back
-      // on screen is safe because mesh.position is rewritten every frame below
-      // whether or not the body is visible — re-enabling the flag makes the
-      // next walk recompose the root, which forces every bone under it, before
-      // anything is drawn.
+      //     — and the flag only guards whether THIS node composes its own
+      //     matrixWorld. It therefore skips nothing and quietly leaves the
+      //     node's matrixWorld at the identity (which is how the prop freeze
+      //     below first parked 887 props on the map origin).
+      //
+      // (2) matrixAutoUpdate=false, which r1 shipped, DOES remove the compose,
+      //     and the census says it worked: of 7,566 nodes walked per frame only
+      //     289 still recompose. But the walk itself never went away. three.js
+      //     recurses into every child of every child regardless of any flag, so
+      //     1,739 nodes belonging to bodies nobody can see were still being
+      //     visited every frame to be told there was nothing to do. Measured
+      //     cost of the whole walk on the Intel part: 5.5 ms of a 17.2 ms
+      //     frozen dense frame — the single biggest line in the profile.
+      //
+      // SO THE BODY LEAVES THE GRAPH. A parked mesh is not a child of anything;
+      // updateMatrixWorld cannot reach it and neither can projectObject, so the
+      // cost is not reduced, it is absent. This is edge-triggered on the same
+      // visibility change the old traverse was, so add/remove is paid on fog
+      // transitions rather than per frame.
+      //
+      // Cannot change a rendered pixel: WebGLRenderer.projectObject already
+      // skipped these subtrees, so what is being removed from the walk is
+      // exactly what nothing read. Coming back is safe because mesh.position is
+      // rewritten every frame below whether or not the body is in vision, and
+      // re-adding makes the next walk recompose the root — which forces every
+      // bone under it — before anything is drawn. `mesh.visible` is still
+      // maintained because the reveal beat and the status rings read it.
+      //
+      // NOT A MODE LEVER. This is free: the same pixels, fewer nodes. Tiering
+      // it would only make HIGH slower for no one's benefit.
       if (mesh.userData.mtxLive !== mesh.visible) {
         mesh.userData.mtxLive = mesh.visible;
-        const live = mesh.visible;
-        mesh.traverse((o) => { o.matrixAutoUpdate = live; });
+        if (mesh.visible) this.scene.add(mesh);
+        else this.scene.remove(mesh);
       }
       // Enraged bodies burn for the duration (see applyHitFlash). Pulsed and
       // phase-offset per monster so a full room reads as a crowd catching
@@ -7570,7 +7700,11 @@ export class Renderer3D {
         }
         } // end non-dormant branch
         ud.prevStagger = mon.stagger;
-        (ud.animTick as (dt: number) => void)(dt);
+        // Full rate on screen (and inside the mode's rig budget); everything
+        // else accumulates and flushes at offscreenRigHz. See the rig gate above.
+        (ud.animTick as (dt: number, minStep?: number) => void)(
+          dt, rigFull.has(mon.id) ? 0 : rigStep,
+        );
         // Lift + scale-punch ride the renderer flash envelope (audit r4): the
         // struck body pops ~9% and settles over ~250ms instead of 2 frames.
         const hitEnv = (ud.flashEnv as number) ?? 0;
@@ -9516,13 +9650,35 @@ export class Renderer3D {
     // ...and under ?test the tuner does not run AT ALL: the startup guess is
     // deterministic per machine, the tuner's windows are not, and an acceptance
     // gate has to score the same rung twice. See autoTuneFrozen().
-    if (this.qualityChoice === "auto" && this.tuningArmed && !this.tuneFrozen) {
+    //
+    // ...and A PINNED MODE IS NEVER MOVED. When the player has chosen LOW,
+    // MEDIUM or HIGH the tuner still WATCHES, but it may only ADVISE: the
+    // decision is handed to the notice listener as a suggestion and the mode
+    // the player picked stays exactly where they put it. The old behaviour —
+    // silently walking a chosen preset down and never telling anyone — is the
+    // thing that made "which rung was this screenshot taken at?" unanswerable,
+    // and it is worse for a player than for a harness: the game got quietly
+    // softer and nothing in the UI ever said so.
+    if (this.tuningArmed && !this.tuneFrozen) {
       const now = performance.now();
       if (this.warmupUntil === 0) this.warmupUntil = now + 4000;
       if (now < this.warmupUntil) { this.lastFrameAt = 0; return; }
       if (this.lastFrameAt !== 0) {
         const next = this.tuner.sample(now - this.lastFrameAt);
-        if (next && next !== this.quality.name) this.applyQuality(QUALITY_PRESETS[next]);
+        if (next && next !== this.quality.name) {
+          const from = this.quality.name;
+          const mean = this.tuner.lastWindowMs;
+          if (this.qualityChoice === "auto") {
+            this.applyQuality(QUALITY_PRESETS[next]);
+            this.onQualityNotice?.({ kind: "auto", from, to: next, meanMs: mean });
+          } else if (!this.advisedTo) {
+            // Suggest ONCE per session per direction. A tuner that nags every
+            // three seconds is a tuner the player learns to ignore, which is
+            // the same as a silent one.
+            this.advisedTo = next;
+            this.onQualityNotice?.({ kind: "suggest", from, to: next, meanMs: mean });
+          }
+        }
       }
       this.lastFrameAt = now;
     } else {
