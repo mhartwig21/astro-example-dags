@@ -114,44 +114,31 @@ describe("the standings and the career panel fit the window", () => {
     expect(HTML).toMatch(/\.set-frame\.hugs[^{]*\{[^}]*min-height: 0;[^}]*max-height: none;/);
   });
 
-  it("THE VERDICT is measured too, and its scrollbar is no longer suppressed", () => {
-    // The three things that let an 18/38px overflow ship on the screen every
-    // run terminates on: no fit pass, a hidden elevator, and a guard that
-    // named the other two panels.
-    expect(HOST).toMatch(/function fitRecap\(\)/);
-    expect(HOST).toMatch(/function fitRecapSoon\(\)/);
-    expect(HOST).toMatch(/window\.addEventListener\("resize", fitRecap\)/);
-    // It runs on every render of the card, not once at open: the seal
-    // resolves, the board lands and the grade changes height under it.
-    expect(HOST).toMatch(/fitRecap\(\);\s*\r?\n\s*fitRecapSoon\(\);/);
+  /**
+   * THE VERDICT IS NOT IN THE FIT PASS, BECAUSE IT IS NOT IN THE ELEVATION.
+   *
+   * The two guards that used to live here pinned an elevated verdict in place:
+   * `fitRecap()`'s density lever (--vd / --vd0), the `--vtrack` column, and the
+   * GRADED AGAINST plate laid into it. The owner asked for the post-run screen
+   * back the way it was before that round — a plain scrolling card — so the
+   * lever, the track and the plate went with it.
+   *
+   * What survives is the part that was never decoration: the card owns its own
+   * elevator. A panel that overflows and hides the scrollbar is content nobody
+   * can reach, and that is the failure both guards existed to prevent.
+   */
+  it("THE VERDICT scrolls its own overflow rather than hiding it", () => {
     const panel = /#recap \.panel \{([^}]*)\}/.exec(HTML);
     expect(panel, "the #recap .panel rule moved — re-point this guard").not.toBeNull();
+    expect(panel![1], "the verdict panel must be able to scroll")
+      .toMatch(/overflow:\s*auto/);
     expect(panel![1], "the verdict panel must not hide its own elevator")
       .not.toMatch(/scrollbar-width:\s*none/);
     expect(HTML, "the verdict panel must not hide its own elevator")
       .not.toMatch(/#recap \.panel::-webkit-scrollbar/);
-    // The density lever the pass actually turns, and its floor.
-    expect(panel![1]).toMatch(/--vd:\s*var\(--vd0\)/);
-    expect(HOST).toMatch(/Math\.max\(0\.55, d - 0\.04\)/);
-  });
-
-  it("the GRADED AGAINST plate is laid INTO its track, never across it", () => {
-    // Blocker 2: `min-width: 210px` on the plate against a track authored at
-    // 168px and narrowed to 148px by the short-viewport rule. Measured at
-    // 1366x768: plate rect x=15 w=232 r=247, first grade tile x=219 — 41px out
-    // past the panel's padding edge and 28px under an opaque tile. One number
-    // now governs both, and the plate is a share of it.
-    expect(HTML).toMatch(/#recap \.verdict \{[^}]*grid-template-columns: var\(--vtrack\)/);
-    const basis = /#recap \.vbasis \{([^}]*)\}/.exec(HTML);
-    expect(basis, "the .vbasis rule moved — re-point this guard").not.toBeNull();
-    expect(basis![1]).toMatch(/width: 100%/);
-    expect(basis![1]).toMatch(/min-width: 0/);
-    expect(basis![1]).toMatch(/box-sizing: border-box/);
-    // ...and no rule anywhere may set the track without the plate following,
-    // which is only possible if nothing hard-codes the column any more.
-    expect(HTML).not.toMatch(/#recap \.verdict \{[^}]*grid-template-columns: \d/);
-    const short = HTML.slice(HTML.indexOf("@media (max-height: 830px)"));
-    expect(short.slice(0, 600)).not.toMatch(/#recap \.verdict \{[^}]*grid-template-columns/);
+    // ...and the density lever is gone with the screen it was built for.
+    expect(HOST).not.toMatch(/function fitRecap\(/);
+    expect(HTML).not.toMatch(/--vd0/);
   });
 
   it("padding invented to fill a board is spent BEFORE a ranked row is", () => {
