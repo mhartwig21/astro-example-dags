@@ -787,6 +787,15 @@ export class BossFx {
   private zoomWant = 1;
   private orbitWant = 0;
   private orbitHold = 0;
+  /**
+   * How long a PUSH-IN (zoomWant < 1) may hold the frame (owner bug: "it zooms
+   * in on a boss ... you can't see your character"). The reveal set 0.78 and
+   * nothing ever set it back — zoomWant was only reset when the boss DIED, so
+   * the whole fight played 22% zoomed in, which is the opposite of §5.5's rule
+   * that a beat BORROWS the frame. Pull-backs (zoomWant >= 1) are not beats,
+   * they are the phase's standing wide shot, so only push-ins ride this timer.
+   */
+  private zoomHold = 0;
   // Measured against a 1600x900 capture at the shipped ortho half-height: the
   // plate owns the top ~250px, a boss rig stands ~3 units, and this pair puts
   // its feet near 55% down the frame with its head clear of the panel by a
@@ -973,6 +982,7 @@ export class BossFx {
     this.zoomWant = full ? 0.78 : 0.88;
     this.orbitWant = full ? 0.55 : 0.22;
     this.orbitHold = e.duration ?? 2.2;
+    this.zoomHold = this.orbitHold + 0.6; // the card's close-up ends WITH the card
     // The arena lights RAISE: a warm lift under the star of the introduction
     // plus a column of motes climbing it, so the silhouette is lit from below
     // like a ring entrance instead of reading as a dark blob.
@@ -1168,6 +1178,7 @@ export class BossFx {
   private intermission(x: number, z: number, e: BossEvent): void {
     const swept = e.value ?? 0;
     this.zoomWant = 0.88;
+    this.zoomHold = e.duration ?? 2.2; // snap IN for the sweep, then give it back
     this.slowmo = Math.max(this.slowmo, 0.2);
     this.arenaBeat(x, z, 8.5, ASK_PAL.window, 1.1, 1); // outward: the sweep
     this.deps.shocks.spawn(x, z, 0xfff2cc, 10, 0.75);
@@ -1273,6 +1284,7 @@ export class BossFx {
     this.dropRigs();
     this.slowmo = Math.max(this.slowmo, 0.45);
     this.zoomWant = 0.9; // push IN on the corpse: the body is the subject now
+    this.zoomHold = 2.4;
     this.orbitWant = 0.18;
     this.orbitHold = 2.4;
     this.deps.trauma(0.62);
@@ -1542,6 +1554,11 @@ export class BossFx {
     // not keep it. Normal combat always returns to the readable default.
     this.orbitHold = Math.max(0, this.orbitHold - dt);
     if (this.orbitHold <= 0) this.orbitWant = 0;
+    // A push-in is a BEAT and beats end. Without this, the reveal's 0.78 held
+    // for the entire fight (measured: zoom 0.78 four+ seconds after the card,
+    // tools/_bugcam_before.json) and helped run the crawler off the screen.
+    this.zoomHold = Math.max(0, this.zoomHold - dt);
+    if (this.zoomHold <= 0 && this.zoomWant < 1) this.zoomWant = 1;
     const star = state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
     // Where the renderer takes its luminance sample (see measureBossExposure).
     this.starPos = star ? { x: star.pos.x, y: star.pos.y } : null;

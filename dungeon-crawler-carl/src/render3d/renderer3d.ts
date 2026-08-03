@@ -3902,13 +3902,21 @@ export class Renderer3D {
    * moment the beat is over. Re-applied every frame because the boss zoom is
    * continuous, unlike the one-shot `viewClose` setting.
    */
-  private applyProjection(): void {
+  /** The ortho half-height the camera is (about to be) projected at, with
+   *  every live multiplier applied — the boss layer's zoom, the close-view
+   *  setting and the aim-lead widen. The safe-area clamp in updateCamera and
+   *  applyProjection must agree on this number, so it lives in one place. */
+  private projHalfHeight(): number {
     // The aim lead widens the frame as well as sliding it: sliding alone trades
     // the far end of the skillshot for the crawler's own feet, and on a 342 px
     // phone you need both in one picture to aim at all.
     const aimWide = 1 + Math.min(0.22, this.aimLead * 0.052);
-    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
+    return THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
       this.bossFx.zoom * aimWide;
+  }
+
+  private applyProjection(): void {
+    const hh = this.projHalfHeight();
     // The boss zoom eases continuously, so this is called every frame — but
     // rebuilding the projection matrix (and dirtying the frustum) when nothing
     // moved is pure waste, and the last perf round was won on exactly this
@@ -9143,6 +9151,9 @@ export class Renderer3D {
     const anchor = this.playerMeshes.get(p.id)?.position;
     let ax = anchor ? anchor.x : p.pos.x;
     let az = anchor ? anchor.z : p.pos.y;
+    // Where the crawler actually stands, kept for the safe-area clamp below:
+    // every borrow after this line moves the ANCHOR, never this.
+    const px = ax, pz = az;
     // BOSSES V2 §5.2/§5.3 — THE REVEAL. During the ringside beat the camera
     // ORBITS: the anchor slides toward the boss and the fixed iso direction
     // gains a yaw offset, so the introduction ends on a silhouette instead of
@@ -9248,6 +9259,59 @@ export class Renderer3D {
     const cosO = Math.cos(orbit), sinO = Math.sin(orbit);
     const dirX = (d.x * cosO - d.z * sinO) / len;
     const dirZ = (d.x * sinO + d.z * cosO) / len;
+    // ---- THE PLAYER IS NEVER LOST (owner bug, boss camera) -----------------
+    //
+    // Reproduced (tools/_bugcam.mjs): with the boss borrow live — frameBias
+    // 0.5 toward a boss 10u away, frameDrop 6.8 down-screen, reveal zoom 0.78
+    // — the crawler projected to NDC y = -1.28, fully below the frame for
+    // 60/60 sampled frames, exactly the owner's "run your PC off screen a bit
+    // and you can't see your character and get lost".
+    //
+    // The rule a AAA camera follows: every borrow above (boss framing, reveal
+    // orbit, aim lead, fight midpoint, screen drop) may compose the shot, and
+    // none of them may compose the CRAWLER out of it. So the last word on the
+    // anchor is a hard screen-space clamp: express the crawler's offset from
+    // the anchor in the camera's own screen basis, and if the crawler would
+    // land outside the safe area — 80% of the half-width, 80% of the bottom
+    // half, head clear of the top strip the boss plate owns — pull the anchor
+    // back along exactly the violated axis until the crawler is inside. The
+    // boss framing keeps everything it asked for whenever both bodies fit;
+    // when they stop fitting, the crawler wins, which reads in play as the
+    // camera giving the boss back the moment you sprint out of the shot.
+    {
+      const hh = this.projHalfHeight();
+      const hw = hh * this.aspect;
+      // Camera basis for lookAt(anchor) with up=(0,1,0): zc points from the
+      // anchor to the camera, xc is screen-right (horizontal), yc screen-up.
+      const zcx = dirX, zcy = d.y / len, zcz = dirZ;
+      let xcx = zcz, xcz = -zcx; // up x zc (its y term is zero)
+      const xn = Math.hypot(xcx, xcz) || 1;
+      xcx /= xn; xcz /= xn;
+      const ycx = zcy * xcz; // yc = zc x xc
+      const ycy = zcz * xcx - zcx * xcz;
+      const ycz = -zcy * xcx;
+      // The ground direction that maps to screen-up, and how much screen-y one
+      // ground unit along it buys (c ~ 0.63 at the shipped iso elevation).
+      let gux = -zcx, guz = -zcz;
+      const gn = Math.hypot(gux, guz) || 1;
+      gux /= gn; guz /= gn;
+      const c = gux * ycx + guz * ycz;
+      // Crawler offset from the borrowed anchor, in that ground basis.
+      const ox = px - ax, oz = pz - az;
+      const a = ox * xcx + oz * xcz;
+      const b = ox * gux + oz * guz;
+      const aMax = 0.80 * hw;
+      const bMin = -0.80 * hh / Math.max(0.2, c); // feet stay off the bottom edge
+      // Head (rig tops out ~1.9 world units) stays under the top strip the
+      // boss plate occupies: b*c + 1.9*yc.y <= 0.62*hh.
+      const bMax = (0.62 * hh - 1.9 * ycy) / Math.max(0.2, c);
+      const a2 = Math.min(aMax, Math.max(-aMax, a));
+      const b2 = Math.min(bMax, Math.max(bMin, b));
+      if (a2 !== a || b2 !== b) {
+        ax = px - (a2 * xcx + b2 * gux);
+        az = pz - (a2 * xcz + b2 * guz);
+      }
+    }
     this.camera.position.set(
       ax + dirX * dist + sx,
       (d.y / len) * dist,
