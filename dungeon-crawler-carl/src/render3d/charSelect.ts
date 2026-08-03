@@ -135,6 +135,7 @@ export class CharSelectScene {
   private readonly slots: Slot[] = [];
   private readonly raycaster = new THREE.Raycaster();
   private readonly fireLight: THREE.PointLight;
+  private emberLight: THREE.PointLight | null = null; // fills the fire's own base (r3)
   private readonly halo: THREE.SpotLight; // drifts to the chosen crawler
   private flames: THREE.Mesh[] = [];
   private sparks: THREE.Points | null = null;
@@ -229,9 +230,15 @@ export class CharSelectScene {
     // Ember-lit logs: the fire light sits INSIDE the ring, so the faces the
     // camera sees would otherwise render pitch black — the emissive is the
     // glow of wood that has been burning a while.
+    // social r3 (lighting rig): 0.32 was tuned before the flames' additive
+    // brightness went up — against the lit flame the camera-facing log faces
+    // and their hard point-light shadows measured near-black and read as
+    // paper-cutout shards. The ember glow carries further now, and a small
+    // shadowless ember fill (below) lifts the fire's own base the way real
+    // coals throw light back at the ring.
     const logMat = new THREE.MeshStandardMaterial({
       color: 0x4a3524, roughness: 0.9,
-      emissive: 0xff5a1f, emissiveIntensity: 0.32,
+      emissive: 0xff5a1f, emissiveIntensity: 0.62,
     });
     const logs = new THREE.Group();
     const logGeo = new THREE.CylinderGeometry(0.06, 0.075, 0.8, 6);
@@ -245,6 +252,16 @@ export class CharSelectScene {
     }
     logs.position.set(FIRE_X, 0, FIRE_Z);
     this.scene.add(logs);
+
+    // The ember fill: a short-throw, shadowless warm light AT coal height.
+    // The main fireLight sits at y=1.1 (so it reaches the lineup); from up
+    // there the log ring lights its tops and leaves its camera-facing sides
+    // and its own ground shadows pitch black. Coals light a fire from below;
+    // this is that, and it reaches nothing but the ring and the dirt.
+    const ember = new THREE.PointLight(0xff7a2a, 7, 4.5, 2);
+    ember.position.set(FIRE_X, 0.3, FIRE_Z + 0.12);
+    this.scene.add(ember);
+    this.emberLight = ember;
 
     // Flames: three nested cones, emissive, additive — flicker via scale.
     const flameSpec = [
@@ -389,6 +406,7 @@ export class CharSelectScene {
     // Fire: flicker the light + jitter the flame cones on mixed sines.
     const n = Math.sin(tSec * 11.3) * 0.35 + Math.sin(tSec * 23.7 + 1.7) * 0.2 + Math.sin(tSec * 5.1 + 4.2) * 0.45;
     this.fireLight.intensity = 64 + n * 12; // flicker rides the r1 base, not the old one
+    if (this.emberLight) this.emberLight.intensity = 7 + n * 1.6; // coals breathe with the flame
     this.flames.forEach((f, i) => {
       const w = Math.sin(tSec * (9 + i * 3.1) + i * 2.4);
       f.scale.set(1 + w * 0.08, 1 + Math.sin(tSec * (7.5 + i * 2.3)) * 0.13, 1 + w * 0.08);

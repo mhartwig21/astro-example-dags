@@ -2021,9 +2021,18 @@
          z 28, after #menu in the DOM so it wins the tie and covers check-in;
          #loading (29) still outranks it. */
 
+      /* THE FIELD AROUND THE FRAME IS A SET, NOT A VOID (social r3). At
+         2560x1440 a career with no data hugged to an 878px card floating in
+         what measured as pure black — a window over nothing. The page behind
+         the frame now carries the house material: the stone noise, a faint
+         gold stage-light falling from the top of the page, and a vignette
+         that closes toward the corners — so whatever height the frame earns,
+         it stands on a dressed stage the way every Riot client screen does. */
       #ladder, #career { position: fixed; inset: 0; display: none; z-index: 28;
-
-        background: radial-gradient(ellipse at 50% 22%, rgb(24,18,12), rgb(4,4,8) 72%);
+        background-color: rgb(6,5,9);
+        background-image: var(--noise),
+          radial-gradient(56% 40% at 50% 12%, rgba(201,162,75,0.07), transparent 72%),
+          radial-gradient(ellipse at 50% 24%, rgb(28,22,15), rgb(6,5,9) 78%);
         overflow: auto; padding: 18px; scrollbar-width: none; }
       /* House rule: no scrollbars. A long ladder still scrolls - it just does
          not put a grey elevator down the side of a gilt document.
@@ -2233,17 +2242,46 @@
       .set-empty b { font-size: 17px; letter-spacing: 0.22em; color: var(--ink); }
       .set-empty span { font-family: var(--body); font-variant: normal; font-size: 12.5px;
         letter-spacing: 0.02em; color: var(--ink-faint); max-width: 52ch; line-height: 1.55; }
-      .set-empty .ghosts { width: min(560px, 76%); margin-top: 20px;
-        display: flex; flex-direction: column; gap: 11px; }
-      .set-empty .ghost { height: 13px; border-radius: 2px;
-        background: linear-gradient(90deg,
-          rgba(169,159,140,0.16) 0 26px, transparent 26px 40px,
-          rgba(169,159,140,0.11) 40px 55%, transparent 55% calc(100% - 92px),
-          rgba(169,159,140,0.08) calc(100% - 74px) 100%); }
-      .set-empty .ghost:nth-child(2) { opacity: 0.72; }
-      .set-empty .ghost:nth-child(3) { opacity: 0.5; }
-      .set-empty .ghost:nth-child(4) { opacity: 0.32; }
-      .set-empty .ghost:nth-child(5) { opacity: 0.18; }
+      /* THE SKELETON IS THE BOARD'S OWN GEOMETRY (social r3). The r2 ghosts
+         were five 13px striped bars in a 560px block — at 2560x1440 that is
+         ~350px of content centered in a 1382px frame, and the stripe gradient
+         read as a left cluster with a detached right column, i.e. a rendering
+         mistake, not a skeleton. `.skelrow` is a ghost of `.brow` itself: the
+         same grid (rank / name / seal chip / result), the same row background
+         and hairline seams, at the width the real rows will claim — so the
+         empty state holds the SHAPE of the score to come at any panel scale.
+         One component: the standings/career panel skeletons and the career
+         shelf ghost all draw it. */
+      .set-empty .skelrows { width: min(1180px, 100%); margin-top: 26px; }
+      .skelrows { display: flex; flex-direction: column; }
+      .skelrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 58px 128px;
+        gap: 10px; align-items: center; height: 40px; padding: 0 10px;
+        border-bottom: 1px solid rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, rgba(34,27,21,0.55), rgba(20,16,12,0.55)); }
+      .skelrow + .skelrow { border-top: 1px solid rgba(110,85,51,0.25); }
+      .skelrow i { display: block; height: 11px; border-radius: 2px;
+        background: rgba(169,159,140,0.13); }
+      .skelrow .sk-rank { width: 14px; margin: 0 auto; }
+      .skelrow .sk-nm { width: 52%; }
+      .skelrow:nth-child(even) .sk-nm { width: 37%; }
+      .skelrow:nth-child(3n) .sk-nm { width: 45%; }
+      .skelrow .sk-chip { width: 100%; height: 13px; background: rgba(169,159,140,0.08); }
+      .skelrow .sk-res { width: 68%; justify-self: end; background: rgba(169,159,140,0.10); }
+      .skelrow:nth-child(even) .sk-res { width: 52%; }
+      .skelrow:nth-child(2) { opacity: 0.78; }
+      .skelrow:nth-child(3) { opacity: 0.6; }
+      .skelrow:nth-child(4) { opacity: 0.45; }
+      .skelrow:nth-child(5) { opacity: 0.32; }
+      .skelrow:nth-child(6) { opacity: 0.22; }
+      .skelrow:nth-child(7) { opacity: 0.14; }
+      .skelrow:nth-child(8) { opacity: 0.08; }
+      /* Five rows on a laptop; a 1440p frame shows the full eight, taller —
+         the same slack-into-rows rule the populated boards follow. */
+      .set-empty .skelrows .skelrow:nth-child(n+6) { display: none; }
+      @media (min-height: 1100px) {
+        .set-empty .skelrows .skelrow { height: 48px; }
+        .set-empty .skelrows .skelrow:nth-child(n+6) { display: grid; }
+      }
 
       .set-close { position: absolute; top: 16px; right: 18px; background: var(--raised);
         border: 1px solid var(--bronze); color: var(--ink-dim); border-radius: 3px;
@@ -2622,7 +2660,7 @@
         font-family: var(--display); font-variant: small-caps; }
       /* WHERE YOU DIE - eighteen bars, a whole career in one glance, and the
          most interesting chart this game can draw. */
-      .histo { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; align-items: end;
+      .histo { position: relative; display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; align-items: end;
 
         height: 108px; margin-top: 6px; }
       .histo .hb { position: relative; background: linear-gradient(180deg, #8a6a2f, #4a3a1f);
@@ -2630,6 +2668,20 @@
       .histo .hb.deep { background: linear-gradient(180deg, var(--gold-hi), #8a6a2f); }
 
       .histo .hb.none { background: #191410; border-color: #241d16; }
+      /* AN EMPTY PLOT IS CONTENT TOO (social r3). With zero runs the plot
+         region was a raw ~110px band of stone above the floor axis — the
+         module's own empty state, unbuilt, on the same panel that designed
+         one for the boards. The zero chart draws the SHAPE of the data to
+         come: eighteen ghost bars in a plausible death-curve silhouette, and
+         the System says plainly what fills them. */
+      .histo .hb.ghost { background: linear-gradient(180deg, rgba(169,159,140,0.11), rgba(169,159,140,0.03));
+        border: 1px dashed rgba(110,85,51,0.35); border-bottom: 0; }
+      .histo .hzero { position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 3px; text-align: center;
+        text-shadow: 0 1px 4px rgba(10,7,4,0.9); }
+      .histo .hzero b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.2em; font-size: 13px; color: var(--ink-dim); }
+      .histo .hzero span { font-family: var(--body); font-size: 11.5px; color: var(--ink-faint); }
       .histo .hb i { position: absolute; top: -15px; left: 0; right: 0; text-align: center;
         font-size: 10px; color: var(--ink-dim); font-style: normal; font-variant-numeric: tabular-nums; }
       .histax { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; margin-top: 3px;
@@ -2644,9 +2696,20 @@
       /* MASTERY per archetype: a level per ultimate, earned from VERIFIED runs
          weighted by depth. Unlike LoL mastery, every point is backed by a
          replayable proof. */
-      .mrow { display: grid; grid-template-columns: 30px 1fr 74px; gap: 10px; align-items: center;
+      .mrow { display: grid; grid-template-columns: 38px 1fr 74px; gap: 10px; align-items: center;
         padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,0.45); }
-      .mrow .mic { width: 26px; height: 26px; background: var(--gold); mask-size: contain;
+      /* ONE GLYPH TREATMENT, THE MENU'S (social r3). The raw 26px gold
+         pictorial glyphs read as emoji next to the mode tiles' discipline
+         (framed plate + masked glyph + ONE shared ink — .m-tile-icon). The
+         same construction here: the ultimate's glyph sits engraved on a
+         bronze-edged plate in the shared ink; gold stays reserved for the
+         level and the progress bar, where the ranking lives. */
+      .mrow .micbox { width: 34px; height: 34px; display: flex; align-items: center;
+        justify-content: center; flex: none;
+        background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
+        border-radius: var(--r-tile); box-shadow: inset 0 0 12px rgba(0,0,0,0.6); }
+      .mrow .mic { width: 20px; height: 20px; display: block; background: var(--ink-dim);
+        mask-size: contain;
         -webkit-mask-size: contain; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
         mask-position: center; -webkit-mask-position: center; }
       .mrow .mname { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
@@ -2685,6 +2748,38 @@
       .mstone .mtitle { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
         font-size: 13px; color: var(--gold-hi); }
       .mstone .mdetail { color: var(--ink-dim); font-size: 12px; }
+
+      /* THE CAREER FILLS A TALL VIEWPORT THE SAME WAY THE BOARDS DO (social
+         r3). Measured before this: a zero-data career hugged to an 878px card
+         in the middle of a 1440px page while its sibling THE STANDINGS held
+         1382 — one document family, two sizes. The slack goes into the
+         content: the 18-bar histogram grows to broadcast scale (it is the
+         best thing on the surface), the ledger/mastery/split rows breathe,
+         and each column's closing module docks to the column floor, so the
+         three columns share one top line and one bottom line instead of
+         three ragged tails over a void. (This block must sit AFTER the base
+         career rules — several selectors tie on specificity, and order is
+         the tiebreak.) */
+      @media (min-height: 1100px) {
+        .histo { height: 210px; }
+        /* `align-items: stretch` (base is `start`) is what lets the three
+           columns share the grid row's full height so the docking below has
+           real slack to dock across. */
+        .ccols { gap: 26px 34px; margin-top: 26px; align-items: stretch; }
+        #career-body > .ccols { flex: 1 0 auto; }
+        .ccol { display: flex; flex-direction: column; }
+        /* The 4px inset is load-bearing: docking ink EXACTLY on the frame
+           floor left `fitPanel.over()` a sub-pixel to Math.ceil into 1, and
+           the fit pass answered a 1px phantom overflow by confiscating the
+           MILESTONES empty note. */
+        .ccol > :last-child { margin-top: auto; margin-bottom: 4px; }
+        #career .ledger td { padding: 9px 0; }
+        #career .mrow { padding: 12px 0; }
+        .ccol .splitrow { padding: 8px 0; }
+        .mstone { padding-top: 5px; padding-bottom: 5px; }
+        .cheadline { padding-bottom: 20px; }
+        .lgroup + .lgroup { margin-top: 24px; }
+      }
 
       /* ---- SHORT VIEWPORTS PAY OUT OF THE CHROME, NOT OUT OF THE CONTENT ----
          Same stance the verdict already takes at `max-height: 830px`: on a
@@ -2981,7 +3076,18 @@
         #menu .m-cols > div:first-child { align-self: center; }
         /* #menu-scoped: the base .m-tiles rule sits later in this sheet and
            would win an equal-specificity tie. */
-        #menu .m-tiles { --hero-h: clamp(60px, 8.4vh, 96px); }
+        /* social r3 — THE SLACK GOES INTO THE PLATES, NOT THE GAPS. r2's
+           centering split ~300px of column slack into two ~130-140px voids
+           (name row -> DESCEND, TEST CHAMBER -> footer). The composition's
+           own tokens now absorb most of it: the featured banner grows to
+           118px (the primary rides at 1.62x by construction), the mode tiles
+           to 184px, and the board gaps a step — so what centering has left
+           to split is breathing, not dead stone. */
+        #menu .m-tiles { --hero-h: clamp(60px, 8.4vh, 124px);
+          gap: clamp(8px, 1.4vh, 20px); }
+        #menu .m-modes { gap: clamp(8px, 1.4vh, 20px); }
+        #menu .m-tile:not(.hero) { min-height: clamp(104px, 14vh, 200px); }
+        #menu .m-name-row { margin-bottom: clamp(10px, 2.2vh, 32px); }
       }
       /* While checked in, the game HUD behind the campfire goes dark — the
          backdrop world isn't being rendered, only the lineup is. */
@@ -3332,7 +3438,13 @@
       .m-board li.none span { font-family: var(--body); font-variant: normal;
         letter-spacing: 0.02em; color: var(--ink-faint); font-size: var(--t-fine);
         line-height: 1.4; max-width: 26ch; }
-      .m-board li.none .ghost { display: block; align-self: stretch; height: 10px;
+      /* The module's ghost rows FLEX (social r3): a bounded share of the
+         module's slack goes into each row instead of pooling as a dead band
+         under row three — the same slack-into-rows rule the boards follow.
+         Rows four and five exist for tall viewports, where the module is
+         ~200px taller and three thin bars read as a mistake. */
+      .m-board li.none .ghost { display: block; align-self: stretch;
+        flex: 1 1 10px; min-height: 8px; max-height: 16px;
         margin-top: 2px; border-radius: var(--r-tile);
         background: linear-gradient(90deg,
           rgba(169,159,140,0.18) 0 12px, transparent 12px 20px,
@@ -3340,7 +3452,18 @@
           rgba(169,159,140,0.09) calc(100% - 36px) 100%); }
       .m-board li.none .ghost:first-of-type { margin-top: var(--g-row); }
       .m-board li.none .ghost:nth-of-type(2) { opacity: 0.62; }
-      .m-board li.none .ghost:nth-of-type(3) { opacity: 0.34; }
+      .m-board li.none .ghost:nth-of-type(3) { opacity: 0.4; }
+      .m-board li.none .ghost:nth-of-type(4) { opacity: 0.28; }
+      .m-board li.none .ghost:nth-of-type(5) { opacity: 0.2; }
+      .m-board li.none .ghost:nth-of-type(6) { opacity: 0.14; }
+      .m-board li.none .ghost:nth-of-type(7) { opacity: 0.09; }
+      .m-board li.none .ghost:nth-of-type(8) { opacity: 0.05; }
+      .m-board li.none .ghost:nth-of-type(n+4) { display: none; }
+      @media (min-height: 1100px) {
+        .m-board li.none { gap: 12px; }
+        .m-board li.none .ghost { max-height: 22px; }
+        .m-board li.none .ghost:nth-of-type(n+4) { display: block; }
+      }
       #m-open-list { flex: 1 0 100%; margin: 0; padding: 0; list-style: none; font-size: var(--t-small);
         max-height: 140px; overflow-y: auto; font-variant-numeric: tabular-nums; }
       #m-open-list li { display: flex; gap: var(--g-tight); align-items: baseline; padding: 4px 2px;
@@ -6821,7 +6944,7 @@
               <!-- The date used to sit INSIDE the tab row, floated right, so
                    "2026-08-02" read as a fifth tab. It is a caption. -->
               <span class="m-board-day" id="m-board-day"></span>
-              <ol id="m-board-list" class="empty"><li class="none"><b>TUNING IN</b><span>the board is listening for today's crawls</span><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i></li></ol>
+              <ol id="m-board-list" class="empty"><li class="none"><b>TUNING IN</b><span>the board is listening for today's crawls</span><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i></li></ol>
             </div>
             <div class="m-account" id="m-account" style="display:none">
               <span id="m-acct-status"></span>

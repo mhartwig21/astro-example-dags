@@ -702,8 +702,20 @@ function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: numb
  *  headline, the plain reason, and three ghost rows that hold the shape of
  *  the score to come. `ol.empty` centers it and owns the module's height. */
 function boardEmptyHtml(head: string, sub: string): string {
+  // Eight ghosts, not three: rows 4-8 only show at tall viewports (CSS),
+  // where the module is ~200px taller and three thin bars left a ~170px dead
+  // band under the skeleton (r3).
   return `<li class="none"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
-    `<i class="ghost"></i><i class="ghost"></i><i class="ghost"></i></li>`;
+    `${'<i class="ghost"></i>'.repeat(8)}</li>`;
+}
+
+/** One skeleton row: a ghost of `.brow`'s own grid (rank / name / seal chip /
+ *  result). Shared by the panel-scale empty states and the career shelf, so
+ *  every skeleton in the product mirrors the geometry of the rows to come. */
+function skelRowsHtml(n: number): string {
+  return `<div class="skelrows">${
+    ('<div class="skelrow"><i class="sk-rank"></i><i class="sk-nm"></i>' +
+     '<i class="sk-chip"></i><i class="sk-res"></i></div>').repeat(n)}</div>`;
 }
 
 /** The same design at PANEL scale (social r2): with the server dark, THE
@@ -713,8 +725,12 @@ function boardEmptyHtml(head: string, sub: string): string {
  *  the frame (`.set-empty` is flex:1) and `fitPanel` refuses to hug it, so
  *  loading/offline tabs hold the same frame as their populated siblings. */
 function setEmptyHtml(head: string, sub: string): string {
+  // r3: the skeleton mirrors the real board's geometry at the real board's
+  // width (eight `.brow`-shaped rows; CSS shows five on a laptop, all eight
+  // taller at 1440p) — the r2 version was five 13px stripes in a 560px block,
+  // which at 2560x1440 read as a rendering mistake centered in a void.
   return `<div class="set-empty"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
-    `<div class="ghosts">${'<i class="ghost"></i>'.repeat(5)}</div></div>`;
+    skelRowsHtml(8) + `</div>`;
 }
 
 async function refreshBoard(): Promise<void> {
@@ -9431,8 +9447,14 @@ async function enterDailyContract(day: string | null): Promise<void> {
 
 const ULT_LANES: AbilityId[] = ["airstrike", "cataclysm", "bullettime"];
 
+/** The zero chart's silhouette: a plausible death curve (deaths thin with
+ *  depth, tick up at each band's boss floor). Fixed, not random — a skeleton
+ *  is a shape, not data, and it must not shimmer between renders. */
+const HISTO_GHOST_CURVE = [34, 52, 74, 60, 48, 82, 44, 36, 62, 30, 25, 46, 22, 17, 33, 12, 9, 20];
+
 function histogramHtml(byFloor: number[]): string {
   const max = Math.max(1, ...byFloor);
+  const total = byFloor.reduce((a, b) => a + (b ?? 0), 0);
   let bars = "";
   let axis = "";
   for (let f = 1; f <= CONFIG.finalFloor; f++) {
@@ -9441,22 +9463,34 @@ function histogramHtml(byFloor: number[]): string {
     // an assumed 108px track, so the moment a short viewport shortened the
     // track the bars drew straight through the floor axis and the band strip.
     // The track's height is CSS's business; the bar only knows its share.
-    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
-    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}%" ` +
+    const h = total === 0 ? HISTO_GHOST_CURVE[f - 1]
+      : n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
+    const cls = total === 0 ? " ghost" : n === 0 ? " none" : f > 12 ? " deep" : "";
+    bars += `<div class="hb${cls}" style="height:${h}%" ` +
       `title="${n} run${n === 1 ? "" : "s"} ended on floor ${f}">${n > 0 ? `<i>${n}</i>` : ""}</div>`;
     axis += `<span>${f}</span>`;
   }
-  return `<div class="histo">${bars}</div><div class="histax">${axis}</div>` +
+  // AN EMPTY PLOT IS CONTENT (r3): with zero runs the plot region was a raw
+  // ~110px band of stone above a fully-labelled axis. The ghost curve holds
+  // the shape of the chart to come, and the System says what draws it.
+  const zero = total === 0
+    ? `<div class="hzero"><b>NO EPISODES ON FILE</b>` +
+      `<span>the first bar draws where your first run ends</span></div>`
+    : "";
+  return `<div class="histo">${bars}${zero}</div><div class="histax">${axis}</div>` +
     `<div class="bandstrip">${[0, 1, 2, 3, 4, 5].map((b) => `<span>${social.bandName(b)}</span>`).join("")}</div>`;
 }
 
 function masteryHtml(rows: { ultimate: string; xp: number }[]): string {
   const byId = new Map(rows.map((r) => [r.ultimate, r.xp]));
+  // The glyph rides an engraved plate in the shared ink — the menu tiles'
+  // one-glyph-treatment discipline (r3); raw 26px gold pictorials read as
+  // emoji. Gold stays on the level and the bar, where the ranking lives.
   return ULT_LANES.map((id) => {
     const m = social.masteryLevel(byId.get(id) ?? 0);
     const info = ABILITY_INFO[id];
     return `<div class="mrow">` +
-      `<i class="mic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+      `<span class="micbox"><i class="mic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i></span>` +
       `<div><div class="mname">${esc(info?.name ?? id)}</div>` +
       `<div class="mbar"><i style="width:${Math.round((m.into / m.need) * 100)}%"></i></div></div>` +
       `<div class="mlvl">LVL ${m.level}<small>${m.into} / ${m.need}</small></div></div>`;
@@ -9652,12 +9686,17 @@ async function renderCareerSet(): Promise<void> {
         ],
       ) +
       // MASTERY rides under it: it is drawn from the same sealed population,
-      // so it belongs on the sealed side of the boundary.
+      // so it belongs on the sealed side of the boundary. (One wrapper per
+      // section: at tall viewports each column's closing SECTION docks to the
+      // column floor — see the `.ccol > :last-child` rule — and that only
+      // works on a section that moves as one block.)
+      `<div class="csec">` +
       `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
       `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
       `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
       masteryHtml(prof?.mastery ?? []) +
+      `</div>` +
       `</div>` +
       // ...and THIS BROWSER'S ledger stands beside it, counting every run
       // including the ones nobody certified, and saying so instead of standing
@@ -9680,6 +9719,7 @@ async function renderCareerSet(): Promise<void> {
       ) +
       // MILESTONES is drawn from the same local `history` as the ledger above
       // it, so it belongs on this side of the boundary too.
+      `<div class="csec">` +
       `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
       // A TRIMMABLE TAIL, ONE PER COLUMN. Both this and YOUR LAST RUNS grow
@@ -9697,8 +9737,10 @@ async function renderCareerSet(): Promise<void> {
       ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
       `</div>` +
       `</div>` +
+      `</div>` +
       // COLUMN THREE: the band records, and the shelf of runs that back them.
       `<div class="ccol">` +
+      `<div class="csec">` +
       `<div class="rsec" style="color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
       // THE BARS ARE TIME, AND THE HEADING SAYS "BESTS", so the chart read
@@ -9714,20 +9756,29 @@ async function renderCareerSet(): Promise<void> {
       `Bars are TIME IN THE BAND — <b style="color:var(--gold-hi)">shorter is better</b>, ` +
       `and the gold one is your quickest.</div>` +
       `<div>${(() => {
-        const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
-        const timed = bandBests.filter((x): x is number => !!x);
+        // ALL SIX BANDS, ALWAYS (r3). A fresh browser's ledger is `[]`, and
+        // mapping it rendered NOTHING — a heading and an explainer above
+        // ~350px of stone. The bands are known; an unclaimed band is a named
+        // row with an em-dash, which is a design, not an absence.
+        const bands = Array.from({ length: 6 }, (_, i) => bandBests[i] ?? null);
+        const scale = Math.max(1, ...bands.map((x) => x ?? 0));
+        const timed = bands.filter((x): x is number => !!x);
         const fastest = timed.length > 0 ? Math.min(...timed) : -1;
-        return bandBests.map((t, i) =>
+        return bands.map((t, i) =>
           `<div class="splitrow${t ? "" : " empty"}${t && t === fastest ? " best" : ""}">` +
           `<span class="sname">${social.bandName(i)}</span>` +
           `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
           `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`).join("");
       })()}</div>` +
+      `</div>` +
 
       // THE SHELF SITS UNDER THE BAND RECORDS instead of taking a full-width
       // band below the columns — both are the server's view of runs you can
       // still play back, and moving it here is what buys the panel most of the
-      // height it was overflowing by.
+      // height it was overflowing by. With nothing sealed yet the shelf still
+      // stands (r3): three skeleton rows in the board's own geometry hold the
+      // shape of the episodes to come, in the voice every other empty board
+      // on this surface already speaks.
       (prof && prof.recent.length
         ? `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
           `font-family:var(--display);` +
@@ -9736,7 +9787,13 @@ async function renderCareerSet(): Promise<void> {
           `board position. This is a shelf, not a ladder: no ranks, no podium.</div>` +
           `<ul class="board fitlist" data-fitmin="1" data-fitnoun="run">` +
           `${prof.recent.map(recentRowHtml).join("")}</ul></div>`
-        : "") +
+        : `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
+          `font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS</div>` +
+          `<div class="cnamesub" style="margin-bottom:6px">${prof
+            ? "The shelf holds your replayable episodes — it fills as the server seals them."
+            : "The shelf holds your replayable episodes; the server keeps it, and it returns with the signal."}</div>` +
+          skelRowsHtml(3) + `</div>`) +
       `</div>` +
     `</div>`;
   fitPanel(careerEl);
