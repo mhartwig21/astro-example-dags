@@ -697,7 +697,36 @@ function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: numb
  * eras or accounts, so a row here would silently contradict the row there.
  * Falls through to the legacy shape only when the competitive API is dark.
  */
+/** The empty campfire board is DESIGNED CONTENT (social r1 — BOARD OFFLINE
+ *  used to be an 86px apology floating in a 254px module): the System's
+ *  headline, the plain reason, and three ghost rows that hold the shape of
+ *  the score to come. `ol.empty` centers it and owns the module's height. */
+function boardEmptyHtml(head: string, sub: string): string {
+  return `<li class="none"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
+    `<i class="ghost"></i><i class="ghost"></i><i class="ghost"></i></li>`;
+}
+
+/** The same design at PANEL scale (social r2): with the server dark, THE
+ *  STANDINGS was one italic line in the corner of up to 96% of a 1440p
+ *  viewport, on the same day the menu board got TUNING IN + ghost rows for
+ *  the identical condition. One condition, one voice. The block centers in
+ *  the frame (`.set-empty` is flex:1) and `fitPanel` refuses to hug it, so
+ *  loading/offline tabs hold the same frame as their populated siblings. */
+function setEmptyHtml(head: string, sub: string): string {
+  return `<div class="set-empty"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
+    `<div class="ghosts">${'<i class="ghost"></i>'.repeat(5)}</div></div>`;
+}
+
 async function refreshBoard(): Promise<void> {
+  // Every path in the inner refresh rewrites the list, so whether the empty
+  // state owns the module's height is settled ONCE, after whichever path ran:
+  // empty = not a single real row landed.
+  await refreshBoardInner();
+  const list = document.getElementById("m-board-list")!;
+  list.classList.toggle("empty", !list.querySelector("li:not(.none)"));
+}
+
+async function refreshBoardInner(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
   const dayEl = document.getElementById("m-board-day")!;
   try {
@@ -707,7 +736,8 @@ async function refreshBoard(): Promise<void> {
     })) as social.BoardPage;
     dayEl.textContent = boardTab === "today" ? (challengeDay ?? dayFromMs(Date.now())) : "ALL-TIME";
     if (page.entries.length === 0) {
-      list.innerHTML = '<li class="none">no crawlers on this board yet — be the first</li>';
+      list.innerHTML = boardEmptyHtml("AN OPEN CONTRACT",
+        "no crawler is on this board yet — the first name up stays up");
       return;
     }
     list.innerHTML = page.entries.map((r, i) => {
@@ -730,18 +760,20 @@ async function refreshBoard(): Promise<void> {
       // self-reported; they are shown only when the sealed boards are dark, and
       // they are never allowed to look like the sealed ones.
       dayEl.textContent = "ALL-TIME · UNSEALED LEGACY";
-      list.innerHTML = (data.entries.length
+      list.innerHTML = data.entries.length
         ? data.entries.slice(0, 10).map((e, i) =>
             `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
             `<span class="seal claimed" title="self-reported, from before verification — never replayed">UNSEALED</span>` +
             `<span class="res${e.won ? " win" : ""}">${alltimeRes(boardTab, e)}</span></li>`,
           ).join("")
-        : '<li class="none">nobody has claimed this board yet</li>')
-        + '<li class="none">THE STANDINGS are offline — these are legacy, self-reported rows</li>';
+          + '<li class="none">THE STANDINGS are offline — these are legacy, self-reported rows</li>'
+        : boardEmptyHtml("AN UNCLAIMED BOARD",
+            "the sealed standings are dark and no legacy row claims this — it is yours to take");
       const nms = list.querySelectorAll(".nm");
       data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
     } catch {
-      list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+      list.innerHTML = boardEmptyHtml("THE BOARD IS DARK",
+        "the server keeps the score — the standings return with the signal");
     }
     return;
   }
@@ -757,7 +789,8 @@ async function refreshBoard(): Promise<void> {
           `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
           `<span class="res${e.won ? " win" : ""}">${e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`}</span></li>`,
         ).join("")
-      : '<li class="none">no crawlers on the board yet — be the first</li>';
+      : boardEmptyHtml("AN OPEN CONTRACT",
+          "no crawler has signed today's dungeon — the first name up stays up");
     // Names are player-supplied: set via textContent, never innerHTML.
     const nms = list.querySelectorAll(".nm");
     data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
@@ -782,7 +815,8 @@ async function refreshBoard(): Promise<void> {
       }
     }
   } catch {
-    list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+    list.innerHTML = boardEmptyHtml("THE BOARD IS DARK",
+      "the server keeps the score — the standings return with the signal");
   }
 }
 
@@ -970,11 +1004,18 @@ function renderCareer(): void {
     `<div class="best"><b>${bests.fastestClearSec !== null ? fmt(bests.fastestClearSec) : "—"}</b><small>FASTEST CLEAR</small></div>` +
     `<div class="best"><b>${bests.mostKills.toLocaleString()}</b><small>MOST KILLS</small></div>` +
     `<div class="best"><b>${bests.peakViewers.toLocaleString()}</b><small>PEAK VIEWERS</small></div>`;
-  document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
+  // The module hides entirely with zero finished runs (no empty shrine), but
+  // the RECENT EPISODES list still owns the same designed empty state as its
+  // sibling board module above it (social r2 minor 8a) — one condition, one
+  // voice, and a belt against any future path that shows the panel early.
+  const careerList = document.getElementById("m-career-list")!;
+  careerList.innerHTML = history.slice(0, 5).map((r) =>
     `<li><span class="rank">${r.mode === "daily" ? '<i class="dia"></i>' : "·"}</span>` +
     `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
     `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${social.count(r.kills, "kill")}`}</span></li>`,
-  ).join("");
+  ).join("") || boardEmptyHtml("NO EPISODES FILED",
+    "finish a crawl and the System starts your reel");
+  careerList.classList.toggle("empty", history.length === 0);
 }
 
 function openMenu(): void {
@@ -8641,7 +8682,13 @@ function fitPanel(panel: HTMLElement): void {
   const body = frame?.querySelector<HTMLElement>("#ladder-body, #career-body");
   if (frame && body) {
     frame.classList.remove("hugs");
-    if (body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
+    // ...but a designed empty/loading state is built to CLAIM the frame, not
+    // to be hugged (social r2: the BANDS tab collapsed the frame 737->172px
+    // into a letterbox strip because the hug pass graded a loading line like
+    // a short document — sibling tabs of one screen must not resize the
+    // world by 5x). `.set-empty` centers itself in the full frame instead.
+    if (!body.querySelector(".set-empty")
+      && body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
   }
   // A list the reader has explicitly unfolded is not the fit pass's business
   // any more.
@@ -9043,12 +9090,16 @@ async function renderLadderBody(): Promise<void> {
   const body = document.getElementById("ladder-body")!;
   document.getElementById("ladder-sub")!.textContent =
     `rules era ${ERA} — every ranked row is a proof the server re-executed, not a number it was told`;
-  body.innerHTML = `<ul class="board"><li class="none">the network is counting…</li></ul>`;
+  // The tuning state is the DESIGNED one, and it claims the whole frame
+  // immediately — including on a tab switch, so the frame never letterboxes
+  // between a click and the fetch it started (the BANDS hug-jump, social r2).
+  body.innerHTML = setEmptyHtml("TUNING IN", "the network is counting…");
+  fitPanel(ladderEl); // clears a lingering `hugs` from the previous tab NOW
   try {
     if (!events) events = (await competitive.events()) as social.EventsView;
   } catch {
-    body.innerHTML = `<ul class="board"><li class="none">the board is offline — the server keeps the ` +
-      `score, and it will still be there when the signal is back</li></ul>`;
+    body.innerHTML = setEmptyHtml("THE BOARD IS DARK",
+      "the server keeps the score, and it will still be there when the signal is back");
     return;
   }
   if (ladderTab === "contracts") {
@@ -9213,11 +9264,23 @@ async function refreshRivals(): Promise<void> {
 }
 
 async function openLadder(): Promise<void> {
-  myAccount = await accountToken();
-  await refreshRivals();
+  // THE FRAME OPENS ON THE CLICK, the network fetches INTO it (social r2:
+  // this used to await accountToken + refreshRivals before adding `.on`, so
+  // the primary nav button gave nothing back for 2.5-6.9 measured seconds.
+  // Riot's client acknowledges a nav click the same frame). The tuning
+  // skeleton is only painted over an empty body — a reopen keeps last
+  // renders' rows on screen while the refresh lands, which is also what the
+  // reference does.
   closeSets();
   recapEl.style.display = "none";
   ladderEl.classList.add("on");
+  const body = document.getElementById("ladder-body")!;
+  if (!body.firstChild) {
+    body.innerHTML = setEmptyHtml("TUNING IN", "the network is counting…");
+    fitPanel(ladderEl);
+  }
+  myAccount = await accountToken();
+  await refreshRivals();
   await renderLadder();
 }
 
@@ -9681,11 +9744,17 @@ async function renderCareerSet(): Promise<void> {
 }
 
 async function openCareerSet(): Promise<void> {
-  myAccount = await accountToken();
-  await refreshRivals();
+  // Frame first, fetch into it — same contract as openLadder (social r2).
   closeSets();
   recapEl.style.display = "none";
   careerEl.classList.add("on");
+  const body = document.getElementById("career-body")!;
+  if (!body.firstChild) {
+    body.innerHTML = setEmptyHtml("PULLING YOUR FILE", "the network is finding your episodes…");
+    fitPanel(careerEl);
+  }
+  myAccount = await accountToken();
+  await refreshRivals();
   await renderCareerSet();
 }
 careerEl.addEventListener("click", (e) => {
