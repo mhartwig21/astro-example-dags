@@ -74,10 +74,21 @@
            stopped growing exactly where the expensive monitors start. Every
            cap is now ~1.2x the old one, which is where 36/52/72/82vw actually
            lands at 1440p. */
-        --set-sm: clamp(460px, 36vw, 880px);    /* keybinds, inventory   */
-        --set-md: clamp(720px, 52vw, 1280px);   /* constellation, menu   */
-        --set-lg: clamp(950px, 72vw, 1560px);   /* crawler profile       */
-        --set-xl: clamp(1100px, 82vw, 2000px);  /* safe room             */
+        /* r3: the caps were STILL binding at 1440p — #inv measured 880x533 of
+           2560x1440 (23% of the width) with 13-17px body type on a 27-inch
+           panel, and #keys 1280 wide with a gutter of air between its label
+           column and its key chips. Every rung's vw grows and every ceiling
+           moves up, so 1440p buys a bigger SET rather than a 1600p set floating
+           in 960 extra pixels of void. Floors are untouched: nothing shrinks. */
+        --set-sm: clamp(460px, 40vw, 1120px);   /* keybinds, inventory   */
+        --set-md: clamp(720px, 56vw, 1600px);   /* constellation, menu   */
+        --set-lg: clamp(950px, 76vw, 1900px);   /* crawler profile       */
+        --set-xl: clamp(1100px, 86vw, 2240px);  /* safe room             */
+        /* Item tiles are the shop's unit of measure, so they scale with the
+           display too — a wider monitor used to buy more COLUMNS of 54px art
+           (SIGNATURE ended as two tiles with ~1400px of empty shelf beside
+           them) instead of art you can actually see. */
+        --tile: clamp(56px, 5.6vw, 104px);
         /* ONE height budget, and it is a BORDER-box height: every panel that
            uses it sets box-sizing:border-box, because max-height on a content
            box is not a cap on what the viewport sees — the padding rides on
@@ -385,7 +396,7 @@
         box-shadow: 0 0 0 1px rgba(10,6,3,0.7); }
       kbd { background: linear-gradient(180deg, var(--hover), var(--raised));
         border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: 3px;
-        padding: 1px 6px; font-size: 11px; color: var(--ink-dim); }
+        padding: 1px 6px; font-size: var(--t-small); color: var(--ink-dim); }
 
       /* Floating combat numbers: pooled DOM elements driven by WAAPI (scale
          pop + arc + fade in main3d.spawnDamageNumber) — no CSS transitions,
@@ -499,20 +510,37 @@
       body.touch #tutorial { top: 284px; }
       body.phone #tutorial { top: 96px; max-width: 30ch; }
       body.phone .tut-body { font-size: 12px; }
-      .tut { background: rgba(12,10,20,0.92); border: 1px solid #c9a24b; border-radius: 6px;
+      /* THE COURTESY CARD WAS A NAVY PLATE WITH A DANGER BUTTON (r3 majors).
+         Rule four sanctions cool GLASS for anything overlaid on live gameplay —
+         glass, meaning the dungeon reads through it. At alpha 0.92 over a
+         #0c0a14 ground this was not glass, it was an opaque blue-violet slab
+         parked on a warm ochre floor: measured against the frame it is the
+         third cool well in the set (the other two are the star chart's, and
+         those are the sanctioned --sky pair). It keeps its cool cast at the
+         alpha the rule actually intends, and the dungeon comes through it.
+         And its dismiss carried an oxblood fill on the most benign action in
+         the product — rule 2 says blood is HP and threat, nothing else. GOT IT
+         is a stone secondary now, like every other acknowledge in the set. */
+      .tut { background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
+        border: 1px solid #c9a24b; border-radius: 6px;
         color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
       .tut.show { opacity: 1; transform: translateY(0); }
       .tut-head { background: rgba(201,162,75,0.18); border-bottom: 1px solid #c9a24b;
-        padding: 6px 10px; font-size: var(--t-small); font-weight: 700; letter-spacing: 0.6px; color: #c9a24b; }
+        padding: 6px 10px; font-size: var(--t-small); font-weight: 700;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
+        color: #c9a24b; display: flex; align-items: center; }
       .tut-body { padding: 10px 12px; font-size: var(--t-body); line-height: 1.5; }
       .tut-dismiss { display: block; width: 100%; margin-top: 8px; padding: 5px 0;
-        background: rgba(201,162,75,0.15); border: 1px solid #8a6d3b; border-radius: var(--r-panel);
-        color: #f2c14e; font-size: var(--t-small); font-weight: 700; letter-spacing: 0.4px; cursor: pointer; }
-      .tut-dismiss:hover { background: rgba(201,162,75,0.28); }
+        background: linear-gradient(180deg, var(--raised), #14100c);
+        border: 1px solid var(--bronze); border-radius: var(--r-panel);
+        color: var(--gold); font-family: var(--display); font-variant: small-caps;
+        font-size: var(--t-small); font-weight: 700; letter-spacing: 0.14em; cursor: pointer; }
+      .tut-dismiss:hover { border-color: var(--bronze-hi); color: var(--gold-hi);
+        background: linear-gradient(180deg, var(--hover), var(--raised)); }
       @media (pointer: coarse) {
         .tut { touch-action: manipulation; } /* never a double-tap zoom */
-        .tut-dismiss { padding: 12px 0; font-size: 12px; } /* thumb-sized */
+        .tut-dismiss { padding: 12px 0; font-size: var(--t-small); } /* thumb-sized */
       }
 
       /* System toasts: the System's running commentary (normal priority),
@@ -622,8 +650,22 @@
       .kb-row { display: flex; justify-content: space-between; align-items: center; gap: var(--g-row);
         padding: 6px 4px; border-top: 1px solid rgba(110,85,51,0.28); font-size: var(--t-body); }
       /* #cfcfe0 was a cool lavender-white used nowhere else in the product. */
-      .kb-row .kb-name { color: var(--ink); }
-      .kb-row .kb-name small { color: var(--ink-faint); margin-left: 6px; }
+      /* r3 major (1440p): `justify-content: space-between` in a 1,280px panel
+         put ~500px of nothing between each label and its key chip. The
+         styleguide already names the fix — "Stat ledger (PoE): small-caps label
+         left, DOTTED LEADER, tabular value right" — the settings panel just
+         never got it. A leader turns dead air into structure and reads at any
+         width, which is what a fluid set needs. */
+      .kb-row .kb-name, .ctl-row .ctl-name {
+        display: flex; align-items: baseline; flex: 1; min-width: 0; color: var(--ink); }
+      .kb-row .kb-name::after, .ctl-row .ctl-name::after {
+        content: ""; flex: 1; min-width: 14px; margin: 0 10px 0.28em;
+        border-bottom: 1px dotted rgba(110,85,51,0.6); }
+      /* r3: this was the last UNDECLARED size in the settings ledger — 14
+         sub-labels resolving through the UA keyword  (parent/1.2), so
+         they landed at 10.8333/12.5333px, on no rung of anything. */
+      .kb-row .kb-name small { color: var(--ink-faint); margin-left: 6px;
+        font-size: var(--t-small); }
       /* ENGRAVED KEYCAPS (styleguide recipe: stone gradient, bronze border with
          a 2px bottom, Cinzel 11px). They were flat #1a1a24 navy tags on warm
          stone, and both hover and the rebind state went lore-blue — the one
@@ -1374,7 +1416,7 @@
         /* The card: the same bronze double frame every set in the game wears. */
         body.phone.ingame #rotate::before { content: "SIGNAL ORIENTATION"; order: -2;
           font-family: var(--display); font-variant: small-caps; letter-spacing: 0.28em;
-          font-size: 10.5px; color: var(--gold); margin-bottom: 26px; }
+          font-size: var(--t-fine); color: var(--gold); margin-bottom: 26px; }
         /* The drawn mark: a device rotating a quarter turn. Rule 3 — icons are
            drawn, never typed — so this is geometry, not a glyph. */
         body.phone.ingame #rotate::after { content: ""; order: -1; width: 74px; height: 108px;
@@ -1383,14 +1425,14 @@
           background: linear-gradient(180deg, rgba(46,36,23,0.75), rgba(12,9,6,0.9));
           animation: rot-turn 2.8s cubic-bezier(0.6, 0, 0.3, 1) infinite; }
         body.phone.ingame #rotate b { font-family: var(--display); font-variant: small-caps;
-          font-weight: 700; font-size: 26px; letter-spacing: 0.12em; color: #f5e6bf;
+          font-weight: 700; font-size: var(--t-head); letter-spacing: 0.12em; color: #f5e6bf;
           text-shadow: 0 0 26px rgba(201,162,75,0.35), 0 2px 3px #000; }
         /* The engraved rule under the headline — the house section bar. */
         body.phone.ingame #rotate b::after { content: ""; display: block; height: 1px;
           width: 60%; margin: 12px auto 0;
           background: linear-gradient(90deg, transparent, var(--bronze), transparent); }
         body.phone.ingame #rotate span { display: block; margin-top: 12px; max-width: 30ch;
-          color: var(--ink-dim); font-size: 13.5px; line-height: 1.5; }
+          color: var(--ink-dim); font-size: var(--t-body); line-height: 1.5; }
       }
       @keyframes rot-turn {
         0%, 26% { transform: rotate(0deg); }
@@ -3059,7 +3101,8 @@
       body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
       #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
         color: #f5e6bf; text-shadow: 0 2px 12px #000; }
-      #m-skin-label b { display: block; font-size: var(--t-hero); letter-spacing: 5px; }
+      #m-skin-label b { display: block; font-size: var(--t-hero); letter-spacing: 5px;
+        font-family: var(--display); font-variant: small-caps; }
       #m-skin-label small { display: block; margin-top: 5px; color: #a99f8c; font-size: var(--t-small);
         letter-spacing: 2px; }
       /* THE CASTING CALL (stage 2): the panel steps aside, the camera dollies
@@ -3427,13 +3470,55 @@
          the right 62% of the screen at full gameplay contrast while you make a
          build decision. A draft is a MODAL beat — the dungeon still reads
          through, but it stops competing. */
-      #draft { position: fixed; inset: 0; display: none; align-items: center; z-index: 25;
-        background: linear-gradient(100deg, rgba(4,4,8,0.93) 30%, rgba(4,4,8,0.78) 68%, rgba(4,4,8,0.66)); }
-      #draft .panel { width: clamp(600px, 42vw, 820px); max-width: 88vw; margin-left: 6vw; }
-      #draft h2 { margin: 0 0 3px; color: #c9a24b; letter-spacing: 4px; font-size: var(--t-head);
-        text-shadow: 0 0 18px rgba(201,162,75,0.45); }
-      #draft .hint { color: #a99f8c; font-size: var(--t-small); margin-bottom: 18px; }
-      #draft .cards { display: flex; flex-direction: column; gap: var(--g-row); }
+      /* ================= THE DRAFT BECOMES A SET (r3 MAJOR) =================
+         Measured against its five stone siblings, the one screen that stops the
+         game to decide your BUILD shipped: panelPad 0 (siblings 20.5/24/28),
+         borderRadius 0 (siblings 3), border none (siblings 1px --bronze),
+         boxShadow none (siblings the double inset frame), and it sat at x=80 in
+         a 1366 viewport with ~700px of empty screen to its right. A floating
+         list of three rows, in a product where every other set is a slab.
+
+         Rule four is why it was left alone, and rule four is narrower than that:
+         it reserves the cool PLATE for anything overlaid on live gameplay — it
+         does not say the plate may have no frame, no padding and no centre. The
+         panel is the house slab in every dimension the audit measured, built on
+         the sanctioned cool ground instead of warm stone, and it is CENTRED.
+         The scrim under it goes flat and heavy so the dungeon stops reading
+         through the card bodies (measured: the lit floor was legible straight
+         through "Swing arc +44°"). */
+      #draft { position: fixed; inset: 0; display: none; align-items: center;
+        justify-content: center; z-index: 25;
+        background: radial-gradient(ellipse at 50% 50%, rgba(4,4,8,0.86), rgba(3,3,6,0.95) 72%); }
+      #draft .panel { box-sizing: border-box;
+        width: clamp(600px, 46vw, 900px); max-width: 92vw; max-height: var(--set-h);
+        display: flex; flex-direction: column; overflow: visible;
+        padding: var(--set-pad); border-radius: var(--r-panel);
+        border: 1px solid var(--bronze);
+        background: var(--noise), linear-gradient(180deg, rgba(18,16,26,0.90), rgba(10,9,15,0.94) 40%);
+        backdrop-filter: blur(3px);
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), inset 0 1px 0 rgba(232,221,200,0.06),
+          0 24px 70px rgba(0,0,0,0.72); }
+      /* The bronze diamond caps every other slab wears, top and bottom centre. */
+      #draft .panel::before, #draft .panel::after { content: ""; position: absolute;
+        left: 50%; width: 9px; height: 9px; margin-left: -5px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.75); pointer-events: none; }
+      /* Seated ON the frame rather than straddling it: a cap that hangs 5px
+         past the border adds 6px to the panel scroll height, and a fit report
+         that says +6 for a decoration is a fit report nobody trusts. */
+      #draft .panel::before { top: 2px; }
+      #draft .panel::after { bottom: 2px; }
+      #draft .panel { position: relative; }
+      #draft h2 { margin: 0 0 var(--g-hair); color: var(--gold); text-align: center;
+        text-shadow: 0 0 18px rgba(201,162,75,0.45); flex: none; }
+      /* The title's own gem is the KICKER's job here (the kicker is ruled both
+         sides); a second loose diamond on a centred masthead reads as a bullet. */
+      #draft h2::before { display: none; }
+      #draft .d-kicker { margin-bottom: var(--g-hair); }
+      #draft .hint { color: #a89880; font-size: var(--t-small); text-align: center;
+        margin-bottom: var(--g-sec); flex: none; }
+      #draft .cards { display: flex; flex-direction: column; gap: var(--g-row);
+        flex: 1; min-height: 0; overflow-y: auto; }
       /* THE SYSTEM'S CONTRACTS, not esports lower-thirds (r1 major). The cards
          were skewX(-6deg) with an angled ribbon and a coloured left bar — the
          Apex/Valorant idiom — in a product whose styleguide asks for "contract
@@ -3493,7 +3578,7 @@
         font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.15em;
         color: var(--oc); border: 1px solid var(--oc);
         background: rgba(0,0,0,0.4); padding: 2px 9px; }
-      .rdesc { color: #cbbfa4; font-size: 12.5px; margin-top: 4px; line-height: 1.45;
+      .rdesc { color: #cbbfa4; font-size: var(--t-body); margin-top: 4px; line-height: 1.45;
         font-family: var(--body); font-variant: normal; }
       /* The offer NUMBER is a clause number: it belongs against the left edge
          of the contract, not ~500px away from the name it labels (r1 major).
@@ -3502,7 +3587,7 @@
         background: linear-gradient(180deg, var(--hover), var(--raised) 60%, #1b150f);
         border: 1px solid var(--bronze); border-bottom-width: 2px; border-radius: var(--r-tile);
         padding: 3px 9px; font-family: var(--display); font-variant: small-caps;
-        font-size: 13px; font-weight: 700; color: var(--gold);
+        font-size: var(--t-body); font-weight: 700; color: var(--gold);
         box-shadow: inset 0 1px 0 rgba(232,221,200,0.12);
         transition: color 0.12s ease, border-color 0.12s ease; }
       /* r1 BLOCKER: the most repeated reward beat in the game was drawn
@@ -3556,10 +3641,21 @@
          views. And it now scales the RIGHT way: 1440p spends its extra pixels
          making one card bigger instead of squeezing three into a row and
          collapsing the description column to 90px (r1's other 2560 defect). */
-      #abil .apane[data-pane="chart"] { display: grid;
-        grid-template-columns: clamp(178px, 14vw, 280px) minmax(0, 1fr);
+      /* ============ ONE INDEX+STAGE COMPONENT, THREE SCREENS (r3) ============
+         r2 built this for the constellation and it is the only shape in the
+         product that fits a long content set into a fixed panel. r3's two
+         blockers were both the SAME screen not having it: the safe room's
+         ABILITIES page (a 3,200px scroll of the identical cards) and the shop
+         SHELF (a five-tier scroll whose fold landed on a section header). One
+         class, three uses; a fourth screen gets it for free. */
+      .ixsplit { flex: 1; min-height: 0; display: grid;
+        grid-template-columns: clamp(150px, 12vw, 280px) minmax(0, 1fr);
         gap: var(--g-col); overflow: hidden; align-items: stretch; }
-      #abil .aindex { display: flex; flex-direction: column; gap: 1px;
+      /* One rail can be alone (THE CHASE is a single section, so it gets the
+         whole width rather than a rail with one entry in it). */
+      .ixsplit.solo { grid-template-columns: minmax(0, 1fr); }
+      .ixsplit.solo > .aindex { display: none; }
+      .aindex { display: flex; flex-direction: column; gap: 1px;
         min-height: 0; overflow-y: auto; align-content: start;
         border-right: 1px solid rgba(110,85,51,0.35); padding-right: var(--g-row); }
       .aidx { display: flex; align-items: center; gap: var(--g-tight); width: 100%;
@@ -3592,8 +3688,18 @@
       .aidx-h:first-child { margin-top: 0; }
       /* THE STAGE. One card, sized to the pane — never a scroll surface that
          eats a card mid-word. */
-      #abil .grid { display: block; min-height: 0; overflow-y: auto; padding-right: 4px; }
-      #abil .grid .acard, #abil .grid .ccard { margin-bottom: 0; break-inside: auto; }
+      .ixsplit > .grid, .ixsplit > .shop-shelf {
+        display: block; min-height: 0; overflow-y: auto; padding-right: 4px; }
+      .ixsplit > .grid .acard, .ixsplit > .grid .ccard { margin-bottom: 0; break-inside: auto; }
+      /* The rail carries a COUNT, because "how many COMPLETED WORKS are there"
+         is the question the fold used to answer with silence. */
+      .aidx .aidx-n { flex: none; font-variant-numeric: tabular-nums;
+        font-size: var(--t-stamp); color: var(--ink-faint); letter-spacing: 0.06em; }
+      .aidx.on .aidx-n { color: var(--gold); }
+      /* Ready-to-buy is the shelf's tempo read; it belongs on the rail too. */
+      .aidx .aidx-rdy { flex: none; width: 6px; height: 6px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--gold-hi), var(--gold));
+        box-shadow: 0 0 6px rgba(242,193,78,0.55); }
 
       /* Achievements: ONE grid in the product (r2 blocker). The same thirteen
          achievements used to ship twice — 4-up warm-stone cards ~195x90 with a
@@ -3659,7 +3765,7 @@
       #saferoom .tip { color: #a99f8c; font-size: var(--t-small); margin: 7px 0 2px; font-style: italic; }
       #saferoom .tip::before { content: "MORDECAI: "; color: #6da356; font-weight: 700; font-style: normal; }
       .shop-body { flex: 1; min-height: 0; display: grid;
-        grid-template-columns: minmax(0, 1fr) 348px;
+        grid-template-columns: minmax(0, 1fr) clamp(348px, 30vw, 520px);
         gap: var(--g-col); margin-top: var(--g-row); }
       /* r2 major: at 2560 this stretched COMPONENTS into ONE 18-WIDE ROW with
          480px of empty brown under it — a wider monitor made the shop WORSE.
@@ -3672,7 +3778,7 @@
         .shop-side .shop-detail, .shop-side .shop-bag { min-width: 0; }
       }
       .shop-shelf { overflow-y: auto; padding-right: 6px; }
-      .tier-h { display: flex; align-items: center; gap: var(--g-row); font-size: var(--t-fine); font-weight: 700;
+      .tier-h { display: flex; align-items: center; gap: var(--g-row); font-size: var(--t-small); font-weight: 700;
         letter-spacing: 3px; color: var(--tc, #a99f8c); margin: 12px 0 7px; }
       .shop-shelf .tier-h:first-child { margin-top: 2px; }
       /* The rule is a RULE, not a wipe over the copy (r1 major): ::after used
@@ -3688,11 +3794,28 @@
       .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: var(--ink-faint);
         flex: 0 1 auto; min-width: 0; }
       .igrid { display: flex; flex-wrap: wrap; gap: var(--g-tight); }
-      .itile { --tc: #a99f8c; width: 56px; cursor: pointer; }
+      /* THE SHOWCASE (r3 major, "nothing scales up"). A small tier gets the
+         shelf's spare room spent on ART AND NAMES instead of leaving it empty:
+         COMPLETED WORKS and SIGNATURE are the highest-margin goods in the game
+         and they were two rows of anonymous 60px icons. */
+      .itile .iname { display: none; font-size: var(--t-small); }
+      .igrid.showcase { gap: var(--g-col); }
+      .igrid.showcase .itile { --tile: clamp(80px, 6vw, 140px);
+        width: calc(var(--tile) + 24px); }
+      .igrid.showcase .itile .ibox { margin: 0 auto; }
+      .igrid.showcase .itile .iname { display: block; margin-top: 5px;
+        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.06em;
+        font-size: var(--t-small); color: var(--ink); text-align: center;
+        line-height: 1.2; }
+      .igrid.showcase .itile.locked .iname, .igrid.showcase .itile.soldout .iname {
+        color: var(--ink-faint); }
+      .igrid.showcase .itile .iprice { margin-top: 2px; }
+      .itile { --tc: #a99f8c; width: var(--tile); cursor: pointer; }
       /* LoL-shop tile read (r4 major): rarity-tinted radial backing behind the
          painted art — the tier color is the tile's ambient light, not just a
          corner gem — plus a tinted top rim so every box carries a key light. */
-      .itile .ibox { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;
+      .itile .ibox { width: calc(var(--tile) - 2px); height: calc(var(--tile) - 2px);
+        display: flex; align-items: center; justify-content: center;
         background:
           radial-gradient(120% 95% at 50% 18%, color-mix(in srgb, var(--tc) 22%, #171009), rgba(0,0,0,0) 72%),
           linear-gradient(160deg, #1b1611, #0e0b08);
@@ -3705,12 +3828,13 @@
         box-shadow: 0 0 10px -2px var(--tc), inset 0 0 12px rgba(0,0,0,0.75); }
       /* Art FILLS the well (r4 major: a small sprite floating in a big dark
          square reads as placeholder) — 46px art in a 54px box. */
-      .itile .ii { width: 46px; height: 46px; background: var(--tc); display: block;
+      .itile .ii { width: calc(var(--tile) * 0.82); height: calc(var(--tile) * 0.82);
+        background: var(--tc); display: block;
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .itile .iglyph { font-size: var(--t-hero); color: var(--tc); line-height: 1; }
       .itile .iprice { display: flex; justify-content: center; align-items: center; gap: var(--g-hair);
-        margin-top: 3px; font-size: var(--t-fine); color: #f2c14e; font-variant-numeric: tabular-nums; }
+        margin-top: 3px; font-size: var(--t-small); color: #f2c14e; font-variant-numeric: tabular-nums; }
       .itile .iprice .micon { width: 9px; height: 9px; }
       .itile:hover .ibox { border-color: var(--tc); }
       /* Tier grading so rarity reads from three feet away (r4 major):
@@ -3740,7 +3864,7 @@
       .itile.locked .ibox::after { content: "✕"; position: absolute; right: 2px; bottom: 0;
         font-size: var(--t-fine); color: var(--ink-empty); }
       /* Consumable scarcity: remaining-stock badge + sold-out state. */
-      .itile .istock { position: absolute; top: 1px; right: 2px; font-size: var(--t-micro); line-height: 1;
+      .itile .istock { position: absolute; top: 1px; right: 2px; font-size: var(--t-fine); line-height: 1;
         color: #a99f8c; font-variant-numeric: tabular-nums; }
       .itile.soldout .ibox { border-color: #241d16; opacity: 0.45;
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.85); }
@@ -3775,11 +3899,11 @@
         border: 1px solid #221b15; padding: 12px 14px; }
       .shop-detail .dempty { color: var(--ink-empty); font-size: var(--t-small); font-style: italic; }
       .dname { font-size: var(--t-body); font-weight: 700; letter-spacing: 0.5px; color: var(--tc, #e8ddc8); }
-      .dkind { font-size: 10px; letter-spacing: 2px; color: var(--ink-faint); margin: 2px 0 8px; }
-      .dstats { font-size: 12px; color: #cbbfa4; line-height: 1.55; }
-      .dpassive { font-size: 12px; color: #f2c14e; font-style: italic; margin-top: 6px; }
-      .ddesc { font-size: 11px; color: var(--ink-faint); margin-top: 6px; line-height: 1.5; }
-      .dsec { font-size: 9px; letter-spacing: 2.5px; color: var(--ink-empty); margin: 9px 0 4px;
+      .dkind { font-size: var(--t-fine); letter-spacing: 2px; color: var(--ink-faint); margin: 2px 0 8px; }
+      .dstats { font-size: var(--t-body); color: #cbbfa4; line-height: 1.42; }
+      .dpassive { font-size: var(--t-body); color: #f2c14e; font-style: italic; margin-top: 6px; }
+      .ddesc { font-size: var(--t-small); color: var(--ink-faint); margin-top: 4px; line-height: 1.45; }
+      .dsec { font-size: var(--t-fine); letter-spacing: 2.5px; color: var(--ink-empty); margin: 6px 0 3px;
         display: flex; align-items: center; gap: 8px; }
       .dsec::after { content: ""; flex: 1; height: 1px; background: #221b15; }
       .dtree { display: flex; flex-wrap: wrap; gap: var(--g-tight); }
@@ -3789,7 +3913,7 @@
       .dtree .itile.have .ibox { border-color: #6da356; }
       .dtree .itile.have .ibox::after { content: "✓"; position: absolute; right: 2px; bottom: 0;
         font-size: var(--t-micro); color: #6da356; }
-      .dreq { font-size: 11px; margin-top: 3px; }
+      .dreq { font-size: var(--t-small); margin-top: 3px; }
       .dreq.met { color: #6da356; } .dreq.unmet { color: #c0392f; }
 
       /* ---- ITEMIZATION V2 ----------------------------------------------
@@ -3815,7 +3939,7 @@
       .dpath .prung.self .itile { width: 46px; }
       .dpath .prung.self .itile .ibox { width: 44px; height: 44px; }
       .dpath .prung.self .itile .ii { width: 36px; height: 36px; }
-      .dpath .pcost { font-size: var(--t-stamp); color: #f2c14e; display: flex; justify-content: center;
+      .dpath .pcost { font-size: var(--t-micro); color: #f2c14e; display: flex; justify-content: center;
         align-items: center; gap: var(--g-hair); letter-spacing: 0.5px; margin-top: 2px; }
       .dpath .pcost.owned { color: #6da356; }
       .dpath .pcost .micon { width: 8px; height: 8px; }
@@ -3826,40 +3950,52 @@
         box-shadow: 0 0 12px rgba(242,193,78,0.4), inset 0 0 0 1px rgba(0,0,0,0.6); }
 
       /* CHASE UNIQUES: drop-only boss gear on its own sub-tab, displayed like
-         a trophy case — you cannot buy it, so nothing here carries a price. */
-      .shop-subtabs .tab.chase.active { color: #e08b7f; box-shadow: inset 0 -2px 0 #c0392f; }
-      .tier-h.chase-h { color: #c0392f; }
+         a trophy case — you cannot buy it, so nothing here carries a price.
+
+         ================= BLOOD IS NOT A DECORATION (r3 MAJOR) =================
+         This tab drew its ACTIVE sub-tab label, its section rule, its row
+         frames, its tiles and every UNCLAIMED chip in oxblood, while the parent
+         tabs (SYSTEM SHOP / ABILITIES / ACHIEVEMENTS) and the sibling sub-tabs
+         went gold when active. That is two different active-tab colours inside
+         one panel, and it breaks both stated rules at once: rule 1 "gold is the
+         only chrome — no other hue may decorate structure", and rule 2 "blood
+         only on HP/threat". A want-list of boss uniques is not a threat; it is
+         a TROPHY CASE, and the trophy hue in this product is the legendary
+         arcane. Chrome goes gold, the case goes bronze-on-stone, and the only
+         thing that keeps a hue is the ITEM — because rarity is information. */
+      .tier-h.chase-h { color: var(--ink-dim); }
       .chase-list { display: flex; flex-direction: column; gap: var(--g-tight); }
       .chase-row { display: flex; gap: var(--g-row); align-items: center; cursor: pointer;
-        padding: 8px 12px; border: 1px solid #2c1c19; border-radius: var(--r-panel);
-        background: linear-gradient(90deg, rgba(40,18,15,0.55), rgba(14,10,8,0.4) 60%); }
-      .chase-row:hover { border-color: #7a2b26; }
-      .chase-row.sel { border-color: #c0392f; box-shadow: 0 0 14px rgba(192,57,47,0.25); }
+        padding: 6px 12px; border: 1px solid #241d16; border-radius: var(--r-panel);
+        background: linear-gradient(90deg, rgba(34,27,21,0.55), rgba(14,11,8,0.4) 60%); }
+      .chase-row:hover { border-color: var(--bronze); }
+      .chase-row.sel { border-color: var(--gold); box-shadow: 0 0 14px rgba(201,162,75,0.25); }
       .chase-row .itile { width: 52px; flex: none; cursor: pointer; }
       .chase-row .itile .ibox { width: 50px; height: 50px; }
       .chase-row .itile .ii { width: 42px; height: 42px; }
       .chase-row .cname { font-family: var(--display); font-variant: small-caps;
         font-size: var(--t-lead); letter-spacing: 0.05em; color: #e8ddc8; display: flex;
         align-items: baseline; gap: var(--g-row); }
-      .chase-row .cstate { font-size: var(--t-stamp); letter-spacing: 2px; color: #9a5a52;
-        border: 1px solid #4a2320; border-radius: var(--r-tile); padding: 1px 5px; font-family: var(--body); }
-      .chase-row.owned .cstate { color: #e08b7f; border-color: #7a2b26; }
+      .chase-row .cstate { font-size: var(--t-stamp); letter-spacing: 2px; color: var(--ink-faint);
+        border: 1px solid #2c241b; border-radius: var(--r-tile); padding: 1px 5px; font-family: var(--body); }
+      /* CLAIMED is the achievement, so CLAIMED is the one that lights up. */
+      .chase-row.owned .cstate { color: var(--gold-hi); border-color: var(--bronze); }
       .chase-row .cdesc { font-size: var(--t-small); color: #a99f8c; line-height: 1.45; margin-top: 2px;
         max-width: 74ch; }
-      .chase-row .cboss { font-size: var(--t-micro); letter-spacing: 2px; color: var(--ink-faint); margin-top: 3px; }
-      .itile.chase .ibox { border-color: #7a2b26;
-        background: linear-gradient(180deg, #2a1512, #150b09); }
+      .chase-row .cboss { font-size: var(--t-fine); letter-spacing: 2px; color: var(--ink-faint); margin-top: 3px; }
+      .itile.chase .ibox { border-color: #4a3a63;
+        background: linear-gradient(180deg, #221a2e, #100b16); }
       .itile.chase.sealed .ii { filter: grayscale(0.55) brightness(0.72); }
-      .itile.chase.sealed .iprice { color: #9a5a52; letter-spacing: 1px; font-size: var(--t-stamp); }
-      .itile.chase.owned .ibox { border-color: #c0392f;
-        box-shadow: 0 0 14px rgba(192,57,47,0.45), inset 0 0 0 1px rgba(0,0,0,0.6); }
-      .itile.chase.owned .iprice { color: #e08b7f; }
-      .dchase { font-size: 11.5px; color: #d08a7a; line-height: 1.5; margin: 2px 0 6px;
-        border-left: 2px solid #7a2b26; padding-left: 8px; }
+      .itile.chase.sealed .iprice { color: var(--ink-faint); letter-spacing: 1px; font-size: var(--t-stamp); }
+      .itile.chase.owned .ibox { border-color: var(--arcane);
+        box-shadow: 0 0 14px rgba(154,107,208,0.45), inset 0 0 0 1px rgba(0,0,0,0.6); }
+      .itile.chase.owned .iprice { color: #b08fd9; }
+      .dchase { font-size: var(--t-small); color: var(--ink-dim); line-height: 1.5; margin: 2px 0 6px;
+        border-left: 2px solid var(--bronze); padding-left: 8px; }
 
       /* THE BENCH: refit + dismantle previews. Costs are stated before the
          verb, always — the gold-vs-shards call is the safe room's real decision. */
-      .dfoot .bnote { font-size: 10px; color: var(--ink-faint); line-height: 1.45; margin-bottom: 6px;
+      .dfoot .bnote { font-size: var(--t-fine); color: var(--ink-faint); line-height: 1.45; margin-bottom: 6px;
         font-style: italic; }
       .dbtns.bench { margin-top: 6px; }
       .dbtns .bench-btn { flex: 1; min-width: 0; cursor: pointer; font: inherit;
@@ -3900,7 +4036,7 @@
       .dfoot .dprice { margin-top: 0; }
       .dfoot .dbtns { margin-top: 8px; }
       .dbtns { display: flex; gap: 8px; margin-top: 10px; }
-      .dbtns button { cursor: pointer; flex: 1; font: inherit; font-size: 11px; font-weight: 700;
+      .dbtns button { cursor: pointer; flex: 1; font-size: var(--t-small); font-weight: 700;
         letter-spacing: 2px; padding: 8px 0; color: #0a0d0b; background: linear-gradient(180deg, #f2c14e, #c9932e);
         border: 1px solid #f2c14e; }
       .dbtns button:hover:not(:disabled) { filter: brightness(1.15); }
@@ -3915,12 +4051,34 @@
          (40px -> 32px -> 26px tiles), and truly pathological bags summarize
          the tail as a "+K more" tile instead of escaping the frame. */
       .shop-detail { min-height: 150px; }
+      /* r3 blocker: the detail card overflowed by +50 at 1366 and the shipped
+         frame sliced "ALSO ON THE SHELF" horizontally through mid-x-height at
+         the card's bottom edge — half-height letterforms at a hard edge, the
+         single most obvious "this is broken" signal in a shipped UI. Two
+         causes, both fixed: the bag was allowed 62% of a column the DETAIL pane
+         is the point of, and a scroll region with no fade ends in a guillotine.
+         The bag gets 44%, and every clipped pane in the set now ends in the
+         shared inset fade instead of a cut. */
       .shop-bag { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 9px 12px 11px;
-        flex: none; min-height: 0; max-height: 62%; overflow: hidden;
+        flex: none; min-height: 0; max-height: 34%; overflow: hidden;
         display: flex; flex-direction: column; }
+      /* EQUIPPED and BAG stand SIDE BY SIDE below ~1900 (above that the whole
+         side column already splits). Two stacked strips cost the detail card
+         ~70px of the one column it is the point of, and the card is what
+         decides the purchase. Phones keep the stacked pane — their segmented
+         control shows one of the three at a time anyway. */
+      @media (min-width: 900px) {
+        body:not([data-uiclass="phone"]):not([data-uiclass="compact"]) .shop-bag {
+          display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          grid-template-rows: auto minmax(0, 1fr); grid-auto-flow: column;
+          column-gap: var(--g-col); align-content: start; }
+      }
+      .shop-detail::after { content: ""; position: sticky; bottom: 0; display: block;
+        height: 20px; margin-top: -6px; pointer-events: none;
+        background: linear-gradient(180deg, rgba(12,9,6,0), rgba(12,9,6,0.98) 78%); }
       /* Same contrast tier as the shelf's tier headers (r3 minor: EQUIPPED/
          BAG vanished into the panel texture at #55493a). */
-      .sec-label { font-size: var(--t-fine); letter-spacing: 0.2em; color: var(--ink-dim);
+      .sec-label { font-size: var(--t-small); letter-spacing: 0.2em; color: var(--ink-dim);
         margin: 3px 0 6px; flex: none; }
       #sr-sellall { float: right; background: #241a1a; color: #d08a7a; border: 1px solid #4a2f2f;
         border-radius: var(--r-panel); padding: 1px 8px; font: inherit; font-size: var(--t-fine); letter-spacing: 1px;
@@ -3946,15 +4104,21 @@
       #itemtip { position: fixed; display: none; z-index: 30; pointer-events: none;
         max-width: 240px; background: #14100c; border: 1px solid #6e5533; border-radius: 8px;
         padding: 8px 11px; font-size: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.65); }
-      #itemtip .tname { font-weight: 700; font-size: 13px; }
-      #itemtip .tmeta { color: var(--ink-faint); font-size: 10.5px; text-transform: uppercase;
+      #itemtip .tname { font-weight: 700; font-size: var(--t-lead); }
+      #itemtip .tmeta { color: var(--ink-faint); font-size: var(--t-fine); text-transform: uppercase;
         letter-spacing: 1px; margin-bottom: 4px; }
       #itemtip .taff { color: #cbbfa4; }
       #itemtip .tpass { color: #b08fd9; margin-top: 4px; font-style: italic; }
-      #itemtip .tbuild { color: #f2c14e; margin-top: 4px; font-size: 11px; }
-      #itemtip .tsell { color: #c9a24b; margin-top: 4px; font-size: 11px; }
+      #itemtip .tbuild { color: #f2c14e; margin-top: 4px; font-size: var(--t-small); }
+      #itemtip .tsell { color: #c9a24b; margin-top: 4px; font-size: var(--t-small); }
       .bag-grid { display: flex; flex-wrap: wrap; gap: var(--g-tight); min-height: 40px; align-content: flex-start; }
       .bag-grid .itile { width: 40px; }
+      /* The side column exists for the DETAIL card; the bag is a reference
+         strip beside it, so it runs at the dense size there and hands the
+         difference to the card that decides the purchase (r3 blocker). */
+      .shop-bag .bag-grid .itile { width: 34px; }
+      .shop-bag .bag-grid .itile .ibox { width: 32px; height: 32px; }
+      .shop-bag .bag-grid .itile .ii { width: 26px; height: 26px; }
       .bag-grid .itile .ibox { width: 38px; height: 38px; }
       .bag-grid .itile .ii { width: 31px; height: 31px; }
       .bag-grid .bempty { color: var(--ink-empty); font-size: var(--t-small); font-style: italic; align-self: center; }
@@ -3982,6 +4146,30 @@
       .shop-shelf { flex: 1; }
       /* Safe-room pages (ABILITIES / ACHIEVEMENTS) share the shop's frame. */
       .sr-page { flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px; padding-right: 6px; }
+      /* ...except ABILITIES, which is a flex column that does NOT scroll: the
+         loadout bar and the view toggle are chrome, and exactly one region (the
+         stage) owns the remaining height. See the markup comment (r3 blocker). */
+      #sr-page-abil { display: flex; flex-direction: column;
+        overflow: hidden; padding-right: 0; }
+      #sr-page-abil > .sec-label, #sr-page-abil > .loadout,
+      #sr-page-abil > .abil-modes { flex: none; }
+      /* The bench is a STAGE tenant now (rail entry "GLYPH BENCH"), so it gets
+         the whole stage instead of pushing every ability card past the fold. */
+      .gstage { display: flex; flex-direction: column; gap: var(--g-row);
+        align-items: flex-start; }
+      .gstage > * { max-width: 100%; }
+      .gstage .gbench { align-self: stretch; }
+      /* The hint is prose, and prose is the BODY face — inside a .sec-label it
+         was inheriting the display voice's small-caps. */
+      .gstage .ghint { font-family: var(--body); font-variant: normal; }
+      /* The safe room's rail carries the same sixteen abilities as the T panel
+         but in a shorter region (the loadout bar and the view toggle are above
+         it), so it measured +295 as one column. It is the --set-xl panel: it
+         has the WIDTH, so the rail spends it. */
+      #sr-page-abil > .ixsplit { grid-template-columns: clamp(300px, 26vw, 520px) minmax(0, 1fr); }
+      #sr-abil-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px var(--g-row); align-content: start; }
+      #sr-abil-index .aidx-h { grid-column: 1 / -1; }
       /* Loadout bar: 4 active slots + the ultimate. */
       .loadout { display: flex; gap: var(--g-row); margin: 4px 0 14px; }
       .lslot { width: 58px; }
@@ -4027,11 +4215,10 @@
         50% { box-shadow: 0 0 11px rgba(109,163,86,0.85); }
       }
       /* The bench: everything found and not currently seated. */
-      #sr-glyphs { margin: 2px 0 14px; }
-      #sr-glyphs .ghint { font-weight: 400; letter-spacing: 0; text-transform: none;
+      .gstage .ghint { font-weight: 400; letter-spacing: 0; text-transform: none;
         color: var(--ink-faint); font-size: var(--t-fine); margin-left: 8px; }
-      .gbench { display: flex; flex-wrap: wrap; gap: 8px; }
-      .gbench.empty { display: block; font-size: 11px; color: var(--ink-empty); font-style: italic;
+      .gbench { display: flex; flex-wrap: wrap; gap: var(--g-tight); }
+      .gbench.empty { display: block; font-size: var(--t-small); color: var(--ink-empty); font-style: italic;
         line-height: 1.5; max-width: 74ch; }
       .gchip { width: 108px; min-height: 118px; padding: 7px 6px 6px; text-align: center; border-radius: var(--r-panel);
         border: 1px solid #2c2418; background: linear-gradient(180deg, rgba(30,22,38,0.7), rgba(12,9,14,0.7)); }
@@ -4042,15 +4229,15 @@
       .gchip .gbox { width: 34px; height: 34px; margin: 0 auto 4px; display: flex;
         align-items: center; justify-content: center; }
       .gchip .gbox img { width: 32px; height: 32px; display: block; }
-      .gchip .gname { font-size: var(--t-fine); color: #cbbfa4; letter-spacing: 0.3px; line-height: 1.2; }
-      .gchip .gtags { font-size: var(--t-stamp); color: var(--ink-faint); letter-spacing: 0.5px; margin-top: 2px; }
+      .gchip .gname { font-size: var(--t-small); color: #cbbfa4; letter-spacing: 0.3px; line-height: 1.2; }
+      .gchip .gtags { font-size: var(--t-micro); color: var(--ink-faint); letter-spacing: 0.5px; margin-top: 2px; }
       /* Phase C took the bench from ten stones to twenty-five, which turns
          "where does this go" from obvious into work. Each chip now answers it:
          the FAMILY it competes in, and the slot numbers it would actually wake
          up in (open = a socket is free, full = it fits but the row is taken). */
-      .gchip .gfam { font-size: var(--t-stamp); letter-spacing: 0.8px; color: #7a5cc9; margin-top: 3px; }
+      .gchip .gfam { font-size: var(--t-micro); letter-spacing: 0.8px; color: #7a5cc9; margin-top: 3px; }
       .gchip .gfam.none { color: #2c241b; }
-      .gchip .gfits { font-size: var(--t-stamp); letter-spacing: 0.6px; color: var(--ink-faint); margin-top: 3px;
+      .gchip .gfits { font-size: var(--t-micro); letter-spacing: 0.6px; color: var(--ink-faint); margin-top: 3px;
         display: flex; gap: var(--g-hair); align-items: center; justify-content: center; flex-wrap: wrap; }
       .gchip .gfits.none { color: var(--ink-empty); font-style: italic; }
       .gchip .gfit { min-width: 13px; padding: 0 3px; border-radius: var(--r-tile); font-weight: 700;
@@ -4059,7 +4246,7 @@
       .gchip .gfit.full { color: #857b6b; }
       .gchip.dormant { opacity: 0.55; }
       .gchip.dormant .gbox img { filter: grayscale(0.85) brightness(0.7); }
-      .gcount { display: inline-block; font-size: 9px; letter-spacing: 1.4px; color: var(--ink-faint);
+      .gcount { display: inline-block; font-size: var(--t-micro); letter-spacing: 1.4px; color: var(--ink-faint);
         border: 1px solid #2c241b; padding: 1px 8px; margin: 0 0 8px; background: rgba(0,0,0,0.35); }
       /* ---- ROLE + TAG chips, and the AS BUILT line ----------------------
          The registry carries a machine-checked `role` per ability and the tag
@@ -4067,7 +4254,7 @@
          about (four `beat` abilities is a bad loadout; a `movement` tag is
          why Slipstream lit up) and neither used to be on screen. */
       .achips { display: flex; flex-wrap: wrap; gap: 4px; margin: 7px 0 0; }
-      .achip { font-size: 8.5px; letter-spacing: 1.2px; text-transform: uppercase;
+      .achip { font-size: var(--t-micro); letter-spacing: 1.2px; text-transform: uppercase;
         padding: 1px 6px; border: 1px solid #2c241b; border-radius: 2px;
         background: rgba(0,0,0,0.35); color: #8a7f6a; }
       .achip.role { color: #c9a24b; border-color: #6e5533; background: rgba(110,85,51,0.18); }
@@ -4115,7 +4302,9 @@
       .ccard .awhere.ultc { color: #9a6bd0; border-color: #4a3a6a; }
       /* A darker plate under the chart: the stars have to sit ON something,
          or the card grain reads as noise the nodes are lost in. */
-      .cgraph { position: relative; height: 262px; margin: 10px 0 2px;
+      /* r3: fixed 262px meant 1440p spent its extra height on empty stone under
+         the card rather than on a bigger sky (see "NOTHING SCALES UP"). */
+      .cgraph { position: relative; height: clamp(262px, 26vh, 460px); margin: 10px 0 2px;
         border-radius: 3px; border: 1px solid rgba(110,85,51,0.22);
         background: radial-gradient(120% 90% at 50% 8%, rgba(40,32,58,0.5), rgba(4,3,2,0.72) 70%);
         box-shadow: inset 0 2px 12px rgba(0,0,0,0.6); }
@@ -4127,13 +4316,23 @@
          wire is the decision. Undecided it pulses; decided it goes quiet. */
       .cedges line.cxbar { stroke: #5d3f85; stroke-width: 1.4; stroke-dasharray: 2 3; opacity: 0.85; }
       .cedges line.cxbar.decided { stroke: #241d16; opacity: 0.6; }
-      .cnode { position: absolute; transform: translate(-50%, -50%); width: 92px;
-        text-align: center; padding: 4px 2px; border-radius: var(--r-panel); }
-      .cnode .cgem { display: block; width: 13px; height: 13px; margin: 0 auto 3px;
+      /* ========= THE LABEL STOPS SITTING ON THE MARKER (r3 MAJOR) =========
+         `translate(-50%, -50%)` centred the whole gem+label+pips stack on the
+         node's coordinate, which puts the LABEL on the node and the node on the
+         edge line: measured in abil-chart-1366/1600/2560, "Wide Arc", "Ragged
+         Edge" and "Swift Strikes" are all drawn over their own dots and pip
+         rows. Text-on-marker collision is the reference-class failure of skill
+         trees. The GEM owns the coordinate now (that is what an edge line
+         connects to); the label hangs below it on its own plate, so no drawn
+         line can ever run through a letterform. */
+      .cnode { position: absolute; transform: translate(-50%, -7px); width: 104px;
+        text-align: center; padding: 0 2px 4px; border-radius: var(--r-panel); }
+      .cnode .cgem { display: block; width: 13px; height: 13px; margin: 0 auto 7px;
         clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
         background: var(--ink-empty); }
-      .cnode .cname { display: block; font-size: var(--t-micro); line-height: 1.15; letter-spacing: 0.2px;
-        color: #8a7f6a; }
+      .cnode .cname { display: block; width: fit-content; margin: 0 auto; font-size: var(--t-micro); line-height: 1.15;
+        letter-spacing: 0.2px; color: #b3a68c; background: rgba(6,5,10,0.82);
+        padding: 1px 5px; border-radius: var(--r-tile); }
       .cnode .npips { display: inline-flex; gap: var(--g-hair); align-items: center; margin-top: 3px; }
       .cnode.taken .cgem { background: linear-gradient(135deg, #ffe9a8, var(--gold) 60%);
         filter: drop-shadow(0 0 4px rgba(242,193,78,0.85)); }
@@ -4147,9 +4346,17 @@
         0%, 100% { filter: drop-shadow(0 0 1px rgba(203,191,164,0.3)); }
         50% { filter: drop-shadow(0 0 6px rgba(203,191,164,0.75)); }
       }
-      .cnode.needs { opacity: 0.55; }
-      .cnode.forked { opacity: 0.4; }
-      .cnode.forked .cname { text-decoration: line-through; text-decoration-color: #7a2f22; }
+      /* A FORK YOU CANNOT READ IS NOT A CHOICE (r3 major). `needs` and `forked`
+         dimmed the WHOLE node — label included — to 0.55 and 0.4, which is how
+         the locked node "Heavy Blows" shipped unreadable at all three viewports
+         while the panel was asking the player to choose against it. The STATE
+         dims (gem, pips, line); the NAME stays legible, because the name is the
+         thing being chosen between. */
+      .cnode.needs .cgem, .cnode.needs .npips { opacity: 0.5; }
+      .cnode.needs .cname { color: var(--ink-empty); }
+      .cnode.forked .cgem, .cnode.forked .npips { opacity: 0.42; }
+      .cnode.forked .cname { color: var(--ink-faint);
+        text-decoration: line-through; text-decoration-color: #7a2f22; }
       .cnode.forked .cgem { background: #2c241b; }
       .cnode.cap .cgem { width: 17px; height: 17px; border-radius: var(--r-tile); transform: rotate(45deg);
         clip-path: none; background: radial-gradient(circle at 35% 30%, #241d16, #0d0a07 70%);
@@ -4173,12 +4380,12 @@
       .acard .amodtext.dim { color: var(--ink-empty); font-style: italic; }
       .acard .amodcap { font-size: var(--t-micro); letter-spacing: 0.5px; color: #d8a13f;
         border-left: 1px solid #7a5c1e; padding-left: 7px; margin-left: 2px; }
-      #itemtip .tdormant { color: #a08a6a; margin-top: 5px; font-size: 11px; line-height: 1.45;
+      #itemtip .tdormant { color: #a08a6a; margin-top: 5px; font-size: var(--t-small); line-height: 1.45;
         border-left: 2px solid #4a3d2c; padding-left: 7px; }
       /* RULE 7 breakpoint warning: a capped slot is wasting a glyph's cooldown
          line while still paying its damage cost. Amber, not red — it is a
          suboptimal seat, not a broken one. */
-      #itemtip .tcap { color: #d8a13f; margin-top: 5px; font-size: 11px; line-height: 1.45;
+      #itemtip .tcap { color: #d8a13f; margin-top: 5px; font-size: var(--t-small); line-height: 1.45;
         border-left: 2px solid #7a5c1e; padding-left: 7px; }
       /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
          not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
@@ -4303,18 +4510,26 @@
         0%, 100% { box-shadow: 0 0 8px rgba(242,193,78,0.25); }
         50% { box-shadow: 0 0 16px rgba(242,193,78,0.55); }
       }
-      /* r1 major: four full-bevel gold slabs plus DESCEND put FIVE equal-weight
-         gold primaries on one screen, at which point gold has stopped meaning
-         "the one thing to press". The loot box is a gold-OUTLINED secondary —
-         still obviously the call to action on its card (the card itself
-         pulses), and no longer competing with the button that ends the floor. */
-      .sr-ach .claim-btn { display: block; width: 100%; margin-top: auto; padding: 5px 0;
-        background: rgba(242,193,78,0.08); border: 1px solid var(--gold);
-        border-radius: var(--r-tile); color: var(--gold-hi);
+      /* r1 demoted this to a gold-OUTLINED secondary because four of them plus
+         DESCEND put five equal-weight gold primaries on one screen. r3 major:
+         measured in the shipped frame that reads as a CANCEL — outlined stone
+         is the treatment this product gives "no thanks", and this is a cash
+         payout in a game whose entire fiction is that the Show pays you. The
+         r1 concern was real, so it is answered by SCARCITY rather than by
+         volume: the claim is the full engraved-metal primary (see the
+         .dbtns/.m-go recipe, which it now joins), and DESCEND — the one
+         irreversible action — is a stone secondary on THIS page only, so there
+         is still exactly one loud thing at a time. */
+      .sr-ach .claim-btn { display: block; width: 100%; margin-top: auto; padding: 6px 0;
+        border-radius: var(--r-tile);
         font-family: var(--display); font-variant: small-caps;
         font-size: var(--t-fine); font-weight: 700; letter-spacing: 0.12em; cursor: pointer; }
-      .sr-ach .claim-btn:hover { background: rgba(242,193,78,0.18); color: #fff2cd;
-        border-color: var(--gold-hi); }
+      /* On the achievements page the exit stops shouting, so the payout can. */
+      #saferoom.sr-ach-page .descend button {
+        background: linear-gradient(180deg, var(--raised), #100c09) !important;
+        border: 1px solid var(--bronze) !important; color: var(--gold) !important;
+        box-shadow: none !important; text-shadow: none !important; }
+      .sr-ach .claim-btn:hover { filter: brightness(1.08); }
       #saferoom .descend { display: flex; align-items: center; justify-content: center; gap: var(--g-row);
         margin-top: 12px; padding-top: 11px; border-top: 1px solid #221b15; flex-wrap: wrap; }
       #saferoom .descend .descend-note { color: var(--ink-faint); font-size: var(--t-small);
@@ -4371,10 +4586,18 @@
       }
       /* Hierarchy was inverted (r1 major): the panel title was 15px while the
          numbers it introduces are 17px, and "Carl · LEVEL 10 · FLOOR 6" — the
-         crawler's identity, the thing a profile is ABOUT — was 12px ink-dim. */
-      #sheet h2 { margin: 0 0 4px; font-size: var(--t-body); color: #c9a24b; letter-spacing: 0.18em;
+         crawler's identity, the thing a profile is ABOUT — was 12px ink-dim.
+         r1's fix OVERSHOT and inverted it the other way (r3 major): the .sub
+         went to --t-head (21/22.5/30) against a title at --t-lead (15/17/20), so
+         the subtitle rendered ~40% larger in ink than the label it qualifies —
+         the only screen in the product where the caption beats its own title.
+         inv, keys, abil and saferoom all put the title on top. The identity
+         stays PROMINENT (--t-body ink, one rung above every sibling's hint line,
+         and it is the second thing your eye lands on) — it just stops
+         outranking the masthead. */
+      #sheet h2 { margin: 0 0 4px; color: var(--gold); letter-spacing: 0.14em;
         display: flex; align-items: baseline; gap: var(--g-row); flex-wrap: wrap; }
-      #sheet h2 .sub { font-size: var(--t-head); color: var(--ink); letter-spacing: 0.06em;
+      #sheet h2 .sub { font-size: var(--t-body); color: var(--ink-dim); letter-spacing: 0.1em;
         font-weight: 700; font-family: var(--display); font-variant: small-caps; }
       #sheet .hint { color: var(--ink-faint); font-size: var(--t-small); margin-bottom: 12px; }
       .sheet-cols { display: grid;
@@ -4483,19 +4706,19 @@
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       .drow.ult .dic { --oc: #9a6bd0; }
-      .drow .dnm { font-weight: 700; font-size: 12.5px; display: flex; align-items: baseline; gap: 8px; }
-      .drow .school { flex: none; font-size: 8px; font-weight: 700; letter-spacing: 1.5px;
+      .drow .dnm { font-weight: 700; font-size: var(--t-body); display: flex; align-items: baseline; gap: 8px; }
+      .drow .school { flex: none; font-size: var(--t-stamp); font-weight: 700; letter-spacing: 1.5px;
         padding: 1px 6px; border: 1px solid; border-radius: 3px; }
       .drow .school.phys { color: #d98e4a; border-color: #6a4530; }
       .drow .school.mag { color: #9a6bd0; border-color: #4a3a6a; }
-      .drow .dmech { color: #918776; font-size: 10.5px; margin-top: 2px; }
+      .drow .dmech { color: #918776; font-size: var(--t-fine); margin-top: 2px; }
       .drow .drange { text-align: right; font-variant-numeric: tabular-nums; cursor: help; }
-      .drow .drange b { font-size: 14px; color: #e8ddc8; }
-      .drow .drange small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; }
+      .drow .drange b { font-size: var(--t-lead); color: #e8ddc8; }
+      .drow .drange small { display: block; color: var(--ink-faint); font-size: var(--t-micro); letter-spacing: 1px; }
       .drow .dcd, .drow .ddps { text-align: right; font-variant-numeric: tabular-nums;
         color: #cbbfa4; font-size: 12px; }
-      .drow .dcd small, .drow .ddps small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; }
-      .drow .ddps b { color: #f2c14e; font-size: 13px; }
+      .drow .dcd small, .drow .ddps small { display: block; color: var(--ink-faint); font-size: var(--t-micro); letter-spacing: 1px; }
+      .drow .ddps b { color: #f2c14e; font-size: var(--t-body); }
       .drow.utility { grid-template-columns: 34px 1fr; }
       .drow.utility .dmech { color: #a99f8c; }
       /* Defense: armor number + mitigation meter + the concrete example. */
@@ -4503,7 +4726,7 @@
         padding: 10px 12px; background: #221b15; border: 1px solid #6e5533; border-radius: 6px; }
       .def-box .dbig { text-align: center; cursor: help; }
       .def-box .dbig b { font-size: 26px; color: #b9b2a4; font-variant-numeric: tabular-nums; }
-      .def-box .dbig small { display: block; color: var(--ink-faint); font-size: 9px; letter-spacing: 2px; }
+      .def-box .dbig small { display: block; color: var(--ink-faint); font-size: var(--t-micro); letter-spacing: 2px; }
       /* Effective-HP meter (r2): the HP bar's own language — gold hairline
          frame, diamond endcaps, segment ticks — never a stock progress bar.
          Armor-grey fill keeps the warm palette (blue is XP/frost only). */
@@ -4527,14 +4750,14 @@
       .def-meter .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; z-index: 1;
         background: linear-gradient(180deg, var(--gold-hi), #8a6d3b);
         box-shadow: 0 0 0 1px rgba(10,6,3,0.8); }
-      .def-lines { font-size: 11.5px; color: #d6cab3; line-height: 1.55; }
+      .def-lines { font-size: var(--t-small); color: #d6cab3; line-height: 1.55; }
       .def-lines b { color: #cfc4ae; }
       .def-lines .ex { color: #918776; }
       .def-lines .ex b { color: #e8ddc8; }
       /* The Show strip: chips matching the top-bar audience colors. */
       .show-grid { display: flex; flex-wrap: wrap; gap: 7px; }
       .show-chip { background: #221b15; border: 1px solid #6e5533; border-radius: 999px;
-        padding: 4px 12px; font-size: 11px; color: #b9ad96; }
+        padding: 4px 12px; font-size: var(--t-small); color: #b9ad96; }
       .show-chip b { color: #e8ddc8; font-variant-numeric: tabular-nums; margin-right: 4px; }
       .show-chip.viewers b { color: #7ba3d6; } .show-chip.favorites b { color: #c98ba6; }
       .show-chip.sponsors b { color: #c9a24b; }
@@ -4571,6 +4794,21 @@
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(232,221,200,0.05),
           inset 1px 0 0 rgba(242,193,78,0.14), 0 18px 60px rgba(0,0,0,0.55);
       }
+      /* ============ THE FRAME DOES NOT MOVE WHEN YOU CHANGE TABS (r3) ========
+         Measured panelTop for #abil at 1366 across LIST / STAR CHART /
+         ACHIEVEMENTS / RUN STATS: 52 / 43 / 150 / 234 — a 191px leap, so the tab
+         row you just clicked slid out from under the cursor. 217px at 2560, and
+         249px in the safe room at 2560. Cause: the panel is auto-height inside
+         `align-items: center`, so every page is a different SCREEN.
+
+         The r2 fix for "RUN STATS measured 75% empty" was to make --set-h a
+         CEILING rather than a floor, and that is right — a short page should
+         still hug its content. So pin the ORIGIN instead of the height: the
+         panel's top edge lands at the same y whatever is inside it, and a short
+         page simply ends higher. Zero empty stone, zero movement. */
+      #inv, #abil, #sheet, #keys, #saferoom { align-items: flex-start; }
+      #inv .panel, #abil .panel, #sheet .panel, #keys .panel, #saferoom .panel {
+        margin-top: max(var(--g-sec), calc((100vh - var(--set-h)) / 2)); }
       /* Panel titles: engraved gold, side-ruled where centered. */
       #inv h2, #abil h2, #sheet h2, #keys h2, #recap h2, #saferoom h2, #draft h2 {
         color: var(--gold); font-weight: 600;
@@ -4583,9 +4821,22 @@
          siblings. One rule, one size, one tracking, and it is on the fluid
          scale so it grows with the display. (#recap is a sibling track's
          screen and is deliberately not in this list.) */
-      #inv h2, #abil h2, #sheet h2, #keys h2, #saferoom h2 {
+      /* r3: #draft joins the list. It was the sixth panel of identical rank and
+         it shipped a SEVENTH spec — 21px with 4px of tracking off the --t-head
+         rung, which is the section-head rung, not the panel-title rung. */
+      #inv h2, #abil h2, #sheet h2, #keys h2, #saferoom h2, #draft h2 {
         font-family: var(--display); font-size: var(--t-lead);
         letter-spacing: 0.14em; margin: 0 0 var(--g-hair); flex: none;
+      }
+      /* ---- ONE KICKER RECIPE (r3 major) ---- The two kickers in the product
+         shipped two sizes and two trackings (--t-fine/0.42em on the loading
+         card, --t-small/5px on the front door) and the draft — the beat that
+         fires dozens of times a run — had none at all. One class; the two
+         existing selectors are aliases of it so nothing has to be renamed. */
+      .kicker, #menu .m-kicker, #loading .l-kicker, #draft .d-kicker {
+        text-align: center; color: var(--gold); font-family: var(--display);
+        font-variant: small-caps; font-size: var(--t-fine);
+        letter-spacing: 0.38em; flex: none;
       }
       /* ================= ONE TAB LANGUAGE (r2 major) =================
          The screens this track owns shipped FOUR tab components: chip buttons
@@ -4616,14 +4867,24 @@
       #keys .kb-tabs button.on, .amode.on, .apage.on, .m-board-h .bt.active {
         color: var(--gold-hi); background: none; box-shadow: none;
         border-bottom-color: var(--gold); }
-      .shop-subtabs .tab.chase.active { color: #e08b7f; box-shadow: none;
-        border-bottom-color: var(--gold); }
+      /* r3: the chase sub-tab's ACTIVE state is now the same gold-on-gold every
+         other tab in the product uses. r2 kept the label oxblood on the theory
+         that "where a tab has its own hue, the hue rides the LABEL" — measured
+         in the shipped frame that still reads as a second active colour inside
+         one panel, and THE CHASE has no semantic claim on blood in the first
+         place. One active state, one colour, everywhere. */
       /* Every row of them is a rule, and the rule is the same rule. */
       .m-tabs, .shop-tabs, .shop-subtabs, #keys .kb-tabs, .abil-modes, .m-board-tabs {
         display: flex; align-items: baseline; gap: var(--g-col); flex-wrap: wrap;
         border-bottom: 1px solid rgba(110,85,51,0.35); margin: 0 0 var(--g-row); }
       /* MOBILE.md's 44px tap-target contract is not weakened by a shared skin. */
       #keys .kb-tabs button, .shop-tabs .tab, .shop-subtabs .tab { min-height: 44px; }
+      /* A tab that owes you money says so, from every other tab. */
+      .shop-tabs .tab[data-badge]:not([data-badge=""])::after {
+        content: attr(data-badge); margin-left: 0.6em; padding: 0 0.5em;
+        border-radius: var(--r-pill); font-size: var(--t-stamp); font-weight: 700;
+        color: #241a08; background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+        box-shadow: 0 0 8px rgba(242,193,78,0.5); vertical-align: 0.12em; }
 
       /* ---- THE DRAWN DIAMOND (r2 major; project rule 3: "icons are drawn,
          never typed. Emoji count target: zero"). Every panel title in the set
@@ -4639,25 +4900,64 @@
         box-shadow: 0 0 0 1px rgba(10,6,3,0.75), 0 0 7px rgba(242,193,78,0.3);
       }
       #inv h2::before, #abil h2::before, #sheet h2::before,
-      #keys h2::before, #saferoom h2::before, #draft h2::before {
+      #keys h2::before, #saferoom h2::before, #draft h2::before,
+      .dia {
         margin-right: 0.72em; vertical-align: 0.08em;
       }
+      /* ...except the draft, whose kicker is already ruled with the same gem on
+         both sides. Three diamonds in one centred masthead reads as a bullet. */
+      #draft h2::before { display: none; }
+      /* r3 major: `.dia` is the SAME gem the ::before recipe draws, but it only
+         ever got the gem half of the rule — so the one kicker that spells the
+         diamond out in markup (the tutorial card's) rendered "◆SYSTEM" hard
+         against its own label while every ::before kicker in the product sat on
+         a 0.72em gap. One gem, one gap. */
       /* Kickers are ruled BOTH sides — same gem, quieter metal. */
       .m-kicker::before, .m-kicker::after, .l-kicker::before, .l-kicker::after,
+      .d-kicker::before, .d-kicker::after,
       #m-cast-kicker::before, #m-cast-kicker::after {
         content: ""; display: inline-block; width: 0.46em; height: 0.46em;
         transform: rotate(45deg); vertical-align: 0.1em;
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
         box-shadow: 0 0 0 1px rgba(10,6,3,0.7);
       }
-      .m-kicker::before, .l-kicker::before, #m-cast-kicker::before { margin-right: 1.1em; }
-      .m-kicker::after, .l-kicker::after, #m-cast-kicker::after { margin-left: 1.1em; }
+      .m-kicker::before, .l-kicker::before, .d-kicker::before,
+      #m-cast-kicker::before { margin-right: 1.1em; }
+      .m-kicker::after, .l-kicker::after, .d-kicker::after,
+      #m-cast-kicker::after { margin-left: 1.1em; }
       /* The ▶ that used to be typed onto CO-OP / RACE / ENTER / DESCEND: a
          drawn chevron that inherits the label's colour, so it works on the
          gold primary and the stone secondary alike. */
       .go-arrow { display: inline-block; width: 0.44em; height: 0.44em; margin-left: 0.7em;
         border-top: 2px solid currentColor; border-right: 2px solid currentColor;
         transform: rotate(45deg) translate(-0.06em, 0.06em); }
+      /* r3 (rule 3, "emoji count target: zero"): the last typed marks doing real
+         UI work on the screens this track owns — the DESCEND caret (U+25BC), the
+         tap-close ✕ on four panel hints (U+2715), the cast picker's ← → arrows,
+         and the ✕/✓ stamped on locked, sold-out and owned shop tiles. Same
+         chevron, four rotations; the cross and the tick are geometry. */
+      .go-arrow.down { transform: rotate(135deg) translate(-0.06em, 0.06em); }
+      .go-arrow.back { margin-left: 0; margin-right: 0.7em;
+        transform: rotate(-135deg) translate(-0.06em, 0.06em); }
+      .xmark { display: inline-block; position: relative; width: 0.66em; height: 0.66em;
+        vertical-align: -0.06em; }
+      .xmark::before, .xmark::after { content: ""; position: absolute; left: 0; right: 0;
+        top: calc(50% - 1px); height: 2px; background: currentColor; }
+      .xmark::before { transform: rotate(45deg); }
+      .xmark::after { transform: rotate(-45deg); }
+      /* The tile stamps are pseudo-elements, so they are drawn as gradients
+         rather than swapped for a glyph in `content`. */
+      .itile.locked .ibox::after, .itile.soldout .ibox::after {
+        content: ""; width: 9px; height: 9px; right: 3px; bottom: 3px; font-size: 0;
+        background:
+          linear-gradient(45deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%),
+          linear-gradient(-45deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%); }
+      .itile.locked .ibox::after { color: var(--ink-empty); }
+      .itile.soldout .ibox::after { color: var(--blood); }
+      .dtree .itile.have .ibox::after { content: ""; width: 5px; height: 9px;
+        right: 5px; bottom: 3px; font-size: 0; background: none;
+        border-right: 2px solid var(--verdant); border-bottom: 2px solid var(--verdant);
+        transform: rotate(42deg); }
       /* And the title gets its OWN line everywhere. The shop used to sit its
          title INLINE with its tab row while every sibling stacked them, so
          the one screen a player spends money on was the one screen whose
@@ -4682,14 +4982,13 @@
         content: ""; position: sticky; bottom: 0; display: block;
         height: 22px; margin-top: -8px; pointer-events: none;
         background: linear-gradient(180deg, rgba(23,19,16,0), var(--stone) 88%); }
-      #abil .chartsky .grid::after {
-        background: linear-gradient(180deg, rgba(8,7,16,0), var(--sky-deep) 88%); }
       /* Buttons: gold bevel for primary actions, stone for the rest. */
       button { cursor: pointer; }
       /* Primary CTAs as ENGRAVED METAL (r4 minor: never a flat mustard slab):
          hot bevel crown, deep shaded foot, inner keyline, embossed label. */
       .dbtns button:not(.sell):not(.bench-btn):not(:disabled),
-      #saferoom .descend button, .m-go, #recap-again, #m-t-go {
+      #saferoom .descend button, .m-go, #recap-again, #m-t-go,
+      .sr-ach .claim-btn {
         color: #241a08 !important;
         background: linear-gradient(180deg, #fff6d4 0%, #ffd970 10%, var(--gold) 45%, #9c7527 78%, #6e5327 96%, #57411e) !important;
         border: 1px solid #4a3a1e !important; border-bottom-width: 2px !important;
@@ -4795,6 +5094,14 @@
       .ledger .dots { width: 100%; height: 1em;
         background-image: radial-gradient(circle, var(--ink-dim) 1px, transparent 1.3px);
         background-size: 6px 2px; background-repeat: repeat-x; background-position: 0 70%; opacity: 0.65; }
+      /* `.ledger` is SHARED with a sibling track's career screen, so the base
+         rule is left exactly as it shipped and only the profile's copy of it is
+         routed onto the scale — measured, `td.lab` and `td.val` were the last
+         twelve off-scale leaves in #sheet (12.5px, frozen at every viewport). */
+      /* `.ledger td` in the FIRST (career) block sets the size on the cell, so
+         inheriting from the table is not enough — the profile's cells are named. */
+      #sheet .ledger, #sheet .ledger td { font-size: var(--t-body); }
+      #sheet .ledger .lab { font-size: var(--t-small); }
       .ledger .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink);
         padding-left: 10px; white-space: nowrap; font-weight: 700; }
       /* Drawn UI icons (game-icons masks) sized to surrounding text. */
@@ -4916,11 +5223,11 @@
       .shop-detail .dhave { text-align: center; color: var(--verdant); font-size: var(--t-fine);
         letter-spacing: 1px; margin: -5px 0 8px; }
       .dstat-row { display: flex; align-items: baseline; gap: 8px; padding: 1.5px 0;
-        font-size: 12.5px; }
+        font-size: var(--t-body); }
       .dstat-row .lab { font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.1em; font-size: 11px; color: var(--ink-dim); width: 44px; flex: none; }
+        letter-spacing: 0.1em; font-size: var(--t-small); color: var(--ink-dim); width: 44px; flex: none; }
       .dstat-row .val { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
-      .dstat-row .dd { margin-left: auto; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+      .dstat-row .dd { margin-left: auto; font-size: var(--t-fine); font-variant-numeric: tabular-nums; }
       .dd-up { color: var(--verdant); } .dd-down { color: #d14538; }
       .shop-detail .ddesc { font-style: italic; color: var(--ink-faint); }
       .shop-detail .dprice { justify-content: center; }
@@ -5010,7 +5317,7 @@
         background: linear-gradient(135deg, rgba(242,193,78,0.75), rgba(122,90,30,0.75));
         box-shadow: 0 0 10px rgba(201,162,75,0.35); }
       .dsys { text-align: center; color: var(--gold); font-family: var(--display);
-        font-variant: small-caps; font-size: 11px; letter-spacing: 0.34em;
+        font-variant: small-caps; font-size: var(--t-small); letter-spacing: 0.34em;
         margin-bottom: 6px; text-shadow: 0 0 12px rgba(201,162,75,0.3); }
       .dempty-state .dsec { color: #8a7f6c; justify-content: center; }
       .dempty-state .dsec::after { display: none; }
@@ -5055,7 +5362,7 @@
         width: 5px; height: 5px; margin-left: -2.5px; transform: rotate(45deg);
         background: linear-gradient(135deg, rgba(24,18,11,0.9), rgba(6,4,2,0.92));
         box-shadow: 1px 1px 0 rgba(8,5,3,0.9); }
-      .mplate .mpname { display: none; text-align: center; margin-bottom: 2px;
+      .mplate .mpname { display: none; text-align: center; margin-bottom: 2px; font-size: var(--t-fine);
         font-family: var(--display); font-variant: small-caps; font-weight: 600;
         font-size: 10px; letter-spacing: 0.1em; color: var(--gold-hi); white-space: nowrap;
         text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.85); }
@@ -5109,9 +5416,20 @@
          settings-style table is not that surface. The sky is on the CHART
          PANE now; the panel itself is the shared warm slab its siblings wear,
          and the star chart is a window cut into it. */
-      #abil .apane[data-pane="chart"].chartsky { border-radius: var(--r-tile);
+      /* ============= THE SKY IS THE WELL, AND ONLY THE WELL (r3) =============
+         r2 moved the night field off `#abil .panel` and onto the chart PANE,
+         which is still two thirds of the panel: measured in
+         abil-chart-2560x1440 the index rail and the whole card ground read as
+         one navy/purple slab inside a warm stone frame — the exact "blue-black
+         surfaces against a warm ochre world" the styleguide's audit item 2
+         names, and its fourth rule reserves cool surfaces for LIVE GAMEPLAY
+         overlays. The token comment sanctioning --sky says the exception is for
+         "the one surface whose SUBJECT is a sky". That surface is `.cgraph` —
+         the chart well itself — so the star field moves there and the pane, the
+         rail and the card go back to being warm stone like every sibling. */
+      .chartsky .cgraph { border-radius: var(--r-tile);
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), inset 0 0 60px rgba(4,3,10,0.6);
-        padding: var(--g-row); background:
+        background:
         radial-gradient(1.6px 1.6px at 12% 18%, rgba(255,236,180,0.5), transparent 100%),
         radial-gradient(1px 1px at 78% 9%, rgba(232,221,200,0.42), transparent 100%),
         radial-gradient(1.3px 1.3px at 55% 31%, rgba(242,193,78,0.34), transparent 100%),
@@ -5128,19 +5446,10 @@
         radial-gradient(50% 36% at 18% 74%, rgba(201,162,75,0.1), transparent 70%),
         var(--noise), linear-gradient(180deg, var(--sky), var(--sky-mid) 42%, var(--sky-deep)); }
       #abil h2 { text-shadow: 0 0 18px rgba(201,162,75,0.35); }
-      /* The index rail sits ON the sky, so its rule and its active fill are
-         the sky's, not the stone's. */
-      .chartsky .aindex { border-right-color: rgba(120,100,64,0.4); }
-      .chartsky .aidx.on { background: linear-gradient(90deg, rgba(64,54,104,0.4), rgba(8,7,16,0.25)); }
-      /* Chart cards: midnight glass — the sky reads through, never brown stone. */
-      #abil .chartsky .acard { background:
-          radial-gradient(1.3px 1.3px at 84% 12%, rgba(242,193,78,0.45), transparent 100%),
-          radial-gradient(1px 1px at 12% 34%, rgba(232,221,200,0.34), transparent 100%),
-          radial-gradient(1.2px 1.2px at 64% 58%, rgba(242,193,78,0.28), transparent 100%),
-          radial-gradient(1px 1px at 34% 82%, rgba(232,221,200,0.26), transparent 100%),
-          radial-gradient(1.4px 1.4px at 92% 76%, rgba(242,193,78,0.34), transparent 100%),
-          linear-gradient(180deg, rgba(22,19,34,0.72), rgba(9,8,16,0.78) 80%);
-        border-color: rgba(120,100,64,0.5); }
+      /* r3: the rail and the cards come back to warm stone — they were never
+         the sky, they were merely NEXT to it. The gold hairline on the well's
+         edge is what tells you the window is cut into the slab. */
+      .chartsky .cgraph { border-color: rgba(168,133,79,0.5); }
       /* Constellation LINES: the spine glows — lit stars sit on a drawn line. */
       .nrows::before { width: 2px; background: linear-gradient(180deg, transparent,
           rgba(242,193,78,0.55) 12%, rgba(242,193,78,0.55) 88%, transparent);
@@ -5602,15 +5911,18 @@
            the one index on every pointer type; on a narrow screen it stops
            being a column and becomes a scrollable row above the stage, and it
            still SELECTS rather than scrolling. */
-        #abil .apane[data-pane="chart"] { grid-template-columns: minmax(0, 1fr);
+        /* r3: scoped to the COMPONENT, not to #abil, so the safe room's
+           abilities rail and the shop's tier rail lie down here too — they are
+           the same rail. */
+        .ixsplit { grid-template-columns: minmax(0, 1fr);
           grid-template-rows: auto minmax(0, 1fr); gap: var(--g-row); }
-        #abil .aindex { flex-direction: row; overflow-x: auto; overflow-y: hidden;
+        .aindex { flex-direction: row; overflow-x: auto; overflow-y: hidden;
           border-right: none; padding-right: 0; scrollbar-width: none;
           border-bottom: 1px solid rgba(120,100,64,0.4); padding-bottom: 6px; }
-        #abil .aindex::-webkit-scrollbar { display: none; }
-        #abil .aidx { width: auto; flex: none; min-height: 46px; }
-        #abil .aidx-h { display: none; }
-        #abil .aidx .aidx-p { display: none; }
+        .aindex::-webkit-scrollbar { display: none; }
+        .aidx { width: auto; flex: none; min-height: 46px; }
+        .aidx-h { display: none; }
+        .aidx .aidx-p { display: none; }
 
         /* --- segmented panes ---
            Where two tracks cannot fit, one shows at a time. This is the shop's
@@ -5988,19 +6300,19 @@
       #keys .kb-page.on { display: block; }
       .ctl-row { display: flex; align-items: center; gap: 12px; padding: 9px 0;
         border-bottom: 1px solid #241d16; }
-      .ctl-row .ctl-name { flex: 1; font-size: 13px; color: var(--ink); }
-      .ctl-row .ctl-name small { display: block; color: var(--ink-faint); font-size: 11px;
+      .ctl-row .ctl-name { flex: 1; font-size: var(--t-body); color: var(--ink); }
+      .ctl-row .ctl-name small { display: block; color: var(--ink-faint); font-size: var(--t-small);
         line-height: 1.35; margin-top: 2px; }
       .ctl-row .ctl-val { min-width: 74px; text-align: right; font-variant-numeric: tabular-nums;
-        color: var(--gold-hi); font-weight: 700; font-size: 13px; }
+        color: var(--gold-hi); font-weight: 700; font-size: var(--t-body); }
       .ctl-step { display: flex; gap: 6px; }
       .ctl-step button, .ctl-pick button { min-width: 46px; min-height: 46px; cursor: pointer;
         background: #221b15; border: 1px solid #6e5533; border-radius: 3px;
-        color: var(--ink); font-size: 15px; line-height: 1; }
+        color: var(--ink); font-size: var(--t-lead); line-height: 1; }
       .ctl-step button:active, .ctl-pick button:active { border-color: var(--gold); color: var(--gold-hi); }
       .ctl-pick { display: flex; gap: 6px; }
       .ctl-pick button { padding: 0 12px; font-family: var(--display); font-variant: small-caps;
-        letter-spacing: 0.1em; font-size: 12px; }
+        letter-spacing: 0.1em; font-size: var(--t-small); }
       .ctl-pick button.on { background: #2c241b; border-color: var(--gold); color: var(--gold-hi); }
       /* The live preview: the cluster is already on screen behind the panel,
          so a size change is visible the moment it is made. */
@@ -6023,7 +6335,7 @@
              the bindings are one page of it. -->
         <h2>SYSTEM SETTINGS</h2>
         <div class="hint">Click a key to rebind, then press the new key · aim with the mouse ·
-          <span class="kbdhint"><kbd id="kb-close-key">K</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword">✕ or DONE to close</span></div>
+          <span class="kbdhint"><kbd id="kb-close-key">K</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"><i class="xmark"></i> or DONE to close</span></div>
         <div id="kb-rows"></div>
         <!-- OPTIONS: preferences are not bindings, and presenting them as the
              same label-left/chip-right row said they were (r1 major). -->
@@ -6126,6 +6438,7 @@
     </div>
     <div id="draft" data-overlay="modal">
       <div class="panel">
+        <div class="d-kicker" id="draft-kicker">THE SYSTEM OFFERS</div>
         <h2 id="draft-title">SPONSOR DRAFT</h2>
         <div class="hint" id="draft-hint">Your sponsors reward a good show. Choose one gift to carry down.</div>
         <div class="cards" id="draft-cards"></div>
@@ -6134,7 +6447,7 @@
     <div id="abil" data-overlay="modal">
       <div class="panel">
         <h2>THE CONSTELLATION</h2>
-        <div class="hint">Your star chart — level up to brighten ranks, find tomes to chart new stars<span class="kbdhint"> · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · ✕ or DONE to close</span></div>
+        <div class="hint">Your star chart — level up to brighten ranks, find tomes to chart new stars<span class="kbdhint"> · <kbd>T</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · <i class="xmark"></i> or DONE to close</span></div>
         <!-- Two views of one truth: the LIST reads magnitudes, the CHART reads
              SHAPE (which forks are still open, which capstone you are walking
              toward). A flat list draws an exclusive fork and a free rider as
@@ -6159,7 +6472,7 @@
              scroller that reported panelOver:0 while hiding four fifths of
              itself (+2708 at 1366). One rail of everything you know, one card
              on stage, nothing below a fold. -->
-        <div class="apane on" data-pane="chart">
+        <div class="apane ixsplit on" data-pane="chart">
           <div class="aindex" id="abil-index"></div>
           <div class="grid" id="abil-grid"></div>
         </div>
@@ -6206,7 +6519,19 @@
                    not inventory — no prices, because the currency is the fight. -->
               <button class="tab chase" id="sr-tab-chase">THE CHASE</button>
             </div>
-            <div class="shop-shelf" id="sr-shelf"></div>
+            <!-- r3 BLOCKER: the shelf was one scrolling document of five tier
+                 sections, and at 1366 it overflowed by +182 with the fold
+                 landing exactly ON the COMPLETED WORKS header — so the header
+                 rendered with nothing under it and SIGNATURE did not exist at
+                 all. The two most valuable tiers in the game were invisible on
+                 the most common laptop. It is an INDEX and a STAGE now, the
+                 same component the constellation uses: every tier is a rail
+                 entry with its own count and its ready-to-buy state, and the
+                 shelf shows exactly one tier, which fits. -->
+            <div class="shelf-split ixsplit">
+              <div class="aindex" id="sr-tiers"></div>
+              <div class="shop-shelf" id="sr-shelf"></div>
+            </div>
           </div>
           <div class="shop-side">
             <div class="shop-detail" id="sr-detail"></div>
@@ -6218,18 +6543,29 @@
             </div>
           </div>
         </div>
+        <!-- r3 BLOCKER: this page rendered the WHOLE roster plus the whole
+             glyph bench as one document — 3,273 / 3,240 / 3,123 px inside a
+             691 / 810 / 1,020 px panel, so at 1366 the player saw the bench and
+             then the TOPS of two ability cards sliced off with the star-chart
+             wells clipped to ~10px slivers. That is verbatim the r1 blocker the
+             #abil comment above says was fixed: it WAS fixed, in the
+             constellation, and left standing in the safe room — which is where
+             a player actually re-slots between floors. Two renderers of one
+             content set, one paginated and fitting, one a 3,200px scroll.
+             One renderer now: the same index+stage the constellation uses, with
+             the GLYPH BENCH as a rail entry instead of a header that pushes
+             every card below the fold. -->
         <div class="sr-page" id="sr-page-abil" style="display:none">
           <div class="sec-label">THE FIVE — your loadout (4 actives + ultimate; re-slotting is a safe-room decision)</div>
           <div class="loadout" id="sr-loadout"></div>
-          <!-- Glyph bench (ITEMIZATION-V2 §3): loose firmware waiting for a
-               socket. Click a glyph, then click a lit socket on the bar above.
-               Lives inside the ABILITIES page — no new screen zone. -->
-          <div id="sr-glyphs"></div>
           <div class="abil-modes">
             <button class="amode on" data-view="list">LIST</button>
             <button class="amode" data-view="graph">STAR CHART</button>
           </div>
-          <div class="abil-cards" id="sr-abil"></div>
+          <div class="ixsplit">
+            <div class="aindex" id="sr-abil-index"></div>
+            <div class="grid" id="sr-abil"></div>
+          </div>
         </div>
         <div class="sr-page" id="sr-page-ach" style="display:none">
           <div class="sec-label" id="sr-ach-count"></div>
@@ -6244,7 +6580,7 @@
              Escape chain (main3d ~9310). The decision is defensible; leaving it
              unstated was not. Players pressed Esc, nothing happened, and the
              panels they opened next stacked on top of the shop. -->
-        <div class="descend"><button id="sr-descend">DESCEND ▼</button><span class="rdy" id="sr-ready"></span>
+        <div class="descend"><button id="sr-descend">DESCEND<i class="go-arrow down"></i></button><span class="rdy" id="sr-ready"></span>
           <span class="descend-note">the stairs are the only exit — <kbd>Esc</kbd> will not close a safe room</span></div>
       </div>
     </div>
@@ -6288,7 +6624,7 @@
         <!-- The ◆ kicker SAFE ROOM, THE CONSTELLATION and CRAWLER PROFILE all
              carry; the inventory was the one set that broke the convention. -->
         <h2>INVENTORY</h2>
-        <div class="hint"><span class="clickword">Click</span><span class="tapword">Tap</span> a bag item to equip it<span class="kbdhint"> · <kbd>I</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · ✕ or DONE to close</span></div>
+        <div class="hint"><span class="clickword">Click</span><span class="tapword">Tap</span> a bag item to equip it<span class="kbdhint"> · <kbd>I</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · <i class="xmark"></i> or DONE to close</span></div>
         <div class="cols">
           <div><div class="sec-title">Equipped</div><div id="inv-equipped"></div></div>
           <div><div class="sec-title">Bag</div><div id="inv-bag"></div></div>
@@ -6299,7 +6635,7 @@
       <div class="panel">
         <h2>CRAWLER PROFILE <span class="sub" id="sheet-sub"></span></h2>
         <div class="hint">The System's file on you · <span class="hoverword">hover</span><span class="tapword">tap</span> anything for the math<span class="kbdhint"> ·
-          <kbd id="sheet-close-key">P</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · ✕ or DONE to close</span></div>
+          <kbd id="sheet-close-key">P</kbd> or <kbd>Esc</kbd> to close (game pauses)</span><span class="tapword"> · <i class="xmark"></i> or DONE to close</span></div>
         <!-- r3 rebalance: ATTRIBUTES rides the right column beside DEFENSE so
              neither column dies early — the left is the armory, the right is
              the math. -->
@@ -6530,13 +6866,13 @@
     <div id="menu" data-overlay="modal">
       <div id="m-skin-label">
         <b id="m-skin-name">THE KNIGHT</b>
-        <small>CLICK A CRAWLER OR ← → · COSMETIC ONLY — THE CONSTELLATION IS THE BUILD</small>
+        <small>CLICK A CRAWLER OR <i class="go-arrow back"></i><i class="go-arrow"></i> · COSMETIC ONLY — THE CONSTELLATION IS THE BUILD</small>
       </div>
       <div id="m-cast">
         <div id="m-cast-kicker">THE CAMPFIRE</div>
         <div id="m-cast-mode">NEW RUN</div>
         <div id="m-cast-buttons">
-          <button id="m-cast-back">← BACK</button>
+          <button id="m-cast-back"><i class="go-arrow back"></i>BACK</button>
           <button id="m-cast-go">DESCEND<i class="go-arrow"></i></button>
         </div>
       </div>

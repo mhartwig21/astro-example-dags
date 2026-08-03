@@ -2138,6 +2138,9 @@ const esc = (s: string): string =>
 
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
+/** The ruled kicker every other masthead in the product carries (r3 major:
+ * the draft was the only titled set without one). */
+const draftKicker = document.getElementById("draft-kicker")!;
 
 // Sponsor gifts have no ability icon; a DRAWN mark in the plate carries the
 // read (STYLEGUIDE.md rule three: icons are drawn, never typed — the old
@@ -2167,6 +2170,8 @@ function renderDraft(s: GameState): void {
     // The leading gem is drawn by the shared panel-title rule, not typed.
     draftTitle.textContent = revision ? "CLASS REVISION" : shrine ? "SYSTEM SHRINE"
       : quest ? "TRIBE BOUNTY" : "SPONSOR DRAFT";
+    draftKicker.textContent = revision ? "PERMANENT RECASTING" : shrine ? "A BARGAIN IS OFFERED"
+      : quest ? "THE SETTLEMENT PAYS" : "THE SHOW REWARDS YOU";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -2205,6 +2210,7 @@ function renderDraft(s: GameState): void {
   } else {
     draftEl.classList.add("levelup");
     draftTitle.textContent = "LEVEL UP";
+    draftKicker.textContent = "A STAR BRIGHTENS";
     draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
       .map((u, i) => {
@@ -2718,15 +2724,11 @@ function setAbilView(v: AbilView): void {
   if (document.getElementById("saferoom")!.style.display !== "none") renderAbilPage(state);
 }
 
-/** The known roster in either view, plus the undiscovered teaser. The safe
- * room's ABILITIES tab still shows the whole roster — it is the --set-xl panel
- * and it has the room. The T panel shows ONE (see abilStageHtml). */
-function abilBodyHtml(s: GameState): string {
-  const p = me(s);
-  const body = knownAbilities(p).map((id) =>
-    abilView === "graph" ? constellationCardHtml(s, id) : abilityCard(s, id)).join("");
-  return body + discoverTeaserHtml(s);
-}
+/* r3 blocker: `abilBodyHtml` (the whole roster, concatenated) is gone. It had
+ * exactly one caller left — the safe room's ABILITIES page — and that page is
+ * an index and a stage now, like the constellation. "It is the --set-xl panel
+ * and it has the room" was the claim; measured, it did not: 3,273px of cards in
+ * a 691px panel at 1366. */
 
 function knownAbilities(p: Player): AbilityId[] {
   return [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
@@ -2749,7 +2751,7 @@ function knownAbilities(p: Player): AbilityId[] {
  */
 let abilSel: AbilityId | null = null;
 
-function abilIndexHtml(s: GameState): string {
+function abilIndexHtml(s: GameState, sel: string | null = abilSel): string {
   const p = me(s);
   const known = knownAbilities(p);
   const row = (id: AbilityId): string => {
@@ -2760,7 +2762,7 @@ function abilIndexHtml(s: GameState): string {
     const taken = nodes.filter((u) => rank(p, u.id) > 0).length;
     const pips = nodes.map((_, i) => `<i class="${i < taken ? "on" : ""}"></i>`).join("");
     return (
-      `<button type="button" class="aidx${id === abilSel ? " on" : ""}" data-ab-sel="${id}" ` +
+      `<button type="button" class="aidx${id === sel ? " on" : ""}" data-ab-sel="${id}" ` +
       `title="${esc(info.name)} — ${info.blurb}">` +
       `<i class="aidx-ic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
       `<span class="aidx-t">${esc(info.name)}</span>` +
@@ -3688,8 +3690,13 @@ const srPageShop = document.getElementById("sr-page-shop")!;
 const srPageAbil = document.getElementById("sr-page-abil")!;
 const srPageAch = document.getElementById("sr-page-ach")!;
 const srLoadout = document.getElementById("sr-loadout")!;
-const srGlyphs = document.getElementById("sr-glyphs")!;
+// r3 blocker: the safe room's ABILITIES page is an index and a stage now, the
+// same component the constellation uses — the glyph bench is a rail ENTRY
+// rather than a header that pushed every ability card past the fold.
+const srAbilIndex = document.getElementById("sr-abil-index")!;
 const srAbil = document.getElementById("sr-abil")!;
+/** The shop shelf's tier rail (r3 blocker: five tier sections in one scroller). */
+const srTiers = document.getElementById("sr-tiers")!;
 const srAch = document.getElementById("sr-ach")!;
 const srAchCount = document.getElementById("sr-ach-count")!;
 let srTab: "shop" | "abil" | "ach" = "shop";
@@ -3760,6 +3767,19 @@ const CHASE_ENTRIES: { floor: number; entry: CatalogEntry }[] = Object.entries(B
   .sort((a, b) => a.floor - b.floor);
 
 let shopView: "stock" | "all" | "chase" = "stock";
+/**
+ * WHICH TIER IS ON THE SHELF (r3 BLOCKER).
+ *
+ * The shelf used to render all five tier sections into one scroller: measured
+ * +182 at 1366, with the fold landing exactly ON the COMPLETED WORKS header, so
+ * that header shipped with nothing underneath it and the SIGNATURE tier did not
+ * appear at all. The 2560 capture of the same shop shows what the 1366 player
+ * never saw: 7 completed works at 165-257 gold and 2 signature items at 352 and
+ * 412 — the highest-margin goods in the game, invisible on the most common
+ * laptop resolution, behind a fold that reads as a rendering bug rather than a
+ * scroll cue. One tier on the shelf, every tier on the rail, with counts.
+ */
+let shopTier: CatalogTier = "basic";
 type ShopSel =
   | { kind: "catalog"; id: string }
   | { kind: "bag"; idx: number }
@@ -3870,6 +3890,10 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" ` +
     `title="${esc(e.name)}${blocker ? ` — ${blocker}` : " — READY TO BUY"}">` +
     `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
+    // Named in the SHOWCASE layout (small tiers), hidden in the dense one — see
+    // `.igrid.showcase`. A two-item tier rendered as two anonymous 60px icons in
+    // 800px of empty shelf was the r3 "nothing scales up" finding, verbatim.
+    `<div class="iname">${esc(e.name)}</div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
   );
@@ -4225,7 +4249,11 @@ function renderSafeRoom(s: GameState): void {
   srEl.querySelector("h2")!.textContent = roamShop
     ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
     : "SAFE ROOM";
-  srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
+  // Rule 3: the caret is DRAWN. It used to be a typed U+25BC on the loudest
+  // button in the safe room.
+  srDescend.innerHTML = roamShop
+    ? `<i class="go-arrow back"></i>BACK TO THE STREET`
+    : `DESCEND<i class="go-arrow down"></i>`;
   srTip.textContent = room.tip ||
     (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
   // Zero-value currencies stay off the header until first earned — three
@@ -4246,6 +4274,12 @@ function renderSafeRoom(s: GameState): void {
   srTabShop.classList.toggle("active", srTab === "shop");
   srTabAbil.classList.toggle("active", srTab === "abil");
   srTabAch.classList.toggle("active", srTab === "ach");
+  // r3 major: an unclaimed payout must be impossible to miss from ANY tab, and
+  // on its own page it is the only loud control (the exit goes quiet — see the
+  // .claim-btn comment). Both halves of that live on one class.
+  const unclaimedN = p.unclaimedAchievements?.length ?? 0;
+  srTabAch.dataset.badge = unclaimedN > 0 ? String(unclaimedN) : "";
+  srEl.classList.toggle("sr-ach-page", srTab === "ach");
   // NEVER `"grid"` HERE. An inline display beats every stylesheet rule, so
   // hardcoding it silently defeated the whole one-pane-at-a-time treatment:
   // measured on an iPhone 13, `.shop-body` stayed a `244px 348px` grid inside a
@@ -4463,7 +4497,24 @@ function glyphBenchHtml(p: Player, interactive: boolean): string {
   }).join("") + `</div>`;
 }
 
-/** The ABILITIES tab: loadout bar (The Five) + glyph bench + upgrade cards. */
+/**
+ * THE SAFE ROOM'S ABILITIES PAGE, MADE TO FIT (r3 BLOCKER).
+ *
+ * It rendered the loadout, the whole glyph bench AND the whole upgrade roster
+ * as one document: measured 3,273 / 3,240 / 3,123 px inside a 691 / 810 / 1,020
+ * px panel at 1366 / 1600 / 2560. At 1366 the player saw the bench and then the
+ * TOPS of two ability cards sliced off, star-chart wells clipped to ~10px
+ * slivers. That is the r1 blocker the constellation's own comment says was
+ * fixed — and it WAS, in the T panel, while the safe room (where you actually
+ * re-slot between floors) kept the scroller. Two renderers of one content set.
+ *
+ * One renderer: `abilIndexHtml` + `abilStageHtml`, plus one extra rail entry
+ * for the GLYPH BENCH, which is a stage tenant rather than a header.
+ */
+const SR_BENCH = "__bench";
+/** Which rail entry the safe room's stage is showing (an ability, or the bench). */
+let srStage: string = SR_BENCH;
+
 function renderAbilPage(s: GameState): void {
   const p = me(s);
   const canSocket = !!s.safeRoom || !!settlementShopFor(s, p);
@@ -4489,11 +4540,28 @@ function renderAbilPage(s: GameState): void {
     ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — ${verb} a lit socket to seat it, ` +
       `or ${verb} the glyph again to put it down.`
     : "Glyphs seat into SLOTS, not abilities: re-slot an ability and it inherits whatever that slot carries. Removal is free.";
-  srGlyphs.innerHTML =
-    `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
-    glyphBenchHtml(p, canSocket);
-  srAbil.classList.toggle("graphs", abilView === "graph");
-  srAbil.innerHTML = abilBodyHtml(s);
+  // Picking a glyph up must not strand you on an ability card: the bench is
+  // where the stone is, so the bench is what the stage shows.
+  if (heldGlyph) srStage = SR_BENCH;
+  const known = knownAbilities(p);
+  if (srStage !== SR_BENCH && !known.includes(srStage as AbilityId)) srStage = SR_BENCH;
+  const benchN = (p.glyphs?.bench ?? []).length;
+  srAbilIndex.innerHTML =
+    `<div class="aidx-h">BENCH</div>` +
+    `<button type="button" class="aidx${srStage === SR_BENCH ? " on" : ""}" data-ab-sel="${SR_BENCH}" ` +
+    `title="loose glyphs waiting for a socket">` +
+    `<i class="aidx-ic" style="mask-image:url(/icons/items/refit_shard.svg);-webkit-mask-image:url(/icons/items/refit_shard.svg)"></i>` +
+    `<span class="aidx-t">Glyph bench</span>` +
+    `<span class="aidx-n">${benchN}</span></button>` +
+    abilIndexHtml(s, srStage);
+  srAbil.classList.toggle("graphs", abilView === "graph" && srStage !== SR_BENCH);
+  srAbil.innerHTML = srStage === SR_BENCH
+    ? `<div class="gstage">` +
+      `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
+      glyphBenchHtml(p, canSocket) + `</div>`
+    : abilView === "graph"
+      ? constellationCardHtml(s, srStage as AbilityId)
+      : abilityCard(s, srStage as AbilityId);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -4550,8 +4618,13 @@ function renderShopPage(s: GameState): void {
   // drop-only boss uniques behind glass — the run's want-list, and the reason
   // the floor-3 boss means something. No prices: the currency is the fight.
   if (shopView === "chase") {
+    // One section, so the rail steps aside and the list takes the whole width.
+    srShelf.parentElement?.classList.add("solo");
+    srTiers.innerHTML = "";
     srShelf.innerHTML =
-      `<div class="tier-h chase-h" style="--tc:#c0392f">DROP-ONLY — ONE PER BAND BOSS` +
+      // r3 major: the rule and the tiles were oxblood — blood decorating
+      // structure on a want-list. The trophy hue is the legendary arcane.
+      `<div class="tier-h chase-h" style="--tc:#8a7f6c">DROP-ONLY — ONE PER BAND BOSS` +
       `<span class="tnote">the System does not stock these, and neither will anyone else</span></div>` +
       `<div class="chase-list">` +
       CHASE_ENTRIES.map(({ floor, entry }) => {
@@ -4559,7 +4632,7 @@ function renderShopPage(s: GameState): void {
         const sel = shopSel?.kind === "catalog" && shopSel.id === entry.id ? " sel" : "";
         return (
           `<div class="chase-row${got ? " owned" : ""}${sel}" data-id="${entry.id}">` +
-          `<div class="itile tier-legendary chase ${got ? "owned" : "sealed"}" style="--tc:#c0392f">` +
+          `<div class="itile tier-legendary chase ${got ? "owned" : "sealed"}" style="--tc:#b08fd9">` +
           `<div class="ibox">${itemIconHtml(entry.id)}<b class="gem"></b></div></div>` +
           `<div class="cbody"><div class="cname">${entry.name}` +
           `<span class="cstate">${got ? "CLAIMED" : "UNCLAIMED"}</span></div>` +
@@ -4571,17 +4644,34 @@ function renderShopPage(s: GameState): void {
     renderShopSide(s);
     return;
   }
-  // The shelf, tier by tier.
-  let shelf = "";
-  for (const tier of TIERS) {
+  srShelf.parentElement?.classList.remove("solo");
+  // THE SHELF IS AN INDEX AND A STAGE (r3 blocker — see `shopTier`). Every tier
+  // is measured first, because the rail has to carry counts and the ready-to-buy
+  // pip whether or not that tier is the one on the shelf.
+  const byTier = TIERS.map((tier) => {
     const pool = CATALOG.filter((e) => e.tier === tier && (e.id !== "tome" || room.tomeAbility));
     const entries = shopView === "stock" ? pool.filter((e) => avail.has(e.id)) : pool;
-    if (entries.length === 0) continue;
     const unlock = TIER_UNLOCK_SHOP[tier];
+    return {
+      tier, entries, unlock, locked: shopIndex < unlock,
+      readyN: entries.filter((e) => buyBlocker(s, e) === null).length,
+    };
+  }).filter((t) => t.entries.length > 0);
+  if (byTier.length > 0 && !byTier.some((t) => t.tier === shopTier)) shopTier = byTier[0].tier;
+  srTiers.innerHTML = `<div class="aidx-h">THE SHELF</div>` + byTier.map((t) =>
+    `<button type="button" class="aidx${t.tier === shopTier ? " on" : ""}${t.locked ? " locked" : ""}" ` +
+    `data-tier="${t.tier}" title="${TIER_LABEL[t.tier]} — ${t.entries.length} item${t.entries.length === 1 ? "" : "s"}` +
+    `${t.locked ? `, unlocks at shop ${t.unlock}` : ""}">` +
+    `<span class="aidx-t" style="color:${t.tier === shopTier ? "" : TIER_COLOR[t.tier]}">${TIER_LABEL[t.tier]}</span>` +
+    (t.readyN > 0 ? `<i class="aidx-rdy" title="${t.readyN} ready to buy"></i>` : "") +
+    `<span class="aidx-n">${t.entries.length}</span></button>`).join("");
+  // The shelf, one tier at a time.
+  let shelf = "";
+  for (const { tier, entries, unlock, locked, readyN } of byTier) {
+    if (tier !== shopTier) continue;
     // The shelf says how many of this tier you can actually click right now —
     // the number that decides the next 30 seconds of the safe room.
-    const readyN = entries.filter((e) => buyBlocker(s, e) === null).length;
-    const note = shopIndex < unlock
+    const note = locked
       ? `<span class="tnote">— unlocks at shop ${unlock}</span>`
       : readyN > 0
         ? `<span class="tnote ready">— ${readyN} ready to buy</span>`
@@ -4597,7 +4687,11 @@ function renderShopPage(s: GameState): void {
     // where it ends.
     shelf +=
       `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>`;
+      // A tier with room to breathe SHOWS ITS GOODS: bigger art, the name, the
+      // price. SIGNATURE is two items — as 60px anonymous icons it read as an
+      // error state next to 800px of empty shelf.
+      `<div class="igrid${entries.length <= 8 ? " showcase" : ""}">` +
+      entries.map((e) => shelfTileHtml(s, e, owned)).join("") + `</div>`;
   }
   srShelf.innerHTML = shelf;
   renderShopSide(s);
@@ -4765,6 +4859,10 @@ srDetail.addEventListener("click", (e) => {
   const nav = el.closest(".itile[data-id], .dfeat[data-id]") as HTMLElement | null;
   if (nav) {
     shopSel = { kind: "catalog", id: nav.dataset.id! };
+    // Walking the build tree crosses tiers (a COMPONENT builds into a COMPLETED
+    // WORK), and the shelf shows one tier — so the shelf follows the subject.
+    const e2 = CATALOG_BY_ID[nav.dataset.id!];
+    if (e2 && !e2.dropOnly) shopTier = e2.tier;
     renderSafeRoom(state);
   }
 });
@@ -4871,10 +4969,30 @@ srTabChase.addEventListener("click", () => { shopView = "chase"; shopSel = null;
 srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
 srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
 srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
-srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
+srAbil.addEventListener("click", (e) => {
+  // The stage carries either an ability card (slot buttons) or the bench.
+  if (handleGlyphClick(e)) return;
+  handleSlotClick(e, renderSafeRoom);
+});
 // The loadout bar's socket wells and the glyph bench share one dispatcher.
 srLoadout.addEventListener("click", handleGlyphClick);
-srGlyphs.addEventListener("click", handleGlyphClick);
+// The safe room's rail selects the stage: an ability, or the glyph bench.
+srAbilIndex.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-ab-sel]") as HTMLElement | null;
+  if (!b) return;
+  srStage = b.dataset.abSel!;
+  // One selection across the two screens that show the same cards, so opening
+  // the T panel after re-slotting lands on the ability you were just reading.
+  if (srStage !== SR_BENCH) abilSel = srStage as AbilityId;
+  renderSafeRoom(state);
+});
+// The shop's tier rail: one tier on the shelf at a time (r3 blocker).
+srTiers.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-tier]") as HTMLElement | null;
+  if (!b) return;
+  shopTier = b.dataset.tier as CatalogTier;
+  renderSafeRoom(state);
+});
 
 // Glyph tooltips ride the same cursor layer as item cards (#itemtip, z 30):
 // hovering a socket or a bench chip prints the composed behavior — what the
@@ -4892,7 +5010,7 @@ function glyphIdUnder(el: HTMLElement): { id: GlyphId; slotIdx: number | null; d
   if (chip) return { id: chip.dataset.glyph as GlyphId, slotIdx: null, dormant: false };
   return null;
 }
-for (const container of [srLoadout, srGlyphs, srAbil]) {
+for (const container of [srLoadout, srAbil]) {
   container.addEventListener("mouseover", (e) => {
     const hit = glyphIdUnder(e.target as HTMLElement);
     // A LOCKED empty socket still owes an explanation.
